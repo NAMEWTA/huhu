@@ -243,7 +243,18 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       },
     };
     const authMatches = (email: string, value: string) => email !== "protocol-disabled@example.invalid" && credentials.get(email)?.access === value;
-    const imap = await openImapFixture({ acceptOAuth: authMatches, message: { uidValidity: 99, subject: "OAuth fixture", source: "Subject: OAuth fixture\r\n\r\nFixture body\r\n" } });
+    const inbox = { uidValidity: 99, messages: [{ uidValidity: 99, uid: 42, subject: "OAuth fixture", source: "Subject: OAuth fixture\r\n\r\nFixture body\r\n" }] };
+    let interruptExchange = false;
+    const imap = await openImapFixture({
+      acceptOAuth: authMatches,
+      windows: { INBOX: inbox },
+      async beforeSource(uid) {
+        if (uid === 43 && interruptExchange) {
+          interruptExchange = false;
+          throw new Error("fixture disconnected before delivering Exchange MIME");
+        }
+      },
+    });
     const smtp = await loopbackSmtp("unused", authMatches);
     const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const jwk = { ...keys.publicKey.export({ format: "jwk" }), kid: "fixture", use: "sig" };
@@ -309,6 +320,14 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       const signed = `${header}.${encoded}`;
       const signature = sign("RSA-SHA256", Buffer.from(ticket.override === "signature" ? `${signed}x` : signed), keys.privateKey).toString("base64url");
       json(200, { ...newToken(ticket.email, provider, !ticket.override), scope: ticket.scopes, id_token: `${signed}.${signature}` });
+    });
+    const requests: URL[] = [];
+    const fetchLoopback = globalThis.fetch;
+    const guard = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      requests.push(url);
+      if (url.hostname !== "127.0.0.1") throw new Error("OAuth integration must stay on loopback");
+      return fetchLoopback(input, init);
     });
     try {
       await new Promise<void>((resolve) => issuer.listen(0, "127.0.0.1", resolve));
@@ -396,6 +415,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(imap.commands).toContain("AUTHENTICATE");
       expect(imap.commands).not.toContain("LOGIN");
 
+      const discoveryBeforeGraph = imap.listRequests.length;
       for (const [scopes, reason] of [
         ["Mail.ReadBasic", "graph-metadata-only"],
         ["https://graph.microsoft.com/Mail.Read", "wrong-resource"],
@@ -405,13 +425,19 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         await callback(session.url, { code: ticketFor(session, "outlook", outlook, scopes) });
         await expect.poll(() => status(session.slot)).toMatchObject({ phase: "failed", reason });
       }
+      expect(imap.listRequests).toHaveLength(discoveryBeforeGraph);
+      expect((await list()).accounts.some(({ definition }) => definition.settings.provider === "outlook")).toBe(false);
       const exchange = await begin("outlook", outlook);
       expect(exchange.url.searchParams.get("scope")).not.toContain("graph");
       await callback(exchange.url, { code: ticketFor(exchange, "outlook", outlook, "IMAP.AccessAsUser.All") });
       await expect.poll(() => status(exchange.slot)).toMatchObject({ phase: "configured", route: "imap", smtp: false });
       const outlookAccount = (await list()).accounts.find(({ definition }) => definition.settings.provider === "outlook")!;
       expect(outlookAccount.definition.oauth?.personal).toBe(true);
-      expect(await call("mail.sync.refresh", { accountId: outlookAccount.accountId, folder: "INBOX" })).toMatchObject({ message: { subject: "OAuth fixture" } });
+      const outlookInbox = { accountId: outlookAccount.accountId, folder: "INBOX" };
+      const readOnlyMessage = await call<{ message: { localMessageId: string } }>("mail.sync.refresh", outlookInbox);
+      expect(readOnlyMessage).toMatchObject({ message: { transport: "imap", uid: 42 }, sync: { transport: "imap", range: "folder" } });
+      expect(await call("mail.messages.loadBody", { ...outlookInbox, localMessageId: readOnlyMessage.message.localMessageId })).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Fixture body") } });
+      expect(smtp.counts.data).toBe(0);
       const addSmtp = await begin("outlook", outlook, { accountId: outlookAccount.accountId, expectedRevision: outlookAccount.revision });
       await callback(addSmtp.url, { code: ticketFor(addSmtp, "outlook", outlook) });
       await expect.poll(() => status(addSmtp.slot)).toMatchObject({ phase: "configured", route: "imap", smtp: true, accountId: outlookAccount.accountId });
@@ -509,6 +535,41 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(delivered).toEqual([notices.list()[0]?.id, notices.list()[0]?.id]);
       expect(smtp.counts).toMatchObject({ authenticated: 3, data: 3 });
       expect(smtp.messages[2]).toMatchObject({ sender: google, recipients: ["reader@example.invalid"], wire: expect.stringContaining("In-Reply-To: <42-new@example.invalid>") });
+
+      const beforeOutlook = { api: requests.length, imap: imap.fetchRequests.length, auth: imap.commands.filter((verb) => verb === "AUTHENTICATE").length, smtp: smtp.counts.data };
+      inbox.messages.push({
+        uidValidity: 99,
+        uid: 43,
+        subject: "Exchange arrival",
+        source: `From: Exchange Sender <exchange-reader@example.invalid>\r\nTo: ${outlook}\r\nBcc: outlook-blind@example.invalid\r\nMessage-ID: <exchange.43@example.invalid>\r\nSubject: Exchange arrival\r\n\r\nExchange IMAP body\r\n`,
+      });
+      interruptExchange = true;
+      expect(await request("mail.sync.refresh", outlookInbox)).toMatchObject({ ok: false });
+      expect(await call("mail.messages.latest", outlookInbox)).toMatchObject({ message: { transport: "imap", uid: 42 } });
+      const restored = await call<{ message: { localMessageId: string } }>("mail.sync.refresh", outlookInbox);
+      expect(restored).toMatchObject({ message: { transport: "imap", uid: 43, uidValidity: "99" }, sync: { transport: "imap", range: "folder", limit: 200 } });
+      expect(await call("mail.sync.status", outlookInbox)).toEqual({ transport: "imap", range: "folder", limit: 200 });
+      const exchangeKey = { ...outlookInbox, localMessageId: restored.message.localMessageId };
+      expect(await call("mail.conversations.loadBody", exchangeKey)).toMatchObject({ state: "ready", body: { text: expect.stringContaining("Exchange IMAP body") } });
+      expect(await call("mail.messages.markRead", exchangeKey)).toEqual({ state: "synced", remoteSynced: true });
+      expect(imap.storeRequests.at(-1)).toMatch(/UID STORE 43/i);
+      const exchangeReply = await sendFixtureReply(call, exchangeKey);
+      expect(exchangeReply).toMatchObject({ to: ["exchange-reader@example.invalid"], cc: [], reply: { inReplyTo: "<exchange.43@example.invalid>" } });
+      expect(JSON.stringify(exchangeReply)).not.toContain("outlook-blind@example.invalid");
+      expect(smtp.messages[3]).toMatchObject({ sender: outlook, recipients: ["exchange-reader@example.invalid"], wire: expect.stringContaining("In-Reply-To: <exchange.43@example.invalid>") });
+      expect(smtp.counts.data - beforeOutlook.smtp).toBe(1);
+      expect(requests).toHaveLength(beforeOutlook.api);
+      expect(await call("mail.messages.latest", mbox)).toMatchObject({ message: { transport: "gmail", nativeId: "42-gap" } });
+      console.info(
+        JSON.stringify({
+          scenario: "outlook-exchange",
+          imapRequests: imap.fetchRequests.length - beforeOutlook.imap,
+          imapAuth: imap.commands.filter((verb) => verb === "AUTHENTICATE").length - beforeOutlook.auth,
+          httpRequests: requests.length - beforeOutlook.api,
+          smtpData: smtp.counts.data - beforeOutlook.smtp,
+        }),
+      );
+
       rejectRefresh = true;
       now += 100_000;
       expect(await request("mail.sync.refresh", mbox)).toMatchObject({ ok: false, error: { details: { reason: "oauth-reauthorize" } } });
@@ -519,6 +580,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         .map((entry) => readFileSync(path.join(entry.parentPath, entry.name)));
       expect(materials.some((value) => publicData.includes(value) || persisted.some((content) => content.includes(value)))).toBe(false);
     } finally {
+      guard.mockRestore();
       injection.runtime = undefined;
       injection.options = undefined;
       await engine?.shutdown();
