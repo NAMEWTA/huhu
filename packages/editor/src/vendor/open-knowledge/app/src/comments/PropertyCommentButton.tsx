@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCommentedDocName } from './CommentedDocContext';
 import { propertyAddress } from './comment-chips';
 import { capturePropertyValueSelection } from './property-value-selection';
-import { createPropertyThread } from './store';
+import { createPropertyThread, useCommentsReadOnly } from './store';
 
 export function PropertyCommentButton({
   propertyKey,
@@ -18,6 +18,7 @@ export function PropertyCommentButton({
 }) {
   const { t } = useLingui();
   const docName = useCommentedDocName();
+  const readOnly = useCommentsReadOnly();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function PropertyCommentButton({
     setOpen(false);
   }
 
-  if (docName === null) return null;
+  if (docName === null || readOnly) return null;
 
   return (
     <Popover

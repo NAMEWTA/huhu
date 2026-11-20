@@ -53,9 +53,16 @@ export function parseMessages(body: string): CommentMessage[] {
 }
 /** 前置 frontmatter 之后的正文起点（批注的引用文字只在正文里找，不匹配 YAML）。 */
 export function bodyStart(text: string): number {
-  if (!text.startsWith("---\n")) return 0;
-  const m = /\n---[ \t]*(?:\n|$)/.exec(text.slice(3));
-  return m ? 3 + m.index + m[0].length : 0;
+  const offset = text.startsWith("\uFEFF") ? 1 : 0;
+  if (!text.startsWith("---\n", offset)) return 0;
+  const m = /\n---[ \t]*(?:\n|$)/.exec(text.slice(offset + 3));
+  return m ? offset + 3 + m.index + m[0].length : 0;
+}
+
+function createBodyAnchor(text: string, start: number, end: number): Anchor {
+  const from = bodyStart(text);
+  if (start < from) return createAnchor(text, start, end);
+  return { ...createAnchor(text.slice(from), start - from, end - from), start, end };
 }
 
 /** 选区描述：源码偏移（源码模式 / 重新选择位置的旧入口），或编辑器里选中的“引用文字 + 上下文”（富文本模式，不使用 PM 坐标）。 */
@@ -65,10 +72,11 @@ export interface RangeInput {
   quote?: string | undefined;
   prefix?: string | undefined;
   suffix?: string | undefined;
+  expectedSourceVersion?: string | undefined;
 }
 
 /**
- * 把选区解析成已保存文本里的 [start,end)：偏移直接用；引用文字先按字面查，再按“渲染文本”查（越过强调 / 链接等语法）；
+ * 把选区解析成已保存文本里的 [start,end)：偏移直接用；引用文字同时考虑字面与“渲染文本”命中（越过强调 / 链接等语法）；
  * 多处命中用 prefix/suffix 判优，仍并列则报错——不猜位置（D04 / D05）。
  */
 export function resolveRange(text: string, input: RangeInput): { start: number; end: number } {
@@ -78,7 +86,13 @@ export function resolveRange(text: string, input: RangeInput): { start: number; 
   const from = bodyStart(text);
   const literal: Span[] = [];
   for (let i = text.indexOf(quote, from); i !== -1; i = text.indexOf(quote, i + 1)) literal.push({ start: i, end: i + quote.length });
-  const hits: Span[] = literal.length > 0 ? literal : findAllPassages(text, quote).filter((h) => h.start >= from);
+  const candidates = new Map(
+    findAllPassages(text, quote)
+      .filter((hit) => hit.start >= from)
+      .map((hit) => [hit.start, hit]),
+  );
+  for (const hit of literal) candidates.set(hit.start, hit);
+  const hits = [...candidates.values()];
   if (hits.length === 0) throw errors.invalidInput("引用的文字不在文档里（可能已修改，请重新选择）");
   if (hits.length === 1) return hits[0] as Span;
   const best = bestByContext(text, hits, { ...(input.prefix !== undefined ? { prefix: input.prefix } : {}), ...(input.suffix !== undefined ? { suffix: input.suffix } : {}) });
@@ -112,20 +126,39 @@ export class CommentsService {
   constructor(private readonly d: CommentsDeps) {}
 
   /** 锚点偏移按编辑器看到的文本计算：CodeMirror 把 CRLF 归一为 LF，这里同样归一，偏移才对得上。 */
-  private docText(rel: string): { text: string; version: string } {
+  private docText(rel: string, expectedSourceVersion?: string): { text: string; version: string } {
     const f = this.d.files.read(rel);
     if (!f) throw errors.notFound(`笔记不存在：${rel}`);
+    if (expectedSourceVersion !== undefined && f.version !== expectedSourceVersion) throw errors.invalidInput("文档已改变，请重新选择");
     return { text: f.bytes.toString("utf8").replace(/\r\n?/g, "\n"), version: f.version };
   }
 
   list(rel?: string): CommentDto[] {
     const id = rel ? this.d.noteId(rel) : null;
+    // 旧评论可能捕获了 YAML。只有源版本仍一致时，才给读取者裁掉不可见的那段上下文。
+    const legacySources = new Map<string, { version: string; bodyOffset: number }>();
     return (
       this.d.repo
         .list("comment")
         .map(toDto)
         // 有稳定 id 就只按 id 匹配（回收站里同路径的旧笔记批注不会贴到同名新笔记上）；没有 id 才按路径
         .filter((c) => !rel || (id !== null ? c.documentId === id : c.documentPath === rel))
+        .map((comment) => {
+          const anchor = comment.anchor;
+          if (!anchor?.prefix.includes("\n---")) return comment;
+          const path = rel ?? comment.documentPath;
+          let source = legacySources.get(path);
+          if (!source) {
+            const file = this.d.files.read(path);
+            if (!file) return comment;
+            source = { version: file.version, bodyOffset: bodyStart(file.bytes.toString("utf8").replace(/\r\n?/g, "\n")) };
+            legacySources.set(path, source);
+          }
+          if (source.version !== anchor.sourceVersion || anchor.start < source.bodyOffset) return comment;
+          const skip = source.bodyOffset - (anchor.start - anchor.prefix.length);
+          if (skip <= 0) return comment;
+          return { ...comment, anchor: { ...anchor, prefix: anchor.prefix.slice(skip) } };
+        })
         .sort((a, b) => (a.anchor?.start ?? -1) - (b.anchor?.start ?? -1) || a.createdAt.localeCompare(b.createdAt))
     );
   }
@@ -134,18 +167,21 @@ export class CommentsService {
     const text = input.text.trim();
     if (!text) throw errors.invalidInput("批注内容不能为空");
     if (input.target === "property" && !input.property?.trim()) throw errors.invalidInput("属性批注需要指定属性名");
-    const doc = this.docText(input.path);
+    const doc = this.docText(input.path, input.expectedSourceVersion);
     let anchor: CommentFrontmatter["anchor"] = null;
     if (input.target === "body") {
       if ((input.start === undefined || input.end === undefined) && !input.quote?.trim()) throw errors.invalidInput("正文批注需要选区");
       try {
         const r = resolveRange(doc.text, input);
-        anchor = { ...createAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
+        anchor = { ...createBodyAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
       } catch (e) {
         throw errors.invalidInput(e instanceof Error ? e.message : "选区无效");
       }
     }
     const documentId = await this.d.ensureId(input.path);
+    if (input.expectedSourceVersion !== undefined && this.d.files.currentVersion(input.path) !== doc.version) {
+      throw errors.invalidInput("文档已改变，请重新选择");
+    }
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "comment",
@@ -179,11 +215,11 @@ export class CommentsService {
     const cur = this.d.repo.read("comment", id);
     const data = cur.data as unknown as CommentFrontmatter;
     if (data.target !== "body") throw errors.invalidInput("只有正文批注可以重新选择位置");
-    const doc = this.docText(data.documentPath);
+    const doc = this.docText(data.documentPath, range.expectedSourceVersion);
     let anchor: CommentFrontmatter["anchor"];
     try {
       const r = resolveRange(doc.text, range);
-      anchor = { ...createAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
+      anchor = { ...createBodyAnchor(doc.text, r.start, r.end), sourceVersion: doc.version };
     } catch (e) {
       throw errors.invalidInput(e instanceof Error ? e.message : "选区无效");
     }
@@ -202,12 +238,13 @@ export class CommentsService {
   async refind(rel: string, rawText: string, version: string): Promise<void> {
     const text = rawText.replace(/\r\n?/g, "\n");
     const id = this.d.noteId(rel);
+    const bodyOffset = bodyStart(text);
     for (const c of this.list(rel)) {
       if (c.resolved || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
-      const r = refind(text, c.anchor);
+      const r = refind(text, c.anchor, bodyOffset);
       if (r.status === "anchored") {
-        if (r.start === c.anchor.start && r.end === c.anchor.end && c.state === "anchored") continue;
-        const anchor = { ...createAnchor(text, r.start, r.end), sourceVersion: version };
+        if (version === c.anchor.sourceVersion && c.state === "anchored") continue;
+        const anchor = { ...createBodyAnchor(text, r.start, r.end), sourceVersion: version };
         await this.patchQuiet(c, { anchor, state: "anchored" });
       } else if (c.state !== "orphaned") {
         await this.patchQuiet(c, { state: "orphaned" });

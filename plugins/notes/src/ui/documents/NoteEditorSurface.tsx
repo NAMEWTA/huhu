@@ -1,11 +1,25 @@
 import type { VaultReadRangeOutput } from "@huhu/contracts";
-import { OkRoot, RichMarkdownEditor, coreRoutes, requestFileTreeReveal, uploadRoutes, type EditorAssetActions, type EditorViewMode, type HostRoutes, type ReferenceCandidate, type RichEditorPort } from "@huhu/editor/rich";
-import { useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
+import {
+  OkRoot,
+  RichMarkdownEditor,
+  coreRoutes,
+  registerCommentSelectionSource,
+  requestFileTreeReveal,
+  useCommentsReadOnlySync,
+  uploadRoutes,
+  type EditorAssetActions,
+  type EditorViewMode,
+  type HostRoutes,
+  type ReferenceCandidate,
+  type RichEditorPort,
+} from "@huhu/editor/rich";
+import { useCapability, useEngine, requestOpenPath, useReferenceIndex } from "@huhu/workbench";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.js";
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
+import { documentSessions } from "./useDocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
 export interface SurfaceNoteRef {
@@ -42,6 +56,14 @@ const docNameOf = (path: string): string => path.replace(MD, "");
 export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const engine = useEngine();
   const locale = useKnowledgeLocale();
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
+  useCommentsReadOnlySync(vault.data?.readOnly !== false);
+  useLayoutEffect(() => {
+    return registerCommentSelectionSource(docNameOf(props.path), () => {
+      const session = documentSessions.get(engine.vaultId, props.path);
+      if (session) return { ...session.id, revision: session.getSnapshot().dirtyRevision };
+    });
+  }, [engine.vaultId, props.path]);
   // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
   const refs = useReferenceIndex();
   const notes = useRef(props.notes);

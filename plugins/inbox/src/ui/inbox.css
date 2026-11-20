@@ -198,6 +198,14 @@
     max-width: 720px;
     margin-bottom: 20px;
   }
+  .inbox-compact-input {
+    min-height: 12rem;
+    max-height: 22.5rem;
+    min-width: 0;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
   .inbox-knowledge-inbox-note {
     padding: 20px 22px;
     background: var(--muted-bg);

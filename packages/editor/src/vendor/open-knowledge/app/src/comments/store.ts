@@ -3,6 +3,7 @@ import { t } from '@lingui/core/macro';
 import { useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { requestDocPanelTab } from '@/components/doc-panel-events';
+import { getVisibleEditorForDoc } from '@/editor/active-editor';
 import { subscribeToDocumentsChanged } from '@/lib/documents-events';
 import type { DispatchPayload } from './comments-client';
 import * as api from './comments-client';
@@ -51,6 +52,7 @@ function toThread(meta: api.CommentThreadMeta): CommentThread {
             suffix: meta.anchor.suffix,
             start: meta.anchor.start,
             end: meta.anchor.end,
+            ...(meta.scope === 'body' ? { requireUnique: true } : {}),
           },
     status: meta.state === 'anchored' ? 'open' : meta.state,
     body: meta.latestComment,
@@ -154,14 +156,42 @@ export function getThreadById(threadId: string): CommentThread | null {
   return allThreads.find((t) => t.id === threadId) ?? null;
 }
 
+const selectionSources = new Map<string, () => api.CommentSelectionRevision | undefined>();
+
+export function registerCommentSelectionSource(docName: string, read: () => api.CommentSelectionRevision | undefined): () => void {
+  selectionSources.set(docName, read);
+  return () => {
+    if (selectionSources.get(docName) === read) selectionSources.delete(docName);
+  };
+}
+
+export function captureCommentSelectionRevision(docName: string): api.CommentSelectionRevision | undefined {
+  return selectionSources.get(docName)?.();
+}
+
+let navigationRevision = 0;
+export function invalidateCommentNavigation(): void {
+  navigationRevision++;
+  bus.dispatchEvent(new Event(NAVIGATION_INVALIDATED_EVENT));
+}
+
+export function subscribeCommentNavigationInvalidated(listener: () => void): () => void {
+  bus.addEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
+  return () => bus.removeEventListener(NAVIGATION_INVALIDATED_EVENT, listener);
+}
+
 export function createThread(args: {
   docName: string;
   quote: string;
   body: string;
   prefix?: string;
   suffix?: string;
+  selection?: api.CommentSelectionRevision;
+  canReveal?: () => boolean;
   onCreated?: (threadId: string) => void;
 }): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
   void api
     .createThread({
       docName: args.docName,
@@ -169,6 +199,7 @@ export function createThread(args: {
       prefix: args.prefix,
       suffix: args.suffix,
       body: args.body,
+      selection: args.selection,
       queue: true,
     })
     .then((meta) => {
@@ -177,6 +208,7 @@ export function createThread(args: {
         args.onCreated(meta.threadId);
         return;
       }
+      if (revision !== navigationRevision || args.canReveal?.() === false) return;
       revealComments('doc', args.docName);
       emitCommentPosted();
     })
@@ -206,12 +238,15 @@ export function useCommentsReadOnly(): boolean {
 
 // HUHU(P-S4-03)：整篇笔记批注、回复、解决
 export function createFileThread(args: { docName: string; body: string; onCreated?: (threadId: string) => void }): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
+  const editor = getVisibleEditorForDoc(args.docName);
   void api
     .createThread({ docName: args.docName, wholeFile: true, body: args.body })
     .then((meta) => {
       void refresh(args.docName).catch(() => undefined);
       args.onCreated?.(meta.threadId);
-      emitCommentPosted();
+      if (revision === navigationRevision && getVisibleEditorForDoc(args.docName) === editor) emitCommentPosted();
     })
     .catch((err: unknown) => {
       toast.error(
@@ -239,6 +274,9 @@ export function createPropertyThread(args: {
   quote?: string;
   body: string;
 }): void {
+  if (hostReadOnly) return;
+  const revision = navigationRevision;
+  const editor = getVisibleEditorForDoc(args.docName);
   void api
     .createThread({
       docName: args.docName,
@@ -250,6 +288,7 @@ export function createPropertyThread(args: {
     })
     .then(() => {
       void refresh(args.docName).catch(() => undefined);
+      if (revision !== navigationRevision || getVisibleEditorForDoc(args.docName) !== editor) return;
       revealComments('doc', args.docName);
       emitCommentPosted();
     })
@@ -293,11 +332,11 @@ export function deleteThread(threadId: string): void {
 export function replaceOrphan(
   threadId: string,
   quote: string,
-  context?: { prefix: string; suffix: string },
+  context?: { prefix: string; suffix: string; selection?: api.CommentSelectionRevision },
 ): void {
   const docName = getThreadById(threadId)?.docName;
   settle(
-    api.replaceAnchor(threadId, { quote, prefix: context?.prefix, suffix: context?.suffix }),
+    api.replaceAnchor(threadId, { quote, ...context }),
     docName,
     t`Couldn't re-place that comment.`,
   );
@@ -480,6 +519,7 @@ async function runDispatch(
 
 const FOCUS_EVENT = 'open-knowledge:comment-focus-thread';
 const OPEN_THREAD_EVENT = 'open-knowledge:comment-open-thread';
+const NAVIGATION_INVALIDATED_EVENT = 'open-knowledge:comment-navigation-invalidated';
 const START_EVENT = 'open-knowledge:comment-start';
 const POSTED_EVENT = 'open-knowledge:comment-posted';
 

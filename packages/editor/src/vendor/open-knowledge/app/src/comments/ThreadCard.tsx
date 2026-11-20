@@ -19,6 +19,7 @@ import { propertyAddress, revealThread } from './comment-chips';
 import { revealPropertyValueRange } from './property-row-rect';
 import { scrollAnchorIntoView } from './scroll-to-anchor';
 import {
+  captureCommentSelectionRevision,
   clearActiveThread,
   deleteThread,
   editComment,
@@ -181,7 +182,11 @@ export function ThreadCard({
     if (empty) return;
     const quote = editor.state.doc.textBetween(from, to, ' ').trim();
     if (quote.length > 0) {
-      replaceOrphan(thread.id, quote, captureSelectionContext(editor.state.doc, from, to));
+      const selection = captureCommentSelectionRevision(thread.docName);
+      replaceOrphan(thread.id, quote, {
+        ...captureSelectionContext(editor.state.doc, from, to),
+        ...(selection ? { selection } : {}),
+      });
     }
   }
 
@@ -192,6 +197,7 @@ export function ThreadCard({
     <article
       ref={cardRef}
       data-testid="comment-thread"
+      data-comment-id={thread.id}
       data-state={isResolved ? 'resolved' : isOrphaned ? 'orphaned' : 'anchored'}
       onPointerEnter={() => setActiveThread(thread.id)}
       onPointerLeave={() => clearActiveThread(thread.id)}
@@ -430,7 +436,7 @@ export function ThreadCard({
           className="rounded-md border bg-background px-2 py-1 text-sm"
         />
       )}
-      {confirmDelete && (
+      {confirmDelete && !hostReadOnly && (
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Trans>Delete this thread? The document text is unchanged.</Trans>
           <Button
@@ -452,16 +458,18 @@ export function ThreadCard({
           <p className="text-xs text-muted-foreground" data-testid="comment-orphaned">
             <Trans>The original text was deleted.</Trans>
           </p>
-          <Button
-            type="button"
-            size="sm"
-            variant="link"
-            className="h-auto gap-1 p-0 text-xs font-normal"
-            onClick={rePlaceOnSelection}
-          >
-            <MapPin className="size-3" />
-            <Trans>Re-place on selected text</Trans>
-          </Button>
+          {!hostReadOnly && (
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto gap-1 p-0 text-xs font-normal"
+              onClick={rePlaceOnSelection}
+            >
+              <MapPin className="size-3" />
+              <Trans>Re-place on selected text</Trans>
+            </Button>
+          )}
         </div>
       )}
     </article>

@@ -19,6 +19,7 @@ export interface RichEditorPort extends EditorPort {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  isComposing(): boolean;
 }
 
 export interface EditorAssetActions {
@@ -40,6 +41,7 @@ export interface RichMarkdownEditorProps {
   readOnly?: boolean;
   placeholder?: string;
   propertiesTarget?: HTMLElement | null;
+  ariaLabel?: string;
   fontSize?: number;
   contentWidth?: number | null;
   referenceSearch?: (query: string) => readonly { path: string; kind: "file" | "folder" }[];
@@ -134,7 +136,7 @@ interface CompactBase {
 }
 export function CompactMarkdownView(props: CompactBase & { value: string }): ReactElement;
 export function CompactMarkdownInput(
-  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; ariaLabel?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
 ): ReactElement;
 
 // S4 评论宿主
@@ -156,6 +158,7 @@ export interface PassageInput {
   suffix?: string;
   start?: number;
   end?: number;
+  expectedSourceVersion?: string;
 }
 export interface CommentsPort {
   list(path?: string): Promise<HuhuComment[]>;
@@ -166,15 +169,24 @@ export interface CommentsPort {
   relocate(id: string, range: PassageInput): Promise<HuhuComment>;
   delete(id: string): Promise<void>;
 }
+interface CommentSelectionRevision {
+  vaultId: string;
+  path: string;
+  epoch: number;
+  revision: number;
+}
 export interface CommentRouteDeps {
   port: CommentsPort;
   pathOf(docName: string): string;
   docNameOf(path: string): string;
-  flush(docName: string): Promise<void>;
+  flush(docName: string, selectionPath?: string): Promise<void>;
+  selectionRevision?(path: string): (CommentSelectionRevision & { sourceVersion: string }) | undefined;
 }
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes;
 export function notifyCommentsChanged(): void;
 export function startComment(): void;
+export function registerCommentSelectionSource(docName: string, read: () => CommentSelectionRevision | undefined): () => void;
+export function useCommentsReadOnlySync(readOnly: boolean): void;
 export function onCommentPosted(handler: () => void): () => void;
 export function onCommentThreadOpened(handler: () => void): () => void;
 export function dismissOpenCommentThread(): void;

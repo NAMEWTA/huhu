@@ -71,7 +71,7 @@ export function CompactMarkdownView(props: CompactBase & { value: string }) {
 }
 
 export function CompactMarkdownInput(
-  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
+  props: CompactBase & { value: string; onChange(text: string): void; onPort?(port: RichEditorPort | null): void; placeholder?: string; ariaLabel?: string; referenceSearch?: (query: string) => readonly ReferenceCandidate[] },
 ) {
   const { routes, documentHost } = useCompactHost(props.pages, props.onOpenPath);
   return (
@@ -83,6 +83,7 @@ export function CompactMarkdownInput(
         {...(props.onPort ? { onPort: props.onPort } : {})}
         variant="compact"
         {...(props.placeholder ? { placeholder: props.placeholder } : {})}
+        {...(props.ariaLabel ? { ariaLabel: props.ariaLabel } : {})}
         {...(props.referenceSearch ? { referenceSearch: props.referenceSearch } : {})}
       />
     </OkRoot>

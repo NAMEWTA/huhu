@@ -391,6 +391,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         quote: z.string().optional(),
         prefix: z.string().optional(),
         suffix: z.string().optional(),
+        expectedSourceVersion: z.string().optional(),
         text: z.string(),
       }),
       output: CommentDto,
@@ -404,6 +405,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
           ...(i.quote !== undefined ? { quote: i.quote } : {}),
           ...(i.prefix !== undefined ? { prefix: i.prefix } : {}),
           ...(i.suffix !== undefined ? { suffix: i.suffix } : {}),
+          expectedSourceVersion: i.expectedSourceVersion,
           text: i.text,
           author: author(c.caller),
         }),
@@ -416,9 +418,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     def({
       name: "comments.relocate",
       ...cw,
-      input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional() }),
+      input: Cid.extend({ start: z.number().int().optional(), end: z.number().int().optional(), quote: z.string().optional(), prefix: z.string().optional(), suffix: z.string().optional(), expectedSourceVersion: z.string().optional() }),
       output: CommentDto,
-      handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix }),
+      handler: (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion }),
     }),
   );
   api.defineCapability(def({ name: "comments.delete", ...cw, input: Cid, output: z.object({ ok: z.literal(true) }), handler: async (_c, i) => (await comments.delete(i.id), { ok: true as const }) }));

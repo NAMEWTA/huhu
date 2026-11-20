@@ -80,6 +80,7 @@ export interface RichEditorPort extends EditorPort {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  isComposing(): boolean;
 }
 
 export interface RichMarkdownEditorProps {
@@ -93,6 +94,7 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  ariaLabel?: string;
   /** 顶部 YAML 属性面板（OK PropertyPanel；默认：document 变体开启）。属性与正文共用同一 Y.Text，只改 frontmatter 段。 */
   properties?: boolean;
   propertiesTarget?: HTMLElement | null;
@@ -128,7 +130,7 @@ class Boundary extends Component<{ onError?(e: Error): void; children: ReactNode
 export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const { t } = useLingui();
   const { resolvedTheme } = useTheme();
-  const { docName, value, onChange, mode = "rich", variant = "document", readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch } = props;
+  const { docName, value, onChange, mode = "rich", variant = "document", readOnly = false, placeholder, properties, onPort, className, fontSize, contentWidth, referenceSearch, ariaLabel } = props;
   const [provider, setProvider] = useState<LocalDocProvider | null>(null);
   const editorScope = useRef<HTMLDivElement>(null);
   const { onRevealSource } = props;
@@ -212,7 +214,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   }, []);
 
   useEffect(() => {
-    const inEditor = (e: Event) => e.target instanceof Element && e.target.closest(".ProseMirror") !== null;
+    const inEditor = (e: Event) => e.target instanceof Element && e.target.closest(".ProseMirror") !== null && editorScope.current?.contains(e.target);
     const start = (e: Event) => {
       if (inEditor(e)) composing.current = true;
     };
@@ -383,11 +385,16 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       if (ed && !ed.isDestroyed) {
         const editable = !(readOnly || mode === "read");
         if (ed.isEditable !== editable) ed.setEditable(editable, false);
+        if (ariaLabel) {
+          ed.view.dom.setAttribute("role", "textbox");
+          ed.view.dom.setAttribute("aria-multiline", "true");
+          ed.view.dom.setAttribute("aria-label", ariaLabel);
+        }
       }
     };
     apply();
     return subscribeEditorRegistry(apply);
-  }, [docName, readOnly, mode, provider]);
+  }, [docName, readOnly, mode, provider, ariaLabel]);
 
   // EditorPort
   useEffect(() => {
@@ -491,6 +498,7 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       },
       canUndo: () => tip()?.can().undo() ?? false,
       canRedo: () => tip()?.can().redo() ?? false,
+      isComposing: () => composing.current,
     };
     onPort(port);
     return () => onPort(null);

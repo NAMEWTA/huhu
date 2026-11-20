@@ -90,6 +90,13 @@ describe('findRangeInIndex — repeated quote', () => {
     expect(findRangeInIndex(indexOf(doc), 'TARGET', anchor)?.from).toBe(first + 1);
   });
 
+  test('Huhu anchors decline a tie or a same-offset replacement while editing', () => {
+    const duplicate = { prefix: 'x ', suffix: ' y', requireUnique: true };
+    expect(findRangeInIndex(indexOf('x TARGET y x TARGET y'), 'TARGET', duplicate)).toBeNull();
+    const original = { prefix: '甲：', suffix: '。乙：同句。', requireUnique: true };
+    expect(findRangeInIndex(indexOf('乙：同句。'), '同句', original)).toBeNull();
+  });
+
   test('a quote that is gone resolves to null', () => {
     expect(findRangeInIndex(indexOf(DOC), 'text that is not there')).toBeNull();
   });

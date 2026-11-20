@@ -109,7 +109,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
   const folders = useCapability<string[]>("notes.folders", {});
   const tags = useCapability<{ tag: string; count: number }[]>("notes.tags", {});
-  const vault = useCapability<{ name: string }>("vault.info", {});
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
 
   async function run<T>(capability: string, input: unknown): Promise<T | null> {
@@ -370,7 +370,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         onTab={setInspectorTab}
         notePaths={(every.data ?? []).map((x) => x.path)}
         flush={flushForComments}
-        readOnly={false}
+        readOnly={vault.data?.readOnly !== false}
         onClose={() => setInspector(false)}
         onOpen={openLinked}
         onJump={(line) => editorPort?.gotoLine(line)}
@@ -550,7 +550,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               onText={setDocText}
               registerFlush={registerFlush}
               registerEditor={setEditorPort}
-              onAddComment={addComment}
+              onAddComment={vault.data?.readOnly === false ? addComment : undefined}
             />
           </>
         ) : section === "trash" && selected && current === null ? null : (

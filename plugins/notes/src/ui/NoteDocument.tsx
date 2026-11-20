@@ -36,7 +36,7 @@ export interface NoteDocumentProps {
   /** 父级用它在改名 / 移动 / 移入回收站之前先把未保存的编辑落盘。 */
   registerFlush(fn: (() => Promise<boolean>) | null): void;
   registerEditor(h: RichEditorPort | null): void;
-  onAddComment(): void;
+  onAddComment: (() => void) | undefined;
 }
 
 /** 视图模式：富文本（实时预览）/ 源码 / 阅读；三者共用同一份 Y.Text 与同一个会话。 */
@@ -209,7 +209,7 @@ export function NoteDocument(props: NoteDocumentProps) {
             </option>
           ))}
         </select>
-        <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading} onClick={props.onAddComment} />
+        <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading || !props.onAddComment} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
         <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
         <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
