@@ -1,11 +1,11 @@
 import { Trans } from '@lingui/react/macro';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { PanelError } from '@/components/ui/panel';
 import { ProfilerBoundary } from '@/lib/perf';
 import { CommentListPanel } from './CommentListPanel';
-import { refresh, useCommentThreads } from './store';
+import { refresh, useCommentSurface, useCommentThreadSnapshot } from './store';
 
 function CommentsPanelInner({
   docName,
@@ -16,28 +16,15 @@ function CommentsPanelInner({
   scopeSwitch?: ReactNode;
   onDestinationComplete?: (target: HTMLElement) => void;
 }) {
-  const threads = useCommentThreads(docName);
-  const [load, setLoad] = useState<'pending' | 'ready' | 'failed'>('pending');
-  const [attempt, setAttempt] = useState(0);
+  const { threads, load } = useCommentThreadSnapshot(docName);
+  const surface = useCommentSurface();
 
   useEffect(() => {
-    let current = true;
-    void refresh(docName).then(
-      () => {
-        if (current) setLoad('ready');
-      },
-      () => {
-        if (current) setLoad('failed');
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [docName, attempt]);
+    void refresh(docName, surface).catch(() => undefined);
+  }, [docName, surface]);
 
   function retry(): void {
-    setLoad('pending');
-    setAttempt((previous) => previous + 1);
+    void refresh(docName, surface).catch(() => undefined);
   }
 
   return (

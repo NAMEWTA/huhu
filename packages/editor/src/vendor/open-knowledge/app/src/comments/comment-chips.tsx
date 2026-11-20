@@ -11,7 +11,7 @@ import type { DispatchPayload } from './comments-client';
 import { revealPropertyValueRange } from './property-row-rect';
 import { revealComment } from './reveal-comment';
 import { revealQueue } from './reveal-queue';
-import { getThreadById, useQueueSelection } from './store';
+import { getThreadById, useCommentSurface, useQueueSelection } from './store';
 import type { CommentThread } from './types';
 
 export function useSelectedCommentCount(): number {
@@ -24,10 +24,11 @@ export interface CommentDocTally {
 }
 
 export function useSelectedCommentDocs(): readonly CommentDocTally[] {
+  const surface = useCommentSurface();
   const selected = useQueueSelection();
   const byDoc = new Map<string, number>();
   for (const id of selected) {
-    const docName = getThreadById(id)?.docName;
+    const docName = getThreadById(id, surface)?.docName;
     if (docName === undefined) continue;
     byDoc.set(docName, (byDoc.get(docName) ?? 0) + 1);
   }

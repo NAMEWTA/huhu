@@ -67,10 +67,14 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
   useCommentsReadOnlySync(vault.data?.readOnly !== false);
   useLayoutEffect(() => {
-    return registerCommentSelectionSource(docNameOf(props.path), () => {
-      const session = documentSessions.get(engine.vaultId, props.path);
-      if (session) return { ...session.id, revision: session.getSnapshot().dirtyRevision };
-    });
+    return registerCommentSelectionSource(
+      docNameOf(props.path),
+      () => {
+        const session = documentSessions.get(engine.vaultId, props.path);
+        if (session) return { ...session.id, revision: session.getSnapshot().dirtyRevision };
+      },
+      engine.vaultId,
+    );
   }, [engine.vaultId, props.path]);
   // `@` 候选：全 Vault 的文件 / 文件夹（含被“隐藏”的——隐藏只作用于文件树，A02 / A04）
   const refs = useReferenceIndex();
@@ -88,6 +92,15 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
     const pathForDocName = (docName: string) => notes.current.find((entry) => docNameOf(entry.path) === docName)?.path;
     return {
       ...commentRoutes,
+      "POST /api/create-page": async ({ body }) => {
+        const file = (body as { path?: unknown } | null)?.path;
+        if (typeof file !== "string" || !MD.test(file) || hasProtectedSegment(file)) throw new Error("无效的笔记路径");
+        const slash = file.lastIndexOf("/");
+        const name = file.slice(slash + 1).replace(MD, "");
+        const folder = slash < 0 ? "" : file.slice(0, slash);
+        const result = await engine.call<{ path: string }>("notes.create", { name, folder }, { write: true });
+        return { docName: docNameOf(result.path) };
+      },
       // 粘贴 / 拖入图片与文件：落在当前笔记旁的 attachments/（notes.attach：原子写 + OperationLog，同内容去重）
       ...uploadRoutes(async ({ file, name, notePath: parent }) => attachFile(engine, { file, name, notePath: parent ?? notePath.current })),
       ...coreRoutes({
@@ -189,7 +202,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} poolKey={engine.vaultId} commentScope={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

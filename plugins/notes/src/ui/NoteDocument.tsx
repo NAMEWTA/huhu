@@ -9,6 +9,8 @@ import { useFlushedMode } from "./documents/useFlushedMode.js";
 import type { NoteMenuAction } from "./NoteContextMenu.js";
 import type { NoteRef } from "./NoteExplorer.js";
 import { n, t } from "./i18n.js";
+import { unsupportedEncoding } from "../shared/text-encoding.js";
+import { EncodingConversion } from "./viewers/EncodingConversion.js";
 
 /** 新编辑器闭包（OK 编辑器 + Tailwind 作用域样式）按需加载，不进首屏（design §12 懒加载）。 */
 const loadEditorSurface = () => import("./documents/NoteEditorSurface.js");
@@ -50,13 +52,25 @@ export function NoteDocument(props: NoteDocumentProps) {
   const { path } = props;
   const settings = useCapability<{ editor: { fontSize: number; lineHeight: number; autosave: boolean; lineNumbers: boolean; spellcheck: boolean; linkPreviews: boolean; readableWidth: "680" | "760" | "880" | "full" } }>("settings.get", {});
   const ed = settings.data?.editor;
-  const readOnly = useCapability<{ readOnly: boolean }>("vault.info", {}).data?.readOnly === true;
+  const vaultReadOnly = useCapability<{ readOnly: boolean }>("vault.info", {}).data?.readOnly === true;
   // 保存 / 冲突 / 草稿 / flush 全部在 DocumentSession 里（按 (vaultId, path) 引用计数，生命周期长于本组件）
   const { session, snap } = useDocumentSession(path, ed?.autosave !== false);
   const text: string | null = snap.loaded ? snap.text : null;
   const state: SaveState = snap.state === "error" ? "dirty" : snap.state;
   const draft = snap.draft;
   const flushError = snap.flushError;
+  const encodingUnsupported = flushError === unsupportedEncoding;
+  const readOnly = vaultReadOnly || encodingUnsupported;
+  const encodingNotice = encodingUnsupported ? (
+    <EncodingConversion
+      path={path}
+      onConverted={() => {
+        if (!session) return;
+        if (snap.hasUnsaved) session.notifyExternalChange();
+        else void session.load().catch((error: unknown) => session.setError(error instanceof Error ? error.message : String(error)));
+      }}
+    />
+  ) : null;
   const deferredText = useDeferredValue(text);
   // 字数 / 行数：对延后的文本单遍统计（5,000 行文档每次按键都做正则 + split 会占掉输入延迟预算）
   const stats = useMemo(() => {
@@ -171,7 +185,7 @@ export function NoteDocument(props: NoteDocumentProps) {
     setCanRedo(e?.canRedo() ?? false);
   }, [snap.text, mode]);
 
-  if (text === null) return flushError ? <Banner tone="danger">{flushError}</Banner> : <p>{t.loading}</p>;
+  if (text === null) return encodingNotice ?? (flushError ? <Banner tone="danger">{flushError}</Banner> : <p>{t.loading}</p>);
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   const filename = path.split("/").at(-1) ?? path;
   const reading = mode === "preview";
@@ -276,8 +290,8 @@ export function NoteDocument(props: NoteDocumentProps) {
           {n.draftFound(draft.savedAt.replace("T", " ").slice(0, 16))}
         </Banner>
       ) : null}
-      {flushError ? <Banner tone="danger">{n.saveFailed(flushError)}</Banner> : null}
-      {readOnly ? <Banner tone="blue">此 Vault 以只读方式打开，不能编辑或保存文档。</Banner> : null}
+      {encodingNotice ?? (flushError ? <Banner tone="danger">{n.saveFailed(flushError)}</Banner> : null)}
+      {vaultReadOnly ? <Banner tone="blue">此 Vault 以只读方式打开，不能编辑或保存文档。</Banner> : null}
       <div className="notes-editor-mode-hint">
         <strong>{n.modes[mode]}</strong>
         <span>{n.modeHint[mode]}</span>

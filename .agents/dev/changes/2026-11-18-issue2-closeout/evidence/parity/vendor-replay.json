@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "0f6528f2e0a4392f1b6b213471435ab40b100b865a4398b47c178d95b2d8b562",
+      "sha256": "ae22179e58f1755753607bf97702eb8c4edb7bb85bc2565f609aa273fad02ad0",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -50,7 +50,7 @@
       "target": "app/src/comments/CommentListPanel.tsx",
       "upstream": "packages/app/src/comments/CommentListPanel.tsx",
       "blob": "5579239427ab484dcd90db3495f34af8cd4ce7e5",
-      "sha256": "54bb06ac5d6a99f8110fa9a1a25662b1406a5474a5d71dadfbae9c1066678c2f",
+      "sha256": "988fba32331c19ec5f61a4998c7956174729f979e908ba28bd45975386772cda",
       "method": "patch",
       "description": "PATCHES.md:18 - P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 `CommentSendFooter`（AI 派发发送栏，Q2 不接）。"
     },
@@ -89,7 +89,7 @@
       "target": "app/src/comments/CommentSelectionAffordance.tsx",
       "upstream": "packages/app/src/comments/CommentSelectionAffordance.tsx",
       "blob": "1ac120109b8a0b62e820c0ef92f8b58a4ffa1dd5",
-      "sha256": "3354229c359f285c850deda3d5f50d1c4421d95a2a298b48e2b9bd064ece97df",
+      "sha256": "b30ec2a280d9368add503e4d7a1161d43f1e4f2f4cfac87cd41f3d86d339802b",
       "method": "patch",
       "description": "PATCHES.md:24 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
     },
@@ -97,8 +97,9 @@
       "target": "app/src/comments/CommentSendFooter.tsx",
       "upstream": "packages/app/src/comments/CommentSendFooter.tsx",
       "blob": "3e7398982114305d282136b239afab9e2073e58d",
-      "sha256": "65ff384468778aaa4800c83f9df149f6fd26471d47430e741fddef22d02572c0",
-      "method": "copy"
+      "sha256": "dcd567fc9a456674cde20b5862e420108f445ab76ac25d8fa30c17efe6945b38",
+      "method": "patch",
+      "description": "PATCHES.md:626 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/CommentedDocContext.tsx",
@@ -118,7 +119,7 @@
       "target": "app/src/comments/CommentsPanel.tsx",
       "upstream": "packages/app/src/comments/CommentsPanel.tsx",
       "blob": "5495bef1caaa8283666e30ebfcd7ccc301c768a1",
-      "sha256": "38b334147dacb6d20ad4c00d0dee1fd94136200e21cec35c9f394a7c795fceae",
+      "sha256": "fc2eb44ce25790e46cab42a26c34b7a2e155fe8ab5d3c61ca4511935d1751307",
       "method": "patch",
       "description": "PATCHES.md:599 - `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。"
     },
@@ -133,7 +134,7 @@
       "target": "app/src/comments/PropertyCommentButton.tsx",
       "upstream": "packages/app/src/comments/PropertyCommentButton.tsx",
       "blob": "7d8f3cea95e4b6a6c71f744ef713ccff0e3b968a",
-      "sha256": "b6680a2915b08448582e5f1b0dbe38f6f91d049b3a30897550872ee948ec8336",
+      "sha256": "50e3098adfc4485475892764df66cd718d6e93ccffc6c00e25c1930a15ec0097",
       "method": "patch",
       "description": "PATCHES.md:25 - P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。"
     },
@@ -148,7 +149,7 @@
       "target": "app/src/comments/ThreadCard.tsx",
       "upstream": "packages/app/src/comments/ThreadCard.tsx",
       "blob": "829fc7310feed64d843e6e9701f4761d3800725e",
-      "sha256": "e5c2a4e9a8986111b981ed27bbedd836701bfbe64aaebd9f4b1c21f8fc7ba04d",
+      "sha256": "5a7f7507091caa07f2d378bab898fa05e5a7b9400aa87a962bb9feae9836b59b",
       "method": "patch",
       "description": "PATCHES.md:19 - P-S4-05 `app/src/comments/ThreadCard.tsx`（含 e2e 用的 data-testid：comment-thread / comment-orphaned / thread-*）：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。"
     },
@@ -163,7 +164,7 @@
       "target": "app/src/comments/anchor-decorations.tsx",
       "upstream": "packages/app/src/comments/anchor-decorations.tsx",
       "blob": "11a3de2c7b72692a8138b34d151efd7c402a68d5",
-      "sha256": "b662c6ee48d3e4be203232b2c315c8cafb08eab80e10897c4294a210aff3aee1",
+      "sha256": "76cf89865869978a03adbf7cdb0fe81bdf6a857b8f2c84e4056f5fdd29cfe43c",
       "method": "patch",
       "description": "PATCHES.md:24 - P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。"
     },
@@ -199,7 +200,7 @@
       "target": "app/src/comments/anchor-search.test.ts",
       "upstream": "packages/app/src/comments/anchor-search.test.ts",
       "blob": "3dd6014f09a651c4f675fd420b320345ff8735f6",
-      "sha256": "2b68f00e997c725898ee6cf6375918edb54f1ac3086dcc80852ade0a0c755d7c",
+      "sha256": "4358c165c563620aaaa964b9e1207587377beac25fee8e0c848102753969e408",
       "method": "patch",
       "description": "PATCHES.md:27 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
     },
@@ -207,7 +208,7 @@
       "target": "app/src/comments/anchor-search.ts",
       "upstream": "packages/app/src/comments/anchor-search.ts",
       "blob": "9649ba838b5398e85c53691f2f45a19a56a0fc2e",
-      "sha256": "7ee58081ac9026881701ad2000bf4233114367d12653533b704a104afdf0bd2f",
+      "sha256": "691125776df8e553cdae152f893bec38a3b213184f115ac90f5593051b099168",
       "method": "patch",
       "description": "PATCHES.md:27 - P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。"
     },
@@ -229,8 +230,9 @@
       "target": "app/src/comments/comment-chips.tsx",
       "upstream": "packages/app/src/comments/comment-chips.tsx",
       "blob": "f1587996308b8423d1145ea4ade248c8faa0e8b0",
-      "sha256": "f89fc14898a4ed57ca4ba26e776bf90ee72d9a2346a5a7ab3d22481d7cf5c9c2",
-      "method": "copy"
+      "sha256": "c454e368087471e759299b814780ac8f09adb3d287352e7f7d2dbcf198930931",
+      "method": "patch",
+      "description": "PATCHES.md:626 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/comment-hue-contrast.test.ts",
@@ -250,7 +252,7 @@
       "target": "app/src/comments/comments-client.ts",
       "upstream": "packages/app/src/comments/comments-client.ts",
       "blob": "d8a1c77e5f8cb13a13a3b2333b92cde691b09694",
-      "sha256": "67b4f5a56f15213db580c84971ac3b3ce23360452db34b7a47711ef96ca6691e",
+      "sha256": "87055b8c162140bd391374e0a15f9c81e988029821dadc81d80ec9de87d73b42",
       "method": "patch",
       "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
     },
@@ -307,8 +309,9 @@
       "target": "app/src/comments/property-anchor-click.dom.test.tsx",
       "upstream": "packages/app/src/comments/property-anchor-click.dom.test.tsx",
       "blob": "87d304fb872ee07d40505ee9cac19a80f01c64ec",
-      "sha256": "2b107dc578bc39d942f13c4552a694a40ace07ed17b49e6dd3f683155038d3c9",
-      "method": "copy"
+      "sha256": "2fa2b0d54b87de7d2de0e24f0f75e83f260c439bfdbb52093561752719504087",
+      "method": "patch",
+      "description": "PATCHES.md:276 - `app/src/comments/property-anchor-click.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
     },
     {
       "target": "app/src/comments/property-anchor-click.test.ts",
@@ -321,8 +324,9 @@
       "target": "app/src/comments/property-anchor-click.ts",
       "upstream": "packages/app/src/comments/property-anchor-click.ts",
       "blob": "8ef5062f2bfc92224d9b297f981be10214e4802c",
-      "sha256": "f6977b31d440fd88493ef4ea5be6f02321d1ba63961b015d30b98609a2be6f88",
-      "method": "copy"
+      "sha256": "74c93319e119789144948e58d5c169a48744390921d15ccb95db00f412c480de",
+      "method": "patch",
+      "description": "PATCHES.md:626 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/property-row-rect.dom.test.tsx",
@@ -447,7 +451,7 @@
       "target": "app/src/comments/store.ts",
       "upstream": "packages/app/src/comments/store.ts",
       "blob": "e5b6e5154a419f3138a42549a8adffcfbf94fd09",
-      "sha256": "b30fb6004d688dcf2efc9e63f51dc34c4ee25b3cb9b8d33b861c85dd54cd72c7",
+      "sha256": "7092ecc4c33677cf4b88353e717e973fbd70001c6d856e7e110da61714bad82b",
       "method": "patch",
       "description": "PATCHES.md:17 - P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。"
     },
@@ -477,8 +481,9 @@
       "target": "app/src/comments/use-send-queue.ts",
       "upstream": "packages/app/src/comments/use-send-queue.ts",
       "blob": "f7e8655fb6a91e31d6932febf5c712c68ee54014",
-      "sha256": "e49a4ed0b9ad376e290525c201dcf3d24003ef9f80761455c016053e3bbb7303",
-      "method": "copy"
+      "sha256": "fe38a35d51285d88036e49be060d817dcca7185a3732d47d7fc6090e8dc1dd3f",
+      "method": "patch",
+      "description": "PATCHES.md:626 - `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。"
     },
     {
       "target": "app/src/comments/visible-scope.ts",
@@ -605,7 +610,7 @@
       "target": "app/src/components/FileTree.tsx",
       "upstream": "packages/app/src/components/FileTree.tsx",
       "blob": "49eda5b8d8f398d63804162d3eaf850080b797b2",
-      "sha256": "905727c75689a1026111b50db1cba0f758f0e4602bfd15f9c3ba4cdd6c9cf68d",
+      "sha256": "177b08943571da1cae3bb215891b4ff72f3500a638ae65cbf3919f0b67b72c28",
       "method": "patch",
       "description": "PATCHES.md:59 - P-S5-01 `app/src/components/FileTree.tsx`：“隐藏”不再写 `.okignore`，改为调用宿主注册的 `hiddenPaths` 偏好（`app/src/lib/host-hidden.ts`，新增）；未注册时入口禁用，不静默写 `.okignore`。非 Markdown 文件同样可隐藏。"
     },
@@ -685,7 +690,7 @@
       "target": "app/src/components/LinksPanel.tsx",
       "upstream": "packages/app/src/components/LinksPanel.tsx",
       "blob": "604a80c7c80d5c73f27a0cf472e45c59a5ebe579",
-      "sha256": "18725fd235e03e45d1aaf7a8158f33e926ed124e1e213bab469aa2bab32e8a35",
+      "sha256": "c2a0bf3c86d6ca271e66772946eebb5bce5c5dfb617c0c15d626c6c97788b1e5",
       "method": "patch",
       "description": "PATCHES.md:341 - `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -700,8 +705,9 @@
       "target": "app/src/components/NewItemDialog.tsx",
       "upstream": "packages/app/src/components/NewItemDialog.tsx",
       "blob": "abe24dc998e0181e607412a279b32aa8fdff0bf5",
-      "sha256": "b17ed66be28bdc3061a82a07ff5ae71a21ae448fa5d204e6b2a0016c898ef267",
-      "method": "copy"
+      "sha256": "acef4e909f8cc9b5b4c5c45e9769b128a5bc6e9f58dc7e6d9b356837f26c279a",
+      "method": "patch",
+      "description": "PATCHES.md:628 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
     },
     {
       "target": "app/src/components/ObjectWidget.tsx",
@@ -735,7 +741,7 @@
       "target": "app/src/components/OutlinePanel.tsx",
       "upstream": "packages/app/src/components/OutlinePanel.tsx",
       "blob": "a2520b387ee64cbacd0d8ac074860a3f48b78830",
-      "sha256": "7989be7fbcd2541c1449b3f9e06acd07ef1e78c9bebbcf1a82a9a76f87a5c0f5",
+      "sha256": "6808c1685c463435920bdfc5e2a1e52aa3918342765a9d1196531d0a73ccda35",
       "method": "patch",
       "description": "PATCHES.md:342 - `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -757,7 +763,7 @@
       "target": "app/src/components/PageListContext.tsx",
       "upstream": "packages/app/src/components/PageListContext.tsx",
       "blob": "5cd8389b4831ee2f1c5394572bd21d64b4ca1a36",
-      "sha256": "89be04a89d43367388323f835cad8e47165eade6559183d5712fa03fd9401edb",
+      "sha256": "3f2155f2f7d1b22928f1149ffa05cb863a43e590d07d194199e9d338edb8f802",
       "method": "patch",
       "description": "PATCHES.md:343 - `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -1092,7 +1098,7 @@
       "target": "app/src/components/file-tree-listing-transport.ts",
       "upstream": "packages/app/src/components/file-tree-listing-transport.ts",
       "blob": "b20a1dfced75e67415d0824ef17f21e816828c47",
-      "sha256": "e30cfcf3baa4a69664a3b2865fa3854c0c977e6528be530b7654ee57b63c20c1",
+      "sha256": "59f37c076fd2f75da9247d49258e7be677b108a57ce258d5eadb58d889e32854",
       "method": "patch",
       "description": "PATCHES.md:345 - `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -2148,8 +2154,9 @@
       "target": "app/src/components/use-file-tree-listing.ts",
       "upstream": "packages/app/src/components/use-file-tree-listing.ts",
       "blob": "7a895f427619de3999e68acb5cc4aa219f0f583d",
-      "sha256": "042db9bcdb3f714f4f6a13c58c483114b1bc3f19207368157aae5b3e0cd70c28",
-      "method": "copy"
+      "sha256": "5f55483f715ad6487a93f1a23b46a35e59b7ef551a1328053514268d21b7a1d8",
+      "method": "patch",
+      "description": "PATCHES.md:628 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。"
     },
     {
       "target": "app/src/components/use-selection-mirror.ts",
@@ -2207,7 +2214,7 @@
       "target": "app/src/editor/TiptapEditor.tsx",
       "upstream": "packages/app/src/editor/TiptapEditor.tsx",
       "blob": "dc5884c87bff1042f17c535856abaecb5dd61a1a",
-      "sha256": "e8633da7e90692f35256c67adbc85f0b2a9858366126e1ca340ff47a2832d984",
+      "sha256": "2f566340e30f21bc75b813a0bea3a39f2e9d918c2a82e3cd28b722660c26fead",
       "method": "patch",
       "description": "PATCHES.md:322 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
     },
@@ -3149,7 +3156,7 @@
       "target": "app/src/editor/components/PropPanel.tsx",
       "upstream": "packages/app/src/editor/components/PropPanel.tsx",
       "blob": "e75da4dfd881994ed8fa4b73bdd9ddb4e0994370",
-      "sha256": "e4c4b697c23f216fce83f3b52eb9831dadcdfb6a2f97e69fc0f75074f68e8494",
+      "sha256": "c8cf24bf2b76bf9ceb059fec9f3bceaa9c3c6f05a7fa7c4f123db089388435cd",
       "method": "patch",
       "description": "PATCHES.md:92 - `app/src/editor/registry/block-labels.ts`、`app/src/editor/registry/resolve-descriptor-placeholder.ts`、`app/src/editor/extensions/JsxComponentView.tsx`、`app/src/editor/components/PropPanel.tsx`：共用已登记的块标题、属性名称和占位消息；只翻译展示，保留 JSX 标识和属性键。"
     },
@@ -3223,7 +3230,7 @@
       "target": "app/src/editor/components/TagDialog.tsx",
       "upstream": "packages/app/src/editor/components/TagDialog.tsx",
       "blob": "6e748976cfa677255925f64c1aa4c661f76194d1",
-      "sha256": "3e1c62435bdba12f2042ee67ad10f70515b14bc83a73a3171938b56330e50906",
+      "sha256": "d83d3771367c3e2efb94463ff7e5812629a9a72b4e8d8586a013bcdaecea2fcb",
       "method": "patch",
       "description": "PATCHES.md:263 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。"
     },
@@ -3600,8 +3607,9 @@
       "target": "app/src/editor/extensions/InternalLinkPropPanel.tsx",
       "upstream": "packages/app/src/editor/extensions/InternalLinkPropPanel.tsx",
       "blob": "6d360443840d447f4df5a400b628d5673d08ca6e",
-      "sha256": "3fa7b5089dc7a3d9dd7a880fefd85a2bf44a01f5816e72f40980da1a878aa5c2",
-      "method": "copy"
+      "sha256": "71799f020fea812d734cd1b48e659cd99421dbdbf7c81009b6a2b75e4430e3bb",
+      "method": "patch",
+      "description": "PATCHES.md:630 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx",
@@ -3700,8 +3708,9 @@
       "target": "app/src/editor/extensions/WikiLinkPropPanel.tsx",
       "upstream": "packages/app/src/editor/extensions/WikiLinkPropPanel.tsx",
       "blob": "b641093c79371ffa92a1ea0d1e37eefdf441820d",
-      "sha256": "4f475c646ac5e498c441cd902efed8f0eedae25d2bf20c64192aeefaffaf98cf",
-      "method": "copy"
+      "sha256": "77245301397e7e0f045b7563f851a5e1a6d43bd0ac7712c0e01cfa2da40e2f55",
+      "method": "patch",
+      "description": "PATCHES.md:630 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/extensions/autonomous-fragment-edit.test.ts",
@@ -4458,7 +4467,7 @@
       "target": "app/src/editor/extensions/tag-suggestion.ts",
       "upstream": "packages/app/src/editor/extensions/tag-suggestion.ts",
       "blob": "148db34132f3438fcc148d616d009e35112ff2d7",
-      "sha256": "2b5f680f378c0aa8b25a808904dc745c6e90e77eed2f16cd98ffd0c67f07dcaa",
+      "sha256": "2e09d72b7c6f36853126429d2597574ceb0272036163a0e2a3232cb4dd630bfd",
       "method": "patch",
       "description": "PATCHES.md:348 - `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -4538,7 +4547,7 @@
       "target": "app/src/editor/extensions/wiki-link-suggestion.ts",
       "upstream": "packages/app/src/editor/extensions/wiki-link-suggestion.ts",
       "blob": "f877214504cf1419e4ef507ea946f4c3d4cae66b",
-      "sha256": "bdcfec0fde3f29dc9618b1d61db9498a7581f0586817b25b20a54dac43e57899",
+      "sha256": "f419d8cceccc528c61192ab7ba8edd3e03a8994205d94921bf5e48acf75cd4a1",
       "method": "patch",
       "description": "PATCHES.md:110 - `app/src/editor/extensions/wiki-link-suggestion.ts`：同一文档的快速标题查询共用在途请求，等待返回后用各自查询词过滤。"
     },
@@ -4676,7 +4685,7 @@
       "target": "app/src/editor/image-upload/index.ts",
       "upstream": "packages/app/src/editor/image-upload/index.ts",
       "blob": "6de6474a56eba56499f119679a757b36207c0ab4",
-      "sha256": "c790cc2fbd0d7a684fd3cf02bb6d8bbb4b1012cc82900bef1ada8846b825de36",
+      "sha256": "059e35423f43ad5fd6484dddc87d486c7b40e279ee1301109ad8237b50bb3b0e",
       "method": "patch",
       "description": "PATCHES.md:349 - `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -4882,7 +4891,7 @@
       "target": "app/src/editor/link-preview/external-link-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/external-link-preview.ts",
       "blob": "106fcc31f82048a5fb0a4b06feed2366f6b72b25",
-      "sha256": "d7e21ab054a2c685dc73034b56c05fb70fcf88e2642baabe6c7984bbfc64677f",
+      "sha256": "0f5cf36b9ab32cb75559f6f2647c011eb90c18a95f433e6c7dd006b5af95e4a9",
       "method": "patch",
       "description": "PATCHES.md:351 - `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -4897,7 +4906,7 @@
       "target": "app/src/editor/link-preview/internal-doc-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/internal-doc-preview.ts",
       "blob": "480d80209a56977fe4a988db5a630425d1e21d86",
-      "sha256": "61753fa667ecebb5c007a8816ac461ed6f6d9531fd682d12dcb8d88464d3599d",
+      "sha256": "d48fa9efc62b9e2533e4d2e2145092e24b4f4578e685d4411ccb4c142ae98902",
       "method": "patch",
       "description": "PATCHES.md:352 - `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -4905,8 +4914,9 @@
       "target": "app/src/editor/link-preview/use-external-link-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/use-external-link-preview.ts",
       "blob": "5e1e9004712f85f9942f721968316cb3c9050837",
-      "sha256": "fe496484c89af9f46ac2b9e9c4e07fc5082dca8e4a908a706df5ebc0f1257717",
-      "method": "copy"
+      "sha256": "711eef8d2df01f7d4fa675701cba6fd8a1c56e9759c10700450630592657c181",
+      "method": "patch",
+      "description": "PATCHES.md:630 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/link-preview/use-internal-doc-preview.dom.test.tsx",
@@ -4919,8 +4929,9 @@
       "target": "app/src/editor/link-preview/use-internal-doc-preview.ts",
       "upstream": "packages/app/src/editor/link-preview/use-internal-doc-preview.ts",
       "blob": "ea2c789337f213e944f05dbc9275d1a8aeb322f0",
-      "sha256": "b41a074bb3edb2e17915b99a98acf341962b53293e5e7b51390dbc35fb626094",
-      "method": "copy"
+      "sha256": "23c43512684ef68aa2ac256ee5fcba45f773efed9a27351d144b58359a1df3f4",
+      "method": "patch",
+      "description": "PATCHES.md:630 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。"
     },
     {
       "target": "app/src/editor/link-validation-policy.ts",
@@ -5972,7 +5983,7 @@
       "target": "app/src/hooks/use-folder-config.ts",
       "upstream": "packages/app/src/hooks/use-folder-config.ts",
       "blob": "bf36430e1f1a5cf3a8dd0078b3d71bea71d15d18",
-      "sha256": "89f32c1f50d911b6c6da038443e6671451b2bb985e0018f014f6a6ea0eaa5ece",
+      "sha256": "8692665d1462676964615e6c254bd163d26a9f0f4210c3046622b06a3adbf68b",
       "method": "patch",
       "description": "PATCHES.md:355 - `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -6280,7 +6291,7 @@
       "target": "app/src/lib/create-page-request.ts",
       "upstream": "packages/app/src/lib/create-page-request.ts",
       "blob": "d27849d58f937321ddc3a9814b19784ed2aa0209",
-      "sha256": "9e464f39587248f68b897eb43f7b5836e305a256d35ca010cf3f4bac63537713",
+      "sha256": "dd756420415ffb5578d242dc9987916cfc9c31aefbd615f5b5ffc749cde978d3",
       "method": "patch",
       "description": "PATCHES.md:360 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -6295,7 +6306,7 @@
       "target": "app/src/lib/create-page.ts",
       "upstream": "packages/app/src/lib/create-page.ts",
       "blob": "ac396fce8dc0fc7c0537be75524007a4a9f04b51",
-      "sha256": "a1fc3dfcbb48b43f27f9e980b47474b03400ce11241a61ed3b510490bbefb8c6",
+      "sha256": "baf9cb3d5d5820e74b294d5ee937923a2a1116840a2df1bec1d59bc7931e4b07",
       "method": "patch",
       "description": "PATCHES.md:361 - `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -6388,7 +6399,7 @@
       "target": "app/src/lib/documents-fetch.ts",
       "upstream": "packages/app/src/lib/documents-fetch.ts",
       "blob": "f5e84bd84d424714995ffc8cba01dde8fee72d87",
-      "sha256": "423e591ff68a750f663f71a574da2688072982c2faf2a89d938647f357afd1fc",
+      "sha256": "7e06f2ad8922ab7c68f7c399e2394b8e48a75c2c726c41c86f16387515918f40",
       "method": "patch",
       "description": "PATCHES.md:362 - `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -6466,7 +6477,7 @@
       "target": "app/src/lib/folder-config-api.ts",
       "upstream": "packages/app/src/lib/folder-config-api.ts",
       "blob": "706bb6e7955050c6bae30b8de9f32c9e75027769",
-      "sha256": "8e94b6f48f46da3540542095f5f98bd4767a49e7a48aa86b39fac70303ea95a6",
+      "sha256": "ab175ef4d3cb046ac1645aeadbc558fc8595755963af12115825149c23eb6aac",
       "method": "patch",
       "description": "PATCHES.md:363 - `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -6704,7 +6715,7 @@
       "target": "app/src/lib/ok-fetch.ts",
       "upstream": null,
       "blob": null,
-      "sha256": "fbbbbcd5ba3d8dbcfd5ef31a09834ecb6bdc179746de0cccb0b0d9a7377e568f",
+      "sha256": "e8ff9e9e9002d4ee2eee1226dca4a93dd598abbb1ef3fb0a34afa1ecebd90239",
       "method": "local",
       "description": "PATCHES.md:372 - `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
@@ -7318,7 +7329,7 @@
       "target": "app/src/lib/use-workspace.ts",
       "upstream": "packages/app/src/lib/use-workspace.ts",
       "blob": "91f015d11520683dba4e7e1cff1006408f85dd62",
-      "sha256": "7cffedf83f4edc76ff55e78c96c1a1ed721e90e4e26740407d1b203be4e58237",
+      "sha256": "7e59e647c4b4e48aabdf46e5d699e61307aa3e7abbf063faf8e8b45bde29deb6",
       "method": "patch",
       "description": "PATCHES.md:370 - `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },

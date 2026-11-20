@@ -94,6 +94,24 @@ function toRange(index: TextIndex, hit: PassageMatch): { from: number; to: numbe
   return { from, to: to + 1 };
 }
 
+function matchesLocalContext(text: string, hit: PassageMatch, prefix: string, suffix: string): boolean {
+  const lineStart = prefix.lastIndexOf('\n') + 1;
+  const lineEnd = suffix.indexOf('\n');
+  const outsideLine = [prefix.slice(0, lineStart), lineEnd === -1 ? '' : suffix.slice(lineEnd + 1)];
+  const quote = text.slice(hit.start, hit.end);
+  if (!outsideLine.some((context) => findAllPassages(context, quote, { syntaxIn: 'haystack' }).length > 0)) return true;
+  const before = prefix.slice(lineStart).trim();
+  const after = (lineEnd === -1 ? suffix : suffix.slice(0, lineEnd)).trim();
+  const window = { syntaxIn: 'needle' } as const;
+  const endsAt = (text: string, needle: string): boolean =>
+    needle === '' || findAllPassages(text, needle, window).some((range) => range.end === text.length);
+  const startsAt = (text: string, needle: string): boolean =>
+    needle === '' || findAllPassages(text, needle, window).some((range) => range.start === 0);
+  const preceding = text.slice(Math.max(0, hit.start - before.length * 8 - 64), hit.start).trimEnd();
+  const following = text.slice(hit.end, hit.end + after.length * 8 + 64).trimStart();
+  return endsAt(preceding, before) && startsAt(following, after);
+}
+
 export function findRangeInIndex(
   index: TextIndex,
   quote: string,
@@ -137,6 +155,7 @@ export function findRangeInIndex(
       const recovered = findBetweenBrackets(index.text, quote, context);
       return recovered === null ? null : toRange(index, recovered);
     }
+    if (context?.requireUnique && !matchesLocalContext(index.text, hits[0], prefix, suffix)) return null;
     return toRange(index, hits[0]);
   }
 

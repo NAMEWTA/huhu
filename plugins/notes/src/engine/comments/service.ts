@@ -235,18 +235,19 @@ export class CommentsService {
   }
 
   /** 文档保存后：对该文档未解决的正文批注重新定位；找不到或不唯一 → orphaned，不猜位置。 */
-  async refind(rel: string, rawText: string, version: string): Promise<void> {
+  async refind(rel: string, rawText: string, version: string, previous?: { text: string; version: string }): Promise<void> {
     const text = rawText.replace(/\r\n?/g, "\n");
+    const previousText = previous?.text.replace(/\r\n?/g, "\n");
     const id = this.d.noteId(rel);
     const bodyOffset = bodyStart(text);
     for (const c of this.list(rel)) {
-      if (c.resolved || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
-      const r = refind(text, c.anchor, bodyOffset);
+      if (c.resolved || c.state === "orphaned" || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
+      const r = refind(text, c.anchor, bodyOffset, previous?.version === c.anchor.sourceVersion ? previousText : undefined);
       if (r.status === "anchored") {
         if (version === c.anchor.sourceVersion && c.state === "anchored") continue;
         const anchor = { ...createBodyAnchor(text, r.start, r.end), sourceVersion: version };
         await this.patchQuiet(c, { anchor, state: "anchored" });
-      } else if (c.state !== "orphaned") {
+      } else {
         await this.patchQuiet(c, { state: "orphaned" });
       }
     }

@@ -53,7 +53,7 @@ Running 2 tests using 1 worker
 
     ────────────────────────────────────────────────────────────────────────────────────────────────
 
-  2) tests/e2e/knowledge/editor-selection-focus.spec.ts:181:3 › B06：Shift+Tab 重新聚焦后 Control+Home 保留文档起点 
+  2) tests/e2e/knowledge/editor-selection-focus.spec.ts:181:3 › B06：Shift+Tab 重新聚焦后 Control+Home 保留文档起点
 
     Error: {"before":{"dom":"","domNode":"前置正文","offset":0,"collapsed":true,"model":"","from":5,"to":5,"empty":true,"focused":true,"cached":false,"composing":false,"destroyed":false,"focusAge":12,"pointerAge":391},"after":{"dom":"","domNode":"前置正文","offset":4,"collapsed":true,"model":"","from":5,"to":5,"empty":true,"focused":true,"cached":true,"composing":false,"destroyed":false,"focusAge":1795111182590,"pointerAge":393},"flushes":1}
 
@@ -95,7 +95,7 @@ Running 2 tests using 1 worker
 
   2 failed
     tests/e2e/knowledge/editor-selection-focus.spec.ts:181:3 › B06：Shift+Tab 重新聚焦后 Home 保留文档起点 ─────
-    tests/e2e/knowledge/editor-selection-focus.spec.ts:181:3 › B06：Shift+Tab 重新聚焦后 Control+Home 保留文档起点 
+    tests/e2e/knowledge/editor-selection-focus.spec.ts:181:3 › B06：Shift+Tab 重新聚焦后 Control+Home 保留文档起点
 [ELIFECYCLE] Command failed with exit code 1.
  01:59:42 up  8:00,  2 users,  load average: 2.79, 1.75, 2.28
 2026-11-20T01:59:42+08:00

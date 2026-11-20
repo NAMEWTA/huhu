@@ -13,6 +13,7 @@ vi.doMock('./store', () => ({
   },
   getOpenThread: () => (opened.length === 0 ? null : opened[opened.length - 1]),
   getThreads: () => threads,
+  useCommentSurface: () => undefined,
 }));
 
 const { usePropertyAnchorClick } = await import('./property-anchor-click');

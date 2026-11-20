@@ -9,12 +9,12 @@ export async function createPageRequest(args: {
   path: string;
   template?: string;
   kind: 'file' | 'folder';
-}): Promise<{ ok: true; docName: string } | { ok: false; error: string }> {
+}, request = okFetch): Promise<{ ok: true; docName: string } | { ok: false; error: string }> {
   const requestBody: { path: string; template?: string } = { path: args.path };
   if (args.template !== undefined) requestBody.template = args.template;
 
   try {
-    const res = await okFetch('/api/create-page', {
+    const res = await request('/api/create-page', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),

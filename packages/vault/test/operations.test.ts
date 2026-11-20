@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { OperationLog, ReceiptLog, VaultFiles, versionOf } from "../src/index.js";
 
 import { createRequire } from "node:module";
@@ -48,6 +48,19 @@ function require_mkdir(p: string) {
 void vault;
 
 describe("VaultFiles", () => {
+  test("并发独占创建恰有一个成功，落盘字节来自成功方", async () => {
+    const { root } = init();
+    const f = new VaultFiles(root);
+    const first = Buffer.from("first");
+    const second = Buffer.from("second");
+    const results = await Promise.allSettled([f.write("new.md", first, { expectedVersion: null }), f.write("new.md", second, { expectedVersion: null })]);
+    const i = results.findIndex((r) => r.status === "fulfilled");
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results[1 - i]).toMatchObject({ status: "rejected", reason: { code: "NAME_CONFLICT" } });
+    expect(readFileSync(path.join(root, "new.md"))).toEqual([first, second][i]);
+    expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]);
+  });
+
   test("版本冲突、必须不存在、回执", async () => {
     const { root } = init();
     const f = new VaultFiles(root);
@@ -100,6 +113,58 @@ describe("多文件操作", () => {
     expect(read(root, "c.md")).toBe("C-old");
     expect(read(root, "e.md")).toBe("E-old");
     expect(log.load("bad1")?.state).toBe("rolled_back");
+  });
+  test("大小写改名在第一跳后检测到目标冲突时恢复原路径", async () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const exists = files.exists.bind(files);
+    vi.spyOn(files, "exists").mockImplementation((rel) => {
+      if (rel !== "A.md") return exists(rel);
+      expect(readdirSync(root)).not.toContain("a.md");
+      expect(readdirSync(root)).toEqual(expect.arrayContaining([expect.stringMatching(/^\.huhu-case-/)]));
+      return true;
+    });
+    await expect(log.run("case-fails", "rename-case", [{ action: "rename", from: "a.md", path: "A.md", caseOnly: true }])).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    expect(readdirSync(root).sort()).toEqual(["a.md", "b.md", "c.md", "e.md"]);
+    expect(read(root, "a.md")).toBe("A-old");
+    expect(log.load("case-fails")?.state).toBe("rolled_back");
+  });
+
+  test("大小写不敏感的目标冲突保留第三方文件及暂存原件", async () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const absolute = files.abs.bind(files);
+    const exists = files.exists.bind(files);
+    let aliased = false;
+    vi.spyOn(files, "abs").mockImplementation((rel) => absolute(aliased && rel === "a.md" ? "A.md" : rel));
+    const exactName = vi.spyOn(log as unknown as { hasExactName(rel: string): boolean }, "hasExactName");
+    exactName.mockImplementation((rel) => readdirSync(root).includes(rel));
+    vi.spyOn(files, "exists").mockImplementation((rel) => {
+      if (rel !== "A.md") return exists(rel);
+      writeFileSync(path.join(root, rel), "competing file");
+      aliased = true;
+      return true;
+    });
+    await expect(log.run("case-alias", "rename-case", [{ action: "rename", from: "a.md", path: "A.md", caseOnly: true }])).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "needs_attention" } });
+    expect(read(root, "A.md")).toBe("competing file");
+    const stage = log.load("case-alias")?.steps[0]?.renameStage;
+    expect(stage && read(root, stage)).toBe("A-old");
+  });
+
+  test("新文件已提交到目标而后续步骤失败，只移除本操作创建的文件", async () => {
+    const { root, ops } = init();
+    const log = new OperationLog(new VaultFiles(root), ops);
+    await expect(
+      log.run("copy-rollback", "t", [
+        { action: "write", path: "copy.md", bytes: Buffer.from("A-old"), expectedVersion: null },
+        { action: "rename", from: "c.md", path: "e.md" },
+      ]),
+    ).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    expect(read(root, "a.md")).toBe("A-old");
+    expect(read(root, "copy.md")).toBeNull();
+    expect(readdirSync(root).sort()).toEqual(["a.md", "b.md", "c.md", "e.md"]);
   });
   for (const crashAfter of [0, 1, 2, 3]) {
     test(`在第 ${crashAfter} 步后崩溃 → 重启恢复到操作前状态`, () => {

@@ -2,7 +2,7 @@ import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
@@ -22,6 +22,7 @@ import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
 import { hasProtectedSegment } from "../shared/attachments.js";
+import { unsupportedEncoding } from "../shared/text-encoding.js";
 import { noteTemplateInput } from "./explorer/filesDeps.js";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
@@ -206,13 +207,23 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const listsReady = every.data !== undefined && indexEntries.data !== undefined;
   const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
   const pathsBeingMoved = useRef(new Set<string[]>());
+  const notesMain = useRef<HTMLDivElement>(null);
+  const [moveRevision, setMoveRevision] = useState(0);
+  useLayoutEffect(() => {
+    if (notesMain.current) notesMain.current.inert = pathsBeingMoved.current.size > 0;
+  }, [moveRevision]);
   async function holdOpenPaths<T>(from: string, move: () => Promise<T>): Promise<T> {
     const held = shell.tabs.tabs.map(tabFilePath).filter((path): path is string => path !== null && (path === from || path.startsWith(`${from}/`)));
     pathsBeingMoved.current.add(held);
+    // Pause input before the flusher drains editor buffers, including paste and IME.
+    if (notesMain.current) notesMain.current.inert = true;
+    setMoveRevision((revision) => revision + 1);
     try {
       return await move();
     } finally {
       pathsBeingMoved.current.delete(held);
+      // React commits the remapped tab before the layout effect restores input.
+      setMoveRevision((revision) => revision + 1);
     }
   }
   useEffect(() => {
@@ -484,7 +495,13 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         onImport={(files) =>
           void (async () => {
             for (const f of Array.from(files)) {
-              const text = await f.text();
+              let text: string;
+              try {
+                text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await f.arrayBuffer());
+              } catch {
+                setError(`${f.name}：${unsupportedEncoding}`);
+                continue;
+              }
               const created = await run<{ path: string }>("notes.create", { name: f.name.replace(/\.(md|markdown|txt)$/i, "") });
               if (created) {
                 const read = await engine.call<{ version: string }>("notes.read", { path: created.path });
@@ -496,7 +513,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         dailyDate={dailyDate}
         onDailyDate={setDailyDate}
       />
-      <div className="notes-main">
+      <div className="notes-main" ref={notesMain}>
         {section !== "trash" && shell.tabs.tabs.length > 0 ? (
           <TabStrip
             tabs={shell.tabs.tabs}

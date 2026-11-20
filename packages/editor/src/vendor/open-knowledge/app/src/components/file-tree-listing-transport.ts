@@ -39,9 +39,9 @@ export async function fetchShowAllDepth1Listing({
   signal,
   onBatch,
   messages,
-}: FileTreeListingRequest): Promise<ShowAllDepth1ListingResult> {
+}: FileTreeListingRequest, request: typeof okFetch = okFetch): Promise<ShowAllDepth1ListingResult> {
   try {
-    const response = await okFetch(showAllDepth1Url(dir, showOk), {
+    const response = await request(showAllDepth1Url(dir, showOk), {
       signal,
       headers: SHOW_ALL_NDJSON_ACCEPT,
     });

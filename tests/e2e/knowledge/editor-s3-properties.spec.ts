@@ -270,3 +270,68 @@ test("B10：大纲只列解析树标题，并跳到第二个同名标题的实�
     await close();
   }
 });
+
+test("B09/C03/F02：源码坐标与 CRLF、BOM 混合换行文件的字节一致", async () => {
+  const { page, vault, close } = await openApp();
+  const fixtures = [
+    ["CRLF.md", "first\r\n\r\nSECOND\r\n"],
+    ["BOM 混合.md", "\uFEFFfirst\r\n\nSECOND\r\n"],
+  ] as const;
+  try {
+    for (const [name, original] of fixtures) writeFileSync(path.join(vault, name), original);
+    await gotoNotes(page);
+    for (const [name, original] of fixtures) {
+      const file = path.join(vault, name);
+      const expected = Buffer.from(original.replace("SECOND", "XECOND"));
+      await treeItem(page, name).click();
+      await expect(prose(page)).toContainText("SECOND");
+      await page.getByRole("tab", { name: "源码" }).click();
+      const line = page.locator(".cm-content .cm-line").filter({ hasText: /^SECOND$/ });
+      await line.click();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Delete");
+      await page.keyboard.insertText("X");
+      await expect.poll(() => readFileSync(file)).toEqual(expected);
+      await page.getByRole("tab", { name: "实时预览" }).click();
+      await expect(prose(page)).toContainText("XECOND");
+      await page.getByRole("button", { name: `关闭 ${name.replace(/\.md$/i, "")}`, exact: true }).click();
+      await treeItem(page, name).click();
+      await expect(prose(page)).toContainText("XECOND");
+      expect(readFileSync(file)).toEqual(expected);
+      await page.getByRole("button", { name: `关闭 ${name.replace(/\.md$/i, "")}`, exact: true }).click();
+    }
+  } finally {
+    await close();
+  }
+});
+
+test("F02：Markdown、TXT 和 JSON 在显式转换前保留旧编码字节", async () => {
+  const { page, vault, close } = await openApp();
+  const chinese = [0xc4, 0xe3, 0xba, 0xc3];
+  const fixtures = [
+    { name: "旧笔记.md", bytes: Buffer.from([...chinese, 0x0a]), text: "你好\n" },
+    { name: "旧文本.txt", bytes: Buffer.from([...chinese, 0x0a]), text: "你好\n" },
+    { name: "旧数据.json", bytes: Buffer.concat([Buffer.from('{"text":"'), Buffer.from(chinese), Buffer.from('"}\n')]), text: '{"text":"你好"}\n' },
+  ];
+  try {
+    for (const { name, bytes } of fixtures) writeFileSync(path.join(vault, name), bytes);
+    await gotoNotes(page);
+    for (const { name, bytes, text } of fixtures) {
+      const file = path.join(vault, name);
+      await treeItem(page, name).click();
+      await expect(page.getByTestId("file-encoding-unsupported")).toBeVisible();
+      await expect(page.locator(".ProseMirror[contenteditable=true], .cm-content[contenteditable=true]")).toHaveCount(0);
+      const convert = page.getByRole("button", { name: "转换并保存为 UTF-8" });
+      await expect(convert).toBeDisabled();
+      await page.getByLabel("原文件编码").selectOption("gb18030");
+      expect(readFileSync(file)).toEqual(bytes);
+      await convert.click();
+      await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(text));
+      const editor = name.endsWith(".md") ? prose(page) : page.locator(".cm-content");
+      await expect(editor).toContainText("你好");
+      await page.getByRole("button", { name: `关闭 ${name.replace(/\.md$/i, "")}`, exact: true }).click();
+    }
+  } finally {
+    await close();
+  }
+});

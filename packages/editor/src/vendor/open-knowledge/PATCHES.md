@@ -618,3 +618,13 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/editor/slash-command/auto-open-flag.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
 - `app/src/editor/slash-command/focus-inserted-component.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
 - `app/src/editor/slash-command/mirror-source-insert.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+
+## Issue #2 收尾：D04、H04 与 OP-D04
+
+- `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-decorations.tsx`、`app/src/comments/anchor-search.test.ts`：删除原段时验证幸存同文的上下文来源，在缓冲和持久化结果中均避免误高亮。
+- `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`、`app/src/comments/CommentsPanel.tsx`、`app/src/comments/CommentListPanel.tsx`：按 Vault 共享请求代次、加载状态和线程快照，组件使用自己的宿主请求。
+- `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。
+- `app/src/lib/ok-fetch.ts`、`app/src/lib/documents-fetch.ts`、`app/src/components/PageListContext.tsx`：路由由 React 根传入，按请求函数合并读取，旧根的回执独立结算。
+- `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。
+- `app/src/editor/TiptapEditor.tsx`、`app/src/editor/components/TagDialog.tsx`、`app/src/editor/extensions/tag-suggestion.ts`、`app/src/editor/extensions/wiki-link-suggestion.ts`、`app/src/editor/image-upload/index.ts`、`app/src/editor/components/PropPanel.tsx`、`app/src/components/OutlinePanel.tsx`、`app/src/components/LinksPanel.tsx`：编辑器建议、上传及详情查询使用当前编辑器和根的宿主请求。
+- `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。

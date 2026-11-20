@@ -20,6 +20,7 @@
     "test/host-files.test.ts",
     "test/core-routes.test.ts",
     "test/host-feedback.test.tsx",
+    "test/host-fetch-scope.test.tsx",
     "test/block-selection.test.tsx",
     "test/file-tree-feedback.test.tsx",
     "test/provider-pool.test.ts",

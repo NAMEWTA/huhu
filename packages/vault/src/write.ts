@@ -1,8 +1,10 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { link, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { errors } from "@huhu/contracts";
 import writeFileAtomic from "write-file-atomic";
+import { filesystemIdentity } from "./identity.js";
 import { resolveInVault } from "./paths.js";
 import { ReceiptLog } from "./receipts.js";
 
@@ -14,6 +16,13 @@ export function versionOf(bytes: Uint8Array): string {
 export interface WriteOptions {
   /** string：必须等于当前版本；null：目标必须不存在；undefined：不检查。 */
   expectedVersion?: string | null;
+  /** 由 OperationLog 保留暂存硬链接，供重启恢复识别本次创建的文件。 */
+  creationStage?: { path: string; recordIdentity(identity: string): void };
+}
+
+export function fileIdentity(file: string): string | null {
+  const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
+  return info ? filesystemIdentity(info) : null;
 }
 
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
@@ -50,10 +59,12 @@ export class VaultFiles {
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
     this.assertWritable();
     const p = this.abs(rel);
-    if (opts.expectedVersion !== undefined) {
+    if (opts.expectedVersion === null) {
+      if (this.exists(rel)) throw errors.nameConflict(rel);
+    } else if (opts.expectedVersion !== undefined) {
       const cur = this.currentVersion(rel);
-      if (opts.expectedVersion === null ? cur !== null : cur !== opts.expectedVersion) {
-        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : opts.expectedVersion === null ? errors.nameConflict(rel) : errors.versionConflict(cur);
+      if (cur !== opts.expectedVersion) {
+        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(cur);
       }
     }
     mkdirSync(path.dirname(p), { recursive: true });
@@ -61,12 +72,46 @@ export class VaultFiles {
     this.receipts.record(rel, version);
     let untrackTemporaryFile: (() => void) | undefined;
     try {
-      await writeFileAtomic(p, Buffer.from(bytes), {
-        tmpfileCreated: (file) => {
-          const temporaryPath = path.posix.join(path.posix.dirname(rel), path.basename(file));
-          untrackTemporaryFile = this.receipts.trackTemporaryFile(temporaryPath);
-        },
-      });
+      if (opts.expectedVersion === null) {
+        const stage = opts.creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `.huhu-create-${randomUUID()}`);
+        const absoluteStage = this.abs(stage);
+        const release = opts.creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
+        let ownsStage = false;
+        let journaled = false;
+        try {
+          const file = await open(absoluteStage, "wx");
+          ownsStage = true;
+          try {
+            if (opts.creationStage) {
+              const identity = filesystemIdentity(await file.stat({ bigint: true }));
+              if (!identity) throw errors.invalidInput("文件系统无法识别暂存文件，无法安全创建副本");
+              opts.creationStage.recordIdentity(identity);
+              journaled = true;
+            }
+            await file.writeFile(bytes);
+            await file.sync();
+          } finally {
+            await file.close();
+          }
+          await link(absoluteStage, p);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") throw errors.nameConflict(rel);
+          throw error;
+        } finally {
+          try {
+            if (ownsStage && !journaled) await rm(absoluteStage, { force: true });
+          } finally {
+            release?.();
+          }
+        }
+      } else {
+        await writeFileAtomic(p, Buffer.from(bytes), {
+          tmpfileCreated: (file) => {
+            const temporaryPath = path.posix.join(path.posix.dirname(rel), path.basename(file));
+            untrackTemporaryFile = this.receipts.trackTemporaryFile(temporaryPath);
+          },
+        });
+      }
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;

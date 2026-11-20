@@ -1,4 +1,4 @@
-import { okFetch } from '@/lib/ok-fetch';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { t } from '@lingui/core/macro';
 import { Trans } from '@lingui/react/macro';
 import { type RefObject, useEffect, useRef, useState } from 'react';
@@ -29,8 +29,8 @@ type FetchState =
   | { kind: 'ready'; docs: TagDocEntry[] }
   | { kind: 'error'; message: string };
 
-async function fetchTagDocs(tag: string, docName: string): Promise<TagDocEntry[]> {
-  const res = await okFetch(`/api/tag-documents?${new URLSearchParams({ tag, docName })}`);
+async function fetchTagDocs(tag: string, docName: string, request: typeof fetch): Promise<TagDocEntry[]> {
+  const res = await request(`/api/tag-documents?${new URLSearchParams({ tag, docName })}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as unknown;
     const status = res.status;
@@ -49,6 +49,7 @@ export function TagDialog({ scope, docName }: { scope: RefObject<HTMLElement | n
   const [fetchState, setFetchState] = useState<FetchState>({ kind: 'idle' });
   const fetchSeqRef = useRef(0);
 
+  const request = useOkFetch();
   useEffect(() => {
     function onTagClick(event: Event): void {
       const detail = (event as CustomEvent<TagClickEventDetail>).detail;
@@ -58,7 +59,7 @@ export function TagDialog({ scope, docName }: { scope: RefObject<HTMLElement | n
       setTag(detail.value);
       setOpen(true);
       setFetchState({ kind: 'loading' });
-      fetchTagDocs(detail.value, docName)
+      fetchTagDocs(detail.value, docName, request)
         .then((docs) => {
           if (fetchSeqRef.current !== seq) return;
           setFetchState({ kind: 'ready', docs });
@@ -73,7 +74,7 @@ export function TagDialog({ scope, docName }: { scope: RefObject<HTMLElement | n
     }
     document.addEventListener(TAG_CLICK_EVENT, onTagClick);
     return () => document.removeEventListener(TAG_CLICK_EVENT, onTagClick);
-  }, [docName, scope]);
+  }, [docName, scope, request]);
 
   function navigateTo(docName: string): void {
     setOpen(false);

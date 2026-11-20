@@ -11,7 +11,9 @@ import {
   getOpenThread,
   getThreads,
   refresh,
-  subscribe,
+  subscribeCommentReads,
+  type CommentSurface,
+  useCommentSurface,
   subscribeActiveThread,
 } from './store';
 
@@ -36,9 +38,9 @@ function standDown(): void {
   emitOpenThread(null);
 }
 
-function placeAnchors(docName: string, doc: PMNode, draft: DraftRange | null): PlacedAnchor[] {
+function placeAnchors(docName: string, doc: PMNode, draft: DraftRange | null, surface: CommentSurface): PlacedAnchor[] {
   const placed: PlacedAnchor[] = [];
-  const threads = getThreads(docName).filter(
+  const threads = getThreads(docName, surface).filter(
     (t) => t.status === 'open' && t.target.kind === 'body' && t.anchor !== null,
   );
   if (threads.length > 0) {
@@ -56,8 +58,8 @@ function placeAnchors(docName: string, doc: PMNode, draft: DraftRange | null): P
   return placed;
 }
 
-function buildDecorations(docName: string, doc: PMNode, draft: DraftRange | null): DecorationSet {
-  const placed = placeAnchors(docName, doc, draft);
+function buildDecorations(docName: string, doc: PMNode, draft: DraftRange | null, surface: CommentSurface): DecorationSet {
+  const placed = placeAnchors(docName, doc, draft, surface);
   if (placed.length === 0) return DecorationSet.empty;
   const decos: Decoration[] = buildAnchorSegments(placed, getActiveThread()).map((segment) =>
     Decoration.inline(
@@ -85,13 +87,13 @@ export function anchorTransactionEffect(
   return meta === undefined ? 'reuse' : 'rebuild';
 }
 
-function createCommentAnchorPlugin(docName: string): Plugin<AnchorPluginState> {
+function createCommentAnchorPlugin(docName: string, surface: CommentSurface): Plugin<AnchorPluginState> {
   return new Plugin<AnchorPluginState>({
     key: commentAnchorKey,
     state: {
       init: (_config, state) => ({
         draft: null,
-        decorations: buildDecorations(docName, state.doc, null),
+        decorations: buildDecorations(docName, state.doc, null, surface),
       }),
       apply(tr, previous, _oldState, newState) {
         const meta = tr.getMeta(commentAnchorKey);
@@ -100,7 +102,7 @@ function createCommentAnchorPlugin(docName: string): Plugin<AnchorPluginState> {
             return previous;
           case 'draft': {
             const draft = (meta as { draft: DraftRange | null }).draft;
-            return { draft, decorations: buildDecorations(docName, newState.doc, draft) };
+            return { draft, decorations: buildDecorations(docName, newState.doc, draft, surface) };
           }
           default: {
             const draft =
@@ -110,7 +112,7 @@ function createCommentAnchorPlugin(docName: string): Plugin<AnchorPluginState> {
                     from: tr.mapping.map(previous.draft.from),
                     to: tr.mapping.map(previous.draft.to),
                   };
-            return { draft, decorations: buildDecorations(docName, newState.doc, draft) };
+            return { draft, decorations: buildDecorations(docName, newState.doc, draft, surface) };
           }
         }
       },
@@ -121,7 +123,7 @@ function createCommentAnchorPlugin(docName: string): Plugin<AnchorPluginState> {
       },
       handleClick(view, pos) {
         let hit: PlacedAnchor | null = null;
-        for (const anchor of placeAnchors(docName, view.state.doc, null)) {
+        for (const anchor of placeAnchors(docName, view.state.doc, null, surface)) {
           if (anchor.id === null) continue;
           if (pos < anchor.from || pos > anchor.to) continue;
           if (hit === null || anchor.to - anchor.from < hit.to - hit.from) hit = anchor;
@@ -138,12 +140,13 @@ function createCommentAnchorPlugin(docName: string): Plugin<AnchorPluginState> {
 }
 
 export function CommentAnchorLayer({ editor, docName }: { editor: Editor; docName: string }) {
+  const surface = useCommentSurface();
   useEffect(() => {
     let disposed = false;
     queueMicrotask(() => {
       if (disposed || editor.isDestroyed) return;
-      editor.registerPlugin(createCommentAnchorPlugin(docName));
-      void refresh(docName)
+      editor.registerPlugin(createCommentAnchorPlugin(docName, surface));
+      void refresh(docName, surface)
         .then(() => {
           if (disposed || editor.isDestroyed) return;
           editor.view.dispatch(editor.state.tr.setMeta(commentAnchorKey, { refresh: true }));
@@ -157,7 +160,7 @@ export function CommentAnchorLayer({ editor, docName }: { editor: Editor; docNam
       if (!view) return;
       view.dispatch(view.state.tr.setMeta(commentAnchorKey, { refresh: true }));
     };
-    const unsubscribe = subscribe(redraw);
+    const unsubscribe = subscribeCommentReads(surface, redraw);
     const unsubscribeActive = subscribeActiveThread(redraw);
 
     const onEscape = (event: KeyboardEvent) => {
@@ -173,7 +176,7 @@ export function CommentAnchorLayer({ editor, docName }: { editor: Editor; docNam
       document.removeEventListener('keydown', onEscape);
       if (!editor.isDestroyed) editor.unregisterPlugin(commentAnchorKey);
     };
-  }, [editor, docName]);
+  }, [editor, docName, surface]);
 
   return null;
 }

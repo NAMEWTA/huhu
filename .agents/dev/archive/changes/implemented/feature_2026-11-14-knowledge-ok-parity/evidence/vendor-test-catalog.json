@@ -3,9 +3,9 @@
     "open-knowledge": {
       "outside-product": 1268,
       "not-applicable": 1569,
-      "copy": 484,
+      "copy": 488,
       "patch": 28,
-      "needs-adaptation": 124,
+      "needs-adaptation": 120,
       "partial": 3
     },
     "orca": {
@@ -18,7 +18,7 @@
   },
   "coverage": {
     "open-knowledge": {
-      "passed": 512,
+      "passed": 516,
       "denominator": 639,
       "conservativeDenominator": 1315,
       "minimumFor70Percent": 448,

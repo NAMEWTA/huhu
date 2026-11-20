@@ -1,9 +1,10 @@
-import { okFetch } from '@/lib/ok-fetch';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { WorkspaceSuccessSchema } from '@inkeep/open-knowledge-core/schemas/api';
 import { useEffect, useState } from 'react';
 import type { Workspace } from './workspace-paths';
 
 export function useWorkspace(): Workspace | null {
+  const request = useOkFetch();
   const [workspace, setWorkspace] = useState<Workspace | null>(() => resolveSyncWorkspace());
 
   useEffect(() => {
@@ -11,7 +12,7 @@ export function useWorkspace(): Workspace | null {
     if (window.okDesktop) return;
 
     let active = true;
-    okFetch('/api/workspace')
+    request('/api/workspace')
       .then(async (res) => {
         const data = await res.json().catch(() => null);
         if (!active) return;
@@ -29,7 +30,7 @@ export function useWorkspace(): Workspace | null {
     return () => {
       active = false;
     };
-  }, [workspace]);
+  }, [workspace, request]);
 
   return workspace;
 }

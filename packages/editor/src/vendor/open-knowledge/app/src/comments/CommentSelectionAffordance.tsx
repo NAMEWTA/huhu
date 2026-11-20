@@ -32,7 +32,7 @@ import { useCommentsPanelOnScreen } from './comments-panel-visibility';
 import { revealComments } from './reveal-queue';
 import { selectedSpan } from './selected-span';
 import type { CommentSelectionRevision } from './comments-client';
-import { captureCommentSelectionRevision, createThread, emitStartComment, subscribeCommentNavigationInvalidated, subscribeStartComment, useCommentsReadOnly } from './store';
+import { captureCommentSelectionRevision, createThread, emitStartComment, subscribeCommentNavigationInvalidated, subscribeStartComment, useCommentsReadOnly, useCommentSurface } from './store';
 
 interface Captured {
   doc: PMNode;
@@ -59,6 +59,7 @@ export function CommentSelectionAffordance({
   const commentsOnScreen = useCommentsPanelOnScreen();
   const editorPaneOnScreen = useEditorPaneOnScreen();
   const readOnly = useCommentsReadOnly();
+  const surface = useCommentSurface();
   const canCompose = shortcutEnabled && editorPaneOnScreen && !readOnly;
   const lifetime = useRef<object | null>(null);
   useLayoutEffect(() => {
@@ -100,7 +101,7 @@ export function CommentSelectionAffordance({
       const quote = commentQuoteText(editor.state.doc, from, to).trim();
       if (quote.length === 0) return;
       const { prefix, suffix } = captureSelectionContext(editor.state.doc, from, to);
-      setCaptured({ from, to, quote, prefix, suffix, doc, revision: captureCommentSelectionRevision(docName) });
+      setCaptured({ from, to, quote, prefix, suffix, doc, revision: captureCommentSelectionRevision(docName, surface) });
     });
   }, [canCompose, docName, editor]);
 
@@ -198,7 +199,7 @@ export function CommentSelectionAffordance({
       ...(captured.revision ? { selection: captured.revision } : {}),
       canReveal: () => postedFrom !== null && lifetime.current === postedFrom && getVisibleEditorForDoc(docName) === editor,
       body,
-    });
+    }, surface);
     if (!editor.isDestroyed) {
       editor.commands.setTextSelection(Math.min(captured.to, editor.state.doc.content.size));
     }

@@ -22,6 +22,7 @@ import {
 import Collaboration from '@tiptap/extension-collaboration';
 import Placeholder from '@tiptap/extension-placeholder';
 import { initProseMirrorDoc, yCursorPlugin, ySyncPluginKey } from '@tiptap/y-tiptap';
+import { bindEditorFetch, useOkFetch } from '@/lib/ok-fetch';
 import { type FC, use, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SelectionAnnouncer } from '@/components/editor/SelectionAnnouncer';
@@ -557,6 +558,8 @@ export const TiptapEditor: FC<TiptapEditorProps> = ({
   const mountId = getMountId(docName) ?? randomUUID();
   const entry = use(mountTiptapEditorPromise({ docName, mountId, construct, sizeStats }));
   const editor = entry.editor;
+  const request = useOkFetch();
+  useLayoutEffect(() => bindEditorFetch(editor, request), [editor, request]);
 
   useEffect(() => {
     return () => {

@@ -20,6 +20,7 @@ import {
 } from "@huhu/vault";
 import { validateName } from "../../shared/templates.js";
 import type { NotesService } from "../service.js";
+import { requireUtf8 } from "../text-encoding.js";
 
 export interface ArchivesDeps {
   files: VaultFiles;
@@ -64,7 +65,7 @@ export class ArchivesService {
   }
   private text(rel: string): { text: string; version: string } | null {
     const f = this.d.files.read(rel);
-    return f ? { text: f.bytes.toString("utf8"), version: f.version } : null;
+    return f ? { text: requireUtf8(f.bytes), version: f.version } : null;
   }
   private nameTaken(parent: string, name: string, except?: string): boolean {
     const abs = this.abs(parent);

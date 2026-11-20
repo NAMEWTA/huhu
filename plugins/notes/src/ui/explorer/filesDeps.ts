@@ -95,8 +95,8 @@ export function createFilesDeps(o: FilesDepsOptions) {
     hiddenPaths: () => o.getHidden(),
     showHidden: () => o.getShowHidden(),
     async rename(i: { kind: "file" | "folder" | "asset"; fromPath: string; toPath: string }) {
-      await ensureFlushed([i.fromPath]);
       const rename = async () => {
+        await ensureFlushed([i.fromPath]);
         let moved: Record<string, string> = {};
         let cur = i.fromPath;
         try {

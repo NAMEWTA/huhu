@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCommentedDocName } from './CommentedDocContext';
 import { propertyAddress } from './comment-chips';
 import { capturePropertyValueSelection } from './property-value-selection';
-import { createPropertyThread, useCommentsReadOnly } from './store';
+import { createPropertyThread, useCommentsReadOnly, useCommentSurface } from './store';
 
 export function PropertyCommentButton({
   propertyKey,
@@ -19,6 +19,7 @@ export function PropertyCommentButton({
   const { t } = useLingui();
   const docName = useCommentedDocName();
   const readOnly = useCommentsReadOnly();
+  const surface = useCommentSurface();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [quote, setQuote] = useState<string | null>(null);
@@ -34,7 +35,7 @@ export function PropertyCommentButton({
       propertyPath: [...propertyPath],
       quote: quote ?? undefined,
       body,
-    });
+    }, surface);
     setDraft('');
     setOpen(false);
   }
