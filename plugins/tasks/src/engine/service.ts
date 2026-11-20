@@ -19,6 +19,7 @@ import { appendComment, buildTaskBody, parseTaskBody, parseWikiLinks, replaceTas
 import { inCategory, todayIn, type TaskCategory } from "../shared/categories.js";
 import { canonicalJson, inputHash, processingKey } from "../shared/input.js";
 import { matchesQuery } from "../shared/search.js";
+import { WriteQueue } from "./write-queue.js";
 
 export interface TasksDeps {
   repo: SemanticRepository;
@@ -30,6 +31,8 @@ export interface TasksDeps {
   pathKind(rel: string): "file" | "folder" | null;
   /** 任务是否有活动运行（automations 提供；缺省读 task-run 的状态）。 */
   hasActiveRun?(taskId: string): boolean | undefined;
+  hasDispatchHold?(taskId: string): boolean;
+  hasStartedDispatch?(taskId: string): boolean;
 }
 
 type TaskData = {
@@ -152,7 +155,21 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
 
 /** 任务业务规则。 */
 export class TasksService {
+  private readonly writes = new WriteQueue();
+
   constructor(private readonly d: TasksDeps) {}
+
+  withTaskWrite<T>(taskId: string, write: () => Promise<T>): Promise<T> {
+    return this.writes.run(taskId, write);
+  }
+
+  drainWrites(): Promise<void> {
+    return this.writes.drain();
+  }
+
+  private withRetriedTaskWrite<T>(taskId: string, write: () => Promise<T>): Promise<T> {
+    return this.withTaskWrite(taskId, () => withRetry(write));
+  }
 
   private dto(e: Entity): TaskDto {
     return toDto(e, this.d.pathKind);
@@ -206,7 +223,7 @@ export class TasksService {
    * 版本变化后，在编辑快照仍匹配时重新应用补丁（B09）。旧输入哈希仅覆盖正文与执行配置。
    */
   async update(id: string, expectedVersion: string, patch: TaskPatch, baseInputHash?: string, baseEditHash?: string): Promise<TaskDto> {
-    return withRetry(async () => {
+    return this.withRetriedTaskWrite(id, async () => {
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
       if (cur.version !== expectedVersion) {
@@ -239,9 +256,8 @@ export class TasksService {
     });
   }
 
-  private hasActiveRun(taskId: string): boolean {
-    const live = this.d.hasActiveRun?.(taskId);
-    if (live !== undefined) return live;
+  hasLegacyRun(taskId: string): boolean {
+    if (this.d.hasActiveRun?.(taskId)) return true;
     return this.d.repo.list("task-run").some((r) => {
       const x = r.data as { taskId?: string; state?: string };
       return x.taskId === taskId && ACTIVE_RUN.has(x.state ?? "");
@@ -256,12 +272,16 @@ export class TasksService {
    * 每次流转追加一条系统评论（id 由事件和时间派生）。
    */
   async setStatus(id: string, status: TaskStatus, expectedVersion: string): Promise<TaskDto> {
+    return this.withTaskWrite(id, () => this.writeStatus(id, status, expectedVersion));
+  }
+
+  private async writeStatus(id: string, status: TaskStatus, expectedVersion: string): Promise<TaskDto> {
     const entity = this.d.repo.read("task", id);
     const cur = this.dto(entity);
     if (cur.status === status) return cur;
     if (cur.type === "agent" && status === "in_progress" && cur.status === "not_started") throw errors.invalidInput("Agent 任务由自动化派发后进入进行中，不能手动开始");
     const now = this.d.now();
-    const active = cur.type === "agent" ? this.hasActiveRun(id) : false;
+    const active = cur.type === "agent" && status !== "completed" && (this.d.hasStartedDispatch?.(id) || this.hasLegacyRun(id));
     let next: TaskStatus = status;
     const changes: Record<string, unknown> = { status: next, updatedAt: iso(now) };
     let event: "start" | "close" | "reopen" | null = null;
@@ -296,12 +316,14 @@ export class TasksService {
    * 派发联动（内部能力）：条件写——任务仍是未开始，且完整 processingKey（inputRevision + inputHash）与 claim 一致，才改为进行中。
    * 不依赖调用方传入的 expectedVersion；追加系统评论 `sys-<runId>-dispatched`（幂等）。
    */
-  async markDispatched(id: string, key: { inputRevision: number; inputHash: string }, runId: string): Promise<TaskDto> {
-    return withRetry(async () => {
+  async markDispatched(id: string, key: { inputRevision: number; inputHash: string }, runId: string, opts: { legacy?: boolean; signal?: AbortSignal } = {}): Promise<TaskDto> {
+    return this.withRetriedTaskWrite(id, async () => {
+      opts.signal?.throwIfAborted();
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
       if (cur.status === "in_progress" && cur.comments.some((c) => c.id === `sys-${runId}-dispatched`)) return cur; // 同一 runId 重复调用
-      if (cur.status !== "not_started") throw errors.invalidInput("任务已不是未开始，不能派发");
+      if (opts.legacy && this.d.hasDispatchHold?.(id)) throw errors.invalidInput("该任务已有待派或活动运行");
+      if (cur.type !== "agent" || cur.status !== "not_started") throw errors.invalidInput("只有未开始的 Agent 任务可以派发");
       if (processingKey(cur.id, cur.inputRevision, cur.inputHash) !== processingKey(id, key.inputRevision, key.inputHash)) throw errors.invalidInput("任务内容已变化，不能按旧内容派发");
       const stamp = iso(this.d.now());
       const body = appendComment(entity.body, { id: `sys-${runId}-dispatched`, at: stamp, source: "system", run: runId, event: "dispatched", body: "已派发" }).body;
@@ -315,7 +337,7 @@ export class TasksService {
 
   /** 追加评论：按 id 去重（已存在就视为成功）；区段级条件写，最多重试 3 次。 */
   async addComment(taskId: string, c: NewComment): Promise<{ comment: TaskComment; added: boolean }> {
-    return withRetry(async () => {
+    return this.withRetriedTaskWrite(taskId, async () => {
       const entity = this.d.repo.read("task", taskId);
       const next = appendComment(entity.body, c);
       if (!next.added) return { comment: this.dto(entity).comments.find((x) => x.id === c.id)!, added: false };
@@ -367,9 +389,11 @@ export class TasksService {
   }
 
   async markReminderDelivered(taskId: string, reminderId: string): Promise<void> {
-    const cur = this.read(taskId);
-    const reminders = cur.reminders.map((r) => (r.id === reminderId ? { ...r, deliveredAt: iso(this.d.now()) } : r));
-    await this.d.repo.patch("task", taskId, { reminders }, cur.version);
-    this.d.publish("reminder.due", { taskId, reminderId, title: cur.title });
+    return this.withTaskWrite(taskId, async () => {
+      const cur = this.read(taskId);
+      const reminders = cur.reminders.map((r) => (r.id === reminderId ? { ...r, deliveredAt: iso(this.d.now()) } : r));
+      await this.d.repo.patch("task", taskId, { reminders }, cur.version);
+      this.d.publish("reminder.due", { taskId, reminderId, title: cur.title });
+    });
   }
 }

@@ -2,12 +2,17 @@ import { errors, isWorkbenchCaller, TaskCategorySchema, TaskCommentSchema, TaskD
 import type { Context } from "@huhu/cordis";
 import type { HuhuApi } from "@huhu/kernel";
 import { defineCapability as def } from "@huhu/kernel";
+import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { statSync } from "node:fs";
 import { z } from "zod";
+import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore } from "./dispatch-store.js";
 import { TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
+export type { TaskDispatchExecutor } from "./dispatch.js";
+export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule">;
 
 /** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
 export interface TaskQuery {
@@ -43,6 +48,8 @@ export interface TasksOptions {
   zone?: () => string;
   now?: () => Date;
   reminderCheckMs?: number;
+  dispatchCheckMs?: number;
+  dispatchExecutor?: TaskDispatchExecutor;
   /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
   notify?: (n: { title: string; module: string; body?: string }) => void;
   onError?: (e: unknown) => void;
@@ -50,13 +57,16 @@ export interface TasksOptions {
 
 /** tasks 插件入口（architecture.md §5）：注册能力、提醒检查；资源随作用域释放。 */
 export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void {
+  const now = opts.now ?? (() => new Date());
   const svc = new TasksService({
     repo: api.vault.repo,
     trash: api.vault.trash,
     publish: (t, p) => api.events.publish(t, p),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
-    now: opts.now ?? (() => new Date()),
+    now,
     hasActiveRun: (id) => api.service<{ activeFor(ids: string[]): Record<string, boolean> }>("automations")?.activeFor([id])[id],
+    hasDispatchHold: (id) => dispatch.hasHold(id),
+    hasStartedDispatch: (id) => dispatch.hasActiveRun(id),
     pathKind: (rel) => {
       if (!rel || rel.startsWith("/") || rel.split("/").includes("..")) return null;
       try {
@@ -66,6 +76,71 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         return null;
       }
     },
+  });
+  const dispatch: TaskDispatch = new TaskDispatch(svc, new DispatchStore(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly)), now, machineId(), opts.dispatchExecutor, opts.onError);
+
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch",
+      plugin: "tasks",
+      scope: "execute",
+      exposable: false,
+      defaultExposed: false,
+      input: DispatchInput,
+      output: DispatchReceipt,
+      handler: async (c, i) => {
+        if (c.caller !== "desktop") throw errors.permissionDenied("人工任务派遣");
+        const receipt = await dispatch.accept(i, { kind: "desktop" });
+        void dispatch.check();
+        return receipt;
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.read",
+      plugin: "tasks",
+      scope: "read",
+      exposable: false,
+      defaultExposed: false,
+      input: DispatchLookup,
+      output: DispatchReceipt,
+      handler: (c, i) => {
+        if (c.caller !== "desktop") throw errors.permissionDenied("查看任务派遣");
+        return dispatch.read(i);
+      },
+    }),
+  );
+  api.defineCapability(
+    def({
+      name: "tasks.dispatch.cancel",
+      plugin: "tasks",
+      scope: "write",
+      exposable: false,
+      defaultExposed: false,
+      input: DispatchLookup,
+      output: DispatchReceipt,
+      handler: (c, i) => {
+        if (c.caller !== "desktop") throw errors.permissionDenied("取消任务派遣");
+        return dispatch.cancel(i);
+      },
+    }),
+  );
+  api.provide("taskDispatch", {
+    acceptRule: async (input, source) => {
+      const receipt = await dispatch.acceptRule(input, source);
+      void dispatch.check();
+      return receipt;
+    },
+  } satisfies TaskRuleDispatch);
+
+  ctx.effect(() => {
+    void dispatch.check();
+    const timer = setInterval(() => void dispatch.check(), opts.dispatchCheckMs ?? 5_000);
+    return () => {
+      clearInterval(timer);
+      return dispatch.close();
+    };
   });
 
   const ListInput = z.object({ category: TaskCategorySchema.default("all"), status: z.array(TaskStatusSchema).optional(), type: TaskTypeSchema.optional(), tags: z.array(z.string()).optional(), query: z.string().optional() });
@@ -131,7 +206,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    def({ name: "tasks.delete", plugin: "tasks", scope: "write", exposable: true, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (svc.delete(i.id), { ok: true as const }) }),
+    def({
+      name: "tasks.delete",
+      plugin: "tasks",
+      scope: "write",
+      exposable: true,
+      defaultExposed: false,
+      input: Id,
+      output: z.object({ ok: z.literal(true) }),
+      handler: (_c, i) => svc.withTaskWrite(i.id, async () => (svc.delete(i.id), { ok: true as const })),
+    }),
   );
   api.defineCapability(
     def({
@@ -156,7 +240,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       output: TaskDtoSchema,
       handler: (c, i) => {
         if (c.caller !== "plugin:automations") throw errors.permissionDenied("派发联动（仅 automations 可用）");
-        return svc.markDispatched(i.id, { inputRevision: i.inputRevision, inputHash: i.inputHash }, i.runId);
+        return svc.markDispatched(i.id, { inputRevision: i.inputRevision, inputHash: i.inputHash }, i.runId, { legacy: true });
       },
     }),
   );
@@ -212,7 +296,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       defaultExposed: true,
       input: Id,
       output: z.array(z.object({ id: z.string(), state: z.string(), startedAt: z.string().nullable(), finishedAt: z.string().nullable(), model: z.string().nullable(), questions: z.number() })),
-      handler: (_c, i) => svc.runs(i.id),
+      handler: (_c, i) => [...svc.runs(i.id), ...dispatch.runs(i.id)],
     }),
   );
 

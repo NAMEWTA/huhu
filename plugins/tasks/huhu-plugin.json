@@ -13,7 +13,21 @@
     "settingsPages": [],
     "homeWidgets": ["tasks"],
     "commands": ["tasks.new"],
-    "capabilities": ["tasks.list", "tasks.read", "tasks.create", "tasks.update", "tasks.duplicate", "tasks.delete", "tasks.setStatus", "tasks.markDispatched", "tasks.comments.add", "tasks.runs"],
+    "capabilities": [
+      "tasks.list",
+      "tasks.read",
+      "tasks.create",
+      "tasks.update",
+      "tasks.duplicate",
+      "tasks.delete",
+      "tasks.setStatus",
+      "tasks.markDispatched",
+      "tasks.comments.add",
+      "tasks.runs",
+      "tasks.dispatch",
+      "tasks.dispatch.read",
+      "tasks.dispatch.cancel"
+    ],
     "fileKinds": ["task"]
   }
 }
