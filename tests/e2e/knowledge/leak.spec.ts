@@ -50,8 +50,16 @@ test(`H06 / F10：逐轮打开、切换并关闭笔记和预览（${rounds} 轮�
       return { nodes: value("Nodes"), listeners: value("JSEventListeners"), heapBytes: value("JSHeapUsedSize") };
     };
     const baseline = await probes();
-    const open = (name: string) => treeItem(page, name).click();
-    const closeTab = (name: string) => page.getByRole("button", { name: `关闭 ${name}`, exact: true }).click();
+    const tabClose = (name: string) => page.getByRole("button", { name: `关闭 ${name}`, exact: true });
+    const open = async (name: string) => {
+      const close = tabClose(name);
+      // 文件事件引起的列表刷新可能卸载正在点击的树行，等目标标签实际接到打开动作。
+      await expect(async () => {
+        if (!(await close.isVisible())) await treeItem(page, name).click({ timeout: 5_000 });
+        await expect(close).toBeVisible({ timeout: 500 });
+      }).toPass({ timeout: 15_000 });
+    };
+    const closeTab = (name: string) => tabClose(name).click();
     const source = page.locator(sourceSelector);
     const prose = page.locator(proseSelector);
 
@@ -117,6 +125,7 @@ test(`H06 / F10：逐轮打开、切换并关闭笔记和预览（${rounds} 轮�
     await expect.poll(resourceCounts, { timeout: 10_000 }).toEqual(released);
     await closeTab("预览甲.pdf");
     await expect.poll(async () => (await probes()).workersLive).toBe(baseline.workersLive);
+    await treeSettled(page);
 
     const samples = [];
     for (let round = 1; round <= rounds; round++) {

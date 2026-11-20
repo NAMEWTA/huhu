@@ -206,7 +206,7 @@ test("A08：移父目录前结算活动 TXT，后台 Markdown 与 JSON 草稿迁
     await page.getByLabel("文件夹", { exact: true }).selectOption("目的地");
     const move = page.getByRole("button", { name: "移动", exact: true });
     await move.click();
-    await expect(page.getByText("打开的文档有未保存的修改且无法落盘", { exact: false })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "移动文件" }).getByRole("alert")).toContainText("打开的文档有未保存的修改且无法落盘");
     expect(existsSync(path.join(vault, after))).toBe(false);
     expect(readFileSync(path.join(vault, before, "活动.txt"), "utf8")).toBe(files["活动.txt"]);
     failSave = false;
@@ -260,12 +260,14 @@ for (const removal of ["移动", "删除"] as const) {
       await page.keyboard.insertText("外移前的脏稿");
       if (removal === "移动") renameSync(file, moved);
       else rmSync(file);
-      await expect(page.getByText("文件已移走或删除", { exact: false })).toBeVisible();
+      await expect(page.getByText(`文件已移走或删除：${name}`, { exact: true })).toBeVisible();
       await expect.poll(async () => (await call<{ text: string } | null>(page, "notes.draft.get", { path: name }))?.text).toBe(written.replace(last, last + "外移前的脏稿"));
       expect(existsSync(file)).toBe(false);
       if (removal === "移动") expect(readFileSync(moved, "utf8")).toBe(written);
       await expect(page.getByRole("button", { name: "关闭 退出交付", exact: true })).toHaveCount(0);
-      writeFileSync(file, written);
+      await call(page, "notes.create", { name: name.slice(0, -3) });
+      const { version } = await call<{ version: string }>(page, "notes.read", { path: name });
+      await call(page, "notes.save", { path: name, text: written, expectedVersion: version });
       await treeSettled(page);
       await openNote(page);
       await page.getByTestId("note-draft-restore").click();

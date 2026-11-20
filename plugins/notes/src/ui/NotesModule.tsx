@@ -45,12 +45,6 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [tag, setTag] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const vaultId = engine.vaultId;
-  useEngineEvents((event) => {
-    if (event.type !== "vault.fileChanged") return;
-    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
-    if (change === "renamed" && from) documentSessions.get(vaultId, from)?.notifyExternalChange("deleted");
-    documentSessions.get(vaultId, path)?.notifyExternalChange(change);
-  });
   /** 标签 + 侧栏上下文的组合状态（同一个纯 reducer，没有互相触发的 effect，E02）。 */
   const [shell, dispatch] = useReducer(shellReducer, vaultId, (v) => restoreShellState(v, loadTabs(v)));
   const vaultRef = useRef(vaultId);
@@ -67,6 +61,19 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const notesRoot = useRef<HTMLDivElement>(null);
   const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
+  useEngineEvents((event) => {
+    if (event.type !== "vault.fileChanged") return;
+    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
+    const removed = change === "deleted" ? path : change === "renamed" ? from : undefined;
+    if (removed) {
+      const session = documentSessions.get(vaultId, removed);
+      if (session) {
+        session.notifyExternalChange("deleted");
+        if (selected === removed) setError(`文件已移走或删除：${removed}`);
+      }
+    }
+    if (change !== "deleted") documentSessions.get(vaultId, path)?.notifyExternalChange(change);
+  });
   const locale = useKnowledgeLocale();
   const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);
   useEffect(() => {
