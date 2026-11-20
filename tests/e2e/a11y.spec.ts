@@ -73,9 +73,14 @@ test("键盘：不碰鼠标新建笔记、新建任务并用空格勾选", async
     await page.getByTestId("new-note-dialog").getByLabel("文件名").fill("键盘笔记");
     await page.keyboard.press("Enter");
     await expect(treeItem(page, "键盘笔记")).toBeVisible();
+    await expect(page.getByTestId("new-note-dialog")).toBeHidden();
+    await expect(page.getByTestId("document-tab").filter({ hasText: "键盘笔记" })).toBeVisible();
     // 任务
-    await page.getByRole("button", { name: "任务", exact: true }).first().focus();
+    const tasks = page.getByRole("navigation", { name: "功能图标栏" }).getByRole("button", { name: "任务", exact: true });
+    await tasks.focus();
+    await expect(tasks).toBeFocused();
     await page.keyboard.press("Enter");
+    await expect(page.getByTestId("tasks-module")).toBeVisible();
     await page
       .getByRole("button", { name: /新建任务/ })
       .first()

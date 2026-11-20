@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path/posix";
 import { errors, KINDS, newId } from "@huhu/contracts";
-import { folderNoteDir, normalizeRelPath, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { folderNoteDir, normalizeRelPath, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
@@ -29,6 +29,9 @@ function withExtension(name: string, ext: string): string {
 const SEMANTIC_DIRS = new Set(Object.values(KINDS).map((k) => k.dir));
 /** 笔记 = 普通 Markdown。Tasks/、Automations/ 等语义目录里的文件由各自的插件管理，不是笔记。 */
 const isNoteFile = (p: string) => /\.md$/i.test(p) && !SEMANTIC_DIRS.has(p.split("/")[0] ?? "");
+const TEMPLATE_FOLDER = "模板";
+const isTemplateSource = (rel: string) => isNoteFile(rel.replace(/\.mdx$/i, ".md")) && !hasProtectedSegment(rel);
+const isLocalTemplate = (rel: string) => isTemplateSource(rel) && path.basename(path.dirname(rel)) === TEMPLATE_FOLDER;
 /** 任务文件：改名 / 移动时只改写正文（`<task>`、`<comments>`）里的双链，frontmatter 不动（任务 spec §3.4）。 */
 const isTaskFile = (p: string) => /^Tasks\/.+\.md$/i.test(p);
 
@@ -49,6 +52,8 @@ export interface MoveResult {
 
 /** 笔记与文件夹管理（modules/knowledge.md §3）。所有多文件改动走操作日志，可恢复。 */
 export class NotesService {
+  private readonly pendingCreations = new Set<string>();
+
   constructor(private readonly d: NotesDeps) {}
 
   // ---- 身份、星标、文件夹登记 ----
@@ -167,16 +172,66 @@ export class NotesService {
   }
 
   // ---- 新建、复制 ----
-  async create(input: { name: string; folder?: string; template?: NoteTemplate }): Promise<{ path: string; id: string }> {
+  private creationPathTaken(rel: string): boolean {
+    return this.pendingCreations.has(rel.toLowerCase()) || this.findCaseInsensitive(rel) !== null;
+  }
+
+  private async writeNewNote(rel: string, bytes: Uint8Array): Promise<void> {
+    if (this.creationPathTaken(rel)) throw errors.nameConflict("这个文件夹中已有同名文件");
+    const key = rel.toLowerCase();
+    this.pendingCreations.add(key);
+    try {
+      await this.d.files.write(rel, bytes, { expectedVersion: null });
+      this.d.index.refreshPaths([rel]);
+    } finally {
+      this.pendingCreations.delete(key);
+    }
+  }
+
+  private readTemplateSource(rel: string): Buffer {
+    if (!isTemplateSource(rel)) throw errors.invalidInput("请选择 Vault 内的 Markdown 文件");
+    const absolute = resolveReadableAsset(this.d.files.root, rel);
+    if (!statSync(absolute).isFile()) throw errors.invalidInput("请选择 Vault 内的 Markdown 文件");
+    return readFileSync(absolute);
+  }
+
+  templatePaths(): string[] {
+    return this.allFiles().filter(isLocalTemplate).sort();
+  }
+
+  async importTemplate(sourcePath: string): Promise<{ path: string }> {
+    const source = normalizeRelPath(sourcePath);
+    const parent = path.dirname(source);
+    if (path.basename(parent) === TEMPLATE_FOLDER) throw errors.invalidInput("这已经是模板文件");
+    const bytes = this.readTemplateSource(source);
+    const folder = path.join(parent, TEMPLATE_FOLDER);
+    if (parent !== ".") resolveReadableAsset(this.d.files.root, parent);
+    if (this.d.files.exists(folder)) {
+      const absolute = resolveReadableAsset(this.d.files.root, folder);
+      if (!statSync(absolute).isDirectory()) throw errors.nameConflict("目标模板目录已被同名文件占用");
+    }
+    const title = path.basename(source).replace(/\.mdx?$/i, "");
+    const error = validateName(title);
+    if (error) throw errors.invalidInput(error);
+    let rel = path.join(folder, `${title}.md`);
+    for (let suffix = 2; this.creationPathTaken(rel); suffix++) rel = path.join(folder, `${title}-${suffix}.md`);
+    await this.writeNewNote(rel, bytes);
+    return { path: rel };
+  }
+
+  async create(input: { name: string; folder?: string; template?: NoteTemplate; templatePath?: string }): Promise<{ path: string; id: string }> {
     const nameErr = validateName(input.name.replace(/\.md$/i, ""));
     if (nameErr) throw errors.invalidInput(nameErr);
     const base = input.name.replace(/\.md$/i, "").trim();
     const folder = input.folder ? normalizeRelPath(input.folder) : "";
     if (folder) this.assertValidSegments(folder);
     const rel = `${folder ? `${folder}/` : ""}${base}.md`;
-    if (this.findCaseInsensitive(rel)) throw errors.nameConflict("这个文件夹中已有同名文件");
-    await this.d.files.write(rel, Buffer.from(renderTemplate(input.template ?? "blank", base)), { expectedVersion: null });
-    this.d.index.refreshPaths([rel]);
+    const templatePath = input.templatePath === undefined ? undefined : normalizeRelPath(input.templatePath);
+    if (templatePath !== undefined && (input.template !== undefined || !isLocalTemplate(templatePath))) {
+      throw errors.invalidInput("请选择一个内置模板或 Vault 本地模板");
+    }
+    const bytes = templatePath === undefined ? Buffer.from(renderTemplate(input.template ?? "blank", base)) : this.readTemplateSource(templatePath);
+    await this.writeNewNote(rel, bytes);
     return { path: rel, id: await this.ensureId(rel) };
   }
 
@@ -267,6 +322,9 @@ export class NotesService {
 
   async move(rel: string, targetDir: string): Promise<MoveResult> {
     const dir = targetDir ? normalizeRelPath(targetDir) : "";
+    if (dir && !statSync(this.d.files.abs(dir), { throwIfNoEntry: false })?.isDirectory()) {
+      throw errors.notFound(`目标文件夹不存在：${dir}`);
+    }
     return this.moveEntry(rel, `${dir ? `${dir}/` : ""}${path.basename(rel)}`);
   }
 

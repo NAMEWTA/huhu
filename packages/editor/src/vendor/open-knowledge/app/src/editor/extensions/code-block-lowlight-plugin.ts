@@ -2,6 +2,7 @@ import { findChildren } from '@tiptap/core';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { topLevelParagraphInsert } from './top-level-paragraph-insert';
 
 interface HastTextNode {
   type: 'text';
@@ -96,6 +97,14 @@ export function LowlightPlugin(opts: {
         }
         const oldNodeName = oldState.selection.$head.parent.type.name;
         const newNodeName = newState.selection.$head.parent.type.name;
+        if (
+          name !== 'paragraph' &&
+          oldNodeName !== name &&
+          newNodeName !== name &&
+          topLevelParagraphInsert(transaction)
+        ) {
+          return decorationSet.map(transaction.mapping, transaction.doc);
+        }
         const oldNodes = findChildren(oldState.doc, (node) => node.type.name === name);
         const newNodes = findChildren(newState.doc, (node) => node.type.name === name);
 

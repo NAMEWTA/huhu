@@ -130,6 +130,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | R-50 | open-knowledge 44a2e0a | packages/{core,app}/src 中与闭包同目录的 `*.test.*`、助手与 fixtures（167 原样 + 1 适配，另 70 个因被测模块不在闭包而不迁入） | packages/editor/src/vendor/open-knowledge/ 同路径；`pnpm test:vendor` | 复制：结果与三分类见 `evidence/vendor-test-results.md`，原样基线 `evidence/tests-manifest.json` |
 | R-51 | open-knowledge 44a2e0a | patches/*.patch（9 条：@handlewithcare/remark-prosemirror、@lingui/core、@pierre/trees、@radix-ui/react-tooltip、@tiptap/extension-drag-handle、@tiptap/y-tiptap、cmdk、react-medium-image-zoom、y-indexeddb） | patches/ 与 pnpm-workspace.yaml 的 patchedDependencies | 原样复制；另 `pdfjs-dist@6.3.289` 补丁见 R-44 |
 | R-52 | open-knowledge 44a2e0a | pnpm-lock.yaml 的解析版本 | pnpm-workspace.yaml 的 overrides（tiptap / ProseMirror / mdast / hast 等） | 版本对齐（行为基线）：浮动到更新的传递依赖会改变编辑器行为（例：mdast-util-gfm-task-list-item 2.0.1 把任务项序列化成 `- [ ] [ ] x`）；登记见 PATCHES.md P-D-01 |
+| R-53 | prosemirror-view 1.41.8（MIT），参照 [1.42.9 聚焦修复](https://code.haverbeke.berlin/prosemirror/prosemirror-view/commit/2978d100a6c6f94bf59a97cbe88f53d3bcaf6f9d) 与 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) | `src/input.ts`、`dist/index.js`、`dist/index.cjs` | `patches/prosemirror-view@1.41.8.patch`，由 `pnpm-workspace.yaml` 登记 | B06 聚焦竞态。保留聚焦后形成的扩选。可编辑视图中，本次聚焦后的原生导航使折叠光标移动时，先让 DOM 观察器读取光标。无该导航时沿用原有恢复，组合输入期间不提前读取。升级依赖时复跑 `editor-selection-focus.spec.ts` 核对补丁能否移除。 |
+
+## 黄金往返测试夹具
+
+- Open Knowledge 固定在 `44a2e0a`（Inkeep，GPL-3.0-or-later）。`packages/editor/test/golden-roundtrip.test.ts` 直接从对应的 vendor 目录 `packages/editor/src/vendor/open-knowledge/core/src/markdown/fixtures/` 读取，目录映射到上游 `packages/core/src/markdown/fixtures/`。该目录有 10 个 Markdown 数据文件、6 个 JSON 数据文件、4 个 `.gitkeep` 和 2 个 TypeScript 管理文件。6 个 JSON 文件按 `markdown`、`input`、`source`、`blockForm`、`inlineForm` 展开共 109 个 Markdown 样本。数据文件与原测试副本逐字节一致。原项目许可证保留在 vendor 的 `LICENSE`。
+- Huhu 的三份文本样本位于 `packages/editor/test/fixtures/golden/huhu/`。加密 PDF 是 Huhu 本地合成的测试夹具，位于 `tests/fixtures/password-protected.pdf`。使用本地单页 PDF 作输入，执行 `gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dEncryptionR=3 -dKeyLength=128 -sOwnerPassword=owner-fixture -sUserPassword=reader-fixture -sOutputFile=tests/fixtures/password-protected.pdf input.pdf`。
 
 ## npm 运行时依赖
 
@@ -437,6 +443,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | @tanstack/virtual-core | 3.13.12 | MIT | https://tanstack.com/virtual |
 | @testing-library/dom | 10.4.2 | MIT | https://github.com/testing-library/dom-testing-library#readme |
 | @testing-library/react | 16.3.3 | MIT | https://github.com/testing-library/react-testing-library#readme |
+| @testing-library/user-event | 14.6.12 | MIT | https://github.com/testing-library/user-event#readme |
 | @tiptap/core | 3.22.3 | MIT | https://tiptap.dev |
 | @tiptap/extension-blockquote | 3.22.3 | MIT | https://tiptap.dev |
 | @tiptap/extension-bold | 3.22.3 | MIT | https://tiptap.dev |
@@ -798,6 +805,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | electron-winstaller | 5.4.0 | MIT |  |
 | emoji-regex | 10.6.0 | MIT | https://mths.be/emoji-regex |
 | emoji-regex | 8.0.0 | MIT | https://mths.be/emoji-regex |
+| emojibase | 18.0.0 | MIT |  |
+| emojibase-data | 16.0.2 | MIT |  |
 | encodeurl | 2.0.1 | MIT |  |
 | end-of-stream | 1.4.5 | MIT | https://github.com/mafintosh/end-of-stream |
 | enhanced-resolve | 5.27.0 | MIT | https://github.com/webpack/enhanced-resolve#readme |

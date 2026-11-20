@@ -28,6 +28,24 @@ registerHostRoutes(filesRoutes(deps));
 const get = async (url: string) => (await hostFetch(url)).json();
 const post = async (url: string, body: unknown) => (await hostFetch(url, { method: "POST", body: JSON.stringify(body) })).json();
 
+test("目录模板依次取本地、祖先和根，同名最近优先，排除其他分支", async () => {
+  const stop = registerHostRoutes(
+    filesRoutes({
+      ...deps,
+      listTemplates: async () => ["模板/同名.md", "模板/根模板.md", "甲/模板/同名.md", "甲/模板/甲模板.md", "甲/子/模板/本地.md", "甲/其他/模板/其他.md", "甲乙/模板/前缀相同.md"],
+    }),
+  );
+  const entry = (file: string, source_folder: string, scope: string) => ({ name: file, path: file, source_folder, scope });
+  const templatesIn = async (folder: string) => (await get(`/api/folder-config?${new URLSearchParams({ path: folder })}`)).folder.templates_available;
+  try {
+    expect(await templatesIn("甲/子")).toEqual([entry("甲/子/模板/本地.md", "甲/子", "local"), entry("甲/模板/同名.md", "甲", "inherited"), entry("甲/模板/甲模板.md", "甲", "inherited"), entry("模板/根模板.md", "", "inherited")]);
+    expect(await templatesIn("乙")).toEqual([entry("模板/同名.md", "", "inherited"), entry("模板/根模板.md", "", "inherited")]);
+    expect(await templatesIn("")).toEqual([entry("模板/同名.md", "", "local"), entry("模板/根模板.md", "", "local")]);
+  } finally {
+    stop();
+  }
+});
+
 describe("S5 files 路由（A01 / A05 / A10：全部真实文件、空目录、受保护元信息）", () => {
   test("列举整层：文件夹 / md / 非 md 都出现，响应通过上游 schema", async () => {
     const body = await get("/api/documents?showAll=true&dir=&depth=1");

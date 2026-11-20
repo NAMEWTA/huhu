@@ -694,6 +694,16 @@ function FileTreeMenu({
                 }
               : undefined
           }
+          allowTemplateConversion={false}
+          onImportTemplate={
+            !isOkRow && target.kind === 'file' && /^\.?mdx?$/i.test(target.docExt ?? '') &&
+            !relativePath.split('/').slice(0, -1).includes('模板')
+              ? () => {
+                  close();
+                  onImportTemplate(target, false);
+                }
+              : undefined
+          }
           onCopyFullPath={() => {
             if (!workspace) return;
             close();
@@ -778,6 +788,7 @@ export interface FileTreeHandle {
 
 export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
   const { t, i18n } = useLingui();
+  const contextMenuLabel = t`File options`;
   const {
     activeDocName,
     activeTarget,
@@ -842,7 +853,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
   const [templateConvertRequest, setTemplateConvertRequest] = useState<FileTreeTarget | null>(null);
   const [trashFailure, setTrashFailure] = useState<TrashFailureRequest | null>(null);
   const { conflicts: activeConflicts } = useConflicts();
-  const [newItemRequest, setNewItemRequest] = useState<{ parentDir: string } | null>(null);
+  const [newItemRequest, setNewItemRequest] = useState<{ parentDir: string; templateName?: string } | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [creationDirCleared, setCreationDirCleared] = useState(false);
   const creationDirClearedRef = useRef(creationDirCleared);
@@ -2360,6 +2371,10 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       }
       const anchor = shadow.querySelector<HTMLElement>('[data-type="context-menu-anchor"]');
       if (anchor) {
+        const trigger = anchor.querySelector<HTMLButtonElement>('[data-type="context-menu-trigger"]');
+        if (trigger?.getAttribute('aria-label') !== contextMenuLabel) {
+          trigger?.setAttribute('aria-label', contextMenuLabel);
+        }
         const hoveredPath = shadow.querySelector<HTMLElement>(
           '[data-item-context-hover="true"][data-item-path]',
         )?.dataset.itemPath;
@@ -2376,7 +2391,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
       attributeFilter: ['data-item-path', 'data-item-context-hover'],
     });
     return () => observer.disconnect();
-  }, [loading, documents.length]);
+  }, [loading, documents.length, contextMenuLabel]);
 
   useEffect(() => {
     if (loading || documents.length === 0) return;
@@ -3169,7 +3184,7 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
               okignoreBinding={okignoreBinding}
               onStartCreating={startCreating}
               onCreateFromTemplate={(parentDir, templateName) =>
-                startCreating('file', parentDir, { template: templateName })
+                setNewItemRequest({ parentDir, templateName })
               }
               onDuplicate={handleDuplicateTarget}
               onImportTemplate={handleImportTemplate}
@@ -3288,6 +3303,8 @@ export function FileTree({ ref }: { ref?: Ref<FileTreeHandle | null> }) {
         }}
         kind="file"
         initialDir={newItemRequest?.parentDir ?? ''}
+        initialTemplate={newItemRequest?.templateName}
+        onCreated={(docName) => navigateWithPulse({ kind: 'doc', docName })}
         defaultToTemplate
       />
     </>

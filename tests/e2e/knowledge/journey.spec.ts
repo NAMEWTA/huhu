@@ -170,12 +170,15 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
 
     // ── 7 保存重开一致；无编辑不写盘 ──
     const saved = readFileSync(path.join(vault, "日志.md"), "utf8");
-    await treeItem(page, "冷笔记").click();
+    // 批注落盘会刷新文件树。两个笔记已经打开，直接切换标签。
+    const coldTab = page.getByTestId("document-tab").and(page.locator('[title="冷笔记.md"]'));
+    const journalTab = page.getByTestId("document-tab").and(page.locator('[title="日志.md"]'));
+    await coldTab.click();
     await expect(prose(page)).toContainText("不会被编辑", { timeout: 30_000 });
     await page.waitForTimeout(2500);
     expect(readFileSync(path.join(vault, "冷笔记.md"), "utf8")).toBe(coldBytes);
     expect(statSync(path.join(vault, "冷笔记.md")).mtimeMs).toBe(coldMtime); // 打开—停留—离开，一次都没写
-    await treeItem(page, "日志").click();
+    await journalTab.click();
     await expect(prose(page)).toContainText("条目甲", { timeout: 30_000 });
     await expect(prose(page)).toContainText("资料/机密笔记.md");
     expect(readFileSync(path.join(vault, "日志.md"), "utf8")).toBe(saved); // 重开不改写
@@ -224,17 +227,17 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     await expect.poll(() => readFileSync(path.join(vault, "Archives", "通讯录", "张三", "index.md"), "utf8")).toContain("456");
 
     // ── 11 切回文件继续编辑：侧栏回到文件树，内容仍在，新输入落盘 ──
-    await page.getByTestId("document-tab").filter({ hasText: "日志" }).click();
+    await journalTab.click();
     await expect(page.getByTestId("notes-explorer-tree")).toBeVisible();
     await expect(prose(page)).toContainText("条目甲", { timeout: 30_000 });
     await prose(page).click();
     await page.keyboard.press("ControlOrMeta+End");
-    await page.keyboard.type("切回后继续写");
+    const tail = "切回后继续写";
+    await page.keyboard.type(tail);
+    // 富文本桥接尚未提交这次输入时，状态仍可能显示上一次的「已保存」。
+    const expected = saved.replace("条目甲", `条目甲${tail}`);
+    await expect.poll(() => readFileSync(path.join(vault, "日志.md"), "utf8"), { timeout: 15_000 }).toBe(expected);
     await expect(page.getByTestId("save-state")).toHaveText("已保存", { timeout: 15_000 });
-    const finalDisk = readFileSync(path.join(vault, "日志.md"), "utf8");
-    expect(finalDisk).toContain("切回后继续写");
-    expect(finalDisk).toContain("title: 旅程乙");
-    expect(finalDisk).toContain("zip: 007");
     expect(treeRows(page)).toBeTruthy();
     expect(errors).toEqual([]);
   } finally {

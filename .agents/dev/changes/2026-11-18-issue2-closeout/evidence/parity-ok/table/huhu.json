@@ -1,0 +1,13 @@
+{
+  "drag-second-row-below-third": {
+    "status": "observed",
+    "value": {
+      "rows": [
+        "NameValue",
+        "First row1",
+        "Third row3",
+        "Second row2"
+      ]
+    }
+  }
+}

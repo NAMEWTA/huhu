@@ -1,0 +1,36 @@
+{
+  "context-menu": {
+    "status": "observed",
+    "value": {
+      "items": [
+        "关闭",
+        "关闭其他",
+        "全部关闭",
+        "用 AI 打开",
+        "复制路径",
+        "作为模板导入",
+        "创建副本",
+        "重命名",
+        "隐藏这个文件",
+        "删除",
+        "固定标签页",
+        "移动到左侧新窗格",
+        "移动到右侧新窗格"
+      ]
+    }
+  },
+  "keyboard-and-escape": {
+    "status": "observed",
+    "value": {
+      "focused": "关闭",
+      "restored": true
+    }
+  },
+  "close-others": {
+    "status": "observed",
+    "value": {
+      "left": 1,
+      "right": 0
+    }
+  }
+}

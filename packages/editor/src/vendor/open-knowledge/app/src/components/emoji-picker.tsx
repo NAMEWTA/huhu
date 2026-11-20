@@ -29,9 +29,11 @@ const EMOJI_LIST_COMPONENTS: EmojiPickerListComponents = {
 };
 
 export function FrimousseEmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
-  const { t } = useLingui();
+  const { t, i18n } = useLingui();
   return (
     <EmojiPicker.Root
+      locale={i18n.locale === 'zh-Hans' ? 'zh' : 'en'}
+      emojibaseUrl="/api/local-emoji"
       className="isolate flex h-[326px] w-[320px] flex-col bg-popover text-popover-foreground"
       onEmojiSelect={({ emoji }) => onSelect(emoji)}
     >

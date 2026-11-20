@@ -27,6 +27,7 @@ import {
 const RAIL_WIDTH = 34;
 const ICON_H = 30;
 const GAP = 4;
+const HOST_GUTTER_INSET = 6;
 
 interface RailBox {
   top: number;
@@ -98,6 +99,7 @@ export function CommentMarginRail({ editor, docName }: { editor: Editor; docName
     if (!view) return;
     const container = findScrollContainer(view.dom);
     if (!container) return;
+    const hostLayout = container.closest('.notes-editor-layout');
     const open = threads.filter(
       (thread) =>
         thread.status === 'open' && (thread.target.kind === 'property' || thread.anchor !== null),
@@ -127,7 +129,12 @@ export function CommentMarginRail({ editor, docName }: { editor: Editor; docName
           targets.push({ id: thread.id, y });
         }
       }
-      const left = railLeft(rect, horizontalClipRight(container));
+      const detail = hostLayout?.querySelector(':scope > [data-region="detail"]');
+      // Huhu's narrow details panel overlays the right gutter. Use the opposite gutter
+      // instead of putting the controls over the portion of the text that remains visible.
+      const detailOverlaysGutter = detail !== null && detail !== undefined && getComputedStyle(detail).position === 'absolute';
+      const rightGutter = railLeft(rect, horizontalClipRight(container));
+      const left = rightGutter !== null && detailOverlaysGutter ? rect.left + HOST_GUTTER_INSET : rightGutter;
       if (left === null) {
         setRail(null);
         setPositions([]);
@@ -151,12 +158,15 @@ export function CommentMarginRail({ editor, docName }: { editor: Editor; docName
     container.addEventListener('scroll', onChange, { passive: true });
     const observer = new ResizeObserver(onChange);
     observer.observe(container);
+    const hostObserver = hostLayout ? new MutationObserver(onChange) : null;
+    if (hostLayout) hostObserver?.observe(hostLayout, { childList: true });
     editor.on('update', onChange);
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame);
       window.removeEventListener('resize', onChange);
       container.removeEventListener('scroll', onChange);
       observer.disconnect();
+      hostObserver?.disconnect();
       editor.off('update', onChange);
     };
   }, [editor, threads]);
@@ -218,6 +228,6 @@ export function CommentMarginRail({ editor, docName }: { editor: Editor; docName
         );
       })}
     </div>,
-    document.body,
+    getEditorView(editor)?.dom.closest('[data-ok-root]') ?? document.body,
   );
 }

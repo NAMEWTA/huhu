@@ -1,0 +1,242 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index ce89be47cebd61a79c6039950f6dcd10df0e3c7e..454d1d440de0f432ac885ce7ecffeea7b6028381 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -2913,6 +2913,7 @@ var InputState = _createClass(function InputState() {
+   this.lastIOSEnter = 0;
+   this.lastIOSEnterFallbackTimeout = -1;
+   this.lastFocus = 0;
++  this.pendingFocus = null;
+   this.lastTouch = 0;
+   this.lastChromeDelete = 0;
+   this.composing = false;
+@@ -2978,6 +2979,8 @@ function _dispatchEvent(view, event) {
+ }
+ editHandlers.keydown = function (view, _event) {
+   var event = _event;
++  var pendingFocus = view.input.pendingFocus;
++  if (pendingFocus) pendingFocus.beforeNavigation = null;
+   view.input.shiftKey = event.keyCode == 16 || event.shiftKey;
+   if (inOrNearComposition(view, event)) return;
+   view.input.lastKeyCode = event.keyCode;
+@@ -3001,6 +3004,12 @@ editHandlers.keydown = function (view, _event) {
+     event.preventDefault();
+   } else {
+     setSelectionOrigin(view, "key");
++    // PageUp through ArrowDown are the native caret navigation keys.
++    if (pendingFocus && event.isTrusted && !event.isComposing && !event.defaultPrevented &&
++      event.keyCode >= 33 && event.keyCode <= 40) {
++      var sel = view.domSelectionRange();
++      pendingFocus.beforeNavigation = { anchorNode: sel.anchorNode, anchorOffset: sel.anchorOffset, focusNode: sel.focusNode, focusOffset: sel.focusOffset };
++    }
+   }
+ };
+ editHandlers.keyup = function (view, event) {
+@@ -3563,8 +3572,37 @@ handlers.focus = function (view) {
+     view.dom.classList.add("ProseMirror-focused");
+     view.domObserver.start();
+     view.focused = true;
++    var startSel = view.domSelectionRange(),
++      anchorNode = startSel.anchorNode,
++      anchorOffset = startSel.anchorOffset,
++      focusNode = startSel.focusNode,
++      focusOffset = startSel.focusOffset;
++    var pendingFocus = { beforeNavigation: null };
++    view.input.pendingFocus = pendingFocus;
+     setTimeout(function () {
+-      if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange())) selectionToDOM(view);
++      if (view.input.pendingFocus != pendingFocus) return;
++      view.input.pendingFocus = null;
++      if (!view.docView || !view.hasFocus()) return;
++      var sel = view.domSelectionRange();
++      if (view.domObserver.currentSelection.eq(sel)) return;
++      var inEditor = view.editable && !view.composing && sel.anchorNode && sel.focusNode &&
++        view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode);
++      var beforeNavigation = pendingFocus.beforeNavigation;
++      if (inEditor && selectionCollapsed(sel) && beforeNavigation && view.input.lastSelectionOrigin == "key" &&
++        (sel.anchorNode != beforeNavigation.anchorNode || sel.anchorOffset != beforeNavigation.anchorOffset ||
++          sel.focusNode != beforeNavigation.focusNode || sel.focusOffset != beforeNavigation.focusOffset)) {
++        // Read a native caret move from this focus before restoring the model selection.
++        view.domObserver.flush();
++        return;
++      }
++      if (inEditor && !selectionCollapsed(sel)) {
++        view.domObserver.flush();
++        if (!view.docView || !view.hasFocus()) return;
++        sel = view.domSelectionRange();
++        // Preserve a range formed after focus even if the observer hasn't caught up yet.
++        if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) && (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset || sel.focusNode != focusNode || sel.focusOffset != focusOffset)) return;
++      }
++      if (!view.domObserver.currentSelection.eq(sel)) selectionToDOM(view);
+     }, 20);
+   }
+ };
+diff --git a/dist/index.js b/dist/index.js
+index 2f19364145a8bb8c0f44c738d58271c76078e6f9..68106de7c05a6567baae820aad6a45c5f5f0e8bb 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -3066,6 +3066,7 @@ class InputState {
+         this.lastIOSEnter = 0;
+         this.lastIOSEnterFallbackTimeout = -1;
+         this.lastFocus = 0;
++        this.pendingFocus = null;
+         this.lastTouch = 0;
+         this.lastChromeDelete = 0;
+         this.composing = false;
+@@ -3140,6 +3141,9 @@ function dispatchEvent(view, event) {
+ }
+ editHandlers.keydown = (view, _event) => {
+     let event = _event;
++    let pendingFocus = view.input.pendingFocus;
++    if (pendingFocus)
++        pendingFocus.beforeNavigation = null;
+     view.input.shiftKey = event.keyCode == 16 || event.shiftKey;
+     if (inOrNearComposition(view, event))
+         return;
+@@ -3171,6 +3175,12 @@ editHandlers.keydown = (view, _event) => {
+     }
+     else {
+         setSelectionOrigin(view, "key");
++        // PageUp through ArrowDown are the native caret navigation keys.
++        if (pendingFocus && event.isTrusted && !event.isComposing && !event.defaultPrevented &&
++            event.keyCode >= 33 && event.keyCode <= 40) {
++            let { anchorNode, anchorOffset, focusNode, focusOffset } = view.domSelectionRange();
++            pendingFocus.beforeNavigation = { anchorNode, anchorOffset, focusNode, focusOffset };
++        }
+     }
+ };
+ editHandlers.keyup = (view, event) => {
+@@ -3816,8 +3826,40 @@ handlers.focus = view => {
+         view.dom.classList.add("ProseMirror-focused");
+         view.domObserver.start();
+         view.focused = true;
++        let { anchorNode, anchorOffset, focusNode, focusOffset } = view.domSelectionRange();
++        let pendingFocus = { beforeNavigation: null };
++        view.input.pendingFocus = pendingFocus;
+         setTimeout(() => {
+-            if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange()))
++            if (view.input.pendingFocus != pendingFocus)
++                return;
++            view.input.pendingFocus = null;
++            if (!view.docView || !view.hasFocus())
++                return;
++            let sel = view.domSelectionRange();
++            if (view.domObserver.currentSelection.eq(sel))
++                return;
++            let inEditor = view.editable && !view.composing && sel.anchorNode && sel.focusNode &&
++                view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode);
++            let beforeNavigation = pendingFocus.beforeNavigation;
++            if (inEditor && selectionCollapsed(sel) && beforeNavigation && view.input.lastSelectionOrigin == "key" &&
++                (sel.anchorNode != beforeNavigation.anchorNode || sel.anchorOffset != beforeNavigation.anchorOffset ||
++                    sel.focusNode != beforeNavigation.focusNode || sel.focusOffset != beforeNavigation.focusOffset)) {
++                // Read a native caret move from this focus before restoring the model selection.
++                view.domObserver.flush();
++                return;
++            }
++            if (inEditor && !selectionCollapsed(sel)) {
++                view.domObserver.flush();
++                if (!view.docView || !view.hasFocus())
++                    return;
++                sel = view.domSelectionRange();
++                // Preserve a range formed after focus even if the observer hasn't caught up yet.
++                if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) &&
++                    (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset ||
++                        sel.focusNode != focusNode || sel.focusOffset != focusOffset))
++                    return;
++            }
++            if (!view.domObserver.currentSelection.eq(sel))
+                 selectionToDOM(view);
+         }, 20);
+     }
+diff --git a/src/input.ts b/src/input.ts
+index fc65988b97cd6e8d2ac774995410ff8d60863083..b1f3e6b9e661a499677fa966edf3cc74340b72ac 100644
+--- a/src/input.ts
++++ b/src/input.ts
+@@ -6,7 +6,7 @@ import * as browser from "./browser"
+ import {captureKeyDown} from "./capturekeys"
+ import {parseFromClipboard, serializeForClipboard} from "./clipboard"
+ import {selectionBetween, selectionToDOM, selectionFromDOM} from "./selection"
+-import {keyEvent, DOMNode, textNodeBefore, textNodeAfter} from "./dom"
++import {keyEvent, DOMNode, textNodeBefore, textNodeAfter, selectionCollapsed, DOMSelectionRange} from "./dom"
+ import {EditorView} from "./index"
+ import {ViewDesc} from "./viewdesc"
+ 
+@@ -16,6 +16,10 @@ const handlers: {[event: string]: (view: EditorView, event: Event) => void} = {}
+ const editHandlers: {[event: string]: (view: EditorView, event: Event) => void} = {}
+ const passiveHandlers: Record<string, boolean> = {touchstart: true, touchmove: true}
+ 
++interface PendingFocus {
++  beforeNavigation: DOMSelectionRange | null
++}
++
+ export class InputState {
+   shiftKey = false
+   mouseDown: MouseDown | null = null
+@@ -27,6 +31,7 @@ export class InputState {
+   lastIOSEnter = 0
+   lastIOSEnterFallbackTimeout = -1
+   lastFocus = 0
++  pendingFocus: PendingFocus | null = null
+   lastTouch = 0
+   lastChromeDelete = 0
+   composing = false
+@@ -105,6 +110,8 @@ export function dispatchEvent(view: EditorView, event: Event) {
+ 
+ editHandlers.keydown = (view: EditorView, _event: Event) => {
+   let event = _event as KeyboardEvent
++  let pendingFocus = view.input.pendingFocus
++  if (pendingFocus) pendingFocus.beforeNavigation = null
+   view.input.shiftKey = event.keyCode == 16 || event.shiftKey
+   if (inOrNearComposition(view, event)) return
+   view.input.lastKeyCode = event.keyCode
+@@ -132,6 +139,12 @@ editHandlers.keydown = (view: EditorView, _event: Event) => {
+     event.preventDefault()
+   } else {
+     setSelectionOrigin(view, "key")
++    // PageUp through ArrowDown are the native caret navigation keys.
++    if (pendingFocus && event.isTrusted && !event.isComposing && !event.defaultPrevented &&
++        event.keyCode >= 33 && event.keyCode <= 40) {
++      let {anchorNode, anchorOffset, focusNode, focusOffset} = view.domSelectionRange()
++      pendingFocus.beforeNavigation = {anchorNode, anchorOffset, focusNode, focusOffset}
++    }
+   }
+ }
+ 
+@@ -785,9 +798,35 @@ handlers.focus = view => {
+     view.dom.classList.add("ProseMirror-focused")
+     view.domObserver.start()
+     view.focused = true
++    let {anchorNode, anchorOffset, focusNode, focusOffset} = view.domSelectionRange()
++    let pendingFocus: PendingFocus = {beforeNavigation: null}
++    view.input.pendingFocus = pendingFocus
+     setTimeout(() => {
+-      if (view.docView && view.hasFocus() && !view.domObserver.currentSelection.eq(view.domSelectionRange()))
+-        selectionToDOM(view)
++      if (view.input.pendingFocus != pendingFocus) return
++      view.input.pendingFocus = null
++      if (!view.docView || !view.hasFocus()) return
++      let sel = view.domSelectionRange()
++      if (view.domObserver.currentSelection.eq(sel)) return
++      let inEditor = view.editable && !view.composing && sel.anchorNode && sel.focusNode &&
++        view.dom.contains(sel.anchorNode) && view.dom.contains(sel.focusNode)
++      let beforeNavigation = pendingFocus.beforeNavigation
++      if (inEditor && selectionCollapsed(sel) && beforeNavigation && view.input.lastSelectionOrigin == "key" &&
++          (sel.anchorNode != beforeNavigation.anchorNode || sel.anchorOffset != beforeNavigation.anchorOffset ||
++           sel.focusNode != beforeNavigation.focusNode || sel.focusOffset != beforeNavigation.focusOffset)) {
++        // Read a native caret move from this focus before restoring the model selection.
++        view.domObserver.flush()
++        return
++      }
++      if (inEditor && !selectionCollapsed(sel)) {
++        view.domObserver.flush()
++        if (!view.docView || !view.hasFocus()) return
++        sel = view.domSelectionRange()
++        // Preserve a range formed after focus even if the observer hasn't caught up yet.
++        if (sel.anchorNode && sel.focusNode && !selectionCollapsed(sel) &&
++            (sel.anchorNode != anchorNode || sel.anchorOffset != anchorOffset ||
++             sel.focusNode != focusNode || sel.focusOffset != focusOffset)) return
++      }
++      if (!view.domObserver.currentSelection.eq(sel)) selectionToDOM(view)
+     }, 20)
+   }
+ }

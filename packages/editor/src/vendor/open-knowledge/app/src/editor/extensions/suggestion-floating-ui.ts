@@ -90,6 +90,7 @@ export function createSuggestionPopup(
   reveal: () => void;
 } {
   const popup = document.createElement('div');
+  popup.className = 'ok-root';
   popup.dataset.suggestionPopup = label;
   if (clipToEditorPane) popup.dataset.suggestionClipped = '';
   popup.style.position = 'fixed';

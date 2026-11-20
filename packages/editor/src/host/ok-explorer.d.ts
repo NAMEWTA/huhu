@@ -21,6 +21,8 @@ export interface FilesRouteDeps {
   duplicate(input: { kind: "file" | "folder"; path: string }): Promise<{ path: string; paths: string[] }>;
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
+  listTemplates?(): Promise<string[]>;
+  importTemplate?(sourcePath: string): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
   upload?(input: { file: File; dir: string; name: string; notePath?: string }): Promise<{ path: string; deduped?: boolean }>;
   workspace(): { root: string; separator: "/" | "\\" };

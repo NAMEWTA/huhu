@@ -58,6 +58,7 @@ import {
   type PreviewTheme,
   parsePreviewCspViolationMessage,
   parsePreviewHeightMessage,
+  parsePreviewPointerMessage,
 } from './preview-iframe-header';
 
 const PLAIN_TEXT = 'plaintext';
@@ -99,6 +100,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos, selected
   const previewWrapperRef = useRef<HTMLDivElement | null>(null);
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
+  const [previewHovered, setPreviewHovered] = useState(false);
   const [blockedRequests, setBlockedRequests] = useState<{
     blocked: PreviewBlockedRequest[];
     truncated: boolean;
@@ -167,6 +169,12 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos, selected
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.source !== previewFrameRef.current?.contentWindow) return;
+      // Pointer events inside the sandboxed frame do not reach the block.
+      const pointerInside = parsePreviewPointerMessage(e.data);
+      if (pointerInside !== null) {
+        setPreviewHovered(pointerInside);
+        return;
+      }
       const reported = parsePreviewHeightMessage(e.data);
       if (reported !== null) {
         setAutoHeight((prev) =>
@@ -249,7 +257,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos, selected
       data-selected={selected ? 'true' : undefined}
       data-preview={previewActive ? 'true' : undefined}
       data-code-visible={codeVisible ? 'true' : 'false'}
-      data-hovered={hovered ? 'true' : undefined}
+      data-hovered={hovered || (previewActive && previewHovered) ? 'true' : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -274,6 +282,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos, selected
             html={buildPreviewIframeHeader(bakedTheme) + node.textContent}
             className="ok-codeblock-preview-frame"
             onLoad={() => {
+              setPreviewHovered(false);
               setBlockedRequests(null);
               previewFrameRef.current?.contentWindow?.postMessage(
                 buildPreviewThemeMessage(appTheme),

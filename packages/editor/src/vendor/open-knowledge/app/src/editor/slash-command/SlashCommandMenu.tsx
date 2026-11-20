@@ -1,3 +1,5 @@
+import type { MessageDescriptor } from '@lingui/core';
+import { msg } from '@lingui/core/macro';
 import { Trans, useLingui } from '@lingui/react/macro';
 import { useEffect, useId, useRef } from 'react';
 import type { SlashCommandItem } from './items';
@@ -9,6 +11,17 @@ interface SlashCommandMenuProps {
   onSelect: (item: SlashCommandItem) => void;
   onHoverIndex?: (index: number) => void;
 }
+
+const GROUP_LABELS: Partial<Record<string, MessageDescriptor>> = {
+  'Basic blocks': msg`Basic blocks`,
+  'Insert': msg`Insert`,
+  'Skills': msg`Skills`,
+  'Components': msg`Components`,
+  'Layout': msg`Layout`,
+  'Media': msg`Media`,
+  'Data': msg`Data`,
+  'Embeds': msg`Embeds`,
+};
 
 function skillBlurb(item: SlashCommandItem): string | undefined {
   return item.category === 'skills' ? item.description : undefined;
@@ -33,6 +46,12 @@ export function SlashCommandMenu({
     selectedIndex >= 0 && selectedIndex < items.length
       ? `${listboxId}-option-${selectedIndex}`
       : undefined;
+
+  const groupLabel = (category: string) => {
+    const label = categoryLabels[category] ?? category;
+    const message = GROUP_LABELS[label];
+    return message ? t(message) : label;
+  };
 
   const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
 
@@ -101,7 +120,7 @@ export function SlashCommandMenu({
               id={`${listboxId}-group-${cat.key}`}
               className="px-2 py-1.5 text-xs font-semibold text-muted-foreground"
             >
-              {categoryLabels[cat.key] ?? cat.key}
+              {groupLabel(cat.key)}
             </div>
             {cat.items.map((item) => {
               const idx = indexMap.get(item) ?? 0;
@@ -114,6 +133,7 @@ export function SlashCommandMenu({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  data-slash-command={item.name}
                   data-selected={isSelected}
                   className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-left ${
                     isSelected ? 'bg-accent text-accent-foreground' : ''

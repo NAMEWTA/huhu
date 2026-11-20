@@ -17,6 +17,7 @@
     "src/source",
     "test/host-files.test.ts",
     "test/upload-routes.test.ts",
-    "test/frontmatter-codec.test.ts"
+    "test/frontmatter-codec.test.ts",
+    "test/markdown-parity.test.ts"
   ]
 }

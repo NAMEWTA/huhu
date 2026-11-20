@@ -1,16 +1,18 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
-import { FileViewer } from "./viewers/FileViewer.js";
-import { NoteContextMenu } from "./NoteContextMenu.js";
+import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
 import { MoveDialog, NameDialog, NewNoteDialog, TrashList } from "./NoteDialogs.js";
 import { activeTab, tabFilePath, tabKey } from "./tabs/docTabs.js";
 import { archiveRecordTab, archiveSelectionOf, archiveTypeTab, archivesHomeTab, fileTab, loadTabs, restoreShellState, saveTabs, shellReducer } from "./tabs/shellState.js";
 import { TabStrip } from "./tabs/TabStrip.js";
+import { documentSessions } from "./documents/useDocumentSession.js";
+import type { DocumentSession } from "./documents/DocumentSession.js";
+import { useKnowledgeLocale } from "./useKnowledgeLocale.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
@@ -18,6 +20,10 @@ import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
+import { noteTemplateInput } from "./explorer/filesDeps.js";
+
+const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
+const UnindexedFileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ UnindexedFileViewer }) => ({ default: UnindexedFileViewer })));
 
 export type DialogState =
   | { kind: "new"; folder: string }
@@ -31,7 +37,7 @@ export type DialogState =
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** 知识库（原型 NotesView）：左侧文件资源管理器 + 文档区 + 右侧详情抽屉。 */
-export function NotesModule({ onNavigate }: ModuleProps) {
+export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [section, setSection] = useState<Section>("all");
@@ -45,10 +51,46 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const tab = activeTab(shell.tabs);
   /** 当前标签对应的真实文件：文件标签 = 其路径；档案记录标签 = 该档案的 index.md（同一文件同一会话，E04）。 */
   const selected = tab ? tabFilePath(tab) : null;
+  const activeTabRef = useRef(tab);
+  activeTabRef.current = tab;
   const archiveTab = tab && tab.kind !== "file" ? tab : null;
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [menu, setMenu] = useState<{ note: NoteRef; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<NoteContextMenuProps["menu"] | null>(null);
+  const [treeReveal, setTreeReveal] = useState<{ path: string; tab: typeof tab } | null>(null);
+  const notesRoot = useRef<HTMLDivElement>(null);
+  const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
+  const locale = useKnowledgeLocale();
+  const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);
+  useEffect(() => {
+    const session = selected ? documentSessions.get(vaultId, selected) : undefined;
+    const parked = parkedDocument.current;
+    if (active) {
+      parkedDocument.current = null;
+      // 语言即时切换继续使用原编辑缓冲，普通返回则提供草稿恢复。
+      if (!parked || parked.session !== session || parked.locale !== locale) return;
+      const revision = parked.session.getSnapshot().dirtyRevision;
+      let cancelled = false;
+      void parked.checkpoint
+        .then((hasDraft) => {
+          if (!cancelled && hasDraft) return parked.session.reopenDraft(revision, () => !cancelled);
+        })
+        .catch((error: unknown) => setError(String(error)));
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!session || parked?.session === session) return;
+    // 设置页隐藏知识库时，编辑器仍挂载以即时应用语言变化。交付正文与草稿独立于卸载。
+    const checkpoint = session.flushForExit().then(
+      () => session.getSnapshot().hasUnsaved,
+      (error: unknown) => {
+        setError(String(error));
+        return false;
+      },
+    );
+    parkedDocument.current = { session, locale, checkpoint };
+  }, [active, locale, selected, vaultId]);
   const [inspector, setInspector] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [docText, setDocText] = useState("");
@@ -56,6 +98,12 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const editorRef = useRef<RichEditorPort | null>(null);
+  const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
+    flushRef.current = flush;
+  }, []);
+  const registerEditor = useCallback((port: RichEditorPort | null) => {
+    editorRef.current = port;
+  }, []);
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
@@ -84,18 +132,39 @@ export function NotesModule({ onNavigate }: ModuleProps) {
     setInspectorTab("comments");
     void import("@huhu/editor/rich").then((m) => m.startComment());
   };
-  // 在编辑器里发表批注（OK 的选区入口）之后，打开详情栏的批注页
+  // 发布或从正文打开批注时，显示详情栏的批注页。
   useEffect(() => {
     let off: (() => void) | null = null;
     let live = true;
     void import("@huhu/editor/rich").then((m) => {
-      if (live) off = m.onCommentPosted(() => (setInspector(true), setInspectorTab("comments")));
+      if (!live) return;
+      const showComments = () => {
+        setInspector(true);
+        setInspectorTab("comments");
+      };
+      const stopPosted = m.onCommentPosted(showComments);
+      const stopOpened = m.onCommentThreadOpened(showComments);
+      off = () => {
+        stopPosted();
+        stopOpened();
+      };
     });
     return () => {
       live = false;
       off?.();
     };
   }, []);
+  const commentsVisible = inspector && inspectorTab === "comments";
+  useEffect(() => {
+    if (commentsVisible) return;
+    let live = true;
+    void import("@huhu/editor/rich").then((m) => {
+      if (live) m.dismissOpenCommentThread();
+    });
+    return () => {
+      live = false;
+    };
+  }, [commentsVisible]);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
   // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileViewer 与标签存活判断；树本身直接列举文件系统
@@ -133,7 +202,51 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   useEffect(() => {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
   }, [shell.tabs, vaultId]);
-  const closeTab = (key: string) => dispatch({ type: "close", key });
+  const pendingArchive = useRef<{ key: string } | null>(null);
+  useEffect(
+    () => () => {
+      pendingArchive.current = null;
+    },
+    [],
+  );
+  const closeTab = (key: string) => {
+    if (pendingArchive.current?.key === key) pendingArchive.current = null;
+    dispatch({ type: "close", key });
+  };
+  async function copyTabPath(path: string) {
+    try {
+      const desktop = host();
+      await (desktop ? desktop.copyText(path) : navigator.clipboard.writeText(path));
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+  useEffect(() => {
+    if (!reveal || !notesRoot.current) return;
+    const root = notesRoot.current;
+    const selector = `[data-item-path="${CSS.escape(reveal.path)}"]`;
+    let shadow: ShadowRoot | null = null;
+    const observer = new MutationObserver(focusRow);
+    function focusRow() {
+      const next = root.querySelector('[data-testid="notes-resource-tree"] file-tree-container')?.shadowRoot ?? null;
+      if (next && next !== shadow) {
+        shadow = next;
+        observer.observe(next, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-item-path"] });
+      }
+      const row = shadow?.querySelector<HTMLElement>(selector);
+      if (!row) return;
+      observer.disconnect();
+      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
+    }
+    observer.observe(root, { childList: true, subtree: true });
+    focusRow();
+    const timeout = window.setTimeout(() => observer.disconnect(), 5000);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+    };
+  }, [reveal]);
   const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
@@ -146,11 +259,13 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 打开档案首页（唯一的标签，重复点击只聚焦）。 */
   const openArchivesHome = () => {
+    pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
     dispatch({ type: "open", tab: archivesHomeTab(vaultRef.current) });
   };
   /** 打开档案类型页（真实标签）。 */
   const openArchiveType = (typePath: string) => {
+    pendingArchive.current = null;
     const t = archiveTypeTab(vaultRef.current, typePath);
     if (!t) return openArchivesHome();
     setSection((s) => (s === "trash" ? "all" : s));
@@ -159,11 +274,31 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 档案以文件夹路径标识；打开的是真实的档案记录标签（同一 index.md 与 Markdown 视图共用会话）。 */
   const openArchive = (dir: string): void => {
+    pendingArchive.current = null;
     const t = archiveRecordTab(vaultRef.current, dir);
     if (!t) return openTarget(dir);
-    setSection((s) => (s === "trash" ? "all" : s));
-    dispatch({ type: "open", tab: t });
-    revealInArchives(archiveSelectionOf(t));
+    const show = () => {
+      setSection((s) => (s === "trash" ? "all" : s));
+      dispatch({ type: "open", tab: t });
+      revealInArchives(archiveSelectionOf(t));
+    };
+    const current = activeTabRef.current;
+    if (current?.kind !== "file" || current.path !== tabFilePath(t)) {
+      show();
+      return;
+    }
+    const request = { key: tabKey(t) };
+    pendingArchive.current = request;
+    void (async () => {
+      try {
+        await documentSessions.get(t.vaultId, current.path)?.drainEditors();
+        if (pendingArchive.current === request && activeTabRef.current === current && vaultRef.current === t.vaultId) show();
+      } catch (e) {
+        if (pendingArchive.current === request) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (pendingArchive.current === request) pendingArchive.current = null;
+      }
+    })();
   };
   /** 打开档案首页或类型视图（旧入口名：按路径深度分派）。 */
   const openArchiveFolder = (dir: string) => (archiveFolderRoute(dir)?.kind === "type" ? openArchiveType(dir) : openArchivesHome());
@@ -181,14 +316,22 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   };
   /** 文件树 / 标签条的打开：永远是文件标签（Markdown 视图）；档案的 index.md 在这里也是 Markdown（E04）。 */
   const openNote = (path: string) => {
+    pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
     dispatch({ type: "open", tab: fileTab(vaultRef.current, path) });
     expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
   };
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
   const openLinked = (path: string): void => (archiveNoteRoute(path) ? openArchive(path) : openNote(path));
-  /** 同一 index.md 的“以档案视图打开”。 */
-  const openAsArchive = (path: string) => openArchive(path);
+  const focusTab = (key: string) => {
+    pendingArchive.current = null;
+    const next = shell.tabs.tabs.find((x) => tabKey(x) === key);
+    if (next?.kind === "archive-record" && tab?.kind === "file" && tab.path === tabFilePath(next)) {
+      openArchive(tab.path);
+      return;
+    }
+    dispatch({ type: "focus", key });
+  };
   /** 档案记录标签 → 同一文件的 Markdown 标签。 */
   const openAsMarkdown = (path: string) => openNote(path);
 
@@ -215,8 +358,26 @@ export function NotesModule({ onNavigate }: ModuleProps) {
   const owningArchive = tab?.kind === "file" ? archiveOfFile(tab.path) : null;
   const archiveIndexOfTab = tab?.kind === "file" && archiveNoteRoute(tab.path) ? tab.path : null;
   const archivesActive = shell.sidebar.context === "archives";
+  const detail =
+    inspector && selected && tab?.kind === "file" && section !== "trash" ? (
+      <NoteInspector
+        path={selected}
+        text={docText}
+        tags={current?.tags ?? []}
+        tab={inspectorTab}
+        onTab={setInspectorTab}
+        notePaths={(every.data ?? []).map((x) => x.path)}
+        flush={flushForComments}
+        readOnly={false}
+        onClose={() => setInspector(false)}
+        onOpen={openLinked}
+        onJump={(line) => editorRef.current?.gotoLine(line)}
+        onOpenHistory={() => onNavigate?.("versioning")}
+        {...(onNavigate ? { onNavigate } : {})}
+      />
+    ) : null;
   return (
-    <div className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -246,10 +407,10 @@ export function NotesModule({ onNavigate }: ModuleProps) {
         onTag={setTag}
         query={query}
         onQuery={setQuery}
-        selected={tab?.kind === "file" ? tab.path : null}
+        selected={reveal?.path ?? (tab?.kind === "file" ? tab.path : null)}
         onOpen={openNote}
         onOpenArchives={openArchivesHome}
-        archivesActive={archivesActive}
+        archivesActive={archivesActive && !reveal}
         archivesPanel={
           <ArchivesSidebar
             expanded={shell.sidebar.views.archives.expanded}
@@ -284,7 +445,20 @@ export function NotesModule({ onNavigate }: ModuleProps) {
       />
       <div className="notes-main">
         {section !== "trash" && shell.tabs.tabs.length > 0 ? (
-          <TabStrip tabs={shell.tabs.tabs} activeKey={shell.tabs.activeKey} onFocus={(key) => dispatch({ type: "focus", key })} onClose={closeTab} onNew={() => setDialog({ kind: "new", folder: "" })} />
+          <TabStrip
+            tabs={shell.tabs.tabs}
+            activeKey={shell.tabs.activeKey}
+            onFocus={focusTab}
+            onClose={closeTab}
+            onCloseMany={(keys) => keys.forEach(closeTab)}
+            onCopyPath={(path) => void copyTabPath(path)}
+            onRevealPath={(path) => {
+              setSection("all");
+              setQuery("");
+              setTreeReveal({ path, tab });
+            }}
+            onNew={() => setDialog({ kind: "new", folder: "" })}
+          />
         ) : null}
         {error ? (
           <div role="alert" className="hu-field-error">
@@ -326,13 +500,25 @@ export function NotesModule({ onNavigate }: ModuleProps) {
             </>
           )
         ) : selectedFile?.file && section !== "trash" ? (
-          <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+          <>
+            <Suspense fallback={<p role="status">{t.loading}</p>}>
+              <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+            </Suspense>
+            {detail}
+          </>
+        ) : tab?.kind === "file" && section !== "trash" && !/\.md$/i.test(tab.path) ? (
+          <>
+            <Suspense fallback={<p role="status">{t.loading}</p>}>
+              <UnindexedFileViewer key={tab.path} path={tab.path} />
+            </Suspense>
+            {detail}
+          </>
         ) : tab?.kind === "file" && section !== "trash" ? (
           <>
             {archiveIndexOfTab ? (
               <div className="notes-archive-crumb-bar">
                 <Folder size={13} aria-hidden />
-                <button type="button" data-testid="archive-open-record-view" onClick={() => openAsArchive(archiveIndexOfTab)}>
+                <button type="button" data-testid="archive-open-record-view" onClick={() => openArchive(archiveIndexOfTab)}>
                   {a.openAsArchive}
                 </button>
               </div>
@@ -350,16 +536,17 @@ export function NotesModule({ onNavigate }: ModuleProps) {
               path={tab.path}
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
+              detail={detail}
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
-              onMenu={(el) => {
+              onMenu={(el, actions) => {
                 const r = el.getBoundingClientRect();
-                if (current) setMenu({ note: current, x: r.right, y: r.bottom });
+                if (current) setMenu({ note: current, x: r.right, y: r.bottom, actions });
               }}
               onText={setDocText}
-              registerFlush={(fn) => (flushRef.current = fn)}
-              registerEditor={(h) => (editorRef.current = h)}
+              registerFlush={registerFlush}
+              registerEditor={registerEditor}
               onAddComment={addComment}
             />
           </>
@@ -397,23 +584,6 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           </div>
         ) : null}
       </div>
-      {inspector && selected && tab?.kind === "file" && section !== "trash" ? (
-        <NoteInspector
-          path={selected}
-          text={docText}
-          tags={current?.tags ?? []}
-          tab={inspectorTab}
-          onTab={setInspectorTab}
-          notePaths={(every.data ?? []).map((x) => x.path)}
-          flush={flushForComments}
-          readOnly={false}
-          onClose={() => setInspector(false)}
-          onOpen={openLinked}
-          onJump={(line) => editorRef.current?.gotoLine(line)}
-          onOpenHistory={() => onNavigate?.("versioning")}
-          {...(onNavigate ? { onNavigate } : {})}
-        />
-      ) : null}
       {menu ? (
         <NoteContextMenu
           menu={menu}
@@ -434,7 +604,7 @@ export function NotesModule({ onNavigate }: ModuleProps) {
           error={error}
           onClose={() => setDialog(null)}
           onCreate={async (v) => {
-            const r = await run<{ path: string }>("notes.create", { name: v.name, ...(v.folder ? { folder: v.folder } : {}), template: v.template });
+            const r = await run<{ path: string }>("notes.create", { name: v.name, ...(v.folder ? { folder: v.folder } : {}), ...noteTemplateInput(v.template) });
             if (r) {
               setDialog(null);
               openNote(r.path);

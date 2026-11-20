@@ -1,6 +1,7 @@
 // OkExplorer：上游 FileTree（OK 文件树 + 右键菜单）的 Huhu 宿主封装（S5，design §8）。
 // 数据与写操作由宿主经 FilesRouteDeps 注入；本组件只负责提供者栈与 hostFetch / 隐藏钩子的生命周期。
 // 经 `@huhu/editor/ok-explorer` 懒加载，notes 模块入口不静态引用 vendor（design §12）。
+import "../rich/token-map.css";
 import "../ok/ok-globals.css";
 import { I18nProvider } from "@lingui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,6 +16,7 @@ import { dynamicActivate } from "@/lib/activate-locale";
 import { emitDocumentsChanged } from "@/lib/documents-events";
 import { setHostHiddenPaths, setHostMenuExtras } from "@/lib/host-hidden";
 import { i18n } from "@/lib/i18n";
+import { FILE_TREE_REVEAL_EVENT } from "./file-tree-reveal";
 import { HostConfigProvider } from "./config-provider";
 import { DocumentProvider } from "./document-context";
 import { installHostFetch, registerHostRoutes } from "./host-fetch";
@@ -57,6 +59,14 @@ export function notifyExplorerChanged(): void {
 export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken = 0, mode = "light", activePath = null, menuItems }: OkExplorerProps) {
   const [ready, setReady] = useState(false);
   const known = useRef(new Set<string>());
+  const [reveal, setReveal] = useState<{ requested: string; active: string | null } | null>(null);
+  useEffect(() => {
+    setReveal(null);
+    const show = (event: Event) => setReveal({ requested: (event as CustomEvent<string>).detail, active: activePath });
+    window.addEventListener(FILE_TREE_REVEAL_EVENT, show);
+    return () => window.removeEventListener(FILE_TREE_REVEAL_EVENT, show);
+  }, [activePath]);
+  const treePath = reveal?.active === activePath ? reveal.requested : activePath;
   useEffect(() => {
     let live = true;
     void dynamicActivate(locale).then(() => live && setReady(true));
@@ -75,27 +85,29 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
         return r;
       },
     };
-    const unregister = registerHostRoutes(filesRoutes(tracked));
+    // 菜单回调变化时，子树的首次列举仍须命中已注册的文件路由。
+    return registerHostRoutes(filesRoutes(tracked));
+  }, [deps]);
+  useEffect(() => {
     setHostHiddenPaths({ hide: (p, k) => onHide(p, k) });
     setHostMenuExtras(menuItems ? { items: menuItems } : null);
     return () => {
-      unregister();
       setHostHiddenPaths(null);
       setHostMenuExtras(null);
     };
-  }, [deps, onHide, menuItems]);
+  }, [onHide, menuItems]);
   useEffect(() => {
     if (refreshToken > 0) notifyExplorerChanged();
   }, [refreshToken]);
   const host = useMemo(
     () => ({
       // 选中高亮：树按 activeTarget / activeDocName 标出当前打开的文件
-      activeDocName: activePath && /\.(md|mdx)$/i.test(activePath) ? activePath.replace(/\.(md|mdx)$/i, "") : null,
-      activeTarget: !activePath
+      activeDocName: treePath && /\.(md|mdx)$/i.test(treePath) ? treePath.replace(/\.(md|mdx)$/i, "") : null,
+      activeTarget: !treePath
         ? null
-        : /\.(md|mdx)$/i.test(activePath)
-          ? { kind: "doc", target: activePath.replace(/\.(md|mdx)$/i, ""), docName: activePath.replace(/\.(md|mdx)$/i, "") }
-          : { kind: "asset", target: activePath, assetPath: activePath, mediaKind: null },
+        : /\.(md|mdx)$/i.test(treePath)
+          ? { kind: "doc", target: treePath.replace(/\.(md|mdx)$/i, ""), docName: treePath.replace(/\.(md|mdx)$/i, "") }
+          : { kind: "asset", target: treePath, assetPath: treePath, mediaKind: null },
       openTarget: (t: { kind: string; docName?: string; folderPath?: string; assetPath?: string }) => {
         // 'large-file'：OK 对超过 512 KiB 的文档不进编辑器；Huhu 由查看器分派（viewers/dispatch.ts）决定上限，源码优先打开大笔记（P-S3-01）
         if (t.kind === "doc" || t.kind === "folder-index" || t.kind === "large-file") onOpen({ kind: "file", path: resolveDocPath(t.docName ?? "", known.current) });
@@ -104,7 +116,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
       },
       openDocument: (docName: string) => onOpen({ kind: "file", path: resolveDocPath(docName, known.current) }),
     }),
-    [onOpen, activePath],
+    [onOpen, treePath],
   );
   if (!ready) return null;
   return (
@@ -117,7 +129,7 @@ export function OkExplorer({ deps, onOpen, onHide, locale = "en", refreshToken =
                 <PageListProvider>
                   <ExternalHandoffGateProvider>
                     <SidebarProvider style={{ minHeight: 0, height: "100%", flex: 1 }}>
-                      <div className="ok-root ok-explorer-root" data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+                      <div className="ok-root ok-explorer-root" lang={locale} data-testid="ok-explorer" style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
                         <FileTree />
                       </div>
                     </SidebarProvider>

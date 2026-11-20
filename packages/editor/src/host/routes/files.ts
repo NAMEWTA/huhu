@@ -36,6 +36,8 @@ export interface FilesRouteDeps {
   /** 移入回收站（可恢复）。 */
   trash(input: { kind: "file" | "folder" | "asset"; path: string }): Promise<{ paths: string[] }>;
   createPage(input: { path: string; template?: string }): Promise<{ path: string }>;
+  listTemplates?(): Promise<string[]>;
+  importTemplate?(sourcePath: string): Promise<{ path: string }>;
   createFolder(input: { path: string }): Promise<{ path: string }>;
   /** 上传：写入 parentDir 下。 */
   upload?: UploadProvider;
@@ -51,6 +53,28 @@ const extOf = (name: string): string => {
   return i > 0 ? name.slice(i) : "";
 };
 const iso = (ms: number | undefined): string => new Date(ms ?? 0).toISOString();
+
+function templatesForFolder(folder: string, templates: readonly string[]) {
+  const byFolder = new Map<string, string[]>();
+  for (let sourceFolder = folder; ; sourceFolder = dirOf(sourceFolder)) {
+    byFolder.set(sourceFolder, []);
+    if (sourceFolder === "") break;
+  }
+  for (const path of templates) byFolder.get(dirOf(dirOf(path)))?.push(path);
+
+  const available: { name: string; path: string; source_folder: string; scope: "local" | "inherited" }[] = [];
+  const seen = new Set<string>();
+  for (const [sourceFolder, paths] of byFolder) {
+    for (const path of paths) {
+      const basename = docNameOf(path.slice(path.lastIndexOf("/") + 1));
+      if (seen.has(basename)) continue;
+      seen.add(basename);
+      // 树菜单用 name 选中模板，创建时把它作为 Vault 路径传回宿主。
+      available.push({ name: path, path, source_folder: sourceFolder, scope: sourceFolder === folder ? "local" : "inherited" });
+    }
+  }
+  return available;
+}
 
 /** 路径或其祖先命中隐藏规则。 */
 export function isHidden(path: string, rules: readonly string[]): boolean {
@@ -153,6 +177,37 @@ export function filesRoutes(deps: FilesRouteDeps): HostRoutes {
     },
     // 回收站清理：Huhu 的“永久删除”在回收站列表里完成（需要 trashId），树里没有该入口。
     "POST /api/trash/cleanup": () => ({ deletedDocNames: [] }),
+    ...(deps.listTemplates
+      ? {
+          "GET /api/folder-config": async ({ url }: Parameters<HostRoutes[string]>[0]) => {
+            const folder = (url.searchParams.get("path") ?? "")
+              .split("/")
+              .filter((segment) => segment !== "" && segment !== ".")
+              .join("/");
+            const templates = (await deps.listTemplates?.()) ?? [];
+            return {
+              folder: {
+                path: folder,
+                type: "directory",
+                templates_available: templatesForFolder(folder, templates),
+              },
+            };
+          },
+        }
+      : {}),
+    ...(deps.importTemplate
+      ? {
+          "POST /api/template/import": async ({ body }: Parameters<HostRoutes[string]>[0]) => {
+            const input = body as { deleteSource?: boolean; targetFolder?: string };
+            const sourcePath = realFile("file", pathFromBody(body, "sourcePath"));
+            if (input.deleteSource || input.targetFolder !== dirOf(sourcePath) || !MD_EXT.test(sourcePath)) {
+              throw new Error("只能从笔记所在文件夹导入 Markdown 模板，并保留原文件");
+            }
+            const imported = await deps.importTemplate?.(sourcePath);
+            return { path: imported?.path, created: true, warnings: [] };
+          },
+        }
+      : {}),
     "POST /api/create-page": async ({ body }) => {
       const path = pathFromBody(body, "path");
       const template = (body as { template?: string }).template;

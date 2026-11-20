@@ -2,6 +2,7 @@ import { CommentsPanelHost, coreRoutes, type HostRoutes } from "@huhu/editor/ric
 import { useMemo, useRef } from "react";
 import { docNameOf } from "./commentAdapter.js";
 import { useCommentsBridge } from "./useCommentsBridge.js";
+import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
 
 export interface CommentsPanelSurfaceProps {
   path: string;
@@ -15,6 +16,7 @@ export interface CommentsPanelSurfaceProps {
 
 /** 详情栏“批注”页（经动态 import 加载，OK 评论 UI 不进首屏）。 */
 export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
+  const locale = useKnowledgeLocale();
   const { commentRoutes } = useCommentsBridge({ paths: props.paths, flush: props.flush });
   const known = useRef(props.paths);
   known.current = props.paths;
@@ -28,5 +30,6 @@ export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
     }),
     [commentRoutes],
   );
-  return <CommentsPanelHost docName={docNameOf(props.path)} routes={routes} locale="zh-Hans" readOnly={props.readOnly} readOnlyReason={props.readOnlyReason} labels={props.labels} />;
+  const labels = locale === "en" ? { wholeNote: "Whole note", wholeNotePlaceholder: "Write a comment on the whole note…", add: "Add comment" } : props.labels;
+  return <CommentsPanelHost docName={docNameOf(props.path)} routes={routes} locale={locale} readOnly={props.readOnly} readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason} labels={labels} />;
 }

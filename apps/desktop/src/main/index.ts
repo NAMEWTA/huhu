@@ -54,18 +54,59 @@ function assertTrusted(url: string | undefined): void {
   if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
-/** 请求界面把还在防抖窗口里的编辑写出去（自动保存 / 草稿），最多等 3 秒。 */
-function requestFlush(wins: BrowserWindow[]): Promise<void> {
-  const live = wins.filter((w) => !w.isDestroyed());
-  if (live.length === 0) return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 3000);
-    ipcMain.once("huhu:flushed", () => {
+type FlushResult = "saved" | "failed" | "timeout";
+let flushRequestId = 0;
+
+/** 只有当前窗口的主框架和当前请求的回执有效。 */
+function requestFlush(win: BrowserWindow): Promise<FlushResult> {
+  if (win.isDestroyed()) return Promise.resolve("saved");
+  const sender = win.webContents;
+  const requestId = ++flushRequestId;
+  return new Promise((resolve) => {
+    const finish = (result: FlushResult) => {
       clearTimeout(timer);
-      resolve();
-    });
-    for (const w of live) w.webContents.send("huhu:flush");
+      ipcMain.off("huhu:flushed", onReply);
+      resolve(result);
+    };
+    const onReply = (event: Electron.IpcMainEvent, replyId: unknown, ok: unknown) => {
+      if (event.sender !== sender || sender.isDestroyed() || event.senderFrame !== sender.mainFrame || replyId !== requestId || typeof ok !== "boolean") return;
+      finish(ok ? "saved" : "failed");
+    };
+    const timer = setTimeout(() => finish("timeout"), 3000);
+    ipcMain.on("huhu:flushed", onReply);
+    try {
+      sender.send("huhu:flush", requestId);
+    } catch {
+      finish("failed");
+    }
   });
+}
+
+const exitDecisions = new WeakMap<BrowserWindow, Promise<boolean>>();
+function canCloseWindow(win: BrowserWindow): Promise<boolean> {
+  const pending = exitDecisions.get(win);
+  if (pending) return pending;
+  const decision = (async () => {
+    const result = await requestFlush(win);
+    if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
+    if (result !== "failed" || win.isDestroyed()) return true;
+    const answer = await dialog.showMessageBox(win, {
+      type: "warning",
+      title: "退出前保存失败",
+      message: "仍有未保存内容",
+      detail: "可以保留窗口并重试保存，或放弃未保存内容并退出。",
+      buttons: ["保留窗口", "放弃并退出"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    return answer.response === 1;
+  })().catch((error: unknown) => {
+    console.error("退出前确认失败", error);
+    return false;
+  });
+  exitDecisions.set(win, decision);
+  void decision.then(() => exitDecisions.delete(win));
+  return decision;
 }
 let flushedForQuit = false;
 
@@ -89,11 +130,13 @@ function createWindow(): BrowserWindow {
   // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
   let closing = false;
   win.on("close", (event) => {
-    if (closing || flushedForQuit) return;
-    closing = true;
+    if (flushedForQuit) return;
     event.preventDefault();
-    void requestFlush([win]).finally(() => {
-      if (!win.isDestroyed()) win.destroy();
+    if (closing) return;
+    closing = true;
+    void canCloseWindow(win).then((allowed) => {
+      closing = false;
+      if (allowed && !win.isDestroyed()) win.destroy();
     });
   });
   win.webContents.on("will-navigate", (event, url) => {
@@ -380,14 +423,26 @@ if (!gotLock) {
   });
   let quitting = false;
   app.on("before-quit", (e) => {
-    // 没有打开 Vault（启动页）时无需落盘；同时让窗口的 close 处理放行，否则 macOS 上 Cmd+Q 会被它取消
-    if (!supervisor) flushedForQuit = true;
-    if (quitting || !supervisor) return;
+    if (flushedForQuit) return;
+    // 没有打开 Vault 时让启动页正常关闭。
+    if (!supervisor) {
+      flushedForQuit = true;
+      return;
+    }
     e.preventDefault();
+    if (quitting) return;
     quitting = true;
-    flushedForQuit = true;
-    const flushed = requestFlush(BrowserWindow.getAllWindows());
-    void flushed.finally(() => supervisor?.stop().finally(() => app.quit()));
+    void Promise.all(BrowserWindow.getAllWindows().map(canCloseWindow)).then(async (allowed) => {
+      quitting = false;
+      if (!allowed.every(Boolean)) return;
+      flushedForQuit = true;
+      try {
+        await supervisor?.stop();
+      } catch (error) {
+        console.error("退出时停止引擎失败", error);
+      }
+      app.quit();
+    });
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

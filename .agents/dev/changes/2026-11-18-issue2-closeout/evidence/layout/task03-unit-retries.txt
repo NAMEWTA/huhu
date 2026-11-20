@@ -1,0 +1,53 @@
+
+run 1
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in the root config file instead.
+
+ RUN  v3.2.7 /home/wta/projects/huhu-wt-layout
+
+ ✓ |@huhu/engine| test/engine.test.ts (40 tests | 38 skipped) 5003ms
+   ✓ Engine 启动与关闭 > 子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0  4275ms
+   ✓ Engine 启动与关闭 > agent-cli：默认 Space 指向 Vault 根；Provider 检测可调用；对外不开放  722ms
+ ✓ |@huhu/engine| test/external-plugins.test.ts (13 tests | 12 skipped) 315ms
+   ✓ 外部扩展（W16.2） > 发现页列出三个示例；检查清单时列出权限对应的能力  308ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 50 skipped (53)
+   Start at  11:57:10
+   Duration  21.12s (transform 4.32s, setup 0ms, collect 14.48s, tests 5.32s, environment 0ms, prepare 329ms)
+
+status 0
+
+run 2
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in the root config file instead.
+
+ RUN  v3.2.7 /home/wta/projects/huhu-wt-layout
+
+ ✓ |@huhu/engine| test/engine.test.ts (40 tests | 38 skipped) 7203ms
+   ✓ Engine 启动与关闭 > 子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0  6040ms
+   ✓ Engine 启动与关闭 > agent-cli：默认 Space 指向 Vault 根；Provider 检测可调用；对外不开放  1160ms
+ ✓ |@huhu/engine| test/external-plugins.test.ts (13 tests | 12 skipped) 272ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 50 skipped (53)
+   Start at  11:57:32
+   Duration  17.16s (transform 2.19s, setup 0ms, collect 8.66s, tests 7.48s, environment 1ms, prepare 214ms)
+
+status 0
+
+run 3
+ DEPRECATED  The workspace file is deprecated and will be removed in the next major. Please, use the `test.projects` field in the root config file instead.
+
+ RUN  v3.2.7 /home/wta/projects/huhu-wt-layout
+
+ ✓ |@huhu/engine| test/engine.test.ts (40 tests | 38 skipped) 6089ms
+   ✓ Engine 启动与关闭 > 子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0  5072ms
+   ✓ Engine 启动与关闭 > agent-cli：默认 Space 指向 Vault 根；Provider 检测可调用；对外不开放  1012ms
+ ✓ |@huhu/engine| test/external-plugins.test.ts (13 tests | 12 skipped) 699ms
+   ✓ 外部扩展（W16.2） > 发现页列出三个示例；检查清单时列出权限对应的能力  697ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 50 skipped (53)
+   Start at  11:57:51
+   Duration  19.38s (transform 3.37s, setup 0ms, collect 11.38s, tests 6.79s, environment 1ms, prepare 299ms)
+
+status 0

@@ -626,18 +626,34 @@ test("笔记拖放移动文件夹：拖到另一个文件夹下，其中的笔�
     expect((await call("folders.create", { path: "目标" })).ok).toBe(true);
     expect((await call("notes.create", { name: "里面的笔记", folder: "甲" })).ok).toBe(true);
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
-    await expect(treeFolder(page, "甲")).toBeVisible();
-    await treeFolder(page, "甲").dragTo(treeFolder(page, "目标"));
-    await expect.poll(() => fs.existsSync(`${vault}/目标/甲/里面的笔记.md`)).toBe(true);
-    expect(fs.existsSync(`${vault}/甲/里面的笔记.md`)).toBe(false);
+    const tree = page.getByTestId("notes-resource-tree");
+    const oldRow = tree.locator('[data-item-path="甲/"]');
+    const parent = tree.locator('[data-item-path="目标/"]');
+    const child = tree.locator('[data-item-path="目标/甲/"]');
+    const movedNote = path.join(vault, "目标/甲/里面的笔记.md");
+    const oldDir = path.join(vault, "甲");
+    await expect(oldRow).toBeVisible();
+    await oldRow.dragTo(parent);
+    await expect.poll(() => fs.existsSync(movedNote) && !fs.existsSync(oldDir)).toBe(true);
+    const movedBytes = fs.readFileSync(movedNote);
+
+    // 模拟第二次拖放命中过期的根级「甲」行。
+    expect(await call("notes.move", { path: "目标", targetDir: "甲" })).toMatchObject({
+      ok: false,
+      error: { code: "NOT_FOUND", message: "目标文件夹不存在：甲" },
+    });
+    expect(fs.existsSync(oldDir)).toBe(false);
+    expect(fs.readFileSync(movedNote)).toEqual(movedBytes);
+
     // 拖进自己的后代：被拒绝，磁盘不变
-    await treeFolder(page, "目标").first().click();
-    const parent = treeFolder(page, "目标").first();
-    const child = treeFolder(page, "甲").first();
+    await expect(oldRow).toHaveCount(0);
+    if ((await parent.getAttribute("aria-expanded")) !== "true") await parent.click();
     await expect(child).toBeVisible();
+    await treeSettled(page);
     await parent.dragTo(child);
     await page.waitForTimeout(800); // UI 直接忽略这种拖放：磁盘不变，也没有错误提示
-    expect(fs.existsSync(`${vault}/目标/甲/里面的笔记.md`)).toBe(true);
+    expect(fs.readFileSync(movedNote)).toEqual(movedBytes);
+    expect(fs.existsSync(oldDir)).toBe(false);
     await expect(page.getByRole("alert")).toHaveCount(0);
     expect(fs.readdirSync(`${vault}/目标`)).toEqual(["甲"]);
   } finally {

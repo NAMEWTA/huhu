@@ -1,4 +1,6 @@
 import { PREVIEW_THEME_TOKENS } from '@inkeep/open-knowledge-core/constants/preview-theme-tokens';
+import browserPreviewFrameUrl from './preview-frame.html?url&no-inline';
+import { EDITOR_PREVIEW_CSP, EDITOR_PREVIEW_URL } from './preview-frame-policy';
 import {
   domPreviewTokenEnv,
   type PreviewTokenEnv,
@@ -33,18 +35,28 @@ export interface PreviewDocumentMessage {
   [PREVIEW_DOCUMENT_MESSAGE_KEY]: string;
 }
 
-export const PREVIEW_FRAME_URL = `${import.meta.env.BASE_URL}assets/preview-frame.html`;
+export const PREVIEW_FRAME_URL =
+  typeof window !== 'undefined' && ('huhuHost' in window || window.location.protocol === 'huhu-app:')
+    ? EDITOR_PREVIEW_URL
+    : browserPreviewFrameUrl;
 
 export function buildPreviewDocumentMessage(html: string): PreviewDocumentMessage {
   return { [PREVIEW_DOCUMENT_MESSAGE_KEY]: html };
 }
 
 const PREVIEW_HEIGHT_MESSAGE_KEY = 'okPreviewHeight';
+const PREVIEW_POINTER_MESSAGE_KEY = 'okPreviewPointerInside';
 
 export function parsePreviewHeightMessage(data: unknown): number | null {
   if (typeof data !== 'object' || data === null) return null;
   const h = (data as Record<string, unknown>)[PREVIEW_HEIGHT_MESSAGE_KEY];
   return typeof h === 'number' && Number.isFinite(h) && h > 0 ? Math.ceil(h) : null;
+}
+
+export function parsePreviewPointerMessage(data: unknown): boolean | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const inside = (data as Record<string, unknown>)[PREVIEW_POINTER_MESSAGE_KEY];
+  return typeof inside === 'boolean' ? inside : null;
 }
 
 const PREVIEW_CSP_VIOLATION_MESSAGE_KEY = 'okPreviewCspViolation';
@@ -136,6 +148,12 @@ function previewBootstrapScript(theme: PreviewTheme): string {
     `}` +
     `if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}` +
     `else{init();}` +
+    `function reportPointer(e){` +
+    `if(e.isTrusted&&e.pointerType==='mouse'&&e.relatedTarget===null){` +
+    `parent.postMessage({${PREVIEW_POINTER_MESSAGE_KEY}:e.type==='pointerover'},'*');` +
+    `}}` +
+    `addEventListener('pointerover',reportPointer,true);` +
+    `addEventListener('pointerout',reportPointer,true);` +
     `var cspSeen=new Set();var cspList=[];var cspTrunc=false;var cspTimer;` +
     `function cspFlush(){parent.postMessage({${PREVIEW_CSP_VIOLATION_MESSAGE_KEY}:{blocked:cspList.slice(),truncated:cspTrunc}},'*');}` +
     `addEventListener('securitypolicyviolation',function(e){` +
@@ -151,21 +169,11 @@ function previewBootstrapScript(theme: PreviewTheme): string {
   );
 }
 
-const PREVIEW_CSP =
-  "default-src 'none'; " +
-  "script-src 'unsafe-inline' https:; " +
-  "style-src 'unsafe-inline' https: data:; " +
-  'img-src https: data: blob:; ' +
-  'font-src https: data:; ' +
-  'connect-src https: wss: data: blob:; ' +
-  'media-src https: data: blob:; ' +
-  "frame-src https:; child-src https:; form-action 'none'; base-uri 'none';";
-
 export function buildPreviewIframeHeader(
   theme: PreviewTheme,
   env: PreviewTokenEnv | null = domPreviewTokenEnv(),
 ): string {
-  return `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">
+  return `<meta http-equiv="Content-Security-Policy" content="${EDITOR_PREVIEW_CSP}">
 ${themeTokenStyle(env)}
 ${PREVIEW_SCROLLBAR_STYLE}
 ${previewBootstrapScript(theme)}`;
