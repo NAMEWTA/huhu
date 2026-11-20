@@ -82,8 +82,9 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
 
   return (
     <article className="hu-mail-detail">
-      <h2>{row.subject || "未填写主题"}</h2>
+      <h2>{row.retained ? "保留的投递记录" : row.subject || "未填写主题"}</h2>
       <p role="status">{deliveryLabels[row.state]}</p>
+      {row.retained && <p className="hu-mail-help">来源邮箱已移除。可用下方记录核对投递。</p>}
       {row.retry && (
         <p className="hu-mail-help">
           重试自 <code>{row.retry.parentMessageId}</code>

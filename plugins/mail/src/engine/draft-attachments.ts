@@ -117,12 +117,12 @@ export class DraftAttachmentObjects {
     }
   }
 
-  sweep(referenced: ReadonlySet<string>): { removed: string[]; failed: string[] } {
+  sweep(referenced: ReadonlySet<string>, candidates?: ReadonlySet<string>): { removed: string[]; failed: string[] } {
     const removed: string[] = [];
     const failed: string[] = [];
     try {
       for (const entry of readdirSync(this.files.abs(objectsDir), { withFileTypes: true })) {
-        if (!entry.isFile() || !attachmentDigest.safeParse(entry.name).success || referenced.has(entry.name)) continue;
+        if (!entry.isFile() || !attachmentDigest.safeParse(entry.name).success || referenced.has(entry.name) || (candidates && !candidates.has(entry.name))) continue;
         try {
           unlinkSync(this.files.abs(objectPath(entry.name)));
           removed.push(entry.name);

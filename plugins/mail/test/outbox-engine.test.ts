@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -141,6 +141,186 @@ async function save(engine: RunningEngine, accountId: string, draftId: string = 
   const draft = result.data as { draftId: string; revision: string };
   return { draftId: draft.draftId, expectedRevision: draft.revision };
 }
+
+testWindows(
+  "本地删除邮箱按 ID 和预览修订执行，停止在途 IMAP/SMTP 并可重启续清理",
+  async () => {
+    await fixture(async ({ root, smtp, password, open }) => {
+      const imapRelease = Promise.withResolvers<void>();
+      const smtpRelease = Promise.withResolvers<void>();
+      let holdFetch = false;
+      const fixtureMessage = (subject: string) => ({ uidValidity: 12, subject, source: `Subject: ${subject}\r\n\r\nlocal removal fixture\r\n` });
+      const imapA = await openImapFixture({
+        message: fixtureMessage("target mailbox"),
+        beforeSource: async () => {
+          if (holdFetch) await imapRelease.promise;
+        },
+      });
+      const imapB = await openImapFixture({ message: fixtureMessage("same-address mailbox") });
+      const vaultPath = path.join(root, "vault");
+      const sameAddressPassword = `different-${randomUUID()}`;
+      try {
+        let engine = await open({ create: true });
+        async function config(label: string, imap: number, secret: string) {
+          const accountId = randomUUID();
+          const saved = await credentials(engine).save({
+            entityId: accountId,
+            expectedRevision: null,
+            definition: {
+              format: 1,
+              settings: { provider: "custom_imap", email: sender, label, auth: "password", imap: { host: "127.0.0.1", port: imap, security: "none" }, smtpEnabled: true, smtp: { host: "127.0.0.1", port: smtp.port, security: "none" } },
+              folders: [{ path: "INBOX", name: "INBOX", delimiter: "/", flags: [], specialUse: null }],
+            },
+            actions: [{ purpose: accountPasswordPurpose, action: "replace", value: secret }],
+          });
+          return { accountId, expectedRevision: saved.revision };
+        }
+        const target = await config("要移除的邮箱", imapA.port, password);
+        const sameAddress = await config("保留的同地址邮箱", imapB.port, sameAddressPassword);
+        const mailbox = (accountId: string) => ({ accountId, folder: "INBOX" });
+        const cachedA = await call(engine, "mail.sync.refresh", mailbox(target.accountId));
+        const cachedB = await call(engine, "mail.sync.refresh", mailbox(sameAddress.accountId));
+        assert(cachedB.ok);
+        expect(cachedA).toMatchObject({ ok: true, data: { message: { subject: "target mailbox" } } });
+        expect(cachedB).toMatchObject({ ok: true, data: { message: { subject: "same-address mailbox" } } });
+        expect(readdirSync(path.join(vaultPath, ".huhu/cache/mail"))).toHaveLength(2);
+        let acceptedDraft = await save(engine, target.accountId);
+        const notDeliveredDraft = await save(engine, target.accountId);
+        const activeDraft = await save(engine, target.accountId);
+        let keepDraft = await save(engine, sameAddress.accountId);
+        const { attachments } = services(engine);
+        async function attach(input: typeof keepDraft, name: string, value: string) {
+          const bytes = Buffer.from(value);
+          const { draft } = await attachments.addAttachment(input, {
+            name,
+            size: bytes.length,
+            async *read() {
+              yield bytes;
+            },
+          });
+          return { draftId: draft.draftId, expectedRevision: draft.revision };
+        }
+        acceptedDraft = await attach(acceptedDraft, "shared.txt", "shared bytes");
+        acceptedDraft = await attach(acceptedDraft, "target.txt", "target bytes");
+        keepDraft = await attach(keepDraft, "shared-copy.txt", "shared bytes");
+        const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+        const objects = (value: string) => path.join(vaultPath, `.huhu/mail/attachments/${hash(value)}`);
+        const journal = `.huhu/mail/removed-accounts/${target.accountId}.json`;
+
+        async function preview(input = target) {
+          const result = await call(engine, "mail.accounts.previewRemoval", input);
+          assert(result.ok, result.ok ? undefined : result.error.message);
+          return result.data as { accountId: string; expectedRevision: string; impactKey: string; pending: boolean; impact: Record<string, number | boolean> };
+        }
+        const remove = ({ accountId, expectedRevision, impactKey }: Awaited<ReturnType<typeof preview>>) => call(engine, "mail.accounts.remove", { accountId, expectedRevision, impactKey });
+        async function submit(input: typeof keepDraft) {
+          const result = await call(engine, "mail.outbox.submit", input);
+          assert(result.ok, result.ok ? undefined : result.error.message);
+          return outboxReceipt.parse(result.data);
+        }
+        const status = (operationId: string) => call(engine, "mail.outbox.status", { operationId });
+
+        const beforeCancel = await preview();
+        expect(beforeCancel.impact).toEqual({ drafts: 3, attachments: 2, sharedAttachments: 1, cache: 1, history: 0, retained: 0, sending: 0, credentials: true });
+        expect(await preview()).toEqual(beforeCancel);
+        expect(existsSync(path.join(vaultPath, journal))).toBe(false);
+        expect(await remove({ ...beforeCancel, ...sameAddress })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+        const renamed = await call(engine, "mail.accounts.rename", { ...target, label: "确认目标" });
+        assert(renamed.ok);
+        expect(await remove(beforeCancel)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+        target.expectedRevision = (renamed.data as { revision: string }).revision;
+        const beforeEdit = await preview();
+        acceptedDraft = await save(engine, target.accountId, acceptedDraft.draftId, acceptedDraft.expectedRevision, { subject: "private subject" });
+        expect(await remove(beforeEdit)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+        expect(existsSync(path.join(vaultPath, journal))).toBe(false);
+        const beforeSharedChange = await preview();
+        const detached = await attachments.removeAttachment({ ...keepDraft, digest: hash("shared bytes") });
+        expect(await remove(beforeSharedChange)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+        expect((await preview()).impact.sharedAttachments).toBe(0);
+        keepDraft = await attach({ draftId: detached.draftId, expectedRevision: detached.revision }, "shared-copy.txt", "shared bytes");
+
+        const accepted = await submit(acceptedDraft);
+        await expect.poll(() => status(accepted.operationId)).toMatchObject({ ok: true, data: { state: "accepted" } });
+        smtp.configure("reject-rcpt");
+        const notDelivered = await submit(notDeliveredDraft);
+        await expect.poll(() => status(notDelivered.operationId)).toMatchObject({ ok: true, data: { state: "not-delivered" } });
+        smtp.configure("accept", async () => smtpRelease.promise);
+        const active = await submit(activeDraft);
+        await expect.poll(() => smtp.messages.length).toBe(2);
+        const repair = await call(engine, "mail.accounts.testConnection", { ...target, password });
+        assert(repair.ok);
+        const fetches = imapA.fetchRequests.length;
+        holdFetch = true;
+        const refreshing = call(engine, "mail.sync.refresh", mailbox(target.accountId));
+        await expect.poll(() => imapA.fetchRequests.length).toBeGreaterThan(fetches + 1);
+        const snapshots = await preview();
+        expect(snapshots.impact).toEqual({ drafts: 3, attachments: 2, sharedAttachments: 1, cache: 1, history: 3, retained: 2, sending: 1, credentials: true });
+        expect(await engine.dispatcher.call("web:fixture", { capability: "mail.accounts.previewRemoval", input: target, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+
+        const write = engine.vault.files.write.bind(engine.vault.files);
+        const beforeCommit = vi.spyOn(engine.vault.files, "write").mockImplementation(async (...args) => {
+          if (args[0] === journal) throw new Error("fixture journal write failed");
+          return write(...args);
+        });
+        expect(await remove(snapshots)).toMatchObject({ ok: false });
+        beforeCommit.mockRestore();
+        expect(existsSync(path.join(vaultPath, journal))).toBe(false);
+        expect(await status(active.operationId)).toMatchObject({ ok: true, data: { state: "sending" } });
+
+        const deferred = vi.spyOn(engine.vault.files, "write").mockImplementation(async (...args) => {
+          if (args[0].startsWith(".huhu/module-credentials/")) throw new Error("fixture credential publication failed");
+          return write(...args);
+        });
+        expect(await remove(snapshots)).toMatchObject({ ok: true, data: { state: "pending" } });
+        deferred.mockRestore();
+        expect(await refreshing).toMatchObject({ ok: false });
+        imapRelease.resolve();
+        smtpRelease.resolve();
+        expect(await call(engine, "mail.accounts.save", { setupId: (repair.data as { setupId: string }).setupId })).toMatchObject({ ok: false });
+        expect(await call(engine, "mail.accounts.list", {})).toMatchObject({ ok: true, data: { accounts: [{ accountId: sameAddress.accountId }], pendingRemovals: [target] } });
+        expect(await call(engine, "mail.messages.latest", mailbox(target.accountId))).toEqual({ ok: true, data: { message: null } });
+        expect(await call(engine, "mail.messages.latest", mailbox(sameAddress.accountId))).toEqual({ ok: true, data: { message: (cachedB.data as { message: unknown }).message } });
+        expect(readdirSync(path.join(vaultPath, ".huhu/cache/mail"))).toHaveLength(1);
+        expect(await call(engine, "mail.drafts.get", { draftId: acceptedDraft.draftId })).toEqual({ ok: true, data: { draft: null } });
+        expect(await call(engine, "mail.drafts.save", { draftId: acceptedDraft.draftId, expectedRevision: null, draft: { ...content, accountId: sameAddress.accountId } })).toMatchObject({ ok: false });
+        expect(await call(engine, "mail.drafts.save", { draftId: randomUUID(), expectedRevision: null, draft: { ...content, accountId: target.accountId } })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        expect(await call(engine, "mail.drafts.get", { draftId: keepDraft.draftId })).toMatchObject({ ok: true, data: { draft: { accountId: sameAddress.accountId, revision: keepDraft.expectedRevision } } });
+        expect(existsSync(objects("target bytes"))).toBe(false);
+        expect(readFileSync(objects("shared bytes"), "utf8")).toBe("shared bytes");
+        expect(await status(notDelivered.operationId)).toEqual({ ok: true, data: null });
+        expect(await status(accepted.operationId)).toMatchObject({ ok: true, data: { ...accepted, state: "accepted", retained: true, retryableRecipients: [] } });
+        expect(await status(active.operationId)).toMatchObject({ ok: true, data: { ...active, state: "unknown", retained: true, retryableRecipients: [] } });
+        const history = readFileSync(path.join(vaultPath, outboxDir, `${accepted.operationId}.json`), "utf8");
+        expect(history).not.toContain("private subject");
+        expect(history).not.toContain("target.txt");
+        expect(history).not.toContain('smtp":{');
+        expect(smtp.counts).toMatchObject({ connections: 3, data: 2 });
+        const remoteCalls = [imapA.commands.length, imapB.commands.length, smtp.counts.connections, smtp.counts.data];
+
+        await engine.shutdown();
+        engine = await open();
+        const resumed = await preview();
+        expect(resumed).toMatchObject({ pending: true, impactKey: snapshots.impactKey });
+        expect(await call(engine, "mail.sync.refresh", mailbox(target.accountId))).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+        expect(await remove(resumed)).toMatchObject({ ok: true, data: { state: "removed" } });
+        expect(await remove(resumed)).toMatchObject({ ok: true, data: { state: "removed" } });
+        expect((await credentials(engine).list()).map(({ entityId }) => entityId)).toEqual([sameAddress.accountId]);
+        await credentials(engine).use(sameAddress.accountId, [accountPasswordPurpose], async (_, values) => expect(values.get(accountPasswordPurpose)).toBe(sameAddressPassword));
+        expect(JSON.parse(readFileSync(path.join(vaultPath, journal), "utf8"))).toEqual({ accountId: target.accountId, expectedRevision: target.expectedRevision, impactKey: snapshots.impactKey, state: "removed" });
+        expect(await status(accepted.operationId)).toMatchObject({ ok: true, data: { state: "accepted", retained: true } });
+        expect(await status(active.operationId)).toMatchObject({ ok: true, data: { state: "unknown", retained: true } });
+        expect(await call(engine, "mail.outbox.retry", { parentOperationId: active.operationId, expectedRevision: activeDraft.expectedRevision, recipients: [to] })).toMatchObject({ ok: false });
+        expect([imapA.commands.length, imapB.commands.length, smtp.counts.connections, smtp.counts.data]).toEqual(remoteCalls);
+        for (const imap of [imapA, imapB]) expect(imap.commands).not.toContain("DELETE");
+      } finally {
+        imapRelease.resolve();
+        smtpRelease.resolve();
+        await Promise.all([imapA.close(), imapB.close()]);
+      }
+    });
+  },
+  90_000,
+);
 
 testWindows(
   "真实 IMAP 回复保留来源、草稿和 SMTP 线程头，拒收重试沿用原信",

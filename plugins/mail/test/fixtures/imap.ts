@@ -10,6 +10,7 @@ export async function openImapFixture(
     rejectList?: boolean;
     disconnectDuringList?: boolean;
     namespacedInbox?: "selectable" | "missing" | "noselect" | "nonexistent";
+    beforeSource?: () => Promise<void>;
     message?: { uidValidity: number; subject: string; source: string; seen?: boolean; refuseRead?: boolean; ignoreRead?: boolean };
   } = {},
 ) {
@@ -91,9 +92,15 @@ export async function openImapFixture(
           }
           if (!/UID FETCH 42 .*BODY\.PEEK\[\]/i.test(line)) return socket.write(`${tag} BAD unsupported UID command\r\n`);
           fetchRequests.push(line);
-          socket.write(`* 1 FETCH (UID 42 BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
-          socket.write(message.source);
-          return socket.write(`)\r\n${tag} OK UID FETCH\r\n`);
+          const send = () => {
+            if (socket.destroyed) return;
+            socket.write(`* 1 FETCH (UID 42 BODY[]<0> {${Buffer.byteLength(message.source)}}\r\n`);
+            socket.write(message.source);
+            socket.write(`)\r\n${tag} OK UID FETCH\r\n`);
+          };
+          if (!options.beforeSource) return send();
+          void options.beforeSource().then(send, () => socket.destroy());
+          return;
         }
         default:
           return socket.write(`${tag} BAD unsupported fixture command\r\n`);

@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
+import { unlinkSync } from "node:fs";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
+import type { MailDrafts } from "./drafts.js";
 import { MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
 import { prepareReply, replyMode, replySeed } from "./prepare-reply.js";
@@ -79,29 +82,33 @@ function readSnapshot(files: Files, input: Mailbox): { snapshot: Snapshot | null
   return { snapshot: null, version: current.version };
 }
 
-export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal) {
+export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal, removals: AccountRemovals, writer: Pick<MailDrafts, "serialize">) {
   const files = api.vault.files;
-  const writes = new Map<string, Promise<unknown>>();
+  const writes = new Map<string, { accountId: string; task: Promise<unknown> }>();
   const authorize = (caller: string, name: string) => {
     if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(name);
   };
   function serialize<T>(input: Mailbox, run: () => Promise<T>): Promise<T> {
     const key = cachePath(input);
-    const task = (writes.get(key) ?? Promise.resolve()).catch(() => undefined).then(run);
-    writes.set(key, task);
+    const task = (writes.get(key)?.task ?? Promise.resolve()).catch(() => undefined).then(run);
+    writes.set(key, { accountId: input.accountId, task });
     return task.finally(() => {
-      if (writes.get(key) === task) writes.delete(key);
+      if (writes.get(key)?.task === task) writes.delete(key);
     });
   }
-  function write(input: Mailbox, snapshot: Snapshot, expectedVersion: string | null) {
-    return files.write(cachePath(input), Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion });
+  function write(input: Mailbox, snapshot: Snapshot, expectedVersion: string | null, signal: AbortSignal) {
+    return writer.serialize(() => {
+      signal.throwIfAborted();
+      removals.assertActive(input.accountId);
+      return files.write(cachePath(input), Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion });
+    });
   }
   api.defineCapability(
     bindCapability(mailRefreshDescriptor, ({ caller, signal }, input) => {
       authorize(caller, mailRefreshDescriptor.name);
       files.assertWritable();
       if (!accounts) throw errors.invalidInput("此 Vault 的本机邮箱凭据不可用");
-      const cancelled = AbortSignal.any([signal, lifetime]);
+      const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
       return serialize(input, async () => {
         cancelled.throwIfAborted();
         const before = readSnapshot(files, input);
@@ -127,7 +134,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
               }
             : null,
         };
-        await write(input, next, before.version);
+        await write(input, next, before.version, cancelled);
         return { message: next.message?.summary ?? null, mailboxChanged: before.snapshot !== null && before.snapshot.uidValidity !== validity };
       });
     }),
@@ -135,13 +142,13 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
   api.defineCapability(
     bindCapability(mailLatestMessageDescriptor, ({ caller }, input) => {
       authorize(caller, mailLatestMessageDescriptor.name);
-      return { message: readSnapshot(files, input).snapshot?.message?.summary ?? null };
+      return { message: removals.read(input.accountId) ? null : (readSnapshot(files, input).snapshot?.message?.summary ?? null) };
     }),
   );
   api.defineCapability(
     bindCapability(mailMessageSourceDescriptor, ({ caller }, input) => {
       authorize(caller, mailMessageSourceDescriptor.name);
-      const message = readSnapshot(files, input).snapshot?.message;
+      const message = removals.read(input.accountId) ? undefined : readSnapshot(files, input).snapshot?.message;
       return message && message.summary.localMessageId === input.localMessageId ? { state: "ready" as const, message: message.summary, source: message.source } : { state: "needs-refresh" as const };
     }),
   );
@@ -156,7 +163,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       output: replySeed,
       handler: async ({ caller, signal }, { mode, ...input }) => {
         authorize(caller, "mail.messages.prepareReply");
-        const cancelled = AbortSignal.any([signal, lifetime]);
+        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
         cancelled.throwIfAborted();
         const message = readSnapshot(files, input).snapshot?.message;
         if (!message || message.summary.localMessageId !== input.localMessageId) throw errors.notFound("原邮件已不在当前缓存，请同步后重新打开。");
@@ -191,7 +198,8 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       output: z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody }), z.strictObject({ state: z.literal("needs-refresh") })]),
       handler: async ({ caller, signal }, input) => {
         authorize(caller, "mail.messages.loadBody");
-        const cancelled = AbortSignal.any([signal, lifetime]);
+        if (removals.read(input.accountId)) return { state: "needs-refresh" as const };
+        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
         cancelled.throwIfAborted();
         const message = readSnapshot(files, input).snapshot?.message;
         if (!message || message.summary.localMessageId !== input.localMessageId) return { state: "needs-refresh" as const };
@@ -220,7 +228,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
       handler: ({ caller, signal }, input) => {
         authorize(caller, "mail.messages.markRead");
         files.assertWritable();
-        const cancelled = AbortSignal.any([signal, lifetime]);
+        const cancelled = AbortSignal.any([signal, lifetime, removals.signal(input.accountId)]);
         return serialize(input, async () => {
           cancelled.throwIfAborted();
           const { snapshot, version } = readSnapshot(files, input);
@@ -230,7 +238,7 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           let expectedVersion = version;
           if (message.summary.readState !== "local") {
             message.summary.readState = "local";
-            expectedVersion = (await write(input, snapshot, version)).version;
+            expectedVersion = (await write(input, snapshot, version, cancelled)).version;
           }
           cancelled.throwIfAborted();
           let state: "local" | "synced" | "needs-refresh" = "local";
@@ -242,14 +250,30 @@ export function registerMessageCache(api: HuhuApi, accounts: ReturnType<typeof o
           cancelled.throwIfAborted();
           if (state === "synced") {
             message.summary.readState = state;
-            await write(input, snapshot, expectedVersion);
+            await write(input, snapshot, expectedVersion, cancelled);
           }
           return { state };
         });
       },
     }),
   );
-  return async () => {
-    await Promise.allSettled(writes.values());
+  return {
+    versions: (accountId: string, folders: string[]) => folders.map((folder) => [folder, files.currentVersion(cachePath({ accountId, folder }))] as const),
+    async drainAccount(accountId: string) {
+      await Promise.allSettled([...writes.values()].filter((entry) => entry.accountId === accountId).map(({ task }) => task));
+    },
+    retireAccount(accountId: string, folders: string[]) {
+      files.assertWritable();
+      for (const folder of folders) {
+        try {
+          unlinkSync(files.abs(cachePath({ accountId, folder })));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+    },
+    async drain() {
+      await Promise.allSettled([...writes.values()].map(({ task }) => task));
+    },
   };
 }

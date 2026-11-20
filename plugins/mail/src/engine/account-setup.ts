@@ -3,11 +3,11 @@ import { errors, HuhuError } from "@huhu/contracts";
 import { CredentialError, defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { accountSettingsSchema, mailFolderSchema } from "./account-definition.js";
+import { accountVersion } from "./account-removals.js";
 import type { MailAccountDraft, openMailAccounts } from "./accounts.js";
 import { MailAccountError, type MailAccountErrorCode } from "./discovery.js";
 
 const setupKey = z.strictObject({ setupId: z.uuidv4() });
-const accountVersion = z.strictObject({ accountId: z.uuid(), expectedRevision: z.uuid() });
 const passwordInput = z.string().min(1).max(4096);
 const workbenchSetup = { plugin: "mail", desktopOnly: true, exposable: false, defaultExposed: false } as const;
 
@@ -48,6 +48,7 @@ type Setup = {
   expiry: ReturnType<typeof setTimeout>;
   save?: { selection: string; result: Promise<{ accountId: string }> };
   saved?: boolean;
+  detachAccount?: () => void;
 };
 
 export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof openMailAccounts> | undefined, lifetime: AbortSignal) {
@@ -58,6 +59,7 @@ export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof o
     if (pending.get(id) !== setup) return;
     clearTimeout(setup.expiry);
     pending.delete(id);
+    setup.detachAccount?.();
     setup.cancel.abort();
     const close = () => setup.draft.close();
     if (setup.save && !setup.saved) void setup.save.result.then(close, close);
@@ -93,9 +95,14 @@ export function registerAccountSetup(api: HuhuApi, accounts: ReturnType<typeof o
           if (setup) release(setupId, setup);
         }, 5 * 60_000);
         expiry.unref();
-        const setup = { draft, expiry, repair, cancel: new AbortController() };
+        const setup: Setup = { draft, expiry, repair, cancel: new AbortController() };
         pending.set(setupId, setup);
         const abort = () => release(setupId, setup);
+        if (repair) {
+          const generation = owner.signal(input.accountId);
+          generation.addEventListener("abort", abort, { once: true });
+          setup.detachAccount = () => generation.removeEventListener("abort", abort);
+        }
         signal.addEventListener("abort", abort, { once: true });
         try {
           const folders = await draft.testConnection();

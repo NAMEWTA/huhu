@@ -34,7 +34,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   };
 });
 
-test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、草稿附件和投递", async () => {
+test("Mail 实际组件经本机 Engine 走通阅读、回复、账号维护、草稿附件和投递", async () => {
   const repo = path.resolve(import.meta.dirname, "../../..");
   const desktop = path.join(repo, "apps/desktop");
   const entry = path.join(desktop, "src/renderer/mail-proof-entry.tsx");
@@ -644,6 +644,64 @@ test("Mail 实际组件经本机 Engine 走通阅读、回复、账号修复、�
     expect(await getAttachmentDraft()).toEqual(removedDraft);
     expect(existsSync(objectFile)).toBe(false);
     expect(smtp.counts.data).toBe(attachmentDataBefore);
+
+    await shell.getByRole("button", { name: "邮箱", exact: true }).click();
+    const removeMailbox = shell.getByRole("button", { name: "删除邮箱", exact: true });
+    await removeMailbox.press("Enter");
+    const removal = shell.getByRole("dialog", { name: "删除本地邮箱", exact: true });
+    const impacted = removal.getByRole("list", { name: "删除影响" });
+    await browserExpect(impacted).toContainText("份草稿");
+    await browserExpect(removal.getByText("已修复的回环邮箱", { exact: true })).toBeVisible();
+    const cancelRemoval = removal.getByRole("button", { name: "取消", exact: true });
+    await browserExpect(cancelRemoval).toBeFocused();
+    if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-remove-preview-390.png"), animations: "disabled" });
+    await cancelRemoval.press("Enter");
+    await browserExpect(removal).toBeHidden();
+    await browserExpect(removeMailbox).toBeFocused();
+    await browserExpect(attachmentEditor).toHaveText("Local attachment draft");
+
+    await removeMailbox.press("Enter");
+    await browserExpect(impacted).toBeVisible();
+    const current = await direct("mail.accounts.list", {});
+    const target = current.accounts.find((row: { definition: { settings: { label: string } } }) => row.definition.settings.label === "已修复的回环邮箱");
+    assert(target);
+    await direct("mail.accounts.rename", { accountId: target.accountId, expectedRevision: target.revision, label: "重新核对的邮箱" });
+    const confirmRemoval = removal.getByRole("button", { name: "删除此邮箱", exact: true });
+    await confirmRemoval.click();
+    await browserExpect(removal.getByRole("alert")).toContainText("删除影响已变化");
+    await browserExpect(confirmRemoval).toBeDisabled();
+    await removal.getByRole("button", { name: "刷新预览", exact: true }).click();
+    await browserExpect(removal.getByText("重新核对的邮箱", { exact: true })).toBeVisible();
+    const publish = engine.vault.files.write.bind(engine.vault.files);
+    const failCredentialCleanup = vi.spyOn(engine.vault.files, "write").mockImplementation(async (...args) => {
+      if (args[0].startsWith(".huhu/module-credentials/")) throw new Error("fixture credential cleanup failure");
+      return publish(...args);
+    });
+    try {
+      await confirmRemoval.click();
+      await browserExpect(removal.getByRole("alert")).toContainText("部分本机资料尚未清理");
+      await browserExpect(attachmentComposer).toBeHidden();
+    } finally {
+      failCredentialCleanup.mockRestore();
+    }
+    await removal.getByRole("button", { name: "关闭", exact: true }).first().press("Escape");
+    await browserExpect(removal).toBeHidden();
+    const pendingRemoval = shell.getByRole("button", { name: "继续清理 重新核对的邮箱", exact: true });
+    await pendingRemoval.press("Enter");
+    await removal.getByRole("button", { name: "继续清理", exact: true }).click();
+    await browserExpect(removal).toBeHidden();
+    await browserExpect(attachmentComposer).toBeHidden();
+    await browserExpect(shell.getByRole("button", { name: "全部账号", exact: true })).toBeFocused();
+    await browserExpect(accountB).toBeVisible();
+    await browserExpect(shell.getByRole("button", { name: "重新核对的邮箱", exact: true })).toBeHidden();
+    expect(await getAttachmentDraft()).toBeNull();
+    await shell.getByRole("button", { name: "发件箱", exact: true }).click();
+    await shell.getByRole("button", { name: "保留的投递记录 · 待核实", exact: true }).click();
+    await browserExpect(shell.getByText("来源邮箱已移除。", { exact: false })).toBeVisible();
+    await browserExpect(shell.getByText(/^Message-ID <[a-f0-9-]+@huhu\.local>$/)).toBeVisible();
+    await browserExpect(shell.getByRole("group", { name: "选择明确未投递的收件人" })).toBeHidden();
+    expect(smtp.counts.data).toBe(attachmentDataBefore);
+    expect(imap.commands).not.toContain("DELETE");
     expect(pageErrors).toEqual([]);
   } catch (error) {
     if (screenshots) await shell.screenshot({ path: path.join(screenshots, "mail-probe-failure.png"), style: 'input[type="password"] { visibility: hidden; }' });

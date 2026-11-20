@@ -14,6 +14,7 @@ import {
   type MailAccountSettings,
   type MailFolder,
 } from "./account-definition.js";
+import { AccountRemovals } from "./account-removals.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { discoverImapFolders } from "./imap-discovery.js";
 import { fetchLatestImapMessage, markImapMessageRead } from "./imap-message.js";
@@ -37,40 +38,51 @@ function mailAccount({ entityId, revision, authState }: CredentialSummary, defin
 }
 
 /** The Engine supplies the trusted Vault owner. Keep this service in-process. */
-export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders) {
+export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders, removals = new AccountRemovals(owner.vault.files)) {
   const credentials = new ModuleCredentials({
     ...owner,
     pluginId: "mail",
     definition: mailAccountDefinitionSchema,
     targets: ({ settings }) => accountTargets(settings),
   });
+  const readDefinition = (id: string) => ModuleCredentials.readPortableDefinition(owner.vault.files, "mail", mailAccountDefinitionSchema, id);
   function current({ accountId, expectedRevision }: MailAccountVersion): RepairAccount {
-    const found = ModuleCredentials.readPortableDefinition(owner.vault.files, "mail", mailAccountDefinitionSchema, accountId);
+    removals.assertActive(accountId);
+    const found = readDefinition(accountId);
     if (!found) throw errors.notFound("邮箱账号已不存在。");
     if (found.revision !== expectedRevision) throw new HuhuError("VERSION_CONFLICT", "邮箱配置已更新，请关闭后重新打开该账号。", { details: { currentVersion: found.revision } });
     return { accountId, revision: found.revision, definition: found.definition };
   }
   return {
-    list: async () => (await credentials.list()).map((entry) => mailAccount(entry, entry.definition)),
+    list: async () => (await credentials.list()).filter((entry) => !removals.read(entry.entityId)).map((entry) => mailAccount(entry, entry.definition)),
+    readDefinition,
+    assertActive: (id: string | null) => removals.assertActive(id),
+    signal: (id: string) => removals.signal(id),
     recover: () => credentials.recover(),
+    async removeDefinition({ accountId, expectedRevision }: MailAccountVersion, signal: AbortSignal) {
+      if (readDefinition(accountId)) await credentials.delete(accountId, expectedRevision, signal);
+    },
     begin: (settings: MailAccountSettings, password?: string) => new MailAccountDraft(credentials, discover, settings, password),
     beginRepair(target: MailAccountVersion, password: string) {
       const account = current(target);
-      return new MailAccountDraft(credentials, discover, account.definition.settings, password, account);
+      return new MailAccountDraft(credentials, discover, account.definition.settings, password, account, removals);
     },
     async rename(target: MailAccountVersion, label: string, signal: AbortSignal) {
-      signal.throwIfAborted();
-      const { accountId, revision, definition } = current(target);
-      const saved = await credentials.save({
-        entityId: accountId,
-        expectedRevision: revision,
-        definition: { ...definition, settings: { ...definition.settings, label } },
-        actions: [{ purpose: accountPasswordPurpose, action: "keep" }],
-        signal,
+      return removals.serialize(target.accountId, async () => {
+        signal.throwIfAborted();
+        const { accountId, revision, definition } = current(target);
+        const saved = await credentials.save({
+          entityId: accountId,
+          expectedRevision: revision,
+          definition: { ...definition, settings: { ...definition.settings, label } },
+          actions: [{ purpose: accountPasswordPurpose, action: "keep" }],
+          signal,
+        });
+        return { accountId, revision: saved.revision };
       });
-      return { accountId, revision: saved.revision };
     },
     withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>) {
+      removals.assertActive(accountId);
       return credentials.use(accountId, [accountPasswordPurpose], ({ settings }, values) => {
         const password = values.get(accountPasswordPurpose);
         if (!password) throw new MailAccountError("credential-required");
@@ -123,6 +135,7 @@ export class MailAccountDraft {
     settings: MailAccountSettings,
     password?: string,
     private readonly repair?: RepairAccount,
+    private readonly removals?: AccountRemovals,
   ) {
     this.#input = { settings: structuredClone(settings), password };
   }
@@ -214,13 +227,21 @@ export class MailAccountDraft {
     };
     this.#saving = true;
     try {
-      const saved = await this.credentials.save({
-        entityId: this.repair?.accountId ?? this.#id,
-        expectedRevision: this.repair?.revision ?? null,
-        definition,
-        actions: [{ purpose: accountPasswordPurpose, action: "replace", value: password, ...(this.repair && { reconfigure: true as const }) }],
-        ...(signal && { signal }),
-      });
+      const save = () =>
+        this.credentials.save({
+          entityId: this.repair?.accountId ?? this.#id,
+          expectedRevision: this.repair?.revision ?? null,
+          definition,
+          actions: [{ purpose: accountPasswordPurpose, action: "replace", value: password, ...(this.repair && { reconfigure: true as const }) }],
+          ...(signal && { signal }),
+        });
+      const saved =
+        this.repair && this.removals
+          ? await this.removals.serialize(this.repair.accountId, () => {
+              this.removals!.assertActive(this.repair!.accountId);
+              return save();
+            })
+          : await save();
       this.#closed = true;
       this.#input = { settings: this.#input.settings, password: undefined };
       this.#discovery = undefined;

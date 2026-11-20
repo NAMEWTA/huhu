@@ -57,6 +57,7 @@ export function MailComposer({
   previousDelivery,
   registerLeaveGuard,
   onChanged,
+  onSenderChange,
   onClose,
   onSent,
 }: {
@@ -69,6 +70,7 @@ export function MailComposer({
   previousDelivery: boolean;
   registerLeaveGuard?: ModuleProps["registerLeaveGuard"];
   onChanged(message: string): void;
+  onSenderChange(accountId: string | null): void;
   onClose(): void;
   onSent(operationId: string): void;
 }) {
@@ -79,6 +81,7 @@ export function MailComposer({
   const senderControl = useRef<HTMLSelectElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const attachmentsGroup = useRef<HTMLElement>(null);
+  const restoreAttachmentFocus = useRef(false);
   const selection = useRef<AbortController | null>(null);
   const initial = draft ?? seed;
   const reply = initial?.reply;
@@ -133,17 +136,16 @@ export function MailComposer({
     if (reply && !readOnly) editor?.commands.focus("start");
   }, [editor, readOnly, reply]);
   useLayoutEffect(() => () => selection.current?.abort(), []);
+  useLayoutEffect(() => {
+    if (busy !== null || !restoreAttachmentFocus.current) return;
+    restoreAttachmentFocus.current = false;
+    if (document.activeElement !== document.body) return;
+    const group = attachmentsGroup.current;
+    (group?.querySelector<HTMLButtonElement>("button:not([disabled])") ?? group)?.focus();
+  }, [busy]);
 
   const desktop = !!engine.endpoint.token;
   const picker = desktop ? (host() as { mailDraftAttachments?: DesktopDraftAttachmentHost } | undefined)?.mailDraftAttachments : undefined;
-  const restoreAttachmentFocus = () => {
-    requestAnimationFrame(() => {
-      if (document.activeElement !== document.body) return;
-      const group = attachmentsGroup.current;
-      (group?.querySelector<HTMLButtonElement>("button:not([disabled])") ?? group)?.focus();
-    });
-  };
-
   function acceptDraftState(saved: DraftAttachmentState) {
     revisionRef.current = saved.revision;
     setRevision(saved.revision);
@@ -216,8 +218,8 @@ export function MailComposer({
       selection.current = null;
       if (!signal.aborted) {
         busyRef.current = false;
+        restoreAttachmentFocus.current = true;
         setBusy(null);
-        restoreAttachmentFocus();
       }
     }
   }
@@ -237,8 +239,8 @@ export function MailComposer({
       setError(draftError(err));
     } finally {
       busyRef.current = false;
+      restoreAttachmentFocus.current = true;
       setBusy(null);
-      restoreAttachmentFocus();
     }
   }
 
@@ -375,6 +377,7 @@ export function MailComposer({
                 value={accountId}
                 onChange={(e) => {
                   setAccountId(e.target.value);
+                  onSenderChange(e.target.value || null);
                   setEdited();
                 }}
               >

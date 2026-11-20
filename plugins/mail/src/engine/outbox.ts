@@ -43,6 +43,7 @@ export const outboxSummary = outboxReceipt.extend({
   claimedAt: z.iso.datetime(),
   retry: lineage.optional(),
   subject: z.string(),
+  retained: z.literal(true).optional(),
   state: z.enum(["sending", "unknown", "not-delivered", "accepted", "partially-accepted"]),
 });
 const outboxDetails = outboxSummary.extend({ retryableRecipients: z.array(draftRecipient) });
@@ -61,6 +62,7 @@ type DraftOwner = {
 };
 type Claim = Pick<OutboxIntent, "operationId" | "draftId" | "revision"> & { retry?: OutboxIntent["retry"]; selected?: string[] };
 type DeliveryState = z.infer<typeof outboxSummary>["state"];
+type DeliveryEvidence = Extract<OutboxRecord, { deleted: true }>;
 
 const receipt = ({ operationId, messageId }: OutboxRecord) => ({ operationId, messageId });
 
@@ -79,8 +81,22 @@ function retainSelected(draft: StoredDraftContent, selected: string[]): StoredDr
   return filtered;
 }
 
+function outcomeState(recipients: MailSmtpResult["recipients"]): Exclude<DeliveryState, "sending"> {
+  if (recipients.some(({ state }) => state === "unknown")) return "unknown";
+  const accepted = recipients.filter(({ state }) => state === "accepted").length;
+  return accepted === 0 ? "not-delivered" : accepted === recipients.length ? "accepted" : "partially-accepted";
+}
+
+function evidenceView({ operationId, messageId, draftId, revision, evidence }: DeliveryEvidence): z.infer<typeof outboxView> {
+  if (!evidence) return null;
+  const { claimedAt, outcome } = evidence;
+  const summary = { operationId, messageId, draftId, revision, claimedAt, subject: "", retained: true as const, retryableRecipients: [] };
+  if ("reason" in outcome) return { ...summary, ...outcome, state: "unknown" };
+  return { ...summary, ...outcome, state: outcomeState(outcome.recipients) };
+}
+
 export class MailOutbox {
-  private readonly active = new Map<string, Promise<void>>();
+  private readonly active = new Map<string, { accountId: string; attempt: Promise<void> }>();
   private readonly storage: OutboxStorage;
 
   constructor(
@@ -116,6 +132,7 @@ export class MailOutbox {
       const current = this.storage.read(operationId);
       if (current) return receipt(current.record);
       if ("deleted" in parent) throw errors.notFound("原投递记录已删除");
+      this.accounts?.assertActive(parent.draft.accountId);
 
       const eligible = new Set(this.retryableRecipients(parent));
       if (selected.some((address) => !eligible.has(address))) {
@@ -143,7 +160,8 @@ export class MailOutbox {
     this.lifetime.throwIfAborted();
     const { operationId } = outboxStatusInput.parse(input);
     const record = this.storage.read(operationId)?.record;
-    if (!record || "deleted" in record) return null;
+    if (!record) return null;
+    if ("deleted" in record) return evidenceView(record);
     const { result, draft } = record;
     const summary = this.summary(record);
     const retryableRecipients = this.retryableRecipients(record);
@@ -155,9 +173,13 @@ export class MailOutbox {
 
   list() {
     this.lifetime.throwIfAborted();
-    const summaries: ReturnType<MailOutbox["summary"]>[] = [];
+    const summaries: z.infer<typeof outboxSummary>[] = [];
     for (const record of this.storage.records()) {
       if (!("deleted" in record)) summaries.push(this.summary(record));
+      else {
+        const view = evidenceView(record);
+        if (view) summaries.push({ operationId: view.operationId, messageId: view.messageId, draftId: view.draftId, revision: view.revision, claimedAt: view.claimedAt, subject: view.subject, state: view.state, retained: true });
+      }
     }
     return summaries.sort((a, b) => b.claimedAt.localeCompare(a.claimedAt) || a.operationId.localeCompare(b.operationId));
   }
@@ -168,22 +190,60 @@ export class MailOutbox {
       const stored = this.storage.read(operationId);
       if (!stored) throw errors.notFound("邮件投递记录不存在");
       signal.throwIfAborted();
-      if (!("deleted" in stored.record)) await this.storage.write(deleteDetails(stored.record), stored.version);
+      if (!("deleted" in stored.record)) {
+        this.accounts?.assertActive(stored.record.draft.accountId);
+        await this.storage.write(deleteDetails(stored.record), stored.version);
+      } else if (stored.record.evidence) {
+        const { evidence: _evidence, ...claim } = stored.record;
+        await this.storage.write(claim, stored.version);
+      }
       return { operationId, deleted: true as const };
     });
   }
 
-  attachmentDigests(): string[] {
+  attachmentDigests(excludeAccountId?: string): string[] {
     const digests = new Set<string>();
     for (const record of this.storage.records()) {
-      if ("deleted" in record) continue;
+      if ("deleted" in record || (excludeAccountId && record.draft.accountId === excludeAccountId)) continue;
       for (const { digest } of record.draft.attachments ?? []) digests.add(digest);
     }
     return [...digests];
   }
 
+  accountRecords(accountId: string) {
+    return [...this.storage.records()]
+      .flatMap((record) => {
+        if ("deleted" in record || record.draft.accountId !== accountId) return [];
+        return [
+          {
+            operationId: record.operationId,
+            version: this.storage.read(record.operationId)!.version,
+            active: this.active.has(record.operationId),
+            retained: !record.result || outcomeState(record.result.recipients) !== "not-delivered",
+            attachments: record.draft.attachments?.map(({ digest }) => digest) ?? [],
+          },
+        ];
+      })
+      .sort((a, b) => a.operationId.localeCompare(b.operationId));
+  }
+
+  /** Caller holds the shared writer after the account's active attempts have stopped. */
+  async retireAccount(accountId: string) {
+    for (const { operationId, retained, version } of this.accountRecords(accountId)) {
+      const record = this.storage.read(operationId)?.record;
+      if (!record || "deleted" in record) continue;
+      const tombstone = deleteDetails(record);
+      if (retained) tombstone.evidence = { claimedAt: record.claimedAt, outcome: record.result ?? { reason: "result-not-recorded", recipients: uniformOutcome(recipientsOf(record.draft), "data", "unknown").recipients } };
+      await this.storage.write(tombstone, version);
+    }
+  }
+
+  async drainAccount(accountId: string) {
+    await Promise.all([...this.active.values()].filter((entry) => entry.accountId === accountId).map(({ attempt }) => attempt));
+  }
+
   async drain(): Promise<void> {
-    await Promise.all(this.active.values());
+    await Promise.all([...this.active.values()].map(({ attempt }) => attempt));
   }
 
   private mutate<T>(requestSignal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -198,6 +258,12 @@ export class MailOutbox {
   private retryableRecipients(intent: OutboxIntent): string[] {
     const failed = intent.result?.recipients.filter(({ state }) => state === "not-delivered") ?? [];
     if (!failed.length) return [];
+    try {
+      this.accounts?.assertActive(intent.draft.accountId);
+    } catch (error) {
+      if (error instanceof HuhuError && error.code === "NOT_FOUND") return [];
+      throw error;
+    }
     const claimed = new Set<string>();
     for (const record of this.storage.records()) {
       if (record.retry?.parentOperationId !== intent.operationId) continue;
@@ -208,11 +274,7 @@ export class MailOutbox {
 
   private summary({ operationId, messageId, draftId, revision, claimedAt, retry, draft, result }: OutboxIntent) {
     let state: DeliveryState = this.active.has(operationId) ? "sending" : "unknown";
-    if (result) {
-      const accepted = result.recipients.filter((recipient) => recipient.state === "accepted").length;
-      const unknown = result.recipients.some((recipient) => recipient.state === "unknown");
-      state = unknown ? "unknown" : accepted === 0 ? "not-delivered" : accepted === result.recipients.length ? "accepted" : "partially-accepted";
-    }
+    if (result) state = outcomeState(result.recipients);
     return { operationId, messageId, draftId, revision, claimedAt, ...(retry && { retry }), subject: draft.subject, state };
   }
 
@@ -242,20 +304,21 @@ export class MailOutbox {
       result: null,
     };
     signal.throwIfAborted();
+    const deliverySignal = AbortSignal.any([this.lifetime, accounts.signal(sender.accountId)]);
     const { version } = await this.storage.write(intent, null);
-    const attempt = this.deliver(intent, version, sender.accountId, frozen.attachments, accounts, transport).finally(() => {
+    const attempt = this.deliver(intent, version, sender.accountId, frozen.attachments, accounts, transport, deliverySignal).finally(() => {
       this.active.delete(operationId);
     });
-    this.active.set(operationId, attempt);
+    this.active.set(operationId, { accountId: sender.accountId, attempt });
     return receipt(intent);
   }
 
-  private async deliver(intent: OutboxIntent, version: string, accountId: string, attachments: MailSmtpMessage["attachments"], accounts: MailAccounts, transport: MailSmtpTransport): Promise<void> {
+  private async deliver(intent: OutboxIntent, version: string, accountId: string, attachments: MailSmtpMessage["attachments"], accounts: MailAccounts, transport: MailSmtpTransport, signal: AbortSignal): Promise<void> {
     const addresses = recipientsOf(intent.draft);
     let outcome: MailSmtpResult;
     try {
       outcome = await accounts.withSmtpCredentials(accountId, async (settings, password) => {
-        if (!sameSender(intent, settings) || this.lifetime.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
+        if (!sameSender(intent, settings) || signal.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
         const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
         try {
           const message = {
@@ -271,7 +334,7 @@ export class MailOutbox {
             ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
             ...(replyContext?.references.length && { references: [...replyContext.references] }),
           };
-          const reply = await transport({ ...intent.smtp }, password, message, this.lifetime);
+          const reply = await transport({ ...intent.smtp }, password, message, signal);
           const checked = smtpResultSchema.parse(reply);
           if (hasSameRecipients(checked, addresses)) return checked;
         } catch {

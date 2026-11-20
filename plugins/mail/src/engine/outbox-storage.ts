@@ -21,7 +21,16 @@ const intentSchema = identity.extend({
   text: z.string().max(2 * 1024 * 1024),
   result: smtpResultSchema.safeExtend({ finishedAt: z.iso.datetime() }).nullable(),
 });
-const deletedSchema = identity.extend({ deleted: z.literal(true), retry: z.strictObject({ parentOperationId: operationIdSchema, recipientKeys: z.array(operationIdSchema).min(1).max(3_000) }).optional() });
+const deletedSchema = identity.extend({
+  deleted: z.literal(true),
+  retry: z.strictObject({ parentOperationId: operationIdSchema, recipientKeys: z.array(operationIdSchema).min(1).max(3_000) }).optional(),
+  evidence: z
+    .strictObject({
+      claimedAt: z.iso.datetime(),
+      outcome: z.union([intentSchema.shape.result.unwrap(), z.strictObject({ reason: z.literal("result-not-recorded"), recipients: smtpResultSchema.shape.recipients })]),
+    })
+    .optional(),
+});
 const recordSchema = z.union([deletedSchema, intentSchema]);
 export type OutboxIntent = z.infer<typeof intentSchema>;
 export type OutboxRecord = z.infer<typeof recordSchema>;
@@ -48,7 +57,7 @@ export function selectedRecipientKeys(record: OutboxRecord): string[] {
   return recipientsOf(record.draft).map((address) => retryRecipientKey(parentOperationId, address));
 }
 
-export function deleteDetails({ format, operationId, draftId, revision, messageId, retry, ...details }: OutboxIntent): OutboxRecord {
+export function deleteDetails({ format, operationId, draftId, revision, messageId, retry, ...details }: OutboxIntent): z.infer<typeof deletedSchema> {
   return {
     format,
     operationId,

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { assertAttachmentCapacity, assertImportActive, attachmentDetails, attachmentDigest, DraftAttachmentObjects, readAttachmentSource, type MailAttachmentSource } from "./draft-attachments.js";
 import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredDraftContent } from "./draft-content.js";
@@ -55,7 +56,7 @@ function saveFailure(): HuhuError {
   return new HuhuError("INTERNAL", "保存邮件草稿失败", { details: { reason: "draft-write-failed" } });
 }
 
-class MailDrafts {
+export class MailDrafts {
   private tail = Promise.resolve();
   private readonly objects: DraftAttachmentObjects;
 
@@ -63,19 +64,44 @@ class MailDrafts {
     private readonly files: VaultFiles,
     private readonly accounts: MailAccounts | undefined,
     private readonly lifetime: AbortSignal,
+    private readonly removals: AccountRemovals,
   ) {
     this.objects = new DraftAttachmentObjects(files);
   }
 
   get(draftId: string): Draft | null {
     const record = this.read().snapshot.drafts[draftId];
-    return record?.draft ? this.details(draftId, record) : null;
+    return record?.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? this.details(draftId, record) : null;
   }
 
   list() {
     return Object.entries(this.read().snapshot.drafts)
-      .flatMap(([draftId, record]) => (record.draft ? [{ draftId, revision: record.revision, updatedAt: record.updatedAt, accountId: record.draft.accountId, subject: record.draft.subject }] : []))
+      .flatMap(([draftId, record]) =>
+        record.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? [{ draftId, revision: record.revision, updatedAt: record.updatedAt, accountId: record.draft.accountId, subject: record.draft.subject }] : [],
+      )
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.draftId.localeCompare(b.draftId));
+  }
+
+  accountRecords(accountId: string) {
+    return Object.entries(this.read().snapshot.drafts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .flatMap(([draftId, { draft, revision }]) => (draft?.accountId === accountId ? [{ draftId, revision, attachments: draft.attachments?.map(({ digest }) => digest) ?? [] }] : []));
+  }
+
+  otherAttachmentDigests(accountId: string) {
+    return Object.values(this.read().snapshot.drafts).flatMap(({ draft }) => (draft && draft.accountId !== accountId ? (draft.attachments?.map(({ digest }) => digest) ?? []) : []));
+  }
+
+  /** Caller holds the shared draft/outbox writer. Keep draft IDs reserved against delayed creates. */
+  async retireAccount(accountId: string) {
+    const { snapshot, version } = this.read();
+    let changed = false;
+    for (const [draftId, record] of Object.entries(snapshot.drafts)) {
+      if (record.draft?.accountId !== accountId) continue;
+      snapshot.drafts[draftId] = { draft: null, revision: randomUUID(), updatedAt: new Date().toISOString() };
+      changed = true;
+    }
+    if (changed) await this.files.write(draftsPath, Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion: version });
   }
 
   async save({ draftId, expectedRevision, draft: content }: z.infer<typeof saveInput>, signal: AbortSignal): Promise<Draft> {
@@ -173,7 +199,7 @@ class MailDrafts {
   }
 
   /** Call only when every other exporter is quiescent or uses withSnapshot. */
-  sweepUnreferenced(outboxReferences: () => string[], requestSignal?: AbortSignal) {
+  sweepUnreferenced(outboxReferences: () => string[], requestSignal?: AbortSignal, candidates?: ReadonlySet<string>) {
     this.files.assertWritable();
     return this.withSnapshot(async () => {
       const { snapshot, version } = this.read();
@@ -181,7 +207,7 @@ class MailDrafts {
       if (version === null) return { removed: [], failed: [] };
       const referenced = new Set(Object.values(snapshot.drafts).flatMap(({ draft }) => draft?.attachments?.map(({ digest }) => digest) ?? []));
       for (const digest of outboxReferences()) referenced.add(digest);
-      return this.objects.sweep(referenced);
+      return this.objects.sweep(referenced, candidates);
     }, requestSignal);
   }
 
@@ -191,6 +217,7 @@ class MailDrafts {
 
   private requireDraft(draft: StoredDraftContent | null | undefined): StoredDraftContent {
     if (!draft) throw errors.notFound("邮件草稿不存在");
+    this.removals.assertActive(draft.accountId);
     return draft;
   }
 
@@ -229,9 +256,11 @@ class MailDrafts {
       assertActive();
       const { snapshot, version } = this.read();
       const previous = snapshot.drafts[draftId];
+      this.removals.assertActive(previous?.draft?.accountId);
       if (previous && previous.revision !== expectedRevision) throw errors.versionConflict(previous.revision);
       if (previous?.draft === null || (!previous && expectedRevision !== null)) throw errors.notFound("邮件草稿不存在");
       const draft = await edit(previous?.draft);
+      this.removals.assertActive(draft?.accountId);
       assertActive();
       if (previous && draft === previous.draft) return previous;
       const accountId = draft?.accountId;
@@ -268,8 +297,8 @@ class MailDrafts {
   }
 }
 
-export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined): () => Promise<void> {
-  const drafts = new MailDrafts(api.vault.files, accounts, lifetime);
+export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined, removals: AccountRemovals) {
+  const drafts = new MailDrafts(api.vault.files, accounts, lifetime, removals);
   const outbox = new MailOutbox(api.vault.files, drafts, accounts, transport, lifetime);
   api.provide(MAIL_DRAFT_ATTACHMENTS_SERVICE, {
     addAttachment: drafts.addAttachment.bind(drafts),
@@ -425,8 +454,9 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
       },
     }),
   );
-  return async () => {
+  const drain = async () => {
     await drafts.drain();
     await outbox.drain();
   };
+  return { drafts, outbox, drain };
 }

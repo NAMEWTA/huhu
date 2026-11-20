@@ -6,6 +6,7 @@ import type { ReplySeed } from "../engine/prepare-reply.js";
 import { mailPreset, type MailProvider } from "../engine/presets.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
+import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
@@ -18,7 +19,7 @@ const tabs = [
 ] as const;
 const emptyAccounts: MailAccount[] = [];
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
-type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount };
+type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
 
 function replyDraft(seed: ReplySeed, original: string): DraftContent {
   const excerpt = original.trimEnd().slice(0, 24_000).split(/\r?\n/);
@@ -38,7 +39,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const engine = useEngine();
   const query = useQueryClient();
   const access = useCapability<{ readOnly: boolean }>("vault.info");
-  const accounts = useCapability<{ available: boolean; accounts: MailAccount[] }>("mail.accounts.list");
+  const accounts = useCapability<{ available: boolean; accounts: MailAccount[]; pendingRemovals?: RemovalTarget[] }>("mail.accounts.list");
   const drafts = useCapability<{ drafts: DraftSummary[] }>("mail.drafts.list");
   const deliveries = useCapability<{ operations: DeliverySummary[] }>("mail.outbox.list");
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("mail");
@@ -51,6 +52,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [composer, setComposer] = useState<{ draft: Draft | null; seed?: DraftContent } | null>(null);
   const [readingMessage, setReadingMessage] = useState<string | null>(null);
   const composing = useRef(false);
+  const composerSender = useRef<string | null>(null);
   const feedbackScope = `mail-${engine.vaultId}`;
   const feedback = useWorkbenchFeedback(feedbackScope);
   const [error, setError] = useState("");
@@ -84,6 +86,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
 
   function closeComposer() {
     composing.current = false;
+    composerSender.current = null;
     setComposer(null);
     requestAnimationFrame(() => composeTrigger.current?.focus());
   }
@@ -97,7 +100,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     if (dialog || !accountActionTrigger.current) return;
     const trigger = accountActionTrigger.current;
     accountActionTrigger.current = null;
-    const frame = requestAnimationFrame(() => trigger.focus());
+    const frame = requestAnimationFrame(() => (trigger.isConnected && trigger.getClientRects().length ? trigger : accountList.current?.querySelector<HTMLElement>("[data-mail-all-accounts]"))?.focus());
     return () => cancelAnimationFrame(frame);
   }, [dialog]);
 
@@ -130,6 +133,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       return;
     }
     composing.current = true;
+    composerSender.current = draft ? draft.accountId : seed ? seed.accountId : account?.definition.settings.smtpEnabled ? account.accountId : null;
     composeTrigger.current = trigger instanceof HTMLElement ? trigger : null;
     setComposer({ draft, ...(seed && { seed }) });
   }
@@ -216,6 +220,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         <div className="hu-mail-columns hu-mail-account-columns" data-account-view={account ? accountView : "accounts"}>
           <aside ref={accountList} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
             <Button
+              data-mail-all-accounts=""
               aria-pressed={!account}
               onClick={() => {
                 setAccountId(null);
@@ -243,6 +248,18 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 </div>
               </div>
             ))}
+            {accountSetupAvailable &&
+              accounts.data?.pendingRemovals?.map((target) => (
+                <Button
+                  key={target.accountId}
+                  onClick={(event) => {
+                    accountActionTrigger.current = event.currentTarget;
+                    setDialog({ kind: "remove", target });
+                  }}
+                >
+                  继续清理 {target.label}
+                </Button>
+              ))}
           </aside>
           {account ? (
             <Mailbox
@@ -254,9 +271,10 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               backAccounts={backAccounts}
               onBack={returnToAccounts}
               {...(accountSetupAvailable && {
-                onAccountAction: (kind: "repair" | "rename", trigger: HTMLButtonElement) => {
+                onAccountAction: (kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement) => {
                   accountActionTrigger.current = trigger;
-                  setDialog({ kind, account });
+                  if (kind === "remove") setDialog({ kind, target: { accountId: account.accountId, expectedRevision: account.revision, label: accountTitle(account) } });
+                  else setDialog({ kind, account });
                 },
               })}
             />
@@ -309,7 +327,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
             <aside className="hu-mail-list" aria-label="投递记录列表">
               {deliveries.data?.operations.map((row) => (
                 <Button key={row.operationId} aria-pressed={row.operationId === activeOperationId} onClick={() => setOperationId(row.operationId)}>
-                  {row.subject || "未填写主题"} · {deliveryLabels[row.state]}
+                  {row.retained ? "保留的投递记录" : row.subject || "未填写主题"} · {deliveryLabels[row.state]}
                 </Button>
               ))}
               {!activeOperationId && <p>暂无投递记录。</p>}
@@ -364,6 +382,31 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           }}
         />
       )}
+      {dialog?.kind === "remove" && (
+        <MailAccountRemovalDialog
+          key={dialog.target.accountId}
+          target={dialog.target}
+          onClose={closeAccountDialog}
+          onProgress={(state) => {
+            if (state) {
+              if (composerSender.current === dialog.target.accountId) {
+                composing.current = false;
+                composerSender.current = null;
+                setComposer(null);
+              }
+              if (accountId === dialog.target.accountId) {
+                setAccountId(null);
+                setAccountView("accounts");
+              }
+            }
+            if (state === "removed") {
+              accountActionTrigger.current = accountList.current?.querySelector<HTMLButtonElement>("[data-mail-all-accounts]") ?? null;
+              closeAccountDialog();
+            }
+            changed(state === "removed" ? "已删除该邮箱的本机资料。" : "");
+          }}
+        />
+      )}
       {composer && (
         <MailComposer
           draft={composer.draft}
@@ -375,9 +418,13 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           previousDelivery={!!composer.draft && !!deliveries.data?.operations.some((record) => record.draftId === composer.draft?.draftId)}
           {...(registerLeaveGuard && { registerLeaveGuard })}
           onChanged={changed}
+          onSenderChange={(sender) => {
+            composerSender.current = sender;
+          }}
           onClose={closeComposer}
           onSent={(id) => {
             composing.current = false;
+            composerSender.current = null;
             setComposer(null);
             showDelivery(id);
           }}
@@ -402,7 +449,7 @@ function Mailbox({
   onBack(): void;
   onReading(id: string | null): void;
   onReply(seed: ReplySeed, quote: string, trigger: HTMLElement | null): void;
-  onAccountAction?(kind: "repair" | "rename", trigger: HTMLButtonElement): void;
+  onAccountAction?(kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement): void;
 }) {
   const engine = useEngine();
   const [selected, setSelected] = useState("INBOX");
@@ -506,6 +553,9 @@ function Mailbox({
             <Button onClick={(event) => onAccountAction("repair", event.currentTarget)}>修复认证</Button>
             <Button variant="ghost" onClick={(event) => onAccountAction("rename", event.currentTarget)}>
               更改名称
+            </Button>
+            <Button variant="danger" onClick={(event) => onAccountAction("remove", event.currentTarget)}>
+              删除邮箱
             </Button>
           </div>
         )}
