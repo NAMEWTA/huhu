@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, describe, expect, test } from "vitest";
+import { z } from "zod";
+import { defineDashboardUpdate } from "../../../packages/kernel/src/capabilities/home-dashboard.js";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
 interface Reply {
@@ -31,6 +33,23 @@ describe("首页布局读取", () => {
   const focus = { instanceId: "focus-a", widgetType: "widget:kernel:focus", config: {}, hidden: false };
   const withCard = { ...board, instances: [focus], layout: [{ instanceId: focus.instanceId, x: 0, y: 0, w: 3, h: 2 }] };
   const getBoard = (e: RunningEngine) => post(e, e.rendererToken, { capability: "home.dashboard.get", input: {}, requestId: "dashboard" });
+
+  test("W02-02 测试装配经 HTTP 提交整板，重启 Engine 后保留 revision、实例与几何", async () => {
+    const root = tmp();
+    const engine = await boot({ vaultPath: root, create: true });
+    engines.push(engine);
+    const rules = new Map([[focus.widgetType, { minSize: { w: 2, h: 2 }, maxSize: { w: 4, h: 4 }, maxInstances: 1, configSchema: z.strictObject({}) }]]);
+    const off = engine.registry.register(defineDashboardUpdate(engine.vault, rules, () => new Date("2026-11-20T00:00:00Z")));
+    const input = { baseRevision: "0", instances: withCard.instances, layout: withCard.layout };
+    const saved = await post(engine, engine.rendererToken, { capability: "home.dashboard.update", input, requestId: "submit-board", idempotencyKey: "submit-board" });
+    expect(saved).toMatchObject({ ok: true, data: { source: "stored", board: { revision: expect.any(String), updatedAt: "2026-11-20T00:00:00.000Z", instances: input.instances, layout: input.layout } } });
+    off();
+    await engine.shutdown();
+    engines.pop();
+    const reopened = await boot({ vaultPath: root });
+    engines.push(reopened);
+    expect((await getBoard(reopened)).data).toEqual(saved.data);
+  });
 
   test("W02-01 缺文件重复读保持默认；空板、有卡布局和不可识别的原件按实际来源返回", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });

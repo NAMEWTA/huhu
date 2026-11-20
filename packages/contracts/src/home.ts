@@ -103,6 +103,9 @@ export const DashboardBoardSchema = z.strictObject({
 });
 export type DashboardBoard = z.infer<typeof DashboardBoardSchema>;
 
+export const DashboardUpdateSchema = DashboardBoardSchema.pick({ instances: true, layout: true }).extend({ baseRevision: z.string().min(1) });
+export type DashboardUpdate = z.infer<typeof DashboardUpdateSchema>;
+
 export const DashboardViewSchema = z.strictObject({
   vaultId: z.string(),
   board: DashboardBoardSchema,
