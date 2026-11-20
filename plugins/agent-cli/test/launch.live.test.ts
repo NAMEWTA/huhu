@@ -70,7 +70,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
           audit: new GatewayAudit(),
           idempotency: new IdempotencyStore(),
           isPluginEnabled: (id) => manager.isEnabled(id),
-          exposureOverride: () => undefined,
+          toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
           grantedPermissions: () => [],
           pluginOrigin: () => "builtin",
         });
