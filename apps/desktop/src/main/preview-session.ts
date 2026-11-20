@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 
-import { BrowserWindow, ipcMain, protocol, session as electronSession, type Session, type WebContents } from "electron";
+import { BrowserWindow, ipcMain, Menu, protocol, session as electronSession, type Session, type WebContents } from "electron";
 import editorPreviewFrame from "../../../../packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/preview-frame.html?raw";
 import { EDITOR_PREVIEW_CSP, EDITOR_PREVIEW_URL } from "../../../../packages/editor/src/vendor/open-knowledge/app/src/editor/extensions/preview-frame-policy.js";
+import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { PREVIEW_SCHEME, PreviewGrants, handlePreviewRequest, isPreviewUrl, nonceOf } from "./preview-protocol.js";
 
 /** Electron 侧的 HTML 预览接线：协议、IPC、会话级硬化（design §11.3）。纯逻辑在 preview-protocol.ts。 */
@@ -114,7 +115,20 @@ export function registerPreviewHandlers(deps: PreviewDeps, ses: Session = electr
 }
 
 /** 窗口级硬化：iframe 自导航到外部 URL、window.open、WebRTC 探测。 */
-export function hardenWindowForPreview(wc: WebContents, blocked?: (nonce: string | null) => void): void {
+export function hardenWindowForPreview(wc: WebContents, blocked?: (nonce: string | null) => void, isGranted?: (nonce: string) => boolean): void {
+  // Electron reports the same navigation event for an anchor and for script navigation.
+  // Its native link menu supplies the hit-tested URL from an explicit user action.
+  wc.on("context-menu", (_event, params) => {
+    const frame = params.frame;
+    const from = frame?.url;
+    const nonce = nonceOf(from ?? "");
+    const win = BrowserWindow.fromWebContents(wc);
+    const url = externalHttpUrl(params.linkURL);
+    if (!win || !frame || !nonce || !url) return;
+    const isCurrent = () => !frame.isDestroyed() && frame.url === from && isGranted?.(nonce) === true;
+    if (!isCurrent()) return;
+    Menu.buildFromTemplate([{ label: "在系统浏览器中打开链接", click: () => void confirmExternalLink(win, url, isCurrent) }]).popup({ window: win });
+  });
   // WebRTC 不得通过 STUN 泄露地址（沙箱 iframe 里的 RTCPeerConnection 不受 connect-src 约束）
   wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   // will-frame-navigate 覆盖子框架导航（will-navigate 只管主框架）：预览框架只能停在 huhu-preview: 内；其发起的导航不得去往别处

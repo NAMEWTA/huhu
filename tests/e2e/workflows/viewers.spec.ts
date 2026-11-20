@@ -547,3 +547,84 @@ test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的
     await close();
   }
 });
+
+test("OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重开可用", async () => {
+  const { page, vault, close } = await launch();
+  try {
+    const file = path.join(vault, "查找说明.pdf");
+    writeFileSync(file, buildPdf(["Original PDF Match"]));
+    writeFileSync(path.join(vault, "另一页.md"), "外部编辑位置\n");
+    await openKnowledge(page);
+    await openFile(page, "查找说明");
+    await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Original PDF Match", { timeout: 30_000 });
+    const tab = page.getByTestId("document-tab").filter({ hasText: "查找说明" });
+    await tab.focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    const input = page.getByTestId("pdf-find-input");
+    await expect(input).toBeFocused();
+    await input.fill("Original");
+    await expect(page.getByTestId("pdf-find-count")).toHaveText("1 / 1");
+    await input.press("Escape");
+    await expect(page.getByTestId("pdf-view")).toBeFocused();
+    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
+    await expect(input).toBeFocused();
+
+    await openFile(page, "另一页");
+    const rich = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await rich.getByText("外部编辑位置").click();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    writeFileSync(file, buildPdf(["Replacement PDF Match"]));
+    await openFile(page, "查找说明");
+    const banner = page.getByTestId("pdf-external-change");
+    const text = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Replacement PDF Match" });
+    await expect(banner.or(text).first()).toBeVisible({ timeout: 30_000 });
+    if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
+    await expect(text).toBeVisible({ timeout: 30_000 });
+    await tab.focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("");
+    await input.fill("Replacement");
+    await expect(page.getByTestId("pdf-find-count")).toHaveText("1 / 1");
+  } finally {
+    await close();
+  }
+});
+
+test("OP-D08 原生预览链接动作只在确认后转交 HTTP(S) 给宿主", async () => {
+  const { app, page, vault, close } = await launch();
+  const url = "https://example.com/preview-link";
+  try {
+    writeFileSync(path.join(vault, "链接预览.html"), `<a href="${url}">网站</a>`);
+    const state = () => app.evaluate(() => (globalThis as typeof globalThis & { linkActions: { menus: number; confirms: string[]; opens: string[] } }).linkActions);
+    await app.evaluate(({ Menu, dialog, shell }) => {
+      const actions = { menus: 0, confirms: [] as string[], opens: [] as string[] };
+      (globalThis as typeof globalThis & { linkActions: typeof actions }).linkActions = actions;
+      Menu.prototype.popup = function () {
+        actions.menus++;
+        this.items[0]?.click(undefined as never, undefined as never, undefined as never);
+      };
+      Object.assign(dialog, {
+        showMessageBox: async (_window: unknown, options: { detail: string }) => {
+          actions.confirms.push(options.detail);
+          return { response: actions.confirms.length > 1 ? 1 : 0, checkboxChecked: false };
+        },
+      });
+      Object.assign(shell, { openExternal: async (link: string) => void actions.opens.push(link) });
+    });
+    await openKnowledge(page);
+    await openFile(page, "链接预览");
+    const frame = await previewFrame(page);
+    const link = frame.getByRole("link", { name: "网站" });
+    await link.click({ button: "right" });
+    await expect.poll(state).toEqual({ menus: 1, confirms: [url], opens: [] });
+    await link.click({ button: "right" });
+    await expect.poll(state).toEqual({ menus: 2, confirms: [url, url], opens: [url] });
+    expect(frame.url()).toMatch(/^huhu-preview:/);
+  } finally {
+    await close();
+  }
+});

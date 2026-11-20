@@ -1,3 +1,4 @@
+import { matchesEditorFind } from "@huhu/editor/editor-find-shortcut";
 import { Button, IconButton } from "@huhu/ui";
 import { useEngine, useEngineEvents } from "@huhu/workbench";
 import { ChevronDown, ChevronUp, FileWarning, RotateCcw, Search, X, ZoomIn, ZoomOut } from "lucide-react";
@@ -11,6 +12,7 @@ import { applyPdfScalePreference, stepPdfScalePreference, type PdfScalePreferenc
 import { buildPdfScalePreferenceKey, readPdfScalePreference, writePdfScalePreference } from "../../vendor/orca/pdf/pdf-scale-preference-storage.js";
 import { createPdfViewerSession } from "../../vendor/orca/pdf/pdf-viewer-session.js";
 import type { PdfRangeReader } from "../../vendor/orca/pdf/pdf-range-transport.js";
+import { usePdfViewerFindShortcut } from "../../vendor/orca/pdf/use-pdf-viewer-find-shortcut.js";
 import { v } from "./strings.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -36,7 +38,7 @@ const decodeBase64 = (b64: string): Uint8Array => {
  * PDF 查看器（F03）：ORCA 的 PDF.js 会话（vendor/orca/pdf）+ Huhu 自己的外壳。
  * 字节经 `vault.readRange` 分段读取（不整文件进内存）；状态以 (vaultId, path) 为键隔离；卸载 / 换文件 / 外部修改时销毁 worker、observer 与监听。
  */
-export function PdfView({ path }: { path: string }) {
+export function PdfView({ path, ownsCommands }: { path: string; ownsCommands: boolean }) {
   const engine = useEngine();
   const [generation, setGeneration] = useState(0);
   const [externalChange, setExternalChange] = useState(false);
@@ -52,14 +54,16 @@ export function PdfView({ path }: { path: string }) {
       vaultId={engine.vaultId}
       path={path}
       externalChange={externalChange}
+      ownsCommands={ownsCommands}
       onReload={() => (setExternalChange(false), setGeneration((g) => g + 1))}
     />
   );
 }
 
-function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId: string; path: string; externalChange: boolean; onReload: () => void }) {
+function PdfDocumentView({ vaultId, path, externalChange, ownsCommands, onReload }: { vaultId: string; path: string; externalChange: boolean; ownsCommands: boolean; onReload: () => void }) {
   const engine = useEngine();
   const rootRef = useRef<HTMLDivElement>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerDivRef = useRef<HTMLDivElement>(null);
   const loaderRef = useRef<PdfDocumentLoader | null>(null);
@@ -112,6 +116,7 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
             findControllerRef.current = null;
             pdfViewerRef.current = null;
             setFindOpen(false);
+            rootRef.current?.focus({ preventScroll: true });
           }
         };
       },
@@ -154,16 +159,22 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
     applyPdfScalePreference(viewer, "page-width", SCALE_BOUNDS);
     recordScalePreference("page-width");
   }, [recordScalePreference]);
+  const openFind = useCallback(() => {
+    setFindOpen(true);
+    findInputRef.current?.focus();
+  }, []);
+  usePdfViewerFindShortcut({ rootRef, ownsCommands, matchesFind: matchesEditorFind, openFind });
   const closeFind = useCallback(() => {
     eventBusRef.current?.dispatch("findbarclose", { source: null });
     setFindOpen(false);
+    rootRef.current?.focus({ preventScroll: true });
   }, []);
 
   // 快捷键只在本查看器内生效（焦点在它里面时），不抢全局输入框的按键
   const onKeyDown = (e: React.KeyboardEvent) => {
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
-    const act = e.key === "f" || e.key === "F" ? () => setFindOpen(true) : e.key === "+" || e.key === "=" ? () => stepZoom("in") : e.key === "-" || e.key === "_" ? () => stepZoom("out") : e.key === "0" ? zoomReset : null;
+    const act = e.key === "+" || e.key === "=" ? () => stepZoom("in") : e.key === "-" || e.key === "_" ? () => stepZoom("out") : e.key === "0" ? zoomReset : null;
     if (!act) return;
     e.preventDefault();
     act();
@@ -180,7 +191,7 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
         </div>
       ) : null}
       <div className="notes-pdf-stage">
-        {findOpen ? <PdfFind eventBusRef={eventBusRef} onClose={closeFind} /> : null}
+        {findOpen ? <PdfFind eventBusRef={eventBusRef} inputRef={findInputRef} onClose={closeFind} /> : null}
         <div ref={containerRef} className="notes-pdf-container">
           <div ref={viewerDivRef} className="pdfViewer" />
         </div>
@@ -199,7 +210,7 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
         <span className="notes-pdf-zoom" data-testid="pdf-zoom">
           {Math.round(scale * 100)}%
         </span>
-        <IconButton icon={Search} label={v.find} onClick={() => setFindOpen(true)} />
+        <IconButton icon={Search} label={v.find} onClick={openFind} />
         <span className="notes-pdf-name" title={name}>
           {name}
         </span>
@@ -208,7 +219,7 @@ function PdfDocumentView({ vaultId, path, externalChange, onReload }: { vaultId:
   );
 }
 
-function PdfFind({ eventBusRef, onClose }: { eventBusRef: React.RefObject<InstanceType<typeof EventBus> | null>; onClose: () => void }) {
+function PdfFind({ eventBusRef, inputRef, onClose }: { eventBusRef: React.RefObject<InstanceType<typeof EventBus> | null>; inputRef: React.RefObject<HTMLInputElement | null>; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [total, setTotal] = useState(0);
@@ -252,10 +263,10 @@ function PdfFind({ eventBusRef, onClose }: { eventBusRef: React.RefObject<Instan
       onKeyDown={(e) => {
         e.stopPropagation();
         if (e.key === "Escape") onClose();
-        else if (e.key === "Enter") dispatchFind("again", e.shiftKey);
+        else if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) dispatchFind("again", e.shiftKey);
       }}
     >
-      <input className="notes-pdf-find-input" data-testid="pdf-find-input" autoFocus value={query} placeholder={v.findPlaceholder} aria-label={v.find} onChange={(e) => setQuery(e.target.value)} />
+      <input ref={inputRef} className="notes-pdf-find-input" data-testid="pdf-find-input" autoFocus value={query} placeholder={v.findPlaceholder} aria-label={v.find} onChange={(e) => setQuery(e.target.value)} />
       {query ? (
         <span className="notes-pdf-find-count" data-testid="pdf-find-count">
           {total > 0 ? `${active} / ${total}` : v.noMatches}

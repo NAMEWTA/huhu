@@ -74,6 +74,11 @@ const bridge = new Map([
   ["noteWindow.dispatchToMain", "Q2/Q10 不启用 OK 独立笔记窗口"],
   ["skill", "Q2 上游 Agent skill"],
 ]);
+const desktopRoot = join(root, "apps/desktop/out");
+const externalIpc = "huhu:openExternal";
+if (["preload/index.cjs", "main/index.js"].every((entry) => readFileSync(join(desktopRoot, entry), "utf8").includes(externalIpc))) {
+  bridge.set("shell.openExternal", "desktop-bridge.ts → window.huhuHost.openExternal → 构建中已接线的主进程 HTTP(S) 确认");
+}
 const rows = [];
 for (const [path, calls] of [...api].sort(([a], [b]) => a.localeCompare(b))) {
   const matches = routes.get(path);

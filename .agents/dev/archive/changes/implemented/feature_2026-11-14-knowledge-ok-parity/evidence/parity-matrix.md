@@ -21,7 +21,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | StarterKit 未被 `false` 关闭的默认扩展（清单未逐项核实） | core/src/extensions/shared.ts（StarterKit.configure，`undoRedo:false`、`trailingNode:false`） | 无同名测试；间接见 core/src/extensions/shared.test.ts | 直接复制 | 撤销由 y-tiptap 接管（spec B05），不装第二套历史 | — | 已验证：上游单测通过：shared.test.ts |
 | 有序 / 无序 / 任务列表 List、ListItem | core/src/extensions/list.ts | core/src/extensions/list.test.ts | 直接复制 | — | — | 已验证：e2e：「无序有序任务列表」构造无编辑打开字节不变且渲染（matrix-run.json constructs） |
-| 列表边界合并 ListBoundaryMerge | core/src/extensions/list-boundary-merge.ts | 无同名测试 | 直接复制 | — | — | 已验证：e2e：「无序有序任务列表」构造无编辑打开字节不变且渲染（matrix-run.json constructs） |
+| 列表边界合并 ListBoundaryMerge | core/src/extensions/list-boundary-merge.ts | 无同名测试 | 直接复制 | — | — | task02 补证见[合并前后列表结构与落盘断言](../../../../../../../tests/e2e/knowledge/editor-s3-parity.spec.ts#L414-L415) |
 | 标题 HeadingFidelity（Heading.extend） | core/src/extensions/heading-fidelity.ts | 无同名测试 | 直接复制 | — | — | 已验证：e2e：「标题与段落」构造无编辑打开字节不变且渲染（matrix-run.json constructs） |
 | 引用块 BlockquoteFidelity（Blockquote.extend） | core/src/extensions/blockquote-fidelity.ts | 无同名测试 | 直接复制 | — | — | 已验证：e2e：「引用与分隔线」构造无编辑打开字节不变且渲染（matrix-run.json constructs） |
 | 分隔线 ThematicBreakFidelity（HorizontalRule.extend） | core/src/extensions/thematic-break-fidelity.ts | core/src/extensions/thematic-break-fidelity.test.ts | 直接复制 | — | — | 已验证：上游单测通过：thematic-break-fidelity.test.ts；e2e：「引用与分隔线」构造无编辑打开字节不变且渲染（matrix-run.json constructs） |
@@ -68,7 +68,7 @@
 
 | 能力 | 上游文件 | 对应上游测试 | 动作 | Huhu 适配点 | 不适用 / 待定原因 | 验证状态（2026-11-18） |
 | --- | --- | --- | --- | --- | --- | --- |
-| `/` 斜杠触发 SlashCommand | app/src/editor/extensions/slash-command.ts（char `/`，ArrowUp/Down、Enter/Tab、Escape 处理） | app/src/editor/extensions/slash-command-atomicity.dom.test.tsx；suggestion-atomicity.dom.test.tsx；app/src/editor/slash-command/SlashCommandMenu.dom.test.tsx | 直接复制 | — | — | 已验证：e2e：`/` 菜单项「Callout」可应用且文档变化（matrix-run.json slashItems）；渲染细节与交互未逐项验证 |
+| `/` 斜杠触发 SlashCommand | app/src/editor/extensions/slash-command.ts（char `/`，ArrowUp/Down、Enter/Tab、Escape 处理） | app/src/editor/extensions/slash-command-atomicity.dom.test.tsx；suggestion-atomicity.dom.test.tsx；app/src/editor/slash-command/SlashCommandMenu.dom.test.tsx | 直接复制 | — | — | task02 补证见[逐项效果断言](../../../../../../../tests/e2e/knowledge/editor-s3-matrix.spec.ts#L278-L301) |
 | 建议菜单 IME 与触发：SuggestionCompositionEnd、suggestion-ime、suggestion-allow、suggestion-floating-ui | app/src/editor/extensions/suggestion-ime.ts、suggestion-allow.ts、suggestion-floating-ui.ts、SuggestionCompositionEnd（`extensions/shared.ts`） | suggestion-ime-triggers.dom.test.tsx；suggestion-floating-ui.dom.test.ts | 直接复制 | 真实输入法（微软拼音 / macOS）未验证，spec §7 | — | 未逐项验证：无同名单测通过、无专项 e2e（上游 app dom 测试未迁入，缺 jsdom 预加载设施） |
 | 格式快捷键 FormattingShortcuts（Mod-Shift-x） | app/src/editor/extensions/formatting-shortcuts.ts | 无同名测试 | 直接复制 | 键位接 Huhu 快捷键表（见 §7） | — | 已验证：e2e：Mod-Shift-x 删除线通过（rules-run.json） |
 | 块拖拽手柄 BlockDragHandle（@tiptap/extension-drag-handle） | app/src/editor/extensions/drag-handle.ts；bubble-menu/drag-menu-lifecycle.ts；extensions/gutter-plus-icon.ts | app/src/editor/extensions/drag-handle.dom.test.ts | 直接复制 | 依赖 `@tiptap/extension-drag-handle` 补丁（reuse §9） | — | 未逐项验证：无同名单测通过、无专项 e2e（上游 app dom 测试未迁入，缺 jsdom 预加载设施） |

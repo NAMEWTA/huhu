@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
+import { confirmExternalLink } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
@@ -145,7 +146,11 @@ function createWindow(): BrowserWindow {
     if (!isTrustedUrl(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
+  hardenWindowForPreview(
+    win.webContents,
+    (nonce) => preview?.blocked(nonce),
+    (nonce) => preview?.grants.get(nonce) !== undefined,
+  );
   // 只有主框架加载失败才显示错误页：HTML 预览 iframe 里被拦截的导航（ERR_BLOCKED_BY_CSP / ERR_BLOCKED_BY_CLIENT 等）不能把整个工作台换成错误页
   win.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
     if (!isMainFrame) return;
@@ -224,6 +229,15 @@ if (!gotLock) {
       if (!r.ok) startupError = r.message;
     });
     const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
+    ipcMain.handle("huhu:openExternal", (event, url: unknown) => {
+      const frame = event.senderFrame;
+      assertTrusted(frame?.url);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!frame || frame.parent || !win) return false;
+      const documentUrl = frame.url;
+      return confirmExternalLink(win, url, () => !frame.isDestroyed() && frame.url === documentUrl);
+    });
+
     ipcMain.handle("huhu:externalLinkPreview", async (event, url: unknown) => {
       assertTrusted(event.senderFrame?.url);
       const vault = current;

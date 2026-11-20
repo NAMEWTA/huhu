@@ -1,3 +1,4 @@
+import { markdownFileBody, restoreMarkdownFileEnvelope } from "../src/host/markdown-file-envelope";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -171,23 +172,15 @@ const serializationDifferences = new Map<string, { source: string; output: strin
     "regression/prd-6955-corrupted-triplicated.md",
     { source: "ded7bb5b69dc0a4907bb2c1e6839b40ae0c8be5402f4047e33f49aaaf04a4169", output: "6b54b8ff2f0a1746b36b23f9e9b98f45fd465042da5a6c17e79fa27e4c3c5373", reason: "转义正文中不构成语法的波浪号并规范分隔符", equivalent: true },
   ],
-  [
-    "comment-bom-crlf.base64",
-    {
-      source: "d12eb6e0fb657c3a013f39ea0fbc9972b5439e45f66ae583c635c692ce619741",
-      output: "dfefb6f591e20a4ab66b608d8d9b1bf25820b40dcd4151a7674ffd0dc64d54b3",
-      reason: "固定 OK 将 BOM 后的 YAML 起始围栏当分隔线，且输出混合换行，生产谓词拒绝等价",
-      equivalent: false,
-    },
-  ],
 ]);
 
 test.each(samples)(
   "H01 源缓冲保留字节并经富文本 hydrate→serialize $name",
   async ({ name, bytes }) => {
     const original = bytes.toString("utf8");
-    await withProvider(name, original, async (provider) => {
-      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
+    const fileBody = markdownFileBody(original);
+    await withProvider(name, fileBody, async (provider) => {
+      expect(provider.document.getText("source").toString()).toBe(fileBody);
       const fragment = provider.document.getXmlFragment("default");
       if (original.length > largeThreshold) {
         expect(provider.richReady).toBe(false);
@@ -196,10 +189,10 @@ test.each(samples)(
       await provider.ensureRich();
       expect(provider.richReady).toBe(true);
       const rich = yXmlFragmentToProseMirrorRootNode(fragment, markdown.schema);
-      const { frontmatter, body } = core.stripFrontmatter(original);
+      const { frontmatter, body } = core.stripFrontmatter(fileBody);
       const { slot } = core.splitFmBoundarySlot(frontmatter, body);
-      const serialized = core.composeWithDerivedBody(frontmatter, slot + markdown.mdManager.serialize(rich.toJSON())).md;
-      expect(Buffer.from(provider.document.getText("source").toString()).equals(bytes)).toBe(true);
+      const serialized = restoreMarkdownFileEnvelope(original, core.composeWithDerivedBody(frontmatter, slot + markdown.mdManager.serialize(rich.toJSON())).md);
+      expect(Buffer.from(restoreMarkdownFileEnvelope(original, provider.document.getText("source").toString())).equals(bytes)).toBe(true);
       const difference = serializationDifferences.get(name);
       if (!difference) {
         expect(serialized).toBe(original);

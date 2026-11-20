@@ -117,3 +117,41 @@ test("S3：坏 YAML 不被清空——面板给出诊断，源码里的原文保
     await close();
   }
 });
+
+test("H01 BOM＋CRLF 笔记的 YAML 可读，编辑后逐字节保留文件格式", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const file = path.join(vault, "文件格式.md");
+    const original = "\uFEFF---\r\ntitle: 格式标题\r\n---\r\n\r\n正文";
+    writeFileSync(file, original);
+    await gotoNotes(page);
+    await treeItem(page, "文件格式.md").click();
+    await expect(page.getByTestId("editor-properties").locator('textarea[data-key="title"]')).toHaveValue("格式标题");
+    const body = prose(page).getByText("正文", { exact: true });
+    await expect(body).toBeVisible();
+    expect(readFileSync(file)).toEqual(Buffer.from(original));
+    await body.click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("已编辑");
+    await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(original + "已编辑"));
+  } finally {
+    await close();
+  }
+});
+
+test("H04 页面图标和封面通过 Vault 媒体路径显示本地图片", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    writeFileSync(path.join(vault, "封面 图.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+YhXYAAAAASUVORK5CYII=", "base64"));
+    writeFileSync(path.join(vault, "图标封面.md"), "---\nicon: 封面 图.png\nbanner: 封面 图.png\n---\n\n正文\n");
+    await gotoNotes(page);
+    await treeItem(page, "图标封面.md").click();
+    for (const testId of ["page-icon-preview", "page-cover-preview"]) {
+      const image = page.getByTestId(testId).locator("img");
+      await expect(image).toHaveAttribute("src", "/%E5%B0%81%E9%9D%A2%20%E5%9B%BE.png");
+      await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
+    }
+  } finally {
+    await close();
+  }
+});

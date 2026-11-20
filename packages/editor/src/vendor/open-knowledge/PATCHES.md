@@ -372,3 +372,42 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 
 - `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。
 - `server-bridge/server-observers.ts`：从独立模块导入原桥投影来源。
+
+## task02 H04
+
+- `app/src/components/page-header-utils.ts`：图标和封面改用 Huhu 已有受保护的 Vault 媒体 URL，逐段编码。两处消费者此前使用当前宿主未提供的 `/api/asset`。
+- `app/src/components/page-header-media.test.ts`：检查图标、封面 URL 编码及无效 Vault 路径。
+
+## task02 G04
+
+以下 29 个上游测试保留固定 Git blob，接入独立 vendor Vitest。
+
+- `app/src/components/file-tree-merge.test.ts`
+- `app/src/components/file-tree-path-helpers.test.ts`
+- `app/src/components/file-tree-rename-validation.test.ts`
+- `app/src/components/file-tree-reveal.test.ts`
+- `app/src/components/file-tree-selection.test.ts`
+- `app/src/components/file-tree-shared.test.ts`
+- `app/src/components/graph-colors.test.ts`
+- `app/src/components/graph-label-layout.test.ts`
+- `app/src/components/graph-label-utils.test.ts`
+- `app/src/components/graph-skill-filter.test.ts`
+- `app/src/components/graph-view-utils.test.ts`
+- `app/src/components/link-target-intent.test.ts`
+- `app/src/components/property-inline-link-tokens.test.ts`
+- `app/src/components/sidebar-drag-payload.test.ts`
+- `app/src/components/target-navigation-intent.test.ts`
+- `app/src/editor/active-editor.test.ts`
+- `app/src/editor/extensions/block-mover.test.ts`
+- `app/src/editor/extensions/code-block-meta.test.ts`
+- `app/src/editor/extensions/jsx-node-target.test.ts`
+- `app/src/editor/extensions/wiki-link-helpers.test.ts`
+- `app/src/editor/link-preview/doc-excerpt.test.ts`
+- `app/src/editor/selection/entry-label.test.ts`
+- `app/src/editor/selection-stats.test.ts`
+- `app/src/editor/source-heading-lines.test.ts`
+- `app/src/editor/source-line-direction.test.ts`
+- `app/src/editor/utils/editor-strings.test.ts`
+- `app/src/editor/utils/severity.test.ts`
+- `app/src/editor/utils/validate-css-length.test.ts`
+- `app/src/editor/utils/validate-media-url.test.ts`

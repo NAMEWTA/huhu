@@ -165,13 +165,13 @@ const ORCA_RELATED = new Map([
   [`${orcaEditor}/file-view-preference-storage.ts`, ["plugins/notes/src/vendor/orca/pdf/pdf-scale-preference-storage.ts", "P-S7-04 合并偏好存储逻辑"]],
   [`${orcaEditor}/pdf-orca-media-range-transport.test.ts`, ["plugins/notes/test/orca-pdf-range-transport.test.ts", "范围读适配"]],
   [`${orcaEditor}/pdf-scale-preference.test.ts`, ["plugins/notes/test/orca-pdf-scale-preference.test.ts", "本地缩放偏好适配"]],
+  [`${orcaEditor}/image-viewer-zoom.test.ts`, ["plugins/notes/test/orca-pdf-zoom-wheel.test.ts", "滚轮缩放测试改用 Huhu 摘取模块"]],
   [`${orcaEditor}/pdf-view-position.test.ts`, ["plugins/notes/test/orca-pdf-view-position.test.ts", "本地查看位置适配"]],
 ]);
 
 const ORCA_OMISSIONS = new Map([
   [`${orcaEditor}/PdfViewer.tsx`, "OP-D09 查看外壳由 Huhu PdfView.tsx 重写，待确认复制范围"],
   [`${orcaEditor}/PdfFind.tsx`, "OP-D09 查找外壳由 Huhu PdfView.tsx 重写，待确认复制范围"],
-  [`${orcaEditor}/use-pdf-viewer-find-shortcut.ts`, "OP-D09 ORCA 键盘路由未迁入，行为差异待确认"],
   [`${orcaEditor}/use-viewer-zoom-commands.ts`, "OP-D09 缩放由 Huhu 查看器本地键盘处理"],
   [`${orcaEditor}/viewer-zoom-request.ts`, "OP-D09 明确不复制，依赖 ORCA store"],
   [`${orcaEditor}/pdf-export-error-copy.ts`, "Huhu PDF 闭包不含导出"],

@@ -1,6 +1,7 @@
 import { IMAGE_EXTENSIONS } from '@inkeep/open-knowledge-core/constants/upload';
 import { parseWikiLink } from '@inkeep/open-knowledge-core/extensions/wiki-link';
 import { isSafeUrl } from '@inkeep/open-knowledge-core/markdown/safe-url';
+import { encodeHrefPath } from '@inkeep/open-knowledge-core/utils/resolve-internal-href';
 import { toDesktopAssetHref } from '@inkeep/open-knowledge-core/utils/asset-href';
 
 const MAX_VALUE_LENGTH = 2048;
@@ -30,12 +31,8 @@ export function resolvePageIcon(raw: unknown): ResolvedPageIcon {
     return { kind: 'url', value: trimmed };
   }
   if (imageKind === 'path') {
-    return {
-      kind: 'path',
-      value: toDesktopAssetHref(
-        `/api/asset?path=${encodeURIComponent(toContentDirRelative(trimmed))}`,
-      ),
-    };
+    const path = localImageHref(trimmed);
+    if (path) return { kind: 'path', value: path };
   }
   return { kind: 'unsupported', value: '' };
 }
@@ -78,18 +75,16 @@ export function resolvePageCover(raw: unknown): ResolvedPageCover {
     return { kind: 'url', value: trimmed };
   }
   if (imageKind === 'path') {
-    return {
-      kind: 'path',
-      value: toDesktopAssetHref(
-        `/api/asset?path=${encodeURIComponent(toContentDirRelative(trimmed))}`,
-      ),
-    };
+    const path = localImageHref(trimmed);
+    if (path) return { kind: 'path', value: path };
   }
   return { kind: 'unsupported', value: '' };
 }
 
-function toContentDirRelative(value: string): string {
-  return value.startsWith('/') ? value.slice(1) : value;
+function localImageHref(value: string): string | null {
+  const path = value.replace(/^\//, '');
+  if (path.split('/').some((part) => part === '' || part === '.' || part === '..')) return null;
+  return toDesktopAssetHref('/' + encodeHrefPath(path));
 }
 
 function isLikelyEmoji(value: string): boolean {

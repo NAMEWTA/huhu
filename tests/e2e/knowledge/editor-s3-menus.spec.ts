@@ -165,7 +165,7 @@ test("B03 斜杠合法前缀、键盘循环、滚动重定位及切文档清理"
     await expect(prose(page)).toHaveText("切换目标");
     await treeItem(page, "菜单边界.md").click();
     const rich = prose(page);
-    const row = rich.getByText("第 14 段", { exact: true });
+    const row = rich.locator("p").filter({ hasText: /^第 14 段/ });
     await row.evaluate((element) => element.scrollIntoView({ block: "center" }));
     await row.click();
     await page.keyboard.press("End");
@@ -192,6 +192,31 @@ test("B03 斜杠合法前缀、键盘循环、滚动重定位及切文档清理"
     await expect(menu).toBeVisible();
     await expect(rich).toBeFocused();
 
+    await page.keyboard.press("Escape");
+    const edge = await row.evaluate((element) => {
+      const pane = element.closest('[data-testid="editor-scroll-container"]')!;
+      const offset = pane.getBoundingClientRect().right - element.getBoundingClientRect().right - 24;
+      const index = Array.from(element.parentElement!.children).indexOf(element) + 1;
+      return { offset, index };
+    });
+    await page.addStyleTag({
+      content: `[data-testid="markdown-editor"] .ProseMirror > p:nth-child(${edge.index}) { position: relative; left: ${edge.offset}px; text-align: right; }`,
+    });
+    await row.click();
+    await page.keyboard.press("End");
+    const paneRight = await scroller.evaluate((element) => element.getBoundingClientRect().right);
+    const caretRight = () => rich.evaluate(() => window.getSelection()?.getRangeAt(0).getBoundingClientRect().right ?? 0);
+    await expect.poll(caretRight).toBeGreaterThan(paneRight - 45);
+    await page.keyboard.insertText("　/");
+    await expect(menu).toBeVisible();
+    await expect.poll(caretRight).toBeGreaterThan(paneRight - 45);
+    await expect
+      .poll(async () => {
+        const bounds = await menu.boundingBox();
+        return bounds ? bounds.x + bounds.width : Number.POSITIVE_INFINITY;
+      })
+      .toBeLessThanOrEqual(paneRight + 2);
+
     await treeItem(page, "另一位.md").click();
     await expect(prose(page)).toHaveText("切换目标");
     await expect(menu).toBeHidden();
@@ -202,7 +227,7 @@ test("B03 斜杠合法前缀、键盘循环、滚动重定位及切文档清理"
 });
 
 test("B04 Electron 组合输入的斜杠触发、Enter、字面上下文和表格菜单", async () => {
-  const { page, vault, close } = await openApp();
+  const { app, page, vault, close } = await openApp();
   try {
     const file = path.join(vault, "组合菜单.md");
     writeFileSync(file, "开头\n\n`code`\n\nhttps://example.com/alpha\n\n| 表头 |\n| --- |\n| 单元格 |\n");
@@ -227,6 +252,27 @@ test("B04 Electron 组合输入的斜杠触发、Enter、字面上下文和表�
       await page.keyboard.press("Shift+Home");
       await page.keyboard.press("Backspace");
     }
+
+    await page.keyboard.type("/h2");
+    await expect(menu.locator('[data-slash-command="heading2"]')).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(rich.locator("h2")).toHaveCount(1);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(rich.locator("h2")).toHaveCount(0);
+    const commit = async (pinyin: string, text: string) => {
+      await cdp.send("Input.imeSetComposition", { text: pinyin, selectionStart: pinyin.length, selectionEnd: pinyin.length });
+      await expect(rich).toContainText(pinyin);
+      expect(readFileSync(file, "utf8")).not.toContain(pinyin);
+      await cdp.send("Input.insertText", { text });
+      await expect(rich).toContainText(text);
+      await expect(rich).toBeFocused();
+      await expect.poll(() => readFileSync(file, "utf8")).toContain(text);
+    };
+    await commit("nihao", "你好");
+    await app.evaluate(({ clipboard }) => clipboard.writeText("原生粘贴"));
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(rich).toContainText("原生粘贴");
+    await commit("zaijian", "再见");
 
     await rich.locator("code").getByText("code", { exact: true }).click();
     await page.keyboard.press("ArrowLeft");

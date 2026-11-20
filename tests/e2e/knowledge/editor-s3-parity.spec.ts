@@ -392,7 +392,7 @@ test("B07 键盘操作列表、代码块和表格，并原生拖放正文", asyn
   const { page, vault, close } = await openApp();
   const file = path.join(vault, "编辑键盘.md");
   try {
-    writeFileSync(file, "- 外层\n- 移入内层\n\n```js\nlet x = 1;\n```\n\n表格前\n\n| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |\n\n拖动文字\n\n文字目标\n");
+    writeFileSync(file, "- 外层\n- 移入内层\n\n1. 合并前\n2. 合并后\n\n```js\nlet x = 1;\n```\n\n表格前\n\n| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |\n\n拖动文字\n\n文字目标\n");
     await gotoNotes(page);
     await treeItem(page, "编辑键盘.md").click();
     const editor = prose(page);
@@ -407,7 +407,18 @@ test("B07 键盘操作列表、代码块和表格，并原生拖放正文", asyn
     await page.keyboard.press("Backspace");
     await expect(nested.getByRole("listitem")).toHaveCount(1);
 
-    await editor.locator("pre").getByText("let x = 1;", { exact: true }).click();
+    await editor.getByText("合并后", { exact: true }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Backspace");
+    await expect(editor.locator("ol > li")).toHaveCount(1);
+    await expect(editor.locator("ol > li")).toContainText("合并前合并后");
+    await expect.poll(() => readFileSync(file, "utf8")).toContain("1. 合并前合并后");
+
+    await editor.getByText("表格前", { exact: true }).click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(() => editor.locator("pre").evaluate((code) => code.contains(window.getSelection()?.anchorNode ?? null))).toBe(true);
+
     await page.keyboard.press("End");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.insertText("已从代码块退出");

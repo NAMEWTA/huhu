@@ -41,6 +41,16 @@ export interface OkRootProps {
   style?: React.CSSProperties;
 }
 
+function desktopOpenExternal(): OkHost["openExternal"] | undefined {
+  const host = (globalThis as { huhuHost?: { openExternal?(url: string): Promise<boolean> } }).huhuHost;
+  return host?.openExternal ? openDesktopExternal : undefined;
+}
+
+async function openDesktopExternal(url: string): Promise<void> {
+  const host = (globalThis as { huhuHost?: { openExternal?(url: string): Promise<boolean> } }).huhuHost;
+  await host?.openExternal?.(url);
+}
+
 let lastPoolKey: string | undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } });
@@ -62,7 +72,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, docume
   const [ready, setReady] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const features = useMemo(() => ({ ...DEFAULT_FEATURES, ...host?.features }), [host?.features]);
-  const openExternal = host?.openExternal;
+  const openExternal = host?.openExternal ?? desktopOpenExternal();
   useEffect(() => {
     setHostLintAvailable(features.lint);
     const off = openExternal ? installDesktopBridge({ features, openExternal }) : () => {};

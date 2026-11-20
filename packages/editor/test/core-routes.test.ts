@@ -8,6 +8,8 @@ const source = { docName: "source", title: "Source", size: 1, modified: "2026-11
 const target = { ...source, docName: "target", title: "Target", tags: ["work/project"] };
 
 const cases = [
+  { path: "/api/pages", body: { pages: [source, target] } },
+  { path: "/api/documents", body: { documents: [] } },
   {
     path: "/api/tags",
     body: {
@@ -34,7 +36,7 @@ test.each(cases)("core host route $path returns its client shape and preserves t
   const dispose = registerHostRoutes(
     coreRoutes({
       listPages: () => value([source, target]),
-      listDocuments: () => [],
+      listDocuments: () => value([]),
       suggestions: {
         listTags: async () =>
           value([
@@ -90,5 +92,19 @@ test("a delayed preview response stays outside the next Vault's document and bac
   } finally {
     resetInternalDocPreviewCache();
     vi.unstubAllGlobals();
+  }
+});
+
+test("host principal is a local constant and unsupported methods return a clear error", async () => {
+  const off = registerHostRoutes(coreRoutes({ listPages: () => [], listDocuments: () => [] }));
+  try {
+    const principal = await hostFetch("/api/principal");
+    expect(principal.status).toBe(200);
+    expect(await principal.json()).toEqual({ principal: { id: "local", name: "Huhu", kind: "human" } });
+    const write = await hostFetch("/api/principal", { method: "POST" });
+    expect(write.status).toBe(404);
+    expect(await write.json()).toMatchObject({ code: "NOT_AVAILABLE" });
+  } finally {
+    off();
   }
 });

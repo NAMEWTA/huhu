@@ -9,6 +9,10 @@
       "types": "./src/rich/rich.d.ts",
       "default": "./src/rich/index.ts"
     },
+    "./editor-find-shortcut": {
+      "types": "./src/host/editor-find-shortcut.d.ts",
+      "default": "./src/host/editor-find-shortcut.ts"
+    },
     "./link-preview-main": "./src/host/link-preview-main.ts",
     "./ok-explorer": {
       "types": "./src/host/ok-explorer.d.ts",

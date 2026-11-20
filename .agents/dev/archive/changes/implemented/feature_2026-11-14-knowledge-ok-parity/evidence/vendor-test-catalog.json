@@ -2,18 +2,32 @@
   "summary": {
     "open-knowledge": {
       "outside-product": 1268,
-      "not-applicable": 811,
-      "copy": 302,
-      "unreviewed": 1065,
+      "not-applicable": 893,
+      "copy": 331,
+      "needs-adaptation": 954,
       "patch": 27,
       "partial": 3
     },
     "orca": {
       "outside-product": 9992,
-      "not-applicable": 6,
-      "unreviewed": 4,
-      "patch": 3,
-      "partial": 3
+      "not-applicable": 5,
+      "partial": 5,
+      "patch": 4,
+      "needs-adaptation": 2
+    }
+  },
+  "coverage": {
+    "open-knowledge": {
+      "passed": 358,
+      "denominator": 1315,
+      "minimumFor70Percent": 921,
+      "additional": 563
+    },
+    "orca": {
+      "passed": 4,
+      "denominator": 11,
+      "minimumFor70Percent": 8,
+      "additional": 4
     }
   },
   "skips": [

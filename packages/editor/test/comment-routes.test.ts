@@ -128,3 +128,20 @@ describe("路由", () => {
     expect(r.json.title).toBe("引用的文字不在文档里（可能已修改，请重新选择）");
   });
 });
+
+test.each([
+  { method: "GET", path: "/api/comments", operation: "list", payload: undefined },
+  { method: "POST", path: "/api/comments", operation: "create", payload: { docName: "笔记/一", body: "测试" } },
+  { method: "POST", path: "/api/comment", operation: "reply", payload: { action: "reply", id: "c1", body: "测试" } },
+  { method: "DELETE", path: "/api/comment?id=c1", operation: "delete", payload: undefined },
+])("H04 $method $path propagates the comments error code and readable reason", async ({ method, path, operation, payload }) => {
+  const { port } = fakePort({
+    [operation]: async () => {
+      throw new Error("批注暂时无法保存或读取");
+    },
+  });
+  const routes = commentRoutes({ port, pathOf: (doc) => doc + ".md", docNameOf, flush: async () => {} });
+  const failure = await call(routes, method, path, payload);
+  expect(failure.status).toBe(500);
+  expect(failure.json).toMatchObject({ code: "HOST_ERROR", title: "批注暂时无法保存或读取", detail: "批注暂时无法保存或读取" });
+});

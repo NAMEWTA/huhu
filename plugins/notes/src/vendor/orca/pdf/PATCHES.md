@@ -17,3 +17,5 @@
 
 ## 版本说明
 `pdfjs-dist` 在工作区里有两个版本：`6.3.289`（本目录，`plugins/notes`，带 ORCA 补丁）与 `6.2.108`（OK 编辑器的 PDF 嵌入块，`packages/editor`，OK 锁文件的版本）。合并为一个需要同时验证 OK 的嵌入块，记入 S8 的依赖清理。
+
+- P-S7-05 `use-pdf-viewer-find-shortcut.ts`：复用 ORCA 的查找键监听与同分栏命令所有权，接 Huhu 当前知识库分栏、编辑器 Find 键位和输入焦点；保留 Huhu 工具栏。

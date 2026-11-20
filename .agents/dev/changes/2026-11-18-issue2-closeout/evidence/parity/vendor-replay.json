@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "e1df0bbb3ce7619cfb96d6df419ee41effc93e527a24c3fa0d86adc642c1341e",
+      "sha256": "c4290022472e2903d2d012b115b6086a65dd5c9f96d28ee78113e6a832721081",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -911,6 +911,13 @@
       "description": "PATCHES.md:336 - `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。"
     },
     {
+      "target": "app/src/components/file-tree-merge.test.ts",
+      "upstream": "packages/app/src/components/file-tree-merge.test.ts",
+      "blob": "35d58714bc265c2724b4328146d36f38e6cdc794",
+      "sha256": "aebbe94a959fbd74bf7c892e1d60f159de21135850cbb7880523ec55bfaf8716",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-merge.ts",
       "upstream": "packages/app/src/components/file-tree-merge.ts",
       "blob": "153e2ffab14088ad170809b305adeeb96c0acd63",
@@ -929,6 +936,13 @@
       "upstream": "packages/app/src/components/file-tree-operations.ts",
       "blob": "7ac566b6b625015b6aa6cd18a40f03f6278e651e",
       "sha256": "d9d5ffd26329bf1647a01ebd95cdc69781cbe56b1a6f65e358959616a48484c1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-path-helpers.test.ts",
+      "upstream": "packages/app/src/components/file-tree-path-helpers.test.ts",
+      "blob": "fc3fda85c0cd05d01d05e868de720fab854eb99c",
+      "sha256": "5b22c9a73dc202ebb64549c1182df023cfb2cee19b14889ebd0150a3dd3e27d4",
       "method": "copy"
     },
     {
@@ -960,10 +974,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/file-tree-rename-validation.test.ts",
+      "upstream": "packages/app/src/components/file-tree-rename-validation.test.ts",
+      "blob": "cb7baa4d5f0a7d624f12803e4c5b6cde9fde2493",
+      "sha256": "f28c1473d44da9f6618b1b2d6e9b79ebc0649ed6856637e85d2e5f304a196613",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-rename-validation.ts",
       "upstream": "packages/app/src/components/file-tree-rename-validation.ts",
       "blob": "a17bfc4a396967da0f717345b082c4b7a3d062b4",
       "sha256": "85cda113e11703157c9567e2dd18da863b47b9f871be0dd7317238d5eb504842",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-reveal.test.ts",
+      "upstream": "packages/app/src/components/file-tree-reveal.test.ts",
+      "blob": "a3929ecea5958bdbf39e0666e6db0bbef7a1ad82",
+      "sha256": "e99bf0af0ca1c38de2968f2ebc3d7f359afc9d556666cbb68efb94c6e07a406e",
       "method": "copy"
     },
     {
@@ -974,10 +1002,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/file-tree-selection.test.ts",
+      "upstream": "packages/app/src/components/file-tree-selection.test.ts",
+      "blob": "c42d148c7318a25e36d836f6ba54e43618a493e9",
+      "sha256": "a93929691733570854e86677bf1e3d246c4fa2d682da9b206e366966bedffa30",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/file-tree-selection.ts",
       "upstream": "packages/app/src/components/file-tree-selection.ts",
       "blob": "9d283eab099f00ca4dd90178eef6070473e8943e",
       "sha256": "fe4040edf01c51b7c3e9b013eb892e526c4f01d45c27b9942be875468830e979",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/file-tree-shared.test.ts",
+      "upstream": "packages/app/src/components/file-tree-shared.test.ts",
+      "blob": "8f40693b8166bb7c618ff74577508ed5e3bcb5cd",
+      "sha256": "c171123ece6a5588a69c2b92d30a298fe27b83f21c0f3740beb0311bbb91115f",
       "method": "copy"
     },
     {
@@ -1009,10 +1051,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/graph-colors.test.ts",
+      "upstream": "packages/app/src/components/graph-colors.test.ts",
+      "blob": "d3f40db58365a36060f0b66a07db091f44ec91e6",
+      "sha256": "42b76b15b30402547ee70ef947e3c3f370c2bbb37b3ecf8c17ef900a1d3c339f",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/graph-colors.ts",
       "upstream": "packages/app/src/components/graph-colors.ts",
       "blob": "61925013f5899531a684f5be8213013519ae24a1",
       "sha256": "96f5bc8dd1374b873f7c0868865c7a2587bf20d58062800b936b42638314fee2",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/graph-label-layout.test.ts",
+      "upstream": "packages/app/src/components/graph-label-layout.test.ts",
+      "blob": "068d2980d492978553a1d56ccc8a4b769d9153a6",
+      "sha256": "d4ff87011d7ff508f1a328bfb49ba288d0811841f61b86e44dd179cb5f1a6ca2",
       "method": "copy"
     },
     {
@@ -1023,10 +1079,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/graph-label-utils.test.ts",
+      "upstream": "packages/app/src/components/graph-label-utils.test.ts",
+      "blob": "51dc70a1c15db9e155841e1f5fd60ec954d4b716",
+      "sha256": "720581975ac6b85c92d261d1444ba6681e2ea521dcab2a6c4617df7321f3754a",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/graph-label-utils.ts",
       "upstream": "packages/app/src/components/graph-label-utils.ts",
       "blob": "07ef25c9e16fab89558387eed5a2ae9dc7691c14",
       "sha256": "4858858c29f3c902ac2883309d660d019916b02a81fd75c5bbdd14dafc042012",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/graph-skill-filter.test.ts",
+      "upstream": "packages/app/src/components/graph-skill-filter.test.ts",
+      "blob": "db63ed7924e9f82d6f61cba47f481abbaf94f339",
+      "sha256": "9cbbed5d993159377119c37c4c8f61b8583211d7bd97f53f2e00c5677e615c06",
       "method": "copy"
     },
     {
@@ -1041,6 +1111,13 @@
       "upstream": "packages/app/src/components/graph-theme.ts",
       "blob": "e9cb77622d9c08efdb3ef2db7415dbd9479edd1f",
       "sha256": "c994a1eaa23a89a7aea220d3d5eb1ed91c6a28972e460aabf123969b7761a3e1",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/graph-view-utils.test.ts",
+      "upstream": "packages/app/src/components/graph-view-utils.test.ts",
+      "blob": "7fd9e614bd5f44f8540cb92f0d0527e6f59eea57",
+      "sha256": "09fb88eee9d0afd3725b727d60f7997ba47e7b65c59968ce7cc34ef51eef7c1b",
       "method": "copy"
     },
     {
@@ -1234,6 +1311,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/link-target-intent.test.ts",
+      "upstream": "packages/app/src/components/link-target-intent.test.ts",
+      "blob": "0fad08b4709f5cae4893322a10b2b9c36a4b2d2c",
+      "sha256": "82fc73f0cf42a8827499dd33e8f87d206583fe02f80c84a0ea3974071348a951",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/link-target-intent.ts",
       "upstream": "packages/app/src/components/link-target-intent.ts",
       "blob": "c70a2e687a0ab828ebd8cb1c41bd76577bae021e",
@@ -1262,11 +1346,20 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/page-header-media.test.ts",
+      "upstream": null,
+      "blob": null,
+      "sha256": "7d96f8d2f23e3661bb09f85f5994063e2c00e39b17d432b3d52eb39073ee126b",
+      "method": "local",
+      "description": "PATCHES.md:379 - `app/src/components/page-header-media.test.ts`：检查图标、封面 URL 编码及无效 Vault 路径。"
+    },
+    {
       "target": "app/src/components/page-header-utils.ts",
       "upstream": "packages/app/src/components/page-header-utils.ts",
       "blob": "6cf7e62f4c3752687c459b0bbd4fe74f7b28b144",
-      "sha256": "ee85133d3fc77eb23bc80a7bcdc9f1805a4963a30d354766825344a5368ffc15",
-      "method": "copy"
+      "sha256": "a12fe6e93210174865f30caea99c009f9d53df58505d2f9bdc2a83724ce1a0ca",
+      "method": "patch",
+      "description": "PATCHES.md:378 - `app/src/components/page-header-utils.ts`：图标和封面改用 Huhu 已有受保护的 Vault 媒体 URL，逐段编码。两处消费者此前使用当前宿主未提供的 `/api/asset`。"
     },
     {
       "target": "app/src/components/page-membership.ts",
@@ -1302,6 +1395,13 @@
       "upstream": "packages/app/src/components/properties-collapsed-store.ts",
       "blob": "6782935d3cba3240121875a13ce4fcd8808aeace",
       "sha256": "1020886fc8688d453fd4163f5aaea358077bd1af16d98968ecdcbc571f203f0b",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/property-inline-link-tokens.test.ts",
+      "upstream": "packages/app/src/components/property-inline-link-tokens.test.ts",
+      "blob": "f2b65fc74c911d4aa2119f7338c14a917fefe796",
+      "sha256": "f21c88f640918d690bfe59fd39b582d6946c11a70d5ebb78d9f27db2e927c72f",
       "method": "copy"
     },
     {
@@ -1361,6 +1461,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/components/sidebar-drag-payload.test.ts",
+      "upstream": "packages/app/src/components/sidebar-drag-payload.test.ts",
+      "blob": "54fee8523bc9eea0115c042875f12f60cebe38e4",
+      "sha256": "9c84d499c21b7dfb997d595b448762c44d7b0fdab76f550799c1792c8568bf70",
+      "method": "copy"
+    },
+    {
       "target": "app/src/components/sidebar-drag-payload.ts",
       "upstream": "packages/app/src/components/sidebar-drag-payload.ts",
       "blob": "ce8ca2f9a923928dc4892e54323eaebb0cf3fce8",
@@ -1379,6 +1486,13 @@
       "upstream": "packages/app/src/components/skills-dock-expanded-store.ts",
       "blob": "16c9503d5ece8da8e35961e018c3904b67d68546",
       "sha256": "2adf4863c1405bbf381de9d46d48a2434dc1ac5669e347fdeecd96759ce558e7",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/components/target-navigation-intent.test.ts",
+      "upstream": "packages/app/src/components/target-navigation-intent.test.ts",
+      "blob": "a23f9307b076c45f17224e91052e4da51400c787",
+      "sha256": "67d9ddf6c47f3dc5723d105025df36a3cf48126ef0e1f4c84231ae44bf21943c",
       "method": "copy"
     },
     {
@@ -1817,6 +1931,13 @@
       "sha256": "e8633da7e90692f35256c67adbc85f0b2a9858366126e1ca340ff47a2832d984",
       "method": "patch",
       "description": "PATCHES.md:313 - P-F09-07 `app/src/editor/TiptapEditor.tsx`：本地扩展 Tiptap Placeholder，只有严格处于非空顶层文本块内部的单光标能直接返回空装饰。其他情况调用上游插件。"
+    },
+    {
+      "target": "app/src/editor/active-editor.test.ts",
+      "upstream": "packages/app/src/editor/active-editor.test.ts",
+      "blob": "2918e511daf912737f84d42da4e6ce4b353accc0",
+      "sha256": "8ac793235148eb7565640e1106ba39f35c78023dd62861f66e8021859d8da11f",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/active-editor.ts",
@@ -3198,6 +3319,13 @@
       "description": "PATCHES.md:308 - P-F09-02 `app/src/editor/extensions/bare-html-image-decoration.tsx`：旧装饰为空时，检查插入所在段落的 HTML 和插入点的字面文本上下文。其余文档变更沿用原图片扫描和渲染。"
     },
     {
+      "target": "app/src/editor/extensions/block-mover.test.ts",
+      "upstream": "packages/app/src/editor/extensions/block-mover.test.ts",
+      "blob": "87e989aa5a9dc7b689c03e545368a8edc22405fc",
+      "sha256": "97e09b4106f9796feccc7fc6ba205dd41cf8dbc6020fd58c85ac67134e07cc65",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/block-mover.ts",
       "upstream": "packages/app/src/editor/extensions/block-mover.ts",
       "blob": "12e34f3a5d60b154f3a449e8f4b19f30c1fafb1d",
@@ -3271,6 +3399,13 @@
       "sha256": "f06b062ee90fbd4f47faead8fabe6c24c43b46909ab9c01ee134974a0f0c7a03",
       "method": "patch",
       "description": "PATCHES.md:311 - P-F09-05 `app/src/editor/extensions/code-block-lowlight-plugin.ts`：在普通段落插字且选区未涉及高亮块时映射已有装饰，保留可能改变高亮的事务的完整检查。"
+    },
+    {
+      "target": "app/src/editor/extensions/code-block-meta.test.ts",
+      "upstream": "packages/app/src/editor/extensions/code-block-meta.test.ts",
+      "blob": "8e1316cc677bb1258e349a65062fd11a0f40224b",
+      "sha256": "2f064dca35c256c70350bbcca1265fca800574a57f99d0770d271f8b52ce3828",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/extensions/code-block-meta.ts",
@@ -3399,6 +3534,13 @@
       "upstream": "packages/app/src/editor/extensions/jsx-node-action.ts",
       "blob": "2229e94bf9fee93a1160788f26aa6042385eb54a",
       "sha256": "e8d7742d91dbf06f25780e58ef2db4ee595263d76cc7d36227ce7cdbb16ad809",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/extensions/jsx-node-target.test.ts",
+      "upstream": "packages/app/src/editor/extensions/jsx-node-target.test.ts",
+      "blob": "844606ca38b4e607955748c82a2d6ececc1d905b",
+      "sha256": "af9e1b9be6bde16c9eea69ff4b969637815692a69937d56a6b4ec4ecbe10ecae",
       "method": "copy"
     },
     {
@@ -3874,6 +4016,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/extensions/wiki-link-helpers.test.ts",
+      "upstream": "packages/app/src/editor/extensions/wiki-link-helpers.test.ts",
+      "blob": "8f50dfbd50129a8dc898015ab71ee1df14c1c25b",
+      "sha256": "06b92c799551dc945f3ba27107c745a0852a5227420b63a3df22c29ed6cd2c40",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/extensions/wiki-link-helpers.ts",
       "upstream": "packages/app/src/editor/extensions/wiki-link-helpers.ts",
       "blob": "008a08dc9498fbb1df3836d4b4a92b7e7d3b948b",
@@ -4152,6 +4301,13 @@
       "upstream": "packages/app/src/editor/link-preview/InternalDocPreviewCard.tsx",
       "blob": "5de7907e294d99ff041ef56ad1f3d0aa73f61125",
       "sha256": "8c69ddf64a88fcdc53667ec81096756e0752cbb4a5fa9178b1f708b04251278d",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/link-preview/doc-excerpt.test.ts",
+      "upstream": "packages/app/src/editor/link-preview/doc-excerpt.test.ts",
+      "blob": "09c4a8d84d36780a64ba8669d1015bf7b3e9f441",
+      "sha256": "70c565856cf877f485f223435ec33d2604af295ccdaf3928a3119c365e225d15",
       "method": "copy"
     },
     {
@@ -4448,10 +4604,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/selection-stats.test.ts",
+      "upstream": "packages/app/src/editor/selection-stats.test.ts",
+      "blob": "755c52cc8474045925ef21f93a3ed618bff76ccb",
+      "sha256": "8ebf400eaf1a894efc4202ac02cac7f6dfc50cbd357ab887f37ac28ea267a6f9",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/selection-stats.ts",
       "upstream": "packages/app/src/editor/selection-stats.ts",
       "blob": "3d4127cd60919207b9975cabef78d72184ae60aa",
       "sha256": "9904e3b2374786d4a07fb0fd7f98c25bcb3bd1e4bd79175cbf26407732ba1b58",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/selection/entry-label.test.ts",
+      "upstream": "packages/app/src/editor/selection/entry-label.test.ts",
+      "blob": "973cc431669fa592d65da61260633a44708dd574",
+      "sha256": "ba046ea7ee0c39d351f72b7d5ef6c09bf8ad2302ad552a8ee5b55fe9f45d21cc",
       "method": "copy"
     },
     {
@@ -4578,10 +4748,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/source-heading-lines.test.ts",
+      "upstream": "packages/app/src/editor/source-heading-lines.test.ts",
+      "blob": "12611dbbb15829f016ff45888eb68c602bf91d92",
+      "sha256": "ed2df25c95432b25ebf7ca3113c779f4ef2c8b4a460360cd490efe278bb335d2",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/source-heading-lines.ts",
       "upstream": "packages/app/src/editor/source-heading-lines.ts",
       "blob": "b29581bda2b2678af7758a020798fa9026afdb40",
       "sha256": "3d45b0507765f2deaa7908cdd2142a3bd3a3cae1f863cb83aef3a272467de02f",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/source-line-direction.test.ts",
+      "upstream": "packages/app/src/editor/source-line-direction.test.ts",
+      "blob": "96e916c623ac1fdaecccfc1df35900d8d35b3f71",
+      "sha256": "e312d8274583420d6234c57e0c6e4a559007af43d8f34219ec42f983cdf40113",
       "method": "copy"
     },
     {
@@ -4783,6 +4967,13 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/utils/editor-strings.test.ts",
+      "upstream": "packages/app/src/editor/utils/editor-strings.test.ts",
+      "blob": "32f70fe16847417b425e3177f357afa9bf731043",
+      "sha256": "f34ed651b1c9e786053161dc0167312e7bd77ddb460d63ad847165742b3b09e8",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/utils/editor-strings.ts",
       "upstream": "packages/app/src/editor/utils/editor-strings.ts",
       "blob": "be017c77af71af7ade68ff6a2491e51ce18106f1",
@@ -4846,10 +5037,24 @@
       "method": "copy"
     },
     {
+      "target": "app/src/editor/utils/severity.test.ts",
+      "upstream": "packages/app/src/editor/utils/severity.test.ts",
+      "blob": "4ecc8537b4a00a00873b4887bedf512a34e3f695",
+      "sha256": "def1f70dfe8065e0b91b2043b9cf778e41820cd5c74a94824765cb4c4dbf9b55",
+      "method": "copy"
+    },
+    {
       "target": "app/src/editor/utils/severity.ts",
       "upstream": "packages/app/src/editor/utils/severity.ts",
       "blob": "22d15a6ff11fc793c3aa6914d437c041a9aebdb9",
       "sha256": "3b95bc5a398217564f59b1a07fd35312a974395f6e82dbf84e834699846fbcdc",
+      "method": "copy"
+    },
+    {
+      "target": "app/src/editor/utils/validate-css-length.test.ts",
+      "upstream": "packages/app/src/editor/utils/validate-css-length.test.ts",
+      "blob": "c8875e8ce3c15a7e135439bdefaff40c513131c3",
+      "sha256": "3b62c0459934a9b4d0838cb5e236b79490db61419ba494c838fcc52dd6853184",
       "method": "copy"
     },
     {
@@ -4859,6 +5064,13 @@
       "sha256": "2725a4638f095310b3be92b1f90b62737cae14e28b28ec06f9d60df85d37c6fc",
       "method": "patch",
       "description": "PATCHES.md:85 - `app/src/editor/components/Accordion.tsx`、`app/src/editor/components/Tabs.tsx`、`app/src/editor/utils/validate-css-length.ts`、`app/src/editor/utils/validate-media-url.ts`：翻译内置块默认标题以及属性提示和错误。"
+    },
+    {
+      "target": "app/src/editor/utils/validate-media-url.test.ts",
+      "upstream": "packages/app/src/editor/utils/validate-media-url.test.ts",
+      "blob": "333f54fb14b0d63723af26c8b51584d004768191",
+      "sha256": "637ad4250aa281ad4bdfbea8016696998cc1d475efae05767a6c22a239b3a74c",
+      "method": "copy"
     },
     {
       "target": "app/src/editor/utils/validate-media-url.ts",

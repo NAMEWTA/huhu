@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "d721e6fb662767a0ea71eecc9b5ae83b24f06e644ed5461085ce51e0ebe4064c",
+      "sha256": "bd683da37b8e891c3e8e93c5a5aecb997788d886d60f53c9c816b5e0c1bb00a2",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -20,7 +20,7 @@
       "target": "UPSTREAM.md",
       "upstream": null,
       "blob": null,
-      "sha256": "267b3f81a254de9e5f8a063b9497670cb8dd7cfaa15b7dc50bbf796ac8792b16",
+      "sha256": "4fa18fc1053fe57121f73943aff87e2a294469cb4fd7c902ec23444bd9ddd1ef",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -87,6 +87,14 @@
       "sha256": "851b6f5cfdb854336970ace08b401137492792c19144a3938250a6f8644dcf0e",
       "method": "patch",
       "description": "PATCHES.md:11 - P-S7-05 `scroll-cache.ts`（来自 ORCA `lib/scroll-cache.ts`）：只保留 `setWithLRU`、`PdfViewPosition`、`pdfViewPositionCache`。"
+    },
+    {
+      "target": "use-pdf-viewer-find-shortcut.ts",
+      "upstream": "src/renderer/src/components/editor/use-pdf-viewer-find-shortcut.ts",
+      "blob": "f55af428a3bbb01a9bbbdc054024cf00218a407f",
+      "sha256": "82c5ae0ac4b5c94d7b5e5c3ffd9ba7ef04aa1c1e11117cb5176ed2a8843364e1",
+      "method": "patch",
+      "description": "PATCHES.md:21 - P-S7-05 `use-pdf-viewer-find-shortcut.ts`：复用 ORCA 的查找键监听与同分栏命令所有权，接 Huhu 当前知识库分栏、编辑器 Find 键位和输入焦点；保留 Huhu 工具栏。"
     },
     {
       "target": "zoom-wheel.ts",
