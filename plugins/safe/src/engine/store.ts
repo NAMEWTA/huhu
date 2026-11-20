@@ -66,6 +66,7 @@ export type LoadedSafe = {
   manifest?: z.infer<typeof StoredManifest>;
 };
 export type CurrentSafe = LoadedSafe & { manifest: z.infer<typeof StoredManifest> };
+export type EntryPrecondition = { kind: "create" | "update"; expectedRevision: number };
 type SafeState = { kind: "empty" } | { kind: "corrupt"; file: typeof KEYRING | typeof MANIFEST } | ({ kind: "ready" } & LoadedSafe);
 
 export function corruptStore(file: string): HuhuError {
@@ -117,6 +118,7 @@ function entryAt(file: string) {
 
 export class SafeStore {
   private readonly relativeDir: string;
+  private pendingEntryWrite: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly files: SafeFiles,
@@ -209,14 +211,41 @@ export class SafeStore {
     }
   }
 
-  async commitNewEntry(store: CurrentSafe, dk: Buffer, entry: StoredEntry, guard: () => void): Promise<void> {
+  commitEntry(dk: Buffer, entry: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
+    const committed = this.pendingEntryWrite.then(() => this.publishEntry(dk, entry, precondition, guard));
+    this.pendingEntryWrite = committed.then(
+      () => undefined,
+      () => undefined,
+    );
+    return committed;
+  }
+
+  private async publishEntry(dk: Buffer, draft: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
+    guard();
+    const store = this.load();
+    if (store.kind === "corrupt") throw corruptStore(store.file);
+    if (store.kind !== "ready" || !store.manifest) throw corruptStore(MANIFEST);
+    const { entryId } = draft;
+    const currentRevision = store.manifest.entries[entryId];
+    if (precondition.kind === "create") {
+      if (store.manifest.revision !== precondition.expectedRevision) throw errors.versionConflict(String(store.manifest.revision));
+      if (currentRevision !== undefined) throw errors.nameConflict(entryId);
+    } else {
+      if (currentRevision === undefined) throw errors.notFound("条目不存在");
+      if (currentRevision !== precondition.expectedRevision) throw errors.versionConflict(String(currentRevision));
+    }
+
+    // A crash between renames can leave an unreferenced version. Keep it immutable and use another slot.
+    let revision = (currentRevision ?? 0) + 1;
+    while (Number.isSafeInteger(revision) && entryAt(this.files.abs(this.entryFile(entryId, revision)))) revision++;
+    if (!Number.isSafeInteger(revision) || !Number.isSafeInteger(store.manifest.revision + 1)) throw errors.invalidInput("保险箱版本已达上限");
     const { authentication: _auth, checksum: _sum, ...previous } = store.manifest;
-    const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries, [entry.entryId]: entry.revision } };
+    const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries, [entryId]: revision } };
     const manifest = encodeManifest(next, dk);
-    const cleartext = Buffer.from(JSON.stringify(entry));
+    const cleartext = Buffer.from(JSON.stringify({ ...draft, revision }));
     let ciphertext: Buffer;
     try {
-      ciphertext = seal(dk, cleartext, entryContext(store.manifest, entry.entryId, entry.revision));
+      ciphertext = seal(dk, cleartext, entryContext(store.manifest, entryId, revision));
     } finally {
       cleartext.fill(0);
     }
@@ -230,9 +259,9 @@ export class SafeStore {
       this.assertVersion(store);
       if (!this.files.read(stagedEntry)?.bytes.equals(ciphertext) || !this.files.read(stagedManifest)?.bytes.equals(manifest)) throw corruptStore("暂存文件");
 
-      const destination = this.files.abs(this.entryFile(entry.entryId, entry.revision));
+      const destination = this.files.abs(this.entryFile(entryId, revision));
       const manifestPath = this.files.abs(`${this.relativeDir}/current/${MANIFEST}`);
-      if (entryAt(destination)) throw errors.nameConflict(entry.entryId);
+      if (entryAt(destination)) throw errors.nameConflict(entryId);
       mkdirSync(path.dirname(destination), { recursive: true });
       // The manifest is the visibility boundary. No async work can interleave the two renames.
       renameSync(this.files.abs(stagedEntry), destination);
@@ -243,6 +272,7 @@ export class SafeStore {
         throw error;
       }
     });
+    return revision;
   }
 
   private entryFile(id: string, revision: number): string {

@@ -26,8 +26,10 @@
       "safe.items.reveal",
       "safe.audit.list",
       "safe.entries.create",
+      "safe.entries.update",
       "safe.entries.list",
       "safe.entries.get",
+      "safe.accounts.update",
       "safe.accounts.reveal"
     ],
     "fileKinds": []

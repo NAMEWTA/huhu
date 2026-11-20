@@ -10,6 +10,8 @@ import { signal } from "./signal.js";
 type Session = { instanceId: string; generation: number };
 type Receipt = { entryId: string; revision: number; accountIds: string[]; status: "saved" };
 type EntryIndex = { revision: number; entries: { entryId: string; revision: number }[] };
+type UpdatedAccount = { entryId: string; accountId: string; revision: number; hasPassword: boolean };
+type Detail = { entryId: string; revision: number; name: string; url: string; accounts: Array<{ accountId: string; account: string; phone: string; email: string; note: string; hasPassword: boolean }> };
 const vaults: string[] = [];
 const engines: RunningEngine[] = [];
 
@@ -60,6 +62,150 @@ function containsBytes(root: string, values: string[]): boolean {
   }
   return false;
 }
+
+test("只更新指定账号并显式设置、保留、清空密码，重开后其他账号逐字一致", async () => {
+  const { client, engine, root } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const { entryId, accountIds } = await client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision: 0, name: data.name, url: data.url, accounts: data.accounts });
+  const identity = { session: scope, entryId, accountId: accountIds[2] };
+  const get = (host: EngineClient, session: Session) => host.call<Detail>("safe.entries.get", { session, entryId });
+  const before = await get(client, scope);
+  const newPassword = ` ${randomUUID()}  `;
+  const newNote = `note_${randomUUID()}`;
+  const phone = "000987654321";
+  const set = client.call<UpdatedAccount>("safe.accounts.update", { ...identity, expectedRevision: 1, phone, note: newNote, password: { kind: "set", value: newPassword } });
+  expect(await codeOf(set)).toBe("OK");
+  expect(await set).toEqual({ entryId, accountId: accountIds[2], revision: 2, hasPassword: true });
+  expect(await codeOf(client.call("safe.accounts.update", { ...identity, expectedRevision: 2, password: "••••••" }))).toBe("INVALID_INPUT");
+  expect(await codeOf(client.call("safe.accounts.update", { ...identity, expectedRevision: 2, password: { kind: "set", value: "" } }))).toBe("INVALID_INPUT");
+  expect(await codeOf(client.call("safe.accounts.update", { ...identity, expectedRevision: 2, accountId: randomUUID(), password: { kind: "clear" } }))).toBe("NOT_FOUND");
+  const afterSet = await get(client, scope);
+  expect(afterSet.name === before.name && afterSet.url === before.url).toBe(true);
+  const url = `https://example.test/${randomUUID()}`;
+  expect(await client.call("safe.entries.update", { session: scope, entryId, expectedRevision: 2, url })).toEqual({ entryId, revision: 3 });
+  expect(JSON.stringify((await get(client, scope)).accounts) === JSON.stringify(afterSet.accounts)).toBe(true);
+  expect(await client.call("safe.accounts.update", { ...identity, expectedRevision: 3, email: "", password: { kind: "keep" } })).toEqual({ entryId, accountId: accountIds[2], revision: 4, hasPassword: true });
+
+  await engine.shutdown();
+  const reopened = await openEngine(root);
+  await reopened.client.call("safe.unlock", { password: data.password });
+  const next = await session(reopened.client);
+  const detail = await get(reopened.client, next);
+  expect(detail.revision).toBe(4);
+  expect(detail.name === before.name && detail.url === url).toBe(true);
+  expect(JSON.stringify(detail.accounts.slice(0, 2)) === JSON.stringify(before.accounts.slice(0, 2))).toBe(true);
+  expect(detail.accounts[2]?.phone === phone && detail.accounts[2]?.note === newNote).toBe(true);
+  const reveal = (accountId: string | undefined) => reopened.client.call<{ password: string }>("safe.accounts.reveal", { session: next, entryId, accountId });
+  expect((await reveal(accountIds[0])).password === data.accounts[0]?.password).toBe(true);
+  expect((await reveal(accountIds[1])).password === "").toBe(true);
+  expect((await reveal(accountIds[2])).password === newPassword).toBe(true);
+  expect(await codeOf(reopened.client.call("safe.accounts.update", { ...identity, expectedRevision: 4, password: { kind: "clear" } }))).toBe("SAFE_LOCKED");
+  expect(await reopened.client.call("safe.accounts.update", { ...identity, session: next, expectedRevision: 4, password: { kind: "clear" } })).toEqual({ entryId, accountId: accountIds[2], revision: 5, hasPassword: false });
+  expect((await reveal(accountIds[2])).password === "").toBe(true);
+  const receipts = path.join(reopened.engine.vault.runtimeDir, "idempotency.ndjson");
+  expect(existsSync(receipts) && readFileSync(receipts, "utf8").includes("safe.accounts.update")).toBe(false);
+  await reopened.engine.shutdown();
+  const afterClear = await openEngine(root);
+  await afterClear.client.call("safe.unlock", { password: data.password });
+  const finalSession = await session(afterClear.client);
+  const final = await get(afterClear.client, finalSession);
+  expect(final.revision).toBe(5);
+  expect(final.accounts[2]?.hasPassword).toBe(false);
+  const cleared = await afterClear.client.call<{ password: string }>("safe.accounts.reveal", { session: finalSession, entryId, accountId: accountIds[2] });
+  expect(cleared.password === "").toBe(true);
+  await afterClear.engine.shutdown();
+  expect(containsBytes(root, [data.marker, newPassword, newNote, phone])).toBe(false);
+}, 30_000);
+
+test("同条目并发修改报告当前版本，不同条目可并发提交", async () => {
+  const { client } = await openEngine();
+  const other = new EngineClient(client.endpoint);
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const create = (expectedRevision: number) => client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision, name: data.name, accounts: data.accounts });
+  const first = await create(0);
+  const second = await create(1);
+  const req = { session: scope, entryId: first.entryId, expectedRevision: 1 };
+  const a = client.call("safe.entries.update", { ...req, url: data.url });
+  const b = other.call("safe.accounts.update", { ...req, accountId: first.accountIds[2], note: randomUUID(), password: { kind: "keep" } });
+  expect((await Promise.all([codeOf(a), codeOf(b)])).sort()).toEqual(["OK", "VERSION_CONFLICT"]);
+  const conflict = await other.call("safe.accounts.update", { ...req, accountId: first.accountIds[2], password: { kind: "keep" } }).catch((error: CapabilityError) => error);
+  expect(conflict instanceof CapabilityError && conflict.details?.currentVersion === "2").toBe(true);
+  expect(await codeOf(other.call("safe.accounts.update", { ...req, entryId: second.entryId, accountId: first.accountIds[2], password: { kind: "keep" } }))).toBe("NOT_FOUND");
+
+  const [left, right] = await Promise.all([client.call("safe.entries.update", { ...req, expectedRevision: 2, url: "" }), other.call("safe.entries.update", { ...req, entryId: second.entryId, url: data.url })]);
+  expect(left).toEqual({ entryId: first.entryId, revision: 3 });
+  expect(right).toEqual({ entryId: second.entryId, revision: 2 });
+}, 30_000);
+
+test("编辑写入中断后重开仍只读旧版，保留未发布的密文并允许重试", async () => {
+  const { client, engine, root, current } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const { entryId, accountIds } = await client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision: 0, name: data.name, accounts: data.accounts });
+  const request = { session: scope, entryId, accountId: accountIds[2], expectedRevision: 1, password: { kind: "clear" } };
+  const manifest = path.join(current, "manifest.json");
+  const original = readFileSync(manifest);
+  const files = path.join(current, "entries");
+  const published = readFileSync(path.join(files, `${entryId}-1.bin`));
+  const write = engine.vault.files.write.bind(engine.vault.files);
+  const mock = vi.spyOn(engine.vault.files, "write").mockImplementation((file, bytes, options) => {
+    if (file.endsWith("/manifest.json")) return Promise.reject(new Error("controlled manifest failure"));
+    return write(file, bytes, options);
+  });
+  try {
+    expect(await codeOf(client.call("safe.accounts.update", request))).toBe("INTERNAL");
+    expect(readFileSync(manifest).equals(original)).toBe(true);
+    expect(readdirSync(files)).toEqual([`${entryId}-1.bin`]);
+  } finally {
+    mock.mockRestore();
+  }
+
+  const entered = signal();
+  const release = signal();
+  let unpublished: Buffer | undefined;
+  const delayed = vi.spyOn(engine.vault.files, "write").mockImplementation(async (file, bytes, options) => {
+    const result = await write(file, bytes, options);
+    if (file.endsWith("/entry.bin")) unpublished = Buffer.from(bytes);
+    if (file.endsWith("/manifest.json")) {
+      entered.resolve();
+      await release.promise;
+    }
+    return result;
+  });
+  const pending = codeOf(client.call("safe.accounts.update", request));
+  try {
+    expect(await Promise.race([entered.promise.then(() => true), pending.then(() => false)])).toBe(true);
+    await client.call("safe.lock");
+    await client.call("safe.unlock", { password: data.password });
+  } finally {
+    release.resolve();
+  }
+  expect(await pending).toBe("SAFE_LOCKED");
+  delayed.mockRestore();
+  expect(readFileSync(manifest).equals(original)).toBe(true);
+  expect(readdirSync(files)).toEqual([`${entryId}-1.bin`]);
+
+  await engine.shutdown();
+  // Reconstruct the disk state after the ciphertext rename and before the manifest rename.
+  if (!unpublished) throw new Error("Expected the staged version to exist");
+  const orphan = path.join(files, `${entryId}-2.bin`);
+  writeFileSync(orphan, unpublished);
+  const reopened = await openEngine(root);
+  await reopened.client.call("safe.unlock", { password: data.password });
+  const next = await session(reopened.client);
+  const prior = await reopened.client.call<Detail>("safe.entries.get", { session: next, entryId });
+  expect(prior.revision).toBe(1);
+  expect(prior.accounts[2]?.hasPassword).toBe(true);
+  expect(await reopened.client.call("safe.accounts.update", { ...request, session: next })).toEqual({ entryId, accountId: accountIds[2], revision: 3, hasPassword: false });
+  expect(readFileSync(orphan).equals(unpublished)).toBe(true);
+  expect(readFileSync(path.join(files, `${entryId}-1.bin`)).equals(published)).toBe(true);
+  expect((await reopened.client.call<Detail>("safe.entries.get", { session: next, entryId })).revision).toBe(3);
+}, 30_000);
 
 test("桌面工作台一次保存三个账号，重开逐项读回且磁盘与索引没有个人明文", async () => {
   const { client, engine, root, current } = await openEngine();

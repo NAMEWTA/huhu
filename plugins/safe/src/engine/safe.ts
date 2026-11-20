@@ -4,8 +4,8 @@ import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { parseSecretRef } from "../shared/secret-ref.js";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
-import type { CreateEntry, SafeSession, StoredEntry } from "./personal.js";
-import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
+import type { CreateEntry, EditTarget, SafeSession, StoredEntry, UpdateAccount, UpdateEntry } from "./personal.js";
+import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type EntryPrecondition, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export type SecretType = "password" | "ssh-key" | "token" | "env";
 
@@ -20,7 +20,7 @@ export interface ItemMeta {
 
 export interface AuditEntry {
   at: string;
-  action: "setup" | "unlock" | "unlock-failed" | "lock" | "reveal" | "copy" | "use" | "use-denied" | "update" | "delete" | "change-password" | "create-entry" | "reveal-account";
+  action: "setup" | "unlock" | "unlock-failed" | "lock" | "reveal" | "copy" | "use" | "use-denied" | "update" | "delete" | "change-password" | "create-entry" | "update-entry" | "update-account" | "reveal-account";
   itemId: string | null;
   subject: string;
   result: "ok" | "denied" | "failed";
@@ -362,12 +362,10 @@ export class Safe {
   }
 
   createEntry(input: CreateEntry, signal: AbortSignal) {
-    return this.withPersonalSession(input.session, signal, async (store, dk, guard) => {
-      if (input.expectedRevision !== store.manifest.revision) throw errors.versionConflict(String(store.manifest.revision));
+    return this.withPersonalSession(input.session, signal, async (_store, dk, guard) => {
       const now = new Date(this.d.now()).toISOString();
-      const entry: StoredEntry = {
+      const entry = {
         entryId: randomUUID(),
-        revision: 1,
         name: input.name,
         url: input.url,
         tagIds: [],
@@ -375,15 +373,65 @@ export class Safe {
         updatedAt: now,
         accounts: input.accounts.map((fields) => ({ ...fields, accountId: randomUUID(), createdAt: now, updatedAt: now })),
       };
-      try {
-        await this.store.commitNewEntry(store, dk, entry, guard);
-      } catch (error) {
-        if (error instanceof HuhuError) throw error;
-        throw new HuhuError("INTERNAL", "保险箱条目写入失败，请重试");
-      }
+      const revision = await this.savePersonalEntry(dk, entry, { kind: "create", expectedRevision: input.expectedRevision }, guard);
       this.auditBestEffort({ action: "create-entry", itemId: entry.entryId, subject: "desktop", result: "ok" });
-      return { entryId: entry.entryId, revision: entry.revision, accountIds: entry.accounts.map((account) => account.accountId), status: "saved" as const };
+      return { entryId: entry.entryId, revision, accountIds: entry.accounts.map((account) => account.accountId), status: "saved" as const };
     });
+  }
+
+  private async savePersonalEntry(dk: Buffer, entry: Omit<StoredEntry, "revision">, precondition: EntryPrecondition, guard: () => void): Promise<number> {
+    try {
+      return await this.store.commitEntry(dk, entry, precondition, guard);
+    } catch (error) {
+      if (error instanceof HuhuError) throw error;
+      throw new HuhuError("INTERNAL", "保险箱条目写入失败，请重试");
+    }
+  }
+
+  private editEntry(input: EditTarget, signal: AbortSignal, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }) {
+    return this.withPersonalSession(input.session, signal, async (store, dk, guard) => {
+      const currentRevision = store.manifest.entries[input.entryId];
+      if (currentRevision === undefined) throw errors.notFound("条目不存在");
+      if (currentRevision !== input.expectedRevision) throw errors.versionConflict(String(currentRevision));
+      const now = new Date(this.d.now()).toISOString();
+      const edited = { ...update(this.store.readEntry(store, dk, input.entryId), now), updatedAt: now };
+      const revision = await this.savePersonalEntry(dk, edited, { kind: "update", expectedRevision: currentRevision }, guard);
+      this.auditBestEffort({ ...audit, subject: "desktop", result: "ok" });
+      return { ...edited, revision };
+    });
+  }
+
+  async updateEntry(input: UpdateEntry, signal: AbortSignal) {
+    const { entryId, revision } = await this.editEntry(input, signal, (entry) => ({ ...entry, name: input.name ?? entry.name, url: input.url ?? entry.url }), { action: "update-entry", itemId: input.entryId });
+    return { entryId, revision };
+  }
+
+  async updateAccount(input: UpdateAccount, signal: AbortSignal) {
+    const { accountId } = input;
+    const { entryId, revision, accounts } = await this.editEntry(
+      input,
+      signal,
+      (entry, now) => {
+        const existing = entry.accounts.find((account) => account.accountId === accountId);
+        if (!existing) throw errors.notFound("账号不存在");
+        let password = existing.password;
+        if (input.password.kind === "set") password = input.password.value;
+        if (input.password.kind === "clear") password = "";
+        const updated = {
+          ...existing,
+          account: input.account ?? existing.account,
+          phone: input.phone ?? existing.phone,
+          email: input.email ?? existing.email,
+          note: input.note ?? existing.note,
+          password,
+          updatedAt: now,
+        };
+        return { ...entry, accounts: entry.accounts.map((account) => (account === existing ? updated : account)) };
+      },
+      { action: "update-account", itemId: accountId },
+    );
+    const hasPassword = accounts.some((account) => account.accountId === accountId && account.password.length > 0);
+    return { entryId, accountId, revision, hasPassword };
   }
 
   listEntries(session: SafeSession, signal: AbortSignal) {

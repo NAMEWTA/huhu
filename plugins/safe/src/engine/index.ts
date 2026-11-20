@@ -2,7 +2,7 @@ import type { Context } from "@huhu/cordis";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import path from "node:path";
 import { z } from "zod";
-import { CreateEntry, CreateEntryReceipt, EntryDetail, EntryIndex, GetEntry, ListEntries, RevealAccount } from "./personal.js";
+import { CreateEntry, CreateEntryReceipt, EntryDetail, EntryIndex, GetEntry, ListEntries, RevealAccount, UpdateAccount, UpdateAccountReceipt, UpdateEntry, UpdateEntryReceipt } from "./personal.js";
 import { Safe, type ItemMeta } from "./safe.js";
 
 export { Safe } from "./safe.js";
@@ -24,9 +24,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: { now?: () => number; kd
   api.provide("secretUse", { resolve: (ref, c) => safe.resolve(ref, c) } satisfies SecretUse);
 
   const desktopOnly = { exposable: false, defaultExposed: false } as const;
-  // This desktop-only mutation includes passwords. It uses the manifest revision for replay protection,
-  // so the shared idempotency store never hashes its input or serves a receipt before the session check.
+  // Personal edits use the session and revisions for replay protection before touching encrypted data.
+  // The shared idempotency store does not hash sensitive inputs or bypass the session check.
   api.defineCapability(def({ name: "safe.entries.create", plugin: "safe", scope: "admin", ...desktopOnly, input: CreateEntry, output: CreateEntryReceipt, handler: (c, i) => safe.createEntry(i, c.signal) }));
+  api.defineCapability(def({ name: "safe.entries.update", plugin: "safe", scope: "admin", ...desktopOnly, input: UpdateEntry, output: UpdateEntryReceipt, handler: (c, i) => safe.updateEntry(i, c.signal) }));
+  api.defineCapability(def({ name: "safe.accounts.update", plugin: "safe", scope: "admin", ...desktopOnly, input: UpdateAccount, output: UpdateAccountReceipt, handler: (c, i) => safe.updateAccount(i, c.signal) }));
   api.defineCapability(def({ name: "safe.entries.list", plugin: "safe", scope: "read", ...desktopOnly, input: ListEntries, output: EntryIndex, handler: (c, i) => safe.listEntries(i.session, c.signal) }));
   api.defineCapability(def({ name: "safe.entries.get", plugin: "safe", scope: "read", ...desktopOnly, input: GetEntry, output: EntryDetail, handler: (c, i) => safe.getEntry(i.session, i.entryId, c.signal) }));
   api.defineCapability(
