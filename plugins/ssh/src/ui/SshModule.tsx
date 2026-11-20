@@ -72,7 +72,7 @@ export function SshModule() {
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
-  const recoveredHostId = connections.data?.find((status) => status.state === "waiting")?.hostId;
+  const recoveredHostId = connections.data?.find((status) => status.state === "waiting" && !status.workspace)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
@@ -139,6 +139,7 @@ export function SshModule() {
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
   const changed = connection?.state === "key-changed";
+  const workspacePrompt = (waiting || changed) && connection.workspace;
   const prompt = waiting || changed ? connection.prompt : null;
   const connecting = connection?.state === "connecting" || (host !== null && requestHost === host.id);
   const status = isConn ? "connected" : connecting || waiting ? "connecting" : "disconnected";
@@ -237,11 +238,15 @@ export function SshModule() {
                     icon={Fingerprint}
                     variant="primary"
                     onClick={() => {
+                      if (workspacePrompt) {
+                        setWorkspaces(true);
+                        return;
+                      }
                       setTab("overview");
                       setDismissed(null);
                     }}
                   >
-                    核对主机指纹
+                    {workspacePrompt ? "在工作区核对主机指纹" : "核对主机指纹"}
                   </Button>
                 ) : connecting ? (
                   <Button onClick={() => void disconnect(host)}>取消连接</Button>
@@ -538,7 +543,7 @@ export function SshModule() {
           }}
         />
       ) : null}
-      {prompt && tab === "overview" && dismissed !== prompt.promptId && !hostAction && importVault !== engine.vaultId ? (
+      {prompt && !workspacePrompt && tab === "overview" && dismissed !== prompt.promptId && !hostAction && importVault !== engine.vaultId ? (
         <HostKeyDialog key={prompt.promptId} prompt={prompt} changed={changed} onClose={() => setDismissed(prompt.promptId)} onReview={() => openReview(prompt)} onRefresh={refetchConnections} />
       ) : null}
       {desktop && (hostAction?.kind === "create" || hostAction?.kind === "edit") ? (

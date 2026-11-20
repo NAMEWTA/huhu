@@ -159,7 +159,7 @@ export class SshManager {
     return { privateKey, ...(h.auth.passphraseRef ? { passphrase: this.d.resolveSecret(h.auth.passphraseRef, `ssh:${h.id}`) } : {}) };
   }
 
-  private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult> }>();
+  private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult>; direct: boolean; workspaces: number }>();
 
   /** 同一主机的并发 connect 合并为一次，避免产生被遗弃的重复连接。 */
   async connect(hostId: string, signal?: AbortSignal): Promise<{ attemptId: string }> {
@@ -176,7 +176,10 @@ export class SshManager {
 
   private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string) {
     const running = this.connecting.get(hostId);
-    if (running) return running;
+    if (running) {
+      if (!expectedTarget) running.direct = true;
+      return running;
+    }
     const abort = new AbortController();
     const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }) };
     const promise = Promise.resolve()
@@ -185,7 +188,7 @@ export class SshManager {
         this.connecting.delete(hostId);
         this.attempts.delete(attempt.id);
       });
-    const created = { attempt, abort, promise };
+    const created = { attempt, abort, promise, direct: !expectedTarget, workspaces: 0 };
     this.connecting.set(hostId, created);
     this.attempts.set(attempt.id, attempt);
     this.update({ hostId, attemptId: attempt.id, state: "connecting" });
@@ -250,7 +253,7 @@ export class SshManager {
       closeOpened();
       this.audit({ hostId, action: "connect", result: "failed", detail: e instanceof HuhuError ? e.code : "error" });
       if (current()) {
-        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed });
+        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed, ...(attempt.expectedTarget && { workspace: true as const }) });
         else this.update({ hostId, attemptId, state: "failed", message: e instanceof HuhuError ? e.message : "SSH 连接失败", ...stage });
       }
       throw e;
@@ -362,7 +365,7 @@ export class SshManager {
                   });
               },
             };
-            this.update({ hostId, attemptId, state: "waiting", prompt });
+            this.update({ hostId, attemptId, state: "waiting", prompt, ...(attempt.expectedTarget && { workspace: true as const }) });
             publishKey(prompt, "first");
           },
         } as never);
@@ -384,9 +387,22 @@ export class SshManager {
     const bindingChanged = () => new HuhuError("VERSION_CONFLICT", "绑定的 SSH 主机、账户或跳板身份已变更");
     if (workspaceTarget(chain) !== target) throw bindingChanged();
     signal.throwIfAborted();
-    // The transport is shared. Closing this run aborts its own shell setup,
-    // while an existing connection or concurrent consumer still owns the dial.
-    const { connection } = await this.begin(hostId, undefined, true, target).promise;
+    const dial = this.begin(hostId, undefined, true, target);
+    dial.workspaces++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (--dial.workspaces === 0 && !dial.direct && this.connecting.get(hostId) === dial && !this.conns.has(hostId)) dial.abort.abort();
+    };
+    signal.addEventListener("abort", release, { once: true });
+    let connection: Conn;
+    try {
+      ({ connection } = await dial.promise);
+    } finally {
+      signal.removeEventListener("abort", release);
+      release();
+    }
     if (connection.routeIdentity !== connectionIdentity(chain) || workspaceTarget(this.route(hostId, await this.d.hosts.list())) !== target) throw bindingChanged();
     signal.throwIfAborted();
     const shell = await this.openShell(hostId, undefined, connection, onEnd);

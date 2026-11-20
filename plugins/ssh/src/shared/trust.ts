@@ -25,7 +25,7 @@ export type HostKeyPrompt = z.infer<typeof HostKeyPrompt>;
 const connection = { hostId: z.string(), attemptId: z.string() };
 export const ConnectionStatus = z.discriminatedUnion("state", [
   z.object({ ...connection, state: z.enum(["connecting", "connected", "disconnected"]) }),
-  z.object({ ...connection, state: z.enum(["waiting", "key-changed"]), prompt: HostKeyPrompt }),
+  z.object({ ...connection, state: z.enum(["waiting", "key-changed"]), prompt: HostKeyPrompt, workspace: z.literal(true).optional() }),
   z.object({ ...connection, state: z.literal("failed"), message: z.string(), hop: z.int().nonnegative().optional(), server: ConnectionHost.optional() }),
 ]);
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>;

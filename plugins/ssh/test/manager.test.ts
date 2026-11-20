@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { HostStore, findJumpCycle, type SshHost } from "../src/engine/hosts.js";
 import { SshManager } from "../src/engine/manager.js";
+import { workspaceTarget } from "../src/engine/workspace-target.js";
 import { startFakeSsh } from "./fake-server.js";
 
 const dirs: string[] = [];
@@ -77,6 +78,30 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("关闭最后一个工作区等待后旧指纹不能再授权，共享拨号保留给未关闭的工作区", async () => {
+    const srv = await startFakeSsh();
+    closers.push(srv.close);
+    const { mgr, add, secretCalls } = setup();
+    const host = add(srv.port);
+    const target = workspaceTarget([host]);
+    const first = new AbortController();
+    const second = new AbortController();
+    const pane = { hostId: host.id, target };
+    const a = mgr.openWorkspaceShell(pane, first.signal, () => undefined).catch((error: unknown) => error);
+    const b = mgr.openWorkspaceShell(pane, second.signal, () => undefined).catch((error: unknown) => error);
+    await until(() => Boolean(mgr.workspacePrompt(host.id, target)));
+    const prompt = mgr.workspacePrompt(host.id, target)!;
+    expect(prompt?.promptId).toBeTruthy();
+    first.abort();
+    expect(mgr.workspacePrompt(host.id, target)?.promptId).toBe(prompt.promptId);
+    second.abort();
+    expect(mgr.decide(prompt.attemptId, prompt.hop, true, prompt.promptId)).toBe(false);
+    await expect(a).resolves.toMatchObject({ code: "SSH_DISCONNECTED" });
+    await expect(b).resolves.toMatchObject({ code: "SSH_DISCONNECTED" });
+    expect(secretCalls).toHaveLength(1);
+    expect(mgr.isConnected(host.id)).toBe(false);
+    expect(mgr.listShells(host.id)).toEqual([]);
+  });
   test("ACC-SH-01 首次连接弹出指纹，接受后连接成功并写入 known_hosts；再次连接无提示", async () => {
     const srv = await startFakeSsh();
     closers.push(srv.close);
