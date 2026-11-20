@@ -6,7 +6,7 @@ export interface CompactMarkdownReaderProps {
   value: string;
   pages?: readonly CompactPage[];
   onOpenPath?(path: string): void;
-  fallback?: ReactNode;
+  renderFallback?(props: { id: string; value: string; className: string }): ReactNode;
 }
 
 export function CompactMarkdownReader(props: CompactMarkdownReaderProps): ReactElement;

@@ -67,9 +67,10 @@ function ParagraphView({ paragraphs }: { paragraphs: readonly string[] }) {
 }
 
 /** Synchronous read-only projection with the original OK reader as the fallback. */
-export function CompactMarkdownReader({ fallback, ...props }: CompactMarkdownReaderProps) {
+export function CompactMarkdownReader({ renderFallback, ...props }: CompactMarkdownReaderProps) {
   const paragraphs = readParagraphs(props.value);
   // Key both render paths to the record so selection and suspended work cannot be reused across records.
   if (paragraphs) return <ParagraphView key={props.id} paragraphs={paragraphs} />;
-  return <Suspense fallback={null}>{fallback ?? <FullView key={props.id} {...props} className="editor-ok-compact-view" />}</Suspense>;
+  const view = { ...props, className: "editor-ok-compact-view" };
+  return <Suspense fallback={null}>{renderFallback ? renderFallback(view) : <FullView key={props.id} {...view} />}</Suspense>;
 }

@@ -384,12 +384,12 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
 function CaptureReader({ item, onOpen }: { item: Capture; onOpen(path: string): void }) {
   const id = `inbox-${item.id}-${item.version}`;
   const value = item.body.trim() || "这条记录还没有补充内容。";
-  return <CompactMarkdownReader id={id} value={value} fallback={<LinkedCaptureView key={id} id={id} value={value} onOpen={onOpen} />} />;
+  return <CompactMarkdownReader id={id} value={value} renderFallback={(view) => <LinkedCaptureView key={id} {...view} onOpen={onOpen} />} />;
 }
 
-function LinkedCaptureView({ id, value, onOpen }: { id: string; value: string; onOpen(path: string): void }) {
+function LinkedCaptureView({ id, value, className, onOpen }: { id: string; value: string; className: string; onOpen(path: string): void }) {
   const refs = useReferenceIndex();
-  return <CompactView id={id} value={value} pages={refs.pages} onOpenPath={onOpen} className="editor-ok-compact-view" />;
+  return <CompactView id={id} value={value} pages={refs.pages} onOpenPath={onOpen} className={className} />;
 }
 
 function CaptureBodyInput({ value, onPort }: { value: string; onPort(port: RichEditorPort | null): void }) {
