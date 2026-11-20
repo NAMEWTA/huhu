@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ModuleCredentials } from "@huhu/kernel";
-import { exportPackage, importPackage, machineId } from "@huhu/vault";
+import { exportPackage, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { unzipSync } from "fflate";
@@ -154,6 +154,72 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
 });
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
+  "环境改名仅在配置成功发布后使当前批准失效",
+  async () => {
+    const fixture = mkdtempSync(path.join(tmpdir(), "huhu-approval-names-"));
+    const vaultPath = path.join(fixture, "vault");
+    const desktopUserData = path.join(fixture, "app");
+    let engine: RunningEngine | undefined;
+    const original = "HUHU_RULE_SECRET_ORIGINAL";
+    const renamed = "HUHU_RULE_SECRET_RENAMED";
+    const env = "automations.terminal.environment";
+    const approval = "automations.terminal.approval";
+    const status = "automations.terminal.external.status";
+    const call = (capability: string, input: unknown, caller: "desktop" | "cli" = "desktop") => engine!.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const data = async <T>(capability: string, input: unknown) => {
+      const result = await call(capability, input);
+      assert(result.ok);
+      return result.data as T;
+    };
+    try {
+      mkdirSync(vaultPath);
+      mkdirSync(desktopUserData);
+      engine = await boot({ vaultPath, desktopUserData, create: true });
+      const rule = await data<{ id: string }>("automations.create", {
+        title: "批准名称夹具",
+        trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+        action: { kind: "terminal", command: "Write-Output 'fixture'", shell: "powershell", spaceId: null },
+      });
+      const id = { ruleId: rule.id };
+      const save = (expectedRevision: string | null, names: string[], removed?: string) => data<{ revision: string }>(`${env}.save`, { ...id, expectedRevision, names, changes: removed ? [{ name: removed, action: "clear" }] : [] });
+      const first = await save(null, [original]);
+      const approve = async () => {
+        const target = await data<{ ruleVersion: string; target: string; names: string[]; approvalId: string | null }>(`${approval}.review`, id);
+        return data<{ approvalId: string }>(`${approval}.approve`, { ...id, expectedRuleVersion: target.ruleVersion, target: target.target, names: target.names, expectedApprovalId: target.approvalId });
+      };
+      const granted = await approve();
+      await data("gateway.update", { capability: status, exposed: true });
+      expect(await call(status, id, "cli")).toMatchObject({ ok: true, data: { revision: first.revision } });
+
+      const write = VaultFiles.prototype.write;
+      const failure = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, ...args) {
+        if (args[0].startsWith(".huhu/module-credentials/")) throw new Error("配置发布被阻止");
+        return write.apply(this, args);
+      });
+      try {
+        expect(await call(`${env}.save`, { ...id, expectedRevision: first.revision, names: [renamed], changes: [{ name: original, action: "clear" }] })).toMatchObject({ ok: false });
+        expect(failure.mock.calls.some(([file]) => file.startsWith(".huhu/module-credentials/"))).toBe(true);
+      } finally {
+        failure.mockRestore();
+      }
+      expect(await call(`${approval}.review`, id)).toMatchObject({ ok: true, data: { names: [original], approvalId: granted.approvalId } });
+      expect(await call(status, id, "cli")).toMatchObject({ ok: true, data: { revision: first.revision, states: { [original]: "unconfigured" } } });
+
+      const afterRename = await save(first.revision, [renamed], original);
+      expect(await call(status, id, "cli")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      const restored = await save(afterRename.revision, [original], renamed);
+      expect(await call(status, id, "cli")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      expect((await approve()).approvalId).not.toBe(granted.approvalId);
+      expect(await call(status, id, "cli")).toMatchObject({ ok: true, data: { revision: restored.revision } });
+    } finally {
+      await engine?.shutdown();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+    }
+  },
+  30_000,
+);
+
 test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
   "Windows 工作台手动与定时规则在凭据 lease 内拒绝同目标轮换后的修订",
   async () => {
@@ -265,9 +331,13 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
     let ruleId: string | undefined;
     let revision: string | undefined;
     const starts: unknown[] = [];
+    let releaseAvailable = false;
+    let released = 0;
     const actualCall = HerdrClient.prototype.call;
     const probe = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
+      if (method === "terminal.rm" && !releaseAvailable) throw new Error("释放暂不可用");
       const result = (await actualCall.call(this, method, params)) as T;
+      if (method === "terminal.rm" && released++ === 0) throw new Error("关闭终端后丢失释放回包");
       if (method === "terminal.run") {
         starts.push(params);
         if (starts.length === 1) throw new Error("合成 Core 启动回包丢失");
@@ -320,10 +390,25 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       expect(JSON.stringify(helperArgs)).not.toContain(privateValue);
       await expect(promisify(execFile)(executable!, previousArgs, { windowsHide: true })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("受保护的终端命令未能启动") });
       const [row] = await data<{ id: string; state: string }[]>(source, "automations.runs.list");
-      const detail = await data<{ body: string }>(source, "automations.runs.read", { runId: row!.id });
+      const detail = await data<{ body: string; data: { sessionId: string; terminalReleasePending: boolean } }>(source, "automations.runs.read", { runId: row!.id });
       expect(detail.body).toContain("env-received:***");
       expect(JSON.stringify(detail)).not.toContain(privateValue);
+      expect(detail.data).toMatchObject({ state: "succeeded", exitCode: 0, terminalReleasePending: true });
+      expect(await action(source, "agent.sessions.release", { id: detail.data.sessionId, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(JSON.stringify(await data(source, "agent.sessions.list", {}))).not.toContain(privateValue);
+      await source.shutdown();
+      releaseAvailable = true;
+      source = await boot({ vaultPath, desktopUserData });
+      await vi.waitFor(
+        async () => {
+          const reopened = await data<{ body: string; data: { terminalReleasePending: boolean } }>(source!, "automations.runs.read", { runId: row!.id });
+          expect(reopened.data).toMatchObject({ state: "succeeded", exitCode: 0, terminalReleasePending: false });
+          expect(reopened.body).toBe(detail.body);
+        },
+        { timeout: 13_000, interval: 300 },
+      );
+      expect(starts).toHaveLength(1);
+      expect(released).toBe(1);
 
       await exportPackage(vaultPath, archive);
       expect(Object.values(unzipSync(readFileSync(archive))).some((bytes) => Buffer.from(bytes).includes(privateValue))).toBe(false);

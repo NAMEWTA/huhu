@@ -558,9 +558,11 @@ export class AutomationsService {
               .finally(() => this.runAbort.delete(runId)),
           );
           settling = true;
-        } catch {
+        } catch (error) {
           if (!this.abort.signal.aborted) {
-            if (possiblySubmitted) await this.terminalPending(runId, "核对原启动及终端状态。");
+            if (isHuhuError(error) && error.code === "SPACE_INVALID" && error.details?.["reason"] === "approved_directory_changed") {
+              await this.finishTerminalRun(runId, "failed", error.message);
+            } else if (possiblySubmitted) await this.terminalPending(runId, "核对原启动及终端状态。");
             else await this.terminalPending(runId, "原手动运行已受理，启动状态待核对。");
           }
         } finally {
@@ -692,6 +694,7 @@ export class AutomationsService {
     for (;;) {
       if (this.abort.signal.aborted) return { state: "running" };
       const list = await this.terminalSessions();
+      if (this.abort.signal.aborted) return { state: "running" };
       const matching = list?.find((x) => x.id === sessionId && x.requestId === terminalRequestId(runId));
       if (!matching || matching.state === "unknown" || matching.state === "launching") return this.terminalPending(runId, "等待原终端确认，当前无法确定结果。");
       sess = matching;
@@ -707,15 +710,30 @@ export class AutomationsService {
     } catch {
       output = "（终端输出已不可读）";
     }
+    if (this.abort.signal.aborted) return { state: "running" };
     const exitCode = sess.exitCode ?? null;
     const state = killedFor === "cancel" ? "cancelled" : killedFor === "timeout" || sess.state === "failed" ? "failed" : exitCode === 0 ? "succeeded" : exitCode === null ? "unknown" : "failed";
     const note = killedFor === "timeout" ? `超过 ${TERMINAL_TIMEOUT_MS / 60_000} 分钟，已结束终端。\n` : "";
     const cur = this.d.repo.read("automation-run", runId);
-    await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()), exitCode }, cur.version, `\n## 输出\n\n${note}${output}\n`);
-    if (sess.hasEnv) await this.d.call("agent.sessions.release", { id: sessionId }, `autorelease-${runId}`).catch(() => undefined);
+    await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()), exitCode, ...(sess.hasEnv && { sessionId, terminalReleasePending: true }) }, cur.version, `\n## 输出\n\n${note}${output}\n`);
     this.d.publish("run.stateChanged", { runId, kind: "automation-run", state });
     if (state === "failed" || state === "unknown") this.d.notify({ title: `自动化「${ruleTitle}」${STATE_TEXT[state] ?? state}`, module: "automations" });
+    if (sess.hasEnv) await this.releaseTerminal(runId, sessionId);
     return { state };
+  }
+
+  private async releaseTerminal(runId: string, sessionId: string): Promise<void> {
+    if (this.abort.signal.aborted) return;
+    try {
+      await this.d.call("agent.sessions.release", { id: sessionId, requestId: terminalRequestId(runId) }, `autorelease-${runId}`);
+    } catch {
+      return;
+    }
+    if (this.abort.signal.aborted) return;
+    const run = this.d.repo.read("automation-run", runId);
+    if (run.data["terminalOwner"] === this.d.terminalOwner && run.data["sessionId"] === sessionId && run.data["terminalReleasePending"] === true) {
+      await this.d.repo.patch("automation-run", runId, { terminalReleasePending: false }, run.version);
+    }
   }
 
   /** reminder 动作：发站内通知，或新建一个人工任务（引用可选的关联任务），或两者都做。 */
@@ -753,16 +771,21 @@ export class AutomationsService {
   private async reconcileTerminalRecords(): Promise<void> {
     const owner = this.d.terminalOwner;
     if (!owner || this.abort.signal.aborted) return;
-    const rows = this.d.repo
-      .list("automation-run")
-      .filter(({ id, data, readOnly }) => !readOnly && data["actionKind"] === "terminal" && data["terminalOwner"] === owner && !data["finishedAt"] && (data["state"] === "running" || data["state"] === "unknown") && !this.runAbort.has(id));
+    const rows = this.d.repo.list("automation-run").filter(({ id, data, readOnly }) => {
+      if (readOnly || data["actionKind"] !== "terminal" || data["terminalOwner"] !== owner || this.runAbort.has(id)) return false;
+      return data["finishedAt"] ? data["terminalReleasePending"] === true && typeof data["sessionId"] === "string" : data["state"] === "running" || data["state"] === "unknown";
+    });
     if (!rows.length) return;
     const rules = new Map(this.rules().map((rule) => [rule.id, rule]));
     let sessions: TerminalSession[] | null | undefined;
     for (const run of rows) {
       const { id } = run;
       if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
-      const { ruleId, sessionId, startedAt, terminalLaunch, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
+      const { ruleId, sessionId, startedAt, finishedAt, terminalLaunch, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
+      if (finishedAt && sessionId) {
+        await this.releaseTerminal(id, sessionId);
+        continue;
+      }
       const rule = rules.get(ruleId);
       if (trigger === "schedule" && terminalLaunch?.submittedAt === null && !sessionId) {
         if (state !== "running" || this.ruleAbort.has(ruleId)) continue;
@@ -798,7 +821,7 @@ export class AutomationsService {
       .filter(({ data }) => data["actionKind"] === "terminal")
       .map(({ id, data }) => {
         const run = data as unknown as AutomationRunFrontmatter;
-        return { id, kind: "automation-run" as const, state: this.terminalState(run), title: titles.get(run.ruleId) ?? run.ruleId, startedAt: run.startedAt, finishedAt: run.finishedAt, live: this.runAbort.has(id) };
+        return { id, kind: "automation-run" as const, state: this.terminalState(run), title: titles.get(run.ruleId) ?? run.ruleId, startedAt: run.startedAt, finishedAt: run.finishedAt, live: !run.finishedAt && this.runAbort.has(id) };
       })
       .sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))
       .slice(0, limit);
@@ -813,6 +836,6 @@ export class AutomationsService {
     if (!data["finishedAt"] && data["terminalOwner"] !== this.d.terminalOwner) {
       return { id, kind: "automation-run" as const, version, body: `当前 Vault 无法核实这次运行的本机归属。\n\n${body}`, data: { ...data, state: "unknown", sessionId: null }, title, live: false };
     }
-    return { id, kind: "automation-run" as const, version, body, data, title, live: this.runAbort.has(id) };
+    return { id, kind: "automation-run" as const, version, body, data, title, live: !data["finishedAt"] && this.runAbort.has(id) };
   }
 }

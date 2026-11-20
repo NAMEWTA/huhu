@@ -1,4 +1,5 @@
 const { spawn } = require("node:child_process");
+const { realpathSync, statSync } = require("node:fs");
 const { createConnection } = require("node:net");
 const { StringDecoder } = require("node:string_decoder");
 const { Transform } = require("node:stream");
@@ -68,6 +69,17 @@ function redact(values) {
   });
 }
 
+function matchesApprovedDirectory(expected) {
+  try {
+    const cwd = realpathSync.native(process.cwd());
+    const stat = statSync(cwd, { bigint: true });
+    // 此独立 helper 由打包器原样复制，身份格式与 vault 的 filesystemIdentity 一致。
+    return cwd === expected.path && stat.isDirectory() && stat.ino !== 0n && `${stat.dev}:${stat.ino}` === expected.identity && String(stat.birthtimeNs) === expected.birthtimeNs;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   const port = Number(process.argv[2]);
   const token = process.argv[3] ?? "";
@@ -75,6 +87,7 @@ async function main() {
   const {
     argv: [command, ...args],
     env,
+    approvedDirectory,
   } = await fetchLaunch(port, token);
   const environment = { ...process.env };
   delete environment.ELECTRON_RUN_AS_NODE;
@@ -82,6 +95,12 @@ async function main() {
     const overrides = new Set(Object.keys(env).map((name) => name.toUpperCase()));
     for (const name of Object.keys(environment)) if (overrides.has(name.toUpperCase())) delete environment[name];
   }
+  if (approvedDirectory !== undefined && !matchesApprovedDirectory(approvedDirectory)) {
+    process.stderr.write("受保护的终端工作目录已变化，命令未启动。\n");
+    process.exitCode = 1;
+    return;
+  }
+  // 继承 helper 已打开的当前目录。启动时无需用批准路径另选一次 cwd。
   const child = spawn(command, args, { env: { ...environment, ...env }, stdio: ["inherit", "pipe", "pipe"], windowsHide: true });
   child.stdout.pipe(redact(Object.values(env))).pipe(process.stdout, { end: false });
   child.stderr.pipe(redact(Object.values(env))).pipe(process.stderr, { end: false });

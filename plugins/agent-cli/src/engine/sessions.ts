@@ -6,7 +6,7 @@ import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { isValidNativeId, isWithin } from "./history/scanner.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
 import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js";
-import type { ProtectedLaunch } from "./protected-launch.js";
+import { matchesProtectedDirectory, type ProtectedDirectory, type ProtectedLaunch } from "./protected-launch.js";
 import type { ResolvedLaunch, ResolveInput } from "./launch.js";
 import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding, sameCore, sameProcess, type LaunchReceipt, type ProcessBinding, type Terminal } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
@@ -131,6 +131,8 @@ export interface LaunchInput {
   shell?: ShellName | undefined;
   /** 由经过授权的 Engine 调用者解析，在目标子进程启动时使用。 */
   env?: Record<string, string> | undefined;
+  /** 私有受保护启动票据的批准工作目录。 */
+  approvedDirectory?: ProtectedDirectory;
   expectedConfigurationId?: string;
   controlled?: "codex";
 }
@@ -354,6 +356,8 @@ export class SessionsService {
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
     // cmd.exe 把盘符的扩展路径当作 UNC。常规长度的本机路径可用普通盘符形式启动。
     const cwd = localDrivePath(this.launchDirectory(space.root, input.cwd));
+    const approvedDirectory = input.approvedDirectory;
+    if (approvedDirectory && !matchesProtectedDirectory(cwd, approvedDirectory)) throw this.approvedDirectoryChanged();
     if (process.platform === "win32" && cwd.length > MAX_WINDOWS_CORE_CWD) {
       throw new HuhuError("INVALID_INPUT", "Windows 上的 Herdr Core 无法在此长度的工作目录中启动，请选择较短的目录", {
         details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: MAX_WINDOWS_CORE_CWD },
@@ -375,6 +379,7 @@ export class SessionsService {
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
     }
+    if (approvedDirectory && (input.provider !== "shell" || !env || !argv)) throw errors.invalidInput("批准的工作目录仅用于受保护终端命令");
     return { space, cwd, argv, env, controlled };
   }
 
@@ -481,11 +486,16 @@ export class SessionsService {
     // Another service may have claimed the same request while this connection was opening.
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+    if (input.approvedDirectory && !matchesProtectedDirectory(cwd, input.approvedDirectory)) {
+      const changed = this.approvedDirectoryChanged();
+      this.save({ ...current, state: "failed", error: changed.message });
+      throw changed;
+    }
     const attempt = { id: randomUUID(), core };
     if (controlled) {
       argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id });
     }
-    const ticket = protectedPort && env && argv ? this.d.protectedLaunch!.issue(protectedPort, argv, env) : undefined;
+    const ticket = protectedPort && env && argv ? this.d.protectedLaunch!.issue(protectedPort, argv, env, input.approvedDirectory) : undefined;
     if (ticket) argv = ticket.argv;
     let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, ...((controlled || ticket) && { argvHash: launchHash(argv) }), attempt } };
     try {
@@ -557,6 +567,10 @@ export class SessionsService {
     return new HuhuError("HERDR_UNAVAILABLE", message, {
       details: { stage, reason: "confirmed_not_created", requestId: session.requestId, sessionId: session.id },
     });
+  }
+
+  private approvedDirectoryChanged(): HuhuError {
+    return new HuhuError("SPACE_INVALID", "受保护的终端工作目录已变化，命令未启动。", { details: { reason: "approved_directory_changed" } });
   }
 
   private verifyTerminal(session: SessionRecord, terminal: Terminal): ProcessBinding | null {
@@ -889,11 +903,42 @@ export class SessionsService {
   /**
    * 受保护命令读完脱敏输出后移除终端并清理本进程的脱敏材料。
    */
-  async release(id: string): Promise<void> {
-    const s = this.get(id);
+  async release(id: string, requestId: string, signal?: AbortSignal): Promise<void> {
+    const s = this.recordedLaunch(requestId);
+    if (!s || s.id !== id || !s.hasEnv || (s.state !== "exited" && s.state !== "failed") || this.d.inputOwnership?.hasTask(id)) {
+      throw errors.permissionDenied("无法确认已结束的受保护会话");
+    }
     this.secrets.delete(id);
-    if (!s.terminalId) return;
-    await this.controlTerminal(s, "terminal.rm");
+    const attempt = s.launchReceipt?.attempt;
+    if (!s.terminalId && !attempt) return;
+    if (!s.terminalId || !attempt?.binding) throw this.unknown(s, "binding_lost");
+    const snapshot = await this.snapshot();
+    if (snapshot.kind !== "available") throw this.unknown(s, "snapshot_unavailable");
+    if (!sameCore(attempt.core, snapshot.core)) throw this.unknown(s, "core_changed");
+    const labels = launchLabels(this.d.vaultId, s);
+    const candidates = snapshot.terminals.filter((terminal) => hasLaunchLabels(terminal, labels));
+    // 若前一次释放已完成但回包丢失，同一 Core 的快照应已没有原会话。
+    if (!candidates.length && !snapshot.terminals.some(({ address }) => address === s.terminalId)) return;
+    const terminal = candidates.length === 1 ? candidates[0] : undefined;
+    const binding = terminal && this.verifyTerminal(s, terminal);
+    if (!binding || !sameProcess(attempt.binding, binding) || terminal?.state !== "finished") throw this.unknown(s, "binding_lost");
+    signal?.throwIfAborted();
+    this.d.signal?.throwIfAborted();
+    const current = this.recordedLaunch(requestId);
+    const currentAttempt = current?.launchReceipt?.attempt;
+    if (
+      current?.id !== id ||
+      current.terminalId !== binding.address ||
+      !current.hasEnv ||
+      currentAttempt?.id !== attempt.id ||
+      !currentAttempt.binding ||
+      !sameProcess(currentAttempt.binding, binding) ||
+      (current.state !== "exited" && current.state !== "failed") ||
+      this.d.inputOwnership?.hasTask(id)
+    ) {
+      throw this.unknown(s, "binding_lost");
+    }
+    await snapshot.client.call("terminal.rm", { terminal: binding.address });
   }
 
   async interrupt(id: string): Promise<void> {

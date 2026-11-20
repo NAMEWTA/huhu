@@ -54,7 +54,7 @@ function setup(
     tasks?: TaskDto[];
     tasksEnabled?: boolean;
     /** 假 agent-cli：按命令返回会话；output 为命令的“输出”。 */
-    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; lostReply?: Error; unavailable?: () => boolean; hasEnv?: boolean };
+    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; lostReply?: Error; unavailable?: () => boolean; releaseUnavailable?: () => boolean; hasEnv?: boolean };
     spaceState?: "ok" | "missing";
     spaceRevision?: () => number;
     now?: () => Date;
@@ -109,7 +109,10 @@ function setup(
           if (x) Object.assign(x, { state: "exited", exitCode: null });
           return {};
         }
-        if (capability === "agent.sessions.release") return { ok: true };
+        if (capability === "agent.sessions.release") {
+          if (opts.terminal?.releaseUnavailable?.()) throw new Error("终端释放暂不可用");
+          return { ok: true };
+        }
         if (capability === "agent.sessions.output") return { text: opts.terminal?.output ?? "", complete: true };
         return {};
       },
@@ -387,6 +390,34 @@ test("暂停的终端规则可以手动运行，定时经过时不会创建会�
   expect(calls).toEqual([]);
   expect((await svc.activateNonAgent(rule.id, "manual")).summary).toEqual({ state: "succeeded" });
   expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
+});
+
+test("受保护终端保留已完成结果和待释放义务，重开仅释放当前 Vault 的原请求", async () => {
+  let unavailable = true;
+  const { svc, open, calls } = setup({ terminal: { hasEnv: true, output: "原结果", releaseUnavailable: () => unavailable } });
+  const rule = await terminalRule(svc);
+  await svc.activateNonAgent(rule.id, "manual");
+  const run = svc.runs()[0]!;
+  const before = svc.runDetail(run.id);
+  expect(before.data).toMatchObject({ state: "succeeded", exitCode: 0, finishedAt: expect.any(String), sessionId: "sess-1", terminalReleasePending: true });
+  expect(before.body).toContain("原结果");
+  expect(calls.filter(({ capability }) => capability === "agent.sessions.release")).toEqual([{ capability: "agent.sessions.release", input: { id: "sess-1", requestId: `autorun-${run.id}` }, key: `autorelease-${run.id}` }]);
+
+  calls.length = 0;
+  const foreign = open("b".repeat(64)).svc;
+  await foreign.reconcileTerminals();
+  svc.abortAll();
+  await svc.reconcileTerminals();
+  expect(calls).toEqual([]);
+
+  unavailable = false;
+  const restarted = open().svc;
+  await restarted.reconcileTerminals();
+  await restarted.reconcileTerminals();
+  const after = restarted.runDetail(run.id);
+  expect(after.data).toEqual({ ...before.data, terminalReleasePending: false });
+  expect(after.body).toBe(before.body);
+  expect(calls).toEqual([{ capability: "agent.sessions.release", input: { id: "sess-1", requestId: `autorun-${run.id}` }, key: `autorelease-${run.id}` }]);
 });
 
 test("定时终端在原计划点的运行写入前中断，重启从启用时刻补回该计划点", async () => {

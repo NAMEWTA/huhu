@@ -454,8 +454,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       output: z.object({ cancelled: z.boolean() }),
       handler: async (_c, i) => {
         await ready;
-        svc.runDetail(i.runId);
-        return { cancelled: svc.cancelRun(i.runId) };
+        const { live } = svc.runDetail(i.runId);
+        return { cancelled: live && svc.cancelRun(i.runId) };
       },
     }),
   );

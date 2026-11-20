@@ -74,6 +74,8 @@ export const AutomationRunFrontmatterSchema = z.object({
   nativeSessionId: z.string().nullable().default(null),
   /** terminal 动作：对应的 Herdr 终端会话（agent-cli 的会话 id），界面据此“查看 / 接管终端”。 */
   sessionId: z.string().nullable().default(null),
+  /** 退出结果已保存，仍需按原请求释放受保护会话。 */
+  terminalReleasePending: z.boolean().optional(),
   activationId: z.string().optional(),
   terminalOwner: z
     .string()

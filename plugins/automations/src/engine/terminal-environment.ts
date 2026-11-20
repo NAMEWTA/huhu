@@ -5,10 +5,11 @@ import { errors, HuhuError, type AutomationRuleFrontmatter } from "@huhu/contrac
 import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureStore, ModuleCredentials, toolSelection, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, VaultFiles } from "@huhu/vault";
 import { z } from "zod";
+import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
 import { hasLegacyTerminalEnvironment, sameDir, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
 
 const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
-const Definition = z.strictObject({ format: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), names: z.array(name).max(64) });
+const Definition = z.strictObject({ format: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), names: z.array(name).max(64), namesRevision: z.uuidv4().optional() });
 type Definition = z.infer<typeof Definition>;
 export type AutomationCredentialHost = Pick<CredentialOwner<Definition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 
@@ -21,7 +22,7 @@ const approvedNames = z
   .min(1)
   .max(64)
   .refine((names) => new Set(names).size === names.length);
-const approval = z.strictObject({ id: z.uuidv4(), target: digest, names: approvedNames });
+const approval = z.strictObject({ id: z.uuidv4(), target: digest, names: approvedNames, namesRevision: z.uuidv4().optional() });
 const approvalFile = z.strictObject({ format: z.literal(1), approval: approval.nullable() });
 const review = z.strictObject({
   ruleVersion,
@@ -226,8 +227,9 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     const ruleIdentity = filesystemIdentity(ruleStat);
     if (!spaceStat.isDirectory() || !spaceIdentity || !ruleIdentity) throw errors.permissionDenied("规则目标的本机身份不可核对");
     const environmentTarget = targetOf(ruleId, action, space.id, space.revision);
-    const target = hash([environmentTarget, space.root, root, spaceIdentity, String(spaceStat.birthtimeNs), rule.version, ruleIdentity, String(ruleStat.mtimeNs)]);
-    return { ruleVersion: rule.version, target, environmentTarget, command: action.command, shell: action.shell, space: { id: space.id, root, revision: space.revision } };
+    const directory: ProtectedDirectory = { path: root, identity: spaceIdentity, birthtimeNs: String(spaceStat.birthtimeNs) };
+    const target = hash([environmentTarget, space.root, directory.path, directory.identity, directory.birthtimeNs, rule.version, ruleIdentity, String(ruleStat.mtimeNs)]);
+    return { ruleVersion: rule.version, target, environmentTarget, directory, command: action.command, shell: action.shell, space: { id: space.id, root, revision: space.revision } };
   };
   const requireDesktop = (caller: string) => {
     if (caller !== "desktop") throw errors.permissionDenied("管理本机规则批准");
@@ -240,7 +242,9 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     if (!grant) throw errors.permissionDenied("终端规则未获本机批准");
     const current = describeTarget(ruleId);
     const config = portable(ruleId);
-    if (grant.target !== current.target || (config && !sameNames(config.definition.names, grant.names))) throw errors.permissionDenied("终端规则目标或变量名已变化，需要重新批准");
+    if (grant.target !== current.target || config?.definition.namesRevision !== grant.namesRevision || (config && !sameNames(config.definition.names, grant.names))) {
+      throw errors.permissionDenied("终端规则目标或变量名已变化，需要重新批准");
+    }
     return { grant, current, config };
   };
   api.defineCapability(
@@ -271,10 +275,10 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
         if (!current) throw errors.invalidInput("规则工作区不可用");
         const previous = await read(ruleId);
         if ((previous?.revision ?? null) !== expectedRevision) throw errors.versionConflict(previous?.revision ?? "");
-        const definition = { format: 1 as const, fingerprint: current, names };
+        const previousNames = previous?.definition.names ?? readApproval(ruleId).approval?.names ?? [];
+        const namesRevision = sameNames(previousNames, names) ? previous?.definition.namesRevision : randomUUID();
+        const definition = { format: 1 as const, fingerprint: current, names, ...(namesRevision && { namesRevision }) };
         const actions = actionsFor(names, previous?.definition, changes).filter(({ purpose }) => names.includes(purpose) || previous?.authState[purpose] !== "unconfigured");
-        const prior = readApproval(ruleId);
-        if (prior.approval && !sameNames(prior.approval.names, names)) await writeApproval(ruleId, null, prior.version);
         const saved = await store.save({ entityId: ruleId, expectedRevision, definition, actions, signal }).catch(translate);
         return { revision: saved.revision, localAvailable: true, names, states: saved.authState, targetChanged: false };
       }),
@@ -283,7 +287,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   api.defineCapability(
     bindCapability(terminalEnvironmentDescriptors.review, ({ caller }, { ruleId }) => {
       requireDesktop(caller);
-      const { environmentTarget: _, ...current } = describeTarget(ruleId);
+      const { environmentTarget: _, directory: _directory, ...current } = describeTarget(ruleId);
       const grant = readApproval(ruleId).approval;
       return { ...current, names: portable(ruleId)?.definition.names ?? grant?.names ?? [], approvalId: grant?.id ?? null };
     }),
@@ -300,7 +304,8 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
         const config = portable(ruleId);
         if (config && !sameNames(config.definition.names, names)) throw errors.invalidInput("请批准规则环境中现有的全部变量名");
         const approvalId = randomUUID();
-        await writeApproval(ruleId, { id: approvalId, names, target }, prior.version);
+        const namesRevision = config?.definition.namesRevision;
+        await writeApproval(ruleId, { id: approvalId, names, target, ...(namesRevision && { namesRevision }) }, prior.version);
         return { approvalId };
       }),
     ),
@@ -343,7 +348,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
         if (current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(current.ruleVersion);
         if ((config?.revision ?? null) !== expectedRevision) throw errors.versionConflict(config?.revision ?? "");
         if (changes.some(({ name }) => !grant.names.includes(name))) throw errors.permissionDenied("修改未批准的变量");
-        const definition = { format: 1 as const, fingerprint: current.environmentTarget, names: grant.names };
+        const definition = { format: 1 as const, fingerprint: current.environmentTarget, names: grant.names, ...(grant.namesRevision && { namesRevision: grant.namesRevision }) };
         const saved = await store
           .save({
             entityId: ruleId,
@@ -382,7 +387,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
             }
           };
           validate();
-          const agent = api.service<{ launch(request: TerminalRuleLaunch & { env: Record<string, string> }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
+          const agent = api.service<{ launch(request: TerminalRuleLaunch & { env: Record<string, string>; approvedDirectory: ProtectedDirectory }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
           if (!agent) throw errors.permissionDenied("受保护启动服务不可用");
           await store
             .use(ruleId, grant.names, async (definition, values, revision) => {
@@ -390,7 +395,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
               if (revision !== expectedRevision || !sameNames(definition.names, grant.names) || definition.fingerprint !== current.environmentTarget) throw errors.permissionDenied("已批准的规则配置不可用");
               const { command, shell, space } = current;
               await submit({ command, shell, provider: "shell", spaceId: space.id, spaceRevision: space.revision }, current.target, validate, (input, launchSignal) =>
-                agent.launch({ ...input, env: Object.fromEntries(values) }, launchSignal),
+                agent.launch({ ...input, env: Object.fromEntries(values), approvedDirectory: current.directory }, launchSignal),
               );
             })
             .catch(translate);

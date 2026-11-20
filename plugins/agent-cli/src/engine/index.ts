@@ -384,11 +384,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       name: "agent.sessions.release",
       plugin: "agent-cli",
       scope: "write",
+      idempotency: "handler",
       exposable: false,
       defaultExposed: false,
-      input: z.object({ id: z.string() }),
+      input: z.object({ id: z.string(), requestId: z.string().min(1) }),
       output: z.object({ ok: z.literal(true) }),
-      handler: async (_c, i) => (await sessions.release(i.id), { ok: true as const }),
+      handler: async (c, i) => (await sessions.release(i.id, i.requestId, c.signal), { ok: true as const }),
     }),
   );
   api.defineCapability(

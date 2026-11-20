@@ -98,7 +98,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       mkdirSync(vault);
       mkdirSync(userData);
       e = await boot({ vaultPath: vault, create: true, desktopUserData: userData });
-      const command = "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'";
+      const command = "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'; [Console]::WriteLine((Get-Location).Path)";
       const create = (title: string) =>
         desktop<{ id: string; version: string }>("automations.create", {
           title,
@@ -176,6 +176,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       await vi.waitFor(async () => expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } }), { timeout: 12_000, interval: 400 });
       const details = await desktop<{ body: string }>("automations.runs.read", { runId: first.runId });
       expect(details.body).toContain("approved-fixture-ok");
+      expect(details.body).toContain(review.space.root);
       expect(details.body).toContain("***");
       expect(details.body).not.toContain(marker);
       expect(JSON.stringify(starts)).not.toContain(marker);

@@ -1,12 +1,25 @@
 import { randomBytes } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import { createServer, type AddressInfo, type Socket } from "node:net";
 import { HuhuError } from "@huhu/contracts";
+import { filesystemIdentity } from "@huhu/vault";
 
 const HOST = "127.0.0.1";
 const TOKEN = /^[a-f0-9]{64}$/;
 const MAX_PAYLOAD = 2 * 1024 * 1024;
 
 type Ticket = { content: string; timeout: NodeJS.Timeout };
+export type ProtectedDirectory = { path: string; identity: string; birthtimeNs: string };
+
+export function matchesProtectedDirectory(cwd: string, expected: ProtectedDirectory): boolean {
+  try {
+    const canonical = realpathSync.native(cwd);
+    const stat = statSync(canonical, { bigint: true });
+    return canonical === expected.path && stat.isDirectory() && filesystemIdentity(stat) === expected.identity && String(stat.birthtimeNs) === expected.birthtimeNs;
+  } catch {
+    return false;
+  }
+}
 
 function windowsConsoleCommand(helperArgv: string[]): string[] {
   // Electron's GUI executable can have discarded stdout/stderr in a ConPTY even in Node mode.
@@ -78,9 +91,9 @@ export class ProtectedLaunch {
     return this.ready;
   }
 
-  issue(port: number, argv: string[], env: Record<string, string>) {
+  issue(port: number, argv: string[], env: Record<string, string>, approvedDirectory?: ProtectedDirectory) {
     if (this.closed) throw new HuhuError("ENGINE_CLOSING", "受保护启动服务已关闭");
-    const content = JSON.stringify({ argv, env });
+    const content = JSON.stringify({ argv, env, approvedDirectory });
     if (Buffer.byteLength(content) > MAX_PAYLOAD) throw new HuhuError("INVALID_INPUT", "受保护启动配置过大");
     const token = randomBytes(32).toString("hex");
     const revoke = () => {
