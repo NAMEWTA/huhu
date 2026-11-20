@@ -2,6 +2,7 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { bindCapability, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
+import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
 import { SshManager } from "./manager.js";
 
@@ -12,6 +13,7 @@ export { SshManager } from "./manager.js";
 export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
   const hosts = new HostStore(path.join(root, "hosts"));
+  const directory = new HostDirectory(hosts, api.vault.files);
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
@@ -27,6 +29,14 @@ export function apply(ctx: Context, api: HuhuApi): { manager: SshManager } {
   });
   ctx.effect(() => () => manager.disposeAll()); // 插件停用 / Vault 关闭：断开全部连接
 
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostsOrganize, async (_c, i) => {
+      const view = await directory.organize(i);
+      api.events.publish("entity.changed", { kind: "ssh-host-directory", id: "directory", op: "updated" });
+      return view;
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsList, () => hosts.list()));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsSave, async (_c, i) => {

@@ -1,5 +1,6 @@
 import { defineCapabilityDescriptor } from "@huhu/kernel";
 import { z } from "zod";
+import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 
 const Auth = z.discriminatedUnion("kind", [
   z.object({
@@ -22,6 +23,26 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  hostsDirectory: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.hosts.directory",
+    title: "查询 SSH 主机目录",
+    description: "列出分组和符合搜索条件的主机，无需连接主机。",
+    scope: "read",
+    risk: "normal",
+    input: DirectoryQuery,
+    output: DirectoryView,
+  }),
+  hostsOrganize: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.hosts.organize",
+    title: "整理 SSH 主机目录",
+    description: "按目录版本修改分组、主机归属、置顶或排序。",
+    scope: "write",
+    risk: "normal",
+    input: DirectoryUpdate,
+    output: DirectoryView,
+  }),
   hostsList: defineCapabilityDescriptor({
     ...ssh,
     name: "ssh.hosts.list",
