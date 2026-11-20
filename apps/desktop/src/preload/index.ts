@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopDraftAttachmentHost } from "@huhu/plugin-mail/desktop-attachments";
-import type { AppMenuAction, AppMenuHost } from "@huhu/workbench";
+import type { AppMenuAction, AppMenuHost, WindowChromeHost, WindowChromeState } from "@huhu/workbench";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
+import { WINDOW_CHROME_CHANGED, WINDOW_CHROME_COLORS, WINDOW_CHROME_HEIGHT, WINDOW_CHROME_STATE } from "../window-chrome-ipc.js";
 
 export interface AppInfo {
   name: string;
@@ -16,6 +17,21 @@ export interface AppInfo {
 type EngineState = "starting" | "ready" | "stopped" | "crashed";
 
 contextBridge.exposeInMainWorld("huhuHost", {
+  ...(process.isMainFrame && location.protocol !== "data:"
+    ? {
+        windowChrome: {
+          platform: process.platform,
+          height: WINDOW_CHROME_HEIGHT,
+          state: () => ipcRenderer.invoke(WINDOW_CHROME_STATE),
+          setColors: (colors) => ipcRenderer.invoke(WINDOW_CHROME_COLORS, colors),
+          onChange(callback) {
+            const listener = (_event: unknown, state: WindowChromeState) => callback(state);
+            ipcRenderer.on(WINDOW_CHROME_CHANGED, listener);
+            return () => ipcRenderer.off(WINDOW_CHROME_CHANGED, listener);
+          },
+        } satisfies WindowChromeHost,
+      }
+    : {}),
   appMenu: {
     button: process.platform !== "darwin",
     open: (x, y) => ipcRenderer.invoke("huhu:app-menu-open", x, y),

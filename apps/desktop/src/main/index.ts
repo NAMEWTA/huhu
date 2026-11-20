@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +11,7 @@ import { registerMailAttachmentPicker } from "./mail-attachment-picker.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
+import { installWindowChrome, nativeTitleOptions } from "./window-chrome.js";
 
 let supervisor: EngineSupervisor | null = null;
 
@@ -198,15 +199,14 @@ let flushedForQuit = false;
 let quitting = false;
 let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
-function createWindow(): BrowserWindow {
+function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
     title: "HUHU",
-    // 窗口底色：渲染进程加载主题之前只能用默认主题（Claude）的画布色（随系统明暗）；颜色字面量在主进程里是唯一允许的例外
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#181715" : "#faf9f5",
+    ...nativeTitleOptions(),
     icon: iconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
@@ -215,6 +215,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  chrome.attach(win);
   attachAppMenu?.(win);
   // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
   let closing = false;
@@ -259,6 +260,7 @@ if (!gotLock) {
   });
 
   void app.whenReady().then(() => {
+    const chrome = installWindowChrome(rendererAddress());
     attachAppMenu = installAppMenu(isTrustedUrl, readBuildInfo);
     // macOS 开发模式没有 .app 包，Dock 图标需要手动设置；打包后由 icns 提供
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(iconPath);
@@ -295,6 +297,7 @@ if (!gotLock) {
       if (supervisor) await supervisor.stop();
       supervisor = null;
       current = null;
+      chrome.setVaultTitle();
       const next = new EngineSupervisor(target, flags, broadcast);
       supervisor = next;
       next.start();
@@ -305,6 +308,7 @@ if (!gotLock) {
         return r;
       }
       current = { path: target, readOnly: flags.readOnly };
+      chrome.setVaultTitle(path.basename(target));
       startupError = null;
       recent = remember(recent, { path: target, name: path.basename(target) || target, at: new Date().toISOString() });
       return { ok: true };
@@ -350,6 +354,7 @@ if (!gotLock) {
         if (supervisor) await supervisor.stop();
         supervisor = null;
         current = null;
+        chrome.setVaultTitle();
         startupError = null;
       }));
     });
@@ -515,9 +520,9 @@ if (!gotLock) {
     const lockSafe = () => void supervisor?.callDesktop("safe.lock");
     powerMonitor.on("lock-screen", lockSafe);
     powerMonitor.on("suspend", lockSafe);
-    createWindow();
+    createWindow(chrome);
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(chrome);
     });
   });
   app.on("before-quit", (e) => {
