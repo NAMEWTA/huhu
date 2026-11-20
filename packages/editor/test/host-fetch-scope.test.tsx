@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { OkRoot } from "../src/rich/OkRoot";
 import "./vendor-jsdom-setup";
 import { expect, test, vi } from "vitest";
-import { installHostFetch, registerHostRoutes } from "../src/host/host-fetch";
+import { installHostFetch, registerHostRoutes, type HostRoutes } from "../src/host/host-fetch";
 
+import { LocalReferenceContext, useLiveDocText, type LocalReferenceHost } from "../src/vendor/open-knowledge/app/src/editor/components/live-doc-pool";
+import { Pdf } from "../src/vendor/open-knowledge/app/src/editor/components/Pdf";
+import { useMirrorSource } from "../src/vendor/open-knowledge/app/src/editor/components/use-mirror-source";
 import { okFetch, useOkFetch } from "../src/vendor/open-knowledge/app/src/lib/ok-fetch";
 
 test("OP-D04 安装和卸载编辑器宿主不改动全局 fetch", async () => {
@@ -54,6 +57,9 @@ vi.mock("@/lib/i18n", async () => {
 vi.mock("@/lib/activate-locale", () => ({ dynamicActivate: async () => undefined, getRequestedLocale: () => "en" }));
 vi.mock("@lingui/core/macro", () => import("../src/vendor/open-knowledge/app/tests/lingui-macro-shim"));
 vi.mock("@lingui/react/macro", () => import("../src/vendor/open-knowledge/app/tests/lingui-macro-shim"));
+
+const pdfjs = vi.hoisted(() => ({ getDocument: vi.fn() }));
+vi.mock("pdfjs-dist", () => ({ ...pdfjs, GlobalWorkerOptions: { workerSrc: "test-worker" } }));
 
 function ScopeProbe({ name }: { name: string }) {
   const request = useOkFetch();
@@ -115,4 +121,143 @@ test("OP-D04 并挂根各自绑定路由，卸载和异步切换不会重定向�
   } finally {
     app.unmount();
   }
+});
+
+test("H04 配置请求由当前宿主本地响应，不访问 OK 服务", async () => {
+  const uninstall = installHostFetch();
+  try {
+    const response = await okFetch("/api/config");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ collabUrl: null, previewUrl: null });
+  } finally {
+    uninstall();
+  }
+});
+
+test("B01 未打开的镜像与画板从各自宿主读取，失效和切库取消旧请求", async () => {
+  function References() {
+    const mirror = useMirrorSource("source", "excerpt");
+    const board = useLiveDocText("board.excalidraw");
+    return (
+      <>
+        <p data-testid="mirror">{mirror.kind === "ready" ? mirror.html : mirror.kind}</p>
+        <p data-testid="board">{board.kind === "ready" ? board.text : board.kind}</p>
+      </>
+    );
+  }
+
+  function vault(text: string) {
+    const subscriptions = new Map<string, () => void>();
+    const localReferences: LocalReferenceHost = {
+      subscribe(docName, refresh) {
+        subscriptions.set(docName, refresh);
+        return () => {
+          subscriptions.delete(docName);
+        };
+      },
+      readPdf: vi.fn(),
+    };
+    const pending = Promise.withResolvers<{ text: string }>();
+    const signals: AbortSignal[] = [];
+    let contents = text;
+    let hold = false;
+    const routes: HostRoutes = {
+      "GET /api/reference-text": ({ url, signal }) => {
+        if (signal) signals.push(signal);
+        return url.searchParams.get("doc") === "source" ? { text: `<MirrorSource name="excerpt">\n\n${contents}\n\n</MirrorSource>` } : hold ? pending.promise : { text: `board: ${contents}` };
+      },
+    };
+    return {
+      subscriptions,
+      signals,
+      pending,
+      update(next: string) {
+        contents = next;
+        for (const refresh of subscriptions.values()) refresh();
+      },
+      holdBoard() {
+        hold = true;
+        subscriptions.get("board.excalidraw")?.();
+      },
+      mount: () => (
+        <OkRoot localReferences={localReferences} routes={routes}>
+          <References />
+        </OkRoot>
+      ),
+    };
+  }
+
+  const first = vault("first vault");
+  const second = vault("second vault");
+  const view = render(first.mount());
+  try {
+    await waitFor(() => expect(screen.getByTestId("mirror").textContent).toContain("first vault"));
+    expect(screen.getByTestId("board").textContent).toBe("board: first vault");
+    act(() => first.update("changed on disk"));
+    await waitFor(() => expect(screen.getByTestId("mirror").textContent).toContain("changed on disk"));
+    expect(screen.getByTestId("board").textContent).toBe("board: changed on disk");
+
+    act(() => first.holdBoard());
+    const oldSignal = first.signals.at(-1);
+    expect(oldSignal?.aborted).toBe(false);
+    view.rerender(second.mount());
+    expect(first.subscriptions.size).toBe(0);
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => first.pending.resolve({ text: "late old board" }));
+    await waitFor(() => expect(screen.getByTestId("mirror").textContent).toContain("second vault"));
+    expect(screen.getByTestId("board").textContent).toBe("board: second vault");
+  } finally {
+    view.unmount();
+  }
+  expect(second.subscriptions.size).toBe(0);
+  expect(second.signals.every((signal) => signal.aborted)).toBe(true);
+});
+
+test("B01 内嵌 PDF 按失效重读 Vault 字节并释放上一任务", async () => {
+  let refresh: (() => void) | undefined;
+  const unsubscribe = vi.fn(() => {
+    refresh = undefined;
+  });
+  const signals: AbortSignal[] = [];
+  let bytes = [37, 80, 68, 70];
+  const tasks: Array<ReturnType<typeof vi.fn>> = [];
+  pdfjs.getDocument.mockImplementation(() => {
+    const destroy = vi.fn(async () => undefined);
+    tasks.push(destroy);
+    return { destroy, promise: Promise.resolve({ numPages: 0 }) };
+  });
+  const local: LocalReferenceHost = {
+    subscribe: vi.fn((_path, reload) => {
+      refresh = reload;
+      return unsubscribe;
+    }),
+    readPdf: vi.fn(async (_path, signal) => {
+      signals.push(signal);
+      const data = Uint8Array.from(bytes);
+      return { arrayBuffer: async () => data.buffer } as Blob;
+    }),
+  };
+  const view = render(
+    <OkRoot>
+      <LocalReferenceContext value={local}>
+        <Pdf src="/docs/%E9%99%84%E5%BD%95.pdf#page=1" />
+      </LocalReferenceContext>
+    </OkRoot>,
+  );
+  try {
+    await waitFor(() => expect(pdfjs.getDocument).toHaveBeenCalledWith({ data: Uint8Array.from(bytes) }));
+    expect(local.subscribe).toHaveBeenCalledWith("docs/附录.pdf", expect.any(Function));
+    expect(local.readPdf).toHaveBeenCalledWith("docs/附录.pdf", signals[0]);
+
+    bytes = [...bytes, 45, 49];
+    act(() => refresh?.());
+    await waitFor(() => expect(pdfjs.getDocument).toHaveBeenLastCalledWith({ data: Uint8Array.from(bytes) }));
+    expect(tasks[0]).toHaveBeenCalledTimes(1);
+    expect(signals[0]?.aborted).toBe(true);
+  } finally {
+    view.unmount();
+  }
+  expect(tasks[1]).toHaveBeenCalledTimes(1);
+  expect(signals[1]?.aborted).toBe(true);
+  expect(unsubscribe).toHaveBeenCalledTimes(2);
 });

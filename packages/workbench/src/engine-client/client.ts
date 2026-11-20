@@ -28,12 +28,13 @@ export class EngineClient {
     return this.endpoint.vaultId;
   }
 
-  async call<T>(capability: string, input: unknown = {}, opts: { write?: boolean } = {}): Promise<T> {
+  async call<T>(capability: string, input: unknown = {}, opts: { write?: boolean; signal?: AbortSignal } = {}): Promise<T> {
     const body = { capability, input, requestId: crypto.randomUUID(), ...(opts.write ? { idempotencyKey: crypto.randomUUID() } : {}) };
     const res = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/call`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.endpoint.token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
     if (res.status === 401) throw new CapabilityError("UNAUTHENTICATED", "引擎令牌失效");
     let json: CapabilityResult<T>;

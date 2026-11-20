@@ -355,7 +355,12 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。
 - `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。
 - `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。
-- `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由，接收当前根绑定的请求函数。
+- `app/src/lib/use-collab-url.ts`：使用当前根的请求函数，本地引用模式跳过协作发现。
+- `app/src/editor/components/ExcalidrawEmbed.tsx`：接受桌面工作台中同宿主的画板地址。
+- `app/src/editor/components/live-doc-pool.ts`：有本地宿主时通过 Vault 读取快照，订阅失效并取消旧请求。
+- `app/src/editor/components/use-mirror-source.ts`：复用镜像解析处理本地 Markdown 快照，保留固定上游协作路径。
+- `app/src/editor/components/Pdf.tsx`：本地 PDF 从 Vault 读取，按失效通知重载，撤销请求并销毁旧任务。
 - `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。
 - `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。
 - `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。
