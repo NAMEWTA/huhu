@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import hostPath from "node:path";
 import path from "node:path/posix";
 import { errors, KINDS, newId } from "@huhu/contracts";
-import { folderNoteDir, normalizeRelPath, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
 
-import type { LegacyTextEncoding } from "../shared/text-encoding.js";
+import { legacyTextEncodings, NO_EXT_TEXT_PROBE_LIMIT, textViewerLimit, unsupportedEncoding, type LegacyTextEncoding } from "../shared/text-encoding.js";
 import { decodeUtf8, requireUtf8, textEncodingOf } from "./text-encoding.js";
 
 export interface NotesDeps {
@@ -416,19 +416,36 @@ export class NotesService {
     if (from === to) return { moved: {}, rewrittenFiles: [], ambiguous: [] };
     const source = resolveReadableAsset(this.d.files.root, from);
     this.assertUnprotectedDestination(to);
-    const isDir = statSync(source).isDirectory();
+    const isDir = lstatSync(this.d.files.abs(from)).isDirectory();
     if (isDir && (to === from || to.startsWith(`${from}/`))) throw errors.invalidInput("不能把文件夹移入自身或其后代");
     const caseOnly = from.toLowerCase() === to.toLowerCase();
     const existing = this.findCaseInsensitive(to);
     if (existing && (!caseOnly || existing !== from)) throw errors.nameConflict(to);
 
     const under = (p: string) => p.startsWith(`${from}/`);
+    const checkLink = (child: string) => {
+      const entry = this.d.files.abs(child);
+      const raw = readlinkSync(entry);
+      const oldTarget = resolveReadableAsset(this.d.files.root, child);
+      const newRoot = this.d.files.abs(to);
+      const childAfter = newRoot + child.slice(from.length);
+      const inside = (root: string, target: string) => target === root || target.startsWith(root + hostPath.sep);
+      const expected = isDir && inside(source, oldTarget) ? newRoot + oldTarget.slice(source.length) : oldTarget;
+      const oldLexical = hostPath.resolve(hostPath.dirname(entry), raw);
+      const newLexical = hostPath.resolve(hostPath.dirname(childAfter), raw);
+      const expectedLexical = isDir && inside(this.d.files.abs(from), oldLexical) ? newRoot + oldLexical.slice(this.d.files.abs(from).length) : oldLexical;
+      // Alias chains and paths with traversal through links cannot be verified by lexical comparison.
+      if (newLexical !== expectedLexical || (oldLexical !== oldTarget && (newLexical !== oldLexical || expected !== oldTarget))) {
+        throw errors.invalidInput(`移动会改变相对或间接符号链接的指向：${child}`);
+      }
+    };
+    if (lstatSync(this.d.files.abs(from)).isSymbolicLink()) checkLink(from);
     const actualFiles = isDir
       ? this.filesUnder(from, {
           includeDirectories: false,
           validate: (child, symlink) => {
             if (hasProtectedSegment(child)) throw errors.permissionDenied(child);
-            if (symlink) resolveReadableAsset(this.d.files.root, child);
+            if (symlink) checkLink(child);
           },
         })
       : [from];
@@ -574,35 +591,66 @@ export class NotesService {
   }
 
   read(rel: string): { path: string; text: string; version: string } {
-    const f = this.d.files.read(normalizeRelPath(rel));
+    const norm = normalizeRelPath(rel);
+    const limit = textViewerLimit(norm);
+    const f = limit === null ? this.d.files.read(norm) : readAsset(this.d.files.root, norm, 0, limit, undefined, limit);
     if (!f) throw errors.notFound(`文件不存在：${rel}`);
     const text = requireUtf8(f.bytes);
-    if (text.includes("\0")) throw errors.invalidInput("这个文件含有二进制内容，无法作为文本编辑");
-    return { path: rel, text, version: f.version };
+    if (text.includes("\0")) throw errors.invalidInput(unsupportedEncoding);
+    return { path: rel, text, version: limit === null ? f.version : versionOf(f.bytes) };
+  }
+
+  private encodingFile(rel: string) {
+    const limit = textViewerLimit(rel);
+    if (limit === null) throw errors.invalidInput("只能探测受支持的文本文件");
+    const { bytes } = readAsset(this.d.files.root, rel, 0, limit, undefined, limit);
+    const state = textEncodingOf(bytes);
+    const encodings = state === "encoding" ? legacyTextEncodings : state === "binary" && limit !== NO_EXT_TEXT_PROBE_LIMIT ? (["utf-16le", "utf-16be"] as const) : [];
+    return { bytes, state, encodings, version: versionOf(bytes), limit };
   }
 
   inspectEncoding(rel: string) {
-    const f = this.d.files.read(normalizeRelPath(rel));
-    if (!f) throw errors.notFound(`文件不存在：${rel}`);
-    return { state: textEncodingOf(f.bytes), version: f.version };
+    const { state, encodings, version } = this.encodingFile(normalizeRelPath(rel));
+    return { state, encodings: [...encodings], version };
+  }
+
+  private decodedEncoding(rel: string, encoding: LegacyTextEncoding, expectedVersion: string) {
+    const file = this.encodingFile(rel);
+    if (file.version !== expectedVersion) throw errors.versionConflict(file.version);
+    if (!file.encodings.some((candidate) => candidate === encoding)) throw errors.invalidInput("此文件无需转换编码或不支持所选编码");
+    const [first, second] = file.bytes;
+    if ((first === 0xff && second === 0xfe && encoding !== "utf-16le") || (first === 0xfe && second === 0xff && encoding !== "utf-16be")) {
+      throw errors.invalidInput("所选编码与文件的 UTF-16 BOM 不符");
+    }
+    let text: string;
+    try {
+      text = new TextDecoder(encoding, { fatal: true }).decode(file.bytes);
+    } catch {
+      throw errors.invalidInput("无法按所选编码无损解码文件");
+    }
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      if (code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0c && code !== 0x0d) {
+        throw errors.invalidInput("解码结果包含二进制内容，请检查所选编码");
+      }
+    }
+    const converted = Buffer.from(text);
+    if (converted.length > file.limit) throw errors.invalidInput("转换后的 UTF-8 文本超过此文件类型的容量上限");
+    return { ...file, converted, text };
+  }
+
+  previewEncoding(rel: string, encoding: LegacyTextEncoding, version: string): { text: string; truncated: boolean } {
+    const { text } = this.decodedEncoding(normalizeRelPath(rel), encoding, version);
+    return { text: text.slice(0, 4000), truncated: text.length > 4000 };
   }
 
   async convertEncoding(rel: string, encoding: LegacyTextEncoding, expectedVersion: string): Promise<{ version: string }> {
     const norm = normalizeRelPath(rel);
-    const f = this.d.files.read(norm);
-    if (!f) throw errors.notFound(`文件不存在：${rel}`);
-    if (f.version !== expectedVersion) throw errors.versionConflict(f.version);
-    if (textEncodingOf(f.bytes) !== "encoding") throw errors.invalidInput("此文件无需转换编码或不是文本");
-    let text: string;
-    try {
-      text = new TextDecoder(encoding, { fatal: true }).decode(f.bytes);
-    } catch {
-      throw errors.invalidInput("无法按所选编码无损解码文件");
-    }
-    if (text.includes("\0")) throw errors.invalidInput("解码结果包含二进制内容，请检查所选编码");
-    const result = await this.d.files.write(norm, Buffer.from(text), { expectedVersion });
+    this.d.files.assertWritable();
+    const { bytes, converted, limit } = this.decodedEncoding(norm, encoding, expectedVersion);
+    const version = this.d.files.replaceRecoverably(norm, bytes, converted, limit, this.d.stateDir);
     this.d.index.refreshPaths([norm]);
-    return result;
+    return { version };
   }
 
   backlinks(rel: string): { path: string; title: string }[] {

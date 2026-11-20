@@ -7,6 +7,7 @@ import { ArrowUpRight, FilePlus2, FileText, Folder, MoreHorizontal, Paperclip, P
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { DocumentSession, SessionSnapshot } from "../documents/DocumentSession.js";
 import { t } from "../i18n.js";
+import { EncodingConversion } from "../viewers/EncodingConversion.js";
 import { archiveIcon } from "./icons.js";
 import { a } from "./i18n.js";
 import { folderName } from "./route.js";
@@ -78,6 +79,7 @@ export function ArchivesHome({ onOpenType }: { onOpenType(path: string): void })
                 <Icon size={22} aria-hidden />
                 <strong>{t.name}</strong>
                 <small>{a.archiveCount(t.count)}</small>
+                {t.encodingIssue ? <small>{t.encodingIssue.message}</small> : null}
               </button>
             );
           })}
@@ -125,7 +127,17 @@ export function ArchiveTypeView({ path, onOpenArchive, onOpenHome }: { path: str
     );
   const defs: ArchiveFieldDef[] = type?.fields ?? [];
   const columns: DataTableColumn<ArchiveDto>[] = [
-    { id: "name", header: a.columnName, width: 220, cell: (r) => <strong>{r.name}</strong> },
+    {
+      id: "name",
+      header: a.columnName,
+      width: 220,
+      cell: (r) => (
+        <>
+          <strong>{r.name}</strong>
+          {r.encodingIssue ? <small className="hu-field-error"> {r.encodingIssue.message}</small> : null}
+        </>
+      ),
+    },
     ...defs.map((f): DataTableColumn<ArchiveDto> => ({ id: `f:${f.name}`, header: f.name, cell: (r) => <FieldCell row={r} field={f} /> })),
     { id: "updatedAt", header: a.columnUpdated, width: 160, cell: (r) => <span className="muted">{r.updatedAt.replace("T", " ").replace("Z", "")}</span> },
   ];
@@ -151,10 +163,10 @@ export function ArchiveTypeView({ path, onOpenArchive, onOpenHome }: { path: str
         <div className="row">
           <SearchBox value={query} onChange={setQuery} placeholder={a.search} />
           <IconButton icon={RefreshCw} label={a.refresh} onClick={() => void rows.refetch()} />
-          <Button icon={Pencil} onClick={() => setDialog("fields")} data-testid="archive-edit-fields">
+          <Button icon={Pencil} disabled={Boolean(type?.encodingIssue)} onClick={() => setDialog("fields")} data-testid="archive-edit-fields">
             {a.editFields}
           </Button>
-          <Button variant="primary" icon={Plus} onClick={() => setDialog("new")} data-testid="archive-new">
+          <Button variant="primary" icon={Plus} disabled={Boolean(type?.encodingIssue)} onClick={() => setDialog("new")} data-testid="archive-new">
             {a.newArchive}
           </Button>
           <div className="notes-archive-more">
@@ -172,6 +184,18 @@ export function ArchiveTypeView({ path, onOpenArchive, onOpenHome }: { path: str
           </div>
         </div>
       </header>
+      {type?.encodingIssue ? (
+        <div>
+          <p>{type.encodingIssue.path}</p>
+          <EncodingConversion
+            path={type.encodingIssue.path}
+            onConverted={() => {
+              void types.refetch();
+              void rows.refetch();
+            }}
+          />
+        </div>
+      ) : null}
       <DataTable
         label={a.homeTitle}
         columns={columns}
@@ -331,6 +355,24 @@ export function ArchiveView({
       </section>
     );
   if (!d) return <p>{a.loading}</p>;
+  if (d.encodingIssue)
+    return (
+      <section className="notes-document-area notes-archive-view" data-testid="archive-view">
+        <button type="button" className="notes-archive-crumb" onClick={() => onOpenType(d.type)}>
+          {folderName(d.type)}
+        </button>
+        <h2>{d.name}</h2>
+        <p>{d.encodingIssue.path}</p>
+        <EncodingConversion
+          path={d.encodingIssue.path}
+          onConverted={() => {
+            if (snapshot.hasUnsaved) session.notifyExternalChange();
+            else void session.load().catch((error: unknown) => session.setError(message(error)));
+            void detail.refetch();
+          }}
+        />
+      </section>
+    );
 
   const save = async (patch: { fields?: Record<string, unknown>; removeKeys?: string[] }) => {
     try {

@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listDir, OperationLog, Trash, VaultFiles, VaultIndex } from "@huhu/vault";
+import { listDir, OperationLog, Trash, VaultFiles, VaultIndex, versionOf } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { NotesService } from "../src/engine/service.js";
 
@@ -28,6 +28,21 @@ async function setup(files: Record<string, string> = {}, draftMoveSteps?: Constr
   return { svc, root, rebuild, vf, ops };
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
+
+test("改名提交撞名后保留两份笔记及原有双链", async () => {
+  const { root, svc, vf, ops } = await setup({ "source.md": "source", "links.md": "[[source]]" });
+  const exists = vf.exists.bind(vf);
+  vi.spyOn(vf, "exists").mockImplementation((rel) => {
+    const found = exists(rel);
+    if (rel === "target.md" && !found) writeFileSync(path.join(root, rel), "external", { flag: "wx" });
+    return found;
+  });
+  await expect(svc.rename("source.md", "target")).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+  expect(rd(root, "source.md")).toBe("source");
+  expect(rd(root, "target.md")).toBe("external");
+  expect(rd(root, "links.md")).toBe("[[source]]");
+  expect(ops.list().map(({ state }) => state)).toEqual(["rolled_back"]);
+});
 
 describe("新建与校验", () => {
   test("模板、嵌套文件夹、分配 id", async () => {
@@ -494,4 +509,67 @@ test("F02 显式转换需要原字节版本，按所选编码解码后才允许�
   const converted = await svc.convertEncoding(name, "gb18030", info.version);
   expect(svc.read(name)).toEqual({ path: name, text: "你好\n", version: converted.version });
   expect(readFileSync(file)).toEqual(Buffer.from("你好\n"));
+});
+
+test("编码探测和转换根据实际大小与真实目标拒绝读取", async () => {
+  const { root, svc } = await setup({ "large.txt": "a", ".huhu/private.txt": "secret" });
+  writeFileSync(path.join(root, "large.txt"), Buffer.alloc(1024 * 1024 + 1, 0xfe));
+  symlinkSync(".huhu/private.txt", path.join(root, "link.txt"));
+  expect(() => svc.inspectEncoding("large.txt")).toThrow(/1 MiB/);
+  expect(() => svc.inspectEncoding("link.txt")).toThrow();
+  await expect(svc.convertEncoding("large.txt", "windows-1252", "stale")).rejects.toThrow(/1 MiB/);
+  await expect(svc.convertEncoding("link.txt", "windows-1252", "stale")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+});
+
+test("编码转换在提交前遇到外部更新时保留外部文件和已预览字节", async () => {
+  const { root, svc, vf } = await setup();
+  const rel = "旧编码.txt";
+  const file = path.join(root, rel);
+  const original = Buffer.from([0xc4, 0xe3, 0xba, 0xc3]);
+  const external = Buffer.from("外部更新\n");
+  writeFileSync(file, original);
+  const { version } = svc.inspectEncoding(rel);
+  expect(svc.previewEncoding(rel, "gb18030", version)).toEqual({ text: "你好", truncated: false });
+  const replace = vf.replaceRecoverably.bind(vf);
+  vi.spyOn(vf, "replaceRecoverably").mockImplementationOnce((...args) => {
+    writeFileSync(file, external);
+    return replace(...args);
+  });
+  await expect(svc.convertEncoding(rel, "gb18030", version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  expect(readFileSync(file)).toEqual(external);
+  const recovery = path.join(root, ".huhu", "operations", "encoding-recovery");
+  const [attempt] = readdirSync(recovery);
+  expect(readFileSync(path.join(recovery, attempt!, "inspected"))).toEqual(original);
+  expect(readFileSync(path.join(recovery, attempt!, "path.txt"), "utf8")).toBe(rel + "\n");
+});
+
+test.each([false, true])("可预览和确认 UTF-16LE（带 BOM：%s）", async (bom) => {
+  const { root, svc } = await setup();
+  const rel = "utf16.txt";
+  const file = path.join(root, rel);
+  const text = "hello 你好\n";
+  const bytes = Buffer.from(bom ? "\ufeff" + text : text, "utf16le");
+  writeFileSync(file, bytes);
+  const { version, encodings } = svc.inspectEncoding(rel);
+  expect(encodings).toContain("utf-16le");
+  expect(() => svc.previewEncoding(rel, bom ? "utf-16be" : "gb18030", version)).toThrow();
+  expect(svc.previewEncoding(rel, "utf-16le", version)).toEqual({ text, truncated: false });
+  expect(readFileSync(file)).toEqual(bytes);
+  await expect(svc.convertEncoding(rel, "utf-16le", version)).resolves.toEqual({ version: versionOf(Buffer.from(text)) });
+  expect(readFileSync(file)).toEqual(Buffer.from(text));
+});
+
+test("移动前拒绝会改变指向的相对链接，内部链接随整目录保留", async () => {
+  const { root, svc, ops } = await setup({ "源/plain.md": "inside", "outside.md": "outside", "目标/keep.md": "keep" });
+  const outside = path.join(root, "源", "outside.md");
+  symlinkSync("../outside.md", outside);
+  symlinkSync("plain.md", path.join(root, "源", "inside.md"));
+  await expect(svc.move("源", "目标")).rejects.toThrow(/源\/outside\.md/);
+  expect(readFileSync(outside, "utf8")).toBe("outside");
+  expect(existsSync(path.join(root, "目标", "源"))).toBe(false);
+  expect(ops.list()).toEqual([]);
+  rmSync(outside);
+  await svc.move("源", "目标");
+  expect(readFileSync(path.join(root, "目标", "源", "inside.md"), "utf8")).toBe("inside");
+  expect(existsSync(path.join(root, "源"))).toBe(false);
 });

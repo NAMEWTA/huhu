@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
+import { normalizeRelPath } from "./paths.js";
+import { renameNoReplace } from "./rename.js";
 import { fileIdentity, VaultFiles, versionOf } from "./write.js";
 
 export type OpStep = { action: "write"; path: string; bytes: Uint8Array; expectedVersion?: string | null } | { action: "rename"; from: string; path: string; caseOnly?: true } | { action: "delete"; path: string };
@@ -131,22 +133,22 @@ export class OperationLog {
         } else if (s.action === "delete") rmSync(this.files.abs(s.path), { force: true });
         else {
           mkdirSync(path.dirname(this.files.abs(s.path)), { recursive: true });
-          const source = this.files.abs(s.from);
+          const source = this.entryPath(s.from);
           rec.renameIdentity = fileIdentity(source);
-          if (!rec.renameIdentity) throw new HuhuError("INVALID_INPUT", `无法确认原条目的身份：${s.from}`);
+          if (!rec.renameIdentity) throw new HuhuError("INVALID_INPUT", `源条目所在卷无法提供稳定文件身份，无法安全移动：${s.from}`);
           this.save(op);
           let from = source;
           if (rec.renameStage) {
-            const temporary = this.files.abs(rec.renameStage);
+            const temporary = this.entryPath(rec.renameStage);
             const stageDirectory = path.dirname(temporary);
             mkdirSync(stageDirectory, { mode: 0o700 });
             rec.renameStageDirectoryIdentity = fileIdentity(stageDirectory);
             this.save(op);
-            renameSync(source, temporary);
+            renameNoReplace(source, temporary, s.from);
             from = temporary;
           }
           if (this.files.exists(s.path)) throw new HuhuError("NAME_CONFLICT", `目标已存在：${s.path}`);
-          renameSync(from, this.files.abs(s.path));
+          renameNoReplace(from, this.entryPath(s.path), s.path);
         }
         rec.done = true;
         this.save(op);
@@ -157,7 +159,7 @@ export class OperationLog {
     } catch (e) {
       const restored = this.rollback(op);
       if (restored.state === "rolled_back" && !records.some((rec) => rec.done) && e instanceof HuhuError && e.code === "NAME_CONFLICT") throw e;
-      throw new HuhuError("WRITE_PARTIAL", e instanceof HuhuError && e.code === "NAME_CONFLICT" ? e.message : "多文件操作未能完成，已尝试回滚", {
+      throw new HuhuError("WRITE_PARTIAL", e instanceof HuhuError ? e.message : "多文件操作未能完成，已尝试回滚", {
         details: { opId, state: restored.state },
         recovery: [{ action: "open-health", label: "查看恢复详情" }],
       });
@@ -185,9 +187,15 @@ export class OperationLog {
     }
   }
 
+  private entryPath(rel: string): string {
+    rel = normalizeRelPath(rel);
+    const parent = path.posix.dirname(rel);
+    return path.join(parent === "." ? this.files.root : this.files.abs(parent), path.posix.basename(rel));
+  }
+
   /** 大小写不敏感的文件系统支持查找原路径别名；回滚需核对实际拼写。 */
   private hasExactName(rel: string): boolean {
-    const absolute = this.files.abs(rel);
+    const absolute = this.entryPath(rel);
     const parent = path.dirname(absolute);
     return existsSync(parent) && readdirSync(parent).some((name) => name.normalize("NFC") === path.basename(absolute).normalize("NFC"));
   }
@@ -204,22 +212,26 @@ export class OperationLog {
         const from = s.from as string;
         if (s.renameIdentity !== undefined) {
           if (s.renameIdentity === null) continue; // 该重命名尚未开始
-          const source = this.files.abs(from);
-          const dest = this.files.abs(s.path);
-          const stage = s.renameStage && this.files.abs(s.renameStage);
-          const hasSource = s.renameStage ? this.hasExactName(from) : existsSync(source);
+          const source = this.entryPath(from);
+          const dest = this.entryPath(s.path);
+          const stage = s.renameStage && this.entryPath(s.renameStage);
+          const hasSource = s.renameStage ? this.hasExactName(from) : Boolean(lstatSync(source, { throwIfNoEntry: false }));
           if (hasSource && fileIdentity(source) === s.renameIdentity) continue;
           let at = stage && fileIdentity(stage) === s.renameIdentity ? stage : (!s.renameStage || this.hasExactName(s.path)) && fileIdentity(dest) === s.renameIdentity ? dest : null;
-          if (!hasSource && at && this.files.currentVersion(at === stage ? (s.renameStage as string) : s.path) === s.afterVersion) {
-            if (stage && at === dest && fileIdentity(path.dirname(stage)) === s.renameStageDirectoryIdentity && !lstatSync(stage, { throwIfNoEntry: false })) {
-              renameSync(dest, stage);
-              at = stage;
-            }
-            // On an insensitive filesystem the rival spelling can resolve through
-            // the old path even though there is no directory entry with that name.
-            if ((!stage || at === stage) && !lstatSync(source, { throwIfNoEntry: false })) {
-              renameSync(at, source);
-              continue;
+          if (!hasSource && at && (lstatSync(at).isSymbolicLink() || this.files.currentVersion(at === stage ? (s.renameStage as string) : s.path) === s.afterVersion)) {
+            try {
+              if (stage && at === dest && fileIdentity(path.dirname(stage)) === s.renameStageDirectoryIdentity && !lstatSync(stage, { throwIfNoEntry: false })) {
+                renameNoReplace(dest, stage, s.renameStage as string);
+                at = stage;
+              }
+              // On an insensitive filesystem the rival spelling can resolve through
+              // the old path even though there is no directory entry with that name.
+              if ((!stage || at === stage) && !this.files.exists(from) && !lstatSync(source, { throwIfNoEntry: false })) {
+                renameNoReplace(at, source, from);
+                continue;
+              }
+            } catch {
+              // A competing entry or unsupported volume leaves the original for recovery.
             }
           }
           attention.push(s.path, from);
@@ -229,8 +241,13 @@ export class OperationLog {
         const toExists = this.files.exists(s.path);
         const fromExists = this.files.exists(from);
         const toIsOurs = toExists && this.files.currentVersion(s.path) === s.afterVersion;
-        if (toIsOurs && !fromExists) renameSync(this.files.abs(s.path), this.files.abs(from));
-        else if (toIsOurs && fromExists) attention.push(s.path, from); // 移走后第三方又在源路径创建了文件
+        if (toIsOurs && !fromExists) {
+          try {
+            renameNoReplace(this.entryPath(s.path), this.entryPath(from), from);
+          } catch {
+            attention.push(s.path, from);
+          }
+        } else if (toIsOurs && fromExists) attention.push(s.path, from); // 移走后第三方又在源路径创建了文件
         else if (!fromExists) attention.push(s.path); // 源不见了且目标也不是我们移过去的
         continue;
       }

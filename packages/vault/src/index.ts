@@ -16,3 +16,5 @@ export * from "./index/vault-index.js";
 export * from "./package/package.js";
 export * from "./trash.js";
 export * from "./list.js";
+export * from "./read-asset.js";
+export { renameNoReplace } from "./rename.js";
