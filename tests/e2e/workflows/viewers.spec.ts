@@ -527,7 +527,14 @@ test("F06：树、标签、引用、搜索与详情使用同一组本地图形",
       await expect(row.locator('[data-item-section="icon"] use')).toHaveAttribute("href", `#huhu-tree-${kind}`);
       await row.click();
       await expect(page.locator('[aria-current="true"][data-testid="document-tab"] [data-file-icon]')).toHaveAttribute("data-file-icon", kind);
-      if (kind !== "markdown") await expect(page.getByTestId("file-card").locator(`[data-file-icon="${kind}"]`).first()).toBeVisible();
+      if (kind === "markdown") {
+        await page.getByRole("button", { name: "文档详情", exact: true }).click();
+        const inspector = page.getByTestId("note-inspector");
+        await expect(inspector.locator('[data-file-icon="markdown"]').first()).toBeVisible();
+        await inspector.getByRole("button", { name: "关闭文档详情" }).click();
+      } else {
+        await expect(page.getByTestId("file-card").locator(`[data-file-icon="${kind}"]`).first()).toBeVisible();
+      }
       const activeTab = page.locator('[aria-current="true"][data-testid="document-tab"]');
       await activeTab.focus();
       await page.keyboard.press("ControlOrMeta+k");
