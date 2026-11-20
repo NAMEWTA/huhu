@@ -45,7 +45,9 @@ export interface SessionRecord {
 }
 
 export function publicSession({ launchReceipt: _launchReceipt, controlled: _controlled, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "controlled"> {
-  return session;
+  if (!session.waiting) return session;
+  const { ownerDispatchId: _, ...waiting } = session.waiting;
+  return { ...session, waiting };
 }
 
 export interface ReviewComment {
@@ -74,6 +76,8 @@ export interface WaitingInfo {
   taskId?: string;
   /** 本次等待发生所属的原任务与运行。 */
   taskRun?: { taskId: string; runId: string };
+  /** 一旦看到归属，仅能核对本次等待的原派遣。 */
+  ownerDispatchId?: string;
   /** 已完成通知 / 评论的最近一次发生（等于 n 表示这次已处理；不等说明上次处理失败，重连后重试）。 */
   handled?: number;
 }
@@ -995,6 +999,15 @@ export class SessionsService {
     if (!waiting?.active || waiting.n !== occurrence) return false;
     if (waiting.taskRun?.taskId === taskRun.taskId && waiting.taskRun.runId === taskRun.runId) return false;
     this.save({ ...session, waiting: { ...waiting, taskRun } });
+    return true;
+  }
+
+  pinWaitingOwner(sessionId: string, occurrence: number, dispatchId: string): boolean {
+    const session = this.get(sessionId);
+    const waiting = session.waiting;
+    if (!waiting?.active || waiting.n !== occurrence) return false;
+    if (waiting.ownerDispatchId) return waiting.ownerDispatchId === dispatchId;
+    this.save({ ...session, waiting: { ...waiting, ownerDispatchId: dispatchId } });
     return true;
   }
 

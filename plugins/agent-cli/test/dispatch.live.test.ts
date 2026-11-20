@@ -13,7 +13,7 @@ import { agentEnvironmentDescriptors, apply } from "../src/engine/index.js";
 import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
-import type { WaitingInfo } from "../src/engine/sessions.js";
+import { SessionsService, type WaitingInfo } from "../src/engine/sessions.js";
 import { createDispatchProviderFixture, createFixtureGate, readFixtureJson as read } from "./fixtures/dispatch-provider.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
@@ -97,7 +97,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       manager.register({
         manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "1.0.0", origin: "builtin" }),
         apply: (ctx, api) => {
-          apply(ctx, api, { herdrBin: bin!, history: { home: sandbox, env: {} }, ...(withAdapter ? { dispatchProviders: { claude: adapter } } : {}) });
+          apply(ctx, api, { herdrBin: bin!, history: { home: sandbox, env: {} }, waitingBackoffMs: { min: 50, max: 200 }, ...(withAdapter ? { dispatchProviders: { claude: adapter } } : {}) });
         },
       });
       dispose = () => manager.disposeAll();
@@ -196,8 +196,22 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const currentWaiting = async () => (await call<{ id: string; waiting?: WaitingInfo }[]>("agent.sessions.list", {}, "desktop")).find(({ id }) => id === firstSession)?.waiting;
       const client = await core.ensure();
       const programStatus = (state: "blocked" | "working") => client.call("terminal.send", { terminal: firstAddress, force: true, text: JSON.stringify({ kind: "fixture-program-status", state }) });
-      await programStatus("blocked");
-      await expect.poll(currentWaiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1, taskRun: { taskId: first.taskId, runId: first.runId } });
+      const lookup = SessionsService.prototype.executionSession;
+      let rejectedLookup = false;
+      const unavailableOnce = vi.spyOn(SessionsService.prototype, "executionSession").mockImplementation(async function (this: SessionsService, sessionId) {
+        if (sessionId === firstSession && !rejectedLookup) {
+          rejectedLookup = true;
+          return null;
+        }
+        return lookup.call(this, sessionId);
+      });
+      try {
+        await programStatus("blocked");
+        await expect.poll(currentWaiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1, taskRun: { taskId: first.taskId, runId: first.runId } });
+        expect(rejectedLookup).toBe(true);
+      } finally {
+        unavailableOnce.mockRestore();
+      }
       await programStatus("working");
       await expect.poll(currentWaiting, { timeout: 15_000 }).toMatchObject({ active: false, n: 1 });
       expect(waitingChanges).toContain(firstSession);

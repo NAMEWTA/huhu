@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { HuhuError } from "@huhu/contracts";
 import { subscribeEvents, type EventSubscription } from "@huhu/herdr-client";
 import type { ProgramStatus, SessionRecord, SessionsService } from "./sessions.js";
 
@@ -27,13 +28,18 @@ export interface WaitingWatcherDeps {
 export class WaitingWatcher {
   private sub: EventSubscription | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly pendingBindings = new Map<string, number>();
+  private readonly handling = new Set<string>();
   private stopped = true;
   private delay: number;
+  private retryDelay: number;
   private readonly range: { min: number; max: number };
 
   constructor(private readonly d: WaitingWatcherDeps) {
     this.range = d.backoffMs ?? { min: 1000, max: 30_000 };
     this.delay = this.range.min;
+    this.retryDelay = this.range.min;
   }
 
   start(): void {
@@ -46,6 +52,10 @@ export class WaitingWatcher {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.pendingBindings.clear();
+    this.retryDelay = this.range.min;
     this.sub?.close();
     this.sub = null;
   }
@@ -105,7 +115,46 @@ export class WaitingWatcher {
   }
 
   private expire(sessionId: string) {
+    this.pendingBindings.delete(sessionId);
     if (this.d.sessions.expireWaiting(sessionId)) this.d.onChanged?.(sessionId);
+  }
+
+  private retryBindings() {
+    if (this.stopped || this.retryTimer || this.pendingBindings.size === 0) return;
+    this.retryTimer = setTimeout(async () => {
+      for (const [id, sequence] of [...this.pendingBindings]) {
+        if (this.stopped) return;
+        try {
+          const session = this.d.sessions.get(id);
+          const wait = session.waiting;
+          if (session.state === "running" && wait?.active && wait.n === sequence && wait.handled !== sequence) await this.deliver(session);
+          else this.pendingBindings.delete(id);
+        } catch {
+          this.pendingBindings.delete(id);
+        }
+      }
+      this.retryTimer = null;
+      if (!this.pendingBindings.size) this.retryDelay = this.range.min;
+      this.retryBindings();
+    }, this.retryDelay);
+    this.retryDelay = Math.min(this.retryDelay * 2, this.range.max);
+  }
+
+  private async deliver(session: SessionRecord) {
+    const wait = session.waiting;
+    if (!wait?.active || this.handling.has(session.id)) return;
+    this.handling.add(session.id);
+    try {
+      await this.d.onBlocked(session);
+      this.pendingBindings.delete(session.id);
+      this.d.sessions.markWaitingHandled(session.id, wait.n);
+      this.d.onChanged?.(session.id);
+    } catch (error) {
+      if (!this.stopped && error instanceof HuhuError && error.code === "RUN_UNKNOWN") this.pendingBindings.set(session.id, wait.n);
+    } finally {
+      this.handling.delete(session.id);
+      this.retryBindings();
+    }
   }
 
   private async apply(sessionId: string, status: ProgramStatus | null): Promise<void> {
@@ -114,10 +163,9 @@ export class WaitingWatcher {
       const w = r.session.waiting;
       // 进入 blocked，或上次处理失败（handled 落后于 n）：重试。onBlocked 内部的评论 / 任务都是幂等的
       if (status?.state === "blocked" && w?.active && w.handled !== w.n) {
-        await this.d.onBlocked(r.session);
-        this.d.sessions.markWaitingHandled(sessionId, w.n);
-        this.d.onChanged?.(sessionId);
+        await this.deliver(r.session);
       } else if (r.transition) {
+        if (r.transition === "cleared") this.pendingBindings.delete(sessionId);
         this.d.onChanged?.(sessionId);
       }
     } catch {

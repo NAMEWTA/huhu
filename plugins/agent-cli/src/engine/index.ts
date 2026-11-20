@@ -129,6 +129,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
       const dispatchId = dispatchStore.owner(sess.id);
       if (dispatchId) {
+        if (!sessions.pinWaitingOwner(sess.id, w.n, dispatchId)) return;
         const execution = dispatchStore.read(dispatchId)?.execution;
         const current = await sessions.executionSession(sess.id);
         if (!execution || !current || current.finished || launchHash(execution.sessionBinding) !== launchHash(current.binding) || dispatchStore.owner(sess.id) !== dispatchId) {
@@ -139,6 +140,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         }
         return;
       }
+      if (w.ownerDispatchId) return;
       if (sess.controlled) throw new HuhuError("RUN_UNKNOWN", "受控会话的任务运行尚未核对");
       opts.notify?.({ title: `${sess.name}：${what}${w.msg ? `（${w.msg}）` : ""}`, module: "agent-cli" });
       if (settingsStore.get().waitingTasks === false) return;
