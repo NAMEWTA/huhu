@@ -16,6 +16,8 @@ export interface WriteOptions {
   expectedVersion?: string | null;
 }
 
+const pendingWrites = new Map<string, Promise<{ version: string }>>();
+
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
 export class VaultFiles {
   constructor(
@@ -49,18 +51,33 @@ export class VaultFiles {
 
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
     this.assertWritable();
+    const dest = this.abs(rel);
+    const key = process.platform === "win32" ? dest.toLowerCase() : dest;
+    const content = Buffer.from(bytes);
+    const expectedVersion = opts.expectedVersion;
+    // 原子替换自带写入排队，版本检查也需要和同一路径的替换一起排队。
+    const next = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => this.writeChecked(rel, content, expectedVersion));
+    pendingWrites.set(key, next);
+    try {
+      return await next;
+    } finally {
+      if (pendingWrites.get(key) === next) pendingWrites.delete(key);
+    }
+  }
+
+  private async writeChecked(rel: string, bytes: Buffer, expectedVersion: WriteOptions["expectedVersion"]): Promise<{ version: string }> {
     const p = this.abs(rel);
-    if (opts.expectedVersion !== undefined) {
+    if (expectedVersion !== undefined) {
       const cur = this.currentVersion(rel);
-      if (opts.expectedVersion === null ? cur !== null : cur !== opts.expectedVersion) {
-        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : opts.expectedVersion === null ? errors.nameConflict(rel) : errors.versionConflict(cur);
+      if (expectedVersion === null ? cur !== null : cur !== expectedVersion) {
+        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : expectedVersion === null ? errors.nameConflict(rel) : errors.versionConflict(cur);
       }
     }
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
     this.receipts.record(rel, version);
     try {
-      await writeFileAtomic(p, Buffer.from(bytes));
+      await writeFileAtomic(p, bytes);
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;

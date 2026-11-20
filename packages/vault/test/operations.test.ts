@@ -59,6 +59,22 @@ describe("VaultFiles", () => {
     expect(f.receipts.consume("n.md", v2)).toBe(false);
     expect(v2).toBe(versionOf(Buffer.from("2")));
   });
+  test("同一文件在两个句柄并发条件写时，只接受第一个版本", async () => {
+    const { root } = init();
+    const f = new VaultFiles(root);
+    const parallel = new VaultFiles(root);
+    const expectedVersion = f.currentVersion("a.md");
+    const [first, second] = await Promise.allSettled([
+      f.write("a.md", Buffer.from("accepted"), { expectedVersion }),
+      parallel.write("a.md", Buffer.from("stale"), { expectedVersion }),
+    ]);
+    const committed = versionOf(Buffer.from("accepted"));
+    expect(first).toEqual({ status: "fulfilled", value: { version: committed } });
+    expect(second).toMatchObject({ status: "rejected", reason: { code: "VERSION_CONFLICT", details: { currentVersion: committed } } });
+    expect(f.read("a.md")?.bytes.toString()).toBe("accepted");
+    expect(parallel.receipts.consume("a.md", versionOf(Buffer.from("stale")))).toBe(false);
+    await expect(parallel.write("a.md", Buffer.from("retried"), { expectedVersion: committed })).resolves.toEqual({ version: versionOf(Buffer.from("retried")) });
+  });
   test("回执过期", () => {
     let t = 0;
     const r = new ReceiptLog(() => t);
