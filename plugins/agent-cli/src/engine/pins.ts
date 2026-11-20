@@ -20,10 +20,10 @@ export class PinStore {
     return new Set(this.read()[spaceId] ?? []);
   }
 
-  set(spaceId: string, key: string, pinned: boolean, legacyKey?: string): void {
+  set(spaceId: string, key: string, pinned: boolean, legacyKeys: readonly string[] = []): void {
     const all = this.read();
     const cur = new Set(all[spaceId] ?? []);
-    if (legacyKey) cur.delete(legacyKey);
+    for (const legacy of legacyKeys) cur.delete(legacy);
     if (pinned) cur.add(key);
     else cur.delete(key);
     all[spaceId] = [...cur];

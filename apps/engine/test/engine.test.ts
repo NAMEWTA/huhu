@@ -383,18 +383,20 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "archives.delete", { path: "Archives/通讯录/张三丰/" })).data.trashed).toBeGreaterThan(0);
     expect(existsSync(path.join(dir, "Archives/通讯录/张三丰"))).toBe(false);
   }, 30_000);
-  test("safe：ACC-SF-06 外部入口不能 reveal；ACC-SF-01 全 Vault 找不到明文；锁定后 SAFE_LOCKED", async () => {
+  test("safe：外部 reveal 默认关闭，Vault 不存明文，锁定清除解锁代", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
-    type R = { ok: boolean; data: { id: string; value: string; locked: boolean }; error?: { code: string } };
+    type R = { ok: boolean; data: { entryId: string; accountIds: string[]; password: string; instanceId: string; generation: number }; error?: { code: string } };
     const call = (token: string, capability: string, input: unknown) => post(e, token, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     expect((await call(e.rendererToken, "safe.setup", { password: "correct horse battery" })).ok).toBe(true);
-    const item = await call(e.rendererToken, "safe.items.save", { name: "GH", type: "token", allowedModules: ["ssh"], value: "HUHU-MARKER-7f3a" });
-    expect((await call(e.rendererToken, "safe.items.reveal", { id: item.data.id })).data.value).toBe("HUHU-MARKER-7f3a");
-    for (const cap of ["safe.items.reveal", "safe.items.list", "safe.status"]) expect((await call(e.cliToken, cap, { id: item.data.id })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    const { instanceId, generation } = (await call(e.rendererToken, "safe.status", {})).data;
+    const session = { instanceId, generation };
+    const { entryId, accountIds } = (await call(e.rendererToken, "safe.entries.create", { session, expectedRevision: 0, name: "GH", accounts: [{ account: "fixture", password: "HUHU-MARKER-7f3a" }] })).data;
+    expect((await call(e.rendererToken, "safe.accounts.reveal", { session, entryId, accountId: accountIds[0] })).data.password).toBe("HUHU-MARKER-7f3a");
+    for (const cap of ["safe.accounts.reveal", "safe.entries.list", "safe.status"]) expect((await call(e.cliToken, cap, {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     await call(e.rendererToken, "safe.lock", {});
-    expect((await call(e.rendererToken, "safe.items.list", {})).error?.code).toBe("SAFE_LOCKED");
+    expect((await call(e.rendererToken, "safe.entries.list", { session })).error?.code).toBe("SAFE_LOCKED");
     expect((await call(e.rendererToken, "safe.unlock", { password: "wrong password!" })).error?.code).toBe("SAFE_BAD_PASSWORD");
     const { readdirSync, readFileSync, statSync } = await import("node:fs");
     const hits: string[] = [];
@@ -721,7 +723,8 @@ describe("Engine 启动与关闭", () => {
     const cur = await call("notes.read", { path });
     await call("notes.save", { path, text: "HUHU-NOTE-MARKER\n", expectedVersion: (cur.data as unknown as { version: string }).version });
     expect((await call("safe.setup", { password: "correct horse battery" })).ok).toBe(true);
-    expect((await call("safe.items.save", { name: "HUHU-SAFE-MARKER", type: "password", account: "x", allowedModules: [], value: "HUHU-SAFE-MARKER-VALUE" })).ok).toBe(true);
+    const session = (await call("safe.status", {})).data;
+    expect((await call("safe.entries.create", { session, expectedRevision: 0, name: "HUHU-SAFE-MARKER", accounts: [{ account: "x", password: "HUHU-SAFE-MARKER-VALUE" }] })).ok).toBe(true);
     const dump = JSON.stringify([
       (await call("health.run", {})).data,
       (await call("health.events", { limit: 500 })).data,
@@ -1244,7 +1247,9 @@ describe("Engine 启动与关闭", () => {
     const ver = (await call(e.rendererToken, "notes.read", { path: note.path })).data.version as string;
     await call(e.rendererToken, "notes.save", { path: note.path, text: "# 要备份的笔记\n\n正文 中文\n", expectedVersion: ver });
     await call(e.rendererToken, "safe.setup", { password: "correct horse battery" });
-    await call(e.rendererToken, "safe.items.save", { name: "令牌", type: "token", value: "backup-secret-value", allowedModules: [] });
+    const session = (await call(e.rendererToken, "safe.status", {})).data;
+    const made = await call(e.rendererToken, "safe.entries.create", { session, expectedRevision: 0, name: "令牌", accounts: [{ account: "fixture", password: "backup-secret-value" }] });
+    expect(made.ok).toBe(true);
     const out = tmp();
     const zip = path.join(out, "backup.zip");
 
@@ -1266,13 +1271,16 @@ describe("Engine 启动与关闭", () => {
     expect(im.ok).toBe(true);
     expect(im.data.vaultId).not.toBe(e.vault.id); // 同 id 的 Vault 正开着：副本换新 id
     const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
-    const list = (root: string, sub: string): string[] => {
-      const d = path.join(root, sub);
-      return existsSync(d) ? readdirSync(d).sort() : [];
-    };
     expect(sha(path.join(target, note.path))).toBe(sha(path.join(e.vault.root, note.path)));
-    expect(list(target, ".huhu/safe")).toEqual(list(e.vault.root, ".huhu/safe"));
-    for (const f of list(e.vault.root, ".huhu/safe").filter((n) => n.endsWith(".json") || n.endsWith(".bin"))) expect(sha(path.join(target, ".huhu/safe", f))).toBe(sha(path.join(e.vault.root, ".huhu/safe", f)));
+    const safeFiles = (root: string) => {
+      const base = path.join(root, ".huhu", "safe");
+      return readdirSync(base, { withFileTypes: true, recursive: true })
+        .filter((item) => item.isFile())
+        .map((item) => path.relative(base, path.join(item.parentPath, item.name)))
+        .sort();
+    };
+    expect(safeFiles(target)).toEqual(safeFiles(e.vault.root));
+    for (const file of safeFiles(target)) expect(sha(path.join(target, ".huhu", "safe", file))).toBe(sha(path.join(e.vault.root, ".huhu", "safe", file)));
     // 经悬空符号链接指向 Vault 内部的导入目标：明确拒绝，而不是靠后续 mkdir 恰好失败
     const { symlinkSync } = await import("node:fs");
     symlinkSync(path.join(e.vault.root, "ghost"), path.join(out, "linkgone"), process.platform === "win32" ? "junction" : "dir");
@@ -1289,6 +1297,9 @@ describe("Engine 启动与关闭", () => {
     engines.push(e2);
     const unlock = (await post(e2, e2.rendererToken, { capability: "safe.unlock", input: { password: "correct horse battery" }, requestId: "r", idempotencyKey: "key-unlock-restored" })) as unknown as R;
     expect(unlock.ok).toBe(true);
+    const restoredSession = (await post(e2, e2.rendererToken, { capability: "safe.status", input: {}, requestId: "safe-restored-status" })).data;
+    const restoredValue = await post(e2, e2.rendererToken, { capability: "safe.accounts.reveal", input: { session: restoredSession, entryId: made.data.entryId, accountId: made.data.accountIds[0] }, requestId: "safe-restored-reveal" });
+    expect(restoredValue).toMatchObject({ ok: true, data: { password: "backup-secret-value" } });
   }, 60_000);
   test("vault.reindexCancel：没有重建在进行时返回 cancelled=false；重建完成后搜索可用（ACC-SY-07 的能力层前置）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });

@@ -76,10 +76,20 @@ export function registerSystemCapabilities(
           const cap = descriptor ?? handler;
           const availability = availabilityOf(cap?.plugin, !!handler);
           if (!cap?.exposable || cap.desktopOnly || availability === "not-found") return [];
-          return [[name, { cap, availability, title: descriptor?.title ?? name, risk: descriptor?.risk ?? (cap.scope === "read" ? "normal" : "high") }]] as const;
+          return [[name, { cap, availability, title: descriptor?.title ?? name, risk: descriptor?.risk ?? (cap.scope === "read" ? "normal" : "high"), individualExposure: descriptor?.individualExposure }]] as const;
         }),
     );
-    const identity = [...entries].map(([name, { cap, availability, risk, title }]) => [name, cap.plugin, cap.scope, availability, risk, title, toJsonSchema(cap.input), toJsonSchema(cap.output, "output")]);
+    const identity = [...entries].map(([name, { cap, availability, risk, title, individualExposure }]) => [
+      name,
+      cap.plugin,
+      cap.scope,
+      availability,
+      risk,
+      title,
+      individualExposure ?? false,
+      toJsonSchema(cap.input),
+      toJsonSchema(cap.output, "output"),
+    ]);
     return { revision: createHash("sha256").update(JSON.stringify(identity)).digest("hex"), entries };
   }
   function verifiedChanges(raw: z.infer<typeof policyChanges>, entries: ReturnType<typeof catalog>["entries"]) {
@@ -88,6 +98,11 @@ export function registerSystemCapabilities(
       if (!entries.has(capability)) throw errors.invalidInput(`${capability} 不在可开放的工具目录中`);
       if (changes.has(capability) && changes.get(capability) !== exposed) throw errors.invalidInput(`${capability} 有冲突的开放选择`);
       changes.set(capability, exposed);
+    }
+    if (changes.size > 1) {
+      for (const [capability, exposed] of changes) {
+        if (exposed && entries.get(capability)?.individualExposure) throw errors.invalidInput(`${capability} 只能逐项开放`);
+      }
     }
     return [...changes].map(([capability, exposed]) => ({ capability, exposed }));
   }
@@ -217,7 +232,7 @@ export function registerSystemCapabilities(
         handler: async (_c, i) => {
           const cap = registry.getDescriptor(i.capability) ?? registry.get(i.capability);
           if (!cap) throw errors.capabilityNotFound(i.capability);
-          // exposable:false 的能力（保险箱明文、Agent/SSH 执行等）永远不能开放
+          // exposable:false 的能力只能从其内部入口调用。
           if (i.exposed && !cap.exposable) throw errors.invalidInput(`${i.capability} 不允许对外开放`);
           const { revision, changed } = await exposure.setMany([i]);
           if (changed) exposure.publishPolicyChange?.();
@@ -365,6 +380,7 @@ export function registerSystemCapabilities(
               availability,
               scope: definition?.scope ?? null,
               ...(descriptor && { title: descriptor.title, description: descriptor.description, risk: descriptor.risk }),
+              ...(descriptor?.individualExposure && { individualExposure: true }),
               exposable: definition?.exposable ?? false,
               selected,
               exposed: availability === "active" && definition?.exposable === true && selected === true,

@@ -13,6 +13,8 @@ export interface HttpToken {
 
 /** HTTP 服务令牌：`gateways.json` 只保存哈希；明文只在创建时返回一次，身份为 `http`。 */
 export class GatewayTokens {
+  private mcpLifetime = new AbortController();
+
   constructor(
     private readonly file: string,
     private readonly table: TokenTable,
@@ -47,7 +49,17 @@ export class GatewayTokens {
   }
 
   setMcp(cfg: { enabled: boolean; transport: "stdio" | "http" }): void {
+    const prior = this.mcp();
     this.write({ ...this.load(), mcp: cfg });
+    if (prior.enabled !== cfg.enabled || prior.transport !== cfg.transport) {
+      const lifetime = this.mcpLifetime;
+      this.mcpLifetime = new AbortController();
+      lifetime.abort();
+    }
+  }
+
+  mcpSignal(): AbortSignal {
+    return this.mcpLifetime.signal;
   }
 
   list(): Omit<HttpToken, "hash">[] {

@@ -8,6 +8,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { exportPackage, importPackage } from "../../../packages/vault/src/package/package.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
+import { writeLegacyItem } from "../../safe/test/legacy-fixture.js";
 import { startFakeSsh } from "./fake-server.js";
 
 type Summary = { hostId: string; revision: string; authKind: string; configured: boolean; authState: Record<string, string> };
@@ -96,7 +97,8 @@ testWindows("旧主机仅显示修复标记，跳板及转发均不拨号，旧�
   const password = randomUUID();
   const vaultPassword = randomUUID();
   await live.client.call("safe.setup", { password: vaultPassword }, { write: true });
-  const item = await live.client.call<{ id: string }>("safe.items.save", { name: "legacy synthetic", type: "password", value: password, allowedModules: ["ssh"] }, { write: true });
+  const item = await writeLegacyItem(live.vaultPath, { masterPassword: vaultPassword, value: password, type: "password", allowedModules: ["ssh"] });
+  const oldBytes = [readFileSync(item.metadataPath), readFileSync(item.sealedPath)];
   const folder = path.join(live.vaultPath, ".huhu", "ssh", "hosts");
   mkdirSync(folder, { recursive: true });
   const legacy = { id: "host-legacy-test", name: "legacy loopback", host: "127.0.0.1", port: remote.port, user: "fixture", auth: { kind: "password", secretRef: `safe://${item.id}` } };
@@ -142,7 +144,8 @@ testWindows("旧主机仅显示修复标记，跳板及转发均不拨号，旧�
   });
   expect(remote.conns).toHaveLength(0);
   expect(readFileSync(profile, "utf8")).toBe(original);
-  expect(await live.client.call("safe.items.reveal", { id: item.id })).toMatchObject({ value: password });
+  await expect(live.client.call("safe.items.reveal", { id: item.id })).rejects.toMatchObject({ code: "CAPABILITY_NOT_FOUND" });
+  expect([readFileSync(item.metadataPath), readFileSync(item.sealedPath)]).toEqual(oldBytes);
 });
 
 testWindows(

@@ -36,7 +36,7 @@ async function desktopCall(page: Page) {
   return async <T>(capability: string, input: unknown = {}): Promise<T> => {
     const response = await page.request.post(`${endpoint.baseUrl}/api/v1/call`, {
       headers: { authorization: `Bearer ${endpoint.token}` },
-      data: { capability, input, requestId: crypto.randomUUID() },
+      data: { capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() },
     });
     try {
       const result = await response.json();

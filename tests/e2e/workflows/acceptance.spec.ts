@@ -1,5 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -382,9 +383,23 @@ test("Agent CLI 历史固定：固定后置顶、重新进入后仍在；取消�
     const spaceId = spaces.find((space) => space.name === "项目")!.id;
     const entries = (await call("agent.history.list", { spaceId })).data.entries as { historyId: string; nativeSessionId: string }[];
     const selected = entries.find((item) => item.nativeSessionId === "old")!;
+    const legacy = createHash("sha256")
+      .update(JSON.stringify(["claude", "old", realpathSync(path.join(proj, "old.jsonl")), real]))
+      .digest("hex");
+    const pinsFile = path.join(vault, ".huhu/agent-cli/pins.json");
+    mkdirSync(path.dirname(pinsFile), { recursive: true });
+    writeFileSync(pinsFile, JSON.stringify({ [spaceId]: [legacy, "claude:old"] }));
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page.getByTestId("agent-space-item").filter({ hasText: "项目" }).click();
+    await expect(titles).toHaveText(["较旧的提问", "较新的提问"]);
+    await page.getByRole("button", { name: "取消固定 较旧的提问" }).click();
+    await expect(titles).toHaveText(["较新的提问", "较旧的提问"]);
+    expect(JSON.parse(readFileSync(pinsFile, "utf8"))).toEqual({ [spaceId]: [] });
     await page.getByRole("button", { name: "固定 较旧的提问" }).click();
     await expect(titles).toHaveText(["较旧的提问", "较新的提问"]); // 固定项置顶
-    expect(JSON.parse(readFileSync(path.join(vault, ".huhu/agent-cli/pins.json"), "utf8"))).toEqual({ [spaceId]: [selected.historyId] });
+    expect(JSON.parse(readFileSync(pinsFile, "utf8"))).toEqual({ [spaceId]: [selected.historyId] });
     await page.reload();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();

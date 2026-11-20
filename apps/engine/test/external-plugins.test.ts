@@ -83,7 +83,7 @@ describe("外部扩展（W16.2）", () => {
       `export function activate(api) {
          api.registerCommand("probe", "探测", async () => {
            const out = {};
-           for (const [cap, input] of [["notes.save", { path: "x.md", text: "x", expectedVersion: "v" }], ["tasks.create", { title: "不该存在" }], ["safe.items.reveal", { id: "x" }], ["agent.sessions.kill", { id: "x" }]]) {
+           for (const [cap, input] of [["notes.save", { path: "x.md", text: "x", expectedVersion: "v" }], ["tasks.create", { title: "不该存在" }], ["safe.accounts.reveal", { id: "x" }], ["agent.sessions.kill", { id: "x" }]]) {
              try { await api.call(cap, input); out[cap] = "ok"; } catch (e) { out[cap] = e.code; }
            }
            return out;
@@ -92,7 +92,7 @@ describe("外部扩展（W16.2）", () => {
     );
     expect((await call(e, "plugins.install", { source: dir, grants: ["inbox.write"] })).ok).toBe(true);
     const r = await call(e, "plugins.commands.run", { pluginId: "probe", commandId: "probe" });
-    expect(r.data.result).toEqual({ "notes.save": "PERMISSION_DENIED", "tasks.create": "PERMISSION_DENIED", "safe.items.reveal": "PERMISSION_DENIED", "agent.sessions.kill": "PERMISSION_DENIED" });
+    expect(r.data.result).toEqual({ "notes.save": "PERMISSION_DENIED", "tasks.create": "PERMISSION_DENIED", "safe.accounts.reveal": "PERMISSION_DENIED", "agent.sessions.kill": "PERMISSION_DENIED" });
     expect((await call(e, "tasks.list", {})).data).toEqual([]);
   });
 

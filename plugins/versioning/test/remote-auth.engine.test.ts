@@ -10,6 +10,7 @@ import { LocalProtectionError } from "@huhu/kernel";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
+import { writeLegacyItem } from "../../safe/test/legacy-fixture.js";
 import { GitRunner, type RunOpts } from "../src/engine/git.js";
 import { httpTarget } from "../src/engine/remote-auth.js";
 
@@ -326,8 +327,9 @@ testWindows(
     const configure = (expectedRevision: string | null, value = token) => live.client.call<Auth>("sync.auth.configure", { remote: config.remote, expectedRevision, credential: { action: "replace", username: user, token: value } });
 
     await live.client.call("safe.setup", { password: safePassword });
-    const legacy = await live.client.call<{ id: string }>("safe.items.save", { name: "Synthetic legacy credential", type: "token", value: previousValue, allowedModules: ["versioning"] }, { write: true });
-    const reference = `safe://${legacy.id}`;
+    const legacy = await writeLegacyItem(live.vaultPath, { masterPassword: safePassword, value: previousValue, type: "token", allowedModules: ["versioning"] });
+    const reference = legacy.reference;
+    const originalLegacy = [readFileSync(legacy.metadataPath), readFileSync(legacy.sealedPath)];
     const configDir = path.join(live.vaultPath, ".huhu", "sync");
     const configFile = path.join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
@@ -349,6 +351,7 @@ testWindows(
     await live.client.call("safe.unlock", { password: safePassword });
     await live.client.call("plugins.setEnabled", { id: "safe", enabled: false }, { write: true });
     expect(endpoint.seen).toHaveLength(0);
+    expect([readFileSync(legacy.metadataPath), readFileSync(legacy.sealedPath)]).toEqual(originalLegacy);
     expect((await status()).pausedReason).toBe("auth-failed");
     await live.client.call("sync.update", { pushIntervalSec: 120 }, { write: true });
     expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual({ ...config, exclude: [], pullIntervalSec: 30, pushIntervalSec: 120, authReconfigurationRequired: true });

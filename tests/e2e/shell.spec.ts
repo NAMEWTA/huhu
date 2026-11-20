@@ -1,7 +1,7 @@
 import { _electron as electron, chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
@@ -835,7 +835,7 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
   }
 });
 
-test("保险箱：本机 Web 分享的工作台提示使用桌面入口", async () => {
+test("保险箱：本机 Web 邀请加入后可初始化、锁定并解锁", async () => {
   const chrome = process.platform === "win32" ? path.join(process.env["ProgramFiles"] ?? "C:/Program Files", "Google/Chrome/Application/chrome.exe") : "";
   const executablePath = [chrome, chromium.executablePath()].find((file) => file && existsSync(file));
   test.skip(!executablePath, "需要本机 Chrome 或 Playwright Chromium");
@@ -861,9 +861,17 @@ test("保险箱：本机 Web 分享的工作台提示使用桌面入口", async 
       await tab.goto(link);
       await expect(tab.getByTestId("home-dashboard")).toBeVisible();
       await tab.getByRole("button", { name: "保险箱", exact: true }).first().click();
-      await expect(tab.getByText("请在桌面工作台管理个人账号。")).toBeVisible();
-      await expect(tab.getByTestId("safe-setup")).toHaveCount(0);
-      await expect(tab.getByTestId("safe-unlocked")).toHaveCount(0);
+      await expect(tab.getByTestId("safe-setup")).toBeVisible();
+      await tab.getByLabel("主密码", { exact: true }).fill(safeMaster);
+      await tab.getByLabel("确认主密码").fill(safeMaster);
+      await tab.getByLabel("我已了解").check();
+      await tab.getByRole("button", { name: "创建保险箱" }).click();
+      await expect(tab.getByTestId("safe-unlocked")).toBeVisible();
+      await tab.getByRole("button", { name: "锁定保险箱" }).click();
+      await expect(tab.getByTestId("safe-locked")).toBeVisible();
+      await tab.getByLabel("主密码", { exact: true }).fill(safeMaster);
+      await tab.getByRole("button", { name: "解锁保险箱" }).click();
+      await expect(tab.getByTestId("safe-unlocked")).toBeVisible();
       await tab.getByRole("button", { name: "工作台", exact: true }).first().click();
       await expect(tab.getByTestId("home-dashboard")).toBeVisible();
     } finally {
@@ -1320,11 +1328,11 @@ test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space �
     expect(path.relative(source, fork.parentSession)).toBe("");
     expect(readFileSync(source, "utf8")).toBe(original);
 
-    const originalRow = entries.filter({ hasText: "Pi 原始消息" }).filter({ has: page.getByTestId("history-resume") });
+    const originalRow = entries.filter({ hasText: "Pi 原始消息" }).filter({ has: page.getByTestId("history-resume").and(page.locator(":enabled")) });
     await originalRow.getByTestId("history-resume").click();
     await confirm.getByLabel("打开位置").selectOption("pane");
     await confirm.getByRole("button", { name: "恢复会话" }).click();
-    const spaces = await call<{ id: string; name: string }[]>("agent.spaces.list");
+    const spaces = await call<{ id: string; name: string; revision: number }[]>("agent.spaces.list");
     const originalSpaceId = spaces.data.find((space) => space.name === originName)!.id;
     type AgentSession = { id: string; state: string; terminalId: string; nativeSessionId?: string };
     const list = () => call<AgentSession[]>("agent.sessions.list", { spaceId: originalSpaceId });
@@ -1348,6 +1356,25 @@ test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space �
     expect(relocated).toHaveLength(2);
     expect(relocated.find(({ id }) => id === originalBinding.id)?.terminalId).toBe(originalBinding.terminalId);
     expect(readFileSync(source, "utf8").startsWith(original)).toBe(true);
+
+    const child = relocated.find(({ nativeSessionId }) => nativeSessionId === fork.id)!;
+    expect(child.state).toBe("running");
+    type HistoryRow = { historyId: string; revision: string; title: string; active: boolean; possiblyActive: boolean; canResume: boolean; canFork: boolean };
+    const forkSnapshot = async () => (await call<{ entries: HistoryRow[] }>("agent.history.list", { spaceId: originalSpaceId, provider: "pi", query: fork.id })).data.entries[0];
+    await expect.poll(forkSnapshot).toBeDefined();
+    const originalFork = (await forkSnapshot())!;
+    const childPath = path.join(historyDir, forkFile!);
+    renameSync(childPath, childPath + ".saved");
+    writeFileSync(childPath, [fork, { ...rows[1], message: { ...rows[1]!.message, content: "Pi 替换分支样本" } }].map((row) => JSON.stringify(row)).join("\n") + "\n");
+    await expect.poll(forkSnapshot, { timeout: 8_000 }).toMatchObject({ title: "Pi 替换分支样本", active: false, possiblyActive: true, canResume: false, canFork: false });
+    const replacement = (await forkSnapshot())!;
+    expect(replacement.historyId).not.toBe(originalFork.historyId);
+    const ref = { spaceId: originalSpaceId, provider: "pi", nativeSessionId: fork.id, historyId: replacement.historyId, historyRevision: replacement.revision };
+    expect(await call("agent.history.locate", ref)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const launch = { ...ref, spaceRevision: spaces.data.find(({ id }) => id === originalSpaceId)!.revision, requestId: crypto.randomUUID() };
+    expect(await call("agent.history.resume", { ...launch, action: "resume" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await call("agent.history.resume", { ...launch, action: "fork" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect((await list()).data.map(({ id, terminalId }) => ({ id, terminalId }))).toEqual(relocated.map(({ id, terminalId }) => ({ id, terminalId })));
   } finally {
     await app.close();
     rmTree(base);
@@ -2748,9 +2775,27 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await row.getByRole("switch").click();
     await page.getByRole("dialog", { name: "关闭工具" }).getByRole("button", { name: "保存选择" }).click();
     await expect.poll(() => JSON.parse(readFileSync(policyFile, "utf8")).choices["tasks.create"]).toBe(false);
-    await page.getByLabel("筛选能力").fill("safe.items.reveal");
-    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" }).getByRole("switch")).toHaveCount(0);
-    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.items.reveal" })).toContainText("不可开放");
+    await page.getByLabel("筛选能力").fill("safe.audit.list");
+    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.audit.list" }).getByRole("switch")).toHaveCount(0);
+    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.audit.list" })).toContainText("不可开放");
+    await page.getByLabel("筛选能力").fill("safe.accounts.reveal");
+    const revealRow = page.locator('[data-cap="safe.accounts.reveal"]');
+    await expect(revealRow).toContainText("逐项开放");
+    await expect(revealRow.getByRole("switch")).not.toBeChecked();
+    await revealRow.getByRole("checkbox").check();
+    await expect(page.getByRole("button", { name: "开启所选" })).toBeDisabled();
+    await page.getByLabel("批量范围").selectOption("plugin:safe");
+    await page.getByRole("button", { name: "预览批量操作" }).click();
+    const batch = page.getByRole("dialog", { name: "开启插件全部 · safe" });
+    await expect(batch).toContainText("safe.entries.list");
+    await expect(batch).not.toContainText("safe.accounts.reveal");
+    await batch.getByRole("button", { name: "取消" }).click();
+    await revealRow.getByRole("switch").click();
+    await page.getByRole("dialog", { name: "开放工具" }).getByRole("button", { name: "保存选择" }).click();
+    await expect(revealRow.getByRole("switch")).toBeChecked();
+    await revealRow.getByRole("switch").click();
+    await page.getByRole("dialog", { name: "关闭工具" }).getByRole("button", { name: "保存选择" }).click();
+    await expect(revealRow.getByRole("switch")).not.toBeChecked();
 
     await page.getByRole("tab", { name: "服务端" }).click();
     await page.getByLabel("令牌名称").fill("自动化脚本");
@@ -2766,7 +2811,7 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("textbox", { name: "测试台" }).fill("tasks.create");
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-row").first()).toHaveAttribute("data-allowed", "false"); // 刚才关掉了
-    await page.getByRole("textbox", { name: "测试台" }).fill("safe.items.reveal");
+    await page.getByRole("textbox", { name: "测试台" }).fill("safe.audit.list");
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-row").first()).toContainText("永不对外");
     await page.getByRole("textbox", { name: "测试台" }).fill("no.such.cap");

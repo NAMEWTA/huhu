@@ -34,6 +34,8 @@ export interface CapabilityDescriptor<I = unknown, O = unknown> extends Readonly
   readonly title: string;
   readonly description: string;
   readonly risk: CapabilityRisk;
+  /** Opening requires an individual policy change. That tool can still be closed in a batch. */
+  readonly individualExposure?: true;
 }
 
 const descriptorSnapshots = new WeakMap<object, CapabilityDescriptor>();

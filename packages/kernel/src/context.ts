@@ -46,7 +46,7 @@ export interface VaultServices {
 
 export interface HuhuApi {
   vault: VaultServices;
-  /** 插件间进程内服务（如 SecretUse）：随提供者作用域注册/注销。 */
+  /** 插件间进程内服务，随提供者作用域注册和注销。 */
   provide(name: string, service: unknown): void;
   service<T>(name: string): T | undefined;
   defineCapability<I, O>(def: CapabilityDefinition<I, O>): void;

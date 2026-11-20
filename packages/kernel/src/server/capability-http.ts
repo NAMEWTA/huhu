@@ -37,6 +37,7 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
   app.use("/api/*", authenticate);
 
   app.post("/api/v1/call", async (c) => {
+    c.header("cache-control", "no-store");
     const { caller, subject, signal } = c.get("principal");
     const mcpTool = c.req.query("nameFormat") === "mcp";
     if (mcpTool && (caller !== "mcp" || !resolveTool)) return c.json({ error: "该令牌身份不能提交 MCP 工具名" }, 403);
@@ -75,7 +76,8 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
       const capability = mcpTool ? resolveTool?.(req.data.capability) : req.data.capability;
       if (!capability) return c.json(unknownTool(req.data.capability));
       const requestSignal = signal ? AbortSignal.any([c.req.raw.signal, signal]) : c.req.raw.signal;
-      return c.json(await dispatcher.call(caller, { ...req.data, capability }, requestSignal, subject));
+      const result = await dispatcher.call(caller, { ...req.data, capability }, requestSignal, subject);
+      return signal?.aborted ? c.json({ error: "会话不可用" }, 401) : c.json(result);
     } finally {
       const remaining = (inflight.get(caller) ?? 1) - 1;
       if (remaining > 0) inflight.set(caller, remaining);

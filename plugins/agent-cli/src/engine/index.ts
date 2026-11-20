@@ -536,6 +536,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     title: z.string(),
     updatedAt: z.string(),
     active: z.boolean(),
+    possiblyActive: z.boolean(),
     pinned: z.boolean(),
     canResume: z.boolean(),
     canFork: z.boolean(),
@@ -574,11 +575,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   };
   const scan = (roots: string[]) => scanHistory({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), ...(opts.history?.env ? { env: opts.history.env } : {}) });
   const nativeKey = (e: Pick<HistoryEntry, "provider" | "nativeSessionId">) => `${e.provider}:${e.nativeSessionId}`;
-  const canOpenHistory = (e: Omit<HistoryEntry, "file">) => e.provider === "pi";
-  const matchesHistory = (session: SessionRecord, e: Omit<HistoryEntry, "file">, unique: boolean) =>
-    session.provider === e.provider &&
-    session.nativeSessionId === e.nativeSessionId &&
-    (session.historyId ? session.historyId === e.historyId : e.provider === "pi" && /^huhu-[a-f0-9]{64}$/.test(e.nativeSessionId) && unique && path.relative(session.cwd, e.cwd) === "");
+  const canOpenHistory = (e: Pick<HistoryEntry, "provider">) => e.provider === "pi";
+  const matchesHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && session.historyId === e.historyId;
+  const mayBeSameHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && path.relative(session.cwd, e.cwd) === "";
   function historyReference(i: z.infer<typeof HistoryReference>) {
     if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
     const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
@@ -590,14 +589,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   async function launchHistory<T>(i: z.infer<typeof HistoryLaunchInput>, launch: (input: LaunchInput) => Promise<T>): Promise<T> {
     await sessions.reconcile();
     const sp = spaceOf(i.spaceId);
-    const { selected: hit, unique } = historyReference(i);
+    const { selected: hit } = historyReference(i);
     if (!canOpenHistory(hit)) throw errors.invalidInput("当前原生 CLI 无法绑定这个历史文件，此记录仅可预览");
     const cwd = i.action === "fork" && hit.provider === "pi" ? sp.root : hit.cwd;
     if (!isWithin(sp.root, cwd)) throw errors.invalidInput("原目录不在目标 Space 内，请选择原 Space");
-    const key = hit.provider === "pi" ? hit.historyId : nativeKey(hit);
+    const key = JSON.stringify([hit.provider, hit.nativeSessionId, hit.cwd]);
     const pending = resuming.get(key);
-    if ((pending && pending.requestId !== i.requestId) || sessions.list().some((s) => s.requestId !== i.requestId && (s.state === "running" || s.state === "launching") && matchesHistory(s, hit, unique)))
-      throw errors.invalidInput("这个会话已在运行或正在打开，请返回原会话");
+    if ((pending && pending.requestId !== i.requestId) || sessions.list().some((s) => s.requestId !== i.requestId && (s.state === "running" || s.state === "launching") && mayBeSameHistory(s, hit)))
+      throw errors.invalidInput("这个原生会话可能已在运行或正在打开，请从会话列表核对");
     const claim = pending ?? { requestId: i.requestId, count: 0 };
     claim.count++;
     resuming.set(key, claim);
@@ -630,7 +629,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         await sessions.reconcile(); // 已结束的会话不再算“运行中”
         const live = new Map<string, SessionRecord[]>();
         for (const session of sessions.list()) {
-          if (session.state !== "running" || !session.nativeSessionId) continue;
+          if ((session.state !== "running" && session.state !== "launching") || !session.nativeSessionId) continue;
           const key = `${session.provider}:${session.nativeSessionId}`;
           const matches = live.get(key) ?? [];
           matches.push(session);
@@ -643,12 +642,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         const query = i.query.normalize("NFC").toLowerCase();
         const all = r.entries
           .filter((e) => (!i.provider || e.provider === i.provider) && (!query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query))))
-          .map(({ file: _file, ...e }) => {
-            const unique = counts.get(nativeKey(e)) === 1;
-            const active = live.get(nativeKey(e))?.some((s) => matchesHistory(s, e, unique)) ?? false;
-            const offerLaunch = !active && canOpenHistory(e);
+          .map((entry) => {
+            const { file: _file, legacyHistoryId, ...e } = entry;
+            const key = nativeKey(e);
+            const candidates = live.get(key) ?? [];
+            const active = candidates.filter((session) => session.state === "running" && matchesHistory(session, entry)).length === 1;
+            const possiblyActive = !active && candidates.some((session) => mayBeSameHistory(session, entry));
+            const offerLaunch = !active && !possiblyActive && canOpenHistory(e);
             const inTarget = isWithin(targetRoot, e.cwd);
-            return { ...e, active, canResume: offerLaunch && inTarget, canFork: offerLaunch && (inTarget || e.provider === "pi"), pinned: pinned.has(e.historyId) || (unique && pinned.has(nativeKey(e))) };
+            return {
+              ...e,
+              active,
+              possiblyActive,
+              canResume: offerLaunch && inTarget,
+              canFork: offerLaunch && (inTarget || e.provider === "pi"),
+              pinned: pinned.has(e.historyId) || pinned.has(legacyHistoryId) || (counts.get(key) === 1 && pinned.has(key)),
+            };
           })
           .filter((e) => i.filter === "all" || (i.filter === "active" ? e.active : e.canResume));
         const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
@@ -685,7 +694,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       output: z.object({ pinned: z.boolean() }),
       handler: async (_c, i) => {
         const { selected, unique } = historyReference(i);
-        pins.set(i.spaceId, selected.historyId, i.pinned, unique ? nativeKey(selected) : undefined);
+        const legacyKeys = [selected.legacyHistoryId];
+        if (unique) legacyKeys.push(nativeKey(selected));
+        pins.set(i.spaceId, selected.historyId, i.pinned, legacyKeys);
         return { pinned: i.pinned };
       },
     }),
@@ -726,8 +737,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       input: HistoryReference,
       output: z.object({ spaceId: z.string(), sessionId: z.string(), terminalId: z.string(), tab: z.string(), leaf: z.string() }),
       handler: async (_c, i) => {
-        const { selected, unique } = historyReference(i);
-        const bound = sessions.list().filter((s) => s.state === "running" && matchesHistory(s, selected, unique));
+        const { selected } = historyReference(i);
+        const bound = sessions.list().filter((s) => s.state === "running" && matchesHistory(s, selected));
         const session = bound.length === 1 ? bound[0] : undefined;
         if (!session?.terminalId || !spaceCanLaunch(spaces.list().find((s) => s.id === session.spaceId))) throw errors.notFound("原会话已关闭或无法核对");
         const execution = await sessions.executionSession(session.id);

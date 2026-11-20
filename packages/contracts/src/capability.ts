@@ -37,6 +37,7 @@ export const CapabilityCatalogEntrySchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   risk: z.enum(CAPABILITY_RISKS).optional(),
+  individualExposure: z.literal(true).optional(),
   input: z.unknown(),
   output: z.unknown(),
   exposable: z.boolean(),

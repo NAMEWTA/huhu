@@ -46,7 +46,7 @@ const Status = z.strictObject({
   callerProof: SafeCallerProof.optional(),
 });
 
-function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { exposable?: false; high?: true } = {}) {
+function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { exposable?: false; individualExposure?: true } = {}) {
   return defineCapabilityDescriptor({
     name: `safe.${name}`,
     title,
@@ -55,7 +55,8 @@ function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["sc
     scope,
     input,
     output,
-    risk: options.high || scope !== "read" ? "high" : "normal",
+    risk: options.individualExposure || scope !== "read" ? "high" : "normal",
+    ...(options.individualExposure && { individualExposure: true }),
     exposable: options.exposable ?? true,
     defaultExposed: false,
     ...(scope === "write" && { idempotency: "handler" }),
@@ -68,7 +69,7 @@ const caps = {
   listEntries: tool("entries.list", "列出保险箱条目索引", "read", ListEntries, EntryIndex),
   getEntry: tool("entries.get", "读取保险箱条目摘要", "read", GetEntry, EntryDetail),
   updateAccount: tool("accounts.update", "编辑指定账号", "write", UpdateAccount, UpdateAccountReceipt),
-  reveal: tool("accounts.reveal", "显式查看指定账号的明文密码", "read", RevealAccount, z.strictObject({ password: z.string() }), { high: true }),
+  reveal: tool("accounts.reveal", "显式查看指定账号的明文密码", "read", RevealAccount, z.strictObject({ password: z.string() }), { individualExposure: true }),
   listTags: tool("tags.list", "列出保险箱标签", "read", ListEntries, TagList),
   createTag: tool("tags.create", "新建保险箱标签", "write", CreateTag, CreateTagReceipt),
   updateTag: tool("tags.update", "编辑保险箱标签", "write", UpdateTag, TagReceipt),

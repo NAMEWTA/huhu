@@ -51,6 +51,7 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
   const exposable = entries.filter((entry) => entry.exposable);
   const matching = list.filter((entry) => entry.exposable);
   const picked = exposable.filter((entry) => selection.has(entry.name));
+  const canOpenPicked = picked.filter((entry) => !entry.individualExposure);
   const matchingSelected = matching.length > 0 && matching.every((entry) => selection.has(entry.name));
   const plugins = [...new Set(exposable.map((entry) => entry.plugin))].sort();
   const policyReady = policy?.state === "ready";
@@ -94,9 +95,10 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
     const option = batchOptions.find(({ value }) => value === batch);
     const plugin = batch.startsWith("plugin:") ? batch.slice("plugin:".length) : null;
     const rows = plugin ? exposable.filter((entry) => entry.plugin === plugin) : batch === "add-read" ? exposable.filter((entry) => entry.scope === "read") : batch.endsWith("matching") ? matching : exposable;
+    const opening = !batch.startsWith("disable-");
     void showPreview(
       plugin ? `开启插件全部 · ${plugin}` : (option?.label ?? "批量选择"),
-      rows.map(({ name }) => ({ capability: name, exposed: !batch.startsWith("disable-") })),
+      rows.filter((entry) => !opening || !entry.individualExposure).map(({ name }) => ({ capability: name, exposed: opening })),
     );
   }
 
@@ -170,11 +172,11 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
           </div>
           <div className="row">
             <Button
-              disabled={!picked.length}
+              disabled={!canOpenPicked.length}
               onClick={() =>
                 void showPreview(
                   "开启所选",
-                  picked.map(({ name }) => ({ capability: name, exposed: true })),
+                  canOpenPicked.map(({ name }) => ({ capability: name, exposed: true })),
                 )
               }
             >
@@ -230,7 +232,7 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
             { id: "name", header: "能力", width: 260, cell: (c) => <code title={c.description}>{c.name}</code> },
             { id: "plugin", header: "所属模块", width: 120, cell: (c) => (c.plugin === "kernel" ? "基础能力" : c.plugin) },
             { id: "scope", header: "访问范围", width: 110, cell: (c) => (c.scope ? <Badge tone={c.scope === "read" ? "neutral" : "warning"}>{g.scope[c.scope]}</Badge> : "—") },
-            { id: "selected", header: "策略", width: 100, cell: (c) => (c.exposable ? selectionText(c.selected) : g.never) },
+            { id: "selected", header: "策略", width: 130, cell: (c) => (c.individualExposure ? `${selectionText(c.selected)} · 逐项开放` : c.exposable ? selectionText(c.selected) : g.never) },
             { id: "state", header: "目录可用性", width: 130, cell: (c) => <Badge tone={c.exposed ? "success" : "neutral"}>{c.exposed ? "可调用" : c.availability === "active" ? g.closed : availability[c.availability]}</Badge> },
             {
               id: "expose",

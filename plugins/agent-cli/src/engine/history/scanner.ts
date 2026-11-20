@@ -8,6 +8,8 @@ import path from "node:path";
 export interface HistoryEntry {
   provider: "claude" | "codex" | "pi";
   historyId: string;
+  /** Legacy bookmark key. It describes a location, not a physical file. */
+  legacyHistoryId: string;
   revision: string;
   /** provider 自己的会话 id，恢复时原样交给 CLI。 */
   nativeSessionId: string;
@@ -276,7 +278,10 @@ export function scanHistory(o: ScanOptions): ScanResult {
     const historyId = historyIdentity(provider, id, location, p.cwd, cwd, stamp.physical);
     if (seen.has(historyId)) return;
     seen.add(historyId);
-    entries.push({ provider, historyId, revision: stamp.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: stamp.updatedAt, file: location });
+    const legacyHistoryId = createHash("sha256")
+      .update(JSON.stringify([provider, id, location, cwd]))
+      .digest("hex");
+    entries.push({ provider, historyId, legacyHistoryId, revision: stamp.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: stamp.updatedAt, file: location });
   };
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件

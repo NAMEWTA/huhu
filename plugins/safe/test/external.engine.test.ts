@@ -29,12 +29,16 @@ function success<T>(reply: CapabilityResult<unknown>): T {
   return reply.data as T;
 }
 
-async function request(engine: RunningEngine, token: string, capability: string, input: unknown = {}, key: string = randomUUID(), intentKey?: string) {
-  const response = await fetch(`${urlOf(engine)}/api/v1/call`, {
+function requestResponse(engine: RunningEngine, token: string, capability: string, input: unknown = {}, key: string = randomUUID(), intentKey?: string) {
+  return fetch(`${urlOf(engine)}/api/v1/call`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: key, ...(intentKey && { intentKey }) }),
   });
+}
+
+async function request(...args: Parameters<typeof requestResponse>) {
+  const response = await requestResponse(...args);
   if (!response.ok) throw new Error(`Safe fixture HTTP ${response.status}`);
   return CapabilityResultSchema.parse(await response.json());
 }
@@ -214,6 +218,15 @@ testWindows(
       expect(detail.accounts.every((account) => !Object.hasOwn(account, "password"))).toBe(true);
       expectCode(await external("safe.accounts.reveal", subject), "CAPABILITY_NOT_EXPOSED");
       expectCode(await external("safe.entries.update", { session, entryId, expectedRevision: detail.revision, name: "HTTP fixture name" }), "CAPABILITY_NOT_EXPOSED");
+      expectCode(
+        await control("gateway.policy.preview", {
+          changes: [
+            { capability: "safe.accounts.reveal", exposed: true },
+            { capability: "safe.entries.list", exposed: true },
+          ],
+        }),
+        "INVALID_INPUT",
+      );
       const policy = success<{ targets: { capability: string; risk: string }[] }>(await control("gateway.policy.preview", { changes: [{ capability: "safe.accounts.reveal", exposed: true }] }));
       expect(policy.targets).toMatchObject([{ capability: "safe.accounts.reveal", risk: "high" }]);
       await set("safe.accounts.reveal", true);
@@ -365,6 +378,54 @@ testWindows(
       }
       await interruptRead(() => allow("safe.accounts.reveal", false), "CAPABILITY_NOT_EXPOSED");
       await allow("safe.accounts.reveal", true);
+
+      async function readDuringRevocation(read: () => Promise<Response>, revoke: () => Promise<unknown>) {
+        const ready = signal();
+        const release = signal();
+        const blocked = vi.spyOn(Safe.prototype, "revealAccount").mockImplementationOnce(async function (this: Safe, ...args) {
+          const result = await original.apply(this, args);
+          ready.resolve();
+          await release.promise;
+          return result;
+        });
+        const reading = read();
+        try {
+          await started(ready.promise, reading);
+          await revoke();
+        } finally {
+          release.resolve();
+          blocked.mockRestore();
+        }
+        return reading;
+      }
+
+      const revokable = success<{ id: string; token: string }>(await desktop("gateway.tokens.create", { name: "second bearer" }));
+      const revokableSession = sessionOf(success<Status>(await request(e, revokable.token, "safe.status")));
+      const account = { ...entry, accountId: made.accountIds[0]! };
+      const bearer = await readDuringRevocation(
+        () => requestResponse(e, revokable.token, "safe.accounts.reveal", { ...account, session: revokableSession }),
+        () => desktop("gateway.tokens.revoke", { id: revokable.id }),
+      );
+      expect(bearer.status).toBe(401);
+      expect(bearer.headers.get("cache-control")).toBe("no-store");
+      expect((await bearer.text()).includes(marker)).toBe(false);
+
+      success(await desktop("gateway.mcp.update", { enabled: true, transport: "http" }));
+      const mcp = await readDuringRevocation(
+        () =>
+          fetch(`${urlOf(e)}/mcp`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "safe_accounts_reveal", arguments: account } }),
+          }),
+        () => desktop("gateway.mcp.update", { enabled: false, transport: "http" }),
+      );
+      expect(mcp.headers.get("cache-control")).toBe("no-store");
+      const body = await mcp.text();
+      expect((JSON.parse(body) as Rpc).result?.isError).toBe(true);
+      expect(body.includes(marker)).toBe(false);
+      expect(success<{ password: string }>(await reveal(randomUUID())).password === marker).toBe(true);
+
       await interruptRead(() => desktop("safe.lock"), "SAFE_LOCKED");
       await allow("safe.entries.update", true);
       expectCode(await outside("safe.entries.update", edit, key), "SAFE_LOCKED");

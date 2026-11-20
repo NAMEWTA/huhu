@@ -24,7 +24,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
 export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<HuhuEvent, "type" | "payload">): Promise<void> {
   if (e.type === "safe.locked") {
     qc.removeQueries({
-      predicate: ({ queryKey: [id, capability] }) => id === vaultId && typeof capability === "string" && ["safe.items.", "safe.entries.", "safe.accounts."].some((prefix) => capability.startsWith(prefix)),
+      predicate: ({ queryKey: [id, capability] }) => id === vaultId && typeof capability === "string" && ["safe.entries.", "safe.accounts.", "safe.tags."].some((prefix) => capability.startsWith(prefix)),
     });
   }
   if (e.type === "safe.locked" || e.type === "safe.unlocked") return qc.invalidateQueries({ queryKey: queryKey(vaultId, "safe.status"), exact: true });

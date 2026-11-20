@@ -28,6 +28,8 @@ export interface EngineServerDeps {
   mcpHttp?: { enabled(): boolean };
   /** stdio 适配器每次经控制端点读目录、调用或取资源时核对当前开关。 */
   mcpStdioEnabled?(): boolean;
+  /** Lifetime of the admitted MCP service configuration. */
+  mcpSignal?(): AbortSignal;
   /** 测试/嵌入时指定端口，默认随机。 */
   port?: number;
 }
@@ -85,7 +87,9 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
         if (c.req.method === "GET" && c.req.path === "/api/v1/capabilities") return c.json([]);
         return c.json({ ok: false, error: errors.permissionDenied("MCP 服务已关闭").toJSON() });
       }
-      return principal ?? c.json({ error: "未授权" }, 401);
+      if (!principal) return c.json({ error: "未授权" }, 401);
+      const mcp = principal.caller === "mcp" ? d.mcpSignal?.() : undefined;
+      return mcp ? { ...principal, signal: AbortSignal.any([principal.signal, mcp]) } : principal;
     },
     inflight,
     resolveTool,
@@ -93,6 +97,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
 
   const listener = getRequestListener(app.fetch);
   const handleMcp = async (req: IncomingMessage, res: import("node:http").ServerResponse): Promise<void> => {
+    res.setHeader("cache-control", "no-store");
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -102,7 +107,11 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     if (!verdict.ok) return send(verdict.status, { error: verdict.reason });
     const principal = d.tokens.principal(bearerFrom(req.headers["authorization"]));
     if (!principal) return send(401, { error: "未授权" });
-    const { caller, subject } = principal;
+    const { caller, subject, signal: tokenSignal } = principal;
+    const disconnected = new AbortController();
+    res.once("close", () => disconnected.abort());
+    const mcpSignal = d.mcpSignal?.();
+    const signal = AbortSignal.any([tokenSignal, disconnected.signal, ...(mcpSignal ? [mcpSignal] : [])]);
     if (caller !== "mcp" && caller !== "http") return send(403, { error: "该令牌身份不能使用 MCP 服务" });
     if (req.method !== "POST") return send(405, { error: "仅支持 POST" });
     const n = inflight.get(caller) ?? 0;
@@ -123,7 +132,12 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       return send(400, { error: "请求不是合法 JSON" });
     }
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const call = (capability: string, input: unknown, intentKey?: string) => d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, undefined, subject);
+    const call = async (capability: string, input: unknown, intentKey?: string) => {
+      const revoked = () => ({ ok: false as const, error: errors.permissionDenied("MCP 会话已关闭").toJSON() });
+      if (signal.aborted) return revoked();
+      const result = await d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, signal, subject);
+      return signal.aborted ? revoked() : result;
+    };
     const mcp = createMcpServer(
       {
         list: () => discover(caller),

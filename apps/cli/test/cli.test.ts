@@ -433,14 +433,14 @@ describe("CLI", () => {
     const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
       method: "POST",
       headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.items.reveal", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }),
+      body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.audit.list", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }),
     });
     expect(((await bad.json()) as { ok: boolean; error: { code: string } }).error.code).toBe("INVALID_INPUT");
     const plugins = await run1("plugins", "list");
     expect(plugins.code).toBe(0);
     expect((plugins.out.data as { id: string }[]).map((p) => p.id)).toEqual(expect.arrayContaining(["tasks", "notes", "inbox", "safe"]));
     const caps = await run1("capabilities", "list");
-    expect((caps.out.data as { name: string }[]).map((c) => c.name)).not.toContain("safe.items.reveal");
+    expect((caps.out.data as { name: string }[]).map((c) => c.name)).not.toContain("safe.accounts.reveal");
     // Agent 指南：打开 Vault 时自动补写三份文件；`huhu guide status` 报告 current；`huhu --skill` 不需要 Vault
     await vi.waitFor(() => expect(existsSync(path.join(dir, ".agents/skills/huhu/references/mcp.md"))).toBe(true));
     const guide = await run1("guide", "status");

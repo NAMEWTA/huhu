@@ -13,6 +13,7 @@ interface Entry {
   title: string;
   updatedAt: string;
   active: boolean;
+  possiblyActive: boolean;
   pinned: boolean;
   canResume: boolean;
   canFork: boolean;
@@ -253,7 +254,8 @@ export function HistoryPanel({
                 </small>
                 <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
                 {!e.active && !ok ? <small>{t.history.notInstalled}</small> : null}
-                {!e.active && ok && !e.canResume && !e.canFork ? <small>当前 CLI 无法绑定这个历史文件，仅可预览</small> : null}
+                {e.possiblyActive ? <small>可能已在运行，请从会话列表核对</small> : null}
+                {!e.active && !e.possiblyActive && ok && !e.canResume && !e.canFork ? <small>当前 CLI 无法绑定这个历史文件，仅可预览</small> : null}
                 {!e.active && ok && !e.canResume && e.canFork ? <small>请在原 Space 中恢复</small> : null}
               </span>
               <button

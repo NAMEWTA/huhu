@@ -9,7 +9,8 @@ import { SafeStore, wrappingContext } from "../src/engine/store.js";
 /** Generate the retired on-disk shape for compatibility regressions in a test-owned Vault. */
 export async function writeLegacyItem(root: string, input: { masterPassword: string; value: string; type: "password" | "ssh-key" | "token" | "env"; allowedModules: string[] }) {
   const vault = realpathSync.native(root);
-  if (path.dirname(vault).toLowerCase() !== realpathSync.native(tmpdir()).toLowerCase() || !path.basename(vault).startsWith("huhu-")) throw new Error("Expected an isolated Safe test Vault");
+  const relative = path.relative(realpathSync.native(tmpdir()), vault);
+  if (path.isAbsolute(relative) || !relative.split(path.sep)[0]?.startsWith("huhu-")) throw new Error("Expected an isolated Safe test Vault");
   const dir = path.join(vault, ".huhu", "safe");
   const state = new SafeStore(new VaultFiles(vault), dir).load();
   if (state.kind === "corrupt") throw new Error("Corrupt Safe test fixture");

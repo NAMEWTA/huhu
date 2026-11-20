@@ -133,6 +133,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
   registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor, ...Object.values(mail.mailOAuthCapabilityDescriptors)]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
+  registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
 
@@ -229,7 +230,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),
     apply: (ctx, api) => {
-      safeRef.current = safe.apply(ctx, api);
+      safeRef.current = safe.apply(ctx, api, { catalogDeclared: true });
     },
   });
   plugins.register({
@@ -492,6 +493,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const server = await startEngineServer({
     mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
     mcpStdioEnabled: () => gatewayTokens.mcp().enabled,
+    mcpSignal: () => gatewayTokens.mcpSignal(),
     terminal,
     dispatcher: real,
     registry,
