@@ -5,6 +5,7 @@ import { machineId, VaultFiles } from "@huhu/vault";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
 import { ClaimStore } from "./claims.js";
+import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
 import { HoldStore } from "./holds.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, type AutomationsDeps, type TaskQueryLike, type WorkerInput, type RunOutcome } from "./service.js";
@@ -13,6 +14,7 @@ import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { processWorker, roundDir, type ResolveLaunch } from "./worker.js";
 
 export { AutomationsService } from "./service.js";
+export { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "./default-task-scan.js";
 export { Scheduler } from "./scheduler.js";
 
 const Trigger = z.object({ preset: z.string(), cron: z.string(), zone: z.string() });
@@ -53,6 +55,7 @@ export interface AutomationsOptions {
 export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler } {
   const mid = machineId();
   const now = opts.now ?? (() => new Date());
+  const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const cliAvailable = opts.cliAvailable ?? (() => false);
   const runsDir = path.join(api.vault.stateDir, "runtime", mid, "runs");
   const resolveLaunch: ResolveLaunch = opts.resolveLaunch ?? ((i) => api.call("agent.launch.resolve", i) as ReturnType<ResolveLaunch>);
@@ -84,13 +87,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
     now,
-    zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+    zone,
     machineId: mid,
   });
 
-  const scans = new TaskScanOccurrences(new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly), api.vault.vaultId, svc, () => api.service("taskDispatch"), now);
+  const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
+  const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
+  const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
+  api.provide(DEFAULT_TASK_SCAN_SERVICE, defaults);
+  ctx.effect(() => () => defaults.close());
 
   const scheduler = new Scheduler({
     activate: async (ruleId, at, trigger) => {
@@ -217,7 +224,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id,
       output: z.object({ ok: z.literal(true) }),
       handler: async (_c, i) => {
-        await svc.delete(i.id);
+        if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id));
+        else await svc.delete(i.id);
         resync();
         return { ok: true as const };
       },

@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { KINDS, errors, newId, type IdPrefix, type KindName } from "@huhu/contracts";
+import { KINDS, errors, isId, newId, type IdPrefix, type KindName } from "@huhu/contracts";
 import { stringify } from "yaml";
 import { OperationLog } from "../operations.js";
 import type { VaultFiles } from "../write.js";
@@ -106,11 +106,14 @@ export class SemanticRepository {
     return e;
   }
 
-  /** 新建语义文件；`data` 不含 huhu 头（由仓储写入）。 */
-  async create(kind: KindName, data: Record<string, unknown>, body = ""): Promise<Entity> {
+  /** 新建语义文件；由仓储写入 huhu 头。需要恢复的调用者可以提供预留的 ID。 */
+  async create(kind: KindName, data: Record<string, unknown>, body = "", reservedId?: string): Promise<Entity> {
     const spec = KINDS[kind];
-    const id = newId(ID_PREFIX[kind]);
-    const full = { huhu: { kind, id, schema: spec.currentSchema }, ...data };
+    const prefix = ID_PREFIX[kind];
+    if (reservedId !== undefined && !isId(reservedId, prefix)) throw errors.invalidInput("预留的对象 ID 不符合文件类型");
+    const id = reservedId ?? newId(prefix);
+    const { huhu: _header, ...fields } = data;
+    const full = { huhu: { kind, id, schema: spec.currentSchema }, ...fields };
     const parsed = spec.schema.safeParse(full);
     if (!parsed.success) throw errors.invalidInput("字段不符合要求", parsed.error.issues);
     const title = String((full as Record<string, unknown>)[spec.titleField] ?? kind);
