@@ -79,5 +79,12 @@ export const AutomationRunFrontmatterSchema = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
+  /** 定时终端的启动配置指纹。submittedAt 写入后只能核对原请求；旧记录缺字段时同样只核对。 */
+  terminalLaunch: z
+    .object({
+      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      submittedAt: dateLike(IsoTime).nullable(),
+    })
+    .optional(),
 });
 export type AutomationRunFrontmatter = z.infer<typeof AutomationRunFrontmatterSchema>;

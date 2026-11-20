@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { errors, newId, type AutomationRuleFrontmatter, type EventPayload, type EventType, type TaskDto } from "@huhu/contracts";
-import type { SemanticRepository } from "@huhu/vault";
+import { errors, isHuhuError, newId, type AutomationRuleFrontmatter, type AutomationRunFrontmatter, type EventPayload, type EventType, type TaskDto } from "@huhu/contracts";
+import { ModuleCredentials } from "@huhu/kernel";
+import { VaultFiles, type Entity, type SemanticRepository } from "@huhu/vault";
+import { z } from "zod";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import { dispatchWindow } from "./dispatch-window.js";
 import { classify, type ScanFilter, type SnapshotTask } from "./scan.js";
@@ -61,7 +64,15 @@ type TerminalRuleLaunch = {
   requestId: string;
 };
 type TerminalSession = { id: string; requestId: string; state: string; exitCode?: number | null; hasEnv?: boolean };
+type TerminalReservation = { run: Entity; input?: TerminalRuleLaunch; created: boolean };
 const terminalRequestId = (runId: string) => `autorun-${runId}`;
+const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+const errorCode = (error: unknown) => (error as { code?: unknown } | null)?.code;
+const errorMessage = (error: unknown) => {
+  const code = errorCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return typeof code === "string" ? `${code}：${message}` : message;
+};
 
 export interface ActivationRecord {
   activationId: string;
@@ -112,9 +123,8 @@ function taskScanFilter(input: TaskScanInput, zone: string, now: Date): ScanFilt
 }
 
 export class AutomationsService {
-  private running = new Set<string>();
   private readonly abort = new AbortController();
-  /** 每条活动终端规则有自己的取消控制器。 */
+  /** 活动规则的互斥和取消控制器。 */
   private readonly ruleAbort = new Map<string, AbortController>();
 
   /** 取消一条正在执行的规则；没有在执行则返回 false。 */
@@ -131,6 +141,7 @@ export class AutomationsService {
   }
 
   private readonly runAbort = new Map<string, AbortController>();
+  private readonly pendingTerminalRuns = new Map<string, Promise<TerminalReservation>>();
   private readonly background = new Set<Promise<void>>();
   private reconciling: Promise<void> | undefined;
 
@@ -282,36 +293,67 @@ export class AutomationsService {
 
   // ---- 激活 ----
   activations(): ActivationRecord[] {
-    if (!existsSync(this.d.activationsDir)) return [];
     const byId = new Map<string, ActivationRecord>();
-    for (const f of readdirSync(this.d.activationsDir)
-      .filter((x) => x.endsWith(".ndjson"))
-      .sort()) {
-      for (const line of readFileSync(path.join(this.d.activationsDir, f), "utf8").split("\n").filter(Boolean)) {
-        try {
-          const r = JSON.parse(line) as ActivationRecord;
-          byId.set(r.activationId, { ...byId.get(r.activationId), ...r });
-        } catch {
-          // 崩溃时的半行
+    if (existsSync(this.d.activationsDir)) {
+      for (const f of readdirSync(this.d.activationsDir)
+        .filter((x) => x.endsWith(".ndjson"))
+        .sort()) {
+        for (const line of readFileSync(path.join(this.d.activationsDir, f), "utf8").split("\n").filter(Boolean)) {
+          try {
+            const r = JSON.parse(line) as ActivationRecord;
+            byId.set(r.activationId, { ...byId.get(r.activationId), ...r });
+          } catch {
+            // 崩溃时的半行
+          }
         }
       }
     }
-    const terminalRuns = this.d.repo.list("automation-run");
-    for (const { data } of terminalRuns) {
-      if (data["actionKind"] !== "terminal" || typeof data["activationId"] !== "string" || typeof data["state"] !== "string") continue;
-      const activation = byId.get(data["activationId"]);
-      if (!activation || activation.ruleId !== data["ruleId"]) continue;
-      const { finishedAt: _, ...base } = activation;
-      byId.set(activation.activationId, { ...base, ...(typeof data["finishedAt"] === "string" ? { finishedAt: data["finishedAt"] } : {}), summary: { state: data["state"] } });
+    for (const run of this.d.repo.list("automation-run")) {
+      const id = run.data["activationId"];
+      const activation = this.terminalActivation(run, typeof id === "string" ? byId.get(id) : undefined);
+      if (activation) byId.set(activation.activationId, activation);
+    }
+    const shallow = [...byId.values()].filter((row) => row.trigger === "schedule" && !row.finishedAt && !row.summary);
+    if (shallow.length) {
+      const terminalRules = new Set(
+        this.rules()
+          .filter(({ data }) => data.action.kind === "terminal")
+          .map(({ id }) => id),
+      );
+      for (const row of shallow) {
+        if (terminalRules.has(row.ruleId)) byId.set(row.activationId, { ...row, summary: { state: "unknown" } });
+      }
     }
     return [...byId.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  private terminalActivation(run: Entity, legacy?: ActivationRecord): ActivationRecord | undefined {
+    const data = run.data as unknown as AutomationRunFrontmatter;
+    const { activationId, ruleId, trigger, scheduledFor, startedAt, finishedAt } = data;
+    if (data.actionKind !== "terminal" || typeof activationId !== "string" || typeof data.state !== "string") return undefined;
+    const result = { ...(typeof finishedAt === "string" ? { finishedAt } : {}), summary: { state: this.terminalState(data) } };
+    if (legacy && legacy.ruleId === ruleId) {
+      const { finishedAt: _, ...base } = legacy;
+      return { ...base, ...result };
+    }
+    if (typeof startedAt !== "string" || typeof ruleId !== "string" || (trigger !== "schedule" && trigger !== "manual")) return undefined;
+    return { activationId, ruleId, trigger, scheduledFor: typeof scheduledFor === "string" ? scheduledFor : null, startedAt, ...result };
+  }
+
+  private terminalState(data: Pick<AutomationRunFrontmatter, "state" | "finishedAt" | "terminalOwner">): string {
+    return !data.finishedAt && data.terminalOwner !== this.d.terminalOwner ? "unknown" : data.state;
   }
 
   lastActivatedFor(ruleId: string): Date | null {
     const last = this.activations()
       .filter((a) => a.ruleId === ruleId && a.scheduledFor)
       .sort((a, b) => (b.scheduledFor as string).localeCompare(a.scheduledFor as string))[0];
-    return last?.scheduledFor ? new Date(last.scheduledFor) : null;
+    if (last?.scheduledFor) return new Date(last.scheduledFor);
+    const rule = this.rules().find(({ id }) => id === ruleId)?.data;
+    if (rule?.action.kind !== "terminal" || !rule.enabled) return null;
+    // 首个计划点还没有运行时，调度器从启用/编辑时间起按现有宽限补交。
+    const earliest = this.d.now().getTime() - rule.missedRunGraceMinutes * 60_000 - 1;
+    return new Date(Math.max(earliest, Date.parse(rule.updatedAt)));
   }
 
   private writeActivation(r: ActivationRecord): void {
@@ -331,30 +373,114 @@ export class AutomationsService {
     // 定时触发只对已启用的规则生效（规则被恢复/外部修改为暂停后，内存里的作业可能还没重建）
     if (trigger === "schedule" && !rule.data.enabled) return { activationId: "skipped", ruleId, trigger, scheduledFor: null, startedAt: iso(this.d.now()), summary: { state: "paused" } };
     const slot = scheduledFor ? iso(scheduledFor) : null;
-    if (trigger === "schedule" && slot && rule.data.action.kind === "terminal") {
-      const previous = this.activations().find((row) => row.ruleId === ruleId && row.scheduledFor === slot);
-      if (previous) return previous;
-    }
-    if (this.running.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
-    this.running.add(ruleId);
-    this.ruleAbort.set(ruleId, new AbortController());
-    const now = this.d.now();
-    const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: slot, startedAt: iso(now) };
-    try {
+    const a = rule.data.action;
+    if (trigger === "schedule" && slot && a.kind === "terminal") return this.activateScheduledTerminal(rule, a, slot);
+    return this.withRule(ruleId, async () => {
+      const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: slot, startedAt: iso(this.d.now()) };
       this.writeActivation(rec);
       this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger });
       let summary: ActivationRecord["summary"];
-      const a = rule.data.action;
-      if (a.kind === "terminal") summary = await this.runTerminalAction(rule.data.title, a, rec);
-      else if (a.kind === "reminder") summary = await this.runReminderAction(rule.data.title, a);
+      if (a.kind === "terminal") {
+        const run = await this.createTerminalRun(rec);
+        summary = await this.runTerminalAction(run, rule.data.title, a);
+      } else if (a.kind === "reminder") summary = await this.runReminderAction(rule.data.title, a);
       else summary = { state: "unsupported" };
       const pending = "state" in summary && (summary.state === "running" || summary.state === "unknown");
       const done = { ...rec, ...(pending ? {} : { finishedAt: iso(this.d.now()) }), summary };
       this.writeActivation(done);
       return done;
+    });
+  }
+
+  private async withRule<T>(ruleId: string, operation: () => Promise<T>): Promise<T> {
+    if (this.ruleAbort.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
+    this.ruleAbort.set(ruleId, new AbortController());
+    try {
+      return await operation();
     } finally {
-      this.running.delete(ruleId);
       this.ruleAbort.delete(ruleId);
+    }
+  }
+
+  private async activateScheduledTerminal(rule: ReturnType<AutomationsService["rule"]>, action: TerminalRuleAction, slot: string): Promise<ActivationRecord> {
+    const ruleId = rule.id;
+    const previous = this.activations().find((row) => row.ruleId === ruleId && row.trigger === "schedule" && row.scheduledFor === slot);
+    if (previous) return previous;
+    const occurrence = hash([ruleId, slot]).slice(0, 32);
+    const runId = `arun-${occurrence}`;
+    const pending = this.pendingTerminalRuns.get(runId);
+    if (pending) {
+      await pending;
+      return this.terminalActivation(this.d.repo.read("automation-run", runId))!;
+    }
+    return this.withRule(ruleId, async () => {
+      const rec: ActivationRecord = { activationId: `act-${occurrence}`, ruleId, trigger: "schedule", scheduledFor: slot, startedAt: iso(this.d.now()) };
+      const reservation = this.reserveTerminalRun(rule, action, rec, runId);
+      this.pendingTerminalRuns.set(runId, reservation);
+      const { run, input, created } = await reservation.finally(() => this.pendingTerminalRuns.delete(runId));
+      if (created) {
+        this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger: rec.trigger });
+        if (input) await this.runTerminalAction(run, rule.data.title, action, input);
+        else this.d.notify({ title: `自动化「${rule.data.title}」失败：${run.body.trim()}`, module: "automations" });
+      }
+      return this.terminalActivation(this.d.repo.read("automation-run", run.id))!;
+    });
+  }
+
+  private async reserveTerminalRun(rule: ReturnType<AutomationsService["rule"]>, action: TerminalRuleAction, rec: ActivationRecord, runId: string): Promise<TerminalReservation> {
+    let input: TerminalRuleLaunch | undefined;
+    let launch: AutomationRunFrontmatter["terminalLaunch"];
+    let failure = "";
+    try {
+      const target = await this.terminalInput(action, runId);
+      launch = { fingerprint: this.terminalFingerprint(rule.id, rule.version, target), submittedAt: null };
+      input = target;
+    } catch (error) {
+      failure = errorMessage(error) || "无法核对启动配置。";
+    }
+    try {
+      const run = await this.createTerminalRun(rec, runId, launch, failure);
+      return { run, ...(input && { input }), created: true };
+    } catch (error) {
+      if (errorCode(error) !== "NAME_CONFLICT") throw error;
+      const run = this.d.repo.read("automation-run", runId);
+      if (run.data["ruleId"] !== rec.ruleId || run.data["scheduledFor"] !== rec.scheduledFor || !this.terminalActivation(run)) throw error;
+      return { run, created: false };
+    }
+  }
+
+  private createTerminalRun(rec: ActivationRecord, runId?: string, terminalLaunch?: AutomationRunFrontmatter["terminalLaunch"], failure = "") {
+    const { terminalOwner } = this.d;
+    if (!terminalOwner) throw errors.invalidInput("无法确认终端规则的本机归属");
+    const { activationId, ruleId, trigger, scheduledFor, startedAt } = rec;
+    return this.d.repo.create(
+      "automation-run",
+      { activationId, ruleId, actionKind: "terminal", trigger, scheduledFor, startedAt, terminalOwner, ...(terminalLaunch && { terminalLaunch }), ...(failure ? { state: "failed", finishedAt: iso(this.d.now()) } : { state: "running" }) },
+      failure,
+      runId,
+    );
+  }
+
+  private async terminalInput(action: TerminalRuleAction, runId: string): Promise<TerminalRuleLaunch> {
+    const spaces = (await this.d.call("agent.spaces.list", {})) as { id: string; revision: number; root: string }[];
+    const space = action.spaceId ? spaces.find((x) => x.id === action.spaceId) : spaces.find((x) => sameDir(x.root, this.d.vaultRoot));
+    if (!space) throw errors.invalidInput(action.spaceId ? "Space 不存在或目录不可访问" : "没有以 Vault 根为目录的 Space，请在规则里选择一个 Space");
+    return { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: action.command, shell: action.shell, requestId: terminalRequestId(runId) };
+  }
+
+  private terminalFingerprint(ruleId: string, ruleVersion: string, input: TerminalRuleLaunch): string {
+    // 可移植定义及修订号均不含凭据，凭据的取用仍由已有启动入口处理。
+    const files = new VaultFiles(this.d.vaultRoot, undefined, true);
+    const environment = ModuleCredentials.readPortableDefinition(files, "automations", z.unknown(), ruleId);
+    return hash([ruleVersion, input.spaceId, input.spaceRevision, environment ?? null]);
+  }
+
+  private matchesTerminalLaunch(ruleId: string, input: TerminalRuleLaunch, fingerprint: string): boolean {
+    try {
+      const rule = this.rule(ruleId);
+      return rule.data.enabled && rule.data.action.kind === "terminal" && !hasLegacyTerminalEnvironment(rule.data.action) && this.terminalFingerprint(ruleId, rule.version, input) === fingerprint;
+    } catch {
+      return false;
     }
   }
 
@@ -362,38 +488,70 @@ export class AutomationsService {
    * terminal 动作：在 Space 里以可见的 Herdr 终端会话运行命令（agent-cli 的 `agent.sessions.launch`，由 agent-cli 按平台 shell 构造命令行，见 plugins/agent-cli/src/shared/shell.ts）。
    * 规则环境只在 Engine 交给 Agent CLI 的启动服务。运行记录持有同一终端会话 ID。
    */
-  private async runTerminalAction(ruleTitle: string, a: TerminalRuleAction, activation: ActivationRecord): Promise<{ state: string }> {
-    const { activationId, ruleId, trigger, scheduledFor, startedAt } = activation;
-    const { terminalOwner } = this.d;
-    if (!terminalOwner) throw errors.invalidInput("无法确认终端规则的本机归属");
-    const run = await this.d.repo.create("automation-run", { activationId, ruleId, actionKind: "terminal", trigger, scheduledFor, state: "running", startedAt, terminalOwner }, "");
+  private async runTerminalAction(run: Entity, ruleTitle: string, action: TerminalRuleAction, preparedInput?: TerminalRuleLaunch): Promise<{ state: string }> {
+    const { ruleId, startedAt, terminalLaunch } = run.data as unknown as AutomationRunFrontmatter;
     const cancel = this.terminalSignal(ruleId, run.id);
     const launchSignal = AbortSignal.any([this.abort.signal, cancel]);
+    let submittedAt = startedAt;
+    let attempted = false;
     let accepted = false;
     try {
-      const spaces = (await this.d.call("agent.spaces.list", {})) as { id: string; revision: number; root: string }[];
-      const space = a.spaceId ? spaces.find((x) => x.id === a.spaceId) : spaces.find((x) => sameDir(x.root, this.d.vaultRoot));
-      if (!space) throw errors.invalidInput(a.spaceId ? "Space 不存在或目录不可访问" : "没有以 Vault 根为目录的 Space，请在规则里选择一个 Space");
-      const key = terminalRequestId(run.id);
-      const input: TerminalRuleLaunch = { spaceId: space.id, spaceRevision: space.revision, provider: "shell", command: a.command, shell: a.shell, requestId: key };
-      const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, a, input, launchSignal) : ((await this.d.call("agent.sessions.launch", input, key)) as { id: string });
+      let input: TerminalRuleLaunch;
+      try {
+        input = preparedInput ?? (await this.terminalInput(action, run.id));
+      } catch (error) {
+        if (terminalLaunch) return await this.terminalPending(run.id, "原计划未提交，当前无法核对原启动配置。", run.version);
+        throw error;
+      }
+      if (terminalLaunch) {
+        if (this.abort.signal.aborted) return { state: "running" };
+        if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
+        if (!this.matchesTerminalLaunch(ruleId, input, terminalLaunch.fingerprint)) {
+          return await this.terminalPending(run.id, "原计划未提交，规则或启动配置已变化，需人工核对。", run.version);
+        }
+        submittedAt = iso(this.d.now());
+        // 先持久化可能提交的边界。即使下一行尚未调用 Core，重启后也只能核对原请求。
+        try {
+          await this.d.repo.patch("automation-run", run.id, { terminalLaunch: { ...terminalLaunch, submittedAt } }, run.version);
+        } catch (error) {
+          if (errorCode(error) === "VERSION_CONFLICT") return { state: String(this.d.repo.read("automation-run", run.id).data["state"]) };
+          throw error;
+        }
+        if (this.abort.signal.aborted) return { state: "running" };
+        if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
+        if (!this.matchesTerminalLaunch(ruleId, input, terminalLaunch.fingerprint)) {
+          return await this.terminalPending(run.id, "规则或启动配置在提交前已变化，需人工核对。");
+        }
+      }
+      attempted = true;
+      const sess = this.d.launchTerminal ? await this.d.launchTerminal(ruleId, action, input, launchSignal) : ((await this.d.call("agent.sessions.launch", input, input.requestId)) as { id: string });
       accepted = true;
       const cur = this.d.repo.read("automation-run", run.id);
       await this.d.repo.patch("automation-run", run.id, { sessionId: sess.id }, cur.version);
-      return await this.settleTerminalRun(run.id, sess.id, startedAt, ruleTitle, cancel);
+      return await this.settleTerminalRun(run.id, sess.id, submittedAt, ruleTitle, cancel);
     } catch (e) {
       if (this.abort.signal.aborted) return { state: "running" };
-      const code = (e as { code?: unknown } | null)?.code;
-      if (accepted || code === "RUN_UNKNOWN" || code === "WRITE_PARTIAL" || code === "INTERNAL") return await this.terminalPending(run.id, "正在核对原启动及终端状态。");
-      const msg = typeof code === "string" ? `${code}：${e instanceof Error ? e.message : String(e)}` : e instanceof Error ? e.message : String(e);
+      // 写入阶段出错时交给重启读取持久状态，避免覆盖可能已经落盘的提交记录。
+      if (terminalLaunch && !attempted) throw e;
+      const code = errorCode(e);
+      // 受保护环境会把回调中的启动错误折叠成 operation-failed，其中也可能有丢失的 ACK。
+      const uncertain = terminalLaunch && (!isHuhuError(e) || e.details?.["reason"] === "operation-failed");
+      if (accepted || code === "RUN_UNKNOWN" || code === "WRITE_PARTIAL" || code === "INTERNAL" || uncertain) {
+        return await this.terminalPending(run.id, "正在核对原启动及终端状态。");
+      }
+      const msg = errorMessage(e);
       this.d.notify({ title: `自动化「${ruleTitle}」失败：${msg}`, module: "automations" });
-      const cur = this.d.repo.read("automation-run", run.id);
-      await this.d.repo.patch("automation-run", run.id, { state: "failed", finishedAt: iso(this.d.now()) }, cur.version, `${cur.body}\n## 输出\n\n${msg}\n`);
-      this.d.publish("run.stateChanged", { runId: run.id, kind: "automation-run", state: "failed" });
-      return { state: "failed" };
+      return await this.finishTerminalRun(run.id, "failed", msg);
     } finally {
       this.runAbort.delete(run.id);
     }
+  }
+
+  private async finishTerminalRun(runId: string, state: "failed" | "cancelled", message: string): Promise<{ state: string }> {
+    const cur = this.d.repo.read("automation-run", runId);
+    await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()) }, cur.version, `${cur.body}\n## 输出\n\n${message}\n`);
+    this.d.publish("run.stateChanged", { runId, kind: "automation-run", state });
+    return { state };
   }
 
   /** 等终端会话结束（轮询 agent.sessions.list；取消或超时就结束会话），读取脱敏后的输出，写回运行记录。引擎重启后的对账也走这里。 */
@@ -401,8 +559,9 @@ export class AutomationsService {
     return (await this.d.call("agent.sessions.list", {}).catch(() => null)) as TerminalSession[] | null;
   }
 
-  private async terminalPending(runId: string, message: string): Promise<{ state: string }> {
+  private async terminalPending(runId: string, message: string, expectedVersion?: string): Promise<{ state: string }> {
     const cur = this.d.repo.read("automation-run", runId);
+    if (cur.data["finishedAt"] || (expectedVersion !== undefined && cur.version !== expectedVersion)) return { state: String(cur.data["state"]) };
     if (cur.data["state"] !== "unknown") {
       await this.d.repo.patch("automation-run", runId, { state: "unknown", finishedAt: null }, cur.version, `\n${message}\n`);
       this.d.publish("run.stateChanged", { runId, kind: "automation-run", state: "unknown" });
@@ -480,25 +639,36 @@ export class AutomationsService {
     if (!owner || this.abort.signal.aborted) return;
     const rows = this.d.repo
       .list("automation-run")
-      .filter(({ id, data }) => data["actionKind"] === "terminal" && data["terminalOwner"] === owner && !data["finishedAt"] && (data["state"] === "running" || data["state"] === "unknown") && !this.runAbort.has(id));
+      .filter(({ id, data, readOnly }) => !readOnly && data["actionKind"] === "terminal" && data["terminalOwner"] === owner && !data["finishedAt"] && (data["state"] === "running" || data["state"] === "unknown") && !this.runAbort.has(id));
     if (!rows.length) return;
-    const sessions = await this.terminalSessions();
-    if (this.abort.signal.aborted || !sessions) return;
-    const titles = new Map(this.rules().map(({ id, data }) => [id, data.title]));
-    for (const { id, data } of rows) {
+    const rules = new Map(this.rules().map((rule) => [rule.id, rule]));
+    let sessions: TerminalSession[] | null | undefined;
+    for (const run of rows) {
+      const { id } = run;
       if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
-      const previousId = data["sessionId"];
-      const session = sessions.find((row) => row.requestId === terminalRequestId(id) && (!previousId || row.id === previousId));
-      if (!session || session.state === "launching" || session.state === "unknown") {
-        await this.terminalPending(id, "原启动暂时无法核实。");
+      const { ruleId, sessionId, startedAt, terminalLaunch, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
+      const rule = rules.get(ruleId);
+      if (trigger === "schedule" && terminalLaunch?.submittedAt === null && !sessionId) {
+        if (state !== "running" || this.ruleAbort.has(ruleId)) continue;
+        if (!rule?.data.enabled || rule.data.action.kind !== "terminal" || hasLegacyTerminalEnvironment(rule.data.action)) {
+          await this.terminalPending(id, "原计划未提交，规则已停用、删除或需要重新配置。", run.version);
+          continue;
+        }
+        const { title, action } = rule.data;
+        this.track(this.withRule(ruleId, () => this.runTerminalAction(run, title, action)).then(() => undefined));
         continue;
       }
-      const current = this.d.repo.read("automation-run", id);
-      if (!previousId) await this.d.repo.patch("automation-run", id, { sessionId: session.id }, current.version);
-      const startedAt = typeof data["startedAt"] === "string" ? data["startedAt"] : null;
-      const title = titles.get(String(data["ruleId"])) ?? "终端命令";
+      if (sessions === undefined) sessions = await this.terminalSessions();
+      if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
+      const session = sessions?.find((row) => row.requestId === terminalRequestId(id) && (!sessionId || row.id === sessionId));
+      if (!session || session.state === "launching" || session.state === "unknown") {
+        await this.terminalPending(id, "原启动暂时无法核实。", run.version);
+        continue;
+      }
+      if (!sessionId) await this.d.repo.patch("automation-run", id, { sessionId: session.id }, run.version);
+      const title = rule?.data.title ?? "终端命令";
       this.track(
-        this.settleTerminalRun(id, session.id, startedAt, title, this.terminalSignal(null, id))
+        this.settleTerminalRun(id, session.id, terminalLaunch?.submittedAt ?? startedAt, title, this.terminalSignal(null, id))
           .then(() => undefined)
           .finally(() => this.runAbort.delete(id)),
       );
@@ -511,8 +681,8 @@ export class AutomationsService {
       .list("automation-run")
       .filter(({ data }) => data["actionKind"] === "terminal")
       .map(({ id, data }) => {
-        const { ruleId, state, startedAt, finishedAt } = data as unknown as { ruleId: string; state: string; startedAt: string | null; finishedAt: string | null };
-        return { id, kind: "automation-run" as const, state, title: titles.get(ruleId) ?? ruleId, startedAt, finishedAt, live: this.runAbort.has(id) };
+        const run = data as unknown as AutomationRunFrontmatter;
+        return { id, kind: "automation-run" as const, state: this.terminalState(run), title: titles.get(run.ruleId) ?? run.ruleId, startedAt: run.startedAt, finishedAt: run.finishedAt, live: this.runAbort.has(id) };
       })
       .sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))
       .slice(0, limit);
@@ -524,6 +694,9 @@ export class AutomationsService {
     const ruleId = String(data["ruleId"]);
     if (data["actionKind"] !== "terminal") throw errors.notFound(`终端运行 ${runId} 不存在`);
     const title = this.rules().find((rule) => rule.id === ruleId)?.data.title ?? ruleId;
+    if (!data["finishedAt"] && data["terminalOwner"] !== this.d.terminalOwner) {
+      return { id, kind: "automation-run" as const, version, body: `当前 Vault 无法核实这次运行的本机归属。\n\n${body}`, data: { ...data, state: "unknown", sessionId: null }, title, live: false };
+    }
     return { id, kind: "automation-run" as const, version, body, data, title, live: this.runAbort.has(id) };
   }
 }

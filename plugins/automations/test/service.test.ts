@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError, type TaskDto } from "@huhu/contracts";
 import { OperationLog, SemanticRepository, VaultFiles } from "@huhu/vault";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { Scheduler } from "../src/engine/scheduler.js";
 import { AutomationsService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
@@ -52,71 +54,87 @@ function setup(
     tasks?: TaskDto[];
     tasksEnabled?: boolean;
     /** 假 agent-cli：按命令返回会话；output 为命令的“输出”。 */
-    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; loseReply?: boolean; unavailable?: () => boolean; hasEnv?: boolean };
+    terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; lostReply?: Error; unavailable?: () => boolean; hasEnv?: boolean };
     spaceState?: "ok" | "missing";
+    spaceRevision?: () => number;
+    now?: () => Date;
   } = {},
 ) {
   const d = mkdtempSync(path.join(tmpdir(), "huhu-au-"));
   dirs.push(d);
   const root = path.join(d, "v");
   mkdirSync(path.join(root, ".huhu"), { recursive: true });
-  const files = new VaultFiles(root);
   const tasks = opts.tasks ?? [];
   const calls: Call[] = [];
   const notes: string[] = [];
   const events: string[] = [];
   const sessions = new Map<string, { id: string; state: string; exitCode: number | null; requestId?: string; hasEnv?: boolean }>();
-  const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
-  const svc = new AutomationsService({
-    repo,
-    activationsDir: path.join(d, "act"),
-    taskQuery: () =>
-      opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
-    terminalPollMs: 5,
-    spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }),
-    cliAvailable: () => true,
-    holds: () => false,
-    vaultRoot: root,
-    terminalOwner,
-    call: async (capability, input, key) => {
-      const i = input as Record<string, unknown>;
-      calls.push({ capability, input: i, ...(key ? { key } : {}) });
-      if (!key && !/^(agent\.spaces\.list|agent\.sessions\.(list|output)|tasks\.(list|read))$/.test(capability)) throw new Error("写入类能力必须提供幂等键"); // 与内核 Dispatcher 一致：缺幂等键会被拒绝
-      if (capability === "agent.spaces.list") return [{ id: "space-1", revision: 1, root }];
-      if (capability === "agent.sessions.launch") {
-        if (opts.terminal?.launchError) throw new Error(opts.terminal.launchError);
-        sessions.set(`sess-${sessions.size + 1}`, {
-          id: `sess-${sessions.size + 1}`,
-          state: opts.terminal?.stayRunning ? "running" : "exited",
-          exitCode: opts.terminal?.exitCode ?? 0,
-          requestId: String(i["requestId"]),
-          hasEnv: opts.terminal?.hasEnv ?? false,
-        });
-        if (opts.terminal?.loseReply) throw new HuhuError("RUN_UNKNOWN", "终端启动回执未收到");
-        return { id: `sess-${sessions.size}` };
-      }
-      if (capability === "agent.sessions.list") {
-        if (opts.terminal?.unavailable?.()) throw new Error("temporary disconnect");
-        return [...sessions.values()];
-      }
-      if (capability === "agent.sessions.kill") {
-        const x = sessions.get(String(i["id"]));
-        if (x) Object.assign(x, { state: "exited", exitCode: null });
+  const open = (owner = terminalOwner) => {
+    const files = new VaultFiles(root);
+    const repo = new SemanticRepository(files, new OperationLog(files, path.join(d, "ops")));
+    const svc = new AutomationsService({
+      repo,
+      activationsDir: path.join(d, "act"),
+      taskQuery: () =>
+        opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
+      terminalPollMs: 5,
+      spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }),
+      cliAvailable: () => true,
+      holds: () => false,
+      vaultRoot: root,
+      terminalOwner: owner,
+      call: async (capability, input, key) => {
+        const i = input as Record<string, unknown>;
+        calls.push({ capability, input: i, ...(key ? { key } : {}) });
+        if (!key && !/^(agent\.spaces\.list|agent\.sessions\.(list|output)|tasks\.(list|read))$/.test(capability)) throw new Error("写入类能力必须提供幂等键"); // 与内核 Dispatcher 一致：缺幂等键会被拒绝
+        if (capability === "agent.spaces.list") return [{ id: "space-1", revision: opts.spaceRevision?.() ?? 1, root }];
+        if (capability === "agent.sessions.launch") {
+          if (opts.terminal?.launchError) throw new Error(opts.terminal.launchError);
+          sessions.set(`sess-${sessions.size + 1}`, {
+            id: `sess-${sessions.size + 1}`,
+            state: opts.terminal?.stayRunning ? "running" : "exited",
+            exitCode: opts.terminal?.exitCode ?? 0,
+            requestId: String(i["requestId"]),
+            hasEnv: opts.terminal?.hasEnv ?? false,
+          });
+          if (opts.terminal?.lostReply) throw opts.terminal.lostReply;
+          return { id: `sess-${sessions.size}` };
+        }
+        if (capability === "agent.sessions.list") {
+          if (opts.terminal?.unavailable?.()) throw new Error("temporary disconnect");
+          return [...sessions.values()];
+        }
+        if (capability === "agent.sessions.kill") {
+          const x = sessions.get(String(i["id"]));
+          if (x) Object.assign(x, { state: "exited", exitCode: null });
+          return {};
+        }
+        if (capability === "agent.sessions.release") return { ok: true };
+        if (capability === "agent.sessions.output") return { text: opts.terminal?.output ?? "", complete: true };
         return {};
-      }
-      if (capability === "agent.sessions.release") return { ok: true };
-      if (capability === "agent.sessions.output") return { text: opts.terminal?.output ?? "", complete: true };
-      return {};
-    },
-    notify: (n) => notes.push(n.title),
-    publish: (t) => events.push(t),
-    now: () => new Date("2026-11-10T12:00:00Z"),
-    zone: () => "UTC",
-  });
-  return { svc, root, tasks, calls, notes, events, d, sessions, repo };
+      },
+      notify: (n) => notes.push(n.title),
+      publish: (t) => events.push(t),
+      now: opts.now ?? (() => new Date("2026-11-10T12:00:00Z")),
+      zone: () => "UTC",
+    });
+    return { repo, svc };
+  };
+  return { ...open(), open, root, tasks, calls, notes, events, d, sessions };
 }
 
 const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
+const terminalAction = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null } as const;
+const terminalSlot = new Date("2026-11-10T12:00:00Z");
+
+async function terminalRule(svc: AutomationsService) {
+  const created = await svc.create({ title: "定时终端", trigger: every5, action: terminalAction });
+  return svc.setEnabled(created.id, true);
+}
+
+function terminalLaunches(calls: Call[]) {
+  return calls.filter(({ capability }) => capability === "agent.sessions.launch");
+}
 /** 一条已启用的“让 Agent 处理任务”规则。 */
 async function scanRule(svc: AutomationsService, tags: string[] = [], maxConcurrent = 1): Promise<string> {
   const r = await svc.create({ title: "处理 Agent 任务", trigger: every5, action: { kind: "agent", input: { source: "tasks", tags, maxConcurrent } } });
@@ -371,27 +389,209 @@ test("暂停的终端规则可以手动运行，定时经过时不会创建会�
   expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
 });
 
-test("原启动的回执丢失时只核对原会话，定时发生重交不会再启动", async () => {
-  let disconnected = true;
-  const { svc, calls, sessions } = setup({ terminal: { loseReply: true, output: "原命令已完成", unavailable: () => disconnected } });
-  const rule = await svc.create({ title: "原终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
-  await svc.setEnabled(rule.id, true);
-  const slot = new Date("2026-11-10T12:00:00Z");
-  const first = await svc.activateNonAgent(rule.id, "schedule", slot);
-  expect(first.summary).toEqual({ state: "unknown" });
-  expect(first.finishedAt).toBeUndefined();
-  const run = svc.runs()[0]!;
-  expect(svc.runDetail(run.id).data).toMatchObject({ state: "unknown", sessionId: null, finishedAt: null, terminalOwner });
-  await svc.reconcileTerminals();
-  expect(svc.runDetail(run.id).data["state"]).toBe("unknown");
-  expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toEqual(first);
-  disconnected = false;
-  sessions.set("unrelated", { id: "unrelated", requestId: "other", state: "running", exitCode: null });
-  await svc.reconcileTerminals();
-  await svc.idle();
-  expect(svc.runDetail(run.id)).toMatchObject({ data: { state: "succeeded", sessionId: "sess-1" } });
-  expect(svc.runDetail(run.id).body).toContain("原命令已完成");
-  expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toMatchObject({ activationId: first.activationId, summary: { state: "succeeded" }, finishedAt: expect.any(String) });
-  expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
-  expect(calls.filter(({ capability }) => capability === "agent.sessions.kill")).toHaveLength(0);
+test("定时终端在原计划点的运行写入前中断，重启从启用时刻补回该计划点", async () => {
+  let now = new Date("2026-11-10T11:56:00Z");
+  const { svc, repo, open, calls } = setup({ now: () => now });
+  const rule = await terminalRule(svc);
+  now = terminalSlot;
+  const interruptedWrite = vi.spyOn(repo, "create").mockRejectedValueOnce(new Error("运行持久写入前中断"));
+  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("运行持久写入前中断");
+  const restarted = open().svc;
+  expect(restarted.activations()).toEqual([]);
+  expect(terminalLaunches(calls)).toHaveLength(0);
+
+  const activate = vi.fn((id: string, at: Date) => restarted.activateNonAgent(id, "schedule", at).then(() => undefined));
+  const scheduler = new Scheduler({ activate, lastActivatedFor: (id) => restarted.lastActivatedFor(id), now: () => now });
+  try {
+    scheduler.sync([{ id: rule.id, enabled: true, cron: every5.cron, zone: every5.zone, missedRunGraceMinutes: 30, updatedAt: rule.data.updatedAt }]);
+    expect(activate).toHaveBeenCalledExactlyOnceWith(rule.id, terminalSlot, "schedule");
+    await activate.mock.results[0]?.value;
+  } finally {
+    scheduler.stop();
+  }
+  expect(restarted.runs()).toHaveLength(1);
+  expect(restarted.runs()[0]?.id).toBe(interruptedWrite.mock.calls[0]?.[3]);
+  expect(restarted.activations()).toEqual([expect.objectContaining({ scheduledFor: "2026-11-10T12:00:00Z", summary: { state: "succeeded" } })]);
+  expect(terminalLaunches(calls)).toHaveLength(1);
 });
+
+test("运行已经写入且能证明尚未提交时，重启继续原运行和 requestId", async () => {
+  const { svc, repo, open, calls, d } = setup();
+  const rule = await terminalRule(svc);
+  vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
+  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  expect(terminalLaunches(calls)).toHaveLength(0);
+  expect(existsSync(path.join(d, "act"))).toBe(false);
+  const restarted = open().svc;
+  const [original] = restarted.runs();
+  const [activation] = restarted.activations();
+  expect(restarted.runDetail(original!.id).data).toMatchObject({ terminalLaunch: { submittedAt: null }, activationId: activation!.activationId });
+  expect(restarted.lastActivatedFor(rule.id)).toEqual(terminalSlot);
+  await restarted.reconcileTerminals();
+  await restarted.idle();
+  expect(restarted.runs()).toEqual([expect.objectContaining({ id: original!.id, state: "succeeded" })]);
+  expect(restarted.activations()).toEqual([expect.objectContaining({ activationId: activation!.activationId, summary: { state: "succeeded" } })]);
+  expect(terminalLaunches(calls)).toEqual([expect.objectContaining({ key: `autorun-${original!.id}`, input: expect.objectContaining({ requestId: `autorun-${original!.id}` }) })]);
+});
+
+test.each(["规则", "规则停用", "Space", "受保护配置"])("尚未提交的原运行遇到%s变化时保留待核对状态", async (changed) => {
+  let revision = 1;
+  const { svc, repo, open, calls, root } = setup({ spaceRevision: () => revision });
+  const rule = await terminalRule(svc);
+  const file = `.huhu/module-credentials/${createHash("sha256")
+    .update(JSON.stringify(["automations"]))
+    .digest("hex")}.json`;
+  const files = new VaultFiles(root);
+  const writeEnvironment = () =>
+    files.write(file, Buffer.from(JSON.stringify({ format: 1, entries: [{ entityId: rule.id, revision: randomUUID(), definition: { format: 1, names: ["FIXTURE"], fingerprint: "a".repeat(64) }, configured: [] }] })));
+  if (changed === "受保护配置") await writeEnvironment();
+  vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
+  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  const runId = svc.runs()[0]!.id;
+  if (changed === "规则") await svc.update(rule.id, rule.version, { action: { ...terminalAction, command: "echo changed" } });
+  if (changed === "规则停用") await svc.setEnabled(rule.id, false);
+  if (changed === "Space") revision++;
+  if (changed === "受保护配置") await writeEnvironment();
+  const restarted = open().svc;
+  await restarted.reconcileTerminals();
+  await restarted.idle();
+  await restarted.reconcileTerminals();
+  expect(restarted.runs()).toEqual([expect.objectContaining({ id: runId, state: "unknown", live: false })]);
+  expect(restarted.runDetail(runId).body).toContain("原计划未提交");
+  expect(restarted.activations()).toEqual([expect.objectContaining({ summary: { state: "unknown" } })]);
+  expect(terminalLaunches(calls)).toHaveLength(0);
+});
+
+test.each([false, true])("确认边界后的中断只核对原请求（Core 已创建终端：%s）", async (coreAccepted) => {
+  let disconnected = true;
+  const { svc, repo, open, calls, sessions } = setup({ terminal: { unavailable: () => disconnected } });
+  const rule = await terminalRule(svc);
+  const patch = repo.patch.bind(repo);
+  vi.spyOn(repo, "patch").mockImplementation(async (...args) => {
+    const [, , changes] = args;
+    if (coreAccepted && changes["sessionId"]) {
+      svc.abortAll();
+      throw new Error("Core 已创建终端，启动确认未写回");
+    }
+    const persisted = await patch(...args);
+    if (!coreAccepted && changes["terminalLaunch"]) svc.abortAll();
+    return persisted;
+  });
+  const first = await svc.activateNonAgent(rule.id, "schedule", terminalSlot);
+  const runId = svc.runs()[0]!.id;
+  const requestId = `autorun-${runId}`;
+  expect(svc.runDetail(runId).data).toMatchObject({ state: "running", sessionId: null, terminalLaunch: { submittedAt: expect.any(String) } });
+  expect(terminalLaunches(calls)).toHaveLength(Number(coreAccepted));
+  const restarted = open().svc;
+  await restarted.reconcileTerminals();
+  expect(restarted.runDetail(runId).data["state"]).toBe("unknown");
+  disconnected = false;
+  sessions.set("other", { id: "other", requestId: `${requestId}-other`, state: "exited", exitCode: 0 });
+  await restarted.reconcileTerminals();
+  await restarted.idle();
+  const state = coreAccepted ? "succeeded" : "unknown";
+  expect(restarted.runDetail(runId).data).toMatchObject({ state, sessionId: coreAccepted ? "sess-1" : null });
+  expect(await restarted.activateNonAgent(rule.id, "schedule", terminalSlot)).toMatchObject({ activationId: first.activationId, summary: { state } });
+  expect(restarted.runs()).toHaveLength(1);
+  expect(terminalLaunches(calls)).toHaveLength(Number(coreAccepted));
+});
+
+test("历史 NDJSON 的孤立发生和中断半行仍可查询，同一计划点不再启动", async () => {
+  const { svc, d, open, calls } = setup();
+  const rule = await terminalRule(svc);
+  const actDir = path.join(d, "act");
+  mkdirSync(actDir);
+  const previous = { activationId: "act-legacy", ruleId: rule.id, trigger: "schedule", startedAt: "2026-11-10T12:00:00Z", scheduledFor: "2026-11-10T12:00:00Z" };
+  const file = path.join(actDir, "2026-11.ndjson");
+  const bytes = `${JSON.stringify(previous)}\n{"activationId":"act-legacy", "summ`;
+  writeFileSync(file, bytes);
+  const { svc: restarted, repo } = open();
+  await restarted.reconcileTerminals();
+  expect(restarted.lastActivatedFor(rule.id)).toEqual(terminalSlot);
+  const unknown = { ...previous, summary: { state: "unknown" } };
+  expect(restarted.activations()).toEqual([unknown]);
+  expect(await restarted.activateNonAgent(rule.id, "schedule", terminalSlot)).toEqual(unknown);
+  expect(restarted.runs()).toHaveLength(0);
+  expect(calls).toEqual([]);
+  expect(readFileSync(file, "utf8")).toBe(bytes);
+
+  const finishedAt = "2026-11-10T12:01:00Z";
+  await repo.create("automation-run", { activationId: previous.activationId, ruleId: rule.id, actionKind: "terminal", trigger: "schedule", state: "succeeded", finishedAt }, "");
+  expect(restarted.activations()).toEqual([{ ...previous, finishedAt, summary: { state: "succeeded" } }]);
+  expect(readFileSync(file, "utf8")).toBe(bytes);
+});
+
+test("同槽并发共用持久运行，跨服务保留同一个运行和原请求", async () => {
+  const { svc, repo, open, calls } = setup();
+  const rule = await terminalRule(svc);
+  const create = repo.create.bind(repo);
+  let entered!: () => void;
+  let release!: () => void;
+  const entering = new Promise<void>((resolve) => (entered = resolve));
+  const releasing = new Promise<void>((resolve) => (release = resolve));
+  vi.spyOn(repo, "create").mockImplementationOnce(async (...args) => {
+    entered();
+    await releasing;
+    return create(...args);
+  });
+  const first = svc.activateNonAgent(rule.id, "schedule", terminalSlot);
+  await entering;
+  const duplicate = svc.activateNonAgent(rule.id, "schedule", terminalSlot);
+  const other = await open().svc.activateNonAgent(rule.id, "schedule", terminalSlot).finally(release);
+  const results = await Promise.all([first, duplicate]);
+  expect(results).toEqual([other, other]);
+  expect(svc.activations()).toEqual([other]);
+  const [run] = svc.runs();
+  expect(svc.runs()).toHaveLength(1);
+  expect(terminalLaunches(calls)).toEqual([expect.objectContaining({ key: `autorun-${run!.id}` })]);
+});
+
+test.each([false, true])("其他 Vault 的同一计划点不重启也不认领匹配的会话（已记录提交：%s）", async (submitted) => {
+  const { svc, repo, open, calls, sessions, root } = setup();
+  const rule = await terminalRule(svc);
+  vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
+  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  const pending = repo.list("automation-run")[0]!;
+  const launch = pending.data["terminalLaunch"] as { fingerprint: string };
+  const original = submitted ? await repo.patch("automation-run", pending.id, { sessionId: "copied", terminalLaunch: { ...launch, submittedAt: terminalSlot.toISOString() } }, pending.version) : pending;
+  const file = path.join(root, original.path);
+  const bytes = readFileSync(file);
+  sessions.set("copied", { id: "copied", requestId: `autorun-${original.id}`, state: "exited", exitCode: 0 });
+  calls.length = 0;
+  const copied = open("b".repeat(64)).svc;
+  await copied.reconcileTerminals();
+  await copied.idle();
+  expect(copied.runDetail(original.id).data).toMatchObject({ state: "unknown", sessionId: null });
+  expect(copied.runs()).toEqual([expect.objectContaining({ id: original.id, state: "unknown", live: false })]);
+  expect(await copied.activateNonAgent(rule.id, "schedule", terminalSlot)).toEqual(copied.activations()[0]);
+  expect(calls).toEqual([]);
+  expect(readFileSync(file)).toEqual(bytes);
+});
+
+test.each([new HuhuError("RUN_UNKNOWN", "终端启动回执未收到"), new HuhuError("INVALID_INPUT", "规则的本机环境不可用", { details: { reason: "operation-failed" } }), Object.assign(new Error("启动连接断开"), { code: "EPIPE" })])(
+  "原启动的回执丢失（$message）时只核对原会话，定时发生重交不会再启动",
+  async (lostReply) => {
+    let disconnected = true;
+    const { svc, calls, sessions } = setup({ terminal: { lostReply, output: "原命令已完成", unavailable: () => disconnected } });
+    const rule = await svc.create({ title: "原终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
+    await svc.setEnabled(rule.id, true);
+    const slot = new Date("2026-11-10T12:00:00Z");
+    const first = await svc.activateNonAgent(rule.id, "schedule", slot);
+    expect(first.summary).toEqual({ state: "unknown" });
+    expect(first.finishedAt).toBeUndefined();
+    const run = svc.runs()[0]!;
+    expect(svc.runDetail(run.id).data).toMatchObject({ state: "unknown", sessionId: null, finishedAt: null, terminalOwner });
+    await svc.reconcileTerminals();
+    expect(svc.runDetail(run.id).data["state"]).toBe("unknown");
+    expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toEqual(first);
+    disconnected = false;
+    sessions.set("unrelated", { id: "unrelated", requestId: "other", state: "running", exitCode: null });
+    await svc.reconcileTerminals();
+    await svc.idle();
+    expect(svc.runDetail(run.id)).toMatchObject({ data: { state: "succeeded", sessionId: "sess-1" } });
+    expect(svc.runDetail(run.id).body).toContain("原命令已完成");
+    expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toMatchObject({ activationId: first.activationId, summary: { state: "succeeded" }, finishedAt: expect.any(String) });
+    expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
+    expect(calls.filter(({ capability }) => capability === "agent.sessions.kill")).toHaveLength(0);
+  },
+);
