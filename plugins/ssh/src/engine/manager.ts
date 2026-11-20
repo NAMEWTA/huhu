@@ -3,6 +3,8 @@ import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { Readable } from "node:stream";
 import { Client, type ClientChannel, type SFTPWrapper } from "ssh2";
+import type { HuhuApi } from "@huhu/kernel";
+import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../shared/trust.js";
 import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import { agentAuth, type ConnectionAuth, type HostRecord, type ManagedHost } from "./host-configurations.js";
@@ -19,6 +21,7 @@ export interface AuditEntry {
 export interface SshDeps {
   hosts: { list(): HostRecord[] | Promise<HostRecord[]> };
   knownHostsFile: string;
+  knownHostsFiles?: HuhuApi["vault"]["files"];
   auditDir: string;
   /** 解析 safe:// 引用；保险箱锁定时抛 SAFE_LOCKED。 */
   resolveSecret(ref: string, purpose: string): string;
@@ -30,10 +33,19 @@ export interface SshDeps {
 
 interface Conn {
   hostId: string;
+  attemptId: string;
   routeIdentity: string;
   clients: Client[];
   target: Client;
 }
+type Attempt = {
+  id: string;
+  hostId: string;
+  signal: AbortSignal;
+  requirePromptId: boolean;
+  pending?: { prompt: HostKeyPrompt; answer(accept: boolean, remember: boolean): void } | undefined;
+  changed?: HostKeyPrompt;
+};
 interface ExecRun {
   channel: ClientChannel;
   interrupted: boolean;
@@ -55,6 +67,8 @@ interface ShellRec extends ShellInfo {
 }
 const SHELL_BUFFER = 64 * 1024;
 
+const describeHost = ({ id, name, host, port }: HostRecord) => ({ id, name, host, port });
+
 /** SSH 密钥类型名取自公钥 blob 的第一个字符串。 */
 export function keyTypeOf(key: Buffer): string {
   const len = key.readUInt32BE(0);
@@ -65,14 +79,15 @@ export function keyTypeOf(key: Buffer): string {
 export class SshManager {
   private conns = new Map<string, Conn>();
   private shells = new Map<string, ShellRec>();
-  private attempts = new Map<string, Map<number, (accept: boolean) => void>>();
+  private attempts = new Map<string, Attempt>();
+  private statuses = new Map<string, ConnectionStatus>();
   private execs = new Map<string, ExecRun>();
   /** 正在传输（上传/下载）的主机：同一主机同时只传一个文件。 */
   private transferring = new Map<string, AbortController>();
   private known: KnownHosts;
 
   constructor(private readonly d: SshDeps) {
-    this.known = new KnownHosts(d.knownHostsFile);
+    this.known = new KnownHosts(d.knownHostsFile, d.knownHostsFiles);
   }
 
   // ---- 审计（不含凭据）----
@@ -97,12 +112,30 @@ export class SshManager {
     return this.conns.has(hostId);
   }
 
-  /** UI 对主机密钥提示的决定；迟到/未知的决定被忽略。 */
-  decide(attemptId: string, hop: number, accept: boolean): boolean {
-    const cb = this.attempts.get(attemptId)?.get(hop);
-    if (!cb) return false;
-    this.attempts.get(attemptId)?.delete(hop);
-    cb(accept);
+  connectionStatuses(): ConnectionStatus[] {
+    return [...this.statuses.values()];
+  }
+
+  knownHosts(): KnownHostKey[] {
+    return this.known.list();
+  }
+
+  forgetHostKey(key: KnownHostKey): Promise<void> {
+    return this.known.forget(key);
+  }
+
+  private update(status: ConnectionStatus) {
+    this.statuses.set(status.hostId, status);
+    this.d.publish("ssh.connectionChanged", { hostId: status.hostId, state: status.state === "key-changed" ? "failed" : status.state });
+  }
+
+  /** 只消费当前连接和跳的待答项。旧调用者使用唯一 attemptId + hop。 */
+  decide(attemptId: string, hop: number, accept: boolean, promptId?: string, remember = true): boolean {
+    const attempt = this.attempts.get(attemptId);
+    const pending = attempt?.pending;
+    if (!attempt || attempt.signal.aborted || pending?.prompt.hop !== hop || (promptId === undefined ? attempt.requirePromptId : pending.prompt.promptId !== promptId)) return false;
+    attempt.pending = undefined;
+    pending.answer(accept, remember);
     return true;
   }
 
@@ -127,42 +160,74 @@ export class SshManager {
     return { privateKey, ...(h.auth.passphraseRef ? { passphrase: this.d.resolveSecret(h.auth.passphraseRef, `ssh:${h.id}`) } : {}) };
   }
 
-  private connecting = new Map<string, { abort: AbortController; promise: Promise<{ attemptId: string }> }>();
+  private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<{ attemptId: string }> }>();
 
   /** 同一主机的并发 connect 合并为一次，避免产生被遗弃的重复连接。 */
   connect(hostId: string, signal?: AbortSignal): Promise<{ attemptId: string }> {
-    const running = this.connecting.get(hostId);
-    if (running) return running.promise;
-    const abort = new AbortController();
-    const promise = this.doConnect(hostId, signal ? AbortSignal.any([signal, abort.signal]) : abort.signal).finally(() => this.connecting.delete(hostId));
-    this.connecting.set(hostId, { abort, promise });
-    return promise;
+    return this.begin(hostId, signal).promise;
   }
 
-  private async doConnect(hostId: string, signal: AbortSignal): Promise<{ attemptId: string }> {
-    const chain = this.route(hostId, await this.d.hosts.list());
-    if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
-    const target = chain[chain.length - 1]!;
-    const routeIdentity = JSON.stringify(chain.map((host) => ("revision" in host ? [host.id, host.revision] : [host.id, host.host, host.port, host.user, host.auth, host.connectTimeoutSec])));
-    if (this.conns.get(hostId)?.routeIdentity === routeIdentity) return { attemptId: "existing" };
-    this.drop(hostId);
-    const attemptId = newId("cap").replace("cap", "att");
-    this.attempts.set(attemptId, new Map());
+  /** 桌面工作台切换页面时，已发起的连接仍由 Engine 持有。 */
+  start(hostId: string): { attemptId: string } {
+    const { attempt, promise } = this.begin(hostId, AbortSignal.timeout(5 * 60_000), true);
+    void promise.catch(() => undefined); // 终态由连接快照读取。
+    return { attemptId: attempt.id };
+  }
+
+  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false) {
+    const running = this.connecting.get(hostId);
+    if (running) return running;
+    const abort = new AbortController();
+    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId };
+    const promise = Promise.resolve()
+      .then(() => this.doConnect(attempt))
+      .finally(() => {
+        this.connecting.delete(hostId);
+        this.attempts.delete(attempt.id);
+      });
+    const created = { attempt, abort, promise };
+    this.connecting.set(hostId, created);
+    this.attempts.set(attempt.id, attempt);
+    this.update({ hostId, attemptId: attempt.id, state: "connecting" });
+    return created;
+  }
+
+  private async doConnect(attempt: Attempt): Promise<{ attemptId: string }> {
+    const { hostId, id: attemptId, signal } = attempt;
+    const current = () => this.statuses.get(hostId)?.attemptId === attemptId;
     const opened: Client[] = [];
+    let stage: { hop: number; server: HostKeyPrompt["server"] } | undefined;
     const closeOpened = () => {
       for (const client of [...opened].reverse()) client.end();
     };
     signal.addEventListener("abort", closeOpened, { once: true });
     try {
+      const hosts = await this.d.hosts.list();
+      if (!hosts.some((host) => host.id === hostId)) {
+        if (current()) this.statuses.delete(hostId);
+        throw errors.notFound("SSH 主机不存在");
+      }
+      const chain = this.route(hostId, hosts);
+      if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
+      const target = chain[chain.length - 1]!;
+      const routeIdentity = JSON.stringify(chain.map((host) => ("revision" in host ? [host.id, host.revision] : [host.id, host.host, host.port, host.user, host.auth, host.connectTimeoutSec])));
+      const existing = this.conns.get(hostId);
+      if (existing?.routeIdentity === routeIdentity) {
+        existing.attemptId = attemptId;
+        this.update({ hostId, attemptId, state: "connected" });
+        return { attemptId: "existing" };
+      }
+      this.drop(hostId);
       let sock: unknown;
       for (const [hop, h] of chain.entries()) {
+        stage = { hop, server: describeHost(h) };
         const client = new Client();
         opened.push(client);
         if ("revision" in h) {
           if (!this.d.withManagedAuth) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
-          await this.d.withManagedAuth(h, (auth) => this.connectHop(client, h, hop, attemptId, auth, sock, signal));
+          await this.d.withManagedAuth(h, (auth) => this.connectHop(client, h, target, hop, attempt, auth, sock));
         } else {
-          await this.connectHop(client, h, hop, attemptId, this.legacyAuth(h), sock, signal);
+          await this.connectHop(client, h, target, hop, attempt, this.legacyAuth(h), sock);
         }
         client.setNoDelay(true); // SFTP/交互 shell 都是小包往返，Nagle + 延迟确认会让每次往返多出几十毫秒
         if (hop < chain.length - 1) {
@@ -171,36 +236,37 @@ export class SshManager {
         }
       }
       if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
-      const connection = { hostId, routeIdentity, clients: opened, target: opened[opened.length - 1]! };
+      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: opened[opened.length - 1]! };
       this.conns.set(hostId, connection);
       connection.target.on("close", () => {
         if (this.conns.get(hostId) === connection) this.drop(hostId);
       });
       this.audit({ hostId, action: "connect", result: "ok", detail: `${target.user}@${target.host}:${target.port}（${chain.length - 1} 个跳板）` });
-      this.d.publish("ssh.connectionChanged", { hostId, state: "connected" });
+      this.update({ hostId, attemptId, state: "connected" });
       return { attemptId };
     } catch (e) {
       closeOpened();
       this.audit({ hostId, action: "connect", result: "failed", detail: e instanceof HuhuError ? e.code : "error" });
-      this.d.publish("ssh.connectionChanged", { hostId, state: "failed" });
+      if (current()) {
+        if (attempt.changed) this.update({ hostId, attemptId, state: "key-changed", prompt: attempt.changed });
+        else this.update({ hostId, attemptId, state: "failed", message: e instanceof HuhuError ? e.message : "SSH 连接失败", ...stage });
+      }
       throw e;
     } finally {
       signal.removeEventListener("abort", closeOpened);
-      this.attempts.delete(attemptId);
     }
   }
 
-  private connectHop(client: Client, h: HostRecord, hop: number, attemptId: string, auth: ConnectionAuth, sock: unknown, signal: AbortSignal): Promise<void> {
+  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown): Promise<void> {
+    const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
-      let mismatch = false;
-      let rejectedByUser = false;
       let timer: NodeJS.Timeout | undefined;
       let done = false;
       const finish = (error?: HuhuError) => {
         if (done) return;
         done = true;
         if (timer) clearTimeout(timer);
-        this.attempts.get(attemptId)?.delete(hop);
+        if (attempt.pending?.prompt.hop === hop) attempt.pending = undefined;
         signal.removeEventListener("abort", cancel);
         if (error) reject(error);
         else resolve();
@@ -209,53 +275,93 @@ export class SshManager {
         finish(new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消", { details: { hop } }));
         client.end();
       };
+      const resumeTimer = () => {
+        timer = setTimeout(() => {
+          finish(new HuhuError("SSH_TIMEOUT", `连接超时（第 ${hop + 1} 跳）`, { details: { hop } }));
+          client.end();
+        }, h.connectTimeoutSec * 1000);
+      };
+      const publishKey = (prompt: HostKeyPrompt, reason: "first" | "changed") => {
+        this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: prompt.fingerprint, keyType: prompt.keyType, reason });
+      };
+      const blockChanged = (prompt: HostKeyPrompt, verify: (ok: boolean) => void) => {
+        attempt.changed = prompt;
+        publishKey(prompt, "changed");
+        finish(new HuhuError("SSH_HOST_KEY_MISMATCH", "主机密钥与记录不符，已拒绝连接", { details: { hop } }));
+        verify(false);
+      };
       if (signal.aborted) return cancel();
       signal.addEventListener("abort", cancel, { once: true });
       client.once("ready", () => finish());
       client.once("close", () => finish(new HuhuError("SSH_DISCONNECTED", "SSH 连接已关闭", { details: { hop } })));
-      client.once("error", (e: Error & { level?: string }) => {
-        if (mismatch) return finish(new HuhuError("SSH_HOST_KEY_MISMATCH", "主机密钥与记录不符，已拒绝连接", { details: { hop } }));
-        if (rejectedByUser) return finish(new HuhuError("SSH_DISCONNECTED", "已取消：未信任主机密钥", { details: { hop } }));
+      client.on("error", (e: Error & { level?: string }) => {
         if (e.level === "client-authentication") return finish(new HuhuError("SSH_AUTH_FAILED", `认证失败（第 ${hop + 1} 跳）`, { details: { hop } }));
-        if (/Timed out/i.test(e.message)) return finish(new HuhuError("SSH_TIMEOUT", `连接超时（第 ${hop + 1} 跳）`));
         finish(new HuhuError("SSH_DISCONNECTED", `连接失败（第 ${hop + 1} 跳）`, { details: { hop } }));
       });
+      resumeTimer();
       try {
         client.connect({
           ...(sock ? { sock: sock as never } : { host: h.host, port: h.port }),
           username: h.user,
-          readyTimeout: h.connectTimeoutSec * 1000,
+          // 网络和认证的计时在等待用户核对指纹期间暂停。
+          readyTimeout: 0,
           ...(h.keepaliveIntervalSec !== undefined ? { keepaliveInterval: h.keepaliveIntervalSec * 1000 } : {}),
           ...(h.keepaliveCountMax !== undefined ? { keepaliveCountMax: h.keepaliveCountMax } : {}),
           ...auth,
           hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
             if (done) return verify(false);
-            const type = keyTypeOf(key);
-            const check = this.known.check(h.host, h.port, type, key);
-            if (check.state === "trusted") return verify(true);
-            if (check.state === "mismatch") {
-              mismatch = true; // 认证之前就拒绝：不发送任何凭据
-              this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: fingerprintSha256(key), keyType: type, reason: "changed" });
+            const keyType = keyTypeOf(key);
+            let check: ReturnType<KnownHosts["check"]>;
+            try {
+              check = this.known.check(h.host, h.port, keyType, key);
+            } catch {
+              finish(new HuhuError("INTERNAL", "读取已知主机记录失败", { details: { hop } }));
               return verify(false);
             }
+            if (check.state === "trusted") return verify(true);
+            const prompt: HostKeyPrompt = {
+              promptId: newId("cap").replace("cap", "prompt"),
+              attemptId,
+              target: describeHost(target),
+              server: describeHost(h),
+              hop,
+              keyType,
+              fingerprint: fingerprintSha256(key),
+              recorded: check.recorded,
+            };
+            if (check.state === "mismatch") return blockChanged(prompt, verify);
+            clearTimeout(timer);
             timer = setTimeout(() => {
-              this.attempts.get(attemptId)?.delete(hop);
-              rejectedByUser = true;
+              finish(new HuhuError("SSH_DISCONNECTED", "等待主机指纹确认超时", { details: { hop } }));
               verify(false);
             }, this.d.decisionTimeoutMs ?? 120_000);
-            this.attempts.get(attemptId)?.set(hop, (accept) => {
-              clearTimeout(timer);
-              if (accept) {
-                try {
-                  this.known.trust(h.host, h.port, type, key);
-                } catch {
-                  finish(new HuhuError("INTERNAL", "保存 SSH 主机信任失败", { details: { hop } }));
-                  return verify(false);
+            attempt.pending = {
+              prompt,
+              answer: (accept, remember) => {
+                clearTimeout(timer);
+                if (!accept) {
+                  finish(new HuhuError("SSH_DISCONNECTED", "已拒绝主机指纹，连接已取消", { details: { hop } }));
+                  verify(false);
+                  return;
                 }
-              } else rejectedByUser = true;
-              verify(accept);
-            });
-            this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: fingerprintSha256(key), keyType: type, reason: "first" });
+                this.update({ hostId, attemptId, state: "connecting" });
+                void this.known
+                  .approve(h.host, h.port, keyType, key, remember, signal)
+                  .then((result) => {
+                    if (done) return;
+                    if (result.state === "mismatch") return blockChanged({ ...prompt, promptId: newId("cap").replace("cap", "prompt"), recorded: result.recorded }, verify);
+                    resumeTimer();
+                    verify(true);
+                  })
+                  .catch(() => {
+                    if (done) return;
+                    finish(new HuhuError("INTERNAL", "保存 SSH 主机信任失败", { details: { hop } }));
+                    verify(false);
+                  });
+              },
+            };
+            this.update({ hostId, attemptId, state: "waiting", prompt });
+            publishKey(prompt, "first");
           },
         } as never);
       } catch {
@@ -333,7 +439,7 @@ export class SshManager {
       }
     this.conns.delete(hostId);
     for (const cl of c.clients.reverse()) cl.end();
-    this.d.publish("ssh.connectionChanged", { hostId, state: "disconnected" });
+    if (this.statuses.get(hostId)?.attemptId === c.attemptId) this.update({ hostId, attemptId: c.attemptId, state: "disconnected" });
   }
 
   disconnect(hostId: string): void {
@@ -342,6 +448,11 @@ export class SshManager {
       this.drop(hostId);
       this.audit({ hostId, action: "disconnect", result: "ok", detail: "" });
     }
+  }
+
+  forgetConnection(hostId: string): void {
+    this.disconnect(hostId);
+    this.statuses.delete(hostId);
   }
 
   disposeAll(): void {

@@ -16,6 +16,7 @@
     "capabilities": [
       "ssh.audit.list",
       "ssh.connect",
+      "ssh.connections.status",
       "ssh.disconnect",
       "ssh.exec.cancel",
       "ssh.exec.run",
@@ -30,6 +31,8 @@
       "ssh.hosts.organize",
       "ssh.hosts.remove",
       "ssh.hosts.save",
+      "ssh.knownHosts.forget",
+      "ssh.knownHosts.list",
       "ssh.sftp.cancel",
       "ssh.sftp.delete",
       "ssh.sftp.download",

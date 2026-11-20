@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree } from "../helpers/launch.js";
-import { desktopCall } from "./workbench.js";
+import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
 const imports = [
   ["openssh", "config", "Host openssh\n HostName openssh.invalid\n User fixture\n Port 2222"],
@@ -199,9 +199,6 @@ test("SSH 取消零写入、过期重新预览、冲突处理和相同主机身�
   }
 });
 
-const edge = process.platform === "win32" ? path.join(process.env["ProgramFiles(x86)"] ?? "C:/Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe") : "";
-const browserBinary = [chromium.executablePath(), edge].find((file) => file && existsSync(file));
-
 test("SSH Web 入口可查看已保存主机和分组，导入入口仅出现在桌面", async () => {
   test.skip(!browserBinary, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
   const fixtures = mkdtempSync(path.join(tmpdir(), "huhu-ssh-import-web-"));
@@ -215,18 +212,7 @@ test("SSH Web 入口可查看已保存主机和分组，导入入口仅出现在
     await preview(page, "netcatty", file);
     await submit(page).click();
     await expect(modal(page)).toBeHidden();
-    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
-    await page.getByRole("tab", { name: "服务端" }).click();
-    const share = page.getByTestId("web-share-panel");
-    await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("local");
-    await share.getByRole("button", { name: "启动分享" }).click();
-    await expect(share.getByText("运行中", { exact: true })).toBeVisible();
-    await share.getByRole("button", { name: "创建邀请" }).click();
-    const invite = page.getByRole("dialog", { name: "Web 邀请链接" });
-    const link = await invite.getByRole("textbox", { name: /^邀请链接 127.0.0.1:/ }).inputValue();
-    if (new URL(link).hostname !== "127.0.0.1") throw new Error("Web 测试需要回环地址");
-    await invite.getByRole("button", { name: "完成" }).click();
-
+    const link = await localWebLink(page);
     browser = await chromium.launch({ executablePath: browserBinary, headless: true });
     const tab = await browser.newPage();
     await tab.goto(link);

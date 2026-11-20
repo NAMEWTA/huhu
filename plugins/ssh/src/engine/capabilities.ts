@@ -1,5 +1,6 @@
 import { defineCapabilityDescriptor } from "@huhu/kernel";
 import { z } from "zod";
+import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostInput, LegacyHostView, ManagedHostView } from "./auth-profile.js";
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
@@ -97,8 +98,18 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "high",
     timeoutMs: 5 * 60_000,
-    input: z.object({ hostId: z.string() }),
+    input: z.object({ hostId: z.string(), background: z.boolean().optional() }),
     output: z.object({ attemptId: z.string() }),
+  }),
+  connectionStatuses: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.connections.status",
+    title: "查看 SSH 连接状态和待答指纹",
+    description: "按目标主机读取当前连接尝试，包含等待核对的实际跳点。",
+    scope: "read",
+    risk: "normal",
+    input: z.object({}),
+    output: z.array(ConnectionStatus),
   }),
   disconnect: defineCapabilityDescriptor({
     ...ssh,
@@ -117,8 +128,29 @@ export const sshCapabilityDescriptors = {
     description: "批准或拒绝指定连接尝试中的一跳主机密钥。",
     scope: "execute",
     risk: "high",
-    input: z.object({ attemptId: z.string(), hop: z.number().int(), accept: z.boolean() }),
+    input: z.object({ attemptId: z.string(), hop: z.number().int(), accept: z.boolean(), promptId: z.string().optional(), remember: z.boolean().optional() }),
     output: z.object({ applied: z.boolean() }),
+  }),
+  knownHostsList: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.knownHosts.list",
+    title: "查看 SSH 已知主机",
+    description: "列出 HUHU 已保存的主机地址、端口、密钥类型和指纹。",
+    scope: "read",
+    risk: "normal",
+    input: z.object({}),
+    output: z.array(KnownHostKey),
+  }),
+  knownHostsForget: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.knownHosts.forget",
+    title: "移除已知 SSH 主机指纹",
+    description: "按已核对的地址、端口、类型和指纹移除一条信任记录。",
+    scope: "write",
+    risk: "high",
+    desktopOnly: true,
+    input: KnownHostKey,
+    output: Ok,
   }),
   execRun: defineCapabilityDescriptor({
     ...ssh,

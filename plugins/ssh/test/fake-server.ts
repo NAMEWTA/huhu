@@ -1,4 +1,5 @@
 import net from "node:net";
+import { createHash } from "node:crypto";
 import ssh2, { type Connection } from "ssh2";
 
 // 默认导入：Playwright 的 Node ESM 加载器拿不到 CJS 的具名导出
@@ -21,6 +22,8 @@ export interface FakeSshOptions {
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
   hostKey?: string;
+  /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
+  port?: number;
 }
 
 /** ssh2 生成的 ed25519 私钥约 0.3% 概率无法被自身解析（会让测试偶发失败）：生成后自检，不合格就重试。 */
@@ -34,14 +37,19 @@ export function genHostKey(): string {
 }
 
 /** 假 SSH 服务器：密码认证、exec（echo/sleep/exit/出错）、tcpip 转发（供跳板测试）。 */
-export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
+export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: number; fingerprint: string; close(): Promise<void>; conns: Connection[]; closed(): number; fs: FakeFs }> {
   const publicKey = o.publicKey === undefined ? undefined : utils.parseKey(o.publicKey);
   if (publicKey instanceof Error) throw new Error("测试公钥无法解析");
   const fs: FakeFs = { files: new Map(), dirs: new Set(["/", "/home", "/home/test"]), links: new Map() };
   let writes = 0;
   const conns: Connection[] = [];
   let closed = 0;
-  const server = new Server({ hostKeys: [o.hostKey ?? genHostKey()] }, (client) => {
+  const hostKey = o.hostKey ?? genHostKey();
+  const parsedHost = utils.parseKey(hostKey);
+  const firstKey = Array.isArray(parsedHost) ? parsedHost[0] : parsedHost;
+  if (!firstKey || firstKey instanceof Error) throw new Error("测试主机密钥无法解析");
+  const fingerprint = `SHA256:${createHash("sha256").update(firstKey.getPublicSSH()).digest("base64").replace(/=+$/, "")}`;
+  const server = new Server({ hostKeys: [hostKey] }, (client) => {
     conns.push(client);
     (client as unknown as { setNoDelay(b: boolean): void }).setNoDelay(true); // 与真实 sshd 一致（OpenSSH 默认 TCP_NODELAY）
     client.on("close", () => {
@@ -125,10 +133,17 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
       });
     });
   });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(o.port ?? 0, "127.0.0.1", () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
   const port = (server.address() as net.AddressInfo).port;
   return {
     port,
+    fingerprint,
     conns,
     fs,
     closed: () => closed,

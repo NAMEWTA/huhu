@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
+import { errors } from "@huhu/contracts";
 import { bindCapability, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
@@ -14,11 +15,14 @@ export { SshManager } from "./manager.js";
 
 export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
+  const relativeState = path.relative(api.vault.files.root, root);
+  const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
   const hosts = new HostConfigurations(new HostStore(path.join(root, "hosts")), credentialHost);
   const directory = new HostDirectory(hosts, api.vault.files);
   const manager = new SshManager({
     hosts,
     knownHostsFile: path.join(root, "known_hosts"),
+    ...(stateInVault && { knownHostsFiles: api.vault.files }),
     auditDir: path.join(root, "audit"),
     withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
     // 秘密只经 SecretUse 取得，且仅限被允许引用的模块（ssh）
@@ -63,7 +67,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     bindCapability(sshCapabilityDescriptors.hostsDelete, async (_c, i) => {
       api.vault.files.assertWritable();
       await hosts.deleteLegacy(i.id);
-      manager.disconnect(i.id);
+      manager.forgetConnection(i.id);
       api.events.publish("entity.changed", { kind: "ssh-host", id: i.id, op: "deleted" });
       return { ok: true as const };
     }),
@@ -85,14 +89,36 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsRemove, async ({ signal }, input) => {
       await hosts.remove(input, signal);
-      manager.disconnect(input.hostId);
+      manager.forgetConnection(input.hostId);
       api.events.publish("entity.changed", { kind: "ssh-host", id: input.hostId, op: "deleted" });
       return { ok: true as const };
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.connect, ({ signal }, i) => manager.connect(i.hostId, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.connect, ({ caller, signal }, i) => {
+      if (!i.background) return manager.connect(i.hostId, signal);
+      if (caller !== "desktop") throw errors.permissionDenied("ssh.connect");
+      signal.throwIfAborted();
+      return manager.start(i.hostId);
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, () => manager.connectionStatuses()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => ({ applied: manager.decide(i.attemptId, i.hop, i.accept) })));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => {
+      if (i.accept && i.remember !== false) api.vault.files.assertWritable();
+      return { applied: manager.decide(i.attemptId, i.hop, i.accept, i.promptId, i.remember) };
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.knownHostsList, () => manager.knownHosts()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.knownHostsForget, async (_c, key) => {
+      api.vault.files.assertWritable();
+      await manager.forgetHostKey(key);
+      api.events.publish("entity.changed", { kind: "ssh-known-hosts", id: key.fingerprint, op: "deleted" });
+      return { ok: true as const };
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execCancel, (_c, i) => ({ cancelled: manager.cancel(i.execId) })));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));

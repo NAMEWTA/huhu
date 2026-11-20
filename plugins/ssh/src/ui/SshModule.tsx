@@ -1,13 +1,16 @@
-import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
+import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, TerminalView } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
-import { CapabilityError, host as desktopHost, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
-import { Fragment, useState } from "react";
+import { CapabilityError, host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { Fragment, useEffect, useState } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
+import type { ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { FilesPanel } from "./FilesPanel.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
 import { HostImportDialog } from "./HostImportDialog.js";
+import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
 import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
+import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { t } from "./i18n.js";
 
@@ -17,13 +20,6 @@ interface Shell {
   name: string;
   state: "running" | "ended";
 }
-interface Prompt {
-  attemptId: string;
-  hop: number;
-  fingerprint: string;
-  keyType: string;
-  reason: "first" | "changed";
-}
 interface ExecResult {
   stdout: string;
   stderr: string;
@@ -32,8 +28,9 @@ interface ExecResult {
   interrupted: boolean;
 }
 
-type Tab = "overview" | "terminal" | "exec" | "files" | "audit";
+type Tab = "overview" | "terminal" | "exec" | "files" | "audit" | "known";
 type HostAction = { kind: "create" } | { kind: "edit" | "copy" | "remove"; host: ManagedHost };
+const CONNECTIONS = "ssh.connections.status";
 
 function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId: string): string {
   if (!directory) return "";
@@ -56,11 +53,14 @@ export function SshModule() {
   const desktop = Boolean(desktopHost());
   const hosts = useCapability<Host[]>("ssh.hosts.list", {});
   const directory = useCapability<z.output<typeof DirectoryView>>("ssh.hosts.directory", {});
+  const connections = useCapability<ConnectionStatus[]>(CONNECTIONS, {});
+  const refetchConnections = connections.refetch;
   const [sel, setSel] = useState<string | null>(null);
-  const [connected, setConnected] = useState<Set<string>>(new Set());
-  const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [knownReview, setKnownReview] = useState<HostKeyPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [connectError, setConnectError] = useState<{ hostId: string; message: string } | null>(null);
+  const [requestHost, setRequestHost] = useState<string | null>(null);
   const [hostAction, setHostAction] = useState<HostAction | null>(null);
   const [cmd, setCmd] = useState("");
   const [result, setResult] = useState<ExecResult | null>(null);
@@ -70,7 +70,8 @@ export function SshModule() {
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
-  const host = (hosts.data ?? []).find((h) => h.id === sel) ?? hosts.data?.[0] ?? null;
+  const recoveredHostId = connections.data?.find((status) => status.state === "waiting")?.hostId;
+  const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
   async function hostApplied(hostId: string | null) {
@@ -82,38 +83,34 @@ export function SshModule() {
     setHostAction(null);
   }
 
+  useEffect(() => {
+    void refetchConnections();
+  }, [refetchConnections]);
+  useEffect(() => {
+    if (recoveredHostId) setSel((current) => current ?? recoveredHostId);
+  }, [recoveredHostId]);
   useEngineEvents((e) => {
-    if (e.type === "ssh.hostKeyPrompt") setPrompt(e.payload as Prompt);
-    if (e.type === "ssh.connectionChanged") {
-      const p = e.payload as { hostId: string; state: string };
-      setConnected((s) => {
-        const n = new Set(s);
-        if (p.state === "connected") n.add(p.hostId);
-        else n.delete(p.hostId);
-        return n;
-      });
+    if (e.type === "ssh.hostKeyPrompt" || e.type === "ssh.connectionChanged") {
+      void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, CONNECTIONS), exact: true });
     }
   });
 
   const message = (e: unknown) => (e instanceof CapabilityError && e.code === "SAFE_LOCKED" ? t.safeLocked : e instanceof Error ? e.message : String(e));
 
   async function connect(h: Host) {
-    setError(null);
-    setBusy(true);
+    setConnectError(null);
+    setRequestHost(h.id);
+    setSel(h.id);
+    setTab("overview");
     try {
-      await engine.call("ssh.connect", { hostId: h.id }, { write: true });
-      setConnected((s) => new Set(s).add(h.id));
+      await engine.call("ssh.connect", { hostId: h.id, ...(desktop && { background: true }) }, { write: true });
     } catch (e) {
-      setError(message(e));
+      setConnectError({ hostId: h.id, message: message(e) });
     } finally {
-      setBusy(false);
-      setPrompt(null);
+      await refetchConnections();
+      setRequestHost((current) => (current === h.id ? null : current));
     }
   }
-  const decide = (accept: boolean) => {
-    if (!prompt) return;
-    void engine.call("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, accept }, { write: true }).finally(() => setPrompt(null));
-  };
   async function run() {
     if (!host || !cmd.trim()) return;
     setError(null);
@@ -135,18 +132,32 @@ export function SshModule() {
     }
   }
 
-  const isConn = host ? connected.has(host.id) : false;
-  const status = host ? (isConn ? "connected" : busy && sel === host.id ? "connecting" : "disconnected") : "disconnected";
+  const byHost = new Map(connections.data?.map((entry) => [entry.hostId, entry]));
+  const connection = host ? byHost.get(host.id) : undefined;
+  const isConn = connection?.state === "connected";
+  const waiting = connection?.state === "waiting";
+  const changed = connection?.state === "key-changed";
+  const prompt = waiting || changed ? connection.prompt : null;
+  const connecting = connection?.state === "connecting" || (host !== null && requestHost === host.id);
+  const status = isConn ? "connected" : connecting || waiting ? "connecting" : "disconnected";
+  const failure = connection?.state === "failed" ? connection : null;
+  const requestError = connectError?.hostId === host?.id ? connectError?.message : null;
+  const openReview = (item: HostKeyPrompt | null) => {
+    if (item) setDismissed(item.promptId);
+    setKnownReview(item);
+    setTab("known");
+  };
   const audit = useCapability<{ at: string; action: string; hostId: string; result?: string; detail?: string }[]>("ssh.audit.list", { limit: 100 });
   const shown = (hosts.data ?? []).filter((h) => `${h.name}${h.host}`.toLowerCase().includes(query.toLowerCase()));
-  const disconnect = (h: Host) =>
-    void engine.call("ssh.disconnect", { hostId: h.id }, { write: true }).then(() =>
-      setConnected((x) => {
-        const n = new Set(x);
-        n.delete(h.id);
-        return n;
-      }),
-    );
+  async function disconnect(h: Host) {
+    setConnectError(null);
+    try {
+      await engine.call("ssh.disconnect", { hostId: h.id }, { write: true });
+      await refetchConnections();
+    } catch (e) {
+      setConnectError({ hostId: h.id, message: message(e) });
+    }
+  }
   return (
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
@@ -180,7 +191,9 @@ export function SshModule() {
                   {h.user}@{h.host}
                 </span>
               </span>
-              <span className={`hu-execution-status-dot ${connected.has(h.id) ? "connected" : "disconnected"}`} aria-label={connected.has(h.id) ? t.connected : t.notConnected} />
+              {byHost.get(h.id)?.state === "waiting" ? <Badge tone="warning">待核对</Badge> : null}
+              {byHost.get(h.id)?.state === "key-changed" ? <Badge tone="danger">密钥变化</Badge> : null}
+              <span className={`hu-execution-status-dot ${byHost.get(h.id)?.state === "connected" ? "connected" : "disconnected"}`} aria-label={byHost.get(h.id)?.state === "connected" ? t.connected : t.notConnected} />
             </button>
           ))}
         </div>
@@ -189,6 +202,9 @@ export function SshModule() {
             <LockKeyhole size={15} aria-hidden /> 本机 SSH 认证
           </div>
           <span className="muted small">连接、PTY 与 Exec 独立管理</span>
+          <Button variant="ghost" icon={Fingerprint} onClick={() => openReview(null)}>
+            已知主机
+          </Button>
           <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
             全部连接审计
           </Button>
@@ -196,8 +212,8 @@ export function SshModule() {
       </aside>
       <main className="hu-view-content">
         <PageHead
-          title={host?.name ?? t.title}
-          description={host ? `${host.host}:${host.port}` : "通过统一连接配置管理远程工作环境。"}
+          title={tab === "known" ? "已知主机" : (host?.name ?? t.title)}
+          description={tab === "known" ? "核对 HUHU 已保存的服务器指纹。" : host ? hostEndpoint(host) : "通过统一连接配置管理远程工作环境。"}
           actions={
             <>
               {desktop ? (
@@ -205,13 +221,26 @@ export function SshModule() {
                   {importStatus?.pending ? "补齐导入分组" : "导入主机"}
                 </Button>
               ) : null}
-              {host ? (
+              {host && tab !== "known" ? (
                 isConn ? (
-                  <Button icon={Unplug} onClick={() => disconnect(host)}>
+                  <Button icon={Unplug} onClick={() => void disconnect(host)}>
                     {t.disconnect}
                   </Button>
+                ) : waiting ? (
+                  <Button
+                    icon={Fingerprint}
+                    variant="primary"
+                    onClick={() => {
+                      setTab("overview");
+                      setDismissed(null);
+                    }}
+                  >
+                    核对主机指纹
+                  </Button>
+                ) : connecting ? (
+                  <Button onClick={() => void disconnect(host)}>取消连接</Button>
                 ) : (
-                  <Button variant="primary" icon={Cable} loading={busy} onClick={() => void connect(host)}>
+                  <Button variant="primary" icon={Cable} onClick={() => void connect(host)}>
                     {t.connect}
                   </Button>
                 )
@@ -230,10 +259,13 @@ export function SshModule() {
               { value: "exec", label: "Exec", icon: Terminal },
               { value: "files", label: "文件", icon: Folder },
               { value: "audit", label: "审计", icon: Activity },
+              { value: "known", label: "已知主机", icon: Fingerprint },
             ]}
           />
           <span className="grow" />
-          {host ? <Badge tone={status === "connected" ? "success" : "neutral"}>{status === "connected" ? t.connected : status === "connecting" ? "连接中" : t.notConnected}</Badge> : null}
+          {host && tab !== "known" ? (
+            <Badge tone={isConn ? "success" : changed ? "danger" : waiting ? "warning" : "neutral"}>{isConn ? t.connected : changed ? "密钥变化，连接已阻断" : waiting ? "等待核对主机指纹" : connecting ? "连接中" : t.notConnected}</Badge>
+          ) : null}
         </div>
         <div role="status">
           {importStatus ? (
@@ -247,7 +279,23 @@ export function SshModule() {
             <p>{error}</p>
           </div>
         ) : null}
-        {!host && tab !== "audit" ? (
+        {tab !== "known" && changed ? (
+          <div role="alert" className="hu-callout danger">
+            <p>
+              连接到「{connection.prompt.target.name}」时，第 {connection.prompt.hop + 1} 跳「{connection.prompt.server.name}」的主机密钥发生变化。
+            </p>
+            <Button onClick={() => openReview(connection.prompt)}>到已知主机复核</Button>
+          </div>
+        ) : null}
+        {tab !== "known" && (failure || (requestError && !changed)) ? (
+          <div role="alert" className="hu-callout danger">
+            <p>
+              {failure?.server ? `第 ${(failure.hop ?? 0) + 1} 跳 · ${failure.server.name} · ` : ""}
+              {failure?.message ?? requestError}
+            </p>
+          </div>
+        ) : null}
+        {!host && tab !== "audit" && tab !== "known" ? (
           <EmptyState
             icon={Server}
             title={desktop ? t.noHosts : "还没有 SSH 主机"}
@@ -260,7 +308,9 @@ export function SshModule() {
             }
           />
         ) : null}
-        {tab === "audit" ? (
+        {tab === "known" ? (
+          <KnownHostsPanel desktop={desktop} review={knownReview} />
+        ) : tab === "audit" ? (
           <div className="hu-scroll ssh-pad" data-testid="ssh-audit">
             <div className="row ssh-section-heading">
               <h3 className="grow">全部连接审计</h3>
@@ -301,7 +351,7 @@ export function SshModule() {
               {[
                 { Icon: KeyRound, label: "认证方式", value: authLabels[host.auth.kind] },
                 { Icon: Network, label: "连接路径", value: (host.jumpHostIds ?? []).length > 0 ? "经跳板转发" : "直接连接" },
-                { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已保存信任" : "首次连接待确认" },
+                { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已核验本次连接" : changed ? "指纹变化，待复核" : "连接时核验主机身份" },
                 { Icon: Folder, label: "分组", value: groupPath(directory.data, host.id) },
               ]
                 .filter(({ value }) => value)
@@ -354,7 +404,7 @@ export function SshModule() {
                 <span>认证状态</span>
                 <span data-testid="ssh-host-auth-state">{authAvailability(host)}</span>
                 <span>主机密钥</span>
-                <code>{isConn ? "已保存信任" : "尚未信任 · 首次连接时确认"}</code>
+                <code>{isConn ? "已核验本次连接" : "首次连接时确认指纹"}</code>
                 <span>会话策略</span>
                 <code>独立 PTY / Exec · 用户断开后撤销租约</code>
               </div>
@@ -482,31 +532,8 @@ export function SshModule() {
           }}
         />
       ) : null}
-      {prompt ? (
-        <Dialog
-          open
-          title={prompt.reason === "changed" ? "主机密钥发生变化" : "首次连接：确认主机身份"}
-          description={prompt.reason === "first" ? "请核对指纹后再保存信任记录。" : "请重新核对指纹。"}
-          testId="hostkey-dialog"
-          onClose={() => decide(false)}
-          actions={
-            <>
-              <Button onClick={() => decide(false)}>{t.cancel}</Button>
-              {prompt.reason === "first" ? (
-                <Button variant="primary" icon={ShieldCheck} onClick={() => decide(true)}>
-                  {t.trust}
-                </Button>
-              ) : null}
-            </>
-          }
-        >
-          <div className="hu-stack">
-            <div className="ssh-trust-heading">
-              <Fingerprint size={28} aria-hidden />
-              <strong>{prompt.reason === "first" ? t.trustFirst(prompt.hop, prompt.keyType, prompt.fingerprint) : t.trustChanged}</strong>
-            </div>
-          </div>
-        </Dialog>
+      {prompt && tab === "overview" && dismissed !== prompt.promptId && !hostAction && importVault !== engine.vaultId ? (
+        <HostKeyDialog key={prompt.promptId} prompt={prompt} changed={changed} onClose={() => setDismissed(prompt.promptId)} onReview={() => openReview(prompt)} onRefresh={refetchConnections} />
       ) : null}
       {desktop && (hostAction?.kind === "create" || hostAction?.kind === "edit") ? (
         <HostEditorDialog

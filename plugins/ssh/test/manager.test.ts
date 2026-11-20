@@ -107,7 +107,32 @@ describe("连接与主机密钥", () => {
     expect(mgr.decide("att-unknown", 0, true)).toBe(false);
     prompts.length = 0;
     const timedOut = await mgr.connect(h.id).catch((e: Error) => e); // decisionTimeoutMs=1000
-    expect(timedOut).toMatchObject({ code: "SSH_DISCONNECTED" });
+    expect(timedOut).toMatchObject({ code: "SSH_DISCONNECTED", message: "等待主机指纹确认超时", details: { hop: 0 } });
+    expect(mgr.connectionStatuses()).toMatchObject([{ hostId: h.id, state: "failed", hop: 0 }]);
+    expect(mgr.decide(prompts[0]!.attemptId, 0, true)).toBe(false);
+  });
+  test("等待首次确认时信任记录发生变化，决定须重新校验并阻止认证", async () => {
+    const auth: string[] = [];
+    const srv = await startFakeSsh({ onAuth: (_u, method) => auth.push(method) });
+    closers.push(srv.close);
+    const { mgr, prompts, add, root } = setup();
+    const h = add(srv.port);
+    const result = mgr.connect(h.id).catch((error: unknown) => error);
+    await until(() => prompts.length > 0);
+    const offered = mgr.connectionStatuses()[0];
+    if (offered?.state !== "waiting") throw new Error("预期等待主机指纹");
+    const peer = utils.parseKey(utils.generateKeyPairSync("ed25519").public);
+    const key = Array.isArray(peer) ? peer[0] : peer;
+    if (!key || key instanceof Error) throw new Error("测试主机密钥无法解析");
+    const file = path.join(root, "known_hosts");
+    const original = `[127.0.0.1]:${srv.port} ssh-ed25519 ${key.getPublicSSH().toString("base64")}\n`;
+    writeFileSync(file, original);
+    expect(mgr.decide(offered.attemptId, 0, true, "old-prompt")).toBe(false);
+    expect(mgr.decide(offered.attemptId, 0, true, offered.prompt.promptId)).toBe(true);
+    expect(await result).toMatchObject({ code: "SSH_HOST_KEY_MISMATCH", details: { hop: 0 } });
+    expect(mgr.connectionStatuses()).toMatchObject([{ hostId: h.id, state: "key-changed", prompt: { fingerprint: srv.fingerprint } }]);
+    expect(readFileSync(file, "utf8")).toBe(original);
+    expect(auth).toEqual([]);
   });
   test("ACC-SH-02 已记录的主机密钥与服务器不符 → SSH_HOST_KEY_MISMATCH，且没有发送任何认证", async () => {
     const auth: string[] = [];

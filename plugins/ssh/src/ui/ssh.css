@@ -1,5 +1,39 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
+  dialog:modal:has(.ssh-host-key) {
+    inline-size: min(42rem, calc(100vw - 32px));
+    overscroll-behavior: contain;
+  }
+  dialog:has(.ssh-host-key)::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+  dialog:has(.ssh-host-key) > .hu-modal-footer {
+    flex-wrap: wrap;
+  }
+  .ssh-host-key > .hu-badge {
+    align-self: flex-start;
+  }
+  .ssh-key-details {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 8px 16px;
+    margin: 0;
+  }
+  .ssh-key-details dt {
+    color: var(--muted);
+  }
+  .ssh-key-details dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .ssh-key-details dd > code {
+    display: inline-block;
+    max-inline-size: 100%;
+  }
+  .ssh-fingerprint {
+    overflow-wrap: anywhere;
+  }
   dialog:modal:has(.ssh-import-body, .ssh-host-form) {
     overscroll-behavior: contain;
   }
