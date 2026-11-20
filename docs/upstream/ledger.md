@@ -21,6 +21,8 @@
 | R-52 | open-knowledge 44a2e0a | pnpm-lock.yaml 的解析版本 | pnpm-workspace.yaml 的 overrides（tiptap / ProseMirror / mdast / hast 等） | 版本对齐（行为基线）：浮动到更新的传递依赖会改变编辑器行为（例：mdast-util-gfm-task-list-item 2.0.1 把任务项序列化成 `- [ ] [ ] x`）；登记见 PATCHES.md P-D-01 |
 | R-53 | prosemirror-view 1.41.8（MIT），参照 [1.42.9 聚焦修复](https://code.haverbeke.berlin/prosemirror/prosemirror-view/commit/2978d100a6c6f94bf59a97cbe88f53d3bcaf6f9d) 与 [1.43.0](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) | `src/input.ts`、`dist/index.js`、`dist/index.cjs` | `patches/prosemirror-view@1.41.8.patch`，由 `pnpm-workspace.yaml` 登记 | B06 聚焦竞态。保留聚焦后形成的扩选。可编辑视图中，本次聚焦后的原生导航使折叠光标移动时，先让 DOM 观察器读取光标。无该导航时沿用原有恢复，组合输入期间不提前读取。升级依赖时复跑 `editor-selection-focus.spec.ts` 核对补丁能否移除。 |
 | R-54 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/sessionimport/sessionimport.go`、`internal/sessionimport/sessionimport_test.go`、`internal/sshconfig/{syntax,sshconfig}.go`、`LICENSE` | `plugins/ssh/src/engine/import/` | 参照格式、字段和分组映射，用 Huhu 主机模型与只读预览重新实现。导入诊断报告凭据、命令及未解跳板，数据不执行也不连接。未复制 Go 源码。 |
+| R-55 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（AGPL-3.0-only） | `src/components/conversations/conversation-message-content.tsx`、`src/components/mail/mail-html.ts`、`src-tauri/src/mail/body/format.rs`、`src-tauri/src/mail/sync/imap.rs` | `plugins/mail/src/{ui/MailReader.tsx,ui/mail-html.tsx,engine/message-cache.ts}` | 参考正文进视口才标已读、外部资源默认屏蔽和复查 FLAGS 的交互与行为。用 Huhu 的缓存、ImapFlow 和工作台组件重新实现。 |
+| R-56 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/workbench/host_edit_save_failure_test.go`、`internal/workbench/host_auth.go` | `plugins/ssh/src/ui/{HostEditorDialog,HostRecordActionDialog}.tsx` | 参考认证草稿在保存失败时的保留与现有认证状态的显示。以 Huhu 的版本化主机能力和模块凭据重新实现。 |
 
 ## 安装包依赖
 
@@ -30,6 +32,7 @@
 | `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理 Windows Credential Manager 的精确数据键。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入原生包。 |
 | `imapflow@2.12.1` | Postal Systems OÜ，MIT。 [发布包](https://registry.npmjs.org/imapflow/-/imapflow-2.12.1.tgz) · [许可证](https://github.com/postalsys/imapflow/blob/master/LICENSE.txt) | Mail 的 IMAP 登录和文件夹发现复用发布接口。桌面将此依赖作为 Node 模块随包分发，传递依赖由工作区锁文件固定。 |
 | `nodemailer@10.6.0` | Andris Reinman，MIT-0，按发布包固定版本与完整性摘要。 [发布包](https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.0.tgz) | Engine 装配 Mail SMTP 传输，调用发布的 `nodemailer/lib/smtp-connection` 与 `nodemailer/lib/mail-composer` 构造器。Mail 自行管理草稿认领、收件人投递证据和故障恢复。该版本没有运行时传递依赖。 |
+| `@zone-eu/mailsplit@5.4.31`、`parse5@8.1.1` | 本仓库已锁定的发布包。mailsplit 为 MIT OR EUPL-1.1+，parse5 为 MIT。 | Mail Engine 用 Splitter 解析 MIME 边界和传输编码。阅读器用 parse5 生成无网络副作用的数据树，按自身允许清单构造 React 节点。 |
 
 ## 黄金往返测试夹具
 
