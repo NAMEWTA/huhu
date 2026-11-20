@@ -2,14 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { z } from "zod";
 import type { AuthKind, ManagedHostView } from "../../../plugins/ssh/src/engine/auth-profile.js";
 import type { DirectoryView } from "../../../plugins/ssh/src/engine/directory-schema.js";
 import { openApp } from "../helpers/launch.js";
 import { desktopCall } from "./workbench.js";
 
-type Host = z.output<typeof ManagedHostView>;
-type Directory = z.output<typeof DirectoryView>;
+type Host = ReturnType<typeof ManagedHostView.parse>;
+type Directory = ReturnType<typeof DirectoryView.parse>;
 
 const moduleView = (page: Page) => page.getByTestId("ssh-module");
 const dialog = (page: Page) => page.getByTestId("ssh-host-dialog");
