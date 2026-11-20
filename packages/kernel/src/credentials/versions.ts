@@ -13,6 +13,8 @@ export type Snapshot = z.infer<typeof snapshotSchema>;
 const scopeHash = z.string().regex(/^[0-9a-f]{64}$/);
 const unboundSchema = z.strictObject({ format: z.literal(1), scope: scopeHash, entries: z.array(scopeHash) });
 const unboundFile = "initially-unbound.json";
+const keyFingerprintFile = "fingerprint";
+const keyFingerprint = (key: Uint8Array): string => createHash("sha256").update(key).digest("hex");
 
 export function identityHash(...parts: string[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
@@ -148,11 +150,12 @@ export class LocalVersions {
 
   async createKey(): Promise<string> {
     const id = randomUUID();
-    const keyDir = this.#subdir("keys", true)!;
-    // Register the key before calling the OS so an interrupted create can be reclaimed.
-    mkdirSync(path.join(keyDir, id), { mode: 0o700 });
+    const keyDir = path.join(this.#subdir("keys", true)!, id);
     const key = newDataKey();
     try {
+      mkdirSync(keyDir, { mode: 0o700 });
+      // Link recovery to this generated key before asking the OS to publish it.
+      writeFileSync(path.join(keyDir, keyFingerprintFile), keyFingerprint(key), { flag: "wx", mode: 0o600, flush: true });
       await this.#protect(() => this.protection.create(this.#keyId(id), key));
       const verified = await this.#readKey(id);
       try {
@@ -227,11 +230,28 @@ export class LocalVersions {
       for (const file of managedFiles(keyDir, ".bin")) {
         if (!liveVersions?.has(file)) unlinkSync(path.join(keyDir, file));
       }
-      if (!liveVersions && readdirSync(keyDir).length === 0) {
-        await this.#protect(() => this.protection.remove(this.#keyId(key)));
-        rmdirSync(keyDir);
-      }
+      if (!liveVersions) await this.#collectKey(keyDir, key);
     }
+  }
+
+  async #collectKey(directory: string, key: string): Promise<void> {
+    const files = readdirSync(directory);
+    if (files.some((name) => name !== keyFingerprintFile)) return;
+    const record = path.join(directory, keyFingerprintFile);
+    if (existsAs(record, "file")) {
+      const expected = readFileSync(record, "utf8");
+      if (scopeHash.safeParse(expected).success) {
+        const id = this.#keyId(key);
+        const current = await this.#protect(() => this.protection.read(id));
+        try {
+          if (current && keyFingerprint(current) === expected) await this.#protect(() => this.protection.remove(id));
+        } finally {
+          current?.fill(0);
+        }
+      }
+      unlinkSync(record);
+    }
+    rmdirSync(directory);
   }
 }
 

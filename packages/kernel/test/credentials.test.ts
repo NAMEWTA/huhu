@@ -71,6 +71,26 @@ function copyDefinitions(base: string, root: string, portable: string[]): string
   return copyRoot;
 }
 
+test("keeps a pre-existing system key after a failed create and recovery", async () => {
+  const { base, vault, backend, credentials, open, close } = await setup();
+  const old = Buffer.alloc(32, 7);
+  let occupied = "";
+  const collision = vi.spyOn(backend, "create").mockImplementationOnce(async (id) => {
+    occupied = backend.file(id);
+    writeFileSync(occupied, old, { flag: "wx" });
+    throw Object.assign(new Error("existing exact key"), { code: "EEXIST" });
+  });
+  await expect(save(credentials, null, [replace("password", "synthetic-collision"), keep("passphrase")])).rejects.toMatchObject({ code: "unavailable" });
+  expect(await credentials.list()).toEqual([]);
+  expect(readFileSync(occupied)).toEqual(old);
+  collision.mockRestore();
+  await close(vault);
+  const restarted = owner(await open(), base, undefined, undefined, backend);
+  expect(await restarted.recover()).toBe(true);
+  expect(readFileSync(occupied)).toEqual(old);
+  expect(await restarted.list()).toEqual([]);
+});
+
 test("publishes portable definitions independently of four credential dimensions", async () => {
   const { base, root, vault, backend, open, close, credentials } = await setup();
   const view = path.join(base, "private");
