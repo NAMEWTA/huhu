@@ -1,10 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { isUtf8 } from "node:buffer";
+import { createHash, randomUUID } from "node:crypto";
+import { lstatSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { DASHBOARD_COLUMNS, DASHBOARD_SCHEMA_VERSION, DashboardBoardSchema, DashboardUpdateSchema, DashboardViewSchema, errors, type DashboardBoard, type DashboardUpdate, type DashboardView } from "@huhu/contracts";
+import { DASHBOARD_COLUMNS, DASHBOARD_SCHEMA_VERSION, DashboardBoardSchema, DashboardUpdateSchema, DashboardViewSchema, errors, HuhuError, type DashboardBoard, type DashboardUpdate, type DashboardView } from "@huhu/contracts";
 import { HUHU_DIR, versionOf, type Vault } from "@huhu/vault";
-import type { z } from "zod";
+import { z } from "zod";
 import { defineCapability } from "./define.js";
+import { dashboardRepairChangeSchema, placementsOverlap, planDashboardRepair, type DashboardWidgetSizeRule } from "./home-dashboard-recovery.js";
 
 const DASHBOARD_PATH = `${HUHU_DIR}/home/widgets.json`;
 
@@ -19,7 +21,7 @@ function defaultBoard(): DashboardBoard {
   };
 }
 
-export function hasDashboardVersion(value: unknown): value is { schemaVersion: unknown } {
+export function hasDashboardVersion(value: unknown): value is Record<string, unknown> & { schemaVersion: unknown } {
   return typeof value === "object" && value !== null && "schemaVersion" in value;
 }
 
@@ -30,14 +32,19 @@ function hasValidLayout(board: DashboardBoard): boolean {
   for (const [index, item] of board.layout.entries()) {
     if (!instances.delete(item.instanceId) || item.x + item.w > DASHBOARD_COLUMNS || !Number.isSafeInteger(item.y + item.h)) return false;
     for (let previous = 0; previous < index; previous++) {
-      const other = board.layout[previous]!;
-      if (item.x < other.x + other.w && other.x < item.x + item.w && item.y < other.y + other.h && other.y < item.y + item.h) return false;
+      if (placementsOverlap(item, board.layout[previous]!)) return false;
     }
   }
   return true;
 }
 
-function readDashboardSnapshot(vault: Vault): { view: DashboardView; fileVersion: string | null } {
+interface DashboardSnapshot {
+  view: DashboardView;
+  fileVersion: string | null;
+  original?: { bytes: Buffer; value: Record<string, unknown> };
+}
+
+function readDashboardSnapshot(vault: Vault): DashboardSnapshot {
   const fallback = (source: Exclude<DashboardView["source"], "stored">) => ({
     fileVersion: null,
     view: { vaultId: vault.id, board: defaultBoard(), writable: source === "default" && !vault.readOnly, source },
@@ -55,13 +62,30 @@ function readDashboardSnapshot(vault: Vault): { view: DashboardView; fileVersion
     return fallback("invalid");
   }
   if (!hasDashboardVersion(value) || value.schemaVersion !== DASHBOARD_SCHEMA_VERSION) return fallback("unrecognized");
+  const original = { bytes, value };
   const result = DashboardBoardSchema.safeParse(value);
-  if (!result.success || !hasValidLayout(result.data)) return fallback("invalid");
-  return { fileVersion: versionOf(bytes), view: { vaultId: vault.id, board: result.data, writable: !vault.readOnly, source: "stored" } };
+  if (!result.success || !hasValidLayout(result.data)) return { ...fallback("invalid"), original };
+  return { original, fileVersion: versionOf(bytes), view: { vaultId: vault.id, board: result.data, writable: !vault.readOnly, source: "stored" } };
 }
 
 export function readDashboard(vault: Vault): DashboardView {
   return readDashboardSnapshot(vault).view;
+}
+
+const dashboardWrites = new WeakMap<Vault, Promise<unknown>>();
+
+function queueDashboardWrite<T>(vault: Vault, commit: () => Promise<T>): Promise<T> {
+  const next = (dashboardWrites.get(vault) ?? Promise.resolve()).then(commit);
+  dashboardWrites.set(
+    vault,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+async function writeDashboard(vault: Vault, board: DashboardBoard, expectedVersion: string | null): Promise<DashboardView> {
+  await vault.files.write(DASHBOARD_PATH, Buffer.from(JSON.stringify(board, null, 2) + "\n"), { expectedVersion });
+  return { vaultId: vault.id, board, source: "stored", writable: true };
 }
 
 interface DashboardWidgetRule {
@@ -73,8 +97,6 @@ interface DashboardWidgetRule {
 
 /** 由 W06 为每个 Vault 登记一次，使用内置 Widget 的服务端规则。 */
 export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetRule>, now: () => Date) {
-  let written: Promise<unknown> = Promise.resolve();
-
   async function commit(input: DashboardUpdate): Promise<DashboardView> {
     vault.assertWritable();
     const { view: current, fileVersion } = readDashboardSnapshot(vault);
@@ -109,8 +131,7 @@ export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string,
       return { ...instance, config: config.data };
     });
 
-    await vault.files.write(DASHBOARD_PATH, Buffer.from(JSON.stringify(board, null, 2) + "\n"), { expectedVersion: fileVersion });
-    return { vaultId: vault.id, board, source: "stored", writable: true };
+    return writeDashboard(vault, board, fileVersion);
   }
 
   return defineCapability({
@@ -121,10 +142,108 @@ export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string,
     defaultExposed: false,
     input: DashboardUpdateSchema,
     output: DashboardViewSchema,
-    handler: (_ctx, input) => {
-      const next = written.then(() => commit(input));
-      written = next.catch(() => undefined);
-      return next;
-    },
+    handler: (_ctx, input) => queueDashboardWrite(vault, () => commit(input)),
   });
+}
+
+const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const recoveryConfirmationSchema = z.strictObject({
+  vaultId: z.string(),
+  revision: DashboardBoardSchema.shape.revision.nullable(),
+  fileDigest: digestSchema.nullable(),
+  candidateDigest: digestSchema,
+});
+const recoveryIntentSchema = z.discriminatedUnion("action", [z.strictObject({ action: z.literal("restore"), backup: DashboardBoardSchema }), z.strictObject({ action: z.literal("repair") })]);
+const recoveryPreviewSchema = z.strictObject({
+  confirmation: recoveryConfirmationSchema,
+  board: DashboardBoardSchema,
+  changes: z.array(dashboardRepairChangeSchema),
+  writable: z.boolean(),
+});
+type RecoveryConfirmation = z.infer<typeof recoveryConfirmationSchema>;
+type RecoveryIntent = z.infer<typeof recoveryIntentSchema>;
+
+function digest(bytes: Buffer | string): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function readRecoveryTarget(vault: Vault) {
+  const { view, original } = readDashboardSnapshot(vault);
+  if (!original && view.source !== "default") throw errors.invalidInput("无法确认可恢复的当前格式看板", [{ reason: view.source }]);
+  // Refuse links and special files, including dangling links read as ENOENT.
+  const entry = lstatSync(vault.files.abs(DASHBOARD_PATH), { throwIfNoEntry: false });
+  if (original ? !entry?.isFile() || !isUtf8(original.bytes) : entry !== undefined) {
+    throw errors.invalidInput("看板原件无法安全恢复", [{ reason: "unsafe-target" }]);
+  }
+  const revision = original ? (DashboardBoardSchema.shape.revision.safeParse(original.value.revision).data ?? null) : view.board.revision;
+  return { source: view.source, original, revision, fileDigest: original ? digest(original.bytes) : null };
+}
+
+async function preserveDashboard(vault: Vault, original: Buffer, fileDigest: string): Promise<string> {
+  const rel = `${DASHBOARD_PATH}.corrupt-${fileDigest}`;
+  try {
+    const entry = lstatSync(vault.files.abs(rel), { throwIfNoEntry: false });
+    if (entry === undefined) await vault.files.write(rel, original, { expectedVersion: null });
+    if (lstatSync(vault.files.abs(rel)).isFile() && vault.files.read(rel)?.bytes.equals(original)) return rel;
+  } catch (error) {
+    throw new HuhuError("INTERNAL", "无法保全损坏的看板原件", { details: { reason: "preservation-failed", code: (error as NodeJS.ErrnoException).code } });
+  }
+  throw new HuhuError("INTERNAL", "无法保全损坏的看板原件", { details: { reason: "preservation-failed" } });
+}
+
+/** W06 接线前仅供 Engine 测试装配。 */
+export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetSizeRule>, now: () => Date) {
+  const capability = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
+
+  function plan(intent: RecoveryIntent, target: ReturnType<typeof readRecoveryTarget>) {
+    if (intent.action === "restore") {
+      if (!hasValidLayout(intent.backup)) throw errors.invalidInput("备份的看板布局无效", [{ reason: "invalid-backup-layout" }]);
+      return { board: intent.backup, changes: [] };
+    }
+    if (!target.original) throw errors.invalidInput("没有可修复的看板");
+    const candidate = planDashboardRepair(target.original.value, widgets);
+    if (candidate.changes.length === 0) throw errors.invalidInput("看板几何无需修复");
+    return candidate;
+  }
+
+  function candidateDigest(intent: RecoveryIntent, candidate: ReturnType<typeof plan>): string {
+    return digest(JSON.stringify({ action: intent.action, ...candidate }));
+  }
+
+  return {
+    preview: defineCapability({
+      ...capability,
+      name: "home.dashboard.recovery.preview",
+      scope: "read",
+      input: recoveryIntentSchema,
+      output: recoveryPreviewSchema,
+      handler: (_ctx, intent) => {
+        const target = readRecoveryTarget(vault);
+        const candidate = plan(intent, target);
+        const confirmation = { vaultId: vault.id, revision: target.revision, fileDigest: target.fileDigest, candidateDigest: candidateDigest(intent, candidate) };
+        return { ...candidate, confirmation, writable: !vault.readOnly };
+      },
+    }),
+    commit: defineCapability({
+      ...capability,
+      name: "home.dashboard.recovery.commit",
+      scope: "write",
+      input: z.strictObject({ intent: recoveryIntentSchema, confirmation: recoveryConfirmationSchema }),
+      output: z.strictObject({ view: DashboardViewSchema, preservedPath: z.string().nullable() }),
+      handler: (_ctx, { intent, confirmation }: { intent: RecoveryIntent; confirmation: RecoveryConfirmation }) =>
+        queueDashboardWrite(vault, async () => {
+          vault.assertWritable();
+          if (confirmation.vaultId !== vault.id) throw errors.invalidInput("恢复预览属于另一个 Vault", [{ reason: "wrong-vault" }]);
+          const target = readRecoveryTarget(vault);
+          if (confirmation.revision !== target.revision || confirmation.fileDigest !== target.fileDigest) throw errors.versionConflict(target.revision ?? target.fileDigest ?? "0");
+          const candidate = plan(intent, target);
+          if (confirmation.candidateDigest !== candidateDigest(intent, candidate)) throw errors.invalidInput("恢复内容已改变，请重新预览", [{ reason: "changed-candidate" }]);
+
+          const board = { ...candidate.board, revision: randomUUID(), updatedAt: now().toISOString() };
+          const preservedPath = target.original && target.fileDigest && (target.source === "invalid" || intent.action === "repair") ? await preserveDashboard(vault, target.original.bytes, target.fileDigest) : null;
+          const view = await writeDashboard(vault, board, target.original ? versionOf(target.original.bytes) : null);
+          return { view, preservedPath };
+        }),
+    }),
+  };
 }
