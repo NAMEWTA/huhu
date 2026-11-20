@@ -3,7 +3,63 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
 import { openApp } from "../helpers/launch.js";
+
+test("新邮件通知从桌面铃铛定位到原账号的邮件并交接焦点", async () => {
+  const message = (uid: number, subject: string): FixtureImapMessage => ({
+    uid,
+    uidValidity: 42,
+    subject,
+    source: `From: Sender <sender@example.test>\r\nTo: fixture@example.test\r\nSubject: ${subject}\r\n\r\nBody for UID ${uid}\r\n`,
+  });
+  const messages = [message(1, "初次同步邮件")];
+  const imap = await openImapFixture({ windows: { INBOX: { uidValidity: 42, messages } }, allowIdle: false });
+  try {
+    const { page, close } = await openApp();
+    try {
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      const endpoint = await page.evaluate(() => window.huhuHost.engine());
+      const call = async <T>(capability: string, input: unknown = {}) => {
+        const result = await fetch(`${endpoint.baseUrl}/api/v1/call`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        }).then((response) => response.json());
+        expect(result, capability).toMatchObject({ ok: true });
+        return result.data as T;
+      };
+      const connection = { host: "127.0.0.1", port: imap.port, security: "none" };
+      const { setupId } = await call<{ setupId: string }>("mail.accounts.testConnection", {
+        settings: { provider: "custom_imap", email: "fixture@example.test", label: "通知测试", auth: "password", imap: connection, smtpEnabled: false, smtp: connection },
+        password: "synthetic-loopback-password",
+      });
+      const { accountId } = await call<{ accountId: string }>("mail.accounts.save", { setupId, folders: ["INBOX"] });
+      const folder = { accountId, folder: "INBOX" };
+      await call("mail.sync.refresh", folder);
+      expect(await call<Array<{ module: string }>>("notifications.list")).not.toContainEqual(expect.objectContaining({ module: "mail" }));
+
+      messages.push(message(2, "原邮件主题"));
+      await call("mail.sync.refresh", folder);
+      await call("mail.sync.refresh", folder);
+      await expect(page.getByTestId("unread-count")).toBeVisible();
+      await page.getByTestId("bell").click();
+      const notice = page.getByTestId("notice-item").filter({ hasText: "收到新邮件" });
+      await expect(notice).toHaveCount(1);
+      await notice.press("Enter");
+      const target = page.getByRole("group", { name: "已定位邮件" });
+      await expect(target).toContainText("Body for UID 2");
+      await expect(target).toBeFocused();
+      await expect(target).toHaveAttribute("data-mail-highlighted", "true");
+      await expect(page.getByTestId("notification-panel")).toBeHidden();
+      expect(await call("notifications.list")).toContainEqual(expect.objectContaining({ module: "mail", read: true }));
+    } finally {
+      await close();
+    }
+  } finally {
+    await imap.close();
+  }
+});
 
 test("工作台命令从首页打开邮件缓存搜索并交接焦点", async () => {
   const { page, close } = await openApp();

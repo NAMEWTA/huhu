@@ -208,7 +208,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),
-    apply: (ctx, api) => mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, mail.createMailSmtpTransport({ SMTPConnection, MailComposer })),
+    apply: (ctx, api) =>
+      mail.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, mail.createMailSmtpTransport({ SMTPConnection, MailComposer }), {
+        notify: ({ id, ...notice }) => void notifications.create(notice, id),
+      }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(safeManifest),

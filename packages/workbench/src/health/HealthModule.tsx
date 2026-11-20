@@ -5,6 +5,7 @@ import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
+import type { OpenNotification } from "../notifications/NotificationBell.js";
 import { host } from "../settings/host.js";
 import { openSettings, type UiState } from "../state/ui-store.js";
 
@@ -49,7 +50,7 @@ const UNCHECKED = ["插件", "文件", "索引", "文件监听", "Herdr Core", "
 const STATE_TEXT = { ok: "正常", warning: "需留意", error: "需处理" } as const;
 
 /** 健康中心（原型 Health）：系统状态（诊断）/ 事件日志 / 通知中心。 */
-export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiState> }) {
+export function HealthModule({ section, ui, onOpenNotification }: ModuleProps & { ui: StoreApi<UiState>; onOpenNotification?: OpenNotification }) {
   const engine = useEngine();
   const qc = useQueryClient();
   // 诊断只在用户点“运行诊断”时执行：打开页面时是“尚未检查”，不显示“正常”（ACC-SY-01）
@@ -173,7 +174,8 @@ export function HealthModule({ section, ui }: ModuleProps & { ui: StoreApi<UiSta
                       variant="ghost"
                       onClick={() => {
                         void call("notifications.markRead", { ids: [n.id] }).then(() => refresh("notifications.list"));
-                        ui.getState().openModule(n.module || "home");
+                        if (onOpenNotification) onOpenNotification(n, engine.endpoint);
+                        else ui.getState().openModule(n.module || "home");
                       }}
                     >
                       查看

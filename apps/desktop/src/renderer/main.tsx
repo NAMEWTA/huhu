@@ -5,7 +5,7 @@ import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
-import { createMailContributions } from "@huhu/plugin-mail/ui";
+import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
@@ -29,6 +29,7 @@ import {
   EngineClient,
   GatewayModule,
   NotificationBell,
+  type OpenNotification,
   ReminderToasts,
   ShellStatusBar,
   ThemeToggle,
@@ -107,6 +108,18 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
     const active = (browser && browserLocation(location.pathname)?.module) || "home";
     return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
   }, [browser]);
+  const openNotification = useCallback<OpenNotification>(
+    ({ id, module }, source) => {
+      const open = () => {
+        const state = ui.getState();
+        const destination = module || "home";
+        return state.activeModule === destination || state.openModule(destination);
+      };
+      if (module === "mail") void requestMailNotification({ id, vaultId: source.vaultId, endpoint: source.baseUrl }, open);
+      else open();
+    },
+    [ui],
+  );
   const registry = useMemo(() => {
     const r = new ContributionRegistry();
     r.register(notesUi);
@@ -155,7 +168,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
             { id: "logs", label: "事件日志", icon: <Activity size={16} aria-hidden /> },
             { id: "notifications", label: "通知", icon: <Bell size={16} aria-hidden /> },
           ],
-          component: (p) => <HealthModule {...p} ui={ui} />,
+          component: (p) => <HealthModule {...p} ui={ui} onOpenNotification={openNotification} />,
         },
       ],
     });
@@ -217,7 +230,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
       ],
     });
     return r;
-  }, [ui]);
+  }, [openNotification, ui]);
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {
@@ -260,7 +273,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
       statusSlot={
         <>
           <ThemeToggle />
-          <NotificationBell onOpenModule={(id) => ui.getState().openModule(id)} />
+          <NotificationBell onOpenModule={(id) => ui.getState().openModule(id)} onOpenNotification={openNotification} />
         </>
       }
       statusBar={<ShellStatusBar ui={ui} />}

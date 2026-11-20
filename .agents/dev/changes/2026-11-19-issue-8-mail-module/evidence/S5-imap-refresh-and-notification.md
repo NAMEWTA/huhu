@@ -20,8 +20,8 @@ node node_modules/typescript/bin/tsc --noEmit -p plugins/mail/tsconfig.json
 - 三次并行调用共享一次 IMAP 选箱，一个等待者取消，其余成功。实际 IDLE 收到 EXISTS 后排下一次刷新，IDLE 连接断开后保持普通周期。换 UIDVALIDITY 后在新代正文返回前即可观察旧消息和通知目标已撤出；关闭并切换 Vault 后，旧 IMAP 作业没有重开。
 - Mail 全项目 9 个文件、46 项通过。保护了普通原文、联系人公开投影、移除账号、转发源校验和 SMTP 既有回归。TypeScript、格式及 lint 通过。
 
-## Lead 装配
+## 工作台联验
 
-1. 公共 Engine 注册 Mail 时，给 `mail.apply` 增加第五个参数 `{ notify: ({ id, ...notice }) => { notifications.create(notice, id); } }`。必须将稳定的 ID 传给已有站内 `NotificationStore`，其 `onCreated` 会发实际事件。
-2. Workbench 通知点击需要传递被点中的通知 ID。对 `module === "mail"` 的新邮件通知，从当前 Engine 拿 Vault ID 和 `endpoint.baseUrl`，调用 `requestMailNotification({ id, vaultId, endpoint: endpoint.baseUrl }, () => ui.getState().openModule("mail"))`。分享已有的标为已读及关闭弹层路径。Mail 自己完成目标复核、切账号和时间范围、选中并定位。
-3. 在装配版本里用隔离邮箱对照铃铛收到新通知、点击后的高亮和焦点，以及切换 Vault 后旧通知不可定位。Google 或 Microsoft 的真实 OAuth 另验。
+Engine 将稳定 ID 交给站内 `NotificationStore`。桌面铃铛与健康中心把通知 ID 和当前 Engine 作用域交给 Mail，由 Mail 核对账号、目录和原邮件后定位。
+
+Windows Electron 构建上运行 `pnpm exec playwright test tests/e2e/workflows/mail.spec.ts --workers 1`，四项通过。通过桌面 API 添加本机回环 IMAP 邮箱。首封消息初扫后没有通知，新到 UID 2 后额外刷新一次，铃铛仍只有一条通知。按 Enter 打开时弹层关闭，原信正文显示、定位高亮且读区取得焦点，通知成为已读。Engine 单测另覆盖端点变化和旧 UID 代失效。Google、Microsoft 的真实 OAuth 由各自切片取证。

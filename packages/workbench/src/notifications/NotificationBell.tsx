@@ -2,6 +2,7 @@ import { Badge, Button, IconButton, Popover } from "@huhu/ui";
 import { ArrowRight, Bell, ChevronRight, X } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n/zh-CN.js";
+import type { EngineEndpoint } from "../engine-client/client.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 
 interface Notification {
@@ -13,11 +14,14 @@ interface Notification {
   read: boolean;
 }
 
+export type OpenNotification = (notice: Pick<Notification, "id" | "module">, endpoint: Pick<EngineEndpoint, "vaultId" | "baseUrl">) => void;
+
 /** 来源模块的显示名（通知里的 module 是模块 id）。 */
 const SOURCE: Record<string, string> = {
   tasks: "任务",
   notes: "知识库",
   inbox: "收件箱",
+  mail: "邮件",
   archives: "档案",
   safe: "保险箱",
   automations: "自动化",
@@ -31,7 +35,7 @@ const SOURCE: Record<string, string> = {
 const when = (iso: string): string => new Date(iso).toLocaleString("zh-CN", { hour12: false, month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
 /** 通知入口（原型 notification-button + notification-popover）：面包屑栏的铃铛，未读圆点，弹出通知列表。 */
-export function NotificationBell({ onOpenModule }: { onOpenModule?: (module: string) => void }) {
+export function NotificationBell({ onOpenModule, onOpenNotification }: { onOpenModule?: (module: string) => void; onOpenNotification?: OpenNotification }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -71,9 +75,10 @@ export function NotificationBell({ onOpenModule }: { onOpenModule?: (module: str
                 data-testid="notice-item"
                 onClick={() => {
                   void engine.call("notifications.markRead", { ids: [n.id] }, { write: true }).then(refresh);
-                  if (onOpenModule && n.module) {
-                    onOpenModule(n.module);
+                  if (n.module && (onOpenNotification || onOpenModule)) {
                     setOpen(false);
+                    if (onOpenNotification) onOpenNotification(n, engine.endpoint);
+                    else onOpenModule?.(n.module);
                   }
                 }}
               >
