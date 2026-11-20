@@ -41,7 +41,7 @@ interface Provider {
   destroy(): void;
 }
 
-let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean }) => Provider };
+let providerModule: { LocalDocProvider: new (config: { name: string; lazyRich: boolean; document?: Y.Doc }) => Provider };
 let markdown: { schema: Schema; mdManager: { serialize(content: JSONContent): string } };
 let normalization: {
   normalizeBridge(markdown: string): string;
@@ -80,10 +80,33 @@ async function withProvider(name: string, text: string, verify: (provider: Provi
     await verify(provider);
   } finally {
     provider.destroy();
-    provider.document.destroy();
     host.setDocSource(null);
   }
 }
+
+test("H06 销毁 provider 时自建 Y.Doc 恰好销毁一次", async () => {
+  await withProvider("owned", "本地正文", (provider) => {
+    let destructionCount = 0;
+    provider.document.on("destroy", () => destructionCount++);
+    provider.destroy();
+    provider.destroy();
+    expect(destructionCount).toBe(1);
+    expect(provider.document.isDestroyed).toBe(true);
+  });
+});
+
+test("H06 借入的 Y.Doc 仍由调用者管理", () => {
+  const document = new Y.Doc();
+  try {
+    const provider = new providerModule.LocalDocProvider({ name: "borrowed", document, lazyRich: true });
+    provider.destroy();
+    expect(document.isDestroyed).toBe(false);
+    document.getText("source").insert(0, "仍可编辑");
+    expect(document.getText("source").toString()).toBe("仍可编辑");
+  } finally {
+    document.destroy();
+  }
+});
 
 test.each(samples)(
   "H01 保留源缓冲字节 $name",

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
@@ -34,6 +35,11 @@ test("H07：首次与后续富文本单字替换只改变目标字节，关闭�
   const { app, page, vault, close } = await openApp();
   const name = "局部编辑.md";
   const file = path.join(vault, name);
+  const git = (...args: string[]) => execFileSync("git", ["-c", "core.quotePath=false", ...args], { cwd: vault, encoding: "utf8" });
+  const commit = () => {
+    git("add", "--", name);
+    git("-c", "user.name=Huhu E2E", "-c", "user.email=e2e@example.invalid", "-c", "commit.gpgSign=false", "commit", "--quiet", "--no-verify", "-m", "Record note bytes");
+  };
   try {
     // 同一 Playwright worker 的 Electron userData 会保留工具栏缩放用例设定。
     await app.evaluate(({ BrowserWindow }) => {
@@ -42,6 +48,9 @@ test("H07：首次与后续富文本单字替换只改变目标字节，关闭�
       window?.webContents.setZoomFactor(1);
     });
     writeFileSync(file, original);
+    git("init", "--quiet");
+    writeFileSync(path.join(vault, ".git", "info", "exclude"), "/.huhu/\n");
+    commit();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     await page.getByRole("button", { name: "知识库" }).first().click();
     await treeSettled(page);
@@ -71,6 +80,13 @@ test("H07：首次与后续富文本单字替换只改变目标字节，关闭�
       await expect(editor.getByRole("table")).toBeVisible();
       await expect(editor.getByRole("listitem").filter({ hasText: "原始列表缩进" })).toBeVisible();
       expect(readFileSync(file)).toEqual(Buffer.from(expected));
+      expect(git("status", "--porcelain=v1", "--untracked-files=all").trimEnd()).toBe(` M ${name}`);
+      expect(git("diff", "--name-only", "HEAD").trim()).toBe(name);
+      const diff = git("diff", "--no-ext-diff", "--no-textconv", "--unified=0", "HEAD", "--", name);
+      const [header, ...lines] = diff.slice(diff.indexOf("@@ ")).trimEnd().split("\n");
+      expect(header).toMatch(/^@@ -8 \+8 @@(?: |$)/);
+      expect(lines).toEqual([`-单字${before}`, `+单字${after}`]);
+      commit();
     }
   } finally {
     await close();

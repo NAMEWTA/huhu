@@ -37,12 +37,14 @@ export class LocalDocProvider {
   isSynced = false;
   status: "connected" | "disconnected" = "connected";
   private readonly listeners = new Map<string, Set<Listener>>();
+  private readonly ownsDocument: boolean;
   private destroyed = false;
   private disposeObservers: ((() => void) & { settleNow(): void }) | null = null;
   private rich: boolean;
   private richPromise: Promise<void> | null = null;
 
   constructor(config: LocalDocProviderConfig) {
+    this.ownsDocument = config.document === undefined;
     this.document = config.document ?? new Y.Doc();
     this.configuration = { name: config.name, ...(config.url !== undefined ? { url: config.url } : {}) };
     this.awareness = new Awareness(this.document);
@@ -124,11 +126,16 @@ export class LocalDocProvider {
   }
 
   on(event: string, fn: Listener): this {
+    if (this.destroyed) return this;
     let set = this.listeners.get(event);
     if (!set) this.listeners.set(event, (set = new Set()));
     set.add(fn);
     // 订阅 'synced' 时若已同步则补发一次，行为与 Hocuspocus 的 once-synced 使用习惯一致
-    if (event === "synced" && this.synced) queueMicrotask(() => fn({ state: true }));
+    if (event === "synced" && this.synced) {
+      queueMicrotask(() => {
+        if (this.listeners.get(event)?.has(fn)) fn({ state: true });
+      });
+    }
     return this;
   }
 
@@ -154,11 +161,19 @@ export class LocalDocProvider {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    this.disposeObservers?.();
-    this.disposeObservers = null;
-    this.awareness.destroy();
-    this.emit("destroy");
-    this.listeners.clear();
+    try {
+      this.disposeObservers?.();
+    } finally {
+      this.disposeObservers = null;
+      try {
+        // Awareness 本身订阅了 Y.Doc 的销毁事件；借入文档的生存期由调用者管理。
+        if (this.ownsDocument) this.document.destroy();
+        else this.awareness.destroy();
+        this.emit("destroy");
+      } finally {
+        this.listeners.clear();
+      }
+    }
   }
 }
 

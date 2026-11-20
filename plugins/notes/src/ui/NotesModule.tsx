@@ -15,6 +15,7 @@ import type { DocumentSession } from "./documents/DocumentSession.js";
 import { useKnowledgeLocale } from "./useKnowledgeLocale.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
+import { docNameOf } from "./comments/commentAdapter.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
@@ -211,6 +212,26 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   useEffect(() => {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
   }, [shell.tabs, vaultId]);
+  // 从已提交的标签集合判断文件生命周期。切到后台仍保留标签，同一文件的档案视图也占一个标签。
+  const openDocuments = useRef<{ vaultId: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    if (shell.tabs.vaultId !== vaultId) return;
+    const previous = openDocuments.current;
+    const names = new Set<string>();
+    for (const tab of shell.tabs.tabs) {
+      const file = tabFilePath(tab);
+      if (file && /\.(md|mdx)$/i.test(file)) names.add(docNameOf(file));
+    }
+    openDocuments.current = { vaultId, names };
+    if (previous?.vaultId !== vaultId) return;
+    const closed = [...previous.names].filter((name) => !names.has(name));
+    if (closed.length === 0) return;
+    void import("@huhu/editor/rich").then(({ dropProvider }) => {
+      const current = openDocuments.current;
+      if (vaultRef.current !== vaultId || current?.vaultId !== vaultId) return;
+      for (const name of closed) if (!current.names.has(name)) dropProvider(name);
+    });
+  }, [shell.tabs, vaultId]);
   const pendingArchive = useRef<{ key: string } | null>(null);
   useEffect(
     () => () => {
@@ -220,9 +241,6 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   );
   const closeTab = (key: string) => {
     if (pendingArchive.current?.key === key) pendingArchive.current = null;
-    const closing = shell.tabs.tabs.find((open) => tabKey(open) === key);
-    const path = closing && tabFilePath(closing);
-    if (closing?.kind === "file" && path) evictEditor(path);
     dispatch({ type: "close", key });
   };
   async function copyTabPath(path: string) {
@@ -259,16 +277,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       window.clearTimeout(timeout);
     };
   }, [reveal]);
-  const evictEditor = (path: string) => {
-    if (!/\.md$/i.test(path)) return;
-    void import("@huhu/editor/rich").then((editor) => {
-      if (vaultRef.current === vaultId) editor.dropProvider(path.replace(/\.md$/i, ""));
-    });
-  };
-  const remapSelected = (from: string, to: string) => {
-    evictEditor(from);
-    dispatch({ type: "remap", from, to });
-  };
+  const remapSelected = (from: string, to: string) => dispatch({ type: "remap", from, to });
   const expandTo = (dir: string) => {
     const parts = dir.split("/").filter(Boolean);
     parts.forEach((_, i) => dispatch({ type: "sidebar", action: { type: "expand", path: parts.slice(0, i + 1).join("/"), open: true, context: "files" } }));
