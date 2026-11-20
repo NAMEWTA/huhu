@@ -378,3 +378,58 @@ test("TB-15 顶层重载结束旧一轮关窗检查", async () => {
     await close();
   }
 });
+
+test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确认窗口", async () => {
+  const { app, page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const result = await app.evaluate(async ({ app: nativeApp, BrowserWindow, dialog, ipcMain }) => {
+      const first = BrowserWindow.getAllWindows()[0]!;
+      const origin = first.webContents;
+      const fixture = new BrowserWindow({ show: false });
+      const originalSend = origin.send;
+      const originalDialog = dialog.showMessageBox;
+      const prompt = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const acknowledged = Promise.withResolvers<boolean>();
+      const onReply = (event: Electron.IpcMainEvent, _id: number, saved: boolean) => {
+        if (event.sender === origin) acknowledged.resolve(saved);
+      };
+      let requests = 0;
+      origin.send = (channel, ...args) => {
+        if (channel === "huhu:flush") requests++;
+        originalSend.call(origin, channel, ...args);
+      };
+      fixture.webContents.send = () => {
+        throw new Error("测试窗口无保存回执");
+      };
+      dialog.showMessageBox = (async () => {
+        prompt.resolve();
+        await release.promise;
+        return { response: 0, checkboxChecked: false };
+      }) as typeof originalDialog;
+      ipcMain.on("huhu:flushed", onReply);
+      try {
+        first.close();
+        nativeApp.quit();
+        await prompt.promise;
+        const saved = await acknowledged.promise;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const during = !first.isDestroyed() && !fixture.isDestroyed();
+        release.resolve();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return { saved, requests, during, after: !first.isDestroyed() && !fixture.isDestroyed() };
+      } finally {
+        release.resolve();
+        ipcMain.off("huhu:flushed", onReply);
+        dialog.showMessageBox = originalDialog;
+        if (!first.isDestroyed()) origin.send = originalSend;
+        fixture.destroy();
+      }
+    });
+    expect(result).toEqual({ saved: true, requests: 1, during: true, after: true });
+    expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
+  } finally {
+    await close();
+  }
+});

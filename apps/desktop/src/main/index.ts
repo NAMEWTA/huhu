@@ -121,6 +121,7 @@ function canCloseWindow(win: BrowserWindow): Promise<boolean> {
   return decision;
 }
 let flushedForQuit = false;
+let quitting = false;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -144,11 +145,12 @@ function createWindow(): BrowserWindow {
   win.on("close", (event) => {
     if (flushedForQuit) return;
     event.preventDefault();
-    if (closing) return;
+    if (closing || quitting) return;
     closing = true;
     void canCloseWindow(win).then((allowed) => {
       closing = false;
-      if (allowed && !win.isDestroyed()) win.destroy();
+      // 应用退出已接管本窗口的在途检查；其余窗口取消时也保留此窗。
+      if (allowed && !quitting && !flushedForQuit && !win.isDestroyed()) win.destroy();
     });
   });
   win.webContents.on("will-navigate", (event, url) => {
@@ -433,26 +435,30 @@ if (!gotLock) {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
-  let quitting = false;
   app.on("before-quit", (e) => {
     if (flushedForQuit) return;
+    if (quitting) {
+      e.preventDefault();
+      return;
+    }
     // 没有打开 Vault 时让启动页正常关闭。
     if (!supervisor) {
       flushedForQuit = true;
       return;
     }
     e.preventDefault();
-    if (quitting) return;
     quitting = true;
     void Promise.all(BrowserWindow.getAllWindows().map(canCloseWindow)).then(async (allowed) => {
-      quitting = false;
-      if (!allowed.every(Boolean)) return;
-      flushedForQuit = true;
+      if (!allowed.every(Boolean)) {
+        quitting = false;
+        return;
+      }
       try {
         await supervisor?.stop();
       } catch (error) {
         console.error("退出时停止引擎失败", error);
       }
+      flushedForQuit = true;
       app.quit();
     });
   });
