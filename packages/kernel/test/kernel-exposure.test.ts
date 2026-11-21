@@ -174,6 +174,16 @@ async function setup(entry: Entry) {
       .parse(await response.json())
       .map(({ name }) => name);
   };
+  /** 发现元数据是否声明“必须带意图键”。 */
+  const intentRequired = async (capability: string) => {
+    if (entry === "mcp") {
+      const tools = z.array(z.object({ name: z.string(), _meta: z.record(z.string(), z.unknown()).optional() })).parse((await rpc("tools/list"))["tools"]);
+      return tools.find(({ name }) => name === mcpToolName(capability))?._meta?.["huhu.dev/intent-key"] === "required";
+    }
+    const response = await fetch(base + "/api/v1/capabilities", { headers: { authorization: `Bearer ${externalToken}` } });
+    const entries = z.array(z.object({ name: z.string(), intentRequired: z.literal(true).optional() })).parse(await response.json());
+    return entries.find(({ name }) => name === capability)?.intentRequired === true;
+  };
   const select = async (capability: string, exposed: boolean) => data(await desktop("gateway.update", { capability, exposed }));
   const read = async (name: string, input: object = {}, intentKey?: string) => data(await external(name, input, intentKey));
   const via = async (name: string, input: object = {}, intentKey?: string) => {
@@ -198,6 +208,7 @@ async function setup(entry: Entry) {
     ledgerFile,
     desktop,
     external,
+    intentRequired,
     discover,
     select,
     read,
@@ -357,7 +368,7 @@ describe.each(["http", "mcp"] as const)("Kernel 外部能力 %s", (entry) => {
 
   test.each(writeCases)("%s 默认关闭 → 开放后持久去重 → 撤销", async (name, scope, risk, inputFor) => {
     const fixture = await setup(entry);
-    const { registry, external, discover, select, ledgerFile, root } = fixture;
+    const { registry, external, discover, intentRequired, select, ledgerFile, root } = fixture;
     expect(registry.getDescriptor(name)).toMatchObject({ exposable: true, defaultExposed: false, scope, risk, externalIntentRequired: true, idempotency: "durable" });
     const input = await inputFor(fixture);
     const key = randomUUID();
@@ -365,6 +376,7 @@ describe.each(["http", "mcp"] as const)("Kernel 外部能力 %s", (entry) => {
     expect(await external(name, input, key)).toMatchObject(notExposed);
     await select(name, true);
     expect(await discover()).toContain(discoveryName(name));
+    expect(await intentRequired(name)).toBe(true);
     const bytes = vaultBytes(root);
     expect(await external(name, input)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(vaultBytes(root)).toEqual(bytes);

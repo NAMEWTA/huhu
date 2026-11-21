@@ -505,7 +505,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   dispatcherRef.current = real;
   await plugins.enableAll();
-  await guideRef.current?.maintain().catch(() => undefined); // 所有插件启用之后再补写 / 升级指南：能力表取决于完整的注册表
   let lastSync = "";
   let closing = false;
   events.subscribe((e) => {
@@ -545,6 +544,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   };
   const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, terminal);
   registerWebShareCapabilities(registry, webShare);
+  // 所有插件启用、Web 分享能力登记之后再补写 / 升级指南：能力表取决于完整的注册表
+  await guideRef.current?.maintain().catch(() => undefined);
   const server = await startEngineServer({
     mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
     mcpStdioEnabled: () => gatewayTokens.mcp().enabled,

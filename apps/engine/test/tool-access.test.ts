@@ -85,7 +85,7 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     const stdioSession = await openMcpSession(url(a, "/api/v1/mcp"), a.mcpToken);
     expect(await mcp(a, a.mcpToken, httpSession, "tools/list")).toMatchObject({ result: { tools: [] } });
     expect(await mcp(a, a.mcpToken, httpSession, "resources/list")).toMatchObject({ result: { resources: [] } });
-    expect(await call(a, "gateway.update", { capability: "capabilities.list", exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await call(a, "gateway.update", { capability: "gateway.tokens.create", exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(await data(call(a, "gateway.update", { capability: "notes.read", exposed: true }))).toEqual({ exposed: true, revision: 1 });
     for (const token of [a.cliToken, a.mcpToken, http]) {
       const handle = token === a.mcpToken ? stdioSession : undefined;

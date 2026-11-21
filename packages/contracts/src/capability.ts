@@ -68,7 +68,11 @@ export const CapabilityCatalogEntrySchema = z.object({
 });
 export type CapabilityCatalogEntry = z.infer<typeof CapabilityCatalogEntrySchema>;
 
-export const CapabilityDiscoveryEntrySchema = CapabilityCatalogEntrySchema.pick({ name: true, plugin: true, input: true, output: true }).extend({ scope: z.enum(CAPABILITY_SCOPES), durableIntent: z.literal(true).optional() });
+export const CapabilityDiscoveryEntrySchema = CapabilityCatalogEntrySchema.pick({ name: true, plugin: true, input: true, output: true }).extend({
+  scope: z.enum(CAPABILITY_SCOPES),
+  durableIntent: z.literal(true).optional(),
+  intentRequired: z.literal(true).optional(),
+});
 export type CapabilityDiscoveryEntry = z.infer<typeof CapabilityDiscoveryEntrySchema>;
 
 export const CapabilityIntentKeySchema = z

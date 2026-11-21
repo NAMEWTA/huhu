@@ -14,7 +14,7 @@ export interface McpBackend {
   operation?(lookup: CapabilityOperationLookup): CapabilityResult<unknown> | Promise<CapabilityResult<unknown>>;
 }
 
-type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown; durableIntent?: true | undefined };
+type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown; durableIntent?: true | undefined; intentRequired?: true | undefined };
 const intentField = "huhu.dev/intent-key";
 
 function structuredOutput(schema: unknown) {
@@ -80,7 +80,7 @@ export function createMcpServer(
       description: `${c.name}（${c.plugin} · ${c.scope}）`,
       inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
       outputSchema: structuredOutput(c.output),
-      ...(c.durableIntent && { _meta: { [intentField]: "optional" } }),
+      ...(c.durableIntent && { _meta: { [intentField]: c.intentRequired ? "required" : "optional" } }),
     })),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {

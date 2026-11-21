@@ -105,8 +105,14 @@ describe("VaultFiles", () => {
       expect(left).toHaveLength(1);
       expect(receipts.isTemporaryFile(left[0]!)).toBe(true);
       expect(receipts.consume("new.md", result.version)).toBe(true);
-      await vi.waitFor(() => expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]), { timeout: 3000 });
-      expect(receipts.isTemporaryFile(left[0]!)).toBe(false);
+      // 删除完成与解除登记在同一回调里先后发生：两者一起等待，避免在中间时刻取样
+      await vi.waitFor(
+        () => {
+          expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]);
+          expect(receipts.isTemporaryFile(left[0]!)).toBe(false);
+        },
+        { timeout: 3000 },
+      );
     } finally {
       rmAsync.mockImplementation(realRm);
       rmSyncMock.mockImplementation(realRmSync);
