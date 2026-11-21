@@ -402,8 +402,14 @@ test("H6.1 附属文件跟随活动分栏，独立双栏保持原连接和单独
     await local.getByRole("button", { name: /local-child/ }).click();
     await expect(local.locator("code").first()).toContainText("local-child");
     await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    const columns = independent.locator(".ssh-file-columns > section");
+    await expect(columns).toHaveCount(2);
+    const remoteWasFirst = (await columns.first().getAttribute("data-testid")) === "files-panel";
+    await expect(columns.nth(remoteWasFirst ? 1 : 0)).toHaveAttribute("aria-label", "本机文件");
     await independent.getByRole("button", { name: "交换左右位置" }).click();
-    await expect(independent.locator(".ssh-file-columns > section").first()).toHaveAttribute("data-testid", "files-panel");
+    await expect(columns.nth(remoteWasFirst ? 1 : 0)).toHaveAttribute("data-testid", "files-panel");
+    await expect(columns.nth(remoteWasFirst ? 0 : 1)).toHaveAttribute("aria-label", "本机文件");
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
     await pinned.getByRole("button", { name: "大小", exact: true }).click();
     await expect(pinned.getByRole("columnheader", { name: "大小" })).toHaveAttribute("aria-sort", "ascending");
     await pinned.getByLabel("筛选远端目录").fill("no-match");
