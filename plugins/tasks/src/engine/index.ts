@@ -86,7 +86,7 @@ export const taskToolDescriptors = {
     defaultExposed: false,
     idempotency: "durable",
     input: TaskWritableSchema,
-    output: TaskDtoSchema,
+    output: z.union([TaskDtoSchema, Id]),
   }),
   questionsList: defineCapabilityDescriptor({
     name: "tasks.questions.list",
@@ -560,7 +560,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         if (i.type !== "agent") throw errors.permissionDenied("人工任务不能设置 Agent 执行目标");
         validateAgentTarget(i.execution);
       }
-      return agentWriteResult(c.caller, await svc.create(i, originOf(c.caller)));
+      const task = await svc.create(i, originOf(c.caller));
+      // 受信 Inbox 转换只需要任务 ID：不让下游幂等账本持久化任务正文
+      if (c.caller === "plugin:inbox" && !c.delegatedBy) return { id: task.id };
+      return agentWriteResult(c.caller, task);
     }),
   );
   api.defineCapability(

@@ -133,7 +133,9 @@ export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir" | "root">): End
 
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
-  registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
+  registry.declareDescriptors("notes", notes.notesCapabilityDescriptors);
+  registry.declareDescriptors("inbox", Object.values(inbox.inboxCapabilityDescriptors));
+  registry.declareDescriptors("agent-guide", Object.values(agentGuide.guideCapabilityDescriptors));
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
   registry.declareDescriptors("mail", [
     mail.mailAccountsListDescriptor,

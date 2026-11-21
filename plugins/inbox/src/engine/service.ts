@@ -1,4 +1,5 @@
-import { errors, isWorkbenchCaller, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
+import type { CapabilityContext } from "@huhu/kernel";
 import type { Entity, SemanticRepository, Trash } from "@huhu/vault";
 
 export type CaptureSource = CaptureFrontmatter["source"];
@@ -44,7 +45,21 @@ function toDto(e: Entity): CaptureDto {
 }
 
 export class InboxService {
+  private readonly changes = new Map<string, Promise<unknown>>();
+
   constructor(private readonly d: InboxDeps) {}
+
+  /** Serialize changes to the source, including the target creation inside a conversion. */
+  async change<T>(id: string, apply: () => Promise<T> | T): Promise<T> {
+    const pending = this.changes.get(id) ?? Promise.resolve();
+    const writing = pending.catch(() => undefined).then(apply);
+    this.changes.set(id, writing);
+    try {
+      return await writing;
+    } finally {
+      if (this.changes.get(id) === writing) this.changes.delete(id);
+    }
+  }
 
   list(q: { status?: CaptureDto["status"]; source?: string; query?: string } = {}): CaptureDto[] {
     const needle = q.query?.trim().toLowerCase();
@@ -61,11 +76,12 @@ export class InboxService {
     return toDto(this.d.repo.read("capture", id));
   }
 
-  async capture(input: { title?: string; body: string; source: CaptureSource }): Promise<CaptureDto> {
+  async capture(input: { title?: string; body: string; source?: string }, context?: CapabilityContext): Promise<CaptureDto> {
     const body = input.body.trim();
     if (!body && !input.title?.trim()) throw errors.invalidInput("内容不能为空");
     const title = input.title?.trim() || [...(body.split(/\r?\n/)[0] ?? "")].slice(0, 40).join("").trim() || "未命名捕获";
-    const e = await this.d.repo.create("capture", { title, source: input.source, status: "pending", createdAt: iso(this.d.now()) }, body);
+    const source = context ? sourceFor(context.caller, input.source) : (input.source ?? "quick");
+    const e = await this.d.repo.create("capture", { title, source, status: "pending", createdAt: iso(this.d.now()) }, body);
     this.d.publish("entity.changed", { kind: "capture", id: e.id, op: "created" });
     return toDto(e);
   }
@@ -87,8 +103,12 @@ export class InboxService {
     if (!this.d.isTargetEnabled(target)) throw errors.invalidInput("请先在插件中心启用该模块");
     // 幂等键含捕获当前版本：崩溃后重试（版本未变）复用同一键；撤销处理后版本已变，会创建新对象
     const created = await this.d.createTarget(target, fields, `inbox-convert-${id}-${cur.version}`);
-    const latest = this.read(id);
-    const e = await this.d.repo.patch("capture", id, { status: "processed", processedAt: iso(this.d.now()), result: { kind: target, id: created.id } }, latest.version);
+    let e: Entity;
+    try {
+      e = await this.d.repo.patch("capture", id, { status: "processed", processedAt: iso(this.d.now()), result: { kind: target, id: created.id } }, cur.version);
+    } catch {
+      throw new HuhuError("INTERNAL", "转换目标已受理，收件项结果待核实", { retryable: false, details: { outcome: "unknown", captureId: id, target, targetId: created.id } });
+    }
     this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
     return toDto(e);
   }

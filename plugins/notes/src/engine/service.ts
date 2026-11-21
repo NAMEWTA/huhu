@@ -129,6 +129,10 @@ export class NotesService {
     }
     return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
   }
+  hiddenPreferences(): { hiddenPaths: string[]; version: string } {
+    const hiddenPaths = this.hiddenPaths();
+    return { hiddenPaths, version: versionOf(Buffer.from(JSON.stringify(hiddenPaths))) };
+  }
   private hiddenStep(hiddenPaths: string[]): OpStep & { action: "write" } {
     const prefs: NotesPreferences = { hiddenPaths };
     return { action: "write", path: this.relativeStatePath(this.preferencesFile()), bytes: Buffer.from(JSON.stringify(prefs, null, 2)) };
@@ -154,6 +158,7 @@ export class NotesService {
     return this.readJson<string[]>(FOLDERS, []);
   }
   async createFolder(rel: string): Promise<void> {
+    this.d.files.assertWritable();
     const norm = normalizeRelPath(rel);
     this.assertValidSegments(norm);
     this.assertUnprotectedDestination(norm);
@@ -246,12 +251,17 @@ export class NotesService {
     return this.allFiles().filter(isLocalTemplate).sort();
   }
 
-  async importTemplate(sourcePath: string): Promise<{ path: string }> {
+  async importTemplate(sourcePath: string, expectedVersion?: string, assertDestination?: (path: string) => void): Promise<{ path: string }> {
     const source = normalizeRelPath(sourcePath);
     const parent = path.dirname(source);
     if (path.basename(parent) === TEMPLATE_FOLDER) throw errors.invalidInput("这已经是模板文件");
     const bytes = this.readTemplateSource(source);
+    if (expectedVersion !== undefined) {
+      const version = versionOf(bytes);
+      if (version !== expectedVersion) throw errors.versionConflict(version);
+    }
     const folder = path.join(parent, TEMPLATE_FOLDER);
+    assertDestination?.(folder);
     if (parent !== ".") resolveReadableAsset(this.d.files.root, parent);
     if (this.d.files.exists(folder)) {
       const absolute = resolveReadableAsset(this.d.files.root, folder);
@@ -306,7 +316,7 @@ export class NotesService {
     if (existing && this.d.files.currentVersion(existing) === versionOf(input.bytes)) return { path: existing, size: input.bytes.byteLength, deduped: true };
     const final = uniqueName(name, (n) => this.findCaseInsensitive(at(n)) !== null);
     const rel = at(final);
-    await this.d.ops.run(`attach-${Date.now().toString(36)}`, "attach", [{ action: "write", path: rel, bytes: input.bytes }]);
+    await this.d.ops.run(`attach-${randomUUID()}`, "attach", [{ action: "write", path: rel, bytes: input.bytes, expectedVersion: null }]);
     this.d.index.refreshPaths([rel]);
     return { path: rel, size: input.bytes.byteLength, deduped: false };
   }
@@ -323,25 +333,26 @@ export class NotesService {
   }
 
   /** 在状态目录备妥字节，再由 OperationLog 将整棵树移入目标路径。 */
-  private async duplicateFolder(rel: string): Promise<{ path: string; id: string; paths: string[] }> {
+  private async duplicateFolder(rel: string, validate?: (child: string) => void): Promise<{ path: string; id: string; paths: string[] }> {
     const dest = this.duplicateDestination(rel, "");
     const key = dest.toLowerCase();
     this.pendingCreations.add(key);
     try {
-      return await this.copyFolderTo(rel, dest);
+      return await this.copyFolderTo(rel, dest, validate);
     } finally {
       this.pendingCreations.delete(key);
     }
   }
 
-  private async copyFolderTo(rel: string, dest: string): Promise<{ path: string; id: string; paths: string[] }> {
+  private async copyFolderTo(rel: string, dest: string, validate?: (child: string) => void): Promise<{ path: string; id: string; paths: string[] }> {
+    const children = this.filesUnder(rel, validate && { validate });
     const copies = hostPath.join(this.d.stateDir, "notes", "copies");
     mkdirSync(copies, { recursive: true });
     const staging = mkdtempSync(hostPath.join(copies, "copy-"));
     const copied: string[] = [];
     const folders: string[] = [dest];
     try {
-      for (const child of this.filesUnder(rel)) {
+      for (const child of children) {
         const suffix = child.slice(rel.length + 1);
         const target = hostPath.join(staging, ...suffix.split("/"));
         if (lstatSync(this.d.files.abs(child)).isDirectory()) {
@@ -364,16 +375,16 @@ export class NotesService {
     return { path: dest, id: "", paths: copied };
   }
 
-  duplicate(rel: string): Promise<{ path: string; id: string; paths?: string[] }> {
-    const copy = this.duplicateQueue.then(() => this.duplicateEntry(normalizeRelPath(rel)));
+  duplicate(rel: string, validate?: (child: string) => void): Promise<{ path: string; id: string; paths?: string[] }> {
+    const copy = this.duplicateQueue.then(() => this.duplicateEntry(normalizeRelPath(rel), validate));
     this.duplicateQueue = copy.catch(() => undefined);
     return copy;
   }
 
-  private async duplicateEntry(rel: string): Promise<{ path: string; id: string; paths?: string[] }> {
+  private async duplicateEntry(rel: string, validate?: (child: string) => void): Promise<{ path: string; id: string; paths?: string[] }> {
     this.d.files.assertWritable();
     const absolute = resolveReadableAsset(this.d.files.root, rel);
-    if (statSync(absolute).isDirectory()) return this.duplicateFolder(rel);
+    if (statSync(absolute).isDirectory()) return this.duplicateFolder(rel, validate);
     const src = this.d.files.read(rel);
     if (!src) throw errors.notFound(`文件不存在：${rel}`);
     const dest = this.duplicateDestination(rel, path.extname(rel));
@@ -515,7 +526,7 @@ export class NotesService {
     return r;
   }
   /** 恢复；原路径已有同名文件时必须提供 newName，不覆盖。 */
-  async restore(trashId: string, newName?: string): Promise<string> {
+  async restore(trashId: string, newName?: string, assertDestination?: (path: string) => void): Promise<string> {
     const meta = this.d.trash.list().find((m) => m.trashId === trashId);
     if (!meta) throw errors.notFound("回收站条目不存在");
     const dir = path.dirname(meta.originalPath) === "." ? "" : `${path.dirname(meta.originalPath)}/`;
@@ -524,6 +535,7 @@ export class NotesService {
       const err = validateName(newName.replace(/\.md$/i, ""));
       if (err) throw errors.invalidInput(err);
     }
+    assertDestination?.(target);
     this.assertUnprotectedDestination(target);
     if (this.findCaseInsensitive(target)) throw errors.nameConflict(target);
     const restored = this.d.trash.restore(trashId, target);
