@@ -292,6 +292,10 @@
     white-space: pre-wrap;
   }
 
+  .hu-mail-ai-text {
+    overflow-wrap: anywhere;
+  }
+
   .hu-mail-copy-link {
     color: var(--accent-text);
     background: transparent;

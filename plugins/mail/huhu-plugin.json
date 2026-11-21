@@ -25,6 +25,8 @@
       "mail.ai.getSettings",
       "mail.ai.verifyConnection",
       "mail.ai.saveSettings",
+      "mail.ai.prepare",
+      "mail.ai.chat",
       "mail.cache.usage",
       "mail.cache.clear",
       "mail.subset.create",

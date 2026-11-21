@@ -6,8 +6,12 @@ export const aiFixtureCert = new URL("./loopback-cert.pem", import.meta.url);
 
 export async function aiFixture(secure = false) {
   const requests: { path: string | undefined; authorization: string | undefined; body: unknown }[] = [];
-  const behavior: { status?: number; redirect?: string; wait?: Promise<void>; text?: string } = {};
+  const behavior: { status?: number; redirect?: string; wait?: Promise<void>; text?: string; toolCalls?: unknown } = {};
+  let interrupted = 0;
   const respond: RequestListener = (request, response) => {
+    response.once("close", () => {
+      if (!response.writableEnded) interrupted++;
+    });
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
@@ -18,7 +22,7 @@ export async function aiFixture(secure = false) {
           "content-type": "application/json",
           ...(behavior.redirect && { location: behavior.redirect }),
         });
-        response.end(JSON.stringify({ choices: [{ message: { content: behavior.text ?? "OK" } }] }));
+        response.end(JSON.stringify({ choices: [{ message: { content: behavior.text ?? "OK", tool_calls: behavior.toolCalls } }] }));
       });
     });
   };
@@ -33,6 +37,9 @@ export async function aiFixture(secure = false) {
     url: `${secure ? "https" : "http"}://127.0.0.1:${address.port}/v1`,
     requests,
     behavior,
+    get interrupted() {
+      return interrupted;
+    },
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
