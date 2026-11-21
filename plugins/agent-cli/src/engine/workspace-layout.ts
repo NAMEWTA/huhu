@@ -1,6 +1,6 @@
 import { setTimeout as wait } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
-import { errors, HuhuError } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -37,7 +37,8 @@ const closeInput = WorkspaceEditSchema.pick({ spaceId: true, baseVersion: true }
 
 interface WorkspaceDeps {
   core(): Promise<HerdrClient>;
-  readCore?(): Promise<HerdrClient | null>;
+  /** start=false：外部只读调用，不得为读取而启动 Core。 */
+  readCore?(start: boolean): Promise<HerdrClient | null>;
   spaces: SpaceStore;
   sessions: SessionsService;
   readOnly: boolean;
@@ -72,10 +73,10 @@ class WorkspaceLayoutService {
     return { client, document, view };
   }
 
-  async read(spaceId: string): Promise<WorkspaceView> {
+  async read(spaceId: string, start = true): Promise<WorkspaceView> {
     if (!this.deps.readCore) return (await this.current(spaceId)).view;
     this.deps.spaces.get(spaceId);
-    const client = await this.deps.readCore();
+    const client = await this.deps.readCore(start);
     if (client) return (await this.current(spaceId, client)).view;
     return { spaceId, version: 0, layout: emptyLayout(spaceId), writable: !this.deps.readOnly };
   }
@@ -210,7 +211,7 @@ export function registerWorkspaceLayout(api: HuhuApi, deps: WorkspaceDeps) {
       scope: "read",
       input: WorkspaceEditSchema.pick({ spaceId: true }),
       output: WorkspaceViewSchema,
-      handler: (_, { spaceId }) => service.read(spaceId),
+      handler: ({ caller }, { spaceId }) => service.read(spaceId, isWorkbenchCaller(caller)),
     }),
   );
   api.defineCapability(

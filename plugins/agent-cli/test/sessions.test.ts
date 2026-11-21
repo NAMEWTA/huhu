@@ -103,6 +103,24 @@ describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
     const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });
     expect(await core.peek()).toBe("absent");
   });
+  test.skipIf(process.platform === "win32")("只读诊断与外部布局读取不启动 Core：probe 区分未运行与缺程序，有旧布局时外部读取报不可用", async () => {
+    const root = tmp();
+    const marker = path.join(root, "spawned");
+    const bin = path.join(root, "herdr-core");
+    writeFileSync(bin, `#!/bin/sh\ntouch '${marker}'\n`);
+    chmodSync(bin, 0o755);
+    const runtimeDir = path.join(root, "runtime");
+    const scope = { vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir };
+    const core = new HerdrCore({ bin, ...scope });
+    expect(await core.probe()).toEqual({ state: "idle", version: null });
+    expect(await new HerdrCore({ bin: path.join(root, "missing"), ...scope }).probe()).toMatchObject({ state: "unavailable", error: expect.stringContaining("missing") });
+    expect(await core.workspaceConnection(false)).toBeNull();
+    const saved = path.join(runtimeDir, "state", "herdr-core", "huhu");
+    mkdirSync(saved, { recursive: true });
+    writeFileSync(path.join(saved, "docs.json"), "{}");
+    await expect(core.workspaceConnection(false)).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
+    expect(existsSync(marker)).toBe(false);
+  });
   test.skipIf(process.platform === "win32")("并发 peek：只保留一个连接，被丢弃的重复连接关闭后不会把保留的那个清掉", async () => {
     const net = await import("node:net");
     const core = new HerdrCore({ bin: "/nonexistent/herdr-core", vaultId: `vault-${Math.random().toString(36).slice(2, 10)}`, machineId: "abcd", runtimeDir: tmp() });

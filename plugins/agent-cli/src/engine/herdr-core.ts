@@ -108,12 +108,25 @@ export class HerdrCore {
     }
   }
 
-  async workspaceConnection(): Promise<HerdrClient | null> {
+  /**
+   * 读取工作区布局用的连接。Core 未运行且磁盘上没有保存的布局时返回 null（空布局）。
+   * 有保存布局时只有 start=true（工作台打开 Agent 工作区）才拉起 Core；外部只读调用不启动进程，改报 HERDR_UNAVAILABLE。
+   */
+  async workspaceConnection(start = true): Promise<HerdrClient | null> {
     const client = await this.peek();
     if (client === null) throw new HuhuError("HERDR_UNAVAILABLE", "无法核对原 Core 的工作区状态");
     if (client !== "absent") return client;
     const savedLayout = path.join(this.o.runtimeDir, "state", "herdr-core", "huhu", "docs.json");
-    return existsSync(savedLayout) ? this.ensure() : null;
+    if (!existsSync(savedLayout)) return null;
+    if (!start) throw new HuhuError("HERDR_UNAVAILABLE", "Herdr Core 未运行；在 Huhu 中打开 Agent 工作区恢复布局后再读取");
+    return this.ensure();
+  }
+
+  /** 诊断用：不启动 Core。未运行时只核对随包程序是否存在。 */
+  async probe(): Promise<{ state: "connected" | "idle" | "unavailable"; version: string | null; error?: string }> {
+    const status = await this.statusIfRunning();
+    if (status.state !== "idle") return status;
+    return existsSync(this.o.bin) ? status : { state: "unavailable", version: null, error: `找不到 Herdr Core：${this.o.bin}` };
   }
 
   async statusIfRunning(): Promise<{ state: "connected" | "unavailable" | "idle"; version: string | null; error?: string }> {

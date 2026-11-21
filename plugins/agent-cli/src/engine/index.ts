@@ -183,8 +183,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       waiting.poke();
       return client;
     },
-    readCore: async () => {
-      const client = await core.workspaceConnection();
+    readCore: async (start) => {
+      const client = await core.workspaceConnection(start);
       if (client) waiting.poke();
       return client;
     },

@@ -389,14 +389,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     extra: async () => {
       const out: HealthCheck[] = [];
       // Herdr Core：Agent 终端的运行时依赖；不可用时给出“重启 Core”
-      const cli = plugins.isEnabled("agent-cli") ? getService<{ core: { ensure(): Promise<unknown>; status(): Promise<{ state: string; version: string | null; error?: string }> } }>("agentCli") : undefined;
+      const cli = plugins.isEnabled("agent-cli") ? getService<{ core: { probe(): Promise<{ state: string; version: string | null; error?: string }> } }>("agentCli") : undefined;
       if (cli) {
-        await cli.core.ensure().catch(() => undefined); // 诊断时按需拉起 Core（用户打开终端时也是这样）；拉不起来才报“需处理”
-        const st = await cli.core.status().catch((e: unknown) => ({ state: "unavailable", version: null, error: e instanceof Error ? e.message : String(e) }));
+        // 诊断是只读动作：不为检查而拉起 Core。未运行但随包程序在 → 正常（打开终端时按需启动）
+        const st = await cli.core.probe().catch((e: unknown) => ({ state: "unavailable", version: null, error: e instanceof Error ? e.message : String(e) }));
         out.push(
           st.state === "connected"
             ? { id: "herdr", title: "Herdr Core", status: "ok", detail: `已连接${st.version ? ` · ${st.version}` : ""}` }
-            : { id: "herdr", title: "Herdr Core", status: "error", detail: st.error ?? "未启动或连接失败", action: { label: "重启 Core", target: "agent-cli", capability: "agent.core.restart" } },
+            : st.state === "idle"
+              ? { id: "herdr", title: "Herdr Core", status: "ok", detail: "未运行，打开 Agent 终端时按需启动" }
+              : { id: "herdr", title: "Herdr Core", status: "error", detail: st.error ?? "未启动或连接失败", action: { label: "重启 Core", target: "agent-cli", capability: "agent.core.restart" } },
         );
       }
       const safeStatus = plugins.isEnabled("safe") ? safeRef.current?.status() : undefined;
