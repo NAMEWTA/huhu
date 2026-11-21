@@ -145,6 +145,7 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
           return account;
         }),
     readDefinition,
+    visibleDefinition: (id: string) => (removals.read(id) ? undefined : readDefinition(id)),
     ensureOAuthAccess,
     drainOAuth: () => Promise.allSettled(renewals.values()),
     async confirmOAuthCommit(accountId: string, sessionId: string) {

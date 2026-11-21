@@ -46,7 +46,7 @@ export const outboxSummary = outboxReceipt.extend({
   retained: z.literal(true).optional(),
   state: z.enum(["sending", "unknown", "not-delivered", "accepted", "partially-accepted"]),
 });
-const outboxDetails = outboxSummary.extend({ retryableRecipients: z.array(draftRecipient) });
+const outboxDetails = outboxSummary.extend({ recordVersion: z.string().optional(), retryableRecipients: z.array(draftRecipient) });
 export const outboxView = z
   .union([
     outboxDetails.extend({ state: z.literal("sending") }),
@@ -156,14 +156,16 @@ export class MailOutbox {
     });
   }
 
-  status(input: z.infer<typeof outboxStatusInput>): z.infer<typeof outboxView> {
+  status(input: z.infer<typeof outboxStatusInput>, external = false): z.infer<typeof outboxView> {
     this.lifetime.throwIfAborted();
     const { operationId } = outboxStatusInput.parse(input);
-    const record = this.storage.read(operationId)?.record;
-    if (!record) return null;
-    if ("deleted" in record) return evidenceView(record);
+    const stored = this.storage.read(operationId);
+    if (!stored) return null;
+    const { record, version } = stored;
+    if ("deleted" in record) return external ? null : evidenceView(record);
+    if (external && (!record.draft.accountId || !this.accounts?.visibleDefinition(record.draft.accountId))) return null;
     const { result, draft } = record;
-    const summary = this.summary(record);
+    const summary = { ...this.summary(record), ...(external && { recordVersion: version }) };
     const retryableRecipients = this.retryableRecipients(record);
     const { state } = summary;
     if (state === "sending") return { ...summary, state, retryableRecipients };
@@ -171,12 +173,13 @@ export class MailOutbox {
     return { ...summary, state: "unknown", reason: "result-not-recorded", recipients: uniformOutcome(recipientsOf(draft), "data", "unknown").recipients, retryableRecipients };
   }
 
-  list() {
+  list(external = false) {
     this.lifetime.throwIfAborted();
     const summaries: z.infer<typeof outboxSummary>[] = [];
     for (const record of this.storage.records()) {
-      if (!("deleted" in record)) summaries.push(this.summary(record));
-      else {
+      if (!("deleted" in record)) {
+        if (!external || (record.draft.accountId && this.accounts?.visibleDefinition(record.draft.accountId))) summaries.push(this.summary(record));
+      } else if (!external) {
         const view = evidenceView(record);
         if (view) summaries.push({ operationId: view.operationId, messageId: view.messageId, draftId: view.draftId, revision: view.revision, claimedAt: view.claimedAt, subject: view.subject, state: view.state, retained: true });
       }
@@ -184,15 +187,19 @@ export class MailOutbox {
     return summaries.sort((a, b) => b.claimedAt.localeCompare(a.claimedAt) || a.operationId.localeCompare(b.operationId));
   }
 
-  async deleteLocal(input: z.infer<typeof outboxStatusInput>, requestSignal?: AbortSignal) {
-    const { operationId } = outboxStatusInput.parse(input);
+  async deleteLocal({ operationId, expectedVersion }: z.infer<typeof outboxStatusInput> & { expectedVersion?: string | undefined }, requestSignal?: AbortSignal, external = false) {
+    outboxStatusInput.parse({ operationId });
+    if (external && !expectedVersion) throw errors.invalidInput("删除本机投递记录需要记录版本。");
     return this.mutate(requestSignal, async (signal) => {
       const stored = this.storage.read(operationId);
       if (!stored) throw errors.notFound("邮件投递记录不存在");
       signal.throwIfAborted();
       if (!("deleted" in stored.record)) {
         this.accounts?.assertActive(stored.record.draft.accountId);
+        if (expectedVersion !== undefined && stored.version !== expectedVersion) throw errors.versionConflict(stored.version);
         await this.storage.write(deleteDetails(stored.record), stored.version);
+      } else if (external) {
+        throw errors.notFound("邮件投递记录不存在");
       } else if (stored.record.evidence) {
         const { evidence: _evidence, ...claim } = stored.record;
         await this.storage.write(claim, stored.version);

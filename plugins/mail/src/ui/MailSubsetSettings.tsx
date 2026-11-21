@@ -42,7 +42,7 @@ export function MailSubsetSettings({ readOnly, canRestore, accounts }: { readOnl
 
   function close() {
     if (active.current) return;
-    if (preview) void engine.call("mail.subset.cancel", { previewId: preview.previewId }).catch(() => undefined);
+    if (preview) void engine.call("mail.subset.cancel", { previewId: preview.previewId }, { write: true }).catch(() => undefined);
     setDialog(undefined);
     setFile(undefined);
     setPreview(undefined);
@@ -71,7 +71,7 @@ export function MailSubsetSettings({ readOnly, canRestore, accounts }: { readOnl
       } else if (!preview && file) {
         const content = await fileContent(file);
         if (signal.aborted) return;
-        const result = await engine.call<MailSubsetPreview>("mail.subset.preview", { content }, { signal });
+        const result = await engine.call<MailSubsetPreview>("mail.subset.preview", { content }, { signal, write: true });
         if (!signal.aborted) setPreview(result);
       } else if (preview) {
         const result = await engine.call<{ accounts: MailSubsetPreview["accounts"] }>("mail.subset.restore", { previewId: preview.previewId, accountIds: selected, confirm: true }, { write: true, signal });

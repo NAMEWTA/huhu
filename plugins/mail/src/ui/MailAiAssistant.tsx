@@ -2,9 +2,7 @@ import { Button, Dialog } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState } from "react";
 import type { MailAiApproval, MailAiSettings } from "../engine/ai-settings.js";
-import { mailAiExcerptLimit, mailAiModes, mailAiQuestionLimit, type MailAiMode } from "../mail-ai.js";
-
-const modeLabels: Record<MailAiMode, string> = { summary: "总结", todos: "提取待办", reply: "起草回复", chat: "对话" };
+import { mailAiExcerptLimit, mailAiModeLabels, mailAiModes, mailAiQuestionLimit, type MailAiMode } from "../mail-ai.js";
 
 export function MailAiAssistant({ body, onAdopt }: { body: string; onAdopt(text: string, trigger: HTMLButtonElement | null): void }) {
   const engine = useEngine();
@@ -50,7 +48,7 @@ export function MailAiAssistant({ body, onAdopt }: { body: string; onAdopt(text:
     setBusy(phase);
     setError("");
     try {
-      const response = await engine.call<T>(`mail.ai.${phase}`, input, { signal: controller.signal, write: phase === "chat" });
+      const response = await engine.call<T>(`mail.ai.${phase}`, input, { signal: controller.signal, write: true });
       if (!controller.signal.aborted) update(response);
     } catch (reason) {
       if (!controller.signal.aborted) setError(reason instanceof CapabilityError ? reason.message : "邮件 AI 暂时不可用，请重试。");
@@ -162,7 +160,7 @@ export function MailAiAssistant({ body, onAdopt }: { body: string; onAdopt(text:
               >
                 {mailAiModes.map((item) => (
                   <option key={item} value={item}>
-                    {modeLabels[item]}
+                    {mailAiModeLabels[item]}
                   </option>
                 ))}
               </select>

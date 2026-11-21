@@ -1,6 +1,7 @@
+import { mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash, randomUUID } from "node:crypto";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
-import { defineCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
@@ -12,6 +13,8 @@ import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outbo
 import { isOutboxRecordPath, OutboxStorage } from "./outbox-storage.js";
 import { forwardSource, sourceDigest } from "./prepare-forward.js";
 import type { MailSmtpTransport } from "./smtp.js";
+
+import { mailUnknown, type MailIntents } from "./tool-intents.js";
 
 const draftKey = z.strictObject({ draftId: uuid });
 const recipientFields = ["to", "cc", "bcc"] as const;
@@ -33,14 +36,13 @@ type MailAccounts = ReturnType<typeof openMailAccounts>;
 
 // This is Vault content. Read-only opens must read the original Vault, even with a scratch stateDir.
 export const draftsPath = ".huhu/mail/drafts.json";
-const workbenchDraft = { plugin: "mail", exposable: false, defaultExposed: false } as const;
 export const MAIL_DRAFT_ATTACHMENTS_SERVICE = "mail.draftAttachments";
 export type MailDraftAttachments = Pick<MailDrafts, "addAttachment" | "removeAttachment" | "readAttachment" | "withSnapshot"> & {
   sweepUnreferenced(signal?: AbortSignal): ReturnType<MailDrafts["sweepUnreferenced"]>;
 };
 
 function authorize(caller: string, capability: string): void {
-  if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(capability);
+  requireMailCaller(caller, capability);
 }
 
 function normalizeDraft(draft: DraftContent): DraftContent {
@@ -142,15 +144,19 @@ export class MailDrafts {
     this.objects = new DraftAttachmentObjects(files);
   }
 
-  get(draftId: string): Draft | null {
+  get(draftId: string, external = false): Draft | null {
     const record = readDraftSnapshot(this.files).snapshot.drafts[draftId];
-    return record?.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? this.details(draftId, record) : null;
+    return record?.draft && this.visible(record.draft.accountId, external) ? this.details(draftId, record) : null;
   }
 
-  list() {
+  private visible(accountId: string | null, external: boolean) {
+    return !accountId || (!this.removals.read(accountId) && (!external || !!this.accounts?.readDefinition(accountId)));
+  }
+
+  list(external = false) {
     return Object.entries(readDraftSnapshot(this.files).snapshot.drafts)
       .flatMap(([draftId, record]) =>
-        record.draft && (!record.draft.accountId || !this.removals.read(record.draft.accountId)) ? [{ draftId, revision: record.revision, updatedAt: record.updatedAt, accountId: record.draft.accountId, subject: record.draft.subject }] : [],
+        record.draft && this.visible(record.draft.accountId, external) ? [{ draftId, revision: record.revision, updatedAt: record.updatedAt, accountId: record.draft.accountId, subject: record.draft.subject }] : [],
       )
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.draftId.localeCompare(b.draftId));
   }
@@ -396,7 +402,98 @@ export class MailDrafts {
   }
 }
 
-export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined, removals: AccountRemovals) {
+export const draftDescriptors = {
+  outboxSubmit: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.outbox.submit",
+    title: "提交发件",
+    description: "按操作标识和草稿版本发起投递。",
+    risk: "high",
+    scope: "execute",
+    idempotency: "handler",
+    input: outboxSubmitInput,
+    output: outboxReceipt,
+  }),
+  outboxStatus: defineCapabilityDescriptor({ ...mailTool, name: "mail.outbox.status", title: "查看投递状态", description: "读取指定本机投递记录。", risk: "high", scope: "read", input: outboxStatusInput, output: outboxView }),
+  outboxList: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.outbox.list",
+    title: "列出投递记录",
+    description: "读取本机投递记录摘要。",
+    risk: "high",
+    scope: "read",
+    input: z.strictObject({}),
+    output: z.strictObject({ operations: z.array(outboxSummary) }),
+  }),
+  outboxRetry: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.outbox.retry",
+    title: "重试未投递收件人",
+    description: "只重试可证未投递的收件人。",
+    risk: "high",
+    scope: "execute",
+    idempotency: "handler",
+    input: outboxRetryInput,
+    output: outboxReceipt,
+  }),
+  outboxDeleteLocal: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.outbox.deleteLocal",
+    title: "删除本机投递记录",
+    description: "清除本机记录和私有引用。",
+    risk: "high",
+    scope: "write",
+    idempotency: "handler",
+    input: outboxStatusInput.extend({ expectedVersion: z.string().optional() }),
+    output: outboxStatusInput.extend({ deleted: z.literal(true) }),
+  }),
+  draftsList: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.drafts.list",
+    title: "列出草稿",
+    description: "读取本机草稿摘要。",
+    risk: "high",
+    scope: "read",
+    input: z.strictObject({}),
+    output: z.strictObject({ drafts: z.array(draftSummary) }),
+  }),
+  draftsGet: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.drafts.get",
+    title: "读取草稿",
+    description: "读取指定草稿和附件引用。",
+    risk: "high",
+    scope: "read",
+    input: draftKey,
+    output: z.strictObject({ draft: draftDetails.nullable() }),
+  }),
+  draftsSave: defineCapabilityDescriptor({ ...mailTool, name: "mail.drafts.save", title: "保存草稿", description: "按草稿标识和版本保存。", risk: "normal", scope: "write", idempotency: "handler", input: saveInput, output: draftDetails }),
+  draftsDiscard: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.drafts.discard",
+    title: "丢弃草稿",
+    description: "按草稿版本丢弃本机草稿。",
+    risk: "high",
+    scope: "write",
+    idempotency: "handler",
+    input: discardInput,
+    output: draftKey.extend({ discarded: z.literal(true) }),
+  }),
+  draftsRemoveAttachment: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.drafts.removeAttachment",
+    title: "移除草稿附件",
+    description: "按草稿版本清除指定附件引用。",
+    risk: "high",
+    desktopOnly: true,
+    scope: "write",
+    idempotency: "handler",
+    input: removeInput,
+    output: draftDetails,
+  }),
+};
+
+export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined, removals: AccountRemovals, once: MailIntents) {
   const drafts = new MailDrafts(api.vault.files, accounts, lifetime, removals);
   const outbox = new MailOutbox(api.vault.files, drafts, accounts, transport, lifetime);
   api.provide(MAIL_DRAFT_ATTACHMENTS_SERVICE, {
@@ -414,143 +511,103 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
     deleteLocal: outbox.deleteLocal.bind(outbox),
   } satisfies MailOutboxService);
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.outbox.submit",
-      scope: "execute",
-      idempotency: "handler",
-      input: outboxSubmitInput,
-      output: outboxReceipt,
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.outbox.submit");
-        return outbox.submit(input, signal);
-      },
+    bindCapability(draftDescriptors.outboxSubmit, ({ caller, signal }, input) => {
+      authorize(caller, "mail.outbox.submit");
+      return outbox.submit(input, signal);
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.outbox.status",
-      scope: "read",
-      input: outboxStatusInput,
-      output: outboxView,
-      handler: ({ caller }, input) => {
-        authorize(caller, "mail.outbox.status");
-        return outbox.status(input);
-      },
+    bindCapability(draftDescriptors.outboxStatus, ({ caller }, input) => {
+      authorize(caller, "mail.outbox.status");
+      return outbox.status(input, !isWorkbenchCaller(caller));
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.outbox.list",
-      scope: "read",
-      input: z.strictObject({}),
-      output: z.strictObject({ operations: z.array(outboxSummary) }),
-      handler: ({ caller }) => {
-        authorize(caller, "mail.outbox.list");
-        return { operations: outbox.list() };
-      },
+    bindCapability(draftDescriptors.outboxList, ({ caller }) => {
+      authorize(caller, "mail.outbox.list");
+      return { operations: outbox.list(!isWorkbenchCaller(caller)) };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.outbox.retry",
-      scope: "execute",
-      idempotency: "handler",
-      input: outboxRetryInput,
-      output: outboxReceipt,
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.outbox.retry");
-        return outbox.retry(input, signal);
-      },
+    bindCapability(draftDescriptors.outboxRetry, ({ caller, signal }, input) => {
+      authorize(caller, "mail.outbox.retry");
+      return outbox.retry(input, signal);
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.outbox.deleteLocal",
-      scope: "write",
-      idempotency: "handler",
-      input: outboxStatusInput,
-      output: outboxStatusInput.extend({ deleted: z.literal(true) }),
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.outbox.deleteLocal");
-        return outbox.deleteLocal(input, signal);
-      },
+    bindCapability(draftDescriptors.outboxDeleteLocal, (context, input) => {
+      const name = draftDescriptors.outboxDeleteLocal.name;
+      authorize(context.caller, name);
+      return once(
+        context,
+        name,
+        input.operationId,
+        input,
+        () => outbox.deleteLocal(input, context.signal, !isWorkbenchCaller(context.caller)),
+        (data) => data,
+        (data) => data,
+      );
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.drafts.list",
-      scope: "read",
-      input: z.strictObject({}),
-      output: z.strictObject({ drafts: z.array(draftSummary) }),
-      handler: ({ caller }) => {
-        authorize(caller, "mail.drafts.list");
-        return { drafts: drafts.list() };
-      },
+    bindCapability(draftDescriptors.draftsList, ({ caller }) => {
+      authorize(caller, "mail.drafts.list");
+      return { drafts: drafts.list(!isWorkbenchCaller(caller)) };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.drafts.get",
-      scope: "read",
-      input: draftKey,
-      output: z.strictObject({ draft: draftDetails.nullable() }),
-      handler: ({ caller }, { draftId }) => {
-        authorize(caller, "mail.drafts.get");
-        return { draft: drafts.get(draftId) };
-      },
+    bindCapability(draftDescriptors.draftsGet, ({ caller }, { draftId }) => {
+      authorize(caller, "mail.drafts.get");
+      return { draft: drafts.get(draftId, !isWorkbenchCaller(caller)) };
+    }),
+  );
+  function readSaved({ draftId, revision }: Pick<Draft, "draftId" | "revision">) {
+    const draft = drafts.get(draftId, true);
+    if (!draft || draft.revision !== revision) throw mailUnknown();
+    return draft;
+  }
+  const draftIntent = ({ draftId, expectedRevision }: { draftId: string; expectedRevision: string | null }) => JSON.stringify([draftId, expectedRevision]);
+  const savedRevision = ({ draftId, revision }: Draft) => ({ draftId, revision });
+  api.defineCapability(
+    bindCapability(draftDescriptors.draftsSave, (context, input) => {
+      const name = draftDescriptors.draftsSave.name;
+      authorize(context.caller, name);
+      return once(context, name, draftIntent(input), input, () => drafts.save(input, AbortSignal.any([context.signal, lifetime])), savedRevision, readSaved);
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.drafts.save",
-      scope: "write",
-      idempotency: "handler",
-      input: saveInput,
-      output: draftDetails,
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.drafts.save");
-        return drafts.save(input, AbortSignal.any([signal, lifetime]));
-      },
+    bindCapability(draftDescriptors.draftsDiscard, (context, input) => {
+      const name = draftDescriptors.draftsDiscard.name;
+      authorize(context.caller, name);
+      return once(
+        context,
+        name,
+        draftIntent(input),
+        input,
+        () => drafts.discard(input, AbortSignal.any([context.signal, lifetime])),
+        (result) => result,
+        (result) => result,
+      );
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.drafts.discard",
-      scope: "write",
-      idempotency: "handler",
-      input: discardInput,
-      output: draftKey.extend({ discarded: z.literal(true) }),
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.drafts.discard");
-        return drafts.discard(input, AbortSignal.any([signal, lifetime]));
-      },
-    }),
-  );
-  api.defineCapability(
-    defineCapability({
-      ...workbenchDraft,
-      name: "mail.drafts.removeAttachment",
-      desktopOnly: true,
-      scope: "write",
-      idempotency: "handler",
-      input: removeInput,
-      output: draftDetails,
-      async handler({ caller, signal }, input) {
-        if (caller !== "desktop") throw errors.permissionDenied("mail.drafts.removeAttachment");
-        const result = await drafts.removeAttachment(input, signal);
-        // The reference is committed. A failed sweep can be retried without repeating the removal.
-        await drafts.sweepUnreferenced(() => outbox.attachmentDigests()).catch(() => undefined);
-        return result;
-      },
+    bindCapability(draftDescriptors.draftsRemoveAttachment, (context, input) => {
+      const name = draftDescriptors.draftsRemoveAttachment.name;
+      requireMailCaller(context.caller, name, true);
+      return once(
+        context,
+        name,
+        draftIntent(input),
+        input,
+        async () => {
+          const result = await drafts.removeAttachment(input, context.signal);
+          // The reference is committed. A failed sweep can be retried without repeating the removal.
+          await drafts.sweepUnreferenced(() => outbox.attachmentDigests()).catch(() => undefined);
+          return result;
+        },
+        savedRevision,
+        readSaved,
+      );
     }),
   );
   const drain = async () => {

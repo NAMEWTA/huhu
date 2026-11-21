@@ -138,14 +138,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("inbox", Object.values(inbox.inboxCapabilityDescriptors));
   registry.declareDescriptors("agent-guide", Object.values(agentGuide.guideCapabilityDescriptors));
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
-  registry.declareDescriptors("mail", [
-    mail.mailAccountsListDescriptor,
-    mail.mailRefreshDescriptor,
-    mail.mailLatestMessageDescriptor,
-    mail.mailMessageSourceDescriptor,
-    ...Object.values(mail.mailOAuthCapabilityDescriptors),
-    ...Object.values(mail.mailAiCapabilityDescriptors),
-  ]);
+  registry.declareDescriptors("mail", mail.mailCapabilityDescriptors);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("versioning", versioning.versioningCapabilityDescriptors);

@@ -62,7 +62,9 @@ export async function openImapFixture(
     });
     const capabilities = () => `IMAP4rev1 NAMESPACE${options.allowIdle ? " IDLE" : ""}${options.acceptOAuth ? " AUTH=XOAUTH2 SASL-IR" : ""}`;
     socket.write(`* OK [CAPABILITY ${capabilities()}] loopback fixture\r\n`);
-    createInterface({ input: socket, crlfDelay: Infinity }).on("line", (line) => {
+    const lines = createInterface({ input: socket, crlfDelay: Infinity });
+    lines.on("error", () => socket.destroy());
+    lines.on("line", (line) => {
       const [tag, verb] = line.split(" ", 2);
       const command = verb?.toUpperCase();
       if (!command) return socket.destroy();

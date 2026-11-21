@@ -1,21 +1,22 @@
 import path from "node:path";
-import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, OperationReceipts, type Context, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { mailAccountDefinitionSchema } from "./account-definition.js";
-import { AccountRemovals, pendingRemoval, registerAccountRemoval } from "./account-removals.js";
+import { AccountRemovals, accountRemovalDescriptors, pendingRemoval, registerAccountRemoval } from "./account-removals.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
-import { registerAccountSetup } from "./account-setup.js";
-import { registerMailAi } from "./ai-settings.js";
-import { registerConversations } from "./conversations.js";
-import { registerDrafts } from "./drafts.js";
-import { registerMessageCache } from "./message-cache.js";
+import { accountSetupDescriptors, registerAccountSetup } from "./account-setup.js";
+import { mailAiCapabilityDescriptors, registerMailAi } from "./ai-settings.js";
+import { conversationsDescriptors, registerConversations } from "./conversations.js";
+import { draftDescriptors, registerDrafts } from "./drafts.js";
+import { messageCacheDescriptors, registerMessageCache } from "./message-cache.js";
 import type { MailOAuthRuntime } from "./oauth-provider.js";
-import { registerMailOAuth } from "./oauth-sessions.js";
+import { mailOAuthCapabilityDescriptors, registerMailOAuth } from "./oauth-sessions.js";
 import type { MailSmtpTransport } from "./smtp.js";
-import { registerMailSyncSchedule, type MailSyncOptions } from "./sync-schedule.js";
+import { syncScheduleDescriptors, registerMailSyncSchedule, type MailSyncOptions } from "./sync-schedule.js";
 import { makeMailSearchText } from "./search-text.js";
-import { registerMailSubset } from "./subset-data.js";
+import { subsetDescriptors, registerMailSubset } from "./subset-data.js";
+import { mailTool, requireMailCaller } from "./tool-access.js";
+import { mailIntents } from "./tool-intents.js";
 
 const accountSummary = z.strictObject({
   accountId: z.string(),
@@ -26,16 +27,27 @@ const accountSummary = z.strictObject({
 
 export const mailAccountsListDescriptor = defineCapabilityDescriptor({
   name: "mail.accounts.list",
-  plugin: "mail",
+  ...mailTool,
   title: "邮箱账号",
   description: "读取此 Vault 中已保存的邮箱配置及认证状态。",
-  risk: "normal",
+  risk: "high",
   scope: "read",
-  exposable: false,
-  defaultExposed: false,
   input: z.strictObject({}),
   output: z.strictObject({ available: z.boolean(), accounts: z.array(accountSummary), pendingRemovals: z.array(pendingRemoval).optional() }),
 });
+
+export const mailCapabilityDescriptors = [
+  mailAccountsListDescriptor,
+  ...Object.values(accountRemovalDescriptors),
+  ...Object.values(accountSetupDescriptors),
+  ...Object.values(conversationsDescriptors),
+  ...Object.values(draftDescriptors),
+  ...Object.values(mailAiCapabilityDescriptors),
+  ...Object.values(mailOAuthCapabilityDescriptors),
+  ...Object.values(messageCacheDescriptors),
+  ...Object.values(subsetDescriptors),
+  ...Object.values(syncScheduleDescriptors),
+];
 
 export async function apply(
   ctx: Context,
@@ -47,26 +59,27 @@ export async function apply(
   options: { aiCatalogDeclared?: boolean } = {},
 ): Promise<void> {
   const lifetime = new AbortController();
+  const once = mailIntents(owner && !owner.vault.readOnly ? new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-tool-intents.ndjson")) : undefined);
   const removals = new AccountRemovals(api.vault.files);
   const accounts = owner ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal) : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
-  const drainSubset = await registerMailSubset(api, accounts, owner, removals, lifetime.signal);
+  const drainSubset = await registerMailSubset(api, accounts, owner, removals, lifetime.signal, once);
   api.defineCapability(
     bindCapability(mailAccountsListDescriptor, async ({ caller }) => {
-      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(mailAccountsListDescriptor.name);
+      requireMailCaller(caller, mailAccountsListDescriptor.name);
       const rows = accounts ? await accounts.list() : [];
       const pending = caller === "desktop" ? removals.pending() : [];
       return { available: accounts !== undefined, accounts: rows, ...(pending.length && { pendingRemovals: pending }) };
     }),
   );
-  const drainSetup = registerAccountSetup(api, accounts, removals.serializeAddress.bind(removals), lifetime.signal);
+  const drainSetup = registerAccountSetup(api, accounts, removals.serializeAddress.bind(removals), lifetime.signal, once);
   const intents = owner && !owner.vault.readOnly ? { ledger: new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-oauth-intents.ndjson")), vaultInstance: owner.localVaultInstanceId } : undefined;
   const drainOAuth = registerMailOAuth(api, accounts, oauthRuntime, lifetime.signal, intents);
-  const drainAi = await registerMailAi(api, owner, lifetime.signal, options.aiCatalogDeclared === true);
-  const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
+  const drainAi = await registerMailAi(api, owner, lifetime.signal, options.aiCatalogDeclared === true, accounts, removals, once);
+  const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals, once);
   const searchText = makeMailSearchText();
-  const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, searchText, syncOptions.notify);
-  const drainSync = registerMailSyncSchedule(api, accounts, messages, lifetime.signal, syncOptions);
+  const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, searchText, once, syncOptions.notify);
+  const drainSync = registerMailSyncSchedule(api, accounts, messages, lifetime.signal, syncOptions, once);
   registerConversations(api, accounts, removals, lifetime.signal, messages, searchText);
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
