@@ -78,16 +78,8 @@ type Job = {
   streams: Record<z.infer<typeof StreamName>, ExecOutput>;
 };
 
-type RetainActivity = () => () => void;
-const activityByVault = new WeakMap<HuhuApi["vault"]["files"], RetainActivity>();
-
-/** Bind the Engine's activity tracker for this plugin scope. */
-export function bindExecJobActivity(files: HuhuApi["vault"]["files"], retain: RetainActivity): () => void {
-  activityByVault.set(files, retain);
-  return () => {
-    if (activityByVault.get(files) === retain) activityByVault.delete(files);
-  };
-}
+/** 受理 Exec 作业时持有、终态时释放的宿主活动登记（Engine 用它在作业运行期间保持存活）。 */
+export type RetainActivity = () => () => void;
 
 const capability = "ssh.jobs.prepare";
 const recentLimit = 32;
@@ -113,6 +105,7 @@ export class PublicExecJobs {
     private readonly probes: PublicSshProbes,
     private readonly receipts: OperationReceipts,
     private readonly vaultInstance: string,
+    private readonly retainActivity?: RetainActivity,
   ) {}
 
   private owners(context: CapabilityContext) {
@@ -165,8 +158,7 @@ export class PublicExecJobs {
     };
     this.jobs.set(jobId, job);
     try {
-      const retain = activityByVault.get(this.files);
-      if (retain) job.releaseActivity = retain();
+      if (this.retainActivity) job.releaseActivity = this.retainActivity();
       const connection = this.probes.openForJob(owner, input);
       job.close = connection.close;
       job.status.attemptId = connection.attemptId;

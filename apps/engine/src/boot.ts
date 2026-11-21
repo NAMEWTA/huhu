@@ -62,7 +62,6 @@ import { gitHomeWidget } from "@huhu/plugin-versioning/shared";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
-import { bindExecJobActivity } from "../../../plugins/ssh/src/engine/public-jobs.js";
 import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
 import { addDesktopMailAttachment } from "./mail-desktop-attachment.js";
 
@@ -461,8 +460,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
     apply: (ctx, api) => {
-      ctx.effect(() => bindExecJobActivity(api.vault.files, retainLongOperation));
-      ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]) } : undefined);
+      ssh.apply(
+        ctx,
+        api,
+        moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined,
+        !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]), retainActivity: retainLongOperation } : undefined,
+      );
     },
   });
   const external = new ExternalPlugins({
