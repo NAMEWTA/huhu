@@ -74,8 +74,20 @@ type Job = {
   remoteExit?: End;
   timer?: NodeJS.Timeout;
   endedAt?: number;
+  releaseActivity?: () => void;
   streams: Record<z.infer<typeof StreamName>, ExecOutput>;
 };
+
+type RetainActivity = () => () => void;
+const activityByVault = new WeakMap<HuhuApi["vault"]["files"], RetainActivity>();
+
+/** Bind the Engine's activity tracker for this plugin scope. */
+export function bindExecJobActivity(files: HuhuApi["vault"]["files"], retain: RetainActivity): () => void {
+  activityByVault.set(files, retain);
+  return () => {
+    if (activityByVault.get(files) === retain) activityByVault.delete(files);
+  };
+}
 
 const capability = "ssh.jobs.prepare";
 const recentLimit = 32;
@@ -155,6 +167,8 @@ export class PublicExecJobs {
     };
     this.jobs.set(jobId, job);
     try {
+      const retain = activityByVault.get(this.files);
+      if (retain) job.releaseActivity = retain();
       const connection = this.probes.openForJob(owner, input);
       job.close = connection.close;
       job.status.attemptId = connection.attemptId;
@@ -296,23 +310,28 @@ export class PublicExecJobs {
     if (job.endedAt !== undefined) return;
     const end = job.remoteExit ?? fallback;
     job.endedAt = Date.now();
-    clearTimeout(job.timer);
-    job.command = undefined;
-    job.detachOutput?.();
-    delete job.detachOutput;
-    job.streams.stdout.finish();
-    job.streams.stderr.finish();
-    job.status = { ...this.view(job), state: end.state, reason: end.reason, exitCode: end.exitCode ?? null, exitSignal: end.exitSignal ?? null };
-    job.close?.();
-    delete job.close;
-    delete job.client;
-    delete job.channel;
     try {
-      this.receipts.complete(job.claim, end.state === "unknown" ? "unknown" : "completed", { ok: true, data: job.status });
-    } catch {
-      // Keep the live result. A restarted Engine sees the durable admission as unknown.
+      clearTimeout(job.timer);
+      job.command = undefined;
+      job.detachOutput?.();
+      delete job.detachOutput;
+      job.streams.stdout.finish();
+      job.streams.stderr.finish();
+      job.status = { ...this.view(job), state: end.state, reason: end.reason, exitCode: end.exitCode ?? null, exitSignal: end.exitSignal ?? null };
+      job.close?.();
+      delete job.close;
+      delete job.client;
+      delete job.channel;
+      try {
+        this.receipts.complete(job.claim, end.state === "unknown" ? "unknown" : "completed", { ok: true, data: job.status });
+      } catch {
+        // Keep the live result. A restarted Engine sees the durable admission as unknown.
+      }
+      this.timer(job, outputLifetime, () => this.jobs.delete(job.status.jobId));
+    } finally {
+      job.releaseActivity?.();
+      delete job.releaseActivity;
     }
-    this.timer(job, outputLifetime, () => this.jobs.delete(job.status.jobId));
   }
 
   private find(context: CapabilityContext, jobId: string): { job?: Job; status: z.infer<typeof ExecJobStatus> } {

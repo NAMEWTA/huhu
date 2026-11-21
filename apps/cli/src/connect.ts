@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import path from "node:path";
 import { endpointRootBinding, findVaultRoot, machineId } from "@huhu/vault";
+import desktopPackage from "../../desktop/package.json" with { type: "json" };
 
 export interface Connection {
   baseUrl: string;
@@ -43,6 +45,27 @@ export function locateVault(explicit: string | undefined): string {
   return root;
 }
 
+function defaultDesktopUserData(): string | undefined {
+  let appData: string | undefined;
+  switch (process.platform) {
+    case "win32":
+      appData = process.env["APPDATA"];
+      break;
+    case "darwin":
+      appData = path.join(homedir(), "Library", "Application Support");
+      break;
+    case "linux": {
+      const xdg = process.env["XDG_CONFIG_HOME"];
+      appData = xdg && path.isAbsolute(xdg) ? xdg : path.join(homedir(), ".config");
+      break;
+    }
+  }
+  if (!appData || !path.isAbsolute(appData)) return undefined;
+  // Electron's default userData uses the application name from the shipped manifest.
+  const { name, productName }: { name: string; productName?: string } = desktopPackage;
+  return path.join(appData, (productName ?? name).trim());
+}
+
 /** 连接已运行的 Engine；没有则启动无界面 Engine（空闲 60 秒后自行退出）。 */
 export async function connect(vaultOpt: string | undefined, opts: { engineEntry?: string; timeoutMs?: number; idleExitMs?: number; role?: "cli" | "mcp" } = {}): Promise<Connection> {
   const root = locateVault(vaultOpt);
@@ -51,7 +74,12 @@ export async function connect(vaultOpt: string | undefined, opts: { engineEntry?
     const entry = opts.engineEntry ?? process.env["HUHU_ENGINE_ENTRY"];
     if (!entry) throw new ConnectError("无法启动 Engine：未配置引擎入口");
     const args = entry.endsWith(".ts") ? [createRequire(import.meta.url).resolve("tsx/cli"), entry] : [entry];
-    const child = spawn(process.execPath, [...args, "--vault", root, "--idle-exit-ms", String(opts.idleExitMs ?? 60_000)], { detached: true, stdio: "ignore" });
+    const desktopUserData = process.env["HUHU_DESKTOP_USER_DATA"] || defaultDesktopUserData();
+    const child = spawn(process.execPath, [...args, "--vault", root, "--idle-exit-ms", String(opts.idleExitMs ?? 60_000)], {
+      detached: true,
+      stdio: "ignore",
+      ...(desktopUserData && { env: { ...process.env, HUHU_DESKTOP_USER_DATA: desktopUserData } }),
+    });
     child.unref();
     const deadline = Date.now() + (opts.timeoutMs ?? 15_000);
     while (!d && Date.now() < deadline) {

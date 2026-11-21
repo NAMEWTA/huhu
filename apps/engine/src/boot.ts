@@ -62,6 +62,7 @@ import { gitHomeWidget } from "@huhu/plugin-versioning/shared";
 import * as versioning from "@huhu/plugin-versioning/engine";
 import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
+import { bindExecJobActivity } from "../../../plugins/ssh/src/engine/public-jobs.js";
 import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
 import { addDesktopMailAttachment } from "./mail-desktop-attachment.js";
 
@@ -104,6 +105,7 @@ export interface RunningEngine {
   dispatcher: Dispatcher;
   registry: CapabilityRegistry;
   events: EventBus;
+  lastLongOperationActivity(): number;
   /** 仅供 Engine 进程内受信模块和验证入口使用。 */
   moduleCredentialHost?: ModuleCredentialHost;
   addMailDraftAttachment(request: PrivateMailAttachmentRequest, signal: AbortSignal): Promise<SelectDraftAttachmentResult>;
@@ -151,6 +153,18 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData, opts.moduleCredentialProtection) : undefined;
   const runtime = vault.runtimeDir;
+  let activeOperations = 0;
+  let lastOperationEnd = 0;
+  const retainLongOperation = () => {
+    activeOperations++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      activeOperations--;
+      lastOperationEnd = Date.now();
+    };
+  };
   mkdirSync(runtime, { recursive: true });
   const rootIdentity = directoryInstance(vault.root);
 
@@ -444,8 +458,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
-    apply: (ctx, api) =>
-      void ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]) } : undefined),
+    apply: (ctx, api) => {
+      ctx.effect(() => bindExecJobActivity(api.vault.files, retainLongOperation));
+      ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]) } : undefined);
+    },
   });
   const external = new ExternalPlugins({
     root: vault.root,
@@ -613,6 +629,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     dispatcher: real,
     registry,
     events,
+    lastLongOperationActivity: () => (activeOperations > 0 ? Date.now() : lastOperationEnd),
     ...(moduleCredentialHost ? { moduleCredentialHost } : {}),
     addMailDraftAttachment: (request, signal) => {
       if (request.vaultId !== vault.id || vault.readOnly) return Promise.resolve({ status: "failed", reason: "unavailable" });

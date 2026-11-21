@@ -129,7 +129,8 @@ async function main(): Promise<void> {
     engine.events.subscribe(() => (last = Date.now()));
     const t = setInterval(
       () => {
-        if (engine.server.activeConnections() === 0 && Date.now() - Math.max(last, engine.server.lastActivity()) > idle) {
+        const lastActivity = Math.max(last, engine.server.lastActivity(), engine.lastLongOperationActivity());
+        if (engine.server.activeConnections() === 0 && Date.now() - lastActivity > idle) {
           clearInterval(t);
           void stop();
         }
