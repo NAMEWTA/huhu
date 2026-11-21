@@ -1,4 +1,4 @@
-import { defineCapabilityDescriptor } from "@huhu/kernel";
+import { defineCapabilityDescriptor, durableExternal } from "@huhu/kernel";
 import { z } from "zod";
 import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostView, ManagedHostView } from "./auth-profile.js";
@@ -159,20 +159,25 @@ export const sshCapabilityDescriptors = {
     output: z.object({ applied: z.literal(true) }),
   }),
   settingsGet: defineCapabilityDescriptor({
-    ...monitor,
+    ...external,
     name: "ssh.settings.get",
     title: "读取 SSH 库内设置",
     description: "读取当前库的 SSH 连接及传输默认值。",
     scope: "read",
+    risk: "normal",
+    desktopOnly: true,
     input: z.strictObject({}),
     output: VaultPreferencesSnapshot,
   }),
   settingsUpdate: defineCapabilityDescriptor({
-    ...monitor,
+    ...external,
+    ...durableExternal,
     name: "ssh.settings.update",
     title: "保存 SSH 库内设置",
     description: "按当前修订保存一类 SSH 默认值。",
     scope: "write",
+    risk: "normal",
+    desktopOnly: true,
     input: UpdateVaultPreferences,
     output: VaultPreferencesSnapshot,
   }),
