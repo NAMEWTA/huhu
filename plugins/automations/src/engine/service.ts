@@ -95,6 +95,7 @@ const STATE_TEXT: Record<string, string> = { succeeded: "已完成", failed: "�
 const TERMINAL_TIMEOUT_MS = 10 * 60_000;
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 type RuleData = AutomationRuleFrontmatter;
+type RulePatch = { [K in "title" | "trigger" | "action" | "missedRunGraceMinutes"]?: RuleData[K] | undefined };
 export function hasLegacyTerminalEnvironment(action: RuleData["action"]): boolean {
   return action.kind === "terminal" && Object.keys(action.envRefs ?? {}).length > 0;
 }
@@ -198,7 +199,7 @@ export class AutomationsService {
     return r;
   }
 
-  async create(input: { title: string; trigger: RuleData["trigger"]; action: RuleData["action"]; body?: string; missedRunGraceMinutes?: number }) {
+  async create(input: { title: string; trigger: RuleData["trigger"]; action: RuleData["action"]; body?: string | undefined; missedRunGraceMinutes?: number | undefined }) {
     validateSchedule(input.trigger.cron, input.trigger.zone);
     if (input.action.kind === "agent" && input.action.input.source === "tasks" && (input.body?.length ?? 0) > TASK_SCAN_INSTRUCTIONS_LIMIT) {
       throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
@@ -213,12 +214,17 @@ export class AutomationsService {
     return this.rule(e.id);
   }
 
-  async update(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
-    return this.withRuleConfiguration(() => this.updateRule(id, expectedVersion, patch, body));
+  async update(id: string, expectedVersion: string, patch: RulePatch, body?: string, authorize?: (rule: { data: RuleData }) => void) {
+    return this.withRuleConfiguration(async () => {
+      const cur = this.rule(id);
+      authorize?.(cur);
+      if (expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
+      return this.updateRule(cur, patch, body);
+    });
   }
 
-  private async updateRule(id: string, expectedVersion: string, patch: Partial<Pick<RuleData, "title" | "trigger" | "action" | "missedRunGraceMinutes">>, body?: string) {
-    const cur = this.rule(id);
+  private async updateRule(cur: ReturnType<AutomationsService["rule"]>, patch: RulePatch, body?: string) {
+    const { id, version: expectedVersion } = cur;
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
     const currentAction = cur.data.action;
     const action = patch.action;
@@ -231,7 +237,8 @@ export class AutomationsService {
     if (next.kind === "agent" && next.input.source === "tasks" && (body?.length ?? 0) > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
     if (body === undefined && currentAction.kind === "agent" && (next.kind !== "agent" || currentAction.input.source !== next.input.source)) body = "";
     const replacingLegacy = action && hasLegacyTerminalEnvironment(currentAction);
-    await this.d.repo.patch("automation-rule", id, { ...patch, ...(replacingLegacy && { enabled: false }), updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
+    const changes = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    await this.d.repo.patch("automation-rule", id, { ...changes, ...(replacingLegacy && { enabled: false }), updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
   }
@@ -261,13 +268,15 @@ export class AutomationsService {
 
   // ---- 扫描 ----
   /** 只读预览：候选、跳过原因、接下来三次激活时间；不写任何文件。 */
-  preview(ruleId: string) {
+  preview(ruleId: string, expectedVersion?: string) {
     const r = this.rule(ruleId);
+    if (expectedVersion !== undefined && expectedVersion !== r.version) throw errors.versionConflict(r.version);
     const now = this.d.now();
     const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
-    if (!isTaskScanRule(r)) return { next, tasksDisabled: false, candidates: [], skipped: [] };
+    if (!isTaskScanRule(r)) return { ruleVersion: r.version, next, tasksDisabled: false, candidates: [], skipped: [] };
     const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now);
     return {
+      ruleVersion: r.version,
       next,
       tasksDisabled,
       candidates: candidates.map((c) => ({ taskId: c.task.id, title: c.task.title, inputRevision: c.task.inputRevision, processingKey: c.processingKey })),
