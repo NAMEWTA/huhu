@@ -251,3 +251,28 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
   },
   90_000,
 );
+
+test.skipIf(process.platform === "win32")("POSIX 当前拒绝向外部授权尚未迁移的终端规则", async () => {
+  const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-approved-posix-")));
+  const vaultPath = path.join(fixture, "vault");
+  const desktopUserData = path.join(fixture, "app");
+  mkdirSync(vaultPath);
+  mkdirSync(desktopUserData);
+  let engine: RunningEngine | undefined;
+  try {
+    engine = await boot({ vaultPath, desktopUserData, create: true });
+    const call = (capability: string, input: unknown) => engine!.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const created = await call("automations.create", {
+      title: "POSIX 授权验证",
+      trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+      action: { kind: "terminal", command: "false", shell: "sh", spaceId: null },
+    });
+    assert(created.ok);
+    const ruleId = (created.data as { id: string }).id;
+    expect(await call(`${approvals}.review`, { ruleId })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await call("agent.sessions.list", {})).toMatchObject({ ok: true, data: [] });
+  } finally {
+    await engine?.shutdown();
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});

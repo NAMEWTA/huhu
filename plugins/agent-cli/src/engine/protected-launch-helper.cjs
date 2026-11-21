@@ -5,6 +5,7 @@ const { StringDecoder } = require("node:string_decoder");
 const { Transform } = require("node:stream");
 
 const MAX_PAYLOAD = 2 * 1024 * 1024;
+const POSIX_AMBIENT = new Set(["HOME", "PATH", "LOGNAME", "USER", "SHELL", "TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR"]);
 
 function fetchLaunch(port, token) {
   return new Promise((resolve, reject) => {
@@ -89,9 +90,10 @@ async function main() {
     env,
     approvedDirectory,
   } = await fetchLaunch(port, token);
-  const environment = { ...process.env };
-  delete environment.ELECTRON_RUN_AS_NODE;
-  if (process.platform === "win32") {
+  const windows = process.platform === "win32";
+  const environment = windows ? { ...process.env } : Object.fromEntries(Object.entries(process.env).filter(([name]) => POSIX_AMBIENT.has(name)));
+  if (windows) {
+    delete environment.ELECTRON_RUN_AS_NODE;
     const overrides = new Set(Object.keys(env).map((name) => name.toUpperCase()));
     for (const name of Object.keys(environment)) if (overrides.has(name.toUpperCase())) delete environment[name];
   }
@@ -101,7 +103,7 @@ async function main() {
     return;
   }
   // 继承 helper 已打开的当前目录。启动时无需用批准路径另选一次 cwd。
-  const child = spawn(command, args, { env: { ...environment, ...env }, stdio: ["inherit", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(command, args, { env: { ...environment, ...env }, stdio: ["inherit", "pipe", "pipe"], shell: false, windowsHide: true });
   child.stdout.pipe(redact(Object.values(env))).pipe(process.stdout, { end: false });
   child.stderr.pipe(redact(Object.values(env))).pipe(process.stderr, { end: false });
   const interrupt = () => child.kill();

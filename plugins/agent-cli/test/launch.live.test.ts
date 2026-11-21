@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +8,10 @@ import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { agentEnvironmentDescriptors, apply } from "../src/engine/index.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
+
+import { fixtureCoreCli } from "./fixtures/core-cli.js";
+
+const windows = process.platform === "win32";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 
@@ -30,8 +33,8 @@ interface Terminal {
   pid: number;
 }
 
-test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Core 0.1.19: capability preview matches the launched shell and synthetic agents",
+test.skipIf(!bin)(
+  "Core 0.1.19: capability preview matches the launched shell and synthetic agents",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w11-")));
     let vault = await Vault.open(mkdirSync(path.join(sandbox, "vault"), { recursive: true })!, { create: true });
@@ -45,7 +48,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       XDG_CONFIG_HOME: path.join(runtimeDir, "config"),
     };
     delete (env as NodeJS.ProcessEnv)["HC_TERMINAL_ID"];
-    const cli = (...argv: string[]) => spawnSync(bin!, argv, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+    const cli = fixtureCoreCli(bin!, env);
     let emptyEndpoint = false;
     let isolatedId: string | undefined;
     let dispose: (() => void) | undefined;
@@ -54,10 +57,10 @@ test.skipIf(process.platform !== "win32" || !bin)(
       dispose = undefined;
     }
     try {
-      expect(expectedCore.endpoint).toMatch(/^\\\\\.\\pipe\\huhu-[a-z0-9]{8}-[a-z0-9]{4}$/);
+      if (windows) expect(expectedCore.endpoint).toMatch(/^\\\\\.\\pipe\\huhu-[a-z0-9]{8}-[a-z0-9]{4}$/);
       const before = cli("server", "status");
       expect(before.status).toBe(5);
-      expect(JSON.parse(before.stderr).error).toMatchObject({ kind: "unavailable", message: expect.stringContaining("(os error 2)") });
+      if (windows) expect(JSON.parse(before.stderr).error).toMatchObject({ kind: "unavailable", message: expect.stringContaining("(os error 2)") });
       emptyEndpoint = true;
 
       let dispatcher: Dispatcher;
@@ -109,12 +112,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const scripts = path.join(sandbox, "中文模拟 CLI");
       mkdirSync(cwd);
       mkdirSync(scripts);
-      const agentCmd = path.join(scripts, "synthetic agent.cmd");
-      const failedBat = path.join(scripts, "failed version.bat");
+      const agentCmd = path.join(scripts, windows ? "synthetic agent.cmd" : "synthetic agent");
+      const failedBat = path.join(scripts, windows ? "failed version.bat" : "failed version");
       const agentScript = path.join(scripts, "agent.mjs");
       const agentEvidence = path.join(scripts, "agent-result.json");
-      writeFileSync(agentCmd, `@echo off\r\n"${process.execPath}" "%~dp0agent.mjs" %*\r\n`);
-      writeFileSync(failedBat, "@echo off\r\nexit /b 3\r\n");
+      const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+      writeFileSync(agentCmd, windows ? `@echo off\r\n"${process.execPath}" "%~dp0agent.mjs" %*\r\n` : `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(agentScript)} "$@"\n`, { mode: 0o700 });
+      writeFileSync(failedBat, windows ? "@echo off\r\nexit /b 3\r\n" : "#!/bin/sh\nexit 3\n", { mode: 0o700 });
       writeFileSync(
         agentScript,
         'import { writeFileSync } from "node:fs";\n' +
@@ -139,9 +143,14 @@ test.skipIf(process.platform !== "win32" || !bin)(
       );
       expect(detected.find(({ id }) => id === "codex")?.version).toBeUndefined();
       const target = { spaceId: space!.id, spaceRevision: space!.revision, cwd: path.toNamespacedPath(cwd) };
-      expect(target.cwd).not.toBe(cwd);
+      if (windows) expect(target.cwd).not.toBe(cwd);
       const shellEvidence = path.join(cwd, "shell-cwd.txt");
-      const shellInput = { ...target, provider: "shell", shell: "powershell", command: `[IO.File]::WriteAllText('${shellEvidence.replaceAll("'", "''")}', (Get-Location).ProviderPath)` };
+      const shellInput = {
+        ...target,
+        provider: "shell",
+        shell: windows ? "powershell" : "sh",
+        command: windows ? `[IO.File]::WriteAllText('${shellEvidence.replaceAll("'", "''")}', (Get-Location).ProviderPath)` : `printf '%s' "$PWD" > ${quote(shellEvidence)}`,
+      };
       const agentInput = { ...target, provider: "claude", model: "opus", prompt: "带 空格的提示" };
       writeFileSync(path.join(cwd, "plain-file.txt"), "");
       for (const invalidCwd of [path.join(cwd, "missing"), path.join(cwd, "plain-file.txt"), sandbox, "."]) {
@@ -149,27 +158,29 @@ test.skipIf(process.platform !== "win32" || !bin)(
         expect(await request("agent.launch.resolve", { session: invalid })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
         expect(await request("agent.sessions.launch", { ...invalid, requestId: crypto.randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       }
-      const deepParent = path.join(cwd, "深".repeat(120));
-      for (const length of [259, 300]) {
-        const longCwd = path.join(deepParent, "层".repeat(length - deepParent.length - 1));
-        const extended = path.toNamespacedPath(longCwd);
-        mkdirSync(extended, { recursive: true });
-        expect(realpathSync(extended).endsWith(longCwd.slice(2))).toBe(true);
-        for (const [input, spelling] of [
-          [shellInput, longCwd],
-          [agentInput, extended],
-        ] as const) {
-          const unsupported = { ...input, cwd: spelling };
-          const preview = await request("agent.launch.resolve", { session: unsupported });
-          expect(preview).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: 258 } } });
-          const launch = await request("agent.sessions.launch", { ...unsupported, requestId: crypto.randomUUID() });
-          expect(launch).toEqual(preview);
+      if (windows) {
+        const deepParent = path.join(cwd, "深".repeat(120));
+        for (const length of [259, 300]) {
+          const longCwd = path.join(deepParent, "层".repeat(length - deepParent.length - 1));
+          const extended = path.toNamespacedPath(longCwd);
+          mkdirSync(extended, { recursive: true });
+          expect(realpathSync(extended).endsWith(longCwd.slice(2))).toBe(true);
+          for (const [input, spelling] of [
+            [shellInput, longCwd],
+            [agentInput, extended],
+          ] as const) {
+            const unsupported = { ...input, cwd: spelling };
+            const preview = await request("agent.launch.resolve", { session: unsupported });
+            expect(preview).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", details: { stage: "cwd", reason: "windows_cwd_too_long", maxLength: 258 } } });
+            const launch = await request("agent.sessions.launch", { ...unsupported, requestId: crypto.randomUUID() });
+            expect(launch).toEqual(preview);
+          }
         }
       }
       expect(await request("agent.launch.resolve", { session: { ...agentInput, provider: "pi" } })).toMatchObject({ ok: false, error: { code: "AGENT_DISABLED" } });
       const shellPreview = await call<LaunchPreview>("agent.launch.resolve", { session: shellInput });
       const agentPreview = await call<LaunchPreview>("agent.launch.resolve", { session: agentInput });
-      expect(shellPreview).toEqual({ cwd, machineId: space!.machineId, command: "powershell.exe", argv: ["-NoProfile", "-Command", shellInput.command] });
+      expect(shellPreview).toEqual({ cwd, machineId: space!.machineId, command: windows ? "powershell.exe" : "sh", argv: windows ? ["-NoProfile", "-Command", shellInput.command] : ["-c", shellInput.command] });
       expect(agentPreview).toEqual({ cwd, machineId: space!.machineId, command: agentCmd, argv: ["--model", "opus", "--fixture", "two words", "带 空格的提示"] });
       expect(await call("agent.launch.resolve", { agentId: "claude", mode: "interactive", preview: true, model: "opus", prompt: agentInput.prompt })).toMatchObject({ command: agentPreview.command, argv: agentPreview.argv });
       expect(await call("agent.sessions.list", {})).toEqual([]);
@@ -294,13 +305,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const moved = path.join(cwd, "different target");
       mkdirSync(actual);
       mkdirSync(moved);
-      symlinkSync(actual, junction, "junction");
+      symlinkSync(actual, junction, windows ? "junction" : "dir");
       const throughJunction = { ...launch, requestId: crypto.randomUUID(), cwd: junction };
       const junctionLaunch = await call<{ id: string; terminalId: string; cwd: string }>("agent.sessions.launch", throughJunction);
       expect(junctionLaunch.cwd).toBe(actual);
       rmSync(junction);
       expect(await call("agent.sessions.launch", throughJunction)).toMatchObject({ id: junctionLaunch.id, terminalId: junctionLaunch.terminalId, cwd: actual });
-      symlinkSync(moved, junction, "junction");
+      symlinkSync(moved, junction, windows ? "junction" : "dir");
       expect(await request("agent.sessions.launch", throughJunction)).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
       await call("agent.sessions.kill", { id: junctionLaunch.id });
       console.info(JSON.stringify({ scenario: "junction", kept: junctionLaunch.terminalId, retargeted: "IDEMPOTENCY_MISMATCH" }));

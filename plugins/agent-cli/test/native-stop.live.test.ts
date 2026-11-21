@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +13,8 @@ import { InputOwnership } from "../src/engine/input-ownership.js";
 import { launchHash } from "../src/engine/launch-binding.js";
 import type { NativeStop, NativeStopStatus } from "../src/engine/native-stop.js";
 import { createFixtureGate } from "./fixtures/dispatch-provider.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { fixtureCoreCli } from "./fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const fixture = vi.hoisted(() => ({ directory: "" }));
@@ -45,8 +46,8 @@ async function call<T = unknown>(engine: RunningEngine, capability: string, inpu
 type Event = { event: string; threadId?: string; turnId?: string; params?: { threadId: string; turnId: string } };
 type Phase = "held-interrupt" | "workbench-stop" | "natural-before" | "failed-before" | "raced-natural" | "reused-pending" | "reused-unsent";
 
-test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Engine sends one native interrupt and reconciles only the original turn across races and Core replacement",
+test.skipIf(!bin)(
+  "Engine sends one native interrupt and reconciles only the original turn across races and Core replacement",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-native-stop-")));
     fixture.directory = sandbox;
@@ -57,6 +58,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     };
     const vaultPath = makeDir("vault");
     const desktopUserData = makeDir("desktop");
+    const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
@@ -93,17 +95,17 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const status = (value: NativeStopStatus) => ({ ok: true, data: { status: value } });
     try {
       signalFixture("native-stop-fixture");
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
       const mid = machineId();
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const shell = process.env["COMSPEC"] ?? "C:\\Windows\\System32\\cmd.exe";
+      const shell = process.platform === "win32" ? [process.env["COMSPEC"] ?? "C:\\Windows\\System32\\cmd.exe", "/d"] : ["/bin/sh", "-i"];
       const configDir = path.join(runtimeDir, "config", "herdr-core");
       mkdirSync(configDir, { recursive: true });
-      writeFileSync(path.join(configDir, "config.toml"), "shell = " + JSON.stringify([shell, "/d"]) + "\n");
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000, cwd: sandbox });
+      writeFileSync(path.join(configDir, "config.toml"), "shell = " + JSON.stringify(shell) + "\n");
+      const cli = fixtureCoreCli(bin!, env, sandbox);
       expect(cli("server", "status").status).toBe(5);
       stopCore = () => {
         if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
@@ -168,7 +170,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(dispatchRecord(held).ownerActive).toBe(true);
       console.info(JSON.stringify({ phase: "rpc-returned-without-original-terminal", threadId, turnId, nativeInterrupts: 1, ownerActive: true, status: "unknown" }));
       await engine.shutdown();
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       expect(await stop(held, false, "plugin:tasks", transportKey)).toEqual(status("unknown"));
       expect(dispatchRecord(held).ownerActive).toBe(true);
       signalFixture("held-interrupt.finish");
@@ -206,7 +208,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(interrupts("workbench-stop")).toHaveLength(1);
       await engine.shutdown();
       signalFixture("workbench-stop.finish");
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       await expect.poll(() => call(engine, "tasks.dispatch.stop.read", selection), { timeout: 15_000 }).toMatchObject({ ...selection, status: "stopped" });
       expect(await call(engine, "tasks.dispatch.stop", selection)).toMatchObject({ ...selection, status: "stopped" });
       expect(await call(engine, "tasks.runs", { id: taskId })).toMatchObject([{ id: runId, state: "cancelled" }]);
@@ -235,13 +237,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
           .poll(
             () => {
               const replacement = get(prior.address);
-              return replacement?.state === "live" && replacement.pid !== null && replacement.pid !== prior.pid && replacement.argv[0]?.toLowerCase() === shell.toLowerCase();
+              return replacement?.state === "live" && replacement.pid !== null && replacement.pid !== prior.pid && replacement.argv[0]?.toLowerCase() === shell[0]!.toLowerCase();
             },
             { timeout: 12_000 },
           )
           .toBe(true);
       }
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       expect(await stop(pending, true)).toEqual(status("unknown"));
       expect(await stop(pending)).toEqual(status("unknown"));
       expect(await stop({ ...pending, stopId: "new-replacement-stop" })).toEqual(status("stale"));
@@ -249,7 +251,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(existsSync(dispatchFile(unsent, "dispatch-stop-intents"))).toBe(false);
       expect(interrupts("reused-pending")).toHaveLength(1);
       expect(interrupts("reused-unsent")).toHaveLength(0);
-      for (const prior of originalTerminals) expect(get(prior.address)).toMatchObject({ state: "live", argv: [shell, "/d"] });
+      for (const prior of originalTerminals) expect(get(prior.address)).toMatchObject({ state: "live", argv: shell });
       expect(ptyWrites).toEqual([]);
       console.info(JSON.stringify({ phase: "same-address-replacement-shells", coreVersion, addresses: originalTerminals.map(({ address }) => address), newShellInterrupts: 0, priorStop: "unknown", freshStop: "stale" }));
     } finally {

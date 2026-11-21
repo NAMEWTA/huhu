@@ -173,21 +173,21 @@ test("a candidate needs an explicit lifecycle compatible with its exit fields", 
   expect(fake.tries).toBe(1);
 });
 
-test.skipIf(process.platform !== "win32")("replays the literal junction spelling only when the old target can no longer resolve", async () => {
+test("replays the literal directory link spelling only when the old target can no longer resolve", async () => {
   const { fake, target, reopen } = fixture();
   const first = path.join(target.cwd, "first");
   const other = path.join(target.cwd, "other");
   const junction = path.join(target.cwd, "junction");
   mkdirSync(first);
   mkdirSync(other);
-  symlinkSync(first, junction, "junction");
+  symlinkSync(first, junction, process.platform === "win32" ? "junction" : "dir");
   const input = { ...target, cwd: junction };
   const original = await reopen().launch(input);
   expect(original.cwd).toBe(first);
   rmSync(junction);
   expect(await reopen().launch(input)).toMatchObject({ id: original.id, terminalId: original.terminalId, cwd: first });
   await expect(reopen().launch({ ...input, cwd: junction + "-other" })).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
-  symlinkSync(other, junction, "junction");
+  symlinkSync(other, junction, process.platform === "win32" ? "junction" : "dir");
   await expect(reopen().launch(input)).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
   expect(fake.tries).toBe(1);
 });

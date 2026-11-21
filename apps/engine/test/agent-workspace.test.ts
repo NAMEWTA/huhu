@@ -11,7 +11,7 @@ import { WORKSPACE_DOCUMENT, emptyLayout, splitPane, type WorkspaceLaunchView, t
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 
-test.skipIf(process.platform !== "win32" || !coreBinary)(
+test.skipIf(!coreBinary)(
   "恢复 Space 时只载入业务目录，原 Core 布局和启动回执留在源 Vault",
   async () => {
     const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-workspace-package-")));
@@ -75,7 +75,7 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
   45000,
 );
 
-test.skipIf(process.platform !== "win32" || !coreBinary)(
+test.skipIf(!coreBinary)(
   "Core 工作区按 Space 持久化，旧版本拒绝覆盖，丢回包只核对原版本",
   async () => {
     const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-workspace-doc-")));
@@ -169,7 +169,7 @@ test.skipIf(process.platform !== "win32" || !coreBinary)(
   60_000,
 );
 
-test.skipIf(process.platform !== "win32" || !coreBinary)(
+test.skipIf(!coreBinary)(
   "真实 Core 在旧分栏版本下既不会启动，也不会终止已收起的会话",
   async () => {
     const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-workspace-guard-")));
