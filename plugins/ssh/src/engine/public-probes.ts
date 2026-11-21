@@ -4,7 +4,7 @@ import type { CapabilityContext, HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { KnownHostKey, type ConnectionStatus, type HostKeyPrompt } from "../shared/trust.js";
 import type { SshManager } from "./manager.js";
-import { readResourceRoute, ResourceHost, ResourceHostId } from "./public-resources.js";
+import { externalSshOwner, readBoundRoute, ResourceHost, ResourceHostId } from "./public-resources.js";
 
 const attemptId = z.string().min(1).max(128);
 export const StartPublicProbe = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
@@ -31,14 +31,8 @@ export const PublicProbeStatus = z.discriminatedUnion("state", [
 ]);
 
 type Status = z.infer<typeof PublicProbeStatus>;
-type Probe = { owner: string; abort: AbortController; expires: number; status: Status };
-
-function actor({ caller, subject }: CapabilityContext): string {
-  if (!subject || (caller !== "cli" && caller !== "mcp" && caller !== "http") || (caller === "http" && caller === subject)) {
-    throw errors.permissionDenied("SSH 外部连接核验");
-  }
-  return JSON.stringify([caller, subject]);
-}
+type Binding = z.infer<typeof StartPublicProbe>;
+type Probe = { owner: string; kind: "probe" | "job"; abort: AbortController; expires: number; status: Status };
 
 function promptView({ hostId, attemptId, routeRevision }: Status, prompt: HostKeyPrompt): z.infer<typeof PublicTrustPrompt> {
   const { promptId, hop, keyType, fingerprint } = prompt;
@@ -63,28 +57,40 @@ export class PublicSshProbes {
     private readonly manager: SshManager,
   ) {}
 
-  start(context: CapabilityContext, { hostId, routeRevision }: z.infer<typeof StartPublicProbe>) {
-    const owner = actor(context);
-    const current = () => {
-      const route = readResourceRoute(this.files, hostId);
-      if (route.view.routeRevision !== routeRevision) throw errors.versionConflict(route.view.routeRevision);
-      return route.chain;
-    };
+  start(context: CapabilityContext, binding: Binding) {
+    const owner = externalSshOwner(context);
     context.signal.throwIfAborted();
+    readBoundRoute(this.files, binding);
+    const existing = [...this.probes.values()].find(({ owner: recordOwner, kind, expires, status }) =>
+      recordOwner === owner && kind === "probe" && expires > Date.now() &&
+      status.hostId === binding.hostId && status.routeRevision === binding.routeRevision &&
+      (status.state === "connecting" || status.state === "waiting"),
+    );
+    if (existing) return { attemptId: existing.status.attemptId };
+    const connection = this.open(owner, binding, "probe");
+    void connection.ready.then(connection.close, connection.close);
+    return { attemptId: connection.attemptId };
+  }
+
+  openForJob(owner: string, binding: Binding) {
+    return this.open(owner, binding, "job");
+  }
+
+  private open(owner: string, { hostId, routeRevision }: Binding, kind: Probe["kind"]) {
+    const current = () => readBoundRoute(this.files, { hostId, routeRevision });
     const chain = current();
     const now = Date.now();
     for (const [id, probe] of this.probes) {
       if (probe.expires > now) continue;
-      probe.abort.abort();
+      if (probe.kind === "probe") probe.abort.abort();
       this.probes.delete(id);
     }
     const running = [...this.probes.values()].filter((probe) => probe.owner === owner && (probe.status.state === "connecting" || probe.status.state === "waiting"));
-    const existing = running.find(({ status }) => status.hostId === hostId && status.routeRevision === routeRevision);
-    if (existing) return { attemptId: existing.status.attemptId };
     if (this.probes.size >= 64) throw errors.invalidInput("SSH 核验记录已满，请稍后重试");
     if (running.length >= 4) throw errors.invalidInput("当前主体的 SSH 连接核验过多");
     const abort = new AbortController();
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(180_000)]);
+    const timeout = setTimeout(() => abort.abort(), 180_000);
+    timeout.unref();
     const apply = (event: ConnectionStatus, code?: HuhuError["code"]) => {
       const probe = this.probes.get(event.attemptId);
       if (!probe) return;
@@ -104,19 +110,24 @@ export class PublicSshProbes {
           probe.status = { ...base, state: "failed", reason: failure(code) };
       }
     };
-    const id = this.manager.startPublicProbe(chain, signal, current, apply);
-    this.probes.set(id, { owner, abort, expires: now + 300_000, status: { hostId, routeRevision, attemptId: id, state: "connecting" } });
-    return { attemptId: id };
+    const connection = this.manager.openExternalConnection(chain, abort.signal, current, apply);
+    const { attemptId } = connection;
+    this.probes.set(attemptId, { owner, kind, abort, expires: now + 300_000, status: { hostId, routeRevision, attemptId, state: "connecting" } });
+    return {
+      attemptId,
+      ready: connection.ready.finally(() => clearTimeout(timeout)),
+      close: () => abort.abort(),
+    };
   }
 
   read(context: CapabilityContext, input: z.infer<typeof PublicProbeId>): Status {
     const probe = this.probes.get(input.attemptId);
-    if (probe?.owner !== actor(context) || probe.status.hostId !== input.hostId || probe.expires <= Date.now()) throw errors.notFound("SSH 连接核验");
+    if (probe?.owner !== externalSshOwner(context) || probe.status.hostId !== input.hostId || probe.expires <= Date.now()) throw errors.notFound("SSH 连接核验");
     return probe.status;
   }
 
   list(context: CapabilityContext): Status[] {
-    const owner = actor(context);
+    const owner = externalSshOwner(context);
     const now = Date.now();
     return [...this.probes.values()].filter((probe) => probe.owner === owner && probe.expires > now).map(({ status }) => status);
   }

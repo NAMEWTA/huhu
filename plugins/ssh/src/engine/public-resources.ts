@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { errors } from "@huhu/contracts";
-import { CredentialError, ModuleCredentials, type HuhuApi } from "@huhu/kernel";
+import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes } from "./auth-profile.js";
 import type { ManagedHost } from "./host-configurations.js";
@@ -24,6 +24,19 @@ export const ResourceHost = routeHop.extend({
 });
 
 type Files = HuhuApi["vault"]["files"];
+
+export function externalSshOwner({ caller, subject }: CapabilityContext): string {
+  if (!subject || (caller !== "cli" && caller !== "mcp" && caller !== "http") || (caller === "http" && caller === subject)) {
+    throw errors.permissionDenied("SSH 外部资源");
+  }
+  return JSON.stringify([caller, subject]);
+}
+
+export function readBoundRoute(files: Files, { hostId, routeRevision }: Pick<z.infer<typeof ResourceHost>, "hostId" | "routeRevision">): ManagedHost[] {
+  const route = readResourceRoute(files, hostId);
+  if (route.view.routeRevision !== routeRevision) throw errors.versionConflict(route.view.routeRevision);
+  return route.chain;
+}
 
 /** Reads only portable definitions. HostConfigurations.list checks private credential material. */
 export function readResourceRoute(files: Files, hostId: string) {
