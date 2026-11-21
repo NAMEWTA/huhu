@@ -509,7 +509,7 @@ export async function registerMailAi(
     const id = input.approvalId;
     const pending = requests.get(id);
     if (pending && pending.actor !== actor) throw errors.notFound("邮件 AI 确认");
-    if (pending?.phase === "pending") throw errors.invalidInput("邮件 AI 请求等待工作台批准。", { reason: "approval-required" });
+    if (pending?.phase === "pending") throw new HuhuError("INVALID_INPUT", "邮件 AI 请求等待工作台批准。", { details: { reason: "approval-required" } });
     return run(context, (signal) =>
       once<z.infer<typeof sendResult> | z.infer<typeof completion>, true>(
         context,

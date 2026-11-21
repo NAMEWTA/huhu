@@ -484,7 +484,7 @@ test.each(entries)(
       const parent = unwrap(await desktop<{ operationId: string }>("mail.outbox.submit", { draftId: retryDraftId, expectedRevision: sendRevision }));
       await expect.poll(async () => unwrap(await desktop("mail.outbox.status", { operationId: parent.operationId }))).toMatchObject({ state: "partially-accepted" });
       await exercise("mail.conversations.sentBody", { operationId: parent.operationId, accountId }, (data) => {
-        expect(data).toEqual({ text: "synthetic draft body" });
+        expect(data).toEqual({ text: "synthetic draft body\n" });
       });
       smtp.configure("accept");
       const child = await exercise<{ operationId: string }>(
