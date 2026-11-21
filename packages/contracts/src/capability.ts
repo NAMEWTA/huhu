@@ -19,6 +19,8 @@ export interface McpSessionIdentity {
 export interface McpSessionPrincipal {
   readonly identity: McpSessionIdentity;
   readonly signal: AbortSignal;
+  /** A resumed transport can read existing state and replay receipts, without admitting writes. */
+  readonly recovered?: true;
 }
 
 /** Owner keys survive transport changes within the same logical session. */

@@ -44,6 +44,7 @@ type Invocation = {
   caller: Caller;
   subject: string;
   session?: McpSessionIdentity | undefined;
+  recovered?: true;
   forwarder?: CapabilityDefinition | undefined;
   delegatedBy?: CapabilityContext["delegatedBy"];
 };
@@ -83,7 +84,7 @@ export class Dispatcher {
     const session = typeof principal === "string" ? undefined : principal.identity;
     const subject = typeof principal === "string" ? principal : mcpSessionSubject(principal.identity);
     const lifetime = typeof principal === "string" ? signal : AbortSignal.any([signal, principal.signal]);
-    return this.dispatch({ caller, subject, session }, req, lifetime);
+    return this.dispatch({ caller, subject, session, ...(typeof principal !== "string" && principal.recovered && { recovered: true }) }, req, lifetime);
   }
 
   private async dispatch(invocation: Invocation, req: CapabilityRequest, signal: AbortSignal): Promise<CapabilityResult<unknown>> {
@@ -133,8 +134,18 @@ export class Dispatcher {
     return { ok: true, opId: operationId, data: { operationId, capability, state, ...(result && { result }) } };
   }
 
-  private uncertain(operationId: string, extra?: Record<string, unknown>) {
-    return this.fail(new HuhuError("INTERNAL", "调用结果待核实", { retryable: false, details: { ...extra, operationId, outcome: "unknown" } }));
+  private uncertain(operationId?: string, extra?: Record<string, unknown>) {
+    return this.fail(new HuhuError("INTERNAL", "调用结果待核实", { retryable: false, details: { ...extra, ...(operationId && { operationId }), outcome: "unknown" } }));
+  }
+
+  private replayRecovered(def: CapabilityDefinition, owner: string, intentKey: string, input: unknown): CapabilityResult<unknown> {
+    const entry = this.d.operations?.ledger.lookup(owner, { capability: def.name, intentKey });
+    if (!entry) return this.uncertain();
+    if (entry.input !== intentDigest(input)) return this.fail(errors.idempotencyMismatch());
+    if (entry.phase === "accepted" || entry.phase === "paused") return this.uncertain(entry.operationId);
+    if (!entry.result.ok) return entry.result;
+    const result = def.output.safeParse(entry.result.data);
+    return result.success ? { ...entry.result, data: result.data } : this.uncertain(entry.operationId, { verification: "invalid-output" });
   }
 
   private async durable(
@@ -278,6 +289,10 @@ export class Dispatcher {
       return this.fail(errors.invalidInput('此能力的外部调用必须提供稳定意图键：CLI 使用 --intent-key，MCP 使用 _meta["huhu.dev/intent-key"]'));
     }
     const command = typeof def.commandInvocation === "object" ? def.commandInvocation : undefined;
+    if (invocation.recovered && def.commandInvocation !== "forward" && (def.scope !== "read" || req.intentKey !== undefined)) {
+      if (def.idempotency !== "durable" || req.intentKey === undefined) return this.uncertain();
+      return this.replayRecovered(def, this.operationOwner(caller, subject), req.intentKey, command ? [command.revision, parsed.data] : parsed.data);
+    }
     if (def.commandInvocation !== "forward" && (req.intentKey !== undefined || (command && def.scope === "write"))) {
       if (def.idempotency !== "durable") return this.fail(errors.invalidInput("此能力未启用通用持久意图，请使用业务入口的操作标识"));
       const key = req.intentKey ?? (req.idempotencyKey && intentDigest(["invocation", req.idempotencyKey]));

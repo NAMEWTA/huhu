@@ -9,7 +9,7 @@ import { resolveMcpToolName } from "../mcp.js";
 import { registerCapabilityHttp, type CapabilityHttpEnv } from "./capability-http.js";
 import { RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import { listenHttp } from "./listen-http.js";
-import { McpSessions } from "./mcp-http.js";
+import { McpSessions, type McpRecoveryOptions } from "./mcp-http.js";
 import type { TokenTable } from "./tokens.js";
 import type { EventReplay } from "./ws-events.js";
 import { attachWorkbenchStreams, type TerminalBridge } from "./ws-workbench.js";
@@ -32,6 +32,8 @@ export interface EngineServerDeps {
   mcpSignal?(): AbortSignal;
   /** Stable Vault binding, when available. A listener still owns one Vault without it. */
   vaultInstance?: string;
+  /** Local runtime storage and the current persisted Gateway MCP generation. */
+  mcpRecovery?: McpRecoveryOptions;
   /** 测试/嵌入时指定端口，默认随机。 */
   port?: number;
 }
@@ -108,8 +110,7 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
   const server = createServer((req, res) => {
     lastActivity = Date.now();
     const path = req.url?.split("?")[0];
-    const entry = path === "/mcp" ? "mcp-http" : path === "/api/v1/mcp" ? "mcp-stdio" : undefined;
-    if (!entry) {
+    if (path !== "/mcp" && path !== "/api/v1/mcp") {
       void listener(req, res);
       return;
     }
@@ -117,12 +118,14 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       res.writeHead(status, { "cache-control": "no-store", "content-type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     };
-    if (!sessions.enabled(entry)) return refuse(404, "MCP 服务未启用");
+    if (!sessions.enabled("mcp-http") && (path === "/mcp" || !sessions.enabled("mcp-stdio"))) return refuse(404, "MCP 服务未启用");
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return refuse(verdict.status, verdict.reason);
     const credential = d.tokens.principal(bearerFrom(req.headers["authorization"]));
     if (!credential) return refuse(401, "未授权");
-    if (credential.caller !== "mcp" && (credential.caller !== "http" || entry !== "mcp-http")) return refuse(403, "该令牌身份不能使用 MCP 服务");
+    if (credential.caller !== "mcp" && credential.caller !== "http") return refuse(403, "该令牌身份不能使用 MCP 服务");
+    const entry = path === "/mcp" || credential.caller === "http" ? "mcp-http" : "mcp-stdio";
+    if (!sessions.enabled(entry)) return refuse(404, "MCP 服务未启用");
     void sessions.handle(entry, credential, req, res).catch(() => {
       if (!res.headersSent && !res.destroyed) refuse(500, "MCP 请求失败");
     });

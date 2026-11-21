@@ -37,3 +37,21 @@ Node 24.21.0，pnpm 12.10.1。测试使用独立的 `XDG_RUNTIME_DIR`。全量�
 ## 跨 Engine 重启恢复
 
 跨重启恢复证明留给后续 C05 切片。应在 Kernel MCP 认证适配层和当前 Vault 的本机受保护运行态中增加可轮换的证明摘要，绑定稳定 Vault 实例、稳定父凭据 ID、逻辑会话 ID、授权代、到期和失效状态。重启握手核验仍有效的原令牌与证明，原子轮换恢复证明和 transport 句柄，恢复原逻辑 owner 后只查询既有回执。缺少结果时保留 unknown，并继续用 SSH 领域账本核实。还需要决定正式停服时的对账窗口，以及为共享 bootstrap 的 stdio 提供可独立核验的本机客户端绑定。
+
+### C05 实施与 Linux 复验
+
+HTTP Gateway 客户端从首次 `initialize` 的结果读取 `result._meta["huhu.dev/session-recovery"]`。重启后，客户端以原 Bearer 向任一 HTTP MCP 路径发送新 `initialize`，把恢复凭据放到 `params._meta` 的同名字段。客户端采用响应返回的新凭据和新 `Mcp-Session-Id`。两个凭据用途不同，旧恢复凭据只可消费一次。无恢复字段的 initialize 生成独立逻辑 ID。共享 bootstrap 的 stdio 和普通 CLI 沿用各自的身份合同。 [MCP 2025-11-25 元数据扩展](https://modelcontextprotocol.io/specification/2025-11-25/basic/index#meta) · [HTTP 会话管理](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management)
+
+- 现有 Vault 写者锁提供单写者。`Vault.runtimeDir/mcp-recovery.json` 只保存恢复凭据摘要、Vault 目录实例、稳定父凭据 ID、逻辑会话 ID、MCP 配置代次和截止时间。文件通过独占暂存、flush 和原子 rename 发布。POSIX 下校验文件所有者和权限并同步目录。恢复字段进入 SDK 前从请求中取出。
+- 默认从初次签发起有效 24 小时，由 `recoveryAgeMs` 控制，轮换沿用原截止。每次握手重新验证父令牌，目前 Gateway 令牌有效至撤销。关闭 HTTP MCP 或改变 transport 时，配置和新代次一起原子写入。显式 DELETE 清除恢复记录，父令牌撤销后认证即失败。正常 Engine 关闭与重启间隔可以恢复。复制 Vault 目录会改变本机实例。
+- Dispatcher 先复核当前工具授权，再按原 owner 和意图匹配回执。恢复的 transport 可通过当前授权执行读操作。写调用只有已匹配的通用持久回执可直接回放，缺失、未完成或已暂停的操作返回 unknown，写 handler 不执行。SSH 公共作业由领域读入口查询原持久作业状态，进程内 stdout 已过期，保留原游标和截断信息。
+- 恢复响应若在原子轮换后丢失，旧凭据仍作废。客户端没有收到替代凭据时无法恢复该逻辑主体。此处的失败策略保留旧凭据的一次性。
+
+| 验收 | Linux 观察 |
+| --- | --- |
+| 回归红灯 | `mcp-recovery.test.ts` 在基线首次 initialize 缺少恢复凭据。原 task01 回环在重建服务后用新会话同键再写，效果从 1 增到 2。 |
+| 通用持久回执 | 同一会话并发同键同参只执行一次，从 `/mcp` 受理后经 `/api/v1/mcp` 恢复，读取和重放使用原 operationId。未恢复的新会话无法查询原回执。同键异参得到 `IDEMPOTENCY_MISMATCH`，工具撤权后回执查询和重放均拒绝。 |
+| 失效和缺失结果 | 同旧凭据两个并发恢复仅一个成功。错父凭据、旧凭据、显式 DELETE、到期、关闭再启用、撤令牌和复制 Vault 均拒绝恢复。只有 accepted 记录时查询与同键调用保留 unknown，持久日志和副作用计数保持原值。 |
+| SSH 与数据外流边界 | `public-resources.engine.test.ts` 从重启后的原主体读取终态和输出游标。回环 SSH 执行一次。恢复凭据原文和 transport 句柄未写入恢复文件、操作账本或审计。用真实 Vault 运行数据包导出及默认 Git 状态检查，均未收录恢复文件。 |
+
+Node 24.21.0、pnpm 12.10.1。隔离 `XDG_RUNTIME_DIR`。先后运行 `pnpm typecheck`、`pnpm lint`、`pnpm format:check` 和 `pnpm knip`，均退出 0。相关 Vitest 单 worker 共 84 项通过。全量以 `flock /tmp/huhu-fulltest.lock pnpm test -- --maxWorkers=2` 运行并用 Vitest 环境变量将 forks/threads 均限制为 2，1782 通过、19 跳过，156 个文件通过、8 个文件跳过。日志在 `/tmp/huhu-g6-c05.irlFMN/`。
