@@ -24,6 +24,9 @@ export interface WriteOptions {
   creationStage?: { path: string; recordIdentity(identity: string): void };
 }
 
+/** 独占创建的暂存条目名前缀（Vault 保留，任何收集器都不得把它当作用户文件）。 */
+export const CREATION_STAGE_PREFIX = ".huhu-create-";
+
 export function fileIdentity(file: string): string | null {
   const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
   return info ? filesystemIdentity(info) : null;
@@ -163,19 +166,21 @@ export class VaultFiles {
 
   /** 独占创建：先写暂存，再硬链接到目标；卷不支持硬链接时以不覆盖方式改名。 */
   private async createExclusive(rel: string, p: string, bytes: Buffer, creationStage: WriteOptions["creationStage"]): Promise<void> {
-    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `.huhu-create-${randomUUID()}`);
+    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `${CREATION_STAGE_PREFIX}${randomUUID()}`);
     const absoluteStage = this.abs(stage);
     const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
     let ownsStage = false;
     let journaled = false;
     let published = false;
+    let stageIdentity: string | null = null;
     let failure: { error: unknown } | undefined;
     try {
       const file = await open(absoluteStage, "wx");
       ownsStage = true;
       try {
+        const identity = filesystemIdentity(await file.stat({ bigint: true }));
+        stageIdentity = identity;
         if (creationStage) {
-          const identity = filesystemIdentity(await file.stat({ bigint: true }));
           if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
           creationStage.recordIdentity(identity);
           journaled = true;
@@ -202,7 +207,7 @@ export class VaultFiles {
         release?.();
       } catch (cleanupError) {
         // 目标已发布时，暂存清理失败不改变写入结果；保持暂存登记，稍后重试删除。
-        if (published) retryStageCleanup(absoluteStage, release);
+        if (published) retryStageCleanup(absoluteStage, stageIdentity, release);
         else {
           release?.();
           failure ??= { error: cleanupError };
@@ -214,19 +219,21 @@ export class VaultFiles {
 
   /** 与 createExclusive 相同的独占创建，全程同步，使 beforeCommit 与发布处于同一事件循环轮次。 */
   private createExclusiveSync(rel: string, p: string, bytes: Buffer, creationStage: WriteOptions["creationStage"]): void {
-    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `.huhu-create-${randomUUID()}`);
+    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `${CREATION_STAGE_PREFIX}${randomUUID()}`);
     const absoluteStage = this.abs(stage);
     const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
     let ownsStage = false;
     let journaled = false;
     let published = false;
+    let stageIdentity: string | null = null;
     let failure: { error: unknown } | undefined;
     try {
       const fd = openSync(absoluteStage, "wx");
       ownsStage = true;
       try {
+        const identity = filesystemIdentity(fstatSync(fd, { bigint: true }));
+        stageIdentity = identity;
         if (creationStage) {
-          const identity = filesystemIdentity(fstatSync(fd, { bigint: true }));
           if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
           creationStage.recordIdentity(identity);
           journaled = true;
@@ -252,7 +259,7 @@ export class VaultFiles {
         rmSync(absoluteStage, { force: true });
         release?.();
       } catch (cleanupError) {
-        if (published) retryStageCleanup(absoluteStage, release);
+        if (published) retryStageCleanup(absoluteStage, stageIdentity, release);
         else {
           release?.();
           failure ??= { error: cleanupError };
@@ -265,14 +272,23 @@ export class VaultFiles {
 
 const STAGE_CLEANUP_RETRIES = 5;
 
-/** 已发布写入的暂存条目删不掉时在后台重试；删除成功后才解除暂存登记。 */
-function retryStageCleanup(absoluteStage: string, release: (() => void) | undefined, attempt = 1): void {
+/**
+ * 已发布写入的暂存条目删不掉时在后台重试；删除成功后才解除暂存登记。
+ * 每次删除前核对该路径仍是本次创建的那个文件（同一 dev/ino），被外部替换则放手不删。
+ */
+function retryStageCleanup(absoluteStage: string, identity: string | null, release: (() => void) | undefined, attempt = 1): void {
   const timer = setTimeout(() => {
+    const current = fileIdentity(absoluteStage);
+    if (current === null || identity === null || current !== identity) {
+      // 已不存在，或已不是本次的暂存：不删别人的文件。无身份可核对时同样不冒险删除。
+      release?.();
+      return;
+    }
     rm(absoluteStage, { force: true }).then(
       () => release?.(),
       () => {
-        // 放弃后仍保留登记，避免把留下的硬链接误报为外部改动。
-        if (attempt < STAGE_CLEANUP_RETRIES) retryStageCleanup(absoluteStage, release, attempt + 1);
+        // 放弃后仍保留登记，避免把留下的硬链接误报为外部改动；包收集与同步按保留前缀排除残留。
+        if (attempt < STAGE_CLEANUP_RETRIES) retryStageCleanup(absoluteStage, identity, release, attempt + 1);
       },
     );
   }, 200 * attempt);

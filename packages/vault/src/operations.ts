@@ -4,7 +4,7 @@ import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
 import { normalizeRelPath } from "./paths.js";
 import { renameNoReplace } from "./rename.js";
-import { fileIdentity, VaultFiles, versionOf } from "./write.js";
+import { CREATION_STAGE_PREFIX, fileIdentity, VaultFiles, versionOf } from "./write.js";
 
 export type OpStep = { action: "write"; path: string; bytes: Uint8Array; expectedVersion?: string | null } | { action: "rename"; from: string; path: string; caseOnly?: true } | { action: "delete"; path: string };
 
@@ -88,7 +88,7 @@ export class OperationLog {
         action: s.action,
         path: s.path,
         ...(s.action === "rename" ? { from: s.from, renameIdentity: null } : {}),
-        ...(create ? { creationStage: path.posix.join(path.posix.dirname(s.path), `.huhu-create-${randomUUID()}`) } : {}),
+        ...(create ? { creationStage: path.posix.join(path.posix.dirname(s.path), `${CREATION_STAGE_PREFIX}${randomUUID()}`) } : {}),
         ...(s.action === "rename" && s.caseOnly ? { renameStage: path.posix.join(path.posix.dirname(s.from), `.huhu-case-${randomUUID()}`, "entry") } : {}),
         beforeVersion: before,
         afterVersion,

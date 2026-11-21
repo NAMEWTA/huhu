@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
 import { HerdrClient } from "@huhu/herdr-client";
+import { runnable } from "./detect.js";
 
 export interface HerdrCoreOptions {
   /** herdr-core 可执行文件（随应用打包；开发时可用 HUHU_HERDR_BIN）。 */
@@ -126,7 +127,7 @@ export class HerdrCore {
   async probe(): Promise<{ state: "connected" | "idle" | "unavailable"; version: string | null; error?: string }> {
     const status = await this.statusIfRunning();
     if (status.state !== "idle") return status;
-    return existsSync(this.o.bin) ? status : { state: "unavailable", version: null, error: `找不到 Herdr Core：${this.o.bin}` };
+    return runnable(this.o.bin) ? status : { state: "unavailable", version: null, error: `找不到可运行的 Herdr Core：${this.o.bin}` };
   }
 
   async statusIfRunning(): Promise<{ state: "connected" | "unavailable" | "idle"; version: string | null; error?: string }> {

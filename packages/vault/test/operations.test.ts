@@ -5,7 +5,7 @@ import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { OperationLog, ReceiptLog, VaultFiles, versionOf } from "../src/index.js";
+import { exportPackage, OperationLog, ReceiptLog, VaultFiles, versionOf } from "../src/index.js";
 import * as moves from "../src/rename.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -110,6 +110,46 @@ describe("VaultFiles", () => {
     } finally {
       rmAsync.mockImplementation(realRm);
       rmSyncMock.mockImplementation(realRmSync);
+    }
+  });
+
+  test("延迟清理只删本次的暂存：同名条目被替换后保留新文件；持续失败的残留不进数据包", async () => {
+    const { root } = init();
+    const receipts = new ReceiptLog();
+    const files = new VaultFiles(root, receipts);
+    const busy = () => Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+    const stage = (target: unknown) => String(target).includes(".huhu-create-");
+    const rmAsync = vi.mocked(fsPromises.rm);
+    const realRm = rmAsync.getMockImplementation()!;
+    let failures = 0;
+    rmAsync.mockImplementation(async (target, options) => {
+      if (stage(target) && failures++ === 0) throw busy();
+      return realRm(target, options);
+    });
+    try {
+      await files.write("replaced.md", Buffer.from("published"), { expectedVersion: null });
+      const [left] = readdirSync(root).filter((name) => name.startsWith(".huhu-create-"));
+      expect(left).toBeDefined();
+      // 外部同步程序在延迟窗口把该路径换成另一个文件
+      rmSync(path.join(root, left!));
+      writeFileSync(path.join(root, left!), "someone else");
+      await vi.waitFor(() => expect(receipts.isTemporaryFile(left!)).toBe(false), { timeout: 3000 });
+      expect(readFileSync(path.join(root, left!), "utf8")).toBe("someone else");
+      rmSync(path.join(root, left!));
+
+      rmAsync.mockImplementation(async (target, options) => {
+        if (stage(target)) throw busy();
+        return realRm(target, options);
+      });
+      await files.write("stuck.md", Buffer.from("stuck"), { expectedVersion: null });
+      fs.mkdirSync(path.join(root, ".huhu"), { recursive: true });
+      writeFileSync(path.join(root, ".huhu/vault.json"), JSON.stringify({ kind: "huhu-vault", id: "vault-stage1", name: "暂存", description: "", formatVersion: 1, createdAt: "2026-11-22T00:00:00Z" }));
+      const zip = path.join(path.dirname(root), "out.zip");
+      const manifest = await exportPackage(root, zip);
+      expect(readdirSync(root).some((name) => name.startsWith(".huhu-create-"))).toBe(true);
+      expect(JSON.stringify(manifest)).not.toContain(".huhu-create-");
+    } finally {
+      rmAsync.mockImplementation(realRm);
     }
   });
 

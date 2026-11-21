@@ -114,6 +114,11 @@ describe("HerdrCore.peek（不 mock：真实端点检查）", () => {
     const core = new HerdrCore({ bin, ...scope });
     expect(await core.probe()).toEqual({ state: "idle", version: null });
     expect(await new HerdrCore({ bin: path.join(root, "missing"), ...scope }).probe()).toMatchObject({ state: "unavailable", error: expect.stringContaining("missing") });
+    const notExecutable = path.join(root, "not-executable");
+    writeFileSync(notExecutable, "");
+    chmodSync(notExecutable, 0o644);
+    expect(await new HerdrCore({ bin: notExecutable, ...scope }).probe()).toMatchObject({ state: "unavailable" });
+    expect(await new HerdrCore({ bin: root, ...scope }).probe()).toMatchObject({ state: "unavailable" });
     expect(await core.workspaceConnection(false)).toBeNull();
     const saved = path.join(runtimeDir, "state", "herdr-core", "huhu");
     mkdirSync(saved, { recursive: true });

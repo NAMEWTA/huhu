@@ -6,6 +6,7 @@ import { Zip, ZipDeflate, unzipSync } from "fflate";
 import { z } from "zod";
 import { normalizeRelPath } from "../paths.js";
 import { HUHU_DIR, VaultJsonSchema } from "../vault.js";
+import { CREATION_STAGE_PREFIX } from "../write.js";
 
 export const PACKAGE_MANIFEST = "huhu-package.json";
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
@@ -40,7 +41,7 @@ function collect(root: string, includeAttachments: boolean, includeFile?: (relat
         if (rel === HUHU_DIR && ent.name === "writer.lock") continue;
         walk(childRel);
       } else if (ent.isFile()) {
-        if (ent.name === ".DS_Store" || ent.name === "Thumbs.db" || childRel === `${HUHU_DIR}/writer.lock`) continue;
+        if (ent.name === ".DS_Store" || ent.name === "Thumbs.db" || ent.name.startsWith(CREATION_STAGE_PREFIX) || childRel === `${HUHU_DIR}/writer.lock`) continue;
         const isText = /\.(md|txt|json|ndjson|yaml|yml)$/i.test(ent.name) || childRel.startsWith(`${HUHU_DIR}/`);
         if (!isText && !includeAttachments) continue;
         if (includeFile && !includeFile(childRel)) continue;

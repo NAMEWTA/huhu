@@ -20,7 +20,8 @@ export interface DetectInfo {
 
 const exts = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => (platform === "win32" ? (env["PATHEXT"] ?? ".EXE;.CMD;.BAT").split(";").map((e) => e.toLowerCase()) : [""]);
 
-function runnable(candidate: string, platform: NodeJS.Platform): boolean {
+/** 普通文件且（POSIX 下）有执行权限。 */
+export function runnable(candidate: string, platform: NodeJS.Platform = process.platform): boolean {
   try {
     if (!statSync(candidate).isFile()) return false;
     if (platform !== "win32") accessSync(candidate, constants.X_OK);
