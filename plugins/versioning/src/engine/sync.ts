@@ -4,7 +4,7 @@ import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
 import { z } from "zod";
 import { canSendAuthentication } from "../shared/git-auth.js";
-import { openAskpass, scrubEnvironment } from "./askpass.js";
+import { askpassCommand, openAskpass, scrubEnvironment } from "./askpass.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
 import { GitRunner, gitCancelled } from "./git.js";
@@ -274,7 +274,7 @@ export class VaultSync {
 
   /**
    * 需要联网的 Git 命令（fetch/push）的环境：使用当前远端的本机认证，通过一次性 GIT_ASKPASS 交给系统 Git，
-   * 秘密只通过子进程环境变量传递（不在命令行、不在配置、不在 URL 里），命令结束后脚本目录立即删除。
+   * Windows 通过命名管道取值，POSIX 通过该次 Git 子进程的环境取值，结束后删除启动器目录。
    */
   private async authenticatedGit(target: string, args: string[], login: GitLogin, signal: AbortSignal) {
     if (process.platform === "win32") {
@@ -289,7 +289,8 @@ export class VaultSync {
     try {
       const script = path.join(dir, "askpass.sh");
       writeFileSync(script, POSIX_ASKPASS, { mode: 0o700 });
-      return await this.git.run(args, { env: { GIT_ASKPASS: script, HUHU_GIT_USER: login.username, HUHU_GIT_TOKEN: login.token, HUHU_GIT_HOST: new URL(target).host }, signal, privateNetwork: true });
+      const command = askpassCommand(target, script);
+      return await this.git.run([...command.args, ...args], { env: { ...command.env, HUHU_GIT_USER: login.username, HUHU_GIT_TOKEN: login.token, HUHU_GIT_HOST: new URL(target).host }, signal, privateNetwork: true });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -45,7 +45,7 @@ try {
 export function scrubEnvironment(): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.keys(process.env)
-      .filter((key) => /^(?:GIT_TRACE|GIT_CURL_VERBOSE$|GIT_CONFIG_(?:COUNT$|KEY_|VALUE_|PARAMETERS$)|GIT_SSL_NO_VERIFY$|NODE_OPTIONS$|(?:HTTPS?|ALL|NO)_PROXY$|HUHU_GIT_)/i.test(key))
+      .filter((key) => /^(?:GIT_TRACE|GIT_CURL_VERBOSE$|GIT_ASKPASS$|GIT_CONFIG_(?:COUNT$|KEY_|VALUE_|PARAMETERS$)|GIT_SSL_NO_VERIFY$|NODE_OPTIONS$|(?:HTTPS?|ALL|NO)_PROXY$|HUHU_GIT_)/i.test(key))
       .map((key) => [key, undefined]),
   );
 }
@@ -54,6 +54,21 @@ export interface Askpass {
   env: NodeJS.ProcessEnv;
   args: string[];
   close(): void;
+}
+
+export function askpassCommand(target: string, launcher: string): Pick<Askpass, "env" | "args"> {
+  return {
+    env: {
+      ...scrubEnvironment(),
+      LC_ALL: "C",
+      GIT_TRACE2: "0",
+      GIT_TRACE2_EVENT: "0",
+      GIT_TRACE2_PERF: "0",
+      GIT_ALLOW_PROTOCOL: new URL(target).protocol.slice(0, -1),
+      GIT_ASKPASS: launcher,
+    },
+    args: ["-c", `core.hooksPath=${path.dirname(launcher)}`, "-c", "core.fsmonitor=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.recurseSubmodules=false", "-c", "push.recurseSubmodules=no"],
+  };
 }
 
 /** One Windows Git invocation owns the pipe, challenge nonce and static launcher. */
@@ -102,21 +117,16 @@ export async function openAskpass(target: string, login: GitLogin): Promise<Askp
       });
     });
     server.on("error", close);
+    const { env, args } = askpassCommand(target, launcher);
     return {
       env: {
-        ...scrubEnvironment(),
-        LC_ALL: "C",
-        GIT_TRACE2: "0",
-        GIT_TRACE2_EVENT: "0",
-        GIT_TRACE2_PERF: "0",
-        GIT_ALLOW_PROTOCOL: new URL(target).protocol.slice(0, -1),
-        GIT_ASKPASS: launcher,
+        ...env,
         HUHU_GIT_ASKPASS_PIPE: pipe,
         HUHU_GIT_ASKPASS_NONCE: nonce,
         HUHU_GIT_ASKPASS_TARGET: target,
         HUHU_GIT_ASKPASS_USER_DIGEST: createHash("sha256").update(login.username).digest("hex"),
       },
-      args: ["-c", `core.hooksPath=${directory}`, "-c", "core.fsmonitor=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", "-c", "fetch.recurseSubmodules=false", "-c", "push.recurseSubmodules=no"],
+      args,
       close,
     };
   } catch {

@@ -428,12 +428,11 @@ engineTest(
   120_000,
 );
 
-// This case asserts the Windows askpass broker's environment and launcher cleanup.
-test.skipIf(process.platform !== "win32")(
+engineTest(
   "HTTPS 认证绑定协议与主机，拒绝重定向、权限越界和取消后的请求",
   async () => {
     const live = await fixture();
-    git(live.vaultPath, "config", "http.sslBackend", "openssl");
+    if (process.platform === "win32") git(live.vaultPath, "config", "http.sslBackend", "openssl");
     git(live.vaultPath, "config", "http.sslCAInfo", tls.cert.replaceAll("\\", "/"));
     const user = `person-${randomUUID()}@example.test`;
     const token = `secret-${randomUUID()}!&^%`;
@@ -458,18 +457,22 @@ test.skipIf(process.platform !== "win32")(
     vi.spyOn(GitRunner.prototype, "run").mockImplementation(function (this: GitRunner, args: string[], options?: RunOpts) {
       if (options?.env?.["GIT_ASKPASS"]) {
         launchers.push(options.env["GIT_ASKPASS"]);
-        const material = JSON.stringify([args, options.env]);
+        const env = Object.entries(options.env).filter(([name]) => process.platform === "win32" || (name !== "HUHU_GIT_USER" && name !== "HUHU_GIT_TOKEN"));
+        const material = JSON.stringify([args, env]);
         sensitiveProcessInput ||= material.includes(user) || material.includes(token);
       }
       return gitRun.call(this, args, options);
     });
     const trace = path.join(live.root, "forbidden-curl-trace.log");
+    const inheritedAskpass = path.join(live.root, "previous-askpass");
     vi.stubEnv("GIT_TRACE_CURL", trace);
+    vi.stubEnv("GIT_ASKPASS", inheritedAskpass);
     expect(await capture(pull())).toBe("OK");
     writeFileSync(path.join(live.vaultPath, "tls.md"), "HTTPS fixture note");
     expect(await capture(live.client.call("sync.run", { mode: "push" }, { write: true }))).toBe("OK");
     expect(git(path.join(live.remoteRoot, "a.git"), "show", "main:tls.md")).toBe("HTTPS fixture note");
     expect(a.seen.some((record) => record.auth === "correct")).toBe(true);
+    expect(launchers).not.toContain(inheritedAskpass);
     expect(existsSync(trace)).toBe(false);
     expect(sensitiveProcessInput).toBe(false);
 
@@ -496,7 +499,9 @@ test.skipIf(process.platform !== "win32")(
 
     const authenticated = event();
     const disconnected = event();
+    let heldResponse: ServerResponse | undefined;
     a.afterAuth((_req, reply) => {
+      heldResponse = reply;
       reply.once("close", disconnected.fire);
       authenticated.fire();
     });
@@ -509,11 +514,12 @@ test.skipIf(process.platform !== "win32")(
       const secretOnDisk = readdirSync(path.dirname(launcher)).some((file) => readFileSync(path.join(path.dirname(launcher), file)).includes(token));
       expect(secretOnDisk).toBe(false);
       cancel.abort();
-      expect((await pending).ok).toBe(false);
-      await disconnected.promise;
+      await expect(Promise.race([pending, delay(8000, null, { ref: false })])).resolves.toMatchObject({ ok: false });
+      await expect(Promise.race([disconnected.promise.then(() => true), delay(8000, false, { ref: false })])).resolves.toBe(true);
       await expect.poll(() => existsSync(launcher), { timeout: 8000 }).toBe(false);
     } finally {
       cancel.abort();
+      heldResponse?.destroy();
       a.afterAuth();
     }
     expect(await capture(pull())).toBe("OK");
