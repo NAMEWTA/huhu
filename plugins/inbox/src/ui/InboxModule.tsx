@@ -1,11 +1,14 @@
+import { CompactMarkdownReader } from "@huhu/editor/reading";
+import type { RichEditorPort } from "@huhu/editor/rich";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { requestOpenPath, useCapability, useEngine, useQueryClient, useReferenceIndex, type ModuleProps } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
 
 // 紧凑 OK 编辑器（S2c）按需加载：收件箱的首屏不带编辑器闭包
 const CompactView = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownView })));
+const CompactInput = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownInput })));
 
 interface Capture {
   id: string;
@@ -29,7 +32,7 @@ const TARGET_TEXT: Record<Target, string> = { task: "任务", note: "笔记", ar
 const shortDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("zh-CN") : "");
 
 /** 收件箱（原型 InboxView）：左侧状态分段 + 搜索 + 来源筛选 + 批量归档的列表；右侧快速捕获条与详情（待处理的三种整理方式 / 已处理的结果 / 已归档的恢复）。 */
-export function InboxModule() {
+export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const engine = useEngine();
   const qc = useQueryClient();
   const [status, setStatus] = useState<Status>("pending");
@@ -75,7 +78,7 @@ export function InboxModule() {
       <aside className="hu-resource-pane inbox-knowledge-inbox-list" aria-label={t.title}>
         <div className="hu-resource-head">
           <div className="row">
-            <strong className="grow">
+            <strong className="hu-flex-fill">
               {t.title}
               <span className="inbox-knowledge-count">{items.length}</span>
             </strong>
@@ -215,15 +218,19 @@ export function InboxModule() {
               <span>{cur.source}</span>
               <span>·</span>
               <span>{new Date(cur.createdAt ?? 0).toLocaleString("zh-CN")}</span>
-              <span className="grow" />
+              <span className="hu-flex-fill" />
               <IconButton icon={Pencil} label="编辑收集条目" onClick={() => setDialog({ kind: "edit", item: cur })} />
               <IconButton icon={Trash2} label="删除收集记录" onClick={() => setDialog({ kind: "delete", item: cur })} />
             </div>
             <h2>{cur.title}</h2>
             <div className="inbox-knowledge-inbox-note">
-              <Suspense fallback={null}>
-                <CompactView id={`inbox-${cur.id}`} value={cur.body.trim() || "这条记录还没有补充内容。"} />
-              </Suspense>
+              <CaptureReader
+                item={cur}
+                onOpen={(target) => {
+                  requestOpenPath(target);
+                  onNavigate?.("notes");
+                }}
+              />
             </div>
             {cur.status === "pending" ? (
               <>
@@ -374,19 +381,73 @@ export function InboxModule() {
   );
 }
 
+function CaptureReader({ item, onOpen }: { item: Capture; onOpen(path: string): void }) {
+  const id = `inbox-${item.id}-${item.version}`;
+  const value = item.body.trim() || "这条记录还没有补充内容。";
+  return <CompactMarkdownReader id={id} value={value} renderFallback={(view) => <LinkedCaptureView key={id} {...view} onOpen={onOpen} />} />;
+}
+
+function LinkedCaptureView({ id, value, className, onOpen }: { id: string; value: string; className: string; onOpen(path: string): void }) {
+  const refs = useReferenceIndex();
+  return <CompactView id={id} value={value} pages={refs.pages} onOpenPath={onOpen} className={className} />;
+}
+
+function CaptureBodyInput({ value, onPort }: { value: string; onPort(port: RichEditorPort | null): void }) {
+  const id = useId();
+  const refs = useReferenceIndex();
+  return (
+    <div className="inbox-compact-input">
+      <Suspense fallback={null}>
+        <CompactInput id={`inbox-draft-${id}`} value={value} onChange={() => {}} onPort={onPort} pages={refs.pages} referenceSearch={refs.search} ariaLabel="内容" />
+      </Suspense>
+    </div>
+  );
+}
+
+function useDialogSubmit() {
+  const port = useRef<RichEditorPort | null>(null);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  async function submit(initialBody: string, save: (body: string) => Promise<unknown>) {
+    const editor = port.current;
+    if (pending.current || editor?.isComposing()) return;
+    pending.current = true;
+    setSaving(true);
+    setFailure(null);
+    try {
+      await editor?.flush();
+      await save(editor?.getDraft() ?? initialBody);
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  }
+
+  return { port, saving, failure, submit };
+}
+
 function EditDialog({ error, item, onClose, onSave }: { error: string | null; item: Capture | null; onClose(): void; onSave(v: { title: string; body: string; source: string }): Promise<boolean | undefined> }) {
-  const [v, setV] = useState({ title: item?.title ?? "", body: item?.body ?? "", source: item?.source ?? SOURCES[0]! });
+  const [v, setV] = useState({ title: item?.title ?? "", source: item?.source ?? SOURCES[0]! });
+  const { port, saving, failure, submit } = useDialogSubmit();
   return (
     <Dialog
       open
-      error={error}
+      error={failure ?? error}
       title={item ? "编辑收集条目" : "快速捕获"}
       description="先把想法放进来，稍后再决定它应该去哪里。"
-      onClose={onClose}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
       actions={
         <>
-          <Button onClick={onClose}>取消</Button>
-          <Button variant="primary" disabled={!v.title.trim()} onClick={() => void onSave(v)}>
+          <Button onClick={onClose} disabled={saving}>
+            取消
+          </Button>
+          <Button variant="primary" loading={saving} disabled={!v.title.trim()} onClick={() => void submit(item?.body ?? "", (body) => onSave({ ...v, body }))}>
             {item ? "保存修改" : "收进收件箱"}
           </Button>
         </>
@@ -397,7 +458,12 @@ function EditDialog({ error, item, onClose, onSave }: { error: string | null; it
           <input autoFocus aria-label="标题" placeholder="记录一个想法、链接或行动" value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} />
         </Field>
         <Field label="内容">
-          <textarea aria-label="内容" rows={6} value={v.body} onChange={(e) => setV({ ...v, body: e.target.value })} />
+          <CaptureBodyInput
+            value={item?.body ?? ""}
+            onPort={(editor) => {
+              port.current = editor;
+            }}
+          />
         </Field>
         {item ? null : (
           <Field label="来源">
@@ -433,21 +499,27 @@ function ConvertDialog({
   const [body, setBody] = useState(item.body);
   const [due, setDue] = useState("");
   const [type, setType] = useState(types[0]?.path ?? "");
+  const { port, saving, failure, submit } = useDialogSubmit();
   return (
     <Dialog
       open
-      error={error}
+      error={failure ?? error}
       title={`转为${label}`}
       description="原始收集记录会保留在已处理列表，并记录生成内容的关联。"
-      onClose={onClose}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
       testId="convert-dialog"
       actions={
         <>
-          <Button onClick={onClose}>取消</Button>
+          <Button onClick={onClose} disabled={saving}>
+            取消
+          </Button>
           <Button
             variant="primary"
+            loading={saving}
             disabled={!name.trim()}
-            onClick={() => void onSubmit(target === "task" ? { title: name.trim(), body, ...(due ? { due } : {}) } : target === "note" ? { name: name.trim(), template: "blank" } : { name: name.trim(), type, body })}
+            onClick={() => void submit(body, (body) => onSubmit(target === "task" ? { title: name.trim(), body, ...(due ? { due } : {}) } : target === "note" ? { name: name.trim(), template: "blank" } : { name: name.trim(), type, body }))}
           >
             创建{label}并完成处理
           </Button>
@@ -476,7 +548,16 @@ function ConvertDialog({
         ) : null}
         {target !== "note" ? (
           <Field label="内容">
-            <textarea aria-label="内容" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+            {target === "task" ? (
+              <CaptureBodyInput
+                value={body}
+                onPort={(editor) => {
+                  port.current = editor;
+                }}
+              />
+            ) : (
+              <textarea aria-label="内容" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+            )}
           </Field>
         ) : null}
       </div>

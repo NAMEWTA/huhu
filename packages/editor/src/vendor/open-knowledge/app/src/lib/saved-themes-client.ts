@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type ProblemDetails,
   ProblemDetailsSchema,
@@ -139,7 +140,7 @@ function warnSavedThemeRequestFailure(
 export async function fetchSavedThemes(
   options: FetchSavedThemesOptions = {},
 ): Promise<SavedThemesFetchResult> {
-  const request = options.request ?? globalThis.fetch;
+  const request = options.request ?? okFetch;
   try {
     const response = await request('/api/saved-themes', { signal: options.signal });
     if (!response.ok) {
@@ -200,7 +201,7 @@ export async function saveSavedTheme(
   const payload = SavedThemeSaveRequestSchema.safeParse(input);
   if (!payload.success) return { ok: false, reason: 'unexpected' };
 
-  const request = options.request ?? globalThis.fetch;
+  const request = options.request ?? okFetch;
   try {
     const response = await request('/api/saved-theme', {
       method: 'POST',
@@ -238,7 +239,7 @@ export async function updateSavedTheme(
   const payload = SavedThemeUpdateRequestSchema.safeParse(input);
   if (!payload.success) return { ok: false, reason: 'unexpected' };
 
-  const request = options.request ?? globalThis.fetch;
+  const request = options.request ?? okFetch;
   try {
     const response = await request('/api/saved-theme', {
       method: 'PUT',
@@ -266,7 +267,7 @@ export async function deleteSavedTheme(
 ): Promise<DeleteSavedThemeResult> {
   if (!parseSavedThemeId(id).ok) return { ok: false, reason: 'unexpected' };
 
-  const request = options.request ?? globalThis.fetch;
+  const request = options.request ?? okFetch;
   try {
     const query = new URLSearchParams({ id });
     const response = await request(`/api/saved-theme?${query}`, { method: 'DELETE' });

@@ -1,6 +1,7 @@
 // oxlint-disable ok/no-raw-html-interactive-element -- pre-rule backlog — file uses raw <button>/<input>/<textarea> awaiting shadcn migration; tracked at https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-raw-html-interactive-element
 // oxlint-disable ok/no-physical-direction-utility -- pre-rule backlog — physical margin/padding/inset utilities predate the rule; drain by swapping ml/mr → ms/me, pl/pr → ps/pe, left/right → start/end, then deleting this line. See https://github.com/inkeep/open-knowledge/blob/main/lint-plugins/ok-rules/README.md#no-physical-direction-utility
 
+import { okFetch } from '@/lib/ok-fetch';
 import {
   parseGlobalSkillBundleDoc,
   parseProjectSkillBundleDoc,
@@ -79,7 +80,7 @@ function orphanModeLabel(mode: OrphanMode): string {
 }
 
 async function fetchOrphans(mode: OrphanMode): Promise<OrphanEntry[]> {
-  const res = await fetch(`/api/orphans?mode=${encodeURIComponent(mode)}`);
+  const res = await okFetch(`/api/orphans?mode=${encodeURIComponent(mode)}`);
   const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
     const problem = ProblemDetailsSchema.safeParse(body);
@@ -95,7 +96,7 @@ async function fetchOrphans(mode: OrphanMode): Promise<OrphanEntry[]> {
 }
 
 async function fetchHubs(limit: number): Promise<HubEntry[]> {
-  const res = await fetch(`/api/hubs?limit=${encodeURIComponent(String(limit))}`);
+  const res = await okFetch(`/api/hubs?limit=${encodeURIComponent(String(limit))}`);
   const body = (await res.json().catch(() => null)) as unknown;
   if (!res.ok) {
     const problem = ProblemDetailsSchema.safeParse(body);

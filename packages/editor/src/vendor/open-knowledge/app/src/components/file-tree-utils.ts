@@ -6,7 +6,13 @@ import {
   isProjectSkillBundlePath,
 } from '@inkeep/open-knowledge-core/util/doc-name';
 
-export interface DocumentEntry {
+interface RestrictedEntry {
+  protected?: string | undefined;
+  linkOutside?: boolean | undefined;
+  linkCycle?: true | undefined;
+}
+
+export interface DocumentEntry extends RestrictedEntry {
   kind: 'document';
   docName: string;
   docExt?: string;
@@ -17,7 +23,7 @@ export interface DocumentEntry {
   targetPath?: string | null;
 }
 
-interface AssetEntry {
+interface AssetEntry extends RestrictedEntry {
   kind: 'asset';
   path: string;
   assetExt: string;
@@ -27,7 +33,7 @@ interface AssetEntry {
   referencedBy?: string[];
 }
 
-export interface FolderEntry {
+export interface FolderEntry extends RestrictedEntry {
   kind: 'folder';
   path: string;
   size: number;
@@ -56,6 +62,11 @@ export function toFileEntries(entries: readonly DocumentListEntry[]): FileEntry[
   const mapped: FileEntry[] = [];
   let dropped = 0;
   for (const entry of entries) {
+    const restriction: RestrictedEntry = {
+      ...(entry.protected ? { protected: entry.protected } : {}),
+      ...(entry.linkOutside ? { linkOutside: true } : {}),
+      ...(entry.linkCycle ? { linkCycle: true } : {}),
+    };
     switch (entry.kind) {
       case 'document':
         if (entry.docName === undefined) {
@@ -66,6 +77,7 @@ export function toFileEntries(entries: readonly DocumentListEntry[]): FileEntry[
           kind: 'document',
           docName: entry.docName,
           docExt: entry.docExt,
+          ...restriction,
           size: entry.size,
           modified: entry.modified,
           isSymlink: entry.isSymlink,
@@ -83,6 +95,7 @@ export function toFileEntries(entries: readonly DocumentListEntry[]): FileEntry[
           path: entry.path,
           assetExt: entry.assetExt,
           mediaKind: entry.mediaKind ?? null,
+          ...restriction,
           size: entry.size,
           modified: entry.modified,
           referencedBy: entry.referencedBy,
@@ -98,6 +111,7 @@ export function toFileEntries(entries: readonly DocumentListEntry[]): FileEntry[
           path: entry.path,
           assetExt: entry.assetExt ?? synthesizeFileAssetExt(entry.path),
           mediaKind: null,
+          ...restriction,
           size: entry.size,
           modified: entry.modified,
           referencedBy: [],
@@ -112,6 +126,7 @@ export function toFileEntries(entries: readonly DocumentListEntry[]): FileEntry[
         mapped.push({
           kind: 'folder',
           path: entry.path,
+          ...restriction,
           size: entry.size,
           modified: entry.modified,
           hasChildren: entry.hasChildren,

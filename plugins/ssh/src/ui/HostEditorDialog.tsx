@@ -155,7 +155,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
           <div className="hu-field" data-testid="ssh-jump-picker">
             {jump ? (
               <div className="row" data-testid="ssh-jump-item">
-                <span className="grow">跳板：{hosts.find((host) => host.id === jump)?.name ?? jump}</span>
+                <span className="hu-flex-fill">跳板：{hosts.find((host) => host.id === jump)?.name ?? jump}</span>
                 <IconButton
                   icon={X}
                   label="移除跳板"
@@ -243,7 +243,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                         <input {...props} type={purpose === "identityFile" ? "text" : "password"} autoComplete={purpose === "identityFile" ? "off" : "new-password"} />
                       )}
                       <div className="row">
-                        <span id={`${id}-state`} className="hu-field-description grow">
+                        <span id={`${id}-state`} className="hu-field-description hu-flex-fill">
                           {cleared[purpose] ? "保存时清空" : editing ? `${credentialState(editing, purpose)} · 留空保留` : purpose === "passphrase" ? "可选" : purpose === "identityFile" ? "填写本机绝对路径" : "必填"}
                         </span>
                         {purpose === "identityFile" ? (

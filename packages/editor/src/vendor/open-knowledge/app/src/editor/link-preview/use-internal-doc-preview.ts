@@ -1,3 +1,4 @@
+import { useOkFetch } from '@/lib/ok-fetch';
 import { useEffect, useState } from 'react';
 import { usePageList } from '../../components/PageListContext';
 import {
@@ -20,13 +21,16 @@ export function useInternalDocPreview({
   anchor,
   enabled,
 }: UseInternalDocPreviewParams): InternalDocPreview | null {
+  const request = useOkFetch();
   const { pageTitles, pageMeta } = usePageList();
   const [contentEntry, setContentEntry] = useState<{
+    request: typeof fetch;
     docName: string;
     anchor: string | null;
     fields: InternalDocContentFields;
   } | null>(null);
   const [backlinkEntry, setBacklinkEntry] = useState<{
+    request: typeof fetch;
     docName: string;
     count: number;
   } | null>(null);
@@ -35,27 +39,27 @@ export function useInternalDocPreview({
     if (!enabled || !docName) return;
 
     let cancelled = false;
-    void loadDocContent(docName).then((content) => {
+    void loadDocContent(docName, request).then((content) => {
       if (cancelled || content === null) return;
-      setContentEntry({ docName, anchor, fields: deriveContentFields(content, anchor) });
+      setContentEntry({ request, docName, anchor, fields: deriveContentFields(content, anchor) });
     });
-    void loadBacklinkCount(docName).then((count) => {
+    void loadBacklinkCount(docName, request).then((count) => {
       if (cancelled || count === null) return;
-      setBacklinkEntry({ docName, count });
+      setBacklinkEntry({ request, docName, count });
     });
     return () => {
       cancelled = true;
     };
-  }, [docName, anchor, enabled]);
+  }, [docName, anchor, enabled, request]);
 
   if (!enabled || !docName) return null;
 
   const contentFields =
-    contentEntry !== null && contentEntry.docName === docName && contentEntry.anchor === anchor
+    contentEntry?.request === request && contentEntry.docName === docName && contentEntry.anchor === anchor
       ? contentEntry.fields
       : null;
   const backlinkCount =
-    backlinkEntry !== null && backlinkEntry.docName === docName ? backlinkEntry.count : null;
+    backlinkEntry?.request === request && backlinkEntry.docName === docName ? backlinkEntry.count : null;
 
   return {
     docName,

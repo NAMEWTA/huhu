@@ -1,0 +1,5 @@
+$ node scripts/check-ok-class-collisions.mjs --desktop
+/home/wta/projects/huhu-wt-parity/apps/desktop/out/renderer/assets/host-fetch-DkTjVFDx.css
+A 0：
+B 0：
+C 0

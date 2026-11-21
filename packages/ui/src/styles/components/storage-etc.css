@@ -96,7 +96,7 @@
   flex-direction: column;
   gap: 16px;
 }
-.grow {
+.hu-flex-fill {
   flex: 1;
   min-width: 0;
 }

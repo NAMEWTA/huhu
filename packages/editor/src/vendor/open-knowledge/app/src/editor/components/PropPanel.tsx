@@ -24,6 +24,7 @@ import { IconPickerInput } from '@/editor/components/IconPickerInput.tsx';
 import { MirrorSourceAutocomplete } from '@/editor/components/MirrorSourceAutocomplete.tsx';
 import { SrcAutocomplete } from '@/editor/components/SrcAutocomplete.tsx';
 import { UploadFailedError, UploadRejectedError } from '@/editor/image-upload/upload-failure.ts';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { uploadFile } from '@/editor/image-upload/upload-file.ts';
 import type { JsxComponentDescriptor } from '@/editor/registry/types.ts';
 import { authoredText } from '@/editor/utils/authored-text.ts';
@@ -80,9 +81,10 @@ async function runUpload(
   accept: readonly string[],
   onUploaded: (url: string) => void,
   singleFile: boolean,
+  request: typeof fetch,
 ): Promise<void> {
   try {
-    const { url } = await uploadFile(file, accept, { singleFile });
+    const { url } = await uploadFile(file, accept, { singleFile, fetch: request });
     onUploaded(url);
   } catch (err) {
     if (err instanceof UploadFailedError || err instanceof UploadRejectedError) {
@@ -522,6 +524,7 @@ function PropUploadButton({
   accept: readonly string[];
   onUploaded: (url: string) => void;
 }) {
+  const request = useOkFetch();
   const singleFile = useSingleFileMode();
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -538,7 +541,7 @@ function PropUploadButton({
           if (!file) return;
           setUploading(true);
           try {
-            await runUpload(file, accept, onUploaded, singleFile);
+            await runUpload(file, accept, onUploaded, singleFile, request);
           } catch {}
           setUploading(false);
           if (inputRef.current) inputRef.current.value = '';

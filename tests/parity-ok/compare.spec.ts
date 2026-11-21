@@ -45,7 +45,7 @@ async function diskContains(file: string, value: string | RegExp): Promise<void>
   else await disk.toMatch(value);
 }
 
-async function slash({ editor, page, capture, file }: Surface): Promise<void> {
+async function slash({ editor, page, capture, file, side }: Surface): Promise<void> {
   const menu = page.getByRole("listbox", { name: /Slash commands|斜杠命令/ });
   const options = menu.getByRole("option");
   const lastBlock = editor.locator(":scope > :last-child");
@@ -99,7 +99,7 @@ async function slash({ editor, page, capture, file }: Surface): Promise<void> {
     ["chinese", "折叠"],
     ["alias", "h2"],
     ["no-results", "zzzzparitynoresult"],
-  ]) {
+  ] as const) {
     await capture(key, async () => {
       await show(query);
       const status = page.getByText(/^(No results|无结果|没有结果)$/).first();
@@ -152,11 +152,95 @@ async function slash({ editor, page, capture, file }: Surface): Promise<void> {
     return { menuRect, caret, viewport: viewportSize, fits: !!menuRect && menuRect.y >= 0 && menuRect.x >= 0 && menuRect.y + menuRect.height <= viewportSize.height && menuRect.x + menuRect.width <= viewportSize.width };
   });
   await clean();
+  const row = editor.getByText("Filler 14", { exact: true }).first();
+  await capture("prefix-and-wrap", async () => {
+    await row.evaluate((node) => node.scrollIntoView({ block: "center" }));
+    await row.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("/h2");
+    await expect(menu).toBeHidden();
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.insertText("　/");
+    await expect(menu).toBeVisible();
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await expect(options.last()).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowDown");
+    await expect(options.first()).toHaveAttribute("aria-selected", "true");
+    return { invalidPrefixHidden: true, fullwidthSpaceOpens: true, wrapsUp: true, wrapsDown: true };
+  });
+
+  const liveRow = editor
+    .locator("p")
+    .filter({ hasText: /^Filler 14/ })
+    .first();
+  await capture("scroll-while-expanded", async () => {
+    await expect(menu).toBeVisible();
+    const before = (await menu.boundingBox())!;
+    const scroll = await liveRow.evaluate((node) => {
+      for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+        if (parent.scrollHeight <= parent.clientHeight || !/auto|scroll/.test(getComputedStyle(parent).overflowY)) continue;
+        parent.dataset["parityScroll"] = "true";
+        const old = parent.scrollTop;
+        parent.scrollBy(0, 70);
+        return parent.scrollTop - old;
+      }
+      return 0;
+    });
+    expect(scroll).toBeGreaterThan(0);
+    await expect(menu).toBeVisible();
+    await expect.poll(async () => Math.abs((await menu.boundingBox())!.y - before.y)).toBeGreaterThan(20);
+    await expect(editor).toBeFocused();
+    const pointerOwner = await menu.locator('[aria-selected="true"]').evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    });
+    expect(pointerOwner).toBe(true);
+    return { scroll, moved: true, keyboardOwner: "editor", pointerOwner: "slash option" };
+  });
+
+  await capture("right-edge", async () => {
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    const scroller = page.locator("[data-parity-scroll]");
+    const paneRight = await scroller.evaluate((node) => node.getBoundingClientRect().right);
+    await liveRow.evaluate((node, paneRight) => {
+      const value = node.getBoundingClientRect();
+      if (!(node instanceof HTMLElement)) throw new Error("Missing editable paragraph");
+      Object.assign(node.style, { position: "relative", left: `${paneRight - value.right - 24}px`, textAlign: "right" });
+    }, paneRight);
+    await liveRow.click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText("　/");
+    await expect(menu).toBeVisible();
+    const caretRight = await editor.evaluate(() => getSelection()?.getRangeAt(0).getBoundingClientRect().right ?? 0);
+    await expect
+      .poll(async () => {
+        const box = (await menu.boundingBox())!;
+        return box.x + box.width;
+      })
+      .toBeLessThanOrEqual(paneRight + 2);
+    expect(caretRight).toBeGreaterThan(paneRight - 45);
+    return { caretRight, paneRight, fits: true };
+  });
+
+  await capture("switch-cleans-overlay", async () => {
+    await expect(menu).toBeVisible();
+    await (side === "huhu" ? treeItem(page, slashNeighbor) : page.getByRole("treeitem", { name: slashNeighbor, exact: true })).click();
+    await expect(editor).toContainText("Slash switch target");
+    await expect(menu).toBeHidden();
+    await expect(page.locator(".ok-suggestion-preview:visible")).toHaveCount(0);
+    return { cleared: true };
+  });
   await diskContains(file, /^# Slash parity\n\nSlash anchor$/m);
   await diskContains(file, /\nFiller 35\s*$/);
+  await diskContains(file, "Filler 14　/");
 }
 
 const neighborName = "parity-tab-neighbor.md";
+const slashNeighbor = "parity-slash-neighbor.md";
 
 async function tabs({ side, page, capture }: Surface): Promise<void> {
   const huhu = side === "huhu";
@@ -359,6 +443,11 @@ async function withEvidence(side: Side, feature: Feature, file: string, page: Pa
   };
   try {
     await run(capture);
+    if (feature === "slash") {
+      for (const step of ["prefix-and-wrap", "scroll-while-expanded", "right-edge", "switch-cleans-overlay"]) {
+        expect(steps[step]?.status, `${side} ${step}: ${steps[step]?.error ?? ""}`).toBe("observed");
+      }
+    }
   } finally {
     writeFileSync(path.join(destination, side + ".json"), JSON.stringify(steps, null, 2) + "\n");
     writeFileSync(path.join(destination, side + ".md"), readFileSync(file));
@@ -376,6 +465,7 @@ for (const feature of Object.keys(fixtures) as Feature[]) {
         if (!base || !okContent) throw new Error("Set PARITY_OK_URL and PARITY_OK_CONTENT");
         const file = path.join(okContent, filename);
         writeFileSync(file, fixtures[feature]);
+        if (feature === "slash") writeFileSync(path.join(path.dirname(file), slashNeighbor), "# Slash switch target\n");
         if (feature === "tabs") writeFileSync(path.join(path.dirname(file), neighborName), "# Tab neighbor\n");
         const browser = await chromium.launch();
         try {
@@ -396,6 +486,7 @@ for (const feature of Object.keys(fixtures) as Feature[]) {
         const file = path.join(vault, filename);
         try {
           writeFileSync(file, fixtures[feature]);
+          if (feature === "slash") writeFileSync(path.join(path.dirname(file), slashNeighbor), "# Slash switch target\n");
           if (feature === "tabs") writeFileSync(path.join(path.dirname(file), neighborName), "# Tab neighbor\n");
           await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height), viewport);
           await withEvidence(side, feature, file, page, async (capture) => {

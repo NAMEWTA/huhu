@@ -1,0 +1,1128 @@
+{
+  "renderer": "Electron production",
+  "rows": [
+    {
+      "kind": "api",
+      "path": "/api/agent-integrations/apply",
+      "methods": [
+        "POST"
+      ],
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent 集成",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 463879,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "POST",
+          "signature": "POST /api/agent-integrations/apply",
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/audit",
+      "methods": [],
+      "state": "excluded",
+      "evidence": "Q2 服务端审计",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2148649,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": null,
+          "signature": null,
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/backlink-counts",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1373149,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/backlink-counts",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 95,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/backlinks",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2684690,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/backlinks",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 105,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/comment",
+      "methods": [
+        "DELETE",
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 239887,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/comment",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 165,
+              "scope": "note editor and comments panel"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 242070,
+          "kind": "call",
+          "callee": "request",
+          "method": "DELETE",
+          "signature": "DELETE /api/comment",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 194,
+              "scope": "note editor and comments panel"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/comments",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 240753,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/comments",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 140,
+              "scope": "note editor and comments panel"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 240949,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/comments",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/comments.ts",
+              "line": 145,
+              "scope": "note editor and comments panel"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/config",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1353339,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/config",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 14,
+              "scope": "host baseline"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/create-folder",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 662609,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-folder",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 226,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/create-page",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 528623,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219,
+              "scope": "file explorer"
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 135,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 661229,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219,
+              "scope": "file explorer"
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 135,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2151487,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/create-page",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 219,
+              "scope": "file explorer"
+            },
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 135,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/delete-path",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 642977,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/delete-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 181,
+              "scope": "file explorer"
+            }
+          ]
+        },
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 680776,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/delete-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 181,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/document",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1372872,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/document",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 89,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/documents",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 591209,
+          "kind": "literal"
+        },
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 685311,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/documents",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 16,
+              "scope": "host baseline"
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 117,
+              "scope": "note editor"
+            },
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 146,
+              "scope": "file explorer"
+            }
+          ]
+        },
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 693121,
+          "kind": "literal"
+        },
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 693267,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/duplicate-path",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 639297,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/duplicate-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 176,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/folder-config",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 527324,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/folder-config",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 190,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/forward-links",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2684099,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/forward-links",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 75,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/handoff",
+      "methods": [
+        "POST"
+      ],
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent handoff",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 2280333,
+          "kind": "call",
+          "callee": "fetchImpl",
+          "method": "POST",
+          "signature": "POST /api/handoff",
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/installed-agents",
+      "methods": [
+        "GET"
+      ],
+      "state": "excluded",
+      "evidence": "Q2 OpenWithAi 路由",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 570365,
+          "kind": "call",
+          "callee": "deps.fetch",
+          "method": "GET",
+          "signature": "GET /api/installed-agents",
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/link-preview",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 3988823,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/link-preview",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/config-provider.tsx",
+              "line": 18,
+              "scope": "link-preview-enabled editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/lint/config",
+      "methods": [
+        "GET"
+      ],
+      "state": "excluded",
+      "evidence": "Q2 上游 lint",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1803833,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "GET",
+          "signature": "GET /api/lint/config",
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/local-emoji",
+      "state": "static-assets",
+      "evidence": [
+        "/api/local-emoji/en/data.json",
+        "/api/local-emoji/en/messages.json",
+        "/api/local-emoji/zh/data.json",
+        "/api/local-emoji/zh/messages.json"
+      ],
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1490389,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/page-headings",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2683349,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/page-headings",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 63,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2683723,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/pages",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 692685,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/pages",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 15,
+              "scope": "host baseline"
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 115,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 692812,
+          "kind": "literal"
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2681118,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/pages",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/host-fetch.ts",
+              "line": 15,
+              "scope": "host baseline"
+            },
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 115,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2681437,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/reference-text",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1362233,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/reference-text",
+          "handlers": [
+            {
+              "file": "plugins/notes/src/ui/documents/NoteEditorSurface.tsx",
+              "line": 123,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/rename-path",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 651810,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/rename-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 163,
+              "scope": "file explorer"
+            }
+          ]
+        },
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 655646,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/rename-path",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 163,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/share/construct-url",
+      "methods": [],
+      "state": "excluded",
+      "evidence": "Q2 上游分享",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 565841,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skill/install-state",
+      "methods": [],
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent 安装",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 2277047,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skills",
+      "methods": [],
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2755553,
+          "kind": "call",
+          "callee": "getJson",
+          "method": null,
+          "signature": null,
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/skills/resolve-ref",
+      "methods": [],
+      "state": "excluded",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2755954,
+          "kind": "call",
+          "callee": "getJson",
+          "method": null,
+          "signature": null,
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/sync/status",
+      "methods": [
+        "GET"
+      ],
+      "state": "excluded",
+      "evidence": "Q2 云同步",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 561384,
+          "kind": "call",
+          "callee": "okFetch",
+          "method": "GET",
+          "signature": "GET /api/sync/status",
+          "handlers": []
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/tag-documents",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1496169,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/tag-documents",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 49,
+              "scope": "note editor"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/tags",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 4161757,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/tags",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/core.ts",
+              "line": 41,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 4161807,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/template/import",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 563951,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/template/import",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 208,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/trash/cleanup",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 682827,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/trash/cleanup",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 187,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/upload",
+      "methods": [
+        "POST"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 657717,
+          "kind": "call",
+          "callee": "request",
+          "method": "POST",
+          "signature": "POST /api/upload",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 225,
+              "scope": "file explorer"
+            },
+            {
+              "file": "packages/editor/src/host/routes/upload.ts",
+              "line": 40,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 3277720,
+          "kind": "call",
+          "callee": "editorFetch(editor)",
+          "method": "POST",
+          "signature": "POST /api/upload",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 225,
+              "scope": "file explorer"
+            },
+            {
+              "file": "packages/editor/src/host/routes/upload.ts",
+              "line": 40,
+              "scope": "note editor"
+            }
+          ]
+        },
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1764732,
+          "kind": "literal"
+        }
+      ]
+    },
+    {
+      "kind": "api",
+      "path": "/api/workspace",
+      "methods": [
+        "GET"
+      ],
+      "state": "handler-method",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 645043,
+          "kind": "call",
+          "callee": "request",
+          "method": "GET",
+          "signature": "GET /api/workspace",
+          "handlers": [
+            {
+              "file": "packages/editor/src/host/routes/files.ts",
+              "line": 159,
+              "scope": "file explorer"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "appVersion",
+      "state": "documented",
+      "evidence": "上游 cowork 安装记录（Q2），读取失败回退 unknown",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 2279400
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "cliCommandName",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts，Q2 不提供上游 CLI 命令",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 547777
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "clipboard",
+      "state": "documented",
+      "evidence": "app/src/lib/copy-image.ts 使用 navigator.clipboard.write 回退",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 2709995
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "config.mode",
+      "state": "documented",
+      "evidence": "Q10 不启用 OK 独立笔记窗口，undefined 与默认工作台模式对齐",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 238627
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "mcpServerName",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts，Q2 不提供上游 MCP 服务名",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 321062
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "noteWindow.dispatchToMain",
+      "state": "documented",
+      "evidence": "Q2/Q10 不启用 OK 独立笔记窗口",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 238926
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "platform",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts 根据宿主 navigator.platform 映射",
+      "calls": [
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 552558
+        },
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 684021
+        },
+        {
+          "chunk": "explorer-37Vkx3BM.js",
+          "offset": 701888
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "shell.openExternal",
+      "state": "documented",
+      "evidence": "desktop-bridge.ts → window.huhuHost.openExternal → 构建中已接线的主进程 HTTP(S) 确认",
+      "calls": [
+        {
+          "chunk": "rich-eSsDGvGw.js",
+          "offset": 1699293
+        }
+      ]
+    },
+    {
+      "kind": "desktop",
+      "path": "skill",
+      "state": "documented",
+      "evidence": "Q2 上游 Agent skill",
+      "calls": [
+        {
+          "chunk": "host-fetch-B3uY2qS2.js",
+          "offset": 2276690
+        }
+      ]
+    }
+  ]
+}

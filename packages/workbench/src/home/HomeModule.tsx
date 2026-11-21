@@ -144,7 +144,7 @@ export function HomeModule({ ui, registry, section: sectionProp, onSection }: { 
           {matching.slice(0, 5).map((t) => (
             <div className="hu-home-task-row" key={t.id}>
               <button type="button" className="shell-task-check" aria-label={tHome.tasksCard.complete(t.title)} onClick={() => void complete(t)} />
-              <button type="button" className="grow shell-task-open" onClick={() => nav("tasks")}>
+              <button type="button" className="hu-flex-fill shell-task-open" onClick={() => nav("tasks")}>
                 <strong>{t.title}</strong>
                 <span>
                   {t.project ?? tHome.tasksCard.personal}
@@ -379,7 +379,7 @@ function ActivityFeed({ compact = false, zone }: { compact?: boolean; zone: stri
           <div className="shell-activity-marker">
             <span />
           </div>
-          <div className="grow">
+          <div className="hu-flex-fill">
             <strong>{e.message}</strong>
             <div>
               {e.module} <span>·</span> {fmtTime(e.time, zone)}

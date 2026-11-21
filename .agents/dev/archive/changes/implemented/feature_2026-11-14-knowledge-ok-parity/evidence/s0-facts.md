@@ -18,3 +18,13 @@ codemirror/view ^6.43.3→^6.43.15；katex ^0.16.45→0.16.22；mermaid ^11.14.0
 - 贡献设施：`packages/workbench/src/contributions.ts`（`ModuleContribution` :17、`ContributionRegistry` :79）。
 - 协议：`apps/desktop/src/main/index.ts:31`（`registerSchemesAsPrivileged`，scheme `huhu-app`）、`:121`（`protocol.handle`）。
 - `CommentDto`：`plugins/notes/src/engine/comments/service.ts:10`。
+
+## Q6 补充取证（2026-11-20）
+
+| 来源 | 固定 Git 对象 | 本地 origin/main 与固定点的提交差 | 相关目录在这两个本地对象的差异 |
+| --- | --- | --- | --- |
+| Open Knowledge | `44a2e0a6acce5952da0764746e3693fded5025b4` | 0 / 0 | `packages/app/src`、`packages/core/src`、`packages/server/src` 无差异 |
+| ORCA | `7041ea022826ec19d627cd3a129b665822e7bf0a` | 0 / 0 | `src/renderer/src/components/editor`、`src/main/browser/document-preview`、`config/build-plugins` 无差异 |
+
+两个本地快照的 origin/HEAD 与 origin/main 都指向同一冻结 SHA。归档 S0 当日没有查询远端，也没有保存 2026-11-15 当日远端 ref 或文件树。上述 0 / 0 仅是可核对的本地引用差，S0 当时的远端提交数和相关目录差异无法从现存快照恢复。
+远端引用此后可能移动；现在查询远端 HEAD 只能证明查询时点。S0 时点的远端差异没有可核对的历史证据。Q6 仍采用上述固定 SHA 作为来源基线。

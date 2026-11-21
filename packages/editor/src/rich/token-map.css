@@ -1,17 +1,13 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 
-@layer tokens {
-  /* Important declarations invert layer order. Override OK's default light file-tree color in the earlier token layer. */
-  /* stylelint-disable declaration-no-important -- vendor overrides both the inline token and its default light rule */
-  [class~="ok-root"] file-tree-container {
-    --trees-selected-fg: var(--text) !important;
-  }
-  /* stylelint-enable declaration-no-important */
+/* OK CSS may load after this chunk. Reserve its layers before registering the host mappings. */
+@layer vendor {
+  @layer ok-theme, ok-base, ok-components, ok-utilities, ok-rules, ok-host;
 }
 
-@layer modules {
+@layer vendor.ok-host {
   /* The editor, explorer and their portal use separate OK roots. */
-  [class~="ok-root"] {
+  .ok-root {
     color-scheme: inherit;
     --background: var(--bg);
     --foreground: var(--text);
@@ -137,34 +133,70 @@
     --syntax-type: inherit;
   }
 
-  [class~="ok-root"] file-tree-container {
+  .ok-root file-tree-container {
+    /* The tree reads this through its inline selected-foreground token. */
+    --color-primary: var(--text);
     --trees-fg-override: var(--text);
     --trees-fg-muted-override: var(--faint);
   }
 
-  [class~="ok-root"] :where(input, textarea)::placeholder {
+  .ok-root :where(input, textarea)::placeholder {
     color: var(--muted-foreground);
   }
 
-  [class~="ok-root"] :is(.cm-content, [data-slot="kbd"]) {
+  .ok-root :is(.cm-content, [data-slot="kbd"]) {
     --muted-foreground: var(--huhu-ok-muted-text);
   }
 
-  [class~="ok-root"] .cm-content {
+  .ok-root .cm-content {
     --link-color: var(--link);
     --syntax-type: var(--huhu-ok-syntax-type);
     --destructive: var(--danger-text);
   }
 
-  [class~="ok-root"] .cm-selectionLayer {
+  .ok-root .cm-selectionLayer {
     --selection-soft: var(--selection);
   }
 
-  [class~="ok-root"] .cm-editor :is(.cm-searchMatch, .cm-selectionMatch) {
+  .ok-root .cm-editor :is(.cm-searchMatch, .cm-selectionMatch) {
     background-color: var(--warning-bg);
   }
 
-  [class~="ok-root"] .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  .ok-root .cm-editor .cm-searchMatch.cm-searchMatch-selected {
     background-color: var(--selection);
+  }
+
+  .ok-root.editor-ok-portal {
+    --font-sans: var(--font-ui, inherit);
+    --font-mono: inherit;
+    font-family: var(--font-sans);
+  }
+
+  .ok-root [data-slot="kbd"] {
+    font-family: var(--font-ui, var(--font-sans));
+  }
+
+  .ok-root.editor-ok-bubble {
+    border-radius: var(--radius-popover, var(--radius-lg));
+    box-shadow: var(--shadow-popover, var(--shadow-md));
+  }
+
+  /* 宿主文档容器负责布局，Tiptap 自己提供正文栅格。 */
+  .ok-root .editor-ok-surface {
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  /* 笔记设置里的字号 / 可读宽度（宿主经 style 设置这两个变量；缺省沿用 OK 的默认值） */
+  .editor-ok-surface .tiptap-editor:where(.ok-root *) {
+    --content-max-width: var(--editor-ok-measure, 1024px);
+  }
+  .editor-ok-surface .ProseMirror:where(.ok-root *) {
+    font-size: var(--editor-ok-font-size, inherit);
+  }
+  .editor-ok-compact .tiptap-editor:where(.ok-root *) {
+    --margin-width: var(--space-2, 8px);
+    --content-max-width: 100%;
   }
 }

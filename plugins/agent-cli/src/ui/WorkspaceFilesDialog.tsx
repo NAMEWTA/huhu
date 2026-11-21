@@ -49,7 +49,7 @@ export function WorkspaceFilesDialog({ space, open, writable, onClose, onSpace }
   return (
     <Dialog open={open} title="工作区文件" onClose={close} wide>
       <div className="row">
-        <p className="grow">
+        <p className="hu-flex-fill">
           <code>{space.root}</code>
         </p>
         {host() && writable ? <Button onClick={() => showWorktrees(true)}>Git worktree</Button> : null}
@@ -60,7 +60,7 @@ export function WorkspaceFilesDialog({ space, open, writable, onClose, onSpace }
             上一级
           </Button>
         ) : null}
-        <code className="grow">{directory || "/"}</code>
+        <code className="hu-flex-fill">{directory || "/"}</code>
         <Button icon={RefreshCw} disabled={list.isFetching} onClick={() => void list.refetch()}>
           刷新
         </Button>

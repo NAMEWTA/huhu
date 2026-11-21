@@ -1,4 +1,5 @@
-import { Button, EmptyState, IconButton } from "@huhu/ui";
+import type { OutlineHeading } from "@huhu/editor/rich";
+import { Button, EmptyState, FileIcon, IconButton } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
 import { ArrowUpRight, FileText, ListChecks, X } from "lucide-react";
 import { ChoiceSegmented } from "@huhu/ui";
@@ -11,8 +12,9 @@ type Tab = InspectorTab;
 /** 文档详情抽屉（原型 knowledge-inspector）：属性 / 大纲 / 关联（反向链接）/ 历史（由版本历史模块提供）。 */
 export function NoteInspector({
   path,
-  text,
+  headings,
   tags,
+  propertiesRef,
   tab,
   onTab,
   notePaths,
@@ -25,8 +27,9 @@ export function NoteInspector({
   onNavigate,
 }: {
   path: string;
-  text: string;
+  headings: readonly OutlineHeading[];
   tags: string[];
+  propertiesRef(element: HTMLDivElement | null): void;
   tab: InspectorTab;
   onTab(t: InspectorTab): void;
   /** Vault 里已知的笔记路径（批注的 docName ↔ 路径解析） */
@@ -43,11 +46,6 @@ export function NoteInspector({
 }) {
   const setTab = onTab;
   const backlinks = useCapability<{ path: string; title: string }[]>("notes.backlinks", { path });
-  const headings = text
-    .split("\n")
-    .map((l, i) => ({ l, i }))
-    .filter(({ l }) => /^#{1,6}\s+\S/.test(l))
-    .map(({ l, i }) => ({ level: (/^#+/.exec(l)?.[0].length ?? 1) as number, title: l.replace(/^#+\s+/, ""), line: i + 1 }));
   const title = n.props.tabs[tab];
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   return (
@@ -66,7 +64,10 @@ export function NoteInspector({
             <dl className="notes-property-grid">
               <div>
                 <dt>{n.fTitle}</dt>
-                <dd>{path.split("/").at(-1)?.replace(/\.md$/, "")}</dd>
+                <dd className="row">
+                  <FileIcon name={path} size={14} />
+                  {path.split("/").at(-1)?.replace(/\.md$/, "")}
+                </dd>
               </div>
               <div>
                 <dt>{n.fFolder}</dt>
@@ -77,6 +78,7 @@ export function NoteInspector({
                 <dd>{tags.length ? tags.map((t) => `#${t}`).join(" ") : "—"}</dd>
               </div>
             </dl>
+            <div ref={propertiesRef} />
           </section>
         ) : tab === "outline" ? (
           headings.length ? (
@@ -95,7 +97,7 @@ export function NoteInspector({
             <h4>{n.backlinksN((backlinks.data ?? []).length)}</h4>
             {(backlinks.data ?? []).map((b) => (
               <button key={b.path} type="button" className="notes-link-row" onClick={() => onOpen(b.path)}>
-                <FileText size={15} aria-hidden />
+                <FileIcon name={b.path} size={15} />
                 <span>{b.title}</span>
                 <ArrowUpRight size={13} aria-hidden />
               </button>

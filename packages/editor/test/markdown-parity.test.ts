@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { sharedExtensions } from "../src/vendor/open-knowledge/core/src/extensions/shared";
 import { HTML_MAX_BYTES, HtmlPayloadTooLargeError, htmlToMdast, mdastToMarkdown } from "../src/vendor/open-knowledge/core/src/markdown/html-to-mdast";
@@ -45,4 +46,70 @@ describe("Markdown 保真", () => {
     expect(mdastToMarkdown(htmlToMdast("界界", { maxBytes: 6 }))).toBe("界界\n");
     expect(() => htmlToMdast("界界界", { maxBytes: 8 })).toThrow(HtmlPayloadTooLargeError);
   });
+});
+
+describe("B01 Markdown 解析与序列化", () => {
+  test.each([
+    ["GFM 表格", "| a | b |\n| --- | --- |\n| c | d |\n", "table"],
+    ["双链", "[[目标|别名]]\n", "wikiLink"],
+    ["反斜杠换行", "第一行\\\n第二行\n", "hardBreak"],
+    ["围栏代码块", "~~~ts\nlet x = 1;\n~~~\n", "codeBlock"],
+    ["引用块", "> 引用正文\n", "blockquote"],
+    ["有序列表", "4. 第四项\n5. 第五项\n", "list"],
+    ["分隔线", "* * *\n", "thematicBreak"],
+    ["图片引用", "![说明][img]\n\n[img]: ./图.png\n", "imageReference"],
+    ["链接定义", '[标签][ref]\n\n[ref]: <./带 空格.md> "标题"\n', "linkRefDef"],
+    ["行内公式", "$x^2$\n", "mathInline"],
+    ["行内 HTML 换行", "第一行<br />第二行\n", "hardBreak"],
+    ["缩进代码", "    indent\n", "codeBlock"],
+    ["Mermaid", "```mermaid\ngraph TD\nA-->B\n```\n", "jsxComponent"],
+    ["行内代码", "``a ` b``\n", "code"],
+    ["标题", "## 标题\n", "heading"],
+    ["强调", "_斜_ **粗** ~~删~~\n", "emphasis"],
+    ["图片", "段内 ![说明](<./带 空格.png>)\n", "image"],
+  ])("%s 生成指定节点或标记并保留源形式", (_name, source, type) => {
+    const document = markdown.parse(source);
+    const nodes: string[] = [];
+    markdown.schema.nodeFromJSON(document).descendants((node) => {
+      nodes.push(node.type.name, ...node.marks.map((mark) => mark.type.name));
+    });
+    expect(nodes).toContain(type);
+    expect(markdown.serialize(document)).toBe(source);
+  });
+
+  test("解析失败时只把出错的块交给原始 MDX 节点，保留前后相邻 Markdown", () => {
+    const broken = "text </Bar> more";
+    const source = ["# before", broken, "**after**", ""].join("\n\n");
+    const content = markdown.parseWithFallback(source).content ?? [];
+    expect(content[0]).toMatchObject({ type: "heading", content: [{ text: "before" }] });
+    const fallback = content.find((node) => node.type === "rawMdxFallback");
+    expect(fallback).toBeDefined();
+    expect(markdown.serialize({ type: "doc", content: [fallback!] })).toContain(broken);
+    expect(content).toContainEqual(expect.objectContaining({ type: "paragraph", content: [{ type: "text", text: "after", marks: [expect.objectContaining({ type: "strong" })] }] }));
+  });
+
+  test("保留链接角括号、实体与行内反斜杠，回读链接目标和文本一致", () => {
+    const source = "[目的地](<./名字 (副本).md>) &amp; \\*\n";
+    const doc = markdown.parse(source);
+    const text = doc.content?.[0]?.content ?? [];
+    expect(text[0]).toMatchObject({ text: "目的地", marks: [expect.objectContaining({ type: "link", attrs: expect.objectContaining({ href: "./名字 (副本).md" }) })] });
+    expect(text.map((node) => node.text).join("")).toBe("目的地 &amp; *");
+    expect(markdown.serialize(doc)).toBe(source);
+  });
+});
+
+test.each([
+  ["apple-notes-sample.html", /\*\*Grocery list\*\*/],
+  ["gdocs-sample.html", /^## .+/m],
+  ["github-comment-sample.html", /\[#42\]\(https:\/\/github\.com\/owner\/repo\/issues\/42\)/],
+  ["gmail-sample.html", /Hi team,\n{2,}Here's the summary[\s\S]*^> On Tue,/m],
+  ["gsheets-sample.html", /^\|.+\|\n\|[ :|-]+\|/m],
+  ["notion-sample.html", /an intentional(?: {2}|\\)\nmulti-line break chain/],
+  ["slack-sample.html", /^Hey team — can we ship the clipboard feature this week\? @ada thoughts\?\n$/],
+  ["vscode-sample.html", /^```\n[\s\S]+\n```$/m],
+  ["word-sample.html", /^#.+/m],
+])("B01 转换固定剪贴板样本 %s 保留正文结构", (fixture, expected) => {
+  const file = new URL(`../src/vendor/open-knowledge/core/src/markdown/rehype-plugins/fixtures/${fixture}`, import.meta.url);
+  const converted = mdastToMarkdown(htmlToMdast(readFileSync(file, "utf8")));
+  expect(converted).toMatch(expected);
 });

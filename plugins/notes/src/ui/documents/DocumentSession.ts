@@ -74,6 +74,7 @@ interface NoteFile {
 }
 
 type Listener = () => void;
+export type MarkdownEquivalence = (baseline: string, current: string) => boolean;
 
 function mergeText(base: string, mine: string, theirs: string): { text: string; conflicts: number } {
   const parts = diff3Merge(mine.split("\n"), base.split("\n"), theirs.split("\n"), { excludeFalseConflicts: true });
@@ -101,6 +102,7 @@ export class DocumentSession {
   private text = "";
   private version = "";
   private savedText: string | null = null;
+  private equivalentMarkdown: MarkdownEquivalence | undefined;
   private state: SaveState = "saved";
   private revision = 0;
   private flushError: string | null = null;
@@ -160,6 +162,7 @@ export class DocumentSession {
   // ---- 载入 ----
   async load(expectedRevision?: number, isCurrent = () => true): Promise<boolean> {
     const seq = ++this.loadSeq;
+    const revision = this.revision;
     const [f, d] = await Promise.all([
       this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
       this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch((error: unknown) => {
@@ -173,9 +176,11 @@ export class DocumentSession {
       await this.drainEditors();
       if (this.disposed || seq !== this.loadSeq || !isCurrent() || expectedRevision !== this.revision || d?.text !== this.text) return false;
     }
+    if (revision !== this.revision) return false;
     this.text = f.text;
     this.version = f.version;
     this.savedText = f.text;
+    this.equivalentMarkdown = undefined;
     this.format = detectTextFormat(f.text);
     this.state = "saved";
     this.loaded = true;
@@ -192,8 +197,10 @@ export class DocumentSession {
 
   // ---- 编辑 ----
   /** 把编辑器 / 源码 / 属性面板的新全文交给会话。 */
-  setText(next: string, _origin: SetTextOrigin = "editor"): void {
-    if (!this.loaded || next === this.text) return;
+  setText(next: string, origin: SetTextOrigin = "editor", equivalentMarkdown?: MarkdownEquivalence): void {
+    if (this.disposed || !this.loaded || next === this.text) return;
+    const richOnly = this.text === this.savedText || this.equivalentMarkdown !== undefined;
+    this.equivalentMarkdown = origin === "editor" && richOnly ? equivalentMarkdown : undefined;
     this.text = next;
     this.revision++;
     this.state = "dirty";
@@ -224,6 +231,15 @@ export class DocumentSession {
   // ---- 保存（串行）----
   private async doSave(): Promise<boolean> {
     const body = this.text;
+    if (this.savedText !== null && this.equivalentMarkdown?.(this.savedText, body)) {
+      this.text = this.savedText;
+      this.equivalentMarkdown = undefined;
+      this.revision++;
+      this.state = "saved";
+      this.flushError = null;
+      this.emit();
+      return true;
+    }
     const rev = this.revision;
     this.state = "saving";
     this.emit();
@@ -231,6 +247,7 @@ export class DocumentSession {
       const r = await this.engine.call<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version }, { write: true });
       this.version = r.version;
       this.savedText = body;
+      if (this.text === body) this.equivalentMarkdown = undefined;
       // 回执只清除它所对应的 dirtyRevision：期间又有新输入则仍为 dirty（C06）
       this.state = this.revision === rev && this.text === body ? "saved" : "dirty";
       this.flushError = null;
@@ -292,6 +309,7 @@ export class DocumentSession {
         }
         this.text = merged.text;
         this.savedText = file.text;
+        this.equivalentMarkdown = undefined;
         this.version = file.version;
         this.format = detectTextFormat(file.text);
         this.loaded = true;
@@ -339,14 +357,19 @@ export class DocumentSession {
 
   /** 显式保存前结算编辑；交付失败时保留已经交付的草稿，不用不完整的正文覆盖文件。 */
   async flush(): Promise<boolean> {
-    try {
-      await this.drainForWrite();
-    } catch {
-      return false;
+    while (true) {
+      try {
+        await this.drainForWrite();
+      } catch {
+        return false;
+      }
+      if (this.inflight) {
+        await this.inflight;
+        continue;
+      }
+      if (this.savedText === null || this.text === this.savedText) return true;
+      if (!(await this.save())) return false;
     }
-    await this.inflight;
-    if (this.savedText !== null && this.text !== this.savedText) return this.save();
-    return true;
   }
 
   /** 退出时自动保存，关闭自动保存或保存失败时保留草稿。 */
@@ -354,7 +377,7 @@ export class DocumentSession {
     await this.drainForWrite();
     await this.inflight;
     if (this.savedText === null || this.text === this.savedText) return;
-    if (this.autosave() && (await this.save())) return;
+    if (this.autosave() && (await this.flush())) return;
     await this.preserveDraft();
   }
 
@@ -375,8 +398,15 @@ export class DocumentSession {
 
   // ---- 外部变更 / 冲突 ----
   /** 磁盘上的文件被外部改了：无未保存编辑就直接载入；有则进入冲突（保存中不打断）。 */
-  notifyExternalChange(): void {
-    if (this.savedText !== null && this.text === this.savedText && this.state !== "saving") void this.load();
+  notifyExternalChange(change?: string): void {
+    if (this.disposed) return;
+    if (change === "deleted") {
+      this.loadSeq++;
+      this.setError("文件已移走或删除，未保存的编辑仍保留在当前会话");
+      void this.keepDraft().catch((error: unknown) => this.fail(error));
+      return;
+    }
+    if (this.savedText !== null && this.text === this.savedText && this.state !== "saving") void this.load().catch((error: unknown) => this.fail(error));
     else if (this.state !== "saving") {
       this.state = "conflict";
       this.emit();
@@ -428,6 +458,7 @@ export class DocumentSession {
       const theirs = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
       this.version = theirs.version;
       this.savedText = theirs.text;
+      this.equivalentMarkdown = undefined;
       this.state = this.text === theirs.text ? "saved" : "dirty";
       this.emit();
     } catch (e) {
@@ -445,6 +476,7 @@ export class DocumentSession {
       this.text = merged;
       this.version = theirs.version;
       this.savedText = theirs.text;
+      this.equivalentMarkdown = undefined;
       this.revision++;
       this.state = merged === theirs.text ? "saved" : "dirty";
       this.emit();
@@ -460,6 +492,7 @@ export class DocumentSession {
     const d = this.draft;
     if (!d) return;
     this.text = d.text;
+    this.equivalentMarkdown = undefined;
     if (d.baseVersion !== this.version) this.version = d.baseVersion;
     this.revision++;
     this.state = "dirty";
@@ -484,13 +517,13 @@ export class DocumentSession {
     try {
       await this.flushForExit();
     } finally {
-      this.disposed = true;
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
       if (this.poll) clearInterval(this.poll);
       this.poll = null;
-      this.listeners.clear();
-      this.drainers.clear();
     }
+    this.disposed = true;
+    this.listeners.clear();
+    this.drainers.clear();
   }
 }

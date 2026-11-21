@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 interface ApiConfig {
   collabUrl: string | null;
   previewUrl: string | null;
@@ -10,10 +11,10 @@ export type FetchApiConfigResult =
   | { status: 'absent' }
   | { status: 'error'; code: number | 'network' | 'invalid-body' };
 
-export async function fetchApiConfig(signal?: AbortSignal): Promise<FetchApiConfigResult> {
+export async function fetchApiConfig(signal?: AbortSignal, request = okFetch): Promise<FetchApiConfigResult> {
   let res: Response;
   try {
-    res = await fetch('/api/config', {
+    res = await request('/api/config', {
       signal,
       headers: { Accept: 'application/json' },
     });

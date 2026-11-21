@@ -8,6 +8,8 @@ declare global {
       appInfo(): Promise<{ name: string; version: string; platform: string; arch: string; electron: string; chrome: string; node: string }>;
       revealVault(): Promise<void>;
       openVaultFile(rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed">;
+      openExternal(url: string): Promise<boolean>;
+      externalLinkPreview(url: string): Promise<unknown>;
       previewGrant(rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }>;
       previewRevoke(nonce: string): Promise<void>;
       onPreviewBlocked(cb: (e: { nonce: string; count: number }) => void): () => void;

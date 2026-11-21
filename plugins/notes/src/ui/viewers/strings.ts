@@ -17,7 +17,6 @@ export const v = {
   formatFailed: (m: string) => `无法格式化：${m}`,
   formatDone: "已格式化（尚未保存）",
   textLabel: (name: string) => `${name} 内容`,
-  encodingUnsupported: "这个文件不是有效的 UTF-8 文本，已按只读元信息显示；不会被当作 UTF-8 覆盖。",
   mixedEol: "这个文件混用了多种换行符，无法无损编辑，已设为只读（请用系统应用编辑）。",
   tooLarge: (limit: string) => `文件超过 ${limit}，不在应用内加载；请用系统应用打开。`,
   binary: "这个文件含有二进制内容，没有文本预览；请用对应的应用打开。HUHU 不会把它当作文本加载。",

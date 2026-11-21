@@ -1,9 +1,13 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { link, open, rm } from "node:fs/promises";
 import path from "node:path";
-import { errors } from "@huhu/contracts";
+import { errors, HuhuError } from "@huhu/contracts";
 import writeFileAtomic from "write-file-atomic";
-import { resolveInVault } from "./paths.js";
+import { filesystemIdentity } from "./identity.js";
+import { resolveInVault, resolveReadableAsset } from "./paths.js";
+import { renameNoReplace } from "./rename.js";
+import { readAsset } from "./read-asset.js";
 import { ReceiptLog } from "./receipts.js";
 
 /** 文件版本：字节 SHA-256 前 16 位。 */
@@ -16,6 +20,13 @@ export interface WriteOptions {
   expectedVersion?: string | null;
   /** Check a live authorization or equivalent invariant at publication. */
   beforeCommit?: () => void;
+  /** 由 OperationLog 保留暂存条目的身份，供重启恢复识别本次创建的文件。 */
+  creationStage?: { path: string; recordIdentity(identity: string): void };
+}
+
+export function fileIdentity(file: string): string | null {
+  const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
+  return info ? filesystemIdentity(info) : null;
 }
 
 const pendingWrites = new Map<string, Promise<{ version: string }>>();
@@ -51,6 +62,50 @@ export class VaultFiles {
     return this.read(rel)?.version ?? null;
   }
 
+  /**
+   * Retain the inspected bytes and the original directory entry before publishing.
+   * A writer with an open handle can still update the detached original.
+   */
+  replaceRecoverably(rel: string, inspected: Buffer, converted: Buffer, limit: number, stateDir: string): string {
+    this.assertWritable();
+    const target = resolveReadableAsset(this.root, rel);
+    if (!lstatSync(this.abs(rel)).isFile()) throw errors.invalidInput(`请打开符号链接的实际文件再转换编码：${rel}`);
+    const recoveryRoot = path.join(stateDir, "operations", "encoding-recovery");
+    mkdirSync(recoveryRoot, { recursive: true, mode: 0o700 });
+    const recovery = mkdtempSync(path.join(recoveryRoot, "conversion-"));
+    const original = path.join(recovery, "original");
+    const staged = path.join(recovery, "converted");
+    let detached = false;
+    const version = versionOf(converted);
+    try {
+      writeFileSync(path.join(recovery, "path.txt"), rel + "\n", { flag: "wx", flush: true });
+      writeFileSync(path.join(recovery, "inspected"), inspected, { flag: "wx", flush: true });
+      writeFileSync(staged, converted, { flag: "wx", mode: statSync(target).mode & 0o777, flush: true });
+      renameNoReplace(target, original, rel);
+      detached = true;
+      if (!lstatSync(original).isFile()) throw errors.invalidInput("原文件已被其他条目替换");
+      const current = readAsset(recovery, "original", 0, limit, undefined, limit).bytes;
+      if (!current.equals(inspected)) throw errors.versionConflict(versionOf(current));
+      this.receipts.record(rel, version);
+      renameNoReplace(staged, target, rel);
+      return version;
+    } catch (error) {
+      this.receipts.forget(rel, version);
+      if (!detached && !lstatSync(original, { throwIfNoEntry: false })) {
+        rmSync(recovery, { recursive: true, force: true });
+        throw error;
+      }
+      try {
+        renameNoReplace(original, target, rel);
+      } catch {
+        // The destination was reclaimed or became unavailable. Keep the detached entry.
+      }
+      throw new HuhuError("VERSION_CONFLICT", `转换已停止：${rel}。可在 ${recovery} 找到转换前的字节及恢复说明。`, {
+        details: { path: rel, recoveryPath: recovery, cause: error instanceof Error ? error.message : String(error) },
+      });
+    }
+  }
+
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
     this.assertWritable();
     const dest = this.abs(rel);
@@ -67,26 +122,129 @@ export class VaultFiles {
     }
   }
 
-  private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit }: WriteOptions): Promise<{ version: string }> {
+  private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit, creationStage }: WriteOptions): Promise<{ version: string }> {
     const p = this.abs(rel);
-    if (expectedVersion !== undefined) {
+    if (expectedVersion === null) {
+      if (this.exists(rel)) throw errors.nameConflict(rel);
+    } else if (expectedVersion !== undefined) {
       const cur = this.currentVersion(rel);
-      if (expectedVersion === null ? cur !== null : cur !== expectedVersion) {
-        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : expectedVersion === null ? errors.nameConflict(rel) : errors.versionConflict(cur);
+      if (cur !== expectedVersion) {
+        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(cur);
       }
     }
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
     beforeCommit?.();
     this.receipts.record(rel, version);
+    let untrackTemporaryFile: (() => void) | undefined;
     try {
       // Keep local revocation and the protected publication in one event-loop turn.
-      if (beforeCommit) writeFileAtomic.sync(p, bytes);
-      else await writeFileAtomic(p, bytes);
+      if (expectedVersion === null) {
+        if (beforeCommit) this.createExclusiveSync(rel, p, bytes, creationStage);
+        else await this.createExclusive(rel, p, bytes, creationStage);
+      } else if (beforeCommit) {
+        writeFileAtomic.sync(p, bytes);
+      } else {
+        await writeFileAtomic(p, Buffer.from(bytes), {
+          tmpfileCreated: (file) => {
+            const temporaryPath = path.posix.join(path.posix.dirname(rel), path.basename(file));
+            untrackTemporaryFile = this.receipts.trackTemporaryFile(temporaryPath);
+          },
+        });
+      }
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;
+    } finally {
+      untrackTemporaryFile?.();
     }
     return { version };
   }
+
+  /** 独占创建：先写暂存，再硬链接到目标；卷不支持硬链接时以不覆盖方式改名。 */
+  private async createExclusive(rel: string, p: string, bytes: Buffer, creationStage: WriteOptions["creationStage"]): Promise<void> {
+    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `.huhu-create-${randomUUID()}`);
+    const absoluteStage = this.abs(stage);
+    const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
+    let ownsStage = false;
+    let journaled = false;
+    try {
+      const file = await open(absoluteStage, "wx");
+      ownsStage = true;
+      try {
+        if (creationStage) {
+          const identity = filesystemIdentity(await file.stat({ bigint: true }));
+          if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
+          creationStage.recordIdentity(identity);
+          journaled = true;
+        }
+        await file.writeFile(bytes);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      try {
+        await link(absoluteStage, p);
+      } catch (error) {
+        if (!linkUnsupported(error)) throw error;
+        renameNoReplace(absoluteStage, p, rel);
+        ownsStage = false;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw errors.nameConflict(rel);
+      throw error;
+    } finally {
+      try {
+        if (ownsStage && !journaled) await rm(absoluteStage, { force: true });
+      } finally {
+        release?.();
+      }
+    }
+  }
+
+  /** 与 createExclusive 相同的独占创建，全程同步，使 beforeCommit 与发布处于同一事件循环轮次。 */
+  private createExclusiveSync(rel: string, p: string, bytes: Buffer, creationStage: WriteOptions["creationStage"]): void {
+    const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `.huhu-create-${randomUUID()}`);
+    const absoluteStage = this.abs(stage);
+    const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
+    let ownsStage = false;
+    let journaled = false;
+    try {
+      const fd = openSync(absoluteStage, "wx");
+      ownsStage = true;
+      try {
+        if (creationStage) {
+          const identity = filesystemIdentity(fstatSync(fd, { bigint: true }));
+          if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
+          creationStage.recordIdentity(identity);
+          journaled = true;
+        }
+        writeFileSync(fd, bytes);
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      try {
+        linkSync(absoluteStage, p);
+      } catch (error) {
+        if (!linkUnsupported(error)) throw error;
+        renameNoReplace(absoluteStage, p, rel);
+        ownsStage = false;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw errors.nameConflict(rel);
+      throw error;
+    } finally {
+      try {
+        if (ownsStage && !journaled) rmSync(absoluteStage, { force: true });
+      } finally {
+        release?.();
+      }
+    }
+  }
+}
+
+function linkUnsupported(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EPERM" || code === "EXDEV" || code === "ENOTSUP" || code === "EOPNOTSUPP";
 }

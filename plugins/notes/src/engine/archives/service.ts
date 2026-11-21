@@ -12,7 +12,6 @@ import {
   replaceBody,
   resolveFolderLink,
   sanitizeTitle,
-  splitDocument,
   type OperationLog,
   type OpStep,
   type VaultFiles,
@@ -20,6 +19,8 @@ import {
 } from "@huhu/vault";
 import { validateName } from "../../shared/templates.js";
 import type { NotesService } from "../service.js";
+import { unsupportedEncoding } from "../../shared/text-encoding.js";
+import { decodeUtf8 } from "../text-encoding.js";
 
 export interface ArchivesDeps {
   files: VaultFiles;
@@ -62,9 +63,21 @@ export class ArchivesService {
       .map((e) => e.name)
       .sort((a, b) => a.localeCompare(b));
   }
-  private text(rel: string): { text: string; version: string } | null {
+  private readText(rel: string) {
     const f = this.d.files.read(rel);
-    return f ? { text: f.bytes.toString("utf8"), version: f.version } : null;
+    if (!f) return null;
+    const text = f.bytes.includes(0) ? null : decodeUtf8(f.bytes);
+    return { text, version: f.version };
+  }
+
+  private text(rel: string) {
+    const f = this.readText(rel);
+    if (f?.text === null) throw errors.invalidInput(`${rel}：${unsupportedEncoding}`);
+    return f && { text: f.text, version: f.version };
+  }
+
+  private encodingIssue(rel: string) {
+    return { path: rel, message: `${rel}：${unsupportedEncoding}` };
   }
   private nameTaken(parent: string, name: string, except?: string): boolean {
     const abs = this.abs(parent);
@@ -107,9 +120,11 @@ export class ArchivesService {
   }
 
   // ---- 类型 ----
-  private template(typeDir: string): { icon: string; fields: ArchiveFieldDef[]; body: string; version: string | null } {
-    const f = this.text(`${typeDir}/${INDEX}`);
-    if (!f) return { icon: "folder", fields: [], body: "", version: null };
+  private template(typeDir: string, allowEncodingIssue = false): { icon: string; fields: ArchiveFieldDef[]; encodingIssue?: NonNullable<ArchiveTypeDto["encodingIssue"]> } {
+    const rel = `${typeDir}/${INDEX}`;
+    const f = allowEncodingIssue ? this.readText(rel) : this.text(rel);
+    if (!f) return { icon: "folder", fields: [] };
+    if (f.text === null) return { icon: "folder", fields: [], encodingIssue: this.encodingIssue(rel) };
     const fm = parseFrontmatter(f.text);
     const icon = typeof fm.data["icon"] === "string" && fm.data["icon"] ? (fm.data["icon"] as string) : "folder";
     const raw = Array.isArray(fm.data["fields"]) ? (fm.data["fields"] as unknown[]) : [];
@@ -117,12 +132,12 @@ export class ArchivesService {
       const o = x as { name?: unknown; type?: unknown };
       return typeof o?.name === "string" && (o.type === "text" || o.type === "date" || o.type === "url" || o.type === "number") ? [{ name: o.name, type: o.type }] : [];
     });
-    return { icon, fields, body: splitDocument(f.text).body, version: f.version };
+    return { icon, fields };
   }
 
   private toType(typeDir: string): ArchiveTypeDto {
-    const t = this.template(typeDir);
-    return { path: `${typeDir}/`, name: path.basename(typeDir), icon: t.icon, fields: t.fields, count: this.dirNames(typeDir).length, noteId: this.d.notes.noteId(`${typeDir}/${INDEX}`) };
+    const t = this.template(typeDir, true);
+    return { path: `${typeDir}/`, name: path.basename(typeDir), ...t, count: this.dirNames(typeDir).length, noteId: this.d.notes.noteId(`${typeDir}/${INDEX}`) };
   }
 
   types(): ArchiveTypeDto[] {
@@ -169,12 +184,12 @@ export class ArchivesService {
       const problems: string[] = [];
       for (const a of this.dirNames(dir)) {
         const rel = `${dir}/${a}/${INDEX}`;
-        const f = this.text(rel);
-        if (!f) continue;
         try {
+          const f = this.text(rel);
+          if (!f) continue;
           const out = renameFrontmatterKeys(f.text, renames);
           if (out !== f.text) {
-            steps.push({ action: "write", path: rel, bytes: Buffer.from(out) });
+            steps.push({ action: "write", path: rel, bytes: Buffer.from(out), expectedVersion: f.version });
             written.push(rel);
           }
         } catch (e) {
@@ -184,10 +199,11 @@ export class ArchivesService {
       if (problems.length > 0) throw errors.invalidInput(`字段改名被拒绝，以下档案需要先处理：\n${problems.join("\n")}`);
     }
     const idx = `${dir}/${INDEX}`;
-    const before = this.text(idx)?.text ?? "";
+    const template = this.text(idx);
+    const before = template?.text ?? "";
     const next = patchFrontmatter(before, { icon: input.icon ?? cur.icon, fields });
-    if (next !== before || !this.text(idx)) {
-      steps.push({ action: "write", path: idx, bytes: Buffer.from(next) });
+    if (next !== before || !template) {
+      steps.push({ action: "write", path: idx, bytes: Buffer.from(next), expectedVersion: template?.version ?? null });
       written.push(idx);
     }
     if (steps.length > 0) await this.d.ops.run(`atype-${Date.now().toString(36)}`, "archive-template-save", steps);
@@ -231,12 +247,12 @@ export class ArchivesService {
 
   private toArchive(dir: string, typeDir: string, defs: ArchiveFieldDef[]): ArchiveDto & { body: string; version: string | null } {
     const idx = `${dir}/${INDEX}`;
-    const f = this.text(idx);
+    const f = this.readText(idx);
     const fields: Record<string, unknown> = {};
     const invalid: { name: string; reason: string }[] = [];
     let undef: string[] = [];
     let body = "";
-    if (f) {
+    if (f && f.text !== null) {
       const fm = parseFrontmatter(f.text);
       body = fm.doc.body.replace(/^\r?\n/, "");
       if (fm.errors.length) invalid.push({ name: "frontmatter", reason: `frontmatter 无法解析：${fm.errors[0]}` });
@@ -255,7 +271,19 @@ export class ArchivesService {
       }
     }
     const stat = statSync(this.abs(f ? idx : dir));
-    return { path: `${dir}/`, name: path.basename(dir), type: `${typeDir}/`, fields, undefinedFields: undef, invalidFields: invalid, noteId: this.d.notes.noteId(idx), updatedAt: iso(stat.mtime), body, version: f?.version ?? null };
+    return {
+      path: `${dir}/`,
+      name: path.basename(dir),
+      type: `${typeDir}/`,
+      fields,
+      undefinedFields: undef,
+      invalidFields: invalid,
+      noteId: this.d.notes.noteId(idx),
+      updatedAt: iso(stat.mtime),
+      body,
+      version: f?.version ?? null,
+      ...(f?.text === null ? { encodingIssue: this.encodingIssue(idx) } : {}),
+    };
   }
 
   list(q: { type?: string; query?: string } = {}): ArchiveDto[] {
@@ -263,7 +291,7 @@ export class ArchivesService {
     const needle = q.query?.trim().toLowerCase();
     const out: ArchiveDto[] = [];
     for (const typeDir of typeDirs) {
-      const defs = this.defsOf(typeDir);
+      const defs = this.template(typeDir, true).fields;
       for (const name of this.dirNames(typeDir)) {
         const { body, version: _v, ...dto } = this.toArchive(`${typeDir}/${name}`, typeDir, defs);
         if (needle && !`${dto.name}\n${body}\n${Object.values(dto.fields).join("\n")}`.toLowerCase().includes(needle)) continue;
@@ -275,7 +303,7 @@ export class ArchivesService {
 
   read(input: string): ArchiveDetailDto {
     const { dir, type } = this.archiveDir(input);
-    const a = this.toArchive(dir, type, this.defsOf(type));
+    const a = this.toArchive(dir, type, this.template(type, true).fields);
     const files = readdirSync(this.abs(dir), { withFileTypes: true })
       .filter((e) => !e.name.startsWith(".") && e.name !== INDEX)
       .map((e) => ({ path: `${dir}/${e.name}`, name: e.name, kind: e.isDirectory() ? ("folder" as const) : /\.md$/i.test(e.name) ? ("note" as const) : ("file" as const) }))
@@ -384,7 +412,7 @@ export class ArchivesService {
     const { dir, type } = this.archiveDir(input.path);
     const target = this.typeDir(input.type);
     if (target === type) {
-      const { body: _b, version: _v, ...same } = this.toArchive(dir, type, this.defsOf(type));
+      const { body: _b, version: _v, ...same } = this.toArchive(dir, type, this.template(type, true).fields);
       return same;
     }
     const name = path.basename(dir);
@@ -392,7 +420,7 @@ export class ArchivesService {
     await this.d.notes.moveEntry(dir, `${target}/${finalName}`);
     const next = `${target}/${finalName}`;
     this.emit(next, "updated");
-    const { body: _b, version: _v, ...dto } = this.toArchive(next, target, this.defsOf(target));
+    const { body: _b, version: _v, ...dto } = this.toArchive(next, target, this.template(target, true).fields);
     return dto;
   }
 

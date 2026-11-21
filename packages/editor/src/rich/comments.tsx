@@ -1,8 +1,21 @@
 // 评论宿主入口（S4）：把 vendor 的 OK 评论 UI（面板、线程卡；选区入口 / 高亮 / 边距轨已在 TiptapEditor 内）接到 Huhu 的 `comments.*`。
 // 能力经 CommentsPort 注入（packages/editor 不依赖业务模块）；路由见 host/routes/comments.ts。
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
+import { CommentExternalLinkContext } from "@/comments/CommentMarkdown";
 import { CommentsPanel } from "@/comments/CommentsPanel";
-import { createFileThread, emitOpenThread, emitStartComment, getOpenThread, setCommentsReadOnly, subscribeCommentPosted, subscribeOpenThread } from "@/comments/store";
+import {
+  createFileThread,
+  emitOpenThread,
+  emitStartComment,
+  getOpenThread,
+  invalidateCommentNavigation,
+  invalidateCommentScope,
+  registerCommentSelectionSource,
+  setCommentsReadOnly,
+  subscribeCommentPosted,
+  subscribeOpenThread,
+  useCommentSurface,
+} from "@/comments/store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { emitDocumentsChanged } from "@/lib/documents-events";
@@ -29,40 +42,52 @@ export function onCommentThreadOpened(handler: () => void): () => void {
 }
 
 export function dismissOpenCommentThread(): void {
+  invalidateCommentNavigation();
   if (getOpenThread() !== null) emitOpenThread(null);
 }
 
 /** 批注数据在宿主侧变化（engine 事件 / 保存后重定位）：让 OK 的 store 重新拉取。 */
-export function notifyCommentsChanged(): void {
-  emitDocumentsChanged(["comments"]);
+export function notifyCommentsChanged(scope?: string): void {
+  if (scope === undefined) emitDocumentsChanged(["comments"]);
+  else invalidateCommentScope(scope);
 }
 
-/** 文档只读 / 冲突中：批注可看可定位，写操作入口隐藏。 */
+export { registerCommentSelectionSource };
+
+let readOnlyOwners = 0;
+
+/** 文档只读时，批注可看可定位。编辑面与面板可独立挂载。 */
 export function useCommentsReadOnlySync(readOnly: boolean): void {
-  useEffect(() => {
-    setCommentsReadOnly(readOnly);
-    return () => setCommentsReadOnly(false);
+  useLayoutEffect(() => {
+    if (!readOnly) return;
+    readOnlyOwners++;
+    setCommentsReadOnly(true);
+    return () => {
+      readOnlyOwners--;
+      setCommentsReadOnly(readOnlyOwners > 0);
+    };
   }, [readOnly]);
 }
 
 function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: string; label: string; placeholder: string; submit: string }): ReactNode {
   const [text, setText] = useState("");
+  const surface = useCommentSurface();
   const send = () => {
     const body = text.trim();
     if (!body) return;
-    createFileThread({ docName, body });
+    createFileThread({ docName, body }, surface);
     setText("");
   };
   return (
     <form
-      className="flex flex-col gap-1.5 border-t p-2"
+      className="editor-comments-composer"
       onSubmit={(e) => {
         e.preventDefault();
         send();
       }}
     >
       <Textarea aria-label={label} placeholder={placeholder} data-testid="comment-whole-note-input" value={text} onChange={(e) => setText(e.target.value)} rows={2} />
-      <Button type="submit" size="sm" disabled={text.trim().length === 0} data-testid="comment-whole-note-add" className="self-end">
+      <Button type="submit" size="sm" disabled={text.trim().length === 0} data-testid="comment-whole-note-add" className="editor-comments-submit">
         {submit}
       </Button>
     </form>
@@ -71,7 +96,9 @@ function WholeNoteComposer({ docName, label, placeholder, submit }: { docName: s
 
 export interface CommentsPanelHostProps {
   docName: string;
+  commentScope?: string;
   routes: HostRoutes;
+  openExternal?(url: string): Promise<void>;
   locale?: string;
   readOnly?: boolean;
   /** 只读时显示在面板底部的原因 */
@@ -80,16 +107,18 @@ export interface CommentsPanelHostProps {
 }
 
 /** 详情栏“批注”页：OK 的评论列表 + 整篇笔记批注输入（Huhu 的 `target:"file"`）。 */
-export function CommentsPanelHost({ docName, routes, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
+export function CommentsPanelHost({ docName, commentScope, routes, openExternal, locale, readOnly = false, readOnlyReason, labels }: CommentsPanelHostProps) {
   return (
-    <OkRoot routes={routes} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
+    <OkRoot routes={routes} {...(commentScope !== undefined ? { commentScope } : {})} {...(locale ? { locale } : {})} style={{ height: "100%" }}>
       <CommentsReadOnly readOnly={readOnly} />
-      <div className="flex h-full min-h-0 flex-col" data-testid="comments-panel">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <CommentsPanel docName={docName} />
+      <div className="editor-comments-panel" data-testid="comments-panel">
+        <div className="editor-comments-list">
+          <CommentExternalLinkContext.Provider value={openExternal}>
+            <CommentsPanel docName={docName} />
+          </CommentExternalLinkContext.Provider>
         </div>
         {readOnly ? (
-          <p className="border-t p-2 text-xs text-muted-foreground" data-testid="comments-readonly-reason">
+          <p className="editor-comments-readonly" data-testid="comments-readonly-reason">
             {readOnlyReason}
           </p>
         ) : (

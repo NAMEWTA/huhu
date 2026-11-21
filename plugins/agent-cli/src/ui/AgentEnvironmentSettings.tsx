@@ -45,7 +45,7 @@ export function AgentEnvironmentSettings() {
   return (
     <section className="hu-settings-section hu-card-alt" data-testid="agent-environment-settings">
       <div className="row">
-        <h2 className="grow">启动环境</h2>
+        <h2 className="hu-flex-fill">启动环境</h2>
         <Button icon={Plus} disabled={!list.data?.localAvailable} onClick={() => setEditing("new")}>
           新建启动环境
         </Button>

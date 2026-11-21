@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   LinkGraphSuccessSchema,
   ProblemDetailsSchema,
@@ -593,7 +594,7 @@ export function GraphView({
           params.set('degrees', '2');
         }
         const url = params.size > 0 ? `/api/link-graph?${params.toString()}` : '/api/link-graph';
-        const res = await fetch(url);
+        const res = await okFetch(url);
         const body = (await res.json().catch(() => null)) as unknown;
         if (cancelled) return;
         if (!res.ok) {

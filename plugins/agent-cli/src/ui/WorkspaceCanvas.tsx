@@ -191,7 +191,7 @@ export function WorkspaceCanvas({
               <div className="agent-workspace-pane-header">
                 <strong title={name}>{name}</strong>
                 {session ? status(session) : null}
-                <span className="grow" />
+                <span className="hu-flex-fill" />
                 {paneCount > 1 ? <IconButton icon={zoom ? Minimize : Maximize} label={zoom ? "还原分栏" : "放大分栏"} onClick={() => onZoom(leaf.id)} /> : null}
                 <IconButton icon={X} label="关闭分栏" data-testid="workspace-pane-close" disabled={!editable} onClick={() => onClose(leaf.id)} />
               </div>

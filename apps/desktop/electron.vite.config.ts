@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { resolve } from "node:path";
 import { okAliases } from "../../packages/editor/build/aliases.mjs";
+import { offlineEmojiAssets } from "../../packages/editor/build/offline-emoji.mjs";
 import okScopePlugin from "../../packages/editor/build/ok-scope-plugin.mjs";
 import { createPdfjsViewerAssetsPlugin } from "./scripts/pdfjs-viewer-assets";
 
@@ -20,6 +21,7 @@ export default defineConfig({
         exclude: [
           "@huhu/engine",
           "@huhu/plugin-mail",
+          "@huhu/editor",
           "@huhu/plugin-notes",
           "@huhu/plugin-ssh",
           "@huhu/plugin-versioning",
@@ -41,7 +43,7 @@ export default defineConfig({
       rollupOptions: {
         input: { index: "src/main/index.ts", engine: "../engine/src/main.ts" },
         // 原生模块和协议库由桌面运行时加载，工作区源码编入各自入口。
-        external: ["electron", "@napi-rs/keyring", "@parcel/watcher", "bufferutil", "utf-8-validate", "cpu-features", "ssh2", "imapflow", "nodemailer/lib/mail-composer", "nodemailer/lib/smtp-connection"],
+        external: ["electron", "@napi-rs/keyring", "@parcel/watcher", "koffi", "bufferutil", "utf-8-validate", "cpu-features", "ssh2", "imapflow", "nodemailer/lib/mail-composer", "nodemailer/lib/smtp-connection"],
         output: { format: "es", entryFileNames: "[name].js" },
       },
     },
@@ -52,7 +54,7 @@ export default defineConfig({
     // OK 编辑器 vendor（decisions OP-D05 / D06）：Lingui 宏（babel）、.po 目录、Tailwind v4。
     // Tailwind 只处理含 tailwind 指令的 CSS（packages/editor/src/ok/ok-globals.css），其余 Huhu CSS 不受影响；
     // okScopePlugin 把该文件的产出限定到 .ok-root 并放进 vendor.ok-* 子层。
-    plugins: [react(), createPdfjsViewerAssetsPlugin(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui({ configPath: resolve(EDITOR_ROOT, "lingui.config.ts") }), tailwindcss()],
+    plugins: [react(), offlineEmojiAssets(), createPdfjsViewerAssetsPlugin(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui({ configPath: resolve(EDITOR_ROOT, "lingui.config.ts") }), tailwindcss()],
     css: { postcss: { plugins: [okScopePlugin()] } },
     resolve: { alias: okAliases(EDITOR_ROOT) },
     build: { outDir: "out/renderer", rollupOptions: { input: "src/renderer/index.html" } },

@@ -267,6 +267,9 @@
     font-size: 12px;
     line-height: 1.6;
   }
+  .shell-vault-error-action {
+    color: inherit;
+  }
   @media (max-width: 800px) {
     .shell-vault-launch-main {
       max-width: 480px;
@@ -1612,12 +1615,12 @@
     font-weight: 450;
     display: block;
   }
-  .shell-activity-row .grow > div {
+  .shell-activity-row .hu-flex-fill > div {
     color: var(--faint);
     font-size: 12px;
     margin-top: 3px;
   }
-  .shell-activity-row .grow > div span {
+  .shell-activity-row .hu-flex-fill > div span {
     margin: 0 4px;
   }
   @media (min-width: 1700px) {
@@ -2173,7 +2176,7 @@
     font-size: 12px;
     margin-top: 5px;
   }
-  .hu-gateway-overview .grow {
+  .hu-gateway-overview .hu-flex-fill {
     min-width: 200px;
   }
   .shell-gateway-meta {
@@ -2596,7 +2599,7 @@
     }
   }
   @media (max-width: 1000px) {
-    .hu-plugin-detail-top .grow {
+    .hu-plugin-detail-top .hu-flex-fill {
       min-width: 140px;
     }
   }
@@ -2647,7 +2650,7 @@
     }
   }
   @media (max-width: 1000px) {
-    .hu-health-check .grow {
+    .hu-health-check .hu-flex-fill {
       min-width: 180px;
     }
   }
@@ -2747,7 +2750,7 @@
     }
   }
   @media (max-width: 760px) {
-    .hu-gateway-overview .grow {
+    .hu-gateway-overview .hu-flex-fill {
       min-width: 130px;
     }
   }
@@ -2875,7 +2878,7 @@
     }
   }
   @media (max-width: 520px) {
-    .hu-plugin-detail-top .grow {
+    .hu-plugin-detail-top .hu-flex-fill {
       min-width: 100px;
     }
   }
@@ -2937,7 +2940,7 @@
     }
   }
   @media (max-width: 520px) {
-    .hu-health-check .grow {
+    .hu-health-check .hu-flex-fill {
       min-width: 130px;
     }
   }

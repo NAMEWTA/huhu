@@ -110,7 +110,7 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
                   <span className="shell-vault-file-icon">
                     <Folder size={19} aria-hidden />
                   </span>
-                  <span className="grow">
+                  <span className="hu-flex-fill">
                     <strong>{r.name}</strong>
                     <small>{r.path}</small>
                   </span>
@@ -146,11 +146,11 @@ export function LaunchPage({ state, onOpened }: { state: VaultHostState; onOpene
               <div>
                 {error.message}
                 <div className="row">
-                  <button type="button" className="text-link" onClick={() => void openFolder()}>
+                  <button type="button" className="shell-vault-error-action" onClick={() => void openFolder()}>
                     重新选择目录
                   </button>
                   {error.code === "READ_ONLY_VAULT" && error.target ? (
-                    <button type="button" className="text-link" data-testid="vault-readonly" onClick={() => void openReadOnly(error.target)}>
+                    <button type="button" className="shell-vault-error-action" data-testid="vault-readonly" onClick={() => void openReadOnly(error.target)}>
                       以只读方式打开
                     </button>
                   ) : null}

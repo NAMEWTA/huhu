@@ -8,7 +8,7 @@
 - P-S2a-03 `app/src/lib/config-provider.tsx`：上游 346 行（经协作配置文档同步）→ 只保留 `useConfigContext` 再导出；提供者见 `host/config-provider.tsx`。
 - P-S2a-04 `app/src/lib/activate-locale.ts`、`app/src/lib/i18n.ts`、`app/src/lib/dev-pseudo-locale.ts`：只发布 en / zh-Hans（OP-D06），目录由 `@lingui/vite-plugin` 直接编译 `.po`；其余 locale 回退 en；pseudo 伪本地化不发布。
 
-- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。1 处、3 行。
+- P-S2c-01 `app/src/editor/editor-cache.ts`：`mountTiptapEditor` 的缓存闸门对 `compact-` 前缀的 docName 一律拒绝缓存（紧凑变体同时挂载几十个实例；不改会让超过 MAX_CACHE 的在屏实例被 LRU 驱逐销毁）。H06：LRU 驱逐只释放 Tiptap / CodeMirror 视图与撤销资源，provider 与 Y.Doc 由宿主池释放。
 
 ## S4 评论（P-S4-xx）
 
@@ -21,6 +21,10 @@
 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
 - P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：（逐文件清单见 evidence/tests-manifest.json，与上游 SHA-256 逐一相同）、、、、、、、、、、、、、、、、、、、、、。
 - P-S4-09 `app/src/comments/CommentMarginRail.tsx`：宿主中将评论边缘按钮挂到编辑器的 `.ok-root`。窄屏详情浮层遮住右侧留白时使用左侧留白，保留上游的引用定位与线程打开行为。
+- P-S4-10 `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/anchor-decorations.tsx`：发起时冻结会话 revision 和编辑器文档，在取消、脱离视图或卸载时清理临时标记，回执只在同一活动视图触发导航。
+- P-S4-11 `app/src/comments/CommentBubbleButton.tsx`、`app/src/comments/PropertyCommentButton.tsx`：只读时收起选区与属性写入口；`app/src/comments/ThreadCard.tsx` 收起重新选址及删除确认。
+- P-S4-12 `app/src/comments/comments-client.ts`、`app/src/comments/store.ts`：创建/重定位请求携带会话身份和 revision，文档详情切换后抑制迟到的自动揭示。
+- P-S4-13 `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-search.test.ts`、`app/src/comments/types.ts`：Huhu 线程在缓冲编辑期间也拒绝同分候选和上下文不足的同文，覆盖显示、边缘按钮和定位。
 
 ## 删除
 
@@ -28,7 +32,7 @@
 
 ## 新增（非 closure 的上游文件或 Huhu 替身）
 
-- P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（由 `scripts/ok-css-build.mjs` 生成 `packages/editor/src/ok/ok-globals.css`）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。
+- P-S2a-05 上游资源拷贝：`app/src/globals.css`、app/src/cmd-f.css、app/src/color-themes.generated.css（保留来源文件，Huhu 样式构建不导入）、`app/src/env.d.ts`、app/src/fontsource.d.ts、`app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`。
 - P-S2a-srv 上游 server 文件原样复制：`server-bridge/server-observers.ts`、`server-bridge/map-driven-splice.ts`、`server-bridge/bridge-watchdog.ts`、`server-bridge/bridge-quiescence.ts`、`server-bridge/pre-drain-discriminator.ts`、`server-bridge/bridge-intake.ts`、`server-bridge/bridge-loss-detector.ts`、`server-bridge/doc-extensions.ts`、`server-bridge/md-manager.ts`。
 - P-S2a-srv 上游 server 文件裁剪 / 替身（Huhu 本地宿主不需要 OTel、日志、影子仓库、AI 会话）：`server-bridge/agent-activity.ts`（只留 `walkYTextItems` 与类型）、`server-bridge/cc1-broadcast.ts`（只留 `isSystemDoc` / `isConfigDoc`）、`server-bridge/metrics.ts`、`server-bridge/logger.ts`、`server-bridge/telemetry.ts`、`server-bridge/shadow-repo.ts`、`server-bridge/loss-capture.ts`、`server-bridge/frontmatter-telemetry.ts`、`server-bridge/server-workload-telemetry.ts`、`server-bridge/agent-sessions.ts`（均为同名同签名的空实现 / 类型）。
 
@@ -58,6 +62,11 @@
 - P-S5-04 `app/src/components/FileTargetMenuItems.tsx`、`app/src/components/FileTree.tsx`、`app/src/lib/host-hidden.ts`：宿主可追加菜单项（`setHostMenuExtras`），用于 Huhu 既有的“移动到…”“星标”“保存版本…”。
 - 新增（非上游）：`app/src/lib/host-hidden.ts`；宿主侧 `host/routes/files.ts`、`host/explorer.tsx`、`host/ok-explorer.d.ts`、`harness/tree.{html,tsx}`。
 - P-S5-05 `app/src/components/ui/alert-dialog.tsx`、`app/src/components/ui/dialog.tsx`、`app/src/components/ui/dropdown-menu.tsx`、`app/src/components/ui/popover.tsx`、`app/src/components/ui/select.tsx`、`app/src/components/ui/tooltip.tsx`、`app/src/lib/ok-portal.ts`（新增）：Radix Portal 统一挂到 `#ok-portal-root.ok-root`（design §12“所有 OK 渲染的根与 portal 容器都挂 .ok-root”）；否则 body 上的浮层没有作用域化的 Tailwind 工具类，菜单宽度为 0。
+
+- P-S5-06 `app/src/components/FileTree.tsx`：树空白处打开根目录操作，使用已有内联创建及模板流程。文件和目录共享同一个受限原因，并保护多选、输入法组字及拖放目标。普通非 Markdown 文件经宿主复制能力创建副本。
+- P-S5-07 `core/src/schemas/api/document-read.ts`、`app/src/components/file-tree-utils.ts`：目录列举保留受保护类别、链接失效和祖先链接循环标记。
+- P-S5-08 `app/src/components/file-tree-operations.ts`：复制普通文件后用原资产条目更新树。
+- P-S5-09 `app/src/components/file-tree-icon-sprite.ts`、`app/src/components/file-tree-extension-badge.ts`：由共享图标表生成树的 sprite、扩展名类别和文件夹图形，保留 OK 的扩展名角标。受限标识使用本地锁图形。
 
 ## S3（编辑行为对等与性能 F09）补丁
 
@@ -247,6 +256,8 @@
 ## 编辑器宿主浮层
 
 - `app/src/components/emoji-picker.tsx`：按编辑器语言加载离线表情名称和分类，中文数据保留英文搜索别名。依赖是现有 Frimousse 0.3.0，数据钉在其上游开发包版本 emojibase-data 16.0.2。
+- Frimousse 直接取同源 JSON，桌面与浏览器验证入口由 `packages/editor/build/offline-emoji.mjs` 提供固定离线数据，中文继续保留英文搜索别名。
+- `app/src/editor/components/image-target-existence.ts` 将桌面笔记索引之外的图片交给已有 Vault 媒体协议判定，避免将存在的相对路径图片标记为丢失。
 - `app/src/editor/components/EmojiInsertPopover.tsx`：允许按编辑区限制事件归属，Radix 关闭时沿用选中或取消分支各自的焦点行为。
 - `app/src/editor/components/EmojiInsertPopover.dom.test.tsx`：原样迁入上游组件测试。
 - `app/src/editor/components/TagDialog.tsx`：迁入上游标签弹窗，按当前编辑面接收事件，通过宿主本地标签索引查询与打开笔记。
@@ -315,3 +326,310 @@
 ## H02 样式作用域
 
 - P-H02-01 `app/src/editor/bubble-menu/BubbleMenuBar.tsx`、`app/src/editor/link-path-suggestions.tsx`、`app/src/editor/extensions/suggestion-floating-ui.ts`、`app/src/editor/extensions/markdown-lint-decorations.ts`、`app/src/editor/extensions/list-item-drag.ts`、`app/src/editor/components/Image.tsx`、`app/src/editor/extensions/ImageInlineZoomView.tsx`、`app/src/editor/extensions/ImageReferenceView.tsx`：气泡菜单、路径建议、编辑器候选、检查提示、拖拽预览和图片缩放对话框在原本的位置标记 `.ok-root`。这些浮层由组件或第三方包直接挂到 body，需要自己的作用域以使用 OK 工具类与变量。
+
+- P-H02-02 `app/src/globals.css` 与 P-H02-01 的八个浮层文件：深色变体和图片遮罩接受宿主 `data-mode="dark"`，保留独立预览的 `.dark`；图片缩放库样式由宿主 CSS 生成器按 OK 作用域导入。浮层追加 `editor-ok-portal` 标记，供宿主映射其 UI 字体，拖拽预览继续沿用正文计算样式。
+
+- P-H02-03 `app/src/lib/ok-portal.ts`、`app/src/editor/bubble-menu/BubbleMenuBar.tsx`：共享 Radix 浮层容器标记为宿主浮层，气泡使用专用类映射宿主的浮层圆角与阴影。快捷键标签的字体映射在宿主 token-map 中通过既有部件标识应用。
+
+## WP5 编辑器核心
+
+OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，并为斜杠执行单独划定撤销边界。OP-D18 在紧凑编辑器过滤文档级命令与批注。Q3 复用 OK 的限时限量抓取及 HTML 元数据提取。
+
+- `app/src/components/ActivityModeContent.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/GraphPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/GraphView.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/LinksPanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/OutlinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/PageListContext.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/TimelinePanel.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/file-tree-listing-transport.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/components/handoff/useInstalledAgents.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/SourceEditor.tsx`：源码与富文本使用相同的文档撤销管理器。
+- `app/src/editor/extensions/tag-suggestion.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/image-upload/index.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/image-upload/upload-file.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/link-preview/external-link-preview.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/link-preview/internal-doc-preview.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/slash-command/apply-item.ts`：在命令事务前后结束当前撤销分组。
+- `app/src/hooks/use-conflicts.tsx`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/hooks/use-folder-config.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/hooks/use-git-sync-status.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/agent-connections.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/api-config.ts`：通过 OK 的局部请求入口访问宿主路由，接收当前根绑定的请求函数。
+- `app/src/lib/use-collab-url.ts`：使用当前根的请求函数，本地引用模式跳过协作发现。
+- `app/src/editor/components/ExcalidrawEmbed.tsx`：接受桌面工作台中同宿主的画板地址。
+- `app/src/editor/components/live-doc-pool.ts`：有本地宿主时通过 Vault 读取快照，订阅失效并取消旧请求。
+- `app/src/editor/components/use-mirror-source.ts`：复用镜像解析处理本地 Markdown 快照，保留固定上游协作路径。
+- `app/src/editor/components/Pdf.tsx`：本地 PDF 从 Vault 读取，按失效通知重载，撤销请求并销毁旧任务。
+- `app/src/lib/copy-image.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/create-page-request.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/create-page.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/documents-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/folder-config-api.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/cowork-skill-install.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/dispatch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/handoff/skill-installer.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/saved-themes-client.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/skills-api.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/use-activity-panel.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/lib/use-workspace.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `app/src/editor/document-history.ts`：源码与富文本使用相同的文档撤销管理器。
+- `app/src/lib/ok-fetch.ts`：通过 OK 的局部请求入口访问宿主路由。
+- `server-bridge/link-preview/guarded-fetch.ts`：复用固定 OK 版本的主进程外链预览模块。
+- `server-bridge/link-preview/html-metadata.ts`：复用固定 OK 版本的主进程外链预览模块。
+- `server-bridge/link-preview/ip-classifier.ts`：复用固定 OK 版本的主进程外链预览模块。
+- P-WP6-01 `scripts/ok-css-build.mjs` 从 `app/src/globals.css` 生成宿主样式。输出去除上游颜色主题表的导入及文件树默认蓝色规则，加入局部控件重置。构建插件将 base/components 分别移入 `vendor.ok-base` / `vendor.ok-components`。
+
+- P-WP6-02 `app/src/editor/link-preview/internal-doc-preview.ts`：随 OK 根切换 Vault 清空内容及反链缓存，迟到的旧 Vault 请求不填入新缓存。宿主复用本地笔记读取及反链路由。
+
+- `app/src/editor/extensions/slash-command.ts`：组合输入期间将确认键交回输入法。
+
+- `server-bridge/observer-origin.ts`：与撤销管理器共享桥投影事务身份。
+- `server-bridge/server-observers.ts`：从独立模块导入原桥投影来源。
+
+## task02 H04
+
+- `app/src/components/page-header-utils.ts`：图标和封面改用 Huhu 已有受保护的 Vault 媒体 URL，逐段编码。两处消费者此前使用当前宿主未提供的 `/api/asset`。
+- `app/src/components/page-header-media.test.ts`：检查图标、封面 URL 编码及无效 Vault 路径。
+
+## task02 G04
+
+以下 29 个上游测试保留固定 Git blob，接入独立 vendor Vitest。
+
+- `app/src/components/file-tree-merge.test.ts`
+- `app/src/components/file-tree-path-helpers.test.ts`
+- `app/src/components/file-tree-rename-validation.test.ts`
+- `app/src/components/file-tree-reveal.test.ts`
+- `app/src/components/file-tree-selection.test.ts`
+- `app/src/components/file-tree-shared.test.ts`
+- `app/src/components/graph-colors.test.ts`
+- `app/src/components/graph-label-layout.test.ts`
+- `app/src/components/graph-label-utils.test.ts`
+- `app/src/components/graph-skill-filter.test.ts`
+- `app/src/components/graph-view-utils.test.ts`
+- `app/src/components/link-target-intent.test.ts`
+- `app/src/components/property-inline-link-tokens.test.ts`
+- `app/src/components/sidebar-drag-payload.test.ts`
+- `app/src/components/target-navigation-intent.test.ts`
+- `app/src/editor/active-editor.test.ts`
+- `app/src/editor/extensions/block-mover.test.ts`
+- `app/src/editor/extensions/code-block-meta.test.ts`
+- `app/src/editor/extensions/jsx-node-target.test.ts`
+- `app/src/editor/extensions/wiki-link-helpers.test.ts`
+- `app/src/editor/link-preview/doc-excerpt.test.ts`
+- `app/src/editor/selection/entry-label.test.ts`
+- `app/src/editor/selection-stats.test.ts`
+- `app/src/editor/source-heading-lines.test.ts`
+- `app/src/editor/source-line-direction.test.ts`
+- `app/src/editor/utils/editor-strings.test.ts`
+- `app/src/editor/utils/severity.test.ts`
+- `app/src/editor/utils/validate-css-length.test.ts`
+- `app/src/editor/utils/validate-media-url.test.ts`
+
+## task01 G04 闭包测试复核
+
+- `app/src/components/ActivityPanelBurstRow.test.tsx`：固定上游测试原样迁入。
+- `app/src/components/ActivityPanelFileRow.test.tsx`：固定上游测试原样迁入。
+- `app/src/components/GraphLegend.test.tsx`：固定上游测试原样迁入。
+- `app/src/components/NewItemDialog.test.ts`：固定上游测试原样迁入。
+- `app/src/components/OutlinePanel.query-semantics.test.ts`：固定上游测试原样迁入。
+- `app/src/components/PageListContext.test.ts`：固定上游测试原样迁入。
+- `app/src/components/PropertyPanel.test.tsx`：固定上游测试原样迁入。
+- `app/src/components/PropertyWidgets.test.ts`：固定上游测试原样迁入。
+- `app/src/components/TimelinePanel.test.ts`：固定上游测试原样迁入。
+- `app/src/components/TrashFailureModal.test.ts`：固定上游测试原样迁入。
+- `app/src/components/composer-draft-store.test.ts`：固定上游测试原样迁入。
+- `app/src/components/editor/SelectionAnnouncer.test.ts`：固定上游测试原样迁入。
+- `app/src/components/extension-picker-utils.test.ts`：固定上游测试原样迁入。
+- `app/src/components/file-entry-icon.test.tsx`：固定上游测试原样迁入。
+- `app/src/components/file-tree-adapter.test.ts`：固定上游测试原样迁入。
+- `app/src/components/file-tree-density.test.ts`：固定上游测试原样迁入。
+- `app/src/components/file-tree-listing-transport.test.ts`：固定上游测试原样迁入。
+- `app/src/components/file-tree-operations.test.ts`：固定上游测试原样迁入。
+- `app/src/components/graph-theme.test.ts`：固定上游测试原样迁入。
+- `app/src/components/ok-blob-logic.test.ts`：固定上游测试原样迁入。
+- `app/src/components/prewarm-correlation.test.ts`：固定上游测试原样迁入。
+- `app/src/components/problems-sweep.test.ts`：固定上游测试原样迁入。
+- `app/src/components/properties-collapsed-store.test.ts`：固定上游测试原样迁入。
+- `app/src/components/reusable-session-store.test.ts`：固定上游测试原样迁入。
+- `app/src/components/scroll-restore.test.ts`：固定上游测试原样迁入。
+- `app/src/components/settings/okignore-doc.test.ts`：固定上游测试原样迁入。
+- `app/src/components/sidebar-hover-prewarm.test.ts`：固定上游测试原样迁入。
+- `app/src/components/skills-dock-expanded-store.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/agent-follow-scroll.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/apply-lint-fix.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/asset-dispatch/dispatcher.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/asset-dispatch/registry.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/awareness-heartbeat.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/binding-staleness-guard.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/client-removal-reconciliation.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/components/TagDialog.test.tsx`：固定上游测试原样迁入。
+- `app/src/editor/components/TagView.test.tsx`：固定上游测试原样迁入。
+- `app/src/editor/composer-mention/composer-mention.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/composer-mention/composer-slash-command.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/edit-with-ai-selection.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/editor-panes.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/editor-tabs.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/ImageReferenceView.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/InternalLinkPropPanel.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/code-block-languages.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/code-block.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/frozen-table-headers.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/jsx-render-contract.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/link-edit-autoopen.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/link-resolution-decoration.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/list-item-drag.bubble.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/list-item-drag.collab.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/list-item-drag.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/skill-path-links.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/table-insert-commands.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/wiki-link-embed.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/extensions/wiki-link.resolution-cache.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/full-page-cm-views.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/image-upload/upload-failure.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/image-upload/upload-file.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/interaction-layer-host.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/interaction-layer.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/landing-controller.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/link-preview/external-link-preview.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/link-preview/internal-doc-preview.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/mode-switch-landing.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/mount-id-registry.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/observers.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/agent-insert-flash.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/landing-flash-shared.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/landing-flash-source.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/landing-flash-wysiwyg.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/wiki-link-source.destination.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/plugins/wiki-link-source.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/preview-tab-promotion.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/registry/file-icons.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/registry/lucide-svg.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/safe-navigation-url.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/scroll-restore-coordination.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/selection-context.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/skill-path-links-source.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/slash-command/items.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/slash-command/mirror-source-name.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/slash-command/skill-reference-items.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/source-editor-navigation.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/source-lint/local-target-diagnostics.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/source-lint/local-target-diagnostics.test.tsx`：固定上游测试原样迁入。
+- `app/src/editor/source-lint/markdown-lint-source.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/source-polish/broken-ref-field.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/source-polish/view-plugin.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/sync-promise.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/typing-burst-detector.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/use-editor-mode.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/useFrontmatterDiagnostics.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/utils/animate-align-change.test.ts`：固定上游测试原样迁入。
+- `app/src/editor/utils/sanitize-url.test.ts`：固定上游测试原样迁入。
+- `app/src/hooks/use-is-embedded.test.ts`：固定上游测试原样迁入。
+- `app/src/hooks/use-theme-bridge.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/agent-presence.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/api-config.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/bounded-park.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/branch-recycle-notice.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/cc1.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/channel-cli-copy.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/client-version.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/create-page-request.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/create-page.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/doc-paths.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/document-stats.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/documents-events.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/documents-fetch.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/excalidraw-scene.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/external-link.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/file-tree-menu-action-events.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/frontmatter-enum-constraints.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/frontmatter-schema-fields.okf.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/frontmatter-schema-fields.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/install-document-teardown-observer.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/known-skill-dirs.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/lru-string-cache.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/managed-artifact-doc-name.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/pane-visibility-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/parse-api-error.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/circular-buffer.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/cold-mount-instrumentation.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/collector.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/env-override.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/hdr-histogram.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/mark.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/profiler-boundary.test.tsx`：固定上游测试原样迁入。
+- `app/src/lib/perf/scheduler-polyfill-shim.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/startup-marks.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/perf/web-vitals.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/project-fix-sweep-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/refresh-scheduler.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/relaunch-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/restart-collab-server.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/retrying-loader.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/reveal-editor.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/self-scheduling-poll.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/server-instance-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/server-version-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/show-all-stream.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/sidebar-partition.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/sidebar-pin-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/tab-session-restore-suppression.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/tool-list-format.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/use-activity-panel.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/use-collab-url.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/use-settings-route.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/use-workspace.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/validation-store.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/workspace-hash-writes.test.ts`：固定上游测试原样迁入。
+- `app/src/lib/workspace-paths.test.ts`：固定上游测试原样迁入。
+
+## C01–C03 / OP-D17 属性视图与 YAML
+
+- `core/src/frontmatter/yaml-codec.ts`、`core/src/bridge/frontmatter-region.ts`：委托 Vault 的浏览器可用 YAML codec。保留 OK 的字段校验、重复键策略与删除语义，标量改值保留邻接源码。
+- `core/src/extensions/frontmatter.ts`、`core/src/bridge/bind-frontmatter-doc.ts`：复用可识别 BOM 的围栏识别，从原围栏继承换行符，属性表单写入留住文档开头的 BOM。
+- `app/src/components/ReadonlyPropertyPanel.tsx`、`app/src/components/PropertyDisplayRow.tsx`：迁入固定上游的阅读属性视图及行组件。
+
+## H06 编辑资源释放
+
+- P-H06-01 `app/src/editor/awareness-heartbeat.ts`：当前 awareness 解绑时停止 ticker，避免最后一个编辑器离开后 Worker 仍运行；下一次挂载按现有入口重启。
+
+## D02 评论 Markdown 与引用
+
+- `app/src/comments/ThreadCard.tsx`：在正文与回复共用只读 Markdown 渲染。回复框支持 Shift+Enter 换行，保留 Enter 提交。
+- `app/src/comments/CommentMarkdown.tsx`：复用 OK 的 Markdown 解析依赖，按允许的元素生成 React 节点，禁止 HTML 与自动图片，链接交由现有外链策略。宿主回调限定在评论渲染范围。
+- `app/src/comments/CommentMarkdown.dom.test.tsx`：验证语义节点、浏览器外链入口及内容安全边界。
+
+## H04 批注读取及剪贴板回退
+
+- `app/src/comments/CommentsPanel.tsx`：单篇批注读取失败时保留已加载的线程，显示错误和重试入口。未成功读取时隐藏空列表文案。
+- `app/src/comments/CommentListPanel.tsx`：列表正文可显示读取状态，与已有线程同时呈现。
+- `app/src/editor/clipboard/copy-image.ts`：浏览器剪贴板回退失败时经已有通知组件显示错误。
+- `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：补齐批注读取、重试和图片复制失败文案。
+
+## B01 复刻矩阵补证
+
+- `app/src/components/FileTree.tsx`：只有桌面桥提供系统回收方法时才调用系统回收。Huhu 的部分桌面桥通过宿主文件路由使用 Vault 回收站。
+- `app/src/components/AddPropertyRow.add-property-focus.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/FrontmatterRow.enum.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/PropertyDisplayRow.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/ReadonlyPropertyPanel.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-problem-indicators.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/components/file-tree-refresh.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/editor-cache-visible-scroll-container.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/extensions/JsxComponentView.mirror.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/link-preview/ExternalLinkPreviewCard.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/observer-sync.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/auto-open-flag.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/focus-inserted-component.test.ts`：固定上游 `44a2e0a` 测试原样迁入。
+- `app/src/editor/slash-command/mirror-source-insert.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。
+
+## Issue #2 收尾：D04、H04 与 OP-D04
+
+- `app/src/comments/anchor-search.ts`、`app/src/comments/anchor-decorations.tsx`、`app/src/comments/anchor-search.test.ts`：删除原段时验证幸存同文的上下文来源，在缓冲和持久化结果中均避免误高亮。
+- `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`、`app/src/comments/CommentsPanel.tsx`、`app/src/comments/CommentListPanel.tsx`：按 Vault 共享请求代次、加载状态和线程快照，组件使用自己的宿主请求。
+- `app/src/comments/CommentSelectionAffordance.tsx`、`app/src/comments/CommentSendFooter.tsx`、`app/src/comments/PropertyCommentButton.tsx`、`app/src/comments/ThreadCard.tsx`、`app/src/comments/comment-chips.tsx`、`app/src/comments/property-anchor-click.ts`、`app/src/comments/property-anchor-click.dom.test.tsx`、`app/src/comments/use-send-queue.ts`：把批注读取和写入绑定到打开该操作的上下文。
+- `app/src/lib/ok-fetch.ts`、`app/src/lib/documents-fetch.ts`、`app/src/components/PageListContext.tsx`：路由由 React 根传入，按请求函数合并读取，旧根的回执独立结算。
+- `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。
+- `app/src/editor/TiptapEditor.tsx`、`app/src/editor/components/TagDialog.tsx`、`app/src/editor/extensions/tag-suggestion.ts`、`app/src/editor/extensions/wiki-link-suggestion.ts`、`app/src/editor/image-upload/index.ts`、`app/src/editor/components/PropPanel.tsx`、`app/src/components/OutlinePanel.tsx`、`app/src/components/LinksPanel.tsx`：编辑器建议、上传及详情查询使用当前编辑器和根的宿主请求。
+- `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。

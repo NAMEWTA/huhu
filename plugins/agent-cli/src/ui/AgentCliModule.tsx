@@ -892,7 +892,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
           </Field>
           <Field label="工作目录">
             <div className="row">
-              <input aria-label="工作目录" className="grow" value={spaceForm.folder} placeholder="/home/you/projects/huhu" onChange={(e) => setSpaceForm({ ...spaceForm, folder: e.target.value })} />
+              <input aria-label="工作目录" className="hu-flex-fill" value={spaceForm.folder} placeholder="/home/you/projects/huhu" onChange={(e) => setSpaceForm({ ...spaceForm, folder: e.target.value })} />
               {host()?.pickOpenPath ? (
                 <Button
                   onClick={() =>

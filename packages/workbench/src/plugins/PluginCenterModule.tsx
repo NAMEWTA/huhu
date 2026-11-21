@@ -106,7 +106,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
           {visible.map((p) => (
             <button key={p.id} type="button" className={`shell-plugin-list-row ${p.id === current?.id ? "active" : ""}`} data-testid="plugin-row" data-plugin={p.id} onClick={() => setSelectedId(p.id)}>
               <span className="shell-plugin-mini-icon">{icons[p.id] ?? <Blocks size={17} aria-hidden />}</span>
-              <span className="grow">
+              <span className="hu-flex-fill">
                 <strong>{p.title}</strong>
                 <small>{p.id}</small>
               </span>
@@ -261,7 +261,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                 <article className="shell-plugin-detail hu-card-alt" data-testid="plugin-detail">
                   <div className="hu-plugin-detail-top">
                     <span className="shell-plugin-hero-icon">{icons[current.id] ?? <Blocks size={28} aria-hidden />}</span>
-                    <div className="grow">
+                    <div className="hu-flex-fill">
                       <div className="row">
                         <h1>{current.title}</h1>
                         <Badge>{current.origin === "builtin" ? "内置功能" : "外部扩展"}</Badge>
@@ -288,7 +288,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                         插件设置
                       </Button>
                     ) : null}
-                    <div className="grow" />
+                    <div className="hu-flex-fill" />
                     {current.origin === "builtin" ? (
                       <span className="shell-plugin-bundled-note">
                         <Lock size={13} aria-hidden /> 内置功能不可卸载
@@ -335,7 +335,7 @@ export function PluginCenterModule({ section, onSection, onNavigate }: ModulePro
                           .filter((c) => c.pluginId === current.id)
                           .map((c) => (
                             <div key={c.id} className="row">
-                              <span className="grow">{c.title}</span>
+                              <span className="hu-flex-fill">{c.title}</span>
                               <Button
                                 data-testid="plugin-command-run"
                                 onClick={() =>

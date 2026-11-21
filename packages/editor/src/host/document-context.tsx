@@ -83,10 +83,6 @@ export function useDocumentContext(): DocumentContextValue {
   return ctx;
 }
 
-export function useOpenBlobRunner(): (() => void) | null {
-  return null;
-}
-
 export function useDocumentTransition(): Pick<DocumentContextValue, "openDocumentTransition" | "openTargetTransition"> {
   const { openDocumentTransition, openTargetTransition } = useDocumentContext();
   return { openDocumentTransition, openTargetTransition };

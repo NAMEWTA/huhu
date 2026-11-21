@@ -28,6 +28,7 @@ import {
   setSendingAll,
   subscribeFocusThread,
   subscribeOpenThread,
+  useCommentSurface,
   useOpenThread,
   useQueueSelection,
 } from './store';
@@ -74,6 +75,7 @@ export function CommentListPanel({
   threads,
   groupByDocument = false,
   empty,
+  loadStatus,
   testIdPrefix,
   scopeSwitch,
   onDestinationComplete,
@@ -81,6 +83,7 @@ export function CommentListPanel({
   threads: readonly CommentThread[];
   groupByDocument?: boolean;
   empty: ReactNode;
+  loadStatus?: ReactNode;
   testIdPrefix: string;
   scopeSwitch?: ReactNode;
   onDestinationComplete?: (target: HTMLElement) => void;
@@ -91,6 +94,7 @@ export function CommentListPanel({
   const cardRefs = useRef(new Map<string, HTMLElement>());
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const sending = useQueueSelection();
+  const surface = useCommentSurface();
   const activeId = useOpenThread();
 
   function toggleFile(docName: string, open: boolean) {
@@ -239,8 +243,9 @@ export function CommentListPanel({
       </PanelHeader>
       {scopeSwitch}
       <PanelBody className={groupByDocument ? 'flex flex-col gap-3' : 'flex flex-col gap-0'}>
+        {loadStatus}
         {visible.length === 0 ? (
-          <PanelEmpty>{empty}</PanelEmpty>
+          empty && <PanelEmpty>{empty}</PanelEmpty>
         ) : groupByDocument ? (
           groups.map((group) => {
             const sendable = sendableIn(group);
@@ -267,7 +272,7 @@ export function CommentListPanel({
                       <Checkbox
                         checked={tick}
                         disabled={sendable.length === 0}
-                        onCheckedChange={() => setSendingAll(sendable, tick !== true)}
+                        onCheckedChange={() => setSendingAll(sendable, tick !== true, surface)}
                         aria-label={
                           tick === true
                             ? t`Unmark every comment in ${docBasename(group.docName)}`
@@ -315,7 +320,7 @@ export function CommentListPanel({
             <Checkbox
               id={`${testIdPrefix}-select-all`}
               checked={tickState}
-              onCheckedChange={() => setSendingAll(selectableIds, !allTicked)}
+              onCheckedChange={() => setSendingAll(selectableIds, !allTicked, surface)}
               aria-label={allTicked ? t`Unmark every comment` : t`Mark every comment to send`}
               data-testid={`${testIdPrefix}-select-all`}
             />

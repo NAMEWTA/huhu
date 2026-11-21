@@ -1,4 +1,5 @@
 import { CommentsPanelHost, coreRoutes, type HostRoutes } from "@huhu/editor/rich";
+import { host, useEngine } from "@huhu/workbench";
 import { useMemo, useRef } from "react";
 import { docNameOf } from "./commentAdapter.js";
 import { useCommentsBridge } from "./useCommentsBridge.js";
@@ -17,6 +18,7 @@ export interface CommentsPanelSurfaceProps {
 /** 详情栏“批注”页（经动态 import 加载，OK 评论 UI 不进首屏）。 */
 export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
   const locale = useKnowledgeLocale();
+  const { vaultId } = useEngine();
   const { commentRoutes } = useCommentsBridge({ paths: props.paths, flush: props.flush });
   const known = useRef(props.paths);
   known.current = props.paths;
@@ -31,5 +33,23 @@ export default function CommentsPanelSurface(props: CommentsPanelSurfaceProps) {
     [commentRoutes],
   );
   const labels = locale === "en" ? { wholeNote: "Whole note", wholeNotePlaceholder: "Write a comment on the whole note…", add: "Add comment" } : props.labels;
-  return <CommentsPanelHost docName={docNameOf(props.path)} routes={routes} locale={locale} readOnly={props.readOnly} readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason} labels={labels} />;
+  const openExternal = host()?.openExternal;
+  return (
+    <CommentsPanelHost
+      docName={docNameOf(props.path)}
+      commentScope={vaultId}
+      routes={routes}
+      {...(openExternal
+        ? {
+            openExternal: async (url: string) => {
+              await openExternal(url);
+            },
+          }
+        : {})}
+      locale={locale}
+      readOnly={props.readOnly}
+      readOnlyReason={locale === "en" ? "This note is read-only" : props.readOnlyReason}
+      labels={labels}
+    />
+  );
 }

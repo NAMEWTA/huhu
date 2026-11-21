@@ -3,6 +3,7 @@ import { host, useCapability } from "@huhu/workbench";
 import { RefreshCw, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useDocumentSession } from "../documents/useDocumentSession.js";
+import { useFlushedMode } from "../documents/useFlushedMode.js";
 import { FileToolbar } from "./FileChrome.js";
 import { TextFileView } from "./TextFileView.js";
 import { v } from "./strings.js";
@@ -19,7 +20,7 @@ export function HtmlView({ path }: { path: string }) {
   const settings = useCapability<{ editor: { autosave: boolean } }>("settings.get", {});
   // 视图生命周期内持有会话引用：预览 / 源码来回切换时未保存的编辑不会因引用归零而被落盘或丢失
   const { session, snap } = useDocumentSession(path, settings.data?.editor.autosave !== false);
-  const [mode, setMode] = useState<Mode>("preview");
+  const { mode, changeMode } = useFlushedMode<Mode>("preview", session, { flushTarget: "preview" });
   const toggle = (
     <Segmented<Mode>
       label="HTML 视图"
@@ -28,10 +29,7 @@ export function HtmlView({ path }: { path: string }) {
         { value: "preview", label: v.htmlPreview },
         { value: "source", label: v.htmlSource },
       ]}
-      onChange={(m) => {
-        // 切换前先排空编辑并保存：预览永远基于已确认的缓冲
-        void (session ? session.flush() : Promise.resolve(true)).finally(() => setMode(m));
-      }}
+      onChange={changeMode}
       testId="html-mode"
     />
   );
@@ -48,28 +46,33 @@ function HtmlPreviewPane({ path, toggle, version, unsaved, loaded }: { path: str
   const supported = Boolean(api?.previewGrant);
 
   useEffect(() => {
-    if (!api?.previewGrant || !loaded) return;
+    if (!api?.previewGrant || !loaded || unsaved) return;
     let alive = true;
     let mine: string | null = null;
     setError(null);
-    void api.previewGrant(path).then((r) => {
-      if (!alive) {
-        // 迟到的签发结果：不显示，立刻撤销
-        if (r.ok) void api.previewRevoke?.(r.nonce);
-        return;
-      }
-      if (!r.ok) return setError(r.reason);
-      mine = r.nonce;
-      setBlocked(0);
-      setGrant({ url: r.url, nonce: r.nonce });
-    });
+    void api.previewGrant(path).then(
+      (r) => {
+        if (!alive) {
+          // 迟到的签发结果：不显示，立刻撤销
+          if (r.ok) void api.previewRevoke?.(r.nonce);
+          return;
+        }
+        if (!r.ok) return setError(r.reason);
+        mine = r.nonce;
+        setBlocked(0);
+        setGrant({ url: r.url, nonce: r.nonce });
+      },
+      (error: unknown) => {
+        if (alive) setError(error instanceof Error ? error.message : String(error));
+      },
+    );
     return () => {
       alive = false;
       if (mine) void api.previewRevoke?.(mine);
       setGrant(null);
     };
     // version / refresh 变化 → 重新签发（保存后预览更新）
-  }, [api, path, version, refresh, loaded]);
+  }, [api, path, version, refresh, loaded, unsaved]);
 
   useEffect(() => {
     if (!api?.onPreviewBlocked || !grant) return;

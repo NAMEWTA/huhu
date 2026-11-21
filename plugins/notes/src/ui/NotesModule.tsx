@@ -1,8 +1,8 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
@@ -15,11 +15,14 @@ import type { DocumentSession } from "./documents/DocumentSession.js";
 import { useKnowledgeLocale } from "./useKnowledgeLocale.js";
 import { NoteDocument, preloadEditorSurface } from "./NoteDocument.js";
 import { NoteExplorer, type NoteRef, type Section } from "./NoteExplorer.js";
+import { docNameOf } from "./comments/commentAdapter.js";
 import { NoteInspector, type InspectorTab } from "./NoteInspector.js";
 import { ArchiveTypeView, ArchivesHome } from "./archives/ArchivesViews.js";
 import { ArchiveRecordView } from "./archives/ArchiveRecordView.js";
 import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
+import { hasProtectedSegment } from "../shared/attachments.js";
+import { unsupportedEncoding } from "../shared/text-encoding.js";
 import { noteTemplateInput } from "./explorer/filesDeps.js";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
@@ -61,6 +64,19 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const notesRoot = useRef<HTMLDivElement>(null);
   const reveal = treeReveal?.tab === tab ? treeReveal : null;
   const [error, setError] = useState<string | null>(null);
+  useEngineEvents((event) => {
+    if (event.type !== "vault.fileChanged") return;
+    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
+    const removed = change === "deleted" ? path : change === "renamed" ? from : undefined;
+    if (removed) {
+      const session = documentSessions.get(vaultId, removed);
+      if (session) {
+        session.notifyExternalChange("deleted");
+        if (selected === removed) setError(`文件已移走或删除：${removed}`);
+      }
+    }
+    if (change !== "deleted") documentSessions.get(vaultId, path)?.notifyExternalChange(change);
+  });
   const locale = useKnowledgeLocale();
   const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);
   useEffect(() => {
@@ -98,19 +114,18 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [dailyDate, setDailyDate] = useState(today());
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
-  const editorRef = useRef<RichEditorPort | null>(null);
+  const [editorPort, setEditorPort] = useState<RichEditorPort | null>(null);
+  const [propertiesTarget, setPropertiesTarget] = useState<HTMLDivElement | null>(null);
   const registerFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
     flushRef.current = flush;
   }, []);
-  const registerEditor = useCallback((port: RichEditorPort | null) => {
-    editorRef.current = port;
-  }, []);
+  const headings = useMemo(() => (inspector && inspectorTab === "outline" ? (editorPort?.getOutline(docText) ?? []) : []), [docText, editorPort, inspector, inspectorTab]);
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
   const folders = useCapability<string[]>("notes.folders", {});
   const tags = useCapability<{ tag: string; count: number }[]>("notes.tags", {});
-  const vault = useCapability<{ name: string }>("vault.info", {});
+  const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
 
   async function run<T>(capability: string, input: unknown): Promise<T | null> {
@@ -124,8 +139,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
       return null;
     }
   }
-  /** 改名 / 移动 / 移入回收站之前先把打开着的这篇的编辑落盘：这些操作会移走旧路径，之后的卸载写入会落空。失败（如冲突）则不继续。 */
-  const beforeMove = async (note: NoteRef): Promise<boolean> => ((note.path === selected || (note.folder === true && selected?.startsWith(`${note.path}/`))) && flushRef.current ? flushRef.current() : true);
+  const beforeMove = async (note: NoteRef): Promise<boolean> => {
+    const flushed = await documentSessions.flushPaths(vaultId, [note.path]);
+    if (!flushed) setError("打开的文档有未保存的修改且无法落盘，已取消操作（草稿未丢失）");
+    return flushed;
+  };
 
   /** 工具栏“添加批注”：触发 OK 的选区入口（选区 / 取消 / 上下文冻结都在编辑器里；引用文字在已保存文本上由引擎解析）。 */
   const addComment = () => {
@@ -179,7 +197,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   );
   const notes = [...(list.data ?? []), ...(section === "all" ? fileRefs : [])].filter((x) => !q || `${x.path}`.toLowerCase().includes(q));
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
-  const selectedFile = tab?.kind === "file" ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
+  const restrictedFile = tab?.kind === "file" && (tab.view === "viewer" || hasProtectedSegment(tab.path));
+  const selectedFile = tab?.kind === "file" && !restrictedFile ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
   const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
   // 知识库界面出现就预载编辑器块（F09：打开第一篇笔记不再等块下载与求值）
   useEffect(() => preloadEditorSurface(), []);
@@ -188,9 +207,32 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
   const listsReady = every.data !== undefined && indexEntries.data !== undefined;
   const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
+  const pathsBeingMoved = useRef(new Set<string[]>());
+  const notesMain = useRef<HTMLDivElement>(null);
+  const [moveRevision, setMoveRevision] = useState(0);
+  useLayoutEffect(() => {
+    if (notesMain.current) notesMain.current.inert = pathsBeingMoved.current.size > 0;
+  }, [moveRevision]);
+  async function holdOpenPaths<T>(from: string, move: () => Promise<T>): Promise<T> {
+    const held = shell.tabs.tabs.map(tabFilePath).filter((path): path is string => path !== null && (path === from || path.startsWith(`${from}/`)));
+    pathsBeingMoved.current.add(held);
+    // Pause input before the flusher drains editor buffers, including paste and IME.
+    if (notesMain.current) notesMain.current.inert = true;
+    setMoveRevision((revision) => revision + 1);
+    try {
+      return await move();
+    } finally {
+      pathsBeingMoved.current.delete(held);
+      // React commits the remapped tab before the layout effect restores input.
+      setMoveRevision((revision) => revision + 1);
+    }
+  }
   useEffect(() => {
     if (aliveKey === null) return;
-    dispatch({ type: "prune", alive: new Set(aliveKey ? aliveKey.split("\n") : []) });
+    const alive = new Set(aliveKey ? aliveKey.split("\n") : []);
+    // 索引可能先看到旧路径消失。保留正在移动的标签，直到操作回执把它们重定位。
+    for (const held of pathsBeingMoved.current) for (const path of held) alive.add(path);
+    dispatch({ type: "prune", alive });
   }, [aliveKey]);
   // 标签随 Vault 记录；切 Vault 时重新读取该库的标签
   const restoredVault = useRef(vaultId);
@@ -202,6 +244,26 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   }, [vaultId]);
   useEffect(() => {
     if (shell.tabs.vaultId === vaultId) saveTabs(vaultId, shell.tabs);
+  }, [shell.tabs, vaultId]);
+  // 从已提交的标签集合判断文件生命周期。切到后台仍保留标签，同一文件的档案视图也占一个标签。
+  const openDocuments = useRef<{ vaultId: string; names: Set<string> } | null>(null);
+  useEffect(() => {
+    if (shell.tabs.vaultId !== vaultId) return;
+    const previous = openDocuments.current;
+    const names = new Set<string>();
+    for (const tab of shell.tabs.tabs) {
+      const file = tabFilePath(tab);
+      if (file && /\.(md|mdx)$/i.test(file)) names.add(docNameOf(file));
+    }
+    openDocuments.current = { vaultId, names };
+    if (previous?.vaultId !== vaultId) return;
+    const closed = [...previous.names].filter((name) => !names.has(name));
+    if (closed.length === 0) return;
+    void import("@huhu/editor/rich").then(({ dropProvider }) => {
+      const current = openDocuments.current;
+      if (vaultRef.current !== vaultId || current?.vaultId !== vaultId) return;
+      for (const name of closed) if (!current.names.has(name)) dropProvider(name);
+    });
   }, [shell.tabs, vaultId]);
   const pendingArchive = useRef<{ key: string } | null>(null);
   useEffect(
@@ -317,10 +379,10 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     else if (/\.[A-Za-z0-9]+$/.test(target) && target.includes("/")) openLinked(target); // 刚创建、列表还没刷新的文件
   };
   /** 文件树 / 标签条的打开：永远是文件标签（Markdown 视图）；档案的 index.md 在这里也是 Markdown（E04）。 */
-  const openNote = (path: string) => {
+  const openNote = (path: string, restricted = false) => {
     pendingArchive.current = null;
     setSection((s) => (s === "trash" ? "all" : s));
-    dispatch({ type: "open", tab: fileTab(vaultRef.current, path) });
+    dispatch({ type: "open", tab: fileTab(vaultRef.current, path, restricted ? "viewer" : "rich") });
     expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
   };
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
@@ -361,25 +423,26 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const archiveIndexOfTab = tab?.kind === "file" && archiveNoteRoute(tab.path) ? tab.path : null;
   const archivesActive = shell.sidebar.context === "archives";
   const detail =
-    inspector && selected && tab?.kind === "file" && section !== "trash" ? (
+    inspector && selected && tab?.kind === "file" && !restrictedFile && section !== "trash" ? (
       <NoteInspector
         path={selected}
-        text={docText}
+        headings={headings}
+        propertiesRef={setPropertiesTarget}
         tags={current?.tags ?? []}
         tab={inspectorTab}
         onTab={setInspectorTab}
         notePaths={(every.data ?? []).map((x) => x.path)}
         flush={flushForComments}
-        readOnly={false}
+        readOnly={vault.data?.readOnly !== false}
         onClose={() => setInspector(false)}
         onOpen={openLinked}
-        onJump={(line) => editorRef.current?.gotoLine(line)}
+        onJump={(line) => editorPort?.gotoLine(line)}
         onOpenHistory={() => onNavigate?.("versioning")}
         {...(onNavigate ? { onNavigate } : {})}
       />
     ) : null;
   return (
-    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" onClick={() => setMenu(null)}>
+    <div ref={notesRoot} className="hu-module-layout hu-knowledge-root notes-notes" data-testid="notes-module" data-notes-find-pane onClick={() => setMenu(null)}>
       <NoteExplorer
         vaultName={vault.data?.name ?? "Vault"}
         section={section}
@@ -391,7 +454,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         }}
         notes={notes}
         allCount={(every.data ?? []).length}
-        beforeMutate={async (paths) => (selected && paths.some((x) => selected === x || selected.startsWith(`${x}/`)) && flushRef.current ? flushRef.current() : true)}
+        beforeMutate={(paths) => documentSessions.flushPaths(vaultId, paths)}
+        holdOpenPaths={holdOpenPaths}
         onMoved={(moved) => {
           // 内部改名 / 移动：标签与选中项按映射重定位（文件夹按前缀）
           for (const [from, to] of Object.entries(moved)) remapSelected(from, to);
@@ -433,7 +497,13 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         onImport={(files) =>
           void (async () => {
             for (const f of Array.from(files)) {
-              const text = await f.text();
+              let text: string;
+              try {
+                text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await f.arrayBuffer());
+              } catch {
+                setError(`${f.name}：${unsupportedEncoding}`);
+                continue;
+              }
               const created = await run<{ path: string }>("notes.create", { name: f.name.replace(/\.(md|markdown|txt)$/i, "") });
               if (created) {
                 const read = await engine.call<{ version: string }>("notes.read", { path: created.path });
@@ -445,7 +515,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         dailyDate={dailyDate}
         onDailyDate={setDailyDate}
       />
-      <div className="notes-main">
+      <div className="notes-main" ref={notesMain}>
         {section !== "trash" && shell.tabs.tabs.length > 0 ? (
           <TabStrip
             tabs={shell.tabs.tabs}
@@ -504,14 +574,14 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         ) : selectedFile?.file && section !== "trash" ? (
           <>
             <Suspense fallback={<p role="status">{t.loading}</p>}>
-              <FileViewer path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
+              <FileViewer ownsCommands={active} path={selectedFile.path} size={selectedFile.file.size} mtimeMs={selectedFile.file.mtimeMs} />
             </Suspense>
             {detail}
           </>
-        ) : tab?.kind === "file" && section !== "trash" && !/\.md$/i.test(tab.path) ? (
+        ) : tab?.kind === "file" && section !== "trash" && (restrictedFile || !/\.md$/i.test(tab.path)) ? (
           <>
             <Suspense fallback={<p role="status">{t.loading}</p>}>
-              <UnindexedFileViewer key={tab.path} path={tab.path} />
+              <UnindexedFileViewer ownsCommands={active} key={tab.path} path={tab.path} />
             </Suspense>
             {detail}
           </>
@@ -539,6 +609,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               favorite={current?.favorite === true}
               inspectorOpen={inspector}
               detail={detail}
+              propertiesTarget={propertiesTarget}
               onToggleInspector={() => setInspector((v) => !v)}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
@@ -549,8 +620,8 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               }}
               onText={setDocText}
               registerFlush={registerFlush}
-              registerEditor={registerEditor}
-              onAddComment={addComment}
+              registerEditor={setEditorPort}
+              onAddComment={vault.data?.readOnly === false ? addComment : undefined}
             />
           </>
         ) : section === "trash" && selected && current === null ? null : (
@@ -640,15 +711,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           submit={n.renameTitle}
           error={error}
           onClose={() => setDialog(null)}
-          onSubmit={async (name) => {
-            if (!(await beforeMove(dialog.note))) return;
-            const r = await run("notes.rename", { path: dialog.note.path, newName: name });
-            if (r) {
-              const dir = dialog.note.path.includes("/") ? dialog.note.path.slice(0, dialog.note.path.lastIndexOf("/") + 1) : "";
-              remapSelected(dialog.note.path, `${dir}${dialog.note.folder || name.endsWith(".md") ? name : `${name}.md`}`);
-              setDialog(null);
-            }
-          }}
+          onSubmit={(name) =>
+            holdOpenPaths(dialog.note.path, async () => {
+              if (!(await beforeMove(dialog.note))) return;
+              const r = await run<{ moved: Record<string, string> }>("notes.rename", { path: dialog.note.path, newName: name });
+              if (r) {
+                for (const [from, to] of Object.entries(r.moved)) remapSelected(from, to);
+                setDialog(null);
+              }
+            })
+          }
         />
       ) : null}
       {dialog?.kind === "version" ? (
@@ -672,14 +744,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           folders={folderOptions}
           error={error}
           onClose={() => setDialog(null)}
-          onMove={async (dir) => {
-            if (!(await beforeMove(dialog.note))) return;
-            const r = await run("notes.move", { path: dialog.note.path, targetDir: dir });
-            if (r) {
-              remapSelected(dialog.note.path, `${dir ? `${dir}/` : ""}${dialog.note.path.split("/").at(-1)}`);
-              setDialog(null);
-            }
-          }}
+          onMove={(dir) =>
+            holdOpenPaths(dialog.note.path, async () => {
+              if (!(await beforeMove(dialog.note))) return;
+              const r = await run<{ moved: Record<string, string> }>("notes.move", { path: dialog.note.path, targetDir: dir });
+              if (r) {
+                for (const [from, to] of Object.entries(r.moved)) remapSelected(from, to);
+                setDialog(null);
+              }
+            })
+          }
         />
       ) : null}
       {dialog?.kind === "trash" ? (

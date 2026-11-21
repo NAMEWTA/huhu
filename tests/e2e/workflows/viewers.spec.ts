@@ -2,43 +2,14 @@ import { expect, test, type Frame, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
-import { openApp, root } from "../helpers/launch.js";
+import { openApp } from "../helpers/launch.js";
+import { buildPdf } from "../helpers/pdf.js";
 import { treeItem } from "../helpers/tree.js";
 
 /**
  * S7 查看器验收（F01–F06、F10）：每条都用真实桌面应用（Electron）。
  * PDF / HTML 的样本在用例里程序化生成；恶意页面的 F05 安全用例集在隔离 iframe 里真实运行并读回结果。
  */
-
-/** 手写一个最小合法 PDF（含正确 xref）；`pad` 个字节的未引用流让文件超过 10 MiB 以验证分段读取。 */
-function buildPdf(pages: string[], pad = 0): Buffer {
-  const objs: Buffer[] = [];
-  const add = (body: string | Buffer) => (objs.push(Buffer.isBuffer(body) ? body : Buffer.from(body, "latin1")), objs.length);
-  add("<< /Type /Catalog /Pages 2 0 R >>");
-  add(""); // Pages，稍后回填
-  const fontId = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const kids: number[] = [];
-  for (const text of pages) {
-    const stream = `BT /F1 24 Tf 72 700 Td (${text}) Tj ET`;
-    const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-    kids.push(add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`));
-  }
-  objs[1] = Buffer.from(`<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`, "latin1");
-  if (pad > 0) add(Buffer.concat([Buffer.from(`<< /Length ${pad} >>\nstream\n`, "latin1"), Buffer.alloc(pad, 0x20), Buffer.from("\nendstream", "latin1")]));
-  const chunks: Buffer[] = [Buffer.from("%PDF-1.4\n", "latin1")];
-  const offsets: number[] = [];
-  let pos = chunks[0]!.length;
-  objs.forEach((o, i) => {
-    offsets.push(pos);
-    const piece = Buffer.concat([Buffer.from(`${i + 1} 0 obj\n`, "latin1"), o, Buffer.from("\nendobj\n", "latin1")]);
-    chunks.push(piece);
-    pos += piece.length;
-  });
-  const xref = [`xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`, ...offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`), `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`].join("");
-  chunks.push(Buffer.from(xref, "latin1"));
-  return Buffer.concat(chunks);
-}
 
 /**
  * F05 要求 dev 与 prod 各跑一遍。本基线上 dev（electron-vite 渲染进程开发服务器，http://localhost:*）无法端到端运行：
@@ -48,7 +19,10 @@ function buildPdf(pages: string[], pad = 0): Buffer {
 const MODES = ["prod"] as const;
 
 /** 每个用例用独立的用户数据目录：Electron 的单实例锁按 userData 区分，别的会话 / 并行任务正在运行的应用不会让这里的启动立刻退出。 */
-const launch = (extra: Record<string, string> = {}) => openApp({ XDG_CONFIG_HOME: mkdtempSync(path.join(tmpdir(), "huhu-xdg-")), ...extra });
+const launch = (extra: Record<string, string> = {}, prepareVault?: (vault: string) => void) => openApp({ XDG_CONFIG_HOME: mkdtempSync(path.join(tmpdir(), "huhu-xdg-")), ...extra }, prepareVault);
+
+// VaultWatcher 原生监听不可用时每 30 秒对账，断言同时覆盖真实外改的两条交付路径。
+const PDF_EXTERNAL_CHANGE_TIMEOUT = 40_000;
 
 const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
@@ -98,6 +72,20 @@ test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；
     await expect(page.getByTestId("file-format-note")).toContainText("已格式化");
     await expect.poll(() => readFileSync(`${vault}/数据.json`, "utf8")).toBe('{\n  "a": 1\n}\n');
 
+    for (const [name, ext] of [
+      ["说明", "txt"],
+      ["数据", "json"],
+    ]) {
+      await page.getByRole("button", { name: `关闭 ${name}.${ext}`, exact: true }).click();
+      await openFile(page, name!);
+      const lines = () => page.locator(".cm-content .cm-line").allTextContents();
+      await expect.poll(async () => (await lines()).join("\n")).toBe(readFileSync(`${vault}/${name}.${ext}`, "utf8"));
+      if (ext === "json") {
+        await expect(page.getByTestId("file-diagnostic")).toContainText("JSON 语法正确");
+        await expect(page.locator(".cm-content .cm-line span").filter({ hasText: '"a"' }).first()).toBeVisible();
+      }
+    }
+
     // BOM + CRLF：在开头插入一个字符，其余字节不变
     await openFile(page, "bom");
     await page.locator(".cm-content").click();
@@ -123,17 +111,44 @@ test("F01 / F02：TXT / JSON 编辑写回原文件；无效 JSON 不被清空；
 test("F02：外部修改与冲突——有未保存编辑时外部改了文件，走冲突流程，不静默覆盖", async () => {
   const { page, vault, close } = await launch();
   try {
-    writeFileSync(`${vault}/冲突.txt`, "原始\n");
+    const file = `${vault}/冲突.txt`;
+    writeFileSync(file, "原始\n");
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    const autosave = page.getByRole("switch", { name: "自动保存" });
+    await autosave.click();
+    await expect(autosave).not.toBeChecked();
     await openKnowledge(page);
-    await page.evaluate(() => undefined);
     await openFile(page, "冲突");
-    // 先在界面里保持“手动保存”之外的状态：输入后立刻让磁盘被外部改写
+    const save = page.getByTestId("note-save");
+    const source = page.locator(".cm-content");
+    const state = page.getByTestId("save-state");
     await typeAtEnd(page, "我的");
-    writeFileSync(`${vault}/冲突.txt`, "外部\n");
-    await expect(page.getByTestId("note-keep-mine").or(page.getByTestId("save-state").filter({ hasText: "已保存" }))).toBeVisible({ timeout: 15_000 });
-    // 如果自动保存先落盘了就没有冲突；否则出现冲突时磁盘上的外部内容必须仍在，直到用户选择
-    const disk = readFileSync(`${vault}/冲突.txt`, "utf8");
-    if (await page.getByTestId("note-keep-mine").count()) expect(disk).toBe("外部\n");
+    writeFileSync(file, "外部\n");
+    await expect(state).toHaveText("有冲突", { timeout: 15_000 });
+    await expect(source).toContainText("我的");
+    expect(readFileSync(file, "utf8")).toBe("外部\n");
+
+    await page.getByTestId("note-keep-mine").click();
+    await expect(state).toHaveText("未保存");
+    expect(readFileSync(file, "utf8")).toBe("外部\n");
+    await save.click();
+    await expect(state).toHaveText("已保存");
+    expect(readFileSync(file, "utf8")).toBe("原始\n我的");
+
+    await typeAtEnd(page, "待放弃");
+    writeFileSync(file, "磁盘更新\n");
+    await expect(state).toHaveText("有冲突", { timeout: 15_000 });
+    const reload = page.getByRole("button", { name: "载入最新版本", exact: true });
+    await reload.click();
+    await expect(source).toContainText("待放弃");
+    expect(readFileSync(file, "utf8")).toBe("磁盘更新\n");
+    await reload.click();
+    await expect(state).toHaveText("已保存");
+    await expect(source).toContainText("磁盘更新");
+    await expect(source).not.toContainText("待放弃");
+    expect(readFileSync(file, "utf8")).toBe("磁盘更新\n");
   } finally {
     await close();
   }
@@ -171,18 +186,42 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     await expect.poll(async () => parseInt((await page.getByTestId("pdf-zoom").textContent()) ?? "0", 10)).toBeGreaterThan(z0);
     await page.getByRole("button", { name: "适应宽度" }).click();
     await expect.poll(async () => parseInt((await page.getByTestId("pdf-zoom").textContent()) ?? "0", 10)).toBe(z0);
-    // 查找
-    await page.getByRole("button", { name: "在 PDF 中查找" }).click();
+    // 查找快捷键归属当前聚焦的 PDF。
+    await page.getByTestId("pdf-view").focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(page.getByTestId("pdf-find-input")).toBeFocused();
     await page.getByTestId("pdf-find-input").fill("Bravo");
     await expect(page.getByTestId("pdf-find-count")).toContainText("1 / 1", { timeout: 15_000 });
     await page.getByTestId("pdf-find-input").press("Escape");
-    // 选择：文字层可选
-    expect(
-      await page
-        .locator(".pdfViewer .textLayer span")
-        .first()
-        .evaluate((el) => getComputedStyle(el).userSelect),
-    ).not.toBe("none");
+    // 在第二页用实际指针拖选文字，再记录缩放与滚动状态。
+    const secondPage = page.locator('.pdfViewer .page[data-page-number="2"]');
+    const bravo = secondPage
+      .locator(".textLayer span")
+      .filter({ hasText: /^Bravo Page$/ })
+      .first();
+    await bravo.scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "放大" }).click();
+    await secondPage.evaluate((el) => {
+      const container = el.closest<HTMLElement>(".notes-pdf-container")!;
+      container.scrollTop += el.getBoundingClientRect().top - container.getBoundingClientRect().top + 24;
+    });
+    await expect(bravo).toBeInViewport();
+    const box = (await bravo.boundingBox())!;
+    await page.mouse.move(box.x + 1, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe("Bravo Page");
+    const container = page.locator(".notes-pdf-container");
+    const position = () =>
+      container.evaluate((el) => ({
+        top: el.scrollTop,
+        page: [...el.querySelectorAll<HTMLElement>(".pdfViewer .page")].find((item) => item.getBoundingClientRect().bottom > el.getBoundingClientRect().top)?.dataset.pageNumber,
+      }));
+    const before = await position();
+    expect(before.page).toBe("2");
+    expect(before.top).toBeGreaterThan(0);
+    const zoom = await page.getByTestId("pdf-zoom").textContent();
 
     // > 10 MiB：分段读取（不经 readBinary / readFile）
     calls.length = 0;
@@ -192,6 +231,12 @@ test("F03：PDF 浏览 / 缩放 / 查找 / 选择；> 10 MiB 经 vault.readRange
     expect(lengths.length).toBeGreaterThan(1);
     expect(lengths.every((length) => length > 0 && length <= 4 * 1024 * 1024)).toBe(true);
     expect(calls.some((c) => c.startsWith("vault.readBinary:") || c.startsWith("notes.read:"))).toBe(false);
+
+    await openFile(page, "手册");
+    await expect(bravo).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("pdf-zoom")).toHaveText(zoom!);
+    await expect.poll(async () => (await position()).page).toBe(before.page);
+    await expect.poll(async () => Math.abs((await position()).top - before.top)).toBeLessThanOrEqual(3);
 
     // 损坏：明确反馈，没有空白“假成功”
     await openFile(page, "坏");
@@ -253,33 +298,22 @@ test("F03：密码保护的 PDF 显示原因，不渲染空白页", async () => 
   }
 });
 
-/** 原生文件监听是否可用：容器 / 共享主机上 inotify 配额耗尽（ENOSPC）时 Engine 收不到外部修改事件，依赖外部修改事件的用例无法在该环境运行。 */
-async function nativeWatchAvailable(): Promise<boolean> {
-  try {
-    const req = createRequire(path.join(root, "package.json"));
-    const watcher = req("@parcel/watcher") as { subscribe: (dir: string, cb: () => void) => Promise<{ unsubscribe: () => Promise<void> }> };
-    const sub = await watcher.subscribe(mkdtempSync(path.join(tmpdir(), "huhu-watch-probe-")), () => undefined);
-    await sub.unsubscribe();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 test("F03：PDF 被外部修改——出现“已被外部修改”提示或直接显示新内容，不继续展示旧页面", async () => {
-  test.skip(!(await nativeWatchAvailable()), "原生文件监听不可用（inotify ENOSPC）：Engine 收不到外部修改事件，见 evidence/s7/report.md");
-  const { page, vault, close } = await launch();
+  test.setTimeout(90_000);
+  const { page, vault, close } = await launch({}, (vault) => writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"])));
   try {
-    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Alpha Page", "Bravo Page", "Charlie Page"]));
     await openKnowledge(page);
     await openFile(page, "手册");
     await expect(page.locator(".pdfViewer .page")).toHaveCount(3, { timeout: 30_000 });
-    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
-    // 外壳可能因文件元信息变化直接重新挂载查看器（立即显示新内容），也可能显示“已被外部修改”横幅；两种都不能继续展示旧页面而不提示
+    await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Alpha Page");
     const banner = page.getByTestId("pdf-external-change");
+    await expect(banner).toHaveCount(0);
+    writeFileSync(`${vault}/手册.pdf`, buildPdf(["Delta Page"]));
+    // 文件元信息更新可能直接触发新文档渲染，也可能出现横幅供用户重新载入。
     const fresh = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Delta Page" });
-    await expect(banner.or(fresh)).toBeVisible({ timeout: 20_000 });
+    await expect(banner.or(fresh).first()).toBeVisible({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
     if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(1);
     await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Delta Page", { timeout: 30_000 });
   } finally {
     await close();
@@ -316,18 +350,131 @@ for (const mode of MODES)
 
       // 源码模式修改并保存 → 回到预览看到新内容
       await page.getByTestId("html-mode").getByRole("tab", { name: "源码" }).click();
-      await page.locator(".cm-content").click();
-      await page.keyboard.press("Control+Home");
-      await page.keyboard.insertText("<!-- 改动 -->");
-      await expect.poll(() => readFileSync(`${vault}/页面.html`, "utf8")).toContain("<!-- 改动 -->");
-      writeFileSync(`${vault}/页面.html`, readFileSync(`${vault}/页面.html`, "utf8").replace("你好页面", "已更新页面"));
+      const file = `${vault}/页面.html`;
+      const original = readFileSync(file, "utf8");
+      const updated = original.replace("你好页面", "已更新页面");
+      const source = page.locator(".cm-content");
+      let failSave = true;
+      await page.route("**/api/v1/call", (route) => {
+        const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+        if (!failSave || request.capability !== "notes.save" || request.input?.path !== "页面.html") return route.continue();
+        return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：文件写入失败" } } });
+      });
+      await source.click();
+      await source.press("ControlOrMeta+a");
+      await page.keyboard.insertText(updated);
       await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
-      // 保存和外部写入都会换预览 iframe，断言跟随当前预览实例。
+      await expect(page.getByText("测试：文件写入失败", { exact: false })).toBeVisible();
+      await expect(source).toContainText("已更新页面");
+      await expect(page.getByTestId("html-preview-frame")).toHaveCount(0);
+      expect(readFileSync(file, "utf8")).toBe(original);
+
+      failSave = false;
+      await page.getByTestId("html-mode").getByRole("tab", { name: "预览" }).click();
       await expect(page.frameLocator('[data-testid="html-preview-frame"]').locator("#h")).toHaveText("已更新页面", { timeout: 15_000 });
+      expect(readFileSync(file, "utf8")).toBe(updated);
     } finally {
       await close();
     }
   });
+
+test("F05：HTML 预览无 Engine 凭据，预览来源的下载由主进程取消", async () => {
+  const { app, page, vault, close } = await launch();
+  try {
+    writeFileSync(path.join(vault, "边界.html"), "<!doctype html><h1>预览边界</h1>");
+    await openKnowledge(page);
+    await openFile(page, "边界");
+    await expect(page.frameLocator('[data-testid="html-preview-frame"]').getByRole("heading")).toHaveText("预览边界");
+    const frame = await previewFrame(page);
+    const visible = await frame.evaluate(() => {
+      const ownBridge = typeof Reflect.get(window, "huhuHost") !== "undefined";
+      let canReadParent = false;
+      try {
+        canReadParent = Reflect.has(parent, "huhuHost");
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "SecurityError")) throw error;
+      }
+      return { ownBridge, canReadParent, url: location.href, referrer: document.referrer };
+    });
+    expect(visible.ownBridge).toBe(false);
+    expect(visible.canReadParent).toBe(false);
+    // The token remains in the trusted workbench and stays outside both URLs.
+    const trusted = await page.evaluate(async ({ url, referrer }) => {
+      const host = Reflect.get(window, "huhuHost") as { engine(): Promise<{ baseUrl: string; token: string }> };
+      const { token, baseUrl } = await host.engine();
+      return { present: Boolean(token && baseUrl), exposed: [url, referrer].some((value) => value.includes(token) || value.includes(baseUrl)) };
+    }, visible);
+    expect(trusted).toEqual({ present: true, exposed: false });
+
+    const canceled = await app.evaluate(({ BrowserWindow }, url) => {
+      const contents = BrowserWindow.getAllWindows()[0]!.webContents;
+      return new Promise<boolean>((resolve) => {
+        // Observe the actual Session event after the production handler runs.
+        contents.session.once("will-download", (event, item) => resolve(item.getURL() === url && event.defaultPrevented));
+        contents.downloadURL(url);
+      });
+    }, visible.url);
+    expect(canceled).toBe(true);
+    expect(readFileSync(path.join(vault, "边界.html"), "utf8")).toBe("<!doctype html><h1>预览边界</h1>");
+  } finally {
+    await close();
+  }
+});
+
+type GrantGate = {
+  release(): void;
+  heldNonce?: string;
+  revoked?: boolean;
+};
+type TestPreviewIpc = {
+  _invokeHandlers: Map<string, (...args: unknown[]) => unknown>;
+  grantGate?: GrantGate;
+};
+
+test("F04 / F10：关闭旧 HTML 后迟到签发被撤销，新页的 iframe 与内容保持", async () => {
+  const { app, page, vault, close } = await launch();
+  try {
+    writeFileSync(`${vault}/慢页面.html`, "<h1>旧预览</h1>");
+    writeFileSync(`${vault}/快页面.html`, "<h1>当前预览</h1>");
+    await openKnowledge(page);
+    await app.evaluate(({ ipcMain }) => {
+      const ipc = ipcMain as unknown as TestPreviewIpc;
+      const grant = ipc._invokeHandlers.get("huhu:previewGrant")!;
+      const revoke = ipc._invokeHandlers.get("huhu:previewRevoke")!;
+      const paused = Promise.withResolvers<void>();
+      const gate: GrantGate = { release: paused.resolve };
+      ipc.grantGate = gate;
+      ipc._invokeHandlers.set("huhu:previewGrant", async (...args) => {
+        const result = grant(...args) as { ok: boolean; nonce?: string };
+        if (args[1] === "慢页面.html" && result.ok && result.nonce) {
+          gate.heldNonce = result.nonce;
+          await paused.promise;
+        }
+        return result;
+      });
+      ipc._invokeHandlers.set("huhu:previewRevoke", (...args) => {
+        const result = revoke(...args);
+        if (gate.heldNonce && args[1] === gate.heldNonce) gate.revoked = true;
+        return result;
+      });
+    });
+    await openFile(page, "慢页面.html");
+    await expect.poll(() => app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.heldNonce)).toBeTruthy();
+    await page.getByRole("button", { name: /关闭 慢页面/ }).click();
+    await openFile(page, "快页面.html");
+    const iframe = page.getByTestId("html-preview-frame");
+    await expect(iframe.contentFrame().locator("h1")).toHaveText("当前预览");
+    const src = await iframe.getAttribute("src");
+    await app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.release());
+    await expect.poll(() => app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.revoked)).toBe(true);
+    await expect(iframe).toHaveAttribute("src", src!);
+    await expect(iframe.contentFrame().locator("h1")).toHaveText("当前预览");
+    await expect(page.getByRole("button", { name: /关闭 慢页面/ })).toHaveCount(0);
+  } finally {
+    await app.evaluate(({ ipcMain }) => (ipcMain as unknown as TestPreviewIpc).grantGate?.release()).catch(() => undefined);
+    await close();
+  }
+});
 
 for (const mode of MODES)
   test(`F05：恶意 HTML 在隔离预览里的越权尝试全部被拦（fetch / XHR / import() / postMessage / top 导航 / 自导航 / window.open / WebRTC / 权限 / file:// / 路径穿越 / 符号链接 / 受保护目录） [${mode}]`, async () => {
@@ -463,6 +610,66 @@ for (const mode of MODES)
     }
   });
 
+test("F06：树、标签、引用、搜索与详情使用同一组本地图形", async () => {
+  const { page, vault, close } = await launch();
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (/^https?:/.test(request.url()) && !/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(request.url())) requests.push(request.url());
+  });
+  try {
+    const fixtures = [
+      { name: "图标手册.pdf", kind: "pdf", data: buildPdf(["icon fixture"]) },
+      { name: "图标记录.md", kind: "markdown", data: "# 图标记录" },
+      { name: "图标压缩.zip", kind: "archive", data: Buffer.from([0x50, 0x4b, 3, 4]) },
+      { name: "图标未知.other", kind: "file", data: "unknown" },
+    ];
+    for (const { name, data } of fixtures) writeFileSync(path.join(vault, name), data);
+    mkdirSync(path.join(vault, "图标目录"));
+    writeFileSync(path.join(vault, "图标目录", "成员.txt"), "让目录进入引用索引");
+    await openKnowledge(page);
+    const tree = page.getByTestId("notes-resource-tree");
+    for (const { name, kind } of fixtures) {
+      const row = tree.locator(`[data-item-path="${name}"]`);
+      await expect(row.locator('[data-item-section="icon"] use')).toHaveAttribute("href", `#huhu-tree-${kind}`);
+      await row.click();
+      await expect(page.locator('[aria-current="true"][data-testid="document-tab"] [data-file-icon]')).toHaveAttribute("data-file-icon", kind);
+      if (kind === "markdown") {
+        await page.getByRole("button", { name: "文档详情", exact: true }).click();
+        const inspector = page.getByTestId("note-inspector");
+        await expect(inspector.locator('[data-file-icon="markdown"]').first()).toBeVisible();
+        await inspector.getByRole("button", { name: "关闭文档详情" }).click();
+      } else {
+        await expect(page.getByTestId("file-card").locator(`[data-file-icon="${kind}"]`).first()).toBeVisible();
+      }
+      const activeTab = page.locator('[aria-current="true"][data-testid="document-tab"]');
+      await activeTab.focus();
+      await page.keyboard.press("ControlOrMeta+k");
+      const palette = page.getByTestId("command-palette");
+      await palette.getByRole("combobox").fill(name.split(".")[0]!);
+      const result = palette.getByTestId("palette-item").filter({ hasText: name });
+      await expect(result.locator("[data-file-icon]")).toHaveAttribute("data-file-icon", kind);
+      await page.keyboard.press("Escape");
+    }
+    const folder = tree.locator('[data-item-path="图标目录/"]');
+    await expect(folder.locator("[data-huhu-folder-icon] use")).toHaveAttribute("href", "#huhu-tree-folder");
+    await treeItem(page, "图标记录.md").click();
+    const editor = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("@图标");
+    const options = page.getByTestId("editor-ref-menu").getByRole("option");
+    for (const { name, kind } of fixtures) {
+      await expect(options.filter({ hasText: name }).locator("[data-file-icon]")).toHaveAttribute("data-file-icon", kind);
+    }
+    const folderOption = page.getByTestId("editor-ref-menu").getByRole("option", { name: "图标目录/ 文件夹", exact: true });
+    await expect(folderOption.locator("[data-file-icon]")).toHaveAttribute("data-file-icon", "folder");
+    expect(requests).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
 test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的 pdfViewer / iframe 不持续增长", async () => {
   const { page, vault, close } = await launch();
   try {
@@ -498,6 +705,205 @@ test("F10（查看器部分）：反复打开 / 关闭 PDF 与 HTML，DOM 里的
     }
     expect(await page.locator("iframe").count()).toBe(0);
     expect(external, `外部请求：${external.join(", ")}`).toEqual([]);
+  } finally {
+    await close();
+  }
+});
+
+test("OP-D09 PDF 查找快捷键归属当前知识库分栏，焦点和文件重开可用", async () => {
+  test.setTimeout(90_000);
+  const { page, vault, close } = await launch({}, (vault) => {
+    writeFileSync(path.join(vault, "查找说明.pdf"), buildPdf(["Original PDF Match"]));
+    writeFileSync(path.join(vault, "另一页.md"), "外部编辑位置\n");
+  });
+  try {
+    const file = path.join(vault, "查找说明.pdf");
+    await openKnowledge(page);
+    await openFile(page, "查找说明");
+    await expect(page.locator(".pdfViewer .textLayer").first()).toContainText("Original PDF Match", { timeout: 30_000 });
+    const tab = page.getByTestId("document-tab").filter({ hasText: "查找说明" });
+    await tab.focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    const input = page.getByTestId("pdf-find-input");
+    await expect(input).toBeFocused();
+    await input.fill("Original");
+    await expect(page.getByTestId("pdf-find-count")).toHaveText("1 / 1");
+    await input.press("Escape");
+    await expect(page.getByTestId("pdf-view")).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toBeFocused();
+    await input.press("Escape");
+    await page.getByRole("button", { name: "在 PDF 中查找", exact: true }).click();
+    await expect(input).toBeFocused();
+
+    await openFile(page, "另一页");
+    const rich = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await rich.getByText("外部编辑位置").click();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    writeFileSync(file, buildPdf(["Replacement PDF Match"]));
+    await openFile(page, "查找说明");
+    const banner = page.getByTestId("pdf-external-change");
+    const text = page.locator(".pdfViewer .textLayer").first().filter({ hasText: "Replacement PDF Match" });
+    await expect(banner.or(text).first()).toBeVisible({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
+    if (await banner.isVisible()) await page.getByTestId("pdf-reload").click();
+    await expect(text).toBeVisible({ timeout: 30_000 });
+    await tab.focus();
+    await page.keyboard.press("ControlOrMeta+f");
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("");
+    await input.fill("Replacement");
+    await expect(page.getByTestId("pdf-find-count")).toHaveText("1 / 1");
+  } finally {
+    await close();
+  }
+});
+
+test("OP-D08 原生预览链接动作只在确认后转交 HTTP(S) 给宿主", async () => {
+  const { app, page, vault, close } = await launch();
+  const url = "https://example.com/preview-link";
+  try {
+    writeFileSync(path.join(vault, "链接预览.html"), `<a href="${url}">网站</a>`);
+    const state = () => app.evaluate(() => (globalThis as typeof globalThis & { linkActions: { menus: number; confirms: string[]; opens: string[] } }).linkActions);
+    await app.evaluate(({ Menu, dialog, shell }) => {
+      const actions = { menus: 0, confirms: [] as string[], opens: [] as string[] };
+      (globalThis as typeof globalThis & { linkActions: typeof actions }).linkActions = actions;
+      Menu.prototype.popup = function () {
+        actions.menus++;
+        this.items[0]?.click(undefined as never, undefined as never, undefined as never);
+      };
+      Object.assign(dialog, {
+        showMessageBox: async (_window: unknown, options: { detail: string }) => {
+          actions.confirms.push(options.detail);
+          return { response: actions.confirms.length > 1 ? 1 : 0, checkboxChecked: false };
+        },
+      });
+      Object.assign(shell, { openExternal: async (link: string) => void actions.opens.push(link) });
+    });
+    await openKnowledge(page);
+    await openFile(page, "链接预览");
+    const frame = await previewFrame(page);
+    const link = frame.getByRole("link", { name: "网站" });
+    await link.click({ button: "right" });
+    await expect.poll(state).toEqual({ menus: 1, confirms: [url], opens: [] });
+    await link.click({ button: "right" });
+    await expect.poll(state).toEqual({ menus: 2, confirms: [url, url], opens: [url] });
+    expect(frame.url()).toMatch(/^huhu-preview:/);
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：PDF 查找计数和活动高亮随导航及查询更新，关闭时清除高亮", async () => {
+  const { page, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "查找计数.pdf"), buildPdf(["Alpha needle\nBravo needle\nCharlie needle", "Delta Page", "Echo Page"])));
+  try {
+    await openKnowledge(page);
+    await openFile(page, "查找计数");
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(3);
+    const find = page.getByRole("button", { name: "在 PDF 中查找", exact: true });
+    await find.click();
+    const input = page.getByTestId("pdf-find-input");
+    const count = page.getByTestId("pdf-find-count");
+    const selected = page.locator(".pdfViewer .highlight.selected");
+    const previous = page.getByRole("search").getByRole("button", { name: "上一个", exact: true });
+    const next = page.getByRole("search").getByRole("button", { name: "下一个", exact: true });
+    const match = async (label: string, activeText: string) => {
+      await expect(count).toHaveText(label);
+      await expect(selected).toHaveCount(1);
+      await expect(selected.locator("..")).toHaveText(activeText);
+    };
+    await input.fill("needle");
+    await match("1 / 3", "Alpha needle");
+    await next.click();
+    await match("2 / 3", "Bravo needle");
+    await input.press("Enter");
+    await match("3 / 3", "Charlie needle");
+    await input.press("Shift+Enter");
+    await match("2 / 3", "Bravo needle");
+    await previous.click();
+    await match("1 / 3", "Alpha needle");
+    await previous.click();
+    await match("3 / 3", "Charlie needle");
+    await input.press("Enter");
+    await match("1 / 3", "Alpha needle");
+    await input.fill("Bravo");
+    await match("1 / 1", "Bravo needle");
+    await input.fill("absentword");
+    await expect(selected).toHaveCount(0);
+    await expect(count).toHaveText("无匹配");
+    await input.fill("needle");
+    await match("1 / 3", "Alpha needle");
+    await input.fill("Bravo");
+    await input.fill("absentword");
+    await input.fill("needle");
+    await match("1 / 3", "Alpha needle");
+    await next.click();
+    await match("2 / 3", "Bravo needle");
+    await input.press("Escape");
+    await expect(input).toHaveCount(0);
+    await expect(page.locator(".pdfViewer .highlight")).toHaveCount(0);
+    await find.click();
+    await expect(input).toHaveValue("needle");
+    await match("1 / 3", "Alpha needle");
+    await input.press("Enter");
+    await match("2 / 3", "Bravo needle");
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：重新打开 PDF 查找保留查询并读取缓存，清空后隐藏计数", async () => {
+  const { page, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "查找缓存.pdf"), buildPdf(["Cached match", "Cached match again"])));
+  try {
+    await openKnowledge(page);
+    await openFile(page, "查找缓存");
+    await expect(page.locator(".pdfViewer .page")).toHaveCount(2);
+    const find = page.getByRole("button", { name: "在 PDF 中查找", exact: true });
+    const input = page.getByTestId("pdf-find-input");
+    const count = page.getByTestId("pdf-find-count");
+    await find.click();
+    await input.fill("Cached");
+    await expect(count).toHaveText("1 / 2");
+    await input.press("Escape");
+    await find.click();
+    await expect(input).toHaveValue("Cached");
+    await expect(count).toHaveText("1 / 2");
+    await input.fill("pending");
+    await input.clear();
+    await expect(count).toHaveCount(0);
+    await expect(page.locator(".pdfViewer .highlight")).toHaveCount(0);
+    await input.fill("again");
+    await expect(count).toHaveText("1 / 1");
+  } finally {
+    await close();
+  }
+});
+
+test("G04 ORCA：重复加载坏 PDF 后恢复，错误时不会保留旧页", async () => {
+  test.setTimeout(150_000);
+  const { page, vault, close } = await launch({}, (vault) => writeFileSync(path.join(vault, "恢复预览.pdf"), buildPdf(["Original PDF content"])));
+  try {
+    const file = path.join(vault, "恢复预览.pdf");
+    await openKnowledge(page);
+    await openFile(page, "恢复预览");
+    const view = page.getByTestId("pdf-view");
+    const pages = view.locator(".pdfViewer .page");
+    const text = view.locator(".pdfViewer .textLayer").first();
+    await expect(text).toContainText("Original PDF content");
+    const reload = page.getByTestId("pdf-reload");
+    for (const corrupt of ["bad PDF first attempt", "bad PDF second attempt"]) {
+      writeFileSync(file, corrupt);
+      await reload.click({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
+      await expect(view.getByRole("alert")).toBeVisible();
+      await expect(pages).toHaveCount(0);
+    }
+    writeFileSync(file, buildPdf(["Recovered PDF content"]));
+    await reload.click({ timeout: PDF_EXTERNAL_CHANGE_TIMEOUT });
+    await expect(text).toContainText("Recovered PDF content");
+    await expect(text).not.toContainText("Original PDF content");
+    await expect(view.getByRole("alert")).toHaveCount(0);
   } finally {
     await close();
   }

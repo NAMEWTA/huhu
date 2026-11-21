@@ -1,4 +1,5 @@
-import { contextEvidenceFloor, contextMatchScore, rewriteCeiling } from "./passage-match.js";
+import { diffIndices } from "node-diff3";
+import { contextEvidenceFloor, contextMatchScore, findAllPassages, markdownPassageText, rewriteCeiling } from "./passage-match.js";
 
 export interface Anchor {
   exact: string;
@@ -60,63 +61,102 @@ export function bestByContext<T extends Span>(body: string, hits: readonly T[], 
   return best;
 }
 
-export function refind(body: string, anchor: Anchor): RefindResult {
-  const { exact, prefix, suffix, start } = anchor;
-  const end = start + exact.length;
-
-  if (end <= body.length && body.slice(start, end) === exact) {
-    return { status: "anchored", start, end };
-  }
+export function refind(body: string, anchor: Anchor, bodyOffset = 0, previous?: string): RefindResult {
+  const { exact, prefix, suffix } = anchor;
 
   if (prefix !== "" && suffix !== "" && !body.includes(prefix + exact + suffix) && body.includes(prefix + suffix)) {
     return { status: "orphaned" };
   }
 
-  const hits = allOccurrences(body, exact);
-  if (hits.length === 0) return refindBetweenBrackets(body, anchor);
-  const floor = contextEvidenceFloor(anchor, { syntaxInContext: true });
-  const evidence = (span: Span): boolean => floor === 0 || contextMatchScore(body, span, { prefix, suffix }, { syntaxIn: "haystack", syntaxInContext: true }) >= floor;
-  const only = hits[0];
-  if (hits.length === 1 && only !== undefined) {
-    const span = { start: only, end: only + exact.length };
-    if (!evidence(span)) return refindBetweenBrackets(body, anchor);
-    return { status: "anchored", start: span.start, end: span.end };
-  }
-
-  const best = bestByContext(
-    body,
-    hits.map((h) => ({ start: h, end: h + exact.length })),
-    { prefix, suffix },
-    { contextIsMarkdown: true },
+  const literal = allOccurrences(body, exact)
+    .filter((start) => start >= bodyOffset)
+    .map((start) => ({ start, end: start + exact.length }));
+  const rendered = markdownPassageText(exact);
+  const byStart = new Map(
+    findAllPassages(body, rendered)
+      .filter((hit) => hit.start >= bodyOffset)
+      .map((hit) => [hit.start, hit]),
   );
-  const top = best[0];
-  if (top === undefined || !evidence(top)) return refindBetweenBrackets(body, anchor);
-  if (best.length === 1) {
-    return { status: "anchored", start: top.start, end: top.end };
+  for (const hit of literal) byStart.set(hit.start, hit);
+  if (byStart.size === 0) return refindBetweenBrackets(body, anchor, bodyOffset);
+
+  const repeated = countOccurrences(markdownPassageText(previous ?? prefix + exact + suffix), rendered) > 1;
+  if (repeated && previous !== undefined && previous.slice(anchor.start, anchor.end) === exact) {
+    const mapped = mapUnchangedLines(previous, body, anchor);
+    if (mapped && mapped.start >= bodyOffset && body.slice(mapped.start, mapped.end) === exact) return { status: "anchored", ...mapped };
   }
 
-  let nearest: Span[] = [];
-  let nearestDist = Number.POSITIVE_INFINITY;
-  for (const h of best) {
-    const d = Math.abs(h.start - start);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = [h];
-    } else if (d === nearestDist) {
-      nearest.push(h);
+  const best = bestByContext(body, [...byStart.values()], anchor, { contextIsMarkdown: true });
+  const top = best[0];
+  if (best.length !== 1 || top === undefined) return { status: "orphaned" };
+  const floor = contextEvidenceFloor(anchor, { syntaxInContext: true });
+  const score = contextMatchScore(body, top, anchor, { syntaxIn: "haystack", syntaxInContext: true });
+  if (score < floor) return { status: "orphaned" };
+  if (repeated) {
+    if (!sameLineContext(body, top, anchor, bodyOffset)) return { status: "orphaned" };
+    if (previous !== undefined) {
+      const oldPosition = mapUnchangedLines(body, previous, top);
+      if (oldPosition && oldPosition.start !== anchor.start) return { status: "orphaned" };
+      const lineStart = previous.lastIndexOf("\n", anchor.start - 1) + 1;
+      const lineEnd = previous.indexOf("\n", anchor.end);
+      const originalLine = previous.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
+      if (previous.split("\n").filter((line) => line === originalLine).length > 1) return { status: "orphaned" };
     }
   }
-  const near = nearest[0];
-  if (nearest.length === 1 && near !== undefined) {
-    return { status: "anchored", start: near.start, end: near.end };
-  }
-  return { status: "orphaned" };
+  return { status: "anchored", start: top.start, end: top.end };
 }
 
-function refindBetweenBrackets(body: string, anchor: Anchor): RefindResult {
+/** 对旧、新完整行应用编辑映射。反向再算一次，排除重复行产生的不同对齐。 */
+function mapUnchangedLines(before: string, after: string, span: Span): Span | undefined {
+  const original = before.split(/(?<=\n)/);
+  const next = after.split(/(?<=\n)/);
+  const fromStart = unchangedOffset(original, next, span);
+  if (fromStart === undefined) return;
+  const fromEnd = unchangedOffset(original.reverse(), next.reverse(), { start: before.length - span.end, end: before.length - span.start });
+  if (fromEnd === undefined || fromStart.start !== after.length - fromEnd.end) return;
+  return fromStart;
+}
+
+function unchangedOffset(before: string[], after: string[], span: Span): Span | undefined {
+  const offsets = (lines: string[]) => {
+    const offsets = [0];
+    for (const line of lines) offsets.push((offsets.at(-1) ?? 0) + line.length);
+    return offsets;
+  };
+  const oldOffsets = offsets(before);
+  const newOffsets = offsets(after);
+  let shift = 0;
+  for (const hunk of diffIndices(before, after)) {
+    const [oldStart, oldLength] = hunk.buffer1 as [number, number];
+    const [newStart, newLength] = hunk.buffer2 as [number, number];
+    if (span.end <= oldOffsets[oldStart]!) break;
+    if (span.start < oldOffsets[oldStart + oldLength]!) return;
+    shift = newOffsets[newStart + newLength]! - oldOffsets[oldStart + oldLength]!;
+  }
+  return { start: span.start + shift, end: span.end + shift };
+}
+
+/** 旧引文重复且编辑映射不足时，要求原行内的上下文也对得上。 */
+function sameLineContext(body: string, span: Span, anchor: Anchor, bodyOffset: number): boolean {
+  const oldPrefix = markdownPassageText(anchor.prefix.slice(anchor.prefix.lastIndexOf("\n") + 1));
+  const oldSuffix = markdownPassageText(anchor.suffix.split("\n", 1)[0] ?? "");
+  const start = Math.max(bodyOffset, body.lastIndexOf("\n", span.start - 1) + 1);
+  const end = body.indexOf("\n", span.end);
+  const prefix = markdownPassageText(body.slice(start, span.start));
+  const suffix = markdownPassageText(body.slice(span.end, end < 0 ? undefined : end));
+  return prefix.endsWith(oldPrefix) && suffix.startsWith(oldSuffix);
+}
+
+function refindBetweenBrackets(body: string, anchor: Anchor, bodyOffset: number): RefindResult {
   const { prefix, suffix, exact } = anchor;
-  const starts = prefix === "" ? [0] : allOccurrences(body, prefix).map((i) => i + prefix.length);
-  const ends = suffix === "" ? [body.length] : allOccurrences(body, suffix);
+  if (prefix === "" && suffix === "") return { status: "orphaned" };
+  const starts =
+    prefix === ""
+      ? [bodyOffset]
+      : allOccurrences(body, prefix)
+          .map((i) => i + prefix.length)
+          .filter((start) => start >= bodyOffset);
+  const ends = suffix === "" ? [body.length] : allOccurrences(body, suffix).filter((end) => end >= bodyOffset);
   if (starts.length !== 1 || ends.length !== 1) return { status: "orphaned" };
 
   const start = starts[0];

@@ -32,6 +32,7 @@ import {
   type TemplateMenuEntry,
   useFolderConfig,
 } from '@/hooks/use-folder-config';
+import { useOkFetch } from '@/lib/ok-fetch';
 import { createPageRequest, openCreatedPage } from '@/lib/create-page-request';
 import {
   isEditableShortcutTarget,
@@ -143,6 +144,7 @@ export function NewItemDialog({
   const [folderName, setFolderName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<string>(BLANK_TEMPLATE_VALUE);
   const [templateUserPicked, setTemplateUserPicked] = useState(false);
+  const request = useOkFetch();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [errorField, setErrorField] = useState<'folder' | 'file' | 'form' | null>(null);
@@ -242,7 +244,7 @@ export function NewItemDialog({
     const path = composePath();
     const templateParam =
       kind === 'file' && selectedTemplate !== BLANK_TEMPLATE_VALUE ? selectedTemplate : undefined;
-    const result = await createPageRequest({ path, template: templateParam, kind });
+    const result = await createPageRequest({ path, template: templateParam, kind }, request);
     setBusy(false);
     if (!result.ok) {
       setError(result.error);

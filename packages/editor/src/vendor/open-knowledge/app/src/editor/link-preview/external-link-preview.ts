@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import {
   type LinkPreviewMetadata,
   LinkPreviewResponseSchema,
@@ -5,14 +6,17 @@ import {
 
 export const SUCCESS_CACHE_MAX_ENTRIES = 128;
 
-const successCache = new Map<string, LinkPreviewMetadata>();
-const inflight = new Map<string, Promise<LinkPreviewMetadata | null>>();
+const scopes = new WeakMap<typeof okFetch, {
+  successCache: Map<string, LinkPreviewMetadata>;
+  inflight: Map<string, Promise<LinkPreviewMetadata | null>>;
+}>();
 
 async function requestLinkPreview(
   url: string,
   signal: AbortSignal | undefined,
+  request: typeof fetch,
 ): Promise<LinkPreviewMetadata | null> {
-  const res = await fetch('/api/link-preview', {
+  const res = await request('/api/link-preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
@@ -27,7 +31,14 @@ async function requestLinkPreview(
 export function loadLinkPreview(
   url: string,
   signal?: AbortSignal,
+  request = okFetch,
 ): Promise<LinkPreviewMetadata | null> {
+  let cache = scopes.get(request);
+  if (!cache) {
+    cache = { successCache: new Map(), inflight: new Map() };
+    scopes.set(request, cache);
+  }
+  const { successCache, inflight } = cache;
   const cached = successCache.get(url);
   if (cached) {
     successCache.delete(url);
@@ -40,7 +51,7 @@ export function loadLinkPreview(
 
   const promise = (async () => {
     try {
-      const metadata = await requestLinkPreview(url, signal);
+      const metadata = await requestLinkPreview(url, signal, request);
       if (metadata) {
         successCache.set(url, metadata);
         while (successCache.size > SUCCESS_CACHE_MAX_ENTRIES) {

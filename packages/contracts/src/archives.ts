@@ -32,6 +32,8 @@ export function fieldValueProblem(def: ArchiveFieldDef, value: unknown): string 
   return null;
 }
 
+const ArchiveEncodingIssueSchema = z.object({ path: z.string(), message: z.string() });
+
 export const ArchiveTypeDtoSchema = z.object({
   /** `Archives/<类型>/`（结尾带 /）。 */
   path: z.string(),
@@ -42,6 +44,7 @@ export const ArchiveTypeDtoSchema = z.object({
   count: z.number().int(),
   /** index.md 在笔记模块中的稳定 id；还没有 index.md 或尚未分配时为 null。 */
   noteId: z.string().nullable(),
+  encodingIssue: ArchiveEncodingIssueSchema.optional(),
 });
 export type ArchiveTypeDto = z.infer<typeof ArchiveTypeDtoSchema>;
 
@@ -58,6 +61,7 @@ export const ArchiveDtoSchema = z.object({
   /** 值不合法的字段（直接改文件写入的值仍会读出，视图标红）。 */
   invalidFields: z.array(z.object({ name: z.string(), reason: z.string() })),
   noteId: z.string().nullable(),
+  encodingIssue: ArchiveEncodingIssueSchema.optional(),
   updatedAt: z.string(),
 });
 export type ArchiveDto = z.infer<typeof ArchiveDtoSchema>;

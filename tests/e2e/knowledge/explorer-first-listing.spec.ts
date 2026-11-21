@@ -65,7 +65,7 @@ test("首次挂载与新建完成同批时，真实根目录列举和树都显�
     const handled = "if (result === PASS_HOST_ROUTE) continue;";
     instrumentChunk(
       assets,
-      "host-fetch",
+      "config-provider",
       handled,
       `${handled}
       if (url.pathname === '/api/documents' && url.searchParams.get('showAll') === 'true' && !url.searchParams.get('dir') && Array.isArray(result?.documents)) {

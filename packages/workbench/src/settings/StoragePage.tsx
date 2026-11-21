@@ -144,7 +144,7 @@ export function StoragePage() {
         <div className="shell-storage-symbol">
           <Folder size={29} strokeWidth={1.5} aria-hidden />
         </div>
-        <div className="grow">
+        <div className="hu-flex-fill">
           <div className="row">
             <h2>{info.data.name}</h2>
             <Badge tone="success">Markdown + JSON</Badge>

@@ -17,6 +17,8 @@ export const t = {
     compact: "紧凑显示",
     navWidth: "导航栏宽度",
     editor: "编辑器",
+    linkPreviews: "联网获取外链预览",
+    linkPreviewsNote: "显示外链网页的标题和摘要。打开预览时，应用会向该网站发送请求。",
     editorFontSize: "正文字号",
     editorLineHeight: "正文行高",
     editorWidth: "正文宽度",

@@ -191,6 +191,12 @@ describe("Engine 启动与关闭", () => {
     expect((await call("vault.list", { dir: "../.." })).error?.code).toBe("PATH_OUTSIDE_VAULT");
     // 外部入口：默认不开放；开放后也不能列受保护目录
     expect((await call("vault.list", {}, e.cliToken)).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+    expect((await call("gateway.update", { capability: "vault.list", exposed: true })).ok).toBe(true);
+    const publicListing = await call("vault.list", {}, e.cliToken);
+    expect(publicListing.ok).toBe(true);
+    expect(publicListing.data).toMatchObject({ entries: [{ name: "empty" }, { name: "a.md" }, { name: "data.bin" }] });
+    expect((await call("vault.list", { includeProtected: true }, e.cliToken)).error?.code).toBe("INVALID_INPUT");
+    expect((await call("vault.list", { dir: ".huhu" }, e.cliToken)).error?.code).toBe("INVALID_INPUT");
     const r = (await call("vault.readRange", { path: "data.bin", offset: 2, length: 4 })).data as unknown as { base64: string; size: number; eof: boolean; length: number };
     expect(Buffer.from(r.base64, "base64").toString()).toBe("2345");
     expect(r).toMatchObject({ size: 10, eof: false, length: 4 });

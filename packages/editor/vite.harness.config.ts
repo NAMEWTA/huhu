@@ -6,12 +6,13 @@ import { lingui } from "@lingui/vite-plugin";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { okAliases } from "./build/aliases.mjs";
+import { offlineEmojiAssets } from "./build/offline-emoji.mjs";
 import okScopePlugin from "./build/ok-scope-plugin.mjs";
 
 export default defineConfig({
   root: resolve(__dirname, "harness"),
   base: "./",
-  plugins: [react(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui(), tailwindcss()],
+  plugins: [react(), offlineEmojiAssets(), babel({ plugins: ["@lingui/babel-plugin-lingui-macro"], presets: [] } as never), lingui(), tailwindcss()],
   css: { postcss: { plugins: [okScopePlugin()] } },
   resolve: {
     alias: okAliases(__dirname),

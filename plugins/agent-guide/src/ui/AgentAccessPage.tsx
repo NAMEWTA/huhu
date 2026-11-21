@@ -78,7 +78,7 @@ export function AgentAccessPage() {
     <div data-testid="settings-agent-access">
       <section className="hu-settings-section hu-card-alt">
         <div className="row">
-          <div className="grow">
+          <div className="hu-flex-fill">
             <h2>让 Agent 使用这个 Vault</h2>
             <p className="hu-hint-text">
               HUHU 在 Vault 里维护三份指南文件，Agent 读到它们就知道如何通过 CLI 与 MCP 使用 HUHU。只操作这三份文件，不会改动 <code>.agents/skills/</code> 下的其他内容。
@@ -130,7 +130,7 @@ export function AgentAccessPage() {
                   { value: "diff", label: "差异" },
                 ]}
               />
-              <span className="grow" />
+              <span className="hu-flex-fill" />
               <Button icon={Copy} onClick={() => void navigator.clipboard.writeText(file)}>
                 复制路径
               </Button>
@@ -184,7 +184,7 @@ export function AgentAccessPage() {
           <div className="hu-stack">
             {(backups.data ?? []).map((b) => (
               <div key={b.id} className="row" data-testid="guide-backup">
-                <code className="grow">{b.id}</code>
+                <code className="hu-flex-fill">{b.id}</code>
                 <span className="small muted">{b.files.length} 个文件</span>
                 {s.readOnly ? null : <Button onClick={() => void act("guide.backups.restore", { id: b.id }, "已恢复这份备份")}>恢复这份备份</Button>}
               </div>

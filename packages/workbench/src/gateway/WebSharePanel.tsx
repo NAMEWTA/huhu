@@ -206,7 +206,7 @@ export function WebSharePanel() {
           {shownLinks?.links.map((link) => (
             <Field label={new URL(link).host} key={link}>
               <div className="row">
-                <input aria-label={`邀请链接 ${new URL(link).host}`} className="grow" value={link} readOnly onFocus={(event) => event.target.select()} />
+                <input aria-label={`邀请链接 ${new URL(link).host}`} className="hu-flex-fill" value={link} readOnly onFocus={(event) => event.target.select()} />
                 <Button icon={Copy} onClick={() => void copy(link)}>
                   复制链接
                 </Button>

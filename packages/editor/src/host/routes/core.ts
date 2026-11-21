@@ -2,6 +2,7 @@
 // 数据由宿主（plugins/notes，S1/S2b 起）通过 CoreRouteDeps 注入；本包不依赖业务模块。
 import { visit } from "unist-util-visit";
 import { getSharedMarkdownManager } from "@/editor/utils/md-singleton";
+import { markdownFileBody } from "../markdown-file-envelope";
 import { stripFrontmatter } from "../../vendor/open-knowledge/core/src/extensions/frontmatter";
 import { createCodeFenceTracker } from "../../vendor/open-knowledge/core/src/utils/code-fence-tracker";
 import { scanHeadingLine } from "../../vendor/open-knowledge/core/src/utils/heading-scan";
@@ -61,7 +62,7 @@ function suggestionRoutes(deps: CoreRouteDeps, suggestions: NonNullable<CoreRout
     },
     "GET /api/page-headings": async ({ url }) => {
       const docName = url.searchParams.get("docName") ?? "";
-      const { body } = stripFrontmatter((await suggestions.readDocument(docName)) ?? "");
+      const { body } = stripFrontmatter(markdownFileBody((await suggestions.readDocument(docName)) ?? ""));
       const isInCodeFence = createCodeFenceTracker();
       const slugCounts = new Map<string, number>();
       const headings = body.split("\n").flatMap((line) => {
@@ -84,6 +85,22 @@ function suggestionRoutes(deps: CoreRouteDeps, suggestions: NonNullable<CoreRout
         if (resolved) forwardLinks.push({ kind: "doc", docName: resolved, anchor: data.anchor, title: titles.get(resolved) ?? resolved, snippet: null });
       });
       return { docName, forwardLinks };
+    },
+    "GET /api/document": async ({ url }) => {
+      const docName = url.searchParams.get("docName");
+      if (!docName) return PASS_HOST_ROUTE;
+      const content = await suggestions.readDocument(docName);
+      return content === null ? PASS_HOST_ROUTE : { docName, content, lifecycle: null };
+    },
+    "GET /api/backlink-counts": async ({ url }) => {
+      const names = new Set(
+        (url.searchParams.get("docNames") ?? "")
+          .split(",")
+          .map((name) => name.trim())
+          .filter(Boolean),
+      );
+      const counts = await Promise.all([...names].map(async (name) => [name, (await suggestions.listBacklinks(name)).length] as const));
+      return { counts: Object.fromEntries(counts) };
     },
     "GET /api/backlinks": async ({ url }) => {
       const docName = url.searchParams.get("docName") ?? "";

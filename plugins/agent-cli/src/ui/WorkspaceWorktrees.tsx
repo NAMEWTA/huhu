@@ -41,7 +41,7 @@ export function WorkspaceWorktrees({ space, onSpace }: { space: Space; onSpace(s
   return (
     <section aria-label="Git worktree">
       <div className="row">
-        <code className="grow">{listing.data?.repository ?? space.root}</code>
+        <code className="hu-flex-fill">{listing.data?.repository ?? space.root}</code>
         <Button icon={RefreshCw} disabled={pending || listing.isFetching} onClick={() => void listing.refetch()}>
           刷新 worktree
         </Button>
@@ -50,7 +50,7 @@ export function WorkspaceWorktrees({ space, onSpace }: { space: Space; onSpace(s
       {listing.isFetching && !listing.data ? <p role="status">正在读取 Git worktree…</p> : null}
       {listing.data?.worktrees.map((tree) => (
         <div className="row" key={tree.root}>
-          <div className="grow">
+          <div className="hu-flex-fill">
             <strong>{tree.branch ?? "分离 HEAD"}</strong>
             <p>
               <code>{tree.root}</code>

@@ -271,7 +271,7 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
           <Button onClick={() => setResetOpen(true)} disabled={locked || !definitionsReady}>
             恢复默认布局
           </Button>
-          <span className="grow" />
+          <span className="hu-flex-fill" />
           <Button onClick={state.cancel} disabled={locked}>
             取消编辑
           </Button>
@@ -427,7 +427,7 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
             const canAdd = definition.maxInstances === null || count(type) < definition.maxInstances;
             return (
               <div key={type} className="row">
-                <div className="grow">
+                <div className="hu-flex-fill">
                   <strong>{definition.title}</strong>
                   <p>
                     {definition.description} · {definition.defaultSize.w} × {definition.defaultSize.h}

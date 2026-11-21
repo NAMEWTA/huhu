@@ -90,6 +90,20 @@ describe('findRangeInIndex — repeated quote', () => {
     expect(findRangeInIndex(indexOf(doc), 'TARGET', anchor)?.from).toBe(first + 1);
   });
 
+  test('Huhu anchors decline a tie or a same-offset replacement while editing', () => {
+    const duplicate = { prefix: 'x ', suffix: ' y', requireUnique: true };
+    expect(findRangeInIndex(indexOf('x TARGET y x TARGET y'), 'TARGET', duplicate)).toBeNull();
+    const original = { prefix: '甲：', suffix: '。乙：同句。', requireUnique: true };
+    expect(findRangeInIndex(indexOf('乙：同句。'), '同句', original)).toBeNull();
+  });
+
+  test('Huhu anchors do not highlight a surviving copy of a long repeated paragraph', () => {
+    const prefix = '甲组：统一说明模板。';
+    const suffix = '，办理前请核对以下基本信息。\n\n乙组：统一说明模板。相同词句，办';
+    const remaining = '乙组：统一说明模板。相同词句，办理前请核对以下基本信息。';
+    expect(findRangeInIndex(indexOf(remaining), '相同词句', { prefix, suffix, requireUnique: true })).toBeNull();
+  });
+
   test('a quote that is gone resolves to null', () => {
     expect(findRangeInIndex(indexOf(DOC), 'text that is not there')).toBeNull();
   });

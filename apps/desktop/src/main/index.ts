@@ -1,3 +1,5 @@
+import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
+import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -6,6 +8,7 @@ import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import type { ExitPhase } from "../exit-ipc.js";
 import { installAppMenu } from "./app-menu.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
+import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
 import { registerMailAttachmentPicker } from "./mail-attachment-picker.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
@@ -236,7 +239,11 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
     if (!isTrustedUrl(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  hardenWindowForPreview(win.webContents, (nonce) => preview?.blocked(nonce));
+  hardenWindowForPreview(
+    win.webContents,
+    (nonce) => preview?.blocked(nonce),
+    (nonce) => preview?.grants.get(nonce) !== undefined,
+  );
   let workbenchDocument = false;
   win.webContents.on("did-navigate", (_event, url) => {
     workbenchDocument = chrome.trustedDocument(url);
@@ -331,6 +338,33 @@ if (!gotLock) {
       if (!r.ok) startupError = r.message;
     });
     const demoRoot = (): string => (app.isPackaged ? path.join(process.resourcesPath, "demo-vault") : path.join(app.getAppPath(), "resources", "demo-vault"));
+    ipcMain.handle("huhu:openExternal", async (event, value: unknown) => {
+      const frame = event.senderFrame;
+      assertTrusted(frame?.url);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!frame || frame.parent || !win) return false;
+      const documentUrl = frame.url;
+      const webUrl = externalHttpUrl(value);
+      if (webUrl) return confirmExternalLink(win, webUrl, () => !frame.isDestroyed() && frame.url === documentUrl);
+      const url = typeof value === "string" ? URL.parse(value) : null;
+      if (!url || !["mailto:", "tel:"].includes(url.protocol)) throw new Error("unsupported external URL");
+      await shell.openExternal(url.href);
+      return true;
+    });
+
+    ipcMain.handle("huhu:externalLinkPreview", async (event, url: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const vault = current;
+      if (!vault) return { ok: false, reason: "disabled" };
+      try {
+        const settings = JSON.parse(await readFile(path.join(vault.path, ".huhu", "settings.json"), "utf8")) as { editor?: { linkPreviews?: unknown } };
+        if (current !== vault || settings?.editor?.linkPreviews !== true) return { ok: false, reason: "disabled" };
+        return await fetchExternalLinkPreview(url);
+      } catch (error) {
+        const missing = (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
+        return { ok: false, reason: missing ? "disabled" : "unavailable" };
+      }
+    });
     ipcMain.handle("huhu:vault:state", async (event): Promise<VaultState> => {
       assertTrusted(event.senderFrame?.url);
       await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页

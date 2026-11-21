@@ -5,7 +5,10 @@ import { commentQuoteText } from '@inkeep/open-knowledge-core/comments/leaf-text
 import { Trans, useLingui } from '@lingui/react/macro';
 import { posToDOMRect } from '@tiptap/core';
 import type { Editor } from '@tiptap/react';
-import { useEffect, useRef, useState } from 'react';
+import type { Node as PMNode } from '@tiptap/pm/model';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { getVisibleEditorForDoc } from '@/editor/active-editor';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,9 +31,12 @@ import { captureSelectionContext } from './anchor-search';
 import { useCommentsPanelOnScreen } from './comments-panel-visibility';
 import { revealComments } from './reveal-queue';
 import { selectedSpan } from './selected-span';
-import { createThread, emitStartComment, subscribeStartComment } from './store';
+import type { CommentSelectionRevision } from './comments-client';
+import { captureCommentSelectionRevision, createThread, emitStartComment, subscribeCommentNavigationInvalidated, subscribeStartComment, useCommentsReadOnly, useCommentSurface } from './store';
 
 interface Captured {
+  doc: PMNode;
+  revision: CommentSelectionRevision | undefined;
   from: number;
   to: number;
   quote: string;
@@ -52,11 +58,19 @@ export function CommentSelectionAffordance({
   const [empty, setEmpty] = useState(true);
   const commentsOnScreen = useCommentsPanelOnScreen();
   const editorPaneOnScreen = useEditorPaneOnScreen();
+  const readOnly = useCommentsReadOnly();
+  const surface = useCommentSurface();
+  const canCompose = shortcutEnabled && editorPaneOnScreen && !readOnly;
+  const lifetime = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    lifetime.current = canCompose ? {} : null;
+    return () => { lifetime.current = null; };
+  }, [canCompose, docName]);
   const inputRef = useRef<ComposerMentionInputHandle>(null);
   const floatingRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!shortcutEnabled || !editorPaneOnScreen) return;
+    if (!canCompose) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (!matchesKeyboardShortcut(event, 'add-comment')) return;
       const target = event.target;
@@ -67,27 +81,35 @@ export function CommentSelectionAffordance({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [shortcutEnabled, editorPaneOnScreen, editor]);
+  }, [canCompose, editor]);
 
   useEffect(() => {
-    if (editorPaneOnScreen) return;
+    if (canCompose) return;
     const floating = floatingRef.current;
     if (floating?.contains(document.activeElement)) focusAwayFromHiddenEditor();
-  }, [editorPaneOnScreen]);
+    setCaptured(null);
+    setEmpty(true);
+  }, [canCompose]);
 
   useEffect(() => {
+    if (!canCompose) return;
     return subscribeStartComment(() => {
-      const { selection } = editor.state;
+      const { selection, doc } = editor.state;
       if (selection.empty) return;
       const { from, to } = selectedSpan(selection);
       if (to - from < 1) return;
       const quote = commentQuoteText(editor.state.doc, from, to).trim();
       if (quote.length === 0) return;
       const { prefix, suffix } = captureSelectionContext(editor.state.doc, from, to);
-      setCaptured({ from, to, quote, prefix, suffix });
-      setCommentDraftRange(editor, { from, to });
+      setCaptured({ from, to, quote, prefix, suffix, doc, revision: captureCommentSelectionRevision(docName, surface) });
     });
-  }, [editor]);
+  }, [canCompose, docName, editor]);
+
+  useLayoutEffect(() => {
+    if (!canCompose || captured === null) return;
+    setCommentDraftRange(editor, { from: captured.from, to: captured.to });
+    return () => setCommentDraftRange(editor, null);
+  }, [canCompose, captured, editor]);
 
   useEffect(() => {
     if (captured === null) return;
@@ -131,15 +153,13 @@ export function CommentSelectionAffordance({
   }, [captured, editor]);
 
   useEffect(() => {
-    if (captured === null) return;
-    inputRef.current?.focus();
-  }, [captured]);
+    if (canCompose && captured !== null) inputRef.current?.focus();
+  }, [canCompose, captured]);
 
   function reset() {
     inputRef.current?.clear();
     setEmpty(true);
     setCaptured(null);
-    setCommentDraftRange(editor, null);
   }
 
   useEffect(() => {
@@ -154,35 +174,44 @@ export function CommentSelectionAffordance({
       reset();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
-    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+    const unsubscribe = subscribeCommentNavigationInvalidated(reset);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
   });
 
   function post() {
     if (captured === null) return;
     const body = inputRef.current?.getContent().instruction.trim() ?? '';
     if (body.length === 0) return;
+    if (captured.doc !== editor.state.doc) {
+      toast.error('文档或选区自发起批注后已改变，请重新选择');
+      reset();
+      return;
+    }
+    const postedFrom = lifetime.current;
     createThread({
       docName,
       quote: captured.quote,
       prefix: captured.prefix,
       suffix: captured.suffix,
+      ...(captured.revision ? { selection: captured.revision } : {}),
+      canReveal: () => postedFrom !== null && lifetime.current === postedFrom && getVisibleEditorForDoc(docName) === editor,
       body,
-    });
+    }, surface);
     if (!editor.isDestroyed) {
       editor.commands.setTextSelection(Math.min(captured.to, editor.state.doc.content.size));
     }
     reset();
   }
 
-  if (captured === null) return null;
+  if (!canCompose || captured === null) return null;
 
   return createPortal(
     <div
       ref={floatingRef}
-      className={cn(
-        'z-[60] flex w-80 flex-col gap-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md',
-        !editorPaneOnScreen && 'hidden',
-      )}
+      className="z-[60] flex w-80 flex-col gap-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md"
       style={{ position: 'fixed', top: 0, left: 0 }}
       data-testid="comment-composer"
     >

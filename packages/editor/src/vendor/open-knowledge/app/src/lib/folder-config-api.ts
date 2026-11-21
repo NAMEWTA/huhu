@@ -1,3 +1,4 @@
+import { okFetch } from '@/lib/ok-fetch';
 import { emitTemplatesChanged } from './documents-events.ts';
 import { parseApiError } from './parse-api-error.ts';
 
@@ -18,7 +19,7 @@ export async function saveFolderConfig(
   frontmatter: FolderFrontmatterPatch,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const res = await fetch('/api/folder-config', {
+    const res = await okFetch('/api/folder-config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, frontmatter }),
@@ -39,7 +40,7 @@ export async function saveTemplate(input: {
   body: string;
 }): Promise<{ ok: true; created: boolean; warnings: string[] } | { ok: false; error: string }> {
   try {
-    const res = await fetch('/api/template', {
+    const res = await okFetch('/api/template', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -68,7 +69,7 @@ export async function deleteTemplate(
 ): Promise<{ ok: true; existed: boolean } | { ok: false; error: string }> {
   try {
     const qs = `?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(name)}`;
-    const res = await fetch(`/api/template${qs}`, { method: 'DELETE' });
+    const res = await okFetch(`/api/template${qs}`, { method: 'DELETE' });
     if (!res.ok) {
       return { ok: false, error: await readErrorBody(res) };
     }
@@ -89,7 +90,7 @@ export async function moveTemplate(input: {
   body?: string;
 }): Promise<{ ok: true; committed: boolean } | { ok: false; error: string }> {
   try {
-    const res = await fetch('/api/template', {
+    const res = await okFetch('/api/template', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -111,11 +112,11 @@ export async function importTemplate(input: {
   name?: string;
   title?: string;
   deleteSource?: boolean;
-}): Promise<
+}, request = okFetch): Promise<
   { ok: true; path: string; created: boolean; warnings: string[] } | { ok: false; error: string }
 > {
   try {
-    const res = await fetch('/api/template/import', {
+    const res = await request('/api/template/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),

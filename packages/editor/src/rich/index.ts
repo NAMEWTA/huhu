@@ -11,6 +11,7 @@ export type { EditorAssetActions } from "./EditorAssetMenu";
 export type { HostRoutes } from "../host/host-fetch";
 export { DEFAULT_FEATURES, type OkHost, type OkHostFeatures } from "../host/ok-host";
 export { dropProvider } from "../host/provider-pool";
+export { markdownSemanticallyUnchanged } from "./markdownSemanticallyUnchanged";
 export { CompactMarkdownView, CompactMarkdownInput, type CompactPage } from "./compact";
 export type { ReferenceCandidate } from "./at-reference";
 // S4 评论宿主
@@ -21,6 +22,8 @@ export {
   notifyCommentsChanged,
   onCommentPosted,
   onCommentThreadOpened,
+  registerCommentSelectionSource,
+  useCommentsReadOnlySync,
   startComment,
   toThreadMeta,
   type CommentRouteDeps,

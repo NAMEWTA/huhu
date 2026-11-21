@@ -139,8 +139,17 @@ export function EditorPage() {
           </div>
           <ChoiceSwitch checked={e.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t.settings.spellcheck} />
         </div>
+        {typeof window !== "undefined" && "huhuHost" in window ? (
+          <div className="hu-setting-row">
+            <div>
+              <strong>{t.settings.linkPreviews}</strong>
+              <p>{t.settings.linkPreviewsNote}</p>
+            </div>
+            <ChoiceSwitch checked={e.linkPreviews} onChange={(v) => set({ linkPreviews: v })} label={t.settings.linkPreviews} />
+          </div>
+        ) : null}
         <div className="row">
-          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false, knowledgeLocale: "zh-Hans" })}>
+          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false, linkPreviews: false, knowledgeLocale: "zh-Hans" })}>
             {t.settings.resetEditor}
           </Button>
         </div>

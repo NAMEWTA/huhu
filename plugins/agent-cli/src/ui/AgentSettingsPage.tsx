@@ -84,7 +84,7 @@ export function AgentSettingsPage() {
       ) : null}
       <section className="hu-settings-section hu-card-alt" data-testid="agent-core-row">
         <div className="row">
-          <div className="grow">
+          <div className="hu-flex-fill">
             <strong>Herdr Core</strong>
             <p className="hu-hint-text">托管终端的后台进程。</p>
           </div>
@@ -106,7 +106,7 @@ export function AgentSettingsPage() {
       </section>
       <section className="hu-settings-section hu-card-alt">
         <div className="row">
-          <div className="grow">
+          <div className="hu-flex-fill">
             <h2>已安装</h2>
             <p className="hu-hint-text" data-testid="agent-detect-summary">
               {found.length} 个已检测{checkedAt ? ` · 检测于 ${hhmm(checkedAt)}` : ""}

@@ -234,7 +234,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   <span className="shell-plugin-large-icon">
                     <Server size={24} aria-hidden />
                   </span>
-                  <div className="grow">
+                  <div className="hu-flex-fill">
                     <h2>HUHU 本地服务</h2>
                     <p>127.0.0.1 · Bearer 令牌 · 与 CLI、MCP 共享同一套能力</p>
                   </div>
@@ -335,7 +335,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   <span className="shell-plugin-large-icon">
                     <Monitor size={26} aria-hidden />
                   </span>
-                  <div className="grow">
+                  <div className="hu-flex-fill">
                     <h2>Electron Desktop</h2>
                     <p>React Renderer → Typed Preload → Main Adapter → Engine（HTTP 能力调度）</p>
                   </div>
@@ -387,7 +387,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   <span className="shell-plugin-large-icon">
                     <Plug size={24} aria-hidden />
                   </span>
-                  <div className="grow">
+                  <div className="hu-flex-fill">
                     <h2>MCP Server</h2>
                     <p>当前Vault · {mcp.transport === "stdio" ? "stdio" : "Streamable HTTP"} · 能力按模块授权</p>
                   </div>

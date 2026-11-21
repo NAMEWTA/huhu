@@ -109,7 +109,7 @@ const lines = [
   "",
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
   "",
-  ledger.trim(),
+  ledger.trim().replaceAll("](../../", "]("),
   "",
   "## npm 运行时依赖",
   "",

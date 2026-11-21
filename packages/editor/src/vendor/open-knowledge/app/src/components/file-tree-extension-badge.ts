@@ -1,11 +1,12 @@
-import { getFileExtension } from '@/components/file-tree-rename-validation';
+import { extensionOf, fileIconKind } from '@huhu/ui';
+import { fileTreeIcon } from '@/components/file-tree-icon-sprite';
 
 export const OK_EXT_BADGE_ATTR = 'data-ok-ext-badge';
 export const OK_EXT_ROW_ATTR = 'data-ok-ext-row';
 export const OK_FULLNAME_ROW_ATTR = 'data-ok-fullname-row';
 
 export const FILE_TREE_EXT_BADGE_CSS = `
-  [data-item-selected='true'] [data-icon-token='markdown'] {
+  [data-item-selected='true'][data-file-icon='markdown'] [data-item-section='icon'] {
     color: var(--trees-selected-fg);
   }
   [data-type='item'][${OK_EXT_ROW_ATTR}] [data-truncate-segment-priority]:last-child {
@@ -37,10 +38,14 @@ export function applyExtensionBadges(root: ParentNode): void {
       continue;
     }
     if (treePath.endsWith('/')) {
+      applyFolderIcon(row);
       applyFullNameEndTruncation(row, treePath);
       continue;
     }
-    const ext = getFileExtension(treePath);
+    row.querySelector('[data-huhu-folder-icon]')?.remove();
+    const kind = fileIconKind(treePath);
+    row.setAttribute('data-file-icon', kind);
+    const ext = extensionOf(treePath);
     if (!ext) {
       clearExtensionRow(row);
       continue;
@@ -53,13 +58,32 @@ export function applyExtensionBadges(root: ParentNode): void {
     row.removeAttribute(OK_FULLNAME_ROW_ATTR);
     trimTrailingDotInBasenameSegment(basenameSeg);
 
-    const isMarkdown = ext.toLowerCase() === '.md';
-    if (isMarkdown) {
+    if (ext === 'md') {
       removeStaleBadge(row);
       continue;
     }
-    upsertBadge(row, ext.slice(1).toUpperCase());
+    upsertBadge(row, ext.toUpperCase());
   }
+}
+
+function applyFolderIcon(row: HTMLElement): void {
+  row.setAttribute('data-file-icon', 'folder');
+  const icon = fileTreeIcon(row.getAttribute('aria-expanded') === 'true' ? 'folder-open' : 'folder');
+  let svg = row.querySelector<SVGSVGElement>('[data-huhu-folder-icon]');
+  if (!svg) {
+    const chevron = row.querySelector('[data-item-section="icon"] svg');
+    if (!chevron) return;
+    svg = row.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('data-huhu-folder-icon', '');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', icon.viewBox);
+    svg.append(row.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'use'));
+    chevron.after(svg);
+  }
+  const use = svg.firstElementChild;
+  if (use?.getAttribute('href') !== `#${icon.name}`) use?.setAttribute('href', `#${icon.name}`);
 }
 
 function removeStaleBadge(row: HTMLElement): void {

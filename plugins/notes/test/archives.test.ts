@@ -26,7 +26,7 @@ async function setup(files: Record<string, string> = {}) {
   await index.build();
   const ops = new OperationLog(vf, path.join(d, "ops"));
   const trash = new Trash(vf);
-  const notes = new NotesService({ files: vf, ops, index, trash, now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
+  const notes = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash, now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
   const events: unknown[] = [];
   const svc = new ArchivesService({ files: vf, ops, index, notes, publish: (t, p) => events.push([t, p]), now: () => new Date("2026-11-10T12:00:00Z") });
   return { svc, notes, root, put, rebuild: () => index.build(), events, ops, vf };
@@ -263,4 +263,35 @@ describe("移动、改名与删除（AR-07 / AR-08 / AR-12 / AR-18）", () => {
     const again = await svc.saveType({ path: "Archives/朋友/", name: "联系人", fields: [{ name: "电话", type: "text" }] }); // 已有同名类型：加随机码，不报错
     expect(again.name).toMatch(/^联系人-[a-z0-9]{4}$/);
   });
+});
+
+test("旧编码的档案和类型按项降级，批量属性改写保留所有字节", async () => {
+  const normal = "Archives/正常/正常记录/index.md";
+  const legacy = "Archives/正常/旧记录/index.md";
+  const template = "Archives/旧编码/index.md";
+  const { svc, root } = await setup({
+    "Archives/正常/index.md": "---\nfields:\n  - name: 电话\n    type: text\n---\n",
+    [normal]: "---\n电话: '123'\n---\n正常正文",
+    [legacy]: "old",
+    [template]: "old",
+    "Archives/旧编码/仍可读取/index.md": "正常兄弟项",
+  });
+  const bytes = Buffer.from([0xc4, 0xe3, 0xba, 0xc3]);
+  writeFileSync(path.join(root, legacy), bytes);
+  writeFileSync(path.join(root, template), bytes);
+  expect(svc.types()).toEqual(expect.arrayContaining([expect.objectContaining({ name: "正常", count: 2 }), expect.objectContaining({ encodingIssue: { path: template, message: expect.stringContaining("UTF-8") } })]));
+  expect(svc.list()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: "正常记录", fields: { 电话: "123" } }),
+      expect.objectContaining({ name: "仍可读取" }),
+      expect.objectContaining({ encodingIssue: { path: legacy, message: expect.stringContaining("UTF-8") } }),
+    ]),
+  );
+  expect(svc.read("Archives/旧编码/仍可读取").body).toBe("正常兄弟项");
+  await expect(svc.update({ path: legacy, body: "不可覆盖" })).rejects.toThrow(/旧记录\/index\.md/);
+  await expect(svc.saveType({ path: "正常", name: "正常", fields: [{ name: "手机", type: "text" }], renames: [{ from: "电话", to: "手机" }] })).rejects.toThrow(/旧记录\/index\.md/);
+  await expect(svc.saveType({ path: "旧编码", name: "旧编码", fields: [] })).rejects.toThrow(/旧编码\/index\.md/);
+  expect(readFileSync(path.join(root, legacy))).toEqual(bytes);
+  expect(readFileSync(path.join(root, template))).toEqual(bytes);
+  expect(svc.read(normal).fields).toEqual({ 电话: "123" });
 });

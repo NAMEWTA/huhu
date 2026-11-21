@@ -309,7 +309,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
               onClick={() => select({ entryId: item.entryId, ...(hit ? { accountId: hit.accountId } : {}) })}
             >
               <KeyRound size={18} aria-hidden />
-              <span className="grow">
+              <span className="hu-flex-fill">
                 <strong>{item.name}</strong>
                 <small>
                   {item.url || "未填网址"} · {item.accounts.length} 个账号

@@ -13,7 +13,7 @@ export function TrashList({ notes, onRestore, onPurge }: { notes: NoteRef[]; onR
     <div className="hu-knowledge-trash-banner" role="list" aria-label="已删除的笔记" data-testid="trash-list">
       {notes.map((x) => (
         <div key={x.trashId ?? x.path} role="listitem" className="row">
-          <span className="grow">
+          <span className="hu-flex-fill">
             {x.path} · {n.trashBanner(x.deletedAt ? new Date(x.deletedAt).toLocaleString("zh-CN") : "")}
           </span>
           <Button onClick={() => onRestore(x)}>{n.menu.restore}</Button>

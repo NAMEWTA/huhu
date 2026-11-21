@@ -1,4 +1,4 @@
-import { Button } from "@huhu/ui";
+import { Button, FileIcon } from "@huhu/ui";
 import { host } from "@huhu/workbench";
 import { ExternalLink } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -14,8 +14,9 @@ export function FileToolbar({ path, children }: { path: string; children?: React
   };
   return (
     <div className="hu-knowledge-document-toolbar">
-      <div className="row grow">
+      <div className="row hu-flex-fill">
         <span className="notes-breadcrumb">{path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : v.rootDir}</span>
+        <FileIcon name={name} />
         <span className="notes-filename">{name}</span>
       </div>
       {children}

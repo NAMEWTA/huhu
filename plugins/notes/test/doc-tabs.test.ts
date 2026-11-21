@@ -72,6 +72,19 @@ describe("docTabs reducer", () => {
     expect(s.tabs).toHaveLength(2);
   });
 
+  test("E04：记录视图与 Markdown 视图按同一 index 路径改名和删除", () => {
+    const original = "Archives/人物/张三/index.md";
+    const renamed = "Archives/人物/张 三/index.md";
+    const record: DocTab = { kind: "archive-record", vaultId: "v1", type: "人物", name: "张三" };
+    const home: DocTab = { kind: "archives-home", vaultId: "v1" };
+    let s = run(createDocTabsState("v1"), { type: "open", tab: home }, { type: "open", tab: f(original) }, { type: "open", tab: record });
+    s = run(s, { type: "remap", from: "Archives/人物/张三", to: "Archives/人物/张 三" });
+    expect(s.tabs.map(tabFilePath)).toEqual([null, renamed, renamed]);
+    expect(activeTab(s)).toMatchObject({ kind: "archive-record", name: "张 三" });
+    expect(run(s, { type: "prune", alive: new Set([renamed]) })).toBe(s);
+    expect(run(s, { type: "prune", alive: new Set() }).tabs).toEqual([home]);
+  });
+
   test("prune：不存在的文件标签消失，档案视图标签保留；活动标签被移除则回退", () => {
     let s = run(createDocTabsState("v1"), { type: "open", tab: f("a.md") }, { type: "open", tab: { kind: "archives-home", vaultId: "v1" } }, { type: "open", tab: f("b.md") });
     s = run(s, { type: "prune", alive: new Set(["a.md"]) });

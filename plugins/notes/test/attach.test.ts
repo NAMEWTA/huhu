@@ -25,7 +25,7 @@ async function setup(files: Record<string, string> = {}) {
   const index = new VaultIndex(root);
   await index.build();
   const ops = new OperationLog(vf, path.join(d, "ops"));
-  const svc = new NotesService({ files: vf, ops, index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
+  const svc = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC" });
   return { svc, root, opsDir: path.join(d, "ops") };
 }
 

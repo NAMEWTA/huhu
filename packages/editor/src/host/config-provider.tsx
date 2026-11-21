@@ -2,6 +2,7 @@
 //（隐藏走 hiddenPaths 偏好，主题走 Huhu 设置）。编辑器只读取 merged 里少量外观项，缺省值与上游一致。
 import type { Config } from "@inkeep/open-knowledge-core/config/schema";
 import type { ReactNode } from "react";
+import type { HostRoutes } from "./host-fetch";
 import { ConfigContext, type ConfigContextValue } from "@/lib/config-context";
 
 export interface HostEditorConfig {
@@ -9,6 +10,16 @@ export interface HostEditorConfig {
   showHiddenFiles?: boolean;
   showOnlyMarkdownFiles?: boolean;
   linkPreviewsEnabled?: boolean;
+  requestLinkPreview?(url: string): Promise<unknown>;
+}
+
+export function linkPreviewRoutes(request: NonNullable<HostEditorConfig["requestLinkPreview"]>): HostRoutes {
+  return {
+    "POST /api/link-preview": ({ body }) => {
+      const url = (body as { url?: unknown } | null)?.url;
+      return typeof url === "string" ? request(url) : { ok: false, reason: "invalid-url" };
+    },
+  };
 }
 
 export function HostConfigProvider({ children, config = {} }: { children: ReactNode; config?: HostEditorConfig }) {
