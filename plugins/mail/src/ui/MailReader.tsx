@@ -3,10 +3,11 @@ import { CapabilityError, host, useEngine, useEngineEvents } from "@huhu/workben
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReplySeed } from "../engine/prepare-reply.js";
 import type { ForwardSeed, NewTopicSeed } from "../engine/prepare-forward.js";
+import { MailAiAssistant } from "./MailAiAssistant.js";
 import { prepareMailHtml } from "./mail-html.js";
 
 export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; transport?: "imap" | "gmail"; readState?: "unread" | "local" | "synced" | undefined };
-export type RelatedDraft = { kind: "reply"; seed: ReplySeed } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
+export type RelatedDraft = { kind: "reply"; seed: ReplySeed; suggestion?: string } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
 const composeActions = [
   { id: "reply", title: "引用回复" },
   { id: "reply-all", title: "回复全部" },
@@ -227,7 +228,7 @@ export function MailReader({
   const currentText = body?.text ?? prepared?.text ?? "";
   const canCompose = !!body && !changed && !readOnly;
 
-  async function startCompose(action: ComposeAction, trigger: HTMLElement | null) {
+  async function startCompose(action: ComposeAction, trigger: HTMLElement | null, suggestion?: string) {
     if (!canCompose || composeRequest.current) return;
     setComposeMenu(false);
     setComposeError("");
@@ -247,7 +248,7 @@ export function MailReader({
         }
         draft = { kind: action, seed };
       } else if (action === "new-topic") draft = { kind: action, seed: await engine.call<NewTopicSeed>("mail.messages.prepareNewTopic", identity, { signal }) };
-      else draft = { kind: "reply", seed: await engine.call<ReplySeed>("mail.messages.prepareReply", { ...identity, mode: action }, { signal }) };
+      else draft = { kind: "reply", seed: await engine.call<ReplySeed>("mail.messages.prepareReply", { ...identity, mode: action }, { signal }), ...(suggestion && { suggestion }) };
       if (!signal.aborted) onCompose(draft, currentText, trigger);
     } catch (err) {
       if (!signal.aborted) setComposeError(err instanceof CapabilityError ? err.message : "无法从当前邮件准备草稿，请重试。");
@@ -267,7 +268,7 @@ export function MailReader({
       className="hu-mail-reader"
       aria-label="邮件阅读"
       onContextMenu={(event) => {
-        if (!canCompose || preparing || (event.target instanceof Element && event.target.closest("a,button,input"))) return;
+        if (!canCompose || preparing || (event.target instanceof Element && event.target.closest("a,button,input,dialog"))) return;
         event.preventDefault();
         setComposeMenu(true);
       }}
@@ -368,6 +369,7 @@ export function MailReader({
               {title}
             </Button>
           ))}
+          {body && currentText.trim() && <MailAiAssistant key={`${engine.endpoint.baseUrl}:${body.sourceDigest}`} body={currentText} onAdopt={(text, trigger) => void startCompose("reply", trigger, text)} />}
         </div>
       )}
       {composeMenu && canCompose && (

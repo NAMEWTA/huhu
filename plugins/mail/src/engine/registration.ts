@@ -6,6 +6,7 @@ import { mailAccountDefinitionSchema } from "./account-definition.js";
 import { AccountRemovals, pendingRemoval, registerAccountRemoval } from "./account-removals.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
 import { registerAccountSetup } from "./account-setup.js";
+import { registerMailAi } from "./ai-settings.js";
 import { registerConversations } from "./conversations.js";
 import { registerDrafts } from "./drafts.js";
 import { registerMessageCache } from "./message-cache.js";
@@ -36,7 +37,15 @@ export const mailAccountsListDescriptor = defineCapabilityDescriptor({
   output: z.strictObject({ available: z.boolean(), accounts: z.array(accountSummary), pendingRemovals: z.array(pendingRemoval).optional() }),
 });
 
-export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner, transport?: MailSmtpTransport, syncOptions: MailSyncOptions = {}, oauthRuntime?: MailOAuthRuntime): Promise<void> {
+export async function apply(
+  ctx: Context,
+  api: HuhuApi,
+  owner?: MailAccountOwner,
+  transport?: MailSmtpTransport,
+  syncOptions: MailSyncOptions = {},
+  oauthRuntime?: MailOAuthRuntime,
+  options: { aiCatalogDeclared?: boolean } = {},
+): Promise<void> {
   const lifetime = new AbortController();
   const removals = new AccountRemovals(api.vault.files);
   const accounts = owner ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal) : undefined;
@@ -53,6 +62,7 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   const drainSetup = registerAccountSetup(api, accounts, removals.serializeAddress.bind(removals), lifetime.signal);
   const intents = owner && !owner.vault.readOnly ? { ledger: new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-oauth-intents.ndjson")), vaultInstance: owner.localVaultInstanceId } : undefined;
   const drainOAuth = registerMailOAuth(api, accounts, oauthRuntime, lifetime.signal, intents);
+  const drainAi = await registerMailAi(api, owner, lifetime.signal, options.aiCatalogDeclared === true);
   const { drafts, outbox, drain: drainDrafts } = registerDrafts(api, accounts, lifetime.signal, transport, removals);
   const searchText = makeMailSearchText();
   const messages = registerMessageCache(api, accounts, lifetime.signal, removals, drafts, searchText, syncOptions.notify);
@@ -61,6 +71,6 @@ export async function apply(ctx: Context, api: HuhuApi, owner?: MailAccountOwner
   registerAccountRemoval(api, accounts, removals, drafts, outbox, messages, lifetime.signal);
   ctx.effect(() => async () => {
     lifetime.abort();
-    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync(), drainOAuth(), drainSubset(), accounts?.drainOAuth()]);
+    await Promise.all([drainSetup(), drainDrafts(), messages.drain(), removals.drain(), drainSync(), drainOAuth(), drainAi(), drainSubset(), accounts?.drainOAuth()]);
   });
 }

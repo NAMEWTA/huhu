@@ -11,6 +11,7 @@ import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailCacheSettings } from "./MailCacheSettings.js";
+import { MailAiSettings } from "./MailAiSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
@@ -50,7 +51,8 @@ type ConversationSelection = { id: string; offset: number };
 type MailTimeWindow = ReturnType<typeof mailDayWindow>;
 const conversationPageSize = 20;
 
-function relatedDraft({ kind, seed }: RelatedDraft, original: string): DraftContent {
+function relatedDraft(draft: RelatedDraft, original: string): DraftContent {
+  const { kind, seed } = draft;
   const empty: DraftContent = { accountId: seed.accountId, to: [], cc: [], bcc: [], subject: "", body: { type: "doc", content: [{ type: "paragraph" }] } };
   if (kind === "new-topic") return { ...empty, ...seed };
   const excerpt = original.trimEnd().slice(0, 24_000).split(/\r?\n/);
@@ -59,7 +61,8 @@ function relatedDraft({ kind, seed }: RelatedDraft, original: string): DraftCont
   const makeParagraph = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
   const attribution = kind === "forward" ? (seed.forward.from ? `转发自 ${seed.forward.from}` : "转发的原邮件") : "引用原邮件";
   const quoted = original.trim() ? [makeParagraph(attribution), ...lines.map((line) => makeParagraph(`> ${line}`))] : [];
-  return { ...empty, ...seed, body: { type: "doc", content: [{ type: "paragraph" }, ...quoted] } };
+  const writing = kind === "reply" && draft.suggestion ? draft.suggestion.split(/\r\n|[\n\r]/).map((line) => (line ? makeParagraph(line) : { type: "paragraph" })) : [{ type: "paragraph" }];
+  return { ...empty, ...seed, body: { type: "doc", content: [...writing, ...quoted] } };
 }
 
 export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
@@ -327,6 +330,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         }
       />
       <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
+      <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
       <MailCacheSettings readOnly={readOnly} />
       <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
       <nav className="hu-mail-row" aria-label="邮件工作区">

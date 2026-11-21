@@ -12,3 +12,4 @@ export type { MailLocationTarget } from "./conversations.js";
 export type { MailSyncOptions } from "./sync-schedule.js";
 export { createMailOAuth, type MailOAuthClients, type MailOAuthRuntime } from "./oauth-provider.js";
 export { mailOAuthCapabilityDescriptors } from "./oauth-sessions.js";
+export { mailAiCapabilityDescriptors } from "./ai-settings.js";

@@ -131,7 +131,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
-  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor, ...Object.values(mail.mailOAuthCapabilityDescriptors)]);
+  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor, ...Object.values(mail.mailOAuthCapabilityDescriptors), ...Object.values(mail.mailAiCapabilityDescriptors)]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
@@ -238,6 +238,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         mail.createMailSmtpTransport({ SMTPConnection, MailComposer }),
         { notify: ({ id, ...notice }) => void notifications.create(notice, id) },
         opts.mailOAuth,
+        { aiCatalogDeclared: true },
       ),
   });
   plugins.register({
