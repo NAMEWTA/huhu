@@ -1,0 +1,14 @@
+format	0
+lint	0
+typecheck	0
+test	0
+test-vendor	0
+build	0
+knip	0
+notices	0
+patches-check	0
+patches-replay	0
+orca-replay	0
+catalog	0
+host-endpoints	0
+e2e-full	126

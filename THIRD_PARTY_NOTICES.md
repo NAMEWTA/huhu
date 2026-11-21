@@ -681,6 +681,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | cmdk | 1.1.1 | MIT | https://github.com/pacocoursey/cmdk#readme |
 | code-block-writer | 13.0.3 | MIT | https://github.com/dsherret/code-block-writer#readme |
 | codemirror-lang-mermaid | 0.5.0 | MIT |  |
+| collapse-white-space | 2.1.0 | MIT |  |
 | color-convert | 2.0.1 | MIT |  |
 | color-name | 1.1.4 | MIT | https://github.com/colorjs/color-name |
 | colord | 2.12.0 | MIT |  |
@@ -920,19 +921,29 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | hashery | 1.5.1 | MIT |  |
 | hasown | 2.0.4 | MIT | https://github.com/inspect-js/hasOwn#readme |
 | hast-util-embedded | 3.0.0 | MIT |  |
+| hast-util-from-dom | 5.0.1 | ISC |  |
 | hast-util-from-html | 2.0.3 | MIT |  |
+| hast-util-from-html | 2.1.0 | MIT |  |
+| hast-util-from-html-isomorphic | 2.0.0 | MIT |  |
 | hast-util-from-parse5 | 8.0.3 | MIT |  |
+| hast-util-from-parse5 | 8.0.4 | MIT |  |
 | hast-util-has-property | 3.0.0 | MIT |  |
 | hast-util-is-body-ok-link | 3.0.1 | MIT |  |
 | hast-util-is-element | 3.0.0 | MIT |  |
 | hast-util-minify-whitespace | 1.0.1 | MIT |  |
 | hast-util-parse-selector | 4.0.0 | MIT |  |
 | hast-util-phrasing | 3.0.1 | MIT |  |
+| hast-util-sanitize | 5.0.2 | MIT |  |
 | hast-util-to-html | 9.0.5 | MIT |  |
+| hast-util-to-html | 9.0.6 | MIT |  |
+| hast-util-to-jsx-runtime | 2.3.7 | MIT |  |
 | hast-util-to-mdast | 10.1.2 | MIT |  |
+| hast-util-to-mdast | 10.1.3 | MIT |  |
 | hast-util-to-text | 4.0.2 | MIT |  |
+| hast-util-to-text | 4.0.3 | MIT |  |
 | hast-util-whitespace | 3.0.0 | MIT |  |
 | hastscript | 9.0.1 | MIT |  |
+| hastscript | 9.0.3 | MIT |  |
 | highlight.js | 11.11.1 | BSD-3-Clause | https://highlightjs.org/ |
 | highlight.js | 11.11.2 | BSD-3-Clause | https://highlightjs.org/ |
 | hono | 4.13.17 | MIT | https://hono.dev |
@@ -941,6 +952,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | hosted-git-info | 4.1.0 | ISC | https://github.com/npm/hosted-git-info |
 | html-encoding-sniffer | 7.0.0 | MIT |  |
 | html-tags | 3.3.1 | MIT |  |
+| html-url-attributes | 3.0.1 | MIT |  |
 | html-void-elements | 3.0.0 | MIT |  |
 | http-cache-semantics | 4.3.0 | BSD-2-Clause |  |
 | http-errors | 2.0.1 | MIT |  |
@@ -962,6 +974,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | inflight | 1.0.6 | ISC | https://github.com/isaacs/inflight |
 | inherits | 2.0.4 | ISC |  |
 | ini | 1.3.8 | ISC |  |
+| inline-style-parser | 0.2.9 | MIT |  |
 | internmap | 1.0.1 | ISC | https://github.com/mbostock/internmap/ |
 | internmap | 2.0.3 | ISC | https://github.com/mbostock/internmap/ |
 | ip-address | 10.7.6 | MIT |  |
@@ -1026,6 +1039,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | jsonfile | 4.0.0 | MIT |  |
 | jsonfile | 6.2.1 | MIT |  |
 | kapsule | 1.16.3 | MIT | https://github.com/vasturiano/kapsule |
+| katex | 0.16.22 | MIT | https://katex.org |
 | katex | 0.16.47 | MIT | https://katex.org |
 | keyv | 4.5.4 | MIT | https://github.com/jaredwray/keyv |
 | keyv | 5.6.0 | MIT | https://github.com/jaredwray/keyv |
@@ -1042,11 +1056,13 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
 | leven | 3.1.0 | MIT |  |
 | lib0 | 0.2.117 | MIT | https://github.com/dmonad/lib0#readme |
+| lib0 | 0.2.120 | MIT | https://github.com/dmonad/lib0#readme |
 | lightningcss | 1.33.0 | MPL-2.0 |  |
 | lightningcss-linux-x64-gnu | 1.33.0 | MPL-2.0 |  |
 | lilconfig | 3.1.5 | MIT |  |
 | lines-and-columns | 1.2.4 | MIT | https://github.com/eventualbuddha/lines-and-columns#readme |
 | linkifyjs | 4.3.3 | MIT | https://linkify.js.org |
+| linkifyjs | 4.4.0 | MIT | https://linkify.js.org |
 | locate-path | 3.0.0 | MIT |  |
 | lodash | 4.18.1 | MIT | https://lodash.com/ |
 | lodash-es | 4.17.21 | MIT | https://lodash.com/custom-builds |
@@ -1071,27 +1087,35 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | markdown-table | 3.1.0 | MIT |  |
 | markdownlint | 0.41.1 | MIT | https://github.com/DavidAnson/markdownlint |
 | marked | 16.4.2 | MIT | https://marked.js.org |
+| marked | 17.0.5 | MIT | https://marked.js.org |
 | matcher | 3.0.0 | MIT |  |
 | math-intrinsics | 1.1.0 | MIT | https://github.com/es-shims/math-intrinsics#readme |
 | mathml-tag-names | 2.1.3 | MIT |  |
 | mdast-util-find-and-replace | 3.0.2 | MIT |  |
+| mdast-util-find-and-replace | 3.0.4 | MIT |  |
 | mdast-util-from-markdown | 2.0.3 | MIT |  |
 | mdast-util-from-markdown | 2.1.0 | MIT |  |
 | mdast-util-frontmatter | 2.0.1 | MIT |  |
 | mdast-util-gfm | 3.1.0 | MIT |  |
 | mdast-util-gfm-autolink-literal | 2.0.1 | MIT |  |
+| mdast-util-gfm-autolink-literal | 2.1.0 | MIT |  |
 | mdast-util-gfm-footnote | 2.1.0 | MIT |  |
 | mdast-util-gfm-strikethrough | 2.0.0 | MIT |  |
+| mdast-util-gfm-strikethrough | 2.0.1 | MIT |  |
 | mdast-util-gfm-table | 2.0.0 | MIT |  |
+| mdast-util-gfm-table | 2.0.1 | MIT |  |
 | mdast-util-gfm-task-list-item | 2.0.0 | MIT |  |
+| mdast-util-gfm-task-list-item | 2.0.1 | MIT |  |
 | mdast-util-math | 3.0.0 | MIT |  |
 | mdast-util-mdx | 3.0.0 | MIT |  |
 | mdast-util-mdx-expression | 2.0.1 | MIT |  |
 | mdast-util-mdx-jsx | 3.2.0 | MIT |  |
+| mdast-util-mdx-jsx | 3.2.1 | MIT |  |
 | mdast-util-mdxjs-esm | 2.0.1 | MIT |  |
 | mdast-util-phrasing | 4.1.0 | MIT |  |
 | mdast-util-to-hast | 13.2.1 | MIT |  |
 | mdast-util-to-markdown | 2.1.2 | MIT |  |
+| mdast-util-to-markdown | 2.2.3 | MIT |  |
 | mdast-util-to-string | 4.0.0 | MIT |  |
 | mdn-data | 2.27.1 | CC0-1.0 | https://developer.mozilla.org |
 | media-typer | 1.1.1 | MIT |  |
@@ -1225,6 +1249,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | path-type | 4.0.0 | MIT |  |
 | pathe | 2.0.3 | MIT |  |
 | pathval | 2.0.1 | MIT | https://github.com/chaijs/pathval |
+| pdfjs-dist | 6.2.108 | Apache-2.0 | https://mozilla.github.io/pdf.js/ |
 | pdfjs-dist | 6.3.289 | Apache-2.0 | https://mozilla.github.io/pdf.js/ |
 | pe-library | 0.4.1 | MIT | https://github.com/jet2jet/pe-library-js |
 | perfect-freehand | 1.2.0 | MIT |  |
@@ -1267,17 +1292,25 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | proper-lockfile | 4.1.2 | MIT | https://github.com/moxystudio/node-proper-lockfile |
 | property-information | 7.2.0 | MIT |  |
 | prosemirror-changeset | 2.4.1 | MIT |  |
+| prosemirror-changeset | 2.4.6 | MIT |  |
 | prosemirror-commands | 1.7.1 | MIT |  |
+| prosemirror-commands | 1.7.2 | MIT |  |
 | prosemirror-dropcursor | 1.8.3 | MIT |  |
+| prosemirror-dropcursor | 1.8.4 | MIT |  |
 | prosemirror-gapcursor | 1.4.1 | MIT |  |
 | prosemirror-history | 1.5.0 | MIT |  |
+| prosemirror-history | 1.5.1 | MIT |  |
 | prosemirror-keymap | 1.2.3 | MIT |  |
+| prosemirror-model | 1.25.13 | MIT |  |
 | prosemirror-model | 1.25.4 | MIT |  |
 | prosemirror-schema-list | 1.5.1 | MIT |  |
+| prosemirror-schema-list | 1.6.0 | MIT |  |
 | prosemirror-state | 1.4.4 | MIT |  |
 | prosemirror-tables | 1.8.5 | MIT |  |
 | prosemirror-transform | 1.12.0 | MIT |  |
+| prosemirror-transform | 1.12.5 | MIT |  |
 | prosemirror-view | 1.41.8 | MIT |  |
+| prosemirror-view | 1.42.9 | MIT |  |
 | proxy-addr | 2.0.8 | MIT |  |
 | pseudolocale | 3.1.0 | MIT |  |
 | pump | 3.0.4 | MIT |  |
@@ -1304,6 +1337,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | react-is | 18.3.1 | MIT | https://reactjs.org/ |
 | react-kapsule | 2.6.0 | MIT | https://github.com/vasturiano/react-kapsule |
 | react-lite-youtube-embed | 3.5.1 | MIT | https://github.com/ibrahimcesar/react-lite-youtube-embed |
+| react-markdown | 10.1.0 | MIT |  |
 | react-medium-image-zoom | 5.4.3 | BSD-3-Clause | https://github.com/rpearce/react-medium-image-zoom |
 | react-remove-scroll | 2.7.2 | MIT |  |
 | react-remove-scroll-bar | 2.3.8 | MIT |  |
@@ -1313,9 +1347,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | readdirp | 3.6.0 | MIT | https://github.com/paulmillr/readdirp |
 | readdirp | 5.1.1 | MIT | https://github.com/paulmillr/readdirp |
 | recast | 0.23.21 | MIT | http://github.com/benjamn/recast |
+| rehype-katex | 7.0.1 | MIT |  |
 | rehype-minify-whitespace | 6.0.2 | MIT |  |
 | rehype-parse | 9.0.1 | MIT | https://github.com/rehypejs/rehype |
 | rehype-remark | 10.0.1 | MIT |  |
+| rehype-sanitize | 6.0.0 | MIT |  |
 | rehype-stringify | 10.0.1 | MIT | https://github.com/rehypejs/rehype |
 | remark-frontmatter | 5.0.0 | MIT |  |
 | remark-gfm | 4.0.1 | MIT |  |
@@ -1408,6 +1444,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | strip-json-comments | 5.0.3 | MIT |  |
 | strip-literal | 3.1.0 | MIT | https://github.com/antfu/strip-literal#readme |
 | style-mod | 4.1.4 | MIT | https://code.haverbeke.berlin/marijn/style-mod |
+| style-to-object | 2.0.2 | MIT |  |
 | stylelint | 16.26.1 | MIT | https://stylelint.io |
 | stylis | 4.4.0 | MIT | https://github.com/thysultan/stylis.js |
 | sumchecker | 3.0.1 | Apache-2.0 | https://github.com/malept/sumchecker#readme |
@@ -1478,6 +1515,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | unist-util-visit | 5.1.0 | MIT |  |
 | unist-util-visit | 5.2.0 | MIT |  |
 | unist-util-visit-parents | 6.0.2 | MIT |  |
+| unist-util-visit-parents | 6.1.0 | MIT |  |
 | universalify | 0.1.2 | MIT | https://github.com/RyanZim/universalify#readme |
 | universalify | 2.0.1 | MIT | https://github.com/RyanZim/universalify#readme |
 | unpipe | 1.0.0 | MIT |  |
@@ -1493,6 +1531,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | vary | 1.1.2 | MIT |  |
 | vfile | 6.0.3 | MIT |  |
 | vfile-location | 5.0.3 | MIT |  |
+| vfile-location | 5.0.4 | MIT |  |
 | vfile-message | 4.0.3 | MIT |  |
 | vfile-message | 4.0.4 | MIT |  |
 | vite | 7.3.8 | MIT | https://vite.dev |

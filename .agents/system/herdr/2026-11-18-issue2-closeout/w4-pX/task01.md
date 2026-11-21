@@ -1,0 +1,6 @@
+# WP6 · 样式层约束、工程守护与来源追溯
+
+角色：具体实现（gpt-6.2-sol medium）。工作树 `/home/wta/projects/huhu-wt-w6`，分支 `closeout4/wp6`。先读 `/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/wp-common.md`。
+归属：`scripts/ok-css-build.mjs`、`packages/editor/build/*`、`packages/editor/src/ok/*`、`packages/editor/src/rich/token-map.css`、`scripts/check-ok-class-collisions*`、`knip.json`、`packages/editor/tsconfig*.json`、`oxlint.json`、`.github/workflows/ci.yml`、`scripts/ok-patches.mjs`、`docs/upstream/ledger.md`、`.agents/dev/archive/.../evidence/` 下的清单类文件、`apps/desktop/src/main/preview-session.ts` 的测试。
+范围：OP-D05 三项（OK base/components 也入 vendor.ok-*；不整体导入颜色主题表，只保留实际使用的映射；去掉新增 !important 或列入待用户决定）、OP-D05 缺验证（加载前后 :root 关键变量 computed 无变化；OK 根内 reset 与宿主 base 共存的控件核对）、OP-D15（host 适配层恢复 knip / 严格 tsconfig / lint；ORCA vendor lint 覆盖）、OP-D16（CI 独立 test:vendor job）、G01（逐上游文件 目标/复制/适配/不复制+原因 的清单，含 OK 与 ORCA，带目录覆盖检查）、G02（ORCA 可执行重放与差异包；逐切片补丁增量表）、G03（ledger 链接与文件级追溯）、G04（上游测试全集与实际 Vitest 收集求差，逐项分类；skip 名单）、H04（从实际打包调用点反向生成 hostFetch/okDesktop 覆盖表并加覆盖断言；handler 正常/错误到 UI 反馈的表驱动测试）、R12（原产品非目标条款加后继引用与替代关系）、Q6（两来源 S0 时上游差异记录，不可恢复则注明）、F05（scheme 能力清单、凭据边界、下载取消的测试；standard/secure/corsEnabled 三位如须保留，列入待用户决定）、OP-D08（预览内用户点击外链转交既有外链策略；(b) 候选未对跑 → 列入待用户决定）、OP-D09（PdfViewer/PdfFind 外壳重写与查找快捷键未复制 → 核对行为差异，列入待用户决定或补齐）。
+注意：H02 守护在 8a4f7d0 已为 A/B/C=0，改层后必须保持。
