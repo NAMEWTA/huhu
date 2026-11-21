@@ -120,7 +120,10 @@ export class TaskScanOccurrences {
         const existing = this.load(id);
         if (existing) return checkReceipt(existing);
         const row = this.freeze(id, this.externalRule(input), null, this.now(), owner);
-        await this.persist(row, null);
+        await this.persist(row, null, () => {
+          signal.throwIfAborted();
+          authorize();
+        });
         this.onChanged?.(this.activation(row));
       });
     }
@@ -250,8 +253,8 @@ export class TaskScanOccurrences {
     return this.owner !== null && row.owner === this.owner && row.vaultId === this.vaultId;
   }
 
-  private async persist(occurrence: Occurrence, expectedVersion: string | null): Promise<Stored> {
-    const { version } = await this.files.write(`${dir}/${occurrence.id}.json`, Buffer.from(`${JSON.stringify(occurrence, null, 2)}\n`), { expectedVersion });
+  private async persist(occurrence: Occurrence, expectedVersion: string | null, beforeCommit?: () => void): Promise<Stored> {
+    const { version } = await this.files.write(`${dir}/${occurrence.id}.json`, Buffer.from(`${JSON.stringify(occurrence, null, 2)}\n`), { expectedVersion, ...(beforeCommit && { beforeCommit }) });
     return { occurrence, version };
   }
 

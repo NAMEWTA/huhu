@@ -8,6 +8,7 @@ import { smtpResultSchema, type MailSmtpResult } from "./smtp.js";
 
 const outboxDirectory = ".huhu/mail/outbox";
 export const outboxRecordPath = (operationId: string) => `${outboxDirectory}/${operationId}.json`;
+export const isOutboxRecordPath = (relative: string) => /^\.huhu\/mail\/outbox\/[a-f0-9]{64}\.json$/.test(relative);
 export const operationIdSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const messageId = z.string().regex(/^<[0-9a-f-]{36}@huhu\.local>$/);
 const identity = z.strictObject({ format: z.literal(1), operationId: operationIdSchema, draftId: uuid, revision: uuid, messageId });
@@ -91,7 +92,7 @@ export class OutboxStorage {
     return [...digests];
   }
 
-  *records(): IterableIterator<OutboxRecord> {
+  *records(onBytes?: (path: string, bytes: Buffer) => void): IterableIterator<OutboxRecord> {
     let names: string[];
     try {
       names = readdirSync(this.files.abs(outboxDirectory));
@@ -102,17 +103,19 @@ export class OutboxStorage {
     for (const name of names) {
       const operationId = name.endsWith(".json") && name.slice(0, -5);
       if (!operationId || !operationIdSchema.safeParse(operationId).success) continue;
-      const stored = this.read(operationId);
+      const stored = this.read(operationId, onBytes);
       if (!stored) throw this.readFailure();
       yield stored.record;
     }
   }
 
-  read(operationId: string): { record: OutboxRecord; version: string } | null {
+  read(operationId: string, onBytes?: (path: string, bytes: Buffer) => void): { record: OutboxRecord; version: string } | null {
     try {
-      const file = this.files.read(outboxRecordPath(operationId));
+      const relative = outboxRecordPath(operationId);
+      const file = this.files.read(relative);
       if (!file) return null;
       const record = parseOutboxRecord(JSON.parse(file.bytes.toString("utf8")), operationId);
+      onBytes?.(relative, file.bytes);
       return { record, version: file.version };
     } catch {
       throw this.readFailure();

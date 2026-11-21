@@ -406,6 +406,33 @@ test("两枚 HTTP bearer 隔离手动意图，等待后的撤权在落盘前生�
   expect(await inFlight).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
   expect(await run(b.token)).toEqual(second);
   expect(scans.list()).toHaveLength(2);
+
+  let enteredPublication!: () => void;
+  let continuePublication!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enteredPublication = resolve;
+  });
+  const proceed = new Promise<void>((resolve) => {
+    continuePublication = resolve;
+  });
+  const originalWrite = VaultFiles.prototype.write;
+  const pause = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, rel, bytes, options) {
+    if (rel.startsWith(`${scanDir}inv-ext-`) && options?.expectedVersion === null) {
+      enteredPublication();
+      await proceed;
+    }
+    return originalWrite.call(this, rel, bytes, options);
+  });
+  const atPublication = run(b.token, { ...input, intentId: randomUUID() });
+  try {
+    expect(await Promise.race([entered.then(() => "at-publication"), atPublication.then(() => "finished")])).toBe("at-publication");
+    expect(await invoke(engine, "gateway.update", { capability: scanTools.runNow, exposed: false })).toMatchObject({ exposed: false });
+  } finally {
+    continuePublication();
+    pause.mockRestore();
+  }
+  expect(await atPublication).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  expect(scans.list()).toHaveLength(2);
   expect(dispatchRecords(engine)).toEqual([]);
 }, 20_000);
 

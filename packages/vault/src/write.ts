@@ -14,6 +14,8 @@ export function versionOf(bytes: Uint8Array): string {
 export interface WriteOptions {
   /** string：必须等于当前版本；null：目标必须不存在；undefined：不检查。 */
   expectedVersion?: string | null;
+  /** Check a live authorization or equivalent invariant at publication. */
+  beforeCommit?: () => void;
 }
 
 const pendingWrites = new Map<string, Promise<{ version: string }>>();
@@ -54,9 +56,9 @@ export class VaultFiles {
     const dest = this.abs(rel);
     const key = process.platform === "win32" ? dest.toLowerCase() : dest;
     const content = Buffer.from(bytes);
-    const expectedVersion = opts.expectedVersion;
+    const options = { ...opts };
     // 原子替换自带写入排队，版本检查也需要和同一路径的替换一起排队。
-    const next = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => this.writeChecked(rel, content, expectedVersion));
+    const next = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => this.writeChecked(rel, content, options));
     pendingWrites.set(key, next);
     try {
       return await next;
@@ -65,7 +67,7 @@ export class VaultFiles {
     }
   }
 
-  private async writeChecked(rel: string, bytes: Buffer, expectedVersion: WriteOptions["expectedVersion"]): Promise<{ version: string }> {
+  private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit }: WriteOptions): Promise<{ version: string }> {
     const p = this.abs(rel);
     if (expectedVersion !== undefined) {
       const cur = this.currentVersion(rel);
@@ -75,9 +77,12 @@ export class VaultFiles {
     }
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
+    beforeCommit?.();
     this.receipts.record(rel, version);
     try {
-      await writeFileAtomic(p, bytes);
+      // Keep local revocation and the protected publication in one event-loop turn.
+      if (beforeCommit) writeFileAtomic.sync(p, bytes);
+      else await writeFileAtomic(p, bytes);
     } catch (e) {
       this.receipts.forget(rel, version);
       throw e;

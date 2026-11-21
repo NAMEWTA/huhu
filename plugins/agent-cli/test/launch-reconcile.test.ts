@@ -85,6 +85,25 @@ test("same intent dedupes across reopens, while target, cwd, provider and resolv
   expect(terminals).toHaveLength(1);
 });
 
+test("a transient Pi help probe failure replays the original terminal and native ID", async () => {
+  const { target, reopen, fake, terminals } = fixture();
+  const input = { ...target, provider: "pi" as const };
+  let supportsSessionId = true;
+  const resolve: SessionsDeps["resolve"] = async ({ newPiId }) => ({
+    command: "synthetic-pi.cmd",
+    argv: supportsSessionId && newPiId ? ["--session-id", newPiId] : [],
+    ...(supportsSessionId && newPiId && { nativeSessionId: newPiId }),
+    env: {},
+    warnings: [],
+  });
+  const original = await reopen({ resolve }).launch(input);
+  expect(original.nativeSessionId).toMatch(/^huhu-[a-f0-9]{64}$/);
+  expect(terminals[0]?.argv).toEqual(["synthetic-pi.cmd", "--session-id", original.nativeSessionId]);
+  supportsSessionId = false;
+  expect(await reopen({ resolve }).launch(input)).toMatchObject({ id: original.id, terminalId: original.terminalId, nativeSessionId: original.nativeSessionId });
+  expect(fake.tries).toBe(1);
+});
+
 test("concurrent same-key different intent conflicts before a second run", async () => {
   const { fake, target, reopen } = fixture();
   const service = reopen();

@@ -139,6 +139,15 @@ describe("数据包", () => {
 });
 
 describe("导出的安全与内存", () => {
+  test("同一进程同时导出到相同路径，只发表一份完整的数据包", async () => {
+    const root = makeVault();
+    const out = tmp();
+    const zip = path.join(out, "one.zip");
+    const results = await Promise.allSettled([exportPackage(root, zip), exportPackage(root, zip)]);
+    expect(results.map(({ status }) => status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(readdirSync(out)).toEqual(["one.zip"]);
+    expect(importPackage(zip, path.join(out, "restored")).vaultId).toBe("vault-abc123");
+  });
   test("预置的 <dest>.partial 符号链接不会被跟随：导出到别处不动被指向的文件；临时名随机、用完不留", async () => {
     const root = makeVault();
     const out = tmp();

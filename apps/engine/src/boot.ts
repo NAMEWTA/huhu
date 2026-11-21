@@ -173,21 +173,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
       mail.withMailSnapshot(vault.files, () => {
         signal.throwIfAborted();
-        const retained = mail.mailAttachmentPackagePaths(vault.files);
+        const mailSelection = mail.mailPackageSelection(vault.files);
         return read(signal, {
           includeFile(relative) {
             const normalized = relative.toLowerCase();
             if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
-            return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
+            return mailSelection.includeFile(relative);
           },
           verifyFiles(files) {
             const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
             for (const [path, expected] of safeFiles) {
               if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
             }
-            for (const path of retained) {
-              if (written.get(path) !== path.split("/").at(-1)) throw new HuhuError("INVALID_INPUT", "备份所需的邮件附件已变化或缺失，请重新核对后导出");
-            }
+            mailSelection.verifyFiles(written);
           },
         });
       }),

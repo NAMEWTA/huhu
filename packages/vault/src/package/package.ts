@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
 import { errors, newVaultId } from "@huhu/contracts";
 import { Zip, ZipDeflate, unzipSync } from "fflate";
@@ -103,6 +103,7 @@ export async function exportPackage(
     cancelled();
     closed = true; // 无论 close 是否成功，finally 里都不再关第二次
     closeSync(fd);
+    if (lstatSync(dest, { throwIfNoEntry: false })) throw errors.invalidInput("目标文件已存在，不会覆盖");
     renameSync(tmp, dest);
     return manifest;
   } finally {

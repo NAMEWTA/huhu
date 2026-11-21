@@ -85,6 +85,52 @@ testWindows(
   30_000,
 );
 
+testWindows(
+  "整库备份不会发布引用新 Mail 附件却遗漏附件目录的数据包",
+  async () => {
+    await fixture(async (root, _vaultPath, open) => {
+      const writer = await open({ create: true });
+      const draft = await newDraft(writer);
+      const managed = service(writer);
+      const reader = await open({ readOnly: true });
+      const dest = path.join(root, "mail-reference-race.zip");
+      const entered = Promise.withResolvers<void>();
+      const resume = Promise.withResolvers<void>();
+      shared.beforeExport.set(dest, () => {
+        entered.resolve();
+        return resume.promise;
+      });
+      const exportAttempt = call(reader, "vault.exportPackage", { dest });
+      const bytes = Buffer.from("attachment added after reading the old draft");
+      try {
+        expect(await Promise.race([entered.promise.then(() => "entered"), exportAttempt.then(() => "finished")])).toBe("entered");
+        await managed.addAttachment(
+          { draftId: draft.draftId, expectedRevision: draft.revision },
+          {
+            name: "latest.bin",
+            size: bytes.length,
+            async *read() {
+              yield bytes;
+            },
+          },
+        );
+      } finally {
+        resume.resolve();
+      }
+      expect(await exportAttempt).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(existsSync(dest)).toBe(false);
+      expect(readdirSync(root).some((entry) => entry.endsWith(".partial"))).toBe(false);
+
+      const stable = path.join(root, "mail-reference-stable.zip");
+      expect(await call(reader, "vault.exportPackage", { dest: stable })).toMatchObject({ ok: true });
+      const restored = path.join(root, "mail-reference-restored");
+      importPackage(stable, restored);
+      expect(readFileSync(path.join(restored, objects, hash(bytes)))).toEqual(bytes);
+    });
+  },
+  30_000,
+);
+
 async function fixture(run: (root: string, vaultPath: string, open: (options?: Partial<Parameters<typeof boot>[0]>) => Promise<RunningEngine>) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-attachments-"));
   const vaultPath = path.join(root, "vault");

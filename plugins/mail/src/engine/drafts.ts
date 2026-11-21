@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { defineCapability, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { draftContent, storedDraftContent, uuid, type DraftContent, type StoredD
 import { missingForwardAttachments, sameForwardSource, type ForwardContext } from "./forward-context.js";
 import { requireCachedMessage } from "./message-cache.js";
 import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outboxStatusInput, outboxSubmitInput, outboxSummary, outboxView, type MailOutboxService } from "./outbox.js";
-import { OutboxStorage } from "./outbox-storage.js";
+import { isOutboxRecordPath, OutboxStorage } from "./outbox-storage.js";
 import { forwardSource, sourceDigest } from "./prepare-forward.js";
 import type { MailSmtpTransport } from "./smtp.js";
 
@@ -60,11 +60,13 @@ function saveFailure(): HuhuError {
   return new HuhuError("INTERNAL", "保存邮件草稿失败", { details: { reason: "draft-write-failed" } });
 }
 
-export function readDraftSnapshot(files: VaultFiles): { snapshot: Snapshot; version: string | null } {
+export function readDraftSnapshot(files: VaultFiles, onBytes?: (bytes: Buffer) => void): { snapshot: Snapshot; version: string | null } {
   try {
     const file = files.read(draftsPath);
     if (!file) return { snapshot: { format: 1, drafts: {} }, version: null };
-    return { snapshot: snapshotSchema.parse(JSON.parse(file.bytes.toString("utf8"))), version: file.version };
+    const snapshot = snapshotSchema.parse(JSON.parse(file.bytes.toString("utf8")));
+    onBytes?.(file.bytes);
+    return { snapshot, version: file.version };
   } catch (error) {
     if (error instanceof HuhuError) throw error;
     throw new HuhuError("INTERNAL", "无法读取邮件草稿", { retryable: false, details: { reason: "draft-read-failed" } });
@@ -80,6 +82,36 @@ export function mailAttachmentPackagePaths(files: VaultFiles): ReadonlySet<strin
   const { snapshot } = readDraftSnapshot(files);
   const outbox = new OutboxStorage(files);
   return new Set([...draftAttachmentDigests(snapshot), ...outbox.attachmentDigests()].map(attachmentObjectPath));
+}
+
+export function mailPackageSelection(files: VaultFiles) {
+  const records = new Map<string, string>();
+  const remember = (path: string, bytes: Buffer) => records.set(path, createHash("sha256").update(bytes).digest("hex"));
+  const { snapshot } = readDraftSnapshot(files, (bytes) => remember(draftsPath, bytes));
+  const attachments = new Set(draftAttachmentDigests(snapshot).map(attachmentObjectPath));
+  for (const record of new OutboxStorage(files).records(remember)) {
+    if ("deleted" in record) continue;
+    for (const { digest } of record.draft.attachments ?? []) attachments.add(attachmentObjectPath(digest));
+  }
+  return {
+    includeFile(relative: string): boolean {
+      const normalized = relative.toLowerCase();
+      return !normalized.startsWith(".huhu/mail/attachments/") || attachments.has(normalized);
+    },
+    verifyFiles(written: ReadonlyMap<string, string>): void {
+      const changed = () => new HuhuError("VERSION_CONFLICT", "备份期间邮件草稿或投递记录已变化，请重新导出");
+      for (const [path, hash] of records) {
+        if (written.get(path) !== hash) throw changed();
+      }
+      for (const path of written.keys()) {
+        const normalized = path.toLowerCase();
+        if ((normalized === draftsPath || isOutboxRecordPath(normalized)) && !records.has(path)) throw changed();
+      }
+      for (const path of attachments) {
+        if (written.get(path) !== path.split("/").at(-1)) throw errors.invalidInput("备份所需的邮件附件已变化或缺失，请重新核对后导出");
+      }
+    },
+  };
 }
 
 const snapshotTails = new WeakMap<VaultFiles, Promise<void>>();

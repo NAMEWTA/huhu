@@ -324,7 +324,11 @@ export class SessionsService {
     let native: InteractiveNativePlan | undefined;
     try {
       prepared = await this.prepareLaunch(input, trackPi);
-      if (input.environment && !previous?.launchReceipt?.attempt) {
+      if (previous?.launchReceipt?.attempt && trackPi && prepared.nativeSessionId !== trackPi) {
+        // The original process is still authoritative when the current Pi probe cannot reconstruct its command.
+        prepared = undefined;
+      }
+      if (prepared && input.environment && !previous?.launchReceipt?.attempt) {
         native = await this.prepareNativeEnvironment(input, input.environment, prepared);
         if (native.approval !== input.environment.approval) throw new HuhuError("VERSION_CONFLICT", "程序、目录或环境已变化，请重新预览");
       }
