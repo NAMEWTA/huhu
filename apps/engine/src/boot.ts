@@ -131,7 +131,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", [notes.notesReadDescriptor]);
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
-  registry.declareDescriptors("mail", [mail.mailAccountsListDescriptor, mail.mailRefreshDescriptor, mail.mailLatestMessageDescriptor, mail.mailMessageSourceDescriptor, ...Object.values(mail.mailOAuthCapabilityDescriptors), ...Object.values(mail.mailAiCapabilityDescriptors)]);
+  registry.declareDescriptors("mail", [
+    mail.mailAccountsListDescriptor,
+    mail.mailRefreshDescriptor,
+    mail.mailLatestMessageDescriptor,
+    mail.mailMessageSourceDescriptor,
+    ...Object.values(mail.mailOAuthCapabilityDescriptors),
+    ...Object.values(mail.mailAiCapabilityDescriptors),
+  ]);
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
