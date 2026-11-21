@@ -77,9 +77,10 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.settingsGet, () => preferences.get()));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.settingsUpdate, async ({ signal }, input) => {
+    bindCapability(sshCapabilityDescriptors.settingsUpdate, async ({ caller, signal }, input) => {
       const saved = await preferences.update(input, signal);
-      if (input.change.section === "transfer") transfers.preferencesChanged();
+      // Applying an external default must not dispatch work already queued by the workbench.
+      if (input.change.section === "transfer" && (caller === "desktop" || caller.startsWith("plugin:"))) transfers.preferencesChanged();
       return saved;
     }),
   );

@@ -1,0 +1,192 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { CapabilityCatalogEntrySchema, CapabilityResultSchema } from "@huhu/contracts";
+import { ModuleCredentials } from "@huhu/kernel";
+import ssh2 from "ssh2";
+import { expect, test, vi } from "vitest";
+import { z } from "zod";
+import { run } from "../../../apps/cli/src/main.js";
+import { boot } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { mcpRequest, mcpRpc, openRecoverableMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
+import { SshPreferences } from "../src/engine/preferences.js";
+import { Transfers } from "../src/engine/transfers.js";
+import { defaultVaultPreferences } from "../src/shared/preferences.js";
+
+const get = "ssh.settings.get";
+const update = "ssh.settings.update";
+const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+const toolsSchema = z.array(z.object({ name: z.string(), _meta: z.record(z.string(), z.unknown()).optional() }));
+const mcpReply = z.object({
+  result: z.object({
+    isError: z.boolean().optional(),
+    content: z.array(z.object({ text: z.string() })),
+    structuredContent: z.object({ data: z.unknown(), opId: z.string().optional() }).optional(),
+  }),
+});
+
+test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually authorized, revoked and reconciled after restart", { timeout: 60_000 }, async (entry) => {
+  const root = mkdtempSync(path.join(tmpdir(), `huhu-ssh-settings-${entry}-`));
+  const vault = path.join(root, "vault");
+  const profile = path.join(root, "profile");
+  let engine: Awaited<ReturnType<typeof boot>> | undefined;
+  try {
+    mkdirSync(vault);
+    mkdirSync(profile);
+    const protection = new TestProtection(profile);
+    engine = await boot({ vaultPath: vault, desktopUserData: profile, moduleCredentialProtection: protection, create: true });
+    const desktop = (capability: string, input: unknown = {}) => engine!.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const success = async (capability: string, input?: unknown) => {
+      const result = await desktop(capability, input);
+      if (!result.ok) throw Error(`${capability}: ${result.error.code}`);
+      return result.data;
+    };
+    await success("gateway.mcp.update", { enabled: true, transport: "http" });
+    const { token } = z.object({ token: z.string() }).parse(await success("gateway.tokens.create", { name: "SSH settings fixture" }));
+    const endpoint = () => `http://127.0.0.1:${engine!.port}/mcp`;
+    let session = entry === "mcp" ? await openRecoverableMcpSession(endpoint(), token) : undefined;
+    const name = (capability: string) => (entry === "mcp" ? capability.replaceAll(".", "_") : capability);
+
+    const cli = async (args: string[], discard = false) => {
+      const output: string[] = [];
+      await run([...args, "--vault", vault, "--json"], {
+        out: (line) => {
+          if (!discard) output.push(line);
+        },
+        err: (line) => {
+          throw new Error(line);
+        },
+      });
+      return discard ? undefined : JSON.parse(output.join(""));
+    };
+    const rpc = async (method: string, params?: unknown) => {
+      const response = await mcpRequest(endpoint(), token, mcpRpc(method, params), session!.handle);
+      expect(response.status).toBe(200);
+      return response;
+    };
+    const tools = async () => {
+      if (entry === "cli") return z.object({ data: toolsSchema }).parse(await cli(["capabilities", "list"])).data;
+      return z.object({ result: z.object({ tools: toolsSchema }) }).parse(await (await rpc("tools/list")).json()).result.tools;
+    };
+    const invoke = async (capability: string, input: unknown = {}, key?: string, discard = false) => {
+      if (entry === "cli") {
+        const reply = await cli(["call", capability, "--input-json", JSON.stringify(input), ...(key ? ["--intent-key", key] : [])], discard);
+        return discard ? undefined : CapabilityResultSchema.parse(reply);
+      }
+      const response = await rpc("tools/call", { name: name(capability), arguments: input, ...(key && { _meta: { "huhu.dev/intent-key": key } }) });
+      if (discard) {
+        await response.body!.cancel();
+        return;
+      }
+      const { result } = mcpReply.parse(await response.json());
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0]!.text) } : { ok: true, ...result.structuredContent });
+    };
+    const catalog = z.array(CapabilityCatalogEntrySchema).parse(await success("capabilities.list", { includeInactive: true }));
+    const ssh = catalog.filter(({ plugin }) => plugin === "ssh");
+    expect(ssh.length).toBeGreaterThan(2);
+    for (const [capability, scope] of [
+      [get, "read"],
+      [update, "write"],
+    ] as const) {
+      expect(ssh.find(({ name }) => name === capability)).toMatchObject({ availability: "active", exposable: true, selected: false, scope, risk: "normal" });
+    }
+    for (const row of ssh) {
+      expect(engine.registry.getDescriptor(row.name)?.defaultExposed, row.name).toBe(false);
+      expect(engine.registry.get(row.name)?.defaultExposed, row.name).toBe(false);
+    }
+    const initialTools = await tools();
+    expect(initialTools.filter(({ name }) => name.startsWith(entry === "mcp" ? "ssh_" : "ssh."))).toEqual([]);
+    const closed = ssh.filter(({ exposable }) => !exposable);
+    const available = ssh.filter(({ exposable }) => exposable);
+    expect(available.map(({ name }) => name).sort()).toEqual(
+      [
+        get,
+        update,
+        "ssh.jobs.cancel",
+        "ssh.jobs.get",
+        "ssh.jobs.output.read",
+        "ssh.jobs.prepare",
+        "ssh.jobs.start",
+        "ssh.resources.connection.get",
+        "ssh.resources.connection.list",
+        "ssh.resources.connection.start",
+        "ssh.resources.host.get",
+        "ssh.resources.trust.decide",
+      ].sort(),
+    );
+    expect(available.every(({ selected }) => selected === false)).toBe(true);
+    for (const row of closed) expect(await invoke(row.name), row.name).toMatchObject(denied);
+    const bulk = (rows: typeof ssh) => ({ changes: rows.map(({ name }) => ({ capability: name, exposed: true })) });
+    const preview = z.object({ targets: z.array(z.object({ capability: z.string() })) }).parse(await success("gateway.policy.preview", bulk(available)));
+    expect(preview.targets.map(({ capability }) => capability)).toEqual(available.map(({ name }) => name));
+    expect(await desktop("gateway.policy.preview", bulk(ssh))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+    const core = vi.spyOn(HerdrCore.prototype, "ensure");
+    const dial = vi.spyOn(ssh2.Client.prototype, "connect");
+    const credentials = vi.spyOn(ModuleCredentials.prototype, "list");
+    const changes = vi.spyOn(SshPreferences.prototype, "update");
+    const schedule = vi.spyOn(Transfers.prototype, "preferencesChanged");
+    const preferences = path.join(vault, ".huhu", "ssh", "preferences.json");
+    const gateway = z.object({ toolAccess: z.object({ revision: z.number() }) });
+    const choose = async (capability: string, exposed: boolean) => {
+      const { toolAccess } = gateway.parse(await success("gateway.get"));
+      expect(await success("gateway.update", { capability, exposed })).toMatchObject({ exposed, revision: toolAccess.revision + 1 });
+    };
+    const input = { expectedRevision: null, change: { section: "transfer", values: { parallel: 4 } } };
+    const different = { ...input, change: { ...input.change, values: { parallel: 5 } } };
+    const intent = randomUUID();
+    expect(await invoke(get)).toMatchObject(denied);
+    expect(await invoke(update, input, intent)).toMatchObject(denied);
+    expect(changes).not.toHaveBeenCalled();
+
+    await choose(get, true);
+    expect(await tools()).toContainEqual(expect.objectContaining({ name: name(get) }));
+    expect(await invoke(get)).toEqual({ ok: true, data: { revision: null, values: defaultVaultPreferences } });
+    expect(existsSync(preferences)).toBe(false);
+    expect(await invoke(update, input, intent)).toMatchObject(denied);
+    await choose(get, false);
+    expect(await invoke(get)).toMatchObject(denied);
+    expect(existsSync(preferences)).toBe(false);
+
+    await choose(update, true);
+    expect(await tools()).toContainEqual(expect.objectContaining({ name: name(update), ...(entry === "mcp" && { _meta: expect.objectContaining({ "huhu.dev/intent-key": "required" }) }) }));
+    expect(await invoke(update, input)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(changes).not.toHaveBeenCalled();
+    const [saved] = await Promise.all([invoke(update, input, intent), invoke(update, input, intent, true)]);
+    expect(saved).toMatchObject({ ok: true, opId: expect.any(String), data: { revision: expect.any(String), values: { ...defaultVaultPreferences, transfer: { parallel: 4 } } } });
+    expect(changes).toHaveBeenCalledTimes(1);
+    expect(await invoke(update, input, intent)).toEqual(saved);
+    expect(await invoke(update, different, intent)).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(await invoke(update, different, randomUUID())).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(changes).toHaveBeenCalledTimes(2);
+    const written = readFileSync(preferences);
+
+    await choose(get, true);
+    expect(await invoke(get)).toEqual({ ok: true, data: saved?.ok ? saved.data : undefined });
+    expect(readFileSync(preferences)).toEqual(written);
+    await choose(get, false);
+    expect(await tools()).not.toContainEqual(expect.objectContaining({ name: name(get) }));
+    expect(await invoke(get)).toMatchObject(denied);
+
+    await engine.shutdown();
+    engine = await boot({ vaultPath: vault, desktopUserData: profile, moduleCredentialProtection: protection });
+    if (session) {
+      expect((await mcpRequest(endpoint(), token, mcpRpc("tools/list"), session.handle)).status).toBe(404);
+      session = await openRecoverableMcpSession(endpoint(), token, session.recovery);
+    }
+    expect(await invoke(update, input, intent)).toEqual(saved);
+    await choose(update, false);
+    expect(await tools()).not.toContainEqual(expect.objectContaining({ name: name(update) }));
+    expect(await invoke(update, input, intent)).toMatchObject(denied);
+    expect(readFileSync(preferences)).toEqual(written);
+    expect(changes).toHaveBeenCalledTimes(2);
+    for (const sideEffect of [core, dial, credentials, schedule]) expect(sideEffect).not.toHaveBeenCalled();
+  } finally {
+    vi.restoreAllMocks();
+    await engine?.shutdown();
+    rmSync(root, { force: true, recursive: true });
+  }
+});
