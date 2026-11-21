@@ -1,0 +1,3 @@
+﻿# #4 W6.2 · 停止原受控运行
+
+终端 t135，任务 task06.md，报告 report06.md。延续既有 Agent 分支 `162fa0dc3af5ccf03b20d701a30b2bf02612fa14`，按 `.agents/dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.2-takeover-stop.md` 实现受控新 Codex 的精确停止与对账。沿用 W6.1 的签名通道、原运行和输入所有权，真实停机事实只由同一原 thread/turn 的终态证明，`turn/interrupt` 的 JSON-RPC 回包本身不足。建议私有 `agent.runs.stop`、`agent.runs.stop.inspect`，同输入 `{ execution, stopId }`，输出 `{status:'stopped'|'completed'|'not_sent'|'unknown'|'stale'|'unsupported'}`，`completed` 表示已有自然终态，证据部分在报告说明（若方案有必要变更先通知 Lead）。仅可信 `plugin:tasks`，内置映射与 Tasks 业务侧由 Lead 实现。没有证明的重复停止仅检查，禁止向新 shell、换代实例或人工接管会话补发中断。优先对已有接管/停止行为复用，依赖本轮未授权易变 UI 的只列明后续。用现有固定 Core 与合成 App Server 测同 session 一次中断、并发/迟到、预先完成、换绑和重开，没有真实配置、外网、远端或新 worktree 写入。只改 Agent CLI 和所需内部证据，Windows 下源报告提交并关闭临时验证窗格。

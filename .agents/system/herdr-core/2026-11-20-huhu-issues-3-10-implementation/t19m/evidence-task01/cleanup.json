@@ -1,0 +1,65 @@
+﻿[
+    {
+        "address":  "t19q",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t19q"
+    },
+    {
+        "address":  "t19r",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t19r"
+    },
+    {
+        "address":  "t19t",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t19t"
+    },
+    {
+        "address":  "t19x",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t19x"
+    },
+    {
+        "address":  "t19z",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t19z"
+    },
+    {
+        "address":  "t1b0",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t1b0"
+    },
+    {
+        "address":  "t1b1",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t1b1"
+    },
+    {
+        "address":  "t1b2",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t1b2"
+    },
+    {
+        "address":  "t1b3",
+        "parent":  "t19m",
+        "state":  "finished",
+        "exit":  0,
+        "removed":  "t1b3"
+    }
+]

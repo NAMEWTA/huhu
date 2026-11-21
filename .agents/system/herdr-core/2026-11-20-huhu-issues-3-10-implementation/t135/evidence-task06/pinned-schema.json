@@ -1,0 +1,36 @@
+﻿[
+    {
+        "file":  "TurnInterruptParams.json",
+        "sha256":  "6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b",
+        "properties":  [
+                           "threadId",
+                           "turnId"
+                       ],
+        "required":  [
+                         "threadId",
+                         "turnId"
+                     ]
+    },
+    {
+        "file":  "TurnInterruptResponse.json",
+        "sha256":  "531de6be06fe979b5963f249bab82498a175e614bf65ac12fb2e849dfe60bcf1",
+        "properties":  [
+
+                       ],
+        "required":  [
+
+                     ]
+    },
+    {
+        "file":  "TurnCompletedNotification.json",
+        "sha256":  "f454bca363503aa6b56ca6ad673737dd8d86bee49d0c536b14d93c7df9f88005",
+        "properties":  [
+                           "threadId",
+                           "turn"
+                       ],
+        "required":  [
+                         "threadId",
+                         "turn"
+                     ]
+    }
+]

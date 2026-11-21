@@ -1,0 +1,3 @@
+# #5 T2.1 Tasks 到 Agent 的生产接线独立复核
+
+终端 t13x，任务 task02.md，报告 report02.md。候选 `ff0afc5866e85b399143574f9e62f6820d4a90c1`，冻结父 `3bd2e24`。只读 `../t135/report01.md` 与项目 T2.1/W6.1 的既定普通业务路径。复跑候选 `apps/engine/test/task-dispatch.live.test.ts` 和 `plugins/tasks/test/agent-dispatch-executor.test.ts`，核对实际 PluginManager、Tasks 受理、固定 Core 和合成服务所有权，重复同一派遣、回包丢失后的原绑定回读，provider 无证据时的状态，停用时的取消，权限和执行范围。另核对 `idempotency: "handler"` 只用于已持久去重的私有 Agent handler，并解释传输 key、调用者与业务 dispatchId 的既定关系。验证只限现有普通夹具和合成输入，不做攻击或绕过探索、不调用外部模型、不写业务、真实数据或远端。四个 Git worktree 已用满，测试只用独立 Git 归档与已有锁定 Windows 依赖。Windows 磁盘近期很慢，避免并发，按原断言在允许的 fixture 超时内重跑。结束前移除本次已完成验证 pane 后写报告。

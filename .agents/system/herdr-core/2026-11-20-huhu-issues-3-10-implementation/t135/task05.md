@@ -1,0 +1,3 @@
+﻿# #4 W6.2 · 真实 Windows Codex 的原生回答证据
+
+终端 t135，任务 task05.md，报告 report05.md。用真实固定 Codex 0.171.0、已验证的 `apps/engine/test/codex-dispatch.live.test.ts` 的本机 Responses 合成样例服务和单独临时 CODEX_HOME，无真实账户、真实模型、历史、远端、外连。先以本机合成 function_call 导致实际 `item/tool/requestUserInput`，并在回答后记录经过脱敏的 App Server 事件类型、同 thread/turn/item 关联、原问题 ID、结果格式。验证 `15b34b4` 当前的 `recordAnswerOutput` 是否得到真正支持，细查发行二进制生成的官方 schema 与可见 raw notification。若本机证实当前实现缺少真实通知或已观察到等价确切证明，只有证据充分才以最小盘查/修复调整解析，并固定真实回归。如果目前只看到 serverRequest/resolved 和普通最终文本，则遵守现有 unknown 和 capability gate，保留真实证据。将已验证的命令和必要的测试/探针加到报告，隔离目录和验证 pane 收尾。当前 worktree `agent-lifecycle`，不触碰 scope 外工作树、Linux、本机真实用户配置和外部服务。只做 Windows 合成工作流的兼容性验证。

@@ -1,0 +1,12 @@
+{
+  "electron": "44.9.1",
+  "node": "24.22.0",
+  "mainPid": 36236,
+  "utilityPid": 35288,
+  "ready": true,
+  "realUserData": true,
+  "userDataForwarded": true,
+  "inheritedOverride": true,
+  "exactVault": true,
+  "readOnly": true
+}

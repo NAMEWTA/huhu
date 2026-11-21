@@ -1,0 +1,3 @@
+﻿# task01 · #4 W5.2 精确 Codex 历史恢复／分支的真实交互入口
+
+只读集成 897cd78a，先读 ../t1bq/report01.md 中固定版原生探针、#4 的 D07/W5.2，以及当前 native/core/CLI 调用。分析并在本机隔离样本验证 0.171.0 的真实 TUI 与同一后端的显式路径契约。有线索是本地 `codex --remote <ws>` 原生 TUI 重新接入预加载 AppServer 线程，或者把启动首个 thread/read + resume/fork 精确路由到专属本地后端。先复用已存在的 startup/AppServer/transport，查固定源码和实际 --help；验证同 UUID 两个不同正文、库外 state DB，以及 TUI 进程读取的是正确上下文。评估能否保留实际沙盒/权限/信任、不暴露 AppServer、无重复启动并处理建立失败。若已有机制做不到，记录实际证据和最小安全前置，不用另起 UUID 命令冒充绑定。仅做隔离证明，无真实 Vault/历史/用户凭据/在线模型调用，限 Windows，不访问远端机器，不改业务、不安装全局工具、不写 Git refs。报告 D:/Document/code/huhu/.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t1bt/report01.md。

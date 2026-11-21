@@ -1,0 +1,3 @@
+# #5 T2.1 生产 Tasks → Agent CLI 绑定输入适配器
+
+终端 t135，任务 task01.md，报告 report01.md。现有第四个工作树 `D:/Document/code/huhu/temp/issue-worktrees/agent-lifecycle` 已切到分支 `impl/huhu-issues-3-10-task-executor`，冻结父 `3bd2e24`（Tasks T1.2 与 Agent W6.1 都已合入）。按批次 `.agents/dev/changes/2026-11-19-issue-5-task-automation/tasks/T2.1-dispatch-cli.md` 实施已确定的 Engine 数据路径，复用 `TaskDispatchExecutor`、Agent 私有 targets/dispatch/inspect 及权限，不新增协议传输、不做前端或未确认 UI。只从可信内部 `plugin:tasks` 调用，稳定映射 Vault/机器/任务、原轮次及正文快照，尊重显式目标与合法权限、停用和 Abort、原请求对账、实际 provider ACK。真实提供商若无可证能力按 unsupported 保持任务状态；不得用进程启动或 Core 写入推定已接收。不切换旧 Automations，也不扩大任何外部工具权限，后续 T7.1 处理。测试用已固定 Windows Core、现有合成 provider 的无害本地动作和真实 Engine 入口。Pod/Core 仅隔离一次性夹具。无远端、无真实数据、无额外 Git worktree。隔离运行，任何 pnpm 自动增量勿带入无关根锁。提供提交、实测日志、范围和对应规格条款。结束时清理本次验证窗格。

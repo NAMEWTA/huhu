@@ -1,0 +1,3 @@
+# #5 T3.1/T3.3 与 #8 S1a.2 组合数据独立复核
+
+终端 t13x，任务 task05.md，报告 report05.md。冻结组合候选 `c839daf`，重点复核 Tasks 收件 `6152ce4`、问题投影 `e4b0387` 与 Mail 最新原文 `29c6f32` 的普通数据合同。用 Git 归档和已安装 Windows 依赖，复跑 `plugins/tasks/test/persistence-http.test.ts` 中新增「持久验收原回执」与「同一轮只显示」两项，可用 `--pool threads --maxWorkers 1`，以及 `plugins/mail/test/messages-engine.test.ts`。核对持久化后 ACK、断点后同一评论、不同 binding拒绝、问题版本和原生请求不外露、两个合成回环 IMAP 的同 UID/UIDVALIDITY 换代、源缓存不进 ZIP、仅只读缓存。使用现有普通夹具和一次性临时目录，不做漏洞或绕过探索，不触碰真实数据、账号、远端，不改业务源码、锁和 Git worktree。配合当前 Windows 资源，临时目录在系统盘。报告实际范围与余项，清理验证 pane 后结束。

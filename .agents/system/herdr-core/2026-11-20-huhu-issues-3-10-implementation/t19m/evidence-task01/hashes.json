@@ -1,0 +1,34 @@
+﻿[
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\HUHU-0.0.1-rc.4-win32-x64.exe",
+        "Hash":  "3B9D72DD8DA98ADD223243650986AD77A3BA5C50E2B9007E408A049AE1DF7521"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\HUHU.exe",
+        "Hash":  "E0431B04D0531E5861FD1A7B2DAA247B196CEBBEA80B34AD9DD4228B99FFAEA6"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\resources\\app.asar",
+        "Hash":  "9624223DCC687DAA685C2CAC8950CC7C813B48921EB53C3958F29D4E79B43111"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\resources\\bin\\huhu.cmd",
+        "Hash":  "FBC451DCB7C11914D7781340DE672DBDD094C82AA994EFEE80506D6BE5005963"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\resources\\cli\\cli.mjs",
+        "Hash":  "40ADAB1EEECC9E111397B73556B43BF6C20F6FE7922225951FD8A0BF5AEC5A7B"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\resources\\codex-dispatch\\helper.cjs",
+        "Hash":  "A12B809FFEC05C41403C663156AD0D4646C6830A6687451AC818AA17D5BE34D0"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Local\\Temp\\huhu-40822efd-release-8c634516\\win-unpacked\\resources\\herdr\\win32-x64\\herdr-core.exe",
+        "Hash":  "8C5C088EDA5C441502FA58714277A250E38103C66180376EF00D63D6CAB03F8D"
+    },
+    {
+        "Path":  "C:\\Users\\cdewta\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+        "Hash":  "CEFEA4FFEE1FFF04983A99C0DDA99944D8B380E891E740A28B32F4B815A6E0B7"
+    }
+]

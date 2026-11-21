@@ -1,0 +1,3 @@
+# #7 H2.2 / #9 P5.1 SSH 主机配置与自有凭据
+
+终端 t12p，任务 task04.md，报告 report04.md。已有 `safe-personal` 检出复用于 `impl/huhu-issues-3-10-ssh-host-auth`，冻结父 `5bbc272`。按 #7 H2.2、#9 P5.1 的明确 Engine 行为实现有独立修订的 SSH 主机认证配置和实际连接。复用现有主机目录、连接管理器、可信 hostId 映射、模块 ModuleCredentials、Engine 原生 Windows host 和 `plugins/ssh/test/fake-server.ts`。核对旧格式现有调用，清洁新样本密码或私钥及口令从 SSH 自己的配置取用。临时兼容旧 Safe 引用保持其现有行为，不能作为新凭据的回退。普通列表、能力发现、日志、备份、幂等记录都不出现秘密；替换失败保留原版本，旧修订冲突，Safe 未初始化/锁定/停用仍可用。秘密写入只在可信桌面管理能力，不向 MCP/CLI/Web 扩权，不改前端及待确认原型。只能连接真实 Windows 上自己启动的合成回环 SSH 夹具和隔离测试 Vault，不访问真实主机、账号和远端。Engine 装配如需小改限插件 opts，并在报告列出。只用此 worktree，根锁尽量不改，按实际依赖冻结复跑。提供可独立验证的提交与红绿证据，清理本次临时测试进程后退出。

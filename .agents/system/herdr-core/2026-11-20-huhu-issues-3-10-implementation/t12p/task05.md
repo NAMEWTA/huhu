@@ -1,0 +1,3 @@
+# #9 P4.1 Versioning 的 Git HTTPS 认证独立于 Safe
+
+终端 t12p，任务 task05.md，报告 report05.md。既有 `safe-personal` 检出复用于 `impl/huhu-issues-3-10-versioning-auth`，冻结父 `8ee7643`。沿用 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P4.1-git-authentication.md` 的 Engine 合同，复用 Versioning 真实系统 Git、短命 ASKPASS、现有测试 remote 夹具与 `ModuleCredentials` Windows 原生宿主。主配置的无秘密目标身份必须绑定规范化协议、主机、端口、仓库。更换任一维度、拒绝及取消的普通测试不能把旧认证送到新端点。Safe 未初始化、锁定、停用均保持本模块取用。既有 SSH URL 使用系统 SSH/agent，旧 Safe 引用保留正常过渡，模块凭据保存走可信桌面、摘要无秘密且默认不对外。仅在本机 Windows 隔离合成 Vault、回环夹具和一次性测试仓库，严禁访问、写入、推送任何真实项目 remote 或修改真实 Git 配置。受信内部 IPC 只传范围明确的非秘密标识，密码/令牌不落盘、不进命令行或日志。无前端、远端、真实凭据和额外 worktree。必要的 Engine 依赖接线限 Versioning opts。提供红绿证据、独立候选与边界，关闭本次结束的验证 pane 后退出。
