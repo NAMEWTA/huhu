@@ -1,14 +1,16 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
-import { CREATION_STAGE_PREFIX } from "@huhu/vault";
+import { CREATION_STAGE_PREFIX, directoryInstance, resolveInVault, versionOf } from "@huhu/vault";
 import { z } from "zod";
 import { canSendAuthentication } from "../shared/git-auth.js";
 import { askpassCommand, openAskpass, scrubEnvironment } from "./askpass.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
 import { GitRunner, gitCancelled } from "./git.js";
+import { allowToolPath, assertToolPath, VaultGit } from "./repo.js";
 import { differentSafePaths, gitTree, isSafePath, SafeGit, safeTree, type SafeGitSnapshots } from "./safe-git.js";
 import {
   authenticationFailed,
@@ -16,6 +18,7 @@ import {
   httpTarget,
   isPlainSyncRemote,
   isSyncAuthError,
+  toolRemote,
   SyncAuthFailure,
   type ConfigureGitAuth,
   type GitAuthSummary,
@@ -37,6 +40,8 @@ export const SyncConfigPatch = SyncConfigSchema.extend({ remote: z.string().refi
   .strict();
 export type SyncConfig = z.infer<typeof SyncConfigSchema>;
 type StoredSyncConfig = { config: SyncConfig; authReconfigurationRequired: boolean };
+type SyncTarget = { repositoryId: string; head: string | null; remote: string; branch: string; authRevision: string | null };
+type ConflictTarget = { sessionId: string; localHead: string; remoteHead: string };
 
 /**
  * 只回答针对配置主机（HUHU_GIT_HOST，含端口）的提示：被重定向到别的主机（含名字相似的主机）时不交出令牌。
@@ -154,7 +159,7 @@ export class VaultSync {
   }
 
   /** 进程内互斥：preview/run/resolve/cancel 不会交错执行（规格：同一时刻只有一个同步类 Git 操作）。 */
-  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const job = this.tail.then(fn);
     this.tail = job.catch(() => undefined);
     return job;
@@ -177,7 +182,7 @@ export class VaultSync {
   }
 
   private cfgFile(): string {
-    return path.join(this.root, ".huhu", "sync", "config.json");
+    return resolveInVault(this.root, ".huhu/sync/config.json");
   }
 
   private readConfig(): StoredSyncConfig {
@@ -199,6 +204,19 @@ export class VaultSync {
     return this.readConfig().config;
   }
 
+  toolConfig() {
+    const stored = this.readConfig();
+    const config = stored.config;
+    let remote = "";
+    try {
+      remote = toolRemote(config.remote);
+    } catch {
+      // Legacy settings may contain inline secrets or unsupported transports.
+    }
+    const vault = directoryInstance(this.root) ?? this.root;
+    return { ...config, remote, revision: versionOf(Buffer.from(JSON.stringify([vault, stored]))) };
+  }
+
   update(patch: z.input<typeof SyncConfigPatch>): SyncConfig {
     this.requireWritable();
     const { config: previous, authReconfigurationRequired } = this.readConfig();
@@ -218,15 +236,35 @@ export class VaultSync {
     const config = SyncConfigSchema.parse(next);
     const sameTarget = config.remote === previous.remote || (isPlainSyncRemote(previous.remote) && config.remote === httpTarget(previous.remote));
     const stored = authReconfigurationRequired && sameTarget && httpTarget(config.remote) ? { ...config, authReconfigurationRequired: true } : config;
-    mkdirSync(path.dirname(this.cfgFile()), { recursive: true });
-    writeFileSync(this.cfgFile(), JSON.stringify(stored, null, 2));
+    const configFile = this.cfgFile();
+    mkdirSync(path.dirname(configFile), { recursive: true });
+    const temporary = `${configFile}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, JSON.stringify(stored, null, 2), { flag: "wx" });
+      renameSync(temporary, configFile);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
     return config;
   }
 
-  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal): Promise<SyncConfig> {
+  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal, expectedRevision?: string, check?: () => void): Promise<SyncConfig & { revision?: string }> {
     return this.exclusive(async () => {
       if (this.signal(signal).aborted) throw gitCancelled();
-      return this.update(patch);
+      if (expectedRevision !== undefined) {
+        const { revision } = this.toolConfig();
+        if (revision !== expectedRevision) throw errors.versionConflict(revision);
+        const previous = this.config();
+        const remote = toolRemote(patch.remote ?? previous.remote);
+        if ((patch.mode ?? previous.mode) !== "off") {
+          if (!remote) throw errors.invalidInput("自动同步需要已配置的 Git 远端");
+          await new VaultGit(this.root).toolIdentity();
+          if (this.toolConfig().revision !== expectedRevision) throw errors.versionConflict(this.toolConfig().revision);
+        }
+      }
+      check?.();
+      const next = this.update(patch);
+      return expectedRevision === undefined ? next : this.toolConfig();
     });
   }
 
@@ -235,12 +273,14 @@ export class VaultSync {
     return withMigrationStatus(summary, target !== null && authReconfigurationRequired);
   }
 
-  authStatus() {
+  authStatus(expectedRemote?: string) {
     const { config, authReconfigurationRequired } = this.readConfig();
-    return this.authSummary(httpTarget(config.remote), authReconfigurationRequired);
+    const target = isPlainSyncRemote(config.remote) ? httpTarget(config.remote) : null;
+    if (expectedRemote !== undefined && (!target || httpTarget(expectedRemote) !== target)) throw errors.invalidInput("认证状态属于当前同步目标");
+    return this.authSummary(target, authReconfigurationRequired);
   }
 
-  configureAuth(input: ConfigureGitAuth, signal?: AbortSignal, onSaved?: (target: string, summary: GitAuthSummary) => void) {
+  configureAuth(input: ConfigureGitAuth, signal?: AbortSignal, onSaved?: (target: string, summary: GitAuthSummary) => void, check?: () => void) {
     return this.exclusive(async () => {
       const operation = this.signal(signal);
       if (operation.aborted) throw gitCancelled();
@@ -249,7 +289,8 @@ export class VaultSync {
       const target = httpTarget(input.remote);
       if (!target || target !== httpTarget(config.remote) || !canSendAuthentication(target)) throw errors.invalidInput("请先保存要配置的 HTTPS 远端");
       if (!this.credentials) throw authenticationFailed("local-protection-unavailable");
-      const summary = withMigrationStatus(await this.credentials.configure(target, input, operation), authReconfigurationRequired);
+      check?.();
+      const summary = withMigrationStatus(await this.credentials.configure(target, input, operation, check), authReconfigurationRequired);
       onSaved?.(target, summary);
       return summary;
     });
@@ -277,6 +318,32 @@ export class VaultSync {
 
   private requireWritable(): void {
     if (this.readOnly) throw errors.readOnlyVault();
+  }
+
+  private async assertToolTarget(stored: StoredSyncConfig, expected: SyncTarget, signal: AbortSignal) {
+    const { config } = stored;
+    const remote = toolRemote(config.remote);
+    if (!remote || toolRemote(expected.remote) !== remote || expected.branch !== config.branch) throw errors.versionConflict(this.toolConfig().revision);
+    if ((await new VaultGit(this.root).toolIdentity()) !== expected.repositoryId || (await this.head()) !== expected.head) throw errors.versionConflict("Git HEAD");
+    const auth = await this.networkAuth(stored);
+    if ((auth?.scope.revision ?? null) !== expected.authRevision) throw errors.versionConflict(auth?.scope.revision ?? "");
+    signal.throwIfAborted();
+    return auth;
+  }
+
+  private async assertEffectiveRemote(config: SyncConfig, signal: AbortSignal, push = false): Promise<void> {
+    const expected = toolRemote(config.remote);
+    const urls = await this.git.run(["remote", "get-url", "--all", ...(push ? ["--push"] : []), "origin"], { signal, privateNetwork: true });
+    const targets = urls.stdout.trim().split(/\r?\n/);
+    if (targets.length !== 1 || toolRemote(targets[0]!) !== expected) throw errors.invalidInput("Git origin 的实际地址与同步配置不符");
+  }
+
+  private async assertConflict(expected: ConflictTarget): Promise<void> {
+    const session = this.cf.session();
+    if (!session || session.id !== expected.sessionId || session.localHead !== expected.localHead || session.remoteHead !== expected.remoteHead) throw errors.versionConflict(session?.id ?? "");
+    if (!/^refs\/remotes\/origin\/[\w./-]+$/.test(session.remoteRef)) throw errors.versionConflict(session.id);
+    await new VaultGit(this.root).toolIdentity();
+    if ((await this.head()) !== expected.localHead || (await this.head(session.remoteRef)) !== expected.remoteHead) throw errors.versionConflict(session.id);
   }
 
   private async ready(c: SyncConfig): Promise<void> {
@@ -331,11 +398,15 @@ export class VaultSync {
     return { scope, summary };
   }
 
-  private async network(config: SyncConfig, auth: NetworkAuth | null, signal: AbortSignal, source?: string): Promise<void> {
+  private async network(config: SyncConfig, auth: NetworkAuth | null, signal: AbortSignal, source?: string, tool = false): Promise<void> {
     const args = (remote: string) =>
       source ? ["push", "--quiet", "--no-follow-tags", "--recurse-submodules=no", remote, `${source}:refs/heads/${config.branch}`] : ["fetch", "--quiet", "--prune", remote, "+refs/heads/*:refs/remotes/origin/*"];
     if (!auth) {
-      await this.git.run(args("origin"), { signal });
+      if (tool) {
+        await this.git.run(args(toolRemote(config.remote)), { env: { ...scrubEnvironment(), GIT_ALLOW_PROTOCOL: "ssh" }, signal, privateNetwork: true });
+      } else {
+        await this.git.run(args("origin"), { signal });
+      }
       return;
     }
     const { scope, summary } = auth;
@@ -381,17 +452,20 @@ export class VaultSync {
     throw e;
   }
 
-  preview(signal?: AbortSignal): Promise<SyncPreview> {
-    return this.exclusive(() => this.previewLocked(this.signal(signal)));
+  preview(signal?: AbortSignal, expected?: SyncTarget, check?: () => void): Promise<SyncPreview> {
+    return this.exclusive(() => this.previewLocked(this.signal(signal), expected, check));
   }
 
-  private async previewLocked(signal: AbortSignal): Promise<SyncPreview> {
+  private async previewLocked(signal: AbortSignal, expected?: SyncTarget, check?: () => void): Promise<SyncPreview> {
     if (signal.aborted) throw gitCancelled();
     const stored = this.readConfig();
     const c = stored.config;
+    const auth = expected ? await this.assertToolTarget(stored, expected, signal) : undefined;
+    check?.();
     await this.ready(c);
+    if (expected) await this.assertEffectiveRemote(c, signal);
     try {
-      await this.network(c, await this.networkAuth(stored), signal);
+      await this.network(c, auth === undefined ? await this.networkAuth(stored) : auth, signal, undefined, Boolean(expected));
     } catch (e) {
       this.track(e);
     }
@@ -416,6 +490,7 @@ export class VaultSync {
     } else if (hasRemote) {
       pull = (await this.git.run(["ls-tree", "-r", "--name-only", remoteRef])).stdout.split("\n").filter(Boolean);
     }
+    if (expected && (await this.head()) !== expected.head) throw errors.versionConflict("Git HEAD");
     return { push, skipped, pull, ahead, behind };
   }
 
@@ -534,7 +609,7 @@ export class VaultSync {
     } else if (localHead) {
       const expected = await this.safeGit.mergeGeneration(localHead, remoteHead, ours, theirs);
       if (!expected) {
-        const sess = this.cf.record(
+        const sess = await this.cf.record(
           localHead,
           remoteHead,
           remoteRef,
@@ -572,8 +647,8 @@ export class VaultSync {
   }
 
   /** 同步一次：follow = 只拉取；full = 拉取后推送。冲突 → 回退合并、状态 conflict，抛 GIT_CONFLICT（附冲突文件）。 */
-  run(mode: "pull" | "push" | "sync", signal?: AbortSignal): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
-    return this.exclusive(() => this.runLocked(mode, this.signal(signal)));
+  run(mode: "pull" | "push" | "sync", signal?: AbortSignal, expected?: SyncTarget, check?: () => void): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+    return this.exclusive(() => this.runLocked(mode, this.signal(signal), undefined, undefined, expected, check));
   }
 
   runAutomatic(mode: "pull" | "sync", isCurrent: () => boolean, repair?: VersioningAuth): Promise<boolean> {
@@ -594,18 +669,32 @@ export class VaultSync {
     });
   }
 
-  private async runLocked(mode: "pull" | "push" | "sync", signal: AbortSignal, stored = this.readConfig(), preparedAuth?: NetworkAuth): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
+  private async runLocked(
+    mode: "pull" | "push" | "sync",
+    signal: AbortSignal,
+    stored = this.readConfig(),
+    preparedAuth?: NetworkAuth,
+    expected?: SyncTarget,
+    check?: () => void,
+  ): Promise<{ pulled: boolean; pushed: boolean; committed: boolean }> {
     if (signal.aborted) throw gitCancelled();
     const c = stored.config;
+    const fixedAuth = expected ? await this.assertToolTarget(stored, expected, signal) : undefined;
+    check?.();
     await this.ready(c);
     try {
-      const auth = preparedAuth ?? (await this.networkAuth(stored));
+      if (expected) {
+        await this.assertEffectiveRemote(c, signal);
+        if (mode !== "pull") await this.assertEffectiveRemote(c, signal, true);
+      }
+      const auth = fixedAuth === undefined ? (preparedAuth ?? (await this.networkAuth(stored))) : fixedAuth;
       const candidate = mode === "pull" ? null : await this.safeGit.withLock(() => this.commitIncluded("HUHU 同步", c.exclude));
-      await this.network(c, auth, signal);
+      await this.network(c, auth, signal, undefined, Boolean(expected));
       const remoteRef = `refs/remotes/origin/${c.branch}`;
       const upstream = await this.head(remoteRef);
       if (signal.aborted) throw gitCancelled();
       if (candidate && (await this.head()) !== candidate.head) throw errors.invalidInput("本地 Git 提交已变化，请重新同步");
+      if (!candidate && expected && (await this.head()) !== expected.head) throw errors.versionConflict("Git HEAD");
       const pulled = mode !== "push" && upstream !== null && (await this.safeGit.withLock(() => this.mergeRemote(remoteRef, upstream)));
       let pushed = false;
       if (candidate) {
@@ -615,7 +704,7 @@ export class VaultSync {
         const fetchUrl = (await this.git.run(["remote", "get-url", "origin"])).stdout;
         const pushUrl = (await this.git.run(["remote", "get-url", "--push", "--all", "origin"])).stdout;
         await this.verifyOutbound(source, fetchUrl === pushUrl ? upstream : null, c.exclude, signal);
-        await this.network(c, auth, signal, source);
+        await this.network(c, auth, signal, source, Boolean(expected));
         pushed = true;
       }
       this._status = { name: "idle", detail: "" };
@@ -631,14 +720,29 @@ export class VaultSync {
     return this.cf.list();
   }
 
-  conflictFile(p: string) {
-    return this.cf.read(p);
+  conflictSummary() {
+    const session = this.cf.session();
+    if (!session) return null;
+    const { id, createdAt, localHead, remoteHead, files } = session;
+    return { id, createdAt, localHead, remoteHead, files: files.filter((file) => allowToolPath(file.path)).map((file) => ({ path: file.path, ...(file.summary ?? { kind: "unknown" as const, blocks: 0 }) })) };
+  }
+
+  conflictFile(p: string, expected?: ConflictTarget) {
+    return this.exclusive(async () => {
+      if (expected) {
+        await this.assertConflict(expected);
+        p = assertToolPath(this.root, p);
+      }
+      return this.cf.read(p);
+    });
   }
 
   /** 放弃当前冲突会话（不改动任何文件；下次同步会重新检测）。 */
-  cancelConflicts(): Promise<{ cancelled: boolean }> {
+  cancelConflicts(expected?: ConflictTarget, check?: () => void): Promise<{ cancelled: boolean }> {
     return this.exclusive(async () => {
       this.requireWritable();
+      if (expected) await this.assertConflict(expected);
+      check?.();
       const cancelled = this.cf.cancel();
       this._status = { name: "idle", detail: "" };
       return { cancelled };
@@ -646,14 +750,28 @@ export class VaultSync {
   }
 
   /** 应用逐块选择，生成合并提交；之后 full 模式继续同步（推送失败不回退合并提交，只报告原因）。 */
-  resolveConflicts(sessionId: string, resolutions: Resolution[], onSyncFailure?: (error: unknown) => void): Promise<{ commit: string; pushed: boolean; syncError?: string }> {
+  resolveConflicts(sessionId: string, resolutions: Resolution[], onSyncFailure?: (error: unknown) => void, expected?: ConflictTarget, check?: () => void): Promise<{ commit: string; pushed: boolean; syncError?: string }> {
     return this.exclusive(async () => {
       this.requireWritable();
+      let target: SyncTarget | undefined;
+      if (expected) {
+        await this.assertConflict(expected);
+        if (expected.sessionId !== sessionId) throw errors.versionConflict(expected.sessionId);
+        resolutions = resolutions.map((r) => ({ ...r, path: assertToolPath(this.root, r.path) }));
+        const stored = this.readConfig();
+        if (stored.config.mode === "full") {
+          const remote = toolRemote(stored.config.remote);
+          if (!remote || this.cf.session()?.remoteRef !== `refs/remotes/origin/${stored.config.branch}`) throw errors.versionConflict(expected.remoteHead);
+          const auth = await this.networkAuth(stored);
+          target = { repositoryId: await new VaultGit(this.root).toolIdentity(), head: null, remote, branch: stored.config.branch, authRevision: auth?.scope.revision ?? null };
+        }
+      }
+      check?.();
       const commit = await this.safeGit.withLock(() => this.cf.resolve(sessionId, resolutions));
       this._status = { name: "idle", detail: "" };
       if (this.config().mode !== "full") return { commit, pushed: false };
       try {
-        const r = await this.runLocked("sync", this.signal());
+        const r = await this.runLocked("sync", this.signal(), undefined, undefined, target && { ...target, head: commit }, check);
         return { commit, pushed: r.pushed };
       } catch (e) {
         onSyncFailure?.(e);

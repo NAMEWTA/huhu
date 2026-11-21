@@ -460,7 +460,7 @@ describe("CLI", () => {
     const bad = await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
       method: "POST",
       headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability: "gateway.update", input: { capability: "safe.audit.list", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }),
+      body: JSON.stringify({ capability: "gateway.update", input: { capability: "gateway.tokens.create", exposed: true }, requestId: "r", idempotencyKey: "key-gw-bad1" }),
     });
     expect(((await bad.json()) as { ok: boolean; error: { code: string } }).error.code).toBe("INVALID_INPUT");
     const plugins = await run1("plugins", "list");

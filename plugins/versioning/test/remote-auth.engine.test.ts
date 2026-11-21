@@ -251,7 +251,7 @@ engineTest(
     const gitConfig = path.join(live.vaultPath, ".git", "config");
     const before = readFileSync(gitConfig);
     expect(await status(readonly)).toMatchObject({ name: "read-only", detail: "Vault 以只读方式打开" });
-    expect(await capture(readonly.call("sync.preview"))).toBe("READ_ONLY_VAULT");
+    expect(await capture(readonly.call("sync.preview", {}, { write: true }))).toBe("READ_ONLY_VAULT");
     expect(await capture(pull(readonly))).toBe("READ_ONLY_VAULT");
     expect(await capture(readonly.call("sync.auth.configure", { remote: b, expectedRevision: retry.revision, credential: { action: "replace", username: user, token: randomUUID() } }))).toBe("READ_ONLY_VAULT");
     expect(readFileSync(gitConfig)).toEqual(before);
@@ -330,7 +330,7 @@ engineTest(
     expect(await readAuth()).toEqual({ revision: null, state: "needs-reconfiguration" });
     expect(await status()).toMatchObject({ name: "auth-failed", detail: expect.stringContaining("重新配置") });
     expect(await capture(live.client.call("sync.update", { credential: reference, credentialUser: previousUser }, { write: true }))).toBe("INVALID_INPUT");
-    expect(await capture(live.client.call("sync.preview"))).toBe("GIT_AUTH_FAILED");
+    expect(await capture(live.client.call("sync.preview", {}, { write: true }))).toBe("GIT_AUTH_FAILED");
     const failed = await pull().catch((error: CapabilityError) => error);
     expect(failed).toMatchObject({ code: "GIT_AUTH_FAILED", details: { reason: "needs-reconfiguration" } });
     expect(await status()).toMatchObject({ pausedReason: "auth-failed", authPause: { source: "versioning", target: config.remote, revision: null, reason: "needs-reconfiguration" } });

@@ -50,7 +50,7 @@ const Status = z.strictObject({
   callerProof: SafeCallerProof.optional(),
 });
 
-function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { exposable?: false; individualExposure?: true } = {}) {
+function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { risk?: CapabilityDescriptor["risk"]; individualExposure?: true } = {}) {
   return defineCapabilityDescriptor({
     name: `safe.${name}`,
     title,
@@ -59,9 +59,9 @@ function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["sc
     scope,
     input,
     output,
-    risk: options.individualExposure || scope !== "read" ? "high" : "normal",
+    risk: options.risk ?? (options.individualExposure || scope !== "read" ? "high" : "normal"),
     ...(options.individualExposure && { individualExposure: true }),
-    exposable: options.exposable ?? true,
+    exposable: true,
     defaultExposed: false,
     ...(scope === "write" && { idempotency: "handler" }),
   });
@@ -90,9 +90,9 @@ const caps = {
     "audit.list",
     "读取保险箱访问记录",
     "read",
-    z.strictObject({ limit: z.number().int().min(1).max(1000).default(200) }),
+    Lifecycle.extend({ limit: z.number().int().min(1).max(1000).default(200) }),
     z.array(z.strictObject({ at: z.string(), action: z.string(), itemId: z.string().nullable(), subject: z.string(), result: z.string() })),
-    { exposable: false },
+    { risk: "high" },
   ),
 };
 
@@ -214,6 +214,16 @@ export function apply(
     await safe.updateSettings({ ...(autoLockMinutes !== undefined && { autoLockMinutes }), ...(lockOnLeave !== undefined && { lockOnLeave }) }, access);
     return { ok: true };
   });
-  register(caps.audit, (_access, input) => safe.auditList(input.limit));
+  const checkAudit = (context: CapabilityContext, input: z.infer<typeof caps.audit.input>) => {
+    if (!isWorkbenchCaller(context.caller) || input.session) checkSession(context, input.session, false);
+  };
+  register(
+    caps.audit,
+    (_access, input, context) => {
+      checkAudit(context, input);
+      return safe.auditList(input.limit);
+    },
+    checkAudit,
+  );
   return safe;
 }
