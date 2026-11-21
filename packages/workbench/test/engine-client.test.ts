@@ -102,6 +102,16 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-a", "notes.list"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
   });
+  test("entity.changed(mail-ai-settings) 让同 Vault 的邮件 AI 设置读取失效，邮件列表不动", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(queryKey("vault-a", "mail.ai.getSettings"), {});
+    qc.setQueryData(queryKey("vault-a", "mail.accounts.list"), {});
+    qc.setQueryData(queryKey("vault-b", "mail.ai.getSettings"), {});
+    await invalidateForEvent(qc, "vault-a", { type: "entity.changed", payload: { kind: "mail-ai-settings", id: "settings", op: "updated" } });
+    expect(qc.getQueryState(queryKey("vault-a", "mail.ai.getSettings"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("vault-a", "mail.accounts.list"))?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(queryKey("vault-b", "mail.ai.getSettings"))?.isInvalidated).toBe(false);
+  });
   test("vault.dirChanged（空目录创建 / 删除）让同 Vault 的 vault.list 失效，其它库与任务查询不动", async () => {
     const qc = new QueryClient();
     qc.setQueryData(queryKey("vault-a", "vault.list", { dir: "" }), {});

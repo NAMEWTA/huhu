@@ -168,6 +168,8 @@ export class VaultFiles {
     const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
     let ownsStage = false;
     let journaled = false;
+    let published = false;
+    let failure: { error: unknown } | undefined;
     try {
       const file = await open(absoluteStage, "wx");
       ownsStage = true;
@@ -190,16 +192,24 @@ export class VaultFiles {
         renameNoReplace(absoluteStage, p, rel);
         ownsStage = false;
       }
+      published = true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw errors.nameConflict(rel);
-      throw error;
-    } finally {
-      try {
-        if (ownsStage && !journaled) await rm(absoluteStage, { force: true });
-      } finally {
-        release?.();
-      }
+      failure = { error: (error as NodeJS.ErrnoException).code === "EEXIST" ? errors.nameConflict(rel) : error };
     }
+    if (ownsStage && !journaled) {
+      try {
+        await rm(absoluteStage, { force: true });
+        release?.();
+      } catch (cleanupError) {
+        // 目标已发布时，暂存清理失败不改变写入结果；保持暂存登记，稍后重试删除。
+        if (published) retryStageCleanup(absoluteStage, release);
+        else {
+          release?.();
+          failure ??= { error: cleanupError };
+        }
+      }
+    } else release?.();
+    if (failure) throw failure.error;
   }
 
   /** 与 createExclusive 相同的独占创建，全程同步，使 beforeCommit 与发布处于同一事件循环轮次。 */
@@ -209,6 +219,8 @@ export class VaultFiles {
     const release = creationStage ? undefined : this.receipts.trackTemporaryFile(stage);
     let ownsStage = false;
     let journaled = false;
+    let published = false;
+    let failure: { error: unknown } | undefined;
     try {
       const fd = openSync(absoluteStage, "wx");
       ownsStage = true;
@@ -231,17 +243,40 @@ export class VaultFiles {
         renameNoReplace(absoluteStage, p, rel);
         ownsStage = false;
       }
+      published = true;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw errors.nameConflict(rel);
-      throw error;
-    } finally {
-      try {
-        if (ownsStage && !journaled) rmSync(absoluteStage, { force: true });
-      } finally {
-        release?.();
-      }
+      failure = { error: (error as NodeJS.ErrnoException).code === "EEXIST" ? errors.nameConflict(rel) : error };
     }
+    if (ownsStage && !journaled) {
+      try {
+        rmSync(absoluteStage, { force: true });
+        release?.();
+      } catch (cleanupError) {
+        if (published) retryStageCleanup(absoluteStage, release);
+        else {
+          release?.();
+          failure ??= { error: cleanupError };
+        }
+      }
+    } else release?.();
+    if (failure) throw failure.error;
   }
+}
+
+const STAGE_CLEANUP_RETRIES = 5;
+
+/** 已发布写入的暂存条目删不掉时在后台重试；删除成功后才解除暂存登记。 */
+function retryStageCleanup(absoluteStage: string, release: (() => void) | undefined, attempt = 1): void {
+  const timer = setTimeout(() => {
+    rm(absoluteStage, { force: true }).then(
+      () => release?.(),
+      () => {
+        // 放弃后仍保留登记，避免把留下的硬链接误报为外部改动。
+        if (attempt < STAGE_CLEANUP_RETRIES) retryStageCleanup(absoluteStage, release, attempt + 1);
+      },
+    );
+  }, 200 * attempt);
+  timer.unref();
 }
 
 function linkUnsupported(error: unknown): boolean {

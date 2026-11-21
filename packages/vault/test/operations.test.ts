@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,11 @@ import * as moves from "../src/rename.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof fsPromises>();
-  return { ...actual, link: vi.fn(actual.link) };
+  return { ...actual, link: vi.fn(actual.link), rm: vi.fn(actual.rm) };
+});
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, rmSync: vi.fn(actual.rmSync) };
 });
 
 import { createRequire } from "node:module";
@@ -66,6 +71,46 @@ describe("VaultFiles", () => {
     expect(results[1 - i]).toMatchObject({ status: "rejected", reason: { code: "NAME_CONFLICT" } });
     expect(readFileSync(path.join(root, "new.md"))).toEqual([first, second][i]);
     expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]);
+  });
+
+  test.each([
+    ["异步", false],
+    ["beforeCommit 同步", true],
+  ])("%s独占创建：目标已发布后暂存清理失败仍算成功，保留回执并稍后删除暂存", async (_name, sync) => {
+    const { root } = init();
+    const receipts = new ReceiptLog();
+    const files = new VaultFiles(root, receipts);
+    const busy = () => Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+    const stage = (target: unknown) => String(target).includes(".huhu-create-");
+    const rmAsync = vi.mocked(fsPromises.rm);
+    const rmSyncMock = vi.mocked(fs.rmSync);
+    const realRm = rmAsync.getMockImplementation()!;
+    const realRmSync = rmSyncMock.getMockImplementation()!;
+    let failures = 0;
+    rmAsync.mockImplementation(async (target, options) => {
+      if (!sync && stage(target) && failures++ === 0) throw busy();
+      return realRm(target, options);
+    });
+    rmSyncMock.mockImplementation((target, options) => {
+      if (sync && stage(target) && failures++ === 0) throw busy();
+      return realRmSync(target, options);
+    });
+    try {
+      const bytes = Buffer.from("published");
+      const result = await files.write("new.md", bytes, { expectedVersion: null, ...(sync ? { beforeCommit: () => undefined } : {}) });
+      expect(result.version).toBe(versionOf(bytes));
+      expect(read(root, "new.md")).toBe("published");
+      expect(failures).toBe(1);
+      const left = readdirSync(root).filter((name) => name.startsWith(".huhu-create-"));
+      expect(left).toHaveLength(1);
+      expect(receipts.isTemporaryFile(left[0]!)).toBe(true);
+      expect(receipts.consume("new.md", result.version)).toBe(true);
+      await vi.waitFor(() => expect(readdirSync(root).filter((name) => name.startsWith(".huhu-create-"))).toEqual([]), { timeout: 3000 });
+      expect(receipts.isTemporaryFile(left[0]!)).toBe(false);
+    } finally {
+      rmAsync.mockImplementation(realRm);
+      rmSyncMock.mockImplementation(realRmSync);
+    }
   });
 
   test.each(["EPERM", "EXDEV", "ENOTSUP"])("卷不支持硬链接时仍可独占发布（%s）", async (code) => {

@@ -18,6 +18,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "home-dashboard": ["home.dashboard.get"],
   "tool-access": ["gateway.get", "capabilities.list"],
   "automation-activation": ["automations.activations"],
+  "mail-ai-settings": ["mail.ai.getSettings"],
 };
 
 /** 事件到达时让相关查询失效。 */

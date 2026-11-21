@@ -155,7 +155,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | 依赖 | 来源与许可 | 用途 |
 | --- | --- | --- |
 | `d3-dsv@3.0.2` | Mike Bostock，ISC。锁文件保留发布包完整性摘要。 [发布包](https://registry.npmjs.org/d3-dsv/-/d3-dsv-3.0.2.tgz) | SSH 导入预览复用发布模块 `dist/d3-dsv.mjs` 的 `csvParseRows` 读取用户选中的 Netcatty CSV。Huhu 负责字段验证、凭据提示和端点冲突。 |
-| `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理 Windows Credential Manager 的精确数据键。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入原生包。 |
+| `@napi-rs/keyring@2.1.2`、`@napi-rs/keyring-win32-x64-msvc@2.1.2`、`@napi-rs/keyring-linux-x64-gnu@2.1.2`、`@napi-rs/keyring-darwin-arm64@2.1.2` | 上游 `52184fbebffeef8a061234f60f313c479b954f9f`，MIT，原生包附 `LICENSE.third-party.md`。 [发布元数据](https://registry.npmjs.org/@napi-rs%2Fkeyring/2.1.2) · [Entry 接口](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry.rs) | Engine 按可信 Vault 实例读取、创建与清理系统钥匙串中的精确数据键：Windows Credential Manager、macOS Keychain、Linux Secret Service（固定 `secret-service` 存储，不用内存 keyutils）。`apps/engine/src/module-credential-host.ts` 包装发布 API，桌面通过锁文件纳入对应平台的原生包，`electron-builder.yml` 按 `**/keyring.*.node` 解包。Linux x64 已实测；macOS、Windows 本轮未在当前候选实测。 |
 | `imapflow@2.12.1` | Postal Systems OÜ，MIT。 [发布包](https://registry.npmjs.org/imapflow/-/imapflow-2.12.1.tgz) · [许可证](https://github.com/postalsys/imapflow/blob/master/LICENSE.txt) | Mail 的 IMAP 登录和文件夹发现复用发布接口。桌面将此依赖作为 Node 模块随包分发，传递依赖由工作区锁文件固定。 |
 | `nodemailer@10.6.0` | Andris Reinman，MIT-0，按发布包固定版本与完整性摘要。 [发布包](https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.0.tgz) | Engine 装配 Mail SMTP 传输，调用发布的 `nodemailer/lib/smtp-connection` 与 `nodemailer/lib/mail-composer` 构造器。Mail 自行管理草稿认领、收件人投递证据和故障恢复。该版本没有运行时传递依赖。 |
 | `@zone-eu/mailsplit@5.4.31`、`parse5@8.1.1` | 本仓库已锁定的发布包。mailsplit 为 MIT OR EUPL-1.1+，parse5 为 MIT。 | Mail Engine 用 Splitter 解析 MIME 边界和传输编码。阅读器用 parse5 生成无网络副作用的数据树，按自身允许清单构造 React 节点。 |
@@ -168,7 +168,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ## 知识库移植的文件级来源
 
-- R-43 至 R-45 的 ORCA 文件和 R-46 至 R-51 与 R-54 的 OK vendor 文件按固定上游路径查询[逐文件清单与重放命令](.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/source-file-catalog.md)。
+- R-43 至 R-45 的 ORCA 文件和 R-46 至 R-51 与 R-71 的 OK vendor 文件按固定上游路径查询[逐文件清单与重放命令](.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/source-file-catalog.md)。
 - 初始依赖闭包保留在[归档 closure-manifest.json](.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/closure-manifest.json)。R-50 另见归档的 [vendor 测试结果](.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/vendor-test-results.md)。
 
 ## npm 运行时依赖
