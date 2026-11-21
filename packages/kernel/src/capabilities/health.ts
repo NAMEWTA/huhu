@@ -1,6 +1,9 @@
+import { isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
+import type { EventLog } from "../event-log.js";
 import type { PluginManager } from "../plugin-manager.js";
-import { defineCapability, type CapabilityRegistry } from "./define.js";
+import type { CapabilityRegistry } from "./define.js";
+import { registerKernelCapability } from "./system.js";
 
 export interface HealthDeps {
   plugins: PluginManager;
@@ -25,6 +28,24 @@ export interface HealthCheck {
 }
 
 const CheckDto = z.object({ id: z.string(), title: z.string(), status: z.enum(["ok", "warning", "error"]), detail: z.string(), action: z.object({ label: z.string(), target: z.string(), capability: z.string().optional() }).optional() });
+
+const diagnosticModules = new Set(["任务", "笔记", "档案", "收件箱", "自动化", "插件", "同步", "远程"]);
+const eventStatuses = { success: "操作完成", error: "操作出错", neutral: "状态已更新" };
+const checkStatuses = { ok: "正常", warning: "需要检查", error: "检查失败" };
+
+function publicEvents(events: EventLog, query: { limit?: number | undefined; module?: string | undefined; query?: string | undefined }) {
+  const recent = events.list({ limit: 1000, module: query.module });
+  const needle = query.query?.trim().toLowerCase();
+  return recent
+    .filter((event) => diagnosticModules.has(event.module) && Object.hasOwn(eventStatuses, event.tone))
+    .map(({ id, time, module, tone }) => ({ id, time, module, tone, message: eventStatuses[tone] }))
+    .filter((event) => !needle || `${event.module} ${event.message}`.toLowerCase().includes(needle))
+    .slice(0, query.limit ?? 100);
+}
+
+function publicChecks(checks: HealthCheck[]): HealthCheck[] {
+  return checks.map(({ id, title, status }) => ({ id, title, status, detail: checkStatuses[status] }));
+}
 
 /** 健康检查：只读，汇总各子系统的真实状态。 */
 export async function runHealth(d: HealthDeps): Promise<{ overall: "ok" | "warning" | "error"; checks: HealthCheck[] }> {
@@ -62,62 +83,64 @@ export async function runHealth(d: HealthDeps): Promise<{ overall: "ok" | "warni
 }
 
 export function registerHealthCapabilities(registry: CapabilityRegistry, d: HealthDeps): () => void {
-  const off = registry.register(
-    defineCapability({
-      name: "health.run",
-      plugin: "kernel",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({}),
-      output: z.object({ overall: z.enum(["ok", "warning", "error"]), checks: z.array(CheckDto) }),
-      handler: () => runHealth(d),
-    }),
-  );
+  const off = registerKernelCapability(registry, {
+    name: "health.run",
+    plugin: "kernel",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({}),
+    output: z.object({ overall: z.enum(["ok", "warning", "error"]), checks: z.array(CheckDto) }),
+    handler: async ({ caller }) => {
+      const result = await runHealth(d);
+      return isWorkbenchCaller(caller) ? result : { ...result, checks: publicChecks(result.checks) };
+    },
+  });
   const off2 = d.events
-    ? registry.register(
-        defineCapability({
-          name: "health.events",
-          plugin: "kernel",
-          scope: "read",
-          exposable: false,
-          defaultExposed: false,
-          input: z.object({ limit: z.number().int().min(1).max(1000).optional(), module: z.string().optional(), query: z.string().optional() }),
-          output: z.object({ events: z.array(z.object({ id: z.string(), time: z.string(), module: z.string(), message: z.string(), tone: z.enum(["success", "error", "neutral"]) })), modules: z.array(z.string()) }),
-          handler: (_c, i) => ({ events: d.events!.list(i), modules: d.events!.modules() }),
-        }),
-      )
+    ? registerKernelCapability(registry, {
+        name: "health.events",
+        plugin: "kernel",
+        scope: "read",
+        risk: "high",
+        exposable: true,
+        defaultExposed: false,
+        input: z.object({ limit: z.number().int().min(1).max(1000).optional(), module: z.string().optional(), query: z.string().optional() }),
+        output: z.object({ events: z.array(z.object({ id: z.string(), time: z.string(), module: z.string(), message: z.string(), tone: z.enum(["success", "error", "neutral"]) })), modules: z.array(z.string()) }),
+        handler: ({ caller }, i) =>
+          isWorkbenchCaller(caller) ? { events: d.events!.list(i), modules: d.events!.modules() } : { events: publicEvents(d.events!, i), modules: d.events!.modules().filter((module) => diagnosticModules.has(module)) },
+      })
     : () => undefined;
   // 诊断包：只含版本 / 模块状态 / 检查结果 / 事件记录（事件里是面向用户的一行描述），由引擎生成，不含笔记正文与凭据值
-  const off3 = registry.register(
-    defineCapability({
-      name: "health.exportDiagnostics",
-      plugin: "kernel",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({}),
-      output: z.object({
-        time: z.string(),
-        vault: z.object({ id: z.string(), readOnly: z.boolean(), counts: z.record(z.string(), z.number()) }),
-        plugins: z.array(z.object({ id: z.string(), version: z.string(), state: z.string(), error: z.string().optional() })),
-        overall: z.string(),
-        checks: z.array(CheckDto),
-        events: z.array(z.object({ time: z.string(), module: z.string(), message: z.string(), tone: z.string() })),
-      }),
-      handler: async () => {
-        const r = await runHealth(d);
-        return {
-          time: new Date().toISOString(),
-          vault: { id: d.vault.id, readOnly: d.vault.readOnly, counts: d.index.counts() },
-          plugins: d.plugins.list().map((p) => ({ id: p.id, version: p.manifest.version, state: p.state, ...(p.error ? { error: p.error } : {}) })),
-          overall: r.overall,
-          checks: r.checks,
-          events: (d.events?.list({ limit: 500 }) ?? []).map((e) => ({ time: e.time, module: e.module, message: e.message, tone: e.tone })),
-        };
-      },
+  const off3 = registerKernelCapability(registry, {
+    name: "health.exportDiagnostics",
+    plugin: "kernel",
+    scope: "read",
+    risk: "high",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({ module: z.string().optional() }),
+    output: z.object({
+      time: z.string(),
+      vault: z.object({ id: z.string(), readOnly: z.boolean(), counts: z.record(z.string(), z.number()) }),
+      plugins: z.array(z.object({ id: z.string(), version: z.string(), state: z.string(), error: z.string().optional() })),
+      overall: z.string(),
+      checks: z.array(CheckDto),
+      events: z.array(z.object({ time: z.string(), module: z.string(), message: z.string(), tone: z.string() })),
     }),
-  );
+    handler: async ({ caller }, { module }) => {
+      const workbench = isWorkbenchCaller(caller);
+      const r = await runHealth(d);
+      const events = !d.events ? [] : workbench ? d.events.list({ limit: 500, module }) : publicEvents(d.events, { limit: 500, module });
+      return {
+        time: new Date().toISOString(),
+        vault: { id: d.vault.id, readOnly: d.vault.readOnly, counts: d.index.counts() },
+        plugins: d.plugins.list().map((p) => ({ id: p.id, version: p.manifest.version, state: p.state, ...(workbench && p.error ? { error: p.error } : {}) })),
+        overall: r.overall,
+        checks: workbench ? r.checks : publicChecks(r.checks),
+        events: events.map(({ time, module, message, tone }) => ({ time, module, message, tone })),
+      };
+    },
+  });
   return () => {
     off();
     off2();
