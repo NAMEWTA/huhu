@@ -20,6 +20,7 @@ import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
 import { readResourceRoute } from "./public-resources.js";
+import { PublicSshProbes } from "./public-probes.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -50,6 +51,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     connectionPreferences: () => preferences.runtime().connection,
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
+  const publicProbes = new PublicSshProbes(api.vault.files, manager);
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -61,6 +63,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
   ctx.effect(() => () => {
+    publicProbes.dispose();
     monitors.dispose();
     forwarding.dispose();
     transfers.dispose();
@@ -79,6 +82,10 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesHostGet, (_c, i) => readResourceRoute(api.vault.files, i.hostId).view));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionStart, (context, input) => publicProbes.start(context, input)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionGet, (context, input) => publicProbes.read(context, input)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionList, (context) => publicProbes.list(context)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesTrustDecide, (context, input) => publicProbes.decide(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));

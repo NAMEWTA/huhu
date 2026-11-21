@@ -36,8 +36,12 @@ export function readResourceRoute(files: Files, hostId: string) {
           const row = ModuleCredentials.readPortableDefinition(files, "ssh", HostDefinition, id);
           if (!row) return undefined;
           const { format: _format, authKind, ...profile } = row.definition;
-          const authState: ManagedHost["authState"] = Object.fromEntries(purposes[authKind].map((purpose) => [purpose, row.configured.includes(purpose) ? "configured" : "unconfigured"]));
-          return { ...profile, id, revision: row.revision, auth: { kind: authKind, source: "ssh" }, authState, configured: false };
+          // Portable flags choose the required purposes. The actual credential
+          // and its availability are checked only when the executor takes a lease.
+          const required = purposes[authKind];
+          const authState: ManagedHost["authState"] = Object.fromEntries(required.map((purpose) => [purpose, row.configured.includes(purpose) ? "configured" : "unconfigured"]));
+          const configured = required.every((purpose) => purpose === "passphrase" || row.configured.includes(purpose));
+          return { ...profile, id, revision: row.revision, auth: { kind: authKind, source: "ssh" }, authState, configured };
         },
       },
       hostId,
