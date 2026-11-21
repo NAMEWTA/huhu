@@ -6,7 +6,7 @@ import { HerdrClient } from "@huhu/herdr-client";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PluginManager, createHuhuContext, type VaultServices } from "@huhu/kernel";
 import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
-import { agentEnvironmentDescriptors, apply } from "../src/engine/index.js";
+import { agentToolDescriptors, apply } from "../src/engine/index.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 
 import { fixtureCoreCli } from "./fixtures/core-cli.js";
@@ -67,7 +67,7 @@ test.skipIf(!bin)(
       let manager!: PluginManager;
       async function openEngine() {
         const registry = new CapabilityRegistry();
-        registry.declareDescriptors("agent-cli", Object.values(agentEnvironmentDescriptors));
+        registry.declareDescriptors("agent-cli", agentToolDescriptors);
         const events = new EventBus(() => vault.id);
         dispatcher = new Dispatcher({
           registry,

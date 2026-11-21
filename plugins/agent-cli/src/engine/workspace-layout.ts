@@ -2,7 +2,9 @@ import { setTimeout as wait } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
-import { defineCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, durableExternal, ExposureStore, toolSelection, type HuhuApi } from "@huhu/kernel";
+import path from "node:path";
+import { publicAgentTool } from "./tool-access.js";
 import { z } from "zod";
 import {
   WORKSPACE_DOCUMENT,
@@ -20,7 +22,7 @@ import {
   type WorkspaceTarget,
   type WorkspaceView,
 } from "../shared/workspace-layout.js";
-import type { LaunchInput, SessionsService } from "./sessions.js";
+import { sessionGeneration, type LaunchInput, type SessionsService } from "./sessions.js";
 import { launchHash } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
 
@@ -32,6 +34,8 @@ const closeInput = WorkspaceEditSchema.pick({ spaceId: true, baseVersion: true }
     leaf: z.string().min(1).max(128),
     sessionId: z.string().min(1).max(128).nullable(),
     terminate: z.boolean(),
+    spaceRevision: z.int().positive().optional(),
+    generation: z.string().optional(),
   })
   .strict();
 
@@ -119,8 +123,9 @@ class WorkspaceLayoutService {
     return { ...view, version, layout };
   }
 
-  update(spaceId: string, baseVersion: number, layout: SpaceLayout, signal: AbortSignal): Promise<WorkspaceView> {
+  update(spaceId: string, baseVersion: number, layout: SpaceLayout, signal: AbortSignal, spaceRevision?: number): Promise<WorkspaceView> {
     return this.operate(signal, async (active) => {
+      if (spaceRevision !== undefined) this.deps.spaces.validateForLaunch(spaceId, spaceRevision);
       const current = await this.current(spaceId);
       this.checkVersion(current.view, baseVersion);
       const known = new Set(this.deps.sessions.list(spaceId).map(({ id }) => id));
@@ -128,6 +133,7 @@ class WorkspaceLayoutService {
       for (const tab of layout.tabs) {
         for (const { sessionId } of leaves(tab.pane)) if (sessionId && !known.has(sessionId)) throw errors.invalidInput("只能绑定当前工作区的会话");
       }
+      if (spaceRevision !== undefined) this.deps.spaces.validateForLaunch(spaceId, spaceRevision);
       return this.save(current, layout, active);
     });
   }
@@ -163,9 +169,10 @@ class WorkspaceLayoutService {
     });
   }
 
-  close(input: z.infer<typeof closeInput>, signal: AbortSignal): Promise<WorkspaceView> {
+  close(input: z.infer<typeof closeInput>, signal: AbortSignal, authorizeTermination?: () => void): Promise<WorkspaceView> {
     return this.operate(signal, async (active) => {
-      const { spaceId, baseVersion, tab, leaf, sessionId, terminate } = input;
+      const { spaceId, baseVersion, tab, leaf, sessionId, terminate, spaceRevision, generation } = input;
+      if (spaceRevision !== undefined) this.deps.spaces.validateForLaunch(spaceId, spaceRevision);
       let current = await this.current(spaceId);
       this.checkVersion(current.view, baseVersion);
       const owner = current.view.layout.tabs.find(({ id }) => id === tab);
@@ -174,8 +181,10 @@ class WorkspaceLayoutService {
       if (terminate && sessionId) {
         const session = this.deps.sessions.get(sessionId);
         if (session.spaceId !== spaceId) throw errors.invalidInput("只能关闭当前工作区的会话");
+        authorizeTermination?.();
+        if (authorizeTermination && (!generation || sessionGeneration(session) !== generation)) throw new HuhuError("VERSION_CONFLICT", "分栏绑定的会话进程代次已变化");
         active.throwIfAborted();
-        if (session.state !== "exited") await this.deps.sessions.kill(sessionId);
+        if (session.state !== "exited") await this.deps.sessions.kill(sessionId, authorizeTermination && generation);
         for (let count = 0; this.deps.sessions.get(sessionId).state !== "exited"; count++) {
           if (count >= 16) throw new HuhuError("RUN_UNKNOWN", "尚未核实终端已退出，原分栏仍可查看");
           await this.deps.sessions.reconcile();
@@ -195,43 +204,67 @@ class WorkspaceLayoutService {
           return pane ? [{ ...entry, pane }] : [];
         }),
       };
+      if (spaceRevision !== undefined) this.deps.spaces.validateForLaunch(spaceId, spaceRevision);
       return this.save(current, next, active);
     });
   }
 }
 
-const scope = { plugin: "agent-cli", exposable: false, defaultExposed: false } as const;
+export const agentWorkspaceLayoutDescriptors = {
+  workspaceGet: defineCapabilityDescriptor({
+    ...publicAgentTool,
+    name: "agent.workspace.get",
+    scope: "read",
+    risk: "normal",
+    title: "读取工作区布局",
+    description: "查看选定 Space 的布局。",
+    input: WorkspaceEditSchema.pick({ spaceId: true }),
+    output: WorkspaceViewSchema,
+  }),
+  workspaceSave: defineCapabilityDescriptor({
+    ...publicAgentTool,
+    name: "agent.workspace.save",
+    scope: "write",
+    risk: "normal",
+    title: "保存工作区布局",
+    description: "按版本保存选定 Space 的布局。",
+    ...durableExternal,
+    input: WorkspaceEditSchema.extend({ spaceRevision: z.int().positive().optional() }),
+    output: WorkspaceViewSchema,
+  }),
+  workspaceClose: defineCapabilityDescriptor({
+    ...publicAgentTool,
+    name: "agent.workspace.close",
+    scope: "execute",
+    risk: "high",
+    title: "关闭工作区分栏",
+    description: "关闭选定分栏，可结束绑定的原进程。",
+    ...durableExternal,
+    input: closeInput,
+    output: WorkspaceViewSchema,
+  }),
+};
 
 export function registerWorkspaceLayout(api: HuhuApi, deps: WorkspaceDeps) {
   const service = new WorkspaceLayoutService(deps);
+  const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
+  api.defineCapability(bindCapability(agentWorkspaceLayoutDescriptors.workspaceGet, ({ caller }, { spaceId }) => service.read(spaceId, isWorkbenchCaller(caller))));
   api.defineCapability(
-    defineCapability({
-      ...scope,
-      name: "agent.workspace.get",
-      scope: "read",
-      input: WorkspaceEditSchema.pick({ spaceId: true }),
-      output: WorkspaceViewSchema,
-      handler: ({ caller }, { spaceId }) => service.read(spaceId, isWorkbenchCaller(caller)),
+    bindCapability(agentWorkspaceLayoutDescriptors.workspaceSave, ({ caller, signal }, { spaceId, baseVersion, layout, spaceRevision }) => {
+      if (!isWorkbenchCaller(caller) && spaceRevision === undefined) throw errors.invalidInput("请选择原 Space 版本");
+      return service.update(spaceId, baseVersion, layout, signal, spaceRevision);
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...scope,
-      name: "agent.workspace.save",
-      scope: "write",
-      input: WorkspaceEditSchema,
-      output: WorkspaceViewSchema,
-      handler: ({ signal }, { spaceId, baseVersion, layout }) => service.update(spaceId, baseVersion, layout, signal),
-    }),
-  );
-  api.defineCapability(
-    defineCapability({
-      ...scope,
-      name: "agent.workspace.close",
-      scope: "execute",
-      input: closeInput,
-      output: WorkspaceViewSchema,
-      handler: ({ signal }, input) => service.close(input, signal),
+    bindCapability(agentWorkspaceLayoutDescriptors.workspaceClose, ({ caller, delegatedBy, signal }, input) => {
+      if (isWorkbenchCaller(caller) && !delegatedBy) return service.close(input, signal);
+      if (input.spaceRevision === undefined) throw errors.invalidInput("请选择原 Space 版本");
+      const authorizeTermination = () => {
+        if (delegatedBy) throw errors.permissionDenied("扩展命令终止工作区进程");
+        if (toolSelection(exposure.snapshot(), "agent.sessions.kill") !== true) throw errors.capabilityNotExposed("agent.sessions.kill");
+      };
+      if (input.terminate && input.sessionId) authorizeTermination();
+      return service.close(input, signal, authorizeTermination);
     }),
   );
   return service;

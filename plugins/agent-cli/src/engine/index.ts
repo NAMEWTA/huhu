@@ -1,9 +1,11 @@
 import type { Context } from "@huhu/cordis";
-import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapability as def, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
+import { isAgentTool, vaultWorkspaceDirectory, workspaceStamp } from "./tool-access.js";
 import { errors, HuhuError } from "@huhu/contracts";
-import { machineId } from "@huhu/vault";
+import { machineId, protectedKindOf } from "@huhu/vault";
 import path from "node:path";
 import { z } from "zod";
+import { mainAgentDescriptors, type HistoryLaunchInput, type HistoryReference, type HistoryScope, type SessionSelection } from "./capabilities.js";
 import { HerdrCore } from "./herdr-core.js";
 import { isValidNativeId, isWithin, readSelectedHistory, scanHistory, type HistoryEntry } from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
@@ -12,28 +14,29 @@ import { PinStore } from "./pins.js";
 import { AgentDetector, supportsPiHistory } from "./detect.js";
 import { resolveAgentLaunch } from "./launch.js";
 import { AgentSettingsStore } from "./settings.js";
-import { AgentSettingsEntry } from "../shared/settings.js";
+import type { AgentSettingsFile } from "../shared/settings.js";
 import { WaitingWatcher } from "./waiting.js";
-import { publicSession, SessionsService, type LaunchInput, type SessionRecord } from "./sessions.js";
+import { publicSession, sessionGeneration, SessionsService, type LaunchInput, type SessionRecord } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
 import { SpaceStore } from "./spaces.js";
 import { AgentDispatch, type DispatchProvider } from "./dispatch.js";
 import { AgentDispatchStore } from "./dispatch-store.js";
 import { registerDispatch } from "./dispatch-capabilities.js";
 import { InputOwnership } from "./input-ownership.js";
-import type { AgentId } from "../shared/catalog.js";
+import { agentById, type AgentId } from "../shared/catalog.js";
 import { CodexDispatch, type CodexDispatchOptions } from "./codex-dispatch.js";
 import { ExecutionReceipts, pollExecutionReceipts } from "./execution-receipts.js";
 import { registerAgentEnvironments, type AgentCredentialHost } from "./launch-environment.js";
 import { ProtectedLaunch } from "./protected-launch.js";
 import { launchHash } from "./launch-binding.js";
-import { sessionPlacement, WORKSPACE_DOCUMENT, WorkspaceLaunchViewSchema, WorkspaceTargetSchema } from "../shared/workspace-layout.js";
+import { sessionPlacement, WORKSPACE_DOCUMENT } from "../shared/workspace-layout.js";
 import { registerWorkspaceLayout } from "./workspace-layout.js";
 import { InteractiveEnvironment } from "./interactive-environment.js";
-import { SpaceSchema, spaceCanLaunch } from "../shared/space.js";
+import { spaceCanLaunch } from "../shared/space.js";
 import { registerWorkspaceFiles } from "./workspace-files.js";
 import { registerWorkspaceWorktrees } from "./workspace-worktrees.js";
 
+export { agentToolDescriptors } from "./capabilities.js";
 export { HerdrCore } from "./herdr-core.js";
 export { SessionsService } from "./sessions.js";
 export { createTerminalBridge, type TerminalBridge } from "./terminal-bridge.js";
@@ -44,7 +47,13 @@ export { SpaceStore } from "./spaces.js";
 export { AgentDispatchTargetInfoSchema, AgentDispatchResponseSchema } from "./dispatch-capabilities.js";
 export { DispatchInput as AgentDispatchInputSchema, DispatchTarget as AgentDispatchTargetSchema } from "./dispatch-store.js";
 export { NativeStop as AgentNativeStopInputSchema, NativeStopStatus as AgentNativeStopStatusSchema } from "./native-stop.js";
-export { agentEnvironmentDescriptors } from "./launch-environment.js";
+
+function summarizeSettings(settings: AgentSettingsFile): AgentSettingsFile {
+  return {
+    ...settings,
+    agents: Object.fromEntries(Object.entries(settings.agents).map(([id, { command: _command, env: _env, args: _args, ...summary }]) => [id, summary])),
+  };
+}
 
 export interface AgentCliOptions {
   /** 历史扫描的 HOME 与环境（测试用；缺省为进程的真实值）。 */
@@ -124,7 +133,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   });
   const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
-  const dispatch = new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, ownership, store: dispatchStore, providers, signal: lifetime.signal });
+  const dispatch = new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, detector, ownership, store: dispatchStore, providers, signal: lifetime.signal });
   registerDispatch(api, dispatch);
   if (opts.codexDispatch && !api.vault.files.readOnly) {
     const receipts = new ExecutionReceipts(path.join(opts.codexDispatch.root, "agent-receipts"), { vaultId, machineId: mid });
@@ -185,7 +194,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     },
     readCore: async (start) => {
       const client = await core.workspaceConnection(start);
-      if (client) waiting.poke();
+      if (client && start) waiting.poke();
       return client;
     },
     spaces,
@@ -194,356 +203,280 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     signal: lifetime.signal,
   });
 
-  api.defineCapability(def({ name: "agent.spaces.list", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: z.array(SpaceSchema), handler: () => spaces.list() }));
+  const writable = () => api.vault.files.assertWritable();
+  const checkedSession = ({ caller }: CapabilityContext, id: string, selection: z.infer<typeof SessionSelection>, check: "binding" | "version" | "space") => {
+    if (!isAgentTool(caller)) return;
+    const session = sessions.get(id);
+    if (!selection.spaceId || selection.spaceId !== session.spaceId || selection.spaceRevision === undefined) throw errors.notFound("没有找到选定 Space 的会话");
+    const space = spaces.validateForLaunch(selection.spaceId, selection.spaceRevision);
+    vaultWorkspaceDirectory(space.root, session.cwd);
+    if (check === "binding" && (!selection.generation || sessionGeneration(session) !== selection.generation)) throw new HuhuError("VERSION_CONFLICT", "会话进程代次已变化或无法核实");
+    if (check === "version" && selection.expectedRevision !== launchHash(session)) throw errors.versionConflict(launchHash(session));
+    return session;
+  };
+  const sessionView = (c: CapabilityContext, session: SessionRecord) => {
+    const view = publicSession(session);
+    if (!isAgentTool(c.caller)) return view;
+    const { command: _command, error: _error, waiting: _waiting, reviewComments: _comments, ...safe } = view;
+    const generation = sessionGeneration(session);
+    const name = session.command && safe.name.startsWith("命令：") ? "终端命令" : safe.name;
+    return { ...safe, name, ...(generation && { generation }), spaceRevision: spaces.get(session.spaceId).revision, revision: launchHash(session) };
+  };
+  const launchKey = (c: CapabilityContext, requestId: string) => {
+    if (!isAgentTool(c.caller)) return requestId;
+    if (!/^[A-Za-z0-9_-]{8,110}$/.test(requestId)) throw errors.invalidInput("请求标识无效");
+    return `tool-${launchHash([c.subject, requestId])}`;
+  };
+  const externalLaunch = <T extends LaunchInput>(c: CapabilityContext, launch: T): T => {
+    if (!isAgentTool(c.caller)) return launch;
+    writable();
+    if (launch.command !== undefined || launch.shell !== undefined) throw errors.permissionDenied("自定义终端命令");
+    const space = spaces.validateForLaunch(launch.spaceId, launch.spaceRevision);
+    vaultWorkspaceDirectory(space.root, launch.cwd ?? space.root);
+    return { ...launch, requestId: launchKey(c, launch.requestId) };
+  };
+  const replayableSession = (c: CapabilityContext, session: SessionRecord, requestId: string) => {
+    const projected = sessionView(c, session);
+    return isAgentTool(c.caller) ? { ...projected, requestId } : projected;
+  };
+  api.defineCapability(bindCapability(mainAgentDescriptors.spacesList, () => spaces.list()));
   api.defineCapability(
-    def({
-      name: "agent.spaces.save",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ id: z.string().optional(), name: z.string(), root: z.string(), expectedRevision: z.number().optional() }),
-      output: SpaceSchema,
-      handler: (_c, i) => spaces.save({ name: i.name, root: i.root, ...(i.id ? { id: i.id } : {}), ...(i.expectedRevision !== undefined ? { expectedRevision: i.expectedRevision } : {}) }),
+    bindCapability(mainAgentDescriptors.spacesSave, ({ caller }, i) => {
+      const external = isAgentTool(caller);
+      if (external && !i.id && i.expectedRevision !== undefined) throw errors.invalidInput("新建 Space 时不应指定已有版本");
+      const existing = external && i.id ? spaces.get(i.id) : undefined;
+      if (existing && existing.revision !== i.expectedRevision) throw errors.versionConflict(String(existing.revision));
+      const directory = external && (!spaceCanLaunch(existing) || existing?.root !== i.root) ? vaultWorkspaceDirectory(root, i.root) : i.root;
+      if (existing?.root !== directory && existing && sessions.list(existing.id).some((s) => s.state === "running" || s.state === "launching" || s.state === "unknown")) {
+        throw errors.invalidInput("这个 Space 还有运行中或待核实的会话");
+      }
+      return spaces.save({ name: i.name, root: directory, ...(i.id ? { id: i.id } : {}), ...(i.expectedRevision !== undefined ? { expectedRevision: i.expectedRevision } : {}) });
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.spaces.delete",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ id: z.string() }),
-      output: z.object({ ok: z.literal(true) }),
-      handler: async (_c, i) => {
-        await sessions.reconcile();
-        if (sessions.list(i.id).some((x) => x.state === "running" || x.state === "launching")) throw errors.invalidInput("这个 Space 还有运行中的会话，请先结束它们再删除");
-        spaces.delete(i.id);
-        pins.clear(i.id);
-        return { ok: true as const };
-      },
+    bindCapability(mainAgentDescriptors.spacesDelete, async ({ caller, signal }, i) => {
+      writable();
+      const external = isAgentTool(caller);
+      if (external) {
+        const current = spaces.get(i.id);
+        if (i.expectedRevision !== current.revision) throw errors.versionConflict(String(current.revision));
+      } else await sessions.reconcile();
+      signal.throwIfAborted();
+      if (sessions.list(i.id).some((x) => x.state === "running" || x.state === "launching" || (external && x.state === "unknown"))) {
+        throw errors.invalidInput("这个 Space 还有运行中或待核实的会话，请先核对再删除");
+      }
+      spaces.delete(i.id);
+      pins.clear(i.id);
+      return { ok: true as const };
     }),
   );
-  const DetectOut = z.object({
-    id: z.string(),
-    displayName: z.string(),
-    installed: z.boolean(),
-    skipped: z.literal(true).optional(),
-    path: z.string().optional(),
-    version: z.string().optional(),
-    via: z.enum(["path", "installDir", "override"]).optional(),
-    headless: z.boolean(),
-    detectedAt: z.string(),
-  });
+  api.defineCapability(bindCapability(mainAgentDescriptors.catalogDetect, (_c, i) => detector.detect(i.refresh === true)));
   api.defineCapability(
-    def({
-      name: "agent.catalog.detect",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ refresh: z.boolean().optional() }),
-      output: z.array(DetectOut),
-      handler: (_c, i) => detector.detect(i.refresh === true),
-    }),
-  );
-  const SettingsOut = z.object({
-    settings: z.object({ schema: z.literal(1), revision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
-    warning: z.string().optional(),
-  });
-  api.defineCapability(def({ name: "agent.settings.get", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: z.object({}), output: SettingsOut, handler: () => settingsStore.read() }));
-  api.defineCapability(
-    def({
-      name: "agent.settings.update",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ expectedRevision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
-      output: SettingsOut.shape.settings,
-      handler: (_c, i) => {
-        const out = settingsStore.write({ defaultAgent: i.defaultAgent, ...(i.waitingTasks !== undefined ? { waitingTasks: i.waitingTasks } : {}), agents: i.agents }, i.expectedRevision);
-        detector.invalidate(); // command / enabled 可能变了，旧检测结果不再可信
-        return out;
-      },
-    }),
-  );
-  const LaunchTarget = z.object({
-    spaceId: z.string(),
-    spaceRevision: z.number(),
-    provider: z.enum(["claude", "codex", "pi", "shell"]),
-    model: z.string().optional(),
-    effort: z.string().optional(),
-    fast: z.boolean().optional(),
-    prompt: z.string().optional(),
-    cwd: z.string().optional(),
-    /** 终端命令（automations 的 terminal 动作）：provider 必须是 shell；解释规则来自 shell。 */
-    command: z.string().min(1).max(4000).optional(),
-    shell: z.enum(["default", "bash", "zsh", "sh", "powershell", "cmd"]).optional(),
-  });
-  const EnvironmentSelection = z.strictObject({ id: z.uuidv4(), revision: z.uuidv4() });
-  const ApprovedEnvironment = EnvironmentSelection.extend({ approval: z.string().regex(/^[0-9a-f]{64}$/) });
-  const InteractiveTarget = LaunchTarget.omit({ command: true, shell: true });
-  const WorkspaceLaunch = InteractiveTarget.extend({
-    requestId: z.string().regex(/^[A-Za-z0-9_-]{8,110}$/),
-    baseVersion: z.int().nonnegative(),
-    target: WorkspaceTargetSchema,
-  }).strict();
-  api.defineCapability(
-    def({
-      name: "agent.launch.environments.preview",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      desktopOnly: true,
-      input: InteractiveTarget.extend({ environment: EnvironmentSelection }).strict(),
-      output: z.strictObject({ environment: ApprovedEnvironment, cwd: z.string(), argv: z.array(z.string()), ordinaryNames: z.array(z.string()), protectedNames: z.array(z.string()) }),
-      handler: (_c, { environment, ...input }) => sessions.previewEnvironment(input, environment),
-    }),
-  );
-  const SessionPreview = z.object({ machineId: z.string(), cwd: z.string(), command: z.string().nullable(), argv: z.array(z.string()) });
-  api.defineCapability(
-    def({
-      name: "agent.launch.resolve",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.union([
-        z.strictObject({ session: LaunchTarget }),
-        z.object({
-          agentId: z.string(),
-          mode: z.enum(["interactive", "headless"]),
-          model: z.string().optional(),
-          effort: z.string().optional(),
-          fast: z.boolean().optional(),
-          prompt: z.string().optional(),
-          sessionId: z.string().optional(),
-          resume: z.string().optional(),
-          draft: AgentSettingsEntry.optional(),
-          preview: z.boolean().optional(),
-        }),
-      ]),
-      output: z.union([
-        SessionPreview,
-        z.object({ command: z.string(), argv: z.array(z.string()), env: z.record(z.string(), z.string()), stdin: z.string().optional(), warnings: z.array(z.string()), unsupported: z.literal("headless").optional() }),
-      ]),
-      handler: (_c, i) => ("session" in i ? sessions.preview(i.session) : resolve(i)),
-    }),
-  );
-
-  const Session = z.object({
-    id: z.string(),
-    spaceId: z.string(),
-    provider: z.string(),
-    model: z.string().nullable(),
-    state: z.string(),
-    requestId: z.string(),
-    terminalId: z.string().nullable(),
-    name: z.string(),
-    cwd: z.string(),
-    createdAt: z.string(),
-    nativeSessionId: z.string().optional(),
-    exitCode: z.number().nullable().optional(),
-    exitedAt: z.string().optional(),
-    error: z.string().optional(),
-    command: z.string().optional(),
-    hasEnv: z.boolean().optional(),
-    waiting: z
-      .object({
-        n: z.number(),
-        active: z.boolean(),
-        expired: z.boolean().optional(),
-        kind: z.string().nullable(),
-        msg: z.string().nullable(),
-        app: z.string().nullable(),
-        since: z.string(),
-        taskId: z.string().optional(),
-        taskRun: z.object({ taskId: z.string(), runId: z.string() }).optional(),
-        handled: z.number().optional(),
-      })
-      .optional(),
-  });
-  const Id = z.object({ id: z.string() });
-  const Ok = z.object({ ok: z.literal(true) });
-  api.defineCapability(
-    def({
-      name: "agent.sessions.recover",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: Id.strict(),
-      output: Session,
-      handler: async ({ signal }, { id }) => publicSession(await sessions.recover(id, signal)),
+    bindCapability(mainAgentDescriptors.settingsGet, ({ caller }) => {
+      const current = settingsStore.read();
+      return isAgentTool(caller) ? { ...current, settings: summarizeSettings(current.settings) } : current;
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.sessions.launch",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      input: LaunchTarget.extend({ requestId: z.string().min(8) }).strict(),
-      output: Session,
-      handler: async (c, i) => {
-        if (i.command !== undefined && i.provider !== "shell") throw errors.invalidInput("只有终端会话可以运行指定命令");
-        const s = await sessions.launch(i, c.signal);
-        waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
-        return publicSession(s);
-      },
+    bindCapability(mainAgentDescriptors.settingsUpdate, ({ caller, parentOperationId }, i) => {
+      writable();
+      const external = isAgentTool(caller);
+      if (external) {
+        for (const [id, entry] of Object.entries(i.agents)) {
+          if (!agentById(id)) throw errors.invalidInput("未知的 Agent 配置");
+          if (entry.command?.trim() && !detector.locate(id, { ...settingsStore.get(), agents: { [id]: { ...entry, enabled: true } } })) {
+            throw errors.invalidInput("本机找不到配置的 Agent 命令");
+          }
+        }
+      }
+      const out = settingsStore.write({ defaultAgent: i.defaultAgent, ...(i.waitingTasks !== undefined ? { waitingTasks: i.waitingTasks } : {}), agents: i.agents }, i.expectedRevision);
+      detector.invalidate(); // command / enabled 可能变了，旧检测结果不再可信
+      return external || parentOperationId ? summarizeSettings(out) : out;
+    }),
+  );
+  const environmentPreview = new Map<string, { input: string; view: Awaited<ReturnType<SessionsService["previewEnvironment"]>> }>();
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.launchEnvironmentsPreview, async ({ caller }, { environment, ...input }) => {
+      const key = launchHash([input, environment, settingsStore.get().revision]);
+      if (isAgentTool(caller)) {
+        const space = spaces.validateForLaunch(input.spaceId, input.spaceRevision);
+        vaultWorkspaceDirectory(space.root, input.cwd ?? space.root);
+        const snapshot = environmentPreview.get(environment.id);
+        if (snapshot?.input !== key) throw errors.notFound("当前环境没有可核实的本机启动预览");
+        const { argv, ...view } = snapshot.view;
+        return { ...view, environment, argv: argv.length ? [argv[0]!, "…"] : [] };
+      }
+      const view = await sessions.previewEnvironment(input, environment);
+      environmentPreview.set(environment.id, { input: key, view });
+      return view;
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.workspace.launch",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      input: WorkspaceLaunch,
-      output: WorkspaceLaunchViewSchema,
-      handler: async ({ signal }, { baseVersion, target, ...launch }) => {
-        const view = await workspaceLayout.launch(launch, target, baseVersion, signal);
-        waiting.poke();
-        return view;
-      },
+    bindCapability(mainAgentDescriptors.launchResolve, async ({ caller }, { session, agentId, mode, ...options }) => {
+      const external = isAgentTool(caller);
+      if (session) {
+        if (agentId !== undefined || mode !== undefined || Object.keys(options).length) throw errors.invalidInput("请选择一种启动预览");
+        if (!external) return sessions.preview(session);
+        if (session.command !== undefined) throw errors.permissionDenied("自定义终端命令预览");
+        const space = spaces.validateForLaunch(session.spaceId, session.spaceRevision);
+        vaultWorkspaceDirectory(space.root, session.cwd ?? space.root);
+        const view = await sessions.preview(session);
+        return { ...view, argv: session.provider !== "shell" && settingsStore.get().agents[session.provider]?.args ? ["…"] : view.argv };
+      }
+      if (!agentId || !mode) throw errors.invalidInput("请指定 Agent 和启动模式");
+      const resolved = await resolve({ agentId, mode, ...options });
+      if (!external) return resolved;
+      const { env: _env, stdin: _stdin, ...view } = resolved;
+      return { ...view, argv: (options.draft ?? settingsStore.get().agents[agentId])?.args ? ["…"] : view.argv, env: {} };
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.workspace.launchProtected",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      desktopOnly: true,
-      input: WorkspaceLaunch.extend({ environment: ApprovedEnvironment }),
-      output: WorkspaceLaunchViewSchema,
-      handler: async ({ signal }, { baseVersion, target, ...launch }) => {
-        const view = await workspaceLayout.launch(launch, target, baseVersion, signal);
-        waiting.poke();
-        return view;
-      },
+    bindCapability(mainAgentDescriptors.sessionsRecover, async (c, i) => {
+      writable();
+      const selected = checkedSession(c, i.id, i, "space");
+      if (selected && (!i.requestId || selected.requestId !== launchKey(c, i.requestId))) throw errors.notFound("原启动请求不属于当前工具会话");
+      const session = await sessions.recover(i.id, c.signal);
+      return replayableSession(c, session, i.requestId ?? session.requestId);
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.sessions.output",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ id: z.string(), lines: z.number().int().min(1).max(2000).optional() }),
-      output: z.object({ text: z.string(), complete: z.boolean() }),
-      handler: (_c, i) => sessions.output(i.id, i.lines ?? 200),
+    bindCapability(mainAgentDescriptors.sessionsLaunch, async (c, i) => {
+      if (i.command !== undefined && i.provider !== "shell") throw errors.invalidInput("只有终端会话可以运行指定命令");
+      const s = await sessions.launch(externalLaunch(c, i), c.signal);
+      waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
+      return replayableSession(c, s, i.requestId);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.workspaceLaunch, async (c, { baseVersion, target, ...launch }) => {
+      const view = await workspaceLayout.launch(externalLaunch(c, launch), target, baseVersion, c.signal);
+      waiting.poke();
+      return view;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.workspaceLaunchProtected, async (c, { baseVersion, target, ...launch }) => {
+      const authorized = externalLaunch(c, launch);
+      if (isAgentTool(c.caller) && !sessions.hasLaunchAttempt(authorized.requestId)) {
+        const {
+          environment: { approval, ...environment },
+          requestId: _requestId,
+          ...input
+        } = launch;
+        const snapshot = environmentPreview.get(environment.id);
+        if (snapshot?.input !== launchHash([input, environment, settingsStore.get().revision]) || snapshot.view.environment.approval !== approval) {
+          throw errors.permissionDenied("使用未经本机工作台核对的受保护启动计划");
+        }
+      }
+      const view = await workspaceLayout.launch(authorized, target, baseVersion, c.signal);
+      waiting.poke();
+      return view;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.sessionsOutput, (c, i) => {
+      const selected = checkedSession(c, i.id, i, "binding");
+      if (!selected) return sessions.output(i.id, i.lines);
+      if (selected.launchReceipt?.attempt?.nativeStatus) return { text: "受保护启动的输出仅在原工作区终端可看", complete: false };
+      const observer = core.connected;
+      if (!observer) return { text: "当前连接无法核对原终端输出", complete: false };
+      return sessions.output(i.id, i.lines, observer);
     }),
   );
   api.defineCapability(
     def({
       name: "agent.sessions.release",
       plugin: "agent-cli",
-      scope: "write",
+      scope: "execute",
       idempotency: "handler",
       exposable: false,
       defaultExposed: false,
       input: z.object({ id: z.string(), requestId: z.string().min(1) }),
       output: z.object({ ok: z.literal(true) }),
-      handler: async (c, i) => (await sessions.release(i.id, i.requestId, c.signal), { ok: true as const }),
+      handler: async (c, i) => {
+        if (c.caller !== "plugin:automations") throw errors.permissionDenied("自动化终端清理");
+        await sessions.release(i.id, i.requestId, c.signal);
+        return { ok: true as const };
+      },
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.sessions.list",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({ spaceId: z.string().optional() }),
-      output: z.array(Session),
-      handler: async (_c, i) => {
+    bindCapability(mainAgentDescriptors.sessionsList, async (c, i) => {
+      if (!isAgentTool(c.caller)) {
         await sessions.reconcile();
         return sessions.list(i.spaceId).map(publicSession);
-      },
+      }
+      if (i.spaceId) spaces.get(i.spaceId);
+      const known = new Map(
+        spaces
+          .list()
+          .filter(spaceCanLaunch)
+          .map((space) => [space.id, space.root]),
+      );
+      return sessions.list(i.spaceId).flatMap((session) => {
+        const directory = known.get(session.spaceId);
+        if (!directory) return [];
+        try {
+          vaultWorkspaceDirectory(directory, session.cwd);
+          return [sessionView(c, session)];
+        } catch {
+          return [];
+        }
+      });
     }),
   );
   api.defineCapability(
-    def({ name: "agent.sessions.interrupt", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.interrupt(i.id), { ok: true as const }) }),
-  );
-  api.defineCapability(
-    def({ name: "agent.sessions.kill", plugin: "agent-cli", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: Ok, handler: async (_c, i) => (await sessions.kill(i.id), { ok: true as const }) }),
-  );
-  api.defineCapability(
-    def({
-      name: "agent.sessions.rename",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: Id.extend({ name: z.string() }),
-      output: Session,
-      handler: (_c, i) => publicSession(sessions.rename(i.id, i.name)),
+    bindCapability(mainAgentDescriptors.sessionsInterrupt, async (c, i) => {
+      writable();
+      const selected = checkedSession(c, i.id, i, "binding");
+      await sessions.interrupt(i.id, selected && i.generation);
+      return { ok: true as const };
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.core.status",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({}),
-      output: z.object({ state: z.string(), version: z.string().nullable(), error: z.string().optional() }),
-      handler: () => core.statusIfRunning(),
+    bindCapability(mainAgentDescriptors.sessionsKill, async (c, i) => {
+      writable();
+      const selected = checkedSession(c, i.id, i, "binding");
+      await sessions.kill(i.id, selected && i.generation);
+      return { ok: true as const };
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.core.restart",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({}),
-      output: z.object({ state: z.string(), version: z.string().nullable(), error: z.string().optional() }),
-      handler: async () => {
+    bindCapability(mainAgentDescriptors.sessionsRename, (c, i) => {
+      writable();
+      checkedSession(c, i.id, i, "version");
+      return sessionView(c, sessions.rename(i.id, i.name));
+    }),
+  );
+  api.defineCapability(bindCapability(mainAgentDescriptors.coreStatus, ({ caller }) => core.statusIfRunning(!isAgentTool(caller))));
+  let restarting = false;
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.coreRestart, async ({ caller, signal }, { expectedCoreId, expectedPid }) => {
+      writable();
+      const external = isAgentTool(caller);
+      if (restarting) throw errors.invalidInput("Core 正在重启");
+      restarting = true;
+      try {
+        if (external) {
+          if (expectedCoreId === undefined || (expectedCoreId === null) !== (expectedPid === undefined)) throw errors.invalidInput("请提供 Core 标识和进程编号，空闲时标识为 null");
+          await core.assertInstance(expectedCoreId, expectedPid);
+        }
+        signal.throwIfAborted();
         await core.stop();
-        await core.ensure().catch(() => undefined);
+        if (external) {
+          await core.ensure().catch(() => undefined);
+          const current = await core.statusIfRunning(false);
+          if (current.state !== "connected" || (expectedCoreId !== null && (current.coreId !== expectedCoreId || current.pid === expectedPid))) {
+            throw new HuhuError("RUN_UNKNOWN", "无法核实受管 Core 的重启结果", { details: { outcome: "unknown" } });
+          }
+          return current;
+        }
         return core.status();
-      },
+      } finally {
+        restarting = false;
+      }
     }),
   );
-  const HistoryProvider = z.enum(["claude", "codex", "pi"]);
-  const HistoryScope = z.object({ spaceId: z.string(), allSpaces: z.boolean().default(false) });
-  const HistoryReference = HistoryScope.extend({
-    provider: HistoryProvider,
-    nativeSessionId: z.string(),
-    historyId: z
-      .string()
-      .regex(/^[a-f0-9]{64}$/)
-      .optional(),
-    historyRevision: z
-      .string()
-      .regex(/^[a-f0-9]{64}$/)
-      .optional(),
-  });
-  const Entry = z.object({
-    provider: HistoryProvider,
-    historyId: z.string(),
-    revision: z.string(),
-    nativeSessionId: z.string(),
-    cwd: z.string(),
-    title: z.string(),
-    updatedAt: z.string(),
-    active: z.boolean(),
-    possiblyActive: z.boolean(),
-    pinned: z.boolean(),
-    canResume: z.boolean(),
-    canFork: z.boolean(),
-  });
   const spaceOf = (id: string) => {
     const sp = spaces.list().find((x) => x.id === id);
     if (!sp) throw errors.notFound("Space 不存在");
@@ -582,18 +515,26 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const matchesHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && session.historyId === e.historyId;
   const mayBeSameHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && path.relative(session.cwd, e.cwd) === "";
   const blocksHistoryLaunch = (session: SessionRecord) => session.state === "running" || session.state === "launching" || session.state === "unknown";
-  function historyReference(i: z.infer<typeof HistoryReference>) {
+  function historyReference(c: CapabilityContext, i: z.infer<typeof HistoryReference>) {
+    if (isAgentTool(c.caller) && (!i.historyId || !i.historyRevision || i.allSpaces)) throw errors.invalidInput("请选择指定 Space 内的历史记录及其版本");
     if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
     const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
     const selected = i.historyId ? matches.find((e) => e.historyId === i.historyId) : matches.length === 1 ? matches[0] : undefined;
     if (!selected) throw errors.notFound(matches.length > 1 ? "会话标识不唯一，请重新选择历史记录" : "没有找到这个历史会话");
+    if (isAgentTool(c.caller)) {
+      if (selected.revision !== i.historyRevision) throw errors.versionConflict(selected.revision);
+      vaultWorkspaceDirectory(spaceOf(i.spaceId).root, selected.cwd);
+    }
     return { selected, unique: matches.length === 1 };
   }
-  const HistoryLaunchInput = HistoryReference.extend({ spaceRevision: z.number(), requestId: z.string(), action: z.enum(["resume", "fork"]).default("resume") });
-  async function launchHistory<T>(i: z.infer<typeof HistoryLaunchInput>, launch: (input: LaunchInput) => Promise<T>): Promise<T> {
-    await sessions.reconcile();
+  async function launchHistory<T>(c: CapabilityContext, input: z.infer<typeof HistoryLaunchInput>, launch: (input: LaunchInput) => Promise<T>): Promise<T> {
+    writable();
+    const i = { ...input, requestId: launchKey(c, input.requestId) };
     const sp = spaceOf(i.spaceId);
-    const { selected: hit } = historyReference(i);
+    const { selected: hit } = historyReference(c, i);
+    spaces.validateForLaunch(i.spaceId, i.spaceRevision);
+    await sessions.reconcile();
+    c.signal.throwIfAborted();
     if (!canOpenHistory(hit)) throw errors.invalidInput("当前原生 CLI 无法绑定这个历史文件，此记录仅可预览");
     const cwd = i.action === "fork" && hit.provider === "pi" ? sp.root : hit.cwd;
     if (!isWithin(sp.root, cwd)) throw errors.invalidInput("原目录不在目标 Space 内，请选择原 Space");
@@ -613,210 +554,149 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     }
   }
   api.defineCapability(
-    def({
-      name: "agent.history.list",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: HistoryScope.extend({
-        provider: HistoryProvider.optional(),
-        query: z.string().trim().max(256).default(""),
-        filter: z.enum(["all", "active", "resumable"]).default("all"),
-        offset: z.number().int().min(0).default(0),
-        limit: z.number().int().min(1).max(500).default(100),
-      }),
-      output: z.object({ entries: z.array(Entry), skipped: z.number(), total: z.number(), nextOffset: z.number().nullable(), limitedProviders: z.array(HistoryProvider) }),
-      handler: async (_c, i) => {
-        const roots = historyRoots(i);
-        const targetRoot = spaceOf(i.spaceId).root;
-        await sessions.reconcile(); // 已结束的会话不再算“运行中”
-        const live = new Map<string, SessionRecord[]>();
-        for (const session of sessions.list()) {
-          if (!blocksHistoryLaunch(session) || !session.nativeSessionId) continue;
-          const key = `${session.provider}:${session.nativeSessionId}`;
-          const matches = live.get(key) ?? [];
-          matches.push(session);
-          live.set(key, matches);
-        }
-        const r = scanCached(roots);
-        const pinned = pins.list(i.spaceId);
-        const counts = new Map<string, number>();
-        for (const entry of r.entries) counts.set(nativeKey(entry), (counts.get(nativeKey(entry)) ?? 0) + 1);
-        const query = i.query.normalize("NFC").toLowerCase();
-        const all = r.entries
-          .filter((e) => (!i.provider || e.provider === i.provider) && (!query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query))))
-          .map((entry) => {
-            const { file: _file, legacyHistoryId, ...e } = entry;
-            const key = nativeKey(e);
-            const candidates = live.get(key) ?? [];
-            const active = candidates.filter((session) => session.state === "running" && matchesHistory(session, entry)).length === 1;
-            const possiblyActive = !active && candidates.some((session) => mayBeSameHistory(session, entry));
-            const offerLaunch = !active && !possiblyActive && canOpenHistory(e);
-            const inTarget = isWithin(targetRoot, e.cwd);
-            return {
-              ...e,
-              active,
-              possiblyActive,
-              canResume: offerLaunch && inTarget,
-              canFork: offerLaunch && (inTarget || e.provider === "pi"),
-              pinned: pinned.has(e.historyId) || pinned.has(legacyHistoryId) || (counts.get(key) === 1 && pinned.has(key)),
-            };
-          })
-          .filter((e) => i.filter === "all" || (i.filter === "active" ? e.active : e.canResume));
-        const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
-        const end = i.offset + i.limit;
-        return { entries: ordered.slice(i.offset, end), skipped: r.skipped, total: ordered.length, nextOffset: end < ordered.length ? end : null, limitedProviders: r.limitedProviders };
-      },
+    bindCapability(mainAgentDescriptors.historyList, async ({ caller }, i) => {
+      const external = isAgentTool(caller);
+      if (external && i.allSpaces) throw errors.invalidInput("请选择一个 Space 来查询历史");
+      const roots = historyRoots(i);
+      const targetRoot = spaceOf(i.spaceId).root;
+      if (!external) await sessions.reconcile();
+      const live = new Map<string, SessionRecord[]>();
+      for (const session of sessions.list()) {
+        if (!blocksHistoryLaunch(session) || !session.nativeSessionId) continue;
+        const key = `${session.provider}:${session.nativeSessionId}`;
+        const matches = live.get(key) ?? [];
+        matches.push(session);
+        live.set(key, matches);
+      }
+      const r = scanCached(roots);
+      const pinned = pins.list(i.spaceId);
+      const counts = new Map<string, number>();
+      for (const entry of r.entries) counts.set(nativeKey(entry), (counts.get(nativeKey(entry)) ?? 0) + 1);
+      const query = i.query.normalize("NFC").toLowerCase();
+      const all = r.entries
+        .filter(({ cwd }) => !external || !protectedKindOf(cwd.split(path.sep).join("/")))
+        .filter((e) => (!i.provider || e.provider === i.provider) && (!query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query))))
+        .map((entry) => {
+          const { file: _file, legacyHistoryId, ...e } = entry;
+          const key = nativeKey(e);
+          const candidates = live.get(key) ?? [];
+          const active = !external && candidates.filter((session) => session.state === "running" && matchesHistory(session, entry)).length === 1;
+          const possiblyActive = !active && candidates.some((session) => mayBeSameHistory(session, entry));
+          const offerLaunch = !active && !possiblyActive && canOpenHistory(e);
+          const inTarget = isWithin(targetRoot, e.cwd);
+          return {
+            ...e,
+            active,
+            possiblyActive,
+            canResume: offerLaunch && inTarget,
+            canFork: offerLaunch && (inTarget || e.provider === "pi"),
+            pinned: pinned.has(e.historyId) || pinned.has(legacyHistoryId) || (counts.get(key) === 1 && pinned.has(key)),
+          };
+        })
+        .filter((e) => i.filter === "all" || (i.filter === "active" ? e.active : e.canResume));
+      const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
+      const end = i.offset + i.limit;
+      return { entries: ordered.slice(i.offset, end), skipped: r.skipped, total: ordered.length, nextOffset: end < ordered.length ? end : null, limitedProviders: r.limitedProviders };
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.history.read",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: HistoryReference,
-      output: z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string(), at: z.string().nullable() })), truncated: z.boolean() }),
-      handler: (_c, i) => {
-        const { selected: hit } = historyReference(i);
-        const transcript = readSelectedHistory(hit.provider, hit.file, hit.nativeSessionId, hit.historyId, (fd) => readTranscript(hit.provider, fd));
-        if (!transcript) throw errors.notFound("历史文件已变化，请重新选择");
-        return transcript;
-      },
+    bindCapability(mainAgentDescriptors.historyRead, (c, i) => {
+      const { selected: hit } = historyReference(c, i);
+      const transcript = readSelectedHistory(hit.provider, hit.file, hit.nativeSessionId, hit.historyId, (fd) => readTranscript(hit.provider, fd));
+      if (!transcript) throw errors.notFound("历史文件已变化，请重新选择");
+      return transcript;
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.history.pin",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: HistoryReference.extend({ pinned: z.boolean() }),
-      output: z.object({ pinned: z.boolean() }),
-      handler: async (_c, i) => {
-        const { selected, unique } = historyReference(i);
-        const legacyKeys = [selected.legacyHistoryId];
-        if (unique) legacyKeys.push(nativeKey(selected));
-        pins.set(i.spaceId, selected.historyId, i.pinned, legacyKeys);
-        return { pinned: i.pinned };
-      },
+    bindCapability(mainAgentDescriptors.historyPin, (c, i) => {
+      writable();
+      const { selected, unique } = historyReference(c, i);
+      const legacyKeys = [selected.legacyHistoryId];
+      if (unique) legacyKeys.push(nativeKey(selected));
+      pins.set(i.spaceId, selected.historyId, i.pinned, legacyKeys);
+      return { pinned: i.pinned };
+    }),
+  );
+  api.defineCapability(bindCapability(mainAgentDescriptors.historyResume, (c, i) => launchHistory(c, i, async (input) => replayableSession(c, await sessions.launch(input, c.signal), i.requestId))));
+  api.defineCapability(bindCapability(mainAgentDescriptors.historyWorkspaceLaunch, (c, i) => launchHistory(c, i, (input) => workspaceLayout.launch(input, i.target, i.baseVersion, c.signal))));
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.historyLocate, async (c, i) => {
+      const { selected } = historyReference(c, i);
+      const external = isAgentTool(c.caller);
+      const observer = external ? core.connected : undefined;
+      if (observer === null) throw new HuhuError("HERDR_UNAVAILABLE", "当前连接无法核对原历史会话的分栏");
+      const bound = sessions.list(external ? i.spaceId : undefined).filter((s) => s.state === "running" && matchesHistory(s, selected));
+      const session = bound.length === 1 ? bound[0] : undefined;
+      if (!session?.terminalId || !spaceCanLaunch(spaces.list().find((s) => s.id === session.spaceId))) throw errors.notFound("原会话已关闭或无法核对");
+      const execution = await sessions.executionSession(session.id, observer);
+      const view = execution && !execution.finished && (await workspaceLayout.read(session.spaceId, !external));
+      const placement = view && sessionPlacement(view.layout, session.id);
+      if (!placement || execution?.binding.coreAddress !== session.terminalId) throw errors.notFound("原会话的分栏已变化，请重新查询");
+      return { spaceId: session.spaceId, sessionId: session.id, terminalId: session.terminalId, ...placement };
+    }),
+  );
+  const diffs = new Map<string, { stamp: string; view: Awaited<ReturnType<typeof reviewDiff>> & { observedAt: string; diffRevision: string } }>();
+  const reviewSnapshot = (space: ReturnType<typeof spaceOf>) => {
+    const snapshot = diffs.get(space.id);
+    if (!snapshot || snapshot.stamp !== workspaceStamp(space)) throw new HuhuError("GIT_OFFLINE", "当前 Space 没有可核实的 Git 变更快照");
+    return snapshot.view;
+  };
+  api.defineCapability(
+    bindCapability(mainAgentDescriptors.reviewDiff, async ({ caller, signal }, { spaceId, spaceRevision }) => {
+      const space = spaceOf(spaceId);
+      if (isAgentTool(caller)) {
+        if (spaceRevision !== space.revision) throw errors.versionConflict(String(space.revision));
+        vaultWorkspaceDirectory(space.root, space.root);
+        return reviewSnapshot(space);
+      }
+      const stamp = workspaceStamp(space);
+      const diff = await reviewDiff(space.root);
+      signal.throwIfAborted();
+      if (workspaceStamp(spaceOf(spaceId)) === stamp) {
+        const files = diff.files.filter(({ path, oldPath }) => !protectedKindOf(path) && (!oldPath || !protectedKindOf(oldPath)));
+        const snapshot = { ...diff, files };
+        diffs.set(spaceId, { stamp, view: { ...snapshot, observedAt: new Date().toISOString(), diffRevision: launchHash([stamp, snapshot]) } });
+      }
+      return diff;
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.history.resume",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      timeoutMs: 60_000,
-      input: HistoryLaunchInput,
-      output: Session,
-      handler: (c, i) => launchHistory(i, (input) => sessions.launch(input, c.signal).then(publicSession)),
+    bindCapability(mainAgentDescriptors.reviewComments, (c, i) => {
+      checkedSession(c, i.sessionId, i, "space");
+      return sessions.comments(i.sessionId);
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.history.workspaceLaunch",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      timeoutMs: 60_000,
-      input: HistoryLaunchInput.extend({ target: WorkspaceTargetSchema, baseVersion: z.int().nonnegative() }),
-      output: WorkspaceLaunchViewSchema,
-      handler: (c, i) => launchHistory(i, (input) => workspaceLayout.launch(input, i.target, i.baseVersion, c.signal)),
+    bindCapability(mainAgentDescriptors.reviewCommentAdd, (c, i) => {
+      writable();
+      const selected = checkedSession(c, i.sessionId, i, "version");
+      if (selected) {
+        const snapshot = reviewSnapshot(spaceOf(selected.spaceId));
+        if (snapshot.diffRevision !== i.diffRevision) throw errors.versionConflict(snapshot.diffRevision);
+        const file = snapshot.files.find(({ path }) => path === i.path);
+        if (!file?.hunks.some(({ lines }) => lines.some((line) => (i.side === "old" ? line.oldLine : line.newLine) === i.line))) throw errors.notFound("快照中没有选定的文件行");
+      }
+      const comment = sessions.addComment(i.sessionId, { path: i.path, side: i.side, line: i.line, text: i.text });
+      const { text: _text, ...receipt } = comment;
+      return receipt;
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.history.locate",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: HistoryReference,
-      output: z.object({ spaceId: z.string(), sessionId: z.string(), terminalId: z.string(), tab: z.string(), leaf: z.string() }),
-      handler: async (_c, i) => {
-        const { selected } = historyReference(i);
-        const bound = sessions.list().filter((s) => s.state === "running" && matchesHistory(s, selected));
-        const session = bound.length === 1 ? bound[0] : undefined;
-        if (!session?.terminalId || !spaceCanLaunch(spaces.list().find((s) => s.id === session.spaceId))) throw errors.notFound("原会话已关闭或无法核对");
-        const execution = await sessions.executionSession(session.id);
-        const view = execution && !execution.finished && (await workspaceLayout.read(session.spaceId));
-        const placement = view && sessionPlacement(view.layout, session.id);
-        if (!placement || execution?.binding.coreAddress !== session.terminalId) throw errors.notFound("原会话的分栏已变化，请重新查询");
-        return { spaceId: session.spaceId, sessionId: session.id, terminalId: session.terminalId, ...placement };
-      },
-    }),
-  );
-  // ---- 变更审查（git diff HEAD + 审查意见，意见经 terminal.send 写回会话）----
-  const Line = z.object({ kind: z.enum(["ctx", "add", "del"]), oldLine: z.number().nullable(), newLine: z.number().nullable(), text: z.string(), noNewline: z.boolean().optional() });
-  const Hunk = z.object({ header: z.string(), oldStart: z.number(), oldLines: z.number(), newStart: z.number(), newLines: z.number(), lines: z.array(Line) });
-  const ReviewFile = z.object({
-    path: z.string(),
-    oldPath: z.string().nullable(),
-    status: z.enum(["added", "modified", "deleted", "renamed", "untracked"]),
-    binary: z.boolean(),
-    additions: z.number(),
-    deletions: z.number(),
-    tooLarge: z.boolean(),
-    hunks: z.array(Hunk),
-  });
-  const Comment = z.object({ id: z.string(), path: z.string(), side: z.enum(["old", "new"]), line: z.number(), text: z.string(), createdAt: z.string(), sentAt: z.string().nullable(), sending: z.boolean().optional() });
-  const SessionId = z.object({ sessionId: z.string() });
-  api.defineCapability(
-    def({
-      name: "agent.review.diff",
-      plugin: "agent-cli",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      timeoutMs: 60_000,
-      input: z.object({ spaceId: z.string() }),
-      output: z.object({ isRepo: z.boolean(), hasHead: z.boolean(), truncated: z.boolean(), files: z.array(ReviewFile) }),
-      handler: (_c, i) => reviewDiff(spaceOf(i.spaceId).root),
-    }),
-  );
-  api.defineCapability(def({ name: "agent.review.comments", plugin: "agent-cli", scope: "read", exposable: false, defaultExposed: false, input: SessionId, output: z.array(Comment), handler: (_c, i) => sessions.comments(i.sessionId) }));
-  api.defineCapability(
-    def({
-      name: "agent.review.comment.add",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: SessionId.extend({ path: z.string(), side: z.enum(["old", "new"]), line: z.number().int(), text: z.string() }),
-      output: Comment,
-      handler: (_c, i) => sessions.addComment(i.sessionId, { path: i.path, side: i.side, line: i.line, text: i.text }),
+    bindCapability(mainAgentDescriptors.reviewCommentDelete, (c, i) => {
+      writable();
+      const selected = checkedSession(c, i.sessionId, i, "version");
+      if (selected?.reviewComments?.find(({ id }) => id === i.commentId)?.sending) throw errors.invalidInput("请先核实这条意见的发送状态");
+      sessions.deleteComment(i.sessionId, i.commentId);
+      return { ok: true as const };
     }),
   );
   api.defineCapability(
-    def({
-      name: "agent.review.comment.delete",
-      plugin: "agent-cli",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: SessionId.extend({ commentId: z.string() }),
-      output: z.object({ ok: z.literal(true) }),
-      handler: (_c, i) => (sessions.deleteComment(i.sessionId, i.commentId), { ok: true as const }),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "agent.review.send",
-      plugin: "agent-cli",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      timeoutMs: 90_000,
-      input: SessionId.extend({ commentIds: z.array(z.string()).optional(), dryRun: z.boolean().default(false) }),
-      output: z.object({ sent: z.number(), text: z.string() }),
-      handler: (_c, i) => sessions.sendComments(i.sessionId, i.commentIds, i.dryRun),
+    bindCapability(mainAgentDescriptors.reviewSend, async (c, i) => {
+      if (!i.dryRun) writable();
+      const selected = checkedSession(c, i.sessionId, i, i.dryRun ? "version" : "binding");
+      if (selected && (!i.commentIds?.length || launchHash(selected) !== i.expectedRevision)) throw errors.invalidInput("请选择原会话版本和要发送的意见");
+      const { text, sent } = await sessions.sendComments(i.sessionId, i.commentIds, i.dryRun, selected && i.generation);
+      return selected || c.parentOperationId || !i.dryRun ? { sent } : { sent, text };
     }),
   );
   api.provide("agentCli", { spaces, detector, core });

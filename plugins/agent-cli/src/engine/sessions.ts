@@ -54,6 +54,11 @@ export function publicSession({ launchReceipt: _launchReceipt, controlled: _cont
   return { ...session, waiting };
 }
 
+export function sessionGeneration(session: SessionRecord): string | undefined {
+  const attempt = session.launchReceipt?.attempt;
+  return attempt?.binding && launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding });
+}
+
 export interface ReviewComment {
   id: string;
   path: string;
@@ -477,6 +482,7 @@ export class SessionsService {
     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
     const { space, cwd, env, controlled } = prepared;
+    this.d.spaces.validateForLaunch(space.id, input.spaceRevision);
     let { argv } = prepared;
     const receipt: LaunchReceipt = priorReceipt ?? {
       vaultId: this.d.vaultId,
@@ -532,6 +538,7 @@ export class SessionsService {
     // Another service may have claimed the same request while this connection was opening.
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+    this.d.spaces.validateForLaunch(space.id, input.spaceRevision);
     if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) {
       throw this.confirmNotCreated(current, receipt, "run", "原 Pi 会话文件已变化，启动请求尚未发送");
     }
@@ -679,6 +686,10 @@ export class SessionsService {
     return this.findLaunch(origin, signal);
   }
 
+  hasLaunchAttempt(requestId: string): boolean {
+    return this.recordedLaunch(requestId)?.launchReceipt?.attempt !== undefined;
+  }
+
   private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
     if (session.state === "exited") return session;
     if (session.launchReceipt?.attempt?.nativeStatus === "failed") throw errors.invalidInput(session.error ?? "受保护进程未启动");
@@ -748,10 +759,10 @@ export class SessionsService {
     return next;
   }
 
-  private async snapshot(): Promise<TerminalSnapshot> {
+  private async snapshot(observer?: HerdrClient): Promise<TerminalSnapshot> {
     if (this.d.signal?.aborted) return { kind: "unavailable" };
     try {
-      const client = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
+      const client = observer ?? (this.d.peekCore ? await this.d.peekCore() : await this.d.core());
       if (client === "absent") return { kind: "absent" };
       if (!client) return { kind: "unavailable" };
       this.d.signal?.throwIfAborted();
@@ -788,9 +799,10 @@ export class SessionsService {
   /** Only the process that received the actual launch can be used to redact its output. */
   private readonly secrets = new Map<string, string[]>();
 
-  private async verifiedTerminal(session: SessionRecord): Promise<{ client: HerdrClient; terminal: Terminal }> {
+  private async verifiedTerminal(session: SessionRecord, observer?: HerdrClient): Promise<{ client: HerdrClient; terminal: Terminal }> {
     const attempt = session.launchReceipt?.attempt;
-    const snapshot = await this.snapshot();
+    if (observer && !attempt?.binding) throw this.unknown(session, "process_unverified");
+    const snapshot = await this.snapshot(observer);
     if (snapshot.kind !== "available") throw this.unknown(session, "snapshot_unavailable");
     if (attempt && !sameCore(attempt.core, snapshot.core)) throw this.unknown(session, "core_changed");
     const labels = launchLabels(this.d.vaultId, session);
@@ -804,18 +816,18 @@ export class SessionsService {
     return { client: snapshot.client, terminal };
   }
 
-  private async terminalClient(session: SessionRecord): Promise<HerdrClient> {
-    const { client } = await this.verifiedTerminal(session);
+  private async terminalClient(session: SessionRecord, observer?: HerdrClient): Promise<HerdrClient> {
+    const { client } = await this.verifiedTerminal(session, observer);
     this.d.signal?.throwIfAborted();
     return client;
   }
 
-  async executionSession(id: string): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string; nativeExisting?: boolean } | null> {
+  async executionSession(id: string, observer?: HerdrClient): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string; nativeExisting?: boolean } | null> {
     const session = this.list().find((item) => item.id === id);
     if (!session?.terminalId || session.provider === "shell") return null;
     const owner = this.executionOwner(session);
     if (!owner) return null;
-    const verified = await this.verifiedTerminal(session).catch(() => null);
+    const verified = await this.verifiedTerminal(session, observer).catch(() => null);
     if (!verified) return null;
     const machineId = this.d.spaces.machineId;
     const thread = session.controlled ? this.d.codex?.thread(this.d.vaultId, machineId, owner) : null;
@@ -844,7 +856,7 @@ export class SessionsService {
       coreId: attempt.core.id,
       attempt: attempt.id,
       ...attempt.binding,
-      generation: launchHash({ attemptId: attempt.id, core: attempt.core, process: attempt.binding }),
+      generation: sessionGeneration(session)!,
     };
   }
 
@@ -1010,23 +1022,31 @@ export class SessionsService {
     return this.list().some((s) => s.id === id && s.reviewComments?.some((comment) => comment.sending));
   }
 
-  private async controlTerminal(session: SessionRecord, method: string): Promise<void> {
+  private async controlTerminal(session: SessionRecord, method: string, generation?: string): Promise<void> {
+    if (generation !== undefined && sessionGeneration(session) !== generation) throw new HuhuError("VERSION_CONFLICT", "会话进程代次已变化");
     if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
     const client = await this.terminalClient(session);
     this.d.signal?.throwIfAborted();
     if (this.d.inputOwnership?.hasTask(session.id)) throw errors.invalidInput("该会话由任务持有输入权");
-    await client.call(method, { terminal: session.terminalId });
+    if (generation !== undefined && sessionGeneration(this.get(session.id)) !== generation) throw new HuhuError("VERSION_CONFLICT", "会话进程代次已变化");
+    const release = generation === undefined ? undefined : this.d.inputOwnership?.take(session.id, "manual");
+    if (generation !== undefined && this.d.inputOwnership && !release) throw errors.invalidInput("该会话的输入权当前已被占用");
+    try {
+      await client.call(method, { terminal: session.terminalId });
+    } finally {
+      release?.();
+    }
   }
 
   /**
    * 终端当前输出（屏幕 + 历史）。命令带环境变量时，只有本进程记得秘密值才能确认已抹掉回显——引擎重启后拿不到就不返回输出。
    * 是否带过环境变量以会话记录里的 `hasEnv` 为准。
    */
-  async output(id: string, lines = 200): Promise<{ text: string; complete: boolean }> {
+  async output(id: string, lines = 200, observer?: HerdrClient): Promise<{ text: string; complete: boolean }> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
     if (s.hasEnv && !this.secrets.has(id)) return { text: "（引擎重启过：无法确认环境变量值已从输出里抹掉，没有收录输出）", complete: false };
-    const r = await (await this.terminalClient(s)).call<{ text?: string; screen?: string; history?: string }>("terminal.read", { terminal: s.terminalId, lines: Math.min(Math.max(lines, 1), 2000) });
+    const r = await (await this.terminalClient(s, observer)).call<{ text?: string; screen?: string; history?: string }>("terminal.read", { terminal: s.terminalId, lines: Math.min(Math.max(lines, 1), 2000) });
     const text = r.text ?? [r.history, r.screen].filter(Boolean).join("\n");
     return {
       text: redactSecrets(text, this.secrets.get(id) ?? [])
@@ -1079,16 +1099,16 @@ export class SessionsService {
     await snapshot.client.call("terminal.rm", { terminal: binding.address });
   }
 
-  async interrupt(id: string): Promise<void> {
+  async interrupt(id: string, generation?: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await this.controlTerminal(s, "terminal.interrupt");
+    await this.controlTerminal(s, "terminal.interrupt", generation);
   }
 
-  async kill(id: string): Promise<void> {
+  async kill(id: string, generation?: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    await this.controlTerminal(s, "terminal.kill");
+    await this.controlTerminal(s, "terminal.kill", generation);
   }
 
   private lastReconcile = 0;
@@ -1226,14 +1246,15 @@ export class SessionsService {
   private sending = new Set<string>();
 
   /** 把意见整理成一段文本写入会话输入（terminal.send，会自动回车提交）；dryRun 只返回将要发送的文本。成功后才标记已发送。 */
-  async sendComments(id: string, ids?: string[], dryRun = false): Promise<{ sent: number; text: string }> {
+  async sendComments(id: string, ids?: string[], dryRun = false, generation?: string): Promise<{ sent: number; text: string }> {
     const s = this.get(id);
     if (!dryRun && s.controlled) throw errors.invalidInput("受控 Codex 会话只支持任务原生输入");
     if (!dryRun && (s.state !== "running" || !s.terminalId)) throw errors.invalidInput("会话没有在运行：恢复会话后再发送");
     if (this.sending.has(id)) throw errors.invalidInput("正在发送上一批意见，请稍候");
     const all = s.reviewComments ?? [];
     // 显式指定时也只允许“未发送”的（含发送状态未知的）；已确认发送过的不能再发
-    const chosen = ids ? all.filter((c) => ids.includes(c.id) && c.sentAt === null) : all.filter((c) => c.sentAt === null && !c.sending);
+    const chosen = ids ? all.filter((c) => ids.includes(c.id) && c.sentAt === null && (generation === undefined || !c.sending)) : all.filter((c) => c.sentAt === null && !c.sending);
+    if (generation !== undefined && ids && chosen.length !== new Set(ids).size) throw errors.invalidInput("审查意见已发送、状态待核实或不属于这个会话");
     if (chosen.length === 0) throw errors.invalidInput("没有待发送的意见");
     const text = ["请根据以下审查意见继续工作：", ...chosen.map((c) => `${safePath(c.path)}:${c.side === "new" ? "新" : "旧"}${c.line} — ${c.text}`)].join("\n");
     if (dryRun) return { sent: 0, text };
@@ -1242,6 +1263,10 @@ export class SessionsService {
     this.sending.add(id);
     try {
       const client = await this.terminalClient(s);
+      if (generation !== undefined) {
+        const latest = this.get(id);
+        if (sessionGeneration(latest) !== generation || launchHash(latest.reviewComments ?? []) !== launchHash(all)) throw errors.versionConflict(launchHash(latest));
+      }
       const mark = (patch: (c: ReviewComment) => ReviewComment) => {
         const cur = this.get(id);
         this.save({ ...cur, reviewComments: (cur.reviewComments ?? []).map((c) => (chosen.some((x) => x.id === c.id) ? patch(c) : c)) });

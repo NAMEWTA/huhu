@@ -41,7 +41,7 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       ...internal,
       name: "agent.targets.list",
       scope: "read",
-      input: DispatchLookup.pick({ vaultId: true, machineId: true }).extend({ spaceId: z.string().min(1), options: LaunchOptions.optional() }),
+      input: DispatchLookup.pick({ vaultId: true, machineId: true }).extend({ spaceId: z.string().min(1), options: LaunchOptions.optional(), mode: z.literal("snapshot").optional() }),
       output: z.array(AgentDispatchTargetInfoSchema),
       handler: ({ caller, signal }, input) => {
         trust(caller);
