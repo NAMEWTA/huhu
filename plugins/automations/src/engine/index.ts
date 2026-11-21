@@ -2,20 +2,21 @@ import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { bindCapability, defineCapability as def, type CapabilityDefinition, type CapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDefinition, type CapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
-import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
+import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
 import { z } from "zod";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
+import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, hasLegacyTerminalEnvironment, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
+import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
-import { registerTaskScanTools, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
+import { registerTaskScanTools, TaskScanAction, taskScanAuthorization, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
 export { AutomationsService } from "./service.js";
@@ -24,19 +25,205 @@ export { Scheduler } from "./scheduler.js";
 export { taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 export { terminalEnvironmentDescriptors } from "./terminal-environment.js";
 
-const Action = AutomationActionSchema;
-/** 外部任务扫描使用独立能力授权。 */
-function assertGenericRuleAction(caller: string, action: z.output<typeof Action> | undefined): void {
-  if ((action?.kind === "agent" || action?.kind === "terminal") && !isWorkbenchCaller(caller)) throw errors.permissionDenied("会启动 Agent 或运行命令的规则（仅工作台可用）");
-  const model = action?.kind === "agent" && action.input.source === "prompt" ? action.input.model : undefined;
-  if (model && model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
-}
-
+const Action = z.discriminatedUnion("kind", [
+  AutomationActionSchema.options[0].extend({ input: z.discriminatedUnion("source", [TaskScanAction.shape.input, AgentInputSchema.options[1].strict()]) }).strict(),
+  AutomationActionSchema.options[1].strict(),
+  AutomationActionSchema.options[2].strict(),
+]);
+const hashOwner = (vault: string, subject: string) =>
+  createHash("sha256")
+    .update(JSON.stringify([vault, subject]))
+    .digest("hex");
 function publicRule(value: ReturnType<AutomationsService["rule"]>): z.output<typeof Rule> {
   if (value.data.action.kind !== "terminal") return value;
   const { envRefs: _, ...action } = value.data.action;
   return { ...value, data: { ...value.data, action, legacyEnvironment: hasLegacyTerminalEnvironment(value.data.action) } };
 }
+
+function ruleWriteResult(caller: string, value: ReturnType<AutomationsService["rule"]>): z.output<typeof Rule> {
+  return publicRule(!isWorkbenchCaller(caller) && isTaskScanRule(value) ? { ...value, body: "" } : value);
+}
+
+const Id = z.object({ id: z.string() });
+const CancelRuleRun = Id.extend({ runId: z.string().min(1).optional(), activationId: z.string().min(1).optional(), intentId: z.uuidv4().optional() }).strict();
+const Cancelled = z.strictObject({ cancelled: z.boolean() });
+
+const RunRow = z.object({
+  id: z.string(),
+  kind: z.literal("automation-run"),
+  state: z.string(),
+  title: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  live: z.boolean(),
+});
+
+export const automationToolDescriptors = {
+  followUpsGet: defineCapabilityDescriptor({
+    name: "automations.followUps.get",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: FollowUpLookup,
+    output: FollowUpView.nullable(),
+    title: "查看任务跟进",
+    description: "查询指定任务的跟进计划。",
+    risk: "normal",
+  }),
+  followUpsSchedule: defineCapabilityDescriptor({
+    name: "automations.followUps.schedule",
+    plugin: "automations",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: FollowUpScheduleInput,
+    output: FollowUpView,
+    title: "安排任务跟进",
+    description: "按任务和计划版本安排一次未来跟进。",
+    risk: "normal",
+  }),
+  followUpsCancel: defineCapabilityDescriptor({
+    name: "automations.followUps.cancel",
+    plugin: "automations",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: FollowUpCancelInput,
+    output: FollowUpView,
+    title: "取消任务跟进",
+    description: "取消尚未派遣的指定版本跟进计划。",
+    risk: "normal",
+  }),
+  list: defineCapabilityDescriptor({
+    name: "automations.list",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({}),
+    output: z.array(Rule),
+    title: "列出自动化规则",
+    description: "读取当前 Vault 的自动化规则。",
+    risk: "normal",
+  }),
+  read: defineCapabilityDescriptor({
+    name: "automations.read",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: Id,
+    output: Rule,
+    title: "读取自动化规则",
+    description: "读取指定规则的当前内容与版本。",
+    risk: "normal",
+  }),
+  create: defineCapabilityDescriptor({
+    name: "automations.create",
+    plugin: "automations",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
+    output: Rule,
+    title: "新建自动化规则",
+    description: "保存一条停用的自动化规则草稿。",
+    risk: "high",
+  }),
+  update: defineCapabilityDescriptor({
+    name: "automations.update",
+    plugin: "automations",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: Id.extend({
+      expectedVersion: z.string(),
+      patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
+      body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT).optional(),
+    }),
+    output: Rule,
+    title: "更新自动化规则",
+    description: "按版本更新指定规则。",
+    risk: "high",
+  }),
+  runNow: defineCapabilityDescriptor({
+    name: "automations.runNow",
+    plugin: "automations",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    timeoutMs: 30 * 60_000,
+    input: Id.extend({ expectedVersion: RuleVersion.optional(), intentId: z.uuidv4().optional() }),
+    output: z.object({ activationId: z.string(), summary: z.unknown() }),
+    title: "立即运行规则",
+    description: "按规则版本受理一次手动运行。",
+    risk: "high",
+  }),
+  cancel: defineCapabilityDescriptor({
+    name: "automations.cancel",
+    plugin: "automations",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: CancelRuleRun,
+    output: Cancelled,
+    title: "取消规则运行",
+    description: "取消所选规则的一次具体运行。",
+    risk: "high",
+  }),
+  activations: defineCapabilityDescriptor({
+    name: "automations.activations",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({}),
+    output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })),
+    title: "查看规则发生记录",
+    description: "读取当前 Vault 的自动化发生记录。",
+    risk: "normal",
+  }),
+  runsList: defineCapabilityDescriptor({
+    name: "automations.runs.list",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({ limit: z.number().int().min(1).max(500).optional() }),
+    output: z.array(RunRow),
+    title: "列出规则运行",
+    description: "读取终端规则的最近运行。",
+    risk: "normal",
+  }),
+  runsRead: defineCapabilityDescriptor({
+    name: "automations.runs.read",
+    plugin: "automations",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({ runId: z.string() }),
+    output: z.object({ id: z.string(), kind: z.literal("automation-run"), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean() }),
+    title: "读取规则运行",
+    description: "按运行标识查询终端规则运行。",
+    risk: "normal",
+  }),
+  runsCancel: defineCapabilityDescriptor({
+    name: "automations.runs.cancel",
+    plugin: "automations",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({ runId: z.string() }),
+    output: z.object({ cancelled: z.boolean(), state: z.string() }),
+    title: "取消终端规则运行",
+    description: "对指定运行发出取消请求。",
+    risk: "high",
+  }),
+};
 
 export interface AutomationsOptions {
   zone?: () => string;
@@ -102,6 +289,23 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   if (opts.taskScanPrincipalCurrent) registerTaskScanTools(api, svc, scans, opts.taskScanPrincipalCurrent);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
+  const { authorize: authorizeScan } = taskScanAuthorization(api, opts.taskScanPrincipalCurrent);
+  const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
+  const assertStillExposed = (c: CapabilityContext, capability: string) => {
+    c.signal.throwIfAborted();
+    if (!isWorkbenchCaller(c.caller) && toolSelection(exposure.snapshot(), capability) !== true) throw errors.capabilityNotExposed(capability);
+  };
+  const assertRuleAction = (c: CapabilityContext, action: z.output<typeof Action> | undefined, scanCapability: string): void => {
+    if (action?.kind === "terminal" && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("终端规则的外部手动使用需要固定目标批准");
+    if (action?.kind !== "agent") return;
+    if (action.input.source === "tasks") {
+      if (!isWorkbenchCaller(c.caller)) authorizeScan(c, scanCapability, true);
+      return;
+    }
+    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("固定提示词规则需要工作台");
+    if (action.input.model?.startsWith("-") || action.input.effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
+  };
+  const cancelReceipt = automationReceipts(stateFiles.abs("automations/cancel-receipts.ndjson"));
   const followUps = new FollowUps(
     stateFiles,
     api.vault.vaultId,
@@ -205,119 +409,43 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     if ((e.type === "vault.fileChanged" && p.path?.startsWith("Automations/")) || (e.type === "entity.changed" && p.kind === "automation-rule")) resync();
   });
   api.provide("automations", { holdRestoredInput: (taskId: string, inputHash: string) => holdStore.hold(taskId, inputHash), releaseHold: (taskId: string) => holdStore.release(taskId) });
-
-  const Id = z.object({ id: z.string() });
+  api.defineCapability(bindCapability(automationToolDescriptors.followUpsGet, (c, { taskId }) => followUps.read(taskId, isWorkbenchCaller(c.caller) ? undefined : automationToolOwner(c))));
   api.defineCapability(
-    def({
-      name: "automations.followUps.get",
-      plugin: "automations",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: FollowUpLookup,
-      output: FollowUpView.nullable(),
-      handler: ({ caller }, { taskId }) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务跟进");
-        return followUps.read(taskId);
-      },
+    bindCapability(automationToolDescriptors.followUpsSchedule, (c, input) =>
+      followUps.schedule(input, isWorkbenchCaller(c.caller) ? undefined : automationToolOwner(c), () => assertStillExposed(c, automationToolDescriptors.followUpsSchedule.name)),
+    ),
+  );
+  api.defineCapability(
+    bindCapability(automationToolDescriptors.followUpsCancel, (c, input) =>
+      followUps.cancel(input, isWorkbenchCaller(c.caller) ? undefined : automationToolOwner(c), () => assertStillExposed(c, automationToolDescriptors.followUpsCancel.name)),
+    ),
+  );
+  api.defineCapability(bindCapability(automationToolDescriptors.list, () => svc.rules().map(publicRule)));
+  api.defineCapability(bindCapability(automationToolDescriptors.read, (_c, i) => publicRule(svc.rule(i.id))));
+  api.defineCapability(
+    bindCapability(automationToolDescriptors.create, async (c, i) => {
+      const r = await svc.withRuleConfiguration(() => {
+        assertRuleAction(c, i.action, taskScanToolDescriptors.create.name);
+        return svc.create(i);
+      });
+      resync();
+      return ruleWriteResult(c.caller, r);
     }),
   );
   api.defineCapability(
-    def({
-      name: "automations.followUps.schedule",
-      plugin: "automations",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: FollowUpScheduleInput,
-      output: FollowUpView,
-      handler: ({ caller }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("安排任务跟进");
-        return followUps.schedule(input);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.followUps.cancel",
-      plugin: "automations",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: FollowUpCancelInput,
-      output: FollowUpView,
-      handler: ({ caller }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("取消任务跟进");
-        return followUps.cancel(input);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.list",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: z.object({}),
-      output: z.array(Rule),
-      handler: async () => {
-        await ready;
-        return svc.rules().map(publicRule);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.read",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: Id,
-      output: Rule,
-      handler: async (_c, i) => {
-        await ready;
-        return publicRule(svc.rule(i.id));
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.create",
-      plugin: "automations",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
-      output: Rule,
-      handler: async (c, i) => {
-        assertGenericRuleAction(c.caller, i.action);
-        const r = await svc.create(i);
-        resync();
-        return publicRule(r);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.update",
-      plugin: "automations",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Id.extend({
-        expectedVersion: z.string(),
-        patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
-        body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT).optional(),
-      }),
-      output: Rule,
-      handler: async (c, i) => {
-        assertGenericRuleAction(c.caller, i.patch.action);
-        const r = await svc.update(i.id, i.expectedVersion, i.patch, i.body, (current) => assertGenericRuleAction(c.caller, current.data.action));
-        resync();
-        return publicRule(r);
-      },
+    bindCapability(automationToolDescriptors.update, async (c, i) => {
+      const capability = taskScanToolDescriptors.update.name;
+      const r = await svc.update(i.id, i.expectedVersion, i.patch, i.body, (current) => {
+        assertRuleAction(c, current.data.action, capability);
+        assertRuleAction(c, i.patch.action, capability);
+        if (isWorkbenchCaller(c.caller)) return;
+        const isScan = isTaskScanRule(current);
+        const nextScan = !!i.patch.action && isTaskScanRule({ data: { ...current.data, action: i.patch.action } });
+        if (i.patch.action && isScan !== nextScan) throw errors.permissionDenied("任务扫描工具仅可修改已有任务扫描规则");
+        if (isScan && current.data.enabled) throw errors.invalidInput("请先停用任务扫描规则");
+      });
+      resync();
+      return ruleWriteResult(c.caller, r);
     }),
   );
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
@@ -331,110 +459,76 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
   defineRuleTool(taskScanToolDescriptors.setEnabled, async (c, i) => {
     if (!isWorkbenchCaller(c.caller) && !i.enabled && !i.expectedVersion) throw errors.invalidInput("外部停用规则需要规则版本");
-    const r = await svc.setEnabled(i.id, i.enabled, (action) => assertGenericRuleAction(c.caller, action), i.expectedVersion);
+    const r = await svc.setEnabled(
+      i.id,
+      i.enabled,
+      (action) => {
+        assertRuleAction(c, action, taskScanToolDescriptors.enable.name);
+        if (!isWorkbenchCaller(c.caller) && action.kind === "agent" && !i.expectedVersion) throw errors.invalidInput("外部启用任务扫描需要规则版本");
+      },
+      i.expectedVersion,
+    );
     resync();
-    return publicRule(r);
+    return ruleWriteResult(c.caller, r);
   });
   defineRuleTool(taskScanToolDescriptors.preview, (_c, i) => svc.preview(i.id, i.expectedVersion));
   api.defineCapability(
-    def({
-      name: "automations.runNow",
-      plugin: "automations",
-      scope: "execute",
-      exposable: true,
-      defaultExposed: false,
-      timeoutMs: 30 * 60_000,
-      input: Id.extend({ expectedVersion: RuleVersion.optional(), intentId: z.uuidv4().optional() }),
-      output: z.object({ activationId: z.string(), summary: z.unknown() }),
-      handler: async ({ caller, signal }, { id, expectedVersion, intentId }) => {
-        signal.throwIfAborted();
-        let a: ActivationRecord | null;
-        if (isWorkbenchCaller(caller) && intentId === undefined && expectedVersion === undefined) {
-          a = await activate(id, null);
-        } else {
-          if (!intentId || !expectedVersion) throw errors.invalidInput("运行提醒须提供规则版本和固定的执行意图");
-          if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
-          a = await reminders.activateManual(id, expectedVersion, caller, intentId);
+    bindCapability(automationToolDescriptors.runNow, async ({ caller, signal }, { id, expectedVersion, intentId }) => {
+      signal.throwIfAborted();
+      let a: ActivationRecord | null;
+      if (isWorkbenchCaller(caller) && intentId === undefined && expectedVersion === undefined) {
+        a = await activate(id, null);
+      } else {
+        if (!intentId || !expectedVersion) throw errors.invalidInput("运行提醒须提供规则版本和固定的执行意图");
+        if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
+        a = await reminders.activateManual(id, expectedVersion, caller, intentId);
+      }
+      if (!a) throw errors.notFound("规则未产生发生记录");
+      return { activationId: a.activationId, summary: a.summary };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(automationToolDescriptors.cancel, (c, i) => {
+      const { id, runId, activationId, intentId } = i;
+      if (runId === undefined || activationId === undefined || intentId === undefined) {
+        if (!isWorkbenchCaller(c.caller) || runId !== undefined || activationId !== undefined || intentId !== undefined) {
+          throw errors.invalidInput("取消规则运行需要原运行、发生和操作意图");
         }
-        if (!a) throw errors.notFound("规则未产生发生记录");
-        return { activationId: a.activationId, summary: a.summary };
-      },
+        return { cancelled: svc.cancel(id) };
+      }
+      return svc.withRuleConfiguration(() => {
+        assertStillExposed(c, automationToolDescriptors.cancel.name);
+        svc.assertRuleRun(id, runId, activationId);
+        const cancelled = () => ({ cancelled: svc.cancelRun(runId) });
+        if (isWorkbenchCaller(c.caller)) return cancelled();
+        stateFiles.assertWritable();
+        if (!terminalOwner) throw errors.permissionDenied("无法确认运行的本机 Vault");
+        const owner = hashOwner(terminalOwner, automationToolOwner(c));
+        return cancelReceipt(owner, automationToolDescriptors.cancel.name, intentId, i, Cancelled, cancelled);
+      });
     }),
   );
   api.defineCapability(
-    def({ name: "automations.cancel", plugin: "automations", scope: "execute", exposable: false, defaultExposed: false, input: Id, output: z.object({ cancelled: z.boolean() }), handler: (_c, i) => ({ cancelled: svc.cancel(i.id) }) }),
+    bindCapability(automationToolDescriptors.activations, () =>
+      [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
+    ),
   );
-  api.defineCapability(
-    def({
-      name: "automations.activations",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: z.object({}),
-      output: z.array(z.object({ activationId: z.string(), ruleId: z.string(), trigger: z.string(), scheduledFor: z.string().nullable(), startedAt: z.string(), finishedAt: z.string().optional(), summary: z.unknown().optional() })),
-      handler: () =>
-        [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
-    }),
-  );
-  const RunRow = z.object({
-    id: z.string(),
-    kind: z.literal("automation-run"),
-    state: z.string(),
-    title: z.string(),
-    startedAt: z.string().nullable(),
-    finishedAt: z.string().nullable(),
-    live: z.boolean(),
-  });
   defineRuleTool(taskScanToolDescriptors.dispatches, (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }));
+  api.defineCapability(bindCapability(automationToolDescriptors.runsList, (_c, i) => svc.runs(i.limit)));
   api.defineCapability(
-    def({
-      name: "automations.runs.list",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: z.object({ limit: z.number().int().min(1).max(500).optional() }),
-      output: z.array(RunRow),
-      handler: async (_c, i) => {
-        await ready;
-        return svc.runs(i.limit);
-      },
+    bindCapability(automationToolDescriptors.runsRead, ({ caller }, i) => {
+      const run = svc.runDetail(i.runId);
+      if (isWorkbenchCaller(caller)) return run;
+      const { ruleId, actionKind, state, startedAt, finishedAt, exitCode } = run.data as Record<string, unknown>;
+      return { ...run, body: "", data: { ruleId, actionKind, state, startedAt, finishedAt, exitCode } };
     }),
   );
   api.defineCapability(
-    def({
-      name: "automations.runs.read",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: z.object({ runId: z.string() }),
-      output: z.object({ id: z.string(), kind: z.literal("automation-run"), version: z.string(), body: z.string(), data: z.record(z.string(), z.unknown()), title: z.string(), live: z.boolean() }),
-      handler: async ({ caller }, i) => {
-        await ready;
-        const run = svc.runDetail(i.runId);
-        if (isWorkbenchCaller(caller)) return run;
-        const { ruleId, actionKind, state, startedAt, finishedAt, exitCode } = run.data as Record<string, unknown>;
-        return { ...run, body: "", data: { ruleId, actionKind, state, startedAt, finishedAt, exitCode } };
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.runs.cancel",
-      plugin: "automations",
-      scope: "execute",
-      exposable: true,
-      defaultExposed: false,
-      input: z.object({ runId: z.string() }),
-      output: z.object({ cancelled: z.boolean(), state: z.string() }),
-      handler: async (_c, i) => {
-        await ready;
-        const { live, data } = svc.runDetail(i.runId);
-        const cancelled = live && svc.cancelRun(i.runId);
-        return { cancelled, state: cancelled ? "cancelling" : typeof data.state === "string" ? data.state : "unknown" };
-      },
+    bindCapability(automationToolDescriptors.runsCancel, async (_c, i) => {
+      await ready;
+      const { live, data } = svc.runDetail(i.runId);
+      const cancelled = live && svc.cancelRun(i.runId);
+      return { cancelled, state: cancelled ? "cancelling" : typeof data.state === "string" ? data.state : "unknown" };
     }),
   );
   return { service: svc, scheduler };

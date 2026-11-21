@@ -168,7 +168,8 @@ function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutco
 
 function stopView({ receipt }: DispatchRecord, stop: StopRecord): StopReceipt {
   const { taskId, dispatchId, runId } = receipt;
-  return { taskId, dispatchId, runId, ...stop };
+  const { toolOwner: _, ...visible } = stop;
+  return { taskId, dispatchId, runId, ...visible };
 }
 
 export class TaskDispatch {
@@ -228,9 +229,10 @@ export class TaskDispatch {
     return this.replies.readReply(input, this.matchesExecution);
   }
 
-  acceptSupplement(input: SupplementInput, outer: AbortSignal): Promise<SupplementView> {
+  acceptSupplement(input: SupplementInput, outer: AbortSignal, toolOwner?: string, authorize?: () => void): Promise<SupplementView> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       AbortSignal.any([outer, this.abort.signal]).throwIfAborted();
+      authorize?.();
       const task = this.tasks.read(input.taskId);
       const dispatchId = supplementDispatchId(input);
       const prior = this.store.read(eventIdOf(dispatchId))?.record;
@@ -238,6 +240,7 @@ export class TaskDispatch {
         const source = prior.snapshot.source;
         const view = supplementView(prior);
         if (!view || source.kind !== "supplement" || !this.store.owns(prior)) throw new HuhuError("VERSION_CONFLICT", "补充轮次的归属不匹配");
+        if (toolOwner !== undefined && source.toolOwner !== toolOwner) throw errors.notFound("没有这条任务补充记录");
         if (view.runId !== input.runId || view.sessionId !== input.sessionId || source.text !== input.text || fingerprint(source.messageIds) !== fingerprint(input.messageIds)) throw errors.idempotencyMismatch();
         return view;
       }
@@ -245,19 +248,20 @@ export class TaskDispatch {
       if (task.type !== "agent" || task.status === "completed") throw errors.invalidInput("当前任务无法发送补充信息");
       const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
       const parent = records.find(({ receipt }) => receipt.runId === input.runId);
+      if (parent && !this.visibleDispatch(parent, toolOwner)) throw errors.notFound("没有这条任务运行");
       const execution = parent?.boundExecution;
       if (!parent || !execution || execution.sessionBinding.sessionId !== input.sessionId || !this.matchesExecution(execution)) throw new HuhuError("RUN_UNKNOWN", "无法确认补充信息的原会话");
       this.assertContinuationSlot(task, records, input.runId);
-      const source = SupplementSource.parse({ kind: "supplement", parent: execution, supplementId: input.supplementId, text: input.text, messageIds: input.messageIds });
+      const source = SupplementSource.parse({ kind: "supplement", parent: execution, supplementId: input.supplementId, ...(toolOwner && { toolOwner }), text: input.text, messageIds: input.messageIds });
       const body = selectedInput(task, input.text, input.messageIds);
       return supplementView(await this.saveContinuation(task, parent, source, dispatchId, body))!;
     });
   }
 
-  readSupplement(input: SupplementLookup): SupplementView {
+  readSupplement(input: SupplementLookup, toolOwner?: string): SupplementView {
     this.tasks.read(input.taskId);
     const record = this.store.read(eventIdOf(supplementDispatchId(input)))?.record;
-    const view = record && this.store.owns(record) ? supplementView(record) : undefined;
+    const view = record && this.store.owns(record) && this.visibleDispatch(record, toolOwner) ? supplementView(record) : undefined;
     if (!view || view.runId !== input.runId || view.sessionId !== input.sessionId) throw errors.notFound("没有这条任务补充记录");
     return view;
   }
@@ -365,12 +369,15 @@ export class TaskDispatch {
     });
   }
 
-  async acceptStop(input: StopLookup, signal: AbortSignal): Promise<StopReceipt> {
+  async acceptStop(input: StopLookup, signal: AbortSignal, toolOwner?: string, authorize?: () => void): Promise<StopReceipt> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       AbortSignal.any([signal, this.abort.signal]).throwIfAborted();
+      authorize?.();
       const { record, version } = this.lookup(input);
-      if (record.receipt.runId !== input.runId) throw errors.notFound("没有这条任务运行");
+      if (toolOwner !== undefined) this.tasks.read(input.taskId);
+      if (record.receipt.runId !== input.runId || !this.visibleDispatch(record, toolOwner)) throw errors.notFound("没有这条任务运行");
       if (record.stop) {
+        if (toolOwner !== undefined && record.stop.toolOwner !== toolOwner) throw errors.notFound("没有这条停止记录");
         if (record.stop.stopId !== input.stopId) throw new HuhuError("VERSION_CONFLICT", "该任务运行已有停止记录");
         return stopView(record, record.stop);
       }
@@ -380,15 +387,16 @@ export class TaskDispatch {
       }
       const now = this.now().toISOString();
       const { outcomes } = this.receipts.history(input.taskId, this.matchesExecution, this.onError);
-      const stop: StopRecord = { stopId: input.stopId, status: outcomes.get(input.runId)?.finishedAt ? "completed" : "pending", acceptedAt: now, updatedAt: now };
+      const stop: StopRecord = { stopId: input.stopId, status: outcomes.get(input.runId)?.finishedAt ? "completed" : "pending", acceptedAt: now, updatedAt: now, ...(toolOwner && { toolOwner }) };
       const saved = await this.store.write({ ...record, stop }, version);
       return stopView(saved, stop);
     });
   }
 
-  readStop(input: StopLookup): StopReceipt {
+  readStop(input: StopLookup, toolOwner?: string): StopReceipt {
     const { record } = this.lookup(input);
-    if (record.receipt.runId !== input.runId || record.stop?.stopId !== input.stopId) throw errors.notFound("没有这条停止记录");
+    if (toolOwner !== undefined) this.tasks.read(input.taskId);
+    if (record.receipt.runId !== input.runId || record.stop?.stopId !== input.stopId || !this.visibleDispatch(record, toolOwner) || (toolOwner !== undefined && record.stop.toolOwner !== toolOwner)) throw errors.notFound("没有这条停止记录");
     return stopView(record, record.stop);
   }
 
@@ -516,6 +524,8 @@ export class TaskDispatch {
         this.abort.signal.throwIfAborted();
         const prior = this.store.read(eventId);
         if (prior) {
+          const legacyToolIntent = source.kind === "tool" && prior.record.snapshot.source.kind === "tool" && prior.record.snapshot.source.owner === undefined && prior.record.requestHash === fingerprint({ input, source: { kind: "tool" } });
+          if (legacyToolIntent) throw new HuhuError("RUN_UNKNOWN", "旧派遣缺少可核实的外部会话归属");
           if (prior.record.requestHash !== requestHash) throw errors.idempotencyMismatch();
           return prior.record.receipt;
         }
@@ -564,20 +574,23 @@ export class TaskDispatch {
     );
   }
 
-  read(input: DispatchLookup): DispatchReceipt {
+  read(input: DispatchLookup, toolOwner?: string): DispatchReceipt {
     const { record } = this.lookup(input);
+    if (toolOwner !== undefined) this.tasks.read(input.taskId);
+    if (!this.visibleDispatch(record, toolOwner)) throw errors.notFound("没有这条任务派遣记录");
     return this.dispatchView(record);
   }
 
-  list(taskId: string): TaskDispatchView[] {
+  list(taskId: string, toolOwner?: string): TaskDispatchView[] {
     this.tasks.read(taskId);
     return this.recordsFor(taskId)
-      .map((record) => this.viewWithSession(record))
+      .filter((record) => this.visibleDispatch(record, toolOwner))
+      .map((record) => this.viewWithSession(record, toolOwner))
       .sort((a, b) => b.acceptedAt.localeCompare(a.acceptedAt) || b.runId.localeCompare(a.runId));
   }
 
-  recent(limit: number): RecentTaskRun[] {
-    const records = this.store.list();
+  recent(limit: number, toolOwner?: string): RecentTaskRun[] {
+    const records = this.store.list().filter((record) => this.visibleDispatch(record, toolOwner) && (toolOwner === undefined || this.task(record.receipt.taskId) !== null));
     const recent = [...records].sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt) || b.receipt.runId.localeCompare(a.receipt.runId)).slice(0, limit);
     const tasks = new Map<string, { title: string; runs: Map<string, TaskRunSummary> }>();
     return recent.map((record) => {
@@ -591,15 +604,27 @@ export class TaskDispatch {
         task = { title: this.task(taskId)?.title ?? taskId, runs: new Map(runs.map((run) => [run.id, run])) };
         tasks.set(taskId, task);
       }
-      return { dispatch: this.viewWithSession(record), run: task.runs.get(runId) ?? null, title: task.title };
+      return { dispatch: this.viewWithSession(record, toolOwner), run: task.runs.get(runId) ?? null, title: task.title };
     });
   }
 
-  private viewWithSession(record: DispatchRecord): TaskDispatchView {
+  private visibleDispatch(record: DispatchRecord, toolOwner?: string): boolean {
+    if (toolOwner === undefined) return true;
+    if (!this.store.owns(record)) return false;
+    const { source } = record.snapshot;
+    if (source.kind === "tool") return source.owner === toolOwner;
+    if (source.kind === "supplement") return source.toolOwner === toolOwner;
+    return true;
+  }
+
+  private viewWithSession(record: DispatchRecord, toolOwner?: string): TaskDispatchView {
     const { boundExecution, snapshot, stop } = record;
     const spaceId = snapshot.execution.spaceId;
     const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
-    return { ...this.dispatchView(record), session, ...(stop && { stop }) };
+    const view = { ...this.dispatchView(record), session };
+    if (!stop || (toolOwner !== undefined && stop.toolOwner !== toolOwner)) return view;
+    const { toolOwner: _, ...stopStatus } = stop;
+    return { ...view, stop: stopStatus };
   }
 
   private dispatchView(record: DispatchRecord): DispatchReceipt {
@@ -607,10 +632,12 @@ export class TaskDispatch {
     return record.receipt;
   }
 
-  async cancel(input: DispatchLookup): Promise<DispatchReceipt> {
+  async cancel(input: DispatchLookup, toolOwner?: string): Promise<DispatchReceipt> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       this.abort.signal.throwIfAborted();
       const { record, version } = this.lookup(input);
+      if (toolOwner !== undefined) this.tasks.read(input.taskId);
+      if (!this.visibleDispatch(record, toolOwner)) throw errors.notFound("没有这条任务派遣记录");
       const { receipt } = record;
       if (receipt.cancelRequested || !holdsTask(receipt)) return receipt;
       if (!this.store.owns(record)) rejectDispatch(this.store.ownerIssue(record), "该派遣记录只能作为历史查看");
@@ -752,11 +779,12 @@ export class TaskDispatch {
   private async projectContinuation(record: OwnedRecord, source: ContinuationSource): Promise<void> {
     const { receipt } = record;
     try {
+      const external = source.kind === "supplement" && source.toolOwner !== undefined;
       await this.tasks.addComment(receipt.taskId, {
         id: receipt.dispatchId,
         at: receipt.acceptedAt,
-        source: source.kind === "follow-up" ? "system" : "human",
-        ...(source.kind !== "follow-up" && { author: "我" }),
+        source: source.kind === "follow-up" ? "system" : external ? "external" : "human",
+        ...(source.kind !== "follow-up" && !external && { author: "我" }),
         run: source.parent.runId,
         session: source.parent.sessionBinding.sessionId,
         ...(source.kind === "reply" ? { ask: source.requestId, event: "answer", body: source.answer } : source.kind === "supplement" ? { event: "supplement", body: record.snapshot.body } : { event: "follow-up", body: "按计划跟进" }),

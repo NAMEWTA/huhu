@@ -11,10 +11,11 @@ export type TaskScanPrincipalCheck = (caller: ExternalCaller, subject: string) =
 
 const base = { plugin: "automations", exposable: true, defaultExposed: false, risk: "high" } as const;
 const ruleTarget = z.strictObject({ id: z.string().min(1).max(128), expectedVersion: RuleVersion });
+export const TaskScanAction = z.strictObject({ kind: z.literal("agent"), input: AgentInputSchema.options[0].strict() });
 const draftFields = z.strictObject({
   title: z.string().min(1),
   trigger: Trigger.strict(),
-  action: z.strictObject({ kind: z.literal("agent"), input: AgentInputSchema.options[0].strict().safeExtend({ source: z.literal("tasks") }) }),
+  action: TaskScanAction,
   missedRunGraceMinutes: MissedRunGraceMinutes.optional(),
 });
 const body = z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT).optional();
@@ -99,19 +100,24 @@ export const taskScanToolDescriptors = {
   }),
 };
 
-export function registerTaskScanTools(api: HuhuApi, rules: AutomationsService, scans: TaskScanOccurrences, isPrincipalCurrent: TaskScanPrincipalCheck): void {
+export function taskScanAuthorization(api: HuhuApi, isPrincipalCurrent?: TaskScanPrincipalCheck) {
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const principalFor = ({ caller, subject }: CapabilityContext): { caller: ExternalCaller; subject: string } => {
     if ((caller !== "cli" && caller !== "mcp" && caller !== "http") || !subject) throw errors.permissionDenied("任务扫描工具需要已认证的外部身份");
     return { caller, subject };
   };
-  const authorize = (context: CapabilityContext, capability: string) => {
+  const authorize = (context: CapabilityContext, capability: string, viaGenericRule = false) => {
     context.signal.throwIfAborted();
     const { caller, subject } = principalFor(context);
-    if (!isPrincipalCurrent(caller, subject)) throw errors.permissionDenied(capability);
-    if (toolSelection(exposure.snapshot(), capability) !== true) throw errors.capabilityNotExposed(capability);
+    if (!isPrincipalCurrent?.(caller, subject)) throw errors.permissionDenied(capability);
+    if (toolSelection(exposure.snapshot(), capability) !== true) throw viaGenericRule ? errors.permissionDenied(capability) : errors.capabilityNotExposed(capability);
   };
 
+  return { principalFor, authorize };
+}
+
+export function registerTaskScanTools(api: HuhuApi, rules: AutomationsService, scans: TaskScanOccurrences, isPrincipalCurrent: TaskScanPrincipalCheck): void {
+  const { principalFor, authorize } = taskScanAuthorization(api, isPrincipalCurrent);
   const { create, update, enable, runNow } = taskScanToolDescriptors;
   api.defineCapability(
     bindCapability(create, (context, input) =>

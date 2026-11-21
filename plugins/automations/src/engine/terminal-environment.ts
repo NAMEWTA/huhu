@@ -2,10 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { errors, HuhuError, type AutomationRuleFrontmatter } from "@huhu/contracts";
-import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureStore, ModuleCredentials, toolSelection, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureStore, ModuleCredentials, toolSelection, type CapabilityContext, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
+import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { hasLegacyTerminalEnvironment, sameDir, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
 
 const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
@@ -56,30 +57,31 @@ const view = z.strictObject({
   targetChanged: z.boolean(),
   states: z.record(name, z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"])),
 });
-const base = { plugin: "automations", desktopOnly: true, exposable: false, defaultExposed: false } as const;
+const intentId = z.uuidv4().optional();
 export const terminalEnvironmentDescriptors = {
   get: defineCapabilityDescriptor({
-    ...base,
+    ...external,
     name: "automations.terminal.environment.get",
     scope: "read",
-    risk: "normal",
+    risk: "high",
     title: "查看规则环境",
     description: "读取终端规则的受保护变量名和本机配置状态。",
     input: id,
     output: view,
   }),
   save: defineCapabilityDescriptor({
-    ...base,
+    ...external,
     name: "automations.terminal.environment.save",
     scope: "admin",
+    idempotency: "handler",
     risk: "high",
     title: "保存规则环境",
     description: "按版本向该终端规则写入或清除受保护变量。",
-    input: id.extend({ expectedRevision: z.uuidv4().nullable(), names: z.array(name).max(64), changes: z.array(changes).max(128) }),
+    input: id.extend({ expectedRuleVersion: ruleVersion.optional(), intentId, expectedRevision: z.uuidv4().nullable(), names: z.array(name).max(64), changes: z.array(changes).max(128) }),
     output: view,
   }),
   review: defineCapabilityDescriptor({
-    ...base,
+    ...external,
     name: "automations.terminal.approval.review",
     scope: "read",
     risk: "high",
@@ -89,8 +91,10 @@ export const terminalEnvironmentDescriptors = {
     output: review,
   }),
   approve: defineCapabilityDescriptor({
-    ...base,
+    ...external,
     name: "automations.terminal.approval.approve",
+    exposable: false,
+    desktopOnly: true,
     scope: "admin",
     risk: "high",
     title: "批准该终端规则供外部手动使用",
@@ -99,13 +103,14 @@ export const terminalEnvironmentDescriptors = {
     output: z.strictObject({ approvalId: z.uuidv4() }),
   }),
   revoke: defineCapabilityDescriptor({
-    ...base,
+    ...external,
     name: "automations.terminal.approval.revoke",
     scope: "admin",
+    idempotency: "handler",
     risk: "high",
     title: "撤销该终端规则的本机批准",
     description: "撤销外部读取、更新配置和触发新手动运行的批准。",
-    input: id.extend({ expectedApprovalId: z.uuidv4() }),
+    input: id.extend({ expectedApprovalId: z.uuidv4(), expectedRuleVersion: ruleVersion.optional(), intentId }),
     output: z.strictObject({ revoked: z.literal(true) }),
   }),
   externalStatus: defineCapabilityDescriptor({
@@ -173,6 +178,7 @@ const targetOf = (ruleId: string, action: Pick<TerminalAction, "spaceId" | "shel
 export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "invokeApprovedTerminal">, host?: AutomationCredentialHost) {
   const store = host && new ModuleCredentials({ ...host, pluginId: "automations", definition: Definition, targets: (definition) => Object.fromEntries(definition.names.map((name) => [name, definition.fingerprint])) });
   const local = host && new VaultFiles(host.localRoot, undefined, host.vault.readOnly);
+  const receipts = host && local && automationReceipts(local.abs(`automations-terminal-approvals/${host.localVaultInstanceId}/receipts.ndjson`));
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const read = async (ruleId: string) => (await store?.list().catch(translate))?.find(({ entityId }) => entityId === ruleId);
   const portable = (ruleId: string) => {
@@ -235,10 +241,14 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   const requireDesktop = (caller: string) => {
     if (caller !== "desktop") throw errors.permissionDenied("管理本机规则批准");
   };
-  const authorizeExternal = (caller: string, capability: string, ruleId: string) => {
-    if (caller !== "cli" && caller !== "mcp") throw errors.permissionDenied("此规则操作仅对 CLI 和 MCP 开放");
+  const assertExternal = (c: CapabilityContext, capability: string) => {
+    const owner = automationToolOwner(c);
     if (toolSelection(exposure.snapshot(), capability) !== true) throw errors.capabilityNotExposed(capability);
-    if (!store || api.vault.files.readOnly) throw errors.permissionDenied("本机规则批准不可用");
+    if (!store || !receipts) throw errors.permissionDenied("本机规则批准不可用");
+    return owner;
+  };
+  const authorizeExternal = (c: CapabilityContext, capability: string, ruleId: string) => {
+    assertExternal(c, capability);
     const grant = readApproval(ruleId).approval;
     if (!grant) throw errors.permissionDenied("终端规则未获本机批准");
     const current = describeTarget(ruleId);
@@ -248,9 +258,57 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     }
     return { grant, current, config };
   };
+  const status = async (c: CapabilityContext, capability: string, ruleId: string) => {
+    const before = authorizeExternal(c, capability, ruleId);
+    const saved = await read(ruleId);
+    const { grant, current, config } = authorizeExternal(c, capability, ruleId);
+    if (grant.id !== before.grant.id || (config?.revision ?? null) !== (saved?.revision ?? null)) throw errors.versionConflict(config?.revision ?? "");
+    const states = Object.fromEntries(
+      grant.names.map((name) => {
+        const state = saved?.authState[name] ?? "unconfigured";
+        return [name, state === "configured" && config?.definition.fingerprint !== current.environmentTarget ? "needs-reconfiguration" : state];
+      }),
+    );
+    return { ruleVersion: current.ruleVersion, revision: saved?.revision ?? null, states };
+  };
+  const environmentView = ({ revision, states }: Pick<z.infer<typeof view>, "revision" | "states">) => ({
+    revision,
+    names: Object.keys(states),
+    localAvailable: true,
+    targetChanged: Object.values(states).includes("needs-reconfiguration"),
+    states,
+  });
+  const saveExternal = async (c: CapabilityContext, capability: string, input: z.infer<typeof terminalEnvironmentDescriptors.externalSave.input>) => {
+    const { ruleId, expectedRuleVersion, expectedRevision, changes } = input;
+    api.vault.files.assertWritable();
+    const { grant, current, config } = authorizeExternal(c, capability, ruleId);
+    if (!store) throw errors.permissionDenied("本机规则批准不可用");
+    if (current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(current.ruleVersion);
+    if ((config?.revision ?? null) !== expectedRevision) throw errors.versionConflict(config?.revision ?? "");
+    if (changes.some(({ name }) => !grant.names.includes(name))) throw errors.permissionDenied("修改未批准的变量");
+    const definition = { format: 1 as const, fingerprint: current.environmentTarget, names: grant.names, ...(grant.namesRevision && { namesRevision: grant.namesRevision }) };
+    const saved = await store
+      .save({
+        entityId: ruleId,
+        expectedRevision,
+        definition,
+        actions: actionsFor(grant.names, config?.definition, changes),
+        signal: c.signal,
+        isCurrent: () => {
+          try {
+            const latest = authorizeExternal(c, capability, ruleId);
+            return latest.grant.id === grant.id && latest.current.target === current.target;
+          } catch {
+            return false;
+          }
+        },
+      })
+      .catch(translate);
+    return { ruleVersion: current.ruleVersion, revision: saved.revision, states: saved.authState };
+  };
   api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.get, async ({ caller }, { ruleId }) => {
-      if (caller !== "desktop") throw errors.permissionDenied("查看规则环境");
+    bindCapability(terminalEnvironmentDescriptors.get, async (c, { ruleId }) => {
+      if (c.caller !== "desktop") return environmentView(await status(c, terminalEnvironmentDescriptors.get.name, ruleId));
       const current = fingerprint(ruleId);
       if (!store) {
         const saved = portable(ruleId);
@@ -268,9 +326,25 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     }),
   );
   api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.save, ({ caller, signal }, { ruleId, expectedRevision, names, changes }) =>
+    bindCapability(terminalEnvironmentDescriptors.save, (c, input) =>
       rules.withRuleConfiguration(async () => {
-        if (caller !== "desktop") throw errors.permissionDenied("保存规则环境");
+        const { ruleId, expectedRevision, expectedRuleVersion, intentId, names, changes } = input;
+        const { signal } = c;
+        signal.throwIfAborted();
+        if (c.caller !== "desktop") {
+          const capability = terminalEnvironmentDescriptors.save.name;
+          const owner = assertExternal(c, capability);
+          const { grant, current, config } = authorizeExternal(c, capability, ruleId);
+          api.vault.files.assertWritable();
+          if (!expectedRuleVersion || !intentId) throw errors.invalidInput("保存规则环境需要规则版本和固定的操作意图");
+          if (expectedRuleVersion !== current.ruleVersion) throw errors.versionConflict(current.ruleVersion);
+          if (!sameNames(grant.names, names) || changes.some(({ name }) => !grant.names.includes(name))) throw errors.permissionDenied("修改未批准的变量");
+          const apply = () => saveExternal(c, capability, { ruleId, expectedRuleVersion, expectedRevision, changes }).then(environmentView);
+          return receipts!(owner, capability, intentId, [grant.id, input], view, apply, () => {
+            if ((config?.revision ?? null) !== expectedRevision) throw errors.versionConflict(config?.revision ?? "");
+            actionsFor(grant.names, config?.definition, changes);
+          });
+        }
         if (!store) throw errors.invalidInput("当前 Vault 无法使用规则环境的本机保护");
         const current = fingerprint(ruleId);
         if (!current) throw errors.invalidInput("规则工作区不可用");
@@ -299,8 +373,8 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     ),
   );
   api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.review, ({ caller }, { ruleId }) => {
-      requireDesktop(caller);
+    bindCapability(terminalEnvironmentDescriptors.review, (c, { ruleId }) => {
+      if (c.caller !== "desktop") assertExternal(c, terminalEnvironmentDescriptors.review.name);
       const { environmentTarget: _, directory: _directory, ...current } = describeTarget(ruleId);
       const grant = readApproval(ruleId).approval;
       return { ...current, names: portable(ruleId)?.definition.names ?? grant?.names ?? [], approvalId: grant?.id ?? null };
@@ -325,76 +399,50 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     ),
   );
   api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.revoke, ({ caller, signal }, { ruleId, expectedApprovalId }) =>
+    bindCapability(terminalEnvironmentDescriptors.revoke, (c, input) =>
       rules.withRuleConfiguration(async () => {
-        requireDesktop(caller);
-        signal.throwIfAborted();
+        const { ruleId, expectedApprovalId, expectedRuleVersion, intentId } = input;
+        c.signal.throwIfAborted();
         const prior = readApproval(ruleId);
-        if (prior.approval?.id !== expectedApprovalId) throw errors.versionConflict(prior.approval?.id ?? "");
-        await writeApproval(ruleId, null, prior.version);
-        return { revoked: true as const };
-      }),
-    ),
-  );
-  api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.externalStatus, ({ caller }, { ruleId }) =>
-      rules.withRuleConfiguration(async () => {
-        const capability = terminalEnvironmentDescriptors.externalStatus.name;
-        const { grant } = authorizeExternal(caller, capability, ruleId);
-        const saved = await read(ruleId);
-        const { current, config } = authorizeExternal(caller, capability, ruleId);
-        const states = Object.fromEntries(
-          grant.names.map((name) => {
-            const state = saved?.authState[name] ?? "unconfigured";
-            return [name, state === "configured" && config?.definition.fingerprint !== current.environmentTarget ? "needs-reconfiguration" : state];
-          }),
-        );
-        return { ruleVersion: current.ruleVersion, revision: saved?.revision ?? null, states };
-      }),
-    ),
-  );
-  api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.externalSave, ({ caller, signal }, { ruleId, expectedRuleVersion, expectedRevision, changes }) =>
-      rules.withRuleConfiguration(async () => {
-        const capability = terminalEnvironmentDescriptors.externalSave.name;
-        const { grant, current, config } = authorizeExternal(caller, capability, ruleId);
-        if (!store) throw errors.permissionDenied("本机规则批准不可用");
+        const validateApproval = () => {
+          if (prior.approval?.id !== expectedApprovalId) throw errors.versionConflict(prior.approval?.id ?? "");
+        };
+        const revoke = async () => {
+          await writeApproval(ruleId, null, prior.version);
+          return { revoked: true as const };
+        };
+        if (c.caller === "desktop") {
+          validateApproval();
+          return revoke();
+        }
+        const descriptor = terminalEnvironmentDescriptors.revoke;
+        const owner = assertExternal(c, descriptor.name);
+        api.vault.files.assertWritable();
+        if (!expectedRuleVersion || !intentId) throw errors.invalidInput("撤销批准需要规则版本和固定的操作意图");
+        const current = describeTarget(ruleId);
         if (current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(current.ruleVersion);
-        if ((config?.revision ?? null) !== expectedRevision) throw errors.versionConflict(config?.revision ?? "");
-        if (changes.some(({ name }) => !grant.names.includes(name))) throw errors.permissionDenied("修改未批准的变量");
-        const definition = { format: 1 as const, fingerprint: current.environmentTarget, names: grant.names, ...(grant.namesRevision && { namesRevision: grant.namesRevision }) };
-        const saved = await store
-          .save({
-            entityId: ruleId,
-            expectedRevision,
-            definition,
-            actions: actionsFor(grant.names, config?.definition, changes),
-            signal,
-            isCurrent: () => {
-              try {
-                const latest = authorizeExternal(caller, capability, ruleId);
-                return latest.grant.id === grant.id && latest.current.target === current.target;
-              } catch {
-                return false;
-              }
-            },
-          })
-          .catch(translate);
-        return { ruleVersion: current.ruleVersion, revision: saved.revision, states: saved.authState };
+        return receipts!(owner, descriptor.name, intentId, input, descriptor.output, revoke, () => {
+          validateApproval();
+          authorizeExternal(c, descriptor.name, ruleId);
+        });
       }),
     ),
   );
+  api.defineCapability(bindCapability(terminalEnvironmentDescriptors.externalStatus, (c, { ruleId }) => status(c, terminalEnvironmentDescriptors.externalStatus.name, ruleId)));
+  api.defineCapability(bindCapability(terminalEnvironmentDescriptors.externalSave, (c, input) => rules.withRuleConfiguration(() => saveExternal(c, terminalEnvironmentDescriptors.externalSave.name, input))));
   api.defineCapability(
-    bindCapability(terminalEnvironmentDescriptors.externalRun, ({ caller, signal }, { ruleId, expectedRuleVersion, expectedRevision, intentId }) =>
+    bindCapability(terminalEnvironmentDescriptors.externalRun, (c, { ruleId, expectedRuleVersion, expectedRevision, intentId }) =>
       rules.withRuleConfiguration(async () => {
         const capability = terminalEnvironmentDescriptors.externalRun.name;
-        const { grant, current } = authorizeExternal(caller, capability, ruleId);
+        api.vault.files.assertWritable();
+        const { signal, caller } = c;
+        const { grant, current } = authorizeExternal(c, capability, ruleId);
         const intent = hash([caller, ruleId, grant.id, expectedRuleVersion, expectedRevision]);
         return rules.invokeApprovedTerminal(ruleId, intentId, intent, async (submit) => {
           signal.throwIfAborted();
           if (!store) throw errors.permissionDenied("本机规则批准不可用");
           const validate = () => {
-            const latest = authorizeExternal(caller, capability, ruleId);
+            const latest = authorizeExternal(c, capability, ruleId);
             if (latest.grant.id !== grant.id || latest.current.target !== current.target || latest.current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(latest.current.ruleVersion);
             if (!latest.config || latest.config.revision !== expectedRevision || latest.config.definition.fingerprint !== current.environmentTarget) {
               throw errors.versionConflict(latest.config?.revision ?? "");

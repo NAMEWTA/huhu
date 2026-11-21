@@ -146,6 +146,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors));
   registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
+  registry.declareDescriptors("automations", Object.values(automations.automationToolDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.taskScanToolDescriptors));
 

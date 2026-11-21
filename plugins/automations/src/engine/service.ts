@@ -144,6 +144,13 @@ export class AutomationsService {
     return true;
   }
 
+  assertRuleRun(ruleId: string, runId: string, activationId: string): void {
+    const { data } = this.runDetail(runId);
+    if (!this.d.terminalOwner || data["terminalOwner"] !== this.d.terminalOwner || data["ruleId"] !== ruleId || data["activationId"] !== activationId) {
+      throw errors.notFound("没有这次规则运行");
+    }
+  }
+
   /** 停用时结束等待。已经创建的终端交给原会话继续。 */
   abortAll(): void {
     this.abort.abort();

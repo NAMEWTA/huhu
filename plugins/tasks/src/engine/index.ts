@@ -11,20 +11,22 @@ import {
   TaskStatusSchema,
   TaskTypeSchema,
   TaskWritableSchema,
+  type TaskDto,
+  type TaskExecution,
   type TaskOrigin,
 } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
-import type { HuhuApi } from "@huhu/kernel";
-import { bindCapability, defineCapability as def, defineCapabilityDescriptor } from "@huhu/kernel";
+import { bindCapability, defineCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { machineId, VaultFiles } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { statSync } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, RecentTaskRun, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
@@ -46,6 +48,8 @@ export interface TaskQuery {
 const Id = z.object({ id: z.string() });
 const ListInput = z.object({ category: TaskCategorySchema.default("all"), status: z.array(TaskStatusSchema).optional(), type: TaskTypeSchema.optional(), tags: z.array(z.string()).optional(), query: z.string().optional() });
 
+const Versioned = Id.extend({ expectedVersion: z.string() });
+
 export const taskToolDescriptors = {
   list: defineCapabilityDescriptor({
     name: "tasks.list",
@@ -55,7 +59,7 @@ export const taskToolDescriptors = {
     risk: "normal",
     scope: "read",
     exposable: true,
-    defaultExposed: true,
+    defaultExposed: false,
     input: ListInput,
     output: z.array(TaskDtoSchema),
   }),
@@ -67,7 +71,7 @@ export const taskToolDescriptors = {
     risk: "normal",
     scope: "read",
     exposable: true,
-    defaultExposed: true,
+    defaultExposed: false,
     input: Id,
     output: TaskDtoSchema,
   }),
@@ -84,6 +88,267 @@ export const taskToolDescriptors = {
     input: TaskWritableSchema,
     output: TaskDtoSchema,
   }),
+  questionsList: defineCapabilityDescriptor({
+    name: "tasks.questions.list",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.strictObject({ taskId: z.string() }),
+    output: z.array(TaskQuestionView.extend({ reply: TaskReplyView.optional() })),
+    title: "查看任务请求",
+    description: "查询指定任务的原生和普通问题。",
+    risk: "normal",
+  }),
+  reply: defineCapabilityDescriptor({
+    name: "tasks.reply",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: TaskReplyInput,
+    output: TaskReplyView,
+    title: "回答任务请求",
+    description: "向原任务的原会话提交回答。",
+    risk: "high",
+  }),
+  replyRead: defineCapabilityDescriptor({
+    name: "tasks.reply.read",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: TaskReplyLookup,
+    output: TaskReplyView,
+    title: "查看任务回答",
+    description: "按原任务、运行、请求与回答标识查询状态。",
+    risk: "normal",
+  }),
+  supplement: defineCapabilityDescriptor({
+    name: "tasks.supplement",
+    plugin: "tasks",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: TaskSupplementInput,
+    output: TaskSupplementView,
+    title: "发送任务补充",
+    description: "向已绑定的原任务会话受理一条补充输入。",
+    risk: "high",
+  }),
+  supplementRead: defineCapabilityDescriptor({
+    name: "tasks.supplement.read",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: TaskSupplementLookup,
+    output: TaskSupplementView,
+    title: "查看任务补充",
+    description: "按原运行、会话及补充标识查询状态。",
+    risk: "high",
+  }),
+  dispatch: defineCapabilityDescriptor({
+    name: "tasks.dispatch",
+    plugin: "tasks",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: DispatchInput,
+    output: DispatchReceipt,
+    title: "派遣任务",
+    description: "按任务输入版本受理一次 Agent 派遣。",
+    risk: "high",
+  }),
+  dispatchRead: defineCapabilityDescriptor({
+    name: "tasks.dispatch.read",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: DispatchLookup,
+    output: DispatchReceipt,
+    title: "查看派遣回执",
+    description: "按任务与派遣标识读取派遣状态。",
+    risk: "normal",
+  }),
+  dispatchTargets: defineCapabilityDescriptor({
+    name: "tasks.dispatch.targets",
+    plugin: "tasks",
+    scope: "read",
+    exposable: false,
+    defaultExposed: false,
+    input: z.strictObject({ spaceId: z.string().min(1) }),
+    output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, available: true, reason: true })),
+    title: "查看派遣目标",
+    description: "查看指定 Space 可选的 Agent 与会话目标。",
+    risk: "normal",
+  }),
+  dispatchList: defineCapabilityDescriptor({
+    name: "tasks.dispatch.list",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.strictObject({ taskId: z.string() }),
+    output: z.array(TaskDispatchView),
+    title: "列出任务派遣",
+    description: "读取指定任务的派遣记录。",
+    risk: "normal",
+  }),
+  dispatchRecent: defineCapabilityDescriptor({
+    name: "tasks.dispatch.recent",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: z.strictObject({ limit: z.int().min(1).max(200).default(200) }),
+    output: z.array(RecentTaskRun),
+    title: "查看最近派遣",
+    description: "读取当前 Vault 可见的最近任务运行。",
+    risk: "normal",
+  }),
+  dispatchCancel: defineCapabilityDescriptor({
+    name: "tasks.dispatch.cancel",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: DispatchLookup,
+    output: DispatchReceipt,
+    title: "取消排队派遣",
+    description: "取消指定任务尚可取消的派遣。",
+    risk: "high",
+  }),
+  dispatchStop: defineCapabilityDescriptor({
+    name: "tasks.dispatch.stop",
+    plugin: "tasks",
+    scope: "execute",
+    exposable: true,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: StopLookup,
+    output: StopReceipt,
+    title: "停止任务运行",
+    description: "向原运行所属的受控会话提交停止意图。",
+    risk: "high",
+  }),
+  dispatchStopRead: defineCapabilityDescriptor({
+    name: "tasks.dispatch.stop.read",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: StopLookup,
+    output: StopReceipt,
+    title: "查看停止回执",
+    description: "按原运行与停止标识读取停止状态。",
+    risk: "normal",
+  }),
+  agentCreate: defineCapabilityDescriptor({
+    name: "tasks.agent.create",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: TaskWritableSchema.extend({ type: z.literal("agent").default("agent"), execution: TaskExecutionSchema }),
+    output: TaskDtoSchema,
+    title: "新建 Agent 任务",
+    description: "在当前 Vault 新建具备执行目标的 Agent 任务。",
+    risk: "high",
+  }),
+  update: defineCapabilityDescriptor({
+    name: "tasks.update",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: Versioned.extend({
+      patch: TaskPatchSchema,
+      baseInputHash: z.string().optional(),
+      baseEditHash: z.string().optional(),
+    }),
+    output: TaskDtoSchema,
+    title: "更新任务",
+    description: "按任务版本更新任务字段。",
+    risk: "high",
+  }),
+  duplicate: defineCapabilityDescriptor({
+    name: "tasks.duplicate",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: Id,
+    output: TaskDtoSchema,
+    title: "复制任务",
+    description: "从现有任务新建一份副本。",
+    risk: "high",
+  }),
+  delete: defineCapabilityDescriptor({
+    name: "tasks.delete",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: Id,
+    output: z.object({ ok: z.literal(true) }),
+    title: "删除任务",
+    description: "将指定任务移入回收站。",
+    risk: "high",
+  }),
+  setStatus: defineCapabilityDescriptor({
+    name: "tasks.setStatus",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: Versioned.extend({ status: TaskStatusSchema }),
+    output: TaskDtoSchema,
+    title: "变更任务状态",
+    description: "按版本流转指定任务的状态。",
+    risk: "high",
+  }),
+  commentsAdd: defineCapabilityDescriptor({
+    name: "tasks.comments.add",
+    plugin: "tasks",
+    scope: "write",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({
+      taskId: z.string(),
+      /** 内置插件按事件派生，保证幂等；桌面与外部调用方不传，由网关生成。 */
+      id: z.string().optional(),
+      body: z.string().min(1).max(20_000),
+      /** 只有内置插件调用时才采信 source（agent / system）；其他调用方一律由网关按 caller 决定。 */
+      source: z.enum(["agent", "system"]).optional(),
+      author: z.string().optional(),
+      run: z.string().optional(),
+      ask: z.string().optional(),
+      session: z.string().optional(),
+      event: z.string().optional(),
+    }),
+    output: z.object({ comment: TaskCommentSchema, added: z.boolean() }),
+    title: "添加任务评论",
+    description: "向指定任务添加评论。",
+    risk: "high",
+  }),
+  runs: defineCapabilityDescriptor({
+    name: "tasks.runs",
+    plugin: "tasks",
+    scope: "read",
+    exposable: true,
+    defaultExposed: false,
+    input: Id,
+    output: z.array(TaskRunSummary),
+    title: "查看任务运行",
+    description: "读取指定任务的运行摘要。",
+    risk: "normal",
+  }),
 };
 
 /** 创建来源：种类由网关根据受信的 caller 推导（请求体里自报的来源一律忽略）。明细 ID 由 T02 的 onBehalfOf 补上。 */
@@ -99,12 +364,19 @@ export function originOf(caller: string): TaskOrigin {
   return { kind: "external", caller };
 }
 
-/** 创建和修改 Agent 任务或它的执行配置要求已认证的工作台用户。 */
-function assertAgentAllowed(caller: string, i: { type?: string | undefined; execution?: unknown }): void {
-  if ((i.type === "agent" || (i.execution !== undefined && i.execution !== null)) && !isWorkbenchCaller(caller)) throw errors.permissionDenied("创建或修改 Agent 任务（仅工作台可用）");
+const isExternalTool = (caller: string) => caller === "cli" || caller === "mcp" || caller === "http";
+const isTaskToolCaller = (caller: string) => isWorkbenchCaller(caller) || isExternalTool(caller);
+
+function toolOwner({ caller, subject }: CapabilityContext, desktopOnly = false): string | undefined {
+  if (desktopOnly ? caller === "desktop" : isWorkbenchCaller(caller)) return undefined;
+  if (!isExternalTool(caller) || !subject) throw errors.permissionDenied("需要已认证的任务工具调用者");
+  return fingerprint([caller, subject]);
 }
-const isTaskToolCaller = (caller: string) => isWorkbenchCaller(caller) || caller === "cli" || caller === "mcp" || caller === "http";
-const Versioned = Id.extend({ expectedVersion: z.string() });
+function agentWriteResult(caller: string, task: TaskDto, includesAgentInput = task.type === "agent"): TaskDto {
+  if (!isExternalTool(caller) || !includesAgentInput) return task;
+  return { ...task, body: "", comments: [], references: [] };
+}
+
 const REMINDER_CHECK_MS = 30_000;
 
 export interface TasksOptions {
@@ -147,8 +419,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
   const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError);
 
+  const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
+  const validateAgentTarget = (execution: TaskExecution | null | undefined) => {
+    if (!execution) throw errors.invalidInput("请配置 Agent 任务的执行目标");
+    const { spaceId, target, provider, model, effort } = execution;
+    const spaces = api.service<{ spaces: { list(): { id: string }[] } }>("agentCli")?.spaces;
+    if (!spaceId || !spaces?.list().some(({ id }) => id === spaceId)) throw errors.invalidInput("请选择当前 Vault 已配置的工作区");
+    if (target?.mode === "resume") throw errors.invalidInput("此工具需要新会话或明确选中的现有会话");
+    if (target?.mode !== "existing" && (!provider || !agentById(provider))) throw errors.invalidInput("请选择已知的 Agent");
+    if (model?.startsWith("-") || effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
+  };
+  const assertStillExposed = (c: CapabilityContext, capability: string) => {
+    c.signal.throwIfAborted();
+    if (isExternalTool(c.caller) && toolSelection(exposure.snapshot(), capability) !== true) throw errors.capabilityNotExposed(capability);
+  };
+  const authorizeAgentEdit = (c: CapabilityContext) => {
+    toolOwner(c);
+    if (toolSelection(exposure.snapshot(), taskToolDescriptors.agentCreate.name) !== true) throw errors.permissionDenied("请先开放 Agent 任务工具");
+  };
+
   api.defineCapability(
-    def({
+    defineCapability({
       name: "tasks.receipts.consume",
       plugin: "tasks",
       scope: "write",
@@ -166,213 +457,71 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.questions.list",
-      plugin: "tasks",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: z.strictObject({ taskId: z.string() }),
-      output: z.array(TaskQuestionView.extend({ reply: TaskReplyView.optional() })),
-      handler: ({ caller }, { taskId }) => {
-        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务请求");
-        return dispatch.questions(taskId);
-      },
+    bindCapability(taskToolDescriptors.questionsList, ({ caller }, { taskId }) => {
+      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务请求");
+      return dispatch.questions(taskId);
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.reply",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      idempotency: "handler",
-      input: TaskReplyInput,
-      output: TaskReplyView,
-      handler: async ({ caller, signal }, input) => {
-        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("回答任务请求");
-        const reply = await dispatch.reply(input, signal);
-        void dispatch.check();
-        return reply;
-      },
+    bindCapability(taskToolDescriptors.reply, async ({ caller, signal }, input) => {
+      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("回答任务请求");
+      const reply = await dispatch.reply(input, signal);
+      void dispatch.check();
+      return reply;
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.reply.read",
-      plugin: "tasks",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: TaskReplyLookup,
-      output: TaskReplyView,
-      handler: ({ caller }, input) => {
-        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务回答");
-        return dispatch.readReply(input);
-      },
+    bindCapability(taskToolDescriptors.replyRead, ({ caller }, input) => {
+      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务回答");
+      return dispatch.readReply(input);
     }),
   );
 
   api.defineCapability(
-    def({
-      name: "tasks.supplement",
-      plugin: "tasks",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      idempotency: "handler",
-      input: TaskSupplementInput,
-      output: TaskSupplementView,
-      handler: async ({ caller, signal }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("发送任务补充");
-        const accepted = await dispatch.acceptSupplement(input, signal);
-        void dispatch.check();
-        return accepted;
-      },
+    bindCapability(taskToolDescriptors.supplement, async (c, input) => {
+      const accepted = await dispatch.acceptSupplement(input, c.signal, toolOwner(c), () => assertStillExposed(c, taskToolDescriptors.supplement.name));
+      void dispatch.check();
+      return accepted;
+    }),
+  );
+  api.defineCapability(bindCapability(taskToolDescriptors.supplementRead, (c, input) => dispatch.readSupplement(input, toolOwner(c))));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.dispatch, async (c, i) => {
+      if (!isTaskToolCaller(c.caller) || (!isWorkbenchCaller(c.caller) && i.allowEarly === true)) throw errors.permissionDenied("任务派遣或提前派遣");
+      const receipt = await dispatch.accept(i, isWorkbenchCaller(c.caller) ? { kind: "desktop" } : { kind: "tool", owner: toolOwner(c)! });
+      void dispatch.check();
+      return receipt;
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.supplement.read",
-      plugin: "tasks",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: TaskSupplementLookup,
-      output: TaskSupplementView,
-      handler: ({ caller }, input) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务补充");
-        return dispatch.readSupplement(input);
-      },
+    bindCapability(taskToolDescriptors.dispatchRead, (c, i) => {
+      if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务派遣");
+      return dispatch.read(i, toolOwner(c));
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.dispatch",
-      plugin: "tasks",
-      scope: "execute",
-      exposable: true,
-      defaultExposed: false,
-      input: DispatchInput,
-      output: DispatchReceipt,
-      handler: async (c, i) => {
-        if (!isTaskToolCaller(c.caller) || (!isWorkbenchCaller(c.caller) && i.allowEarly === true)) throw errors.permissionDenied("任务派遣或提前派遣");
-        const receipt = await dispatch.accept(i, isWorkbenchCaller(c.caller) ? { kind: "desktop" } : { kind: "tool" });
-        void dispatch.check();
-        return receipt;
-      },
+    bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
+      const targets = z.array(AgentDispatchTargetInfoSchema).parse(await api.call("agent.targets.list", { vaultId: api.vault.vaultId, machineId: machineId(), spaceId }, { signal }));
+      return targets.map(({ mode, provider, sessionId, available, reason }) => ({ mode, provider, sessionId, available, reason }));
+    }),
+  );
+  api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
+  api.defineCapability(bindCapability(taskToolDescriptors.dispatchRecent, (c, { limit }) => dispatch.recent(limit, toolOwner(c))));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.dispatchCancel, (c, i) => {
+      if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("取消任务派遣");
+      return dispatch.cancel(i, toolOwner(c));
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.dispatch.read",
-      plugin: "tasks",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: DispatchLookup,
-      output: DispatchReceipt,
-      handler: (c, i) => {
-        if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务派遣");
-        return dispatch.read(i);
-      },
+    bindCapability(taskToolDescriptors.dispatchStop, async (c, input) => {
+      const receipt = await dispatch.acceptStop(input, c.signal, toolOwner(c, true), () => assertStillExposed(c, taskToolDescriptors.dispatchStop.name));
+      void dispatch.check();
+      return receipt;
     }),
   );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.targets",
-      plugin: "tasks",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.strictObject({ spaceId: z.string().min(1) }),
-      output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, available: true, reason: true })),
-      handler: async ({ caller, signal }, { spaceId }) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
-        const targets = z.array(AgentDispatchTargetInfoSchema).parse(await api.call("agent.targets.list", { vaultId: api.vault.vaultId, machineId: machineId(), spaceId }, { signal }));
-        return targets.map(({ mode, provider, sessionId, available, reason }) => ({ mode, provider, sessionId, available, reason }));
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.list",
-      plugin: "tasks",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.strictObject({ taskId: z.string() }),
-      output: z.array(TaskDispatchView),
-      handler: ({ caller }, { taskId }) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务派遣");
-        return dispatch.list(taskId);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.recent",
-      plugin: "tasks",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.strictObject({ limit: z.int().min(1).max(200).default(200) }),
-      output: z.array(RecentTaskRun),
-      handler: ({ caller }, { limit }) => {
-        if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看最近的任务运行");
-        return dispatch.recent(limit);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.cancel",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: DispatchLookup,
-      output: DispatchReceipt,
-      handler: (c, i) => {
-        if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("取消任务派遣");
-        return dispatch.cancel(i);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.stop",
-      plugin: "tasks",
-      scope: "execute",
-      exposable: false,
-      defaultExposed: false,
-      idempotency: "handler",
-      input: StopLookup,
-      output: StopReceipt,
-      handler: async ({ caller, signal }, input) => {
-        if (caller !== "desktop") throw errors.permissionDenied("停止任务运行");
-        const receipt = await dispatch.acceptStop(input, signal);
-        void dispatch.check();
-        return receipt;
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.dispatch.stop.read",
-      plugin: "tasks",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: StopLookup,
-      output: StopReceipt,
-      handler: ({ caller }, input) => {
-        if (caller !== "desktop") throw errors.permissionDenied("查看任务停止记录");
-        return dispatch.readStop(input);
-      },
-    }),
-  );
+  api.defineCapability(bindCapability(taskToolDescriptors.dispatchStopRead, (c, input) => dispatch.readStop(input, toolOwner(c, true))));
   api.provide("taskDispatch", {
     createFromRule: (input) => svc.createFromRule(input),
     acceptRule: async (input, source) => {
@@ -405,145 +554,73 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   );
   api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
   api.defineCapability(
-    bindCapability(taskToolDescriptors.create, (c, i) => {
-      assertAgentAllowed(c.caller, i);
-      return svc.create(i, originOf(c.caller));
+    bindCapability(taskToolDescriptors.create, async (c, i) => {
+      if (!isWorkbenchCaller(c.caller) && (i.type === "agent" || i.execution)) {
+        authorizeAgentEdit(c);
+        if (i.type !== "agent") throw errors.permissionDenied("人工任务不能设置 Agent 执行目标");
+        validateAgentTarget(i.execution);
+      }
+      return agentWriteResult(c.caller, await svc.create(i, originOf(c.caller)));
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.agent.create",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: TaskWritableSchema.extend({ type: z.literal("agent").default("agent"), execution: TaskExecutionSchema }),
-      output: TaskDtoSchema,
-      handler: ({ caller }, input) => {
-        if (!isTaskToolCaller(caller)) throw errors.permissionDenied("创建 Agent 任务");
-        const { spaceId, target, provider, model, effort } = input.execution;
-        const spaces = api.service<{ spaces: { list(): { id: string }[] } }>("agentCli")?.spaces;
-        if (!spaceId || !spaces?.list().some(({ id }) => id === spaceId)) throw errors.invalidInput("请选择当前 Vault 已配置的工作区");
-        if (target?.mode === "resume") throw errors.invalidInput("此工具需要新会话或明确选中的现有会话");
-        if (target?.mode !== "existing" && (!provider || !agentById(provider))) throw errors.invalidInput("请选择已知的 Agent");
-        if (model?.startsWith("-") || effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
-        return svc.create(input, originOf(caller));
-      },
+    bindCapability(taskToolDescriptors.agentCreate, async ({ caller }, input) => {
+      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("创建 Agent 任务");
+      validateAgentTarget(input.execution);
+      return agentWriteResult(caller, await svc.create(input, originOf(caller)));
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.update",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Versioned.extend({
-        patch: TaskPatchSchema,
-        baseInputHash: z.string().optional(),
-        baseEditHash: z.string().optional(),
-      }),
-      output: TaskDtoSchema,
-      handler: (c, i) => {
-        assertAgentAllowed(c.caller, i.patch);
-        const cur = svc.read(i.id);
-        if (cur.type === "agent" && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("修改 Agent 任务（仅工作台可用）");
-        return svc.update(i.id, i.expectedVersion, i.patch, i.baseInputHash, i.baseEditHash);
-      },
+    bindCapability(taskToolDescriptors.update, async (c, i) => {
+      let includesAgentInput = false;
+      const task = await svc.update(i.id, i.expectedVersion, i.patch, i.baseInputHash, i.baseEditHash, (current, type, execution) => {
+        if (isWorkbenchCaller(c.caller) || (current.type !== "agent" && type !== "agent" && !execution)) return;
+        authorizeAgentEdit(c);
+        if (current.version !== i.expectedVersion) throw errors.versionConflict(current.version);
+        if (type === "agent") validateAgentTarget(execution);
+        includesAgentInput = true;
+      });
+      return agentWriteResult(c.caller, task, includesAgentInput);
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.duplicate",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Id,
-      output: TaskDtoSchema,
-      handler: (c, i) => (svc.read(i.id).type === "agent" && !isWorkbenchCaller(c.caller) ? Promise.reject(errors.permissionDenied("复制 Agent 任务（仅工作台可用）")) : svc.duplicate(i.id, originOf(c.caller))),
+    bindCapability(taskToolDescriptors.duplicate, async (c, i) => {
+      const task = await svc.duplicate(i.id, originOf(c.caller), (current) => {
+        if (current.type !== "agent" || isWorkbenchCaller(c.caller)) return;
+        authorizeAgentEdit(c);
+        validateAgentTarget(current.execution);
+      });
+      return agentWriteResult(c.caller, task);
+    }),
+  );
+  api.defineCapability(bindCapability(taskToolDescriptors.delete, (_c, i) => svc.withTaskWrite(i.id, async () => (svc.delete(i.id), { ok: true as const }))));
+  api.defineCapability(bindCapability(taskToolDescriptors.setStatus, (_c, i) => svc.setStatus(i.id, i.status, i.expectedVersion)));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.commentsAdd, (c, i) => {
+      const task = svc.read(i.taskId);
+      const internal = c.caller.startsWith("plugin:");
+      // 外部入口只能给 human 任务写评论：agent 任务的输入（含评论）不能被外部注入（spec §8.3）
+      const user = isWorkbenchCaller(c.caller);
+      if (!internal && !user && task.type === "agent") throw errors.permissionDenied("给 Agent 任务写评论（仅工作台可用）");
+      const source = user ? "human" : internal ? (i.source ?? "system") : "external";
+      const at = (opts.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
+      return svc.addComment(i.taskId, {
+        id: internal && i.id ? i.id : `c-${newId("cap").replace("cap-", "")}`,
+        at,
+        source,
+        author: user ? "我" : internal ? i.author : c.caller,
+        run: internal ? i.run : undefined,
+        ask: internal ? i.ask : undefined,
+        session: internal ? i.session : undefined,
+        event: internal ? i.event : undefined,
+        body: i.body,
+      });
     }),
   );
   api.defineCapability(
-    def({
-      name: "tasks.delete",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Id,
-      output: z.object({ ok: z.literal(true) }),
-      handler: (_c, i) => svc.withTaskWrite(i.id, async () => (svc.delete(i.id), { ok: true as const })),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.setStatus",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Versioned.extend({ status: TaskStatusSchema }),
-      output: TaskDtoSchema,
-      handler: (_c, i) => svc.setStatus(i.id, i.status, i.expectedVersion),
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.comments.add",
-      plugin: "tasks",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: z.object({
-        taskId: z.string(),
-        /** 内置插件按事件派生，保证幂等；桌面与外部调用方不传，由网关生成。 */
-        id: z.string().optional(),
-        body: z.string().min(1).max(20_000),
-        /** 只有内置插件调用时才采信 source（agent / system）；其他调用方一律由网关按 caller 决定。 */
-        source: z.enum(["agent", "system"]).optional(),
-        author: z.string().optional(),
-        run: z.string().optional(),
-        ask: z.string().optional(),
-        session: z.string().optional(),
-        event: z.string().optional(),
-      }),
-      output: z.object({ comment: TaskCommentSchema, added: z.boolean() }),
-      handler: (c, i) => {
-        const task = svc.read(i.taskId);
-        const internal = c.caller.startsWith("plugin:");
-        // 外部入口只能给 human 任务写评论：agent 任务的输入（含评论）不能被外部注入（spec §8.3）
-        const user = isWorkbenchCaller(c.caller);
-        if (!internal && !user && task.type === "agent") throw errors.permissionDenied("给 Agent 任务写评论（仅工作台可用）");
-        const source = user ? "human" : internal ? (i.source ?? "system") : "external";
-        const at = (opts.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
-        return svc.addComment(i.taskId, {
-          id: internal && i.id ? i.id : `c-${newId("cap").replace("cap-", "")}`,
-          at,
-          source,
-          author: user ? "我" : internal ? i.author : c.caller,
-          run: internal ? i.run : undefined,
-          ask: internal ? i.ask : undefined,
-          session: internal ? i.session : undefined,
-          event: internal ? i.event : undefined,
-          body: i.body,
-        });
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "tasks.runs",
-      plugin: "tasks",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: Id,
-      output: z.array(TaskRunSummary),
-      handler: (_c, i) => {
-        svc.read(i.id);
-        return dispatch.runs(i.id);
-      },
+    bindCapability(taskToolDescriptors.runs, (_c, i) => {
+      svc.read(i.id);
+      return dispatch.runs(i.id);
     }),
   );
 
