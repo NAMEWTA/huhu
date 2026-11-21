@@ -8,8 +8,8 @@ export function workspaceTarget(route: readonly HostRecord[]): string {
     .digest("hex");
 }
 
-export function routeForHost(hosts: ReadonlyMap<string, HostRecord>, hostId: string): HostRecord[] {
-  const chain: HostRecord[] = [];
+export function routeForHost<T extends Pick<HostRecord, "id" | "jumpHostIds">>(hosts: Pick<ReadonlyMap<string, T>, "get">, hostId: string): T[] {
+  const chain: T[] = [];
   const visiting = new Set<string>();
   function visit(id: string): void {
     if (visiting.has(id)) throw errors.invalidInput("SSH 跳板链不能形成循环");

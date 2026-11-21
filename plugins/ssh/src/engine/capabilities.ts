@@ -23,6 +23,7 @@ import {
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
+import { ResourceHost, ResourceHostId } from "./public-resources.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -42,6 +43,7 @@ import {
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
+const external = { ...ssh, exposable: true } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -50,6 +52,16 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  resourcesHostGet: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.host.get",
+    title: "读取 SSH 主机与路由摘要",
+    description: "按主机 ID 读取可移植的主机身份、认证类型和逐跳修订。无需连接或访问本机凭据。",
+    scope: "read",
+    risk: "normal",
+    input: ResourceHostId,
+    output: ResourceHost,
+  }),
   settingsGet: defineCapabilityDescriptor({
     ...monitor,
     name: "ssh.settings.get",

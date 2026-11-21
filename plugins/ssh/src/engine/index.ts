@@ -19,6 +19,7 @@ import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
+import { readResourceRoute } from "./public-resources.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -77,6 +78,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesHostGet, (_c, i) => readResourceRoute(api.vault.files, i.hostId).view));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
