@@ -147,12 +147,14 @@ function unwrap(result: AiResult) {
   throw new HuhuError("INVALID_INPUT", feedback[result.reason], { details: { reason: result.reason } });
 }
 
+const unavailableKeyCodes = new Set(["unconfigured", "unbound", "missing-key", "corrupt", "unavailable", "locked", "denied"]);
+
 function failure(error: unknown): never {
   if (error instanceof HuhuError) throw error;
   if (error instanceof CredentialError) {
     if (error.code === "conflict") throw new HuhuError("VERSION_CONFLICT", "邮件 AI 设置已更新。请核对当前设置后再试。");
     if (error.code === "cancelled") throw errors.invalidInput(feedback.cancelled);
-    if (["unconfigured", "unbound", "missing-key", "corrupt", "unavailable", "locked", "denied"].includes(error.code)) {
+    if (unavailableKeyCodes.has(error.code)) {
       throw errors.invalidInput("当前 Vault 的邮件 AI Key 不可用。请在此主机替换 Key，或清除后重新配置。");
     }
   }
@@ -202,30 +204,39 @@ export async function registerMailAi(api: HuhuApi, host: MailAccountOwner | unde
     }
     const next = { enabled: input.enabled && !(https && key.action === "clear"), endpoint, model: input.model };
     const verify = !save || next.enabled || key.action === "replace";
+    const verifyWithStoredKey = verify && key.action === "keep" && https && hasStoredKey;
+    const replacement = key.action === "replace" ? key.value : undefined;
 
-    async function check(value: string | undefined) {
+    function checkPortableFields(value: string | undefined) {
       if (value && (next.endpoint.includes(value) || next.model.includes(value))) throw errors.invalidInput("服务地址和模型名称不能包含 Key。");
-      if (!verify) return;
+    }
+    async function verifyConnection(value: string | undefined) {
       if (https && !value) throw errors.invalidInput("HTTPS 服务需要 API Key。请选择替换并输入有效的 Key。");
       ensureRevision(input.expectedRevision);
       unwrap(await mailCompletion(next.endpoint, next.model, value, ping, signal));
     }
-    if (key.action === "keep" && https && hasStoredKey && verify) {
+    checkPortableFields(replacement);
+    if (hasStoredKey) {
       // ModuleCredentials wraps errors thrown by the callback. Keep provider feedback as data until it exits.
-      const result = await owner.use(entityId, [purpose], async (_, values, revision) => {
-        if (revision !== input.expectedRevision) return { conflict: true } as const;
-        try {
-          await check(values.get(purpose));
-          return {} as const;
-        } catch (error) {
-          return { error };
-        }
-      });
-      if (result.conflict) failure(new CredentialError("conflict"));
-      if ("error" in result) throw result.error;
-    } else {
-      await check(key.action === "replace" ? key.value : undefined);
+      const result = await owner
+        .use(entityId, [purpose], async (_, values, revision) => {
+          if (revision !== input.expectedRevision) return { conflict: true } as const;
+          try {
+            const stored = values.get(purpose);
+            checkPortableFields(stored);
+            if (verifyWithStoredKey) await verifyConnection(stored);
+            return {} as const;
+          } catch (error) {
+            return { error };
+          }
+        })
+        .catch((error: unknown) => {
+          if (verifyWithStoredKey || !(error instanceof CredentialError) || !unavailableKeyCodes.has(error.code)) throw error;
+        });
+      if (result?.conflict) failure(new CredentialError("conflict"));
+      if (result && "error" in result) throw result.error;
     }
+    if (verify && !verifyWithStoredKey) await verifyConnection(replacement);
     if (signal.aborted) throw errors.invalidInput(feedback.cancelled);
     ensureRevision(input.expectedRevision);
     if (!save) return;

@@ -20,7 +20,10 @@ import { loopbackSmtp } from "./fixtures/smtp.js";
 const injection = vi.hoisted(() => ({ runtime: undefined as MailOAuthRuntime | undefined, options: undefined as MailSyncOptions | undefined }));
 vi.mock("../src/engine/registration.js", async (original) => {
   const module = await original<typeof import("../src/engine/registration.js")>();
-  return { ...module, apply: (...[ctx, api, owner, transport, options]: Parameters<typeof module.apply>) => module.apply(ctx, api, owner, transport, injection.options ?? options, injection.runtime) };
+  return {
+    ...module,
+    apply: ((ctx, api, owner, transport, syncOptions, runtime, ...options) => module.apply(ctx, api, owner, transport, injection.options ?? syncOptions, injection.runtime ?? runtime, ...options)) satisfies typeof module.apply,
+  };
 });
 
 type Status = { sessionId: string; host: string; phase: string; reason?: string; accountId?: string; route?: string; smtp?: boolean };

@@ -5,13 +5,14 @@ import path from "node:path";
 import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { exportPackage, importPackage } from "@huhu/vault";
-import { assert, expect, test } from "vitest";
+import { assert, expect, test as engineTest } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import type { MailAiSettings } from "../src/engine/ai-settings.js";
 import { aiFixture, aiFixtureCert } from "./fixtures/ai.js";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
-  "邮件 AI 合成连接、修订、Key 操作、重启及恢复使用真实 Windows Engine",
+engineTest(
+  "邮件 AI 合成连接、修订、Key 操作、重启及恢复使用真实 Engine",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-ai-"));
     const vaultPath = path.join(root, "vault");
@@ -20,6 +21,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     const packagePath = path.join(root, "mail.zip");
     mkdirSync(vaultPath);
     mkdirSync(desktopUserData);
+    const moduleCredentialProtection = new TestProtection(desktopUserData);
     const ca = getCACertificates("default");
     setDefaultCACertificates([...ca, readFileSync(aiFixtureCert, "utf8")]);
     const secure = await aiFixture(true);
@@ -55,7 +57,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     const input = { expectedRevision: null, enabled: true, endpoint: secure.url, model: "fixture-model", key: { action: "replace", value: oldKey } };
     const verify = "mail.ai.verifyConnection";
     try {
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection, create: true });
       expect(await read()).toEqual({ available: true, revision: null, enabled: false, endpoint: "", model: "", keyState: "unconfigured" });
       expect(await call(verify, input, { token: engine.mcpToken })).toMatchObject({ ok: false });
       expect(await call(verify, input, { intentKey: randomUUID() })).toMatchObject({ ok: false });
@@ -98,6 +100,26 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(secure.requests.at(-1)?.authorization).toBe(`Bearer ${newKey}`);
       expect(secure.requests).toHaveLength(6);
 
+      const edit = { ...otherSettings, enabled: false, expectedRevision: kept.revision };
+      for (const key of [{ action: "keep" }, { action: "replace", value: oldKey }, { action: "clear" }]) {
+        expect(await call("mail.ai.saveSettings", { ...edit, model: `model-${newKey}`, key })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      }
+      expect(await call("mail.ai.saveSettings", { ...edit, endpoint: `${secure.url}/${oldKey}`, key: { action: "replace", value: oldKey } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(await read()).toEqual(kept);
+      const disabledWithKey = await save(edit);
+      expect(disabledWithKey).toMatchObject({ enabled: false, model: kept.model, keyState: "configured" });
+      expect(await read()).toEqual(disabledWithKey);
+      moduleCredentialProtection.unavailable = "unavailable";
+      try {
+        expect(await save({ ...edit, expectedRevision: disabledWithKey.revision })).toMatchObject({ enabled: false, model: kept.model, keyState: "temporarily-unavailable" });
+      } finally {
+        moduleCredentialProtection.unavailable = undefined;
+      }
+      const disabled = await read();
+      expect(disabled).toMatchObject({ enabled: false, model: kept.model, keyState: "configured" });
+      expect(secure.requests).toHaveLength(6);
+      expect(local.requests).toHaveLength(0);
+
       const manifest = await exportPackage(vaultPath, packagePath);
       expect(manifest.files.filter(({ path: file }) => file.startsWith(".huhu/module-credentials/"))).toHaveLength(1);
       expect(manifest.files.every(({ path: file }) => !file.startsWith(".huhu/runtime/") && !file.endsWith(".bin"))).toBe(true);
@@ -111,17 +133,21 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         }
       }
       importPackage(packagePath, restoredPath);
+      for (const file of manifest.files) {
+        const bytes = readFileSync(path.join(restoredPath, file.path));
+        for (const key of [oldKey, newKey]) expect(bytes.includes(key)).toBe(false);
+      }
       await engine.shutdown();
-      engine = await boot({ vaultPath, desktopUserData });
-      expect(await read()).toEqual(kept);
-      restored = await boot({ vaultPath: restoredPath, desktopUserData });
-      expect(await read(restored)).toMatchObject({ revision: kept.revision, keyState: "needs-reconfiguration" });
-      expect(await call(verify, { ...otherSettings, expectedRevision: kept.revision }, { instance: restored })).toMatchObject({ ok: false });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection });
+      expect(await read()).toEqual(disabled);
+      restored = await boot({ vaultPath: restoredPath, desktopUserData, moduleCredentialProtection });
+      expect(await read(restored)).toMatchObject({ revision: disabled.revision, enabled: false, keyState: "needs-reconfiguration" });
+      expect(await call(verify, { ...otherSettings, expectedRevision: disabled.revision }, { instance: restored })).toMatchObject({ ok: false });
       expect(secure.requests).toHaveLength(6);
 
-      expect(await call(verify, { ...otherSettings, expectedRevision: kept.revision, endpoint: local.url })).toMatchObject({ ok: false });
+      expect(await call(verify, { ...otherSettings, expectedRevision: disabled.revision, endpoint: local.url })).toMatchObject({ ok: false });
       expect(local.requests).toHaveLength(0);
-      const cleared = await save({ ...otherSettings, expectedRevision: kept.revision, key: { action: "clear" } });
+      const cleared = await save({ ...otherSettings, expectedRevision: disabled.revision, key: { action: "clear" } });
       expect(cleared).toMatchObject({ enabled: false, keyState: "unconfigured" });
       expect(secure.requests).toHaveLength(6);
       const loopback = await save({ ...otherSettings, endpoint: local.url.replace("127.0.0.1", "localhost"), expectedRevision: cleared.revision });
@@ -136,12 +162,8 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       expect(local.requests).toHaveLength(2);
     } finally {
       try {
-        if (engine) {
-          const settings = await read();
-          if (settings.keyState === "configured") await save({ ...input, enabled: false, expectedRevision: settings.revision, key: { action: "clear" } });
-        }
-      } finally {
         await Promise.all([secure.close(), local.close(), restored?.shutdown(), engine?.shutdown()]);
+      } finally {
         setDefaultCACertificates(ca);
         rmSync(root, { recursive: true, force: true, maxRetries: 5 });
       }

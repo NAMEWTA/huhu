@@ -23,7 +23,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   const mail = await original<typeof import("../src/engine/index.js")>();
   return {
     ...mail,
-    apply: ((ctx, api, owner) =>
+    apply: ((ctx, api, ...options) =>
       mail.apply(
         ctx,
         {
@@ -33,7 +33,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
             if (name === mail.MAIL_DRAFT_ATTACHMENTS_SERVICE) shared.services.set(api.vault.files.root, service as MailDraftAttachments);
           },
         },
-        owner,
+        ...options,
       )) satisfies typeof mail.apply,
   };
 });

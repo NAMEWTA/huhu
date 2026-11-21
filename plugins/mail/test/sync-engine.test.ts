@@ -14,7 +14,10 @@ import { openImapFixture, type FixtureImapMessage } from "./fixtures/imap.js";
 const injection = vi.hoisted(() => ({ options: undefined as MailSyncOptions | undefined }));
 vi.mock("../src/engine/registration.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/engine/registration.js")>();
-  return { ...original, apply: (...[ctx, api, owner, transport]: Parameters<typeof original.apply>) => original.apply(ctx, api, owner, transport, injection.options) };
+  return {
+    ...original,
+    apply: ((ctx, api, owner, transport, syncOptions, ...options) => original.apply(ctx, api, owner, transport, injection.options ?? syncOptions, ...options)) satisfies typeof original.apply,
+  };
 });
 
 function message(uid: number, seen = false): FixtureImapMessage {

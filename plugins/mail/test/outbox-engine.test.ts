@@ -20,7 +20,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   const mail = await original<typeof import("../src/engine/index.js")>();
   return {
     ...mail,
-    apply: ((ctx, api, owner, transport) =>
+    apply: ((ctx, api, ...options) =>
       mail.apply(
         ctx,
         {
@@ -33,8 +33,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
             shared.services.set(api.vault.files.root, services);
           },
         },
-        owner,
-        transport,
+        ...options,
       )) satisfies typeof mail.apply,
   };
 });
@@ -1110,10 +1109,11 @@ engineTest(
       await expect(services(readonly).outbox.submit(clean)).rejects.toMatchObject({ code: "READ_ONLY_VAULT" });
       const empty = await save(engine, saved.accountId, randomUUID(), null, { to: [], cc: [], bcc: [] });
       await expect(outbox.submit(empty)).rejects.toMatchObject({ details: { reason: "recipient-required" } });
-      const atomicRename = fs.rename;
-      const failure = vi.spyOn(fs, "rename").mockImplementation((from, to, callback) => {
-        if (!String(to).startsWith(`${path.join(engine.vault.root, outboxDir)}${path.sep}`)) return atomicRename(from, to, callback);
-        callback(Object.assign(new Error("synthetic claim failure"), { code: "EIO" }));
+      mkdirSync(path.join(engine.vault.root, outboxDir), { recursive: true });
+      const write = engine.vault.files.write.bind(engine.vault.files);
+      const failure = vi.spyOn(engine.vault.files, "write").mockImplementation(async (relative, bytes, options) => {
+        if (relative.startsWith(`${outboxDir}/`) && options?.expectedVersion === null) throw new Error("synthetic claim failure");
+        return write(relative, bytes, options);
       });
       try {
         await expect(outbox.submit(clean)).rejects.toMatchObject({ details: { reason: "outbox-write-failed" } });
