@@ -6,6 +6,9 @@ import { HuhuError } from "@huhu/contracts";
 import { HerdrClient } from "@huhu/herdr-client";
 import { runnable } from "./detect.js";
 
+type CoreStatus = { state: "connected" | "unavailable" | "idle"; version: string | null; coreId?: string; pid?: number; error?: string };
+type RunningCore = { version: string; core: { id: string }; pid: number };
+
 export interface HerdrCoreOptions {
   /** herdr-core 可执行文件（随应用打包；开发时可用 HUHU_HERDR_BIN）。 */
   bin: string;
@@ -25,6 +28,10 @@ export class HerdrCore {
   get endpoint(): string {
     const tag = `huhu-${this.o.vaultId.replace(/^vault-/, "").slice(0, 8)}-${this.o.machineId.slice(0, 4)}`;
     return process.platform === "win32" ? `\\\\.\\pipe\\${tag}` : path.join(process.env["XDG_RUNTIME_DIR"] ?? os.tmpdir(), `${tag}.sock`);
+  }
+
+  get connected(): HerdrClient | null {
+    return this.o.signal?.aborted ? null : this.client;
   }
 
   private env(): NodeJS.ProcessEnv {
@@ -114,13 +121,21 @@ export class HerdrCore {
    * 有保存布局时只有 start=true（工作台打开 Agent 工作区）才拉起 Core；外部只读调用不启动进程，改报 HERDR_UNAVAILABLE。
    */
   async workspaceConnection(start = true): Promise<HerdrClient | null> {
-    const client = await this.peek();
+    const client = start ? await this.peek() : this.connected;
+    const savedLayout = path.join(this.o.runtimeDir, "state", "herdr-core", "huhu", "docs.json");
+    if (!start && client === null) {
+      if (existsSync(savedLayout) || this.hasEndpoint()) throw new HuhuError("HERDR_UNAVAILABLE", "当前连接无法核对已保存的工作区布局");
+      return null;
+    }
     if (client === null) throw new HuhuError("HERDR_UNAVAILABLE", "无法核对原 Core 的工作区状态");
     if (client !== "absent") return client;
-    const savedLayout = path.join(this.o.runtimeDir, "state", "herdr-core", "huhu", "docs.json");
     if (!existsSync(savedLayout)) return null;
-    if (!start) throw new HuhuError("HERDR_UNAVAILABLE", "Herdr Core 未运行；在 Huhu 中打开 Agent 工作区恢复布局后再读取");
     return this.ensure();
+  }
+
+  private hasEndpoint(): boolean {
+    // Without opening the named pipe, Windows cannot establish absence.
+    return process.platform === "win32" || existsSync(this.endpoint);
   }
 
   /** 诊断用：不启动 Core。未运行时只核对随包程序是否存在。 */
@@ -130,16 +145,28 @@ export class HerdrCore {
     return runnable(this.o.bin) ? status : { state: "unavailable", version: null, error: `找不到可运行的 Herdr Core：${this.o.bin}` };
   }
 
-  async statusIfRunning(): Promise<{ state: "connected" | "unavailable" | "idle"; version: string | null; error?: string }> {
-    const client = await this.peek();
+  async statusIfRunning(allowConnect = true): Promise<CoreStatus> {
+    const client = allowConnect ? await this.peek() : (this.connected ?? (this.hasEndpoint() ? null : "absent"));
     if (client === "absent") return { state: "idle", version: null };
     if (!client) return { state: "unavailable", version: null };
     try {
-      const { version } = await client.call<{ version: string }>("server.status");
-      return { state: "connected", version };
+      const { version, core, pid } = await client.call<RunningCore>("server.status");
+      if (allowConnect) return { state: "connected", version };
+      if (!core?.id || !Number.isSafeInteger(pid) || pid <= 0) return { state: "unavailable", version: null };
+      return { state: "connected", version, coreId: core.id, pid };
     } catch (error) {
       return { state: "unavailable", version: null, error: error instanceof Error ? error.message : String(error) };
     }
+  }
+
+  async assertInstance(expected: string | null, expectedPid: number | undefined): Promise<void> {
+    const client = await this.peek();
+    if (client === "absent" && expected === null && expectedPid === undefined) return;
+    if (client && client !== "absent" && expected !== null && expectedPid !== undefined) {
+      const { core, pid } = await client.call<RunningCore>("server.status");
+      if (expected === core?.id && expectedPid === pid) return;
+    }
+    throw new HuhuError("VERSION_CONFLICT", "受管 Core 已变化，请重新读取 Core 状态");
   }
 
   async status(): Promise<{ state: "connected" | "unavailable"; version: string | null; error?: string }> {

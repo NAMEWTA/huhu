@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
-import { bindCapability, CredentialError, defineCapabilityDescriptor, ModuleCredentials, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, CredentialError, defineCapabilityDescriptor, durableExternal, LocalProtectionError, ModuleCredentials, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { AGENT_CATALOG } from "../shared/catalog.js";
 import type { AgentEnvironmentSelection } from "./interactive-environment.js";
+import { isAgentTool, publicAgentTool } from "./tool-access.js";
 
 const key = z
   .string()
@@ -36,18 +37,19 @@ const saveInput = Definition.omit({ format: true }).extend({ id: z.uuidv4().opti
 const state = z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"]);
 const view = Definition.omit({ format: true }).extend({ id: z.uuidv4(), revision, states: z.record(key, state) });
 export type AgentEnvironmentProfile = z.infer<typeof view>;
-const base = { plugin: "agent-cli", desktopOnly: true, exposable: false, defaultExposed: false } as const;
+const profileSummary = view.extend({ ordinary: z.array(z.strictObject({ name: key, value: value.optional() })) });
+const base = { ...publicAgentTool, desktopOnly: true } as const;
 
 export const agentEnvironmentDescriptors = {
   list: defineCapabilityDescriptor({
     ...base,
     name: "agent.launch.environments.list",
     scope: "read",
-    risk: "normal",
+    risk: "high",
     title: "列出 Agent CLI 启动环境",
     description: "读取启动环境和受保护变量的本机状态。",
     input: z.strictObject({}),
-    output: z.strictObject({ localAvailable: z.boolean(), nativeAvailable: z.boolean(), profiles: z.array(view) }),
+    output: z.strictObject({ localAvailable: z.boolean(), nativeAvailable: z.boolean(), profiles: z.array(profileSummary) }),
   }),
   save: defineCapabilityDescriptor({
     ...base,
@@ -56,8 +58,9 @@ export const agentEnvironmentDescriptors = {
     risk: "high",
     title: "保存 Agent CLI 启动环境",
     description: "按版本保存普通变量和受保护变量补丁。",
+    ...durableExternal,
     input: saveInput,
-    output: view,
+    output: profileSummary,
   }),
   remove: defineCapabilityDescriptor({
     ...base,
@@ -66,6 +69,7 @@ export const agentEnvironmentDescriptors = {
     risk: "high",
     title: "删除 Agent CLI 启动环境",
     description: "按版本移除本模块拥有的启动环境。",
+    ...durableExternal,
     input: identity,
     output: z.strictObject({ removed: z.literal(true) }),
   }),
@@ -100,6 +104,10 @@ function project({ entityId, revision, authState, definition }: Awaited<ReturnTy
   return { id: entityId, revision, ...profile, states: authState };
 }
 
+function summarize({ ordinary, ...profile }: AgentEnvironmentProfile) {
+  return { ...profile, ordinary: ordinary.map(({ name }) => ({ name })) };
+}
+
 function patches(definition: Definition, previous: Definition | undefined, changes: z.infer<typeof patch>[]): CredentialAction[] {
   const variables = [...definition.ordinary.map(({ name }) => name), ...definition.protectedNames];
   if (new Set(variables.map((name) => name.toUpperCase())).size !== variables.length) throw errors.invalidInput("环境变量名不能重复");
@@ -122,16 +130,21 @@ export interface AgentEnvironmentAccess {
 }
 
 export function registerAgentEnvironments(api: HuhuApi, host: AgentCredentialHost | undefined, nativeAvailable: () => boolean): AgentEnvironmentAccess {
-  const store = host && new ModuleCredentials({ ...host, pluginId: "agent-cli", definition: Definition, targets: (d) => Object.fromEntries(d.protectedNames.map((name) => [name, d.provider])) });
+  const owner = host && { ...host, pluginId: "agent-cli", definition: Definition, targets: (d: Definition) => Object.fromEntries(d.protectedNames.map((name) => [name, d.provider])) };
+  const store = owner && new ModuleCredentials(owner);
+  const offline = () => Promise.reject(new LocalProtectionError("unavailable"));
+  // This view can verify the local records without asking the OS keyring for any key.
+  const snapshot = owner && new ModuleCredentials({ ...owner, protection: { read: offline, create: offline, remove: offline } });
   api.defineCapability(
-    bindCapability(agentEnvironmentDescriptors.list, async () => ({
-      localAvailable: store !== undefined,
-      nativeAvailable: nativeAvailable(),
-      profiles: store ? (await store.list().catch(translate)).map(project) : [],
-    })),
+    bindCapability(agentEnvironmentDescriptors.list, async ({ caller }) => {
+      const external = isAgentTool(caller);
+      const source = external ? snapshot : store;
+      const profiles = source ? (await source.list().catch(translate)).map(project) : [];
+      return { localAvailable: store !== undefined, nativeAvailable: nativeAvailable(), profiles: external ? profiles.map(summarize) : profiles };
+    }),
   );
   api.defineCapability(
-    bindCapability(agentEnvironmentDescriptors.save, async ({ signal }, { id, expectedRevision, changes, ...fields }) => {
+    bindCapability(agentEnvironmentDescriptors.save, async ({ signal, caller, parentOperationId }, { id, expectedRevision, changes, ...fields }) => {
       if (!store) throw unavailable();
       if ((id === undefined) !== (expectedRevision === null)) throw errors.invalidInput("环境 ID 和预期版本必须一起提供");
       const entityId = id ?? randomUUID();
@@ -140,7 +153,8 @@ export function registerAgentEnvironments(api: HuhuApi, host: AgentCredentialHos
       if (id && current?.revision !== expectedRevision) throw new HuhuError("VERSION_CONFLICT", "启动环境已更新，请重新读取");
       // The owner requires patches for configured old purposes and new targets.
       const actions = patches(definition, current?.definition, changes).filter(({ purpose }) => definition.protectedNames.includes(purpose) || current?.authState[purpose] !== "unconfigured");
-      return project({ ...(await store.save({ entityId, expectedRevision, definition, actions, signal }).catch(translate)), definition });
+      const profile = project({ ...(await store.save({ entityId, expectedRevision, definition, actions, signal }).catch(translate)), definition });
+      return isAgentTool(caller) || parentOperationId ? summarize(profile) : profile;
     }),
   );
   api.defineCapability(

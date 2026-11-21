@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { HuhuError, errors, type ExecutionBinding } from "@huhu/contracts";
 import { AGENT_CATALOG, type AgentId } from "../shared/catalog.js";
+import { spaceCanLaunch } from "../shared/space.js";
+import type { AgentDetector } from "./detect.js";
 import { ProviderAcceptance, type AgentDispatchStore, type DispatchInput, type DispatchLookup, type LaunchOptions, type StoredDispatch } from "./dispatch-store.js";
 import type { InputOwnership } from "./input-ownership.js";
 import { launchHash } from "./launch-binding.js";
@@ -46,6 +48,7 @@ export class AgentDispatch {
       readOnly: boolean;
       spaces: SpaceStore;
       sessions: SessionsService;
+      detector: AgentDetector;
       ownership: InputOwnership;
       store: AgentDispatchStore;
       providers: Partial<Record<AgentId, DispatchProvider>>;
@@ -53,18 +56,22 @@ export class AgentDispatch {
     },
   ) {}
 
-  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined }, requestSignal: AbortSignal) {
+  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined }, requestSignal: AbortSignal) {
     this.assertScope(input);
     const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
     const space = this.d.spaces.get(input.spaceId);
     const unavailable = this.d.readOnly ? "read_only_vault" : null;
+    const snapshot = input.mode === "snapshot";
     const newTargets = await Promise.all(
       AGENT_CATALOG.map(async ({ id: provider }) => {
         const adapter = this.d.providers[provider];
         let reason = unavailable ?? (adapter?.modes.includes("new") ? null : "provider_acceptance_unavailable");
         let configurationId: string | null = null;
-        if (!reason) {
+        if (!reason && snapshot) {
+          if (!spaceCanLaunch(space)) reason = "SPACE_INVALID";
+          else if (!this.d.detector.locate(provider)) reason = "configuration_unavailable";
+        } else if (!reason) {
           try {
             configurationId = await this.d.sessions.freezeLaunch({ ...input.options, spaceId: space.id, spaceRevision: space.revision, provider, ...(adapter?.transport === "native" && { controlled: "codex" as const }) });
           } catch (error) {
@@ -83,6 +90,7 @@ export class AgentDispatch {
           const provider = session.provider as AgentId;
           const adapter = this.d.providers[provider];
           let reason = unavailable ?? (adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
+          if (!reason && snapshot) reason = "binding_unverified";
           const current = reason ? null : await this.d.sessions.executionSession(session.id);
           if (!reason && (!current || current.finished)) reason = "binding_unverified";
           if (!reason && adapter?.transport === "native" && !current?.nativeExisting) reason = "provider_generation_unavailable";

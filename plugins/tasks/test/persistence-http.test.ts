@@ -7,10 +7,13 @@ import path from "node:path";
 import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
 import { executionReceiptIdentity } from "@huhu/contracts/execution-receipt/engine";
 import { machineId, VaultFiles } from "@huhu/vault";
+import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
+import type { AgentCliOptions } from "../../agent-cli/src/engine/index.js";
+import { SessionsService } from "../../agent-cli/src/engine/sessions.js";
 import type { FollowUps } from "../../automations/src/engine/follow-ups.js";
 import type { TaskDispatchExecutor } from "../src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord, RuleSource } from "../src/engine/dispatch-store.js";
@@ -21,6 +24,15 @@ import { TasksService } from "../src/engine/service.js";
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
 const fixture: { now?: Date; executor?: TaskDispatchExecutor; rule?: TaskRuleDispatch; errors: unknown[]; checkMs?: number; followUpClock?: boolean; followUps?: FollowUps } = { errors: [] };
+let targetProviders: AgentCliOptions["dispatchProviders"];
+
+vi.mock("@huhu/plugin-agent-cli/engine", async (original) => {
+  const agent = await original<typeof import("../../agent-cli/src/engine/index.js")>();
+  return {
+    ...agent,
+    apply: ((ctx, api, opts) => agent.apply(ctx, api, { ...opts, ...(targetProviders && { dispatchProviders: targetProviders }) })) satisfies typeof agent.apply,
+  };
+});
 
 vi.mock("@huhu/plugin-tasks/engine", async (original) => {
   const tasks = await original<typeof import("../src/engine/index.js")>();
@@ -86,6 +98,7 @@ afterEach(async () => {
   delete fixture.followUpClock;
   delete fixture.followUps;
   fixture.errors.length = 0;
+  targetProviders = undefined;
 });
 
 async function start(vaultPath: string, create = false, readOnly = false) {
@@ -1487,4 +1500,76 @@ test.each(externalEntries)("%s 逐项开放、撤销和重查任务的派遣、�
   expect(await call(reopened, ids.stopped, stopInput)).toMatchObject({ ok: true, data: { status: "stopped" } });
   expect(interrupt).toHaveBeenCalledTimes(1);
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
+});
+
+test.each(externalEntries)("%s 逐项开放和撤销 Tasks 目标快照，冷与热夹具都无需拨号", { timeout: 45_000 }, async (entry) => {
+  targetProviders = {
+    claude: { id: "fixture", modes: ["new", "existing"], ready: vi.fn().mockResolvedValue(true), acceptance: vi.fn().mockResolvedValue(null) },
+  };
+  const engine = await start(tempVault(), true);
+  const [space] = (await call<{ id: string; root: string }[]>(engine, "agent.spaces.list", {})).data;
+  expect(space).toBeDefined();
+  const command = path.join(engine.vault.root, "fixture-agent");
+  writeFileSync(command, "", { mode: 0o755 });
+  expect(await call(engine, "agent.settings.update", { expectedRevision: 0, defaultAgent: "claude", agents: { claude: { command } } })).toMatchObject({ ok: true });
+  const {
+    data: { token },
+  } = await call<{ token: string }>(engine, "gateway.tokens.create", { name: "target-snapshot" });
+  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  const external = await externalToolEntry(entry, engine, token);
+  const id = "tasks.dispatch.targets";
+  const input = { spaceId: space!.id };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  const configure = (exposed: boolean) => call(engine, "gateway.update", { capability: id, exposed });
+  const targetDir = path.join(engine.vault.stateDir, "agent-cli", "sessions");
+  const targetFile = path.join(targetDir, "session-fixture.json");
+  const existing = {
+    id: "session-fixture",
+    requestId: "request-fixture",
+    spaceId: input.spaceId,
+    name: "fixture",
+    state: "running",
+    provider: "claude",
+    cwd: space!.root,
+    terminalId: "fixture-core/t1",
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+
+  expect(await external.list()).not.toContain(id);
+  expect(await external.call(id, input)).toMatchObject(denied);
+  expect(await configure(true)).toMatchObject({ ok: true });
+  expect(await external.list()).toContain(id);
+  const initialStarts = vi.mocked(spawn).mock.calls.length;
+  const peek = vi.spyOn(HerdrCore.prototype, "peek");
+  const ensure = vi.spyOn(HerdrCore.prototype, "ensure");
+  const dial = vi.spyOn(HerdrClient.prototype, "connect");
+  const rpc = vi.spyOn(HerdrClient.prototype, "call");
+  const observe = vi.spyOn(SessionsService.prototype, "executionSession");
+  const writes = vi.spyOn(VaultFiles.prototype, "write");
+  try {
+    const list = () => external.call<Array<{ mode: string; sessionId?: string }>>(id, input);
+    const cold = await list();
+    expect(cold).toMatchObject({ ok: true });
+    if (!cold.ok) throw Error(cold.error.code);
+    expect(cold.data).toContainEqual(expect.objectContaining({ mode: "new", provider: "claude", available: true }));
+    expect(cold.data.some(({ mode }) => mode === "existing")).toBe(false);
+    expect(existsSync(targetDir)).toBe(false);
+
+    mkdirSync(targetDir, { recursive: true });
+    const bytes = JSON.stringify(existing);
+    writeFileSync(targetFile, bytes);
+    const warm = await list();
+    expect(warm).toMatchObject({ ok: true, data: expect.arrayContaining([{ mode: "existing", provider: "claude", sessionId: existing.id, available: false, reason: "binding_unverified" }]) });
+    expect(readFileSync(targetFile, "utf8")).toBe(bytes);
+    expect(await external.call(id, { spaceId: "space-missing" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(vi.mocked(spawn).mock.calls).toHaveLength(initialStarts);
+    for (const spy of [peek, ensure, dial, rpc, observe, writes]) expect(spy).not.toHaveBeenCalled();
+  } finally {
+    for (const spy of [peek, ensure, dial, rpc, observe, writes]) spy.mockRestore();
+  }
+
+  expect(await configure(false)).toMatchObject({ ok: true });
+  expect(await external.list()).not.toContain(id);
+  expect(await external.call(id, input)).toMatchObject(denied);
+  expect(readFileSync(targetFile, "utf8")).toBe(JSON.stringify(existing));
 });

@@ -1,7 +1,9 @@
 import {
+  ErrorCodeSchema,
   errors,
   ExecutionReceiptAckSchema,
   ExecutionReceiptSchema,
+  HuhuError,
   isWorkbenchCaller,
   TaskCategorySchema,
   TaskCommentSchema,
@@ -179,7 +181,7 @@ export const taskToolDescriptors = {
     name: "tasks.dispatch.targets",
     plugin: "tasks",
     scope: "read",
-    exposable: false,
+    exposable: true,
     defaultExposed: false,
     input: z.strictObject({ spaceId: z.string().min(1) }),
     output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, available: true, reason: true })),
@@ -501,8 +503,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   );
   api.defineCapability(
     bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId }) => {
-      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
-      const targets = z.array(AgentDispatchTargetInfoSchema).parse(await api.call("agent.targets.list", { vaultId: api.vault.vaultId, machineId: machineId(), spaceId }, { signal }));
+      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
+      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
+      const response = await api.call("agent.targets.list", input, { signal }).catch((error: unknown) => {
+        const code = ErrorCodeSchema.safeParse(error instanceof Error && "code" in error ? error.code : undefined);
+        if (code.success && error instanceof Error) throw new HuhuError(code.data, error.message);
+        throw error;
+      });
+      const targets = z.array(AgentDispatchTargetInfoSchema).parse(response);
       return targets.map(({ mode, provider, sessionId, available, reason }) => ({ mode, provider, sessionId, available, reason }));
     }),
   );

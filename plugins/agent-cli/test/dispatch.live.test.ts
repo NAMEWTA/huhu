@@ -8,7 +8,7 @@ import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStor
 import { Vault, machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { PluginManifestSchema, type ExecutionBinding } from "@huhu/contracts";
-import { agentEnvironmentDescriptors, apply } from "../src/engine/index.js";
+import { agentToolDescriptors, apply } from "../src/engine/index.js";
 import type { DispatchInput, DispatchLookup } from "../src/engine/dispatch-store.js";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
@@ -67,7 +67,7 @@ test.skipIf(!bin)(
     let started = false;
     const engine = async (withAdapter: boolean) => {
       const registry = new CapabilityRegistry();
-      registry.declareDescriptors("agent-cli", Object.values(agentEnvironmentDescriptors));
+      registry.declareDescriptors("agent-cli", agentToolDescriptors);
       const events = new EventBus(() => vault.id);
       events.subscribe((event) => {
         if (event.type !== "entity.changed") return;
