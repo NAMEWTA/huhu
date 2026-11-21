@@ -7,7 +7,7 @@ import { canonicalJson } from "./idempotency.js";
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
 const Identity = z.strictObject({ operationId: z.uuidv4(), key: Hash, input: Hash, owner: z.string(), capability: z.string() });
-const Finished = z.enum(["completed", "failed", "invalid-output", "unknown"]);
+const Finished = z.enum(["completed", "failed", "invalid-output", "unknown", "paused"]);
 const Entry = z.discriminatedUnion("phase", [Identity.extend({ phase: z.literal("accepted") }), Identity.extend({ phase: Finished, result: CapabilityResultSchema })]);
 type Entry = z.infer<typeof Entry>;
 type Accepted = Extract<Entry, { phase: "accepted" }>;
@@ -27,14 +27,17 @@ export class OperationReceipts {
         if (!line.trim()) continue;
         const item = Entry.parse(JSON.parse(line));
         const old = this.byKey.get(item.key);
-        if (item.phase === "accepted" ? old !== undefined : old?.phase !== "accepted" || old.operationId !== item.operationId || old.owner !== item.owner || old.input !== item.input || old.capability !== item.capability) {
-          throw new Error("Invalid operation transition");
-        }
+        if (!old ? item.phase !== "accepted" : !this.transition(old, item)) throw new Error("Invalid operation transition");
         this.set(item);
       }
     } catch {
       this.damaged = true;
     }
+  }
+
+  private transition(old: Entry, item: Entry): boolean {
+    if (old.operationId !== item.operationId || old.owner !== item.owner || old.input !== item.input || old.capability !== item.capability) return false;
+    return old.phase === "accepted" ? item.phase !== "accepted" : old.phase === "paused" && item.phase === "accepted";
   }
 
   private set(entry: Entry): void {
@@ -79,9 +82,18 @@ export class OperationReceipts {
   }
 
   complete(entry: Accepted, phase: z.infer<typeof Finished>, result: CapabilityResult<unknown>): Resolved {
+    if (this.byId.get(entry.operationId) !== entry) throw new Error("Operation changed before completion");
     const update: Resolved = { ...entry, phase, result };
     this.append(update);
     return update;
+  }
+
+  resume(entry: Resolved): Accepted {
+    if (entry.phase !== "paused" || this.byId.get(entry.operationId) !== entry) throw new Error("Operation cannot resume");
+    const { result: _, ...identity } = entry;
+    const accepted = { ...identity, phase: "accepted" as const };
+    this.append(accepted);
+    return accepted;
   }
 
   lookup(owner: string, lookup: { operationId: string } | { capability: string; intentKey: string }): Entry | undefined {

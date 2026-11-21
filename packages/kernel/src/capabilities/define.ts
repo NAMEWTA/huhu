@@ -10,6 +10,8 @@ export interface CapabilityContext {
   session?: McpSessionIdentity;
   requestId: string;
   idempotencyKey?: string;
+  parentOperationId?: string;
+  delegatedBy?: { pluginId: string; command: string; caller: string; subject: string; vaultInstance: string };
 }
 
 interface CapabilityContract<I, O> {
@@ -33,6 +35,8 @@ interface CapabilityContract<I, O> {
    * 缺键时 Dispatcher 在执行前拒绝，旧的逐请求幂等键不能替代；工作台与插件内部调用不受影响。
    */
   externalIntentRequired?: true;
+  /** Reserved for the external command adapter and its forwarding entry. */
+  commandInvocation?: { revision: string; dependencies: readonly string[] } | "forward";
 }
 
 /** 由领域模块提供，安装后可在插件启用之前登记。 */
@@ -89,7 +93,7 @@ export class CapabilityRegistry {
   /** 每次安装只跟踪它新增的占位，已有历史归属仍由 toolOwners 保留。 */
   private readonly pendingInstalls = new Map<string, Set<string>>();
 
-  declareDescriptors(plugin: string, descriptors: readonly CapabilityDescriptor[]): void {
+  declareDescriptors(plugin: string, descriptors: readonly CapabilityDescriptor[], names: readonly string[] = [], pendingInstall = false): void {
     const additions = new Map<string, KnownCapability>();
     for (const source of descriptors) {
       const descriptor = defineCapabilityDescriptor(source);
@@ -100,7 +104,8 @@ export class CapabilityRegistry {
       if (known?.descriptor || this.map.has(name) || additions.has(name)) throw new Error(`能力描述重复登记：${name}`);
       additions.set(name, { plugin, descriptor });
     }
-    this.reserveNames(plugin, additions.keys());
+    this.reserveNames(plugin, [...names, ...additions.keys()], pendingInstall);
+    for (const name of names) if (!this.known.has(name)) this.known.set(name, { plugin });
     for (const [name, entry] of additions) this.known.set(name, entry);
   }
 

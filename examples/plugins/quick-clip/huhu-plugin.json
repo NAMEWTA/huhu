@@ -9,5 +9,41 @@
   "tags": ["收集", "收件箱"],
   "dependsOn": [],
   "permissions": ["inbox.write"],
-  "contributes": { "commands": ["clip"] }
+  "contributes": {
+    "commandDescriptors": [
+      {
+        "owner": "quick-clip",
+        "commandId": "clip",
+        "title": "快速剪藏：收集一条想法",
+        "description": "将指定内容保存到收件箱",
+        "scope": "write",
+        "risk": "normal",
+        "retry": "durable-steps",
+        "input": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "captured": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": ["captured", "title"],
+          "additionalProperties": false
+        },
+        "dependencies": ["inbox.capture"]
+      }
+    ]
+  }
 }

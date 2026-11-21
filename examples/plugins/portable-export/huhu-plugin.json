@@ -9,5 +9,47 @@
   "tags": ["导出", "Markdown"],
   "dependsOn": [],
   "permissions": ["notes.read"],
-  "contributes": { "commands": ["export"] }
+  "contributes": {
+    "commandDescriptors": [
+      {
+        "owner": "portable-export",
+        "commandId": "export",
+        "title": "便携导出：合并全部笔记为一个 Markdown",
+        "description": "返回聚合后的 Markdown 正文和笔记数量",
+        "scope": "read",
+        "risk": "high",
+        "retry": "read-only",
+        "input": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "saveFile": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": ["name", "content"],
+              "additionalProperties": false
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "required": ["saveFile", "count"],
+          "additionalProperties": false
+        },
+        "dependencies": ["notes.list", "notes.read"]
+      }
+    ]
+  }
 }

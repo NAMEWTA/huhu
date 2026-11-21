@@ -9,5 +9,40 @@
   "tags": ["回顾", "任务", "笔记"],
   "dependsOn": [],
   "permissions": ["tasks.read", "notes.read", "notes.write"],
-  "contributes": { "commands": ["generate"] }
+  "contributes": {
+    "commandDescriptors": [
+      {
+        "owner": "daily-review",
+        "commandId": "generate",
+        "title": "每日回顾：生成今天的回顾笔记",
+        "description": "汇总当前笔记和未完成任务，写入一份每日回顾",
+        "scope": "write",
+        "risk": "normal",
+        "retry": "durable-steps",
+        "input": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "tasks": {
+              "type": "integer"
+            },
+            "notes": {
+              "type": "integer"
+            }
+          },
+          "required": ["path", "tasks", "notes"],
+          "additionalProperties": false
+        },
+        "dependencies": ["tasks.list", "notes.list", "notes.create", "notes.read", "notes.save"]
+      }
+    ]
+  }
 }
