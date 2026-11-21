@@ -111,6 +111,9 @@ engineTest(
       expect(await read()).toEqual(disabledWithKey);
       moduleCredentialProtection.unavailable = "unavailable";
       try {
+        // 读不到已存 Key 时不能改便携字段：误把 Key 填进模型名称也不会被保存
+        expect(await call("mail.ai.saveSettings", { ...edit, expectedRevision: disabledWithKey.revision, model: `model-${newKey}` })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+        expect(await call("mail.ai.saveSettings", { ...edit, expectedRevision: disabledWithKey.revision, model: "model-other" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
         expect(await save({ ...edit, expectedRevision: disabledWithKey.revision })).toMatchObject({ enabled: false, model: kept.model, keyState: "temporarily-unavailable" });
       } finally {
         moduleCredentialProtection.unavailable = undefined;

@@ -232,6 +232,10 @@ export async function registerMailAi(api: HuhuApi, host: MailAccountOwner | unde
         })
         .catch((error: unknown) => {
           if (verifyWithStoredKey || !(error instanceof CredentialError) || !unavailableKeyCodes.has(error.code)) throw error;
+          // 读不到已存 Key 就无法确认新的便携字段不含它：只放行不改服务地址和模型名称的编辑（如停用、清除 Key）。
+          if (current?.definition.endpoint !== next.endpoint || current?.definition.model !== next.model) {
+            throw errors.invalidInput("暂时读不到已保存的 Key，无法核对新的服务地址或模型名称。请在系统钥匙串可用后再修改，或仅停用、清除 Key。");
+          }
         });
       if (result?.conflict) failure(new CredentialError("conflict"));
       if (result && "error" in result) throw result.error;
