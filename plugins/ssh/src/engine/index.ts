@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { errors } from "@huhu/contracts";
-import { bindCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, OperationReceipts, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
@@ -21,12 +21,13 @@ import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
 import { readResourceRoute } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
+import { PublicExecJobs } from "./public-jobs.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
 export { SshManager } from "./manager.js";
 
-export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost): { manager: SshManager } {
+export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost, execJobs?: { runtimeDir: string; vaultInstance: string }): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
   const relativeState = path.relative(api.vault.files.root, root);
   const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
@@ -52,6 +53,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const publicProbes = new PublicSshProbes(api.vault.files, manager);
+  const publicJobs = execJobs ? new PublicExecJobs(api.vault.files, publicProbes, new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-exec-intents.ndjson")), execJobs.vaultInstance) : undefined;
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -63,6 +65,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
   ctx.effect(() => () => {
+    publicJobs?.dispose();
     publicProbes.dispose();
     monitors.dispose();
     forwarding.dispose();
@@ -86,6 +89,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionGet, (context, input) => publicProbes.read(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionList, (context) => publicProbes.list(context)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesTrustDecide, (context, input) => publicProbes.decide(context, input)));
+  if (publicJobs) {
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsPrepare, (context, input) => publicJobs.prepare(context, input)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsStart, (context, input) => publicJobs.start(context, input)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsGet, (context, input) => publicJobs.get(context, input.jobId)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsOutputRead, (context, input) => publicJobs.read(context, input)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsCancel, (context, input) => publicJobs.cancel(context, input.jobId)));
+  }
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));

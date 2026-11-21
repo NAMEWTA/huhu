@@ -13,6 +13,7 @@ import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { ShellDirectory, shellDirectoryProbe, type IntegratedShell } from "./shell-directory.js";
 import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
 import type { z } from "zod";
+import { interruptExecChannel } from "./exec-interrupt.js";
 
 export interface AuditEntry {
   at: string;
@@ -188,33 +189,37 @@ export class SshManager {
     return true;
   }
 
-  startPublicProbe(chain: ManagedHost[], signal: AbortSignal, validate: () => void, report: (status: ConnectionStatus, code?: HuhuError["code"]) => void): string {
+  openExternalConnection(chain: ManagedHost[], signal: AbortSignal, validate: () => void, report: (status: ConnectionStatus, code?: HuhuError["code"]) => void) {
     const id = newId("cap").replace("cap", "att");
     const hostId = chain.at(-1)!.id;
     const attempt: Attempt = { id, hostId, signal, requirePromptId: true, report, publicProbe: { validate } };
     this.attempts.set(id, attempt);
     const opened: Client[] = [];
     const close = () => {
-      for (const client of opened.splice(0).reverse()) client.end();
+      signal.removeEventListener("abort", close);
+      for (const client of opened.splice(0).reverse()) {
+        client.off("close", close);
+        client.end();
+      }
     };
     signal.addEventListener("abort", close, { once: true });
-    void Promise.resolve()
+    const ready = Promise.resolve()
       .then(() => this.dialChain(chain, attempt, opened))
-      .then(() => {
+      .then((client) => {
         signal.throwIfAborted();
         validate();
+        for (const hop of opened) hop.once("close", close);
         report({ hostId, attemptId: id, state: "connected" });
+        return client;
       })
       .catch((error: unknown) => {
+        close();
         if (attempt.changed) report({ hostId, attemptId: id, state: "key-changed", prompt: attempt.changed });
         else report({ hostId, attemptId: id, state: "failed", message: "SSH 连接核验失败" }, error instanceof HuhuError ? error.code : undefined);
+        throw error;
       })
-      .finally(() => {
-        signal.removeEventListener("abort", close);
-        this.attempts.delete(id);
-        close();
-      });
-    return id;
+      .finally(() => this.attempts.delete(id));
+    return { attemptId: id, ready };
   }
 
   private route(hostId: string, hosts: readonly HostRecord[]): ManagedHost[] {
@@ -981,11 +986,7 @@ export class SshManager {
     const run = this.execs.get(execId);
     if (!run) return false;
     run.interrupted = true;
-    try {
-      run.channel.signal("INT");
-    } catch {
-      /* 部分服务器不支持 signal */
-    }
+    interruptExecChannel(run.channel);
     run.channel.close();
     return true;
   }

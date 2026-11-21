@@ -1151,8 +1151,11 @@ describe("Engine 启动与关闭", () => {
     const desktopRule = (await call(e.rendererToken, "automations.create", { title: "桌面创建的 Agent 规则", trigger: trig, action: agentTasks })).data as { id: string; version: string };
     expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
     expect((await call(e.cliToken, "automations.update", { id: desktopRule.id, expectedVersion: desktopRule.version, patch: { title: "改名" } })).error?.code).toBe("PERMISSION_DENIED");
-    expect((await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true })).ok).toBe(true);
-    expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: false })).ok).toBe(true);
+    const enabled = await call(e.rendererToken, "automations.setEnabled", { id: desktopRule.id, enabled: true });
+    expect(enabled.ok).toBe(true);
+    // 外部停用需要规则版本（1eb37eea 起）；缺版本被拒绝，带当前版本可停用。
+    expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: false })).error?.code).toBe("INVALID_INPUT");
+    expect((await call(e.cliToken, "automations.setEnabled", { id: desktopRule.id, enabled: false, expectedVersion: (enabled.data as { version: string }).version })).ok).toBe(true);
     const desktopTerminal = (await call(e.rendererToken, "automations.create", { title: "桌面终端夹具", trigger: trig, action: terminal })).data as { id: string };
     expect((await call(e.cliToken, "automations.setEnabled", { id: desktopTerminal.id, enabled: true })).error?.code).toBe("PERMISSION_DENIED");
   }, 30_000);

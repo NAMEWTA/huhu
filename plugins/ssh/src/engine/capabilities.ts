@@ -25,6 +25,7 @@ import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archive
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
 import { ResourceHost, ResourceHostId } from "./public-resources.js";
 import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbe } from "./public-probes.js";
+import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -53,6 +54,59 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  jobsPrepare: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.jobs.prepare",
+    title: "准备独立的 SSH Exec 作业",
+    description: "用当前主机和路由修订准备作业。用相同 intentKey 和输入重取原 jobId，经独立的启动能力提交命令。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: PrepareExecJob,
+    output: ExecJobId,
+  }),
+  jobsStart: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.jobs.start",
+    title: "提交已准备的 SSH Exec 作业",
+    description: "核对 jobId、已认证的 sessionId、主机和路由修订。重交原作业不会重复提交命令。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: StartExecJob,
+    output: ExecJobId,
+  }),
+  jobsGet: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.jobs.get",
+    title: "读取 SSH Exec 作业状态",
+    description: "查询本主体的作业、原连接身份或终态，无需拨号。unknown 表示结果待核实。",
+    scope: "read",
+    risk: "normal",
+    input: ExecJobId,
+    output: ExecJobStatus,
+  }),
+  jobsOutputRead: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.jobs.output.read",
+    title: "按 UTF-8 字节读取 SSH Exec 输出",
+    description: "按独立 stdout 或 stderr 游标读取保留的输出，返回下一游标、跳过字节数和截断标记。",
+    scope: "read",
+    risk: "normal",
+    input: ReadExecOutput,
+    output: ExecOutputPage,
+  }),
+  jobsCancel: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.jobs.cancel",
+    title: "请求取消原 SSH Exec 作业",
+    description: "仅向本主体的原作业请求停止。查询作业状态可核实服务端报告的退出结果。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: ExecJobId,
+    output: z.strictObject({ requested: z.boolean() }),
+  }),
   resourcesHostGet: defineCapabilityDescriptor({
     ...external,
     name: "ssh.resources.host.get",

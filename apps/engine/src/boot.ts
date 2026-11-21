@@ -444,7 +444,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
-    apply: (ctx, api) => void ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined),
+    apply: (ctx, api) =>
+      void ssh.apply(ctx, api, moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined, !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]) } : undefined),
   });
   const external = new ExternalPlugins({
     root: vault.root,
