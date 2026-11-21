@@ -56,6 +56,20 @@ export class SafeGit {
     return this.snapshots?.capture() ?? new Map<string, Buffer>();
   }
 
+  async mergeGeneration(localHead: string, remoteHead: string, ours: Tree, theirs: Tree): Promise<Tree | null> {
+    if (!differentSafePaths(ours, theirs).length) return ours;
+    const { stdout } = await this.git.run(["merge-base", "--all", localHead, remoteHead], { okCodes: [1] });
+    const [first, ...rest] = stdout.trim().split(/\s+/).filter(Boolean);
+    if (!first) return null;
+    const base = safeTree(await gitTree(this.git, first));
+    for (const oid of rest) {
+      if (differentSafePaths(base, safeTree(await gitTree(this.git, oid))).length) return null;
+    }
+    if (!differentSafePaths(base, ours).length) return theirs;
+    if (!differentSafePaths(base, theirs).length) return ours;
+    return null;
+  }
+
   private blob(entry: Stage): Promise<Buffer> {
     return this.git.runBuffer(["cat-file", "blob", entry.oid]);
   }

@@ -68,17 +68,14 @@ export class SyncConflicts {
     return clearSession(this.root);
   }
 
-  /** 不碰工作区地预判合并：有冲突就记录会话并返回；无冲突返回 null；merge-tree 不可用（旧 git/无共同祖先等）返回 undefined。 */
-  async detect(localHead: string, remoteHead: string, remoteRef: string, verifyTree: (tree: string) => Promise<void>): Promise<ConflictSession | null | undefined> {
+  /** 从固定的父提交预判合并，返回干净的树或冲突会话。 */
+  async detect(localHead: string, remoteHead: string, remoteRef: string): Promise<{ tree: string } | { conflict: ConflictSession } | undefined> {
     const r = await this.git.run(["merge-tree", "--write-tree", "-z", localHead, remoteHead], { okCodes: [1] }).catch(() => null);
     if (!r) return undefined;
     const { tree, files } = parseMergeTree(r.stdout);
-    if (r.code === 0) {
-      await verifyTree(tree);
-      return null;
-    }
+    if (r.code === 0) return { tree };
     if (files.length === 0) return undefined;
-    return this.record(localHead, remoteHead, remoteRef, files);
+    return { conflict: this.record(localHead, remoteHead, remoteRef, files) };
   }
 
   record(localHead: string, remoteHead: string, remoteRef: string, files: ConflictFile[], safeGeneration = false): ConflictSession {
@@ -126,6 +123,15 @@ export class SyncConflicts {
     const b = (await this.blob(st)) as Buffer;
     const text = decodeText(b);
     return { exists: true, mode: st.mode, size: b.byteLength, binary: text === null, ...(text !== null && b.byteLength <= 1024 * 1024 ? { preview: text.slice(0, PREVIEW_CHARS) } : {}) };
+  }
+
+  private identityEnv(): NodeJS.ProcessEnv {
+    return { GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
+  }
+
+  async mergeVerifiedTree(localHead: string, remoteHead: string, tree: string): Promise<void> {
+    const { stdout } = await this.git.run(["commit-tree", tree, "-p", localHead, "-p", remoteHead, "-m", "HUHU 同步：合并远端变更"], { env: this.identityEnv() });
+    await this.applyMerge(localHead, stdout.trim(), "huhu merge verified tree");
   }
 
   async read(p: string): Promise<ConflictFileView> {
@@ -200,8 +206,7 @@ export class SyncConflicts {
     await this.hooks.beforeOverwrite?.(s.files.map((f) => f.path));
 
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-cf-"));
-    const ident = { GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
-    const env = { GIT_INDEX_FILE: path.join(dir, "index"), ...ident };
+    const env = { GIT_INDEX_FILE: path.join(dir, "index"), ...this.identityEnv() };
     let commit: string;
     try {
       await this.git.run(["read-tree", mergedTree], { env });
@@ -220,23 +225,27 @@ export class SyncConflicts {
       rmSync(dir, { recursive: true, force: true });
     }
 
-    // 先让工作区与 index 前进到合并结果：git 会拒绝覆盖有未提交改动的文件或未跟踪的同名文件
-    await this.git.run(["read-tree", "-m", "-u", s.localHead, commit]).catch((e: unknown) => {
+    await this.applyMerge(s.localHead, commit, "huhu resolve conflicts");
+    clearSession(this.root);
+    return commit;
+  }
+
+  private async applyMerge(localHead: string, commit: string, message: string): Promise<void> {
+    // Git refuses to overwrite dirty or untracked files while applying the verified tree.
+    await this.git.run(["read-tree", "-m", "-u", localHead, commit]).catch((e: unknown) => {
       const m = e instanceof Error ? e.message : String(e);
       if (/overwritten|not uptodate|untracked|local changes|would lose/i.test(m)) throw new HuhuError("INVALID_INPUT", `无法应用解决结果：本地有未提交的改动会被覆盖，请先保存或处理这些文件（${m}）`, { retryable: false });
       throw e; // index.lock、超时等：保留原始错误（可重试）
     });
     try {
-      await this.git.run(["update-ref", "-m", "huhu resolve conflicts", "HEAD", commit, s.localHead]);
+      await this.git.run(["update-ref", "-m", message, "HEAD", commit, localHead]);
     } catch (e) {
-      const back = await this.git.run(["read-tree", "-m", "-u", commit, s.localHead]).then(
+      const back = await this.git.run(["read-tree", "-m", "-u", commit, localHead]).then(
         () => null,
         (e2: unknown) => e2,
       ); // 回到解决前
       if (back) throw new HuhuError("INTERNAL", `提交解决结果失败且回退也失败，请检查 Git 页的状态后重新同步（${e instanceof Error ? e.message : String(e)}）`, { retryable: false });
       throw e;
     }
-    clearSession(this.root);
-    return commit;
   }
 }

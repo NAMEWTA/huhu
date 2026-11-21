@@ -134,8 +134,11 @@ export class VaultSync {
       ...hooks,
       validateTree: async (tree, localParent, remoteParent) => {
         const ours = safeTree(await gitTree(this.git, localParent));
-        if (differentSafePaths(ours, safeTree(await gitTree(this.git, remoteParent))).length) throw errors.invalidInput("保险箱整代发生分歧，已保留本地和远端版本");
-        await this.verifyMergedSafe(tree, ours);
+        const theirs = safeTree(await gitTree(this.git, remoteParent));
+        const expected = await this.safeGit.mergeGeneration(localParent, remoteParent, ours, theirs);
+        if (!expected) throw errors.invalidInput("保险箱整代发生分歧，已保留本地和远端版本");
+        if (differentSafePaths(ours, theirs).length) await this.safeGit.validate(expected);
+        await this.verifyMergedSafe(tree, expected, ours);
       },
     });
   }
@@ -507,8 +510,12 @@ export class VaultSync {
     }
   }
 
-  private async verifyMergedSafe(tree: string, expected: ReturnType<typeof safeTree>): Promise<void> {
+  private async verifyMergedSafe(tree: string, expected: ReturnType<typeof safeTree>, ours: ReturnType<typeof safeTree>): Promise<void> {
     if (differentSafePaths(expected, safeTree(await gitTree(this.git, tree))).length) throw errors.invalidInput("合并结果改变了保险箱整代，已保留两侧资料");
+    if (differentSafePaths(ours, expected).length) {
+      if (!expected.size || !(await this.safeGit.matches(ours, this.safeGit.capture()))) throw errors.invalidInput("拉取会覆盖或移除本地保险箱资料，请先处理本地改动");
+      await this.safeGit.verifyCheckout(tree, [...expected.keys()]);
+    }
   }
 
   private async mergeRemote(remoteRef: string, remoteHead: string): Promise<boolean> {
@@ -517,9 +524,14 @@ export class VaultSync {
     const ours = safeTree(await gitTree(this.git, localHead));
     const theirs = safeTree(await gitTree(this.git, remoteHead));
     const changed = differentSafePaths(ours, theirs);
-    let safeFastForward = false;
-    if (changed.length) {
-      if (localHead && (await this.git.run(["merge-base", "--is-ancestor", localHead, remoteHead], { okCodes: [1] })).code !== 0) {
+    const safeFastForward = changed.length > 0 && (!localHead || (await this.git.run(["merge-base", "--is-ancestor", localHead, remoteHead], { okCodes: [1] })).code === 0);
+    let verifiedTree: string | undefined;
+    if (safeFastForward) {
+      await this.safeGit.validate(theirs);
+      await this.verifyMergedSafe(remoteHead, theirs, ours);
+    } else if (localHead) {
+      const expected = await this.safeGit.mergeGeneration(localHead, remoteHead, ours, theirs);
+      if (!expected) {
         const sess = this.cf.record(
           localHead,
           remoteHead,
@@ -529,19 +541,23 @@ export class VaultSync {
         );
         throw new HuhuError("GIT_CONFLICT", "保险箱整代发生分歧，已保留本地和远端版本", { details: { files: changed, sessionId: sess.id } });
       }
-      if (!theirs.size || !(await this.safeGit.matches(ours, this.safeGit.capture()))) throw errors.invalidInput("拉取会覆盖或移除本地保险箱资料，请先处理本地改动");
-      await this.safeGit.validate(theirs);
-      await this.safeGit.verifyCheckout(remoteHead, [...theirs.keys()]);
-      safeFastForward = true;
-    } else if (localHead) {
-      const sess = await this.cf.detect(localHead, remoteHead, remoteRef, (tree) => this.verifyMergedSafe(tree, ours));
-      if (sess) {
+      if (changed.length) await this.safeGit.validate(expected);
+      const merge = await this.cf.detect(localHead, remoteHead, remoteRef);
+      if (merge && "conflict" in merge) {
+        const sess = merge.conflict;
         const files = sess.files.map((f) => f.path);
         throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files, sessionId: sess.id } });
       }
-      if (sess === undefined && ours.size) throw errors.invalidInput("无法核对含保险箱资料的 Git 合并结果");
+      if (merge) {
+        await this.verifyMergedSafe(merge.tree, expected, ours);
+        if (changed.length) verifiedTree = merge.tree;
+      } else if (ours.size || theirs.size) throw errors.invalidInput("无法核对含保险箱资料的 Git 合并结果");
     }
     if ((await this.head()) !== localHead || (await this.head("MERGE_HEAD"))) throw errors.invalidInput("本地 Git 状态已变化，请处理当前操作后重试");
+    if (localHead && verifiedTree) {
+      await this.cf.mergeVerifiedTree(localHead, remoteHead, verifiedTree);
+      return true;
+    }
     try {
       await this.git.run(["-c", `user.name=${this.identity.name}`, "-c", `user.email=${this.identity.email}`, "merge", "--no-edit", "--no-overwrite-ignore", ...(safeFastForward ? ["--ff-only"] : []), remoteHead]);
       return true;

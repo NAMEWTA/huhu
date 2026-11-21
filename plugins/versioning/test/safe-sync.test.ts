@@ -203,6 +203,70 @@ test("只从新树移除已跟踪的旧资料，并拒绝连带推送尚未公�
   expect(oid(remote, "main")).toBe(before);
 });
 
+test("本地新建 Safe 与远端普通改动分歧时整代合并并推送", async () => {
+  const { remote, device } = fixture();
+  const local = device();
+  const peer = device();
+  put(local.root, "base.md", "common base");
+  await local.sync.run("push");
+  await peer.sync.run("pull");
+
+  await local.safe.setup(password);
+  await local.createTag("local generation");
+  local.safe.lock();
+  put(peer.root, "remote.md", "remote note");
+  await peer.sync.run("push");
+  const remoteHead = oid(remote, "main");
+
+  await expect(local.sync.run("sync")).resolves.toEqual({ pulled: true, pushed: true, committed: true });
+  expect(await local.sync.conflicts()).toBeNull();
+  const merged = oid(remote, "main");
+  const [ours, theirs] = git(remote, "show", "-s", "--format=%P", merged).toString().trim().split(" ");
+  expect(theirs).toBe(remoteHead);
+  const members = [ringPath, manifestPath, `${current}/tags/1.bin`].sort();
+  expect(tree(remote, merged)).toEqual([...members, "base.md", "remote.md"]);
+  for (const file of members) {
+    const bytes = git(remote, "cat-file", "blob", `${merged}:${file}`);
+    expect(bytes.equals(git(remote, "cat-file", "blob", `${ours}:${file}`))).toBe(true);
+    expect(bytes.equals(readFileSync(path.join(local.root, file)))).toBe(true);
+  }
+  expect(readFileSync(path.join(local.root, "remote.md"), "utf8")).toBe("remote note");
+});
+
+test("远端单侧更新 Safe 时，解决普通文件冲突会直接采用远端整代", async () => {
+  const { remote, device } = fixture();
+  const local = device();
+  const peer = device();
+  const note = "shared.md";
+  await local.safe.setup(password);
+  await local.createTag("common tag");
+  put(local.root, note, "common\n");
+  await local.sync.run("push");
+  await peer.sync.run("pull");
+  await peer.safe.unlock(password);
+
+  put(local.root, note, "local edit\n");
+  await peer.createTag("remote tag");
+  put(peer.root, note, "remote edit\n");
+  await peer.sync.run("push");
+  const remoteHead = oid(remote, "main");
+
+  await expect(local.sync.run("sync")).rejects.toMatchObject({ code: "GIT_CONFLICT", details: { files: [note] } });
+  const conflicts = await local.sync.conflicts();
+  expect(conflicts?.files).toEqual([{ path: note, kind: "blocks", blocks: 1 }]);
+  await expect(local.sync.resolveConflicts(conflicts!.id, [{ path: note, blocks: ["ours"] }])).resolves.toMatchObject({ pushed: true });
+  const merged = oid(remote, "main");
+  const members = [ringPath, manifestPath, `${current}/tags/2.bin`].sort();
+  expect(tree(remote, merged)).toEqual([...members, note]);
+  for (const file of members) {
+    const before = git(remote, "cat-file", "blob", `${remoteHead}:${file}`);
+    expect(git(remote, "cat-file", "blob", `${merged}:${file}`).equals(before)).toBe(true);
+    expect(readFileSync(path.join(local.root, file)).equals(before)).toBe(true);
+  }
+  expect(readFileSync(path.join(local.root, note), "utf8")).toBe("local edit\n");
+  expect((await local.safe.listTags(local.session(), access)).tags.map(({ name }) => name)).toEqual(["common tag", "remote tag"]);
+});
+
 test("两个副本同一密文路径发生分歧时保留双方整代，重开后仍拒绝逐文件解决", async () => {
   const { remote, device } = fixture();
   const a = device();
