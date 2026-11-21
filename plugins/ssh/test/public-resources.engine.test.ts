@@ -38,6 +38,7 @@ async function fixture() {
   const engine = await boot({ vaultPath, desktopUserData, create: true });
   const url = `http://127.0.0.1:${engine.port}`;
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
+  const hosts: string[] = [];
   async function server(opts?: FakeSshOptions) {
     const item = await startFakeSsh(opts);
     servers.push(item);
@@ -87,12 +88,24 @@ async function fixture() {
       const ssh = await server({ ...opts, password });
       const profile = { name, host: "127.0.0.1", port: ssh.port, user: "fixture-login", authKind: "password", jumpHostIds };
       const saved = await desktop<{ hostId: string; revision: string }>("ssh.hosts.configure", { ...profile, expectedRevision: null, credentials: [{ purpose: "password", action: "replace", value: password }] });
+      hosts.push(saved.hostId);
       return { server: ssh, password, profile, ...saved };
     },
     async close() {
-      await engine.shutdown();
-      await Promise.all(servers.map((server) => server.close()));
-      await rm(root, { recursive: true, force: true, maxRetries: 4 });
+      try {
+        if (hosts.length) {
+          await desktop("plugins.setEnabled", { id: "ssh", enabled: false });
+          await desktop("plugins.setEnabled", { id: "ssh", enabled: true });
+          for (const hostId of hosts.reverse()) {
+            const { revision } = await desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId });
+            await desktop("ssh.hosts.remove", { hostId, expectedRevision: revision });
+          }
+        }
+      } finally {
+        await engine.shutdown();
+        await Promise.all(servers.map((server) => server.close()));
+        await rm(root, { recursive: true, force: true, maxRetries: 4 });
+      }
     },
   };
 }

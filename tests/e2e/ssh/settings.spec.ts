@@ -125,7 +125,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
   const resource = "ssh.resources.host.get";
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+    const { hostId, revision: hostRevision } = await desktopCall<{ hostId: string; revision: string }>(page, "ssh.hosts.configure", {
       name: "外部只读目录回环",
       host: "127.0.0.1",
       port: server.port,
@@ -224,6 +224,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await audit.locator("summary").click();
     await expect(audit.getByText("ssh.hosts.list", { exact: true })).toBeVisible();
     await desktopCall(page, "gateway.tokens.revoke", { id });
+    await desktopCall(page, "ssh.hosts.remove", { hostId, expectedRevision: hostRevision });
     await desktopCall(page, "plugins.setEnabled", { id: "ssh", enabled: false });
     const catalog = await desktopCall<CapabilityCatalogEntry[]>(page, "capabilities.list", { includeInactive: true });
     expect(catalog.find(({ name }) => name === "ssh.hosts.list")).toMatchObject({ availability: "plugin-disabled", exposable: false, exposed: false });
