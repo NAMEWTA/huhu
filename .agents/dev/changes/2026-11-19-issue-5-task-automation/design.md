@@ -74,6 +74,9 @@ Huhu 复用 VaultFiles/OperationLog、Markdown 区段写、ClaimStore.create、H
 
 ## 待产品选择
 
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+
+
 以下两项仍待选择。规则停用与删除的确定行为见[时间规格](spec.md#何时自动派遣)，队列的单项取消由 Tasks 负责。
 
 | 前提与问题 | 选项、建议与代价 | 阻塞范围 |
