@@ -31,7 +31,7 @@ import {
 import { Safe, type SafeAccess } from "./safe.js";
 
 export { Safe } from "./safe.js";
-export { withSafePackageSnapshot } from "./store.js";
+export { safeGitSnapshots, withSafePackageSnapshot } from "./store.js";
 
 const Ok = z.strictObject({ ok: z.literal(true) });
 const Empty = z.strictObject({});

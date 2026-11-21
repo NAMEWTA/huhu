@@ -4,12 +4,13 @@ import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { KDF_PARAMS, isSealedSize, open, seal } from "./crypto.js";
+import { KDF_PARAMS, hasSealedEnvelope, isSealedSize, open, seal } from "./crypto.js";
 import { StoredEntry, TagDirectory, type Tag, type TagFields } from "./personal.js";
 
 export const SAFE_FORMAT = 1;
 const KEYRING = "keyring.json";
 const MANIFEST = "manifest.json";
+const SAFE_DIR = ".huhu/safe";
 const STAGED_ENTRY = "entry.bin";
 export const AUTO_LOCK_MINUTES = [1, 5, 15, 30] as const;
 
@@ -131,6 +132,31 @@ function entryAt(file: string) {
   return lstatSync(file, { throwIfNoEntry: false });
 }
 
+function parseCurrentRing(value: unknown) {
+  const { checksum: digest, ...ring } = StoredRing.parse(value);
+  if (digest !== checksum(ring)) throw corruptStore(KEYRING);
+  return ring;
+}
+
+function parseManifest(value: unknown, ring: z.infer<typeof CurrentRing>) {
+  const manifest = StoredManifest.parse(value);
+  const { checksum: digest, ...payload } = manifest;
+  if (manifest.vaultKeyId !== ring.vaultKeyId || digest !== checksum(payload)) throw corruptStore(MANIFEST);
+  return manifest;
+}
+
+function entryPath(dir: string, id: string, revision: number): string {
+  return `${dir}/current/entries/${id}-${revision}.bin`;
+}
+
+function tagsPath(dir: string, revision: number): string {
+  return `${dir}/current/tags/${revision}.bin`;
+}
+
+function currentPaths(dir: string, manifest: CurrentSafe["manifest"]): string[] {
+  return [`${dir}/current/${KEYRING}`, `${dir}/current/${MANIFEST}`, ...Object.entries(manifest.entries).map(([id, revision]) => entryPath(dir, id, revision)), ...(manifest.tags === null ? [] : [tagsPath(dir, manifest.tags)])];
+}
+
 const pendingSafeIo = new WeakMap<SafeFiles, Promise<void>>();
 
 function withSafeSnapshot<T>(files: SafeFiles, operation: () => Promise<T>): Promise<T> {
@@ -147,7 +173,28 @@ function withSafeSnapshot<T>(files: SafeFiles, operation: () => Promise<T>): Pro
 }
 
 export function withSafePackageSnapshot<T>(files: SafeFiles, read: (required: ReadonlyMap<string, string>) => Promise<T>): Promise<T> {
-  return withSafeSnapshot(files, () => read(new SafeStore(files, path.join(files.root, ".huhu", "safe")).packageFiles()));
+  return withSafeSnapshot(files, () => read(new SafeStore(files, path.join(files.root, SAFE_DIR)).packageFiles()));
+}
+
+export function safeGitSnapshots(files: SafeFiles) {
+  const store = new SafeStore(files, path.join(files.root, SAFE_DIR));
+  return {
+    withLock: <T>(operation: () => Promise<T>) => withSafeSnapshot(files, operation),
+    capture() {
+      const snapshot = store.currentFileBytes();
+      const parents = new Set([...snapshot.keys()].map((file) => path.posix.dirname(file)));
+      if (parents.size) parents.add(".huhu");
+      for (const dir of parents) if (!entryAt(files.abs(dir))?.isDirectory()) throw corruptStore("Git 同步所需的保险箱目录");
+      return snapshot;
+    },
+    async requiredPaths(read: (file: string) => Promise<Buffer>): Promise<readonly string[]> {
+      const ring = parseCurrentRing(JSON.parse((await read(`${SAFE_DIR}/current/${KEYRING}`)).toString("utf8")) as unknown);
+      const manifest = parseManifest(JSON.parse((await read(`${SAFE_DIR}/current/${MANIFEST}`)).toString("utf8")) as unknown, ring);
+      const paths = currentPaths(SAFE_DIR, manifest);
+      for (const file of paths.slice(2)) if (!hasSealedEnvelope(await read(file))) throw corruptStore("保险箱密文");
+      return paths;
+    },
+  };
 }
 
 export class SafeStore {
@@ -178,12 +225,9 @@ export class SafeStore {
       const file = `${base}/${KEYRING}`;
       const storedRing = this.readJson(file);
       if (!current) return { kind: "ready", ring: Ring.parse(storedRing.value), version: storedRing.version, file };
-      const { checksum: digest, ...ring } = StoredRing.parse(storedRing.value);
-      if (digest !== checksum(ring)) return { kind: "corrupt", file: KEYRING };
+      const ring = parseCurrentRing(storedRing.value);
       checkedFile = MANIFEST;
-      const manifest = StoredManifest.parse(this.readJson(`${base}/${MANIFEST}`).value);
-      const { checksum: manifestDigest, ...payload } = manifest;
-      if (manifest.vaultKeyId !== ring.vaultKeyId || manifestDigest !== checksum(payload)) return { kind: "corrupt", file: MANIFEST };
+      const manifest = parseManifest(this.readJson(`${base}/${MANIFEST}`).value, ring);
       return { kind: "ready", ring, manifest, version: storedRing.version, file };
     } catch {
       return { kind: "corrupt", file: checkedFile };
@@ -276,19 +320,24 @@ export class SafeStore {
   }
 
   packageFiles(): ReadonlyMap<string, string> {
+    return this.collectCurrentFiles((bytes) => createHash("sha256").update(bytes).digest("hex"), "备份");
+  }
+
+  currentFileBytes(): ReadonlyMap<string, Buffer> {
+    return this.collectCurrentFiles((bytes) => bytes, "Git 同步");
+  }
+
+  private collectCurrentFiles<T>(capture: (bytes: Buffer) => T, forOperation: "备份" | "Git 同步"): ReadonlyMap<string, T> {
     const state = this.load();
     if (state.kind === "corrupt") throw corruptStore(state.file);
     if (state.kind === "empty") return new Map();
-    if (!state.manifest) throw errors.invalidInput("保险箱是旧格式，无法生成当前格式的备份");
-    const files = new Set([state.file, `${this.relativeDir}/current/${MANIFEST}`]);
-    for (const [id, revision] of Object.entries(state.manifest.entries)) files.add(this.entryFile(id, revision));
-    if (state.manifest.tags !== null) files.add(this.tagsFile(state.manifest.tags));
-    const required = new Map<string, string>();
-    for (const file of files) {
-      if (!entryAt(this.files.abs(file))?.isFile()) throw corruptStore("备份所需的保险箱文件");
+    if (!state.manifest) throw errors.invalidInput(`保险箱是旧格式，无法生成当前格式的${forOperation}资料`);
+    const required = new Map<string, T>();
+    for (const file of currentPaths(this.relativeDir, state.manifest)) {
+      if (!entryAt(this.files.abs(file))?.isFile()) throw corruptStore(`${forOperation}所需的保险箱文件`);
       const snapshot = this.files.read(file);
-      if (!snapshot) throw corruptStore("备份所需的保险箱文件");
-      required.set(file, createHash("sha256").update(snapshot.bytes).digest("hex"));
+      if (!snapshot) throw corruptStore(`${forOperation}所需的保险箱文件`);
+      required.set(file, capture(snapshot.bytes));
     }
     this.assertVersion(state);
     return required;
@@ -419,11 +468,11 @@ export class SafeStore {
   }
 
   private entryFile(id: string, revision: number): string {
-    return `${this.relativeDir}/current/entries/${id}-${revision}.bin`;
+    return entryPath(this.relativeDir, id, revision);
   }
 
   private tagsFile(revision: number): string {
-    return `${this.relativeDir}/current/tags/${revision}.bin`;
+    return tagsPath(this.relativeDir, revision);
   }
 
   assertVersion(previous: LoadedSafe): void {

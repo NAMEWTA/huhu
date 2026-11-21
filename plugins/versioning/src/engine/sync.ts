@@ -8,6 +8,7 @@ import { askpassCommand, openAskpass, scrubEnvironment } from "./askpass.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
 import { GitRunner, gitCancelled } from "./git.js";
+import { differentSafePaths, gitTree, isSafePath, SafeGit, safeTree, type SafeGitSnapshots } from "./safe-git.js";
 import {
   authenticationFailed,
   hasUrlCredentials,
@@ -59,7 +60,7 @@ esac
 export const DEFAULT_SYNC: SyncConfig = { remote: "", branch: "main", mode: "off", pullIntervalSec: 30, pushIntervalSec: 60, exclude: [] };
 
 /** `.huhu/` 下默认纳入同步的路径（其余一律跳过：runtime/cache/ui/history/drafts/operations/claims 等）。 */
-const HUHU_INCLUDE = ["vault.json", "settings.json", "plugins.json", "notes/", "home/", "agent-cli/spaces/", "ssh/hosts/", "ssh/known_hosts", "automations/scripts.json", "safe/"]; // sync/config.json 含本机的远端与分支设置，不随同步传播（与规格偏离：两台设备各自配置，否则首次拉取会与本地未跟踪的同名文件冲突）
+const HUHU_INCLUDE = ["vault.json", "settings.json", "plugins.json", "notes/", "home/", "agent-cli/spaces/", "ssh/hosts/", "ssh/known_hosts", "automations/scripts.json"]; // sync/config.json 含本机的远端与分支设置，不随同步传播（两台设备各自配置）
 
 function globToRegex(pattern: string): RegExp {
   let p = pattern.trim();
@@ -78,13 +79,19 @@ function globToRegex(pattern: string): RegExp {
 
 export type Verdict = { include: true } | { include: false; reason: string };
 
+function matchingExclude(rel: string, exclude: readonly string[]): string | undefined {
+  return exclude.find((e) => e.trim() && !e.startsWith("#") && globToRegex(e).test(rel));
+}
+
 /** 判断一个 Vault 相对路径是否纳入同步。 */
 export function classify(rel: string, exclude: readonly string[]): Verdict {
-  if (rel.startsWith(".huhu/")) {
+  if (isSafePath(rel)) return { include: false, reason: "仅同步保险箱当前整代资料" };
+  if (rel.toLowerCase() === ".huhu" || rel.toLowerCase().startsWith(".huhu/")) {
     const inner = rel.slice(".huhu/".length);
     if (!HUHU_INCLUDE.some((i) => (i.endsWith("/") ? inner.startsWith(i) : inner === i))) return { include: false, reason: `.huhu/${inner.split("/")[0]}/ 不在同步范围` };
   } else if (rel === ".git" || rel.startsWith(".git/")) return { include: false, reason: "Git 内部文件" };
-  for (const e of exclude) if (e.trim() && !e.startsWith("#") && globToRegex(e).test(rel)) return { include: false, reason: `匹配排除规则 ${e}` };
+  const rule = matchingExclude(rel, exclude);
+  if (rule) return { include: false, reason: `匹配排除规则 ${rule}` };
   return { include: true };
 }
 
@@ -108,6 +115,7 @@ export class VaultSync {
   private git: GitRunner;
   private _status: { name: SyncStatusName; detail: string } = { name: "idle", detail: "" };
   private readonly cf: SyncConflicts;
+  private readonly safeGit: SafeGit;
   private tail: Promise<unknown> = Promise.resolve();
   private readonly lifetime = new AbortController();
 
@@ -117,10 +125,19 @@ export class VaultSync {
     hooks: ConflictHooks = {},
     private readonly credentials?: GitRemoteCredentials,
     private readonly readOnly = false,
+    snapshots?: SafeGitSnapshots,
   ) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
-    this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1" } });
-    this.cf = new SyncConflicts(root, this.git, identity, hooks);
+    this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1", GIT_NO_REPLACE_OBJECTS: "1" } });
+    this.safeGit = new SafeGit(this.git, snapshots);
+    this.cf = new SyncConflicts(root, this.git, identity, {
+      ...hooks,
+      validateTree: async (tree, localParent, remoteParent) => {
+        const ours = safeTree(await gitTree(this.git, localParent));
+        if (differentSafePaths(ours, safeTree(await gitTree(this.git, remoteParent))).length) throw errors.invalidInput("保险箱整代发生分歧，已保留本地和远端版本");
+        await this.verifyMergedSafe(tree, ours);
+      },
+    });
   }
 
   dispose(): void {
@@ -309,10 +326,11 @@ export class VaultSync {
     return { scope, summary };
   }
 
-  private async network(config: SyncConfig, auth: NetworkAuth | null, operation: "fetch" | "push", signal: AbortSignal): Promise<void> {
-    const args = (remote: string, explicit: boolean) => (operation === "fetch" ? ["fetch", "--quiet", remote, ...(explicit ? ["+refs/heads/*:refs/remotes/origin/*"] : [])] : ["push", "--quiet", remote, `HEAD:refs/heads/${config.branch}`]);
+  private async network(config: SyncConfig, auth: NetworkAuth | null, signal: AbortSignal, source?: string): Promise<void> {
+    const args = (remote: string) =>
+      source ? ["push", "--quiet", "--no-follow-tags", "--recurse-submodules=no", remote, `${source}:refs/heads/${config.branch}`] : ["fetch", "--quiet", "--prune", remote, "+refs/heads/*:refs/remotes/origin/*"];
     if (!auth) {
-      await this.git.run(args("origin", false), { signal });
+      await this.git.run(args("origin"), { signal });
       return;
     }
     const { scope, summary } = auth;
@@ -331,10 +349,10 @@ export class VaultSync {
       ...settings(`http.${target}.proxy`, ""),
       ...settings(`http.${target}.cookieFile`, ""),
       ...settings(`http.${target}.saveCookies`, "false"),
-      ...args(target, true),
+      ...args(target),
     ];
     try {
-      const urls = await this.git.run(["remote", "get-url", "--all", ...(operation === "push" ? ["--push"] : []), "origin"], { signal, privateNetwork: true });
+      const urls = await this.git.run(["remote", "get-url", "--all", ...(source ? ["--push"] : []), "origin"], { signal, privateNetwork: true });
       const effective = urls.stdout.trim().split(/\r?\n/);
       if (effective.length !== 1 || httpTarget(effective[0]!) !== target) throw authenticationFailed("target-mismatch");
       if (summary.revision && summary.state !== "unconfigured") {
@@ -368,17 +386,11 @@ export class VaultSync {
     const c = stored.config;
     await this.ready(c);
     try {
-      await this.network(c, await this.networkAuth(stored), "fetch", signal);
+      await this.network(c, await this.networkAuth(stored), signal);
     } catch (e) {
       this.track(e);
     }
-    const push: string[] = [];
-    const skipped: { path: string; reason: string }[] = [];
-    for (const p of await this.changedPaths()) {
-      const v = classify(p, c.exclude);
-      if (v.include) push.push(p);
-      else skipped.push({ path: p, reason: v.reason });
-    }
+    const { push, skipped } = await this.safeGit.withLock(async () => this.planIncluded(await this.head(), c.exclude));
     const remoteRef = `origin/${c.branch}`;
     const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(
       () => true,
@@ -402,35 +414,142 @@ export class VaultSync {
     return { push, skipped, pull, ahead, behind };
   }
 
-  /** 用临时 index 提交纳入范围的改动：不动用户自己的暂存区。没有可提交的改动返回 false。 */
-  private async commitIncluded(message: string, exclude: readonly string[]): Promise<boolean> {
-    const files = (await this.changedPaths()).filter((p) => classify(p, exclude).include);
-    if (files.length === 0) return false;
-    const stagedBefore = new Set((await this.git.run(["diff", "--cached", "--name-only"])).stdout.split("\n").filter(Boolean));
-    const oldHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
-      (r) => r.stdout.trim(),
-      () => null,
-    );
+  private async head(ref = "HEAD"): Promise<string | null> {
+    const result = await this.git.run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { okCodes: [1] });
+    return result.stdout.trim() || null;
+  }
+
+  private async planIncluded(head: string | null, exclude: readonly string[]) {
+    const snapshot = this.safeGit.capture();
+    const tree = await gitTree(this.git, head);
+    const previousSafe = safeTree(tree);
+    const safeRule = [...snapshot.keys()].map((file) => matchingExclude(file, exclude)).find((rule) => rule !== undefined);
+    const keepSafe = safeRule === undefined;
+    const blocked = previousSafe.size > 0 && !snapshot.size ? "已跟踪保险箱缺少当前整代快照，已保留本地资料" : previousSafe.size > 0 && !keepSafe ? `排除规则 ${safeRule} 会破坏已跟踪保险箱整代同步` : undefined;
+    const safeChanged = keepSafe && !blocked && !(await this.safeGit.matches(previousSafe, snapshot));
+    const files: string[] = [];
+    const skipped = new Map<string, string>();
+    for (const file of await this.changedPaths()) {
+      if (snapshot.has(file)) continue;
+      const verdict = classify(file, exclude);
+      if (verdict.include) files.push(file);
+      else skipped.set(file, verdict.reason);
+    }
+    if (!keepSafe || blocked) {
+      for (const file of new Set([...snapshot.keys(), ...previousSafe.keys()])) skipped.set(file, blocked ?? `排除规则 ${safeRule} 命中保险箱成员，跳过整个保险箱`);
+    }
+    for (const file of previousSafe.keys()) {
+      if (safeChanged && !snapshot.has(file)) skipped.set(file, "已脱离保险箱当前代，将移出同步树并保留本地文件");
+    }
+    const pruned = [...tree.keys()].filter((file) => !isSafePath(file) && !classify(file, []).include);
+    for (const file of pruned) skipped.set(file, "不在同步范围，将移出同步树并保留本地文件");
+    return {
+      files,
+      push: [...files, ...(safeChanged ? snapshot.keys() : [])],
+      skipped: [...skipped].map(([path, reason]) => ({ path, reason })),
+      previousSafe,
+      selectedSafe: keepSafe ? snapshot : new Map<string, Buffer>(),
+      safeChanged,
+      pruned,
+      blocked,
+    };
+  }
+
+  /** 从固定 HEAD 构造候选，只把没有手工暂存的路径与新 HEAD 对齐。 */
+  private async commitIncluded(message: string, exclude: readonly string[]): Promise<{ head: string | null; committed: boolean }> {
+    const oldHead = await this.head();
+    const { files, previousSafe, selectedSafe, safeChanged, pruned, blocked } = await this.planIncluded(oldHead, exclude);
+    if (blocked) throw errors.invalidInput(blocked);
+    if (!files.length && !safeChanged && !pruned.length) return { head: oldHead, committed: false };
+    if (await this.head("MERGE_HEAD")) throw errors.invalidInput("请先完成当前 Git 合并，再运行同步");
+    const stagedBefore = new Set((await this.git.run(["diff", "--cached", "--no-renames", "--name-only", "-z"])).stdout.split("\0"));
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-idx-"));
     const env = { GIT_INDEX_FILE: path.join(dir, "index"), GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
     try {
-      const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
-        () => true,
-        () => false,
-      );
-      if (hasHead) await this.git.run(["read-tree", "HEAD"], { env });
-      await this.git.run(["add", "-A", "--", ...files], { env });
+      if (oldHead) await this.git.run(["read-tree", oldHead], { env });
+      if (files.length) await this.git.run(["add", "-A", "--", ...files], { env });
+      if (pruned.length) await this.git.run(["update-index", "--force-remove", "-z", "--stdin"], { env, input: `${pruned.join("\0")}\0` });
+      if (safeChanged) await this.safeGit.stage(previousSafe, selectedSafe, env);
       const tree = (await this.git.run(["write-tree"], { env })).stdout.trim();
-      const parent = hasHead ? ["-p", "HEAD"] : [];
+      if (oldHead && tree === (await this.git.run(["rev-parse", `${oldHead}^{tree}`])).stdout.trim()) return { head: oldHead, committed: false };
+      const candidate = await gitTree(this.git, tree);
+      this.verifyAllowed(candidate);
+      if (!(await this.safeGit.matches(safeTree(candidate), selectedSafe))) throw errors.invalidInput("Git 候选中的保险箱路径或字节与当前整代快照不一致");
+      await this.safeGit.validate(safeTree(candidate));
+      const parent = oldHead ? ["-p", oldHead] : [];
       const commit = (await this.git.run(["commit-tree", tree, ...parent, "-m", message], { env })).stdout.trim();
       // 带旧值校验：同步期间用户自己做了提交时不会被覆盖
-      await this.git.run(["update-ref", "-m", "huhu sync", "HEAD", commit, ...(oldHead ? [oldHead] : [])]);
+      await this.git.run(["update-ref", "-m", "huhu sync", "HEAD", commit, oldHead ?? "0".repeat(commit.length)]);
       // 用户自己的 index 与新的 HEAD 对齐：只重置用户没有手动暂存过的路径，用户暂存的内容保留
-      const toReset = files.filter((f) => !stagedBefore.has(f));
-      if (toReset.length) await this.git.run(["reset", "--quiet", "--", ...toReset]).catch(() => undefined);
-      return true;
+      const safePaths = safeChanged ? [...previousSafe.keys(), ...selectedSafe.keys()] : [];
+      const toReset = [...new Set([...files, ...safePaths, ...pruned])].filter((f) => !stagedBefore.has(f));
+      if (toReset.length) await this.git.run(["reset", "--quiet", commit, "--", ...toReset]).catch(() => undefined);
+      return { head: commit, committed: true };
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  private verifyAllowed(tree: Awaited<ReturnType<typeof gitTree>>): void {
+    const forbidden = [...tree.keys()].find((file) => !isSafePath(file) && !classify(file, []).include);
+    if (forbidden) throw errors.invalidInput("待推送的 Git 树含同步白名单外的资料，请检查本地提交和暂存区");
+  }
+
+  private async verifyOutbound(head: string, upstream: string | null, exclude: readonly string[], signal: AbortSignal): Promise<void> {
+    const { stdout } = await this.git.run(["rev-list", head, ...(upstream ? [`^${upstream}`] : [])], { signal });
+    for (const oid of new Set([head, ...stdout.trim().split("\n").filter(Boolean)])) {
+      if (signal.aborted) throw gitCancelled();
+      const tree = await gitTree(this.git, oid);
+      this.verifyAllowed(tree);
+      const safe = safeTree(tree);
+      if ([...safe.keys()].some((file) => matchingExclude(file, exclude))) throw errors.invalidInput("待推送的 Git 提交含已排除的保险箱成员，无法推送整代资料");
+      await this.safeGit.validate(safe);
+    }
+  }
+
+  private async verifyMergedSafe(tree: string, expected: ReturnType<typeof safeTree>): Promise<void> {
+    if (differentSafePaths(expected, safeTree(await gitTree(this.git, tree))).length) throw errors.invalidInput("合并结果改变了保险箱整代，已保留两侧资料");
+  }
+
+  private async mergeRemote(remoteRef: string, remoteHead: string): Promise<boolean> {
+    const localHead = await this.head();
+    if (localHead && (await this.git.run(["merge-base", "--is-ancestor", remoteHead, localHead], { okCodes: [1] })).code === 0) return false;
+    const ours = safeTree(await gitTree(this.git, localHead));
+    const theirs = safeTree(await gitTree(this.git, remoteHead));
+    const changed = differentSafePaths(ours, theirs);
+    let safeFastForward = false;
+    if (changed.length) {
+      if (localHead && (await this.git.run(["merge-base", "--is-ancestor", localHead, remoteHead], { okCodes: [1] })).code !== 0) {
+        const sess = this.cf.record(
+          localHead,
+          remoteHead,
+          remoteRef,
+          changed.map((file) => ({ path: file, base: null, ours: ours.get(file) ?? null, theirs: theirs.get(file) ?? null })),
+          true,
+        );
+        throw new HuhuError("GIT_CONFLICT", "保险箱整代发生分歧，已保留本地和远端版本", { details: { files: changed, sessionId: sess.id } });
+      }
+      if (!theirs.size || !(await this.safeGit.matches(ours, this.safeGit.capture()))) throw errors.invalidInput("拉取会覆盖或移除本地保险箱资料，请先处理本地改动");
+      await this.safeGit.validate(theirs);
+      await this.safeGit.verifyCheckout(remoteHead, [...theirs.keys()]);
+      safeFastForward = true;
+    } else if (localHead) {
+      const sess = await this.cf.detect(localHead, remoteHead, remoteRef, (tree) => this.verifyMergedSafe(tree, ours));
+      if (sess) {
+        const files = sess.files.map((f) => f.path);
+        throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files, sessionId: sess.id } });
+      }
+      if (sess === undefined && ours.size) throw errors.invalidInput("无法核对含保险箱资料的 Git 合并结果");
+    }
+    if ((await this.head()) !== localHead || (await this.head("MERGE_HEAD"))) throw errors.invalidInput("本地 Git 状态已变化，请处理当前操作后重试");
+    try {
+      await this.git.run(["-c", `user.name=${this.identity.name}`, "-c", `user.email=${this.identity.email}`, "merge", "--no-edit", "--no-overwrite-ignore", ...(safeFastForward ? ["--ff-only"] : []), remoteHead]);
+      return true;
+    } catch {
+      const files = (await this.git.run(["diff", "--name-only", "--diff-filter=U", "-z"]).catch(() => ({ stdout: "" }))).stdout.split("\0").filter(Boolean);
+      await this.git.run(["merge", "--abort"]).catch(() => undefined);
+      if (!files.length) throw new HuhuError("INTERNAL", "无法合并远端变更：本地有未提交且会被覆盖的文件，请先处理这些文件", { retryable: false });
+      throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files } });
     }
   }
 
@@ -461,58 +580,28 @@ export class VaultSync {
     if (signal.aborted) throw gitCancelled();
     const c = stored.config;
     await this.ready(c);
-    let committed = false;
     try {
       const auth = preparedAuth ?? (await this.networkAuth(stored));
-      if (mode !== "pull") committed = await this.commitIncluded("HUHU 同步", c.exclude);
-      await this.network(c, auth, "fetch", signal);
-      const remoteRef = `origin/${c.branch}`;
-      const hasRemote = await this.git.run(["rev-parse", "--verify", remoteRef]).then(
-        () => true,
-        () => false,
-      );
-      let pulled = false;
+      const candidate = mode === "pull" ? null : await this.safeGit.withLock(() => this.commitIncluded("HUHU 同步", c.exclude));
+      await this.network(c, auth, signal);
+      const remoteRef = `refs/remotes/origin/${c.branch}`;
+      const upstream = await this.head(remoteRef);
       if (signal.aborted) throw gitCancelled();
-      if (mode !== "push" && hasRemote) {
-        const hasHead = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
-          () => true,
-          () => false,
-        );
-        const behind = hasHead ? Number((await this.git.run(["rev-list", "--count", `HEAD..${remoteRef}`])).stdout.trim()) : 1;
-        if (behind > 0) {
-          if (hasHead) {
-            // 先不碰工作区地预判：有冲突就记录会话并报告，工作区里永远不会出现冲突标记
-            const headOid = (await this.git.run(["rev-parse", "--verify", "HEAD"])).stdout.trim();
-            const sess = await this.cf.detect(headOid, remoteRef);
-            if (sess) {
-              const files = sess.files.map((f) => f.path);
-              this._status = { name: "conflict", detail: files.join("、") };
-              throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files, sessionId: sess.id } });
-            }
-          }
-          try {
-            await this.git.run(["-c", `user.name=${this.identity.name}`, "-c", `user.email=${this.identity.email}`, "merge", "--no-edit", remoteRef]);
-            pulled = true;
-          } catch {
-            const files = (await this.git.run(["diff", "--name-only", "--diff-filter=U"]).catch(() => ({ stdout: "" }))).stdout.split("\n").filter(Boolean);
-            await this.git.run(["merge", "--abort"]).catch(() => undefined); // 不留下半合并状态
-            if (files.length === 0) {
-              // 没有冲突文件：合并因为别的原因被拒绝（例如未纳入的未跟踪文件会被覆盖），不能谎报成"冲突"
-              this._status = { name: "unknown", detail: "合并被拒绝" };
-              throw new HuhuError("INTERNAL", "无法合并远端变更：本地有未提交且会被覆盖的文件，请先处理这些文件", { retryable: false });
-            }
-            this._status = { name: "conflict", detail: files.join("、") };
-            throw new HuhuError("GIT_CONFLICT", `同步冲突：${files.join("、")}`, { details: { files } });
-          }
-        }
-      }
+      if (candidate && (await this.head()) !== candidate.head) throw errors.invalidInput("本地 Git 提交已变化，请重新同步");
+      const pulled = mode !== "push" && upstream !== null && (await this.safeGit.withLock(() => this.mergeRemote(remoteRef, upstream)));
       let pushed = false;
-      if (mode !== "pull") {
-        await this.network(c, auth, "push", signal);
+      if (candidate) {
+        const source = pulled ? await this.head() : candidate.head;
+        if (!source) throw errors.invalidInput("没有可推送的 Git 提交");
+        // Only subtract history known to be at the destination of the push.
+        const fetchUrl = (await this.git.run(["remote", "get-url", "origin"])).stdout;
+        const pushUrl = (await this.git.run(["remote", "get-url", "--push", "--all", "origin"])).stdout;
+        await this.verifyOutbound(source, fetchUrl === pushUrl ? upstream : null, c.exclude, signal);
+        await this.network(c, auth, signal, source);
         pushed = true;
       }
       this._status = { name: "idle", detail: "" };
-      return { pulled, pushed, committed };
+      return { pulled, pushed, committed: candidate?.committed ?? false };
     } catch (e) {
       return this.track(e);
     }
@@ -542,7 +631,7 @@ export class VaultSync {
   resolveConflicts(sessionId: string, resolutions: Resolution[], onSyncFailure?: (error: unknown) => void): Promise<{ commit: string; pushed: boolean; syncError?: string }> {
     return this.exclusive(async () => {
       this.requireWritable();
-      const commit = await this.cf.resolve(sessionId, resolutions);
+      const commit = await this.safeGit.withLock(() => this.cf.resolve(sessionId, resolutions));
       this._status = { name: "idle", detail: "" };
       if (this.config().mode !== "full") return { commit, pushed: false };
       try {

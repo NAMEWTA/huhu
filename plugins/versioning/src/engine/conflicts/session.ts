@@ -23,6 +23,7 @@ export interface ConflictSession {
   remoteHead: string;
   remoteRef: string;
   files: ConflictFile[];
+  safeGeneration?: boolean;
 }
 
 const file = (root: string) => path.join(root, ".huhu", "sync", "conflict.json");
