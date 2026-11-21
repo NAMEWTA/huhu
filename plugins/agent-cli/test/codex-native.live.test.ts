@@ -22,7 +22,8 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     const desktopUserData = path.join(root, "desktop");
     const codexHome = path.join(root, "provider");
     const home = path.join(root, "user");
-    const unusedCodexHome = path.join(root, "unused-user-codex");
+    // 用户级 CODEX_HOME 与私有 provider 目录只差大小写：Linux 区分大小写，不能误判为同一目录
+    const unusedCodexHome = path.join(root, "PROVIDER");
     for (const dir of [vaultPath, desktopUserData, codexHome, home, unusedCodexHome]) mkdirSync(dir, { mode: 0o700 });
     const responses = await startCodexResponsesFixture();
     let core: HerdrCore | undefined;

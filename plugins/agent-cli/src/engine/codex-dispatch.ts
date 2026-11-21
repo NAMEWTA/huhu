@@ -126,8 +126,10 @@ export class CodexDispatch {
       const linuxNative = process.platform === "linux" && fixtureArgs.length === 0;
       const defaultHome = path.join(homedir(), ".codex");
       const globalHome = process.env["CODEX_HOME"];
-      const canonical = (candidate: string) => (statSync(candidate, { throwIfNoEntry: false }) ? realpathSync(candidate) : path.resolve(candidate)).toLowerCase();
-      const homeKey = home.toLowerCase();
+      // Windows 与默认 macOS 卷不区分大小写，折叠后比较更保守；Linux 按原样比较，避免误拒只差大小写的私有目录。
+      const fold = (value: string) => (process.platform === "linux" ? value : value.toLowerCase());
+      const canonical = (candidate: string) => fold(statSync(candidate, { throwIfNoEntry: false }) ? realpathSync(candidate) : path.resolve(candidate));
+      const homeKey = fold(home);
       const homeStat = statSync(home);
       if (
         !homeStat.isDirectory() ||
