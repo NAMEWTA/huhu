@@ -16,6 +16,8 @@ export interface ResolveInput {
   prompt?: string | undefined;
   /** headless 新会话：指定会话 id（条目有 newSession 时使用）。 */
   sessionId?: string | undefined;
+  /** Internal ID for a new interactive Pi session, assigned before submitting to Core. */
+  newPiId?: string | undefined;
   /** 恢复会话 id。 */
   resume?: string | undefined;
   /** Trusted history reference resolved by the Engine. */
@@ -33,6 +35,7 @@ export interface ResolvedLaunch {
   env: Record<string, string>;
   stdin?: string;
   warnings: string[];
+  nativeSessionId?: string;
   /** 预览模式下，条目不支持所请求的模式。 */
   unsupported?: "headless";
 }
@@ -107,9 +110,10 @@ export function resolveAgentLaunch(
   const userArgs = user.args ?? entry.fullAccessArgs;
   const argv: string[] = [];
   const history = input.history;
+  const overridesHistory = userArgs.some((arg) => HISTORY_FLAGS.test(arg) || (arg === "-c" && entry.id !== "codex"));
   if (history) {
     if (!SAFE_ID.test(history.nativeId) || input.mode !== "interactive" || input.resume || input.prompt !== undefined) throw errors.invalidInput("历史会话启动参数无效");
-    if (userArgs.some((arg) => HISTORY_FLAGS.test(arg) || (arg === "-c" && entry.id !== "codex"))) throw errors.invalidInput("当前智能体参数覆盖了原生历史，请在设置中移除冲突参数");
+    if (overridesHistory) throw errors.invalidInput("当前智能体参数覆盖了原生历史，请在设置中移除冲突参数");
     if (entry.id === "pi" && (!history.file || !path.isAbsolute(history.file))) throw errors.invalidInput("Pi 需要确切的历史文件");
     if (entry.id !== "pi" && !entry.interactive.resume) throw errors.invalidInput("此智能体不支持原生历史启动");
     if (history.mode === "fork" && entry.id === "pi" && (!history.forkId || !SAFE_ID.test(history.forkId))) throw errors.invalidInput("Pi 分支标识无效");
@@ -153,6 +157,8 @@ export function resolveAgentLaunch(
     argv.push(history.mode === "fork" ? "--fork" : "--session", history.file);
     if (history.mode === "fork" && history.forkId) argv.push("--session-id", history.forkId);
   }
+  const nativeSessionId = !history && !input.resume && !overridesHistory && input.mode === "interactive" && entry.id === "pi" ? input.newPiId : undefined;
+  if (nativeSessionId) argv.push("--session-id", nativeSessionId);
   // 7. 位置参数
   argv.push(...tail);
   if (input.mode === "interactive" && input.prompt && !resumeId && entry.interactive.prompt === "positional") argv.push(input.prompt);
@@ -167,6 +173,7 @@ export function resolveAgentLaunch(
     env: preview ? mask(env) : env,
     ...(input.mode === "headless" && input.prompt !== undefined ? { stdin: input.prompt } : {}),
     warnings,
+    ...(nativeSessionId && { nativeSessionId }),
   };
 }
 

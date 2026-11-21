@@ -317,10 +317,13 @@ export class SessionsService {
     const previous = this.recordedLaunch(input.requestId);
     if (previous) this.verifyIntent(previous, intent);
 
+    const canTrackPi = input.provider === "pi" && !input.environment && !input.history && !input.resumeSessionId && !input.expectedConfigurationId;
+    const newPiId = canTrackPi ? `huhu-${launchHash([this.d.vaultId, input.spaceId, input.requestId])}` : undefined;
+    const trackPi = !previous || previous.nativeSessionId === newPiId ? newPiId : undefined;
     let prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined;
     let native: InteractiveNativePlan | undefined;
     try {
-      prepared = await this.prepareLaunch(input);
+      prepared = await this.prepareLaunch(input, trackPi);
       if (input.environment && !previous?.launchReceipt?.attempt) {
         native = await this.prepareNativeEnvironment(input, input.environment, prepared);
         if (native.approval !== input.environment.approval) throw new HuhuError("VERSION_CONFLICT", "程序、目录或环境已变化，请重新预览");
@@ -364,7 +367,7 @@ export class SessionsService {
     throw errors.invalidInput("启动目录必须是 Space 内现有的绝对目录");
   }
 
-  private async prepareLaunch(input: Omit<LaunchInput, "requestId">) {
+  private async prepareLaunch(input: Omit<LaunchInput, "requestId">, newPiId?: string) {
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
     // cmd.exe 把盘符的扩展路径当作 UNC。常规长度的本机路径可用普通盘符形式启动。
     const cwd = localDrivePath(this.launchDirectory(space.root, input.cwd));
@@ -378,6 +381,7 @@ export class SessionsService {
     if (input.resumeSessionId !== undefined && !isValidNativeId(input.resumeSessionId)) throw errors.invalidInput("会话 id 无效");
     let argv: string[] | undefined;
     let env: Record<string, string> | undefined;
+    let nativeSessionId: string | undefined;
     let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
     if (input.controlled) {
       if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.history !== undefined || input.command !== undefined || input.env !== undefined)
@@ -388,12 +392,13 @@ export class SessionsService {
       argv = shellCommand(input.shell ?? "default", input.command);
       if (input.env && Object.keys(input.env).length > 0) env = input.env;
     } else if (input.provider !== "shell") {
-      const r = await this.d.resolve({ agentId: input.provider, mode: "interactive", model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resume: input.resumeSessionId, history: input.history });
+      const r = await this.d.resolve({ agentId: input.provider, mode: "interactive", model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resume: input.resumeSessionId, history: input.history, newPiId });
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
+      nativeSessionId = r.nativeSessionId;
     }
     if (approvedDirectory && (input.provider !== "shell" || !env || !argv)) throw errors.invalidInput("批准的工作目录仅用于受保护终端命令");
-    return { space, cwd, argv, env, controlled };
+    return { space, cwd, argv, env, controlled, nativeSessionId };
   }
 
   private async prepareNativeEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
@@ -478,7 +483,7 @@ export class SessionsService {
       argvHash: argv ? launchHash(argv) : null,
     };
     const history = input.history;
-    const nativeSessionId = history ? (history.mode === "resume" ? history.nativeId : history.forkId) : input.resumeSessionId;
+    const nativeSessionId = history ? (history.mode === "resume" ? history.nativeId : history.forkId) : (prepared.nativeSessionId ?? input.resumeSessionId);
     if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) throw errors.notFound("原 Pi 会话文件已变化，请重新选择");
     const session: SessionRecord = previous ?? {
       id: newId("cap").replace(/^cap-/, "sess-"),

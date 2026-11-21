@@ -85,10 +85,11 @@ export async function probeVersion(exe: string, args: string[] = ["--version"], 
   );
 }
 
-export async function supportsPiHistory(exe: string, mode: "resume" | "fork", env: NodeJS.ProcessEnv): Promise<boolean> {
+export async function supportsPiHistory(exe: string, mode: "resume" | "fork" | "new", env: NodeJS.ProcessEnv): Promise<boolean> {
   const help = await probeText(exe, ["--help"], 5000, env);
   if (!help) return false;
-  return mode === "resume" ? /^\s+--session\s/m.test(help) : /^\s+--fork\s/m.test(help) && /^\s+--session-id\s/m.test(help);
+  if (mode === "resume") return /^\s+--session\s/m.test(help);
+  return /^\s+--session-id\s/m.test(help) && (mode === "new" || /^\s+--fork\s/m.test(help));
 }
 
 function probeText(exe: string, args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): Promise<string | null> {

@@ -128,6 +128,9 @@ describe("启动合成 resolveAgentLaunch", () => {
     expect(run("codex", { history: { mode: "fork", nativeId } }).argv.slice(0, 2)).toEqual(["fork", nativeId]);
     expect(() => run("pi", { history: { mode: "resume", nativeId, file: "relative.jsonl" } })).toThrow("确切的历史文件");
     expect(() => run("pi", { history: { mode: "fork", nativeId, file, forkId: "new-id" } }, settingsWith({ pi: { args: ["--continue"] } }))).toThrow("覆盖了原生历史");
+    expect(run("pi", { newPiId: "huhu-test", prompt: "开始" })).toMatchObject({ nativeSessionId: "huhu-test", argv: ["--session-id", "huhu-test", "开始"] });
+    expect(run("pi", { newPiId: "huhu-test" }, settingsWith({ pi: { args: ["--continue"] } }))).toMatchObject({ argv: ["--continue"] });
+    expect(run("pi", { newPiId: "huhu-test" }, settingsWith({ pi: { args: ["--continue"] } })).nativeSessionId).toBeUndefined();
   });
   test("LA-02 claude headless：参数顺序，--disallowedTools 在最后", () => {
     const r = run("claude", { mode: "headless", model: "sonnet", sessionId: "11111111-1111-1111-1111-111111111111", prompt: "任务" });

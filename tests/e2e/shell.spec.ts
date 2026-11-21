@@ -1395,6 +1395,23 @@ test("Agent CLI 历史：在 Windows 原生 Pi 上分支、恢复并跨 Space �
     expect(await call("agent.history.resume", { ...launch, action: "resume" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(await call("agent.history.resume", { ...launch, action: "fork" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect((await list()).data.map(({ id, terminalId }) => ({ id, terminalId }))).toEqual(relocated.map(({ id, terminalId }) => ({ id, terminalId })));
+
+    const ordinaryInput = { spaceId: originalSpaceId, spaceRevision: launch.spaceRevision, provider: "pi", requestId: crypto.randomUUID() };
+    const ordinary = await call<AgentSession>("agent.sessions.launch", ordinaryInput);
+    expect(ordinary).toMatchObject({ ok: true, data: { state: "running", nativeSessionId: expect.stringMatching(/^huhu-[a-f0-9]{64}$/) } });
+    const ordinaryId = ordinary.data.nativeSessionId!;
+    const same = await call<AgentSession>("agent.sessions.launch", ordinaryInput);
+    expect(same.data).toMatchObject({ id: ordinary.data.id, terminalId: ordinary.data.terminalId, nativeSessionId: ordinaryId });
+    // Model traffic is disabled in this fixture. Simulate later native history becoming visible.
+    writeFileSync(path.join(historyDir, "ordinary-later.jsonl"), [{ ...rows[0], id: ordinaryId }, { ...rows[1] }].map((row) => JSON.stringify(row)).join("\n") + "\n");
+    const ordinarySnapshot = async () => (await call<{ entries: HistoryRow[] }>("agent.history.list", { spaceId: originalSpaceId, provider: "pi", query: ordinaryId })).data.entries[0];
+    await expect.poll(ordinarySnapshot, { timeout: 8_000 }).toMatchObject({ active: false, possiblyActive: true, canResume: false, canFork: false });
+    const ordinaryHistory = (await ordinarySnapshot())!;
+    expect(await call("agent.history.resume", { ...ordinaryInput, requestId: crypto.randomUUID(), nativeSessionId: ordinaryId, historyId: ordinaryHistory.historyId, historyRevision: ordinaryHistory.revision })).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_INPUT" },
+    });
+    expect((await list()).data).toHaveLength(3);
   } finally {
     await app.close();
     rmTree(base);

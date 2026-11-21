@@ -81,6 +81,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (input.agentId === "pi" && input.history && !(await supportsPiHistory(resolved.command, input.history.mode, { ...process.env, ...resolved.env }))) {
       throw errors.invalidInput("当前 Pi CLI 未报告所需的历史启动选项");
     }
+    if (resolved.nativeSessionId && !(await supportsPiHistory(resolved.command, "new", { ...process.env, ...resolved.env }))) {
+      return resolveAgentLaunch({ settings, locatedCommand }, { ...input, newPiId: undefined });
+    }
     return resolved;
   };
   const mid = machineId();
