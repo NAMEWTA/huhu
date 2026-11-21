@@ -11,32 +11,26 @@ import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan }
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
+import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, hasLegacyTerminalEnvironment, type ActivationRecord, type TaskQueryLike } from "./service.js";
-import { TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { AutomationsService, hasLegacyTerminalEnvironment, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
+import { TaskScanOccurrenceId, TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { registerTaskScanTools, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
 export { AutomationsService } from "./service.js";
 export { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "./default-task-scan.js";
 export { Scheduler } from "./scheduler.js";
+export { taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 export { terminalEnvironmentDescriptors } from "./terminal-environment.js";
 
-const Trigger = z.object({ preset: z.string(), cron: z.string(), zone: z.string() });
 const Action = AutomationActionSchema;
-/** Agent 执行与命令执行永不对外（security.md §1）：外部入口即使被开放 automations.create/update/setEnabled，也不能创建、修改或启用会启动 Agent 或运行命令的规则。 */
-function assertNoAgentAction(caller: string, action: { kind: string; input?: { source: string; model?: string | null } } | undefined): void {
+/** 外部任务扫描使用独立能力授权。 */
+function assertGenericRuleAction(caller: string, action: z.output<typeof Action> | undefined): void {
   if ((action?.kind === "agent" || action?.kind === "terminal") && !isWorkbenchCaller(caller)) throw errors.permissionDenied("会启动 Agent 或运行命令的规则（仅工作台可用）");
-  const model = action?.input && "model" in action.input ? action.input.model : undefined;
+  const model = action?.kind === "agent" && action.input.source === "prompt" ? action.input.model : undefined;
   if (model && model.startsWith("-")) throw errors.invalidInput("model 不能以 - 开头");
 }
-
-const Rule = z.object({
-  id: z.string(),
-  path: z.string(),
-  version: z.string(),
-  body: z.string(),
-  data: z.object({ title: z.string(), enabled: z.boolean(), trigger: Trigger, missedRunGraceMinutes: z.number(), action: Action, legacyEnvironment: z.boolean().optional() }).passthrough(),
-});
 
 function publicRule(value: ReturnType<AutomationsService["rule"]>): z.output<typeof Rule> {
   if (value.data.action.kind !== "terminal") return value;
@@ -54,6 +48,8 @@ export interface AutomationsOptions {
   cliAvailable?: (provider: string) => boolean;
   /** 扫描前刷新 CLI 可用性（见 AutomationsDeps.refreshClis）。 */
   refreshClis?: () => Promise<void>;
+  /** 配合 Engine 静态登记任务扫描描述，复查已认证身份是否仍可用。 */
+  taskScanPrincipalCurrent?: TaskScanPrincipalCheck;
   schedule?: boolean;
   now?: () => Date;
 }
@@ -103,6 +99,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     else api.events.publish("automation.activated", { ruleId, activationId, trigger });
   };
   const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now, publishActivation);
+  if (opts.taskScanPrincipalCurrent) registerTaskScanTools(api, svc, scans, opts.taskScanPrincipalCurrent);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
   const followUps = new FollowUps(
@@ -292,11 +289,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }),
+      input: z.object({ title: z.string(), trigger: Trigger, action: Action, body: z.string().optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
       output: Rule,
       handler: async (c, i) => {
-        assertNoAgentAction(c.caller, i.action as never);
-        const r = await svc.create(i as never);
+        assertGenericRuleAction(c.caller, i.action);
+        const r = await svc.create(i);
         resync();
         return publicRule(r);
       },
@@ -311,16 +308,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       defaultExposed: false,
       input: Id.extend({
         expectedVersion: z.string(),
-        patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: z.number().int().min(0).max(1440).optional() }),
-        body: z.string().max(20_000).optional(),
+        patch: z.object({ title: z.string().optional(), trigger: Trigger.optional(), action: Action.optional(), missedRunGraceMinutes: MissedRunGraceMinutes.optional() }),
+        body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT).optional(),
       }),
       output: Rule,
       handler: async (c, i) => {
-        assertNoAgentAction(c.caller, i.patch.action as never);
-        {
-          assertNoAgentAction(c.caller, svc.rule(i.id).data.action as never);
-        }
-        const r = await svc.update(i.id, i.expectedVersion, i.patch as never, i.body);
+        assertGenericRuleAction(c.caller, i.patch.action);
+        const r = await svc.update(i.id, i.expectedVersion, i.patch, i.body, (current) => assertGenericRuleAction(c.caller, current.data.action));
         resync();
         return publicRule(r);
       },
@@ -333,7 +327,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional() }),
+      input: Id.extend({ expectedVersion: RuleVersion.optional() }),
       output: z.object({ ok: z.literal(true) }),
       handler: async (c, i) => {
         if (!isWorkbenchCaller(c.caller) && !i.expectedVersion) throw errors.invalidInput("外部删除规则需要规则版本");
@@ -351,11 +345,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "write",
       exposable: true,
       defaultExposed: false,
-      input: Id.extend({ enabled: z.boolean(), expectedVersion: z.string().min(1).max(128).optional() }),
+      input: Id.extend({ enabled: z.boolean(), expectedVersion: RuleVersion.optional() }),
       output: Rule,
       handler: async (c, i) => {
         if (!isWorkbenchCaller(c.caller) && !i.enabled && !i.expectedVersion) throw errors.invalidInput("外部停用规则需要规则版本");
-        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertNoAgentAction(c.caller, action), i.expectedVersion);
+        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertGenericRuleAction(c.caller, action), i.expectedVersion);
         resync();
         return publicRule(r);
       },
@@ -368,7 +362,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "read",
       exposable: true,
       defaultExposed: false,
-      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional() }),
+      input: Id.extend({ expectedVersion: RuleVersion.optional() }),
       output: z.object({ ruleVersion: z.string(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
       handler: (_c, i) => svc.preview(i.id, i.expectedVersion),
     }),
@@ -381,7 +375,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       exposable: true,
       defaultExposed: false,
       timeoutMs: 30 * 60_000,
-      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional(), intentId: z.uuidv4().optional() }),
+      input: Id.extend({ expectedVersion: RuleVersion.optional(), intentId: z.uuidv4().optional() }),
       output: z.object({ activationId: z.string(), summary: z.unknown() }),
       handler: async ({ caller, signal }, { id, expectedVersion, intentId }) => {
         signal.throwIfAborted();
@@ -430,7 +424,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "read",
       exposable: true,
       defaultExposed: false,
-      input: z.strictObject({ ruleId: z.string().min(1).max(128), activationId: z.string().regex(/^(?:occ-[a-f0-9]{64}|inv-[a-f0-9-]{36})$/) }),
+      input: z.strictObject({ ruleId: z.string().min(1).max(128), activationId: TaskScanOccurrenceId }),
       output: z.strictObject({ dispatches: z.array(z.strictObject({ taskId: z.string(), dispatchId: z.string(), state: z.enum(["pending", "accepted"]), runId: z.string().nullable() })) }),
       handler: (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }),
     }),

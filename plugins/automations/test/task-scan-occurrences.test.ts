@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskDto } from "@huhu/contracts";
-import { NotificationStore } from "@huhu/kernel";
+import { CapabilityRegistry, GatewayTokens, NotificationStore, TokenTable } from "@huhu/kernel";
 import { exportPackage, importPackage, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { run as runCli } from "../../../apps/cli/src/main.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
 import type { TaskRuleDispatch } from "../../tasks/src/engine/index.js";
 import { Scheduler } from "../src/engine/scheduler.js";
+import { taskScanToolDescriptors } from "../src/engine/task-scan-tools.js";
 import type { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
 import type { ReminderDeliveries } from "../src/engine/reminder-deliveries.js";
 
@@ -29,8 +32,9 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
   const automations = await original<typeof import("../src/engine/index.js")>();
   return {
     ...automations,
-    apply: ((ctx, api, opts) =>
-      automations.apply(
+    apply: ((ctx, api, opts) => {
+      const gateway = new GatewayTokens(path.join(api.vault.stateDir, "gateways.json"), new TokenTable());
+      return automations.apply(
         ctx,
         {
           ...api,
@@ -40,8 +44,16 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             if (name === "automationReminderDeliveries") fixture.reminders = service as ReminderDeliveries;
           },
         },
-        { ...opts, schedule: false, now: () => fixture.now, refreshClis: fixture.refresh, cliAvailable: () => true },
-      )) satisfies typeof automations.apply,
+        {
+          ...opts,
+          schedule: false,
+          now: () => fixture.now,
+          refreshClis: fixture.refresh,
+          cliAvailable: () => true,
+          taskScanPrincipalCurrent: (caller, subject) => (caller === "http" ? gateway.list().some(({ id }) => id === subject) : subject === caller && (caller !== "mcp" || gateway.mcp().enabled)),
+        },
+      );
+    }) satisfies typeof automations.apply,
   };
 });
 
@@ -84,6 +96,17 @@ beforeEach(() => {
   fixture.accept.mockReset();
   fixture.refresh.mockReset().mockResolvedValue(undefined);
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+  const declare = CapabilityRegistry.prototype.declareDescriptors;
+  vi.spyOn(CapabilityRegistry.prototype, "declareDescriptors").mockImplementation(function (this: CapabilityRegistry, plugin, descriptors) {
+    if (plugin !== "automations") return declare.call(this, plugin, descriptors);
+    // Mirror the Lead-owned builtin descriptor registration while testing this plugin in isolation.
+    const provided = new Map([...Object.values(taskScanToolDescriptors), ...descriptors].map((descriptor) => [descriptor.name, descriptor]));
+    declare.call(
+      this,
+      plugin,
+      [...provided.values()].filter(({ name }) => !this.getDescriptor(name)),
+    );
+  });
 });
 
 afterEach(async () => {
@@ -113,10 +136,10 @@ async function stop(engine: RunningEngine) {
   engines.splice(engines.indexOf(engine), 1);
 }
 
-async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external = false) {
+async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external: boolean | string = false) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${external ? engine.cliToken : engine.rendererToken}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${typeof external === "string" ? external : external ? engine.cliToken : engine.rendererToken}`, "content-type": "application/json" },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
   });
   return (await response.json()) as { ok: boolean; data: T; error?: { code: string; details?: Record<string, unknown> } };
@@ -134,6 +157,211 @@ async function createTask(engine: RunningEngine, title: string, tags = ["match"]
 }
 
 type Rule = { id: string; version: string; body: string; data: { updatedAt: string; enabled: boolean; missedRunGraceMinutes: number } };
+const scanTools = Object.fromEntries(Object.entries(taskScanToolDescriptors).map(([key, descriptor]) => [key, descriptor.name])) as Record<keyof typeof taskScanToolDescriptors, string>;
+const scanDraft = (title: string) => ({
+  title,
+  body: "扫描补充说明",
+  trigger,
+  action: { kind: "agent", input: { source: "tasks", tags: ["match"], includeUnscheduled: true } },
+});
+
+async function expose(engine: RunningEngine, ...capabilities: string[]) {
+  for (const capability of capabilities) await invoke(engine, "gateway.update", { capability, exposed: true });
+}
+
+async function cli<T = unknown>(engine: RunningEngine, capability: string, input: unknown, args: string[] = []) {
+  const output: string[] = [];
+  await runCli(["call", capability, "--vault", engine.vault.root, "--json", "--input-json", JSON.stringify(input), ...args], {
+    out: (line) => output.push(line),
+    err: (line) => output.push(line),
+  });
+  return JSON.parse(output.join("")) as Awaited<ReturnType<typeof call<T>>>;
+}
+
+test("CLI 逐项开放任务扫描，写权限只保存和修改停用草稿", async () => {
+  const { engine, scans } = await start();
+  const draft = scanDraft("CLI 任务扫描草稿");
+  const create = () => cli<Rule>(engine, scanTools.create, draft, ["--intent-key", "external-scan-create"]);
+  expect(await create()).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  await expose(engine, scanTools.create, scanTools.update, "automations.setEnabled");
+  const created = await create();
+  expect(created).toMatchObject({ ok: true, data: { data: { enabled: false } } });
+  expect(await create()).toEqual(created);
+  const target = { id: created.data.id, expectedVersion: created.data.version };
+  expect(await cli(engine, scanTools.enable, target)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  expect(await cli(engine, "automations.setEnabled", { ...target, enabled: true })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  for (const action of [
+    { ...draft.action, input: { ...draft.action.input, env: { FIXTURE: "value" } } },
+    { ...draft.action, input: { ...draft.action.input, spaceId: "caller-supplied" } },
+    { ...draft.action, input: { source: "prompt", provider: "fixture", spaceId: "caller-supplied" } },
+    { kind: "terminal", shell: "powershell", command: "Write-Output fixture" },
+  ]) {
+    expect(await cli(engine, scanTools.create, { ...draft, action })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  }
+  const edited = await cli<Rule>(engine, scanTools.update, { ...target, patch: { title: "CLI 已编辑草稿" }, body: "版本化说明" });
+  expect(edited).toMatchObject({ ok: true, data: { body: "版本化说明", data: { enabled: false } } });
+  expect(await cli(engine, scanTools.update, { ...target, patch: { title: "陈旧更新" } })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  await expose(engine, scanTools.enable);
+  expect(await cli(engine, scanTools.enable, target)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const enabled = await cli<Rule>(engine, scanTools.enable, { ...target, expectedVersion: edited.data.version });
+  expect(enabled).toMatchObject({ ok: true, data: { data: { enabled: true } } });
+  expect(await cli(engine, scanTools.update, { ...target, expectedVersion: enabled.data.version, patch: { title: "活动规则改写" } })).toMatchObject({
+    ok: false,
+    error: { code: "INVALID_INPUT" },
+  });
+  expect(await cli(engine, scanTools.runNow, { ...target, expectedVersion: enabled.data.version, intentId: randomUUID() })).toMatchObject({
+    ok: false,
+    error: { code: "CAPABILITY_NOT_EXPOSED" },
+  });
+  expect(scans.list()).toEqual([]);
+  expect(dispatchRecords(engine)).toEqual([]);
+}, 20_000);
+
+test("MCP HTTP 和真实 stdio 重交同一手动意图，规则删除及重开后仍返回同一受理", async () => {
+  const first = await start();
+  let { engine } = first;
+  const task = await createTask(engine, "唯一应执行的合成任务");
+  const rule = await createRule(engine, "MCP 扫描规则");
+  const input = { id: rule.id, expectedVersion: rule.version, intentId: randomUUID() };
+  const tool = scanTools.runNow.replaceAll(".", "_");
+  const http = async (method: string, params: unknown) => {
+    const response = await fetch(`http://127.0.0.1:${engine.port}/mcp`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${engine.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { result: { structuredContent?: unknown; tools?: { name: string; inputSchema: unknown; outputSchema: unknown }[] } }).result;
+  };
+  const setMcp = (transport: "http" | "stdio") => invoke(engine, "gateway.mcp.update", { enabled: true, transport });
+  await setMcp("http");
+  expect((await http("tools/list", {})).tools).toEqual([]);
+  await expose(engine, scanTools.runNow, "automations.activations.dispatches", "automations.setEnabled", "automations.delete");
+  const httpTool = (await http("tools/list", {})).tools?.find(({ name }) => name === tool);
+  expect(httpTool).toMatchObject({ name: tool, inputSchema: { additionalProperties: false } });
+  const callParams = { name: tool, arguments: input };
+  const [accepted, duplicate] = await Promise.all([http("tools/call", callParams), http("tools/call", callParams)]);
+  const receipt = accepted.structuredContent;
+  expect(receipt).toMatchObject({ data: { activationId: expect.stringMatching(/^inv-ext-/), ruleVersion: rule.version, summary: { processed: 1, skipped: 0 } } });
+  expect(duplicate.structuredContent).toEqual(receipt);
+  expect(fixture.accept).toHaveBeenCalledTimes(1);
+  const [occurrence] = first.scans.list();
+  const { id: activationId } = occurrence!;
+  expect(occurrence).toMatchObject({ ruleVersion: rule.version, scheduledForUTC: null, rule: { instructions: rule.body }, items: [{ taskId: task.id, state: "accepted" }] });
+  expect(first.scans.lastScheduledFor(rule.id)).toBeNull();
+
+  fixture.now = at("01:15:00");
+  const paused = await cli<Rule>(engine, "automations.setEnabled", { id: rule.id, expectedVersion: rule.version, enabled: false });
+  expect(paused).toMatchObject({ ok: true });
+  expect(await first.scans.scheduled(rule.id, fixture.now)).toBeNull();
+  expect(await cli(engine, "automations.delete", { id: rule.id, expectedVersion: paused.data.version })).toMatchObject({ ok: true });
+  await createTask(engine, "删除规则后新增的合成任务");
+  expect(await call(engine, scanTools.runNow, input, true)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+
+  const root = engine.vault.root;
+  await stop(engine);
+  ({ engine } = await start(root));
+  await setMcp("stdio");
+  const cliRequire = createRequire(new URL("../../../apps/cli/package.json", import.meta.url));
+  const { Client } = cliRequire("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = cliRequire("@modelcontextprotocol/sdk/client/stdio.js");
+  const client = new Client({ name: "task-scan-fixture", version: "1" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [cliRequire.resolve("tsx/cli"), path.resolve(import.meta.dirname, "../../../apps/cli/src/bin.ts"), "mcp", "--vault", root],
+  });
+  try {
+    await client.connect(transport);
+    const { tools } = (await client.listTools()) as { tools: { name: string; inputSchema: unknown; outputSchema: unknown }[] };
+    const stdioTool = tools.find(({ name }) => name === tool);
+    expect(stdioTool?.inputSchema).toEqual(httpTool?.inputSchema);
+    expect(stdioTool?.outputSchema).toEqual(httpTool?.outputSchema);
+    expect((await client.callTool(callParams)).structuredContent).toEqual(receipt);
+    const mismatch = await client.callTool({ ...callParams, arguments: { ...input, expectedVersion: paused.data.version } });
+    expect(mismatch).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("IDEMPOTENCY_MISMATCH") })] });
+    await invoke(engine, "gateway.update", { capability: scanTools.runNow, exposed: false });
+    expect(await client.callTool(callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") })] });
+  } finally {
+    await client.close();
+  }
+  expect(fixture.accept).toHaveBeenCalledTimes(1);
+  expect(await cli(engine, "automations.activations.dispatches", { ruleId: rule.id, activationId })).toMatchObject({
+    ok: true,
+    data: { dispatches: [{ taskId: task.id, dispatchId: expect.any(String), state: "accepted" }] },
+  });
+  fixture.ready.mockResolvedValue("ready");
+  await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledTimes(1));
+  expect(dispatchRecords(engine)).toHaveLength(1);
+}, 25_000);
+
+test("两枚 HTTP bearer 隔离手动意图，等待后的撤权在落盘前生效", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "Bearer 扫描规则");
+  const target = { id: rule.id, expectedVersion: rule.version };
+  const input = { ...target, intentId: randomUUID() };
+  const a = await invoke<{ id: string; token: string }>(engine, "gateway.tokens.create", { name: "synthetic-first" });
+  const b = await invoke<{ id: string; token: string }>(engine, "gateway.tokens.create", { name: "synthetic-second" });
+  await expose(engine, scanTools.runNow);
+  const run = (token: string, request: object = input) => call<{ activationId: string }>(engine, scanTools.runNow, request, token);
+  const [first, second] = await Promise.all([run(a.token), run(b.token)]);
+  expect(first).toMatchObject({ ok: true, data: { ruleVersion: rule.version } });
+  expect(second).toMatchObject({ ok: true, data: { ruleVersion: rule.version } });
+  expect(second.data.activationId).not.toBe(first.data.activationId);
+  expect(await run(a.token)).toEqual(first);
+  expect(await run(b.token)).toEqual(second);
+  expect(await run(a.token, { ...input, id: "different-rule" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(await run(a.token, { ...input, intentId: randomUUID(), expectedVersion: "stale" })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await run(a.token, { ...input, intentId: randomUUID(), dispatchId: "forged" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await run(b.token, { ...input, intentId: randomUUID(), allowEarly: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await call(engine, "agent.sessions.launch", {}, a.token)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  const waits = fixture.refresh.mock.calls.length;
+  let release = () => {};
+  fixture.refresh.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const inFlight = run(a.token, { ...input, intentId: randomUUID() });
+  try {
+    await vi.waitFor(() => expect(fixture.refresh).toHaveBeenCalledTimes(waits + 1));
+    expect(await invoke(engine, "gateway.tokens.revoke", { id: a.id })).toEqual({ revoked: true });
+  } finally {
+    release();
+  }
+  expect(await inFlight).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await run(b.token)).toEqual(second);
+  expect(scans.list()).toHaveLength(2);
+  expect(dispatchRecords(engine)).toEqual([]);
+}, 20_000);
+
+test("外部手动受理在派遣前丢失确认，重开仅补原名单", async () => {
+  const first = await start();
+  const rule = await createRule(first.engine, "发生已落盘的外部扫描");
+  const task = await createTask(first.engine, "原冻结任务");
+  await expose(first.engine, scanTools.runNow);
+  const input = { id: rule.id, expectedVersion: rule.version, intentId: randomUUID() };
+  fixture.accept.mockRejectedValueOnce(new Error("合成中断：落盘后派遣前失联"));
+  expect(await cli(first.engine, scanTools.runNow, input)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  const [stored] = first.scans.list();
+  expect(stored).toMatchObject({ ruleVersion: rule.version, finishedAt: null, items: [{ taskId: task.id, state: "pending" }] });
+  expect(dispatchRecords(first.engine)).toEqual([]);
+  const added = await createTask(first.engine, "重开后新增任务");
+  fixture.now = at("01:01:00");
+  const paused = await invoke<Rule>(first.engine, "automations.setEnabled", { id: rule.id, enabled: false });
+  const changed = await invoke<Rule>(first.engine, "automations.update", { id: rule.id, expectedVersion: paused.version, patch: {}, body: "后续版本说明" });
+  await stop(first.engine);
+  const { engine, scans } = await start(first.engine.vault.root);
+  const recovered = await cli(engine, scanTools.runNow, input);
+  expect(recovered).toMatchObject({ ok: true, data: { activationId: stored!.id, ruleVersion: rule.version, summary: { processed: 1, skipped: 0 } } });
+  expect(await cli(engine, scanTools.runNow, input)).toEqual(recovered);
+  expect(await cli(engine, scanTools.runNow, { ...input, expectedVersion: changed.version })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(await cli(engine, scanTools.runNow, { ...input, intentId: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(scans.list()).toMatchObject([{ id: stored!.id, rule: { instructions: rule.body }, items: [{ taskId: task.id, state: "accepted" }] }]);
+  expect(dispatchRecords(engine)).toHaveLength(1);
+  expect(dispatchRecords(engine)[0]?.receipt.taskId).not.toBe(added.id);
+  expect(fixture.refresh).toHaveBeenCalledTimes(1);
+}, 20_000);
 
 test("公开扫描明细按授权给出原派遣身份，停用或删除后仍可单项取消", async () => {
   const { engine, scans } = await start();

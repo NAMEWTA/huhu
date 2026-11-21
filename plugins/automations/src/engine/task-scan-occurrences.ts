@@ -7,7 +7,7 @@ import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
 import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsService, type TaskScanRule } from "./service.js";
 
 const dir = "automations/task-scan-occurrences";
-const Id = z.string().regex(/^(occ-[a-f0-9]{64}|inv-[a-f0-9-]{36})$/);
+export const TaskScanOccurrenceId = z.string().regex(/^(occ-[a-f0-9]{64}|inv-[a-f0-9-]{36}|inv-ext-[a-f0-9]{64})$/);
 const DispatchId = z.string().regex(/^scan-[a-f0-9]{64}$/);
 const Instant = z.iso.datetime();
 const Item = z
@@ -26,7 +26,7 @@ const Occurrence = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
-  id: Id,
+  id: TaskScanOccurrenceId,
   ruleId: z.string().min(1),
   ruleVersion: z.string().min(1),
   maxConcurrent: z.int().min(1).max(4).optional(),
@@ -46,6 +46,8 @@ type Occurrence = z.infer<typeof Occurrence>;
 type Item = z.infer<typeof Item>;
 type Stored = { occurrence: Occurrence; version: string };
 type Acceptance = Awaited<ReturnType<TaskRuleDispatch["acceptRule"]>>;
+type ManualIntent = { ruleId: string; expectedVersion: string; intentId: string };
+type ScanTrigger = { ruleId: string; at: string | null };
 
 function digest(parts: readonly string[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
@@ -73,7 +75,7 @@ export class TaskScanOccurrences {
   constructor(
     private readonly files: VaultFiles,
     private readonly vaultId: string,
-    private readonly rules: Pick<AutomationsService, "rule" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
+    private readonly rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "classifyTaskScan" | "refreshTaskScanTargets" | "templateIssue">,
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
     private readonly onChanged?: (activation: ActivationRecord) => void,
@@ -94,8 +96,51 @@ export class TaskScanOccurrences {
     return occurrence;
   }
 
+  async invokeExternal(input: ManualIntent, principal: { caller: string; subject: string }, authorize: () => void): Promise<Occurrence> {
+    authorize();
+    const signal = this.shutdown.signal;
+    signal.throwIfAborted();
+    const owner = this.owner;
+    if (owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
+    const id = `inv-ext-${digest([owner, this.vaultId, principal.caller, principal.subject, input.intentId])}`;
+    const checkReceipt = ({ occurrence }: Stored) => {
+      if (!this.owns(occurrence)) throw errors.notFound("扫描发生");
+      if (occurrence.ruleId !== input.ruleId || occurrence.ruleVersion !== input.expectedVersion) throw errors.idempotencyMismatch();
+    };
+    const prior = this.load(id);
+    if (prior) {
+      checkReceipt(prior);
+    } else {
+      this.files.assertWritable();
+      this.externalRule(input);
+      await this.rules.refreshTaskScanTargets();
+      await this.rules.withRuleConfiguration(async () => {
+        authorize();
+        signal.throwIfAborted();
+        const existing = this.load(id);
+        if (existing) return checkReceipt(existing);
+        const row = this.freeze(id, this.externalRule(input), null, this.now(), owner);
+        await this.persist(row, null);
+        this.onChanged?.(this.activation(row));
+      });
+    }
+    // The durable occurrence owns completion even if the request is interrupted.
+    const occurrence = await this.run(id);
+    authorize();
+    if (!occurrence) throw errors.notFound("扫描发生");
+    return occurrence;
+  }
+
+  private externalRule({ ruleId, expectedVersion }: ManualIntent): TaskScanRule {
+    const rule = this.rules.rule(ruleId);
+    if (!isTaskScanRule(rule)) throw errors.permissionDenied("仅可执行已有任务扫描规则");
+    if (rule.version !== expectedVersion) throw errors.versionConflict(rule.version);
+    if (!rule.data.enabled) throw errors.invalidInput("请先启用任务扫描规则");
+    return rule;
+  }
+
   read(id: string): Occurrence | null {
-    return this.load(Id.parse(id))?.occurrence ?? null;
+    return this.load(TaskScanOccurrenceId.parse(id))?.occurrence ?? null;
   }
 
   dispatches(ruleId: string, id: string) {
@@ -162,10 +207,10 @@ export class TaskScanOccurrences {
     return names
       .filter((name) => name.endsWith(".json"))
       .map((name) => name.slice(0, -5))
-      .filter((id) => Id.safeParse(id).success);
+      .filter((id) => TaskScanOccurrenceId.safeParse(id).success);
   }
 
-  private run(id: string, trigger?: { ruleId: string; at: string | null }): Promise<Occurrence | null> {
+  private run(id: string, trigger?: ScanTrigger): Promise<Occurrence | null> {
     const active = this.active.get(id);
     if (active) return active;
     const work = Promise.resolve()
@@ -187,6 +232,7 @@ export class TaskScanOccurrences {
       if (
         row.id !== id ||
         correctId !== id ||
+        (id.startsWith("inv-ext-") && row.rule.input.source !== "tasks") ||
         taskIds.size !== row.items.length ||
         (row.tasksDisabled && row.items.length !== 0) ||
         (row.rule.input.source === "prompt") !== (template !== undefined) ||
@@ -209,21 +255,24 @@ export class TaskScanOccurrences {
     return { occurrence, version };
   }
 
-  private async advance(id: string, trigger?: { ruleId: string; at: string | null }): Promise<Occurrence | null> {
+  private async advance(id: string, trigger?: ScanTrigger): Promise<Occurrence | null> {
     const signal = this.shutdown.signal;
     signal.throwIfAborted();
     let stored = this.load(id);
     if (!stored && trigger) {
       this.files.assertWritable();
       await this.rules.refreshTaskScanTargets();
-      signal.throwIfAborted();
-      const rule = this.rules.rule(trigger.ruleId);
-      const now = this.now();
-      if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
-      if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
-      if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
-      const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
-      stored = await this.persist(occurrence, null);
+      stored = await this.rules.withRuleConfiguration(() => {
+        signal.throwIfAborted();
+        const rule = this.rules.rule(trigger.ruleId);
+        const now = this.now();
+        if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
+        if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
+        if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
+        const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
+        return this.persist(occurrence, null);
+      });
+      if (!stored) return null;
       this.onChanged?.(this.activation(stored.occurrence));
     }
     if (!stored) throw new HuhuError("WRITE_PARTIAL", "扫描发生记录在读取期间消失", { details: { id } });
