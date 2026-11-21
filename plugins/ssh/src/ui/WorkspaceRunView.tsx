@@ -127,10 +127,11 @@ export function WorkspaceRunView({
             </aside>
           ))}
       </div>
-      {showFiles &&
+      {shown &&
+        showFiles &&
         activePane &&
         (activePane.phase === "ready" && activePane.sessionId ? (
-          <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} />
+          <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
         ) : (
           <p role="status">{activePane.label}的连接尚未就绪</p>
         ))}

@@ -1,15 +1,17 @@
 import { Button, EmptyState } from "@huhu/ui";
 import { CapabilityError, useEngine } from "@huhu/workbench";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { FileDirectory, FileDocument, FileEntry, FileSearch, FileSession } from "../shared/files.js";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { DirectoryFollowState, FileDirectory, FileDocument, FileEntry, FileSearch, FileSession, PreparedFileDirectory } from "../shared/files.js";
 import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
 import { RemoteTextEditor } from "./RemoteTextEditor.js";
 import { RemoteCopyDialog } from "./RemoteCopyDialog.js";
+import { FilePropertiesDialog } from "./FilePropertiesDialog.js";
+import { CreateFileEntryDialog } from "./CreateFileEntryDialog.js";
 import { useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
 import { t } from "./i18n.js";
-import { useDevicePreferences } from "./device-preferences.js";
+import { saveDevicePreferences, useDevicePreferences } from "./device-preferences.js";
 import { shownFileEntries } from "./file-preferences.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
@@ -23,7 +25,23 @@ const bridge = (): HostBridge => (globalThis as { huhuHost?: HostBridge }).huhuH
 const join = (dir: string, name: string) => (dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`);
 
 /** SSH → 文件（SFTP）：浏览、文本预览、上传、下载、新建文件夹、重命名、删除；覆盖与删除都要先确认。 */
-export function FilesPanel({ session, toolbar, title = t.files.title, search = false, focus }: { session: FileSession; toolbar?: ReactNode; title?: string | undefined; search?: boolean; focus?: { path: string } | undefined }) {
+const followStatus = { unsupported: "此 Shell 没有可用的目录集成", busy: "Shell 正忙或输入状态不明确", fullscreen: "Shell 处于全屏应用", ready: "Shell 已确认空闲", ended: "原 Shell 已关闭" };
+
+export function FilesPanel({
+  session,
+  toolbar,
+  title = t.files.title,
+  search = false,
+  focus,
+  followDirectory = false,
+}: {
+  session: FileSession;
+  toolbar?: ReactNode;
+  title?: string | undefined;
+  search?: boolean;
+  focus?: { path: string } | undefined;
+  followDirectory?: boolean;
+}) {
   const engine = useEngine();
   const preferences = useDevicePreferences();
   const [cwd, setCwd] = useState("");
@@ -34,6 +52,8 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
   const [document, setDocument] = useState<FileDocument>();
   const [copyEntry, setCopyEntry] = useState<{ name: string; path: string }>();
+  const [propertyPath, setPropertyPath] = useState<string>();
+  const [creating, setCreating] = useState<{ kind: "file" | "link"; directory: string }>();
   const [folder, setFolder] = useState("");
   const [upFrom, setUpFrom] = useState("");
   const [field, setField] = useState("");
@@ -45,8 +65,21 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const [searching, setSearching] = useState(false);
   const [matches, setMatches] = useState<FileSearch>();
   const [located, setLocated] = useState<string>();
+  const [sftpUnavailable, setSftpUnavailable] = useState(false);
+  const [shellDirectory, setShellDirectory] = useState<DirectoryFollowState>();
+  const [followNotice, setFollowNotice] = useState("");
+  const lastShellCwd = useRef<string>(undefined);
+  const mayFollowFile = useRef(false);
   const request = useRef<AbortController>(null);
-  const ready = session.state === "ready";
+  const connected = session.state === "ready";
+  const ready = connected && !sftpUnavailable;
+  const canFollow = followDirectory && !!session.shellId && !!(globalThis as { huhuHost?: HostBridge }).huhuHost;
+  useLayoutEffect(() => {
+    mayFollowFile.current = canFollow && ready && preferences.followFileDirectory;
+    return () => {
+      mayFollowFile.current = false;
+    };
+  }, [canFollow, ready, preferences.followFileDirectory]);
   const shown = shownFileEntries(entries ?? [], filter, preferences);
   const hits = matches?.hits.filter(({ entry, folder }) => preferences.showDotFiles || (!entry.name.startsWith(".") && !folder.split("/").some((part) => part.startsWith(".") && part !== "." && part !== ".."))) ?? [];
   const batch = useFileBatch("remote", cwd, shown, !ready);
@@ -55,25 +88,42 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
   const call = useCallback(<T,>(cap: string, input: Record<string, unknown>) => engine.call<T>(cap, { fileSessionId, ...input }, { write: true }), [engine, fileSessionId]);
   const queuedTransfers = !!bridge().pickOpenPath || !!bridge().pickSavePath;
   const load = useCallback(
-    async (dir: string) => {
-      if (!ready) return undefined;
+    async (dir: string, reverse?: DirectoryFollowState) => {
+      if (!connected) return undefined;
       request.current?.abort();
       const active = new AbortController();
       request.current = active;
       setError(null);
       try {
-        const r = await engine.call<FileDirectory>("ssh.sftp.list", { fileSessionId, path: dir }, { write: true, signal: active.signal });
+        const opts = { write: true, signal: active.signal };
+        const prepared = reverse?.state === "ready" ? await engine.call<PreparedFileDirectory>("ssh.fileSessions.prepareDirectory", { fileSessionId, path: dir, revision: reverse.revision }, opts) : undefined;
+        const r = prepared ?? (await engine.call<FileDirectory>("ssh.sftp.list", { fileSessionId, path: dir }, opts));
         if (active.signal.aborted) return undefined;
+        setSftpUnavailable(false);
         setCwd(r.path);
         setEntries(r.entries);
+        if (reverse) {
+          let skipped = prepared?.skipped ?? true;
+          if (prepared?.follow && mayFollowFile.current) {
+            const result = await engine.call<{ applied: boolean }>("ssh.fileSessions.commitDirectory", { fileSessionId, follow: prepared.follow }, opts);
+            skipped = !result.applied;
+          } else if (prepared?.follow) skipped = true;
+          if (!active.signal.aborted) setFollowNotice(skipped ? "文件夹已打开。本次已跳过 Shell 同步。" : "");
+        }
         return r.path;
       } catch (e) {
-        if (!active.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        if (!active.signal.aborted) {
+          if (e instanceof CapabilityError && e.details?.reason === "sftp-unavailable") setSftpUnavailable(true);
+          setError(e instanceof Error ? e.message : String(e));
+        }
         return undefined;
+      } finally {
+        if (request.current === active) request.current = null;
       }
     },
-    [engine, fileSessionId, ready],
+    [engine, fileSessionId, connected],
   );
+  useLayoutEffect(() => () => request.current?.abort(), [fileSessionId]);
   useEffect(() => {
     void load("");
     return () => request.current?.abort();
@@ -89,8 +139,44 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
     });
   }, [load, focus]);
 
+  useEffect(() => {
+    if (!canFollow || !ready || (!preferences.followShellDirectory && !preferences.followFileDirectory)) return;
+    const active = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function readDirectory() {
+      try {
+        const next = await engine.call<DirectoryFollowState>("ssh.fileSessions.directory", { fileSessionId }, { signal: active.signal });
+        if (!active.signal.aborted) setShellDirectory(next);
+      } catch {
+        if (!active.signal.aborted) setShellDirectory(undefined);
+      } finally {
+        if (!active.signal.aborted) timer = setTimeout(() => void readDirectory(), 500);
+      }
+    }
+    void readDirectory();
+    return () => {
+      active.abort();
+      clearTimeout(timer);
+    };
+  }, [canFollow, ready, preferences.followShellDirectory, preferences.followFileDirectory, fileSessionId, engine]);
+
+  useEffect(() => {
+    if (!canFollow || !ready || !preferences.followShellDirectory) {
+      lastShellCwd.current = undefined;
+      return;
+    }
+    const dir = shellDirectory?.cwd;
+    if (!dir || lastShellCwd.current === dir || request.current || busy || searching || pending || document || preview || propertyPath || creating || copyEntry) return;
+    lastShellCwd.current = dir;
+    if (dir !== cwd) void load(dir);
+  }, [canFollow, ready, preferences.followShellDirectory, shellDirectory, cwd, load, busy, searching, pending, document, preview, propertyPath, creating, copyEntry]);
+
+  const reverseNavigation = () => (canFollow && preferences.followFileDirectory ? (shellDirectory ?? { state: "unsupported" as const, revision: 0 }) : undefined);
+
   async function navigate(dir: string, name?: string) {
-    const next = await load(dir);
+    setFollowNotice("");
+    setPreview(null);
+    const next = await load(dir, reverseNavigation());
     if (next === undefined) return;
     if (cwd && next !== cwd) setHistory((past) => [...past, cwd]);
     setFilter("");
@@ -177,39 +263,74 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
       <h2>{title}</h2>
       {batch.controls}
       {queuedTransfers ? <ArchiveTools side="remote" directory={cwd} entries={entries ?? []} id={fileSessionId} ready={ready} refresh={() => void load(cwd)} /> : <p>ZIP 后端和本机路径选取可在 Windows 桌面应用中使用。</p>}
-      <div className="hu-row">
+      <div className="ssh-workspace-controls">
         <Button disabled={!ready} onClick={() => void navigate("")}>
           {t.files.home}
         </Button>
         <Button
           disabled={!ready || history.length === 0}
-          onClick={() =>
-            void load(history.at(-1)!).then((next) => {
+          onClick={() => {
+            setFollowNotice("");
+            void load(history.at(-1)!, reverseNavigation()).then((next) => {
               if (next !== undefined) {
                 setHistory(history.slice(0, -1));
                 setFilter("");
                 setLocated(undefined);
               }
-            })
-          }
+            });
+          }}
         >
           返回目录
         </Button>
         <Button disabled={!ready || cwd === "/" || !cwd} onClick={() => void navigate(up)} data-testid="files-up">
           {t.files.up}
         </Button>
-        <Button disabled={!ready} onClick={() => void load(cwd)}>
+        <Button disabled={!connected} onClick={() => void load(cwd)}>
           {t.files.refresh}
+        </Button>
+        <Button disabled={!ready || !cwd} onClick={() => setCreating({ kind: "file", directory: cwd })}>
+          新建文件
+        </Button>
+        <Button disabled={!ready || !cwd} onClick={() => setCreating({ kind: "link", directory: cwd })}>
+          新建符号链接
         </Button>
         <Button disabled={!ready || !cwd || bookmarks.includes(cwd)} onClick={() => setBookmarks([...bookmarks, cwd])}>
           收藏远端目录
         </Button>
         {toolbar}
-        <code data-testid="files-path" aria-label={t.files.path}>
+        <code className="ssh-file-path" data-testid="files-path" aria-label={t.files.path}>
           {cwd || "…"}
         </code>
       </div>
       {session.state === "disconnected" && <p role="status">原连接已断开</p>}
+      {canFollow && (
+        <div className="ssh-workspace-controls" aria-label="目录跟随">
+          <label>
+            <input type="checkbox" checked={preferences.followShellDirectory} onChange={(event) => saveDevicePreferences({ followShellDirectory: event.target.checked })} /> 文件面板跟随 Shell
+          </label>
+          <label>
+            <input type="checkbox" checked={preferences.followFileDirectory} onChange={(event) => saveDevicePreferences({ followFileDirectory: event.target.checked })} /> Shell 跟随文件面板
+          </label>
+          <span>{!ready ? "文件会话不可用" : !preferences.followShellDirectory && !preferences.followFileDirectory ? "跟随已关闭" : followStatus[shellDirectory?.state ?? "unsupported"]}</span>
+          {followNotice && <span role="status">{followNotice}</span>}
+        </div>
+      )}
+      <details>
+        <summary>文件后端</summary>
+        <p>文件操作使用当前 SSH 账户的 SFTP 权限。SCP 回退和独立的文件 sudo 后端当前不可用。</p>
+      </details>
+      {propertyPath && <FilePropertiesDialog session={session} path={propertyPath} onClose={() => setPropertyPath(undefined)} onSaved={() => void load(cwd)} />}
+      {creating && (
+        <CreateFileEntryDialog
+          session={session}
+          {...creating}
+          onClose={() => setCreating(undefined)}
+          onSaved={() => {
+            setCreating(undefined);
+            void load(cwd);
+          }}
+        />
+      )}
       {bookmarks.length > 0 && (
         <div className="ssh-workspace-controls" aria-label="远端书签">
           {bookmarks.map((dir) => (
@@ -361,7 +482,7 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
         </form>
       ) : null}
 
-      {entries === null ? (
+      {sftpUnavailable ? null : entries === null ? (
         <p>…</p>
       ) : shown.length === 0 ? (
         <EmptyState title={t.files.empty} />
@@ -375,6 +496,9 @@ export function FilesPanel({ session, toolbar, title = t.files.title, search = f
           onOpen={(entry) => void openEntry(entry)}
           actions={(e) => (
             <>
+              <Button disabled={!ready} aria-label={`属性 ${e.name}`} onClick={() => setPropertyPath(join(cwd, e.name))}>
+                属性
+              </Button>
               {queuedTransfers && e.type === "file" && (
                 <Button
                   disabled={!ready}

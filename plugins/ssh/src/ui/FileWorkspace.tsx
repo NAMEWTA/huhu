@@ -23,7 +23,7 @@ function source(session: FileSession) {
   return `${session.user}@${session.host.includes(":") ? `[${session.host}]` : session.host}:${session.port}`;
 }
 
-export function AttachedFiles({ hostId, shellId, onOpen, title }: { hostId: string; shellId?: string | null; onOpen: (session: FileSession) => void; title?: string }) {
+export function AttachedFiles({ hostId, shellId, onOpen, title, followDirectory = false }: { hostId: string; shellId?: string | null; onOpen: (session: FileSession) => void; title?: string; followDirectory?: boolean }) {
   const engine = useEngine();
   const [session, setSession] = useState<FileSession>();
   const [error, setError] = useState("");
@@ -78,6 +78,7 @@ export function AttachedFiles({ hostId, shellId, onOpen, title }: { hostId: stri
           session={session}
           title={title}
           search
+          followDirectory={followDirectory}
           toolbar={
             <Button loading={opening} disabled={session.state !== "ready"} onClick={() => void openIndependent()}>
               打开独立双栏

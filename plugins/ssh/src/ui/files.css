@@ -15,6 +15,11 @@
     min-inline-size: 0;
   }
 
+  .ssh-file-path {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
   .ssh-file-table {
     overflow-x: auto;
   }

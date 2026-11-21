@@ -11,9 +11,23 @@ const schema = z.object({
   fileSort: z.enum(["name", "modified", "size"]),
   remoteOnLeft: z.boolean(),
   showPaneFiles: z.boolean(),
+  followShellDirectory: z.boolean(),
+  followFileDirectory: z.boolean(),
 });
 export type DevicePreferences = z.infer<typeof schema>;
-export const deviceDefaults: DevicePreferences = { tabs: "top", paneTools: "top", restoreWorkspace: false, fontSize: 13, font: "theme", showDotFiles: true, fileSort: "name", remoteOnLeft: false, showPaneFiles: false };
+export const deviceDefaults: DevicePreferences = {
+  tabs: "top",
+  paneTools: "top",
+  restoreWorkspace: false,
+  fontSize: 13,
+  font: "theme",
+  showDotFiles: true,
+  fileSort: "name",
+  remoteOnLeft: false,
+  showPaneFiles: false,
+  followShellDirectory: true,
+  followFileDirectory: false,
+};
 
 const KEY = "huhu.ssh.device-preferences.v1";
 const EVENT = "huhu:ssh-device-preferences";
