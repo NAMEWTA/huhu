@@ -61,10 +61,9 @@ export class PublicSshProbes {
     const owner = externalSshOwner(context);
     context.signal.throwIfAborted();
     readBoundRoute(this.files, binding);
-    const existing = [...this.probes.values()].find(({ owner: recordOwner, kind, expires, status }) =>
-      recordOwner === owner && kind === "probe" && expires > Date.now() &&
-      status.hostId === binding.hostId && status.routeRevision === binding.routeRevision &&
-      (status.state === "connecting" || status.state === "waiting"),
+    const existing = [...this.probes.values()].find(
+      ({ owner: recordOwner, kind, expires, status }) =>
+        recordOwner === owner && kind === "probe" && expires > Date.now() && status.hostId === binding.hostId && status.routeRevision === binding.routeRevision && (status.state === "connecting" || status.state === "waiting"),
     );
     if (existing) return { attemptId: existing.status.attemptId };
     const connection = this.open(owner, binding, "probe");

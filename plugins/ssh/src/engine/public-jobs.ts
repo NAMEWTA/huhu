@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { CapabilityIntentKeySchema, HuhuError, errors } from "@huhu/contracts";
-import { OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
+import type { OperationReceipts, CapabilityContext, HuhuApi } from "@huhu/kernel";
 import type { Client, ClientChannel } from "ssh2";
 import { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
@@ -10,7 +10,11 @@ import { externalSshOwner, readBoundRoute } from "./public-resources.js";
 
 export const PrepareExecJob = StartPublicProbe.extend({
   intentKey: CapabilityIntentKeySchema,
-  command: z.string().min(1).max(8192).refine((command) => command.trim().length > 0 && !command.includes("\0")),
+  command: z
+    .string()
+    .min(1)
+    .max(8192)
+    .refine((command) => command.trim().length > 0 && !command.includes("\0")),
   timeoutSec: z.int().min(1).max(180).default(60),
 });
 export const ExecJobId = z.strictObject({ jobId: z.uuidv4() });
@@ -21,9 +25,22 @@ export const ReadExecOutput = ExecJobId.extend({ stream: StreamName, cursor: Cur
 export const ExecOutputPage = z.strictObject({ fromCursor: Cursor, nextCursor: Cursor, endCursor: Cursor, skippedBytes: Cursor, truncated: z.boolean(), text: z.string() });
 
 const Reason = z.enum([
-  "exit-code", "remote-signal", "exec-rejected", "authentication-failed", "host-key-changed", "route-changed", "connection-failed",
-  "ready-expired", "cancelled-before-dispatch", "dispatch-timeout", "disconnected", "exit-unreported",
-  "cancel-unconfirmed", "timeout-unconfirmed", "engine-interrupted",
+  "exit-code",
+  "remote-signal",
+  "exec-rejected",
+  "authentication-failed",
+  "host-key-changed",
+  "route-changed",
+  "connection-failed",
+  "connection-timeout",
+  "ready-expired",
+  "cancelled-before-dispatch",
+  "dispatch-timeout",
+  "disconnected",
+  "exit-unreported",
+  "cancel-unconfirmed",
+  "timeout-unconfirmed",
+  "engine-interrupted",
 ]);
 const lifecycle = z.strictObject({
   ...ExecJobId.shape,
@@ -38,10 +55,7 @@ const lifecycle = z.strictObject({
   stdoutEnd: Cursor,
   stderrEnd: Cursor,
 });
-export const ExecJobStatus = z.union([
-  lifecycle,
-  ExecJobId.extend({ state: z.literal("unknown"), reason: z.literal("engine-interrupted") }),
-]);
+export const ExecJobStatus = z.union([lifecycle, ExecJobId.extend({ state: z.literal("unknown"), reason: z.literal("engine-interrupted") })]);
 
 type Status = z.infer<typeof lifecycle>;
 type FinalState = "exited" | "failed" | "cancelled" | "unknown";
@@ -53,9 +67,11 @@ type Job = {
   status: Status;
   command: string | undefined;
   timeoutSec: number;
-  close: () => void;
+  close?: () => void;
+  detachOutput?: () => void;
   client?: Client;
   channel?: ClientChannel;
+  remoteExit?: End;
   timer?: NodeJS.Timeout;
   endedAt?: number;
   streams: Record<z.infer<typeof StreamName>, ExecOutput>;
@@ -72,6 +88,7 @@ function connectionFailure(error: unknown): End {
   if (code === "VERSION_CONFLICT" || code === "NOT_FOUND") return { state: "failed", reason: "route-changed" };
   if (code === "SSH_AUTH_FAILED") return { state: "failed", reason: "authentication-failed" };
   if (code === "SSH_HOST_KEY_MISMATCH") return { state: "failed", reason: "host-key-changed" };
+  if (code === "SSH_TIMEOUT") return { state: "failed", reason: "connection-timeout" };
   return { state: "failed", reason: "connection-failed" };
 }
 
@@ -83,13 +100,16 @@ export class PublicExecJobs {
     private readonly files: HuhuApi["vault"]["files"],
     private readonly probes: PublicSshProbes,
     private readonly receipts: OperationReceipts,
-    private readonly vaultInstance: string | undefined,
+    private readonly vaultInstance: string,
   ) {}
 
   private owners(context: CapabilityContext) {
     const owner = externalSshOwner(context);
-    if (!this.vaultInstance) throw errors.permissionDenied("此 Vault 的 SSH 作业身份不可用");
-    const receiptOwner = createHash("sha256").update(JSON.stringify([this.vaultInstance, owner])).digest("hex");
+    // The bootstrap MCP token represents every client using it, including all stdio processes.
+    if (context.caller === "mcp" && context.subject === "mcp") throw errors.permissionDenied("SSH 作业需要独立的 MCP 调用主体");
+    const receiptOwner = createHash("sha256")
+      .update(JSON.stringify([this.vaultInstance, owner]))
+      .digest("hex");
     return { owner, receiptOwner };
   }
 
@@ -113,12 +133,24 @@ export class PublicExecJobs {
     const { operationId: jobId } = entry;
     if (!fresh || entry.phase !== "accepted") return { jobId };
     const job: Job = {
-      owner, claim: entry, command: input.command, timeoutSec: input.timeoutSec,
-      close: () => undefined,
+      owner,
+      claim: entry,
+      command: input.command,
+      timeoutSec: input.timeoutSec,
       streams: { stdout: new ExecOutput(), stderr: new ExecOutput() },
       status: {
-        jobId, hostId: input.hostId, routeRevision: input.routeRevision, attemptId: null, sessionId: null,
-        state: "connecting", reason: null, exitCode: null, exitSignal: null, stopRequested: null, stdoutEnd: 0, stderrEnd: 0,
+        jobId,
+        hostId: input.hostId,
+        routeRevision: input.routeRevision,
+        attemptId: null,
+        sessionId: null,
+        state: "connecting",
+        reason: null,
+        exitCode: null,
+        exitSignal: null,
+        stopRequested: null,
+        stdoutEnd: 0,
+        stderrEnd: 0,
       },
     };
     this.jobs.set(jobId, job);
@@ -155,6 +187,7 @@ export class PublicExecJobs {
     if (status.state !== "ready") return { jobId: input.jobId };
     if (!job?.client || !job.command) throw errors.notFound("原 SSH 作业与会话");
     context.signal.throwIfAborted();
+    this.files.assertWritable();
     try {
       readBoundRoute(this.files, input);
     } catch (error) {
@@ -177,26 +210,37 @@ export class PublicExecJobs {
         }
         this.observe(job, channel);
       });
-    } catch {
-      // A synchronous failure from ssh2 occurs before channel admission.
-      this.finish(job, { state: "failed", reason: "connection-failed" });
+    } catch (error) {
+      const end: End = error instanceof Error && error.message === "Not connected" ? { state: "failed", reason: "connection-failed" } : this.uncertain(job, "disconnected");
+      this.finish(job, end);
     }
     return { jobId: input.jobId };
   }
 
   private observe(job: Job, channel: ClientChannel) {
     job.channel = channel;
-    job.status.state = "running";
-    let exit: End | undefined;
-    channel.on("data", (data: Buffer) => job.streams.stdout.append(data));
-    channel.stderr.on("data", (data: Buffer) => job.streams.stderr.append(data));
-    channel.on("exit", (code: number | null, signal?: string) => {
-      if (typeof code === "number" && Number.isInteger(code) && code >= 0) exit = { state: "exited", reason: "exit-code", exitCode: code };
-      else if (typeof signal === "string" && /^(?:SIG)?[A-Z0-9]{1,16}$/.test(signal)) exit = { state: "exited", reason: "remote-signal", exitSignal: signal };
+    const stdout = (data: Buffer) => job.streams.stdout.append(data);
+    const stderr = (data: Buffer) => job.streams.stderr.append(data);
+    channel.on("data", stdout);
+    channel.stderr.on("data", stderr);
+    channel.once("exit", (code: number | null, signal?: string) => {
+      if (typeof code === "number" && Number.isInteger(code) && code >= 0) job.remoteExit = { state: "exited", reason: "exit-code", exitCode: code };
+      else if (code === null) {
+        const safeSignal = typeof signal === "string" && /^(?:SIG)?[A-Z0-9]{1,16}$/.test(signal);
+        job.remoteExit = { state: "exited", reason: "remote-signal", ...(safeSignal && { exitSignal: signal }) };
+      }
     });
-    channel.once("close", () => this.finish(job, exit ?? this.uncertain(job, "exit-unreported")));
-    channel.on("error", () => this.finish(job, exit ?? this.uncertain(job, "disconnected")));
-    this.timer(job, job.timeoutSec * 1000, () => this.stop(job, "timeout"));
+    channel.once("close", () => this.finish(job, this.uncertain(job, "exit-unreported")));
+    channel.on("error", () => this.finish(job, this.uncertain(job, "disconnected")));
+    job.detachOutput = () => {
+      channel.off("data", stdout);
+      channel.stderr.off("data", stderr);
+    };
+    if (job.status.stopRequested) this.interrupt(job);
+    else {
+      job.status.state = "running";
+      this.timer(job, job.timeoutSec * 1000, () => this.stop(job, "timeout"));
+    }
   }
 
   get(context: CapabilityContext, jobId: string): z.infer<typeof ExecJobStatus> {
@@ -224,12 +268,12 @@ export class PublicExecJobs {
       this.finish(job, { state: "cancelled", reason: "cancelled-before-dispatch" });
       return;
     }
-    if (!job.channel) {
-      this.finish(job, this.uncertain(job, "disconnected"));
-      return;
-    }
     job.status.state = "stopping";
-    interruptExecChannel(job.channel);
+    if (job.channel) this.interrupt(job);
+  }
+
+  private interrupt(job: Job) {
+    if (job.channel && !job.remoteExit) interruptExecChannel(job.channel);
     this.timer(job, stopGrace, () => this.finish(job, this.uncertain(job, "exit-unreported")));
   }
 
@@ -248,15 +292,19 @@ export class PublicExecJobs {
     return { ...job.status, stdoutEnd: job.streams.stdout.endCursor, stderrEnd: job.streams.stderr.endCursor };
   }
 
-  private finish(job: Job, end: End) {
+  private finish(job: Job, fallback: End) {
     if (job.endedAt !== undefined) return;
+    const end = job.remoteExit ?? fallback;
     job.endedAt = Date.now();
     clearTimeout(job.timer);
     job.command = undefined;
+    job.detachOutput?.();
+    delete job.detachOutput;
     job.streams.stdout.finish();
     job.streams.stderr.finish();
     job.status = { ...this.view(job), state: end.state, reason: end.reason, exitCode: end.exitCode ?? null, exitSignal: end.exitSignal ?? null };
-    job.close();
+    job.close?.();
+    delete job.close;
     delete job.client;
     delete job.channel;
     try {
@@ -264,6 +312,7 @@ export class PublicExecJobs {
     } catch {
       // Keep the live result. A restarted Engine sees the durable admission as unknown.
     }
+    this.timer(job, outputLifetime, () => this.jobs.delete(job.status.jobId));
   }
 
   private find(context: CapabilityContext, jobId: string): { job?: Job; status: z.infer<typeof ExecJobStatus> } {
@@ -282,15 +331,19 @@ export class PublicExecJobs {
   private trimOutput() {
     const now = Date.now();
     for (const [id, job] of this.jobs) {
-      if (job.endedAt !== undefined && (now - job.endedAt >= outputLifetime || this.jobs.size >= recentLimit)) this.jobs.delete(id);
+      if (job.endedAt === undefined || (now - job.endedAt < outputLifetime && this.jobs.size < recentLimit)) continue;
+      clearTimeout(job.timer);
+      this.jobs.delete(id);
     }
   }
 
   dispose(): void {
     for (const job of this.jobs.values()) {
-      if (job.endedAt !== undefined) continue;
-      if (job.status.state === "connecting" || job.status.state === "ready") this.finish(job, { state: "cancelled", reason: "cancelled-before-dispatch" });
-      else this.finish(job, this.uncertain(job, "engine-interrupted"));
+      if (job.endedAt === undefined) {
+        if (job.status.state === "connecting" || job.status.state === "ready") this.finish(job, { state: "cancelled", reason: "cancelled-before-dispatch" });
+        else this.finish(job, this.uncertain(job, "engine-interrupted"));
+      }
+      clearTimeout(job.timer);
     }
     this.jobs.clear();
   }

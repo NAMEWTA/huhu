@@ -197,7 +197,10 @@ export class SshManager {
     const opened: Client[] = [];
     const close = () => {
       signal.removeEventListener("abort", close);
-      for (const client of opened.splice(0).reverse()) client.end();
+      for (const client of opened.splice(0).reverse()) {
+        client.off("close", close);
+        client.end();
+      }
     };
     signal.addEventListener("abort", close, { once: true });
     const ready = Promise.resolve()
@@ -205,6 +208,7 @@ export class SshManager {
       .then((client) => {
         signal.throwIfAborted();
         validate();
+        for (const hop of opened) hop.once("close", close);
         report({ hostId, attemptId: id, state: "connected" });
         return client;
       })
@@ -215,7 +219,7 @@ export class SshManager {
         throw error;
       })
       .finally(() => this.attempts.delete(id));
-    return { attemptId: id, ready, close };
+    return { attemptId: id, ready };
   }
 
   private route(hostId: string, hosts: readonly HostRecord[]): ManagedHost[] {

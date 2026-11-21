@@ -39,6 +39,7 @@ export interface FakeSshOptions {
   denyDirectTcp?: () => boolean;
   onExec?: (command: string) => { stdout?: string; stderr?: string; code?: number } | undefined;
   onInteractiveExec?: (command: string, channel: ServerChannel) => boolean;
+  onExecRequest?: (command: string) => "reject" | "hold" | undefined;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -186,9 +187,12 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
             o,
           );
         });
-        session.on("exec", (acceptExec, _rej, info) => {
-          const ch = acceptExec();
+        session.on("exec", (acceptExec, rejectExec, info) => {
           const cmd = info.command;
+          const action = o.onExecRequest?.(cmd);
+          if (action === "reject") return rejectExec();
+          if (action === "hold") return;
+          const ch = acceptExec();
           if (o.onInteractiveExec?.(cmd, ch)) return;
           const response = o.onExec?.(cmd);
           if (response) {
