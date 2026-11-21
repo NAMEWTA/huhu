@@ -11,6 +11,7 @@ import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailCacheSettings } from "./MailCacheSettings.js";
+import { MailAiSettings } from "./MailAiSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
@@ -327,6 +328,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
         }
       />
       <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
+      <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
       <MailCacheSettings readOnly={readOnly} />
       <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
       <nav className="hu-mail-row" aria-label="邮件工作区">
