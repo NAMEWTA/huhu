@@ -216,6 +216,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, ({ signal }, i) => files.readDocument(i.fileSessionId, i.path, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, ({ signal }, i) => files.writeDocument(i.fileSessionId, i.path, i.text, i.expectedVersion, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsProperties, ({ signal }, i) => files.properties(i.fileSessionId, i.path, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDirectory, (_, i) => files.directoryState(i.fileSessionId)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsPrepareDirectory, ({ signal }, i) => files.prepareDirectory(i.fileSessionId, i.path, i.revision, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsCommitDirectory, ({ signal }, i) => {
+      signal.throwIfAborted();
+      return { applied: files.commitDirectory(i.fileSessionId, i.follow) };
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, ({ signal }, i) => files.changeProperties(i.fileSessionId, i.path, i.expectedRevision, i.change, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, ({ signal }, i) => files.createEntry(i.fileSessionId, i.path, i.entry, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, ({ signal }, i) => files.moveEntry(i.fileSessionId, i.path, i.expectedRevision, i.destination, signal)));

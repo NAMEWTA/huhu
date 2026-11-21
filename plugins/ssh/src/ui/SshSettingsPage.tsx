@@ -20,11 +20,13 @@ const fields = {
   fileSort: "文件排序方式",
   remoteOnLeft: "双栏默认将远端放在左侧",
   showPaneFiles: "进入工作区时展开分栏文件",
+  followShellDirectory: "文件面板跟随 Shell",
+  followFileDirectory: "Shell 跟随文件面板",
 } satisfies Record<keyof DevicePreferences, string>;
 const keys = {
   layout: ["tabs", "paneTools", "restoreWorkspace"],
   terminal: ["fontSize", "font"],
-  files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles"],
+  files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
 } as const satisfies Record<DeviceCategory, readonly (keyof DevicePreferences)[]>;
 const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时 保活间隔 保活最大次数 已知主机" };
 
@@ -131,6 +133,15 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
         </label>
       )}
       {shown("showPaneFiles") && <p>打开工作区时，工具栏可见的已连接分栏会展开文件视图。独立双栏在工作台内打开。</p>}
+      {(["followShellDirectory", "followFileDirectory"] as const).map(
+        (field) =>
+          shown(field) && (
+            <label className="hu-setting-row" key={field}>
+              {fields[field]}
+              <input type="checkbox" checked={draft[field]} onChange={(event) => set(field, event.target.checked)} />
+            </label>
+          ),
+      )}
       <div className="ssh-workspace-controls">
         <Button variant="primary" type="submit" disabled={!changed}>
           {category === "files" ? "保存本机文件设置" : "保存设置"}

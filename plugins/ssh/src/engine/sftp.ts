@@ -60,11 +60,21 @@ async function canonicalEntry(s: SFTPWrapper, input: string) {
 }
 
 function attributesView(abs: string, st: Stats, linkTarget: string | null): FileProperties {
-  const revision = createHash("sha256").update(JSON.stringify([abs, st.mode, st.size, st.mtime, st.uid, st.gid, linkTarget])).digest("hex");
+  const revision = createHash("sha256")
+    .update(JSON.stringify([abs, st.mode, st.size, st.mtime, st.uid, st.gid, linkTarget]))
+    .digest("hex");
   return {
-    path: abs, name: path.posix.basename(abs), type: typeOf(st.mode), mode: modeStr(st.mode), size: st.size ?? 0,
-    mtime: (st.mtime ?? 0) * 1000, atime: st.atime === undefined ? null : st.atime * 1000,
-    uid: st.uid ?? null, gid: st.gid ?? null, linkTarget, revision,
+    path: abs,
+    name: path.posix.basename(abs),
+    type: typeOf(st.mode),
+    mode: st.mode === undefined ? null : modeStr(st.mode),
+    size: st.size ?? null,
+    mtime: st.mtime === undefined ? null : st.mtime * 1000,
+    atime: st.atime === undefined ? null : st.atime * 1000,
+    uid: st.uid ?? null,
+    gid: st.gid ?? null,
+    linkTarget,
+    revision,
   };
 }
 
@@ -79,19 +89,15 @@ export async function changeProperties(s: SFTPWrapper, input: string, revision: 
   const selected = await properties(s, input);
   if (selected.revision !== revision) throw errors.versionConflict(selected.revision);
   if (selected.type !== "file" && selected.type !== "dir") throw errors.invalidInput("仅能修改普通文件或真实目录的权限和属主");
-  const handle = selected.type === "file"
-    ? await call<Buffer>((cb) => s.open(selected.path, "r", cb))
-    : await call<Buffer>((cb) => s.opendir(selected.path, cb));
+  // OpenSSH associates FSTAT/FSETSTAT with OPEN descriptors, including
+  // read-only directory descriptors on systems that support them.
+  const handle = await call<Buffer>((cb) => s.open(selected.path, "r", cb));
   try {
     const st = await call<Stats>((cb) => s.fstat(handle, cb));
     const fromHandle = attributesView(selected.path, st, null);
     const current = await properties(s, selected.path);
     if (current.revision !== revision || fromHandle.revision !== revision) throw errors.versionConflict(current.revision);
-    const attrs: InputAttributes = { ...change.owner };
-    if (change.mode !== undefined) {
-      if (change.owner && (st.mode & 0o6000)) throw errors.invalidInput("特殊权限项目须分别修改权限和属主");
-      attrs.mode = (st.mode & 0o7000) | Number.parseInt(change.mode, 8);
-    }
+    const attrs: InputAttributes = "owner" in change ? change.owner : { mode: (st.mode & 0o7000) | Number.parseInt(change.mode, 8) };
     signal.throwIfAborted();
     await callv((cb) => s.fsetstat(handle, attrs, cb));
     return attributesView(selected.path, await call<Stats>((cb) => s.fstat(handle, cb)), null);

@@ -5,7 +5,21 @@ import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostView,
 import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
-import { EDIT_MAX_BYTES, FileAttributes, FileDirectory, FileDocument, FileDocumentRevision, FileDocumentVersion, FileProperties, FileSearch, FileSession, FileSessionId, RemoteFilePath } from "../shared/files.js";
+import {
+  DirectoryFollowState,
+  EDIT_MAX_BYTES,
+  FileAttributes,
+  FileDirectory,
+  FileDocument,
+  FileDocumentRevision,
+  FileDocumentVersion,
+  FileProperties,
+  FileSearch,
+  FileSession,
+  FileSessionId,
+  PreparedFileDirectory,
+  RemoteFilePath,
+} from "../shared/files.js";
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
@@ -613,6 +627,39 @@ export const sshCapabilityDescriptors = {
     risk: "normal",
     input: FileSessionId,
     output: z.object({ cancelled: z.boolean() }),
+  }),
+  fileSessionsDirectory: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.fileSessions.directory",
+    title: "读取绑定分栏的目录跟随状态",
+    description: "读取原 Shell 报告的空闲状态与当前目录。",
+    scope: "read",
+    risk: "normal",
+    input: FileSessionId,
+    output: DirectoryFollowState,
+  }),
+  fileSessionsPrepareDirectory: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.fileSessions.prepareDirectory",
+    title: "浏览目录并核对分栏跟随状态",
+    description: "通过原 SFTP 会话确认用户选择的目录和原 Shell 的提示符修订。",
+    scope: "execute",
+    risk: "normal",
+    input: FileSessionId.extend({ path: z.union([RemoteFilePath, z.literal("")]), revision: DirectoryFollowState.shape.revision }),
+    output: PreparedFileDirectory,
+  }),
+  fileSessionsCommitDirectory: defineCapabilityDescriptor({
+    ...ssh,
+    desktopOnly: true,
+    name: "ssh.fileSessions.commitDirectory",
+    title: "将已确认的目录应用到原 Shell",
+    description: "在原输入仍为空闲时使用一次性目录选择。",
+    scope: "execute",
+    risk: "high",
+    input: FileSessionId.extend({ follow: z.uuid() }),
+    output: z.object({ applied: z.boolean() }),
   }),
   fileSessionsDocumentOpen: defineCapabilityDescriptor({
     ...ssh,

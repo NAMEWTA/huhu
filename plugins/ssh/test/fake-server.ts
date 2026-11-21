@@ -1,6 +1,6 @@
 import net from "node:net";
 import { createHash } from "node:crypto";
-import ssh2, { type Connection } from "ssh2";
+import ssh2, { type Connection, type ServerChannel } from "ssh2";
 
 // 默认导入：Playwright 的 Node ESM 加载器拿不到 CJS 的具名导出
 const { Server, utils } = ssh2;
@@ -26,6 +26,7 @@ export interface FakeSshOptions {
   onAuth?: (user: string, method: string) => void;
   onShellInput?: (text: string) => void;
   holdReadDirectory?: (dir: string) => boolean;
+  waitReadDirectory?: (dir: string) => Promise<void> | undefined;
   onWriteFile?: (file: string) => void;
   waitWriteFile?: (file: string) => Promise<void> | undefined;
   failRename?: (from: string, to: string) => boolean;
@@ -37,6 +38,7 @@ export interface FakeSshOptions {
   denyRemoteStop?: () => boolean;
   denyDirectTcp?: () => boolean;
   onExec?: (command: string) => { stdout?: string; stderr?: string; code?: number } | undefined;
+  onInteractiveExec?: (command: string, channel: ServerChannel) => boolean;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
   port?: number;
@@ -181,17 +183,13 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
               }
               return false;
             },
-            o.holdReadDirectory,
-            o.waitWriteFile,
-            o.failRename,
-            o.waitReadFile,
-            o.dropRenameReply,
-            o.denySetAttributes,
+            o,
           );
         });
         session.on("exec", (acceptExec, _rej, info) => {
           const ch = acceptExec();
           const cmd = info.command;
+          if (o.onInteractiveExec?.(cmd, ch)) return;
           const response = o.onExec?.(cmd);
           if (response) {
             if (response.stdout) ch.write(response.stdout);
@@ -270,12 +268,7 @@ function serveSftp(
   sftp: import("ssh2").SFTPWrapper,
   fs: FakeFs,
   onWrite: (file: string) => boolean,
-  holdReadDirectory?: (dir: string) => boolean,
-  waitWriteFile?: (file: string) => Promise<void> | undefined,
-  failRename?: (from: string, to: string) => boolean,
-  waitReadFile?: (file: string) => Promise<void> | undefined,
-  dropRenameReply?: (from: string, to: string) => boolean,
-  denySetAttributes?: (path: string) => boolean,
+  { holdReadDirectory, waitReadDirectory, waitWriteFile, failRename, waitReadFile, dropRenameReply, denySetAttributes }: FakeSshOptions,
 ): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
@@ -295,7 +288,13 @@ function serveSftp(
   const attrsOf = (p: string) => {
     const isDir = fs.dirs.has(p);
     const f = fs.files.get(p);
-    return { mode: (isDir ? 0o040000 : fs.links.has(p) ? 0o120000 : 0o100000) | (fs.permissions.get(p) ?? (isDir ? 0o755 : fs.links.has(p) ? 0o777 : 0o644)), size: f?.length ?? 0, ...(fs.owners.get(p) ?? { uid: 1000, gid: 1000 }), atime: 1_700_000_000, mtime: fs.timestamps.get(p) ?? 1_700_000_000 };
+    return {
+      mode: (isDir ? 0o040000 : fs.links.has(p) ? 0o120000 : 0o100000) | (fs.permissions.get(p) ?? (isDir ? 0o755 : fs.links.has(p) ? 0o777 : 0o644)),
+      size: f?.length ?? 0,
+      ...(fs.owners.get(p) ?? { uid: 1000, gid: 1000 }),
+      atime: 1_700_000_000,
+      mtime: fs.timestamps.get(p) ?? 1_700_000_000,
+    };
   };
   const exists = (p: string) => fs.dirs.has(p) || fs.files.has(p) || fs.links.has(p);
   const st = (id: number, code: number) => sftp.status(id, code);
@@ -351,19 +350,32 @@ function serveSftp(
     if (!d || d.kind !== "dir" || d.sent) return st(id, STATUS_CODE.EOF);
     if (holdReadDirectory?.(d.path)) return;
     d.sent = true;
-    const prefix = d.path === "/" ? "/" : `${d.path}/`;
-    const names = [...fs.dirs, ...fs.files.keys(), ...fs.links.keys()].filter((x) => x !== d.path && x.startsWith(prefix) && !x.slice(prefix.length).includes("/"));
-    if (names.length === 0) return st(id, STATUS_CODE.EOF);
-    sftp.name(
-      id,
-      names.map((x) => {
-        const f = x.slice(prefix.length);
-        return { filename: f, longname: f, attrs: attrsOf(x) as never };
-      }),
-    );
+    const read = () => {
+      if (closed) return;
+      const prefix = d.path === "/" ? "/" : `${d.path}/`;
+      const names = [...fs.dirs, ...fs.files.keys(), ...fs.links.keys()].filter((x) => x !== d.path && x.startsWith(prefix) && !x.slice(prefix.length).includes("/"));
+      if (names.length === 0) return st(id, STATUS_CODE.EOF);
+      sftp.name(
+        id,
+        names.map((x) => {
+          const f = x.slice(prefix.length);
+          return { filename: f, longname: f, attrs: attrsOf(x) as never };
+        }),
+      );
+    };
+    const waiting = waitReadDirectory?.(d.path);
+    if (waiting)
+      void waiting.then(read, () => {
+        if (!closed) st(id, STATUS_CODE.FAILURE);
+      });
+    else read();
   });
   sftp.on("OPEN", (id, p, flags, attrs) => {
     const n = norm(p);
+    if (fs.dirs.has(n) && flags === OPEN_MODE.READ) {
+      sftp.handle(id, newHandle({ kind: "file", path: n, flags }));
+      return;
+    }
     if (fs.dirs.has(n) || fs.links.has(n)) return st(id, STATUS_CODE.FAILURE);
     const creating = (flags & OPEN_MODE.CREAT) !== 0;
     if (!fs.files.has(n)) {

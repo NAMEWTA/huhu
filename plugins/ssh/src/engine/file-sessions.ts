@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
-import type { FileAttributes, FileDirectory, FileEntry, FileSession } from "../shared/files.js";
+import type { DirectoryFollowState, FileAttributes, FileDirectory, FileEntry, FileSession, PreparedFileDirectory } from "../shared/files.js";
 import type { SshManager, SftpSource } from "./manager.js";
-import { changeProperties, createEntry, documentPath, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
+import { changeProperties, createEntry, documentPath, list, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
 
-type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController };
+type Navigation = { follow?: { id: string; path: string; revision: number; expires: number } };
+type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation };
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
@@ -89,16 +90,53 @@ export class FileSessions {
     return true;
   }
 
+  directoryState(id: string): DirectoryFollowState {
+    const binding = this.lookup(id);
+    return binding.detached ? { state: "unsupported", revision: 0 } : this.manager.directoryState(binding.session);
+  }
+
+  async prepareDirectory(id: string, path: string, revision: number, signal: AbortSignal): Promise<PreparedFileDirectory> {
+    const binding = this.lookup(id);
+    const navigation: Navigation = {};
+    binding.navigation = navigation;
+    const before = this.directoryState(id);
+    const directory = await this.manager.withSftp(this.source({ fileSessionId: id }), "list", path, (channel) => list(channel, path), { signal });
+    signal.throwIfAborted();
+    binding.controller.signal.throwIfAborted();
+    const now = this.directoryState(id);
+    if (before.state !== "ready" || before.revision !== revision || now.state !== "ready" || now.revision !== revision || binding.navigation !== navigation) {
+      return { ...directory, skipped: true };
+    }
+    if (now.cwd === directory.path) return { ...directory, skipped: false };
+    const follow = randomUUID();
+    navigation.follow = { id: follow, path: directory.path, revision, expires: performance.now() + 5000 };
+    return { ...directory, follow, skipped: false };
+  }
+
+  commitDirectory(id: string, token: string): boolean {
+    const binding = this.lookup(id);
+    const follow = binding.navigation?.follow;
+    if (!follow || follow.id !== token || binding.detached) return false;
+    delete binding.navigation;
+    return follow.expires >= performance.now() && this.manager.followDirectory(binding.session, follow.revision, follow.path);
+  }
+
   properties(id: string, path: string, signal: AbortSignal) {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal });
   }
 
   changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal) {
     const { session } = this.lookup(id);
-    return this.manager.withSftp(this.source({ fileSessionId: id }), "attributes", path, async (channel, active) => {
-      const abs = await documentPath(channel, path);
-      return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active));
-    }, { signal });
+    return this.manager.withSftp(
+      this.source({ fileSessionId: id }),
+      "attributes",
+      path,
+      async (channel, active) => {
+        const abs = await documentPath(channel, path);
+        return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active));
+      },
+      { signal },
+    );
   }
 
   async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {

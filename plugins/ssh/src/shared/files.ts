@@ -12,19 +12,27 @@ export const RemoteFilePath = z.string().min(1).max(4096).startsWith("/");
 export const FileProperties = FileEntry.extend({
   path: RemoteFilePath,
   revision: z.string().regex(/^[a-f0-9]{64}$/),
+  mode: z.string().nullable(),
+  size: z.number().nullable(),
+  mtime: z.number().nullable(),
   uid: z.int().nonnegative().nullable(),
   gid: z.int().nonnegative().nullable(),
   atime: z.number().nullable(),
   linkTarget: z.string().nullable(),
 });
 export type FileProperties = z.infer<typeof FileProperties>;
-export const FileAttributes = z.strictObject({
-  mode: z.string().regex(/^[0-7]{3}$/).optional(),
-  owner: z.strictObject({ uid: z.int().min(0).max(0xfffffffe), gid: z.int().min(0).max(0xfffffffe) }).optional(),
-}).refine(({ mode, owner }) => mode !== undefined || owner !== undefined);
+export const FileAttributes = z.union([z.strictObject({ mode: z.string().regex(/^[0-7]{3}$/) }), z.strictObject({ owner: z.strictObject({ uid: z.int().min(0).max(0xfffffffe), gid: z.int().min(0).max(0xfffffffe) }) })]);
 export type FileAttributes = z.infer<typeof FileAttributes>;
 export const FileDirectory = z.object({ path: z.string(), entries: z.array(FileEntry) });
 export type FileDirectory = z.infer<typeof FileDirectory>;
+export const DirectoryFollowState = z.object({
+  state: z.enum(["unsupported", "busy", "fullscreen", "ready", "ended"]),
+  revision: z.int().nonnegative(),
+  cwd: RemoteFilePath.optional(),
+});
+export type DirectoryFollowState = z.infer<typeof DirectoryFollowState>;
+export const PreparedFileDirectory = FileDirectory.extend({ follow: z.uuid().optional(), skipped: z.boolean() });
+export type PreparedFileDirectory = z.infer<typeof PreparedFileDirectory>;
 
 export const FileSessionId = z.strictObject({ fileSessionId: z.uuid() });
 export const FileOrigin = z.object({

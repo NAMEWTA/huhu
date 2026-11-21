@@ -9,7 +9,8 @@ import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
-import type { FileOrigin } from "../shared/files.js";
+import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
+import { ShellDirectory, shellDirectoryProbe, type IntegratedShell } from "./shell-directory.js";
 import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
 import type { z } from "zod";
 
@@ -89,6 +90,7 @@ export interface ShellInfo {
 }
 interface ShellRec extends ShellInfo {
   channel: ClientChannel;
+  directory?: ShellDirectory;
   buffer: Buffer[];
   bufferSize: number;
   viewers: Set<(b: Buffer) => void>;
@@ -110,6 +112,7 @@ export class SshManager {
   private shells = new Map<string, ShellRec>();
   private fileOrigins = new WeakMap<Conn, z.infer<typeof FileOrigin>>();
   private shellConnections = new WeakMap<ShellRec, Conn>();
+  private integratedShells = new WeakMap<Conn, Promise<IntegratedShell | undefined>>();
   private attempts = new Map<string, Attempt>();
   private forwardDials = new Map<string, ForwardDial>();
   private borrowedForwards = new WeakMap<Conn, Set<ForwardOwner>>();
@@ -571,7 +574,7 @@ export class SshManager {
     }
     if (connection.routeIdentity !== connectionIdentity(chain) || workspaceTarget(this.route(hostId, await this.d.hosts.list())) !== target) throw bindingChanged();
     signal.throwIfAborted();
-    const shell = await this.openShell(hostId, undefined, connection, onEnd);
+    const shell = await this.openShell(hostId, undefined, connection, onEnd, !loginCommand);
     if (signal.aborted) {
       this.closeShell(shell.id);
       signal.throwIfAborted();
@@ -583,12 +586,65 @@ export class SshManager {
     return shell;
   }
 
-  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void): Promise<ShellInfo> {
+  private shellIntegration(conn: Conn): Promise<IntegratedShell | undefined> {
+    const existing = this.integratedShells.get(conn);
+    if (existing) return existing;
+    const probe = new Promise<IntegratedShell | undefined>((resolve) => {
+      let timedOut = false;
+      let channel: ClientChannel | undefined;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        channel?.close();
+        resolve(undefined);
+      }, 1500);
+      conn.target.exec(shellDirectoryProbe, (error, stream) => {
+        if (error) {
+          clearTimeout(timer);
+          return resolve(undefined);
+        }
+        if (timedOut) return stream.close();
+        channel = stream;
+        let stdout = "";
+        stream.on("data", (chunk: Buffer) => {
+          if (stdout.length <= 16) stdout += chunk.subarray(0, 17).toString();
+        });
+        stream.once("close", (code: number | undefined) => {
+          clearTimeout(timer);
+          const detected = stdout.trim();
+          resolve(code === 0 && (detected === "bash" || detected === "zsh") ? detected : undefined);
+        });
+      });
+    });
+    this.integratedShells.set(conn, probe);
+    return probe;
+  }
+
+  async openShell(hostId: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }, expected?: Conn, onEnd?: () => void, integrate = false): Promise<ShellInfo> {
     const conn = this.conns.get(hostId);
     if (!conn || (expected && conn !== expected)) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
-    const channel = await new Promise<ClientChannel>((resolve, reject) =>
-      conn.target.shell({ term: "xterm-256color", cols: size.cols, rows: size.rows }, (err, ch) => (err ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${err.message}`)) : resolve(ch))),
-    );
+    const detected = integrate ? await this.shellIntegration(conn) : undefined;
+    const directory = detected ? new ShellDirectory() : undefined;
+    const integrated =
+      detected && directory
+        ? await new Promise<ClientChannel | undefined>((resolve) => {
+            let timedOut = false;
+            const timer = setTimeout(() => {
+              timedOut = true;
+              resolve(undefined);
+            }, 1500);
+            conn.target.exec(directory.launch(detected), { pty: { term: "xterm-256color", cols: size.cols, rows: size.rows } }, (err, ch) => {
+              clearTimeout(timer);
+              if (err) return resolve(undefined);
+              if (timedOut) return ch.close();
+              resolve(ch);
+            });
+          })
+        : undefined;
+    const channel =
+      integrated ??
+      (await new Promise<ClientChannel>((resolve, reject) =>
+        conn.target.shell({ term: "xterm-256color", cols: size.cols, rows: size.rows }, (err, ch) => (err ? reject(new HuhuError("SSH_DISCONNECTED", `打开 Shell 失败：${err.message}`)) : resolve(ch))),
+      ));
     if (this.conns.get(hostId) !== conn) {
       channel.close();
       throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
@@ -596,9 +652,11 @@ export class SshManager {
     const id = `ssh-${newId("cap").replace("cap-", "")}`;
     const rec: ShellRec = { id, hostId, name: `Shell ${this.listShells(hostId).length + 1}`, state: "running", createdAt: this.d.now().toISOString(), channel, buffer: [], bufferSize: 0, viewers: new Set(), closers: new Set() };
     this.shells.set(id, rec);
+    if (integrated && directory) rec.directory = directory;
     this.shellConnections.set(rec, conn);
     if (onEnd) rec.closers.add(onEnd);
     channel.on("data", (b: Buffer) => {
+      rec.directory?.output(b);
       rec.buffer.push(b);
       rec.bufferSize += b.length;
       while (rec.bufferSize > SHELL_BUFFER && rec.buffer.length > 1) rec.bufferSize -= (rec.buffer.shift() as Buffer).length;
@@ -625,6 +683,7 @@ export class SshManager {
   closeShell(id: string): boolean {
     const s = this.shells.get(id);
     if (!s) return false;
+    s.state = "ended";
     s.channel.close(); // “结束 shell”才关闭 channel；关闭视图不会
     return true;
   }
@@ -638,7 +697,10 @@ export class SshManager {
     if (s.state === "ended") queueMicrotask(view.onEnd);
     return {
       write: (b) => {
-        if (s.state === "running") s.channel.write(b);
+        if (s.state === "running") {
+          s.directory?.input(b);
+          s.channel.write(b);
+        }
       },
       resize: (cols, rows) => {
         if (s.state === "running") s.channel.setWindow(rows, cols, 0, 0);
@@ -727,6 +789,22 @@ export class SshManager {
       if (!shell || shell.state !== "running" || this.shellConnections.get(shell) !== conn) return undefined;
     }
     return this.fileOrigins.get(conn);
+  }
+
+  directoryState(origin: z.infer<typeof FileOrigin> & { shellId?: string | undefined }): DirectoryFollowState {
+    if (!origin.shellId) return { state: "unsupported", revision: 0 };
+    if (this.fileOrigin(origin.hostId, origin.shellId)?.connectionId !== origin.connectionId) return { state: "ended", revision: 0 };
+    return this.shells.get(origin.shellId)?.directory?.state() ?? { state: "unsupported", revision: 0 };
+  }
+
+  followDirectory(origin: z.infer<typeof FileOrigin> & { shellId?: string | undefined }, revision: number, directory: string): boolean {
+    if (!origin.shellId || this.fileOrigin(origin.hostId, origin.shellId)?.connectionId !== origin.connectionId) return false;
+    const shell = this.shells.get(origin.shellId);
+    if (!shell || shell.viewers.size !== 1 || shell.channel.destroyed || !shell.channel.writable) return false;
+    const command = shell.directory?.command(revision, directory);
+    if (!command) return false;
+    shell.channel.write(command);
+    return true;
   }
 
   /** SFTP：每次操作借用绑定的 SSH 连接，独立开关通道。 */

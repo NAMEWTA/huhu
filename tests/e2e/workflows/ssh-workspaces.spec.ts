@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
@@ -8,6 +9,7 @@ import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/
 import type { TransferBatch, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
 import type { ArchiveResult, ArchiveSupport } from "../../../plugins/ssh/src/shared/archives.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
+import { shellDirectoryProbe } from "../../../plugins/ssh/src/engine/shell-directory.js";
 
 async function sshCall<T>(page: Page, capability: string, input: unknown = {}): Promise<{ ok: boolean; data: T; error?: { code: string; message: string } }> {
   const engine = await page.evaluate(() => window.huhuHost.engine());
@@ -44,6 +46,179 @@ async function configureLoopback(page: Page, name: string, port: number, passwor
   expect(result.ok, result.error?.message).toBe(true);
   return result.data;
 }
+
+test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
+  test.setTimeout(90_000);
+  const bash = process.env.HUHU_TEST_BASH;
+  test.skip(process.platform !== "win32" || !bash || !existsSync(bash), "需要 Windows 和已配置的 Git Bash 绝对路径");
+  const fixture = await openApp();
+  const { page, vault } = fixture;
+  const password = randomUUID();
+  const home = path.join(vault, "isolated-shell");
+  const tmp = path.join(home, "private-tmp");
+  const awkward = "q'$(touch INJECTED)";
+  for (const dir of [tmp, path.join(home, "manual"), path.join(home, awkward), path.join(home, "race")]) mkdirSync(dir, { recursive: true });
+  const profile = "export HISTFILE=/dev/null\nPS1='fixture> '\n";
+  writeFileSync(path.join(home, ".bash_profile"), profile);
+  writeFileSync(path.join(home, "manual", "source-marker.txt"), "real fixture source");
+  const toPosix = (dir: string) => dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/");
+  const bashEnv = { ...process.env, HOME: toPosix(home), SHELL: "/usr/bin/bash", PATH: `${path.resolve(bash!, "../../usr/bin")};${process.env.Path ?? ""}`, TMPDIR: toPosix(tmp), TERM: "xterm-256color" };
+  const probe = spawnSync(bash!, ["--noprofile", "--norc", "-c", "builtin pwd -P"], { cwd: home, env: bashEnv, encoding: "utf8", windowsHide: true });
+  expect(probe.status, probe.stderr).toBe(0);
+  const remoteHome = probe.stdout.replace(/\r?\n$/, "");
+  const inputs: string[] = [];
+  const otherInputs: string[] = [];
+  let shellOutput = "";
+  let shellClosed: Promise<void> | undefined;
+  let block: { promise: Promise<void>; release: () => void } | undefined;
+  let readsWaiting = 0;
+  function delayRaceDirectory() {
+    const wait = Promise.withResolvers<void>();
+    block = { promise: wait.promise, release: wait.resolve };
+    return () => {
+      block = undefined;
+      wait.resolve();
+    };
+  }
+  const a = await startFakeSsh({
+    password,
+    waitReadDirectory(dir) {
+      if (block && dir === `${remoteHome}/race`) {
+        readsWaiting++;
+        return block.promise;
+      }
+      return undefined;
+    },
+    onExec: (command) => (command === shellDirectoryProbe ? { stdout: "bash\n" } : undefined),
+    onInteractiveExec(command, channel) {
+      if (!command.startsWith("sh -c ")) return false;
+      const child = spawn(bash!, ["--noprofile", "--norc", "-c", command], {
+        cwd: home,
+        env: bashEnv,
+        windowsHide: true,
+      });
+      shellClosed = new Promise((resolve) => child.once("close", () => resolve()));
+      const output = (chunk: Buffer) => {
+        shellOutput += chunk.toString();
+        if (!channel.destroyed) channel.write(chunk);
+      };
+      child.stdout.on("data", output);
+      child.stderr.on("data", output);
+      child.once("error", (err) => output(Buffer.from(err.message)));
+      child.stdin.on("error", () => undefined);
+      child.once("close", (code) => {
+        if (!channel.destroyed) {
+          channel.exit(code ?? 1);
+          channel.end();
+        }
+      });
+      channel.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        inputs.push(text);
+        child.stdin.write(text.replaceAll("\r", "\n"));
+      });
+      channel.once("close", () => child.stdin.end());
+      return true;
+    },
+  });
+  const b = await startFakeSsh({ password, onShellInput: (text) => otherInputs.push(text) });
+  try {
+    a.fs.dirs.add(remoteHome);
+    for (const name of ["manual", awkward, "race"]) a.fs.dirs.add(`${remoteHome}/${name}`);
+    a.fs.files.set(`${remoteHome}/manual/source-marker.txt`, readFileSync(path.join(home, "manual", "source-marker.txt")));
+    b.fs.files.set("/home/test/other-pane.txt", Buffer.from("other"));
+    await fixture.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 600));
+    await openWorkspace(page);
+    const hostA = await configureLoopback(page, "跟随甲", a.port, password);
+    const hostB = await configureLoopback(page, "跟随乙", b.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "测试目录跟随",
+      layout: { kind: "tabs" },
+      panes: [{ hostId: hostA.hostId }, { hostId: hostB.hostId }],
+    });
+    expect(started.ok, started.error?.message).toBe(true);
+    await page.getByRole("button", { name: /测试目录跟随.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const pane = run.getByTestId("ssh-workspace-run-pane");
+    const files = run.getByTestId("files-panel");
+    const directory = (name: string) => files.getByRole("button", { name: `📁 ${name}`, exact: true });
+    await pane.getByRole("button", { name: "信任并连接" }).click();
+    await pane.getByRole("button", { name: "分栏文件" }).click();
+    const shellA = (await pane.getAttribute("data-session-id"))!;
+    const enter = async (command: string) => {
+      await pane.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.type(command);
+      await page.keyboard.press("Enter");
+    };
+    await expect.poll(() => shellOutput, { timeout: 10_000 }).toContain("fixture> ");
+    await expect(files.getByText("Shell 已确认空闲")).toBeVisible();
+    await expect(files.getByTestId("files-path")).toHaveText(remoteHome);
+    await expect(files.getByLabel("文件面板跟随 Shell")).toBeChecked();
+    await expect(files.getByLabel("Shell 跟随文件面板")).not.toBeChecked();
+    await enter("cd manual");
+    const sourceFile = files.getByRole("button", { name: "source-marker.txt", exact: true });
+    await expect(sourceFile).toBeVisible();
+    await sourceFile.click();
+    await expect(files.getByTestId("files-preview")).toContainText("real fixture source");
+    await files.getByTestId("files-up").click();
+    await expect(files.getByTestId("files-path")).toHaveText(remoteHome);
+    expect(inputs.join("")).not.toContain("builtin cd");
+
+    await files.getByLabel("文件面板跟随 Shell").uncheck();
+    await files.getByLabel("Shell 跟随文件面板").check();
+    await directory(awkward).click();
+    await expect.poll(() => inputs.filter((text) => text.includes("builtin cd"))).toHaveLength(1);
+    await expect(files.getByText("Shell 已确认空闲")).toBeVisible();
+    await enter("printf 'cwd=%s\\n' \"$PWD\"");
+    await expect.poll(() => shellOutput).toContain(`cwd=${remoteHome}/${awkward}`);
+    expect(existsSync(path.join(home, "INJECTED")) || existsSync(path.join(home, "manual", "INJECTED"))).toBe(false);
+
+    await enter("printf '\\033[?1049h'; read -r -t 3 -p 'Fixture secret: ' answer; printf '\\033[?1049l\\n'");
+    await expect(files.getByText("Shell 处于全屏应用")).toBeVisible();
+    await files.getByTestId("files-up").click();
+    await expect(files.getByRole("status").filter({ hasText: "本次已跳过 Shell 同步" })).toBeVisible();
+    await expect(files.getByText("Shell 已确认空闲")).toBeVisible();
+    expect(inputs.filter((text) => text.includes("builtin cd"))).toHaveLength(1);
+    await expect(files.getByTestId("files-path")).toHaveText(remoteHome);
+
+    const releaseDuringInput = delayRaceDirectory();
+    await directory("race").click();
+    await expect.poll(() => readsWaiting).toBe(1);
+    await enter("printf 'input won\\n'");
+    await expect.poll(() => shellOutput).toContain("input won");
+    releaseDuringInput();
+    await expect(files.getByRole("status").filter({ hasText: "本次已跳过 Shell 同步" })).toBeVisible();
+    await expect(files.getByTestId("files-path")).toHaveText(`${remoteHome}/race`);
+    expect(inputs.filter((text) => text.includes("builtin cd"))).toHaveLength(1);
+    await files.getByLabel("Shell 跟随文件面板").uncheck();
+    await files.getByTestId("files-up").click();
+    await expect(files.getByTestId("files-path")).toHaveText(remoteHome);
+    await files.getByLabel("Shell 跟随文件面板").check();
+
+    const releaseAfterSwitch = delayRaceDirectory();
+    await directory("race").click();
+    await expect.poll(() => readsWaiting).toBe(2);
+    await run.getByRole("button", { name: "跟随乙", exact: true }).click();
+    await pane.getByRole("button", { name: "信任并连接" }).click();
+    await expect(files.getByRole("button", { name: "other-pane.txt", exact: true })).toBeVisible();
+    releaseAfterSwitch();
+    await expect(files.getByText("此 Shell 没有可用的目录集成")).toBeVisible();
+    expect(otherInputs).toEqual([]);
+    expect(inputs.filter((text) => text.includes("builtin cd"))).toHaveLength(1);
+    await files.getByLabel("文件面板跟随 Shell").check();
+    await files.getByLabel("Shell 跟随文件面板").uncheck();
+    expect((await sshCall(page, "ssh.shells.close", { id: shellA })).ok).toBe(true);
+    await shellClosed;
+    expect(readdirSync(tmp)).toEqual([]);
+    expect(readFileSync(path.join(home, ".bash_profile"), "utf8")).toBe(profile);
+    expect(readFileSync(path.join(home, "manual", "source-marker.txt"), "utf8")).toBe("real fixture source");
+  } finally {
+    block?.release();
+    await test.info().attach("loopback-bash-output", { body: shellOutput.replace(/Huhu;[a-f0-9]{48};/g, "Huhu;[session];"), contentType: "text/plain" });
+    await fixture.close();
+    await Promise.all([a.close(), b.close()]);
+  }
+});
 
 test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删除", async () => {
   test.setTimeout(90_000);
