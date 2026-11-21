@@ -120,8 +120,21 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
 test("SSH settings reflect the shared gateway policy and provide redacted client samples", async () => {
   const fixture = await openApp();
   const { app, page, vault } = fixture;
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const resource = "ssh.resources.host.get";
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "外部只读目录回环",
+      host: "127.0.0.1",
+      port: server.port,
+      user: "fixture-user",
+      authKind: "password",
+      expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    const host = await desktopCall(page, resource, { hostId });
     const openSharedTools = async () => {
       await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
       await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
@@ -156,7 +169,10 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await page.getByTestId("gateway-mcp-dialog").getByLabel("传输方式").selectOption("http");
     await expect(page.getByTestId("gateway-mcp-dialog").getByLabel("传输方式")).toHaveValue("http");
     await page.getByTestId("gateway-mcp-dialog").getByRole("button", { name: "完成" }).click();
-    const changes = [{ capability: "notes.list", exposed: true }];
+    const changes = [
+      { capability: "notes.list", exposed: true },
+      { capability: resource, exposed: true },
+    ];
     const preview = await desktopCall<{ revision: number; catalogRevision: string }>(page, "gateway.policy.preview", { changes });
     const saved = await desktopCall<{ revision: number }>(page, "gateway.policy.update", { changes, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision });
     expect(saved.revision).toBeGreaterThan(initial.toolAccess.revision);
@@ -175,21 +191,30 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
 
     const listed = await rpc("tools/list");
     expect(listed.status).toBe(200);
-    expect(await listed.json()).toMatchObject({ result: { tools: [{ name: "notes_list" }] } });
+    const tool = "ssh_resources_host_get";
+    expect(await listed.json()).toMatchObject({ result: { tools: expect.arrayContaining([{ name: "notes_list" }, { name: tool }].map((row) => expect.objectContaining(row))) } });
+    expect(await (await rpc("tools/call", { name: tool, arguments: { hostId } })).json()).toMatchObject({ result: { structuredContent: { data: host } } });
     const cli = path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs");
     const { stdout } = await promisify(execFile)(process.execPath, [cli, "capabilities", "list", "--vault", vault, "--json"]);
-    expect(JSON.parse(stdout)).toMatchObject({ ok: true, data: [{ name: "notes.list" }] });
+    expect(JSON.parse(stdout)).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ name: "notes.list" }), expect.objectContaining({ name: resource })]) });
+    const cliRead = await promisify(execFile)(process.execPath, [cli, "call", resource, "--vault", vault, "--input-json", JSON.stringify({ hostId }), "--json"]);
+    expect(JSON.parse(cliRead.stdout)).toEqual({ ok: true, data: host });
+    expect(cliRead.stdout).not.toContain(password);
     const resolveSdk = createRequire(cli).resolve;
     const { Client } = await import(pathToFileURL(resolveSdk("@modelcontextprotocol/sdk/client/index.js")).href);
     const { StdioClientTransport } = await import(pathToFileURL(resolveSdk("@modelcontextprotocol/sdk/client/stdio.js")).href);
     const client = new Client({ name: "ssh-settings-fixture", version: "1" });
     try {
       await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp", "--vault", vault] }));
-      expect(await client.listTools()).toMatchObject({ tools: [{ name: "notes_list" }] });
+      expect(await client.listTools()).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: tool })]) });
+      expect(await client.callTool({ name: tool, arguments: { hostId } })).toMatchObject({ structuredContent: { data: host } });
     } finally {
       await client.close();
     }
 
+    expect(server.conns).toHaveLength(0);
+    await desktopCall(page, "gateway.update", { capability: resource, exposed: false });
+    expect(await (await rpc("tools/call", { name: tool, arguments: { hostId } })).json()).toMatchObject({ result: { isError: true } });
     const denied = await rpc("tools/call", { name: "ssh_hosts_list", arguments: {} });
     expect(await denied.json()).toMatchObject({ result: { isError: true } });
     await page.reload();
@@ -202,8 +227,10 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await desktopCall(page, "plugins.setEnabled", { id: "ssh", enabled: false });
     const catalog = await desktopCall<CapabilityCatalogEntry[]>(page, "capabilities.list", { includeInactive: true });
     expect(catalog.find(({ name }) => name === "ssh.hosts.list")).toMatchObject({ availability: "plugin-disabled", exposable: false, exposed: false });
+    expect(catalog.find(({ name }) => name === resource)).toMatchObject({ availability: "plugin-disabled", exposable: true, exposed: false, scope: "read" });
     await expect(page.getByRole("button", { name: "远程连接", exact: true })).toHaveCount(0);
   } finally {
     await fixture.close();
+    await server.close();
   }
 });
