@@ -1,17 +1,23 @@
-import { createHash } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { lstatSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { errors } from "@huhu/contracts";
-import type { VaultFiles } from "@huhu/vault";
+import { OperationLog, type OpStep, type VaultFiles } from "@huhu/vault";
 import { buildGuideFiles, GUIDE_PATHS, type GuideCapability, type GuideFile, type GuidePath } from "../shared/guide-files.js";
 import { emptyState, judgeFile, overall, type FileStatus, type GuideStateFile } from "../shared/guide-state.js";
 
 const STATE = ".huhu/guide/state.json";
 const BACKUPS = ".huhu/guide/backups";
+const BACKUP_ID = /^[0-9A-Za-z_-]+$/;
 const sha = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+export type GuideVersions = Partial<Record<GuidePath, string | null>>;
+type Snapshot = { path: GuidePath; file: ReturnType<VaultFiles["read"]> };
 
 export interface GuideFileInfo {
   path: GuidePath;
   status: FileStatus;
+  contentVersion: string | null;
 }
 export interface GuideStatusDto {
   version: string;
@@ -21,181 +27,266 @@ export interface GuideStatusDto {
 }
 export interface GuideDeps {
   files: VaultFiles;
+  operations?: OperationLog;
   version: string;
   capabilities(): GuideCapability[];
   now?(): Date;
 }
 
-/** 只操作三份指南文件与 `.huhu/guide/` 下的状态、备份；不碰 `.agents/skills/` 下的其他内容。 */
+/** 管理三份指南文件及其本库状态和备份。 */
 export class GuideService {
-  constructor(private readonly d: GuideDeps) {}
+  private pending: Promise<unknown> = Promise.resolve();
+  private readonly operations: OperationLog;
+
+  constructor(private readonly d: GuideDeps) {
+    this.operations = d.operations ?? new OperationLog(d.files, path.join(d.files.root, ".huhu", "operations"));
+  }
+
+  private write<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.pending.then(action);
+    this.pending = next.catch(() => undefined);
+    return next;
+  }
+
+  private absolute(rel: string): string {
+    const absolute = this.d.files.abs(rel);
+    let entry = this.d.files.root;
+    for (const segment of rel.split("/")) {
+      entry = path.join(entry, segment);
+      const info = lstatSync(entry, { throwIfNoEntry: false });
+      if (!info) break;
+      if (info.isSymbolicLink()) throw errors.permissionDenied(rel);
+    }
+    return absolute;
+  }
+
+  private file(rel: string) {
+    this.absolute(rel);
+    return this.d.files.read(rel);
+  }
 
   private builtin(): GuideFile[] {
     return buildGuideFiles(this.d.version, this.d.capabilities());
   }
+
   private state(): GuideStateFile {
-    const f = this.d.files.read(STATE);
-    if (!f) return emptyState();
+    const file = this.file(STATE);
+    if (!file) return emptyState();
     try {
-      return { ...emptyState(), ...(JSON.parse(f.bytes.toString("utf8")) as Partial<GuideStateFile>) };
+      return { ...emptyState(), ...(JSON.parse(file.bytes.toString("utf8")) as Partial<GuideStateFile>) };
     } catch {
       return emptyState();
     }
   }
-  private async save(s: GuideStateFile): Promise<void> {
-    await this.d.files.write(STATE, Buffer.from(`${JSON.stringify(s, null, 2)}\n`));
+
+  private async save(state: GuideStateFile): Promise<void> {
+    this.absolute(STATE);
+    await this.d.files.write(STATE, Buffer.from(`${JSON.stringify(state, null, 2)}\n`));
   }
-  private read(p: GuidePath): { text: string | null; error: boolean } {
+
+  private inspect(rel: GuidePath) {
     try {
-      const f = this.d.files.read(p);
-      return { text: f ? f.bytes.toString("utf8") : null, error: false };
+      const file = this.file(rel);
+      return { text: file?.bytes.toString("utf8") ?? null, version: file?.version ?? null, error: false };
     } catch {
-      return { text: null, error: true };
+      return { text: null, version: null, error: true };
     }
   }
-  private assertPath(p: string): GuidePath {
-    if (!(GUIDE_PATHS as readonly string[]).includes(p)) throw errors.invalidInput("只能操作三份 HUHU 指南文件");
-    return p as GuidePath;
+
+  private assertPath(rel: string): GuidePath {
+    if (!(GUIDE_PATHS as readonly string[]).includes(rel)) throw errors.invalidInput("只能操作三份 HUHU 指南文件");
+    return rel as GuidePath;
   }
 
   status(): GuideStatusDto {
-    const s = this.state();
-    const built = this.builtin();
-    const files = built.map((b): GuideFileInfo => {
-      const cur = this.read(b.path);
+    const state = this.state();
+    const files = this.builtin().map((built): GuideFileInfo => {
+      const cur = this.inspect(built.path);
       return {
-        path: b.path,
+        path: built.path,
+        contentVersion: cur.version,
         status: judgeFile({
           current: cur.text === null ? null : sha(cur.text),
-          builtin: sha(b.content),
-          baseline: s.baseline[b.path] ?? null,
-          preserved: s.preserved[b.path] === true,
-          needsCheck: s.needsCheck[b.path] === true,
+          builtin: sha(built.content),
+          baseline: state.baseline[built.path] ?? null,
+          preserved: state.preserved[built.path] === true,
+          needsCheck: state.needsCheck[built.path] === true,
           error: cur.error,
         }),
       };
     });
-    return { version: this.d.version, readOnly: this.d.files.readOnly, overall: overall(files.map((f) => f.status)), files };
+    return { version: this.d.version, readOnly: this.d.files.readOnly, overall: overall(files.map((file) => file.status)), files };
   }
 
-  /** 当前 / 内置内容（界面的“当前 / 内置 / 差异”视图）。 */
-  view(p: string): { path: GuidePath; current: string | null; builtin: string; status: FileStatus } {
-    const path = this.assertPath(p);
-    const b = this.builtin().find((x) => x.path === path)!;
-    return { path, current: this.read(path).text, builtin: b.content, status: this.status().files.find((f) => f.path === path)!.status };
+  view(rel: string): { path: GuidePath; current: string | null; builtin: string; status: FileStatus; contentVersion: string | null } {
+    const guide = this.assertPath(rel);
+    const built = this.builtin().find((entry) => entry.path === guide)!;
+    const cur = this.inspect(guide);
+    return { path: guide, current: cur.text, builtin: built.content, contentVersion: cur.version, status: this.status().files.find((entry) => entry.path === guide)!.status };
   }
 
-  /** Vault 打开 / 能力变化后的自动维护：missing 补写、outdated 先备份再升级；conflict / preserved / needs-check 不写。只读 Vault 不写。 */
-  async maintain(): Promise<GuideStatusDto> {
-    if (this.d.files.readOnly) return this.status();
-    const s = this.state();
-    const st = this.status();
-    const built = this.builtin();
-    const todo = st.files.filter((f) => f.status === "missing" || f.status === "outdated");
-    if (todo.length === 0) return st;
-    const backup = todo.filter((f) => f.status === "outdated").map((f) => f.path);
-    if (backup.length > 0) await this.backup(backup);
-    for (const f of todo) {
-      try {
-        const b = built.find((x) => x.path === f.path)!;
-        await this.d.files.write(f.path, Buffer.from(b.content));
-        s.baseline[f.path] = sha(b.content);
-      } catch {
-        // 写失败：保留原文件，状态会显示 error
+  private snapshots(paths: readonly GuidePath[], expected?: GuideVersions): Snapshot[] {
+    return paths.map((rel) => {
+      const file = this.file(rel);
+      if (expected) {
+        if (!Object.hasOwn(expected, rel)) throw errors.invalidInput(`必须提供指南版本：${rel}`);
+        if (expected[rel] !== (file?.version ?? null)) throw errors.versionConflict(file?.version ?? "");
       }
-    }
-    await this.save(s);
-    return this.status();
+      return { path: rel, file };
+    });
   }
 
-  private async backup(paths: GuidePath[]): Promise<string | null> {
-    const id = (this.d.now?.() ?? new Date()).toISOString().replace(/[:.]/g, "-");
-    let any = false;
-    for (const p of paths) {
-      const cur = this.read(p).text;
-      if (cur === null) continue;
-      await this.d.files.write(`${BACKUPS}/${id}/${p}`, Buffer.from(cur));
-      any = true;
+  private async backup(entries: readonly Snapshot[]): Promise<string | null> {
+    const files = entries.filter(({ file }) => file !== null);
+    if (!files.length) return null;
+    const stamp = (this.d.now?.() ?? new Date()).toISOString().replace(/[:.]/g, "-");
+    const id = `${stamp}-${randomUUID()}`;
+    for (const entry of files) {
+      const rel = `${BACKUPS}/${id}/${entry.path}`;
+      this.absolute(rel);
+      await this.d.files.write(rel, entry.file!.bytes, { expectedVersion: null });
     }
-    return any ? id : null;
+    return id;
   }
 
-  /** 检查：清除 needs-check 标记，重新按内容判定。 */
-  async check(): Promise<GuideStatusDto> {
-    const s = this.state();
-    s.needsCheck = {};
-    if (!this.d.files.readOnly) await this.save(s);
-    return this.status();
+  private async replace(targets: readonly Snapshot[], contents: readonly Buffer[], state: GuideStateFile, stateVersion: string | null): Promise<void> {
+    const steps: OpStep[] = targets.map(({ path, file }, i) => {
+      this.absolute(path);
+      return { action: "write", path, bytes: contents[i]!, expectedVersion: file?.version ?? null };
+    });
+    this.absolute(STATE);
+    steps.push({ action: "write", path: STATE, bytes: Buffer.from(`${JSON.stringify(state, null, 2)}\n`), expectedVersion: stateVersion });
+    await this.operations.run(`guide-${randomUUID()}`, "guide-restore", steps);
   }
 
-  /** 保留当前文件：把存在差异的文件设为 preserved，自动维护不再碰它。 */
-  async preserve(p?: string): Promise<GuideStatusDto> {
-    this.d.files.assertWritable();
-    const s = this.state();
-    const targets = p
-      ? [this.assertPath(p)]
-      : this.status()
-          .files.filter((f) => f.status === "conflict" || f.status === "needs-check")
-          .map((f) => f.path);
-    for (const t of targets) {
-      s.preserved[t] = true;
-      delete s.needsCheck[t];
-    }
-    await this.save(s);
-    return this.status();
+  /** Open and upgrade maintain missing/outdated files, and leave custom guide contents intact. */
+  maintain(): Promise<GuideStatusDto> {
+    return this.write(async () => {
+      if (this.d.files.readOnly) return this.status();
+      const state = this.state();
+      const status = this.status();
+      const built = this.builtin();
+      const todo = status.files.filter(({ status }) => status === "missing" || status === "outdated");
+      if (!todo.length) return status;
+      const files = this.snapshots(todo.map(({ path }) => path));
+      await this.backup(files);
+      for (const { path, file } of files) {
+        try {
+          const entry = built.find((item) => item.path === path)!;
+          this.absolute(path);
+          await this.d.files.write(path, Buffer.from(entry.content), { expectedVersion: file?.version ?? null });
+          state.baseline[path] = sha(entry.content);
+        } catch {
+          // Concurrent edits stay on disk and are classified on the next status read.
+        }
+      }
+      await this.save(state);
+      return this.status();
+    });
   }
 
-  /** 备份并恢复内置版本：先把当前文件写入备份目录，再写内置内容并重新校验哈希。 */
-  async restoreBuiltin(p?: string): Promise<GuideStatusDto & { backupId: string | null }> {
-    this.d.files.assertWritable();
-    const s = this.state();
-    const built = this.builtin();
-    const targets = p ? [this.assertPath(p)] : GUIDE_PATHS.filter((x) => this.status().files.find((f) => f.path === x)!.status !== "current");
-    const backupId = await this.backup([...targets]);
-    for (const t of targets) {
-      const b = built.find((x) => x.path === t)!;
-      await this.d.files.write(t, Buffer.from(b.content));
-      if (this.read(t).text !== b.content) throw errors.invalidInput(`写入后校验失败：${t}`);
-      s.baseline[t] = sha(b.content);
-      delete s.preserved[t];
-      delete s.needsCheck[t];
-    }
-    await this.save(s);
-    return { ...this.status(), backupId };
+  check(): Promise<GuideStatusDto> {
+    return this.write(async () => {
+      const state = this.state();
+      state.needsCheck = {};
+      if (!this.d.files.readOnly) await this.save(state);
+      return this.status();
+    });
+  }
+
+  preserve(rel?: string, expected?: GuideVersions): Promise<GuideStatusDto> {
+    return this.write(async () => {
+      this.d.files.assertWritable();
+      const state = this.state();
+      const paths = rel
+        ? [this.assertPath(rel)]
+        : this.status()
+            .files.filter(({ status }) => status === "conflict" || status === "needs-check")
+            .map(({ path }) => path);
+      for (const { path, file } of this.snapshots(paths, expected)) {
+        if (expected && !file) throw errors.notFound(path);
+        state.preserved[path] = true;
+        delete state.needsCheck[path];
+      }
+      await this.save(state);
+      return this.status();
+    });
+  }
+
+  restoreBuiltin(rel?: string, expected?: GuideVersions): Promise<GuideStatusDto & { backupId: string | null }> {
+    return this.write(async () => {
+      this.d.files.assertWritable();
+      const stateVersion = this.file(STATE)?.version ?? null;
+      const state = this.state();
+      const built = this.builtin();
+      const paths = rel
+        ? [this.assertPath(rel)]
+        : this.status()
+            .files.filter(({ status }) => status !== "current")
+            .map(({ path }) => path);
+      const targets = this.snapshots(paths, expected);
+      const backupId = await this.backup(targets);
+      const contents = targets.map(({ path }) => {
+        const entry = built.find((item) => item.path === path)!;
+        state.baseline[path] = sha(entry.content);
+        delete state.preserved[path];
+        delete state.needsCheck[path];
+        return Buffer.from(entry.content);
+      });
+      await this.replace(targets, contents, state, stateVersion);
+      return { ...this.status(), backupId };
+    });
   }
 
   backups(): { id: string; files: GuidePath[] }[] {
-    if (!this.d.files.exists(BACKUPS)) return [];
-    return readdirSync(this.d.files.abs(BACKUPS))
+    const root = this.absolute(BACKUPS);
+    if (!lstatSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && BACKUP_ID.test(entry.name))
+      .map(({ name }) => name)
       .sort()
       .reverse()
-      .map((id) => ({ id, files: GUIDE_PATHS.filter((p) => this.d.files.exists(`${BACKUPS}/${id}/${p}`)) }))
-      .filter((b) => b.files.length > 0);
+      .map((id) => ({
+        id,
+        files: GUIDE_PATHS.filter((rel) => {
+          try {
+            return lstatSync(this.absolute(`${BACKUPS}/${id}/${rel}`), { throwIfNoEntry: false })?.isFile() ?? false;
+          } catch {
+            return false;
+          }
+        }),
+      }))
+      .filter(({ files }) => files.length > 0);
   }
 
-  /** 恢复某份备份：先备份当前，再写回备份内容；之后这些文件按内容判定（通常是 conflict，由用户决定）。 */
-  async restoreBackup(id: string): Promise<GuideStatusDto> {
-    this.d.files.assertWritable();
-    if (!/^[0-9A-Za-z_-]+$/.test(id)) throw errors.invalidInput("备份 ID 不合法");
-    const found = this.backups().find((b) => b.id === id);
-    if (!found) throw errors.notFound(`备份不存在：${id}`);
-    await this.backup([...found.files]);
-    const s = this.state();
-    for (const p of found.files) {
-      const f = this.d.files.read(`${BACKUPS}/${id}/${p}`);
-      if (!f) continue;
-      await this.d.files.write(p, f.bytes);
-      delete s.needsCheck[p];
-    }
-    await this.save(s);
-    return this.status();
+  restoreBackup(id: string, expected?: GuideVersions): Promise<GuideStatusDto> {
+    return this.write(async () => {
+      this.d.files.assertWritable();
+      if (!BACKUP_ID.test(id)) throw errors.invalidInput("备份 ID 不合法");
+      const found = this.backups().find((backup) => backup.id === id);
+      if (!found) throw errors.notFound(`备份不存在：${id}`);
+      const targets = this.snapshots(found.files, expected);
+      const source = found.files.map((rel) => {
+        const file = this.file(`${BACKUPS}/${id}/${rel}`);
+        if (!file) throw errors.notFound(rel);
+        return file.bytes;
+      });
+      const stateVersion = this.file(STATE)?.version ?? null;
+      const state = this.state();
+      await this.backup(targets);
+      for (const { path } of targets) delete state.needsCheck[path];
+      await this.replace(targets, source, state, stateVersion);
+      return this.status();
+    });
   }
 
-  /** 版本历史恢复了指南文件后调用：标记为 needs-check，等用户检查。 */
-  async markNeedsCheck(paths: string[]): Promise<void> {
-    if (this.d.files.readOnly) return;
-    const s = this.state();
-    for (const p of paths) if ((GUIDE_PATHS as readonly string[]).includes(p)) s.needsCheck[p as GuidePath] = true;
-    await this.save(s);
+  /** 版本历史恢复指南后保留待检查标记。 */
+  markNeedsCheck(paths: string[]): Promise<void> {
+    return this.write(async () => {
+      if (this.d.files.readOnly) return;
+      const state = this.state();
+      for (const rel of paths) if ((GUIDE_PATHS as readonly string[]).includes(rel)) state.needsCheck[rel as GuidePath] = true;
+      await this.save(state);
+    });
   }
 }

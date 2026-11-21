@@ -82,7 +82,7 @@ export const taskToolDescriptors = {
     defaultExposed: false,
     idempotency: "durable",
     input: TaskWritableSchema,
-    output: TaskDtoSchema,
+    output: z.union([TaskDtoSchema, Id]),
   }),
 };
 
@@ -405,9 +405,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   );
   api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
   api.defineCapability(
-    bindCapability(taskToolDescriptors.create, (c, i) => {
+    bindCapability(taskToolDescriptors.create, async (c, i) => {
       assertAgentAllowed(c.caller, i);
-      return svc.create(i, originOf(c.caller));
+      const task = await svc.create(i, originOf(c.caller));
+      return c.caller === "plugin:inbox" && !c.delegatedBy ? { id: task.id } : task;
     }),
   );
   api.defineCapability(

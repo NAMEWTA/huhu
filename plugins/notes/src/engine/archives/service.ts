@@ -1,5 +1,5 @@
-import { randomInt } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { createHash, randomInt, randomUUID } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path/posix";
 import { errors, fieldNameProblem, fieldValueProblem, normalizeFieldName, RESERVED_FIELD_NAMES, type ArchiveDetailDto, type ArchiveDto, type ArchiveFieldDef, type ArchiveTypeDto, type EventPayload, type EventType } from "@huhu/contracts";
 import {
@@ -8,6 +8,7 @@ import {
   parseFrontmatter,
   parseWikiLinks,
   patchFrontmatter,
+  protectedKindOf,
   renameFrontmatterKeys,
   replaceBody,
   resolveFolderLink,
@@ -20,6 +21,7 @@ import {
 import { validateName } from "../../shared/templates.js";
 import type { NotesService } from "../service.js";
 import { unsupportedEncoding } from "../../shared/text-encoding.js";
+import { assertUnlinkedPath } from "../vault-path.js";
 import { decodeUtf8 } from "../text-encoding.js";
 
 export interface ArchivesDeps {
@@ -50,6 +52,8 @@ export class ArchivesService {
 
   // ---- 路径与磁盘 ----
   private abs(rel: string): string {
+    if (protectedKindOf(rel)) throw errors.permissionDenied(rel);
+    assertUnlinkedPath(this.d.files, rel);
     return this.d.files.abs(rel);
   }
   private isDir(rel: string): boolean {
@@ -64,6 +68,7 @@ export class ArchivesService {
       .sort((a, b) => a.localeCompare(b));
   }
   private readText(rel: string) {
+    this.abs(rel);
     const f = this.d.files.read(rel);
     if (!f) return null;
     const text = f.bytes.includes(0) ? null : decodeUtf8(f.bytes);
@@ -144,6 +149,38 @@ export class ArchivesService {
     return this.dirNames(ROOT).map((n) => this.toType(`${ROOT}/${n}`));
   }
 
+  /** Snapshot for confirmation before editing or removing a type. */
+  typeImpact(input: string): { version: string; affectedArchives: string[]; referencedBy: string[] } {
+    const root = this.typeDir(input);
+    const hash = createHash("sha256");
+    const notes: string[] = [];
+    const assets: string[] = [];
+    const visit = (rel: string) => {
+      const absolute = this.abs(rel);
+      const info = lstatSync(absolute, { bigint: true });
+      hash.update(JSON.stringify([rel, String(info.ino), String(info.size), String(info.mtimeNs), String(info.ctimeNs)]));
+      if (info.isDirectory()) {
+        for (const name of readdirSync(absolute).sort()) visit(`${rel}/${name}`);
+      } else if (info.isFile()) {
+        (/\.md$/i.test(rel) ? notes : assets).push(rel);
+      }
+    };
+    visit(root);
+    const affectedArchives = this.dirNames(root).map((name) => `${root}/${name}/`);
+    const referencedBy = this.d.index
+      .backlinksTo(notes, assets)
+      .map(({ path }) => path)
+      .filter((rel) => !rel.startsWith(`${root}/`))
+      .sort();
+    hash.update(JSON.stringify(referencedBy));
+    return { version: hash.digest("hex"), affectedArchives, referencedBy };
+  }
+
+  archiveVersion(input: string): string | null {
+    const { dir } = this.archiveDir(input);
+    return this.readText(`${dir}/${INDEX}`)?.version ?? null;
+  }
+
   private checkFields(fields: readonly ArchiveFieldDef[]): ArchiveFieldDef[] {
     const seen = new Set<string>();
     return fields.map((f) => {
@@ -206,7 +243,7 @@ export class ArchivesService {
       steps.push({ action: "write", path: idx, bytes: Buffer.from(next), expectedVersion: template?.version ?? null });
       written.push(idx);
     }
-    if (steps.length > 0) await this.d.ops.run(`atype-${Date.now().toString(36)}`, "archive-template-save", steps);
+    if (steps.length > 0) await this.d.ops.run(`atype-${randomUUID()}`, "archive-template-save", steps);
     this.touch(written);
     if (written.includes(idx)) await this.d.notes.ensureId(idx);
     // 类型改名：经 notes 的移动逻辑（双链随之改写）。模板已经保存，改名失败时说明原因

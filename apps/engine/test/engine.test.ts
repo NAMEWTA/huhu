@@ -350,7 +350,7 @@ describe("Engine 启动与关闭", () => {
     // ACC-AR：archives.list 按用户选择开放。
     expect(((await post(e, e.cliToken, { capability: "archives.list", input: {}, requestId: "r" })) as unknown as { ok: boolean }).ok).toBe(true);
   });
-  test("AR-15 档案能力的暴露：外部可读 list/read；create/update/move/delete 需用户开放；types.* 永不对外", async () => {
+  test("AR-15 档案及类型工具默认关闭，可逐项开放", async () => {
     const dir = tmp();
     const e = await boot({ vaultPath: dir, create: true });
     engines.push(e);
@@ -368,9 +368,10 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.cliToken, "archives.create", { type: "通讯录", name: "张三" })).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
     for (const cap of ["archives.create", "archives.update", "archives.move", "archives.delete"]) expect((await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true })).ok).toBe(true);
     for (const cap of ["archives.types.list", "archives.types.save", "archives.types.delete"]) {
-      expect((await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true })).error?.code).toBe("INVALID_INPUT");
       expect((await call(e.cliToken, cap, {})).error?.code).toBe("CAPABILITY_NOT_EXPOSED");
+      expect((await call(e.rendererToken, "gateway.update", { capability: cap, exposed: true })).ok).toBe(true);
     }
+    expect((await call(e.cliToken, "archives.types.list", {})).ok).toBe(true);
     const created = await call(e.cliToken, "archives.create", { type: "Archives/通讯录/", name: "张三", fields: { 电话: "0123", 生日: "1990-05-01" }, body: "备注\n" });
     expect(created.ok).toBe(true);
     expect(created.data).toMatchObject({ path: "Archives/通讯录/张三/", name: "张三", fields: { 电话: "0123", 生日: "1990-05-01" }, undefinedFields: [], invalidFields: [] });

@@ -1,10 +1,15 @@
+import { errors, isWorkbenchCaller, KINDS } from "@huhu/contracts";
+import { lstatSync } from "node:fs";
+import path from "node:path";
+import type { CapabilityContext } from "@huhu/kernel";
 import type { Context } from "@huhu/cordis";
-import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor as descriptor, durableExternal, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { InboxService, sourceFor, type ConvertTarget } from "./service.js";
+import { InboxService, type CaptureDto, type ConvertTarget } from "./service.js";
 
 export { InboxService, sourceFor } from "./service.js";
 
+const publicTool = { plugin: "inbox", risk: "normal", exposable: true, defaultExposed: false } as const;
 const Id = z.object({ id: z.string() });
 const Dto = z.object({
   id: z.string(),
@@ -18,8 +23,95 @@ const Dto = z.object({
   processedAt: z.string().nullable(),
   result: z.object({ kind: z.enum(["task", "note", "archive"]), id: z.string() }).nullable(),
 });
+const Versioned = Id.extend({ expectedVersion: z.string().optional() });
+const ResultRef = Dto.omit({ title: true, body: true, path: true });
+const CaptureRef = ResultRef.extend({ title: z.string() });
+const WriteDto = z.union([Dto, ResultRef]);
 const CREATE_CAP: Record<ConvertTarget, string> = { task: "tasks.create", note: "notes.create", archive: "archives.create" };
 const TARGET_PLUGIN: Record<ConvertTarget, string> = { task: "tasks", note: "notes", archive: "notes" };
+
+export const inboxCapabilityDescriptors = {
+  list: descriptor({
+    name: "inbox.list",
+    title: "列出收件项",
+    description: "列出收件项。",
+    ...publicTool,
+    scope: "read",
+    input: z.object({ status: z.enum(["pending", "processed", "dismissed"]).optional(), source: z.string().optional(), query: z.string().optional() }),
+    output: z.array(Dto),
+  }),
+  capture: descriptor({
+    name: "inbox.capture",
+    title: "采集收件项",
+    description: "采集收件项。",
+    ...publicTool,
+    scope: "write",
+    input: z.object({ title: z.string().optional(), body: z.string().default(""), source: z.string().optional() }),
+    output: z.union([Dto, CaptureRef]),
+  }),
+  update: descriptor({
+    name: "inbox.update",
+    title: "编辑收件项",
+    description: "编辑收件项。",
+    ...publicTool,
+    scope: "write",
+    ...durableExternal,
+    input: Id.extend({ expectedVersion: z.string(), title: z.string().optional(), body: z.string().optional() }),
+    output: WriteDto,
+  }),
+  convert: descriptor({
+    name: "inbox.convert",
+    title: "转换收件项",
+    description: "转换收件项。",
+    ...publicTool,
+    scope: "write",
+    ...durableExternal,
+    input: Versioned.extend({ target: z.enum(["task", "note", "archive"]), fields: z.record(z.string(), z.unknown()) }),
+    output: WriteDto,
+  }),
+  dismiss: descriptor({
+    name: "inbox.dismiss",
+    title: "忽略收件项",
+    description: "忽略收件项。",
+    ...publicTool,
+    scope: "write",
+    ...durableExternal,
+    input: Versioned,
+    output: WriteDto,
+  }),
+  restore: descriptor({
+    name: "inbox.restore",
+    title: "恢复收件项",
+    description: "恢复收件项。",
+    ...publicTool,
+    scope: "write",
+    ...durableExternal,
+    input: Versioned,
+    output: WriteDto,
+  }),
+  undo: descriptor({
+    name: "inbox.undo",
+    title: "撤销收件转换",
+    description: "撤销收件转换。",
+    ...publicTool,
+    scope: "write",
+    risk: "high",
+    ...durableExternal,
+    input: Versioned,
+    output: WriteDto,
+  }),
+  delete: descriptor({
+    name: "inbox.delete",
+    title: "删除收件项",
+    description: "删除收件项。",
+    ...publicTool,
+    scope: "write",
+    risk: "high",
+    ...durableExternal,
+    input: Versioned.extend({ confirmed: z.boolean().optional() }),
+    output: z.object({ ok: z.literal(true) }),
+  }),
+};
 
 export interface InboxOptions {
   now?: () => Date;
@@ -41,59 +133,59 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
     },
   });
 
+  const trusted = (c: CapabilityContext) => isWorkbenchCaller(c.caller) || (c.caller.startsWith("plugin:") && !c.delegatedBy);
+  const view = (c: CapabilityContext, item: CaptureDto) => (trusted(c) && !c.parentOperationId ? item : ResultRef.parse(item));
+  const assertInbox = (c: CapabilityContext) => {
+    if (!trusted(c) && lstatSync(path.join(api.vault.files.root, KINDS.capture.dir), { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw errors.permissionDenied(KINDS.capture.dir);
+    }
+  };
+  const change = <T>(c: CapabilityContext, i: { id: string; expectedVersion?: string | undefined }, allowed: CaptureDto["status"] | undefined, apply: () => Promise<T> | T) =>
+    svc.change(i.id, () => {
+      c.signal.throwIfAborted();
+      assertInbox(c);
+      if (!trusted(c) || i.expectedVersion !== undefined) {
+        if (i.expectedVersion === undefined) throw errors.invalidInput("必须提供收件项版本");
+        const source = svc.read(i.id);
+        if (lstatSync(path.join(api.vault.files.root, source.path), { throwIfNoEntry: false })?.isSymbolicLink()) throw errors.permissionDenied(source.path);
+        if (source.version !== i.expectedVersion) throw errors.versionConflict(source.version);
+        if (allowed && source.status !== allowed) throw errors.invalidInput("收件项当前状态无法执行该操作");
+      }
+      return apply();
+    });
+
   api.defineCapability(
-    def({
-      name: "inbox.list",
-      plugin: "inbox",
-      scope: "read",
-      exposable: true,
-      defaultExposed: true,
-      input: z.object({ status: z.enum(["pending", "processed", "dismissed"]).optional(), source: z.string().optional(), query: z.string().optional() }),
-      output: z.array(Dto),
-      handler: (_c, i) => svc.list({ ...(i.status ? { status: i.status } : {}), ...(i.source ? { source: i.source } : {}), ...(i.query ? { query: i.query } : {}) }),
+    bindCapability(inboxCapabilityDescriptors.list, (c, i) => {
+      assertInbox(c);
+      return svc
+        .list({ ...(i.status ? { status: i.status } : {}), ...(i.source ? { source: i.source } : {}), ...(i.query ? { query: i.query } : {}) })
+        .filter((item) => trusted(c) || !lstatSync(path.join(api.vault.files.root, item.path), { throwIfNoEntry: false })?.isSymbolicLink());
     }),
   );
   api.defineCapability(
-    def({
-      name: "inbox.capture",
-      plugin: "inbox",
-      scope: "write",
-      exposable: true,
-      defaultExposed: true,
-      input: z.object({ title: z.string().optional(), body: z.string().default(""), source: z.string().optional() }),
-      output: Dto,
-      handler: (c, i) => svc.capture({ ...(i.title ? { title: i.title } : {}), body: i.body, source: sourceFor(c.caller, i.source) }),
+    bindCapability(inboxCapabilityDescriptors.capture, async (c, i) => {
+      assertInbox(c);
+      const item = await svc.capture({ ...(i.title ? { title: i.title } : {}), body: i.body, ...(i.source !== undefined ? { source: i.source } : {}) }, c);
+      return trusted(c) && !c.parentOperationId ? item : CaptureRef.parse(item);
     }),
   );
   api.defineCapability(
-    def({
-      name: "inbox.update",
-      plugin: "inbox",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: Id.extend({ expectedVersion: z.string(), title: z.string().optional(), body: z.string().optional() }),
-      output: Dto,
-      handler: (_c, i) => svc.update(i.id, i.expectedVersion, { ...(i.title !== undefined ? { title: i.title } : {}), ...(i.body !== undefined ? { body: i.body } : {}) }),
-    }),
+    bindCapability(inboxCapabilityDescriptors.update, (c, i) =>
+      change(c, i, undefined, async () => view(c, await svc.update(i.id, i.expectedVersion, { ...(i.title !== undefined ? { title: i.title } : {}), ...(i.body !== undefined ? { body: i.body } : {}) }))),
+    ),
   );
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.convert, (c, i) => change(c, i, "pending", async () => view(c, await svc.convert(i.id, i.target, i.fields)))));
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.dismiss, (c, i) => change(c, i, "pending", async () => view(c, await svc.dismiss(i.id)))));
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.restore, (c, i) => change(c, i, "dismissed", async () => view(c, await svc.restore(i.id)))));
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.undo, (c, i) => change(c, i, "processed", async () => view(c, await svc.undo(i.id)))));
   api.defineCapability(
-    def({
-      name: "inbox.convert",
-      plugin: "inbox",
-      scope: "write",
-      exposable: false,
-      defaultExposed: false,
-      input: Id.extend({ target: z.enum(["task", "note", "archive"]), fields: z.record(z.string(), z.unknown()) }),
-      output: Dto,
-      handler: (_c, i) => svc.convert(i.id, i.target, i.fields),
-    }),
-  );
-  api.defineCapability(def({ name: "inbox.dismiss", plugin: "inbox", scope: "write", exposable: false, defaultExposed: false, input: Id, output: Dto, handler: (_c, i) => svc.dismiss(i.id) }));
-  api.defineCapability(def({ name: "inbox.restore", plugin: "inbox", scope: "write", exposable: false, defaultExposed: false, input: Id, output: Dto, handler: (_c, i) => svc.restore(i.id) }));
-  api.defineCapability(def({ name: "inbox.undo", plugin: "inbox", scope: "write", exposable: false, defaultExposed: false, input: Id, output: Dto, handler: (_c, i) => svc.undo(i.id) }));
-  api.defineCapability(
-    def({ name: "inbox.delete", plugin: "inbox", scope: "write", exposable: false, defaultExposed: false, input: Id, output: z.object({ ok: z.literal(true) }), handler: (_c, i) => (svc.delete(i.id), { ok: true as const }) }),
+    bindCapability(inboxCapabilityDescriptors.delete, (c, i) =>
+      change(c, i, undefined, () => {
+        if (!trusted(c) && !i.confirmed) throw errors.invalidInput("必须确认移除原收件项");
+        svc.delete(i.id);
+        return { ok: true as const };
+      }),
+    ),
   );
   return svc;
 }

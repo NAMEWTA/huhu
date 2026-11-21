@@ -4,6 +4,8 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdir
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
+import { InboxService } from "@huhu/plugin-inbox/engine";
+import { NotesService } from "@huhu/plugin-notes/engine";
 import { zipSync } from "fflate";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { run as runCli } from "../../cli/src/main.js";
@@ -378,12 +380,11 @@ test.each(["cli", "http"] as const)("G3.4 %s 原主体、逐项转发、撤销�
   const expectError = (code: string) => ({ error: { code } });
   const captures = async () => (await call(e, "inbox.list")).data as { title: string; source: string }[];
   const tasks = async () => (await call(e, "tasks.list")).data as { title: string }[];
-  const manifest = e.registry.get("inbox.capture")!;
-  const capture = manifest.handler;
-  const observed: Parameters<typeof capture>[0][] = [];
-  const handler = vi.spyOn(manifest, "handler").mockImplementation((context, input) => {
-    observed.push(context);
-    return capture(context, input);
+  const capture = InboxService.prototype.capture;
+  const observed: NonNullable<Parameters<typeof capture>[1]>[] = [];
+  const handler = vi.spyOn(InboxService.prototype, "capture").mockImplementation(function (this: InboxService, input, context) {
+    if (context?.delegatedBy) observed.push(context);
+    return capture.call(this, input, context);
   });
   try {
     expect(await invoke(write, { text: "off" })).toMatchObject(expectError("CAPABILITY_NOT_EXPOSED"));
@@ -511,7 +512,7 @@ test("每日回顾保存步骤明确未受理时，重交只保存已创建的�
   const name = "extensions.daily-review.generate";
   const grants = ["tasks.read", "notes.read", "notes.write"];
   expect(await call(e, "plugins.install", { source: path.join(EXAMPLES, "daily-review"), grants })).toMatchObject({ ok: true });
-  const save = vi.spyOn(e.registry.get("notes.save")!, "handler").mockImplementationOnce(() => {
+  const save = vi.spyOn(NotesService.prototype, "save").mockImplementationOnce(() => {
     throw new HuhuError("WRITE_PARTIAL", "合成的保存受理失败", { details: { outcome: "not-accepted" } });
   });
   const intentKey = randomUUID();
