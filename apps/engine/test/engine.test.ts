@@ -1259,7 +1259,36 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "vault.exportPackage", { dest: path.join(out, "a.txt") })).ok).toBe(false);
     expect((await call(e.rendererToken, "vault.exportPackage", { dest: path.join(e.vault.root, "inside.zip") })).ok).toBe(false); // 不能导到 Vault 里面
 
-    const ex = await call(e.rendererToken, "vault.exportPackage", { dest: zip, includeAttachments: true });
+    let markStaged!: () => void;
+    let resumePublish!: () => void;
+    const staged = new Promise<void>((resolve) => {
+      markStaged = resolve;
+    });
+    const publish = new Promise<void>((resolve) => {
+      resumePublish = resolve;
+    });
+    const write = e.vault.files.write.bind(e.vault.files);
+    const pause = vi.spyOn(e.vault.files, "write").mockImplementation(async (...args) => {
+      if (args[0].startsWith(".huhu/cache/safe-write-") && args[0].endsWith("/manifest.json")) {
+        markStaged();
+        await publish;
+      }
+      return write(...args);
+    });
+    const edit = call(e.rendererToken, "safe.accounts.update", { session, entryId: made.data.entryId, accountId: made.data.accountIds[0], expectedRevision: made.data.revision, password: { kind: "set", value: "backup-new-generation" } });
+    const entered = await Promise.race([staged.then(() => true), edit.then(() => false)]);
+    expect(entered).toBe(true);
+    const backup = call(e.rendererToken, "vault.exportPackage", { dest: zip, includeAttachments: true });
+    try {
+      expect(await Promise.race([backup.then(() => "finished"), new Promise((resolve) => setTimeout(() => resolve("pending"), 150))])).toBe("pending");
+      expect(existsSync(zip)).toBe(false);
+    } finally {
+      resumePublish();
+      pause.mockRestore();
+    }
+    const saved = await edit;
+    expect(saved.ok).toBe(true);
+    const ex = await backup;
     expect(ex.ok).toBe(true);
     expect(ex.data.sha256).toBe(createHash("sha256").update(readFileSync(zip)).digest("hex"));
     expect(ex.data.size).toBe(statSync(zip).size);
@@ -1273,14 +1302,17 @@ describe("Engine 启动与关闭", () => {
     const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
     expect(sha(path.join(target, note.path))).toBe(sha(path.join(e.vault.root, note.path)));
     const safeFiles = (root: string) => {
-      const base = path.join(root, ".huhu", "safe");
+      const base = path.join(root, ".huhu", "safe", "current");
       return readdirSync(base, { withFileTypes: true, recursive: true })
         .filter((item) => item.isFile())
         .map((item) => path.relative(base, path.join(item.parentPath, item.name)))
         .sort();
     };
-    expect(safeFiles(target)).toEqual(safeFiles(e.vault.root));
-    for (const file of safeFiles(target)) expect(sha(path.join(target, ".huhu", "safe", file))).toBe(sha(path.join(e.vault.root, ".huhu", "safe", file)));
+    const entry = path.join("entries", `${made.data.entryId}-${saved.data.revision}.bin`);
+    expect(safeFiles(target)).toEqual([entry, "keyring.json", "manifest.json"].sort());
+    expect(safeFiles(e.vault.root)).toContain(path.join("entries", `${made.data.entryId}-${made.data.revision}.bin`));
+    for (const file of safeFiles(target)) expect(sha(path.join(target, ".huhu", "safe", "current", file))).toBe(sha(path.join(e.vault.root, ".huhu", "safe", "current", file)));
+    expect(existsSync(path.join(target, ".huhu", "safe", "audit.ndjson"))).toBe(false);
     // 经悬空符号链接指向 Vault 内部的导入目标：明确拒绝，而不是靠后续 mkdir 恰好失败
     const { symlinkSync } = await import("node:fs");
     symlinkSync(path.join(e.vault.root, "ghost"), path.join(out, "linkgone"), process.platform === "win32" ? "junction" : "dir");
@@ -1299,7 +1331,17 @@ describe("Engine 启动与关闭", () => {
     expect(unlock.ok).toBe(true);
     const restoredSession = (await post(e2, e2.rendererToken, { capability: "safe.status", input: {}, requestId: "safe-restored-status" })).data;
     const restoredValue = await post(e2, e2.rendererToken, { capability: "safe.accounts.reveal", input: { session: restoredSession, entryId: made.data.entryId, accountId: made.data.accountIds[0] }, requestId: "safe-restored-reveal" });
-    expect(restoredValue).toMatchObject({ ok: true, data: { password: "backup-secret-value" } });
+    expect(restoredValue).toMatchObject({ ok: true, data: { password: "backup-new-generation" } });
+    const damaged = path.join(e.vault.root, ".huhu", "safe", "current", entry);
+    const ciphertext = readFileSync(damaged);
+    rmSync(damaged);
+    const rejected = path.join(out, "missing-safe-entry.zip");
+    try {
+      expect((await call(e.rendererToken, "vault.exportPackage", { dest: rejected })).ok).toBe(false);
+      expect(existsSync(rejected)).toBe(false);
+    } finally {
+      writeFileSync(damaged, ciphertext);
+    }
   }, 60_000);
   test("vault.reindexCancel：没有重建在进行时返回 cancelled=false；重建完成后搜索可用（ACC-SY-07 的能力层前置）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });

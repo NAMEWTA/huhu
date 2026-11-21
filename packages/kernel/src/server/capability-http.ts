@@ -87,7 +87,9 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
 
   app.get("/api/v1/capabilities", (c) => c.json(discoverCapabilities(dispatcher, c.get("principal").caller)));
   app.get("/api/v1/operations", (c) => {
-    const { caller, subject = caller } = c.get("principal");
+    c.header("cache-control", "no-store");
+    const { caller, subject = caller, signal } = c.get("principal");
+    if (signal?.aborted) return c.json({ error: "会话不可用" }, 401);
     const lookup = CapabilityOperationLookupSchema.safeParse(c.req.query());
     if (!lookup.success) return c.json({ ok: false, error: errors.invalidInput("操作查询参数不符合要求", lookup.error.issues).toJSON() });
     return c.json(dispatcher.readOperation(caller, subject, lookup.data));

@@ -169,14 +169,17 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerPackageCapabilities(registry, vault, (read, signal) =>
-    mail.withMailSnapshot(vault.files, () => {
-      signal.throwIfAborted();
-      const retained = mail.mailAttachmentPackagePaths(vault.files);
-      return read(signal, (relative) => {
-        const normalized = relative.toLowerCase();
-        return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
-      });
-    }),
+    safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
+      mail.withMailSnapshot(vault.files, () => {
+        signal.throwIfAborted();
+        const retained = mail.mailAttachmentPackagePaths(vault.files);
+        return read(signal, (relative) => {
+          const normalized = relative.toLowerCase();
+          if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
+          return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
+        });
+      }),
+    ),
   );
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();

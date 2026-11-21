@@ -835,6 +835,61 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
   }
 });
 
+test("保险箱：按指定账号删除，最后一个账号单独确认并可取消", async () => {
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const app = await launch(vault);
+  try {
+    const page = await app.firstWindow();
+    await setupPersonalSafe(page);
+    const endpoint = await page.evaluate(() => window.huhuHost.engine());
+    async function call<T>(capability: string, input: object): Promise<T> {
+      const result = await page.request.post(`${endpoint.baseUrl}/api/v1/call`, {
+        headers: { authorization: `Bearer ${endpoint.token}` },
+        data: { capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() },
+      });
+      const reply = (await result.json()) as { ok: boolean; data: T };
+      expect(reply.ok).toBe(true);
+      return reply.data;
+    }
+    const session = await call<{ instanceId: string; generation: number }>("safe.status", {});
+    const accounts = [
+      { account: "同名账号", note: "甲一" },
+      { account: "同名账号", note: "甲二" },
+    ];
+    await call("safe.entries.create", { session, expectedRevision: 0, name: "站点甲", accounts });
+    await call("safe.entries.create", { session, expectedRevision: 1, name: "站点乙", accounts });
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByRole("button", { name: "保险箱", exact: true }).first().click();
+    const sites = page.getByTestId("safe-item");
+    const alpha = sites.filter({ hasText: "站点甲" });
+    const beta = sites.filter({ hasText: "站点乙" });
+    await alpha.click();
+    const selector = page.getByRole("combobox", { name: "账号", exact: true });
+    await selector.selectOption({ index: 1 });
+    await expect(page.getByText("甲二", { exact: true })).toBeVisible();
+    const dialog = page.getByTestId("safe-remove-confirmation");
+    await page.getByRole("button", { name: "删除账号", exact: true }).click();
+    await expect(dialog).toContainText("站点甲");
+    await dialog.getByRole("button", { name: "确认删除账号" }).click();
+    await expect(selector.locator("option")).toHaveCount(1);
+    await expect(page.getByText("甲一", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "删除账号", exact: true }).click();
+    await expect(dialog).toContainText("仅剩的账号");
+    await dialog.getByRole("button", { name: "删除整个条目…" }).click();
+    await expect(dialog).toContainText("1 个账号");
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(alpha).toBeVisible();
+    await page.getByRole("button", { name: "删除条目", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认删除条目" }).click();
+    await expect(alpha).toHaveCount(0);
+    await expect(beta).toContainText("2 个账号");
+  } finally {
+    await app.close();
+    rmTree(vault);
+  }
+});
+
 test("保险箱：本机 Web 邀请加入后可初始化、锁定并解锁", async () => {
   const chrome = process.platform === "win32" ? path.join(process.env["ProgramFiles"] ?? "C:/Program Files", "Google/Chrome/Application/chrome.exe") : "";
   const executablePath = [chrome, chromium.executablePath()].find((file) => file && existsSync(file));
@@ -867,7 +922,7 @@ test("保险箱：本机 Web 邀请加入后可初始化、锁定并解锁", asy
       await tab.getByLabel("我已了解").check();
       await tab.getByRole("button", { name: "创建保险箱" }).click();
       await expect(tab.getByTestId("safe-unlocked")).toBeVisible();
-      await tab.getByRole("button", { name: "锁定保险箱" }).click();
+      await tab.getByRole("button", { name: "手动锁定" }).click();
       await expect(tab.getByTestId("safe-locked")).toBeVisible();
       await tab.getByLabel("主密码", { exact: true }).fill(safeMaster);
       await tab.getByRole("button", { name: "解锁保险箱" }).click();
@@ -1112,7 +1167,7 @@ test("ACC-AG-04 Agent CLI：在 Space 里启动 shell，经 xterm 输入并看�
   }
 });
 
-test("远程连接：新增主机（密码进保险箱）、确认指纹、连接、Exec、交互终端", async () => {
+test("远程连接：使用模块密码完成指纹确认、Exec、交互终端和 SFTP", async () => {
   const { startFakeSsh } = await import("../../plugins/ssh/test/fake-server.js");
   const srv = await startFakeSsh({ password: "e2e-ssh-pw" });
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
@@ -1120,14 +1175,6 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
   try {
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    // 先设置保险箱
-    await page.getByRole("button", { name: "保险箱" }).first().click();
-    await page.getByLabel("主密码", { exact: true }).fill("correct horse battery");
-    await page.getByLabel("确认主密码").fill("correct horse battery");
-    await page.getByLabel("我已了解").check();
-    await page.getByRole("button", { name: "创建保险箱" }).click();
-    await expect(page.getByTestId("safe-unlocked")).toBeVisible({ timeout: 15_000 });
-
     await page.getByRole("button", { name: "远程连接" }).first().click();
     await page.getByRole("button", { name: "新增 SSH 主机" }).click();
     const hostDialog = page.getByTestId("ssh-host-dialog");
@@ -1158,7 +1205,7 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     await page.keyboard.type("Z"); // 假服务器按收到的每个按键回显 ECHO:<按键>
     await expect(page.locator(".xterm-rows")).toContainText("ECHO:Z", { timeout: 10_000 });
 
-    // SFTP 文件：浏览、上传（同名需确认）、预览、下载、重命名、删除（需确认）
+    // SFTP 接续当前连接。传输冲突和文件变更由 ssh-workspaces.spec.ts 覆盖。
     await page.getByRole("tab", { name: "文件" }).click();
     srv.fs.files.set("/home/test/说明.txt", Buffer.from("远端说明文件"));
     const files = page.getByTestId("files-panel");
@@ -1168,41 +1215,14 @@ test("远程连接：新增主机（密码进保险箱）、确认指纹、连�
     await files.getByTestId("files-open").filter({ hasText: "说明.txt" }).click();
     await expect(files.getByTestId("files-preview")).toHaveText("远端说明文件");
 
-    const local = mkdtempSync(path.join(tmpdir(), "huhu-e2e-up-"));
-    writeFileSync(path.join(local, "上传.txt"), "来自本机");
-    await files.getByTestId("files-upload-from").fill(path.join(local, "上传.txt"));
+    const local = path.join(vault, "上传.txt");
+    writeFileSync(local, "来自本机");
+    await files.getByTestId("files-upload-from").fill(local);
     await files.getByTestId("files-upload-go").click();
-    await expect(files.getByTestId("files-row").filter({ hasText: "上传.txt" })).toBeVisible({ timeout: 10_000 });
-    expect(srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("来自本机");
-    writeFileSync(path.join(local, "上传.txt"), "改过的内容");
-    await files.getByTestId("files-upload-from").fill(path.join(local, "上传.txt")); // 上一次成功后输入框已清空
-    await files.getByTestId("files-upload-go").click(); // 同名：先确认
-    await expect(files.getByTestId("files-overwrite")).toBeVisible();
-    await files.getByTestId("files-overwrite-no").click();
-    expect(srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("来自本机"); // 取消则远端不变
-    await files.getByTestId("files-upload-go").click();
-    await expect(files.getByTestId("files-overwrite")).toBeVisible();
-    await files.getByTestId("files-overwrite-yes").click();
-    await expect.poll(() => srv.fs.files.get("/home/test/上传.txt")?.toString()).toBe("改过的内容");
-
-    await files.getByRole("button", { name: "下载 说明.txt" }).click();
-    await files.getByTestId("files-save-to").fill(path.join(local, "下载回来.txt"));
-    await files.getByTestId("files-download-go").click();
-    await expect.poll(() => existsSync(path.join(local, "下载回来.txt"))).toBe(true);
-    expect(readFileSync(path.join(local, "下载回来.txt"), "utf8")).toBe("远端说明文件");
-
-    await files.getByRole("button", { name: "重命名 上传.txt" }).click();
-    await files.getByTestId("files-rename-to").fill("已改名.txt");
-    await files.getByTestId("files-rename-go").click();
-    await expect(files.getByTestId("files-row").filter({ hasText: "已改名.txt" })).toBeVisible({ timeout: 10_000 });
-    expect(srv.fs.files.has("/home/test/上传.txt")).toBe(false);
-
-    await files.getByRole("button", { name: "删除 已改名.txt" }).click();
-    await expect(files.getByTestId("files-delete-dialog")).toBeVisible();
-    await files.getByTestId("files-delete-yes").click();
-    await expect.poll(() => srv.fs.files.has("/home/test/已改名.txt")).toBe(false);
-    expect([...srv.fs.files.keys()].filter((k) => k.includes("huhu-upload"))).toEqual([]);
-    rmTree(local);
+    await expect(files.getByTestId("files-note")).toHaveText("已加入传输中心");
+    await expect.poll(() => srv.fs.files.get("/home/test/上传.txt")?.toString(), { timeout: 10_000 }).toBe("来自本机");
+    await files.getByRole("button", { name: "刷新" }).click();
+    await expect(files.getByTestId("files-row").filter({ hasText: "上传.txt" })).toBeVisible();
   } finally {
     await app.close();
     await srv.close();

@@ -578,6 +578,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const canOpenHistory = (e: Pick<HistoryEntry, "provider">) => e.provider === "pi";
   const matchesHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && session.historyId === e.historyId;
   const mayBeSameHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && path.relative(session.cwd, e.cwd) === "";
+  const blocksHistoryLaunch = (session: SessionRecord) => session.state === "running" || session.state === "launching" || session.state === "unknown";
   function historyReference(i: z.infer<typeof HistoryReference>) {
     if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
     const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
@@ -595,7 +596,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (!isWithin(sp.root, cwd)) throw errors.invalidInput("原目录不在目标 Space 内，请选择原 Space");
     const key = JSON.stringify([hit.provider, hit.nativeSessionId, hit.cwd]);
     const pending = resuming.get(key);
-    if ((pending && pending.requestId !== i.requestId) || sessions.list().some((s) => s.requestId !== i.requestId && (s.state === "running" || s.state === "launching") && mayBeSameHistory(s, hit)))
+    if ((pending && pending.requestId !== i.requestId) || sessions.list().some((s) => s.requestId !== i.requestId && blocksHistoryLaunch(s) && mayBeSameHistory(s, hit)))
       throw errors.invalidInput("这个原生会话可能已在运行或正在打开，请从会话列表核对");
     const claim = pending ?? { requestId: i.requestId, count: 0 };
     claim.count++;
@@ -629,7 +630,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         await sessions.reconcile(); // 已结束的会话不再算“运行中”
         const live = new Map<string, SessionRecord[]>();
         for (const session of sessions.list()) {
-          if ((session.state !== "running" && session.state !== "launching") || !session.nativeSessionId) continue;
+          if (!blocksHistoryLaunch(session) || !session.nativeSessionId) continue;
           const key = `${session.provider}:${session.nativeSessionId}`;
           const matches = live.get(key) ?? [];
           matches.push(session);

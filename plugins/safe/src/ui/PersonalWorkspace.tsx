@@ -1,5 +1,5 @@
 import { EVENT_PAYLOADS } from "@huhu/contracts";
-import { Badge, Button, EmptyState, Field, IconButton, SearchBox } from "@huhu/ui";
+import { Badge, Button, Dialog, EmptyState, Field, IconButton, SearchBox } from "@huhu/ui";
 import { CapabilityError, useEngine, useEngineEvents, type EngineClient } from "@huhu/workbench";
 import { ArrowLeft, ChevronRight, Eye, EyeOff, KeyRound, Plus } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import { TagBadge, TagManager } from "./SafeTags.js";
 export type PersonalEntry = z.output<typeof EntryDetail>;
 type Catalog = { revision: number; entries: PersonalEntry[]; tags: Tag[] };
 type Selection = { entryId: string; accountId?: string };
+type RemoveTarget = Exclude<EditTarget, { kind: "create" }>;
 type TagFilter = string[] | null;
 
 function matchesTags(entry: PersonalEntry, filter: TagFilter): boolean {
@@ -30,10 +31,15 @@ async function readCatalog(engine: EngineClient, session: SafeSession, signal: A
     if (directory.revision !== index.revision) continue;
     const entries: PersonalEntry[] = [];
     // Leave room for the workbench's other calls to the same engine.
-    for (let start = 0; start < index.entries.length; start += 8) {
-      signal.throwIfAborted();
-      const batch = index.entries.slice(start, start + 8);
-      entries.push(...(await Promise.all(batch.map(({ entryId }) => engine.call<PersonalEntry>("safe.entries.get", { session, entryId }, { signal })))));
+    try {
+      for (let start = 0; start < index.entries.length; start += 8) {
+        signal.throwIfAborted();
+        const batch = index.entries.slice(start, start + 8);
+        entries.push(...(await Promise.all(batch.map(({ entryId }) => engine.call<PersonalEntry>("safe.entries.get", { session, entryId }, { signal })))));
+      }
+    } catch (error) {
+      if (error instanceof CapabilityError && error.code === "NOT_FOUND") continue;
+      throw error;
     }
     if (entries.every((entry, indexPosition) => entry.revision === index.entries[indexPosition]?.revision)) {
       return { revision: index.revision, entries: entries.reverse(), tags: directory.tags };
@@ -54,6 +60,9 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   const [managingTags, setManagingTags] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [editor, setEditor] = useState<EditTarget | null>(null);
+  const [removal, setRemoval] = useState<RemoveTarget | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const search = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -111,6 +120,9 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     setManagingTags(false);
     setSelection(null);
     setEditor(null);
+    setRemoval(null);
+    setRemoving(false);
+    setRemoveError(null);
     setSaved(false);
     setLoadError(false);
     load(controller.signal);
@@ -184,6 +196,48 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     select({ entryId: receipt.entryId, ...(accountId ? { accountId } : {}) });
     load(signal);
   }
+
+  function confirmRemove(target: RemoveTarget) {
+    setSaved(false);
+    setRemoveError(null);
+    setRemoval(target);
+  }
+
+  async function remove() {
+    const signal = lifetime.current?.signal;
+    if (!removal || removing || !signal || signal.aborted) return;
+    const { entry: target } = removal;
+    const input = { session, entryId: target.entryId, expectedRevision: target.revision };
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      if (removal.kind === "account") {
+        await engine.call("safe.accounts.delete", { ...input, accountId: removal.account.accountId }, { write: true, signal });
+      } else {
+        await engine.call("safe.entries.delete", { ...input, confirmedAccountCount: target.accounts.length }, { write: true, signal });
+      }
+      signal.throwIfAborted();
+      if (removal.kind === "entry") {
+        returnTo.current = target.entryId;
+        setSelection(null);
+      } else {
+        select({ entryId: target.entryId });
+      }
+      setCatalog(null);
+      setRemoval(null);
+      load(signal);
+    } catch (error) {
+      if (signal.aborted || handleError(error)) return;
+      if (error instanceof CapabilityError && (error.code === "VERSION_CONFLICT" || error.code === "NOT_FOUND")) {
+        setRemoveError("条目已在另一处变化。请重新打开详情后确认删除。");
+        load(signal);
+      } else setRemoveError(error instanceof Error ? error.message : "删除结果待核实，请重新读取保险箱");
+    } finally {
+      if (!signal.aborted) setRemoving(false);
+    }
+  }
+
+  const lastAccount = removal?.kind === "account" && removal.entry.accounts.length === 1;
 
   return (
     <>
@@ -289,7 +343,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                 <h2 ref={heading} tabIndex={-1}>
                   {entry.name}
                 </h2>
-                <Button onClick={() => openEditor({ kind: "entry", entry })}>编辑条目</Button>
+                <div className="row">
+                  <Button onClick={() => openEditor({ kind: "entry", entry })}>编辑条目</Button>
+                  <Button variant="ghost" onClick={() => confirmRemove({ kind: "entry", entry })}>
+                    删除条目
+                  </Button>
+                </div>
               </div>
               <div className="hu-stack hu-safe-detail-body">
                 <div className="safe-read-value">{entry.url || "未填网址"}</div>
@@ -309,7 +368,12 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                 <div className="hu-card-alt hu-stack safe-account-card">
                   <div className="safe-account-head">
                     <h3>{account.account}</h3>
-                    <Button onClick={() => openEditor({ kind: "account", entry, account })}>编辑账号</Button>
+                    <div className="row">
+                      <Button onClick={() => openEditor({ kind: "account", entry, account })}>编辑账号</Button>
+                      <Button variant="ghost" onClick={() => confirmRemove({ kind: "account", entry, account })}>
+                        删除账号
+                      </Button>
+                    </div>
                   </div>
                   <Field label="手机号">
                     <div className="safe-read-value">{account.phone || "未设置"}</div>
@@ -322,7 +386,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                   </Field>
                   <Field label="密码">
                     <PasswordValue
-                      key={`${entry.entryId}:${account.accountId}:${editor !== null || managingTags}`}
+                      key={`${entry.entryId}:${account.accountId}:${editor !== null || managingTags || removal !== null}`}
                       hasPassword={account.hasPassword}
                       getSessionSignal={() => lifetime.current?.signal}
                       onSessionEnded={endSession}
@@ -341,6 +405,46 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
         <TagManager tags={tags} counts={tagCounts} revision={catalog.revision} session={session} getSignal={() => lifetime.current?.signal} reload={reload} onError={handleError} onClose={() => setManagingTags(false)} />
       ) : null}
       {editor && <EntryEditor target={editor} tags={tags} session={session} getSessionSignal={() => lifetime.current?.signal} reload={reload} onSaved={finishSave} onClose={() => setEditor(null)} onLock={onLock} onError={handleError} />}
+      {removal ? (
+        <Dialog
+          key={removal.kind}
+          open
+          title={removal.kind === "entry" ? "删除整个条目" : "删除账号"}
+          testId="safe-remove-confirmation"
+          error={removeError}
+          onClose={() => {
+            if (!removing) setRemoval(null);
+          }}
+          actions={
+            <>
+              <Button autoFocus disabled={removing} onClick={() => setRemoval(null)}>
+                取消
+              </Button>
+              {lastAccount ? (
+                <Button onClick={() => confirmRemove({ kind: "entry", entry: removal.entry })}>删除整个条目…</Button>
+              ) : (
+                <Button variant="danger" loading={removing} onClick={() => void remove()}>
+                  {removal.kind === "entry" ? "确认删除条目" : "确认删除账号"}
+                </Button>
+              )}
+            </>
+          }
+        >
+          {removal.kind === "entry" ? (
+            <p>
+              「{removal.entry.name}」及其 {removal.entry.accounts.length} 个账号将从保险箱移除。
+            </p>
+          ) : lastAccount ? (
+            <p>
+              「{removal.account.account}」是「{removal.entry.name}」仅剩的账号。你可以继续确认删除整个条目，或取消。
+            </p>
+          ) : (
+            <p>
+              从「{removal.entry.name}」移除账号「{removal.account.account}」。
+            </p>
+          )}
+        </Dialog>
+      ) : null}
     </>
   );
 }

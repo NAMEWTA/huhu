@@ -9,6 +9,9 @@ import {
   CreateEntryReceipt,
   CreateTag,
   CreateTagReceipt,
+  DeleteAccount,
+  DeleteEntry,
+  DeleteEntryReceipt,
   DeleteTag,
   EntryDetail,
   EntryIndex,
@@ -28,6 +31,7 @@ import {
 import { Safe, type SafeAccess } from "./safe.js";
 
 export { Safe } from "./safe.js";
+export { withSafePackageSnapshot } from "./store.js";
 
 const Ok = z.strictObject({ ok: z.literal(true) });
 const Empty = z.strictObject({});
@@ -69,6 +73,8 @@ const caps = {
   listEntries: tool("entries.list", "列出保险箱条目索引", "read", ListEntries, EntryIndex),
   getEntry: tool("entries.get", "读取保险箱条目摘要", "read", GetEntry, EntryDetail),
   updateAccount: tool("accounts.update", "编辑指定账号", "write", UpdateAccount, UpdateAccountReceipt),
+  deleteAccount: tool("accounts.delete", "移除条目中的指定账号", "write", DeleteAccount, UpdateEntryReceipt),
+  deleteEntry: tool("entries.delete", "删除整个条目及其账号", "write", DeleteEntry, DeleteEntryReceipt),
   reveal: tool("accounts.reveal", "显式查看指定账号的明文密码", "read", RevealAccount, z.strictObject({ password: z.string() }), { individualExposure: true }),
   listTags: tool("tags.list", "列出保险箱标签", "read", ListEntries, TagList),
   createTag: tool("tags.create", "新建保险箱标签", "write", CreateTag, CreateTagReceipt),
@@ -169,6 +175,8 @@ export function apply(
   personal(caps.listEntries, (access, input) => safe.listEntries(input.session, access));
   personal(caps.getEntry, (access, input) => safe.getEntry(input.session, input.entryId, access));
   personal(caps.updateAccount, (access, input) => safe.updateAccount(input, access));
+  personal(caps.deleteAccount, (access, input) => safe.deleteAccount(input, access));
+  personal(caps.deleteEntry, (access, input) => safe.deleteEntry(input, access));
   personal(caps.reveal, (access, input) => safe.revealAccount(input.session, input.entryId, input.accountId, access));
   personal(caps.listTags, (access, input) => safe.listTags(input.session, access));
   personal(caps.createTag, (access, input) => safe.createTag(input, access));

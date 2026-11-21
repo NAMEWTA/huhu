@@ -19,7 +19,7 @@ const engines: RunningEngine[] = [];
 
 class SafeTestClient extends EngineClient {
   override call<T>(capability: string, input?: unknown, opts: CallOptions = {}) {
-    const write = /^safe\.(entries\.(create|update)|accounts\.update|tags\.(create|update|delete))$/.test(capability);
+    const write = /^safe\.(entries\.(create|update|delete)|accounts\.(update|delete)|tags\.(create|update|delete))$/.test(capability);
     return super.call<T>(capability, input, { write, ...opts });
   }
 }
@@ -79,6 +79,49 @@ function blockManifestPublish(engine: RunningEngine, publicationsReady = () => t
   });
   return { mock, intercepted: () => intercepted };
 }
+
+test("删除按条目、账号 ID 和修订生效，保留另一条目和共享标签", async () => {
+  const { engine, client, root, current } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const { tagId } = await client.call<{ tagId: string }>("safe.tags.create", { session: scope, expectedRevision: 0, name: data.marker, color: "purple" });
+  const create = { session: scope, tagIds: [tagId], accounts: data.accounts.slice(0, 2) };
+  const alpha = await client.call<Receipt>("safe.entries.create", { ...create, expectedRevision: 1, name: "站点甲" });
+  const beta = await client.call<Receipt>("safe.entries.create", { ...create, expectedRevision: 2, name: "站点乙" });
+  const revise = { session: scope, entryId: alpha.entryId, expectedRevision: alpha.revision };
+  const firstRemoval = { ...revise, accountId: alpha.accountIds[0] };
+  await expect(client.call("safe.accounts.delete", { ...firstRemoval, accountId: beta.accountIds[0] })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const edit = await client.call<UpdatedAccount>("safe.accounts.update", { ...firstRemoval, note: "另一端已改过", password: { kind: "keep" } });
+  await expect(client.call("safe.accounts.delete", firstRemoval)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  const removed = await client.call<{ revision: number }>("safe.accounts.delete", { ...firstRemoval, expectedRevision: edit.revision });
+  const lastRemoval = { ...revise, expectedRevision: removed.revision, accountId: alpha.accountIds[1] };
+  await expect(client.call("safe.accounts.delete", lastRemoval)).rejects.toMatchObject({ code: "INVALID_INPUT", details: { reason: "last-account" } });
+  const erase = { ...revise, expectedRevision: removed.revision, confirmedAccountCount: 1 };
+  await expect(client.call("safe.entries.delete", { ...erase, confirmedAccountCount: 2 })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  const manifest = path.join(current, "manifest.json");
+  const published = readFileSync(manifest);
+  const failure = blockManifestPublish(engine);
+  try {
+    await expect(client.call("safe.entries.delete", erase)).rejects.toMatchObject({ code: "INTERNAL" });
+    expect(failure.intercepted()).toBe(true);
+  } finally {
+    failure.mock.mockRestore();
+  }
+  expect(readFileSync(manifest)).toEqual(published);
+  await engine.shutdown();
+  const reopened = await openEngine(root);
+  await reopened.client.call("safe.unlock", { password: data.password });
+  const unlocked = await session(reopened.client);
+  const detail = { session: unlocked, entryId: alpha.entryId };
+  expect((await reopened.client.call<Detail>("safe.entries.get", detail)).accounts.map(({ accountId }) => accountId)).toEqual([alpha.accountIds[1]]);
+  expect(await reopened.client.call("safe.entries.delete", { ...erase, session: unlocked })).toEqual({ entryId: alpha.entryId, deleted: true });
+  await expect(reopened.client.call("safe.entries.get", detail)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  const kept = await reopened.client.call<TaggedDetail>("safe.entries.get", { session: unlocked, entryId: beta.entryId });
+  expect(kept.tagIds).toEqual([tagId]);
+  expect(kept.accounts.map(({ accountId }) => accountId)).toEqual(beta.accountIds);
+  expect((await reopened.client.call<TagDirectory>("safe.tags.list", { session: unlocked })).tags).toMatchObject([{ tagId }]);
+}, 30_000);
 
 test("条目与内联新增标签只由同一份清单发布，失败后重试可复用标签", async () => {
   const { client, current, engine, root } = await openEngine();

@@ -132,21 +132,22 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       return send(400, { error: "请求不是合法 JSON" });
     }
     const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
+    if (signal.aborted) return send(401, { error: "MCP 会话已关闭" });
+    const revoked = () => ({ ok: false as const, error: errors.permissionDenied("MCP 会话已关闭").toJSON() });
     const call = async (capability: string, input: unknown, intentKey?: string) => {
-      const revoked = () => ({ ok: false as const, error: errors.permissionDenied("MCP 会话已关闭").toJSON() });
       if (signal.aborted) return revoked();
       const result = await d.dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, signal, subject);
       return signal.aborted ? revoked() : result;
     };
     const mcp = createMcpServer(
       {
-        list: () => discover(caller),
+        list: () => (signal.aborted ? [] : discover(caller)),
         callTool: async (name, input, intentKey) => {
           const capability = resolveTool(name);
-          return capability ? call(capability, input, intentKey) : unknownTool(name);
+          return signal.aborted ? revoked() : capability ? call(capability, input, intentKey) : unknownTool(name);
         },
         call,
-        operation: (lookup) => d.dispatcher.readOperation(caller, subject, lookup),
+        operation: (lookup) => (signal.aborted ? revoked() : d.dispatcher.readOperation(caller, subject, lookup)),
       },
       "0.0.1",
     );

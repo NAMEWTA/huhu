@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, type EventPayload, type EventType } from "@huhu/contracts";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
-import type { CreateEntry, CreateTag, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
+import type { CreateEntry, CreateTag, DeleteAccount, DeleteEntry, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
 import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type EntryPrecondition, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export interface SafeAccess {
@@ -28,6 +28,8 @@ export interface AuditEntry {
     | "create-entry"
     | "update-entry"
     | "update-account"
+    | "delete-account"
+    | "delete-entry"
     | "reveal-account"
     | "create-tag"
     | "update-tag"
@@ -402,7 +404,7 @@ export class Safe {
     }
   }
 
-  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account"; itemId: string }, newTags?: TagFields[]) {
+  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account" | "delete-account"; itemId: string }, newTags?: TagFields[]) {
     return this.withPersonalSession(input.session, access, async (store, dk, guard) => {
       const currentRevision = store.manifest.entries[input.entryId];
       if (currentRevision === undefined) throw errors.notFound("条目不存在");
@@ -452,6 +454,40 @@ export class Safe {
     );
     const hasPassword = accounts.some((account) => account.accountId === accountId && account.password.length > 0);
     return { entryId, accountId, revision, hasPassword };
+  }
+
+  async deleteAccount(input: DeleteAccount, access: SafeAccess) {
+    const { accountId } = input;
+    const { entryId, revision } = await this.editEntry(
+      input,
+      access,
+      (entry) => {
+        const accounts = entry.accounts.filter((account) => account.accountId !== accountId);
+        if (accounts.length === entry.accounts.length) throw errors.notFound("账号不存在");
+        if (!accounts.length) throw new HuhuError("INVALID_INPUT", "最后一个账号需要确认删除整个条目", { details: { reason: "last-account" } });
+        return { ...entry, accounts };
+      },
+      { action: "delete-account", itemId: accountId },
+    );
+    return { entryId, revision };
+  }
+
+  deleteEntry(input: DeleteEntry, access: SafeAccess) {
+    return this.withPersonalSession(input.session, access, async (store, dk, guard) => {
+      const { entryId, expectedRevision, confirmedAccountCount } = input;
+      const revision = store.manifest.entries[entryId];
+      if (revision === undefined) throw errors.notFound("条目不存在");
+      if (revision !== expectedRevision) throw errors.versionConflict(String(revision));
+      if (this.store.readEntry(store, dk, entryId).accounts.length !== confirmedAccountCount) throw errors.invalidInput("确认的账号数已变化");
+      try {
+        await this.store.deleteEntry(dk, entryId, expectedRevision, guard);
+      } catch (error) {
+        if (error instanceof HuhuError) throw error;
+        throw new HuhuError("INTERNAL", "保险箱条目删除提交失败，请重试");
+      }
+      this.auditBestEffort({ action: "delete-entry", itemId: entryId, subject: access.subject, result: "ok" });
+      return { entryId, deleted: true as const };
+    });
   }
 
   listEntries(session: SafeSession, access: SafeAccess) {

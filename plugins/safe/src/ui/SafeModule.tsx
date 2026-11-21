@@ -41,6 +41,8 @@ const ACTION_TEXT: Record<string, string> = {
   "create-entry": "新建条目",
   "update-entry": "编辑条目",
   "update-account": "编辑账号",
+  "delete-account": "删除账号",
+  "delete-entry": "删除条目",
   "create-tag": "新建标签",
   "update-tag": "编辑标签",
   "delete-tag": "删除标签",

@@ -59,6 +59,9 @@ export const UpdateAccount = z.strictObject({
   accountId: z.uuid(),
   password: PasswordChange,
 });
+export const DeleteAccount = z.strictObject({ ...EditTarget.shape, accountId: z.uuid() });
+export const DeleteEntry = z.strictObject({ ...EditTarget.shape, confirmedAccountCount: z.int().positive() });
+export const DeleteEntryReceipt = z.strictObject({ entryId: z.uuid(), deleted: z.literal(true) });
 
 const EntryRef = z.object({ entryId: z.uuid(), revision: Revision });
 const EntryHeader = EntryRef.extend({ name: RequiredText, url: OptionalUrl, tagIds: z.array(z.uuid()), createdAt: Timestamp, updatedAt: Timestamp });
@@ -75,6 +78,8 @@ export type CreateEntry = z.infer<typeof CreateEntry>;
 export type EditTarget = z.infer<typeof EditTarget>;
 export type UpdateEntry = z.infer<typeof UpdateEntry>;
 export type UpdateAccount = z.infer<typeof UpdateAccount>;
+export type DeleteAccount = z.infer<typeof DeleteAccount>;
+export type DeleteEntry = z.infer<typeof DeleteEntry>;
 export type StoredEntry = z.infer<typeof StoredEntry>;
 export type Tag = z.infer<typeof Tag>;
 export type TagFields = z.infer<typeof TagFields>;

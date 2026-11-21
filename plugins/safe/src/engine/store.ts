@@ -131,9 +131,27 @@ function entryAt(file: string) {
   return lstatSync(file, { throwIfNoEntry: false });
 }
 
+const pendingSafeIo = new WeakMap<SafeFiles, Promise<void>>();
+
+function withSafeSnapshot<T>(files: SafeFiles, operation: () => Promise<T>): Promise<T> {
+  const committed = (pendingSafeIo.get(files) ?? Promise.resolve()).then(operation);
+  const tail = committed.then(
+    () => undefined,
+    () => undefined,
+  );
+  pendingSafeIo.set(files, tail);
+  void tail.then(() => {
+    if (pendingSafeIo.get(files) === tail) pendingSafeIo.delete(files);
+  });
+  return committed;
+}
+
+export function withSafePackageSnapshot<T>(files: SafeFiles, read: (included: ReadonlySet<string>) => Promise<T>): Promise<T> {
+  return withSafeSnapshot(files, () => read(new SafeStore(files, path.join(files.root, ".huhu", "safe")).packageFiles()));
+}
+
 export class SafeStore {
   private readonly relativeDir: string;
-  private pendingWrite: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly files: SafeFiles,
@@ -182,28 +200,34 @@ export class SafeStore {
   async initialize(ring: z.infer<typeof CurrentRing>, dk: Buffer, guard: () => void): Promise<void> {
     const manifest = { format: SAFE_FORMAT, vaultKeyId: ring.vaultKeyId, revision: 0, entries: {}, tags: null } as const;
     const manifestBytes = encodeManifest(manifest, dk);
-    await this.stage(async (dir) => {
-      await this.files.write(`${dir}/${KEYRING}`, encodeRing(ring), { expectedVersion: null });
-      guard();
-      await this.files.write(`${dir}/${MANIFEST}`, manifestBytes, { expectedVersion: null });
-      guard();
-      const state = this.load();
-      if (state.kind === "corrupt") throw corruptStore(state.file);
-      if (state.kind === "ready") throw errors.invalidInput("保险箱已经设置过");
-      const destination = this.files.abs(`${this.relativeDir}/current`);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      // One rename publishes both files. There is no await between checking the session and publishing.
-      renameSync(this.files.abs(dir), destination);
-    });
+    await this.enqueue(() =>
+      this.stage(async (dir) => {
+        guard();
+        await this.files.write(`${dir}/${KEYRING}`, encodeRing(ring), { expectedVersion: null });
+        guard();
+        await this.files.write(`${dir}/${MANIFEST}`, manifestBytes, { expectedVersion: null });
+        guard();
+        const state = this.load();
+        if (state.kind === "corrupt") throw corruptStore(state.file);
+        if (state.kind === "ready") throw errors.invalidInput("保险箱已经设置过");
+        const destination = this.files.abs(`${this.relativeDir}/current`);
+        mkdirSync(path.dirname(destination), { recursive: true });
+        // One rename publishes both files. There is no await between checking the session and publishing.
+        renameSync(this.files.abs(dir), destination);
+      }),
+    );
   }
 
   async replaceRing(previous: LoadedSafe, ring: Keyring, guard: () => void): Promise<void> {
-    await this.stage(async (dir) => {
-      await this.files.write(`${dir}/${KEYRING}`, encodeRing(ring), { expectedVersion: null });
-      guard();
-      this.assertVersion(previous);
-      renameSync(this.files.abs(`${dir}/${KEYRING}`), this.files.abs(previous.file));
-    });
+    await this.enqueue(() =>
+      this.stage(async (dir) => {
+        guard();
+        await this.files.write(`${dir}/${KEYRING}`, encodeRing(ring), { expectedVersion: null });
+        guard();
+        this.assertVersion(previous);
+        renameSync(this.files.abs(`${dir}/${KEYRING}`), this.files.abs(previous.file));
+      }),
+    );
   }
 
   readEntry(store: CurrentSafe, dk: Buffer, entryId: string): StoredEntry {
@@ -248,12 +272,21 @@ export class SafeStore {
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const committed = this.pendingWrite.then(operation);
-    this.pendingWrite = committed.then(
-      () => undefined,
-      () => undefined,
-    );
-    return committed;
+    return withSafeSnapshot(this.files, operation);
+  }
+
+  packageFiles(): ReadonlySet<string> {
+    const state = this.load();
+    if (state.kind === "corrupt") throw corruptStore(state.file);
+    if (state.kind === "empty") return new Set();
+    if (!state.manifest) throw errors.invalidInput("保险箱是旧格式，无法生成当前格式的备份");
+    const files = new Set([state.file, `${this.relativeDir}/current/${MANIFEST}`]);
+    for (const [id, revision] of Object.entries(state.manifest.entries)) files.add(this.entryFile(id, revision));
+    if (state.manifest.tags !== null) files.add(this.tagsFile(state.manifest.tags));
+    for (const file of files) {
+      if (!entryAt(this.files.abs(file))?.isFile()) throw corruptStore("备份所需的保险箱文件");
+    }
+    return files;
   }
 
   private current(): CurrentSafe {
@@ -308,9 +341,21 @@ export class SafeStore {
     });
   }
 
-  private async publish(store: CurrentSafe, dk: Buffer, drafts: EntryDraft[], tags: Tag[] | undefined, guard: () => void) {
+  deleteEntry(dk: Buffer, entryId: string, expectedRevision: number, guard: () => void): Promise<void> {
+    return this.enqueue(async () => {
+      guard();
+      const store = this.current();
+      const revision = store.manifest.entries[entryId];
+      if (revision === undefined) throw errors.notFound("条目不存在");
+      if (revision !== expectedRevision) throw errors.versionConflict(String(revision));
+      await this.publish(store, dk, [], undefined, guard, entryId);
+    });
+  }
+
+  private async publish(store: CurrentSafe, dk: Buffer, drafts: EntryDraft[], tags: Tag[] | undefined, guard: () => void, removeEntryId?: string) {
     const { authentication: _auth, checksum: _sum, ...previous } = store.manifest;
     const next = { ...previous, revision: previous.revision + 1, entries: { ...previous.entries } };
+    if (removeEntryId) delete next.entries[removeEntryId];
     if (!Number.isSafeInteger(next.revision)) throw errors.invalidInput("保险箱版本已达上限");
     const pending: PendingFile[] = drafts.map((draft, index) => {
       const { entryId } = draft;
