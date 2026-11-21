@@ -1,8 +1,15 @@
 # Huhu 项目指令
 
-## 按需启用协作规则
+##  编排规则
 
-用户明确选用协作规则组时，读取[模型与协作规则](.agents/dev/context/model-roles.md)并应用所选组。未选用时沿用当前会话与工具设置。
+使用 Herdr Core 编排，按 `.agents/skills/system-herdr-core/SKILL.md`、`.agents/dev/context/model-roles.md` 和本机 `hc --skill` 操作。主会话沿用启动模型；疑难分析用 `gpt-6.2-astra / high`，实现用 `gpt-6.2-sol / high`，独立审查用 `gpt-6.2-sol / xhigh`。Codex 使用 `--no-daemon`，不用 fast，不传 `-c service_tier=fast`，也不从旧模板继承 fast 或权限绕过参数。最多保留 4 个 worktree。
+
+## 测试与内存约束
+
+- 开发过程中只运行自己改动涉及的测试（如 `pnpm vitest run <路径>`），不跑全量套件。
+- 全量测试只在全部改动完成、收尾时统一跑一次；同一时刻只允许一个 worktree 跑全量测试。
+- 并发由根目录 `vitest.config.ts` 限制为 `maxWorkers: 3`，不要用命令行参数调高。
+- 起因：多个 worktree 并行跑测试曾耗尽内存，被 systemd-oomd 整体杀掉 hc 的所有智能体。
 
 ## 获取项目 Issue
 
