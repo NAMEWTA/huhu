@@ -61,6 +61,7 @@ describe("纳入范围（ACC-VS-06）", () => {
       ".huhu/ui/state.json",
       ".huhu/safe/keyring.json",
       ".git/config",
+      "笔记/.huhu-create-0b6c2f1e",
     ])
       expect(classify(p, []).include, p).toBe(false);
   });

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
+import { CREATION_STAGE_PREFIX } from "@huhu/vault";
 import { z } from "zod";
 import { canSendAuthentication } from "../shared/git-auth.js";
 import { askpassCommand, openAskpass, scrubEnvironment } from "./askpass.js";
@@ -86,6 +87,7 @@ function matchingExclude(rel: string, exclude: readonly string[]): string | unde
 /** 判断一个 Vault 相对路径是否纳入同步。 */
 export function classify(rel: string, exclude: readonly string[]): Verdict {
   if (isSafePath(rel)) return { include: false, reason: "仅同步保险箱当前整代资料" };
+  if (path.posix.basename(rel).startsWith(CREATION_STAGE_PREFIX)) return { include: false, reason: "Vault 写入暂存条目" };
   if (rel.toLowerCase() === ".huhu" || rel.toLowerCase().startsWith(".huhu/")) {
     const inner = rel.slice(".huhu/".length);
     if (!HUHU_INCLUDE.some((i) => (i.endsWith("/") ? inner.startsWith(i) : inner === i))) return { include: false, reason: `.huhu/${inner.split("/")[0]}/ 不在同步范围` };
