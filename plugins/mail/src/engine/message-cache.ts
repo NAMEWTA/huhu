@@ -1,7 +1,8 @@
+import { mailRequestId, mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
-import { bindCapability, CredentialError, defineCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, CredentialError, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import type { AccountRemovals } from "./account-removals.js";
@@ -17,7 +18,7 @@ import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply
 import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
 import { preserveReadOverrides, readOverridePath, readOverrides } from "./read-overrides.js";
 import { sourceMessage } from "./reply-context.js";
-import type { makeMailSearchText } from "./search-text.js";
+import { searchableHtml, type makeMailSearchText } from "./search-text.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });
 const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
@@ -92,20 +93,25 @@ type GmailEntry = z.infer<typeof gmailEntry>;
 type Files = HuhuApi["vault"]["files"];
 export type MailFolderSyncStatus = z.infer<typeof syncStatus>;
 
-const internal = { plugin: "mail", risk: "normal", exposable: false, defaultExposed: false } as const;
+import { mailUnknown, type MailIntents } from "./tool-intents.js";
+
+const mailboxRevision = { expectedRevision: z.uuid().optional(), requestId: mailRequestId };
 
 export const mailRefreshDescriptor = defineCapabilityDescriptor({
-  ...internal,
+  ...mailTool,
+  risk: "high",
   name: "mail.sync.refresh",
   title: "刷新邮箱目录",
   description: "分批刷新已选目录的邮件和已读状态。",
   timeoutMs: 90_000,
-  scope: "write",
-  input: mailbox,
+  scope: "execute",
+  idempotency: "handler",
+  input: mailbox.extend(mailboxRevision),
   output: z.strictObject({ message: cachedSummary.nullable(), mailboxChanged: z.boolean(), sync: syncStatus }),
 });
 export const mailLatestMessageDescriptor = defineCapabilityDescriptor({
-  ...internal,
+  ...mailTool,
+  risk: "high",
   name: "mail.messages.latest",
   title: "最新邮件",
   description: "从此 Vault 读取所选目录已缓存的最新邮件摘要。",
@@ -114,7 +120,8 @@ export const mailLatestMessageDescriptor = defineCapabilityDescriptor({
   output: z.strictObject({ message: cachedSummary.nullable() }),
 });
 export const mailMessageSourceDescriptor = defineCapabilityDescriptor({
-  ...internal,
+  ...mailTool,
+  risk: "high",
   name: "mail.messages.loadSource",
   title: "读取邮件原文",
   description: "读取同一账号、目录和消息代的本机邮件原文。",
@@ -212,6 +219,89 @@ export function requireCachedMessage(files: Files, input: z.infer<typeof sourceM
 
 export type MailNotificationSink = (notice: { id: string; module: "mail"; title: string }) => void;
 
+const bodyOutput = z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody, sourceDigest: forwardContext.shape.sourceDigest }), z.strictObject({ state: z.literal("needs-refresh") })]);
+
+export const messageCacheDescriptors = {
+  refresh: mailRefreshDescriptor,
+  latest: mailLatestMessageDescriptor,
+  source: mailMessageSourceDescriptor,
+  cacheUsage: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.cache.usage",
+    title: "查看邮件缓存用量",
+    description: "统计本机可重建的邮件缓存。",
+    risk: "normal",
+    scope: "read",
+    input: z.strictObject({}),
+    output: usageSchema.extend({ revision: z.string().optional() }),
+  }),
+  cacheClear: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.cache.clear",
+    title: "清理邮件缓存",
+    description: "清理可重建的邮件缓存。",
+    risk: "high",
+    scope: "write",
+    input: z.strictObject({ confirm: z.literal(true), requestId: mailRequestId, expectedRevision: z.string().optional() }),
+    output: usageSchema,
+    idempotency: "handler",
+  }),
+  syncStatus: defineCapabilityDescriptor({ ...mailTool, name: "mail.sync.status", title: "查看邮件同步状态", description: "读取指定邮箱目录当前的同步状态。", risk: "normal", scope: "read", input: mailbox, output: syncStatus.nullable() }),
+  notificationsTarget: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.notifications.target",
+    title: "定位邮件通知",
+    description: "读取通知关联的源邮件。",
+    risk: "high",
+    scope: "read",
+    input: z.strictObject({ id: z.string().regex(/^ntf-mail-[0-9a-f]{64}$/) }),
+    output: receivedTarget.nullable(),
+  }),
+  messagesPrepareReply: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.messages.prepareReply",
+    title: "准备邮件回复",
+    description: "从缓存生成回复草稿种子。",
+    risk: "high",
+    scope: "read",
+    input: messageKey.extend({ mode: replyMode }),
+    output: replySeed,
+  }),
+  messagesPrepareForward: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.messages.prepareForward",
+    title: "准备转发邮件",
+    description: "从缓存生成转发草稿种子。",
+    risk: "high",
+    scope: "read",
+    input: messageKey,
+    output: forwardSeed,
+  }),
+  messagesPrepareNewTopic: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.messages.prepareNewTopic",
+    title: "准备邮件新话题",
+    description: "从缓存提取公开参与者。",
+    risk: "high",
+    scope: "read",
+    input: messageKey,
+    output: newTopicSeed,
+  }),
+  messagesMarkRead: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.messages.markRead",
+    title: "标记邮件已读",
+    description: "将指定缓存邮件标记已读并核对远端状态。",
+    risk: "high",
+    scope: "write",
+    idempotency: "handler",
+    input: messageKey.extend(mailboxRevision),
+    output: z.strictObject({ state: z.enum(["local", "synced", "needs-refresh"]), remoteSynced: z.boolean() }),
+  }),
+  messagesLoadBody: defineCapabilityDescriptor({ ...mailTool, name: "mail.messages.loadBody", title: "读取邮件正文", description: "读取指定来源的已缓存正文。", risk: "high", scope: "read", input: messageKey, output: bodyOutput }),
+  conversationsLoadBody: defineCapabilityDescriptor({ ...mailTool, name: "mail.conversations.loadBody", title: "读取邮件正文", description: "读取指定来源的已缓存正文。", risk: "high", scope: "read", input: messageKey, output: bodyOutput }),
+};
+
 export function registerMessageCache(
   api: HuhuApi,
   accounts: ReturnType<typeof openMailAccounts> | undefined,
@@ -219,6 +309,7 @@ export function registerMessageCache(
   removals: AccountRemovals,
   writer: Pick<MailDrafts, "serialize">,
   search: Pick<ReturnType<typeof makeMailSearchText>, "clear" | "usage">,
+  once: MailIntents,
   notify?: MailNotificationSink,
 ) {
   const files = api.vault.files;
@@ -226,8 +317,20 @@ export function registerMessageCache(
   let clearing: Promise<MailCacheUsage> | undefined;
   const writes = new Map<string, { accountId: string; task: Promise<unknown> }>();
   const authorize = (caller: string, name: string) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(name);
+    requireMailCaller(caller, name);
   };
+  function configured({ accountId, folder }: Mailbox, publicOnly = false) {
+    if (removals.read(accountId)) return;
+    const account = accounts?.readDefinition(accountId);
+    if (account?.definition.folders.some((row) => row.path === folder && (!publicOnly || isPublicMailFolder(row)))) return account;
+  }
+
+  function requireMailboxRevision(input: Mailbox, expectedRevision: string | undefined) {
+    const account = configured(input);
+    if (!account) throw errors.notFound("邮箱或已选目录");
+    if (!expectedRevision) throw errors.invalidInput("此操作需要当前邮箱版本。");
+    if (account.revision !== expectedRevision) throw errors.versionConflict(account.revision);
+  }
   function serialize<T>(input: Mailbox, run: () => Promise<T>): Promise<T> {
     const key = cachePath(input);
     const task = (writes.get(key)?.task ?? Promise.resolve()).catch(() => undefined).then(run);
@@ -425,17 +528,25 @@ export function registerMessageCache(
     return { message: snapshot.message?.summary ?? null, mailboxChanged: mailboxChanged || activeGmail, sync: snapshotStatus(next), more: result.more, idle };
   }
 
-  function refresh(input: Mailbox, signal: AbortSignal) {
+  function refresh(input: Mailbox, signal: AbortSignal, expectedRevision?: string) {
     files.assertWritable();
     epoch.signal.throwIfAborted();
     if (!accounts) throw errors.invalidInput("此 Vault 的本机邮箱凭据不可用");
     signal.throwIfAborted();
+    if (expectedRevision !== undefined) requireMailboxRevision(input, expectedRevision);
     const key = cachePath(input);
     let active = jobs.get(key);
     if (!active || active.controller.signal.aborted) {
       const controller = new AbortController();
       const cancelled = AbortSignal.any([controller.signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
-      const task = (accountTails.get(input.accountId) ?? Promise.resolve()).catch(() => undefined).then(() => serialize(input, () => syncMailbox(input, cancelled)));
+      const task = (accountTails.get(input.accountId) ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() =>
+          serialize(input, () => {
+            if (expectedRevision !== undefined) requireMailboxRevision(input, expectedRevision);
+            return syncMailbox(input, cancelled);
+          }),
+        );
       active = { controller, task, waiters: 0 };
       jobs.set(key, active);
       accountTails.set(input.accountId, task);
@@ -468,16 +579,31 @@ export function registerMessageCache(
     return Promise.allSettled([...accountTails.values(), ...[...writes.values()].map(({ task }) => task)]);
   }
 
-  async function clearCache(signal: AbortSignal) {
+  function cacheRevision() {
+    return digest(
+      mailCacheFiles(files)
+        .map(({ relative }) => [relative, files.currentVersion(relative)])
+        .sort(),
+    );
+  }
+
+  async function clearCache(signal: AbortSignal, expectedRevision?: string) {
     files.assertWritable();
     signal.throwIfAborted();
     lifetime.throwIfAborted();
-    if (clearing) return clearing;
+    if (clearing) {
+      if (expectedRevision !== undefined) throw errors.invalidInput("邮件缓存正在清理，请读取最新范围。");
+      return clearing;
+    }
     epoch.abort(errors.invalidInput("邮件缓存正在清理。"));
     clearing = (async () => {
       await drainCacheWork();
       return writer.serialize(async () => {
         lifetime.throwIfAborted();
+        if (expectedRevision !== undefined) {
+          const current = cacheRevision();
+          if (current !== expectedRevision) throw errors.versionConflict(current);
+        }
         const found = mailCacheFiles(files);
         const removed = usage();
         const marked = new Map<string, Set<string>>();
@@ -517,35 +643,32 @@ export function registerMessageCache(
   }
 
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.cache.usage",
-      scope: "read",
-      input: z.strictObject({}),
-      output: usageSchema,
-      handler: ({ caller }) => {
-        authorize(caller, "mail.cache.usage");
-        return usage();
-      },
+    bindCapability(messageCacheDescriptors.cacheUsage, ({ caller }) => {
+      authorize(caller, "mail.cache.usage");
+      return { ...usage(), ...(!isWorkbenchCaller(caller) && { revision: cacheRevision() }) };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.cache.clear",
-      scope: "write",
-      input: z.strictObject({ confirm: z.literal(true) }),
-      output: usageSchema,
-      handler: ({ caller, signal }) => {
-        authorize(caller, "mail.cache.clear");
-        return clearCache(signal);
-      },
+    bindCapability(messageCacheDescriptors.cacheClear, (context, input) => {
+      const name = messageCacheDescriptors.cacheClear.name;
+      authorize(context.caller, name);
+      if (!isWorkbenchCaller(context.caller) && !input.expectedRevision) throw errors.invalidInput("请先获取邮件缓存范围版本。");
+      return once(
+        context,
+        name,
+        input.expectedRevision,
+        input,
+        () => clearCache(context.signal, input.expectedRevision),
+        (data) => data,
+        (data) => data,
+      );
     }),
   );
 
   async function prepareRelated<T>(input: z.infer<typeof sourceMessage>, signal: AbortSignal, prepare: (bytes: Buffer, subject: string, sender: string | null, own: string[]) => Promise<T>) {
     const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
     cancelled.throwIfAborted();
+    if (!configured(input)) throw errors.notFound("原邮件所属目录");
     const message = requireCachedMessage(files, input);
     const available = await accounts?.list();
     const sourceAccount = available?.find(({ accountId }) => accountId === input.accountId);
@@ -566,197 +689,171 @@ export function registerMessageCache(
     return seed;
   }
   api.defineCapability(
-    bindCapability(mailRefreshDescriptor, async ({ caller, signal }, input) => {
+    bindCapability(mailRefreshDescriptor, (context, { expectedRevision, requestId, ...input }) => {
+      const { caller, signal } = context;
       authorize(caller, mailRefreshDescriptor.name);
-      try {
-        const { message, mailboxChanged, sync } = await refresh(input, signal);
-        return { message, mailboxChanged, sync };
-      } catch (error) {
-        if (!lifetime.aborted && error instanceof MailAccountError && error.code === "oauth-reauthorize") api.events.publish("entity.changed", { kind: "mail-account", id: input.accountId, op: "updated" });
-        if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
-        throw error;
-      }
-    }),
-  );
-  api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.sync.status",
-      scope: "read",
-      input: mailbox,
-      output: syncStatus.nullable(),
-      handler({ caller }, input) {
-        authorize(caller, "mail.sync.status");
-        if (!accounts?.readDefinition(input.accountId)?.definition.folders.some(({ path }) => path === input.folder)) return null;
-        const record = readSnapshot(files, input).record;
-        return record ? snapshotStatus(record) : null;
-      },
-    }),
-  );
-  api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.notifications.target",
-      scope: "read",
-      input: z.strictObject({ id: z.string().regex(/^ntf-mail-[0-9a-f]{64}$/) }),
-      output: receivedTarget.nullable(),
-      async handler({ caller, signal }, { id }) {
-        authorize(caller, "mail.notifications.target");
-        const rows = (await accounts?.list()) ?? [];
-        for (const account of rows) {
-          signal.throwIfAborted();
-          lifetime.throwIfAborted();
-          if (removals.read(account.accountId) || accounts?.readDefinition(account.accountId)?.revision !== account.revision) continue;
-          for (const folder of account.definition.folders) {
-            if (folder.path.toLowerCase() !== "inbox" || !isPublicMailFolder(folder)) continue;
-            const entry = cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path }).find(({ summary }) => noticeId(summary.localMessageId) === id);
-            if (entry?.publicMail) return receivedLocation(entry.summary);
+      return once(
+        context,
+        mailRefreshDescriptor.name,
+        requestId,
+        { ...input, expectedRevision },
+        async () => {
+          try {
+            if (!isWorkbenchCaller(caller)) requireMailboxRevision(input, expectedRevision);
+            const { message, mailboxChanged, sync } = await refresh(input, signal, expectedRevision);
+            return { message, mailboxChanged, sync };
+          } catch (error) {
+            if (!lifetime.aborted && error instanceof MailAccountError && error.code === "oauth-reauthorize") api.events.publish("entity.changed", { kind: "mail-account", id: input.accountId, op: "updated" });
+            if (error instanceof MailAccountError || error instanceof CredentialError) throw new HuhuError("INVALID_INPUT", "无法刷新邮箱目录", { details: { reason: error.code } });
+            throw error;
           }
+        },
+        ({ message, mailboxChanged, sync }) => ({ messageId: message?.localMessageId ?? null, mailboxChanged, sync, version: files.currentVersion(cachePath(input)) }),
+        ({ messageId, mailboxChanged, sync, version }) => {
+          if (!configured(input)) throw errors.notFound("邮箱或已选目录");
+          const cached = readSnapshot(files, input);
+          if (cached.version !== version) throw mailUnknown();
+          const message = messageId ? findCachedMessage(cached.snapshot, messageId)?.summary : null;
+          if (message === undefined) throw mailUnknown();
+          return { message, mailboxChanged, sync };
+        },
+      );
+    }),
+  );
+  api.defineCapability(
+    bindCapability(messageCacheDescriptors.syncStatus, ({ caller }, input) => {
+      authorize(caller, "mail.sync.status");
+      if (!configured(input)) return null;
+      const record = readSnapshot(files, input).record;
+      return record ? snapshotStatus(record) : null;
+    }),
+  );
+  api.defineCapability(
+    bindCapability(messageCacheDescriptors.notificationsTarget, async ({ caller, signal }, { id }) => {
+      authorize(caller, "mail.notifications.target");
+      const rows = (await accounts?.list()) ?? [];
+      for (const account of rows) {
+        signal.throwIfAborted();
+        lifetime.throwIfAborted();
+        if (removals.read(account.accountId) || accounts?.readDefinition(account.accountId)?.revision !== account.revision) continue;
+        for (const folder of account.definition.folders) {
+          if (folder.path.toLowerCase() !== "inbox" || !isPublicMailFolder(folder)) continue;
+          const entry = cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path }).find(({ summary }) => noticeId(summary.localMessageId) === id);
+          if (entry?.publicMail) return receivedLocation(entry.summary);
         }
-        return null;
-      },
+      }
+      return null;
     }),
   );
   api.defineCapability(
     bindCapability(mailLatestMessageDescriptor, ({ caller }, input) => {
       authorize(caller, mailLatestMessageDescriptor.name);
-      const message = removals.read(input.accountId) ? null : readSnapshot(files, input).snapshot?.message;
+      const message = configured(input) ? readSnapshot(files, input).snapshot?.message : null;
       return { message: message && !message.deleted ? message.summary : null };
     }),
   );
   api.defineCapability(
     bindCapability(mailMessageSourceDescriptor, ({ caller }, input) => {
       authorize(caller, mailMessageSourceDescriptor.name);
-      const message = removals.read(input.accountId) ? undefined : findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+      const message = configured(input) ? findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId) : undefined;
       return message ? { state: "ready" as const, message: message.summary, source: message.source } : { state: "needs-refresh" as const };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      plugin: "mail",
-      exposable: false,
-      defaultExposed: false,
-      name: "mail.messages.prepareReply",
-      scope: "read",
-      input: messageKey.extend({ mode: replyMode }),
-      output: replySeed,
-      handler: ({ caller, signal }, { mode, ...input }) => {
-        authorize(caller, "mail.messages.prepareReply");
-        return prepareRelated(input, signal, (bytes, subject, _sender, own) => prepareReply(bytes, input, subject, mode, own));
-      },
+    bindCapability(messageCacheDescriptors.messagesPrepareReply, ({ caller, signal }, { mode, ...input }) => {
+      authorize(caller, "mail.messages.prepareReply");
+      return prepareRelated(input, signal, (bytes, subject, _sender, own) => prepareReply(bytes, input, subject, mode, own));
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.messages.prepareForward",
-      scope: "read",
-      input: messageKey,
-      output: forwardSeed,
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.messages.prepareForward");
-        return prepareRelated(input, signal, async (bytes, subject, accountId) => {
-          const { forward } = await forwardSource(bytes, input, subject);
-          return { accountId, subject: `转发：${forward.subject}`.slice(0, 8192), forward };
-        });
-      },
+    bindCapability(messageCacheDescriptors.messagesPrepareForward, ({ caller, signal }, input) => {
+      authorize(caller, "mail.messages.prepareForward");
+      return prepareRelated(input, signal, async (bytes, subject, accountId) => {
+        const { forward } = await forwardSource(bytes, input, subject);
+        return { accountId, subject: `转发：${forward.subject}`.slice(0, 8192), forward };
+      });
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.messages.prepareNewTopic",
-      scope: "read",
-      input: messageKey,
-      output: newTopicSeed,
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.messages.prepareNewTopic");
-        return prepareRelated(input, signal, async (bytes, _subject, accountId, own) => ({ accountId, to: await newTopicRecipients(bytes, own) }));
-      },
+    bindCapability(messageCacheDescriptors.messagesPrepareNewTopic, ({ caller, signal }, input) => {
+      authorize(caller, "mail.messages.prepareNewTopic");
+      return prepareRelated(input, signal, async (bytes, _subject, accountId, own) => ({ accountId, to: await newTopicRecipients(bytes, own) }));
     }),
   );
-  const bodyOutput = z.discriminatedUnion("state", [z.strictObject({ state: z.literal("ready"), body: messageBody, sourceDigest: forwardContext.shape.sourceDigest }), z.strictObject({ state: z.literal("needs-refresh") })]);
-  async function isPublicSource({ accountId, folder }: Mailbox) {
-    const current = (await accounts?.list())?.find((account) => account.accountId === accountId);
-    return !removals.read(accountId) && current?.definition.folders.some((row) => row.path === folder && isPublicMailFolder(row));
-  }
-  for (const [name, publicOnly] of [
-    ["mail.messages.loadBody", false],
-    ["mail.conversations.loadBody", true],
+  for (const [descriptor, publicOnly] of [
+    [messageCacheDescriptors.messagesLoadBody, false],
+    [messageCacheDescriptors.conversationsLoadBody, true],
   ] as const) {
     api.defineCapability(
-      defineCapability({
-        ...internal,
-        name,
-        scope: "read",
-        input: messageKey,
-        output: bodyOutput,
-        async handler({ caller, signal }, input) {
-          authorize(caller, name);
-          const stale = { state: "needs-refresh" } as const;
-          if (removals.read(input.accountId) || (publicOnly && !(await isPublicSource(input)))) return stale;
-          const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
-          cancelled.throwIfAborted();
-          const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
-          if (!message) return stale;
-          const bytes = Buffer.from(message.source, "base64");
-          const body = await parseMessageBody(bytes).catch(() => null);
-          if (publicOnly && !(await isPublicSource(input))) return stale;
-          cancelled.throwIfAborted();
-          const current = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
-          if (current?.source !== message.source) return stale;
-          if (!body) throw new HuhuError("INVALID_INPUT", publicOnly ? "无法解析邮件正文。" : "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
-          return { state: "ready" as const, body, sourceDigest: sourceDigest(bytes) };
-        },
+      bindCapability(descriptor, async ({ caller, signal }, input) => {
+        authorize(caller, descriptor.name);
+        const stale = { state: "needs-refresh" } as const;
+        if (!configured(input, publicOnly)) return stale;
+        const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
+        cancelled.throwIfAborted();
+        const message = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+        if (!message) return stale;
+        const bytes = Buffer.from(message.source, "base64");
+        const body = await parseMessageBody(bytes).catch(() => null);
+        if (!configured(input, publicOnly)) return stale;
+        cancelled.throwIfAborted();
+        const current = findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+        if (current?.source !== message.source) return stale;
+        if (!body) throw new HuhuError("INVALID_INPUT", publicOnly ? "无法解析邮件正文。" : "无法解析邮件正文。仍可查看原文。", { details: { reason: "mime" } });
+        const externalText = !isWorkbenchCaller(caller) && body.text === null && body.untrustedHtml ? searchableHtml(body.untrustedHtml) : body.text;
+        return { state: "ready" as const, body: { ...body, text: externalText }, sourceDigest: sourceDigest(bytes) };
       }),
     );
   }
   api.defineCapability(
-    defineCapability({
-      plugin: "mail",
-      exposable: false,
-      defaultExposed: false,
-      name: "mail.messages.markRead",
-      scope: "write",
-      idempotency: "handler",
-      input: messageKey,
-      output: z.strictObject({ state: z.enum(["local", "synced", "needs-refresh"]), remoteSynced: z.boolean() }),
-      handler: ({ caller, signal }, input) => {
-        authorize(caller, "mail.messages.markRead");
-        files.assertWritable();
-        const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
-        cancelled.throwIfAborted();
-        return serialize(input, async () => {
-          cancelled.throwIfAborted();
-          const { record, snapshot, version } = readSnapshot(files, input);
-          const message = findCachedMessage(snapshot, input.localMessageId);
-          if (!record || !message || !accounts?.readDefinition(input.accountId)?.definition.folders.some(({ path }) => path === input.folder)) return { state: "needs-refresh" as const, remoteSynced: false };
-          if (message.summary.readState === "synced") return { state: "synced" as const, remoteSynced: message.summary.transport === "imap" };
-          let expectedVersion = version;
-          if (message.summary.readState !== "local") {
-            await writer.serialize(() => {
-              cancelled.throwIfAborted();
-              return preserveReadOverrides(files, input.accountId, [input.localMessageId]);
-            });
-            message.summary.readState = "local";
-            message.localRead = true;
-            expectedVersion = (await write(input, record, version, cancelled)).version;
-          }
-          cancelled.throwIfAborted();
-          let state: "local" | "synced" | "needs-refresh" = "local";
-          try {
-            if (message.summary.transport === "imap") state = await accounts.markRead(input.accountId, input.folder, message.summary.uidValidity, message.summary.uid, cancelled);
-          } catch (error) {
-            if (!(error instanceof CredentialError || error instanceof MailAccountError)) throw error;
-          }
-          cancelled.throwIfAborted();
-          if (state === "synced") {
-            message.summary.readState = state;
-            await write(input, record, expectedVersion, cancelled);
-          }
-          return { state, remoteSynced: state === "synced" };
-        });
-      },
+    bindCapability(messageCacheDescriptors.messagesMarkRead, (context, { requestId, expectedRevision, ...input }) => {
+      const { caller, signal } = context;
+      const name = messageCacheDescriptors.messagesMarkRead.name;
+      authorize(caller, name);
+      files.assertWritable();
+      const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
+      cancelled.throwIfAborted();
+      return once(
+        context,
+        name,
+        requestId,
+        { ...input, expectedRevision },
+        () =>
+          serialize(input, async () => {
+            cancelled.throwIfAborted();
+            if (!isWorkbenchCaller(caller)) requireMailboxRevision(input, expectedRevision);
+            const { record, snapshot, version } = readSnapshot(files, input);
+            const message = findCachedMessage(snapshot, input.localMessageId);
+            if (!record || !message || !accounts?.readDefinition(input.accountId)?.definition.folders.some(({ path }) => path === input.folder)) return { state: "needs-refresh" as const, remoteSynced: false };
+            if (message.summary.readState === "synced") return { state: "synced" as const, remoteSynced: message.summary.transport === "imap" };
+            let expectedVersion = version;
+            if (message.summary.readState !== "local") {
+              await writer.serialize(() => {
+                cancelled.throwIfAborted();
+                return preserveReadOverrides(files, input.accountId, [input.localMessageId]);
+              });
+              message.summary.readState = "local";
+              message.localRead = true;
+              expectedVersion = (await write(input, record, version, cancelled)).version;
+            }
+            cancelled.throwIfAborted();
+            let state: "local" | "synced" | "needs-refresh" = "local";
+            try {
+              if (!isWorkbenchCaller(caller)) requireMailboxRevision(input, expectedRevision);
+              if (message.summary.transport === "imap") state = await accounts.markRead(input.accountId, input.folder, message.summary.uidValidity, message.summary.uid, cancelled);
+            } catch (error) {
+              if (!(error instanceof CredentialError || error instanceof MailAccountError)) throw error;
+            }
+            cancelled.throwIfAborted();
+            if (state === "synced") {
+              message.summary.readState = state;
+              await write(input, record, expectedVersion, cancelled);
+            }
+            return { state, remoteSynced: state === "synced" };
+          }),
+        (data) => data,
+        (data) => data,
+      );
     }),
   );
   return {

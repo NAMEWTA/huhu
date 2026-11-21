@@ -1,10 +1,15 @@
+import { randomUUID } from "node:crypto";
+import { mailTool, requireMailCaller } from "./tool-access.js";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
-import { defineCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import type { MailNotificationSink, registerMessageCache } from "./message-cache.js";
 
+import type { MailIntents } from "./tool-intents.js";
+
+const settingsVersion = z.string().nullable().optional();
 const settingsFile = ".huhu/mail/sync-settings.json";
 const interval = z.int().min(0).max(1440);
 const settings = z.strictObject({ minutes: interval });
@@ -24,12 +29,37 @@ function scheduleTimer(run: () => void, delay: number) {
 }
 
 /** One Vault-owned timer reconciles the selected folders. Network failures only delay their account. */
+export const syncScheduleDescriptors = {
+  syncSettings: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.sync.settings",
+    title: "查看邮件同步周期",
+    description: "读取保存的同步周期和现有状态。",
+    risk: "normal",
+    scope: "read",
+    input: z.strictObject({}),
+    output: settings.extend({ accounts: z.array(state), revision: settingsVersion }),
+  }),
+  syncSetInterval: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.sync.setInterval",
+    title: "设置邮件同步周期",
+    description: "保存周期并重新安排同步。",
+    risk: "normal",
+    scope: "admin",
+    idempotency: "handler",
+    input: settings.extend({ expectedRevision: settingsVersion }),
+    output: settings,
+  }),
+};
+
 export function registerMailSyncSchedule(
   api: HuhuApi,
   accounts: ReturnType<typeof openMailAccounts> | undefined,
   messages: Pick<ReturnType<typeof registerMessageCache>, "refresh" | "signal">,
   stopped: AbortSignal,
   options: MailSyncOptions,
+  once: MailIntents,
 ) {
   const { files } = api.vault;
   const now = options.now ?? Date.now;
@@ -45,7 +75,8 @@ export function registerMailSyncSchedule(
     const file = files.read(settingsFile);
     if (file) {
       try {
-        return settings.parse(JSON.parse(file.bytes.toString("utf8")));
+        const { minutes } = settings.extend({ revision: z.uuidv4().optional() }).parse(JSON.parse(file.bytes.toString("utf8")));
+        return { minutes };
       } catch {
         // A later explicit settings save replaces an unreadable file.
       }
@@ -164,42 +195,43 @@ export function registerMailSyncSchedule(
   }
 
   const authorize = (caller: string, name: string) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(name);
+    requireMailCaller(caller, name);
   };
-  const base = { plugin: "mail", exposable: false, defaultExposed: false } as const;
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.sync.settings",
-      scope: "read",
-      input: z.strictObject({}),
-      output: settings.extend({ accounts: z.array(state) }),
-      handler({ caller }) {
-        authorize(caller, "mail.sync.settings");
-        return { ...read(), accounts: [...states.values()] };
-      },
+    bindCapability(syncScheduleDescriptors.syncSettings, ({ caller }) => {
+      authorize(caller, "mail.sync.settings");
+      return { ...read(), accounts: [...states.values()], ...(!isWorkbenchCaller(caller) && { revision: files.currentVersion(settingsFile) }) };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.sync.setInterval",
-      scope: "write",
-      input: settings,
-      output: settings,
-      async handler({ caller, signal }, input) {
-        authorize(caller, "mail.sync.setInterval");
-        signal.throwIfAborted();
-        stopped.throwIfAborted();
-        await files.write(settingsFile, Buffer.from(JSON.stringify(input) + "\n"), { expectedVersion: files.currentVersion(settingsFile) });
-        version++;
-        failures.clear();
-        for (const id of watchers.keys()) stopWatcher(id);
-        if (!input.minutes) states.clear();
-        arm(false);
-        changed();
-        return input;
-      },
+    bindCapability(syncScheduleDescriptors.syncSetInterval, (context, { expectedRevision, minutes }) => {
+      const { caller, signal } = context;
+      const name = syncScheduleDescriptors.syncSetInterval.name;
+      authorize(caller, name);
+      if (!isWorkbenchCaller(caller) && expectedRevision === undefined) throw errors.invalidInput("请先读取邮件同步设置版本。");
+      const input = { minutes };
+      return once(
+        context,
+        name,
+        JSON.stringify(expectedRevision),
+        { ...input, expectedRevision },
+        async () => {
+          signal.throwIfAborted();
+          stopped.throwIfAborted();
+          const current = files.currentVersion(settingsFile);
+          if (expectedRevision !== undefined && expectedRevision !== current) throw errors.versionConflict(current ?? "");
+          await files.write(settingsFile, Buffer.from(JSON.stringify({ ...input, revision: randomUUID() }) + "\n"), { expectedVersion: current });
+          version++;
+          failures.clear();
+          for (const id of watchers.keys()) stopWatcher(id);
+          if (!input.minutes) states.clear();
+          arm(false);
+          changed();
+          return input;
+        },
+        (data) => data,
+        (data) => data,
+      );
     }),
   );
   const off = api.events.subscribe((event) => {

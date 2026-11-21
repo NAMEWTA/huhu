@@ -1,7 +1,8 @@
+import { mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
-import { defineCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { mailDayFormatter } from "../mail-calendar.js";
 import { isPublicMailFolder, mailFolderRole } from "../mail-folder-visibility.js";
@@ -134,6 +135,50 @@ function sameTarget(message: ConversationMessage, target: MailLocationTarget) {
   return message.source === "imap" && message.uidValidity === target.uidValidity && message.uid === target.uid;
 }
 
+export const conversationsDescriptors = {
+  conversationsList: defineCapabilityDescriptor({ ...mailTool, name: "mail.conversations.list", title: "列出邮件对话", description: "按邮箱和时间范围读取公开对话。", risk: "high", input: pageInput, output: listOutput, scope: "read" }),
+  conversationsMessages: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.conversations.messages",
+    title: "列出对话邮件",
+    description: "按邮箱、对话和时间范围读取邮件。",
+    risk: "high",
+    input: pageInput.extend({ conversationId }),
+    output: messagesOutput,
+    scope: "read",
+  }),
+  conversationsSearch: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.conversations.search",
+    title: "搜索邮件",
+    description: "在公开缓存内搜索邮件。",
+    risk: "high",
+    input: pageInput.extend({ text: z.string().trim().min(1).max(200) }),
+    output: searchOutput,
+    scope: "read",
+  }),
+  conversationsFindMessage: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.conversations.findMessage",
+    title: "定位对话邮件",
+    description: "读取指定邮件在对话中的位置。",
+    risk: "high",
+    input: z.strictObject({ target: locationTarget, limit: pageInput.shape.limit }),
+    output: locatedMessage.nullable(),
+    scope: "read",
+  }),
+  conversationsSentBody: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.conversations.sentBody",
+    title: "读取已发正文",
+    description: "读取公开对话内的本机已发正文。",
+    risk: "high",
+    input: sentRow.pick({ accountId: true, operationId: true }),
+    output: z.strictObject({ text: z.string() }),
+    scope: "read",
+  }),
+};
+
 export function registerConversations(
   api: HuhuApi,
   accounts: ReturnType<typeof openMailAccounts> | undefined,
@@ -144,12 +189,11 @@ export function registerConversations(
 ) {
   const files = api.vault.files;
   const outbox = new OutboxStorage(files);
-  const internal = { plugin: "mail", scope: "read", exposable: false, defaultExposed: false } as const;
   function authorize(caller: string, capability: string) {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(capability);
+    requireMailCaller(caller, capability);
   }
 
-  async function readGroups({ accountId: scope, time }: Pick<z.infer<typeof pageInput>, "accountId" | "time">, request: AbortSignal, text?: string) {
+  async function readGroups({ accountId: scope, time }: Pick<z.infer<typeof pageInput>, "accountId" | "time">, request: AbortSignal, text?: string, remember = true) {
     const signal = AbortSignal.any([request, lifetime, cache.signal()]);
     const rows = (await accounts?.list()) ?? [];
     const own = new Set(rows.map(({ definition }) => definition.settings.email.trim().toLowerCase()));
@@ -169,7 +213,7 @@ export function registerConversations(
           const message: ConversationMessage = entry.summary.transport === "gmail" ? { ...entry.summary, source: "gmail", date } : { ...entry.summary, source: "imap", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
           signal.throwIfAborted();
-          const body = text ? bodyMatch(await searchText.read(entry.source, signal), text) : undefined;
+          const body = text ? bodyMatch(await searchText.read(entry.source, signal, remember), text) : undefined;
           candidates.push({
             message,
             addresses: info.participants,
@@ -204,113 +248,83 @@ export function registerConversations(
   }
 
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.conversations.list",
-      input: pageInput,
-      output: listOutput,
-      async handler({ caller, signal }, input) {
-        authorize(caller, "mail.conversations.list");
-        const groups = await readGroups(input, signal);
-        const { rows, ...page } = paginate(summarize(groups), input);
-        return { ...page, conversations: rows };
-      },
+    bindCapability(conversationsDescriptors.conversationsList, async ({ caller, signal }, input) => {
+      authorize(caller, "mail.conversations.list");
+      const groups = await readGroups(input, signal);
+      const { rows, ...page } = paginate(summarize(groups), input);
+      return { ...page, conversations: rows };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.conversations.messages",
-      input: pageInput.extend({ conversationId }),
-      output: messagesOutput,
-      async handler({ caller, signal }, input) {
-        authorize(caller, "mail.conversations.messages");
-        const groups = await readGroups(input, signal);
-        const group = groups.get(input.conversationId);
-        const { rows, ...page } = paginate(group?.entries.map(({ message }) => message) ?? [], input);
-        return { ...page, messages: rows };
-      },
+    bindCapability(conversationsDescriptors.conversationsMessages, async ({ caller, signal }, input) => {
+      authorize(caller, "mail.conversations.messages");
+      const groups = await readGroups(input, signal);
+      const group = groups.get(input.conversationId);
+      const { rows, ...page } = paginate(group?.entries.map(({ message }) => message) ?? [], input);
+      return { ...page, messages: rows };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.conversations.search",
-      input: pageInput.extend({ text: z.string().trim().min(1).max(200) }),
-      output: searchOutput,
-      async handler({ caller, signal: request }, input) {
-        authorize(caller, "mail.conversations.search");
-        const text = searchWords(input.text);
-        const groups = await readGroups(input, request, text);
-        const entries = [...groups.values()].flatMap(({ participants, entries }) => entries.map((entry) => ({ ...entry, participants })));
-        entries.sort((a, b) => compareMessages(a.message, b.message));
-        const hits: z.infer<typeof searchHit>[] = [];
-        for (const { message, participants, publicAddresses, senderNames, body } of entries) {
-          if (!body?.matches && ![message.subject, ...senderNames, ...publicAddresses].some((value) => searchWords(value).includes(text))) continue;
-          hits.push({
-            target: targetOf(message),
-            subject: message.subject,
-            senderNames,
-            participants,
-            date: message.date,
-            excerpt: body?.excerpt ?? "",
-          });
+    bindCapability(conversationsDescriptors.conversationsSearch, async ({ caller, signal: request }, input) => {
+      authorize(caller, "mail.conversations.search");
+      const text = searchWords(input.text);
+      const groups = await readGroups(input, request, text, isWorkbenchCaller(caller));
+      const entries = [...groups.values()].flatMap(({ participants, entries }) => entries.map((entry) => ({ ...entry, participants })));
+      entries.sort((a, b) => compareMessages(a.message, b.message));
+      const hits: z.infer<typeof searchHit>[] = [];
+      for (const { message, participants, publicAddresses, senderNames, body } of entries) {
+        if (!body?.matches && ![message.subject, ...senderNames, ...publicAddresses].some((value) => searchWords(value).includes(text))) continue;
+        hits.push({
+          target: targetOf(message),
+          subject: message.subject,
+          senderNames,
+          participants,
+          date: message.date,
+          excerpt: body?.excerpt ?? "",
+        });
+      }
+      const { rows, ...page } = paginate(hits, input);
+      return { ...page, hits: rows, cachedMessages: entries.length };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(conversationsDescriptors.conversationsFindMessage, async ({ caller, signal }, { target, limit }) => {
+      authorize(caller, "mail.conversations.findMessage");
+      const groups = await readGroups({ accountId: target.accountId }, signal);
+      const contacts = summarize(groups);
+      for (const [index, contact] of contacts.entries()) {
+        const entries = groups.get(contact.conversationId)!.entries;
+        const row = entries.findIndex(({ message }) => sameTarget(message, target));
+        if (row !== -1) {
+          return {
+            conversationId: contact.conversationId,
+            contactOffset: Math.floor(index / limit) * limit,
+            messageOffset: Math.floor(row / limit) * limit,
+            message: entries[row]!.message,
+          };
         }
-        const { rows, ...page } = paginate(hits, input);
-        return { ...page, hits: rows, cachedMessages: entries.length };
-      },
+      }
+      return null;
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.conversations.findMessage",
-      input: z.strictObject({ target: locationTarget, limit: pageInput.shape.limit }),
-      output: locatedMessage.nullable(),
-      async handler({ caller, signal }, { target, limit }) {
-        authorize(caller, "mail.conversations.findMessage");
-        const groups = await readGroups({ accountId: target.accountId }, signal);
-        const contacts = summarize(groups);
-        for (const [index, contact] of contacts.entries()) {
-          const entries = groups.get(contact.conversationId)!.entries;
-          const row = entries.findIndex(({ message }) => sameTarget(message, target));
-          if (row !== -1) {
-            return {
-              conversationId: contact.conversationId,
-              contactOffset: Math.floor(index / limit) * limit,
-              messageOffset: Math.floor(row / limit) * limit,
-              message: entries[row]!.message,
-            };
-          }
-        }
-        return null;
-      },
-    }),
-  );
-  api.defineCapability(
-    defineCapability({
-      ...internal,
-      name: "mail.conversations.sentBody",
-      input: sentRow.pick({ accountId: true, operationId: true }),
-      output: z.strictObject({ text: z.string() }),
-      async handler({ caller, signal }, input) {
-        authorize(caller, "mail.conversations.sentBody");
-        const rows = (await accounts?.list()) ?? [];
-        signal.throwIfAborted();
-        lifetime.throwIfAborted();
-        const own = new Set(rows.map(({ definition }) => definition.settings.email.trim().toLowerCase()));
-        const record = outbox.read(input.operationId)?.record;
-        if (
-          removals.read(input.accountId) ||
-          !rows.some(({ accountId }) => accountId === input.accountId) ||
-          !record ||
-          !isPublicSent(record) ||
-          record.draft.accountId !== input.accountId ||
-          ![...record.draft.to, ...record.draft.cc].some((address) => !own.has(address))
-        )
-          throw errors.notFound("此邮件已不在公开对话中。");
-        return { text: record.text };
-      },
+    bindCapability(conversationsDescriptors.conversationsSentBody, async ({ caller, signal }, input) => {
+      authorize(caller, "mail.conversations.sentBody");
+      const rows = (await accounts?.list()) ?? [];
+      signal.throwIfAborted();
+      lifetime.throwIfAborted();
+      const own = new Set(rows.map(({ definition }) => definition.settings.email.trim().toLowerCase()));
+      const record = outbox.read(input.operationId)?.record;
+      if (
+        removals.read(input.accountId) ||
+        !rows.some(({ accountId }) => accountId === input.accountId) ||
+        !record ||
+        !isPublicSent(record) ||
+        record.draft.accountId !== input.accountId ||
+        ![...record.draft.to, ...record.draft.cc].some((address) => !own.has(address))
+      )
+        throw errors.notFound("此邮件已不在公开对话中。");
+      return { text: record.text };
     }),
   );
 }

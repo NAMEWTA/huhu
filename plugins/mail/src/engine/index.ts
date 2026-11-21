@@ -2,8 +2,7 @@ export { openMailAccounts, type MailAccount, type MailAccountDraft } from "./acc
 export type { MailAccountDefinition, MailAccountSettings, MailFolder } from "./account-definition.js";
 export { MailAccountError, type MailAccountErrorCode, type MailFolderDiscovery } from "./discovery.js";
 export { mailPreset, mailProviderSchema, type MailProvider } from "./presets.js";
-export { apply, mailAccountsListDescriptor } from "./registration.js";
-export { mailLatestMessageDescriptor, mailMessageSourceDescriptor, mailRefreshDescriptor } from "./message-cache.js";
+export { apply, mailCapabilityDescriptors } from "./registration.js";
 export { MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource } from "./draft-attachments.js";
 export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, mailPackageSelection, withMailSnapshot, type MailDraftAttachments } from "./drafts.js";
 export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
@@ -12,4 +11,3 @@ export type { MailLocationTarget } from "./conversations.js";
 export type { MailSyncOptions } from "./sync-schedule.js";
 export { createMailOAuth, type MailOAuthClients, type MailOAuthRuntime } from "./oauth-provider.js";
 export { mailOAuthCapabilityDescriptors } from "./oauth-sessions.js";
-export { mailAiCapabilityDescriptors } from "./ai-settings.js";

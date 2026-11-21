@@ -6,11 +6,14 @@ import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import { MailOAuthError, oauthProvider, requestOAuthToken, verifyOAuthIdentity, type MailOAuthRuntime, type OAuthIssue } from "./oauth-provider.js";
 
+import { mailRequestId, mailTool, requireMailCaller } from "./tool-access.js";
+
 const callbackPath = "/mail/oauth/callback";
 const id = z.uuidv4();
 const sessionKey = z.strictObject({ sessionId: id });
 const beginInput = z.strictObject({
   provider: oauthProvider,
+  requestId: mailRequestId,
   email: z.string().trim().pipe(z.email()),
   label: z.string().trim().max(80).default(""),
   smtp: z.boolean().default(true),
@@ -20,10 +23,9 @@ const phase = z.enum(["waiting", "finishing", "configured", "failed", "cancelled
 const sessionOutput = z.strictObject({ sessionId: id, host: z.string(), phase, reason: z.string().optional(), accountId: id.optional(), route: z.literal("imap").optional(), smtp: z.boolean().optional() });
 const storedStatus = sessionOutput.omit({ host: true });
 const sessionIndex = z.strictObject({ actor: z.hash("sha256", { enc: "hex" }), accountId: id });
-const descriptorBase = { plugin: "mail", exposable: true, defaultExposed: false } as const;
 export const mailOAuthCapabilityDescriptors = {
   availability: defineCapabilityDescriptor({
-    ...descriptorBase,
+    ...mailTool,
     name: "mail.oauth.availability",
     title: "查看邮箱授权配置",
     description: "查看当前 Engine 主机已配置的邮箱授权提供商。",
@@ -33,7 +35,7 @@ export const mailOAuthCapabilityDescriptors = {
     output: z.strictObject({ host: z.string(), gmail: z.boolean(), outlook: z.boolean() }),
   }),
   begin: defineCapabilityDescriptor({
-    ...descriptorBase,
+    ...mailTool,
     name: "mail.oauth.begin",
     title: "发起邮箱授权",
     description: "在 Engine 主机的系统浏览器为当前 Vault 发起邮箱授权或重新授权。",
@@ -44,7 +46,7 @@ export const mailOAuthCapabilityDescriptors = {
     output: sessionOutput,
   }),
   status: defineCapabilityDescriptor({
-    ...descriptorBase,
+    ...mailTool,
     name: "mail.oauth.status",
     title: "读取邮箱授权状态",
     description: "读取当前 Vault 中可管理的邮箱授权会话状态。",
@@ -54,14 +56,14 @@ export const mailOAuthCapabilityDescriptors = {
     output: sessionOutput,
   }),
   cancel: defineCapabilityDescriptor({
-    ...descriptorBase,
+    ...mailTool,
     name: "mail.oauth.cancel",
     title: "取消邮箱授权",
     description: "请求取消当前 Vault 中可管理的邮箱授权会话并读取其状态。",
     risk: "normal",
     scope: "write",
     idempotency: "handler",
-    input: sessionKey,
+    input: sessionKey.extend({ requestId: mailRequestId }),
     output: sessionOutput,
   }),
 };
@@ -120,6 +122,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
   }
 
   function actorOf({ caller, subject }: CapabilityContext) {
+    requireMailCaller(caller, "mail.oauth");
     if (!subject || (caller === "http" && subject === caller)) throw errors.permissionDenied("mail.oauth");
     return createHash("sha256")
       .update(JSON.stringify([intents?.vaultInstance, caller, subject]))
@@ -132,9 +135,11 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
     return session;
   }
 
-  function intentOf(context: CapabilityContext, capability: Intent["capability"]): Intent {
-    if (!context.idempotencyKey) throw errors.invalidInput("邮件授权操作需要幂等键。");
-    return { owner: actorOf(context), capability, key: context.idempotencyKey };
+  function intentOf(context: CapabilityContext, capability: Intent["capability"], requestId?: string): Intent {
+    if (!requestId && (context.caller === "cli" || context.caller === "mcp" || context.session)) throw errors.invalidInput("邮件授权操作需要固定的 requestId。");
+    const key = requestId ?? context.idempotencyKey;
+    if (!key) throw errors.invalidInput("邮件授权操作需要幂等键。");
+    return { owner: actorOf(context), capability, key };
   }
 
   function claim(intent: Intent, input: unknown) {
@@ -181,7 +186,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       api.vault.files.assertWritable();
       signal.throwIfAborted();
       lifetime.throwIfAborted();
-      const intent = intentOf(context, "mail.oauth.begin");
+      const intent = intentOf(context, "mail.oauth.begin", input.requestId);
       const prior = replay(intent, input);
       if (prior) return resumedStatus(context, prior.operationId);
       const issuer = runtime?.issuers[input.provider];
@@ -344,7 +349,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       api.vault.files.assertWritable();
       context.signal.throwIfAborted();
       lifetime.throwIfAborted();
-      const intent = intentOf(context, "mail.oauth.cancel");
+      const intent = intentOf(context, "mail.oauth.cancel", input.requestId);
       const { sessionId } = input;
       if (replay(intent, input)) return resumedStatus(context, sessionId);
       const session = getActive(context, sessionId);

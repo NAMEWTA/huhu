@@ -1,7 +1,8 @@
+import { mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { errors, HuhuError } from "@huhu/contracts";
-import { defineCapability, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
 import type { MailDrafts } from "./drafts.js";
@@ -104,6 +105,32 @@ function publicPreview({ folders: _folders, digests: _digests, ...view }: Omit<E
   return view;
 }
 
+export const accountRemovalDescriptors = {
+  accountsPreviewRemoval: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.accounts.previewRemoval",
+    title: "预检移除邮箱",
+    description: "核对指定邮箱版本和移除影响。",
+    risk: "high",
+    scope: "read",
+    input: accountVersion,
+    output: preview,
+    desktopOnly: true,
+  }),
+  accountsRemove: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.accounts.remove",
+    title: "移除邮箱",
+    description: "按影响摘要确认后移除指定邮箱。",
+    risk: "high",
+    scope: "write",
+    idempotency: "handler",
+    input: confirmation,
+    output: confirmation.pick({ accountId: true }).extend({ state: z.enum(["removed", "pending"]) }),
+    desktopOnly: true,
+  }),
+};
+
 export function registerAccountRemoval(
   api: HuhuApi,
   accounts: ReturnType<typeof openMailAccounts> | undefined,
@@ -113,12 +140,10 @@ export function registerAccountRemoval(
   messages: ReturnType<typeof registerMessageCache>,
   lifetime: AbortSignal,
 ) {
-  const options = { plugin: "mail", desktopOnly: true, exposable: false, defaultExposed: false } as const;
-
-  function authorize(caller: string, name: string) {
-    if (caller !== "desktop") throw errors.permissionDenied(name);
+  function authorize(caller: string, name: string, write = true) {
+    requireMailCaller(caller, name, true);
     lifetime.throwIfAborted();
-    api.vault.files.assertWritable();
+    if (write) api.vault.files.assertWritable();
     if (!accounts) throw errors.invalidInput("此主机的本机邮箱凭据存储不可用。");
     return accounts;
   }
@@ -153,81 +178,65 @@ export function registerAccountRemoval(
   }
 
   api.defineCapability(
-    defineCapability({
-      ...options,
-      name: "mail.accounts.previewRemoval",
-      scope: "read",
-      input: accountVersion,
-      output: preview,
-      handler: ({ caller, signal }, target) => {
-        const owner = authorize(caller, "mail.accounts.previewRemoval");
-        return removals.serialize(target.accountId, () =>
-          drafts.serialize(async () => {
-            signal.throwIfAborted();
-            const previous = removals.read(target.accountId)?.record;
-            if (previous?.state === "pending" && previous.expectedRevision === target.expectedRevision) {
-              const { state: _state, ...planned } = previous;
-              return publicPreview(planned);
-            }
-            removals.assertActive(target.accountId);
-            return publicPreview(inspect(owner, target));
-          }),
-        );
-      },
+    bindCapability(accountRemovalDescriptors.accountsPreviewRemoval, ({ caller, signal }, target) => {
+      const owner = authorize(caller, "mail.accounts.previewRemoval", false);
+      return removals.serialize(target.accountId, () =>
+        drafts.serialize(async () => {
+          signal.throwIfAborted();
+          const previous = removals.read(target.accountId)?.record;
+          if (previous?.state === "pending" && previous.expectedRevision === target.expectedRevision) {
+            const { state: _state, ...planned } = previous;
+            return publicPreview(planned);
+          }
+          removals.assertActive(target.accountId);
+          return publicPreview(inspect(owner, target));
+        }),
+      );
     }),
   );
 
-  const result = confirmation.pick({ accountId: true }).extend({ state: z.enum(["removed", "pending"]) });
   api.defineCapability(
-    defineCapability({
-      ...options,
-      name: "mail.accounts.remove",
-      scope: "write",
-      idempotency: "handler",
-      input: confirmation,
-      output: result,
-      handler: ({ caller, signal }, input) => {
-        const owner = authorize(caller, "mail.accounts.remove");
-        const { accountId, expectedRevision, impactKey } = input;
-        return removals.serialize(accountId, async () => {
-          const record = await drafts.serialize(async () => {
-            signal.throwIfAborted();
-            lifetime.throwIfAborted();
-            const previous = removals.read(accountId)?.record;
-            if (previous) {
-              if (previous.expectedRevision !== expectedRevision || previous.impactKey !== impactKey) throw stale();
-              return previous;
-            }
-            const planned = inspect(owner, { accountId, expectedRevision });
-            if (planned.impactKey !== impactKey) throw stale();
-            const pending = { ...planned, pending: true, state: "pending" } as const;
-            signal.throwIfAborted();
-            await removals.write(pending, null);
-            api.events.publish("entity.changed", { kind: "mail-account", id: accountId, op: "deleted" });
-            return pending;
-          });
-          if (record.state === "removed") return { accountId, state: "removed" as const };
-          // Once published, the removal can only be completed or resumed. An HTTP disconnect cannot undo it.
-          try {
-            await messages.drainAccount(accountId);
-            await outbox.drainAccount(accountId);
-            await drafts.serialize(async () => {
-              lifetime.throwIfAborted();
-              await outbox.retireAccount(accountId);
-              await drafts.retireAccount(accountId);
-              messages.retireAccount(accountId, record.folders);
-            });
-            const swept = await drafts.sweepUnreferenced(() => outbox.attachmentDigests(), undefined, new Set(record.digests));
-            if (swept.failed.length) return { accountId, state: "pending" as const };
-            await owner.removeDefinition({ accountId, expectedRevision }, lifetime);
-            if (!(await owner.recover())) return { accountId, state: "pending" as const };
-            await removals.write({ ...input, state: "removed" }, removals.read(accountId)!.version);
-            return { accountId, state: "removed" as const };
-          } catch {
-            return { accountId, state: "pending" as const };
+    bindCapability(accountRemovalDescriptors.accountsRemove, ({ caller, signal }, input) => {
+      const owner = authorize(caller, "mail.accounts.remove");
+      const { accountId, expectedRevision, impactKey } = input;
+      return removals.serialize(accountId, async () => {
+        const record = await drafts.serialize(async () => {
+          signal.throwIfAborted();
+          lifetime.throwIfAborted();
+          const previous = removals.read(accountId)?.record;
+          if (previous) {
+            if (previous.expectedRevision !== expectedRevision || previous.impactKey !== impactKey) throw stale();
+            return previous;
           }
+          const planned = inspect(owner, { accountId, expectedRevision });
+          if (planned.impactKey !== impactKey) throw stale();
+          const pending = { ...planned, pending: true, state: "pending" } as const;
+          signal.throwIfAborted();
+          await removals.write(pending, null);
+          api.events.publish("entity.changed", { kind: "mail-account", id: accountId, op: "deleted" });
+          return pending;
         });
-      },
+        if (record.state === "removed") return { accountId, state: "removed" as const };
+        // Once published, the removal can only be completed or resumed. An HTTP disconnect cannot undo it.
+        try {
+          await messages.drainAccount(accountId);
+          await outbox.drainAccount(accountId);
+          await drafts.serialize(async () => {
+            lifetime.throwIfAborted();
+            await outbox.retireAccount(accountId);
+            await drafts.retireAccount(accountId);
+            messages.retireAccount(accountId, record.folders);
+          });
+          const swept = await drafts.sweepUnreferenced(() => outbox.attachmentDigests(), undefined, new Set(record.digests));
+          if (swept.failed.length) return { accountId, state: "pending" as const };
+          await owner.removeDefinition({ accountId, expectedRevision }, lifetime);
+          if (!(await owner.recover())) return { accountId, state: "pending" as const };
+          await removals.write({ ...input, state: "removed" }, removals.read(accountId)!.version);
+          return { accountId, state: "removed" as const };
+        } catch {
+          return { accountId, state: "pending" as const };
+        }
+      });
     }),
   );
 }

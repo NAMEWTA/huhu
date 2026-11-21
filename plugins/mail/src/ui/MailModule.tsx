@@ -11,6 +11,7 @@ import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
 import { MailCacheSettings } from "./MailCacheSettings.js";
+import { MailAiApprovals } from "./MailAiApprovals.js";
 import { MailAiSettings } from "./MailAiSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
@@ -313,6 +314,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
             <button type="button" className="hu-btn" ref={searchTrigger} onClick={() => setSearchOpen(true)}>
               搜索邮件
             </button>
+            <MailAiApprovals key={engine.endpoint.baseUrl} readOnly={readOnly} />
             <Button disabled={readOnly} onClick={() => showComposer(null)}>
               写信
             </Button>

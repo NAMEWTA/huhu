@@ -1,7 +1,8 @@
+import { mailActor, mailRequestId, mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
-import { defineCapability, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { OperationLog, type OpStep } from "@huhu/vault";
 import { z } from "zod";
 import { maxMailArchiveBytes } from "../mail-subset-limit.js";
@@ -15,6 +16,8 @@ import { cachedReadOverrides } from "./message-cache.js";
 import { outboxRecordPath, outboxRecordSchema, OutboxStorage, parseOutboxRecord } from "./outbox-storage.js";
 import { readOverrideFile, readOverrideId, readOverridePath, readOverrides } from "./read-overrides.js";
 import { createMailArchive, readMailArchive } from "./subset-archive.js";
+
+import { mailUnknown, type MailIntents } from "./tool-intents.js";
 
 const maxAccounts = 20;
 const maxAttachments = 25 * 1024 * 1024;
@@ -48,9 +51,8 @@ const planRow = z.strictObject({
 });
 type PlanRow = z.infer<typeof planRow>;
 export type MailSubsetPreview = { previewId: string; accounts: PlanRow[] };
-type Plan = { packet: Packet; actor: string; expires: number; restoring: boolean };
-const ownerOf = (context: CapabilityContext) => JSON.stringify([context.caller, context.subject]);
-const base = { plugin: "mail", exposable: false, defaultExposed: false } as const;
+type Plan = { packet: Packet; rows: PlanRow[]; actor: string; expires: number; restoring: boolean };
+const ownerOf = (context: CapabilityContext) => mailActor(context, "mail.subset");
 const json = (value: unknown) => Buffer.from(JSON.stringify(value) + "\n");
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const fingerprint = (row: Data) => hash(json(row));
@@ -202,7 +204,53 @@ function prepare(files: Files, row: Data, data: Packet): OpStep[] {
   return steps;
 }
 
-export async function registerMailSubset(api: HuhuApi, accounts: Accounts | undefined, owner: MailAccountOwner | undefined, removals: AccountRemovals, lifetime: AbortSignal) {
+export const subsetDescriptors = {
+  subsetCreate: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.subset.create",
+    title: "导出邮件子集",
+    description: "为所选邮箱生成不含本机认证的内存包。",
+    risk: "high",
+    scope: "read",
+    input: z.strictObject({ accountIds: selection }),
+    output: z.strictObject({ content: encoded }),
+  }),
+  subsetPreview: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.subset.preview",
+    title: "预检邮件子集",
+    description: "为当前调用者创建邮件恢复预检。",
+    risk: "high",
+    scope: "write",
+    input: z.strictObject({ content: encoded, requestId: mailRequestId }),
+    output: z.strictObject({ previewId: uuid, accounts: z.array(planRow) }),
+    idempotency: "handler",
+  }),
+  subsetCancel: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.subset.cancel",
+    title: "取消邮件恢复预检",
+    description: "释放当前调用者的未提交恢复预检。",
+    risk: "normal",
+    scope: "write",
+    input: z.strictObject({ previewId: uuid }),
+    output: z.strictObject({ cancelled: z.literal(true) }),
+    idempotency: "handler",
+  }),
+  subsetRestore: defineCapabilityDescriptor({
+    ...mailTool,
+    name: "mail.subset.restore",
+    title: "恢复邮件子集",
+    description: "提交当前调用者的邮件恢复计划。",
+    risk: "high",
+    scope: "write",
+    idempotency: "handler",
+    input: z.strictObject({ previewId: uuid, accountIds: selection, confirm: z.literal(true) }),
+    output: z.strictObject({ accounts: z.array(planRow) }),
+  }),
+};
+
+export async function registerMailSubset(api: HuhuApi, accounts: Accounts | undefined, owner: MailAccountOwner | undefined, removals: AccountRemovals, lifetime: AbortSignal, once: MailIntents) {
   const { files } = api.vault;
   const runtime = owner && path.relative(files.root, owner.vault.runtimeDir).split(path.sep).join("/");
   const journal = runtime && !files.readOnly ? new OperationLog(files, files.abs(`${runtime}/mail-subset-journal`)) : undefined;
@@ -226,7 +274,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
   const plans = new Map<string, Plan>();
   const pending = new Set<Promise<unknown>>();
   function access(context: CapabilityContext, capability: string) {
-    if (!isWorkbenchCaller(context.caller)) throw errors.permissionDenied(capability);
+    requireMailCaller(context.caller, capability);
     if (!accounts) throw invalid("当前 Vault 未提供 Mail 账号存储。");
     return accounts;
   }
@@ -237,120 +285,147 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
   }
 
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.subset.create",
-      scope: "read",
-      input: z.strictObject({ accountIds: selection }),
-      output: z.strictObject({ content: encoded }),
-      async handler(context, { accountIds }) {
-        const ownerAccounts = access(context, "mail.subset.create");
-        const signal = AbortSignal.any([context.signal, lifetime]);
-        const vault = files.read(".huhu/vault.json");
-        if (!vault) throw errors.notFound("Vault 配置");
-        const data = await withMailSnapshot(files, () => assemble(files, ownerAccounts, accountIds, signal));
-        return { content: (await createMailArchive(vault.bytes, data, signal)).toString("base64") };
-      },
+    bindCapability(subsetDescriptors.subsetCreate, async (context, { accountIds }) => {
+      const ownerAccounts = access(context, "mail.subset.create");
+      const signal = AbortSignal.any([context.signal, lifetime]);
+      const vault = files.read(".huhu/vault.json");
+      if (!vault) throw errors.notFound("Vault 配置");
+      const data = await withMailSnapshot(files, () => assemble(files, ownerAccounts, accountIds, signal));
+      return { content: (await createMailArchive(vault.bytes, data, signal)).toString("base64") };
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.subset.preview",
-      scope: "read",
-      input: z.strictObject({ content: encoded }),
-      output: z.strictObject({ previewId: uuid, accounts: z.array(planRow) }),
-      async handler(context, { content }) {
-        const ownerAccounts = access(context, "mail.subset.preview");
-        const signal = AbortSignal.any([context.signal, lifetime]);
-        signal.throwIfAborted();
-        const parsed = validate(readMailArchive(Buffer.from(content, "base64")));
-        const rows = await inspect(files, ownerAccounts, removals, parsed);
-        signal.throwIfAborted();
-        for (const [id, plan] of plans) if (!plan.restoring && (plan.expires <= Date.now() || plans.size >= 4)) plans.delete(id);
-        if (plans.size >= 4) throw invalid("本机仍有邮件恢复进行中，请稍后重新预检。");
-        const previewId = randomUUID();
-        plans.set(previewId, { packet: parsed, actor: ownerOf(context), expires: Date.now() + expireMs, restoring: false });
-        return { previewId, accounts: rows };
-      },
+    bindCapability(subsetDescriptors.subsetPreview, (context, { content, requestId }) => {
+      const name = subsetDescriptors.subsetPreview.name;
+      const ownerAccounts = access(context, name);
+      const actor = ownerOf(context);
+      const signal = AbortSignal.any([context.signal, lifetime]);
+      return once(
+        context,
+        name,
+        requestId,
+        content,
+        async () => {
+          signal.throwIfAborted();
+          const parsed = validate(readMailArchive(Buffer.from(content, "base64")));
+          const rows = await inspect(files, ownerAccounts, removals, parsed);
+          signal.throwIfAborted();
+          const now = Date.now();
+          for (const [id, plan] of plans) if (!plan.restoring && plan.expires <= now) plans.delete(id);
+          const own = [...plans].filter(([, plan]) => plan.actor === actor);
+          if (own.length >= 2) {
+            const replaceable = own.find(([, plan]) => !plan.restoring);
+            if (replaceable) plans.delete(replaceable[0]);
+            else throw invalid("当前调用者仍有邮件恢复进行中。");
+          }
+          if (plans.size >= 4) throw invalid("本机邮件恢复预检已满，请稍后重试。");
+          const previewId = randomUUID();
+          plans.set(previewId, { packet: parsed, rows, actor, expires: now + expireMs, restoring: false });
+          return { previewId, accounts: rows };
+        },
+        ({ previewId }) => previewId,
+        (previewId) => ({ previewId, accounts: planOf(context, previewId).rows }),
+      );
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.subset.cancel",
-      scope: "read",
-      input: z.strictObject({ previewId: uuid }),
-      output: z.strictObject({ cancelled: z.literal(true) }),
-      handler(context, { previewId }) {
-        access(context, "mail.subset.cancel");
-        if (planOf(context, previewId).restoring) throw invalid("已开始提交，请等待恢复结果。");
-        plans.delete(previewId);
-        return { cancelled: true as const };
-      },
+    bindCapability(subsetDescriptors.subsetCancel, (context, { previewId }) => {
+      const name = subsetDescriptors.subsetCancel.name;
+      access(context, name);
+      return once(
+        context,
+        name,
+        previewId,
+        { previewId },
+        () => {
+          if (planOf(context, previewId).restoring) throw invalid("已开始提交，请等待恢复结果。");
+          plans.delete(previewId);
+          return { cancelled: true as const };
+        },
+        (data) => data,
+        (data) => data,
+      );
     }),
   );
   api.defineCapability(
-    defineCapability({
-      ...base,
-      name: "mail.subset.restore",
-      scope: "write",
-      idempotency: "handler",
-      input: z.strictObject({ previewId: uuid, accountIds: selection, confirm: z.literal(true) }),
-      output: z.strictObject({ accounts: z.array(planRow) }),
-      async handler(context, { previewId, accountIds }) {
-        const ownerAccounts = access(context, "mail.subset.restore");
-        files.assertWritable();
-        const signal = AbortSignal.any([context.signal, lifetime]);
-        if (!journal || blocked) throw invalid("本机 Mail 恢复记录需要检查。");
-        const plan = planOf(context, previewId);
-        if (plan.restoring) throw invalid("已开始提交，请等待恢复结果。");
-        plan.restoring = true;
-        const commit = () =>
-          withMailSnapshot(files, async () => {
-            signal.throwIfAborted();
-            if (blocked) throw invalid("本机 Mail 恢复记录需要检查。");
-            const data = plan.packet;
-            const chosen = new Set(accountIds);
-            const rows = (await inspect(files, ownerAccounts, removals, data)).filter(({ accountId }) => chosen.has(accountId));
-            if (rows.length !== chosen.size || rows.some(({ state }) => state === "conflict")) throw invalid("所选邮箱存在冲突，请重新预检并选择可恢复项。");
-            for (const row of data.accounts) {
-              if (!chosen.has(row.accountId) || rows.find(({ accountId }) => accountId === row.accountId)?.state === "restored") continue;
+    bindCapability(subsetDescriptors.subsetRestore, (context, { previewId, accountIds }) => {
+      const name = subsetDescriptors.subsetRestore.name;
+      const ownerAccounts = access(context, name);
+      files.assertWritable();
+      const signal = AbortSignal.any([context.signal, lifetime]);
+      if (!journal || blocked) throw invalid("本机 Mail 恢复记录需要检查。");
+      return once(
+        context,
+        name,
+        previewId,
+        accountIds.slice().sort(),
+        async () => {
+          const plan = planOf(context, previewId);
+          if (!isWorkbenchCaller(context.caller) && accountIds.some((id) => !plan.rows.some((row) => row.accountId === id && row.state !== "conflict"))) throw invalid("所选邮箱须通过原预检。");
+          if (plan.restoring) throw invalid("已开始提交，请等待恢复结果。");
+          plan.restoring = true;
+          const commit = () =>
+            withMailSnapshot(files, async () => {
               signal.throwIfAborted();
-              const key = fingerprint(row);
-              const id = randomUUID();
-              const changes = prepare(files, row, data);
-              try {
-                await journal.run(id, `mail-subset:${row.accountId}:${key}`, changes, { afterStep: () => signal.throwIfAborted() });
+              if (blocked) throw invalid("本机 Mail 恢复记录需要检查。");
+              const data = plan.packet;
+              const chosen = new Set(accountIds);
+              const rows = (await inspect(files, ownerAccounts, removals, data)).filter(({ accountId }) => chosen.has(accountId));
+              if (rows.length !== chosen.size || rows.some(({ state }) => state === "conflict")) throw invalid("所选邮箱存在冲突，请重新预检并选择可恢复项。");
+              for (const row of data.accounts) {
+                if (!chosen.has(row.accountId) || rows.find(({ accountId }) => accountId === row.accountId)?.state === "restored") continue;
                 signal.throwIfAborted();
-                await ownerAccounts.restoreDefinition(row.accountId, { ...row.definition, restoredFrom: key }, signal);
-              } catch (error) {
-                if (ownerAccounts.readDefinition(row.accountId)?.definition.restoredFrom !== key) {
-                  try {
-                    const op = journal.load(id);
-                    if (op && op.state !== "rolled_back" && journal.rollback(op).state !== "rolled_back") blocked = true;
-                  } catch {
-                    blocked = true;
+                const key = fingerprint(row);
+                const id = randomUUID();
+                const changes = prepare(files, row, data);
+                try {
+                  await journal.run(id, `mail-subset:${row.accountId}:${key}`, changes, { afterStep: () => signal.throwIfAborted() });
+                  signal.throwIfAborted();
+                  await ownerAccounts.restoreDefinition(row.accountId, { ...row.definition, restoredFrom: key }, signal);
+                } catch (error) {
+                  if (ownerAccounts.readDefinition(row.accountId)?.definition.restoredFrom !== key) {
+                    try {
+                      const op = journal.load(id);
+                      if (op && op.state !== "rolled_back" && journal.rollback(op).state !== "rolled_back") blocked = true;
+                    } catch {
+                      blocked = true;
+                    }
+                    throw error;
                   }
-                  throw error;
                 }
+                await files.write(done(id), json({ format: 1 }), { expectedVersion: null }).catch(() => undefined);
+                if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: row.accountId, op: "created" });
               }
-              await files.write(done(id), json({ format: 1 }), { expectedVersion: null }).catch(() => undefined);
-              if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: row.accountId, op: "created" });
-            }
-            return { accounts: (await inspect(files, ownerAccounts, removals, data)).filter(({ accountId }) => chosen.has(accountId)) };
-          });
-        // Account removal also takes its account lock before entering the snapshot writer.
-        const run = [...accountIds].sort().reduceRight((next, id) => () => removals.serialize(id, next), commit);
-        const restore = run();
-        pending.add(restore);
-        try {
-          return await restore;
-        } finally {
-          plan.restoring = false;
-          pending.delete(restore);
-        }
-      },
+              return { accounts: (await inspect(files, ownerAccounts, removals, data)).filter(({ accountId }) => chosen.has(accountId)) };
+            });
+          // Account removal also takes its account lock before entering the snapshot writer.
+          const run = [...accountIds].sort().reduceRight((next, id) => () => removals.serialize(id, next), commit);
+          const restore = run();
+          pending.add(restore);
+          try {
+            return await restore;
+          } finally {
+            plan.restoring = false;
+            pending.delete(restore);
+          }
+        },
+        ({ accounts }) =>
+          accounts.map(({ accountId, drafts, deliveries, missingAttachments }) => ({
+            accountId,
+            drafts,
+            deliveries,
+            missingAttachments,
+            revision: ownerAccounts.readDefinition(accountId)?.revision,
+          })),
+        (records) => ({
+          accounts: records.map(({ accountId, revision, ...counts }) => {
+            const current = ownerAccounts.readDefinition(accountId);
+            if (!current || removals.read(accountId) || current.revision !== revision) throw mailUnknown();
+            const { email, label } = current.definition.settings;
+            return { accountId, ...counts, email, label, state: "restored" as const, existing: { accountId, email, label } };
+          }),
+        }),
+      );
     }),
   );
   return async () => {
