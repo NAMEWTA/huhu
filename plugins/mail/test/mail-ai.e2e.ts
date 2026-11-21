@@ -76,7 +76,7 @@ test("桌面邮件 AI 只提交确认片段，采纳回复后使用原有编辑�
         body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
       });
       const result = await response.json();
-      expect(result, capability).toMatchObject({ ok: true });
+      expect(result.ok, `${capability}: ${JSON.stringify(result.error)}`).toBe(true);
       return result.data as T;
     }
     const host = { host: "127.0.0.1", port: imap.port, security: "none" };
@@ -195,7 +195,7 @@ test("桌面和 Web 工作台批准外部邮件 AI 请求，工具只能发送�
     }
     async function desktop<T>(capability: string, input?: unknown) {
       const result = await call(capability, input);
-      expect(result, capability).toMatchObject({ ok: true });
+      expect(result.ok, `${capability}: ${JSON.stringify(result.error)}`).toBe(true);
       return result.data as T;
     }
     const host = { host: "127.0.0.1", port: imap.port, security: "none" };

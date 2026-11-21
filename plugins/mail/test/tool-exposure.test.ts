@@ -522,6 +522,8 @@ test.each(entries)(
       await configure("mail.subset.preview", false);
       await exercise("mail.subset.cancel", { previewId: cancellable.previewId }, undefined, { duplicate: true, replay: true });
       await exercise("mail.subset.restore", { previewId: preview.previewId, accountIds: [portable.accountId], confirm: true }, undefined, { duplicate: true, replay: true });
+      const imported = (await accounts()).accounts.find((account) => account.accountId === portable.accountId);
+      assert(imported);
       assert(engine.moduleCredentialHost);
       const removableAccount = openMailAccounts({ ...engine.moduleCredentialHost, vault: engine.vault }, async () => [{ path: "INBOX", name: "INBOX", delimiter: "/", flags: [], specialUse: null }]);
       const toRemove = removableAccount.begin(accountAuth(imap.port, smtp.port, "removable@example.invalid"), password);
@@ -567,7 +569,20 @@ test.each(entries)(
         else if (transient) expect(result, name).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
         else expect(result, name).toEqual({ ok: true, data: expected });
       }
-      expect(await tool.call("mail.accounts.list")).toMatchObject({ ok: true, data: { accounts: [{ accountId, revision }] } });
+      const reopened = unwrap(await tool.call<{ available: boolean; accounts: { accountId: string }[] }>("mail.accounts.list"));
+      const folder = { path: "INBOX", name: "INBOX" };
+      const visibleDefinition = (email: string, label: string) => ({
+        settings: { email, label, provider: "custom_imap", auth: "password", smtpEnabled: true },
+        folders: [folder],
+      });
+      expect(reopened).toEqual({
+        available: true,
+        accounts: expect.arrayContaining([
+          { accountId, revision, authState: { "account-password": "configured" }, definition: visibleDefinition(sender, "new matrix label") },
+          { accountId: imported.accountId, revision: imported.revision, authState: { "account-password": "unconfigured" }, definition: visibleDefinition("portable@example.invalid", "matrix") },
+        ]),
+      });
+      expect(reopened.accounts).toHaveLength(2);
       expect(await tool.call("mail.oauth.status", { sessionId })).toMatchObject({ ok: true, data: { phase: "cancelled" } });
       expect(await tool.call("mail.outbox.status", { operationId: unknown.operationId })).toMatchObject({ ok: true, data: { state: "unknown" } });
       expect(effects()).toEqual(totals);

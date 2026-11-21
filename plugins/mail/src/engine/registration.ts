@@ -1,7 +1,8 @@
 import path from "node:path";
+import { isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, OperationReceipts, type Context, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { mailAccountDefinitionSchema } from "./account-definition.js";
+import { accountSettingsSchema, mailAccountDefinitionSchema, mailFolderSchema } from "./account-definition.js";
 import { AccountRemovals, accountRemovalDescriptors, pendingRemoval, registerAccountRemoval } from "./account-removals.js";
 import { openMailAccounts, type MailAccountOwner } from "./accounts.js";
 import { accountSetupDescriptors, registerAccountSetup } from "./account-setup.js";
@@ -18,11 +19,17 @@ import { subsetDescriptors, registerMailSubset } from "./subset-data.js";
 import { mailTool, requireMailCaller } from "./tool-access.js";
 import { mailIntents } from "./tool-intents.js";
 
+const { provider, email, label, auth, smtpEnabled } = accountSettingsSchema.shape;
+const toolAccountDefinition = z.strictObject({
+  settings: z.strictObject({ provider, email, label, auth, smtpEnabled }),
+  folders: z.array(mailFolderSchema.pick({ path: true, name: true })),
+});
+
 const accountSummary = z.strictObject({
   accountId: z.string(),
   revision: z.string(),
   authState: z.record(z.string(), z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"])),
-  definition: mailAccountDefinitionSchema,
+  definition: z.union([mailAccountDefinitionSchema, toolAccountDefinition]),
 });
 
 export const mailAccountsListDescriptor = defineCapabilityDescriptor({
@@ -69,7 +76,18 @@ export async function apply(
       requireMailCaller(caller, mailAccountsListDescriptor.name);
       const rows = accounts ? await accounts.list() : [];
       const pending = caller === "desktop" ? removals.pending() : [];
-      return { available: accounts !== undefined, accounts: rows, ...(pending.length && { pendingRemovals: pending }) };
+      const visible = isWorkbenchCaller(caller)
+        ? rows
+        : rows.map(({ accountId, revision, authState, definition: { settings, folders } }) => {
+            const { provider, email, label, auth, smtpEnabled } = settings;
+            return {
+              accountId,
+              revision,
+              authState,
+              definition: { settings: { provider, email, label, auth, smtpEnabled }, folders: folders.map(({ path, name }) => ({ path, name })) },
+            };
+          });
+      return { available: accounts !== undefined, accounts: visible, ...(pending.length && { pendingRemovals: pending }) };
     }),
   );
   const drainSetup = registerAccountSetup(api, accounts, removals.serializeAddress.bind(removals), lifetime.signal, once);
