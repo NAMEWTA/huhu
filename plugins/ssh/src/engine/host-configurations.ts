@@ -196,9 +196,9 @@ export class HostConfigurations {
   async withAuthentication(host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>): Promise<void> {
     const required = purposes[host.auth.kind].filter((purpose) => purpose !== "passphrase" || host.authState[purpose] !== "unconfigured");
     const result = await this.credentials()
-      .use(host.id, required, async (definition, values) => {
+      .use(host.id, required, async (definition, values, revision) => {
         try {
-          if (definition.configId !== host.configId) throw new HuhuError("VERSION_CONFLICT", "SSH 主机配置已更新，请重新连接");
+          if (revision !== host.revision || definition.configId !== host.configId) throw new HuhuError("VERSION_CONFLICT", "SSH 主机配置已更新，请重新连接");
           await connect(buildAuth(definition.authKind, values));
           return null;
         } catch (error) {

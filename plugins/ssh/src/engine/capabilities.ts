@@ -23,6 +23,8 @@ import {
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
+import { ResourceHost, ResourceHostId } from "./public-resources.js";
+import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbe } from "./public-probes.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -42,6 +44,7 @@ import {
 
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
+const external = { ...ssh, exposable: true } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -50,6 +53,57 @@ const Size = z.object({ size: z.number() });
 const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
+  resourcesHostGet: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.host.get",
+    title: "读取 SSH 主机与路由摘要",
+    description: "按主机 ID 读取可移植的主机身份、认证类型和逐跳修订。无需连接或访问本机凭据。",
+    scope: "read",
+    risk: "normal",
+    input: ResourceHostId,
+    output: ResourceHost,
+  }),
+  resourcesConnectionStart: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.connection.start",
+    title: "启动指定路由的 SSH 连接核验",
+    description: "使用已保存认证核验绑定的 SSH 路由，读回主体专有的尝试 ID。核验完成后关闭测试连接。",
+    scope: "execute",
+    risk: "high",
+    input: StartPublicProbe,
+    output: PublicProbeId.pick({ attemptId: true }),
+  }),
+  resourcesConnectionGet: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.connection.get",
+    title: "读取本主体的 SSH 连接核验",
+    description: "查询现有核验的状态和原跳点信任待答，不启动连接。",
+    scope: "read",
+    risk: "normal",
+    input: PublicProbeId,
+    output: PublicProbeStatus,
+  }),
+  resourcesConnectionList: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.connection.list",
+    title: "列出本主体的 SSH 核验和待答",
+    description: "只读取本主体现有的 SSH 连接核验及信任待答。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(PublicProbeStatus),
+  }),
+  resourcesTrustDecide: defineCapabilityDescriptor({
+    ...external,
+    name: "ssh.resources.trust.decide",
+    title: "回答归属当前主体的 SSH 首次指纹待答",
+    description: "核对原主机、路由修订、跳点、指纹及提示修订，只允许对本次连接接受或拒绝。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: DecidePublicProbe,
+    output: z.object({ applied: z.literal(true) }),
+  }),
   settingsGet: defineCapabilityDescriptor({
     ...monitor,
     name: "ssh.settings.get",

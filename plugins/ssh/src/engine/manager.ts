@@ -49,6 +49,7 @@ type Attempt = {
   report?: (status: ConnectionStatus) => void;
   expectedTarget?: string;
   routeTarget?: string;
+  publicProbe?: { validate(): void };
   pending?: { prompt: HostKeyPrompt; answer(accept: boolean, remember: boolean): void } | undefined;
   changed?: HostKeyPrompt;
 };
@@ -168,11 +169,52 @@ export class SshManager {
   /** 只消费当前连接和跳的待答项。旧调用者使用唯一 attemptId + hop。 */
   decide(attemptId: string, hop: number, accept: boolean, promptId?: string, remember = true): boolean {
     const attempt = this.attempts.get(attemptId);
+    if (attempt?.publicProbe) return false;
+    return this.answerPrompt(attempt, hop, accept, promptId, remember);
+  }
+
+  decidePublicProbe(attemptId: string, hop: number, promptId: string, accept: boolean): boolean {
+    const attempt = this.attempts.get(attemptId);
+    if (!attempt?.publicProbe) return false;
+    attempt.publicProbe.validate();
+    return this.answerPrompt(attempt, hop, accept, promptId, false);
+  }
+
+  private answerPrompt(attempt: Attempt | undefined, hop: number, accept: boolean, promptId: string | undefined, remember: boolean): boolean {
     const pending = attempt?.pending;
     if (!attempt || attempt.signal.aborted || pending?.prompt.hop !== hop || (promptId === undefined ? attempt.requirePromptId : pending.prompt.promptId !== promptId)) return false;
     attempt.pending = undefined;
     pending.answer(accept, remember);
     return true;
+  }
+
+  startPublicProbe(chain: ManagedHost[], signal: AbortSignal, validate: () => void, report: (status: ConnectionStatus, code?: HuhuError["code"]) => void): string {
+    const id = newId("cap").replace("cap", "att");
+    const hostId = chain.at(-1)!.id;
+    const attempt: Attempt = { id, hostId, signal, requirePromptId: true, report, publicProbe: { validate } };
+    this.attempts.set(id, attempt);
+    const opened: Client[] = [];
+    const close = () => {
+      for (const client of opened.splice(0).reverse()) client.end();
+    };
+    signal.addEventListener("abort", close, { once: true });
+    void Promise.resolve()
+      .then(() => this.dialChain(chain, attempt, opened))
+      .then(() => {
+        signal.throwIfAborted();
+        validate();
+        report({ hostId, attemptId: id, state: "connected" });
+      })
+      .catch((error: unknown) => {
+        if (attempt.changed) report({ hostId, attemptId: id, state: "key-changed", prompt: attempt.changed });
+        else report({ hostId, attemptId: id, state: "failed", message: "SSH 连接核验失败" }, error instanceof HuhuError ? error.code : undefined);
+      })
+      .finally(() => {
+        signal.removeEventListener("abort", close);
+        this.attempts.delete(id);
+        close();
+      });
+    return id;
   }
 
   private route(hostId: string, hosts: readonly HostRecord[]): ManagedHost[] {
@@ -279,15 +321,18 @@ export class SshManager {
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
+      attempt.publicProbe?.validate();
       onHop?.(hop, host);
       const client = new Client();
       opened.push(client);
-      const authenticate = (auth: ConnectionAuth) =>
-        this.connectHop(client, host, target, hop, attempt, auth, socket, {
+      const authenticate = (auth: ConnectionAuth) => {
+        attempt.publicProbe?.validate();
+        return this.connectHop(client, host, target, hop, attempt, auth, socket, {
           connectTimeoutSec: host.connectTimeoutSec ?? defaults.connectTimeoutSec,
           keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
           keepaliveCountMax: host.keepaliveCountMax ?? defaults.keepaliveCountMax,
         });
+      };
       await this.d.withManagedAuth(host, authenticate);
       client.setNoDelay(true);
       const next = chain[hop + 1];
@@ -450,7 +495,17 @@ export class SshManager {
         }, preferences.connectTimeoutSec * 1000);
       };
       const publishKey = (prompt: HostKeyPrompt, reason: "first" | "changed") => {
+        if (attempt.publicProbe) return;
         this.d.publish("ssh.hostKeyPrompt", { attemptId, hostId: h.id, hop, fingerprint: prompt.fingerprint, keyType: prompt.keyType, reason });
+      };
+      const currentTarget = () => {
+        try {
+          attempt.publicProbe?.validate();
+          return true;
+        } catch (error) {
+          finish(error instanceof HuhuError ? error : errors.invalidInput("无法核对 SSH 路由"));
+          return false;
+        }
       };
       const blockChanged = (prompt: HostKeyPrompt, verify: (ok: boolean) => void) => {
         attempt.changed = prompt;
@@ -477,7 +532,7 @@ export class SshManager {
           ...(preferences.keepaliveCountMax !== null ? { keepaliveCountMax: preferences.keepaliveCountMax } : {}),
           ...auth,
           hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
-            if (done) return verify(false);
+            if (done || !currentTarget()) return verify(false);
             const keyType = keyTypeOf(key);
             let check: ReturnType<KnownHosts["check"]>;
             try {
@@ -520,6 +575,7 @@ export class SshManager {
                   .then((result) => {
                     if (done) return;
                     if (result.state === "mismatch") return blockChanged({ ...prompt, promptId: newId("cap").replace("cap", "prompt"), recorded: result.recorded }, verify);
+                    if (!currentTarget()) return verify(false);
                     resumeTimer();
                     verify(true);
                   })
