@@ -5,13 +5,13 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage } from "@huhu/vault";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
 import { openImapFixture } from "./fixtures/imap.js";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")("邮件账号在 Safe 锁定时可保存和读回，恢复后要求重新配置", async () => {
+engineTest("邮件账号在 Safe 锁定时可保存和读回，恢复后要求重新配置", async () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-mail-native-"));
   const desktopUserData = path.join(fixture, "app-data");
   const vaultPath = path.join(fixture, "mail");
@@ -105,7 +105,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("邮件账�
   }
 });
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
+engineTest(
   "原邮箱认证修复使用当前 revision，失败、冲突和取消保留原绑定",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-repair-"));

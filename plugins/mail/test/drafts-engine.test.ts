@@ -6,12 +6,11 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage } from "@huhu/vault";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
 
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 const draftsPath = ".huhu/mail/drafts.json";
 
 function credentials(engine: RunningEngine) {
@@ -116,8 +115,8 @@ function result<T>(response: Awaited<ReturnType<typeof call>>): T {
 
 type Draft = { draftId: string; updatedAt: string; revision: string; accountId: string | null; subject: string };
 
-testWindows(
-  "离线草稿可切换发件账号，Windows Engine、只读和新格式 ZIP 重开保留原始内容",
+engineTest(
+  "离线草稿可切换发件账号，Engine、只读和新格式 ZIP 重开保留原始内容",
   async () => {
     await withFixture(async ({ root, vaultPath, open }) => {
       const transport = vi.fn();
@@ -244,7 +243,7 @@ testWindows(
   120_000,
 );
 
-testWindows(
+engineTest(
   "草稿原子替换失败保留字节，并发 CAS 仅一个获胜，明确丢弃后迟到提交不能恢复",
   async () => {
     await withFixture(async ({ vaultPath, open }) => {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials, NotificationStore, OperationReceipts } from "@huhu/kernel";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
@@ -252,7 +252,7 @@ test("production OAuth service addresses distinguish personal Outlook and Exchan
   expect(oauthMailEndpoints("gmail", google, false).smtp.host).toBe("smtp.gmail.com");
 });
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
+engineTest(
   "OAuth uses the real dispatcher, callback, module credentials, IMAP and SMTP with isolated issuers",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-oauth-"));

@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { EVENT_PAYLOADS } from "@huhu/contracts";
 import ssh2 from "ssh2";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { exportPackage, importPackage } from "../../../packages/vault/src/package/package.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { writeLegacyItem } from "../../safe/test/legacy-fixture.js";
@@ -16,10 +17,9 @@ type HostRow = { id: string; revision?: string; authState?: Record<string, strin
 const roots: string[] = [];
 const engines: Array<{ engine: RunningEngine; client: EngineClient }> = [];
 const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 
 async function start(vaultPath: string, desktopUserData: string, create = false) {
-  const engine = await boot({ vaultPath, desktopUserData, create });
+  const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create });
   const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   engines.push({ engine, client });
   return { engine, client };
@@ -91,7 +91,7 @@ afterEach(async () => {
   }
 });
 
-testWindows("旧主机仅显示修复标记，跳板及转发均不拨号，旧条目与文件保留", async () => {
+engineTest("旧主机仅显示修复标记，跳板及转发均不拨号，旧条目与文件保留", async () => {
   const live = await fixture();
   const remote = await server({});
   const password = randomUUID();
@@ -148,8 +148,8 @@ testWindows("旧主机仅显示修复标记，跳板及转发均不拨号，旧�
   expect([readFileSync(item.metadataPath), readFileSync(item.sealedPath)]).toEqual(oldBytes);
 });
 
-testWindows(
-  "Windows SSH 自有密码在 Safe 三种状态可用且备份只带可恢复定义",
+engineTest(
+  "SSH 自有密码在 Safe 三种状态可用且备份只带可恢复定义",
   async () => {
     const live = await fixture();
     const secret = randomUUID();
@@ -214,7 +214,7 @@ testWindows(
   60_000,
 );
 
-testWindows(
+engineTest(
   "受保护配置替换失败与过期编辑保持原凭据，重试可提交",
   async () => {
     const live = await fixture();
@@ -271,7 +271,7 @@ testWindows(
   60_000,
 );
 
-testWindows(
+engineTest(
   "加密私钥与本机身份文件验证口令和主机信任，复制与删除不跨主机取用凭据",
   async () => {
     const live = await fixture();

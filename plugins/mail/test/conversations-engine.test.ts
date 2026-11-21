@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
-import { assert, expect, test } from "vitest";
+import { assert, expect, test as engineTest } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
@@ -14,7 +14,7 @@ import { operationIdFor, OutboxStorage } from "../src/engine/outbox-storage.js";
 import { openImapFixture, type FixtureImapMessage } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
+engineTest(
   "真实 IMAP 缓存先归并再分页，保持公开联系人和原来源且零 SMTP",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-conversations-"));
