@@ -5,14 +5,14 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage } from "@huhu/vault";
-import { assert, expect, test } from "vitest";
+import { assert, expect, test as engineTest } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts, type MailAccount } from "../src/engine/accounts.js";
 import { mailMessageSourceDescriptor, mailRefreshDescriptor } from "../src/engine/message-cache.js";
 import { openImapFixture } from "./fixtures/imap.js";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")("两个邮箱的相同 UID 保持独立，重开及 UIDVALIDITY 换代后仍只读原账号", async () => {
+engineTest("两个邮箱的相同 UID 保持独立，重开及 UIDVALIDITY 换代后仍只读原账号", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-message-native-"));
   const vaultPath = path.join(root, "vault");
   const desktopUserData = path.join(root, "app");

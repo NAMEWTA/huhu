@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NotificationStore } from "@huhu/kernel";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
 import type { MailLocationTarget } from "../src/engine/conversations.js";
@@ -21,8 +21,8 @@ function message(uid: number, seen = false): FixtureImapMessage {
   return { uid, uidValidity: 42, subject: `Fixture ${uid}`, seen, source: `From: Sender <sender@example.test>\r\nTo: fixture@example.test\r\nSubject: Fixture ${uid}\r\n\r\nBody start${uid}end\r\n` };
 }
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
-  "Windows IMAP bounds initial history, reconciles ordered arrivals and retries after disconnect with exact notice targets",
+engineTest(
+  "IMAP bounds initial history, reconciles ordered arrivals and retries after disconnect with exact notice targets",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-sync-"));
     const vaultPath = path.join(root, "vault");
@@ -38,6 +38,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
     let loseNoticeAcknowledgement = false;
     let now = Date.UTC(2026, 10, 21);
     let timer: { run: () => void; delay: number } | undefined;
+    const waitForImap = { timeout: 10_000 };
     injection.options = {
       notify({ id, ...notice }) {
         published.push(id);
@@ -110,14 +111,14 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
         }
       };
       tick(60_000);
-      await expect.poll(() => timer?.delay).toBe(5000);
+      await expect.poll(() => timer?.delay, waitForImap).toBe(5000);
       expect(disconnected).toBe(true);
       expect(await call("mail.sync.settings")).toMatchObject({ minutes: 1, accounts: [{ accountId, phase: "retrying" }] });
       expect(await call("mail.messages.latest", folder)).toMatchObject({ message: { uid: 205 } });
       expect(notices.list()).toHaveLength(0);
 
       tick(5000);
-      await expect.poll(() => timer?.delay).toBe(60_000);
+      await expect.poll(() => timer?.delay, waitForImap).toBe(60_000);
       expect(await call("mail.sync.settings")).toMatchObject({ accounts: [{ accountId, phase: "ready" }] });
       expect(await call("mail.messages.latest", folder)).toMatchObject({ message: { uid: 232 } });
       expect(notices.list()).toHaveLength(2);
@@ -158,15 +159,15 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
       fault = undefined;
       mailboxOptions.allowIdle = true;
       tick(60_000);
-      await expect.poll(imap.idleCount).toBe(1);
+      await expect.poll(imap.idleCount, waitForImap).toBe(1);
       box.messages.push(message(234, true));
       imap.announceExists(box.messages.length);
-      await expect.poll(() => timer?.delay).toBe(1000);
+      await expect.poll(() => timer?.delay, waitForImap).toBe(1000);
       tick(1000);
-      await expect.poll(imap.idleCount).toBe(1);
+      await expect.poll(imap.idleCount, waitForImap).toBe(1);
       expect(await call("mail.messages.latest", folder)).toMatchObject({ message: { uid: 234 } });
       imap.disconnectIdle();
-      await expect.poll(imap.idleCount).toBe(0);
+      await expect.poll(imap.idleCount, waitForImap).toBe(0);
       expect(timer?.delay).toBe(60_000);
 
       const resetting = Promise.withResolvers<void>();

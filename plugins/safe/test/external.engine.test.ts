@@ -6,13 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
-import { expect, test, vi } from "vitest";
+import { expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { Safe } from "../src/engine/safe.js";
 import { writeLegacyItem } from "./legacy-fixture.js";
 import { signal } from "./signal.js";
 
-const testWindows = test.skipIf(process.platform !== "win32");
 const cliDir = path.resolve(import.meta.dirname, "../../../apps/cli");
 const sessionOf = ({ instanceId, generation, callerProof }: Status) => ({ instanceId, generation, ...(callerProof && { callerProof }) });
 type Status = { instanceId: string; generation: number; callerProof?: string; locked: boolean };
@@ -153,7 +152,7 @@ function containsPrivateBytes(root: string, needles: string[]): boolean {
   });
 }
 
-testWindows(
+engineTest(
   "同一保险箱条目经工作台、CLI stdin、HTTP 与两种 MCP 修改和读取，逐项授权可撤销",
   async () => {
     await fixture(async (open) => {
@@ -307,7 +306,7 @@ testWindows(
   60_000,
 );
 
-testWindows(
+engineTest(
   "真实授权撤销挡住暂存写入及迟到明文，锁定后同键复查当前会话",
   async () => {
     await fixture(async (open) => {
@@ -437,7 +436,7 @@ testWindows(
   35_000,
 );
 
-testWindows(
+engineTest(
   "同源已登录 Web 使用同一条目和会话代，邀请撤销丢弃在途读取",
   async () => {
     await fixture(async (open, temp) => {

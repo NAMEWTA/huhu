@@ -161,7 +161,7 @@ test("本机保护不可用时，取用和重新配置均失败并保留原密�
   }
 });
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启动环境的受保护变量随本机保存，ZIP 只保留配置", async () => {
+test("Agent 启动环境的受保护变量随本机保存，ZIP 只保留配置", async () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-agent-environment-"));
   const vaultPath = path.join(fixture, "vault");
   const desktopUserData = path.join(fixture, "app-data");
@@ -184,7 +184,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
   try {
     mkdirSync(vaultPath);
     mkdirSync(desktopUserData);
-    source = await boot({ vaultPath, desktopUserData, create: true });
+    source = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
     const input = { ...publicFields, expectedRevision: null, changes: [{ name: variable, action: "replace", value: protectedValue }] };
     expect(await call(source, `${prefix}.save`, input, "cli")).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(await call(source, `${prefix}.save`, input, "web:fixture")).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
@@ -204,7 +204,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
     expect(bytes.some((entry) => Buffer.from(entry).includes(protectedValue))).toBe(false);
     expect(restoredEntries.some(([entryPath, entry]) => entryPath.startsWith(".huhu/module-credentials/") && Buffer.from(entry).includes("portable-fixture"))).toBe(true);
     importPackage(archive, restoredPath, { regenerateId: true });
-    restored = await boot({ vaultPath: restoredPath, desktopUserData });
+    restored = await boot({ vaultPath: restoredPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData) });
     expect(await data(restored, `${prefix}.list`)).toMatchObject({ profiles: [{ id, revision, ...publicFields, states: { [variable]: "needs-reconfiguration" } }] });
 
     const clear = { ...publicFields, id, expectedRevision: revision, protectedNames: [] };
@@ -226,6 +226,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Agent 启�
 });
 
 const coreBinary = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
+// Rule approval only accepts Windows PowerShell targets.
 test.skipIf(process.platform !== "win32" || process.arch !== "x64")(
   "环境改名仅在配置成功发布后使当前批准失效",
   async () => {

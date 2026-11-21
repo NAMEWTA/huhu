@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, CapabilityResultSchema } from "@huhu/contracts";
-import { expect, test } from "vitest";
+import { expect, test as engineTest } from "vitest";
 import { z } from "zod";
 import manifest from "../huhu-plugin.json" with { type: "json" };
 import { mailOAuthCapabilityDescriptors } from "../src/engine/index.js";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 
-test.skipIf(process.platform !== "win32")(
+engineTest(
   "Mail OAuth catalog can be configured while disabled and survives an Engine restart",
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-catalog-"));

@@ -7,12 +7,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { LocalProtectionError } from "@huhu/kernel";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { CapabilityError, EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { writeLegacyItem } from "../../safe/test/legacy-fixture.js";
 import { GitRunner, type RunOpts } from "../src/engine/git.js";
 import { httpTarget } from "../src/engine/remote-auth.js";
+
+const tls = {
+  cert: path.resolve(import.meta.dirname, "../../mail/test/fixtures/loopback-cert.pem"),
+  key: path.resolve(import.meta.dirname, "../../mail/test/fixtures/loopback-key.pem"),
+};
 
 type Auth = { revision: string | null; state: string };
 type SyncState = { name: string; detail: string; pausedReason: string | null; authPause?: { source: string; target: string; revision: string | null; reason: string } };
@@ -20,7 +26,6 @@ const roots: string[] = [];
 const engines: Array<{ engine: RunningEngine; client: EngineClient }> = [];
 const servers: ReturnType<typeof createServer>[] = [];
 const cgis = new Set<ReturnType<typeof spawn>>();
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 
 function git(dir: string, ...args: string[]) {
   return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -39,7 +44,7 @@ async function fixture() {
   vi.stubEnv("GIT_CONFIG_GLOBAL", privateGitConfig);
   git(vaultPath, "init", "--quiet", "--initial-branch=main");
   for (const name of ["a.git", "b.git"]) git(remoteRoot, "init", "--bare", "--quiet", "--initial-branch=main", name);
-  const engine = await boot({ vaultPath, desktopUserData: profile, create: true });
+  const engine = await boot({ vaultPath, desktopUserData: profile, moduleCredentialProtection: new TestProtection(profile), create: true });
   const client = clientFor(engine);
   return { root, vaultPath, profile, remoteRoot, engine, client, privateGitConfig };
 }
@@ -130,18 +135,6 @@ async function remote(root: string, username: string, token: string, tls?: { cer
   };
 }
 
-function certificate(root: string) {
-  const gitRoot = path.resolve(git(root, "--exec-path").trim(), "../../..");
-  const cert = path.join(root, "fixture.crt");
-  const key = path.join(root, "fixture.key");
-  execFileSync(
-    path.join(gitRoot, "usr", "bin", "openssl.exe"),
-    ["req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout", key, "-out", cert, "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1"],
-    { cwd: root, stdio: "ignore", windowsHide: true },
-  );
-  return { cert, key };
-}
-
 function event() {
   let fire!: () => void;
   const promise = new Promise<void>((resolve) => {
@@ -165,13 +158,12 @@ function seedDivergedRemote(live: Awaited<ReturnType<typeof fixture>>) {
   git(peer, "push", "--quiet", repository, "main");
 }
 
-testWindows(
+engineTest(
   "同一 HTTPS 目标修复认证只恢复一次原定同步，Safe 解锁与过期提交没有新增请求",
   async () => {
     const live = await fixture();
     seedDivergedRemote(live);
-    const tls = certificate(live.root);
-    git(live.vaultPath, "config", "http.sslBackend", "openssl");
+    if (process.platform === "win32") git(live.vaultPath, "config", "http.sslBackend", "openssl");
     git(live.vaultPath, "config", "http.sslCAInfo", tls.cert.replaceAll("\\", "/"));
     git(live.vaultPath, "config", "protocol.version", "2");
     const user = `user-${randomUUID()}`;
@@ -218,7 +210,7 @@ testWindows(
   120_000,
 );
 
-testWindows(
+engineTest(
   "HTTP 仅重试当前仓库的新修订一次；其他仓库、保留凭据和只读 Vault 均无请求",
   async () => {
     const live = await fixture();
@@ -255,7 +247,7 @@ testWindows(
       { path: "/b.git/info/refs", service: "git-upload-pack", auth: "other" },
     ]);
 
-    const readonly = clientFor(await boot({ vaultPath: live.vaultPath, desktopUserData: live.profile, readOnly: true }));
+    const readonly = clientFor(await boot({ vaultPath: live.vaultPath, desktopUserData: live.profile, moduleCredentialProtection: new TestProtection(live.profile), readOnly: true }));
     const gitConfig = path.join(live.vaultPath, ".git", "config");
     const before = readFileSync(gitConfig);
     expect(await status(readonly)).toMatchObject({ name: "read-only", detail: "Vault 以只读方式打开" });
@@ -310,7 +302,7 @@ test("HTTP 目标归一化端口和仓库，并拒绝 URL 内嵌认证材料与�
   }
 });
 
-testWindows(
+engineTest(
   "有效的旧 Safe 引用只提示 Versioning 补配，零联网；停用 Safe 后按保存的目标恢复一次",
   async () => {
     const live = await fixture();
@@ -380,7 +372,7 @@ testWindows(
   120_000,
 );
 
-testWindows(
+engineTest(
   "真实 Git fetch/push 使用 Versioning 自有认证，换仓库或端口后不送旧认证",
   async () => {
     const live = await fixture();
@@ -436,11 +428,11 @@ testWindows(
   120_000,
 );
 
-testWindows(
+// This case asserts the Windows askpass broker's environment and launcher cleanup.
+test.skipIf(process.platform !== "win32")(
   "HTTPS 认证绑定协议与主机，拒绝重定向、权限越界和取消后的请求",
   async () => {
     const live = await fixture();
-    const tls = certificate(live.root);
     git(live.vaultPath, "config", "http.sslBackend", "openssl");
     git(live.vaultPath, "config", "http.sslCAInfo", tls.cert.replaceAll("\\", "/"));
     const user = `person-${randomUUID()}@example.test`;

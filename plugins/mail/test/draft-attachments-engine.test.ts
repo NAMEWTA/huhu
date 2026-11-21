@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { importPackage } from "@huhu/vault";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
 
@@ -38,13 +38,12 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   };
 });
 
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 const content = { accountId: null, subject: "合成附件", to: [], cc: [], bcc: [], body: { type: "doc" } };
 const draftsFile = ".huhu/mail/drafts.json";
 const objects = ".huhu/mail/attachments";
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
-testWindows(
+engineTest(
   "只读 Engine 不能发布在独立 Safe 写入后已不连贯的整库包",
   async () => {
     await fixture(async (root, _vaultPath, open) => {
@@ -85,7 +84,7 @@ testWindows(
   30_000,
 );
 
-testWindows(
+engineTest(
   "整库备份不会发布引用新 Mail 附件却遗漏附件目录的数据包",
   async () => {
     await fixture(async (root, _vaultPath, open) => {
@@ -188,7 +187,7 @@ function source(name: string, bytes: Buffer): MailAttachmentSource {
   };
 }
 
-testWindows(
+engineTest(
   "发布对象后取消或 CAS 拒写，排队的数据包只选择已提交引用",
   async () => {
     await fixture(async (root, _vaultPath, open) => {
@@ -290,7 +289,7 @@ testWindows(
   120_000,
 );
 
-testWindows(
+engineTest(
   "Mail 停用时开始导出，重新启用后的附件提交仍等同一份快照",
   async () => {
     await fixture(async (root, vaultPath, open) => {
@@ -341,7 +340,7 @@ testWindows(
   120_000,
 );
 
-testWindows(
+engineTest(
   "数据包引用读取拒绝未知草稿格式和损坏的发件记录",
   async () => {
     await fixture(async (_root, _vaultPath, open) => {
@@ -363,8 +362,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 重开与 ZIP 恢复后按摘要读回独立受管字节，回收遵守共享引用与导出队列",
+engineTest(
+  "Engine 重开与 ZIP 恢复后按摘要读回独立受管字节，回收遵守共享引用与导出队列",
   async () => {
     await fixture(async (root, vaultPath, open) => {
       let engine = await open({ create: true });
@@ -467,8 +466,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 报告丢失、损坏、超限与中断，失败保全草稿和已提交字节",
+engineTest(
+  "Engine 报告丢失、损坏、超限与中断，失败保全草稿和已提交字节",
   async () => {
     await fixture(async (root, vaultPath, open) => {
       const engine = await open({ create: true });
@@ -566,8 +565,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 草稿正文和附件共用条件写，败者不打开源且 RPC 拒绝路径与伪造引用",
+engineTest(
+  "Engine 草稿正文和附件共用条件写，败者不打开源且 RPC 拒绝路径与伪造引用",
   async () => {
     await fixture(async (_root, vaultPath, open) => {
       const engine = await open({ create: true });

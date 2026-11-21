@@ -5,7 +5,7 @@ import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage } from "@huhu/vault";
-import { assert, expect, test, vi } from "vitest";
+import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { mailAttachmentPackagePaths, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
@@ -38,8 +38,6 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
       )) satisfies typeof mail.apply,
   };
 });
-
-const testWindows = test.skipIf(process.platform !== "win32" || process.arch !== "x64");
 
 const outboxDir = ".huhu/mail/outbox";
 const sender = "fixture-sender@example.invalid";
@@ -143,7 +141,7 @@ async function save(engine: RunningEngine, accountId: string, draftId: string = 
   return { draftId: draft.draftId, expectedRevision: draft.revision };
 }
 
-testWindows(
+engineTest(
   "确认清理隔离旧同步，重开后保留已读覆盖、附件、认证和未知投递",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
@@ -237,7 +235,7 @@ testWindows(
   90_000,
 );
 
-testWindows(
+engineTest(
   "Mail ZIP 预检拒绝覆盖，确认后恢复选中的持久数据并可重开重试",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {
@@ -385,7 +383,7 @@ testWindows(
   90_000,
 );
 
-testWindows(
+engineTest(
   "本地删除邮箱按 ID 和预览修订执行，停止在途 IMAP/SMTP 并可重启续清理",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {
@@ -567,7 +565,7 @@ testWindows(
   90_000,
 );
 
-testWindows(
+engineTest(
   "真实 IMAP 转发只发送纳入草稿的字节，新话题换账号且不沿用线程",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
@@ -754,7 +752,7 @@ testWindows(
   90_000,
 );
 
-testWindows(
+engineTest(
   "真实 IMAP 回复保留来源、草稿和 SMTP 线程头，拒收重试沿用原信",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {
@@ -901,7 +899,7 @@ testWindows(
   45_000,
 );
 
-testWindows(
+engineTest(
   "工作台能力使用回环 IMAP 添加邮箱，重开草稿后只重试拒收项并保留待核实记录",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
@@ -987,8 +985,8 @@ testWindows(
   45_000,
 );
 
-testWindows(
-  "Windows Engine 对两个来路只认领一次，冻结内容、密送信封和附件后只发一次 DATA",
+engineTest(
+  "Engine 对两个来路只认领一次，冻结内容、密送信封和附件后只发一次 DATA",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {
       let engine = await open({ create: true });
@@ -1086,8 +1084,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 在草稿过期、附件缺失、只读、收件专用或认领写失败时不开 SMTP",
+engineTest(
+  "Engine 在草稿过期、附件缺失、只读、收件专用或认领写失败时不开 SMTP",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
       const engine = await open({ create: true });
@@ -1139,8 +1137,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 持久区分拒收、部分接受和 DATA 确认丢失，重开及回执写失败均不重投",
+engineTest(
+  "Engine 持久区分拒收、部分接受和 DATA 确认丢失，重开及回执写失败均不重投",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
       let engine = await open({ create: true });
@@ -1252,8 +1250,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 只重试选定的明确拒收地址，删除本地详情后仍保留防重认领",
+engineTest(
+  "Engine 只重试选定的明确拒收地址，删除本地详情后仍保留防重认领",
   async () => {
     await fixture(async ({ root, smtp, password, open }) => {
       let engine = await open({ create: true });
@@ -1411,8 +1409,8 @@ testWindows(
   120_000,
 );
 
-testWindows(
-  "Windows Engine 关闭途中保留未知，迟到结果无法恢复已删除详情",
+engineTest(
+  "Engine 关闭途中保留未知，迟到结果无法恢复已删除详情",
   async () => {
     await fixture(async ({ smtp, password, open }) => {
       let engine = await open({ create: true });
