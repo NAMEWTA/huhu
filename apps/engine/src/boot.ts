@@ -551,6 +551,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     mcpStdioEnabled: () => gatewayTokens.mcp().enabled,
     mcpSignal: () => gatewayTokens.mcpSignal(),
     vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
+    ...(!vault.files.readOnly && rootIdentity && { mcpRecovery: { directory: runtime, generation: () => gatewayTokens.mcpRecoveryGeneration() } }),
     terminal,
     dispatcher: real,
     registry,

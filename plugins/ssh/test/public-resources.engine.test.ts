@@ -1,4 +1,4 @@
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -493,7 +493,14 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     await f.allow(probeList);
     const a = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "jobs MCP A" });
     const b = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "independent MCP token" });
-    const sessionA = await openMcpSession(f.mcpEndpoint(), a.token);
+    const original = await openRecoverableMcpSession(f.mcpEndpoint(), a.token);
+    const sessionA = original.handle;
+    const archive = path.join(path.dirname(f.engine.vault.root), "mcp-recovery-fixture.zip");
+    await f.desktop("vault.exportPackage", { dest: archive });
+    expect((await readFile(archive)).includes("mcp-recovery.json")).toBe(false);
+    await f.desktop("git.init");
+    const git = await f.desktop<{ files: { path: string }[] }>("git.status");
+    expect(git.files.some(({ path }) => path.includes("mcp-recovery.json"))).toBe(false);
     const sessionB = await openMcpSession(f.mcpEndpoint(), a.token);
     const independent = await openMcpSession(f.mcpEndpoint(), b.token);
     const rpc = (token: string, handle: string, method: string, params = {}) => f.mcp(token, method, params, handle);
@@ -602,7 +609,14 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     expect((await mcpRequest(f.mcpEndpoint(), b.token, mcpRpc("tools/list"), independent)).status).toBe(404);
     const anotherVault = await fixture();
     try {
-      await anotherVault.restart(() => copyFile(path.join(f.engine.vault.stateDir, "gateways.json"), path.join(anotherVault.engine.vault.stateDir, "gateways.json")));
+      await anotherVault.restart(() =>
+        Promise.all([
+          ...["gateways.json", "vault.json"].map((file) => copyFile(path.join(f.engine.vault.stateDir, file), path.join(anotherVault.engine.vault.stateDir, file))),
+          copyFile(path.join(f.engine.vault.runtimeDir, "mcp-recovery.json"), path.join(anotherVault.engine.vault.runtimeDir, "mcp-recovery.json")),
+        ]),
+      );
+      expect(anotherVault.engine.vault.id).toBe(f.engine.vault.id);
+      expect((await mcpRequest(anotherVault.mcpEndpoint(), a.token, recoveryInitialize(original.recovery))).status).toBe(403);
       const otherHandle = await openMcpSession(anotherVault.mcpEndpoint(), a.token);
       expect(otherHandle).not.toBe(sessionA);
       expect((await mcpRequest(anotherVault.mcpEndpoint(), a.token, mcpRpc("tools/list"), sessionA)).status).toBe(404);
@@ -617,17 +631,26 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     expect(await invokeAfterRestart(jobGet, { jobId })).toMatchObject(notFound);
     expect(await invokeAfterRestart(jobStart, start)).toMatchObject(notFound);
     expect(await invokeAfterRestart(jobCancel, { jobId })).toMatchObject(notFound);
+    const restored = await openRecoverableMcpSession(f.mcpEndpoint(), a.token, original.recovery);
+    const invokeRestored = tool(a.token, restored.handle);
+    expect(await invokeRestored(jobGet, { jobId })).toMatchObject({ structuredContent: { data: { jobId, state: "exited", exitCode: 130 } } });
+    expect(await invokeRestored(jobOutput, { jobId, stream: "stdout", cursor: 0 })).toMatchObject({ structuredContent: { data: { text: "", nextCursor: 5, skippedBytes: 5, truncated: true } } });
+    expect(await invokeRestored(jobStart, start)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('"outcome":"unknown"') }] });
     expect(commands).toEqual([prepare.command]);
     await f.desktop("gateway.mcp.update", { enabled: false, transport: "http" });
     expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
     await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
     expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
-    const beforeRevoke = await openMcpSession(f.mcpEndpoint(), a.token);
-    const revokedStream = await mcpRequest(f.mcpEndpoint(), a.token, undefined, beforeRevoke, { method: "GET" });
+    await f.restart();
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, recoveryInitialize(restored.recovery))).status).toBe(403);
+    const beforeRevoke = await openRecoverableMcpSession(f.mcpEndpoint(), a.token);
+    const revokedStream = await mcpRequest(f.mcpEndpoint(), a.token, undefined, beforeRevoke.handle, { method: "GET" });
     expect(revokedStream.status).toBe(200);
     await f.desktop("gateway.tokens.revoke", { id: a.id });
     expect(await revokedStream.body!.getReader().read()).toMatchObject({ done: true });
-    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), beforeRevoke)).status).toBe(401);
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), beforeRevoke.handle)).status).toBe(401);
+    await f.restart();
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, recoveryInitialize(beforeRevoke.recovery))).status).toBe(401);
   } finally {
     await f.close();
   }

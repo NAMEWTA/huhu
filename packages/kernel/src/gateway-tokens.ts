@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { newId } from "@huhu/contracts";
@@ -10,6 +10,14 @@ export interface HttpToken {
   hash: string;
   createdAt: string;
 }
+
+interface StoredMcp {
+  enabled: boolean;
+  transport: "stdio" | "http";
+  generation?: string;
+}
+
+type GatewayFile = { tokens: HttpToken[]; mcp?: StoredMcp } & Record<string, unknown>;
 
 /** HTTP 服务令牌：`gateways.json` 只保存哈希；明文只在创建时返回一次，身份为 `http`。 */
 export class GatewayTokens {
@@ -28,10 +36,10 @@ export class GatewayTokens {
     }
   }
 
-  private load(): { tokens: HttpToken[] } & Record<string, unknown> {
+  private load(): GatewayFile {
     if (!existsSync(this.file)) return { tokens: [] };
     try {
-      return JSON.parse(readFileSync(this.file, "utf8")) as { tokens: HttpToken[] };
+      return JSON.parse(readFileSync(this.file, "utf8")) as GatewayFile;
     } catch {
       // 不静默当作空表：随后的写入会覆盖掉原文件，让所有令牌无声失效
       throw new Error("gateways.json 无法解析，请修复或删除后重试");
@@ -41,17 +49,32 @@ export class GatewayTokens {
   /** MCP 服务配置：与令牌同在 gateways.json；默认关闭。 */
   mcp(): { enabled: boolean; transport: "stdio" | "http" } {
     try {
-      const m = (this.load() as { mcp?: { enabled?: boolean; transport?: string } }).mcp;
+      const m = this.load().mcp;
       return { enabled: m?.enabled === true, transport: m?.transport === "http" ? "http" : "stdio" };
     } catch {
       return { enabled: false, transport: "stdio" };
     }
   }
 
+  /** Retained across Engine restarts and rotated on an MCP setting change. */
+  mcpRecoveryGeneration(): string | undefined {
+    try {
+      const mcp = this.load().mcp;
+      if (mcp?.enabled !== true || mcp.transport !== "http") return undefined;
+      if (mcp.generation === undefined) return "legacy";
+      return typeof mcp.generation === "string" && mcp.generation ? mcp.generation : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   setMcp(cfg: { enabled: boolean; transport: "stdio" | "http" }): void {
+    const all = this.load();
     const prior = this.mcp();
-    this.write({ ...this.load(), mcp: cfg });
-    if (prior.enabled !== cfg.enabled || prior.transport !== cfg.transport) {
+    const changed = prior.enabled !== cfg.enabled || prior.transport !== cfg.transport;
+    const generation = changed ? randomUUID() : (all.mcp?.generation ?? "legacy");
+    this.write({ ...all, mcp: { ...cfg, generation } });
+    if (changed) {
       const lifetime = this.mcpLifetime;
       this.mcpLifetime = new AbortController();
       lifetime.abort();
@@ -90,7 +113,7 @@ export class GatewayTokens {
   private write(v: unknown): void {
     mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(v, null, 2));
+    writeFileSync(tmp, JSON.stringify(v, null, 2), { flush: true });
     renameSync(tmp, this.file); // 原子替换
   }
 }

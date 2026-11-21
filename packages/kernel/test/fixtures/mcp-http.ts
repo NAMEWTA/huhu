@@ -36,3 +36,22 @@ export async function openMcpSession(url: string, token: string): Promise<string
 export function mcpRpc(method: string, params: unknown = {}) {
   return { jsonrpc: "2.0", id: randomUUID(), method, params };
 }
+
+export const recoveryMeta = "huhu.dev/session-recovery";
+
+export async function openRecoverableMcpSession(url: string, token: string, previous?: string): Promise<{ handle: string; recovery: string }> {
+  const init = await mcpRequest(url, token, recoveryInitialize(previous));
+  assert.equal(init.status, 200);
+  const handle = init.headers.get("mcp-session-id");
+  const body = (await init.json()) as { result?: { _meta?: Record<string, unknown> } };
+  const recovery = body.result?._meta?.[recoveryMeta];
+  assert.ok(handle);
+  assert.ok(typeof recovery === "string");
+  const ready = await mcpRequest(url, token, { jsonrpc: "2.0", method: "notifications/initialized" }, handle);
+  assert.equal(ready.status, 202);
+  return { handle, recovery };
+}
+
+export function recoveryInitialize(previous?: string) {
+  return previous === undefined ? initializeMcp : { ...initializeMcp, params: { ...initializeMcp.params, _meta: { [recoveryMeta]: previous } } };
+}
