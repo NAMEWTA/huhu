@@ -261,13 +261,15 @@ export class AutomationsService {
 
   // ---- 扫描 ----
   /** 只读预览：候选、跳过原因、接下来三次激活时间；不写任何文件。 */
-  preview(ruleId: string) {
+  preview(ruleId: string, expectedVersion?: string) {
     const r = this.rule(ruleId);
+    if (expectedVersion !== undefined && expectedVersion !== r.version) throw errors.versionConflict(r.version);
     const now = this.d.now();
     const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
-    if (!isTaskScanRule(r)) return { next, tasksDisabled: false, candidates: [], skipped: [] };
+    if (!isTaskScanRule(r)) return { ruleVersion: r.version, next, tasksDisabled: false, candidates: [], skipped: [] };
     const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now);
     return {
+      ruleVersion: r.version,
       next,
       tasksDisabled,
       candidates: candidates.map((c) => ({ taskId: c.task.id, title: c.task.title, inputRevision: c.task.inputRevision, processingKey: c.processingKey })),

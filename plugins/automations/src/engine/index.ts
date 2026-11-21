@@ -335,7 +335,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       defaultExposed: false,
       input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional() }),
       output: z.object({ ok: z.literal(true) }),
-      handler: async (_c, i) => {
+      handler: async (c, i) => {
+        if (!isWorkbenchCaller(c.caller) && !i.expectedVersion) throw errors.invalidInput("外部删除规则需要规则版本");
         if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id, i.expectedVersion));
         else await svc.delete(i.id, i.expectedVersion);
         resync();
@@ -353,6 +354,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       input: Id.extend({ enabled: z.boolean(), expectedVersion: z.string().min(1).max(128).optional() }),
       output: Rule,
       handler: async (c, i) => {
+        if (!isWorkbenchCaller(c.caller) && !i.enabled && !i.expectedVersion) throw errors.invalidInput("外部停用规则需要规则版本");
         const r = await svc.setEnabled(i.id, i.enabled, (action) => assertNoAgentAction(c.caller, action), i.expectedVersion);
         resync();
         return publicRule(r);
@@ -366,9 +368,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       scope: "read",
       exposable: true,
       defaultExposed: false,
-      input: Id,
-      output: z.object({ next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
-      handler: (_c, i) => (svc.rule(i.id).data.action.kind === "agent" ? scans.preview(i.id) : svc.preview(i.id)),
+      input: Id.extend({ expectedVersion: z.string().min(1).max(128).optional() }),
+      output: z.object({ ruleVersion: z.string(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
+      handler: (_c, i) => svc.preview(i.id, i.expectedVersion),
     }),
   );
   api.defineCapability(

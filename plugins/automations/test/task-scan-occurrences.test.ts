@@ -153,6 +153,8 @@ test("公开扫描明细按授权给出原派遣身份，停用或删除后仍�
   expect(result).toMatchObject({ ok: true, data: { dispatches: [{ taskId: task.id, dispatchId: expect.any(String), state: "accepted" }] } });
   const { taskId, dispatchId } = result.data.dispatches[0]!;
   const target = { taskId, dispatchId };
+  expect(await cli("automations.setEnabled", { id: rule.id, enabled: false })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await cli("automations.delete", { id: rule.id })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   const paused = await cli<Rule>("automations.setEnabled", { id: rule.id, expectedVersion: rule.version, enabled: false });
   expect(paused).toMatchObject({ ok: true, data: { data: { enabled: false } } });
   expect(await cli("automations.delete", { id: rule.id, expectedVersion: rule.version })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
@@ -373,8 +375,12 @@ test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async (
   const resumeTarget = { mode: "resume", nativeSessionId: "synthetic-thread" } as const;
   const existing = await create("已有会话", { provider: null, target: existingTarget });
   const resume = await create("原生恢复", { provider: "codex", target: resumeTarget });
-  const preview = await scans.preview(rule.id);
-  expect(preview.candidates.map(({ taskId }) => taskId).sort()).toEqual([existing.id, resume.id].sort());
+  await invoke(engine, "gateway.update", { capability: "automations.preview", exposed: true });
+  const preview = await call<{ ruleVersion: string; candidates: { taskId: string }[] }>(engine, "automations.preview", { id: rule.id, expectedVersion: rule.version }, true);
+  expect(preview).toMatchObject({ ok: true, data: { ruleVersion: rule.version } });
+  expect(await call(engine, "automations.preview", { id: rule.id, expectedVersion: "stale" }, true)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(fixture.refresh).not.toHaveBeenCalled();
+  expect(preview.data.candidates.map(({ taskId }) => taskId).sort()).toEqual([existing.id, resume.id].sort());
   expect(scans.list()).toEqual([]);
   expect(dispatchRecords(engine)).toEqual([]);
   const row = await scans.invoke(rule.id);
