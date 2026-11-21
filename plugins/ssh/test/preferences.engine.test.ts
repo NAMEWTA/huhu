@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { defaultVaultPreferences, type UpdateVaultPreferences, type VaultPreferencesSnapshot } from "../src/shared/preferences.js";
 
@@ -20,7 +21,7 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
   async function open(name: string, create: boolean) {
     const vaultPath = path.join(root, name);
     if (create) await mkdir(vaultPath);
-    const engine = await boot({ vaultPath, desktopUserData: data, create });
+    const engine = await boot({ vaultPath, desktopUserData: data, moduleCredentialProtection: new TestProtection(data), create });
     engines.push(engine);
     return new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   }

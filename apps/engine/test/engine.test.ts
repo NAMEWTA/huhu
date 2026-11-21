@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { OperationLog, SemanticRepository } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { boot, readLiveEndpoint, type RunningEngine } from "../src/boot.js";
 
 interface Reply {
@@ -631,7 +632,8 @@ describe("Engine 启动与关闭", () => {
   test("SSH 使用模块凭据，保险箱锁定时仍能确认指纹、连接和执行，审计无密码", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "s3cret-PW-marker" });
-    const e = await boot({ vaultPath: tmp(), desktopUserData: tmp(), create: true });
+    const desktopUserData = tmp();
+    const e = await boot({ vaultPath: tmp(), desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
@@ -909,7 +911,8 @@ describe("Engine 启动与关闭", () => {
   test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：输入回显；关闭视图后 shell 仍在，可重新打开；ssh- 路由对未知 shell 返回 4404", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
     const srv = await startFakeSsh({ password: "pw-shell-1" });
-    const e = await boot({ vaultPath: tmp(), desktopUserData: tmp(), create: true });
+    const desktopUserData = tmp();
+    const e = await boot({ vaultPath: tmp(), desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;

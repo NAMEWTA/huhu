@@ -22,6 +22,7 @@ import {
   GatewayTokens,
   registerHealthCapabilities,
   type HealthCheck,
+  type LocalCredentialProtection,
   registerNotificationAndSettings,
   readSettingsFile,
   HomeStore,
@@ -83,6 +84,8 @@ export interface BootOptions {
   webAssetsDir?: string;
   /** 桌面宿主提供的当前用户应用数据目录。 */
   desktopUserData?: string;
+  /** 仅供进程内测试替换系统钥匙串。 */
+  moduleCredentialProtection?: LocalCredentialProtection;
   /** 当前桌面宿主的邮箱授权配置与可信浏览器入口。 */
   mailOAuth?: mail.MailOAuthRuntime;
   /** 无界面模式：最后一个客户端离开后空闲这么久自行退出（毫秒，0 = 不自动退出）。 */
@@ -139,7 +142,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("automations", Object.values(automations.taskScanToolDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
-  const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
+  const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData, opts.moduleCredentialProtection) : undefined;
   const runtime = vault.runtimeDir;
   mkdirSync(runtime, { recursive: true });
   const rootIdentity = directoryInstance(vault.root);
