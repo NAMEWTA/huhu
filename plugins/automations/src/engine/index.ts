@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
+import { bindCapability, defineCapability as def, type CapabilityDefinition, type CapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
 import { AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
@@ -14,8 +14,8 @@ import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliv
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, hasLegacyTerminalEnvironment, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
-import { TaskScanOccurrenceId, TaskScanOccurrences } from "./task-scan-occurrences.js";
-import { registerTaskScanTools, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
+import { TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { registerTaskScanTools, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
 export { AutomationsService } from "./service.js";
@@ -199,7 +199,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     if (opts.schedule !== false) sync();
   };
 
-  // 规则文件被恢复/外部修改时重建作业（否则内存里的 Cron 会继续按旧设置激活）
+  // 服务提交规则（含专用任务扫描工具）或外部编辑规则文件后，统一重建 Cron。
   api.events.subscribe((e) => {
     const p = e.payload as { path?: string; kind?: string };
     if ((e.type === "vault.fileChanged" && p.path?.startsWith("Automations/")) || (e.type === "entity.changed" && p.kind === "automation-rule")) resync();
@@ -320,53 +320,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       },
     }),
   );
-  api.defineCapability(
-    def({
-      name: "automations.delete",
-      plugin: "automations",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Id.extend({ expectedVersion: RuleVersion.optional() }),
-      output: z.object({ ok: z.literal(true) }),
-      handler: async (c, i) => {
-        if (!isWorkbenchCaller(c.caller) && !i.expectedVersion) throw errors.invalidInput("外部删除规则需要规则版本");
-        if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id, i.expectedVersion));
-        else await svc.delete(i.id, i.expectedVersion);
-        resync();
-        return { ok: true as const };
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.setEnabled",
-      plugin: "automations",
-      scope: "write",
-      exposable: true,
-      defaultExposed: false,
-      input: Id.extend({ enabled: z.boolean(), expectedVersion: RuleVersion.optional() }),
-      output: Rule,
-      handler: async (c, i) => {
-        if (!isWorkbenchCaller(c.caller) && !i.enabled && !i.expectedVersion) throw errors.invalidInput("外部停用规则需要规则版本");
-        const r = await svc.setEnabled(i.id, i.enabled, (action) => assertGenericRuleAction(c.caller, action), i.expectedVersion);
-        resync();
-        return publicRule(r);
-      },
-    }),
-  );
-  api.defineCapability(
-    def({
-      name: "automations.preview",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: Id.extend({ expectedVersion: RuleVersion.optional() }),
-      output: z.object({ ruleVersion: z.string(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
-      handler: (_c, i) => svc.preview(i.id, i.expectedVersion),
-    }),
-  );
+  const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
+    api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
+  defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {
+    if (!isWorkbenchCaller(c.caller) && !i.expectedVersion) throw errors.invalidInput("外部删除规则需要规则版本");
+    if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id, i.expectedVersion));
+    else await svc.delete(i.id, i.expectedVersion);
+    resync();
+    return { ok: true as const };
+  });
+  defineRuleTool(taskScanToolDescriptors.setEnabled, async (c, i) => {
+    if (!isWorkbenchCaller(c.caller) && !i.enabled && !i.expectedVersion) throw errors.invalidInput("外部停用规则需要规则版本");
+    const r = await svc.setEnabled(i.id, i.enabled, (action) => assertGenericRuleAction(c.caller, action), i.expectedVersion);
+    resync();
+    return publicRule(r);
+  });
+  defineRuleTool(taskScanToolDescriptors.preview, (_c, i) => svc.preview(i.id, i.expectedVersion));
   api.defineCapability(
     def({
       name: "automations.runNow",
@@ -417,18 +386,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     finishedAt: z.string().nullable(),
     live: z.boolean(),
   });
-  api.defineCapability(
-    def({
-      name: "automations.activations.dispatches",
-      plugin: "automations",
-      scope: "read",
-      exposable: true,
-      defaultExposed: false,
-      input: z.strictObject({ ruleId: z.string().min(1).max(128), activationId: TaskScanOccurrenceId }),
-      output: z.strictObject({ dispatches: z.array(z.strictObject({ taskId: z.string(), dispatchId: z.string(), state: z.enum(["pending", "accepted"]), runId: z.string().nullable() })) }),
-      handler: (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }),
-    }),
-  );
+  defineRuleTool(taskScanToolDescriptors.dispatches, (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }));
   api.defineCapability(
     def({
       name: "automations.runs.list",

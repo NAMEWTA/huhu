@@ -4,7 +4,7 @@ import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelectio
 import { z } from "zod";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type AutomationsService } from "./service.js";
-import type { TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { TaskScanOccurrenceId, type TaskScanOccurrences } from "./task-scan-occurrences.js";
 
 type ExternalCaller = Extract<Caller, "cli" | "mcp" | "http">;
 export type TaskScanPrincipalCheck = (caller: ExternalCaller, subject: string) => boolean;
@@ -18,6 +18,7 @@ const draftFields = z.strictObject({
   missedRunGraceMinutes: MissedRunGraceMinutes.optional(),
 });
 const body = z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT).optional();
+const ruleLookup = z.object({ id: z.string(), expectedVersion: RuleVersion.optional() });
 
 export const taskScanToolDescriptors = {
   create: defineCapabilityDescriptor({
@@ -57,6 +58,44 @@ export const taskScanToolDescriptors = {
     description: "提交已启用规则的精确版本，失联后使用同一意图重查原受理。",
     input: ruleTarget.extend({ intentId: z.uuidv4() }),
     output: z.object({ activationId: z.string(), ruleVersion: RuleVersion, summary: z.object({ processed: z.number().int().min(0), skipped: z.number().int().min(0) }) }),
+  }),
+  preview: defineCapabilityDescriptor({
+    ...base,
+    name: "automations.preview",
+    scope: "read",
+    risk: "normal",
+    title: "预览规则",
+    description: "读取所用规则版本、下次时间和当前候选。可指定必须使用的版本。",
+    input: ruleLookup,
+    output: z.object({ ruleVersion: z.string(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
+  }),
+  setEnabled: defineCapabilityDescriptor({
+    ...base,
+    name: "automations.setEnabled",
+    scope: "write",
+    title: "启用或停用规则",
+    description: "工作台可启停规则。外部可启用提醒，或按版本停用规则并保留已受理派遣。",
+    input: ruleLookup.extend({ enabled: z.boolean() }),
+    output: Rule,
+  }),
+  delete: defineCapabilityDescriptor({
+    ...base,
+    name: "automations.delete",
+    scope: "write",
+    title: "删除规则",
+    description: "外部按版本删除规则并保留已受理派遣。",
+    input: ruleLookup,
+    output: z.object({ ok: z.literal(true) }),
+  }),
+  dispatches: defineCapabilityDescriptor({
+    ...base,
+    name: "automations.activations.dispatches",
+    scope: "read",
+    risk: "normal",
+    title: "查询规则发生的派遣",
+    description: "读取本机原 Vault 中一次规则发生所关联的任务、派遣和运行身份。",
+    input: z.strictObject({ ruleId: z.string().min(1).max(128), activationId: TaskScanOccurrenceId }),
+    output: z.strictObject({ dispatches: z.array(z.strictObject({ taskId: z.string(), dispatchId: z.string(), state: z.enum(["pending", "accepted"]), runId: z.string().nullable() })) }),
   }),
 };
 
