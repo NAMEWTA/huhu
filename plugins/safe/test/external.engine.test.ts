@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -253,12 +254,11 @@ engineTest(
       expect(accountSaved.hasPassword).toBe(true);
       expect(success<{ password: string }>(await external("safe.accounts.reveal", subject, key)).password === replacement).toBe(true);
 
+      success(await control("gateway.mcp.update", { enabled: true, transport: "http" }));
+      const endpoint = `${urlOf(live)}/mcp`;
+      const handle = await openMcpSession(endpoint, principal.token);
       const mcp = async (method: string, params?: object): Promise<Rpc> => {
-        const response = await fetch(`${urlOf(live)}/mcp`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${principal.token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-        });
+        const response = await mcpRequest(endpoint, principal.token, mcpRpc(method, params), handle);
         if (!response.ok) throw new Error(`Safe MCP HTTP ${response.status}`);
         return (await response.json()) as Rpc;
       };
@@ -266,10 +266,11 @@ engineTest(
         if (reply.result?.isError || !reply.result?.structuredContent) throw new Error("Safe MCP tool failed");
         return reply.result.structuredContent.data as T;
       };
-      success(await control("gateway.mcp.update", { enabled: true, transport: "http" }));
       expect((await mcp("tools/list")).result?.tools?.some(({ name }) => name === "safe_accounts_reveal")).toBe(true);
-      const viaMcp = data<{ revision: number }>(await mcp("tools/call", { name: "safe_entries_update", arguments: { session, entryId, expectedRevision: accountSaved.revision, name: "HTTP MCP fixture name" } }));
-      expect(data<{ password: string }>(await mcp("tools/call", { name: "safe_accounts_reveal", arguments: subject })).password === replacement).toBe(true);
+      expect((await mcp("tools/call", { name: "safe_accounts_reveal", arguments: subject })).result?.isError).toBe(true);
+      const mcpSession = sessionOf(data<Status>(await mcp("tools/call", { name: "safe_status", arguments: {} })));
+      const viaMcp = data<{ revision: number }>(await mcp("tools/call", { name: "safe_entries_update", arguments: { session: mcpSession, entryId, expectedRevision: accountSaved.revision, name: "HTTP MCP fixture name" } }));
+      expect(data<{ password: string }>(await mcp("tools/call", { name: "safe_accounts_reveal", arguments: { ...subject, session: mcpSession } })).password === replacement).toBe(true);
 
       success(await control("gateway.mcp.update", { enabled: true, transport: "stdio" }));
       await withStdio(live, async (send) => {
@@ -410,18 +411,19 @@ engineTest(
       expect((await bearer.text()).includes(marker)).toBe(false);
 
       success(await desktop("gateway.mcp.update", { enabled: true, transport: "http" }));
+      const endpoint = `${urlOf(e)}/mcp`;
+      const handle = await openMcpSession(endpoint, token);
+      const status = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "safe_status", arguments: {} }), handle);
+      const statusRpc = (await status.json()) as Rpc;
+      const mcpSession = sessionOf(statusRpc.result?.structuredContent?.data as Status);
       const mcp = await readDuringRevocation(
-        () =>
-          fetch(`${urlOf(e)}/mcp`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "safe_accounts_reveal", arguments: account } }),
-          }),
+        () => mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "safe_accounts_reveal", arguments: { ...account, session: mcpSession } }), handle),
         () => desktop("gateway.mcp.update", { enabled: false, transport: "http" }),
       );
+      expect(mcp.status).toBe(401);
       expect(mcp.headers.get("cache-control")).toBe("no-store");
       const body = await mcp.text();
-      expect((JSON.parse(body) as Rpc).result?.isError).toBe(true);
+      expect(JSON.parse(body)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(body.includes(marker)).toBe(false);
       expect(success<{ password: string }>(await reveal(randomUUID())).password === marker).toBe(true);
 

@@ -1,3 +1,4 @@
+import { finished } from "node:stream/promises";
 import { Command, CommanderError, Option } from "commander";
 import { callCapability, discoverCapabilities, readCallFile, readCapabilityOperation, render } from "./commands/call.js";
 import { ConnectError, connect, type Connection } from "./connect.js";
@@ -199,8 +200,14 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
       try {
         const conn = await connect(o.vault, { role: "mcp" }); // 身份为 mcp，而不是 cli
         const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-        await createMcpServer(conn, VERSION).connect(new StdioServerTransport());
-        await new Promise<void>(() => undefined); // 一直运行到 stdin 关闭（进程退出）
+        const server = createMcpServer(conn, VERSION);
+        await server.connect(new StdioServerTransport());
+        try {
+          await finished(process.stdin, { writable: false, cleanup: true });
+        } finally {
+          await server.close();
+          await server.closeSession();
+        }
       } catch (e) {
         if (e instanceof ConnectError) {
           io.err(e.message);

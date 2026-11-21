@@ -1,3 +1,4 @@
+import { initializeMcp, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1058,12 +1059,9 @@ describe("Engine 启动与关闭", () => {
   test("ACC-PL-01 停用 tasks：MCP 工具列表不再含 tasks_*，已缓存工具的调用得到 PLUGIN_DISABLED，重新启用后恢复", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
-    const rpc = (body: unknown) =>
-      fetch(`http://127.0.0.1:${e.port}/mcp`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-        body: JSON.stringify(body),
-      }).then((r) => r.json() as Promise<{ result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }>);
+    let session: string;
+    const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+    const rpc = (body: unknown) => mcpRequest(endpoint, e.mcpToken, body, session).then((r) => r.json() as Promise<{ result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }>);
     const call = (capability: string, input: unknown) =>
       fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
         method: "POST",
@@ -1072,6 +1070,7 @@ describe("Engine 启动与关闭", () => {
       }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
     await call("gateway.mcp.update", { enabled: true, transport: "http" });
     await allowTools(e, "tasks.list");
+    session = await openMcpSession(endpoint, e.mcpToken);
     const tools = async () => ((await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools ?? []).map((t) => t.name);
     expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
     await call("plugins.setEnabled", { id: "tasks", enabled: false });
@@ -1085,14 +1084,8 @@ describe("Engine 启动与关闭", () => {
   test("MCP over HTTP：默认关闭(404)；开启后 mcp/http 令牌可用，桌面/cli 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
-    const rpc = (token: string | null, body: unknown, method = "POST") =>
-      fetch(`http://127.0.0.1:${e.port}/mcp`, {
-        method,
-        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", accept: "application/json, text/event-stream" },
-        ...(method === "POST" ? { body: JSON.stringify(body) } : {}),
-      });
-    const init = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
-    expect((await rpc(e.mcpToken, init)).status).toBe(404); // 默认关闭
+    const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+    expect((await mcpRequest(endpoint, e.mcpToken, initializeMcp)).status).toBe(404); // 默认关闭
     const call = (capability: string, input: unknown) =>
       fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
         method: "POST",
@@ -1100,19 +1093,21 @@ describe("Engine 启动与关闭", () => {
         body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
       }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
     expect((await call("gateway.mcp.update", { enabled: true, transport: "http" })).ok).toBe(true);
-    expect((await rpc(null, init)).status).toBe(401);
-    expect((await rpc(e.rendererToken, init)).status).toBe(403);
-    expect((await rpc(e.cliToken, init)).status).toBe(403);
-    expect((await rpc(e.mcpToken, init, "GET")).status).toBe(405);
-    expect((await (await rpc(e.mcpToken, init)).json()) as unknown).toMatchObject({ result: { tools: [] } });
+    expect((await mcpRequest(endpoint, null, initializeMcp)).status).toBe(401);
+    expect((await mcpRequest(endpoint, e.rendererToken, initializeMcp)).status).toBe(403);
+    expect((await mcpRequest(endpoint, e.cliToken, initializeMcp)).status).toBe(403);
+    const listRequest = mcpRpc("tools/list");
+    expect((await mcpRequest(endpoint, e.mcpToken, listRequest)).status).toBe(400);
+    const session = await openMcpSession(endpoint, e.mcpToken);
+    const rpc = (body: unknown) => mcpRequest(endpoint, e.mcpToken, body, session);
+    expect(await (await rpc(listRequest)).json()).toMatchObject({ result: { tools: [] } });
     await allowTools(e, "vault.info", "tasks.list", "inbox.capture");
-    const list = (await (await rpc(e.mcpToken, init)).json()) as { result: { tools: { name: string }[] } };
+    const list = (await (await rpc(listRequest)).json()) as { result: { tools: { name: string }[] } };
     const names = list.result.tools.map((t) => t.name);
     expect(names).toEqual(expect.arrayContaining(["vault_info", "tasks_list"]));
     expect(names).not.toContain("safe_items_reveal");
     expect(names).not.toContain("tasks_create"); // 默认不对外
-    const callTool = async (name: string, args: unknown) =>
-      ((await (await rpc(e.mcpToken, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } })).json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
+    const callTool = async (name: string, args: unknown) => ((await (await rpc(mcpRpc("tools/call", { name, arguments: args }))).json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
     const info = await callTool("vault_info", {});
     expect(info.isError).toBeUndefined();
     expect(JSON.parse(info.content[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
@@ -1121,9 +1116,10 @@ describe("Engine 启动与关闭", () => {
     expect(JSON.parse(cap.content[0]?.text ?? "{}").source).toBe("mcp");
     // 网关令牌（http 身份）同样可用；关闭 MCP 后立即 404
     const tok = ((await call("gateway.tokens.create", { name: "mcp 客户端" })).data as { token: string }).token;
-    expect((await rpc(tok, init)).status).toBe(200);
+    const independent = await openMcpSession(endpoint, tok);
+    expect((await mcpRequest(endpoint, tok, listRequest, independent)).status).toBe(200);
     await call("gateway.mcp.update", { enabled: false, transport: "http" });
-    expect((await rpc(e.mcpToken, init)).status).toBe(404);
+    expect((await rpc(listRequest)).status).toBe(404);
   }, 30_000);
   test("审计回归：外部入口即使被开放 automations.create/update/setEnabled，也不能创建或启用会启动 Agent / 运行命令的规则", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
@@ -1386,13 +1382,10 @@ describe("Engine 启动与关闭", () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });
-    const slow = () =>
-      fetch(`http://127.0.0.1:${e.port}/mcp`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-      }).then((r) => r.status);
-    const statuses = await Promise.all(Array.from({ length: 80 }, slow));
+    const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+    const sessions = await Promise.all(Array.from({ length: 8 }, () => openMcpSession(endpoint, e.mcpToken)));
+    const slow = (index = 0) => mcpRequest(endpoint, e.mcpToken, mcpRpc("tools/list"), sessions[index % sessions.length]).then((r) => r.status);
+    const statuses = await Promise.all(Array.from({ length: 80 }, (_, index) => slow(index)));
     expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
     // 引擎仍然健康，并且并发回落后可以再次正常使用
     expect(await slow()).toBe(200);

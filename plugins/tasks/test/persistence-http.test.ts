@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1112,12 +1113,10 @@ test("外部调用、只读受理及损坏记录都无法开始执行", { timeou
     expect(await call(engine, capability, args, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   }
   expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  const endpoint = `http://127.0.0.1:${engine.port}/mcp`;
+  const session = await openMcpSession(endpoint, engine.mcpToken);
   const mcp = async (method: string, params: unknown) => {
-    const response = await fetch(`http://127.0.0.1:${engine.port}/mcp`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${engine.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    });
+    const response = await mcpRequest(endpoint, engine.mcpToken, mcpRpc(method, params), session);
     expect(response.status).toBe(200);
     return ((await response.json()) as { result: { tools?: { name: string }[]; isError?: boolean } }).result;
   };

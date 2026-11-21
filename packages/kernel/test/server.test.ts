@@ -5,6 +5,7 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, TokenTable, defineCapability, startEngineServer, type RunningServer, EventReplay } from "../src/index.js";
 import { WebListener, type WebListenerConfig } from "../src/server/web-listener.js";
+import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
 import { closeHttp, listenHttp } from "../src/server/listen-http.js";
 
 let running: RunningServer | undefined;
@@ -13,7 +14,7 @@ afterEach(async () => {
   running = undefined;
 });
 
-async function boot() {
+async function boot(mcp?: { service: () => AbortSignal; choices: Record<string, boolean> }) {
   const registry = new CapabilityRegistry();
   registry.register(defineCapability({ name: "vault.info", plugin: "kernel", scope: "read", input: z.object({}), output: z.object({ name: z.string() }), exposable: true, defaultExposed: true, handler: () => ({ name: "占位" }) }));
   const tokens = new TokenTable();
@@ -23,17 +24,97 @@ async function boot() {
     audit: new GatewayAudit(),
     idempotency: new IdempotencyStore(),
     isPluginEnabled: () => true,
-    toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+    toolAccess: () => ({ state: "ready", revision: 0, choices: mcp?.choices ?? {} }),
     grantedPermissions: () => [],
     pluginOrigin: () => "external",
   });
-  running = await startEngineServer({ dispatcher, registry, tokens, events });
+  running = await startEngineServer({ dispatcher, registry, tokens, events, ...(mcp && { vaultInstance: "fixture-vault-instance", mcpHttp: { enabled: () => true }, mcpSignal: mcp.service }) });
   const base = `http://127.0.0.1:${running.port}`;
-  return { base, tokens, events, port: running.port };
+  return { base, tokens, events, registry, server: running, port: running.port };
 }
 const call = (base: string, token: string | null, body: unknown, headers: Record<string, string> = {}) =>
   fetch(`${base}/api/v1/call`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
 const REQ = { capability: "vault.info", input: {}, requestId: "r1" };
+
+test("MCP 运行时主体跟随会话撤销和过期，调用取消保留会话", async () => {
+  let service = new AbortController();
+  const { base, tokens, registry, server } = await boot({ service: () => service.signal, choices: { "fixture.session": true, "fixture.pending": true } });
+  registry.register(
+    defineCapability({
+      name: "fixture.session",
+      plugin: "kernel",
+      scope: "read",
+      input: z.object({}),
+      output: z.unknown(),
+      exposable: true,
+      defaultExposed: false,
+      handler: ({ caller, subject, session }) => ({ caller, subject, session, current: !!subject && caller === "mcp" && server.hasMcpPrincipal(caller, subject) }),
+    }),
+  );
+  let arrived!: () => void;
+  const arrival = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  registry.register(
+    defineCapability({
+      name: "fixture.pending",
+      plugin: "kernel",
+      scope: "read",
+      input: z.object({}),
+      output: z.null(),
+      exposable: true,
+      defaultExposed: false,
+      handler: ({ signal }) => {
+        arrived();
+        return new Promise<null>((resolve) => signal.addEventListener("abort", () => resolve(null), { once: true }));
+      },
+    }),
+  );
+  const endpoint = base + "/mcp";
+  const token = tokens.issue("mcp");
+  const first = await openMcpSession(endpoint, token);
+  const second = await openMcpSession(endpoint, token);
+  const identity = async (handle: string) => {
+    const response = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "fixture_session" }), handle);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result: { structuredContent: { data: { caller: "mcp"; subject: string; current: boolean; session: unknown } } } };
+    return body.result.structuredContent.data;
+  };
+  const a = await identity(first);
+  const b = await identity(second);
+  expect(a).toMatchObject({ current: true, session: { entry: "mcp-http", credentialId: expect.any(String), vaultInstance: "fixture-vault-instance" } });
+  expect(a.subject).not.toBe(b.subject);
+  expect(JSON.stringify(a)).not.toContain(first);
+  expect(tokens.hasPrincipal(a.caller, a.subject)).toBe(false);
+
+  const request = mcpRpc("tools/call", { name: "fixture_pending" });
+  const pending = mcpRequest(endpoint, token, request, first);
+  await arrival;
+  expect((await mcpRequest(endpoint, token, request, first)).status).toBe(400);
+  expect((await mcpRequest(endpoint, token, { jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: request.id } }, first)).status).toBe(202);
+  expect((await pending).status).toBe(200);
+  expect(await identity(first)).toEqual(a);
+
+  const expires = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 60_000);
+  try {
+    expect(server.hasMcpPrincipal(a.caller, a.subject)).toBe(false);
+    expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), first)).status).toBe(404);
+  } finally {
+    expires.mockRestore();
+  }
+  const fresh = await openMcpSession(endpoint, token);
+  const active = await identity(fresh);
+  service.abort();
+  service = new AbortController();
+  expect(server.hasMcpPrincipal(b.caller, b.subject)).toBe(false);
+  expect(server.hasMcpPrincipal(active.caller, active.subject)).toBe(false);
+  expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), fresh)).status).toBe(404);
+  const replacement = await openMcpSession(endpoint, token);
+  const live = await identity(replacement);
+  tokens.revokeCaller("mcp");
+  expect(server.hasMcpPrincipal(live.caller, live.subject)).toBe(false);
+  expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), replacement)).status).toBe(401);
+});
 
 describe("独立 Web 监听器", () => {
   test("自动分配尝试跳过 Fetch 禁用的端口，指定禁用端口有明确结果", async () => {

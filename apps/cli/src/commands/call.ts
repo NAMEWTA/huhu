@@ -41,10 +41,13 @@ export async function readCallFile(path: string): Promise<CallInput> {
   }
 }
 
-async function request(conn: Connection, route: string, init?: RequestInit): Promise<Response> {
+type CapabilityConnection = Connection & { mcpSession?: string };
+
+async function request(conn: CapabilityConnection, route: string, init?: RequestInit): Promise<Response> {
   try {
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${conn.token}`);
+    if (conn.mcpSession) headers.set("mcp-session-id", conn.mcpSession);
     return await fetch(`${conn.baseUrl}${route}`, { ...init, headers });
   } catch {
     throw new ConnectError("无法连接 Engine（端点已失效）");
@@ -58,7 +61,7 @@ async function requestError(res: Response): Promise<CapabilityResult<never>> {
   return { ok: false, error: { code: "INTERNAL", message: typeof body?.error === "string" ? body.error : `HTTP ${res.status}`, retryable: false } };
 }
 
-export async function callCapability(conn: Connection, capability: string, input: unknown, nameFormat?: "mcp", intentKey?: string): Promise<CapabilityResult<unknown>> {
+export async function callCapability(conn: CapabilityConnection, capability: string, input: unknown, nameFormat?: "mcp", intentKey?: string): Promise<CapabilityResult<unknown>> {
   const route = nameFormat === "mcp" ? "/api/v1/call?nameFormat=mcp" : "/api/v1/call";
   const res = await request(conn, route, {
     method: "POST",
@@ -69,14 +72,14 @@ export async function callCapability(conn: Connection, capability: string, input
   return (await res.json()) as CapabilityResult<unknown>;
 }
 
-export async function readCapabilityOperation(conn: Connection, lookup: CapabilityOperationLookup): Promise<CapabilityResult<unknown>> {
+export async function readCapabilityOperation(conn: CapabilityConnection, lookup: CapabilityOperationLookup): Promise<CapabilityResult<unknown>> {
   const query = new URLSearchParams(lookup);
   const res = await request(conn, "/api/v1/operations?" + query);
   if (!res.ok) return requestError(res);
   return (await res.json()) as CapabilityResult<unknown>;
 }
 
-export async function discoverCapabilities(conn: Connection): Promise<CapabilityResult<CapabilityDiscoveryEntry[]>> {
+export async function discoverCapabilities(conn: CapabilityConnection): Promise<CapabilityResult<CapabilityDiscoveryEntry[]>> {
   const res = await request(conn, "/api/v1/capabilities");
   if (!res.ok) return requestError(res);
   return { ok: true, data: (await res.json()) as CapabilityDiscoveryEntry[] };

@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -301,12 +302,10 @@ test.skipIf(!bin)(
         if (!result.ok) throw new Error(result.error.code);
         return result.data;
       };
+      const mcpEndpoint = () => `http://127.0.0.1:${engine!.port}/mcp`;
+      let mcpSession: string;
       const mcpTool = async <T>(capability: string, input: unknown): Promise<T> => {
-        const response = await fetch(`http://127.0.0.1:${engine!.port}/mcp`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${engine!.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: capability.replaceAll(".", "_"), arguments: input } }),
-        });
+        const response = await mcpRequest(mcpEndpoint(), engine!.mcpToken, mcpRpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input }), mcpSession);
         expect(response.status).toBe(200);
         const { result } = (await response.json()) as { result: { isError?: boolean; content: { text: string }[] } };
         expect(result.isError, result.content[0]?.text).not.toBe(true);
@@ -316,6 +315,7 @@ test.skipIf(!bin)(
         await call(engine, "gateway.update", { capability, exposed: true });
       }
       await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" });
+      mcpSession = await openMcpSession(mcpEndpoint(), engine.mcpToken);
       const task = await mcpTool<TaskDto>("tasks.agent.create", { title: "Fixture production Tasks", body: "Isolated native receipt for the Tasks inbox.", execution: { spaceId: space!.id, provider: "codex" } });
       expect(task.origin).toEqual({ kind: "external", caller: "mcp" });
       const key = { taskId: task.id, dispatchId: "fixture-w63-compose" };
@@ -345,6 +345,7 @@ test.skipIf(!bin)(
       writeFileSync(path.join(sandbox, "allow-answer-proof"), "");
       await expect.poll(events).toContain("original-answer-output");
       engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
+      mcpSession = await openMcpSession(mcpEndpoint(), engine.mcpToken);
       await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "accepted" });
       writeFileSync(path.join(sandbox, "allow-turn-end"), "");
       const timeline = async () => (await cliTool<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer" || event === "result");
@@ -364,6 +365,7 @@ test.skipIf(!bin)(
       expect(await call(engine, "tasks.dispatch.list", { taskId: task.id })).toMatchObject([{ runId, session: { id: sessionId, spaceId: space!.id } }]);
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
+      mcpSession = await openMcpSession(mcpEndpoint(), engine.mcpToken);
       expect(await timeline()).toEqual(originalTimeline);
       expect(acks()).toEqual(originalAcks);
       expect(await reply()).toMatchObject({ status: "accepted" });

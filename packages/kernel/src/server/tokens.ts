@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Caller } from "@huhu/contracts";
 
 function digest(token: string): Buffer {
@@ -7,12 +7,12 @@ function digest(token: string): Buffer {
 
 /** 令牌 → 调用者身份。只保存哈希，比较用 timingSafeEqual。 */
 export class TokenTable {
-  private readonly entries: { hash: Buffer; caller: Caller; subject: string; lifetime: AbortController }[] = [];
+  private readonly entries: { hash: Buffer; caller: Caller; subject: string; credentialId: string; lifetime: AbortController }[] = [];
 
   /** 生成并登记一个新令牌，返回明文（只此一次）。 */
   issue(caller: Caller): string {
     const token = randomBytes(32).toString("base64url");
-    this.entries.push({ hash: digest(token), caller, subject: caller, lifetime: new AbortController() });
+    this.entries.push({ hash: digest(token), caller, subject: caller, credentialId: randomUUID(), lifetime: new AbortController() });
     return token;
   }
 
@@ -20,7 +20,7 @@ export class TokenTable {
   addHash(hashHex: string, caller: Caller, subject: string = caller): void {
     const hash = Buffer.from(hashHex, "hex");
     if (hash.length !== 32) throw new Error("令牌哈希必须是 SHA-256（32 字节）");
-    this.entries.push({ hash, caller, subject, lifetime: new AbortController() });
+    this.entries.push({ hash, caller, subject, credentialId: subject, lifetime: new AbortController() });
   }
 
   static hashHex(token: string): string {
@@ -56,11 +56,11 @@ export class TokenTable {
     return this.entries.some((entry) => entry.caller === caller && entry.subject === subject && !entry.lifetime.signal.aborted);
   }
 
-  principal(token: string | undefined): { caller: Caller; subject: string; signal: AbortSignal } | null {
+  principal(token: string | undefined): { caller: Caller; subject: string; credentialId: string; signal: AbortSignal } | null {
     if (!token) return null;
     const h = digest(token);
     let found: (typeof this.entries)[number] | undefined;
     for (const e of this.entries) if (timingSafeEqual(e.hash, h)) found = e; // 遍历全部，避免提前返回的时序差异
-    return found ? { caller: found.caller, subject: found.subject, signal: found.lifetime.signal } : null;
+    return found ? { caller: found.caller, subject: found.subject, credentialId: found.credentialId, signal: found.lifetime.signal } : null;
   }
 }

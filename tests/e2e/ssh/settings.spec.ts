@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -153,12 +154,8 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const { id, token } = await desktopCall<{ id: string; token: string }>(page, "gateway.tokens.create", { name: "temporary MCP loopback fixture" });
     const url = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");
     expect(new URL(url).hostname).toBe("127.0.0.1");
-    const rpc = (method: string, params = {}) =>
-      fetch(url, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      });
+    let session: string | undefined;
+    const rpc = (method: string, params = {}) => mcpRequest(url, token, mcpRpc(method, params), session);
     expect((await rpc("tools/list")).status).toBe(404);
     await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
     const gateway = page.getByTestId("gateway-module");
@@ -189,6 +186,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toContain("<当前库路径>");
     expect((await app.evaluate(({ clipboard }) => clipboard.readText())).includes(vault)).toBe(false);
 
+    session = await openMcpSession(url, token);
     const listed = await rpc("tools/list");
     expect(listed.status).toBe(200);
     const tool = "ssh_resources_host_get";

@@ -1,3 +1,4 @@
+import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,10 +36,10 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
 });
 
 const request = (capability: string, input: unknown) => ({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
-async function post(engine: RunningEngine, capability: string, input: unknown, token = engine.rendererToken) {
+async function post(engine: RunningEngine, capability: string, input: unknown, token = engine.rendererToken, session?: string) {
   const reply = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(session && { "mcp-session-id": session }) },
     body: JSON.stringify(request(capability, input)),
   });
   return (await reply.json()) as CapabilityResult<unknown>;
@@ -89,8 +90,9 @@ test("Tasks production dispatch keeps providers without acceptance evidence unsu
       expect(await engine.dispatcher.call("plugin:automations", request("agent.targets.list", scope))).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(await post(engine, "agent.targets.list", scope)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" });
+      const session = await openMcpSession(`http://127.0.0.1:${engine.port}/api/v1/mcp`, engine.mcpToken);
       for (const token of [engine.cliToken, engine.mcpToken]) {
-        expect(await post(engine, "agent.targets.list", scope, token)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+        expect(await post(engine, "agent.targets.list", scope, token, token === engine.mcpToken ? session : undefined)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       }
       for (const target of [{ mode: "new" }, { mode: "resume", nativeSessionId: "synthetic-native-session" }] as const) {
         const task = await create(engine, target.mode, space!.id, target);
