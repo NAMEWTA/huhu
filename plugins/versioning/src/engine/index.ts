@@ -8,6 +8,7 @@ import { AutoSync } from "./auto-sync.js";
 import { FileHistory, type HistoryEntry } from "./history.js";
 import { VaultGit } from "./repo.js";
 import { ConfigureGitAuth, GitAuthSummary, GitRemoteCredentials, type GitCredentialHost } from "./remote-auth.js";
+import type { SafeGitSnapshots } from "./safe-git.js";
 import { SyncConfigPatch, SyncConfigSchema, VaultSync } from "./sync.js";
 
 export { FileHistory } from "./history.js";
@@ -22,6 +23,7 @@ const DEBOUNCE_MS = 2000;
 export interface VersioningOptions {
   debounceMs?: number;
   credentialHost?: GitCredentialHost;
+  safeSnapshots?: SafeGitSnapshots;
   /** 恢复任务文件后通知 automations：该输入不应被重复处理（缺省时从 `automations` 服务取）。 */
   holdRestoredInput?: (taskId: string, inputHash: string) => void;
 }
@@ -222,6 +224,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     },
     opts.credentialHost && new GitRemoteCredentials(opts.credentialHost),
     files.readOnly,
+    opts.safeSnapshots,
   );
   let publishStatus = () => {};
   // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止

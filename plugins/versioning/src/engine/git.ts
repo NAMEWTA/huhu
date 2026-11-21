@@ -7,7 +7,7 @@ export interface GitResult {
   code: number;
 }
 export interface RunOpts {
-  input?: string;
+  input?: string | Buffer;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   privateNetwork?: boolean;
@@ -134,7 +134,11 @@ export class GitRunner {
           }, this.o.timeoutMs ?? 120_000)
         : undefined;
       opts.signal?.addEventListener("abort", stop, { once: true });
-      if (opts.input !== undefined) p.stdin?.end(opts.input);
+      if (opts.input !== undefined) {
+        // The child result reports Git failures even if it exits before consuming stdin.
+        p.stdin?.on("error", () => undefined);
+        p.stdin?.end(opts.input);
+      }
     });
   }
 }

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { HuhuError, errors } from "@huhu/contracts";
 import type { GitRunner } from "../git.js";
+import { isSafePath } from "../safe-git.js";
 import { applyChoices, countConflicts, splitThreeWay, type Choice, type Segment } from "./diff3.js";
 import { clearSession, loadSession, parseConflictNames, parseMergeTree, saveSession, type ConflictFile, type ConflictSession, type Stage } from "./session.js";
 
@@ -15,6 +16,7 @@ export interface ConflictHooks {
   beforeOverwrite?: (paths: string[]) => Promise<void> | void;
   /** 语义文件拼出结果后的校验（kind/frontmatter）；不合法时抛错并指明文件。 */
   validateResolved?: (path: string, text: string) => void;
+  validateTree?: (tree: string, localParent: string, remoteParent: string) => Promise<void>;
 }
 
 export interface WholeSide {
@@ -66,15 +68,18 @@ export class SyncConflicts {
     return clearSession(this.root);
   }
 
-  /** 不碰工作区地预判合并：有冲突就记录会话并返回；无冲突返回 null；merge-tree 不可用（旧 git/无共同祖先等）返回 undefined。 */
-  async detect(localHead: string, remoteRef: string): Promise<ConflictSession | null | undefined> {
-    const r = await this.git.run(["merge-tree", "--write-tree", "-z", localHead, remoteRef], { okCodes: [1] }).catch(() => null);
+  /** 从固定的父提交预判合并，返回干净的树或冲突会话。 */
+  async detect(localHead: string, remoteHead: string, remoteRef: string): Promise<{ tree: string } | { conflict: ConflictSession } | undefined> {
+    const r = await this.git.run(["merge-tree", "--write-tree", "-z", localHead, remoteHead], { okCodes: [1] }).catch(() => null);
     if (!r) return undefined;
-    if (r.code === 0) return null;
-    const { files } = parseMergeTree(r.stdout);
+    const { tree, files } = parseMergeTree(r.stdout);
+    if (r.code === 0) return { tree };
     if (files.length === 0) return undefined;
-    const remoteHead = (await this.git.run(["rev-parse", "--verify", remoteRef])).stdout.trim();
-    const s: ConflictSession = { id: `cf-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, createdAt: new Date().toISOString(), localHead, remoteHead, remoteRef, files };
+    return { conflict: this.record(localHead, remoteHead, remoteRef, files) };
+  }
+
+  record(localHead: string, remoteHead: string, remoteRef: string, files: ConflictFile[], safeGeneration = false): ConflictSession {
+    const s: ConflictSession = { id: `cf-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, createdAt: new Date().toISOString(), localHead, remoteHead, remoteRef, files, ...(safeGeneration ? { safeGeneration } : {}) };
     saveSession(this.root, s);
     return s;
   }
@@ -84,6 +89,7 @@ export class SyncConflicts {
   }
 
   private async analyze(f: ConflictFile): Promise<Analysis> {
+    if (isSafePath(f.path)) return { kind: "whole", reason: "保险箱资料属于整代冲突，需在同步前保全同一侧的完整版本" };
     if (!f.base || !f.ours || !f.theirs) return { kind: "whole", reason: !f.ours || !f.theirs ? "一方删除了该文件" : "双方各自新增了该文件" };
     if (f.base.mode !== f.ours.mode || f.ours.mode !== f.theirs.mode) return { kind: "whole", reason: "文件类型或权限发生了变化" };
     if (f.ours.mode !== "100644" && f.ours.mode !== "100755") return { kind: "whole", reason: "符号链接或子模块" };
@@ -119,11 +125,23 @@ export class SyncConflicts {
     return { exists: true, mode: st.mode, size: b.byteLength, binary: text === null, ...(text !== null && b.byteLength <= 1024 * 1024 ? { preview: text.slice(0, PREVIEW_CHARS) } : {}) };
   }
 
+  private identityEnv(): NodeJS.ProcessEnv {
+    return { GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
+  }
+
+  async mergeVerifiedTree(localHead: string, remoteHead: string, tree: string): Promise<void> {
+    const { stdout } = await this.git.run(["commit-tree", tree, "-p", localHead, "-p", remoteHead, "-m", "HUHU 同步：合并远端变更"], { env: this.identityEnv() });
+    await this.applyMerge(localHead, stdout.trim(), "huhu merge verified tree");
+  }
+
   async read(p: string): Promise<ConflictFileView> {
     const f = this.need().files.find((x) => x.path === p);
     if (!f) throw errors.invalidInput("该文件不在当前冲突中");
     const a = await this.analyze(f);
-    if (a.kind === "whole") return { path: p, kind: "whole", reason: a.reason, ours: await this.side(f.ours), theirs: await this.side(f.theirs) };
+    if (a.kind === "whole") {
+      const side = isSafePath(p) ? (st: Stage | null) => (st ? { exists: true, mode: st.mode, binary: true } : { exists: false }) : (st: Stage | null) => this.side(st);
+      return { path: p, kind: "whole", reason: a.reason, ours: await side(f.ours), theirs: await side(f.theirs) };
+    }
     let n = 0;
     return { path: p, kind: "blocks", segments: a.segments.map((s) => (s.kind === "conflict" ? { ...s, index: n++ } : s)) };
   }
@@ -132,6 +150,7 @@ export class SyncConflicts {
   async resolve(sessionId: string, resolutions: Resolution[]): Promise<string> {
     const s = this.need();
     if (s.id !== sessionId) throw stale();
+    if (s.safeGeneration || s.files.some((file) => isSafePath(file.path))) throw errors.invalidInput("保险箱发生整代冲突，无法按文件解决；本地与远端版本均已保留");
     // 重验：本地分支没动、远端对象还在、重新预判的冲突文件集合与会话一致
     const head = await this.git.run(["rev-parse", "--verify", "HEAD"]).then(
       (r) => r.stdout.trim(),
@@ -187,8 +206,7 @@ export class SyncConflicts {
     await this.hooks.beforeOverwrite?.(s.files.map((f) => f.path));
 
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-cf-"));
-    const ident = { GIT_AUTHOR_NAME: this.identity.name, GIT_AUTHOR_EMAIL: this.identity.email, GIT_COMMITTER_NAME: this.identity.name, GIT_COMMITTER_EMAIL: this.identity.email };
-    const env = { GIT_INDEX_FILE: path.join(dir, "index"), ...ident };
+    const env = { GIT_INDEX_FILE: path.join(dir, "index"), ...this.identityEnv() };
     let commit: string;
     try {
       await this.git.run(["read-tree", mergedTree], { env });
@@ -201,28 +219,33 @@ export class SyncConflicts {
         }
       }
       const tree = (await this.git.run(["write-tree"], { env })).stdout.trim();
+      await this.hooks.validateTree?.(tree, s.localHead, s.remoteHead);
       commit = (await this.git.run(["commit-tree", tree, "-p", s.localHead, "-p", s.remoteHead, "-m", "HUHU 同步：解决冲突"], { env })).stdout.trim();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
 
-    // 先让工作区与 index 前进到合并结果：git 会拒绝覆盖有未提交改动的文件或未跟踪的同名文件
-    await this.git.run(["read-tree", "-m", "-u", s.localHead, commit]).catch((e: unknown) => {
+    await this.applyMerge(s.localHead, commit, "huhu resolve conflicts");
+    clearSession(this.root);
+    return commit;
+  }
+
+  private async applyMerge(localHead: string, commit: string, message: string): Promise<void> {
+    // Git refuses to overwrite dirty or untracked files while applying the verified tree.
+    await this.git.run(["read-tree", "-m", "-u", localHead, commit]).catch((e: unknown) => {
       const m = e instanceof Error ? e.message : String(e);
       if (/overwritten|not uptodate|untracked|local changes|would lose/i.test(m)) throw new HuhuError("INVALID_INPUT", `无法应用解决结果：本地有未提交的改动会被覆盖，请先保存或处理这些文件（${m}）`, { retryable: false });
       throw e; // index.lock、超时等：保留原始错误（可重试）
     });
     try {
-      await this.git.run(["update-ref", "-m", "huhu resolve conflicts", "HEAD", commit, s.localHead]);
+      await this.git.run(["update-ref", "-m", message, "HEAD", commit, localHead]);
     } catch (e) {
-      const back = await this.git.run(["read-tree", "-m", "-u", commit, s.localHead]).then(
+      const back = await this.git.run(["read-tree", "-m", "-u", commit, localHead]).then(
         () => null,
         (e2: unknown) => e2,
       ); // 回到解决前
       if (back) throw new HuhuError("INTERNAL", `提交解决结果失败且回退也失败，请检查 Git 页的状态后重新同步（${e instanceof Error ? e.message : String(e)}）`, { retryable: false });
       throw e;
     }
-    clearSession(this.root);
-    return commit;
   }
 }

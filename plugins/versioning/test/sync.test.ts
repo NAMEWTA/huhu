@@ -50,8 +50,18 @@ async function twoVaults() {
 
 describe("纳入范围（ACC-VS-06）", () => {
   test("Markdown/附件与白名单内的 .huhu 文件纳入；runtime/cache/drafts/operations/claims/history 跳过", () => {
-    for (const p of ["笔记/a.md", "img/x.png", ".huhu/vault.json", ".huhu/settings.json", ".huhu/notes/identities.json", ".huhu/safe/keyring.json", ".huhu/ssh/known_hosts"]) expect(classify(p, []).include, p).toBe(true);
-    for (const p of [".huhu/runtime/m/engine.json", ".huhu/cache/x", ".huhu/drafts/note.json", ".huhu/operations/op.json", ".huhu/automations/claims/k.json", ".huhu/history/git/HEAD", ".huhu/ui/state.json", ".git/config"])
+    for (const p of ["笔记/a.md", "img/x.png", ".huhu/vault.json", ".huhu/settings.json", ".huhu/notes/identities.json", ".huhu/ssh/known_hosts"]) expect(classify(p, []).include, p).toBe(true);
+    for (const p of [
+      ".huhu/runtime/m/engine.json",
+      ".huhu/cache/x",
+      ".huhu/drafts/note.json",
+      ".huhu/operations/op.json",
+      ".huhu/automations/claims/k.json",
+      ".huhu/history/git/HEAD",
+      ".huhu/ui/state.json",
+      ".huhu/safe/keyring.json",
+      ".git/config",
+    ])
       expect(classify(p, []).include, p).toBe(false);
   });
   test("用户追加的排除规则：目录、通配符、锚定", () => {
