@@ -1,3 +1,4 @@
+import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,8 +172,13 @@ engineTest(
     expect(await connect(live.client, live.engine, saved.hostId)).toBe("OK");
 
     await live.client.call("gateway.mcp.update", { enabled: true, transport: "stdio" }, { write: true });
+    const session = await openMcpSession(`${live.client.endpoint.baseUrl}/api/v1/mcp`, live.engine.mcpToken);
     for (const token of [live.engine.cliToken, live.engine.mcpToken]) {
-      const caller = new EngineClient({ ...live.client.endpoint, token });
+      const caller = new EngineClient({ ...live.client.endpoint, token }, (url, init) => {
+        const headers = new Headers(init?.headers);
+        if (token === live.engine.mcpToken) headers.set("mcp-session-id", session);
+        return fetch(url, { ...init, headers });
+      });
       expect(await code(caller.call("ssh.hosts.configure", input))).toBe("CAPABILITY_NOT_EXPOSED");
     }
     const web = await live.engine.dispatcher.call("web:synthetic", { capability: "ssh.hosts.configure", requestId: randomUUID(), input });

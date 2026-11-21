@@ -1,3 +1,4 @@
+import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,10 +12,10 @@ import { resolveHostTargets } from "../src/engine/directory-selection.js";
 
 type Operation = z.infer<typeof DirectoryUpdate>["operation"];
 
-async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken) {
+async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, session?: string) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(session && { "mcp-session-id": session }) },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
   });
   expect(response.status).toBe(200);
@@ -197,7 +198,8 @@ test("首次及后续并发写入只有一个胜者，并沿用静态目录与�
     expect(catalog.parse(await data(live, "capabilities.list", { includeInactive: true }))).toContainEqual({ ...descriptor, availability: "active" });
     expect(await call(live, "ssh.hosts.directory", {}, live.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(await call(live, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
-    expect(await call(live, "ssh.hosts.organize", {}, live.mcpToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    const session = await openMcpSession(`http://127.0.0.1:${live.port}/api/v1/mcp`, live.mcpToken);
+    expect(await call(live, "ssh.hosts.organize", {}, live.mcpToken, session)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 
     async function compete(expectedVersion: string) {
       const results = await Promise.all(

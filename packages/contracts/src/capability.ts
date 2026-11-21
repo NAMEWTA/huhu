@@ -6,6 +6,26 @@ export type WorkbenchCaller = "desktop" | `web:${string}`;
 /** 调用者身份由已认证的宿主或连接确定。 */
 export type Caller = (typeof CALLER_KINDS)[number] | `plugin:${string}` | WorkbenchCaller;
 
+/** Supplied by the authenticated Engine transport. Never decoded from capability input. */
+export interface McpSessionIdentity {
+  readonly caller: "mcp" | "http";
+  readonly entry: "mcp-http" | "mcp-stdio";
+  readonly credentialId: string;
+  readonly clientSessionId: string;
+  readonly vaultInstance: string;
+  readonly serviceGeneration: string;
+}
+
+export interface McpSessionPrincipal {
+  readonly identity: McpSessionIdentity;
+  readonly signal: AbortSignal;
+}
+
+/** Owner keys survive transport changes within the same logical session. */
+export function mcpSessionSubject(session: McpSessionIdentity): string {
+  return JSON.stringify([session.entry, session.vaultInstance, session.credentialId, session.clientSessionId]);
+}
+
 export function isWorkbenchCaller(caller: string): caller is WorkbenchCaller {
   return caller === "desktop" || caller.startsWith("web:");
 }

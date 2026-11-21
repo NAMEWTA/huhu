@@ -6,15 +6,16 @@ import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, Capabilit
 import { defineCapability, TOOL_ACCESS_FILE } from "@huhu/kernel";
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 const url = (engine: RunningEngine, route: string) => "http://127.0.0.1:" + engine.port + route;
 const headers = (token: string) => ({ authorization: "Bearer " + token, "content-type": "application/json" });
 
-async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, idempotencyKey?: string) {
+async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, idempotencyKey?: string, handle?: string) {
   const result = await fetch(url(engine, "/api/v1/call"), {
     method: "POST",
-    headers: headers(token),
+    headers: { ...headers(token), ...(handle && { "mcp-session-id": handle }) },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey }),
   });
   expect(result.status).toBe(200);
@@ -28,8 +29,8 @@ async function data(result: ReturnType<typeof call>) {
 }
 const access = async (engine: RunningEngine) => z.object({ toolAccess: ToolAccessSnapshotSchema }).parse(await data(call(engine, "gateway.get"))).toolAccess;
 const directory = async (engine: RunningEngine) => z.array(CapabilityCatalogEntrySchema).parse(await data(call(engine, "capabilities.list", { includeInactive: true })));
-const names = async (engine: RunningEngine, token: string) => {
-  const response = await fetch(url(engine, "/api/v1/capabilities"), { headers: headers(token) });
+const names = async (engine: RunningEngine, token: string, handle?: string) => {
+  const response = await fetch(url(engine, "/api/v1/capabilities"), { headers: { ...headers(token), ...(handle && { "mcp-session-id": handle }) } });
   expect(response.status).toBe(200);
   return z
     .array(CapabilityDiscoveryEntrySchema)
@@ -37,12 +38,8 @@ const names = async (engine: RunningEngine, token: string) => {
     .map((entry) => entry.name);
 };
 
-async function mcp(engine: RunningEngine, token: string, method: string, params: unknown = {}) {
-  const response = await fetch(url(engine, "/mcp"), {
-    method: "POST",
-    headers: { ...headers(token), accept: "application/json, text/event-stream" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
+async function mcp(engine: RunningEngine, token: string, handle: string, method: string, params: unknown = {}) {
+  const response = await mcpRequest(url(engine, "/mcp"), token, mcpRpc(method, params), handle);
   expect(response.status).toBe(200);
   return response.json();
 }
@@ -84,23 +81,27 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     expect(await call(a, "notes.read", input, a.mcpToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
 
     expect(await data(call(a, "gateway.mcp.update", { enabled: true, transport: "http" }))).toMatchObject({ enabled: true });
-    expect(await mcp(a, a.mcpToken, "tools/list")).toMatchObject({ result: { tools: [] } });
-    expect(await mcp(a, a.mcpToken, "resources/list")).toMatchObject({ result: { resources: [] } });
+    let httpSession = await openMcpSession(url(a, "/mcp"), a.mcpToken);
+    const stdioSession = await openMcpSession(url(a, "/api/v1/mcp"), a.mcpToken);
+    expect(await mcp(a, a.mcpToken, httpSession, "tools/list")).toMatchObject({ result: { tools: [] } });
+    expect(await mcp(a, a.mcpToken, httpSession, "resources/list")).toMatchObject({ result: { resources: [] } });
     expect(await call(a, "gateway.update", { capability: "capabilities.list", exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(await data(call(a, "gateway.update", { capability: "notes.read", exposed: true }))).toEqual({ exposed: true, revision: 1 });
     for (const token of [a.cliToken, a.mcpToken, http]) {
-      expect(await names(a, token)).toEqual(["notes.read"]);
-      expect(await call(a, "notes.read", input, token)).toMatchObject({ ok: true, data: { text: "# isolated\n" } });
-      expect(await call(a, "notes.list", {}, token)).toMatchObject(deny);
+      const handle = token === a.mcpToken ? stdioSession : undefined;
+      expect(await names(a, token, handle)).toEqual(["notes.read"]);
+      expect(await call(a, "notes.read", input, token, undefined, handle)).toMatchObject({ ok: true, data: { text: "# isolated\n" } });
+      expect(await call(a, "notes.list", {}, token, undefined, handle)).toMatchObject(deny);
     }
-    expect(await mcp(a, a.mcpToken, "tools/list")).toMatchObject({ result: { tools: [{ name: "notes_read" }] } });
-    expect(await mcp(a, a.mcpToken, "tools/call", { name: "notes_read", arguments: input })).toMatchObject({
+    expect(await mcp(a, a.mcpToken, httpSession, "tools/list")).toMatchObject({ result: { tools: [{ name: "notes_read" }] } });
+    expect(await mcp(a, a.mcpToken, httpSession, "tools/call", { name: "notes_read", arguments: input })).toMatchObject({
       result: { content: [{ text: expect.stringContaining("isolated") }] },
     });
-    expect(await mcp(a, a.mcpToken, "resources/templates/list")).toMatchObject({ result: { resourceTemplates: [] } });
+    expect(await mcp(a, a.mcpToken, httpSession, "resources/templates/list")).toMatchObject({ result: { resourceTemplates: [] } });
 
     await a.shutdown();
     a = await boot({ vaultPath: dirA });
+    httpSession = await openMcpSession(url(a, "/mcp"), a.mcpToken);
     expect(await access(a)).toMatchObject({ state: "ready", revision: 1, choices: { "notes.read": true } });
     expect(await names(a, http)).toEqual(["notes.read"]);
     expect(await call(a, "notes.read", input, a.cliToken)).toMatchObject({ ok: true });
@@ -126,7 +127,7 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     expect(await data(call(a, "gateway.update", { capability: "notes.read", exposed: false }))).toEqual({ exposed: false, revision: 3 });
     expect(await data(call(a, "gateway.update", { capability: "notes.read", exposed: false }))).toEqual({ exposed: false, revision: 3 });
     expect(await names(a, a.cliToken)).toEqual([]);
-    expect(await mcp(a, a.mcpToken, "tools/call", { name: "notes_read", arguments: input })).toMatchObject({ result: { isError: true, content: [{ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") }] } });
+    expect(await mcp(a, a.mcpToken, httpSession, "tools/call", { name: "notes_read", arguments: input })).toMatchObject({ result: { isError: true, content: [{ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") }] } });
     expect(ToolAccessFileSchema.parse(JSON.parse(readFileSync(policyFile, "utf8")))).toMatchObject({ revision: 3, choices: { "notes.read": false, "fixture.new": false } });
 
     const invalid = '{"formatVersion":1,"revision":4,"choices":{"notes.read":true,"notes.list":"invalid"}}\n';
@@ -139,7 +140,8 @@ test("两个 Vault 分开保存工具选择，重启保持版本，未配置的�
     expect((await directory(a)).find((entry) => entry.name === "notes.read")).toMatchObject({ selected: null, exposed: false });
     expect(await call(a, "notes.read", input)).toMatchObject({ ok: true });
     expect(await call(a, "notes.read", input, http)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED", details: { reason: "invalid-format" } } });
-    expect(await mcp(a, a.mcpToken, "tools/list")).toMatchObject({ result: { tools: [] } });
+    httpSession = await openMcpSession(url(a, "/mcp"), a.mcpToken);
+    expect(await mcp(a, a.mcpToken, httpSession, "tools/list")).toMatchObject({ result: { tools: [] } });
     expect(await call(a, "gateway.update", { capability: "notes.read", exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(readFileSync(policyFile, "utf8")).toBe(invalid);
     expect(await names(b, b.cliToken)).toEqual([]);
@@ -194,7 +196,8 @@ test("两份工具预览只有同一版本的首个提交能整批生效，发�
       },
     });
     expect(await data(call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" }))).toEqual({ enabled: true, transport: "stdio" });
-    expect((await names(engine, engine.mcpToken)).sort()).toEqual(["notes.list", "notes.read"]);
+    const stdioSession = await openMcpSession(url(engine, "/api/v1/mcp"), engine.mcpToken);
+    expect((await names(engine, engine.mcpToken, stdioSession)).sort()).toEqual(["notes.list", "notes.read"]);
     expect(await call(engine, "gateway.policy.preview", { changes }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 
     const before = readFileSync(policyFile, "utf8");
@@ -221,7 +224,7 @@ test("两份工具预览只有同一版本的首个提交能整批生效，发�
     }
     const close = changes.map(({ capability }) => ({ capability, exposed: false }));
     expect(await update(await preview(close), close)).toMatchObject({ ok: true, data: { revision: 2 } });
-    expect(await names(engine, engine.mcpToken)).toEqual([]);
+    expect(await names(engine, engine.mcpToken, stdioSession)).toEqual([]);
     expect(await names(engine, engine.cliToken)).toEqual([]);
     expect(publishes).toHaveLength(2);
   } finally {

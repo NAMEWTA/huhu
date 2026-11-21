@@ -117,8 +117,6 @@ export class PublicExecJobs {
 
   private owners(context: CapabilityContext) {
     const owner = externalSshOwner(context);
-    // The bootstrap MCP token represents every client using it, including all stdio processes.
-    if (context.caller === "mcp" && context.subject === "mcp") throw errors.permissionDenied("SSH 作业需要独立的 MCP 调用主体");
     const receiptOwner = createHash("sha256")
       .update(JSON.stringify([this.vaultInstance, owner]))
       .digest("hex");

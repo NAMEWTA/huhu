@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -77,12 +78,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
         rmSync(requestFile);
       }
     };
+    let session: string;
     const mcp = async (method: string, params: unknown) => {
-      const response = await fetch(`http://127.0.0.1:${e!.port}/mcp`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${e!.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      });
+      const response = await mcpRequest(`http://127.0.0.1:${e!.port}/mcp`, e!.mcpToken, mcpRpc(method, params), session);
       expect(response.status).toBe(200);
       return ((await response.json()) as { result: { isError?: boolean; content?: { text: string }[]; tools?: { name: string }[] } }).result;
     };
@@ -109,6 +107,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       const other = await create("另一条未批准规则");
       const id = { ruleId: rule.id };
       await desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+      session = await openMcpSession(`http://127.0.0.1:${e!.port}/mcp`, e!.mcpToken);
       expect((await mcp("tools/list", {})).tools).toEqual([]);
       expect(await cli("status", id)).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
       for (const op of ["run", "save", "status"]) await setAccess(op, true);

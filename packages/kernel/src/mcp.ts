@@ -46,7 +46,7 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
 export function createMcpServer(
   backend: McpBackend,
   version: string,
-  opts: { /** 有长连接（stdio）时按这个间隔检查对外开放的工具表，变了就发 notifications/tools/list_changed；HTTP 是无状态的，不开启。 */ watchToolsMs?: number } = {},
+  opts: { /** 有长连接（stdio）时按这个间隔检查对外开放的工具表，变了就发 notifications/tools/list_changed；HTTP 客户端按需刷新，不开启。 */ watchToolsMs?: number } = {},
 ): Server {
   const server = new Server({ name: "huhu", version }, { capabilities: { tools: { listChanged: opts.watchToolsMs !== undefined }, resources: {}, prompts: {} } });
   if (opts.watchToolsMs !== undefined) {

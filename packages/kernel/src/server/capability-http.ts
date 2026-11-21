@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { CapabilityOperationLookupSchema, CapabilityRequestSchema, errors, toJsonSchema, type Caller } from "@huhu/contracts";
+import { CapabilityOperationLookupSchema, CapabilityRequestSchema, errors, toJsonSchema, type Caller, type McpSessionPrincipal } from "@huhu/contracts";
 import { type Context, type Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { Dispatcher } from "../dispatcher.js";
@@ -9,6 +9,8 @@ interface Principal {
   caller: Caller;
   subject?: string;
   signal?: AbortSignal;
+  session?: McpSessionPrincipal;
+  reserve?(): (() => void) | undefined;
 }
 
 export interface CapabilityHttpEnv {
@@ -32,14 +34,20 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
   const authenticate = createMiddleware<CapabilityHttpEnv>(async (c, next) => {
     const admitted = authorize(c);
     if (admitted instanceof Response) return admitted;
+    const release = admitted.reserve?.();
+    if (admitted.reserve && !release) return c.json({ error: "并发调用过多" }, 429);
     c.set("principal", admitted);
-    await next();
+    try {
+      await next();
+    } finally {
+      release?.();
+    }
   });
   app.use("/api/*", authenticate);
 
   app.post("/api/v1/call", async (c) => {
     c.header("cache-control", "no-store");
-    const { caller, subject, signal } = c.get("principal");
+    const { caller, subject, signal, session } = c.get("principal");
     const mcpTool = c.req.query("nameFormat") === "mcp";
     if (mcpTool && (caller !== "mcp" || !resolveTool)) return c.json({ error: "该令牌身份不能提交 MCP 工具名" }, 403);
     const declared = Number(c.req.header("content-length") ?? 0);
@@ -70,29 +78,37 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
     const req = CapabilityRequestSchema.safeParse(body);
     if (!req.success) return c.json({ error: "请求格式错误", issues: req.error.issues }, 400);
     if (signal?.aborted) return c.json(revokedSession, 401);
-    const n = inflight.get(caller) ?? 0;
-    if (n >= MAX_CONCURRENT_PER_TOKEN) return c.json({ error: "并发调用过多" }, 429);
-    inflight.set(caller, n + 1);
+    if (!session) {
+      const n = inflight.get(caller) ?? 0;
+      if (n >= MAX_CONCURRENT_PER_TOKEN) return c.json({ error: "并发调用过多" }, 429);
+      inflight.set(caller, n + 1);
+    }
     try {
       const capability = mcpTool ? resolveTool?.(req.data.capability) : req.data.capability;
       if (!capability) return c.json(unknownTool(req.data.capability));
       const requestSignal = signal ? AbortSignal.any([c.req.raw.signal, signal]) : c.req.raw.signal;
-      const result = await dispatcher.call(caller, { ...req.data, capability }, requestSignal, subject);
+      const result = await dispatcher.call(caller, { ...req.data, capability }, requestSignal, session ?? subject);
       return signal?.aborted ? c.json(revokedSession, 401) : c.json(result);
     } finally {
-      const remaining = (inflight.get(caller) ?? 1) - 1;
-      if (remaining > 0) inflight.set(caller, remaining);
-      else inflight.delete(caller);
+      if (!session) {
+        const remaining = (inflight.get(caller) ?? 1) - 1;
+        if (remaining > 0) inflight.set(caller, remaining);
+        else inflight.delete(caller);
+      }
     }
   });
 
-  app.get("/api/v1/capabilities", (c) => c.json(discoverCapabilities(dispatcher, c.get("principal").caller)));
+  app.get("/api/v1/capabilities", (c) => {
+    c.header("cache-control", "no-store");
+    const { caller, signal } = c.get("principal");
+    return signal?.aborted ? c.json(revokedSession, 401) : c.json(discoverCapabilities(dispatcher, caller));
+  });
   app.get("/api/v1/operations", (c) => {
     c.header("cache-control", "no-store");
-    const { caller, subject = caller, signal } = c.get("principal");
+    const { caller, subject = caller, signal, session } = c.get("principal");
     if (signal?.aborted) return c.json(revokedSession, 401);
     const lookup = CapabilityOperationLookupSchema.safeParse(c.req.query());
     if (!lookup.success) return c.json({ ok: false, error: errors.invalidInput("操作查询参数不符合要求", lookup.error.issues).toJSON() });
-    return c.json(dispatcher.readOperation(caller, subject, lookup.data));
+    return c.json(dispatcher.readOperation(caller, session ?? subject, lookup.data));
   });
 }

@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -9,7 +10,7 @@ import { createMcpServer as createSharedMcp, MAX_BODY_BYTES } from "@huhu/kernel
 import { Vault } from "@huhu/vault";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ReadResourceResultSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
 
@@ -112,8 +113,6 @@ describe("CLI", () => {
   }, 25_000);
 
   test("受权 CLI 和两种 MCP 复用持久意图，同 Vault 不同身份不能读同一次调用", async () => {
-    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
-    const { createMcpServer } = await import("../src/mcp.js");
     const vaultPath = tmp();
     let e = await boot({ vaultPath, create: true });
     engines.push(e);
@@ -141,30 +140,51 @@ describe("CLI", () => {
     expect(await cli(...args)).toEqual(first);
     const query = `/api/v1/operations?operationId=${first.opId}`;
     expect(await request(query, e.cliToken)).toMatchObject({ ok: true, data: { state: "completed", result: first } });
-    expect(await request(query, e.mcpToken)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await request(query, e.mcpToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     expect(await cli("operation", "--capability", "tasks.create", "--intent-key", key)).toMatchObject({ ok: true, data: { state: "completed", result: first } });
     const mismatch = await cli("call", "tasks.create", "--input-json", JSON.stringify({ title: "改写输入" }), "--intent-key", key);
     expect(mismatch).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
 
-    const mcp = createMcpServer({ baseUrl: `http://127.0.0.1:${e.port}`, token: e.mcpToken, vaultId: e.vault.id }, "0.0.1");
     const client = new Client({ name: "intent-fixture", version: "1.0" });
-    const [a, b] = InMemoryTransport.createLinkedPair();
+    const second = new Client({ name: "second-intent-fixture", version: "1.0" });
+    const transport = () =>
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts"), "mcp", "--vault", vaultPath],
+      });
     try {
-      await Promise.all([mcp.connect(a), client.connect(b)]);
+      await Promise.all([client.connect(transport()), second.connect(transport())]);
       await client.listTools();
       const params = { name: "tasks_create", arguments: task, _meta: { "huhu.dev/intent-key": key } };
       const stdio = CallToolResultSchema.parse(await client.callTool(params));
-      const raw = (await request("/mcp", e.mcpToken, { jsonrpc: "2.0", id: 1, method: "tools/call", params })) as { result?: unknown };
-      const http = CallToolResultSchema.parse(raw.result);
-      expect(http.structuredContent).toEqual(stdio.structuredContent);
+      expect(await client.callTool(params)).toEqual(stdio);
+      const stdioReceipt = `huhu://operations/${stdio.structuredContent?.opId}`;
+      expect((await second.readResource({ uri: stdioReceipt })).contents[0]).toMatchObject({ text: expect.stringContaining('"NOT_FOUND"') });
+      const secondResult = CallToolResultSchema.parse(await second.callTool(params));
+      expect(secondResult.structuredContent).toMatchObject({ opId: expect.any(String) });
+      expect(secondResult.structuredContent?.opId).not.toBe(stdio.structuredContent?.opId);
+      const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+      const session = await openMcpSession(endpoint, e.mcpToken);
+      const httpRpc = async (method: string, params: unknown) => {
+        const response = await mcpRequest(endpoint, e.mcpToken, mcpRpc(method, params), session);
+        expect(response.status).toBe(200);
+        return ((await response.json()) as { result: unknown }).result;
+      };
+      const http = CallToolResultSchema.parse(await httpRpc("tools/call", params));
       expect(http.structuredContent).toMatchObject({ opId: expect.any(String), data: { title: task.title } });
       const id = http.structuredContent?.opId;
+      const stdioId = stdio.structuredContent?.opId;
+      expect(id).not.toBe(stdioId);
       expect(id).not.toBe(first.opId);
-      const resource = await client.readResource({ uri: `huhu://operations/${id}` });
+      expect(stdioId).not.toBe(first.opId);
+      const resource = await client.readResource({ uri: `huhu://operations/${stdioId}` });
       expect(resource.contents[0]).toMatchObject({ text: expect.stringContaining('"state":"completed"') });
+      expect((await client.readResource({ uri: `huhu://operations/${id}` })).contents[0]).toMatchObject({ text: expect.stringContaining('"NOT_FOUND"') });
+      const readHttp = async (opId: unknown) => ReadResourceResultSchema.parse(await httpRpc("resources/read", { uri: `huhu://operations/${opId}` })).contents[0];
+      expect(await readHttp(id)).toMatchObject({ text: expect.stringContaining('"state":"completed"') });
+      expect(await readHttp(stdioId)).toMatchObject({ text: expect.stringContaining('"NOT_FOUND"') });
     } finally {
-      await client.close();
-      await mcp.close();
+      await Promise.all([client.close(), second.close()]);
     }
     await e.shutdown();
     engines.splice(engines.indexOf(e), 1);
@@ -323,7 +343,13 @@ describe("CLI", () => {
       return response.json();
     };
     const desktop = async (name: string, input: unknown = {}) => CapabilityResultSchema.parse(await rpc("/api/v1/call", { capability: name, input, requestId: randomUUID(), idempotencyKey: randomUUID() }));
-    const http = (method: string, params: unknown = {}) => rpc("/mcp", { jsonrpc: "2.0", id: 1, method, params }, e.mcpToken);
+    const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+    let httpSession: string;
+    const http = async (method: string, params: unknown = {}) => {
+      const response = await mcpRequest(endpoint, e.mcpToken, mcpRpc(method, params), httpSession);
+      expect(response.status).toBe(200);
+      return response.json();
+    };
     const install = (source: string) => desktop("plugins.install", { source, grants: [] });
     const stdio = new Client({ name: "lifecycle-test", version: "1" });
     const transport = new StdioClientTransport({
@@ -372,6 +398,7 @@ describe("CLI", () => {
     const unbound = { ...missing, details: { reason: "handler-missing", plugin: id } };
     try {
       expect(await desktop("gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+      httpSession = await openMcpSession(endpoint, e.mcpToken);
       await stdio.connect(transport);
       await check("not-found", missing);
       expect(await install(source)).toMatchObject({ ok: true });
@@ -530,7 +557,10 @@ describe("CLI", () => {
       expect(replies().find((m) => m.id === 4)?.result?.tools).toEqual([]);
       send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "vault_info", arguments: {} } });
       await vi.waitFor(() => expect(out).toContain('"id":5'), { timeout: 20_000 });
-      expect(replies().find((m) => m.id === 5)?.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("invalid-format") }] });
+      expect(replies().find((m) => m.id === 5)?.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("PERMISSION_DENIED") }] });
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      child.stdin.end();
+      expect(await exited).toBe(0);
     } finally {
       child.kill();
     }
@@ -559,11 +589,9 @@ describe("CLI", () => {
     const arrayTool = { name: "tasks_list", arguments: {} };
     const array = await client.callTool(arrayTool);
     expect(array.structuredContent).toEqual({ data: [] });
-    const http = (await fetch(`http://127.0.0.1:${e.port}/mcp`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${e.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: arrayTool }),
-    }).then((response) => response.json())) as { result?: unknown };
+    const endpoint = `http://127.0.0.1:${e.port}/mcp`;
+    const session = await openMcpSession(endpoint, e.mcpToken);
+    const http = (await (await mcpRequest(endpoint, e.mcpToken, mcpRpc("tools/call", arrayTool), session)).json()) as { result?: unknown };
     expect(CallToolResultSchema.parse(http.result)).toMatchObject({ structuredContent: array.structuredContent });
     const denied = await client.callTool({ name: "tasks_create", arguments: { title: "x" } });
     expect(denied.isError).toBe(true);

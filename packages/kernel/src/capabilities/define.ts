@@ -1,4 +1,4 @@
-import { HuhuError, type CapabilityRisk, type CapabilityScope } from "@huhu/contracts";
+import { HuhuError, type CapabilityRisk, type CapabilityScope, type McpSessionIdentity } from "@huhu/contracts";
 import type { z } from "zod";
 
 export interface CapabilityContext {
@@ -7,6 +7,7 @@ export interface CapabilityContext {
   caller: string;
   /** Stable identity chosen by the authenticated transport, scoped to its caller category. */
   subject?: string;
+  session?: McpSessionIdentity;
   requestId: string;
   idempotencyKey?: string;
 }

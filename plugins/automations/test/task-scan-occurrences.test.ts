@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -290,24 +291,23 @@ test("专用规则启用后触发真实计划，保护默认规则、已启用�
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 15_000);
 
-test("MCP HTTP 和真实 stdio 重交同一手动意图，规则删除及重开后仍返回同一受理", async () => {
+test("同一 MCP HTTP 会话重交手动意图，Engine 重开后的新 stdio 会话无法认领", async () => {
   const first = await start();
   let { engine } = first;
   const task = await createTask(engine, "唯一应执行的合成任务");
   const rule = await createRule(engine, "MCP 扫描规则");
   const input = { id: rule.id, expectedVersion: rule.version, intentId: randomUUID() };
   const tool = scanTools.runNow.replaceAll(".", "_");
-  const http = async (method: string, params: unknown) => {
-    const response = await fetch(`http://127.0.0.1:${engine.port}/mcp`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${engine.mcpToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    });
-    expect(response.status).toBe(200);
-    return ((await response.json()) as { result: { structuredContent?: unknown; tools?: { name: string; inputSchema: unknown; outputSchema: unknown }[] } }).result;
-  };
+  const endpoint = () => `http://127.0.0.1:${engine.port}/mcp`;
+  const { token } = await invoke<{ token: string }>(engine, "gateway.tokens.create", { name: "task-scan MCP fixture" });
   const setMcp = (transport: "http" | "stdio") => invoke(engine, "gateway.mcp.update", { enabled: true, transport });
   await setMcp("http");
+  const session = await openMcpSession(endpoint(), token);
+  const http = async (method: string, params: unknown) => {
+    const response = await mcpRequest(endpoint(), token, mcpRpc(method, params), session);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { result: { structuredContent?: unknown; isError?: boolean; content?: { text: string }[]; tools?: { name: string; inputSchema: unknown; outputSchema: unknown }[] } }).result;
+  };
   expect((await http("tools/list", {})).tools).toEqual([]);
   await expose(engine, scanTools.runNow, "automations.activations.dispatches", "automations.setEnabled", "automations.delete");
   const httpTool = (await http("tools/list", {})).tools?.find(({ name }) => name === tool);
@@ -332,9 +332,13 @@ test("MCP HTTP 和真实 stdio 重交同一手动意图，规则删除及重开�
   await createTask(engine, "删除规则后新增的合成任务");
   expect(await call(engine, scanTools.runNow, input, true)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
 
+  expect((await http("tools/call", callParams)).structuredContent).toEqual(receipt);
+  const mismatch = await http("tools/call", { ...callParams, arguments: { ...input, expectedVersion: paused.data.version } });
+  expect(mismatch).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("IDEMPOTENCY_MISMATCH") })] });
   const root = engine.vault.root;
   await stop(engine);
   ({ engine } = await start(root));
+  expect((await mcpRequest(endpoint(), token, mcpRpc("tools/list"), session)).status).toBe(404);
   await setMcp("stdio");
   const cliRequire = createRequire(new URL("../../../apps/cli/package.json", import.meta.url));
   const { Client } = cliRequire("@modelcontextprotocol/sdk/client/index.js");
@@ -350,9 +354,7 @@ test("MCP HTTP 和真实 stdio 重交同一手动意图，规则删除及重开�
     const stdioTool = tools.find(({ name }) => name === tool);
     expect(stdioTool?.inputSchema).toEqual(httpTool?.inputSchema);
     expect(stdioTool?.outputSchema).toEqual(httpTool?.outputSchema);
-    expect((await client.callTool(callParams)).structuredContent).toEqual(receipt);
-    const mismatch = await client.callTool({ ...callParams, arguments: { ...input, expectedVersion: paused.data.version } });
-    expect(mismatch).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("IDEMPOTENCY_MISMATCH") })] });
+    expect(await client.callTool(callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("NOT_FOUND") })] });
     await invoke(engine, "gateway.update", { capability: scanTools.runNow, exposed: false });
     expect(await client.callTool(callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") })] });
   } finally {

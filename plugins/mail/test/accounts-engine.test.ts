@@ -1,3 +1,4 @@
+import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,10 +26,10 @@ engineTest("邮件账号在 Safe 锁定时可保存和读回，恢复后要求�
   let restored: RunningEngine | undefined;
   let saved: MailAccount | undefined;
 
-  async function call(running: RunningEngine, capability: string, input: unknown = {}, token = running.rendererToken) {
+  async function call(running: RunningEngine, capability: string, input: unknown = {}, token = running.rendererToken, session?: string) {
     const response = await fetch(`http://127.0.0.1:${running.port}/api/v1/call`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(session && { "mcp-session-id": session }) },
       body: JSON.stringify({ capability, input, requestId: randomUUID() }),
     });
     expect(response.status).toBe(200);
@@ -73,7 +74,8 @@ engineTest("邮件账号在 Safe 锁定时可保存和读回，恢复后要求�
     expect(list).toMatchObject({ ok: true, data: { available: true, accounts: [saved] } });
     expect(JSON.stringify(list).includes(password)).toBe(false);
     expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
-    expect(await call(engine, "mail.accounts.list", {}, engine.mcpToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    const session = await openMcpSession(`http://127.0.0.1:${engine.port}/api/v1/mcp`, engine.mcpToken);
+    expect(await call(engine, "mail.accounts.list", {}, engine.mcpToken, session)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     await exportPackage(vaultPath, archive);
     expect(importPackage(archive, restoredPath).vaultId).toBe(engine.vault.id);
 

@@ -439,7 +439,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
-        taskScanPrincipalCurrent: (caller, subject) => tokens.hasPrincipal(caller, subject) && (caller !== "mcp" || gatewayTokens.mcp().enabled),
+        taskScanPrincipalCurrent: (caller, subject) => (serverRef.current?.hasMcpPrincipal(caller, subject) ?? false) || (caller !== "mcp" && tokens.hasPrincipal(caller, subject)),
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
         cliAvailable: (p) => exes[p] !== undefined,
         refreshClis,
@@ -536,6 +536,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
     mcpStdioEnabled: () => gatewayTokens.mcp().enabled,
     mcpSignal: () => gatewayTokens.mcpSignal(),
+    vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
     terminal,
     dispatcher: real,
     registry,

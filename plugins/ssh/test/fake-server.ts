@@ -1,6 +1,6 @@
 import net from "node:net";
 import { createHash } from "node:crypto";
-import ssh2, { type Connection, type ServerChannel } from "ssh2";
+import ssh2, { type Connection, type ServerChannel, type Session } from "ssh2";
 
 // 默认导入：Playwright 的 Node ESM 加载器拿不到 CJS 的具名导出
 const { Server, utils } = ssh2;
@@ -38,7 +38,7 @@ export interface FakeSshOptions {
   denyRemoteStop?: () => boolean;
   denyDirectTcp?: () => boolean;
   onExec?: (command: string) => { stdout?: string; stderr?: string; code?: number } | undefined;
-  onInteractiveExec?: (command: string, channel: ServerChannel) => boolean;
+  onInteractiveExec?: (command: string, channel: ServerChannel, session: Session) => boolean;
   onExecRequest?: (command: string) => "reject" | "hold" | undefined;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
@@ -193,7 +193,7 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
           if (action === "reject") return rejectExec();
           if (action === "hold") return;
           const ch = acceptExec();
-          if (o.onInteractiveExec?.(cmd, ch)) return;
+          if (o.onInteractiveExec?.(cmd, ch, session)) return;
           const response = o.onExec?.(cmd);
           if (response) {
             if (response.stdout) ch.write(response.stdout);

@@ -25,8 +25,8 @@ export const ResourceHost = routeHop.extend({
 
 type Files = HuhuApi["vault"]["files"];
 
-export function externalSshOwner({ caller, subject }: CapabilityContext): string {
-  if (!subject || (caller !== "cli" && caller !== "mcp" && caller !== "http") || (caller === "http" && caller === subject)) {
+export function externalSshOwner({ caller, subject, session }: CapabilityContext): string {
+  if (!subject || (caller !== "cli" && caller !== "mcp" && caller !== "http") || (caller === "http" && caller === subject) || (caller === "mcp" && !session)) {
     throw errors.permissionDenied("SSH 外部资源");
   }
   return JSON.stringify([caller, subject]);

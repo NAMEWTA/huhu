@@ -1,3 +1,4 @@
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,12 +83,11 @@ async function fixture() {
     desktop,
     server,
     allow: (capability: string, exposed = true) => desktop("gateway.update", { capability, exposed }),
-    async mcp(token: string, method: string, params = {}) {
-      const response = await fetch(`${baseUrl()}/mcp`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method, params }),
-      });
+    mcpEndpoint: () => `${baseUrl()}/mcp`,
+    async mcp(token: string, method: string, params = {}, handle?: string) {
+      const endpoint = `${baseUrl()}/mcp`;
+      const session = handle ?? (await openMcpSession(endpoint, token));
+      const response = await mcpRequest(endpoint, token, mcpRpc(method, params), session);
       expect(response.status).toBe(200);
       return (await response.json()).result;
     },
@@ -228,7 +228,7 @@ test("first trust stays with the original attempt, route and external subject th
     }
     expect(await f.call(a.token, trustDecide, { ...reply, remember: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
-    expect(await f.mcp(a.token, "tools/call", { name: "ssh_resources_connection_get", arguments: key })).toMatchObject({ structuredContent: { data: waiting } });
+    expect(await f.mcp(a.token, "tools/call", { name: "ssh_resources_connection_get", arguments: key })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("NOT_FOUND") }] });
     await f.allow(trustDecide, false);
     const idempotencyKey = randomUUID();
     expect(await f.call(a.token, trustDecide, reply, idempotencyKey)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
@@ -244,7 +244,7 @@ test("first trust stays with the original attempt, route and external subject th
 
     const refused = await beginProbe(f, a.token, hostId);
     const refusedPrompt = await awaitPrompt(f, a.token, { hostId, attemptId: refused.attemptId });
-    expect(await f.mcp(a.token, "tools/call", { name: "ssh_resources_trust_decide", arguments: { ...decision(refusedPrompt), accept: false } })).toMatchObject({ structuredContent: { data: { applied: true } } });
+    expect(await f.call(a.token, trustDecide, { ...decision(refusedPrompt), accept: false })).toMatchObject({ ok: true, data: { applied: true } });
     await vi.waitFor(async () => expect(await f.call(a.token, probeGet, { hostId, attemptId: refused.attemptId })).toMatchObject({ ok: true, data: { state: "failed" } }));
 
     const next = await beginProbe(f, a.token, hostId);
@@ -468,71 +468,166 @@ test("CLI owns a separate SSH job, reads split UTF-8 with byte cursors and retai
   }
 });
 
-test("MCP HTTP rechecks approval and ownership, and cancels only the original concurrent job", { timeout: 30_000 }, async () => {
+test("HTTP MCP isolates SSH owners under one token and never replays a job after reconnect or restart", { timeout: 45_000 }, async () => {
   const f = await fixture();
   const commands: string[] = [];
+  const notFound = { isError: true, content: [{ text: expect.stringContaining("NOT_FOUND") }] };
   try {
     const { hostId, server } = await f.host("MCP job fixture", [], {
       onExecRequest: (command) => {
         commands.push(command);
         return undefined;
       },
+      onInteractiveExec: (_command, channel, session) => {
+        channel.write("hello");
+        session.on("signal", (ack) => {
+          ack?.();
+          channel.exit(130);
+          channel.end();
+        });
+        return true;
+      },
     });
     await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
     await allowJobs(f);
+    await f.allow(probeList);
     const a = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "jobs MCP A" });
-    const b = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "jobs MCP B" });
+    const b = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "independent MCP token" });
+    const sessionA = await openMcpSession(f.mcpEndpoint(), a.token);
+    const sessionB = await openMcpSession(f.mcpEndpoint(), a.token);
+    const independent = await openMcpSession(f.mcpEndpoint(), b.token);
+    const rpc = (token: string, handle: string, method: string, params = {}) => f.mcp(token, method, params, handle);
+    const tool = (token: string, handle: string) => (capability: string, input: unknown) => rpc(token, handle, "tools/call", { name: capability.replaceAll(".", "_"), arguments: input });
+    const invokeA = tool(a.token, sessionA);
+    const invokeB = tool(a.token, sessionB);
+    const invokeIndependent = tool(b.token, independent);
     const { routeRevision } = await f.desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId });
-    const mcp = (token: string, capability: string, input: unknown) => f.mcp(token, "tools/call", { name: capability.replaceAll(".", "_"), arguments: input });
-    const prepare = { hostId, routeRevision, command: "sleep 25", intentKey: randomUUID() };
-    expect(await f.mcp(a.token, "tools/list")).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: "ssh_jobs_prepare" })]) });
-    expect(await mcp(f.engine.mcpToken, jobPrepare, prepare)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("PERMISSION_DENIED") }] });
-    expect(server.conns).toHaveLength(0);
-    const prepared = await mcp(a.token, jobPrepare, prepare);
+    const prepare = { hostId, routeRevision, command: "fixture-session-output", intentKey: randomUUID() };
+    expect(await rpc(a.token, sessionA, "tools/list")).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: "ssh_jobs_prepare" })]) });
+    const prepared = await invokeA(jobPrepare, prepare);
     expect(prepared).toMatchObject({ structuredContent: { data: { jobId: expect.any(String) } } });
-    expect(await mcp(a.token, jobPrepare, prepare)).toEqual(prepared);
+    expect(await invokeA(jobPrepare, prepare)).toEqual(prepared);
     const { jobId } = prepared.structuredContent.data as { jobId: string };
-    const trust = async (input: ReturnType<typeof decision>) => {
-      expect(await mcp(a.token, trustDecide, input)).toMatchObject({ structuredContent: { data: { applied: true } } });
-    };
-    const first = await trustedJob(f, a.token, hostId, jobId, trust);
-    const other = await mcp(a.token, jobPrepare, { ...prepare, command: "sleep 26", intentKey: randomUUID() });
-    const second = await trustedJob(f, a.token, hostId, other.structuredContent.data.jobId as string, trust);
-    for (const [capability, input] of [
-      [jobStart, first],
-      [jobGet, { jobId }],
-      [jobOutput, { jobId, stream: "stdout" }],
-      [jobCancel, { jobId }],
-    ] as const) {
-      expect(await mcp(b.token, capability, input)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("NOT_FOUND") }] });
-    }
+    const status = (state: JobStatus["state"], targetJob = jobId) =>
+      vi.waitFor(
+        async () => {
+          const reply = await invokeA(jobGet, { jobId: targetJob });
+          expect(reply).toMatchObject({ structuredContent: { data: { state } } });
+          return reply.structuredContent.data as JobStatus;
+        },
+        { timeout: 9000 },
+      );
+    const key = await vi.waitFor(async () => {
+      const reply = await invokeA(jobGet, { jobId });
+      const current = reply.structuredContent?.data as JobStatus;
+      if (!current || !("attemptId" in current) || !current.attemptId) throw new Error("SSH job has no attempt");
+      return { hostId, attemptId: current.attemptId };
+    });
+    const waiting = await vi.waitFor(async () => {
+      const reply = await invokeA(probeGet, key);
+      expect(reply).toMatchObject({ structuredContent: { data: { state: "waiting" } } });
+      return reply.structuredContent.data as Waiting;
+    });
+
+    expect(await f.call(a.token, jobGet, { jobId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(await f.cli(jobGet, { jobId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    for (const invoke of [invokeB, invokeIndependent]) {
+      expect(await invoke(probeList, {})).toMatchObject({ structuredContent: { data: [] } });
+      expect(await invoke(probeGet, key)).toMatchObject(notFound);
+      expect(await invoke(trustDecide, decision(waiting))).toMatchObject(notFound);
+      expect(await invoke(jobGet, { jobId })).toMatchObject(notFound);
+      expect(await invoke(jobOutput, { jobId, stream: "stdout" })).toMatchObject(notFound);
+      expect(await invoke(jobCancel, { jobId })).toMatchObject(notFound);
+    }
+    expect((await mcpRequest(f.mcpEndpoint(), b.token, mcpRpc("tools/list"), sessionA)).status).toBe(404);
+
+    // Drop the actual MCP response stream and resume with the original transport handle.
+    const stream = await mcpRequest(f.mcpEndpoint(), a.token, undefined, sessionA, { method: "GET" });
+    expect(stream.status).toBe(200);
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    await stream.body!.cancel();
+    expect(await invokeA(probeGet, key)).toMatchObject({ structuredContent: { data: waiting } });
+    expect(await invokeA(trustDecide, decision(waiting))).toMatchObject({ structuredContent: { data: { applied: true } } });
+    expect(await invokeA(trustDecide, decision(waiting))).toMatchObject(notFound);
+    const ready = await status("ready");
+    if (!("sessionId" in ready) || !ready.sessionId) throw new Error("SSH job has no connection");
+    const start = { jobId, hostId, routeRevision, sessionId: ready.sessionId };
+    expect(await invokeB(jobStart, start)).toMatchObject(notFound);
+    const held = await invokeA(jobPrepare, { ...prepare, intentKey: randomUUID() });
+    const heldId = held.structuredContent.data.jobId as string;
+    const heldKey = await vi.waitFor(async () => {
+      const reply = await invokeA(jobGet, { jobId: heldId });
+      const current = reply.structuredContent?.data as JobStatus;
+      if (!current || !("attemptId" in current) || !current.attemptId) throw new Error("SSH job has no attempt");
+      return { hostId, attemptId: current.attemptId };
+    });
+    const heldProbe = await vi.waitFor(async () => {
+      const reply = await invokeA(probeGet, heldKey);
+      expect(reply).toMatchObject({ structuredContent: { data: { state: "waiting" } } });
+      return reply.structuredContent.data as Waiting;
+    });
+    expect(await invokeA(trustDecide, decision(heldProbe))).toMatchObject({ structuredContent: { data: { applied: true } } });
+    const heldReady = await status("ready", heldId);
+    if (!("sessionId" in heldReady) || !heldReady.sessionId) throw new Error("SSH job has no connection");
+    expect(await invokeA(jobStart, { ...start, sessionId: heldReady.sessionId })).toMatchObject(notFound);
     await f.allow(jobStart, false);
-    expect(await mcp(a.token, jobStart, first)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") }] });
+    expect(await invokeA(jobStart, start)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") }] });
     expect(commands).toEqual([]);
     await f.allow(jobStart);
-    expect(await mcp(a.token, jobStart, { ...first, sessionId: second.sessionId })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("NOT_FOUND") }] });
-    for (const result of await Promise.all([mcp(a.token, jobStart, first), mcp(a.token, jobStart, second), mcp(a.token, jobStart, first)])) {
-      expect(result).toMatchObject({ structuredContent: { data: { jobId: expect.any(String) } } });
+    for (const reply of await Promise.all([invokeA(jobStart, start), invokeA(jobStart, start)])) {
+      expect(reply).toMatchObject({ structuredContent: { data: { jobId } } });
     }
-    for (const job of [first, second]) await waitForJob(f, a.token, job, "running");
-    // Stateless MCP closes the transport after each response. Subsequent polls observe
-    // the same running job, even when its output and status are read concurrently.
-    const observations = await Promise.all([mcp(a.token, jobOutput, { jobId, stream: "stdout" }), mcp(a.token, jobGet, { jobId })]);
-    expect(observations[0]).toMatchObject({ structuredContent: { data: { text: "", endCursor: 0 } } });
-    expect(observations[1]).toMatchObject({ structuredContent: { data: { state: "running" } } });
-    expect(await mcp(a.token, jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: true } } });
-    expect(await mcp(a.token, jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: false } } });
-    expect(await waitForJob(f, a.token, first, "exited")).toMatchObject({ exitCode: 130, reason: "exit-code", stopRequested: "cancel" });
-    expect(await readJob(f, a.token, second)).toMatchObject({ state: "running", stopRequested: null });
-    await vi.waitFor(() => expect(server.closed()).toBe(1));
-    expect(await mcp(a.token, jobStart, first)).toMatchObject({ structuredContent: { data: { jobId } } });
-    expect(await mcp(a.token, jobCancel, { jobId: second.jobId })).toMatchObject({ structuredContent: { data: { requested: true } } });
-    await waitForJob(f, a.token, second, "exited");
+    await status("running");
+    const read = () => invokeA(jobOutput, { jobId, stream: "stdout", cursor: 0 });
+    const page = await vi.waitFor(async () => {
+      const reply = await read();
+      expect(reply).toMatchObject({ structuredContent: { data: { text: "hello", nextCursor: 5 } } });
+      return reply.structuredContent;
+    });
+    const beforeReconnect = await mcpRequest(f.mcpEndpoint(), a.token, undefined, sessionA, { method: "GET" });
+    expect(beforeReconnect.status).toBe(200);
+    await beforeReconnect.body!.cancel();
+    expect((await read()).structuredContent).toEqual(page);
+    expect(await invokeA(jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: true } } });
+    expect(await invokeA(jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: false } } });
+    expect(await status("exited")).toMatchObject({ exitCode: 130, stopRequested: "cancel" });
+    expect(await status("ready", heldId)).toMatchObject({ stopRequested: null });
+    expect(await invokeA(jobCancel, { jobId: heldId })).toMatchObject({ structuredContent: { data: { requested: true } } });
+    await status("cancelled", heldId);
     await vi.waitFor(() => expect(server.closed()).toBe(2));
-    expect(commands.sort()).toEqual(["sleep 25", "sleep 26"]);
+    expect(await invokeA(jobPrepare, prepare)).toEqual(prepared);
+    expect(commands).toEqual([prepare.command]);
+
+    expect((await mcpRequest(f.mcpEndpoint(), b.token, undefined, independent, { method: "DELETE" })).status).toBe(200);
+    expect((await mcpRequest(f.mcpEndpoint(), b.token, mcpRpc("tools/list"), independent)).status).toBe(404);
+    const anotherVault = await fixture();
+    try {
+      await anotherVault.restart(() => copyFile(path.join(f.engine.vault.stateDir, "gateways.json"), path.join(anotherVault.engine.vault.stateDir, "gateways.json")));
+      const otherHandle = await openMcpSession(anotherVault.mcpEndpoint(), a.token);
+      expect(otherHandle).not.toBe(sessionA);
+      expect((await mcpRequest(anotherVault.mcpEndpoint(), a.token, mcpRpc("tools/list"), sessionA)).status).toBe(404);
+    } finally {
+      await anotherVault.close();
+    }
+
+    await f.restart();
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), sessionA)).status).toBe(404);
+    const afterRestart = await openMcpSession(f.mcpEndpoint(), a.token);
+    const invokeAfterRestart = tool(a.token, afterRestart);
+    expect(await invokeAfterRestart(jobGet, { jobId })).toMatchObject(notFound);
+    expect(await invokeAfterRestart(jobStart, start)).toMatchObject(notFound);
+    expect(await invokeAfterRestart(jobCancel, { jobId })).toMatchObject(notFound);
+    expect(commands).toEqual([prepare.command]);
+    await f.desktop("gateway.mcp.update", { enabled: false, transport: "http" });
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
+    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
+    const beforeRevoke = await openMcpSession(f.mcpEndpoint(), a.token);
+    const revokedStream = await mcpRequest(f.mcpEndpoint(), a.token, undefined, beforeRevoke, { method: "GET" });
+    expect(revokedStream.status).toBe(200);
     await f.desktop("gateway.tokens.revoke", { id: a.id });
-    expect(await f.call(a.token, jobGet, { jobId })).toMatchObject({ ok: false, error: { code: "HTTP_401" } });
+    expect(await revokedStream.body!.getReader().read()).toMatchObject({ done: true });
+    expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), beforeRevoke)).status).toBe(401);
   } finally {
     await f.close();
   }
