@@ -29,6 +29,7 @@ import {
   registerHomeCapabilities,
   registerPackageCapabilities,
   registerExternalPluginCapabilities,
+  registerKernelCapability,
   registerSystemCapabilities,
   registerVaultCapabilities,
   startEngineServer,
@@ -319,28 +320,28 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       })),
     );
   };
-  registry.register(
-    defineCapability({
-      name: "home.notes.recent",
-      plugin: "kernel",
-      scope: "read",
-      exposable: false,
-      defaultExposed: false,
-      input: z.object({}),
-      output: z.array(RecentNote),
-      handler: async (hc) => {
-        const dispatcher = dispatcherRef.current;
-        if (!dispatcher) throw new HuhuError("INTERNAL", "笔记读取暂不可用");
-        const call = (capability: string, input: object) => dispatcher.call(hc.caller as never, { capability, input, requestId: hc.requestId });
-        const notes = await call("notes.list", { filter: "all" });
-        if (!notes.ok) throw new HuhuError(notes.error.code, notes.error.message);
-        return recentNotes(notes.data as { path: string; title: string }[], async (relative) => {
-          const result = await call("notes.read", { path: relative });
-          return result.ok ? (result.data as { text: string }).text : "";
-        });
-      },
-    }),
-  );
+  // 委托 notes.list / notes.read：传原 caller、subject、signal，两次委托各自复核现行授权；列表被拒即停止，单篇被拒则省略其正文片段
+  registerKernelCapability(registry, {
+    name: "home.notes.recent",
+    plugin: "kernel",
+    scope: "read",
+    risk: "high",
+    exposable: true,
+    defaultExposed: false,
+    input: z.object({}),
+    output: z.array(RecentNote),
+    handler: async (hc) => {
+      const dispatcher = dispatcherRef.current;
+      if (!dispatcher) throw new HuhuError("INTERNAL", "笔记读取暂不可用");
+      const call = (capability: string, input: object) => dispatcher.call(hc.caller as never, { capability, input, requestId: hc.requestId }, hc.signal, hc.subject ?? hc.caller);
+      const notes = await call("notes.list", { filter: "all" });
+      if (!notes.ok) throw new HuhuError(notes.error.code, notes.error.message);
+      return recentNotes(notes.data as { path: string; title: string }[], async (relative) => {
+        const result = await call("notes.read", { path: relative });
+        return result.ok ? (result.data as { text: string }).text : "";
+      });
+    },
+  });
   registry.register(
     defineCapability({
       name: "home.summary",

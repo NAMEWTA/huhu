@@ -233,3 +233,33 @@ test("两份工具预览只有同一版本的首个提交能整批生效，发�
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }, 30_000);
+
+test("home.notes.recent 默认关闭；开放后仍逐次复核 notes.list / notes.read，任一来源撤权即停止或省略正文", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-recent-notes-"));
+  let engine: RunningEngine | undefined;
+  try {
+    writeFileSync(path.join(dir, "recent.md"), "# 最近\n合成正文片段\n");
+    engine = await boot({ vaultPath: dir, create: true });
+    const e = engine;
+    const select = (capability: string, exposed: boolean) => data(call(e, "gateway.update", { capability, exposed }));
+    const recent = () => call(e, "home.notes.recent", {}, e.cliToken);
+    expect(await recent()).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await select("home.notes.recent", true);
+    // 只开首页项：委托 notes.list 被拒，整体失败，不夹带任何笔记
+    expect(await recent()).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await select("notes.list", true);
+    const listed = await recent();
+    expect(listed.ok).toBe(true);
+    expect(JSON.stringify(listed)).toContain("recent.md");
+    expect(JSON.stringify(listed)).not.toContain("合成正文片段");
+    await select("notes.read", true);
+    expect(JSON.stringify(await recent())).toContain("合成正文片段");
+    await select("notes.read", false);
+    expect(JSON.stringify(await recent())).not.toContain("合成正文片段");
+    // 工作台不受工具策略影响
+    expect(JSON.stringify(await call(e, "home.notes.recent"))).toContain("合成正文片段");
+  } finally {
+    await engine?.shutdown();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
