@@ -2,6 +2,28 @@ import { z } from "zod";
 
 const PluginId = z.string().regex(/^[a-z][a-z0-9-]*$/);
 
+const ExternalCommandSchema = z
+  .strictObject({
+    owner: PluginId,
+    commandId: z.string().regex(/^[a-z][a-z0-9-]*$/),
+    title: z.string().min(1).max(120),
+    description: z.string().min(1).max(1000),
+    input: z.record(z.string(), z.unknown()),
+    output: z.record(z.string(), z.unknown()),
+    scope: z.enum(["read", "write"]),
+    risk: z.enum(["normal", "high"]),
+    retry: z.enum(["read-only", "durable-steps"]),
+    dependencies: z
+      .array(
+        z
+          .string()
+          .regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/)
+          .max(128),
+      )
+      .max(40),
+  })
+  .refine(({ scope, retry }) => (scope === "read") === (retry === "read-only"), "命令范围与重试语义不一致");
+
 export const PluginManifestSchema = z.object({
   id: PluginId,
   title: z.string().min(1),
@@ -18,6 +40,7 @@ export const PluginManifestSchema = z.object({
       settingsPages: z.array(z.string()).default([]),
       homeWidgets: z.array(z.string()).default([]),
       commands: z.array(z.string()).default([]),
+      commandDescriptors: z.array(ExternalCommandSchema).max(40).optional(),
       capabilities: z.array(z.string()).default([]),
       fileKinds: z.array(z.string()).default([]),
     })

@@ -217,7 +217,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
-  plugins.onRegister = (m, pendingInstall) => registry.declare(m.id, m.contributes.capabilities, pendingInstall);
+  plugins.onRegister = (m, pendingInstall) => {
+    if (m.origin === "external") external.declare(m, pendingInstall);
+    else registry.declare(m.id, m.contributes.capabilities, pendingInstall);
+  };
   plugins.onInstallConfirmed = (id) => registry.confirmPluginInstall(id);
   plugins.onUnregister = (id) => registry.forgetPlugin(id);
   const serverRef: { current?: RunningServer } = {};
@@ -476,8 +479,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     root: vault.root,
     stateDir: vault.stateDir,
     plugins,
-    tokens,
-    baseUrl: () => `http://127.0.0.1:${serverRef.current?.port ?? 0}`,
+    registry,
+    dispatcher: () => dispatcherRef.current!,
+    vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
     ...(process.env["HUHU_EXAMPLES_DIR"] ? { examplesDir: process.env["HUHU_EXAMPLES_DIR"] } : {}),
     assertWritable: () => vault.files.assertWritable(),
   });
@@ -496,7 +500,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       }),
     isPluginEnabled: (id) => plugins.isEnabled(id),
     toolAccess: () => exposure.snapshot(),
-    grantedPermissions: (id) => plugins.permissionsOf(id),
+    grantedPermissions: (id) => (plugins.originOf(id) === "external" ? external.grantsOf(id) : plugins.permissionsOf(id)),
     pluginOrigin: (id) => plugins.originOf(id),
   });
   dispatcherRef.current = real;

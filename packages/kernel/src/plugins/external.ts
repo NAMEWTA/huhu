@@ -1,13 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { errors, PluginManifestSchema, type PluginManifest } from "@huhu/contracts";
+import { errors, HuhuError, PluginManifestSchema, type CapabilityResult, type PluginManifest } from "@huhu/contracts";
 import { unzipSync } from "fflate";
 import type { PluginEntry, PluginManager } from "../plugin-manager.js";
 import { BUILTIN_ONLY_PERMISSIONS, PERMISSION_TABLE } from "../permissions.js";
-import type { TokenTable } from "../server/tokens.js";
+import { bindCapability, type CapabilityContext, type CapabilityRegistry } from "../capabilities/define.js";
+import type { Dispatcher } from "../dispatcher.js";
+import { externalCommandDescriptors, type ExternalCommandDescriptor } from "./command-descriptors.js";
 import { PLUGIN_HOST_SCRIPT } from "./host-script.js";
 
 const MAX_FILES = 300;
@@ -18,6 +20,7 @@ const RUN_TIMEOUT_MS = 60_000;
 interface Record_ {
   version: string;
   enabled: boolean;
+  grants?: string[];
 }
 export interface ExternalInfo {
   manifest: PluginManifest;
@@ -44,9 +47,9 @@ export interface ExternalDeps {
   /** 状态目录；缺省为 `<root>/.huhu`。 */
   stateDir?: string;
   plugins: PluginManager;
-  tokens: TokenTable;
-  /** Engine HTTP 基址（服务启动后才知道端口）。 */
-  baseUrl(): string;
+  registry: CapabilityRegistry;
+  dispatcher(): Dispatcher;
+  vaultInstance: string;
   /** 运行宿主进程的可执行文件（Electron 主程序，配合 ELECTRON_RUN_AS_NODE）。 */
   nodeBin?: string;
   /** 随应用提供的示例扩展目录。 */
@@ -77,9 +80,35 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** 外部扩展：安装 / 卸载 / 独立宿主进程 / 命令。授权仍由 Dispatcher 按 `plugin:<id>` 令牌判定。 */
+type Failure = Extract<CapabilityResult<unknown>, { ok: false }>;
+type Delegation = {
+  context: CapabilityContext;
+  command: ExternalCommandDescriptor;
+  vaultInstance: string;
+  expires: number;
+  controller: AbortController;
+  childFailures: Map<string, Failure>;
+  inflight: number;
+  uncertain?: Failure;
+  settle(result: CapabilityResult<unknown>): void;
+};
+
+type Host = {
+  child: ChildProcess;
+  commands: Map<string, ExternalCommandDescriptor>;
+  pending: Map<string, Delegation>;
+  lifetime: AbortController;
+};
+
+const failure = (error: HuhuError): Failure => ({ ok: false, error: error.toJSON() });
+const rethrow = ({ code, message, retryable, details, recovery }: Failure["error"]): never => {
+  throw new HuhuError(code, message, { retryable, ...(details && { details }), ...(recovery && { recovery }) });
+};
+
+/** External Node hosts get one capability delegation per active, declared command. */
 export class ExternalPlugins {
-  private readonly hosts = new Map<string, { child: ChildProcess; commands: Map<string, string>; pending: Map<string, (r: { ok: boolean; result?: unknown; error?: string }) => void> }>();
+  private readonly hosts = new Map<string, Host>();
+  private readonly descriptors = new WeakMap<PluginManifest, ExternalCommandDescriptor[]>();
   private builtinIds = new Set<string>();
 
   constructor(private readonly d: ExternalDeps) {}
@@ -115,7 +144,8 @@ export class ExternalPlugins {
   }
   private writeJson(file: string, value: unknown): void {
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+    writeFileSync(file + ".tmp", `${JSON.stringify(value, null, 2)}\n`);
+    renameSync(file + ".tmp", file);
   }
   private trusted(): Record<string, string> {
     return this.readJson<Record<string, string>>(this.trustFile, {});
@@ -156,6 +186,35 @@ export class ExternalPlugins {
     return manifest.permissions.map((name) => ({ name, capabilities: PERMISSION_TABLE[name] ?? [] }));
   }
 
+  grantsOf(id: string): readonly string[] {
+    const all = this.records();
+    if (!Object.hasOwn(all, id)) return [];
+    const declared = this.d.plugins.permissionsOf(id);
+    const granted = all[id]?.grants ?? declared;
+    return Array.isArray(granted) ? granted.filter((name) => declared.includes(name)) : [];
+  }
+
+  setGrants(id: string, grants: string[]): void {
+    this.d.assertWritable?.();
+    const all = this.records();
+    if (!Object.hasOwn(all, id)) throw errors.notFound("扩展授权");
+    const declared = this.d.plugins.permissionsOf(id);
+    if (new Set(grants).size !== grants.length || grants.some((name) => !declared.includes(name))) throw errors.invalidInput("授权超出扩展清单");
+    all[id] = { ...all[id]!, grants };
+    this.writeJson(this.recordFile, all);
+  }
+
+  declare(manifest: PluginManifest, pendingInstall: boolean): void {
+    const commands = externalCommandDescriptors(manifest, this.trustKey(manifest.id, manifest.version));
+    this.d.registry.declareDescriptors(
+      manifest.id,
+      commands.map(({ capability }) => capability),
+      manifest.contributes.capabilities,
+      pendingInstall,
+    );
+    this.descriptors.set(manifest, commands);
+  }
+
   /** 读取并校验清单；zip 先安全解压到临时目录。 */
   inspect(source: string): ExternalInfo {
     if (!path.isAbsolute(source) || !existsSync(source)) throw errors.invalidInput("来源不存在");
@@ -190,8 +249,9 @@ export class ExternalPlugins {
       if (!parsed.success) return reject(parsed.error.issues.map((i) => `${i.path.join(".")}：${i.message}`).join("；"));
       const manifest = parsed.data;
       if (manifest.origin !== "external") reject("origin 必须是 external");
+      externalCommandDescriptors(manifest, manifest.version);
       if (this.builtinIds.has(manifest.id) || (this.d.plugins.has(manifest.id) && !this.has(manifest.id))) reject(`id 与内置插件冲突：${manifest.id}`);
-      const bad = manifest.permissions.filter((p) => !(p in PERMISSION_TABLE) || BUILTIN_ONLY_PERMISSIONS.has(p));
+      const bad = manifest.permissions.filter((p) => !Object.hasOwn(PERMISSION_TABLE, p) || BUILTIN_ONLY_PERMISSIONS.has(p));
       if (bad.length > 0) reject(`未知权限：${bad.join("、")}`);
       const main = typeof raw["main"] === "string" ? (raw["main"] as string) : "main.mjs";
       const abs = path.resolve(dir, main);
@@ -283,9 +343,13 @@ export class ExternalPlugins {
     const dir = this.pkgDir(manifest.id, manifest.version);
     return {
       manifest,
-      apply: async (ctx) => {
-        const handle = await this.spawnHost(manifest.id, dir, main);
-        ctx.effect(() => () => this.stopHost(manifest.id, handle));
+      apply: async (ctx, api) => {
+        const descriptors = this.descriptors.get(manifest) ?? [];
+        const host = await this.spawnHost(manifest.id, dir, main, descriptors);
+        ctx.effect(() => () => this.stopHost(manifest.id, host));
+        for (const command of descriptors) {
+          api.defineCapability(bindCapability(command.capability, (context, args) => this.runCommand(host, command, context, args)));
+        }
       },
     };
   }
@@ -303,7 +367,7 @@ export class ExternalPlugins {
       try {
         mkdirSync(path.dirname(target), { recursive: true });
         cpSync(info.dir, target, { recursive: true, dereference: false });
-        this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true } });
+        this.writeJson(this.recordFile, { ...this.records(), [id]: { version: info.manifest.version, enabled: true, grants } });
         this.writeJson(this.trustFile, { ...this.trusted(), [id]: this.trustKey(id, info.manifest.version) });
         const state = await this.d.plugins.activateInstall(this.entry(this.inspect(target)));
         if (state !== "active") throw errors.invalidInput(`扩展未能启动：${this.d.plugins.error(id) ?? "未知原因"}`);
@@ -350,93 +414,167 @@ export class ExternalPlugins {
   }
 
   commands(): ExternalCommand[] {
-    return [...this.hosts.entries()].flatMap(([pluginId, h]) => [...h.commands.entries()].map(([id, title]) => ({ pluginId, id, title })));
+    return [...this.hosts.entries()].flatMap(([pluginId, host]) => (this.d.plugins.isEnabled(pluginId) ? [...host.commands.values()].map(({ commandId, capability }) => ({ pluginId, id: commandId, title: capability.title })) : []));
   }
 
-  runCommand(pluginId: string, commandId: string, args: unknown = {}): Promise<unknown> {
-    const h = this.hosts.get(pluginId);
-    if (!h || !h.commands.has(commandId)) throw errors.notFound(`命令不存在：${pluginId}/${commandId}`);
-    if (h.pending.size >= 8) throw errors.invalidInput("这个扩展正在执行的命令过多");
-    const reqId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    return new Promise((resolve, reject2) => {
-      const timer = setTimeout(() => {
-        h.pending.delete(reqId);
-        reject2(errors.invalidInput("命令执行超时"));
-      }, RUN_TIMEOUT_MS);
-      h.pending.set(reqId, (r) => {
-        clearTimeout(timer);
-        if (r.ok) resolve(r.result);
-        else reject2(errors.invalidInput(r.error ?? "命令执行失败"));
+  async forwardCommand(context: CapabilityContext, pluginId: string, commandId: string, input: unknown) {
+    const result = await this.d.dispatcher().forwardCommand(context, `extensions.${pluginId}.${commandId}`, input);
+    if (!result.ok) return rethrow(result.error);
+    return { result: result.data, ...(result.opId && { operationId: result.opId }) };
+  }
+
+  private async runCommand(host: Host, command: ExternalCommandDescriptor, context: CapabilityContext, args: unknown): Promise<unknown> {
+    if (host.lifetime.signal.aborted || context.signal.aborted || (context.session && context.session.vaultInstance !== this.d.vaultInstance)) throw errors.permissionDenied(command.capability.name);
+    if (host.pending.size >= 8) throw errors.invalidInput("这个扩展正在执行的命令过多");
+    const handle = randomBytes(32).toString("base64url");
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, context.signal, host.lifetime.signal]);
+    const expires = Date.now() + RUN_TIMEOUT_MS;
+    const timer = setTimeout(() => controller.abort(), RUN_TIMEOUT_MS);
+    timer.unref();
+    let cancel: (() => void) | undefined;
+    try {
+      const result = await new Promise<CapabilityResult<unknown>>((settle) => {
+        cancel = () => settle(failure(new HuhuError("INTERNAL", "命令委托已结束", { retryable: false, details: { outcome: "unknown" } })));
+        signal.addEventListener("abort", cancel, { once: true });
+        host.pending.set(handle, { context, command, vaultInstance: this.d.vaultInstance, expires, controller, childFailures: new Map(), inflight: 0, settle });
+        host.child.send({ type: "run", handle, id: command.commandId, args }, (error) => {
+          if (error) controller.abort();
+        });
       });
-      h.child.send({ type: "run", reqId, id: commandId, args });
-    });
+      if (!result.ok) return rethrow(result.error);
+      this.d.dispatcher().assertCommandCurrent(context);
+      const output = command.capability.output.safeParse(result.data);
+      if (!output.success) throw new HuhuError("INTERNAL", "扩展命令输出不符合声明", { retryable: false, details: { outcome: "unknown" } });
+      return output.data;
+    } finally {
+      clearTimeout(timer);
+      if (cancel) signal.removeEventListener("abort", cancel);
+      host.pending.delete(handle);
+      controller.abort();
+      if (host.child.connected) host.child.send({ type: "end", handle }, () => undefined);
+    }
   }
 
-  private spawnHost(id: string, dir: string, main: string): Promise<ChildProcess> {
+  private receive(host: Host, m: Record<string, unknown>) {
+    const handle = m["handle"];
+    if (typeof handle !== "string") return;
+    const invocation = host.pending.get(handle);
+    if (
+      !invocation ||
+      this.hosts.get(invocation.command.capability.plugin) !== host ||
+      invocation.vaultInstance !== this.d.vaultInstance ||
+      invocation.expires <= Date.now() ||
+      invocation.context.signal.aborted ||
+      invocation.controller.signal.aborted ||
+      host.lifetime.signal.aborted
+    )
+      return;
+    if (m["type"] === "child-call") {
+      const callId = m["callId"];
+      const capability = m["capability"];
+      if (typeof callId !== "string" || typeof capability !== "string") return;
+      void this.childCall(host, invocation, handle, callId, capability, m["input"], m["step"]);
+    } else if (m["type"] === "result") {
+      host.pending.delete(handle);
+      if (invocation.uncertain) {
+        invocation.settle(invocation.uncertain);
+      } else if (invocation.inflight !== 0) {
+        invocation.settle(failure(new HuhuError("INTERNAL", "命令结束时仍有子调用", { retryable: false, details: { outcome: "unknown" } })));
+      } else if (m["ok"] === true) {
+        invocation.settle({ ok: true, data: m["result"] });
+      } else {
+        const failedCallId = m["failedCallId"];
+        const childFailure = typeof failedCallId === "string" ? invocation.childFailures.get(failedCallId) : undefined;
+        invocation.settle(childFailure ?? failure(new HuhuError("INTERNAL", "扩展命令失败", { retryable: false, details: { outcome: "unknown" } })));
+      }
+    }
+  }
+
+  private async childCall(host: Host, invocation: Delegation, handle: string, callId: string, capability: string, input: unknown, step: unknown) {
+    const send = (result: CapabilityResult<unknown>) => {
+      if (host.pending.get(handle) !== invocation || !host.child.connected) return;
+      if (!result.ok) {
+        if (result.error.details?.["outcome"] === "unknown") invocation.uncertain = result;
+        if (invocation.childFailures.size >= 40) invocation.childFailures.delete(invocation.childFailures.keys().next().value!);
+        invocation.childFailures.set(callId, result);
+      }
+      host.child.send({ type: "child-result", handle, callId, result }, () => undefined);
+    };
+    if (invocation.uncertain) {
+      send(invocation.uncertain);
+      return;
+    }
+    if (invocation.inflight >= 8) {
+      send(failure(errors.invalidInput("命令并发子调用过多")));
+      return;
+    }
+    invocation.inflight++;
+    try {
+      const signal = AbortSignal.any([invocation.context.signal, invocation.controller.signal, host.lifetime.signal]);
+      send(await this.d.dispatcher().invokeCommandStep(invocation.context, capability, input, step, { signal, vaultInstance: invocation.vaultInstance }));
+    } catch {
+      send(failure(new HuhuError("INTERNAL", "子调用结果待核实", { retryable: false, details: { outcome: "unknown" } })));
+    } finally {
+      invocation.inflight--;
+    }
+  }
+
+  private spawnHost(id: string, dir: string, main: string, descriptors: ExternalCommandDescriptor[]): Promise<Host> {
     mkdirSync(this.dataDir(id), { recursive: true });
-    const caller = `plugin:${id}` as const;
-    const token = this.d.tokens.issue(caller);
     const nodeBin = this.d.nodeBin ?? (process.env["HUHU_NODE_BIN"] || process.execPath);
-    const child = spawn(nodeBin, ["--input-type=module", "-e", PLUGIN_HOST_SCRIPT, "--", dir, main, this.d.baseUrl(), token, this.dataDir(id)], {
+    const child = spawn(nodeBin, ["--input-type=module", "-e", PLUGIN_HOST_SCRIPT, "--", dir, main, this.dataDir(id)], {
       stdio: ["ignore", "ignore", "pipe", "ipc"],
       windowsHide: true,
       env: hostEnv(),
     });
-    const host = { child, commands: new Map<string, string>(), pending: new Map<string, (r: { ok: boolean; result?: unknown; error?: string }) => void>() };
+    const host: Host = { child, commands: new Map(descriptors.map((command) => [command.commandId, command])), pending: new Map(), lifetime: new AbortController() };
     this.hosts.set(id, host);
     let stderr = "";
     child.stderr?.on("data", (d) => (stderr = (stderr + String(d)).slice(-2000)));
-    return new Promise<ChildProcess>((resolve, rejectStart) => {
+    return new Promise<Host>((resolve, rejectStart) => {
       let ready = false;
-      const timer = setTimeout(() => {
-        child.kill();
-        rejectStart(new Error("扩展启动超时"));
-      }, READY_TIMEOUT_MS);
-      child.on("message", (m: { type?: string; id?: string; title?: string; reqId?: string; ok?: boolean; result?: unknown; error?: string }) => {
-        if (m.type === "command" && m.id) host.commands.set(m.id, m.title ?? m.id);
-        else if (m.type === "ready") {
+      const timer = setTimeout(() => rejectStart(new Error("扩展启动超时")), READY_TIMEOUT_MS);
+      child.on("message", (m: unknown) => {
+        if (!m || typeof m !== "object") return;
+        const message = m as Record<string, unknown>;
+        if (ready) {
+          this.receive(host, message);
+          return;
+        }
+        if (message["type"] === "failed") {
+          rejectStart(new Error(typeof message["error"] === "string" ? message["error"] : "扩展启动失败"));
+        } else if (message["type"] === "ready") {
+          const registered = message["commands"];
+          if (!Array.isArray(registered) || registered.length !== host.commands.size || new Set(registered).size !== registered.length || registered.some((command) => !host.commands.has(command))) {
+            rejectStart(new Error("扩展注册的命令与清单不一致"));
+            return;
+          }
           ready = true;
           clearTimeout(timer);
-          resolve(child);
-        } else if (m.type === "failed") {
-          clearTimeout(timer);
-          rejectStart(new Error(m.error ?? "扩展启动失败"));
-        } else if (m.type === "result" && m.reqId) {
-          const cb = host.pending.get(m.reqId);
-          host.pending.delete(m.reqId);
-          cb?.({ ok: m.ok === true, result: m.result, ...(m.error !== undefined ? { error: m.error } : {}) });
+          resolve(host);
         }
       });
-      child.on("error", (e) => {
-        clearTimeout(timer);
-        rejectStart(e);
-      });
+      child.on("error", rejectStart);
       child.on("exit", (code) => {
         clearTimeout(timer);
-        for (const cb of host.pending.values()) cb({ ok: false, error: "扩展进程已退出" });
-        host.pending.clear();
+        host.lifetime.abort();
         if (!ready) return rejectStart(new Error(stderr.trim() || `扩展进程退出（${code ?? "?"}）`));
-        // 运行中崩溃：只影响这个扩展，Engine 继续运行
         if (this.hosts.get(id) === host) {
           this.hosts.delete(id);
-          this.d.tokens.revokeCaller(caller);
           void this.d.plugins.markFailed(id, stderr.trim() || `扩展进程意外退出（${code ?? "?"}）`);
         }
       });
+      child.once("disconnect", () => host.lifetime.abort());
     }).catch((e: unknown) => {
-      this.stopHost(id, child);
+      this.stopHost(id, host);
       throw e;
     });
   }
 
-  private stopHost(id: string, child: ChildProcess): void {
-    const h = this.hosts.get(id);
-    if (h?.child === child) this.hosts.delete(id);
-    this.d.tokens.revokeCaller(`plugin:${id}`);
-    try {
-      child.kill();
-    } catch {
-      // 已退出
-    }
+  private stopHost(id: string, host: Host): void {
+    if (this.hosts.get(id) === host) this.hosts.delete(id);
+    host.lifetime.abort();
+    host.child.kill();
   }
 }
