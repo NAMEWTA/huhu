@@ -15,6 +15,7 @@ import {
   defaultDashboardBoard,
   errors,
   HuhuError,
+  isWorkbenchCaller,
   type DashboardBoard,
   type DashboardRecoveryConfirmation,
   type DashboardRecoveryIntent,
@@ -25,8 +26,14 @@ import { HUHU_DIR, versionOf, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import { defineCapability } from "./define.js";
 import { placementsOverlap, planDashboardRepair, type DashboardWidgetSizeRule } from "./home-dashboard-recovery.js";
+import { durableExternal } from "./system.js";
 
 const DASHBOARD_PATH = `${HUHU_DIR}/home/widgets.json`;
+const DashboardReceipt = z.strictObject({ vaultId: z.string(), revision: z.string() });
+
+function dashboardReceipt(view: DashboardView) {
+  return { vaultId: view.vaultId, revision: view.board.revision };
+}
 
 function hasDashboardVersion(value: unknown): value is Record<string, unknown> & { schemaVersion: unknown } {
   return typeof value === "object" && value !== null && "schemaVersion" in value;
@@ -58,7 +65,13 @@ function readDashboardSnapshot(vault: Vault): DashboardSnapshot {
   });
   let bytes: Buffer;
   try {
-    bytes = readFileSync(vault.files.abs(DASHBOARD_PATH));
+    for (const dir of [HUHU_DIR, `${HUHU_DIR}/home`]) {
+      const entry = lstatSync(vault.files.abs(dir), { throwIfNoEntry: false });
+      if (entry && !entry.isDirectory()) return fallback("unreadable");
+    }
+    const filename = vault.files.abs(DASHBOARD_PATH);
+    if (!lstatSync(filename).isFile()) return fallback("unreadable");
+    bytes = readFileSync(filename);
   } catch (error) {
     return fallback((error as NodeJS.ErrnoException).code === "ENOENT" ? "default" : "unreadable");
   }
@@ -147,11 +160,19 @@ export function defineDashboardUpdate(vault: Vault, widgets: ReadonlyMap<string,
     name: "home.dashboard.update",
     plugin: "kernel",
     scope: "write",
-    exposable: false,
+    exposable: true,
     defaultExposed: false,
-    input: DashboardUpdateSchema,
-    output: DashboardViewSchema,
-    handler: (_ctx, input) => queueDashboardWrite(vault, () => commit(input)),
+    ...durableExternal,
+    input: DashboardUpdateSchema.extend({ vaultId: z.string().optional() }),
+    output: z.union([DashboardViewSchema, DashboardReceipt]),
+    handler: (context, input) =>
+      queueDashboardWrite(vault, async () => {
+        context.signal.throwIfAborted();
+        const workbench = isWorkbenchCaller(context.caller);
+        if (!workbench && input.vaultId !== vault.id) throw errors.invalidInput("看板更新属于另一个 Vault");
+        const view = await commit(input);
+        return workbench ? view : dashboardReceipt(view);
+      }),
   });
 }
 
@@ -184,7 +205,7 @@ async function preserveDashboard(vault: Vault, original: Buffer, fileDigest: str
 }
 
 export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<string, DashboardWidgetSizeRule>, now: () => Date, changed?: () => void) {
-  const capability = { plugin: "kernel", exposable: false, defaultExposed: false } as const;
+  const capability = { plugin: "kernel", exposable: true, defaultExposed: false } as const;
 
   function plan(intent: DashboardRecoveryIntent, target: ReturnType<typeof readRecoveryTarget>) {
     if (intent.action === "restore") {
@@ -206,9 +227,12 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
       ...capability,
       name: "home.dashboard.recovery.preview",
       scope: "read",
-      input: DashboardRecoveryIntentSchema,
+      input: z.strictObject({ action: z.enum(["repair", "restore"]), backup: DashboardBoardSchema.optional() }),
       output: DashboardRecoveryPreviewSchema,
-      handler: (_ctx, intent) => {
+      handler: (_ctx, input) => {
+        const parsed = DashboardRecoveryIntentSchema.safeParse(input);
+        if (!parsed.success) throw errors.invalidInput("看板恢复参数无效", parsed.error.issues);
+        const intent = parsed.data;
         const target = readRecoveryTarget(vault);
         const candidate = plan(intent, target);
         const confirmation = { vaultId: vault.id, revision: target.revision, fileDigest: target.fileDigest, candidateDigest: candidateDigest(intent, candidate) };
@@ -219,10 +243,12 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
       ...capability,
       name: "home.dashboard.recovery.commit",
       scope: "write",
+      ...durableExternal,
       input: z.strictObject({ intent: DashboardRecoveryIntentSchema, confirmation: DashboardRecoveryConfirmationSchema }),
-      output: DashboardRecoveryResultSchema,
-      handler: (_ctx, { intent, confirmation }: { intent: DashboardRecoveryIntent; confirmation: DashboardRecoveryConfirmation }) =>
+      output: z.union([DashboardRecoveryResultSchema, DashboardReceipt.extend({ preserved: z.boolean() })]),
+      handler: (context, { intent, confirmation }: { intent: DashboardRecoveryIntent; confirmation: DashboardRecoveryConfirmation }) =>
         queueDashboardWrite(vault, async () => {
+          context.signal.throwIfAborted();
           vault.assertWritable();
           if (confirmation.vaultId !== vault.id) throw errors.invalidInput("恢复预览属于另一个 Vault", [{ reason: "wrong-vault" }]);
           const target = readRecoveryTarget(vault);
@@ -234,7 +260,7 @@ export function defineDashboardRecovery(vault: Vault, widgets: ReadonlyMap<strin
           const preservedPath = target.original && target.fileDigest && (target.source === "invalid" || intent.action === "repair") ? await preserveDashboard(vault, target.original.bytes, target.fileDigest) : null;
           const view = await writeDashboard(vault, board, target.original ? versionOf(target.original.bytes) : null);
           changed?.();
-          return { view, preservedPath };
+          return isWorkbenchCaller(context.caller) ? { view, preservedPath } : { ...dashboardReceipt(view), preserved: preservedPath !== null };
         }),
     }),
   };
