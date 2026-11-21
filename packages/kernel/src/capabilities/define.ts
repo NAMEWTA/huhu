@@ -28,6 +28,11 @@ interface CapabilityContract<I, O> {
   timeoutMs?: number;
   /** handler 自己对账，或由 Dispatcher 为可安全保留结果的能力记录显式意图。 */
   idempotency?: "handler" | "durable";
+  /**
+   * 仅与 idempotency: "durable" 同用：CLI、MCP 和受权 HTTP 调用必须带稳定意图键（intentKey）。
+   * 缺键时 Dispatcher 在执行前拒绝，旧的逐请求幂等键不能替代；工作台与插件内部调用不受影响。
+   */
+  externalIntentRequired?: true;
 }
 
 /** 由领域模块提供，安装后可在插件启用之前登记。 */

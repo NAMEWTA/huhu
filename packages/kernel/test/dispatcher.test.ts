@@ -1,4 +1,4 @@
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
@@ -22,6 +22,7 @@ function setup(
     operations?: { ledger: OperationReceipts; vaultInstance: string };
     invalidOutput?: boolean;
     extraField?: boolean;
+    externalIntent?: boolean;
   } = {},
 ) {
   const registry = new CapabilityRegistry();
@@ -36,6 +37,7 @@ function setup(
       exposable: true,
       defaultExposed: false,
       idempotency: "durable",
+      ...(opts.externalIntent && { externalIntentRequired: true as const }),
       handler: (_c, i) => {
         calls++;
         return { n: opts.invalidOutput ? ("wrong-output-fixture" as unknown as number) : calls + i.title.length, ...(opts.extraField && { hidden: "private-projection-fixture" }) };
@@ -152,6 +154,25 @@ describe("Dispatcher 管线", () => {
     expect(rejected).toMatchObject({ ok: false, error: { retryable: false, details: { outcome: "not-accepted" } } });
     expect(damaged.calls()).toBe(0);
     expect(JSON.stringify(rejected)).not.toContain("operationId");
+  });
+
+  test("要求外部意图的能力：CLI/MCP/HTTP 缺意图键即使带旧幂等键也零执行零受理，工作台不受影响", async () => {
+    const { dir } = setup();
+    const file = path.join(dir, "durable.jsonl");
+    const { d, calls } = setup({ operations: { ledger: new OperationReceipts(file), vaultInstance: "isolated-vault" }, exposure: true, externalIntent: true });
+    for (const caller of ["cli", "mcp", "http"] as const) {
+      const rejected = await d.call(caller, req("tasks.create", { title: "合成" }, `legacy-${caller}-key`));
+      expect(rejected).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    }
+    expect(calls()).toBe(0);
+    expect(existsSync(file)).toBe(false);
+    const intent = { ...req("tasks.create", { title: "合成" }), intentKey: "stable-intent-one" };
+    const [a, b] = await Promise.all([d.call("cli", intent), d.call("cli", intent)]);
+    expect(a).toMatchObject({ ok: true });
+    expect(b).toEqual(a);
+    expect(calls()).toBe(1);
+    expect((await d.call("desktop", req("tasks.create", { title: "合成" }, "desktop-key-1"))).ok).toBe(true);
+    expect(calls()).toBe(2);
   });
 
   test("旧幂等键也按受信主体隔离", async () => {

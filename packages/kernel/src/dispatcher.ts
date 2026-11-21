@@ -164,6 +164,9 @@ export class Dispatcher {
     const parsed = def.input.safeParse(req.input);
     if (!parsed.success) return this.fail(errors.invalidInput("输入不符合要求", parsed.error.issues));
     if (req.intentKey !== undefined) return this.durable(def, caller, subject, req, parsed.data, signal, session);
+    if (def.externalIntentRequired && !isWorkbenchCaller(caller) && !caller.startsWith("plugin:")) {
+      return this.fail(errors.invalidInput('此能力的外部调用必须提供稳定意图键：CLI 使用 --intent-key，MCP 使用 _meta["huhu.dev/intent-key"]'));
+    }
 
     if (!NEEDS_IDEMPOTENCY.has(def.scope)) return this.execute(def, caller, req, parsed.data, signal, subject, session);
     if (req.idempotencyKey === undefined) return this.fail(errors.invalidInput("写入与执行类能力必须提供 idempotencyKey"));
