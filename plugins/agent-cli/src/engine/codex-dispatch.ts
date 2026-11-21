@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, createReadStream, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -18,9 +18,11 @@ import type { LaunchInput } from "./sessions.js";
 
 const Version = "codex-cli 0.171.0";
 const WindowsNativeChoiceSha256 = "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7";
+const LinuxVersion = "codex-cli 0.170.0";
+const LinuxNativeChoiceSha256 = "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971";
 const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
-const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional() });
+const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional(), socket: z.string().max(103).optional() });
 const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
 const Completion = z.strictObject({ threadId: Id, turnId: Id, status: z.enum(["completed", "failed", "interrupted"]).optional() });
 const AnswerAck = z.strictObject({ fingerprint: Digest });
@@ -103,7 +105,7 @@ export class CodexDispatch {
 
   get configured(): boolean {
     const { binary, helper, home } = this.options;
-    return process.platform === "win32" && !!(binary && helper && home);
+    return ["win32", "linux", "darwin"].includes(process.platform) && !!(binary && helper && home);
   }
 
   async prepare(input: Pick<LaunchInput, "model" | "effort" | "fast">): Promise<CodexPlan> {
@@ -116,39 +118,50 @@ export class CodexDispatch {
     if ((model !== undefined && !Id.safeParse(model).success) || (effort !== undefined && !/^(none|minimal|low|medium|high|xhigh|ultra)$/.test(effort))) throw errors.invalidInput("Codex 模型或推理强度无效");
     const { binary, helper: file, home: directory, fixtureArgs = [], nodeBin = process.execPath } = this.options;
     try {
-      if (![binary!, file!, directory!, nodeBin, this.options.root].every(path.isAbsolute) || path.extname(binary!).toLowerCase() !== ".exe") throw unavailable();
+      if (![binary!, file!, directory!, nodeBin, this.options.root].every(path.isAbsolute)) throw unavailable();
       const command = realpathSync(binary!);
       const helper = realpathSync(file!);
       const node = realpathSync(nodeBin);
       const home = realpathSync(directory!);
+      const linuxNative = process.platform === "linux" && fixtureArgs.length === 0;
       const defaultHome = path.join(homedir(), ".codex");
       const globalHome = process.env["CODEX_HOME"];
       const canonical = (candidate: string) => (statSync(candidate, { throwIfNoEntry: false }) ? realpathSync(candidate) : path.resolve(candidate)).toLowerCase();
       const homeKey = home.toLowerCase();
+      const homeStat = statSync(home);
       if (
-        !statSync(home).isDirectory() ||
+        !homeStat.isDirectory() ||
+        (linuxNative && (homeStat.uid !== process.getuid?.() || (homeStat.mode & 0o077) !== 0)) ||
         [defaultHome, ...(globalHome ? [globalHome] : [])].some((candidate) => {
           const globalKey = canonical(candidate);
           return homeKey === globalKey || homeKey.startsWith(globalKey + path.sep) || globalKey.startsWith(homeKey + path.sep);
         })
       )
         throw unavailable();
-      if (path.extname(command).toLowerCase() !== ".exe") throw unavailable();
+      if (process.platform === "win32") {
+        if ([binary!, command].some((candidate) => path.extname(candidate).toLowerCase() !== ".exe")) throw unavailable();
+      } else {
+        accessSync(command, constants.X_OK);
+      }
       const binaryStamp = stamp(command);
       const helperStamp = stamp(helper);
       const config = path.join(home, "config.toml");
       const configStamp = statSync(config, { throwIfNoEntry: false }) ? stamp(config) : null;
       if (this.versionCheck?.stamp !== binaryStamp) {
-        const result = exec(command, [...fixtureArgs, "--version"], { windowsHide: true, timeout: 4_000, maxBuffer: 4096 }).then(
-          async ({ stdout }) => {
-            if (stdout.trim() !== Version) return null;
-            if (process.arch !== "x64" || fixtureArgs.length !== 0) return { nativeChoiceBridge: false };
+        const env = process.platform === "win32" ? undefined : { HOME: home, CODEX_HOME: home, PATH: process.env["PATH"] };
+        const result = (async () => {
+          const expected = process.arch === "x64" && fixtureArgs.length === 0 ? (linuxNative ? LinuxNativeChoiceSha256 : process.platform === "win32" ? WindowsNativeChoiceSha256 : undefined) : undefined;
+          let verified = false;
+          if (expected) {
             const hash = createHash("sha256");
             for await (const chunk of createReadStream(command)) hash.update(chunk);
-            return { nativeChoiceBridge: hash.digest("hex") === WindowsNativeChoiceSha256 && stamp(command) === binaryStamp };
-          },
-          () => null,
-        );
+            verified = hash.digest("hex") === expected && stamp(command) === binaryStamp;
+          }
+          // Only launch an installation that matches the tested Linux build.
+          if (linuxNative && !verified) return null;
+          const { stdout } = await exec(command, [...fixtureArgs, "--version"], { env, windowsHide: true, timeout: 4_000, maxBuffer: 4096 });
+          return stdout.trim() === (linuxNative ? LinuxVersion : Version) ? { nativeChoiceBridge: verified } : null;
+        })().catch(() => null);
         this.versionCheck = { stamp: binaryStamp, result };
       }
       const version = await this.versionCheck.result;
@@ -289,8 +302,10 @@ export class CodexDispatch {
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return null;
     const { secret } = bound.control;
+    const endpoint = process.platform === "win32" ? pipe(secret) : bound.thread.socket;
+    if (!endpoint || (process.platform !== "win32" && !path.isAbsolute(endpoint))) return null;
     const nonce = randomBytes(32).toString("hex");
-    const socket = createConnection(pipe(secret));
+    const socket = createConnection(endpoint);
     const abort = () => socket.destroy();
     signal.addEventListener("abort", abort, { once: true });
     socket.once("close", () => signal.removeEventListener("abort", abort));

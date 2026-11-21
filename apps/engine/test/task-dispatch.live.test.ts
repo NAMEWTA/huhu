@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +12,7 @@ import { createDispatchProviderFixture, createFixtureGate, readFixtureJson } fro
 import type { DispatchProvider } from "../../../plugins/agent-cli/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import { boot, type RunningEngine } from "../src/boot.js";
+import { fixtureCoreCli, fixtureProcessRunning } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const fixture = vi.hoisted(() => ({ adapter: undefined as DispatchProvider | undefined, sandbox: "" }));
@@ -109,7 +109,7 @@ test("Tasks production dispatch keeps providers without acceptance evidence unsu
   });
 }, 30_000);
 
-test.skipIf(process.platform !== "win32" || !bin)(
+test.skipIf(!bin)(
   "Tasks production HTTP dispatch keeps the original Core session, snapshot and provider ACK",
   async () => {
     await useSandbox(async (sandbox) => {
@@ -121,7 +121,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      const cli = fixtureCoreCli(bin!, env);
       const { adapter, controls, pidOf, proofDir, readers, script } = createDispatchProviderFixture(sandbox, cli);
       const viewers = new Set<WebSocket>();
       const count = (id: string) =>
@@ -300,15 +300,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
               .filter((file) => file.endsWith(".ready.json"))
               .flatMap((file) => readFixtureJson<{ pid: number }>(path.join(proofDir, file))?.pid ?? []);
             expect(cli("server", "stop").status).toBe(0);
-            const livePids = () =>
-              [pid, ...holders.map((holder) => holder.pid), ...providerPids].filter((candidate) => {
-                try {
-                  return process.kill(candidate, 0);
-                } catch (error) {
-                  if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-                  throw error;
-                }
-              });
+            const livePids = () => [pid, ...holders.map((holder) => holder.pid), ...providerPids].filter(fixtureProcessRunning);
             await expect.poll(livePids, { timeout: 5_000 }).toEqual([]);
             expect(cli("server", "status").status).toBe(5);
             console.info(JSON.stringify({ phase: "fixture-cleanup", endpoint: core.endpoint, livePids: livePids() }));

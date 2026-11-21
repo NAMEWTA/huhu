@@ -2,8 +2,9 @@
 
 const { spawn } = require("node:child_process");
 const { createHash, createHmac, timingSafeEqual } = require("node:crypto");
-const { closeSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } = require("node:fs");
+const { closeSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmdirSync, statSync, writeFileSync } = require("node:fs");
 const { createServer } = require("node:net");
+const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { createInterface } = require("node:readline");
 
@@ -72,7 +73,9 @@ function main(file) {
   const userConfig = path.join(config.home, "config.toml");
   if ((statSync(userConfig, { throwIfNoEntry: false }) ? stamp(userConfig) : null) !== config.configStamp) throw new Error("Provider configuration changed");
   const nativeChoiceBridge = config.nativeChoiceBridge === true;
-  if (nativeChoiceBridge && (executableSha256(config.command) !== "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7" || stamp(config.command) !== config.binaryStamp)) {
+  const linuxNative = process.platform === "linux" && config.args.length === 0;
+  const expectedDigest = process.platform === "win32" ? "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7" : "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971";
+  if ((nativeChoiceBridge || linuxNative) && (executableSha256(config.command) !== expectedDigest || stamp(config.command) !== config.binaryStamp)) {
     throw new Error("Provider fingerprint changed before native questions could be enabled");
   }
 
@@ -91,9 +94,11 @@ function main(file) {
     renameSync(temp, target);
   };
   const log = (state) => process.stdout.write("HUHU Codex: " + state + "\n");
-  const systemKeys = new Set(["SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "USERNAME", "SYSTEMDRIVE", "PROGRAMDATA"]);
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => systemKeys.has(name.toUpperCase())));
+  const windows = process.platform === "win32";
+  const systemKeys = new Set(windows ? ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "USERNAME", "SYSTEMDRIVE", "PROGRAMDATA"] : ["PATH", "LANG", "LC_ALL", "LC_CTYPE"]);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => systemKeys.has(windows ? name.toUpperCase() : name)));
   env.CODEX_HOME = config.home;
+  if (!windows) env.HOME = config.home;
 
   const nativeChoiceFeature = "default_mode_request_user_input";
   const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
@@ -428,13 +433,21 @@ function main(file) {
   });
   process.once("SIGTERM", () => stop("session ended"));
   process.once("SIGINT", () => stop("session ended"));
+  if (!windows) process.once("SIGHUP", () => stop("session ended"));
 
   function listenForControl() {
+    const socketDir = windows ? undefined : mkdtempSync(path.join(tmpdir(), "huhu-codex-"));
+    const socket = socketDir ? path.join(socketDir, "control.sock") : undefined;
+    if (socket && Buffer.byteLength(socket) > 103) {
+      rmdirSync(socketDir);
+      throw new Error("Control socket path is too long");
+    }
     server = createServer(authorize);
+    if (socketDir) server.once("close", () => rmdirSync(socketDir));
     server.once("error", () => stop("control channel unavailable"));
-    server.listen("\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
+    server.listen(socket ?? "\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
       try {
-        save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2 });
+        save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2, ...(socket && { socket }) });
         clearTimeout(startup);
         log("native thread ready");
       } catch {

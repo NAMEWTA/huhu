@@ -1,0 +1,62 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+
+const toolName = "request_user_input";
+const callId = "call_fixture_choice";
+const question = {
+  id: "shape",
+  header: "Shape",
+  question: "Choose a shape.",
+  options: [
+    { label: "Circle", description: "Round" },
+    { label: "Square", description: "Four corners" },
+  ],
+};
+const result = "You chose Circle.";
+
+export async function startCodexResponsesFixture() {
+  const requests: { path: string | undefined; tools: { name?: string }[]; input: { type?: string; call_id?: string; output?: unknown }[] }[] = [];
+  const server = createServer(async (req, res) => {
+    try {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const { tools, input } = JSON.parse(Buffer.concat(chunks).toString("utf8")) as (typeof requests)[number];
+      requests.push({ path: req.url, tools, input });
+      if (req.method !== "POST" || req.url !== "/v1/responses" || requests.length > 2) {
+        res.writeHead(400).end();
+        return;
+      }
+      const first = requests.length === 1;
+      const item = first
+        ? { id: "fc_fixture", type: "function_call", status: "completed", call_id: callId, name: toolName, arguments: JSON.stringify({ questions: [question] }) }
+        : { id: "msg_fixture", type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: result, annotations: [] }] };
+      // Reuse the Responses lifecycle from deepseek-harness's subagent-codex fixture.
+      const response = { id: "resp_fixture_" + requests.length, object: "response", output: [item], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };
+      const events = [
+        { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
+        { type: "response.output_item.added", output_index: 0, item: first ? { ...item, arguments: "", status: "in_progress" } : { ...item, content: [], status: "in_progress" } },
+        ...(first ? [] : [{ type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: result }]),
+        { type: "response.output_item.done", output_index: 0, item },
+        { type: "response.completed", response: { ...response, status: "completed" } },
+      ];
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      for (const event of events) res.write(`data: ${JSON.stringify(event)}\n\n`);
+      res.end();
+    } catch {
+      res.destroy();
+    }
+  });
+  await new Promise<void>((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
+  return {
+    baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+    requests,
+    result,
+    toolName,
+    callId,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  };
+}

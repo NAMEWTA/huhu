@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -15,6 +14,7 @@ import { HerdrCore } from "../src/engine/herdr-core.js";
 import type { TerminalBridge } from "../src/engine/terminal-bridge.js";
 import { SessionsService, type WaitingInfo } from "../src/engine/sessions.js";
 import { createDispatchProviderFixture, createFixtureGate, readFixtureJson as read } from "./fixtures/dispatch-provider.js";
+import { fixtureCoreCli, fixtureProcessRunning } from "./fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const caps = ["agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect"];
@@ -36,8 +36,8 @@ class FixtureViewer extends EventEmitter {
 
 type Target = { mode: string; provider: string; available: boolean; reason: string | null; configurationId: string | null; binding: ExecutionBinding["sessionBinding"] | null };
 type Result = { status: string; reason: string | null; acceptedAt: string | null; execution: ExecutionBinding | null; coreWrite: string; providerAcceptance: unknown; ownerActive: boolean };
-test.skipIf(process.platform !== "win32" || !bin)(
-  "locked Windows Core keeps durable task ownership and independent provider evidence",
+test.skipIf(!bin)(
+  "locked Core keeps durable task ownership and independent provider evidence",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w61-")));
     let vault = await Vault.open(mkdirSync(path.join(sandbox, "vault"), { recursive: true })!, { create: true });
@@ -52,7 +52,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       XDG_CONFIG_HOME: path.join(runtimeDir, "config"),
     };
     for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-    const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+    const cli = fixtureCoreCli(bin!, env);
     const { adapter, controls, proofDir, script, readers, pidOf } = createDispatchProviderFixture(sandbox, cli);
     const permission = "test.agent.dispatch";
     const permissions = PERMISSION_TABLE as Record<string, readonly string[]>;
@@ -434,15 +434,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
           const pids = [pid, ...holders.map((holder) => holder.pid), ...providerPids];
           expect(cli("server", "stop").status).toBe(0);
           const stopped = cli("server", "status").status;
-          const livePids = () =>
-            pids.filter((pid) => {
-              try {
-                return process.kill(pid, 0);
-              } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-                throw error;
-              }
-            });
+          const livePids = () => pids.filter(fixtureProcessRunning);
           await expect.poll(livePids, { timeout: 5_000 }).toEqual([]);
           console.info(JSON.stringify({ endpoint: core.endpoint, stopped, corePid: pid, holderPids: holders.map((holder) => holder.pid), providerPids, livePids: livePids() }));
           expect(stopped).toBe(5);

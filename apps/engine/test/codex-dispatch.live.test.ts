@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +11,8 @@ import { CodexDispatch } from "../../../plugins/agent-cli/src/engine/codex-dispa
 import { createFixtureGate } from "../../../plugins/agent-cli/test/fixtures/dispatch-provider.js";
 import type { DispatchReceipt } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import { boot, type RunningEngine } from "../src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { fixtureCoreCli, fixtureProcessRunning } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const fixture = vi.hoisted(() => ({ directory: "" }));
@@ -48,7 +49,7 @@ async function call<T = unknown>(engine: RunningEngine, capability: string, inpu
 
 type Event = { event: string; scenario?: string; threadId?: string; turnId?: string };
 
-test.skipIf(process.platform !== "win32" || !bin)(
+test.skipIf(!bin)(
   "Engine dispatch uses one original Core helper and accepts only its correlated native Codex response",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-codex-live-")));
@@ -57,6 +58,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const desktopUserData = path.join(sandbox, "desktop");
     const home = path.join(sandbox, "codex-home");
     for (const dir of [vaultPath, desktopUserData, home]) mkdirSync(dir);
+    const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
@@ -85,27 +87,19 @@ test.skipIf(process.platform !== "win32" || !bin)(
       }
     };
     try {
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      const cli = fixtureCoreCli(bin!, env);
       expect(cli("server", "status").status).toBe(5);
       stopCore = async () => {
         const status = cli("server", "status");
         if (status.status === 0) {
           const { pid, holders } = JSON.parse(status.stdout) as { pid: number; holders: { pid: number }[] };
           const providerPids = events().flatMap((event) => (event.event === "thread" && event.threadId ? [Number(event.threadId.slice("thread-".length))] : []));
-          const live = () =>
-            [pid, ...holders.map((holder) => holder.pid), ...providerPids].filter((candidate) => {
-              try {
-                return process.kill(candidate, 0);
-              } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
-                throw error;
-              }
-            });
+          const live = () => [pid, ...holders.map((holder) => holder.pid), ...providerPids].filter(fixtureProcessRunning);
           expect(cli("server", "stop").status).toBe(0);
           await expect.poll(live, { timeout: 5_000 }).toEqual([]);
           console.info(JSON.stringify({ probe: "fixture-cleanup", livePids: live() }));
@@ -185,7 +179,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await enable("agent-cli", false);
       await engine.shutdown();
       writeFileSync(path.join(sandbox, "release"), "");
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       expect(await taskStatus(late)).toMatchObject({ status: "not_started", comments: [] });
       await enable("agent-cli", true);
       await poll(initial, "running");

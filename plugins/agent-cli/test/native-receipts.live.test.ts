@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,6 +15,8 @@ import { putReceiptFile, TASKS_RECEIPTS_CONSUME } from "../src/engine/execution-
 import { launchHash } from "../src/engine/launch-binding.js";
 import { type NativeAnswer, type NativeAnswerStatus } from "../src/engine/native-answer.js";
 import { createFixtureGate } from "./fixtures/dispatch-provider.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { fixtureCoreCli } from "./fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
 const fixture = vi.hoisted(() => ({ directory: "", root: "" }));
@@ -60,8 +61,8 @@ function files(directory: string, pattern: RegExp): string[] {
 }
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as unknown;
 
-test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Engine recovers both lost ACKs for the same native receipt without another input",
+test.skipIf(!bin)(
+  "Engine recovers both lost ACKs for the same native receipt without another input",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w63-live-")));
     fixture.directory = sandbox;
@@ -74,6 +75,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     const desktopUserData = makeDir("desktop");
     const home = makeDir("provider-home");
     const receiver = makeDir("consumer");
+    const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
@@ -145,12 +147,12 @@ test.skipIf(process.platform !== "win32" || !bin)(
       );
     }
     try {
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      const cli = fixtureCoreCli(bin!, env);
       expect(cli("server", "status").status).toBe(5);
       stopCore = () => {
         if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
@@ -180,7 +182,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await engine.shutdown();
       firstAck.mockRestore();
 
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       await expect.poll(firstStage, { timeout: 10_000 }).toHaveLength(1);
       expect(read(firstStage()[0]!)).toMatchObject({ data: { stage: "agent_received", receipt: identity } });
       expect(books()).toHaveLength(1);
@@ -196,7 +198,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
 
       answer = "wrong-digest";
       const deliveredBefore = deliveries.length;
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       mountReceiver(original.execution);
       await expect.poll(() => deliveries.length).toBeGreaterThan(deliveredBefore);
       expect(consumed()).toHaveLength(0);
@@ -215,7 +217,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(files(receiver, /\.json$/)).toHaveLength(2);
       const receivedBeforeStop = deliveries.length;
       await engine.shutdown();
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       mountReceiver(original.execution);
       await expect.poll(() => call(engine, "tasks.read", { id: task.id }), { timeout: 10_000 }).toMatchObject({ status: "in_progress" });
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -255,8 +257,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
   85_000,
 );
 
-test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows MCP and CLI dispatch and answer through the same Core session and production Tasks inbox",
+test.skipIf(!bin)(
+  "MCP and CLI dispatch and answer through the same Core session and production Tasks inbox",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w63-compose-")));
     fixture.directory = sandbox;
@@ -265,6 +267,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       mkdirSync(dir);
       return dir;
     }) as [string, string, string];
+    const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
@@ -275,13 +278,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
     let stopCore: (() => void) | undefined;
     try {
       writeFileSync(path.join(sandbox, "tasks-reply-fixture"), "");
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
       const mid = machineId();
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      const cli = fixtureCoreCli(bin!, env);
       expect(cli("server", "status").status).toBe(5);
       stopCore = () => {
         if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
@@ -341,7 +344,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await engine.shutdown();
       writeFileSync(path.join(sandbox, "allow-answer-proof"), "");
       await expect.poll(events).toContain("original-answer-output");
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "accepted" });
       writeFileSync(path.join(sandbox, "allow-turn-end"), "");
       const timeline = async () => (await cliTool<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer" || event === "result");
@@ -360,7 +363,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       expect(readCore.find(({ id }) => id === bindings[0]!.sessionBinding.sessionId)).toBeDefined();
       expect(await call(engine, "tasks.dispatch.list", { taskId: task.id })).toMatchObject([{ runId, session: { id: sessionId, spaceId: space!.id } }]);
       await engine.shutdown();
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       expect(await timeline()).toEqual(originalTimeline);
       expect(acks()).toEqual(originalAcks);
       expect(await reply()).toMatchObject({ status: "accepted" });
@@ -437,8 +440,8 @@ test.skipIf(process.platform !== "win32" || !bin)(
   85_000,
 );
 
-test.skipIf(process.platform !== "win32" || !bin)(
-  "Windows Engine sends one answer to the original native request and reconciles only matching provider proof",
+test.skipIf(!bin)(
+  "Engine sends one answer to the original native request and reconciles only matching provider proof",
   async () => {
     const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-w62-live-")));
     fixture.directory = sandbox;
@@ -449,6 +452,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
     };
     const vaultPath = makeDir("vault");
     const desktopUserData = makeDir("desktop");
+    const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
@@ -484,13 +488,13 @@ test.skipIf(process.platform !== "win32" || !bin)(
     try {
       signalFixture("native-answer-fixture");
       signalFixture("allow-turn-ack");
-      engine = await boot({ vaultPath, desktopUserData, create: true });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
       const mid = machineId();
       const runtimeDir = path.join(engine.vault.stateDir, "runtime", mid, "herdr");
       const core = new HerdrCore({ bin: bin!, vaultId: engine.vault.id, machineId: mid, runtimeDir });
       const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
       for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
-      const cli = (...args: string[]) => spawnSync(bin!, args, { env, windowsHide: true, encoding: "utf8", timeout: 15_000 });
+      const cli = fixtureCoreCli(bin!, env);
       expect(cli("server", "status").status).toBe(5);
       stopCore = () => {
         if (cli("server", "status").status === 0) expect(cli("server", "stop").status).toBe(0);
@@ -562,7 +566,7 @@ test.skipIf(process.platform !== "win32" || !bin)(
       await engine.shutdown();
       signalFixture("allow-answer-proof");
       await expect.poll(acknowledgements, { timeout: 8_000 }).toHaveLength(1);
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection });
       expect(await answer(chosen, true)).toEqual(status("accepted"));
       expect(await answer(chosen, false, "plugin:tasks", transportKeys[chosenIndex])).toEqual(status("accepted"));
 
