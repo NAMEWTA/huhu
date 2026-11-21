@@ -8,6 +8,7 @@ import { expect, test, vi } from "vitest";
 import type { z } from "zod";
 import { run } from "../../../apps/cli/src/main.js";
 import { boot } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import type { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
@@ -35,7 +36,7 @@ async function fixture() {
   const vaultPath = path.join(root, "vault");
   const desktopUserData = path.join(root, "device");
   await Promise.all([mkdir(vaultPath), mkdir(desktopUserData)]);
-  const engine = await boot({ vaultPath, desktopUserData, create: true });
+  const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
   const url = `http://127.0.0.1:${engine.port}`;
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
   const hosts: string[] = [];

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND, WINDOWS_SAMPLE } from "../src/engine/monitor-sample.js";
 import { CONTAINER_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
@@ -21,7 +22,7 @@ async function fixture() {
   const desktopUserData = path.join(root, "desktop");
   await Promise.all([mkdir(vaultPath), mkdir(desktopUserData)]);
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
-  const open = (create: boolean) => boot({ vaultPath, desktopUserData, create });
+  const open = (create: boolean) => boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create });
   let engine = await open(true);
   const clientFor = () => new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   return {

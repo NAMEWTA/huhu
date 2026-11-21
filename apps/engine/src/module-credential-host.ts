@@ -9,13 +9,13 @@ type Keyring = typeof import("@napi-rs/keyring");
 const require = createRequire(import.meta.url);
 const namespace = "HUHU.Workbench.ModuleCredentials.v1";
 
-class WindowsCredentialProtection implements LocalCredentialProtection {
+class SystemCredentialProtection implements LocalCredentialProtection {
   private keyring: Keyring | undefined;
 
   private entry(keyId: string) {
-    if (process.platform !== "win32" || process.arch !== "x64") throw new LocalProtectionError("unavailable");
     this.keyring ??= require("@napi-rs/keyring") as Keyring;
-    return new this.keyring.Entry(namespace, keyId);
+    // Linux must keep data keys across restarts. Disable keyring's in-memory keyutils fallback.
+    return new this.keyring.Entry(namespace, keyId, { linux: { store: "secret-service" } });
   }
 
   async read(keyId: string): Promise<Buffer | null> {
@@ -58,7 +58,7 @@ class WindowsCredentialProtection implements LocalCredentialProtection {
 export type ModuleCredentialHost = Pick<CredentialOwner<unknown>, "localRoot" | "localVaultInstanceId" | "protection">;
 
 /** App-private host configuration, available only to the Engine's trusted module assembly. */
-export function createModuleCredentialHost(vault: Vault, userData: string): ModuleCredentialHost | undefined {
+export function createModuleCredentialHost(vault: Vault, userData: string, protection: LocalCredentialProtection = new SystemCredentialProtection()): ModuleCredentialHost | undefined {
   try {
     if (!path.isAbsolute(userData)) return undefined;
     const localRoot = path.join(realpathSync.native(userData), "module-credentials");
@@ -73,7 +73,7 @@ export function createModuleCredentialHost(vault: Vault, userData: string): Modu
     // A copy of the portable ID in a new directory gets a distinct local binding.
     const identity = [vault.id, stat.dev.toString(), stat.ino.toString(), stat.birthtimeNs.toString()];
     const localVaultInstanceId = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
-    return { localRoot, localVaultInstanceId, protection: new WindowsCredentialProtection() };
+    return { localRoot, localVaultInstanceId, protection };
   } catch {
     return undefined;
   }

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { ModuleCredentials } from "@huhu/kernel";
+import { LocalProtectionError, ModuleCredentials } from "@huhu/kernel";
 import { exportPackage, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { AutomationsService } from "@huhu/plugin-automations/engine";
@@ -13,31 +13,33 @@ import { assert, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { boot, type RunningEngine } from "../src/boot.js";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Windows 模块凭据与 Safe 锁独立，ZIP 恢复到新目录不继承系统密钥", async () => {
+const definition = { target: "test.invalid" };
+
+function moduleOwner(engine: RunningEngine) {
+  assert(engine.moduleCredentialHost);
+  return new ModuleCredentials({
+    ...engine.moduleCredentialHost,
+    vault: engine.vault,
+    pluginId: "test.native.module",
+    definition: z.strictObject({ target: z.string() }),
+    targets: (value) => ({ password: value.target }),
+  });
+}
+
+test("系统钥匙串中的模块凭据与 Safe 锁独立，ZIP 恢复到新目录不继承系统密钥", { timeout: 30_000 }, async ({ skip }) => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-module-host-"));
   const desktopUserData = path.join(fixture, "user-data");
   const vaultPath = path.join(fixture, "source");
   const restoredPath = path.join(fixture, "restored");
   const archive = path.join(fixture, "vault.zip");
   const marker = `synthetic-module-${randomUUID()}`;
-  const definition = { target: "test.invalid" };
+  const keyIds = new Set<string>();
   let source: RunningEngine | undefined;
   let restored: RunningEngine | undefined;
-  let savedRevision: string | undefined;
   mkdirSync(desktopUserData);
   mkdirSync(vaultPath);
-
-  function owner(engine: RunningEngine) {
-    assert(engine.moduleCredentialHost);
-    return new ModuleCredentials({
-      ...engine.moduleCredentialHost,
-      vault: engine.vault,
-      pluginId: "test.native.module",
-      definition: z.strictObject({ target: z.string() }),
-      targets: (value) => ({ password: value.target }),
-    });
-  }
 
   async function safe(engine: RunningEngine, capability: string, input: unknown = {}) {
     const result = await engine.dispatcher.call("desktop", { capability, input, requestId: randomUUID() });
@@ -47,17 +49,37 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Windows 模
 
   try {
     source = await boot({ vaultPath, desktopUserData, create: true });
+    assert(source.moduleCredentialHost);
+    const { protection } = source.moduleCredentialHost;
+    const probeId = `huhu/test/module-credentials/${randomUUID()}`;
+    const probeKey = Buffer.alloc(32, 1);
+    try {
+      await protection.create(probeId, probeKey);
+    } catch (error) {
+      if (error instanceof LocalProtectionError && error.reason === "unavailable") skip("当前会话的系统钥匙串不可用");
+      throw error;
+    }
+    keyIds.add(probeId);
+    await expect(protection.create(probeId, Buffer.alloc(32, 2))).rejects.toMatchObject({ reason: "unavailable" });
+    await expect(protection.read(probeId)).resolves.toEqual(probeKey);
+
+    const create = protection.create.bind(protection);
+    const created = vi.spyOn(protection, "create").mockImplementation(async (keyId, key) => {
+      await create(keyId, key);
+      keyIds.add(keyId);
+    });
     const vaultId = source.vault.id;
-    const instanceId = source.moduleCredentialHost?.localVaultInstanceId;
-    expect(instanceId).toBeTypeOf("string");
+    const { localVaultInstanceId: instanceId } = source.moduleCredentialHost;
     await safe(source, "safe.setup", { password: "fixture-only-test-safe" });
     await safe(source, "safe.lock");
     expect(await safe(source, "safe.status")).toMatchObject({ initialized: true, locked: true });
 
-    const saved = await owner(source).save({ entityId: "fixture", expectedRevision: null, definition, actions: [{ purpose: "password", action: "replace", value: marker }] });
-    savedRevision = saved.revision;
+    const saved = await moduleOwner(source).save({ entityId: "fixture", expectedRevision: null, definition, actions: [{ purpose: "password", action: "replace", value: marker }] });
+    expect(created).toHaveBeenCalledTimes(1);
+    const keyId = created.mock.calls[0]![0];
+    created.mockRestore();
     expect(saved.authState.password).toBe("configured");
-    expect(await owner(source).use("fixture", ["password"], async (_, keys) => keys.get("password") === marker)).toBe(true);
+    expect(await moduleOwner(source).use("fixture", ["password"], async (_, keys) => keys.get("password") === marker)).toBe(true);
 
     const manifest = await exportPackage(vaultPath, archive);
     expect(manifest.files.some(({ path: file }) => file.startsWith(".huhu/module-credentials/"))).toBe(true);
@@ -68,24 +90,74 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64")("Windows 模
     source = await boot({ vaultPath, desktopUserData });
     expect(source.moduleCredentialHost?.localVaultInstanceId).toBe(instanceId);
     expect(await safe(source, "safe.status")).toMatchObject({ initialized: true, locked: true });
-    expect(await owner(source).use("fixture", ["password"], async (_, keys) => keys.get("password") === marker)).toBe(true);
+    expect(await moduleOwner(source).use("fixture", ["password"], async (_, keys) => keys.get("password") === marker)).toBe(true);
 
     restored = await boot({ vaultPath: restoredPath, desktopUserData });
     expect(restored.moduleCredentialHost?.localVaultInstanceId).not.toBe(instanceId);
-    expect((await owner(restored).list())[0]).toMatchObject({ revision: saved.revision, authState: { password: "needs-reconfiguration" } });
-    await expect(owner(restored).use("fixture", ["password"], async () => true)).rejects.toMatchObject({ code: "unbound" });
+    expect((await moduleOwner(restored).list())[0]).toMatchObject({ revision: saved.revision, authState: { password: "needs-reconfiguration" } });
+    await expect(moduleOwner(restored).use("fixture", ["password"], async () => true)).rejects.toMatchObject({ code: "unbound" });
 
-    const cleared = await owner(source).save({ entityId: "fixture", expectedRevision: savedRevision, definition, actions: [{ purpose: "password", action: "clear" }] });
-    savedRevision = undefined;
+    const cleared = await moduleOwner(source).save({ entityId: "fixture", expectedRevision: saved.revision, definition, actions: [{ purpose: "password", action: "clear" }] });
     expect(cleared.authState.password).toBe("unconfigured");
-    await expect(owner(source).use("fixture", ["password"], async () => true)).rejects.toMatchObject({ code: "unconfigured" });
+    await expect(moduleOwner(source).use("fixture", ["password"], async () => true)).rejects.toMatchObject({ code: "unconfigured" });
+    await expect(protection.read(keyId)).resolves.toBeNull();
   } finally {
     try {
-      if (source && savedRevision) await owner(source).save({ entityId: "fixture", expectedRevision: savedRevision, definition, actions: [{ purpose: "password", action: "clear" }] });
+      const protection = source?.moduleCredentialHost?.protection;
+      if (protection) {
+        await Promise.all(
+          [...keyIds].map(async (keyId) => {
+            await protection.remove(keyId);
+            await expect(protection.read(keyId)).resolves.toBeNull();
+          }),
+        );
+      }
     } finally {
       await Promise.all([restored?.shutdown(), source?.shutdown()]);
       rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
     }
+  }
+});
+
+test("本机保护不可用时，取用和重新配置均失败并保留原密文", async () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-module-unavailable-"));
+  const desktopUserData = path.join(fixture, "user-data");
+  const vaultPath = path.join(fixture, "vault");
+  mkdirSync(desktopUserData);
+  mkdirSync(vaultPath);
+  const protection = new TestProtection(desktopUserData);
+  let engine: RunningEngine | undefined;
+  try {
+    engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
+    assert(engine.moduleCredentialHost);
+    expect(engine.moduleCredentialHost.protection).toBe(protection);
+    const owner = moduleOwner(engine);
+    const marker = `synthetic-module-${randomUUID()}`;
+    const saved = await owner.save({ entityId: "fixture", expectedRevision: null, definition, actions: [{ purpose: "password", action: "replace", value: marker }] });
+    const { localRoot } = engine.moduleCredentialHost;
+    const ciphertext = () =>
+      readdirSync(localRoot, { recursive: true, encoding: "utf8" })
+        .filter((file) => file.endsWith(".bin"))
+        .map((file) => [file, readFileSync(path.join(localRoot, file))] as const);
+    const original = ciphertext();
+    expect(original).toHaveLength(1);
+    expect(original[0]?.[1].includes(marker)).toBe(false);
+
+    const create = vi.spyOn(protection, "create");
+    protection.unavailable = "unavailable";
+    await expect(owner.use("fixture", ["password"], async () => true)).rejects.toMatchObject({ code: "unavailable" });
+    await expect(owner.save({ entityId: "fixture", expectedRevision: saved.revision, definition, actions: [{ purpose: "password", action: "replace", value: "synthetic-replacement", reconfigure: true }] })).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    expect(create).not.toHaveBeenCalled();
+    expect(ciphertext()).toEqual(original);
+    expect(await owner.list()).toMatchObject([{ revision: saved.revision, authState: { password: "temporarily-unavailable" } }]);
+
+    protection.unavailable = undefined;
+    expect(await owner.use("fixture", ["password"], async (_, keys) => keys.get("password") === marker)).toBe(true);
+  } finally {
+    await engine?.shutdown();
+    rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
   }
 });
 

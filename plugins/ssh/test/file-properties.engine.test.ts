@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import type { FileProperties, FileSession } from "../src/shared/files.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
@@ -13,7 +14,7 @@ test("bound SFTP properties, mutations, conflict and denial stay on the original
   const vaultPath = path.join(root, "vault");
   const desktopUserData = path.join(root, "device");
   await Promise.all([mkdir(vaultPath), mkdir(desktopUserData)]);
-  const engine = await boot({ vaultPath, desktopUserData, create: true });
+  const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
   const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   const primary = await startFakeSsh({ denySetAttributes: (file) => file.endsWith("/protected") });
   const other = await startFakeSsh({

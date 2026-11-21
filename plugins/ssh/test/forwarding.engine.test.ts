@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { FORWARD_BIND, type ForwardRule, type ForwardRun, type SaveForward } from "../src/shared/forwarding.js";
 import type { ConnectionStatus, HostKeyPrompt } from "../src/shared/trust.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 async function api(vaultPath: string, desktopUserData: string, create: boolean) {
-  const engine = await boot({ vaultPath, desktopUserData, create });
+  const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create });
   const client = new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   return { engine, client };
 }
