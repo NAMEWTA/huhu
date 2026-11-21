@@ -10,10 +10,12 @@ import { machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
+import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import type { FollowUps } from "../../automations/src/engine/follow-ups.js";
 import type { TaskDispatchExecutor } from "../src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord, RuleSource } from "../src/engine/dispatch-store.js";
 import type { TaskRuleDispatch } from "../src/engine/index.js";
+import { externalEntries, externalToolEntry } from "./external-tool-entry.js";
 import { TasksService } from "../src/engine/service.js";
 
 const dirs: string[] = [];
@@ -480,7 +482,15 @@ test("命令行分别授权 Agent 任务创建与派遣，不能替换工作区�
   expect(await call(engine, "gateway.update", { capability: "tasks.agent.create", exposed: true })).toMatchObject({ ok: true });
   expect(await call(engine, "tasks.agent.create", { ...input, execution: { ...input.execution, spaceId: "伪造工作区" } }, token)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   const task = await call<TaskDto>(engine, "tasks.agent.create", input, token);
-  expect(task).toMatchObject({ ok: true, data: { type: "agent", origin: { kind: "external", caller: "cli" } } });
+  expect(task).toMatchObject({ ok: true, data: { type: "agent", origin: { kind: "external", caller: "cli" }, body: "" } });
+  const generic = await call<TaskDto>(engine, "tasks.create", { ...input, type: "agent" }, token);
+  expect(generic).toMatchObject({ ok: true, data: { type: "agent", body: "" } });
+  expect(await call(engine, "tasks.read", { id: generic.data.id })).toMatchObject({ ok: true, data: { body: input.body } });
+  for (const capability of ["tasks.update", "tasks.duplicate"]) expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
+  const update = { id: generic.data.id, expectedVersion: generic.data.version, patch: { execution: { ...input.execution, spaceId: "未知 Space" } } };
+  expect(await call(engine, "tasks.update", update, token)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(await call(engine, "tasks.update", { ...update, patch: { body: "已编辑 Agent 任务" } }, token)).toMatchObject({ ok: true, data: { body: "" } });
+  expect(await call(engine, "tasks.duplicate", { id: generic.data.id }, token)).toMatchObject({ ok: true, data: { type: "agent", body: "" } });
   const attempt = intent(task.data);
   expect(await call(engine, "tasks.dispatch", attempt, token)).toMatchObject(denied);
   expect(await call(engine, "gateway.update", { capability: "tasks.dispatch", exposed: true })).toMatchObject({ ok: true });
@@ -1364,4 +1374,117 @@ test("身份未证实的旧版收据保留历史和占用，重开无需认领�
   expect(fake.inspect).not.toHaveBeenCalled();
   expect(readFileSync(file, "utf8")).toBe(oldBytes);
   expect(readFileSync(taskFile)).toEqual(taskBytes);
+});
+
+test.each(externalEntries)("%s 逐项开放、撤销和重查任务的派遣、补充与停止", { timeout: 45_000 }, async (entry) => {
+  const { root, engine, task, fake, run, execution } = await startBoundRun();
+  const configure = async (id: string, exposed: boolean, running = engine) => {
+    expect(await call(running, "gateway.update", { capability: id, exposed })).toMatchObject({ ok: true, data: { exposed, revision: expect.any(Number) } });
+  };
+  const {
+    data: { token },
+  } = await call<{ token: string }>(engine, "gateway.tokens.create", { name: "domain-test" });
+  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  const external = await externalToolEntry(entry, engine, token);
+  const ids = {
+    list: "tasks.dispatch.list",
+    recent: "tasks.dispatch.recent",
+    send: "tasks.supplement",
+    supplement: "tasks.supplement.read",
+    stop: "tasks.dispatch.stop",
+    stopped: "tasks.dispatch.stop.read",
+    internal: "tasks.receipts.consume",
+  };
+  const supplement = { taskId: task.id, runId: run.runId, sessionId: execution.sessionBinding.sessionId, supplementId: randomUUID() };
+  const stopInput = { taskId: task.id, runId: run.runId, dispatchId: run.dispatchId, stopId: randomUUID() };
+  const send = { ...supplement, text: "本机夹具正文", messageIds: [] };
+  const inputs = {
+    [ids.list]: { taskId: task.id },
+    [ids.recent]: { limit: 1 },
+    [ids.send]: send,
+    [ids.supplement]: supplement,
+    [ids.stop]: stopInput,
+    [ids.stopped]: stopInput,
+    [ids.internal]: {},
+  };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  const absent = { ok: false, error: { code: "NOT_FOUND" } };
+  expect(await external.list()).toEqual([]);
+  for (const [id, input] of Object.entries(inputs)) expect(await external.call(id, input)).toMatchObject(denied);
+  expect(
+    await call(engine, "gateway.policy.preview", {
+      changes: [
+        { capability: ids.list, exposed: true },
+        { capability: ids.internal, exposed: true },
+      ],
+    }),
+  ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+  for (const id of [ids.list, ids.recent, ids.supplement, ids.stopped]) await configure(id, true);
+  const initialStarts = vi.mocked(spawn).mock.calls.length;
+  const peek = vi.spyOn(HerdrCore.prototype, "peek");
+  const writes = vi.spyOn(VaultFiles.prototype, "write");
+  try {
+    expect(await external.call(ids.list, inputs[ids.list])).toMatchObject({ ok: true, data: [{ runId: run.runId, session: { id: supplement.sessionId } }] });
+    expect(await external.call(ids.recent, inputs[ids.recent])).toMatchObject({ ok: true, data: [{ dispatch: { runId: run.runId } }] });
+    expect(await external.call(ids.list, { taskId: "missing-task" })).toMatchObject(absent);
+    expect(await external.call(ids.supplement, supplement)).toMatchObject(absent);
+    expect(await external.call(ids.stopped, stopInput)).toMatchObject(absent);
+    expect(writes).not.toHaveBeenCalled();
+    expect(vi.mocked(spawn).mock.calls).toHaveLength(initialStarts);
+    expect(peek).not.toHaveBeenCalled();
+  } finally {
+    writes.mockRestore();
+    peek.mockRestore();
+  }
+
+  await configure(ids.send, true);
+  await configure(ids.stop, true);
+  expect(new Set(await external.list())).toEqual(new Set([ids.list, ids.recent, ids.send, ids.supplement, ids.stop, ids.stopped]));
+  vi.mocked(fake.ready).mockResolvedValue("busy");
+  const interrupt = vi.fn<NonNullable<TaskDispatchExecutor["stop"]>>().mockResolvedValue("stopped");
+  fake.stop = interrupt;
+  expect(await external.call(ids.send, { ...send, sessionId: "wrong-session" })).toMatchObject({ ok: false, error: { code: "RUN_UNKNOWN" } });
+  expect(await external.call(ids.stop, { ...stopInput, runId: "wrong-run" })).toMatchObject(absent);
+  const supplements = await Promise.all([external.call<{ followUpRunId: string }>(ids.send, send), external.call<{ followUpRunId: string }>(ids.send, send)]);
+  expect(supplements[0]).toMatchObject({ ok: true, data: { followUpRunId: expect.any(String) } });
+  expect(supplements[1]).toEqual(supplements[0]);
+  const supplementAccepted = supplements[0];
+  if (!supplementAccepted?.ok) throw Error("未受理补充夹具");
+  const supplementRunId = supplementAccepted.data.followUpRunId;
+  expect(await external.call(ids.send, { ...send, text: "同意图不同输入" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  const stops = await Promise.all([external.call(ids.stop, stopInput), external.call(ids.stop, stopInput)]);
+  for (const result of stops) expect(result).toMatchObject({ ok: true, data: { runId: run.runId, stopId: stopInput.stopId } });
+  await expect.poll(() => external.call(ids.stopped, stopInput)).toMatchObject({ ok: true, data: { status: "stopped" } });
+  expect(interrupt).toHaveBeenCalledExactlyOnceWith({ execution, stopId: stopInput.stopId }, expect.any(AbortSignal));
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  if (entry === "HTTP MCP") {
+    const other = await externalToolEntry(entry, engine, token);
+    expect(await other.call(ids.supplement, supplement)).toMatchObject(absent);
+    expect(await other.call(ids.stopped, stopInput)).toMatchObject(absent);
+  }
+
+  for (const [id, input] of Object.entries(inputs).filter(([id]) => id !== ids.internal)) {
+    await configure(id, false);
+    expect(await external.list()).not.toContain(id);
+    expect(await external.call(id, input)).toMatchObject(denied);
+  }
+  expect(interrupt).toHaveBeenCalledTimes(1);
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  await stop(engine);
+
+  const reopened = await start(root);
+  for (const id of [ids.send, ids.supplement, ids.stop, ids.stopped]) await configure(id, true, reopened);
+  const again = await externalToolEntry(entry, reopened, token);
+  if (entry === "CLI") {
+    expect(await again.call(ids.send, send)).toMatchObject({ ok: true, data: { followUpRunId: supplementRunId, status: "expired" } });
+    expect(await again.call(ids.stop, stopInput)).toMatchObject({ ok: true, data: { status: "stopped" } });
+  } else {
+    expect(await again.call(ids.send, send)).toMatchObject(absent);
+    expect(await again.call(ids.stop, stopInput)).toMatchObject(absent);
+  }
+  expect(await call(reopened, ids.supplement, supplement)).toMatchObject({ ok: true, data: { followUpRunId: supplementRunId, status: "expired" } });
+  expect(await call(reopened, ids.stopped, stopInput)).toMatchObject({ ok: true, data: { status: "stopped" } });
+  expect(interrupt).toHaveBeenCalledTimes(1);
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
 });

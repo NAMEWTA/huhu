@@ -8,6 +8,7 @@ import { canonicalJson } from "../shared/input.js";
 
 const Id = z.string().trim().min(1).max(256);
 const Instant = z.iso.datetime();
+const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
 export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional() }).strict();
 export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
@@ -16,9 +17,10 @@ const StopRecord = z.strictObject({
   status: z.enum(["pending", "sending", ...AgentNativeStopStatusSchema.options]),
   acceptedAt: Instant,
   updatedAt: Instant,
+  toolOwner: Digest.optional(),
 });
 export const StopLookup = DispatchLookup.extend({ runId: Id, stopId: StopRecord.shape.stopId });
-export const StopReceipt = StopLookup.extend(StopRecord.shape);
+export const StopReceipt = StopLookup.extend(StopRecord.omit({ toolOwner: true }).shape);
 export const RuleSource = z.strictObject({
   kind: z.literal("automation"),
   ruleId: Id,
@@ -42,12 +44,13 @@ export const SupplementSource = z.strictObject({
   kind: z.literal("supplement"),
   parent: ExecutionBindingSchema,
   supplementId: Id,
+  toolOwner: Digest.optional(),
   text: z.string().max(20_000).optional(),
   messageIds: z.array(Id).max(32),
 });
 export const FollowUpDispatch = InputIdentity.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
 export const FollowUpSource = FollowUpDispatch.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
-const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), z.strictObject({ kind: z.literal("tool") }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
+const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), z.strictObject({ kind: z.literal("tool"), owner: Digest.optional() }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
 const Snapshot = InputIdentity.extend({
   taskId: Id,
   expectedVersion: z.string(),
@@ -71,7 +74,7 @@ export const DispatchReceipt = DispatchLookup.extend({
 });
 export const TaskDispatchView = DispatchReceipt.extend({
   session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
-  stop: StopRecord.optional(),
+  stop: StopRecord.omit({ toolOwner: true }).optional(),
 });
 export const TaskRunSummary = z.object({
   id: z.string(),
@@ -98,7 +101,6 @@ const RecordFields = z.object({
   startedAt: Instant.nullable(),
   finishedAt: Instant.nullable(),
 });
-const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const OwnedRecord = RecordFields.extend({
   schema: z.literal(2),
   owner: z.object({ vaultId: Id, storageId: Digest }),

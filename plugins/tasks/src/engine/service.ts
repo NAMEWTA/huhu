@@ -268,7 +268,7 @@ export class TasksService {
    * 更新可写字段。`<task>` 内容只替换 `<task>` 区段，评论与区段外的字节保持不变。
    * 版本变化后，在编辑快照仍匹配时重新应用补丁（B09）。旧输入哈希仅覆盖正文与执行配置。
    */
-  async update(id: string, expectedVersion: string, patch: TaskPatch, baseInputHash?: string, baseEditHash?: string): Promise<TaskDto> {
+  async update(id: string, expectedVersion: string, patch: TaskPatch, baseInputHash?: string, baseEditHash?: string, authorize?: (current: TaskDto, type: TaskDto["type"], execution: TaskDto["execution"]) => void): Promise<TaskDto> {
     return this.withRetriedTaskWrite(id, async () => {
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
@@ -291,6 +291,7 @@ export class TasksService {
         nextExec = executionWithDefault(patch.type ?? cur.type, requested && target ? { ...requested, target } : requested);
         changes["execution"] = nextExec;
       }
+      authorize?.(cur, patch.type ?? cur.type, nextExec);
       const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
       const nextBody = body === undefined ? cur.body : (parseTaskBody(body).task ?? "");
       const inputDidChange = taskInputHash(nextBody, nextExec) !== cur.inputHash;
@@ -385,8 +386,9 @@ export class TasksService {
     });
   }
 
-  async duplicate(id: string, origin: TaskOrigin): Promise<TaskDto> {
+  async duplicate(id: string, origin: TaskOrigin, authorize?: (current: TaskDto) => void): Promise<TaskDto> {
     const cur = this.read(id);
+    authorize?.(cur);
     return this.create(
       {
         title: `${cur.title} 副本`.slice(0, 200),

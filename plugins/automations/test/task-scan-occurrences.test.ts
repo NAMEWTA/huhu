@@ -1,20 +1,22 @@
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityCatalogEntry, TaskDto } from "@huhu/contracts";
-import { NotificationStore } from "@huhu/kernel";
-import { exportPackage, importPackage, VaultFiles } from "@huhu/vault";
+import { NotificationStore, OperationReceipts, type HuhuApi } from "@huhu/kernel";
+import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { run as runCli } from "../../../apps/cli/src/main.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
+import { externalEntries, externalToolEntry, type ExternalEntry } from "../../tasks/test/external-tool-entry.js";
 import type { TaskRuleDispatch } from "../../tasks/src/engine/index.js";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "../src/engine/default-task-scan.js";
+import { AutomationsService } from "../src/engine/service.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import { taskScanToolDescriptors } from "../src/engine/task-scan-tools.js";
 import type { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
@@ -25,6 +27,7 @@ const fixture = {
   realtime: false,
   schedule: false,
   scheduler: undefined as Scheduler | undefined,
+  repo: undefined as HuhuApi["vault"]["repo"] | undefined,
   defaults: undefined as DefaultTaskScanService | undefined,
   hold: undefined as ((taskId: string, inputHash: string) => void) | undefined,
   scans: undefined as TaskScanOccurrences | undefined,
@@ -41,6 +44,7 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
   return {
     ...automations,
     apply: ((ctx, api, opts) => {
+      fixture.repo = api.vault.repo;
       const applied = automations.apply(
         ctx,
         {
@@ -191,6 +195,14 @@ test("CLI 逐项开放任务扫描，写权限只保存和修改停用草稿", a
   const created = await create();
   expect(created).toMatchObject({ ok: true, data: { data: { enabled: false } } });
   expect(await create()).toEqual(created);
+  await expose(engine, "automations.create", "automations.update");
+  const generic = await cli<Rule>(engine, "automations.create", { ...draft, title: "通用入口保存扫描草稿" });
+  expect(generic).toMatchObject({ ok: true, data: { body: "", data: { enabled: false } } });
+  expect(await cli(engine, "automations.create", { ...draft, action: { kind: "terminal", shell: "powershell", command: "Write-Output fixture" } })).toMatchObject({
+    ok: false,
+    error: { code: "PERMISSION_DENIED" },
+  });
+  expect(await cli(engine, "automations.update", { id: generic.data.id, expectedVersion: generic.data.version, patch: {}, body: "通用入口更新" })).toMatchObject({ ok: true, data: { body: "" } });
   const target = { id: created.data.id, expectedVersion: created.data.version };
   expect(await cli(engine, scanTools.enable, target)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   expect(await cli(engine, "automations.setEnabled", { ...target, enabled: true })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
@@ -961,4 +973,231 @@ test("停用期间不补扫，既受理任务可单独取消，启用后只补�
   expect(scans.lastScheduledFor(rule.id)).toEqual(at("03:00:00"));
   await invoke(engine, "automations.delete", { id: rule.id });
   expect(await scans.scheduled(rule.id, at("01:15:00"))).toEqual(initial);
+});
+
+async function toolsFor(entry: ExternalEntry, engine: RunningEngine) {
+  const { token } = await invoke<{ token: string }>(engine, "gateway.tokens.create", { name: "automations-domain-fixture" });
+  await invoke(engine, "gateway.mcp.update", { enabled: true, transport: "http" });
+  return { external: await externalToolEntry(entry, engine, token), token };
+}
+
+test.each(externalEntries)("%s 逐项开放、撤销和重查任务跟进", async (entry) => {
+  let { engine } = await start();
+  const task = await createTask(engine, "跟进领域测试任务");
+  const { external, token } = await toolsFor(entry, engine);
+  const ids = { get: "automations.followUps.get", schedule: "automations.followUps.schedule", cancel: "automations.followUps.cancel" };
+  const lookup = { taskId: task.id };
+  const input = { ...lookup, expectedTaskVersion: task.version, scheduledFor: at("02:00:00").toISOString(), expectedRevision: null, intentId: randomUUID() };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  expect(await external.list()).toEqual([]);
+  expect(await external.call(ids.get, lookup)).toMatchObject(denied);
+  expect(await external.call(ids.schedule, input)).toMatchObject(denied);
+  expect(await external.call(ids.cancel, lookup)).toMatchObject(denied);
+
+  await expose(engine, ids.get);
+  expect(await external.list()).toEqual([ids.get]);
+  const writes = vi.spyOn(VaultFiles.prototype, "write");
+  try {
+    expect(await external.call(ids.get, lookup)).toEqual({ ok: true, data: null });
+    expect(await external.call(ids.get, { taskId: "task-wrong" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(writes).not.toHaveBeenCalled();
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  } finally {
+    writes.mockRestore();
+  }
+
+  await expose(engine, ids.schedule);
+  expect(await external.list()).toContain(ids.schedule);
+  expect(await external.call(ids.schedule, { ...input, expectedTaskVersion: "stale" })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const pending = () => external.call<{ revision: string }>(ids.schedule, input);
+  const [first, repeat] = await Promise.all([pending(), pending()]);
+  expect(first).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: input.scheduledFor } });
+  expect(repeat).toEqual(first);
+  if (!first.ok) throw Error(first.error.code);
+  expect(await pending()).toEqual(first);
+  expect(await external.call(ids.schedule, { ...input, scheduledFor: at("03:00:00").toISOString() })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+
+  await expose(engine, ids.cancel);
+  const cancel = { ...lookup, expectedRevision: first.data.revision, intentId: randomUUID() };
+  if (entry === "HTTP MCP") {
+    const other = await externalToolEntry(entry, engine, token);
+    expect(await other.call(ids.get, lookup)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await other.call(ids.cancel, cancel)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  }
+  const calls = await Promise.all([external.call(ids.cancel, cancel), external.call(ids.cancel, cancel)]);
+  expect(calls[0]).toMatchObject({ ok: true, data: { state: "cancelled" } });
+  expect(calls[1]).toEqual(calls[0]);
+  expect(await external.call(ids.cancel, { ...cancel, intentId: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await external.call(ids.get, lookup)).toEqual(calls[0]);
+
+  for (const [id, args] of [
+    [ids.get, lookup],
+    [ids.schedule, input],
+    [ids.cancel, cancel],
+  ] as const) {
+    await invoke(engine, "gateway.update", { capability: id, exposed: false });
+    expect(await external.list()).not.toContain(id);
+    expect(await external.call(id, args)).toMatchObject(denied);
+  }
+  const root = engine.vault.root;
+  await stop(engine);
+  ({ engine } = await start(root));
+  await expose(engine, ids.get, ids.schedule, ids.cancel);
+  const reopened = await externalToolEntry(entry, engine, token);
+  if (entry === "CLI") {
+    expect(await reopened.call(ids.schedule, input)).toEqual(first);
+    expect(await reopened.call(ids.cancel, cancel)).toEqual(calls[0]);
+  } else {
+    expect(await reopened.call(ids.schedule, input)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await reopened.call(ids.cancel, cancel)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  }
+  expect(await call(engine, ids.get, lookup)).toEqual(calls[0]);
+  expect(dispatchRecords(engine)).toEqual([]);
+});
+
+test.each(externalEntries)("%s 取消规则只能作用于指定本机运行和发生", async (entry) => {
+  let { engine } = await start();
+  const { external, token } = await toolsFor(entry, engine);
+  const capability = "automations.cancel";
+  const rule = await invoke<Rule>(engine, "automations.create", { title: "取消夹具", trigger, action: { kind: "terminal", shell: "powershell", command: "Write-Output fixture" } });
+  const state = statSync(engine.vault.stateDir, { bigint: true });
+  const owner = createHash("sha256")
+    .update(JSON.stringify([engine.vault.id, machineId(), filesystemIdentity(state), String(state.birthtimeNs)]))
+    .digest("hex");
+  const makeRun = (activationId: string, terminalOwner = owner) =>
+    fixture.repo!.create("automation-run", { actionKind: "terminal", ruleId: rule.id, trigger: "manual", state: "running", startedAt: at("01:00:00").toISOString(), activationId, terminalOwner }, "");
+  const original = await makeRun("act-original");
+  const replacement = await makeRun("act-replacement");
+  const foreign = await makeRun("act-foreign", "0".repeat(64));
+  const cancelRun = vi.spyOn(AutomationsService.prototype, "cancelRun").mockReturnValue(true);
+  const input = { id: rule.id, runId: original.id, activationId: "act-original", intentId: randomUUID() };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  expect(await external.list()).not.toContain(capability);
+  expect(await external.call(capability, input)).toMatchObject(denied);
+  await expose(engine, capability);
+  expect(await external.list()).toContain(capability);
+  expect(await external.call(capability, { id: rule.id })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  for (const candidate of [
+    { ...input, id: "wrong-rule" },
+    { ...input, runId: replacement.id },
+    { ...input, runId: foreign.id, activationId: "act-foreign" },
+  ]) {
+    expect(await external.call(capability, candidate)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  }
+  const results = await Promise.all([external.call(capability, input), external.call(capability, input)]);
+  expect(results).toEqual([
+    { ok: true, data: { cancelled: true } },
+    { ok: true, data: { cancelled: true } },
+  ]);
+  expect(await external.call(capability, { ...input, runId: replacement.id, activationId: "act-replacement" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(cancelRun).toHaveBeenCalledExactlyOnceWith(original.id);
+
+  const interrupted = { ...input, runId: replacement.id, activationId: "act-replacement", intentId: randomUUID() };
+  const completion = vi.spyOn(OperationReceipts.prototype, "complete").mockImplementationOnce(() => {
+    throw new Error("取消已发出，回执写入中断");
+  });
+  try {
+    expect(await external.call(capability, interrupted)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  } finally {
+    completion.mockRestore();
+  }
+  const unknown = { ok: false, error: { code: "RUN_UNKNOWN", details: { outcome: "unknown", operationId: expect.any(String) } } };
+  expect(await external.call(capability, interrupted)).toMatchObject(unknown);
+  expect(cancelRun.mock.calls).toEqual([[original.id], [replacement.id]]);
+  await invoke(engine, "gateway.update", { capability, exposed: false });
+  expect(await external.list()).not.toContain(capability);
+  expect(await external.call(capability, input)).toMatchObject(denied);
+  const root = engine.vault.root;
+  await stop(engine);
+  ({ engine } = await start(root));
+  await expose(engine, capability);
+  if (entry === "CLI") {
+    const reopened = await externalToolEntry(entry, engine, token);
+    expect(await reopened.call(capability, input)).toEqual(results[0]);
+    expect(await reopened.call(capability, interrupted)).toMatchObject(unknown);
+  }
+  expect(cancelRun.mock.calls).toEqual([[original.id], [replacement.id]]);
+});
+
+test.each(externalEntries)("%s 终端环境与批准能力逐项开放，本机批准不能自签", async (entry) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-terminal-tools-"));
+  dirs.push(dir);
+  const desktopUserData = path.join(dir, "app");
+  const vaultPath = path.join(dir, "vault");
+  mkdirSync(desktopUserData);
+  mkdirSync(vaultPath);
+  const engine = await boot({ vaultPath, desktopUserData, create: true });
+  engines.push(engine);
+  const { external } = await toolsFor(entry, engine);
+  const rule = await invoke<Rule>(engine, "automations.create", { title: "固定终端规则", trigger, action: { kind: "terminal", shell: "powershell", command: "Write-Output fixture" } });
+  const ids = {
+    get: "automations.terminal.environment.get",
+    save: "automations.terminal.environment.save",
+    review: "automations.terminal.approval.review",
+    revoke: "automations.terminal.approval.revoke",
+    approve: "automations.terminal.approval.approve",
+  };
+  const lookup = { ruleId: rule.id };
+  const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  const name = "HUHU_RULE_SECRET_TEST";
+  const unapproved = { ...lookup, expectedRevision: null, expectedRuleVersion: rule.version, names: [name], changes: [{ name, action: "keep" }], intentId: randomUUID() };
+  let revoke = { ...lookup, expectedApprovalId: String(randomUUID()), expectedRuleVersion: rule.version, intentId: randomUUID() };
+
+  expect(await external.list()).toEqual([]);
+  for (const id of Object.values(ids)) expect(await external.call(id, lookup)).toMatchObject(denied);
+  expect(
+    await call(engine, "gateway.policy.preview", {
+      changes: [
+        { capability: ids.get, exposed: true },
+        { capability: ids.approve, exposed: true },
+      ],
+    }),
+  ).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  await expose(engine, ids.get, ids.save, ids.review, ids.revoke);
+  expect(new Set(await external.list())).toEqual(new Set([ids.get, ids.save, ids.review, ids.revoke]));
+  expect(await external.call(ids.get, lookup)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await external.call(ids.save, unapproved)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await external.call(ids.approve, lookup)).toMatchObject(denied);
+
+  const reviewed = await external.call<{ ruleVersion: string; target: string; names: string[]; approvalId: string | null }>(ids.review, lookup);
+  if (process.platform === "win32") {
+    expect(reviewed).toMatchObject({ ok: true, data: { command: "Write-Output fixture", approvalId: null } });
+    if (!reviewed.ok) throw Error(reviewed.error.code);
+    const approval = { ...lookup, expectedRuleVersion: reviewed.data.ruleVersion, target: reviewed.data.target, names: [name], expectedApprovalId: null };
+    expect(await external.call(ids.approve, approval)).toMatchObject(denied);
+    const { approvalId } = await invoke<{ approvalId: string }>(engine, ids.approve, approval);
+    const writes = vi.spyOn(VaultFiles.prototype, "write");
+    try {
+      expect(await external.call(ids.review, lookup)).toMatchObject({ ok: true, data: { approvalId, names: [name] } });
+      expect(await external.call(ids.get, lookup)).toMatchObject({ ok: true, data: { names: [name], states: { [name]: "unconfigured" } } });
+      expect(writes).not.toHaveBeenCalled();
+    } finally {
+      writes.mockRestore();
+    }
+    expect(await external.call(ids.save, { ...unapproved, names: ["HUHU_RULE_SECRET_UNAPPROVED"] })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    const saved = await Promise.all([external.call(ids.save, unapproved), external.call(ids.save, unapproved)]);
+    expect(saved[0]).toMatchObject({ ok: true, data: { revision: expect.any(String), names: [name] } });
+    expect(saved[1]).toEqual(saved[0]);
+    revoke = { ...revoke, expectedApprovalId: approvalId };
+    const revoked = await Promise.all([external.call(ids.revoke, revoke), external.call(ids.revoke, revoke)]);
+    expect(revoked).toEqual([
+      { ok: true, data: { revoked: true } },
+      { ok: true, data: { revoked: true } },
+    ]);
+    expect(await external.call(ids.get, lookup)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  } else {
+    expect(reviewed).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await external.call(ids.revoke, revoke)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  }
+
+  for (const [id, input] of [
+    [ids.get, lookup],
+    [ids.save, unapproved],
+    [ids.review, lookup],
+    [ids.revoke, revoke],
+  ] as const) {
+    await invoke(engine, "gateway.update", { capability: id, exposed: false });
+    expect(await external.list()).not.toContain(id);
+    expect(await external.call(id, input)).toMatchObject(denied);
+  }
 });
