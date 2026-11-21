@@ -25,6 +25,7 @@ export function discoverCapabilities(dispatcher: Dispatcher, caller: Caller) {
 }
 
 export const unknownTool = (name: string) => ({ ok: false as const, error: errors.capabilityNotFound(name).toJSON() });
+const revokedSession = { ok: false as const, error: errors.permissionDenied("当前会话已撤销").toJSON() };
 
 /** 两个监听器共用请求契约和 Dispatcher，认证由各自的宿主提供。 */
 export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher: Dispatcher, authorize: AuthorizeCapabilityHttp, inflight = new Map<Caller, number>(), resolveTool?: (name: string) => string | undefined): void {
@@ -68,7 +69,7 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
     }
     const req = CapabilityRequestSchema.safeParse(body);
     if (!req.success) return c.json({ error: "请求格式错误", issues: req.error.issues }, 400);
-    if (signal?.aborted) return c.json({ error: "会话不可用" }, 401);
+    if (signal?.aborted) return c.json(revokedSession, 401);
     const n = inflight.get(caller) ?? 0;
     if (n >= MAX_CONCURRENT_PER_TOKEN) return c.json({ error: "并发调用过多" }, 429);
     inflight.set(caller, n + 1);
@@ -77,7 +78,7 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
       if (!capability) return c.json(unknownTool(req.data.capability));
       const requestSignal = signal ? AbortSignal.any([c.req.raw.signal, signal]) : c.req.raw.signal;
       const result = await dispatcher.call(caller, { ...req.data, capability }, requestSignal, subject);
-      return signal?.aborted ? c.json({ error: "会话不可用" }, 401) : c.json(result);
+      return signal?.aborted ? c.json(revokedSession, 401) : c.json(result);
     } finally {
       const remaining = (inflight.get(caller) ?? 1) - 1;
       if (remaining > 0) inflight.set(caller, remaining);
@@ -89,7 +90,7 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
   app.get("/api/v1/operations", (c) => {
     c.header("cache-control", "no-store");
     const { caller, subject = caller, signal } = c.get("principal");
-    if (signal?.aborted) return c.json({ error: "会话不可用" }, 401);
+    if (signal?.aborted) return c.json(revokedSession, 401);
     const lookup = CapabilityOperationLookupSchema.safeParse(c.req.query());
     if (!lookup.success) return c.json({ ok: false, error: errors.invalidInput("操作查询参数不符合要求", lookup.error.issues).toJSON() });
     return c.json(dispatcher.readOperation(caller, subject, lookup.data));

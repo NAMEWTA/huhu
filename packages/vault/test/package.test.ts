@@ -21,6 +21,7 @@ function makeVault() {
   mkdirSync(path.join(root, ".huhu/safe"), { recursive: true });
   writeFileSync(path.join(root, ".huhu/vault.json"), JSON.stringify({ kind: "huhu-vault", id: "vault-abc123", name: "测试库", description: "", formatVersion: 1, createdAt: "2026-11-10T00:00:00Z" }));
   writeFileSync(path.join(root, ".huhu/runtime/m1/engine.json"), "runtime");
+  writeFileSync(path.join(root, ".huhu/gateways.json"), '{"tokens":[{"id":"local-fixture"}]}');
   writeFileSync(path.join(root, ".huhu/safe/keyring.json"), "{}");
   writeFileSync(path.join(root, "笔记.md"), "# 笔记\n");
   writeFileSync(path.join(root, "pic.png"), Buffer.from([1, 2, 3]));
@@ -40,7 +41,7 @@ function evilZip(files: Record<string, string>, manifestFiles?: { path: string; 
 const VJ = JSON.stringify({ kind: "huhu-vault", id: "vault-evil1", name: "e", description: "", formatVersion: 1, createdAt: "" });
 
 describe("数据包", () => {
-  test("导出排除 runtime，导入后哈希一致，保留 vaultId", async () => {
+  test("导出排除运行和认证状态，导入后保留业务数据及 Vault ID", async () => {
     const root = makeVault();
     const zip = path.join(tmp(), "out.zip");
     const m = await exportPackage(root, zip);
@@ -51,6 +52,7 @@ describe("数据包", () => {
     expect(readFileSync(path.join(target, "笔记.md"), "utf8")).toBe("# 笔记\n");
     expect([...readFileSync(path.join(target, "pic.png"))]).toEqual([1, 2, 3]);
     expect(existsSync(path.join(target, ".huhu/runtime"))).toBe(false);
+    expect(existsSync(path.join(target, ".huhu/gateways.json"))).toBe(false);
   });
   test("不含附件", async () => {
     const m = await exportPackage(makeVault(), path.join(tmp(), "o.zip"), { includeAttachments: false });
@@ -60,6 +62,7 @@ describe("数据包", () => {
     const file = evilZip({
       ".huhu/vault.json": VJ,
       ".huhu/agent-cli/spaces/space-fixture.json": "{}",
+      ".huhu/Gateways.json": '{"tokens":[{"id":"local-fixture"}]}',
       ".huhu/runtime/win/herdr/state/herdr-core/huhu/docs.json": "{}",
       ".huhu/agent-cli/sessions/sess-fixture.json": "{}",
       ".huhu/agent-cli/launch-requests/fixture.json": "{}",

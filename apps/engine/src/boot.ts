@@ -136,6 +136,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("safe", safe.safeCapabilityDescriptors);
   registry.declareDescriptors("agent-cli", Object.values(agentCli.agentEnvironmentDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
+  registry.declareDescriptors("automations", Object.values(automations.taskScanToolDescriptors));
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData) : undefined;
@@ -173,10 +174,21 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       mail.withMailSnapshot(vault.files, () => {
         signal.throwIfAborted();
         const retained = mail.mailAttachmentPackagePaths(vault.files);
-        return read(signal, (relative) => {
-          const normalized = relative.toLowerCase();
-          if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
-          return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
+        return read(signal, {
+          includeFile(relative) {
+            const normalized = relative.toLowerCase();
+            if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
+            return !normalized.startsWith(".huhu/mail/attachments/") || retained.has(normalized);
+          },
+          verifyFiles(files) {
+            const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
+            for (const [path, expected] of safeFiles) {
+              if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
+            }
+            for (const path of retained) {
+              if (written.get(path) !== path.split("/").at(-1)) throw new HuhuError("INVALID_INPUT", "备份所需的邮件附件已变化或缺失，请重新核对后导出");
+            }
+          },
         });
       }),
     ),
@@ -404,6 +416,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
+        taskScanPrincipalCurrent: (caller, subject) => tokens.hasPrincipal(caller, subject) && (caller !== "mcp" || gatewayTokens.mcp().enabled),
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
         cliAvailable: (p) => exes[p] !== undefined,
         refreshClis,

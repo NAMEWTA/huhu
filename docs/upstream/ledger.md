@@ -36,6 +36,7 @@
 | R-67 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/sftpclient/{walk,text,worker}.go`、`write_protocol_test.go` | `plugins/ssh/src/engine/{file-sessions,sftp,transfers,transfer-io}.ts` | 参考绑定文件会话、文本保存、传输队列、续传及提交恢复。以 Huhu 的 SSH 连接身份、ssh2 流与 Workbench 界面实现。 |
 | R-68 | Pi CLI 1.5.2，`b4afdddf44e059c67ccf5097e5317d913521b470`（MIT，Mario Zechner） | [会话格式](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/docs/session-format.md)、[加载和分支](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/src/main.ts)、[许可证](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/LICENSE) | `plugins/agent-cli/src/engine/{history,launch.ts,sessions.ts}` | Huhu 读取原生 JSONL 的会话头和父子关系，调用本机 Pi 的 `--session` 和 `--fork`，根据实际扫描范围解析文件，经现有 Core 布局与启动对账执行。未复制或分发 Pi 源码。 |
 | R-69 | Open Knowledge `b2af296a73049ddd47f6d679b36774ecbdd3d19b`（GPL-3.0-or-later） | `packages/desktop/src/main/window-chrome.ts` | `apps/desktop/src/main/window-chrome.ts` | 沿用按平台启用原生标题控件、更新 overlay 和检查存活窗口的结构。Huhu 使用自己的标题尺寸、根主题颜色、IPC 主框架检查和退出事务。 |
+| R-70 | Motty `2daa9db582e16edf60a60b7ada26f47f808f973c`（Apache-2.0） | `internal/sshconn/integration.go`、`internal/sshconn/integration_unix_test.go`、`internal/term/cwd.go`、`LICENSE` | `plugins/ssh/src/engine/{shell-directory,manager,file-sessions}.ts` | 参考私有 Shell 启动脚本和提示符上报。Huhu 绑定现有 Shell 与 SFTP 会话，以一次性目录选择、工作区分栏和空闲状态约束反向切换。 |
 
 ## 安装包依赖
 

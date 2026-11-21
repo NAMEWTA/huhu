@@ -49,11 +49,9 @@ function sha256File(file: string): Promise<string> {
 }
 
 /** vault.exportPackage / vault.importPackage（interfaces.md §2；仅桌面可用）。 */
-export function registerPackageCapabilities(
-  registry: CapabilityRegistry,
-  vault: Vault,
-  withSnapshot?: <T>(read: (signal: AbortSignal, includeFile?: (relative: string) => boolean) => Promise<T>, signal: AbortSignal) => Promise<T>,
-): () => void {
+type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "includeFile" | "verifyFiles">;
+
+export function registerPackageCapabilities(registry: CapabilityRegistry, vault: Vault, withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal) => Promise<T>): () => void {
   const desktop = { plugin: "kernel", exposable: false, defaultExposed: false, desktopOnly: true } as const;
   const offs = [
     registry.register(
@@ -70,7 +68,7 @@ export function registerPackageCapabilities(
           if (!existsSync(path.dirname(i.dest)) || !statSync(path.dirname(i.dest)).isDirectory()) throw errors.invalidInput("导出目录不存在");
           if (lexists(i.dest)) throw errors.invalidInput("目标文件已存在，不会覆盖"); // lstat：悬空符号链接也算已存在
           if (within(realpathSync(vault.root), realish(i.dest))) throw errors.invalidInput("不能把数据包导出到 Vault 自己的目录里");
-          const build = (signal: AbortSignal, includeFile?: (relative: string) => boolean) => exportPackage(vault.root, i.dest, { includeAttachments: i.includeAttachments, signal, ...(includeFile && { includeFile }) });
+          const build = (signal: AbortSignal, selection?: ExportSelection) => exportPackage(vault.root, i.dest, { includeAttachments: i.includeAttachments, signal, ...selection });
           const m = await (withSnapshot ? withSnapshot(build, c.signal) : build(c.signal));
           return { path: i.dest, size: statSync(i.dest).size, sha256: await sha256File(i.dest), files: m.files.length, vaultId: m.vaultId };
         },

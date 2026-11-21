@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
-import type { CapabilityDiscoveryEntry, CapabilityOperationLookup, CapabilityResult } from "@huhu/contracts";
+import { CapabilityResultSchema, type CapabilityDiscoveryEntry, type CapabilityOperationLookup, type CapabilityResult } from "@huhu/contracts";
 import { MAX_BODY_BYTES } from "@huhu/kernel";
 import { ConnectError, type Connection } from "../connect.js";
 
@@ -52,8 +52,10 @@ async function request(conn: Connection, route: string, init?: RequestInit): Pro
 }
 
 async function requestError(res: Response): Promise<CapabilityResult<never>> {
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
-  return { ok: false, error: { code: "INTERNAL", message: body?.error ?? `HTTP ${res.status}`, retryable: false } };
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  const result = CapabilityResultSchema.safeParse(body);
+  if (result.success && !result.data.ok) return result.data;
+  return { ok: false, error: { code: "INTERNAL", message: typeof body?.error === "string" ? body.error : `HTTP ${res.status}`, retryable: false } };
 }
 
 export async function callCapability(conn: Connection, capability: string, input: unknown, nameFormat?: "mcp", intentKey?: string): Promise<CapabilityResult<unknown>> {

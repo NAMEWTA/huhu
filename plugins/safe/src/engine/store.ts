@@ -146,7 +146,7 @@ function withSafeSnapshot<T>(files: SafeFiles, operation: () => Promise<T>): Pro
   return committed;
 }
 
-export function withSafePackageSnapshot<T>(files: SafeFiles, read: (included: ReadonlySet<string>) => Promise<T>): Promise<T> {
+export function withSafePackageSnapshot<T>(files: SafeFiles, read: (required: ReadonlyMap<string, string>) => Promise<T>): Promise<T> {
   return withSafeSnapshot(files, () => read(new SafeStore(files, path.join(files.root, ".huhu", "safe")).packageFiles()));
 }
 
@@ -275,18 +275,23 @@ export class SafeStore {
     return withSafeSnapshot(this.files, operation);
   }
 
-  packageFiles(): ReadonlySet<string> {
+  packageFiles(): ReadonlyMap<string, string> {
     const state = this.load();
     if (state.kind === "corrupt") throw corruptStore(state.file);
-    if (state.kind === "empty") return new Set();
+    if (state.kind === "empty") return new Map();
     if (!state.manifest) throw errors.invalidInput("保险箱是旧格式，无法生成当前格式的备份");
     const files = new Set([state.file, `${this.relativeDir}/current/${MANIFEST}`]);
     for (const [id, revision] of Object.entries(state.manifest.entries)) files.add(this.entryFile(id, revision));
     if (state.manifest.tags !== null) files.add(this.tagsFile(state.manifest.tags));
+    const required = new Map<string, string>();
     for (const file of files) {
       if (!entryAt(this.files.abs(file))?.isFile()) throw corruptStore("备份所需的保险箱文件");
+      const snapshot = this.files.read(file);
+      if (!snapshot) throw corruptStore("备份所需的保险箱文件");
+      required.set(file, createHash("sha256").update(snapshot.bytes).digest("hex"));
     }
-    return files;
+    this.assertVersion(state);
+    return required;
   }
 
   private current(): CurrentSafe {

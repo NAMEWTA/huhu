@@ -52,6 +52,10 @@ export class TokenTable {
     return this.principal(token)?.caller ?? null;
   }
 
+  hasPrincipal(caller: Caller, subject: string): boolean {
+    return this.entries.some((entry) => entry.caller === caller && entry.subject === subject && !entry.lifetime.signal.aborted);
+  }
+
   principal(token: string | undefined): { caller: Caller; subject: string; signal: AbortSignal } | null {
     if (!token) return null;
     const h = digest(token);

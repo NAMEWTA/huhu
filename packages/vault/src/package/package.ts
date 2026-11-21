@@ -21,7 +21,7 @@ const ManifestSchema = z.object({
 });
 export type PackageManifest = z.infer<typeof ManifestSchema>;
 
-const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history"]);
+const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history", "gateways.json"]);
 const IGNORED_ROOT = new Set([".git", "node_modules", ".agents"]);
 
 function localState(relative: string): boolean {
@@ -56,7 +56,11 @@ function collect(root: string, includeAttachments: boolean, includeFile?: (relat
  * 导出受管数据包（zip）：逐个文件读取、压缩并写出，内存里只有当前文件；文件之间让出事件循环，
  * 所以大 Vault 导出不会让 Engine 长时间无响应。`signal` 触发时不留下半成品。
  */
-export async function exportPackage(root: string, dest: string, opts: { includeAttachments?: boolean; signal?: AbortSignal; includeFile?: (relative: string) => boolean } = {}): Promise<PackageManifest> {
+export async function exportPackage(
+  root: string,
+  dest: string,
+  opts: { includeAttachments?: boolean; signal?: AbortSignal; includeFile?: (relative: string) => boolean; verifyFiles?: (files: readonly PackageManifest["files"][number][]) => void } = {},
+): Promise<PackageManifest> {
   const vault = VaultJsonSchema.parse(JSON.parse(readFileSync(path.join(root, HUHU_DIR, "vault.json"), "utf8")));
   const files = collect(root, opts.includeAttachments ?? true, opts.includeFile);
   const entries: PackageManifest["files"] = [];
@@ -92,6 +96,7 @@ export async function exportPackage(root: string, dest: string, opts: { includeA
       await addFile(rel, bytes);
       if (++n % 20 === 0) await new Promise((r) => setImmediate(r));
     }
+    opts.verifyFiles?.(entries);
     const manifest: PackageManifest = { format: "huhu-package", version: 1, vaultId: vault.id, vaultName: vault.name, createdAt: new Date().toISOString(), files: entries };
     await addFile(PACKAGE_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2)));
     zip.end();

@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityCatalogEntry, TaskDto } from "@huhu/contracts";
-import { CapabilityRegistry, GatewayTokens, NotificationStore, TokenTable } from "@huhu/kernel";
+import { NotificationStore } from "@huhu/kernel";
 import { exportPackage, importPackage, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -40,7 +40,6 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
   return {
     ...automations,
     apply: ((ctx, api, opts) => {
-      const gateway = new GatewayTokens(path.join(api.vault.stateDir, "gateways.json"), new TokenTable());
       const applied = automations.apply(
         ctx,
         {
@@ -59,7 +58,6 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
           now: fixtureNow,
           refreshClis: fixture.refresh,
           cliAvailable: () => true,
-          taskScanPrincipalCurrent: (caller, subject) => (caller === "http" ? gateway.list().some(({ id }) => id === subject) : subject === caller && (caller !== "mcp" || gateway.mcp().enabled)),
         },
       );
       fixture.scheduler = applied.scheduler;
@@ -109,17 +107,6 @@ beforeEach(() => {
   fixture.accept.mockReset();
   fixture.refresh.mockReset().mockResolvedValue(undefined);
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
-  const declare = CapabilityRegistry.prototype.declareDescriptors;
-  vi.spyOn(CapabilityRegistry.prototype, "declareDescriptors").mockImplementation(function (this: CapabilityRegistry, plugin, descriptors) {
-    if (plugin !== "automations") return declare.call(this, plugin, descriptors);
-    // Mirror the Lead-owned builtin descriptor registration while testing this plugin in isolation.
-    const provided = new Map([...Object.values(taskScanToolDescriptors), ...descriptors].map((descriptor) => [descriptor.name, descriptor]));
-    declare.call(
-      this,
-      plugin,
-      [...provided.values()].filter(({ name }) => !this.getDescriptor(name)),
-    );
-  });
 });
 
 afterEach(async () => {

@@ -44,6 +44,47 @@ const draftsFile = ".huhu/mail/drafts.json";
 const objects = ".huhu/mail/attachments";
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
+testWindows(
+  "只读 Engine 不能发布在独立 Safe 写入后已不连贯的整库包",
+  async () => {
+    await fixture(async (root, _vaultPath, open) => {
+      const writer = await open({ create: true });
+      const reader = await open({ readOnly: true });
+      const password = randomUUID();
+      expect(await call(writer, "safe.setup", { password })).toMatchObject({ ok: true });
+      const status = await call(writer, "safe.status", {});
+      assert(status.ok);
+      const session = status.data;
+      const created = await call(writer, "safe.entries.create", { session, expectedRevision: 0, name: "导出并发夹具", accounts: [{ account: "fixture", password: randomUUID() }] });
+      assert(created.ok);
+      const { entryId, revision, accountIds } = created.data as { entryId: string; revision: number; accountIds: string[] };
+
+      const pathBeforeWrite = path.join(root, "readonly-race.zip");
+      const entered = Promise.withResolvers<void>();
+      const resume = Promise.withResolvers<void>();
+      shared.beforeExport.set(pathBeforeWrite, () => {
+        entered.resolve();
+        return resume.promise;
+      });
+      const exportAttempt = call(reader, "vault.exportPackage", { dest: pathBeforeWrite });
+      try {
+        expect(await Promise.race([entered.promise.then(() => "entered"), exportAttempt.then(() => "finished")])).toBe("entered");
+        expect(await call(writer, "safe.accounts.update", { session, entryId, expectedRevision: revision, accountId: accountIds[0], password: { kind: "set", value: randomUUID() } })).toMatchObject({ ok: true });
+      } finally {
+        resume.resolve();
+      }
+      expect(await exportAttempt).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+      expect(existsSync(pathBeforeWrite)).toBe(false);
+      expect(readdirSync(root).some((entry) => entry.endsWith(".partial"))).toBe(false);
+
+      const stable = path.join(root, "readonly-stable.zip");
+      expect(await call(reader, "vault.exportPackage", { dest: stable })).toMatchObject({ ok: true });
+      expect(importPackage(stable, path.join(root, "read-only-restored")).files).toBeGreaterThan(3);
+    });
+  },
+  30_000,
+);
+
 async function fixture(run: (root: string, vaultPath: string, open: (options?: Partial<Parameters<typeof boot>[0]>) => Promise<RunningEngine>) => Promise<void>) {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-attachments-"));
   const vaultPath = path.join(root, "vault");
