@@ -93,13 +93,15 @@ export class GitRunner {
   private exec(args: string[], opts: RunOpts, enc: "utf8" | "buffer"): Promise<GitResult | Buffer> {
     // core.quotepath=false：非 ASCII 路径（中文文件名）原样输出，不转义成八进制；
     // core.autocrlf=false：Windows 的系统 / 用户配置常把它设为 true，合并 / 检出时会改写用户笔记的换行符，Vault 里的文件必须字节保真
-    const base = ["-c", "core.quotepath=false", "-c", "core.autocrlf=false", ...(this.o.gitDir ? ["--git-dir", this.o.gitDir, "--work-tree", this.o.workTree] : ["-C", this.o.workTree])];
+    const base = ["-c", "core.quotepath=false", "-c", "core.autocrlf=false", "-c", "core.fsmonitor=false", ...(this.o.gitDir ? ["--git-dir", this.o.gitDir, "--work-tree", this.o.workTree] : ["-C", this.o.workTree])];
     return new Promise((resolve, reject) => {
       if (opts.signal?.aborted) return reject(gitCancelled());
       let timedOut = false;
       const file = this.o.bin ?? "git";
       const argv = [...base, ...args];
-      const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", ...this.o.env, ...opts.env };
+      const env = { ...process.env };
+      for (const name of ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE"]) delete env[name];
+      Object.assign(env, { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_LITERAL_PATHSPECS: "1", GIT_NO_LAZY_FETCH: "1" }, this.o.env, opts.env);
       const privatePosixGroup = opts.privateNetwork === true && process.platform !== "win32" && opts.signal !== undefined;
       const complete = (err: Error | null, stdout: Buffer, stderr: Buffer) => {
         clearTimeout(timer);

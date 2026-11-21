@@ -14,6 +14,10 @@
     "homeWidgets": ["git"],
     "commands": [],
     "capabilities": [
+      "conflicts.cancel",
+      "conflicts.list",
+      "conflicts.read",
+      "conflicts.resolve",
       "git.commit",
       "git.diff",
       "git.init",

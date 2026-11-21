@@ -1,6 +1,7 @@
 import { HuhuError, errors } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialAction, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
 import { z } from "zod";
+import { canSendAuthentication } from "../shared/git-auth.js";
 
 const Definition = z.strictObject({ target: z.string().min(1) });
 type Definition = z.infer<typeof Definition>;
@@ -59,6 +60,15 @@ export function isPlainSyncRemote(remote: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** External actions may address the supported network transports only. */
+export function toolRemote(remote: string): string {
+  if (!remote) return "";
+  const http = httpTarget(remote);
+  if (http && canSendAuthentication(http)) return http;
+  if (/^(?:ssh:\/\/(?:[\w.-]+@)?[a-z0-9][\w.-]*(?::\d+)?\/|(?:[\w.-]+@)?[a-z0-9][\w.-]*:)[\w.~/+-]+$/i.test(remote) && !remote.startsWith("-")) return remote;
+  throw errors.invalidInput("Git 工具仅接受 HTTPS 或 SSH 远端");
 }
 
 /** Use the same canonical URL for the binding and the Git invocation. */
@@ -120,7 +130,7 @@ export class GitRemoteCredentials {
     return entry ? summarize(entry, target) : { revision: null, state: this.owner ? "unconfigured" : "temporarily-unavailable" };
   }
 
-  async configure(target: string, { expectedRevision, credential }: ConfigureGitAuth, signal: AbortSignal): Promise<GitAuthSummary> {
+  async configure(target: string, { expectedRevision, credential }: ConfigureGitAuth, signal: AbortSignal, check?: () => void): Promise<GitAuthSummary> {
     if (!this.owner) throw authenticationFailed("local-protection-unavailable");
     const existing = await this.entry();
     if ((existing?.revision ?? null) !== expectedRevision) throw errors.versionConflict(existing?.revision ?? "");
@@ -129,7 +139,21 @@ export class GitRemoteCredentials {
       return { purpose, action: "replace", value: credential[purpose], ...(credential.reconfigure ? { reconfigure: true as const } : {}) };
     });
     const definition = { target };
-    const entry = await this.owner.save({ entityId: ID, expectedRevision, definition, actions, signal }).catch(mapCredentialError);
+    const entry = await this.owner
+      .save({
+        entityId: ID,
+        expectedRevision,
+        definition,
+        actions,
+        signal,
+        ...(check && {
+          isCurrent: () => {
+            check();
+            return true;
+          },
+        }),
+      })
+      .catch(mapCredentialError);
     return summarize({ ...entry, definition }, target);
   }
 

@@ -10,6 +10,7 @@ export interface ConflictFile {
   base: Stage | null;
   ours: Stage | null;
   theirs: Stage | null;
+  summary?: { kind: "blocks" | "whole"; blocks: number; reason?: string };
 }
 
 /**

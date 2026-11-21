@@ -26,7 +26,8 @@ export interface WholeSide {
   binary?: boolean;
   preview?: string;
 }
-export type ConflictFileView = { path: string; kind: "blocks"; segments: (Segment & { index?: number })[] } | { path: string; kind: "whole"; reason: string; ours: WholeSide; theirs: WholeSide };
+type IndexedSegment = Extract<Segment, { kind: "common" }> | (Extract<Segment, { kind: "conflict" }> & { index: number });
+export type ConflictFileView = { path: string; kind: "blocks"; segments: IndexedSegment[] } | { path: string; kind: "whole"; reason: string; ours: WholeSide; theirs: WholeSide };
 
 export interface ConflictListing {
   id: string;
@@ -75,11 +76,20 @@ export class SyncConflicts {
     const { tree, files } = parseMergeTree(r.stdout);
     if (r.code === 0) return { tree };
     if (files.length === 0) return undefined;
-    return { conflict: this.record(localHead, remoteHead, remoteRef, files) };
+    return { conflict: await this.record(localHead, remoteHead, remoteRef, files) };
   }
 
-  record(localHead: string, remoteHead: string, remoteRef: string, files: ConflictFile[], safeGeneration = false): ConflictSession {
-    const s: ConflictSession = { id: `cf-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, createdAt: new Date().toISOString(), localHead, remoteHead, remoteRef, files, ...(safeGeneration ? { safeGeneration } : {}) };
+  async record(localHead: string, remoteHead: string, remoteRef: string, files: ConflictFile[], safeGeneration = false): Promise<ConflictSession> {
+    const projected = await Promise.all(files.map(async (file) => ({ ...file, summary: await this.summarize(file) })));
+    const s: ConflictSession = {
+      id: `cf-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      localHead,
+      remoteHead,
+      remoteRef,
+      files: projected,
+      ...(safeGeneration ? { safeGeneration } : {}),
+    };
     saveSession(this.root, s);
     return s;
   }
@@ -107,14 +117,16 @@ export class SyncConflicts {
     return s;
   }
 
+  private async summarize(file: ConflictFile): Promise<NonNullable<ConflictFile["summary"]>> {
+    const analysis = await this.analyze(file).catch(() => ({ kind: "whole", reason: "读取冲突内容失败（对象库缺失，请重新同步）" }) as const);
+    return analysis.kind === "blocks" ? { kind: "blocks", blocks: countConflicts(analysis.segments) } : { kind: "whole", blocks: 0, reason: analysis.reason };
+  }
+
   async list(): Promise<ConflictListing | null> {
     const s = this.session();
     if (!s) return null;
     const files: ConflictListing["files"] = [];
-    for (const f of s.files) {
-      const a = await this.analyze(f).catch(() => ({ kind: "whole", reason: "读取冲突内容失败（对象库缺失，请重新同步）" }) as Analysis);
-      files.push(a.kind === "blocks" ? { path: f.path, kind: "blocks", blocks: countConflicts(a.segments) } : { path: f.path, kind: "whole", blocks: 0, reason: a.reason });
-    }
+    for (const f of s.files) files.push({ path: f.path, ...(await this.summarize(f)) });
     return { id: s.id, createdAt: s.createdAt, localHead: s.localHead, remoteHead: s.remoteHead, files };
   }
 
