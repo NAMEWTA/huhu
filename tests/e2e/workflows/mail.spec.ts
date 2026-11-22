@@ -332,7 +332,10 @@ test("桌面邮件用原生选择结果导入受管附件，重开草稿后可�
 test("窄屏 Web 工作台流式上传 9 MiB 邮件附件，重开草稿验证哈希并可取消", async () => {
   const edge = process.platform === "win32" ? path.join(process.env["ProgramFiles(x86)"] ?? "C:/Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe") : "";
   const executablePath = [chromium.executablePath(), edge].find((file) => file && existsSync(file));
-  test.skip(!executablePath, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
+  if (!executablePath) {
+    test.skip(true, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
+    return;
+  }
   const { page, vault, close } = await openApp();
   let browser: Browser | undefined;
   const subject = "Web 流附件夹具";
@@ -429,7 +432,7 @@ test("邮件阅读按单封放行图片，原文和切换邮件保持默认屏�
     await page.getByRole("button", { name: "邮件", exact: true }).first().click();
     const timeline = page.getByRole("region", { name: "往来邮件", exact: true });
     await expect(timeline.locator("[data-mail-timeline-message]")).toHaveText(subjects);
-    await timeline.getByRole("button", { name: subjects[0] }).click();
+    await timeline.getByRole("button", { name: subjects[0]! }).click();
     await page.getByRole("region", { name: "邮件阅读", exact: true }).scrollIntoViewIfNeeded();
     const reader = page.getByRole("region", { name: "正文", exact: true });
     await expect(reader).toContainText("合成长正文");
