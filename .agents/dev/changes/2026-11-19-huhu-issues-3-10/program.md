@@ -26,6 +26,10 @@ Linux 原生实现候选 `d0f50bbb` 已通过 Go 测试、Linux helper 构建、
 
 Mail 进一步以 `dbe58665` 将部分恢复豁免绑定到原主体、ZIP 和完整选择，支持已显式独立恢复批次的原参数续跑。Lead `t99` 完整 `outbox-engine.test.ts` 20/20 与 Mail 定向类型检查通过，日志 `temp/issue-evidence/huhu-2026-11-22/mail-batch-recheck.log`。审查中关于未发布旧开发候选恢复日志迁移的建议不作为本轮新格式交付要求；当前版 v1/v2 数据身份与正常新格式恢复仍保留验收。
 
+原生取消修复已保存为 `18aa8c6b`。Lead `t9g` 在该组合上验证三个模块类型检查、Agent 会话 52/52、Automations 42/42 和真实 CLI/MCP 2/2 通过；日志 `temp/issue-evidence/huhu-2026-11-22/native-cancel-recheck.log`。`t9b/task02.md` 正在复核前两项 P2 的关闭情况。
+
+真实 provider 与同终端返回 shell 候选 `6874c619` 已合入，Go 测试与 Linux helper 构建通过。`t9d` 的终端模式断言失败，`t9f` 的 Volta Codex、Volta Pi、直接 npm Pi、原生 Claude 均已输出真实版本，但返回 shell 交互证明失败，交 `t8k/task04.md` 诊断。不得将版本输出或合成解析测试记为真实交互通过。Mail 独立复核确认原两项后端批次问题关闭，但发现工作台重开后无法选回已恢复账号以续跑原批次，交 `t86/task06.md` 补足直接调用方。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
