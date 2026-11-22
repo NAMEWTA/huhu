@@ -18,7 +18,7 @@ import { openApp, rmTree } from "../helpers/launch.js";
 test.afterAll(disposeCandidate);
 
 type Rule = { id: string; version: string; data: { enabled: boolean; trigger: { preset: string; cron: string; zone: string } } };
-type Activation = { activationId: string; ruleId: string; scheduledFor: string | null; summary?: { processed: number; skipped: number } };
+type Activation = { activationId: string; ruleId: string; trigger: string; scheduledFor: string | null; summary?: { processed: number; skipped: number } };
 type Call = <T>(capability: string, input?: unknown) => Promise<T>;
 
 function caller(page: Page): Call {
@@ -44,6 +44,16 @@ function schedule(secondsFromNow: number) {
   const at = new Date(Math.ceil((Date.now() + secondsFromNow * 1_000) / 1_000) * 1_000);
   const cron = `${at.getUTCSeconds()} ${at.getUTCMinutes()} ${at.getUTCHours()} * * *`;
   return { at, trigger: { preset: "custom", cron, zone: "UTC" } };
+}
+
+/** Put this isolated rule's midnight 30–90 seconds ahead using a valid fixed-offset zone. */
+function nextDaySchedule() {
+  const at = new Date(Math.ceil((Date.now() + 30_000) / 60_000) * 60_000);
+  let offset = -(at.getUTCHours() * 60 + at.getUTCMinutes());
+  if (offset < -720) offset += 1440;
+  const zone = `${offset < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`;
+  const day = (instant: string) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(instant));
+  return { at, day, trigger: { preset: "custom", cron: "0 0 0 * * *", zone } };
 }
 
 async function pauseRules(call: Call) {
@@ -205,7 +215,7 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
 
 test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次结果与人工完成", async ({ browserName }, testInfo) => {
   void browserName; // Electron tests still require Playwright’s fixture parameter.
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const packageArtifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
@@ -267,25 +277,31 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const session = seedRun!.session!;
       expect(session).toBeTruthy();
 
-      const { at, trigger } = schedule(18);
+      const { at, day, trigger } = nextDaySchedule();
       const task = await call<TaskDto>("tasks.create", {
         title: "原生问答任务旅程",
         body: "在回复之前必须使用原生 request_user_input 请求选择，只提供 Circle 和 Square 两个选项。用户选定后，以 TASK-JOURNEY-RESULT 开头给出唯一的最终结果。",
         type: "agent",
         tags: ["native-journey"],
-        availableAt: new Date(at.getTime() - 2_000).toISOString(),
+        availableAt: at.toISOString(),
         execution: { spaceId: space!.id, target: { mode: "existing", sessionId: session.id } },
       });
+      const createdDay = day(task.createdAt);
+      const scheduledDay = day(at.toISOString());
+      expect(createdDay).toBe(day(new Date(at.getTime() - 86_400_000).toISOString()));
+      expect(createdDay).not.toBe(scheduledDay);
       const draft = await call<Rule>("automations.create", {
         title: "后台原生问答",
         trigger,
         action: { kind: "agent", input: { source: "tasks", tags: ["native-journey"], maxConcurrent: 1 } },
       });
       const rule = await call<Rule>("automations.setEnabled", { id: draft.id, enabled: true, expectedVersion: draft.version });
+      expect(Date.now()).toBeLessThan(at.getTime());
       expect(await listDispatches(call, task.id)).toEqual([]);
+      expect(responses.requests).toHaveLength(1);
       const detail = await openTask(page, task.title);
       const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
-      await expect.poll(questions, { timeout: 65_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting", sessionId: session.id }]);
+      await expect.poll(questions, { timeout: 120_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting", sessionId: session.id }]);
       const [question] = await questions();
       const [run] = await listDispatches(call, task.id);
       expect(run).toMatchObject({ runId: question!.runId, attempt: 1, session });
@@ -329,6 +345,10 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const occurrences = await call<Activation[]>("automations.activations");
       const occurrence = occurrences.find(({ ruleId, scheduledFor }) => ruleId === rule.id && scheduledFor === at.toISOString());
       expect(occurrence?.summary?.processed).toBe(1);
+      expect(occurrence?.trigger).toBe("schedule");
+      expect(occurrences.filter(({ ruleId }) => ruleId === rule.id)).toHaveLength(1);
+      expect(day((await call<TaskDto>("tasks.read", { id: task.id })).createdAt)).toBe(createdDay);
+      expect(day(at.toISOString())).toBe(scheduledDay);
       const readResultReceipt = async () => {
         const receipts = await Promise.all(
           (await readdir(receiptDir))
@@ -373,6 +393,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
           sha,
           candidateIdentity,
           receiptRecovery: { pending, firstDroppedAck: held, phases: ["agent-saved", "tasks-empty", "tasks-disabled", "tasks-enabled", "ack-dropped-once", "matching-ack-saved"] },
+          calendar: { zone: trigger.zone, createdAt: task.createdAt, createdDay, scheduledFor: at.toISOString(), scheduledDay },
           occurrenceId: occurrence!.activationId,
           taskId: task.id,
           runId: run!.runId,

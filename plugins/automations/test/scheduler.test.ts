@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { missedRun, nextRuns, validateSchedule } from "../src/shared/cron.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 
@@ -109,4 +109,37 @@ describe("Scheduler", () => {
     expect(max).toBe(1);
     expect(total).toBeGreaterThanOrEqual(1);
   }, 15000);
+});
+
+test("固定偏移时区在次日零点由在线调度触发，创建当天不提前派遣", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-22T13:02:40.000Z"));
+  const calls: string[] = [];
+  const zone = "+10:57";
+  const day = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  const createdDay = day(new Date());
+  const scheduler = new Scheduler({
+    activate: (_id, at, trigger) => {
+      calls.push(`${trigger}:${at.toISOString()}`);
+    },
+    lastActivatedFor: () => null,
+    now: () => new Date(),
+  });
+  try {
+    validateSchedule("0 0 0 * * *", zone);
+    expect(nextRuns("0 0 0 * * *", zone, 1)).toEqual(["2026-11-22T13:03:00.000Z"]);
+    scheduler.sync([{ id: "next-day", enabled: true, cron: "0 0 0 * * *", zone, missedRunGraceMinutes: 0, updatedAt: new Date().toISOString() }]);
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(calls).toEqual([]);
+    expect(day(new Date())).toBe(createdDay);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toEqual(["schedule:2026-11-22T13:03:00.000Z"]);
+    expect(day(new Date())).toBe("2026-11-23");
+    expect(createdDay).toBe("2026-11-22");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(1);
+  } finally {
+    scheduler.stop();
+    vi.useRealTimers();
+  }
 });

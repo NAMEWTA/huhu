@@ -52,3 +52,12 @@ Linux x64 的 Codex ELF 通过仓库指纹 `880819aab735adcf16f36cd628940b9f1e65
 `candidate-package.ts` 从 `HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT` 指向的 AppImage 计算摘要，对照 `HUHU_TASK_JOURNEY_PACKAGE_SHA`，自行解包并推导程序位置。需提供完整 `HUHU_CANDIDATE_GIT_SHA`。每次启动检查 packaged 状态、实际路径、Linux x64、正式页面来源与构建提交。记录 ASAR、可执行文件、随包 Core、CLI 和派遣 helper 摘要。W8.2、T7.2 仍分别执行并使用同一份制品。
 
 Lead 对四个相关 E2E 文件进行了单独 TypeScript 检查，包含桌面宿主类型和 ES2024.Promise 夹具库，复查退出 0，记录于 `temp/issue-evidence/huhu-2026-11-22/acceptance-types-recheck.log`。测试列表枚举成功不计为 E2E 通过。跨日测试时钟和原报告其它缺口继续保留，最终候选包尚未构建。
+
+
+## 跨日验收的在线触发路径
+
+包用例为临时规则选一个合法固定偏移时区，让当前瞬间位于当地午夜前 30–90 秒，任务 availableAt 与 cron 同为次日零点。创建后的 Engine createdAt 必须属于前一天，启用前校验还未到期且 provider 仍只有 seed 请求，之后要求唯一 schedule occurrence 与精确 scheduledFor。系统时钟、Engine 装配和生产 Croner 均不修改；这是规则时区内的真实跨日，包实跑仍待最终候选。
+
+已在 Node 24.21.0 与本机安装的 Croner 验证偏移时区。单文件测试 `pnpm exec vitest run plugins/automations/test/scheduler.test.ts -t "固定偏移时区"` 用测试时钟验证 23:59:59.999 不派遣、次日零点在线派遣一次，1 项通过、6 项过滤。证据 `temp/issue-evidence/huhu-2026-11-22/cross-day-scheduler.log`。本轮 E2E 仅枚举，类型检查遇到 t86 在途原生接口尚未完成，留待其完成后复查。
+
+依据为 [Intl.DateTimeFormat 的 offset identifiers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/DateTimeFormat/DateTimeFormat) 与项目当前 Croner 的实际 nextRun/在线回调观察。该方法替代了需要隔离客机调时或改造生产调度器的初步建议。
