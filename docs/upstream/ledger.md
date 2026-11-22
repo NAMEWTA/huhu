@@ -53,6 +53,8 @@
 | R-84 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/workbench/{snippets,snippet_groups,snippet_picker,snippet_send}.go` | `plugins/ssh/src/{engine/shortcuts.ts,ui/ShortcutPanel.tsx,ui/TerminalActions.tsx}` | 参考可搜索的分组与排序、预览及明确的目标和回车选择。Huhu 用 Vault 版本写入、同一 SSH 输入控制和安全粘贴。 |
 | R-85 | ssh2 v1.17.0 `844f1edfc41589737671f96a4f4e76afdf46abd4`；Go x/crypto `729f1e841bcca28c2cd9f4034d6f7672604dbeda`（BSD-3-Clause）；OpenSSH 10.0p1 协议参考 | ssh2 `lib/protocol/{constants,kex}.js`、Go `ssh/certs.go`、OpenSSH `PROTOCOL.certkeys` | `patches/ssh2@1.17.0.patch` 与 `plugins/ssh/src/engine/{host-certificate,known-hosts,known-host-rules,ssh-wire}.ts` | 固定 ssh2 在显式证书策略下协商 Ed25519 主机证书，完整 K_S 进入交换哈希，由叶钥验签。Huhu 独立核对批准 CA、principal、时间、撤销及旧指纹。Go 与 OpenSSH 用于格式和行为核对。 |
 
+| R-86 | Herdr App `0ac92e4e9d5dea2097375c26e6a0cb194a75c2f0`（Cargo 工作区声明 Apache-2.0） | `src/window.rs` 的 `shell`、`unix_agent_argv` | `plugins/agent-cli/src/engine/linux-interactive-program.ts`、`native/agent-pty/console_linux.go` | 参考 Agent 退出后返回同一终端交互 shell 的行为和参数边界；Huhu 用既有私有启动协议、Go 进程监督和 PTY 实现，未复制 Rust 源码。Linux 安装适配核对本机 Volta 记录、Codex 0.171.0（Apache-2.0）和 Pi 1.5.2（MIT）的发布包布局及 Claude 原生版本路径，不随补丁分发 provider。候选 `6874c619` 的实程返回检查尚失败，验证见批次 program。 |
+
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
 ## 安装包依赖
