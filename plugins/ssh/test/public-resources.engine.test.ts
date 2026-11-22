@@ -1004,6 +1004,63 @@ test.each(["cli", "mcp"] as const)("%s manages workspace templates only within c
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s connects for verification and controls only its original probe and trust prompt", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const connect = "ssh.connect";
+  const disconnect = "ssh.disconnect";
+  const decide = "ssh.hostKey.decide";
+  const notExposed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  const notFound = { ok: false, error: { code: "NOT_FOUND" } };
+  const invalid = { ok: false, error: { code: "INVALID_INPUT" } };
+  try {
+    const { hostId, server } = await f.host("verification host");
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const binding = { hostId, routeRevision };
+    const invoke = await externalTool(f, entry);
+    const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "independent HTTP probe" });
+    for (const capability of [connect, disconnect, decide]) {
+      expect(await invoke(capability, {})).toMatchObject(notExposed);
+      await f.allow(capability);
+    }
+    await f.allow(probeGet);
+    const intent = { ...binding, intentKey: randomUUID() };
+    expect(await invoke(connect, { ...intent, background: true })).toMatchObject(invalid);
+    expect(await invoke(connect, binding)).toMatchObject(invalid);
+    const [first, retry] = await Promise.all([invoke(connect, intent), invoke(connect, intent)]);
+    expect(retry).toEqual(first);
+    const addressed = (value: unknown) => ({ ...binding, ...z.object({ attemptId: z.string() }).parse(value) });
+    const probe = addressed(data(first));
+    const waitForProbe = (address: typeof probe, wanted: Probe["state"]) =>
+      vi.waitFor(async () => {
+        const result = PublicProbeStatus.parse(data(await invoke(probeGet, { hostId: address.hostId, attemptId: address.attemptId })));
+        expect(result.state).toBe(wanted);
+        return result;
+      });
+    const waiting = await waitForProbe(probe, "waiting");
+    if (waiting.state !== "waiting") throw new Error("Missing fixture trust prompt");
+    const answer = decision(waiting);
+    expect(await invoke(decide, { ...answer, remember: true })).toMatchObject(invalid);
+    expect(await invoke(decide, { ...answer, promptRevision: "0".repeat(64) })).toMatchObject(notFound);
+    expect(await f.call(token, decide, answer)).toMatchObject(notFound);
+    expect(await invoke(decide, answer)).toEqual({ ok: true, data: { applied: true } });
+    expect(await invoke(decide, answer)).toMatchObject(notFound);
+    await waitForProbe(probe, "verified");
+    await vi.waitFor(() => expect(server.closed()).toBe(1));
+    expect(await f.desktop("ssh.knownHosts.list")).toEqual([]);
+    const next = addressed(data(await invoke(connect, { ...intent, intentKey: randomUUID() })));
+    await waitForProbe(next, "waiting");
+    expect(await invoke(disconnect, { hostId })).toMatchObject(invalid);
+    expect(await f.call(token, disconnect, next)).toMatchObject(notFound);
+    expect(await invoke(disconnect, next)).toEqual({ ok: true, data: { ok: true } });
+    expect(await invoke(disconnect, next)).toEqual({ ok: true, data: { ok: true } });
+    await waitForProbe(next, "failed");
+    await vi.waitFor(() => expect(server.closed()).toBe(2));
+    expect(server.conns).toHaveLength(2);
+  } finally {
+    await f.close();
+  }
+});
+
 test("changed SSH keys stay blocked for an external subject with trust decision enabled", { timeout: 30_000 }, async () => {
   const f = await fixture();
   const auth: string[] = [];

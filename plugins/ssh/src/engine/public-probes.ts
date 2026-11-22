@@ -33,7 +33,7 @@ export const PublicProbeStatus = z.discriminatedUnion("state", [
 
 type Status = z.infer<typeof PublicProbeStatus>;
 type Binding = z.infer<typeof StartPublicProbe>;
-type Probe = { owner: string; kind: "probe" | "job"; hostIds: string[]; abort: AbortController; expires: number; status: Status };
+type Probe = { owner: string; kind: "probe" | "job"; hostIds: string[]; abort: AbortController; expires: number; status: Status; cancelled?: true };
 
 function promptView({ hostId, attemptId, routeRevision }: Status, prompt: HostKeyPrompt): z.infer<typeof PublicTrustPrompt> {
   const { promptId, hop, keyType, fingerprint } = prompt;
@@ -103,7 +103,7 @@ export class PublicSshProbes {
     const connection = this.open(context, owner, binding, "probe");
     const finish = (result: "ok" | "failed") => {
       connection.close();
-      this.manager.recordExternalAudit(owner, binding, "connect", result);
+      this.manager.recordExternalAudit(owner, binding, "connect", this.probes.get(connection.attemptId)?.cancelled ? "cancelled" : result);
     };
     void connection.ready.then(
       () => finish("ok"),
@@ -161,10 +161,14 @@ export class PublicSshProbes {
   }
 
   read(context: CapabilityContext, input: z.infer<typeof PublicProbeId>): Status {
+    return this.get(context, input).status;
+  }
+
+  private get(context: CapabilityContext, input: z.infer<typeof PublicProbeId>, kind?: Probe["kind"]): Probe {
     const probe = this.probes.get(input.attemptId);
-    if (probe?.owner !== externalSshOwner(context) || probe.status.hostId !== input.hostId || probe.expires <= Date.now()) throw errors.notFound("SSH 连接核验");
+    if (probe?.owner !== externalSshOwner(context) || probe.status.hostId !== input.hostId || probe.expires <= Date.now() || (kind && probe.kind !== kind)) throw errors.notFound("SSH 连接核验");
     assertSshHosts(context, probe.hostIds);
-    return probe.status;
+    return probe;
   }
 
   list(context: CapabilityContext): Status[] {
@@ -179,8 +183,20 @@ export class PublicSshProbes {
     return this.list(context).filter(({ hostId, routeRevision }) => routes.get(hostId)?.routeRevision === routeRevision);
   }
 
-  decide(context: CapabilityContext, input: z.infer<typeof DecidePublicProbe>) {
-    const status = this.read(context, input);
+  cancel(context: CapabilityContext, input: z.infer<typeof PublicProbeId> & Binding) {
+    const probe = this.get(context, input, "probe");
+    if (probe.status.routeRevision !== input.routeRevision) throw errors.notFound("SSH 连接核验");
+    readBoundRoute(this.files, context, input);
+    context.signal.throwIfAborted();
+    if (!probe.abort.signal.aborted && (probe.status.state === "connecting" || probe.status.state === "waiting")) {
+      probe.cancelled = true;
+      probe.abort.abort();
+    }
+    return { ok: true as const };
+  }
+
+  decide(context: CapabilityContext, input: z.infer<typeof DecidePublicProbe>, kind?: Probe["kind"]) {
+    const { status } = this.get(context, input, kind);
     if (status.state !== "waiting") throw errors.notFound("SSH 首次信任待答");
     const { prompt } = status;
     if (

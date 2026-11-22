@@ -150,7 +150,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const revision = shared.getByTestId("ssh-tool-policy-revision");
     const initial = await desktopCall<{ toolAccess: { revision: number } }>(page, "gateway.get");
     await expect(revision).toHaveText(String(initial.toolAccess.revision));
-    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.connect", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
+    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.exec.run", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
 
     const { id, token } = await desktopCall<{ id: string; token: string }>(page, "gateway.tokens.create", { name: "temporary MCP loopback fixture" });
     const url = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");

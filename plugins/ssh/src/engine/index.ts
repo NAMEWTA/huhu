@@ -24,7 +24,7 @@ import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
 import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
-import { PublicSshProbes } from "./public-probes.js";
+import { DecidePublicProbe, PublicSshProbes, StartPublicProbeIntent } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -383,19 +383,40 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.connect, ({ caller, signal }, i) => {
-      if (!i.background) return manager.connect(i.hostId, signal);
+    bindCapability(sshCapabilityDescriptors.connect, (context, { hostId, background, routeRevision, intentKey }) => {
+      const { caller, signal } = context;
+      if (!isWorkbenchCaller(caller)) {
+        const input = StartPublicProbeIntent.safeParse({ hostId, routeRevision, intentKey });
+        if (background || !input.success || !input.data.intentKey) throw errors.invalidInput("外部连接核验需要主机路由版本和意图键");
+        readBoundRoute(api.vault.files, context, input.data);
+        return publicProbes.start(context, input.data);
+      }
+      if (!background) return manager.connect(hostId, signal);
       if (caller !== "desktop") throw errors.permissionDenied("ssh.connect");
       signal.throwIfAborted();
-      return manager.start(i.hostId);
+      return manager.start(hostId);
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, (context) => (isWorkbenchCaller(context.caller) ? manager.connectionStatuses() : publicProbes.currentStatuses(context))));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => {
-      if (i.accept && i.remember !== false) api.vault.files.assertWritable();
-      return { applied: manager.decide(i.attemptId, i.hop, i.accept, i.promptId, i.remember) };
+    bindCapability(sshCapabilityDescriptors.disconnect, (context, { hostId, attemptId, routeRevision }) => {
+      if (isWorkbenchCaller(context.caller)) {
+        manager.disconnect(hostId);
+        return { ok: true as const };
+      }
+      if (!attemptId || !routeRevision) throw errors.invalidInput("撤销外部连接核验需要原尝试和路由版本");
+      return publicProbes.cancel(context, { hostId, attemptId, routeRevision });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostKeyDecide, (context, { remember, ...request }) => {
+      if (!isWorkbenchCaller(context.caller)) {
+        const input = DecidePublicProbe.safeParse(request);
+        if (remember || !input.success) throw errors.invalidInput("外部信任决定需要原核验待答和精确指纹");
+        return publicProbes.decide(context, input.data, "probe");
+      }
+      if (request.accept && remember !== false) api.vault.files.assertWritable();
+      return { applied: manager.decide(request.attemptId, request.hop, request.accept, request.promptId, remember) };
     }),
   );
   api.defineCapability(
