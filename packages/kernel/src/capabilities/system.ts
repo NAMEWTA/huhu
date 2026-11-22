@@ -4,6 +4,7 @@ import {
   CAPABILITY_AVAILABILITIES,
   CAPABILITY_SCOPES,
   CapabilityCatalogEntrySchema,
+  ToolAccessResourcesSchema,
   ToolAccessSnapshotSchema,
   errors,
   isWorkbenchCaller,
@@ -11,10 +12,11 @@ import {
   type CapabilityAvailability,
   type CapabilityCatalogEntry,
   type CapabilityRisk,
+  type ToolAccessResources,
 } from "@huhu/contracts";
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityDefinition, type CapabilityRegistry } from "./define.js";
-import { toolSelection, type ExposureStore } from "../exposure.js";
+import { toolResourceIds, toolSelection, type ExposureStore } from "../exposure.js";
 import type { PluginManager } from "../plugin-manager.js";
 
 /** Kernel tools are bound for the life of a Vault. Declare their metadata from the same definition as the handler. */
@@ -47,10 +49,8 @@ const unavailableReasons = {
   "handler-missing": "所属插件已启用，处理函数尚未注册",
 };
 
-const policyChanges = z
-  .array(z.strictObject({ capability: z.string().min(1), exposed: z.boolean() }))
-  .min(1)
-  .max(1000);
+const policyChanges = z.array(z.strictObject({ capability: z.string().min(1), exposed: z.boolean() })).max(1000);
+const policySelection = z.strictObject({ changes: policyChanges.default([]), resources: ToolAccessResourcesSchema.optional() });
 const policyRevision = z.int().nonnegative();
 const catalogRevision = z.string().regex(/^[a-f0-9]{64}$/);
 const policyTarget = z.strictObject({
@@ -70,6 +70,7 @@ export function registerSystemCapabilities(
   plugins: PluginManager,
   exposure: Pick<ExposureStore, "snapshot" | "setMany"> & { setPluginEnabled?(id: string, enabled: boolean): void; publishPolicyChange?(): void },
   gateway?: {
+    hasSavedSshHosts?(ids: readonly string[]): boolean;
     audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
     tokens: {
       list(): { id: string; name: string; createdAt: string }[];
@@ -127,6 +128,11 @@ export function registerSystemCapabilities(
       }
     }
     return [...changes].map(([capability, exposed]) => ({ capability, exposed }));
+  }
+
+  function checkResourceSelection(resources: ToolAccessResources | undefined, previouslySelected: readonly string[]) {
+    const added = resources?.["ssh.hosts"].filter((id) => !previouslySelected.includes(id));
+    if (added?.length && !gateway?.hasSavedSshHosts?.(added)) throw errors.invalidInput("只能授权已保存的 SSH 主机");
   }
 
   let pluginChanges: Promise<unknown> = Promise.resolve();
@@ -212,7 +218,11 @@ export function registerSystemCapabilities(
       defaultExposed: false,
       input: z.object({}),
       output: z.object({ mcp: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), tokens: z.number(), toolAccess: ToolAccessSnapshotSchema }),
-      handler: () => ({ mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, toolAccess: exposure.snapshot() }),
+      handler: ({ caller }) => {
+        const policy = exposure.snapshot();
+        const toolAccess = policy.state === "ready" && !isWorkbenchCaller(caller) ? { state: policy.state, revision: policy.revision, choices: policy.choices } : policy;
+        return { mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, toolAccess };
+      },
     }),
     registerKernelCapability(registry, {
       name: "gateway.mcp.update",
@@ -288,22 +298,24 @@ export function registerSystemCapabilities(
       name: "gateway.policy.preview",
       plugin: "kernel",
       scope: "read",
-      desktopOnly: true,
       exposable: true,
       defaultExposed: false,
-      input: z.strictObject({ changes: policyChanges, expectedRevision: policyRevision.optional(), catalogRevision: catalogRevision.optional() }),
-      output: z.strictObject({ revision: policyRevision, catalogRevision, targets: z.array(policyTarget) }),
-      handler: (_c, { changes, expectedRevision, catalogRevision: expectedCatalog }) => {
+      input: policySelection.extend({ expectedRevision: policyRevision.optional(), catalogRevision: catalogRevision.optional() }),
+      output: z.strictObject({ revision: policyRevision, catalogRevision, targets: z.array(policyTarget), resources: ToolAccessResourcesSchema.optional() }),
+      handler: ({ caller }, { changes, resources, expectedRevision, catalogRevision: expectedCatalog }) => {
+        if ((resources && !isWorkbenchCaller(caller)) || (caller.startsWith("web:") && (!resources || changes.length))) throw errors.permissionDenied("预览工具开放策略");
+        if (!changes.length && !resources) throw errors.invalidInput("需要选择工具或资源");
         const policy = exposure.snapshot();
         if (policy.state === "error") throw errors.invalidInput(policy.message, { reason: policy.reason });
         const current = catalog();
         if (expectedRevision !== undefined && expectedRevision !== policy.revision) throw errors.versionConflict(String(policy.revision));
         if (expectedCatalog !== undefined && expectedCatalog !== current.revision) throw errors.versionConflict(current.revision);
+        checkResourceSelection(resources, toolResourceIds(policy, "ssh.hosts"));
         const targets = verifiedChanges(changes, current.entries).map(({ capability, exposed }) => {
           const { cap, availability, risk, title } = current.entries.get(capability)!;
           return { capability, exposed, plugin: cap.plugin, scope: cap.scope, availability, risk, title, selected: toolSelection(policy, capability) };
         });
-        return { revision: policy.revision, catalogRevision: current.revision, targets };
+        return { revision: policy.revision, catalogRevision: current.revision, targets, ...(resources && { resources }) };
       },
     }),
     registerKernelCapability(registry, {
@@ -311,20 +323,29 @@ export function registerSystemCapabilities(
       plugin: "kernel",
       scope: "write",
       risk: "high",
-      desktopOnly: true,
       exposable: false,
       defaultExposed: false,
-      input: z.strictObject({ changes: policyChanges, expectedRevision: policyRevision, catalogRevision }),
+      input: policySelection.extend({ expectedRevision: policyRevision, catalogRevision }),
       output: z.strictObject({ revision: policyRevision, changed: z.boolean() }),
       handler: async ({ caller }, input) => {
-        if (caller !== "desktop") throw errors.permissionDenied("更新工具开放策略");
+        const { resources } = input;
+        if (!isWorkbenchCaller(caller) || (caller !== "desktop" && (!resources || input.changes.length))) throw errors.permissionDenied("更新工具开放策略");
+        if (!input.changes.length && !resources) throw errors.invalidInput("需要选择工具或资源");
         const current = catalog();
         const assertCatalog = (revision: string) => {
           if (revision !== input.catalogRevision) throw errors.versionConflict(revision);
         };
         assertCatalog(current.revision);
         const changes = verifiedChanges(input.changes, current.entries);
-        const saved = await exposure.setMany(changes, input.expectedRevision, () => assertCatalog(catalog().revision));
+        const saved = await exposure.setMany(
+          changes,
+          input.expectedRevision,
+          () => {
+            assertCatalog(catalog().revision);
+            checkResourceSelection(resources, toolResourceIds(exposure.snapshot(), "ssh.hosts"));
+          },
+          resources,
+        );
         if (saved.changed) exposure.publishPolicyChange?.();
         return saved;
       },
@@ -381,6 +402,7 @@ export function registerSystemCapabilities(
           const policy = exposure.snapshot();
           if (policy.state === "error") return { allowed: false, reason: policy.message };
           if (toolSelection(policy, cap.name) !== true) return { allowed: false, reason: "尚未开放：先在上面打开它的开关" };
+          if (cap.resourceGuarded && !toolResourceIds(policy, cap.resourceGuarded).length) return { allowed: false, reason: "尚未选择已授权的 SSH 主机" };
           const requirement = cap.externalIntentRequired ? "（需要持久意图键）" : cap.scope === "write" || cap.scope === "execute" ? "（需要幂等键）" : "";
           return { allowed: true, reason: `允许调用${requirement}` };
         };

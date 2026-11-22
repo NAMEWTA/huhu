@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { errors } from "@huhu/contracts";
-import { bindCapability, OperationReceipts, type HuhuApi } from "@huhu/kernel";
+import { errors, isWorkbenchCaller } from "@huhu/contracts";
+import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
 import { HostDirectory } from "./directory.js";
 import { HostStore } from "./hosts.js";
@@ -19,7 +19,7 @@ import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { readResourceRoute } from "./public-resources.js";
+import { authorizedResourceRoute, PublicHostView, readPortableHosts, selectedSshHosts } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
@@ -27,12 +27,17 @@ export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
 export { SshManager } from "./manager.js";
 
+export function hasSavedSshHosts(files: HuhuApi["vault"]["files"], ids: readonly string[]): boolean {
+  return readPortableHosts(files, new Set(ids)).length === ids.length;
+}
+
 export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost, execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity }): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
   const relativeState = path.relative(api.vault.files.root, root);
   const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
   const hosts = new HostConfigurations(new HostStore(path.join(root, "hosts")), credentialHost);
   const directory = new HostDirectory(hosts, api.vault.files);
+  const visibleHosts = (context: CapabilityContext) => readPortableHosts(api.vault.files, selectedSshHosts(context)).sort((left, right) => left.name.localeCompare(right.name));
   const templates = new WorkspaceTemplates(api.vault.files, hosts);
   const forwardRules = new ForwardRules(api.vault.files, hosts);
   const monitorPanels = new MonitorPanels(api.vault.files, hosts);
@@ -52,8 +57,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     connectionPreferences: () => preferences.runtime().connection,
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
-  const publicProbes = new PublicSshProbes(api.vault.files, manager);
-  const publicJobs = execJobs ? new PublicExecJobs(api.vault.files, publicProbes, new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-exec-intents.ndjson")), execJobs.vaultInstance, execJobs.retainActivity) : undefined;
+  const operations = execJobs && { ...execJobs, receipts: new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-exec-intents.ndjson")) };
+  const publicProbes = new PublicSshProbes(api.vault.files, manager, operations);
+  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, operations.retainActivity) : undefined;
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -84,8 +90,8 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return saved;
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (_c, i) => directory.list(i)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesHostGet, (_c, i) => readResourceRoute(api.vault.files, i.hostId).view));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.hostsDirectory, (context, i) => directory.list(i, isWorkbenchCaller(context.caller) ? undefined : visibleHosts(context))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesHostGet, (context, i) => authorizedResourceRoute(api.vault.files, context, i.hostId).view));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionStart, (context, input) => publicProbes.start(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionGet, (context, input) => publicProbes.read(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionList, (context) => publicProbes.list(context)));
@@ -155,13 +161,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsList, async () =>
-      (await hosts.list()).map((host) => {
+    bindCapability(sshCapabilityDescriptors.hostsList, async (context) => {
+      if (!isWorkbenchCaller(context.caller)) return visibleHosts(context).map(({ id, name, host, port, user, tags, revision }) => PublicHostView.parse({ id, name, host, port, user, tags, revision }));
+      return (await hosts.list()).map((host) => {
         if (!("configId" in host)) return host;
         const { configId: _internal, ...view } = host;
         return view;
-      }),
-    ),
+      });
+    }),
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsConfigure, async ({ signal }, input) => {

@@ -1,4 +1,4 @@
-import { HuhuError, type CapabilityRisk, type CapabilityScope, type McpSessionIdentity } from "@huhu/contracts";
+import { HuhuError, type CapabilityRisk, type CapabilityScope, type McpSessionIdentity, type ToolAccessResources } from "@huhu/contracts";
 import type { z } from "zod";
 
 export interface CapabilityContext {
@@ -8,6 +8,8 @@ export interface CapabilityContext {
   /** Stable identity chosen by the authenticated transport, scoped to its caller category. */
   subject?: string;
   session?: McpSessionIdentity;
+  /** Re-read the current Vault policy, including after asynchronous work. */
+  toolResourceIds?(group: keyof ToolAccessResources): readonly string[];
   requestId: string;
   idempotencyKey?: string;
   parentOperationId?: string;
@@ -35,6 +37,8 @@ interface CapabilityContract<I, O> {
    * 缺键时 Dispatcher 在执行前拒绝，旧的逐请求幂等键不能替代；工作台与插件内部调用不受影响。
    */
   externalIntentRequired?: true;
+  /** The domain reauthorizes the original object before releasing data or replaying its receipt. */
+  resourceGuarded?: keyof ToolAccessResources;
   /** Reserved for the external command adapter and its forwarding entry. */
   commandInvocation?: { revision: string; dependencies: readonly string[] } | "forward";
 }

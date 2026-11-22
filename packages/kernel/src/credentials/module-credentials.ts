@@ -94,7 +94,11 @@ function loadDefinitions<T>(files: DefinitionFiles, path: string, definition: z.
  */
 export class ModuleCredentials<T> {
   static readPortableDefinition<T>(files: DefinitionFiles, pluginId: string, definition: z.ZodType<T>, entityId: string): Definition<T> | undefined {
-    return loadDefinitions(files, definitionFile(pluginId), definition).entries.find((entry) => entry.entityId === entityId);
+    return ModuleCredentials.readPortableDefinitions(files, pluginId, definition).find((entry) => entry.entityId === entityId);
+  }
+
+  static readPortableDefinitions<T>(files: DefinitionFiles, pluginId: string, definition: z.ZodType<T>): readonly Definition<T>[] {
+    return loadDefinitions(files, definitionFile(pluginId), definition).entries;
   }
 
   readonly #vault: Vault;

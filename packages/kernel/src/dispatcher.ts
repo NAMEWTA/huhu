@@ -14,7 +14,7 @@ import {
   type ToolAccessSnapshot,
 } from "@huhu/contracts";
 import type { CapabilityContext, CapabilityDefinition, CapabilityRegistry } from "./capabilities/define.js";
-import { toolSelection } from "./exposure.js";
+import { toolResourceIds, toolSelection } from "./exposure.js";
 import type { GatewayAudit } from "./gateway-audit.js";
 import { canonicalJson, IdempotencyStore } from "./idempotency.js";
 import type { OperationReceipts } from "./operation-receipts.js";
@@ -213,7 +213,14 @@ export class Dispatcher {
   }
 
   private targetDenial(caller: Caller, command: CapabilityDefinition, target: CapabilityDefinition | undefined, name: string): HuhuError | null {
-    if (!target?.exposable || target.desktopOnly || target.commandInvocation || (command.scope === "read" && target.scope !== "read") || !permissionsAllow(this.d.grantedPermissions(command.plugin), name, target.scope)) {
+    if (
+      !target?.exposable ||
+      target.desktopOnly ||
+      target.commandInvocation ||
+      target.resourceGuarded ||
+      (command.scope === "read" && target.scope !== "read") ||
+      !permissionsAllow(this.d.grantedPermissions(command.plugin), name, target.scope)
+    ) {
       return errors.permissionDenied(name);
     }
     return this.currentAuthorization(caller, target);
@@ -305,7 +312,7 @@ export class Dispatcher {
     if (req.idempotencyKey === undefined) return this.fail(errors.invalidInput("写入与执行类能力必须提供 idempotencyKey"));
     const key = req.idempotencyKey;
 
-    if (def.idempotency === "handler") return this.execute(def, invocation, req, parsed.data, signal);
+    if (def.idempotency === "handler" || def.resourceGuarded) return this.execute(def, invocation, req, parsed.data, signal);
     const owner = subject === caller ? caller : JSON.stringify([caller, subject]);
     const hit = this.d.idempotency.lookup(owner, def.name, key, req.input);
     if (hit.hit) return hit.mismatch ? this.fail(errors.idempotencyMismatch()) : hit.result;
@@ -385,6 +392,7 @@ export class Dispatcher {
       caller,
       subject,
       requestId: req.requestId,
+      toolResourceIds: (group) => toolResourceIds(this.d.toolAccess(), group),
       ...(session && { session }),
       ...(delegatedBy && { delegatedBy }),
       ...(parentOperationId && { parentOperationId }),

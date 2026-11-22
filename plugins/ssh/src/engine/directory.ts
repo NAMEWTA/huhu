@@ -202,8 +202,17 @@ export class HostDirectory {
     return { state, fileVersion: file.version };
   }
 
-  async list(query: Query): Promise<View> {
-    return projectDirectory(this.readState().state, await this.hosts.list(), query);
+  async list(query: Query, visibleHosts?: HostRecord[]): Promise<View> {
+    const { state } = this.readState();
+    if (!visibleHosts) return projectDirectory(state, await this.hosts.list(), query);
+    const knownHosts = new Set(visibleHosts.map(({ id }) => id));
+    const groupById = new Map(state.groups.map((group) => [group.groupId, group]));
+    const visibleGroups = new Set<string>();
+    for (const { hostId, groupId } of state.placements) {
+      if (!knownHosts.has(hostId)) continue;
+      for (let id = groupId; id && !visibleGroups.has(id); id = groupById.get(id)!.parentId) visibleGroups.add(id);
+    }
+    return projectDirectory({ ...state, groups: state.groups.filter(({ groupId }) => visibleGroups.has(groupId)) }, visibleHosts, query);
   }
 
   async organize({ expectedVersion, operation }: Update): Promise<View> {

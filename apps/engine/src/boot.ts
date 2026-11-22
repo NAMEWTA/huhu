@@ -429,11 +429,11 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     plugins,
     {
       snapshot: () => exposure.snapshot(),
-      setMany: (changes, revision, assertCatalog) => exposure.setMany(changes, revision, assertCatalog),
+      setMany: (changes, revision, assertCatalog, resources) => exposure.setMany(changes, revision, assertCatalog, resources),
       setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)),
       publishPolicyChange: () => events.publish("entity.changed", { kind: "tool-access", id: "policy", op: "updated" }),
     },
-    { tokens: gatewayTokens, audit: gatewayAudit },
+    { tokens: gatewayTokens, audit: gatewayAudit, hasSavedSshHosts: (ids) => ssh.hasSavedSshHosts(vault.files, ids) },
   );
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),

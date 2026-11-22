@@ -23,8 +23,8 @@ import {
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
-import { ResourceHost, ResourceHostId } from "./public-resources.js";
-import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbe } from "./public-probes.js";
+import { PublicHostView, ResourceHost, ResourceHostId } from "./public-resources.js";
+import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIntent } from "./public-probes.js";
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
@@ -46,6 +46,7 @@ import {
 const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
 const external = { ...ssh, exposable: true } as const;
+const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -55,7 +56,7 @@ const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), s
 
 export const sshCapabilityDescriptors = {
   jobsPrepare: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.jobs.prepare",
     title: "准备独立的 SSH Exec 作业",
     description: "用当前主机和路由修订准备作业。用相同 intentKey 和输入重取原 jobId，经独立的启动能力提交命令。",
@@ -66,7 +67,7 @@ export const sshCapabilityDescriptors = {
     output: ExecJobId,
   }),
   jobsStart: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.jobs.start",
     title: "提交已准备的 SSH Exec 作业",
     description: "核对 jobId、已认证的 sessionId、主机和路由修订。重交原作业不会重复提交命令。",
@@ -77,7 +78,7 @@ export const sshCapabilityDescriptors = {
     output: ExecJobId,
   }),
   jobsGet: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.jobs.get",
     title: "读取 SSH Exec 作业状态",
     description: "查询本主体的作业、原连接身份或终态，无需拨号。unknown 表示结果待核实。",
@@ -87,7 +88,7 @@ export const sshCapabilityDescriptors = {
     output: ExecJobStatus,
   }),
   jobsOutputRead: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.jobs.output.read",
     title: "按 UTF-8 字节读取 SSH Exec 输出",
     description: "按独立 stdout 或 stderr 游标读取保留的输出，返回下一游标、跳过字节数和截断标记。",
@@ -97,7 +98,7 @@ export const sshCapabilityDescriptors = {
     output: ExecOutputPage,
   }),
   jobsCancel: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.jobs.cancel",
     title: "请求取消原 SSH Exec 作业",
     description: "仅向本主体的原作业请求停止。查询作业状态可核实服务端报告的退出结果。",
@@ -108,7 +109,7 @@ export const sshCapabilityDescriptors = {
     output: z.strictObject({ requested: z.boolean() }),
   }),
   resourcesHostGet: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.resources.host.get",
     title: "读取 SSH 主机与路由摘要",
     description: "按主机 ID 读取可移植的主机身份、认证类型和逐跳修订。无需连接或访问本机凭据。",
@@ -118,17 +119,17 @@ export const sshCapabilityDescriptors = {
     output: ResourceHost,
   }),
   resourcesConnectionStart: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.resources.connection.start",
     title: "启动指定路由的 SSH 连接核验",
     description: "使用已保存认证核验绑定的 SSH 路由，读回主体专有的尝试 ID。核验完成后关闭测试连接。",
     scope: "execute",
     risk: "high",
-    input: StartPublicProbe,
+    input: StartPublicProbeIntent,
     output: PublicProbeId.pick({ attemptId: true }),
   }),
   resourcesConnectionGet: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.resources.connection.get",
     title: "读取本主体的 SSH 连接核验",
     description: "查询现有核验的状态和原跳点信任待答，不启动连接。",
@@ -138,7 +139,7 @@ export const sshCapabilityDescriptors = {
     output: PublicProbeStatus,
   }),
   resourcesConnectionList: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.resources.connection.list",
     title: "列出本主体的 SSH 核验和待答",
     description: "只读取本主体现有的 SSH 连接核验及信任待答。",
@@ -148,7 +149,7 @@ export const sshCapabilityDescriptors = {
     output: z.array(PublicProbeStatus),
   }),
   resourcesTrustDecide: defineCapabilityDescriptor({
-    ...external,
+    ...resource,
     name: "ssh.resources.trust.decide",
     title: "回答归属当前主体的 SSH 首次指纹待答",
     description: "核对原主机、路由修订、跳点、指纹及提示修订，只允许对本次连接接受或拒绝。",
@@ -534,7 +535,7 @@ export const sshCapabilityDescriptors = {
   hostsImportPreview: hostImportPreviewDescriptor,
   hostsImportConfirm: hostImportConfirmDescriptor,
   hostsDirectory: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.hosts.directory",
     title: "查询 SSH 主机目录",
     description: "列出分组和符合搜索条件的主机，无需连接主机。",
@@ -554,14 +555,14 @@ export const sshCapabilityDescriptors = {
     output: DirectoryView,
   }),
   hostsList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.hosts.list",
     title: "列出 SSH 主机",
     description: "列出当前 Vault 已保存的主机配置。",
     scope: "read",
     risk: "normal",
     input: z.object({}),
-    output: z.array(z.union([ManagedHostView, LegacyHostView])),
+    output: z.array(z.union([ManagedHostView, LegacyHostView, PublicHostView])),
   }),
   hostsConfigure: defineCapabilityDescriptor({
     ...desktopHost,

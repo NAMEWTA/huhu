@@ -103,6 +103,9 @@ test.skipIf(!secretService).each([false, true])("CLI 自启动复用桌面 SSH �
       credentials: [{ purpose: "password", action: "replace", value: password }],
     });
     for (const capability of jobTools) await desktopCall("gateway.update", { capability, exposed: true });
+    const resources = { "ssh.hosts": [hostId] };
+    const preview = await desktopCall<{ revision: number; catalogRevision: string }>("gateway.policy.preview", { resources });
+    await desktopCall("gateway.policy.update", { resources, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision });
     const { routeRevision } = await data<{ routeRevision: string }>("ssh.resources.host.get", { hostId });
     expect(processId()).toBe(process.pid);
     await desktop.shutdown();
