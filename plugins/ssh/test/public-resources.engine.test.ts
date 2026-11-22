@@ -22,7 +22,7 @@ import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
 import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
-import type { WorkspaceTemplate } from "../src/shared/workspace.js";
+import { WorkspaceRun, type WorkspaceTemplate } from "../src/shared/workspace.js";
 import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 import { ownedArchiveFixture } from "./owned-archive-fixture.js";
@@ -1507,6 +1507,60 @@ test.each(["cli", "mcp"] as const)("%s isolates SSH terminal I/O and closes the 
     expect(input).toEqual([content]);
     await f.allow(open, false);
     expect(await invokeA(open, intent)).toMatchObject(disabled);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s changes only the owned SSH workspace layout with current bindings and a stable intent", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  let closedLeft = 0;
+  let closedRight = 0;
+  try {
+    const left = await f.host("layout left", [], { onShellClose: () => closedLeft++ });
+    const right = await f.host("layout right", [], { onShellClose: () => closedRight++ });
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const change = "ssh.workspace.runs.changeLayout";
+    const start = "ssh.workspace.runs.start";
+    const list = "ssh.workspace.runs.list";
+    const connections = [await connectOwned(f, invoke, left.hostId), await connectOwned(f, invoke, right.hostId)];
+    for (const capability of [start, list]) await f.allow(capability);
+    const initial = WorkspaceRun.parse(data(await invoke(start, { name: "layout fixture", layout: { kind: "two" }, connections, intentKey: randomUUID() })));
+    const [a, b] = initial.panes;
+    const input = {
+      id: initial.id,
+      generation: initial.generation,
+      expectedLayoutRevision: initial.layoutRevision ?? initial.id,
+      change: { action: "layout", layout: { kind: "main-bottom" }, paneIds: [b!.paneId, a!.paneId] },
+      intentKey: randomUUID(),
+    };
+    const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const stale = { ok: false, error: { code: "VERSION_CONFLICT" } };
+    expect(await invoke(change, input)).toMatchObject(disabled);
+    await f.allow(change);
+    expect(await peer(change, input)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await invoke(change, { ...input, generation: initial.generation + 1, intentKey: randomUUID() })).toMatchObject(stale);
+    const result = await invoke(change, input);
+    const updated = WorkspaceRun.parse(data(result));
+    expect(updated).toMatchObject({ id: initial.id, generation: initial.generation, panes: [b, a], layout: { kind: "main-bottom" } });
+    expect(updated.layoutRevision).toBeDefined();
+    expect(updated.layoutRevision).not.toBe(input.expectedLayoutRevision);
+    expect(await invoke(change, input)).toEqual(result);
+    expect(await invoke(change, { ...input, change: { ...input.change, paneIds: [a!.paneId, b!.paneId] } })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(await invoke(change, { ...input, intentKey: randomUUID() })).toMatchObject(stale);
+    expect([closedLeft, closedRight]).toEqual([0, 0]);
+
+    const close = { ...input, expectedLayoutRevision: updated.layoutRevision!, change: { action: "close", paneId: b!.paneId }, intentKey: randomUUID() };
+    const remaining = WorkspaceRun.parse(data(await invoke(change, close)));
+    expect(remaining.panes).toEqual([a]);
+    await vi.waitFor(() => expect(closedRight).toBe(1));
+    await f.chooseHosts([left.hostId]);
+    expect(data(await invoke(list, {}))).toEqual([remaining]);
+    expect(closedLeft).toBe(0);
+    expect(await invoke(change, close)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await f.allow(change, false);
+    expect(await invoke(change, close)).toMatchObject(disabled);
   } finally {
     await f.close();
   }

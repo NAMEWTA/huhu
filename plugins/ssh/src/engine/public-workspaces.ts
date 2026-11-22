@@ -2,11 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { CapabilityIntentKeySchema, errors, HuhuError } from "@huhu/contracts";
 import type { CapabilityContext, HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { layoutProblem, MAX_WORKSPACE_PANES, WorkspaceLayout, WorkspaceName, type WorkspaceRun } from "../shared/workspace.js";
+import { ChangeWorkspaceRun, layoutProblem, MAX_WORKSPACE_PANES, WorkspaceLayout, WorkspaceName, type WorkspaceRun } from "../shared/workspace.js";
 import type { HostIntents } from "./host-intents.js";
 import { OwnedConnection, type PublicSshProbes } from "./public-probes.js";
 import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, selectedSshHosts } from "./public-resources.js";
 import type { PublicShells } from "./public-shells.js";
+import { editWorkspacePanes } from "./workspace-runs.js";
 import type { WorkspaceTemplates } from "./workspace-templates.js";
 import { workspaceTarget } from "./workspace-target.js";
 
@@ -14,11 +15,13 @@ const runtime = { connections: z.array(OwnedConnection).min(1).max(MAX_WORKSPACE
 export const StartOwnedWorkspace = z.union([z.strictObject({ ...runtime, name: WorkspaceName, layout: WorkspaceLayout }), z.strictObject({ ...runtime, templateId: z.uuid(), expectedRevision: z.uuid() })]);
 export const OwnedRun = z.strictObject({ id: z.uuid(), generation: z.int().min(1), intentKey: CapabilityIntentKeySchema });
 export const ReconnectOwnedRun = OwnedRun.extend({ connections: runtime.connections });
+export const ChangeOwnedWorkspaceLayout = OwnedRun.extend(ChangeWorkspaceRun.omit({ id: true }).shape);
 export const SaveOwnedTemplate = OwnedRun.extend({ name: WorkspaceName });
 const RunReceipt = OwnedRun.pick({ id: true, generation: true });
+const LayoutReceipt = RunReceipt.extend({ layoutRevision: z.uuid() });
 const TemplateReceipt = z.strictObject({ id: z.uuid(), revision: z.uuid() });
 type Address = z.infer<typeof OwnedConnection>;
-type Owned = { owner: string; bindings: Address[]; hostIds: readonly string[]; view: WorkspaceRun; detach(): void; authorized(): boolean; revoked?: true };
+type Owned = { owner: string; bindings: Address[]; hostIds: readonly string[]; view: WorkspaceRun; detach(paneId?: string): void; authorized(): boolean; revoked?: true };
 
 export class PublicWorkspaces {
   private readonly runs = new Map<string, Owned>();
@@ -65,6 +68,7 @@ export class PublicWorkspaces {
           id: randomUUID(),
           source: "external",
           generation: 1,
+          layoutRevision: randomUUID(),
           name,
           layout,
           ...(templateId && { templateId }),
@@ -97,12 +101,48 @@ export class PublicWorkspaces {
         if (current.view.generation !== generation) throw errors.versionConflict(String(current.view.generation));
         if (this.pending.has(id)) throw errors.invalidInput("该工作区正在重连");
         this.closeWorkbench(id);
-        const view = { ...current.view, generation: generation + 1 };
+        const view = { ...current.view, generation: generation + 1, layoutRevision: randomUUID() };
         await this.openPanes(context, current.owner, view, connections, current.hostIds, intentKey);
         return { id, generation: view.generation };
       },
     });
     return this.resolve(context, id, result.generation);
+  }
+
+  async changeLayout(context: CapabilityContext, { id, generation, expectedLayoutRevision, intentKey, change }: z.infer<typeof ChangeOwnedWorkspaceLayout>) {
+    const authorize = () => this.owned(context, id).hostIds;
+    const result = await this.intentStore().run(context, "ssh.workspace.runs.changeLayout", {
+      hosts: authorize(),
+      intentKey,
+      input: { id, generation, expectedLayoutRevision, change },
+      output: LayoutReceipt,
+      authorize,
+      run: async () => {
+        const run = this.owned(context, id);
+        if (run.view.generation !== generation) throw errors.versionConflict(String(run.view.generation));
+        const revision = run.view.layoutRevision ?? id;
+        if (revision !== expectedLayoutRevision) throw errors.versionConflict(revision);
+        if (this.pending.has(id)) throw errors.invalidInput("该工作区正在重连");
+        const { layout, panes } = editWorkspacePanes(run.view, change);
+        const bindings = new Map(run.view.panes.map(({ paneId }, index) => [paneId, run.bindings[index]!]));
+        const nextBindings = panes.map(({ paneId }) => bindings.get(paneId)!);
+        const nextHosts = change.action === "close" ? [...new Set(nextBindings.flatMap((binding) => readBoundRoute(this.files, context, binding).map(({ id }) => id)))] : run.hostIds;
+        const closed = change.action === "close" ? run.view.panes.find(({ paneId }) => paneId === change.paneId) : undefined;
+        const layoutRevision = randomUUID();
+        run.bindings = nextBindings;
+        run.hostIds = nextHosts;
+        run.view = { ...run.view, layout, panes, layoutRevision };
+        if (closed) {
+          run.detach(closed.paneId);
+          if (closed.sessionId) this.shells.closeWorkbench(closed.sessionId);
+        }
+        this.changed(id);
+        return { id, generation, layoutRevision };
+      },
+    });
+    const current = this.resolve(context, id, result.generation);
+    if (current.layoutRevision !== result.layoutRevision) throw errors.versionConflict(current.layoutRevision ?? id);
+    return current;
   }
 
   async close(context: CapabilityContext, { id, generation, intentKey }: z.infer<typeof OwnedRun>) {
@@ -201,18 +241,31 @@ export class PublicWorkspaces {
         panes.push({ ...view.panes[index]!, sessionId: shell.shellId, phase: "ready" });
       }
       signal.throwIfAborted();
-      const lost = () => this.closeWorkbench(view.id);
-      for (const item of signals) item.addEventListener("abort", lost, { once: true });
-      this.runs.set(view.id, {
+      const watchers = new Map(
+        panes.map(({ paneId }, index) => {
+          const signal = signals[index]!;
+          const lost = () => this.closeWorkbench(view.id);
+          signal.addEventListener("abort", lost, { once: true });
+          return [paneId, () => signal.removeEventListener("abort", lost)] as const;
+        }),
+      );
+      const run: Owned = {
         owner,
         bindings,
         hostIds,
-        authorized: () => hasSshHosts(context, hostIds),
+        authorized: () => hasSshHosts(context, run.hostIds),
         view: { ...view, panes },
-        detach: () => {
-          for (const item of signals) item.removeEventListener("abort", lost);
+        detach: (paneId) => {
+          if (paneId) {
+            watchers.get(paneId)?.();
+            watchers.delete(paneId);
+          } else {
+            for (const stop of watchers.values()) stop();
+            watchers.clear();
+          }
         },
-      });
+      };
+      this.runs.set(view.id, run);
       this.changed(view.id);
     } catch (error) {
       for (const { sessionId } of panes) if (sessionId) this.shells.closeWorkbench(sessionId);

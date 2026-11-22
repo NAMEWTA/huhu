@@ -33,6 +33,28 @@ type SavedRun = z.infer<typeof SavedRun>;
 type PaneState = Pick<WorkspaceRunPane, "sessionId" | "error">;
 type LiveRun = { generation: number; panes: Map<string, PaneState>; controllers: Map<string, AbortController> };
 
+export function editWorkspacePanes<Pane extends { paneId: string; hostId: string }>(current: { layout: WorkspaceLayout; panes: Pane[] }, change: ChangeWorkspaceRun["change"]) {
+  const byId = new Map(current.panes.map((pane) => [pane.paneId, pane]));
+  let layout = current.layout;
+  let panes: Pane[];
+  if (change.action === "layout") {
+    if (change.paneIds.length !== byId.size || new Set(change.paneIds).size !== byId.size || change.paneIds.some((paneId) => !byId.has(paneId))) throw errors.invalidInput("分栏位置必须包含当前的所有分栏");
+    panes = change.paneIds.map((paneId) => byId.get(paneId)!);
+    layout = change.layout;
+  } else {
+    if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
+    if (byId.size === 1) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
+    panes = current.panes.filter(({ paneId }) => paneId !== change.paneId);
+    if (layout.kind === "custom") {
+      const index = current.panes.findIndex(({ paneId }) => paneId === change.paneId);
+      layout = { kind: "custom", tree: removePaneAt(layout.tree, index)! };
+    }
+  }
+  const problem = layoutProblem(panes, layout);
+  if (problem) throw errors.invalidInput(problem);
+  return { layout, panes };
+}
+
 export class WorkspaceRuns {
   private live = new Map<string, LiveRun>();
   private disposed = false;
@@ -111,24 +133,7 @@ export class WorkspaceRuns {
       const current = this.find(runs, id);
       const revision = current.layoutRevision ?? current.id;
       if (expectedLayoutRevision !== revision) throw errors.versionConflict(revision);
-      const byId = new Map(current.panes.map((pane) => [pane.paneId, pane]));
-      let layout = current.layout;
-      let panes: SavedRun["panes"];
-      if (change.action === "layout") {
-        if (change.paneIds.length !== byId.size || new Set(change.paneIds).size !== byId.size || change.paneIds.some((paneId) => !byId.has(paneId))) throw errors.invalidInput("分栏位置必须包含当前的所有分栏");
-        panes = change.paneIds.map((paneId) => byId.get(paneId)!);
-        layout = change.layout;
-      } else {
-        if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
-        if (byId.size === 1) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
-        panes = current.panes.filter(({ paneId }) => paneId !== change.paneId);
-        if (layout.kind === "custom") {
-          const index = current.panes.findIndex(({ paneId }) => paneId === change.paneId);
-          layout = { kind: "custom", tree: removePaneAt(layout.tree, index)! };
-        }
-      }
-      const problem = layoutProblem(panes, layout);
-      if (problem) throw errors.invalidInput(problem);
+      const { layout, panes } = editWorkspacePanes(current, change);
       const saved = { ...current, layout, panes, layoutRevision: randomUUID() };
       await this.write(
         runs.map((run) => (run.id === id ? saved : run)),
