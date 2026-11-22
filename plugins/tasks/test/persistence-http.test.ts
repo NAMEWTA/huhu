@@ -1656,3 +1656,31 @@ test.each(externalEntries)("%s 逐项开放和撤销 Tasks 目标快照，冷与
   expect(await external.call(id, input)).toMatchObject(denied);
   expect(readFileSync(targetFile, "utf8")).toBe(JSON.stringify(existing));
 });
+
+test("包验收先阻止接收，停用后恢复只丢一次 ACK，重交沿用唯一记录", { timeout: 60_000 }, async () => {
+  const { root, engine, task, run, execution } = await startBoundRun();
+  const input = { version: 1, receiptId: "fixture-before-consume", kind: "result", execution, payload: { message: "合成结果" } } as const satisfies ExecutionReceipt;
+  const gate = path.join(root, "ordered-receipt-gate");
+  mkdirSync(gate);
+  writeFileSync(path.join(gate, "dispatch-id"), run.dispatchId);
+  writeFileSync(path.join(gate, "before-consume"), "");
+  writeFileSync(path.join(gate, "drop-once"), "");
+  vi.stubEnv("HUHU_E2E_TASK_RECEIPT_ACK_GATE", gate);
+  const inbox = path.join(engine.vault.stateDir, "tasks", "receipts");
+  const records = () => (existsSync(inbox) ? readdirSync(inbox).filter((file) => file.endsWith(".json")) : []);
+  expect(await submitReceipt(engine, input)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  expect(JSON.parse(readFileSync(path.join(gate, "pending.json"), "utf8"))).toEqual(input);
+  expect(records()).toEqual([]);
+  expect(await call(engine, "plugins.setEnabled", { id: "tasks", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
+  writeFileSync(path.join(gate, "consume-release"), "");
+  expect((await submitReceipt(engine, input)).ok).toBe(false);
+  expect(records()).toEqual([]);
+  expect(await call(engine, "plugins.setEnabled", { id: "tasks", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+  expect(await submitReceipt(engine, input)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  const held = JSON.parse(readFileSync(path.join(gate, "held.json"), "utf8"));
+  expect(records()).toHaveLength(1);
+  expect(await submitReceipt(engine, input)).toEqual({ ok: true, data: held });
+  expect(await submitReceipt(engine, input)).toEqual({ ok: true, data: held });
+  expect(records()).toHaveLength(1);
+  await vi.waitFor(async () => expect((await call<TaskDto>(engine, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "result")).toHaveLength(1));
+});

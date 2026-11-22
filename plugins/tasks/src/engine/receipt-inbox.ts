@@ -35,20 +35,38 @@ function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
 }
 
-/** Packaged acceptance can cut the internal response after the real inbox has committed it. */
-function holdFixtureAck(input: ExecutionReceipt, ack: ExecutionReceiptAck): void {
+/** Only the explicitly selected synthetic dispatch participates in packaged fault injection. */
+function fixtureGate(input: ExecutionReceipt): string | undefined {
   const gate = process.env["HUHU_E2E_TASK_RECEIPT_ACK_GATE"];
-  if (!gate || !path.isAbsolute(gate) || input.kind !== "result" || existsSync(path.join(gate, "release"))) return;
+  if (!gate || !path.isAbsolute(gate) || input.kind !== "result") return;
   try {
-    if (readFileSync(path.join(gate, "dispatch-id"), "utf8") !== input.execution.dispatchId) return;
+    return readFileSync(path.join(gate, "dispatch-id"), "utf8") === input.execution.dispatchId ? gate : undefined;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
+}
+
+function holdFixtureReceipt(input: ExecutionReceipt): void {
+  const gate = fixtureGate(input);
+  if (!gate || !existsSync(path.join(gate, "before-consume")) || existsSync(path.join(gate, "consume-release"))) return;
+  try {
+    writeFileSync(path.join(gate, "pending.json"), JSON.stringify(input), { flag: "wx", flush: true, mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  throw new HuhuError("INTERNAL", "验收夹具在 Tasks 接收前中断", { retryable: true });
+}
+
+/** Packaged acceptance can cut the internal response after the real inbox has committed it. */
+function holdFixtureAck(input: ExecutionReceipt, ack: ExecutionReceiptAck): void {
+  const gate = fixtureGate(input);
+  if (!gate || existsSync(path.join(gate, "release"))) return;
   try {
     writeFileSync(path.join(gate, "held.json"), JSON.stringify(ack), { flag: "wx", flush: true, mode: 0o600 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    if (existsSync(path.join(gate, "drop-once"))) return;
   }
   throw new HuhuError("INTERNAL", "验收夹具已截断 Tasks 消费 ACK", { retryable: true });
 }
@@ -85,6 +103,7 @@ export class TaskReceiptInbox {
     const previous = this.read(file);
     const result = validateExecutionReceipt(input, expected, previous?.record.consumption.delivery.receipt);
     if (result.status === "rejected") throw errors.invalidInput("任务回执身份或载荷不匹配", [{ reason: result.reason }]);
+    holdFixtureReceipt(input);
     if (result.status === "new") {
       const key = fingerprint(input.receiptId);
       const record: DeliveryRecord = {

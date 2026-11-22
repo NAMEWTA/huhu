@@ -216,6 +216,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const home = path.join(sandbox, "home");
   const providerHome = path.join(sandbox, "provider");
   const runtime = path.join(sandbox, "runtime");
+  const gate = path.join(sandbox, "receipt-gate");
   const responses = await startCodexResponsesFixture({ seedReply: "READY", result: "TASK-JOURNEY-RESULT You chose Circle." });
   const env: NodeJS.ProcessEnv = {
     ...candidateEnvironment(),
@@ -232,12 +233,13 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
     PI_CODING_AGENT_DIR: path.join(home, ".pi"),
     PI_CODING_AGENT_SESSION_DIR: path.join(home, ".pi", "sessions"),
     HUHU_CODEX_DISPATCH_HOME: providerHome,
+    HUHU_E2E_TASK_RECEIPT_ACK_GATE: gate,
   };
   for (const key of ["HUHU_HERDR_BIN", "HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SOCKET", "HC_SESSION", "HC_SCOPE"]) delete env[key];
   let coreBin: string | undefined;
   let vaultId: string | undefined;
   try {
-    for (const dir of [vault, userData, home, providerHome, runtime]) await mkdir(dir, { mode: 0o700 });
+    for (const dir of [vault, userData, home, providerHome, runtime, gate]) await mkdir(dir, { mode: 0o700 });
     await writeFile(path.join(providerHome, "config.toml"), responses.config, { mode: 0o600 });
     const app = await electron.launch({ executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env });
     try {
@@ -286,7 +288,32 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const managed = detail.getByTestId("managed-task-run");
       await managed.getByRole("button", { name: "展开结果" }).click();
       await managed.getByRole("radio", { name: "Circle" }).check();
+      await writeFile(path.join(gate, "dispatch-id"), run!.dispatchId);
+      await writeFile(path.join(gate, "before-consume"), "");
+      await writeFile(path.join(gate, "drop-once"), "");
       await managed.getByRole("button", { name: "发送回答" }).click();
+      await expect.poll(() => readFile(path.join(gate, "pending.json"), "utf8").catch(() => ""), { timeout: 45_000 }).toMatch(/^\{.+\}$/);
+      const pending = JSON.parse(await readFile(path.join(gate, "pending.json"), "utf8")) as ExecutionReceipt;
+      expect(pending).toMatchObject({ kind: "result", execution: { dispatchId: run!.dispatchId, runId: run!.runId } });
+      const agentRoot = path.join(userData, "agent-cli", "codex-dispatch");
+      const [localVault] = await readdir(agentRoot);
+      const agentReceipts = path.join(agentRoot, localVault!, "agent-receipts");
+      const agentRows = await Promise.all((await readdir(agentReceipts)).filter((file) => file.endsWith(".json")).map(async (file) => JSON.parse(await readFile(path.join(agentReceipts, file), "utf8")) as { receipt: ExecutionReceipt }));
+      expect(agentRows).toContainEqual(expect.objectContaining({ receipt: pending }));
+      const receiptDir = path.join(vault, ".huhu", "tasks", "receipts");
+      const matchingInbox = async () => {
+        const rows = await Promise.all((await readdir(receiptDir)).filter((file) => file.endsWith(".json")).map(async (file) => JSON.parse(await readFile(path.join(receiptDir, file), "utf8")) as { receipt: ExecutionReceipt }));
+        return rows.filter(({ receipt }) => receipt.receiptId === pending.receiptId);
+      };
+      expect(await matchingInbox()).toEqual([]);
+      expect(await call("plugins.setEnabled", { id: "tasks", enabled: false })).toMatchObject({ state: "disabled" });
+      await writeFile(path.join(gate, "consume-release"), "");
+      expect(await matchingInbox()).toEqual([]);
+      expect(await call("plugins.setEnabled", { id: "tasks", enabled: true })).toMatchObject({ state: "active" });
+      await expect.poll(() => readFile(path.join(gate, "held.json"), "utf8").catch(() => ""), { timeout: 20_000 }).toMatch(/^\{.+\}$/);
+      const held = JSON.parse(await readFile(path.join(gate, "held.json"), "utf8")) as ExecutionReceiptAck;
+      expect(held.receipt.receiptId).toBe(pending.receiptId);
+      await expect.poll(matchingInbox).toHaveLength(1);
       const timeline = async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments;
       await expect.poll(async () => (await timeline()).filter(({ event }) => event === "result"), { timeout: 45_000 }).toMatchObject([{ run: run!.runId, session: session.id, body: expect.stringContaining("TASK-JOURNEY-RESULT") }]);
       const result = (await timeline()).find(({ event }) => event === "result")!;
@@ -298,7 +325,6 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const occurrences = await call<Activation[]>("automations.activations");
       const occurrence = occurrences.find(({ ruleId, scheduledFor }) => ruleId === rule.id && scheduledFor === at.toISOString());
       expect(occurrence?.summary?.processed).toBe(1);
-      const receiptDir = path.join(vault, ".huhu", "tasks", "receipts");
       const readResultReceipt = async () => {
         const receipts = await Promise.all(
           (await readdir(receiptDir))
@@ -316,9 +342,6 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       };
       await expect.poll(readResultReceipt).toMatchObject({ receipt: { execution: { runId: run!.runId, dispatchId: run!.dispatchId, attempt: 1 } }, consumption: { delivery: { messageId: result.id } }, status: "delivered" });
       const saved = (await readResultReceipt())!;
-      const agentRoot = path.join(userData, "agent-cli", "codex-dispatch");
-      const [localVault] = await readdir(agentRoot);
-      const agentReceipts = path.join(agentRoot, localVault!, "agent-receipts");
       await expect
         .poll(
           async () => {
@@ -329,13 +352,15 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
         )
         .toEqual([{ stage: "tasks_consumed", receipt: saved.consumption.delivery.receipt }]);
       expect((await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("in_progress");
-      await detail.getByTestId("task-status").selectOption("completed");
+      const restoredDetail = await openTask(page, task.title);
+      await restoredDetail.getByTestId("task-status").selectOption("completed");
       await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
       await testInfo.attach("T7.2 原生任务回执身份", {
         contentType: "application/json",
         body: JSON.stringify({
           sha,
           candidateIdentity,
+          receiptRecovery: { pending, firstDroppedAck: held, phases: ["agent-saved", "tasks-empty", "tasks-disabled", "tasks-enabled", "ack-dropped-once", "matching-ack-saved"] },
           occurrenceId: occurrence!.activationId,
           taskId: task.id,
           runId: run!.runId,
