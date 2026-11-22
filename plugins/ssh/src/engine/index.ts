@@ -6,12 +6,17 @@ import { ForwardRuleReceipt, MonitorPanelReceipt, sshCapabilityDescriptors, Work
 import type { WorkspaceTemplate } from "../shared/workspace.js";
 import { SaveForward } from "../shared/forwarding.js";
 import { PublicHostMutation } from "./auth-profile.js";
+import { registerSshAuthentication } from "./authentication-capability.js";
+import { registerSshConfigSync } from "./config-sync.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
+import { registerSshDraft } from "./draft-connection.js";
 import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
 import { HostIntents, sealCredentialPatches } from "./host-intents.js";
 import { hostImportCapabilities } from "./import/capability.js";
+import { registerSshKeys } from "./key-library-capabilities.js";
+import { registerSshLocalShells, type LaunchLocalPty } from "./local-shell.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
@@ -34,17 +39,28 @@ import { PublicMonitors } from "./public-monitors.js";
 import { PublicShells } from "./public-shells.js";
 import { PublicTransfers } from "./public-transfers.js";
 import { PublicWorkspaces } from "./public-workspaces.js";
+import { registerSshProxyShare } from "./proxy-share.js";
+import { registerSshTerminalBridge } from "./terminal-bridge.js";
+import { registerSshRecordings } from "./terminal-recordings.js";
+import { registerSshWorkspacePanes } from "./workspace-pane-capability.js";
 import * as sftp from "./sftp.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
 export { SshManager } from "./manager.js";
+export { createHerdrLocalPty } from "./local-pty-herdr.js";
 
 export function hasSavedSshHosts(files: HuhuApi["vault"]["files"], ids: readonly string[]): boolean {
   return readPortableHosts(files, new Set(ids)).length === ids.length;
 }
 
-export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost, execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity }): { manager: SshManager } {
+export function apply(
+  ctx: Context,
+  api: HuhuApi,
+  credentialHost?: SshCredentialHost,
+  execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity },
+  localPty?: { launch: LaunchLocalPty; shutdown(): Promise<void> },
+): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
   const relativeState = path.relative(api.vault.files.root, root);
   const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
@@ -115,6 +131,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicForwarding = new PublicForwarding(api.vault.files, forwardRules, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
+  registerSshKeys(api, hosts);
+  registerSshDraft(api, hosts, manager);
+  registerSshAuthentication(api, manager);
+  registerSshConfigSync(api, hosts);
+  const proxyShare = registerSshProxyShare(api, manager);
+  registerSshWorkspacePanes(api, runs);
+  const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"));
+  const localShells = localPty && registerSshLocalShells(api, localPty.launch);
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "tool-access") {
@@ -141,8 +165,16 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     transfers.dispose();
     files.dispose();
     runs.dispose();
+    recordings?.dispose();
+    proxyShare.dispose();
     manager.disposeAll();
   });
+  if (localShells && localPty) {
+    ctx.effect(() => async () => {
+      await localShells.dispose();
+      await localPty.shutdown();
+    });
+  }
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.settingsGet, () => preferences.get()));
   api.defineCapability(
@@ -972,53 +1004,6 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsRead, (context, input) => publicShells.read(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsWrite, (context, input) => publicShells.write(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsResize, (context, input) => publicShells.resize(context, input)));
-  // /ws/terminal/ssh-<id>：与 Agent 会话共用同一条终端路由
-  const demoted = new Map<string, import("ws").WebSocket[]>();
-  const controllers = new Map<string, import("ws").WebSocket>(); // 同一个 shell 只有一个视图可输入（ACC-AG-09）
-  api.provide("terminalBridge:ssh", async (shellId: string, ws: import("ws").WebSocket, req: { cols: number; rows: number; observe: boolean }) => {
-    const holder = controllers.get(shellId);
-    const o = { ...req, observe: req.observe || (holder !== undefined && holder.readyState === holder.OPEN) };
-    const att = manager.attachShell(shellId, {
-      onData: (b) => {
-        if (ws.readyState === ws.OPEN) ws.send(b, { binary: true });
-      },
-      onEnd: () => {
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: "closed", reason: { reason: "exited" } }));
-          ws.close(1000, "shell ended");
-        }
-      },
-    });
-    if (!att) return false;
-    if (!o.observe) controllers.set(shellId, ws);
-    else if (!req.observe && ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "mode", mode: "observe" }));
-      demoted.set(shellId, [...(demoted.get(shellId) ?? []), ws]);
-    }
-    ws.on("close", () => {
-      demoted.set(
-        shellId,
-        (demoted.get(shellId) ?? []).filter((x) => x !== ws),
-      );
-      if (controllers.get(shellId) !== ws) return;
-      controllers.delete(shellId);
-      const next = (demoted.get(shellId) ?? []).find((x) => x.readyState === x.OPEN);
-      if (next) next.send(JSON.stringify({ type: "mode", mode: "control-free" }));
-    });
-    if (!o.observe) att.resize(o.cols, o.rows); // 观察者不能改变 PTY 尺寸
-    ws.on("error", () => undefined);
-    ws.on("message", (data, isBinary) => {
-      if (o.observe) return;
-      if (isBinary) return att.write(Buffer.from(data as Buffer));
-      try {
-        const m = JSON.parse(String(data)) as { type?: string; cols?: number; rows?: number };
-        if (m.type === "resize" && Number.isInteger(m.cols) && Number.isInteger(m.rows)) att.resize(m.cols as number, m.rows as number);
-      } catch {
-        /* 忽略 */
-      }
-    });
-    ws.on("close", () => att.detach()); // 关闭视图只 detach
-    return true;
-  });
+  registerSshTerminalBridge(api, manager, localShells?.attach);
   return { manager };
 }

@@ -1,7 +1,6 @@
 import { APPEARANCE_CHANGED, appearanceController, TerminalView, type TerminalViewProps } from "@huhu/ui";
 import { useEffect, useRef, type CSSProperties } from "react";
 import { useDevicePreferences } from "./device-preferences.js";
-import type { TerminalInput } from "../shared/terminal-actions.js";
 
 const monospace = {
   theme: undefined,
@@ -11,7 +10,7 @@ const monospace = {
 
 export const canScaleTerminal = () => typeof CSS !== "undefined" && CSS.supports("zoom", "1");
 
-export function SshTerminal(props: TerminalViewProps & { onTerminalInput?: (input: TerminalInput | undefined) => void }) {
+export function SshTerminal(props: TerminalViewProps) {
   const { fontSize, font } = useDevicePreferences();
   const scale = canScaleTerminal() ? fontSize / 13 : 1;
   const previous = useRef(font);

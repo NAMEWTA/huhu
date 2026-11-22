@@ -13,6 +13,8 @@ export interface TerminalViewProps {
   ariaLabel: string;
   /** 程序结束或连接断开时通知宿主。 */
   onExit?(reason: string): void;
+  /** 桥接器授予输入控制后发布，离开此连接时撤回。 */
+  onTerminalInput?(input: ((text: string, enter: boolean) => boolean) | undefined): void;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -27,7 +29,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit, onTerminalInput }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -60,20 +62,48 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     let ended = false;
     let disposed = false; // 本次连接已被清理（切换会话 / 卸载 / 重连）：旧 socket 的回调不再改状态
     let observing = observe;
+    let inputGranted = false;
+    const enc = new TextEncoder();
+    const canSend = () => !disposed && !ended && !observing && ws.readyState === WebSocket.OPEN;
+    const revokeInput = () => {
+      if (!inputGranted) return;
+      inputGranted = false;
+      onTerminalInput?.(undefined);
+    };
+    const sendInput = (text: string, enter: boolean) => {
+      if (!inputGranted || !canSend()) return false;
+      if (!enter && /[\r\n]/u.test(text) && !term.modes.bracketedPasteMode) return false;
+      term.paste(text);
+      if (enter) ws.send(enc.encode("\r"));
+      return true;
+    };
     setDemoted(false);
-    ws.onopen = () => setState("open");
+    ws.onopen = () => {
+      if (!disposed) setState("open");
+    };
     ws.onmessage = (m) => {
+      if (disposed) return;
       if (typeof m.data === "string") {
         try {
           const msg = JSON.parse(m.data) as { type?: string; mode?: string; reason?: { reason?: string; exit_code?: number | null } | null };
-          if (disposed) return;
-          if (msg.type === "mode" && msg.mode === "observe") {
+          if (msg.type === "mode" && msg.mode === "control" && !observe) {
+            observing = false;
+            setDemoted(false);
+            if (onTerminalInput && !inputGranted && canSend()) {
+              inputGranted = true;
+              onTerminalInput(sendInput);
+            }
+          } else if (msg.type === "mode" && msg.mode === "observe") {
             observing = true;
+            revokeInput();
             setDemoted(true);
           } else if (msg.type === "mode" && msg.mode === "control-free") {
+            observing = true;
+            revokeInput();
             setAttempt((a) => a + 1); // 另一个视图离开了：重新连接，成为控制者
           } else if (msg.type === "closed") {
             ended = true;
+            revokeInput();
             setState("ended");
             exit.current?.(msg.reason?.reason ?? "exited");
           }
@@ -83,17 +113,17 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       } else term.write(new Uint8Array(m.data as ArrayBuffer));
     };
     ws.onclose = () => {
+      revokeInput();
       if (!ended && !disposed) {
         setState("lost");
         exit.current?.("lost");
       }
     };
-    const enc = new TextEncoder();
     const inputSub = term.onData((d) => {
-      if (!observing && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d));
+      if (canSend()) ws.send(enc.encode(d));
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
-      if (!observing && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      if (canSend()) ws.send(JSON.stringify({ type: "resize", cols, rows }));
     });
     const ro = new ResizeObserver(() => {
       try {
@@ -105,6 +135,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     ro.observe(host.current);
     return () => {
       disposed = true;
+      revokeInput();
       window.removeEventListener(APPEARANCE_CHANGED, restyle);
       ro.disconnect();
       inputSub.dispose();
@@ -112,7 +143,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput]);
 
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>

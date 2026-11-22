@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import MailComposer from "nodemailer/lib/mail-composer";
@@ -48,8 +49,9 @@ import automationsManifest from "@huhu/plugin-automations/manifest" with { type:
 import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "json" };
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { errors, HuhuError, PluginManifestSchema } from "@huhu/contracts";
+import { attachTerminal, HerdrCore } from "@huhu/herdr-client";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { directoryInstance, endpointRootBinding, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import { directoryInstance, endpointRootBinding, machineId, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -471,11 +473,22 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
     apply: (ctx, api) => {
+      const localCore = vault.readOnly
+        ? undefined
+        : new HerdrCore({
+            bin: process.env["HUHU_HERDR_BIN"] ?? "herdr-core",
+            vaultId: vault.id,
+            machineId: machineId(),
+            runtimeDir: path.join(runtime, "ssh-local-herdr"),
+            session: "huhu-ssh-local",
+            socketName: `huhu-ssh-${createHash("sha256").update(endpointRootBinding(vault.root)).digest("hex").slice(0, 20)}`,
+          });
       ssh.apply(
         ctx,
         api,
         moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined,
         !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]), retainActivity: retainLongOperation } : undefined,
+        localCore && { launch: ssh.createHerdrLocalPty(localCore, attachTerminal), shutdown: () => localCore.stop({ requireConfirmation: true }) },
       );
     },
   });
@@ -546,7 +559,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
     return bridge ? bridge(id, ws, options) : false;
   };
-  const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, terminal, async (...input) => {
+  const webTerminal: typeof terminal = (id, ws, options) => !id.startsWith("ssh-local-") && terminal(id, ws, options);
+  const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, webTerminal, async (...input) => {
     const upload = plugins.isEnabled("mail") && getService<mail.MailWebAttachmentUpload>(mail.MAIL_WEB_ATTACHMENTS_SERVICE);
     if (!upload || vault.readOnly) throw errors.permissionDenied("上传邮件附件");
     return upload(...input);

@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants, readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { runnable } from "@huhu/herdr-client";
 import { AGENT_CATALOG, type AgentCatalogEntry, type AgentId } from "../shared/catalog.js";
 import { entryOf, isEnabled, type AgentSettingsFile } from "../shared/settings.js";
 
@@ -21,17 +22,6 @@ export interface DetectInfo {
 }
 
 const exts = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => (platform === "win32" ? (env["PATHEXT"] ?? ".EXE;.CMD;.BAT").split(";").map((e) => e.toLowerCase()) : [""]);
-
-/** 普通文件且（POSIX 下）有执行权限。 */
-export function runnable(candidate: string, platform: NodeJS.Platform = process.platform): boolean {
-  try {
-    if (!statSync(candidate).isFile()) return false;
-    if (platform !== "win32") accessSync(candidate, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** 在一组目录里查找可执行文件（Windows 考虑 PATHEXT）。 */
 export function findInDirs(cmd: string, dirs: string[], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {

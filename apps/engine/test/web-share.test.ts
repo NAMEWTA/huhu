@@ -1,23 +1,27 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, DashboardView } from "@huhu/contracts";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { boot } from "../src/boot.js";
 
 function openStream(base: string, route: string, headers: Record<string, string>, bearer?: string) {
   const ws = new WebSocket(base.replace(/^http/, "ws") + route, bearer ? [`bearer.${bearer}`] : [], { headers });
   const messages: unknown[] = [];
-  ws.on("message", (frame) => messages.push(JSON.parse(String(frame))));
+  const output: Buffer[] = [];
+  ws.on("message", (frame, binary) => {
+    if (binary) output.push(Array.isArray(frame) ? Buffer.concat(frame) : Buffer.from(frame as Buffer));
+    else messages.push(JSON.parse(String(frame)));
+  });
   const closed = new Promise<number>((resolve) => ws.once("close", resolve));
-  return new Promise<{ ws: WebSocket; messages: unknown[]; closed: Promise<number> }>((resolve, reject) => {
+  return new Promise<{ ws: WebSocket; messages: unknown[]; output: Buffer[]; closed: Promise<number> }>((resolve, reject) => {
     ws.on("error", reject);
     ws.once("unexpected-response", (_request, response) => {
       response.resume();
       reject(new Error(`WebSocket HTTP ${response.statusCode}`));
     });
-    ws.once("open", () => resolve({ ws, messages, closed }));
+    ws.once("open", () => resolve({ ws, messages, output, closed }));
   });
 }
 
@@ -126,5 +130,88 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
   } finally {
     await e.shutdown();
     rmSync(fixture, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+const herdrBin = path.resolve(import.meta.dirname, "../../desktop/resources/herdr", process.platform + "-" + process.arch, "herdr-core");
+
+test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 PTY 在 Agent 停用时可重挂，Web 无法访问，SSH 停用后释放进程", { timeout: 30_000 }, async () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ssh-local-"));
+  const runtime = path.join(fixture, "run");
+  const home = path.join(fixture, "home");
+  const webAssetsDir = path.join(fixture, "web");
+  const vaultPath = path.join(fixture, "vault");
+  for (const directory of [runtime, home, webAssetsDir, vaultPath]) mkdirSync(directory);
+  writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>SSH test</title>");
+  vi.stubEnv("HUHU_HERDR_BIN", herdrBin);
+  vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+  vi.stubEnv("HOME", home);
+  vi.stubEnv("SHELL", "/bin/sh");
+  let engine: Awaited<ReturnType<typeof boot>> | undefined;
+  try {
+    const running = (engine = await boot({ vaultPath, webAssetsDir, create: true }));
+    const desktop = async <T>(capability: string, input: unknown = {}): Promise<T> => {
+      const result = await running.dispatcher.call("desktop", { capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() });
+      if (!result.ok) throw new Error(capability + " " + result.error.code + " " + result.error.message);
+      return result.data as T;
+    };
+    await desktop("plugins.setEnabled", { id: "agent-cli", enabled: false });
+    const environments = await desktop<{ id: string; name: string }[]>("ssh.local.environments");
+    const shell = environments.find(({ name }) => name === "sh");
+    expect(shell).toBeDefined();
+    expect(readdirSync(runtime)).toEqual([]);
+    const session = await desktop<{ id: string; state: string }>("ssh.local.open", { action: "launch", environmentId: shell!.id });
+    expect(session.state).toBe("running");
+    const route = "/ws/terminal/" + session.id + "?cols=101&rows=29";
+    const control = "http://127.0.0.1:" + running.port;
+    const terminal = await openStream(control, route, {}, running.rendererToken);
+    await expect.poll(() => terminal.messages).toContainEqual({ type: "mode", mode: "control" });
+    terminal.ws.send(Buffer.from('printf \'huhu-pty-%s-%s\\n\' "$$" "$((6 * 7))"\nstty size\n'));
+    const output = () => Buffer.concat(terminal.output).toString("utf8");
+    const marker = /huhu-pty-(\d+)-42/u;
+    await expect.poll(output).toMatch(marker);
+    await expect.poll(output).toMatch(/\b29 101\b/u);
+    const pid = Number(output().match(marker)![1]);
+    terminal.ws.close();
+    await terminal.closed;
+
+    const reattached = await openStream(control, route, {}, running.rendererToken);
+    await expect.poll(() => reattached.messages).toContainEqual({ type: "mode", mode: "control" });
+    reattached.ws.send(Buffer.from("printf 'huhu-reattach-%s\\n' \"$$\"\n"));
+    await expect.poll(() => Buffer.concat(reattached.output).toString("utf8")).toContain("huhu-reattach-" + pid);
+
+    const sharing = await desktop<{ addresses: { url: string }[] }>("web.share.start", { mode: "local" });
+    const origin = sharing.addresses[0]!.url;
+    const invitation = await desktop<{ links: string[] }>("web.invitations.create");
+    const invite = new URLSearchParams(new URL(invitation.links[0]!).hash.slice(1)).get("invite");
+    const joined = await fetch(origin + "/api/v1/session", { method: "POST", headers: { origin, authorization: "Bearer " + invite } });
+    expect(joined.status).toBe(204);
+    const cookie = joined.headers.get("set-cookie")!.split(";")[0]!;
+    const browser = await openStream(origin, route, { origin, cookie });
+    expect(await browser.closed).toBe(4404);
+    expect(browser.output).toEqual([]);
+    expect(reattached.ws.readyState).toBe(WebSocket.OPEN);
+
+    await desktop("plugins.setEnabled", { id: "ssh", enabled: false });
+    expect(await reattached.closed).toBe(1000);
+    await expect
+      .poll(() => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+          throw error;
+        }
+      })
+      .toBe(false);
+    expect(readdirSync(runtime).filter((file) => file.endsWith(".sock"))).toEqual([]);
+  } finally {
+    try {
+      await engine?.shutdown();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 3 });
+    }
   }
 });

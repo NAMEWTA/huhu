@@ -75,8 +75,10 @@ test("SSH 密钥库生成公开摘要，草稿测试可达后由字段修改清�
 
 test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", async () => {
   const password = randomUUID();
-  const left = await startFakeSsh({ password });
-  const right = await startFakeSsh({ password });
+  const leftInput: string[] = [];
+  const rightInput: string[] = [];
+  const left = await startFakeSsh({ password, onShellInput: (chunk) => leftInput.push(chunk) });
+  const right = await startFakeSsh({ password, onShellInput: (chunk) => rightInput.push(chunk) });
   const app = await openApp();
   const { page } = app;
   try {
@@ -94,6 +96,31 @@ test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", 
     await expect(run).toHaveAttribute("data-run-id", started.id);
     const panes = run.getByTestId("ssh-workspace-run-pane");
     await expect(panes.first()).toHaveAttribute("data-session-id", original.panes[0]!.sessionId!);
+    await test.step("快捷文本只送到有输入控制的选中分栏，回车由用户单独确认", async () => {
+      const leftTarget = run.getByRole("checkbox", { name: /左侧夹具/ });
+      await run.getByText("快捷文本与广播", { exact: true }).click();
+      await leftTarget.check();
+      const shortcut = run.getByRole("textbox", { name: "快捷文本" });
+      const preview = run.getByRole("button", { name: "预览", exact: true });
+      await shortcut.fill("fixture-insert-only");
+      await preview.click();
+      expect(leftInput.join("")).not.toContain("fixture-insert-only");
+      await run.getByRole("button", { name: "插入", exact: true }).click();
+      await expect.poll(() => leftInput.join("")).toContain("fixture-insert-only");
+      expect(leftInput.join("")).not.toContain("fixture-insert-only\r");
+      expect(rightInput.join("")).not.toContain("fixture-insert-only");
+
+      await shortcut.fill("fixture-send-enter");
+      await preview.click();
+      await run.getByRole("button", { name: "发送并回车", exact: true }).click();
+      await expect.poll(() => leftInput.join("")).toContain("fixture-send-enter\r");
+      expect(rightInput.join("")).not.toContain("fixture-send-enter");
+
+      await panes.first().getByRole("button", { name: "锁定输入", exact: true }).click();
+      await expect(leftTarget).toBeDisabled();
+      await panes.first().getByRole("button", { name: "解除输入锁定", exact: true }).click();
+      await expect(leftTarget).toBeEnabled();
+    });
     await run.getByRole("button", { name: "与后一分栏交换" }).click();
     await expect(panes.first()).toHaveAttribute("data-session-id", original.panes[1]!.sessionId!);
     await expect(panes.last()).toHaveAttribute("data-session-id", original.panes[0]!.sessionId!);

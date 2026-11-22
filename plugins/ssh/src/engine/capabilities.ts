@@ -4,6 +4,14 @@ import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
 import { ConfigureHost, CopyHost, HostAuthSummary, HostMutationBinding, HostRevision, LegacyHostView, ManagedHostView, PublicHostMutation } from "./auth-profile.js";
 import { DirectoryMutationRequest, DirectoryQuery, DirectoryView, PublicDirectoryMutation } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
+import { sshAuthenticationDescriptor } from "./authentication-capability.js";
+import { sshConfigSyncDescriptors } from "./config-sync.js";
+import { sshDraftDescriptor } from "./draft-connection.js";
+import { sshKeyDescriptors } from "./key-library-capabilities.js";
+import { sshLocalShellDescriptors } from "./local-shell.js";
+import { sshProxyShareDescriptors } from "./proxy-share.js";
+import { sshRecordingDescriptors } from "./terminal-recordings.js";
+import { sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import {
   DirectoryFollowState,
@@ -65,6 +73,14 @@ const fileTarget = <T extends z.ZodRawShape>(shape: T) => z.union([FileSessionId
 const Size = z.object({ size: z.number() });
 
 export const sshCapabilityDescriptors = {
+  ...sshKeyDescriptors,
+  ...sshConfigSyncDescriptors,
+  ...sshLocalShellDescriptors,
+  ...sshProxyShareDescriptors,
+  ...sshRecordingDescriptors,
+  authenticationAnswer: sshAuthenticationDescriptor,
+  hostsTestDraft: sshDraftDescriptor,
+  workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
   jobsPrepare: defineCapabilityDescriptor({
     ...resource,
     name: "ssh.jobs.prepare",

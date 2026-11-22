@@ -35,7 +35,7 @@ export function createHerdrLocalPty(core: { endpoint: string; ensure(): Promise<
 
     let terminal: Terminal;
     try {
-      terminal = await client.call<Terminal>("terminal.run", { argv, cwd, labels, name: `ssh-local-${launchId}`, no_parent: true, keep: false });
+      terminal = await client.call<Terminal>("terminal.run", { argv, cwd, labels, no_parent: true, keep: false });
     } catch (reason) {
       // A lost reply can leave a launched terminal. Reconcile only this request's exact label.
       const found = await list().catch(() => []);

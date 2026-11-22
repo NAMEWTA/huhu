@@ -412,6 +412,9 @@ importers:
       '@huhu/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@huhu/herdr-client':
+        specifier: workspace:*
+        version: link:../../packages/herdr-client
       '@huhu/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel

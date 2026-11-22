@@ -36,3 +36,16 @@
 ## 定向验证
 
 Node 24.21.0，pnpm 12.10.1。单独运行四个 Vitest 文件，均使用 `--maxWorkers=1`。候选 SSH 单包类型检查和新增 E2E 文件语法检查通过。日志目录为 `/tmp/huhu-t34-checks.TPPZz3`。E2E、Electron、xvfb、截图、打包和全量测试由 Lead 按任务边界另行执行。
+
+## Lead 合并与接线
+
+2026-11-22 在 Linux 本机工作树 `temp/issue-worktrees/integration` 实施。定向日志保存在本机 `temp/issue-evidence/huhu-2026-11-22/`。Node 24.21.0，pnpm 12.10.1。SSH 上游文件已对照 Motty v0.4.12 固定版本，见项目台账 R-72 至 R-77。
+
+| 阶段 | 实际检查与结果 | 证据 |
+| --- | --- | --- |
+| 合并 `ade79b58` | 父提交为 `cc671b5f` 和 `53e516ca`。串行运行 `pnpm exec vitest run` 的 `manager.test.ts`、`public-resources.engine.test.ts` 和 `draft-and-keys.test.ts`，分别通过 20、46、8 项。 | `h7-merge-vitest.log` |
+| 能力注册 | SSH 和 Engine 单包类型检查通过。`terminal-runtime.test.ts` 3 项、`domain-exposure.engine.test.ts` 2 项、`capability-catalog.test.ts` 2 项通过。目录与插件清单相符，CLI 与 MCP 初次发现保持关闭。 | `h7-wiring-static.log` |
+| 真 PTY | 定向运行 `pnpm exec vitest run apps/engine/test/web-share.test.ts`。初次打开失败，0.1.19 的 `terminal.run` 拒绝超过 32 字符的名称。移除名称参数并保留完整标签后，两项通过。停用 Agent CLI 后 `/bin/sh` 可运行，resize 为 29 行×101 列，关闭视图后以同一 PID 重挂。Web 邀请会话接入同一 ID 时关闭码为 4404。停用 SSH 后 PID 和私有套接字均已消失。 | `h7-native-before.log`、`h7-native-after.log` |
+| PTY 复查 | Engine 单包类型、`terminal-runtime.test.ts` 的 3 项及 `attach.live.test.ts` 的 1 项通过。分栏 E2E 文件语法检查通过。桌面实际 Chromium 为 152.0.7977.167。 | `h7-wiring-recheck.log` |
+
+待验项目包括 `tests/e2e/ssh/remaining.spec.ts` 的密钥和草稿流程及分栏内快捷文本，`tests/e2e/ssh/entry-parity.spec.ts` 的 CLI 和 HTTP MCP 两条串联记录，以及 Electron 实际窗口、Windows WSL 和 macOS。新增动作的默认关闭已复核。授权后的外部调用需逐项对应外部对象与业务处理，部分候选处理仍仅接受工作台身份。OpenSSH CA、批量路由、出站代理与跨窗口仍需按切片实现或复核。#7 的 Issue 验收仍在进行。

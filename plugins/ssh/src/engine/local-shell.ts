@@ -82,6 +82,8 @@ export class SshLocalShells {
   private readonly sessions = new Map<string, Session>();
   private readonly restarting = new Set<string>();
   private readonly lifetime = new AbortController();
+  private readonly openings = new Set<Promise<LocalSession>>();
+  private disposing: Promise<void> | undefined;
 
   constructor(
     private readonly launch: LaunchLocalPty,
@@ -90,19 +92,27 @@ export class SshLocalShells {
   ) {}
 
   async environments(signal: AbortSignal) {
-    return (await this.discover(signal)).map(({ view }) => view);
+    return (await this.discover(AbortSignal.any([signal, this.lifetime.signal]))).map(({ view }) => view);
   }
 
   list(): LocalSession[] {
     return [...this.sessions.values()].map(({ info }) => ({ ...info }));
   }
 
-  async open(input: OpenLocalShell, signal: AbortSignal): Promise<LocalSession> {
+  open(input: OpenLocalShell, signal: AbortSignal): Promise<LocalSession> {
+    const opening = this.openSession(input, AbortSignal.any([signal, this.lifetime.signal]));
+    this.openings.add(opening);
+    const release = () => this.openings.delete(opening);
+    void opening.then(release, release);
+    return opening;
+  }
+
+  private async openSession(input: OpenLocalShell, launchSignal: AbortSignal): Promise<LocalSession> {
+    launchSignal.throwIfAborted();
     const previous = input.action === "restart" ? this.sessions.get(input.sessionId) : undefined;
     if (input.action === "restart" && !previous) throw errors.notFound("本地 Shell");
     if (previous?.info.state === "running") throw errors.invalidInput("请先结束当前本地 Shell");
     const id = input.action === "launch" ? input.environmentId : previous!.info.environment.id;
-    const launchSignal = AbortSignal.any([signal, this.lifetime.signal]);
     const environment = (await this.discover(launchSignal)).find(({ view }) => view.id === id);
     launchSignal.throwIfAborted();
     if (!environment) throw unavailable(previous?.info.environment.name ?? "此本地 Shell 环境");
@@ -178,9 +188,13 @@ export class SshLocalShells {
     this.end(session);
   }
 
-  dispose() {
+  dispose(): Promise<void> {
+    return (this.disposing ??= this.closeAll());
+  }
+
+  private async closeAll(): Promise<void> {
     this.lifetime.abort();
-    for (const id of this.sessions.keys()) void this.close(id).catch(() => undefined);
+    await Promise.allSettled([...this.openings, ...Array.from(this.sessions.keys(), (id) => this.close(id))]);
   }
 
   private end(session: Session) {
