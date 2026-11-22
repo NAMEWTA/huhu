@@ -15,6 +15,16 @@ type View = z.infer<typeof DirectoryView>;
 const DIRECTORY_FILE = ".huhu/ssh/host-directory.json";
 const INITIAL_VERSION = "0";
 
+function visibleGroups(state: State, knownHosts: ReadonlySet<string>): Group[] {
+  const groupById = new Map(state.groups.map((group) => [group.groupId, group]));
+  const visible = new Set<string>();
+  for (const { hostId, groupId } of state.placements) {
+    if (!knownHosts.has(hostId)) continue;
+    for (let id = groupId; id && !visible.has(id); id = groupById.get(id)!.parentId) visible.add(id);
+  }
+  return state.groups.filter(({ groupId }) => visible.has(groupId));
+}
+
 function validateGroupTree(groups: ReadonlyMap<string, Group>) {
   const checked = new Set<string>();
   for (const groupId of groups.keys()) {
@@ -205,21 +215,22 @@ export class HostDirectory {
   async list(query: Query, visibleHosts?: HostRecord[]): Promise<View> {
     const { state } = this.readState();
     if (!visibleHosts) return projectDirectory(state, await this.hosts.list(), query);
-    const knownHosts = new Set(visibleHosts.map(({ id }) => id));
-    const groupById = new Map(state.groups.map((group) => [group.groupId, group]));
-    const visibleGroups = new Set<string>();
-    for (const { hostId, groupId } of state.placements) {
-      if (!knownHosts.has(hostId)) continue;
-      for (let id = groupId; id && !visibleGroups.has(id); id = groupById.get(id)!.parentId) visibleGroups.add(id);
-    }
-    return projectDirectory({ ...state, groups: state.groups.filter(({ groupId }) => visibleGroups.has(groupId)) }, visibleHosts, query);
+    const groups = visibleGroups(state, new Set(visibleHosts.map(({ id }) => id)));
+    return projectDirectory({ ...state, groups }, visibleHosts, query);
   }
 
-  async organize({ expectedVersion, operation }: Update): Promise<View> {
+  async organize({ expectedVersion, operation }: Update, scope?: { visible(): ReadonlySet<string>; assertCurrent(): void }): Promise<View> {
     this.files.assertWritable();
     const { state, fileVersion } = this.readState();
     if (state.version !== expectedVersion) throw errors.versionConflict(state.version);
     const hosts = await this.hosts.list();
+    if (scope) {
+      scope.assertCurrent();
+      if (!("hostIds" in operation)) throw errors.permissionDenied("SSH 全库目录操作");
+      if ("groupId" in operation && operation.groupId !== null && !visibleGroups(state, scope.visible()).some(({ groupId }) => groupId === operation.groupId)) {
+        throw errors.notFound("SSH 分组不存在");
+      }
+    }
     const next = applyOperation(state, hosts, operation);
     const view = projectDirectory(next, hosts, {});
     try {

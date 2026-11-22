@@ -2,13 +2,12 @@ import { createHash } from "node:crypto";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { HostDefinition, ManagedHostView, OwnedHostId, purposes } from "./auth-profile.js";
+import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
 import type { ManagedHost } from "./host-configurations.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
 
 export const ResourceHostId = z.strictObject({ hostId: OwnedHostId });
 const revision = ManagedHostView.shape.revision;
-const routeRevision = z.string().regex(/^[0-9a-f]{64}$/);
 const routeHop = z.strictObject({
   hostId: OwnedHostId,
   revision,
@@ -19,7 +18,7 @@ const routeHop = z.strictObject({
 export const ResourceHost = routeHop.extend({
   name: ManagedHostView.shape.name,
   authKind: ManagedHostView.shape.auth.shape.kind,
-  routeRevision,
+  routeRevision: SshRouteRevision,
   route: z.array(routeHop),
 });
 export const PublicHostView = z.strictObject({

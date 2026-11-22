@@ -1,4 +1,6 @@
+import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
+import { OwnedHostId, SshRouteRevision } from "./auth-profile.js";
 
 const HostId = z.string().min(1);
 const GroupId = z.uuid();
@@ -36,6 +38,14 @@ export const DirectoryUpdate = z.strictObject({
     z.strictObject({ type: z.literal("sort.set"), sort: SortMode }),
   ]),
 });
+export const DirectoryMutationRequest = DirectoryUpdate.extend({
+  intentKey: CapabilityIntentKeySchema.optional(),
+  bindings: z
+    .array(z.strictObject({ hostId: OwnedHostId, routeRevision: SshRouteRevision }))
+    .min(1)
+    .optional(),
+});
+export const PublicDirectoryMutation = z.strictObject({ version: Version });
 
 export const DirectoryView = z.strictObject({
   version: Version,

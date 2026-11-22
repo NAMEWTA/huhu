@@ -127,7 +127,7 @@ export class HostConfigurations {
     return host;
   }
 
-  configure(input: ConfigureHost, signal: AbortSignal) {
+  configure(input: ConfigureHost, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
       const { hostId, expectedRevision, authKind, credentials, ...profile } = input;
       if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
@@ -150,6 +150,7 @@ export class HostConfigurations {
           if (!applicable.has(purpose) && old.authState[purpose] !== "unconfigured") actions.set(purpose, { purpose, action: "clear" });
         }
       }
+      assertCurrent?.();
       return summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
     });
   }
@@ -171,7 +172,7 @@ export class HostConfigurations {
     });
   }
 
-  copy(input: z.infer<typeof CopyHost>, signal: AbortSignal) {
+  copy(input: z.infer<typeof CopyHost>, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
       const owner = this.credentials();
       const existing = await owner.list();
@@ -179,16 +180,18 @@ export class HostConfigurations {
       const entityId = `host-owned-${randomUUID().replaceAll("-", "")}`;
       const definition = validateHost({ ...from.definition, name: input.name, configId: randomUUID() }, entityId, [...this.legacy.list(), ...existing.map(asHost)]);
       const actions = purposes[definition.authKind].map((purpose) => ({ purpose, action: "keep" as const }));
+      assertCurrent?.();
       return summary(await owner.save({ entityId, expectedRevision: null, definition, actions, signal }), definition.authKind);
     });
   }
 
-  remove({ hostId, expectedRevision }: z.infer<typeof HostRevision>, signal: AbortSignal, assertUnused?: () => void) {
+  remove({ hostId, expectedRevision }: z.infer<typeof HostRevision>, signal: AbortSignal, assertUnused?: () => void, assertCurrent?: () => void) {
     return this.mutate(async () => {
       const owner = this.credentials();
       this.checkRevision(hostId, expectedRevision, await owner.list());
       await this.assertUnused(hostId);
       assertUnused?.();
+      assertCurrent?.();
       await owner.delete(hostId, expectedRevision, signal);
     });
   }

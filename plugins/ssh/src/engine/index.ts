@@ -1,11 +1,14 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { errors, isWorkbenchCaller } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { sshCapabilityDescriptors } from "./capabilities.js";
+import { PublicHostMutation } from "./auth-profile.js";
 import { HostDirectory } from "./directory.js";
+import { PublicDirectoryMutation } from "./directory-schema.js";
 import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
+import { HostIntents, sealCredentialPatches } from "./host-intents.js";
 import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
@@ -19,7 +22,7 @@ import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, PublicHostView, readPortableHosts, selectedSshHosts } from "./public-resources.js";
+import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
@@ -58,6 +61,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const operations = execJobs && { ...execJobs, receipts: new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-exec-intents.ndjson")) };
+  const hostIntents = execJobs && new HostIntents(new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-host-intents.ndjson")), execJobs.vaultInstance);
+  const boundHost = (context: CapabilityContext, binding: { hostId: string; routeRevision: string; expectedRevision: string }) => {
+    const chain = readBoundRoute(api.vault.files, context, binding);
+    const target = chain.at(-1)!;
+    if (target.revision !== binding.expectedRevision) throw errors.versionConflict(target.revision);
+    return { target, ids: chain.map(({ id }) => id) };
+  };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations);
   const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, operations.retainActivity) : undefined;
   const files = new FileSessions(manager);
@@ -154,10 +164,30 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(hostImportPreview(hosts));
   api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsOrganize, async (_c, i) => {
-      const view = await directory.organize(i);
-      api.events.publish("entity.changed", { kind: "ssh-host-directory", id: "directory", op: "updated" });
-      return view;
+    bindCapability(sshCapabilityDescriptors.hostsOrganize, async (context, request) => {
+      const update = async (scope?: Parameters<HostDirectory["organize"]>[1]) => {
+        const view = await directory.organize(request, scope);
+        api.events.publish("entity.changed", { kind: "ssh-host-directory", id: "directory", op: "updated" });
+        return view;
+      };
+      if (isWorkbenchCaller(context.caller)) return update();
+      const { bindings, intentKey, operation } = request;
+      if (!hostIntents || !intentKey || !bindings) throw errors.invalidInput("外部目录操作需要主机路由版本和意图键");
+      if (!("hostIds" in operation)) throw errors.permissionDenied("SSH 全库目录操作");
+      const targets = new Set(operation.hostIds);
+      const boundIds = new Set(bindings.map(({ hostId }) => hostId));
+      if (boundIds.size !== bindings.length || boundIds.size !== targets.size || [...targets].some((id) => !boundIds.has(id))) throw errors.invalidInput("需要为每个主机提供原路由版本");
+      return hostIntents.run(context, sshCapabilityDescriptors.hostsOrganize.name, {
+        hosts: operation.hostIds,
+        intentKey,
+        input: { expectedVersion: request.expectedVersion, operation, bindings },
+        output: PublicDirectoryMutation,
+        authorize: () => bindings.flatMap((binding) => readBoundRoute(api.vault.files, context, binding).map(({ id }) => id)),
+        run: async (assertCurrent) => {
+          const { version } = await update({ visible: () => new Set(visibleHosts(context).map(({ id }) => id)), assertCurrent });
+          return { version };
+        },
+      });
     }),
   );
   api.defineCapability(
@@ -171,25 +201,94 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsConfigure, async ({ signal }, input) => {
-      const saved = await hosts.configure(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
-      return saved;
+    bindCapability(sshCapabilityDescriptors.hostsConfigure, async (context, request) => {
+      const { intentKey, routeRevision, ...input } = request;
+      const save = async (assertCurrent?: () => void) => {
+        const saved = await hosts.configure(input, context.signal, assertCurrent);
+        api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
+        return saved;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      const { hostId, expectedRevision } = input;
+      if (!hostIntents || !intentKey || !routeRevision || !hostId || !expectedRevision) throw errors.invalidInput("外部编辑需要已授权主机、主机版本、路由版本和意图键");
+      externalSshOwner(context);
+      authorizedResourceRoute(api.vault.files, context, hostId);
+      if (input.credentials.some(({ purpose, action }) => purpose === "identityFile" && action === "replace")) throw errors.permissionDenied("SSH 本机身份文件");
+      const authorize = () => {
+        const { target, ids } = boundHost(context, { hostId, routeRevision, expectedRevision });
+        if (
+          input.host.trim().toLowerCase() !== target.host.toLowerCase() ||
+          input.port !== target.port ||
+          input.user.trim() !== target.user ||
+          input.authKind !== target.auth.kind ||
+          input.jumpHostIds.length !== target.jumpHostIds.length ||
+          input.jumpHostIds.some((id, index) => id !== target.jumpHostIds[index])
+        )
+          throw errors.permissionDenied("SSH 主机地址、跳板及认证类型变更");
+        return ids;
+      };
+      const credentials = await sealCredentialPatches(input.credentials, credentialHost);
+      return hostIntents.run(context, sshCapabilityDescriptors.hostsConfigure.name, {
+        hosts: [hostId],
+        intentKey,
+        input: { ...input, routeRevision, credentials },
+        output: PublicHostMutation,
+        authorize,
+        run: save,
+      });
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsCopy, async ({ signal }, input) => {
-      const saved = await hosts.copy(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: "created" });
-      return saved;
+    bindCapability(sshCapabilityDescriptors.hostsCopy, async (context, request) => {
+      const save = async (assertCurrent?: () => void) => {
+        const saved = await hosts.copy(request, context.signal, assertCurrent);
+        api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: "created" });
+        return saved;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      const { hostId, intentKey, routeRevision, expectedRevision } = request;
+      if (!hostIntents || !intentKey || !routeRevision) throw errors.invalidInput("外部复制需要主机路由版本和意图键");
+      return hostIntents.run(context, sshCapabilityDescriptors.hostsCopy.name, {
+        hosts: [hostId],
+        intentKey,
+        input: request,
+        output: PublicHostMutation,
+        authorize: () => boundHost(context, { hostId, routeRevision, expectedRevision }).ids,
+        run: save,
+      });
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostsRemove, async ({ signal }, input) => {
-      await hosts.remove(input, signal, () => assertHostUnused(input.hostId));
-      manager.forgetConnection(input.hostId);
-      api.events.publish("entity.changed", { kind: "ssh-host", id: input.hostId, op: "deleted" });
-      return { ok: true as const };
+    bindCapability(sshCapabilityDescriptors.hostsRemove, async (context, input) => {
+      const { hostId } = input;
+      const workbench = isWorkbenchCaller(context.caller);
+      const checkUnused = () => {
+        if (workbench) return assertHostUnused(hostId);
+        try {
+          assertHostUnused(hostId);
+        } catch (error) {
+          if (!(error instanceof HuhuError) || error.code !== "INVALID_INPUT") throw error;
+          throw errors.invalidInput("SSH 主机仍被引用");
+        }
+        if (monitorPanels.list().some(({ hostIds }) => hostIds.includes(hostId)) || manager.hasWorkbenchConnection(hostId)) throw errors.invalidInput("SSH 主机仍被引用或使用");
+      };
+      const remove = async (assertCurrent?: () => void) => {
+        await hosts.remove(input, context.signal, checkUnused, assertCurrent);
+        if (workbench || !manager.hasWorkbenchConnection(hostId)) manager.forgetConnection(hostId);
+        api.events.publish("entity.changed", { kind: "ssh-host", id: hostId, op: "deleted" });
+        return { ok: true as const };
+      };
+      if (workbench) return remove();
+      const { intentKey, routeRevision, expectedRevision } = input;
+      if (!hostIntents || !intentKey || !routeRevision) throw errors.invalidInput("外部移除需要主机路由版本和意图键");
+      return hostIntents.run(context, sshCapabilityDescriptors.hostsRemove.name, {
+        hosts: [hostId],
+        intentKey,
+        input,
+        output: sshCapabilityDescriptors.hostsRemove.output,
+        authorize: () => boundHost(context, { hostId, routeRevision, expectedRevision }).ids,
+        run: remove,
+      });
     }),
   );
   api.defineCapability(

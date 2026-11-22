@@ -67,7 +67,7 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
       title: "移除 SSH 主机配置",
       scope: "admin",
       risk: "high",
-      input: { properties: { hostId: { type: "string" }, expectedRevision: { type: "string" } }, required: ["hostId", "expectedRevision"] },
+      input: { properties: { hostId: { type: "string" }, expectedRevision: { type: "string" }, routeRevision: { type: "string" }, intentKey: { type: "string" } }, required: ["hostId", "expectedRevision"] },
       output: { properties: { ok: { const: true } } },
     });
     expect(await call(engine, "ssh.hosts.list")).toEqual({ ok: true, data: [] });
