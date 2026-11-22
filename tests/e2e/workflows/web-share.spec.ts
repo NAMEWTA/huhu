@@ -1,17 +1,100 @@
-import { chromium, expect, test, type Browser } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
+import { chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
+import { treeItem } from "../helpers/tree.js";
+import { engineReady } from "../knowledge/session-slow-bridge.js";
 
 const edge = process.platform === "win32" ? path.join(process.env["ProgramFiles(x86)"] ?? "C:/Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe") : "";
 const browserBinary = [chromium.executablePath(), edge].find((file) => file && existsSync(file));
+const noteName = "桌面与 Web 联验.md";
+const otherNoteName = "旁路文档.md";
+const original = "# 桌面与 Web 联验\n\n桌面初始正文\n";
+const otherOriginal = "# 旁路文档\n\n其他文件的原始正文\n";
+const menuEdit = "经应用菜单保存的联验正文";
+const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror");
+
+async function openNote(page: Page) {
+  if (!(await page.getByTestId("notes-module").isVisible())) await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+  await page.getByTestId("notes-section-all").click();
+  await treeItem(page, noteName).click();
+}
+
+async function openAutosaveSettings(page: Page) {
+  await page.getByRole("button", { name: "设置", exact: true }).first().click();
+  await page.getByTestId("settings-nav-editor").click();
+  const autosave = page.getByRole("switch", { name: "自动保存" });
+  await expect(autosave).toBeVisible();
+  return autosave;
+}
+
+async function saveFromAppMenu(app: ElectronApplication, page: Page) {
+  if (process.platform !== "darwin") {
+    // Capture the real Electron menu so Playwright can activate its native item.
+    await app.evaluate(({ Menu }) => {
+      const popup = Menu.prototype.popup;
+      Menu.prototype.popup = function (options) {
+        Menu.prototype.popup = popup;
+        if (options?.window) Reflect.set(options.window, "__huhuTestMenu", this);
+        options?.callback?.();
+      };
+    });
+    await page.getByTestId("app-menu-button").click();
+  }
+  const activate = (click: boolean) =>
+    app.evaluate(
+      ({ BrowserWindow, Menu }, shouldClick) => {
+        const win = BrowserWindow.getAllWindows()[0]!;
+        const menu = process.platform === "darwin" ? Menu.getApplicationMenu() : (Reflect.get(win, "__huhuTestMenu") as ReturnType<typeof Menu.getApplicationMenu>);
+        const item = menu?.items.find(({ label }) => label === "文件")?.submenu?.getMenuItemById("huhu-document-save");
+        if (!item || item.label !== "保存当前文档" || !item.enabled) return false;
+        if (shouldClick) item.click({}, win, win.webContents);
+        return true;
+      },
+      click,
+    );
+  await expect.poll(() => activate(false)).toBe(true);
+  expect(await activate(true)).toBe(true);
+}
 
 test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板保存重开", async () => {
   test.skip(!browserBinary, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
-  const { app, page, vault, close } = await openApp();
+  test.setTimeout(90_000);
+  const { app, page, vault, close } = await openApp({}, (directory) => {
+    writeFileSync(path.join(directory, noteName), original);
+    writeFileSync(path.join(directory, otherNoteName), otherOriginal);
+  });
+  const noteFile = path.join(vault, noteName);
+  const otherNoteFile = path.join(vault, otherNoteName);
+  const layoutFile = path.join(vault, ".huhu/home/widgets.json");
   let browser: Browser | undefined;
   try {
-    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await engineReady(page);
+    const savedNote = await test.step("应用菜单只保存当前选定文档", async () => {
+      const autosave = await openAutosaveSettings(page);
+      const wasEnabled = await autosave.isChecked();
+      if (wasEnabled) await autosave.click();
+      await expect(autosave).not.toBeChecked();
+      await openNote(page);
+      await expect(prose(page)).toContainText("桌面初始正文");
+      const beforeEdit = readFileSync(noteFile, "utf8");
+      await prose(page).click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.insertText(menuEdit);
+      await expect(prose(page)).toContainText(menuEdit);
+      await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
+      expect(readFileSync(noteFile, "utf8")).toBe(beforeEdit);
+      await saveFromAppMenu(app, page);
+      await expect.poll(() => readFileSync(noteFile, "utf8")).toContain(menuEdit);
+      await expect(page.getByTestId("save-state")).toHaveText("已保存");
+      expect(readFileSync(otherNoteFile, "utf8")).toBe(otherOriginal);
+      if (wasEnabled) {
+        const restore = await openAutosaveSettings(page);
+        if (!(await restore.isChecked())) await restore.click();
+        await expect(restore).toBeChecked();
+      }
+      return readFileSync(noteFile, "utf8");
+    });
     await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
     await page.getByRole("tab", { name: "服务端" }).click();
     const share = page.getByTestId("web-share-panel");
@@ -31,13 +114,24 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await app.evaluate(({ dialog, shell }) => {
       const opened: string[] = [];
       Object.assign(globalThis, { webShareOpened: opened });
+      const show = dialog.showMessageBox;
+      const open = shell.openExternal;
+      Reflect.set(globalThis, "restoreWebShareExternalLink", () => {
+        dialog.showMessageBox = show;
+        shell.openExternal = open;
+        Reflect.deleteProperty(globalThis, "restoreWebShareExternalLink");
+      });
       dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
       shell.openExternal = async (link) => {
         opened.push(link);
       };
     });
-    await localAddress.click();
-    await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "webShareOpened"))).toEqual([new URL(url).href]);
+    try {
+      await localAddress.click();
+      await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "webShareOpened"))).toEqual([new URL(url).href]);
+    } finally {
+      await app.evaluate(() => Reflect.get(globalThis, "restoreWebShareExternalLink")?.());
+    }
 
     const links = page.getByRole("dialog", { name: "Web 邀请链接" });
     const readLink = async () => {
@@ -93,7 +187,7 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await otherBoard.getByTestId("home-dashboard-save").click();
     await expect(otherBoard.getByRole("status")).toContainText("布局已保存");
     await expect(first!.getByTestId("home-dashboard").locator('[data-instance-id="default-focus"]')).toHaveCount(0);
-    const saved = readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8");
+    const saved = readFileSync(layoutFile, "utf8");
 
     await aRow.getByRole("button", { name: "撤销邀请" }).click();
     const confirmation = page.getByRole("dialog", { name: "撤销这份邀请" });
@@ -106,17 +200,88 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await other!.reload();
     await expect(otherBoard).toBeVisible();
     await expect(focus).toHaveCount(0);
-    expect(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8")).toBe(saved);
+    expect(readFileSync(layoutFile, "utf8")).toBe(saved);
 
     await share.getByRole("button", { name: "停止分享" }).click();
     await page.getByRole("dialog", { name: "停止 Web 分享" }).getByRole("button", { name: "确认停止" }).click();
     await expect(share.getByText("已停止", { exact: true })).toBeVisible();
     await expect(rows).toHaveCount(0);
+    await browser.close();
+    browser = undefined;
+
+    const savedLayout = await test.step("关窗时先继续编辑，再保存布局并关闭", async () => {
+      await page.getByRole("button", { name: "huhu workbench 首页" }).click();
+      const dashboard = page.getByTestId("home-dashboard");
+      await expect(dashboard.getByTestId("card-recent")).toBeVisible();
+      await expect(dashboard.locator('[data-instance-id="default-focus"]')).toHaveCount(0);
+      await page.getByTestId("home-customize").click();
+      const hideRecent = dashboard.locator('[data-instance-id="default-notes"]').getByRole("checkbox", { name: "隐藏" });
+      await hideRecent.check();
+      const decision = page.getByRole("dialog", { name: "关闭窗口前处理看板草稿" });
+      const requestClose = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
+      await requestClose();
+      await expect(decision).toBeVisible();
+      expect(readFileSync(layoutFile, "utf8")).toBe(saved);
+      await decision.getByRole("button", { name: "继续编辑", exact: true }).click();
+      await expect(decision).toHaveCount(0);
+      await expect(hideRecent).toBeChecked();
+      await expect(dashboard.getByTestId("home-dashboard-save")).toBeEnabled();
+      expect(readFileSync(layoutFile, "utf8")).toBe(saved);
+      expect(readFileSync(noteFile, "utf8")).toBe(savedNote);
+
+      await requestClose();
+      await expect(decision).toBeVisible();
+      await Promise.all([
+        app.waitForEvent("close"),
+        (async () => {
+          await Promise.all([page.waitForEvent("close"), decision.getByTestId("home-dashboard-save-leave").click()]);
+          // Closing the last macOS window leaves the native app running.
+          if (process.platform === "darwin") await app.evaluate(({ app }) => app.quit());
+        })(),
+      ]);
+      const bytes = readFileSync(layoutFile, "utf8");
+      expect(bytes).not.toBe(saved);
+      expect(JSON.parse(bytes).instances).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ instanceId: "default-focus", hidden: true }),
+          expect.objectContaining({ instanceId: "default-notes", hidden: true }),
+        ]),
+      );
+      return bytes;
+    });
+
+    await test.step("重新启动桌面并打开同一 Vault，回读文档与两次布局修改", async () => {
+      const reopened = await openApp({ HUHU_VAULT: vault });
+      try {
+        await engineReady(reopened.page);
+        expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+        const dashboard = reopened.page.getByTestId("home-dashboard");
+        await expect(dashboard.getByTestId("card-tasks")).toBeVisible();
+        await expect(dashboard.locator('[data-instance-id="default-focus"]')).toHaveCount(0);
+        await expect(dashboard.locator('[data-instance-id="default-notes"]')).toHaveCount(0);
+        await openNote(reopened.page);
+        await expect(prose(reopened.page)).toContainText(menuEdit);
+        expect(readFileSync(noteFile, "utf8")).toBe(savedNote);
+        expect(readFileSync(otherNoteFile, "utf8")).toBe(otherOriginal);
+        expect(readFileSync(layoutFile, "utf8")).toBe(savedLayout);
+      } finally {
+        await reopened.close();
+      }
+    });
   } finally {
     try {
       await browser?.close();
     } finally {
-      await close();
+      try {
+        if (!page.isClosed()) {
+          for (const name of ["继续编辑", "取消编辑"]) {
+            const button = page.getByRole("button", { name, exact: true });
+            if (await button.isVisible()) await button.click({ timeout: 500 }).catch(() => undefined);
+          }
+        }
+      } finally {
+        await close();
+      }
     }
   }
 });
