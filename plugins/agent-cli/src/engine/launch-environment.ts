@@ -167,10 +167,14 @@ export function registerAgentEnvironments(api: HuhuApi, host: AgentCredentialHos
   return {
     available: store !== undefined,
     async profile(selection, provider) {
-      if (!store) throw unavailable();
-      const entry = (await store.list().catch(translate)).find((profile) => profile.entityId === selection.id);
+      if (!snapshot) throw unavailable();
+      const entry = (await snapshot.list().catch(translate)).find((profile) => profile.entityId === selection.id);
       if (!entry || entry.revision !== selection.revision || entry.definition.provider !== provider) throw new HuhuError("VERSION_CONFLICT", "启动环境已变化，请重新选择");
-      if (entry.definition.protectedNames.some((name) => entry.authState[name] !== "configured")) throw errors.invalidInput("请在智能体设置中重新配置本机变量");
+      // The protected lease verifies availability at delivery. The shared
+      // portable plan does not read keys or decrypt another profile's values.
+      if (entry.definition.protectedNames.some((name) => entry.authState[name] === "unconfigured" || entry.authState[name] === "needs-reconfiguration" || entry.authState[name] === "corrupt")) {
+        throw errors.invalidInput("请在智能体设置中重新配置本机变量");
+      }
       return project(entry);
     },
     async use(selection, provider, purposes, consumer) {

@@ -9,6 +9,8 @@ import { resolveAgentLaunch } from "../src/engine/launch.js";
 import { emptyAgentSettings } from "../src/shared/index.js";
 import { SessionsService } from "../src/engine/sessions.js";
 import { SpaceStore } from "../src/engine/spaces.js";
+import { InteractiveEnvironment } from "../src/engine/interactive-environment.js";
+import type { AgentEnvironmentProfile } from "../src/engine/launch-environment.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -24,9 +26,10 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
   const terminals: { address: string; labels: Record<string, string>; argv?: string[]; cwd: string; pid: number; created_ms: number; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
+  const runEnvironments: (Record<string, string> | undefined)[] = [];
   const sends: { terminal?: string; text?: string }[] = [];
   const client = {
-    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string }) => {
+    call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string; env?: Record<string, string> }) => {
       calls.push(method);
       if (method === "hello") return { core: { id: "fake-core" }, generation: 1 };
       if (method === "terminal.send") {
@@ -36,6 +39,7 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
         return {};
       }
       if (method === "terminal.run") {
+        runEnvironments.push(params.env);
         runs.push({ ...(params.argv ? { argv: params.argv } : {}), ...(params.cwd ? { cwd: params.cwd } : {}) });
         const t = {
           address: `t${terminals.length + 1}`,
@@ -65,7 +69,7 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
       x.finished_ms = Date.parse("2026-11-11T00:30:00Z");
     }
   };
-  return { client, calls, terminals, runs, sends, finish };
+  return { client, calls, terminals, runs, runEnvironments, sends, finish };
 }
 
 function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof SessionsService>[0]> = {}) {
@@ -96,6 +100,79 @@ const req = (space: { id: string; revision: number }, over: Record<string, unkno
   provider: "shell" as const,
   requestId: `req-${Math.random().toString(36).slice(2)}`,
   ...over,
+});
+
+function ordinaryProfile(provider: AgentEnvironmentProfile["provider"]) {
+  const profile: AgentEnvironmentProfile = {
+    id: "profile",
+    revision: "first",
+    name: "普通配置",
+    provider,
+    ordinary: [
+      { name: "SAMPLE", value: "portable-value" },
+      { name: "CLEARED", value: "" },
+    ],
+    protectedNames: [],
+    states: {},
+  };
+  const environment = new InteractiveEnvironment(undefined, {
+    available: true,
+    async profile(selection, selectedProvider) {
+      if (selection.revision !== profile.revision || selectedProvider !== provider) throw Object.assign(new Error("启动环境已变化"), { code: "VERSION_CONFLICT" });
+      return profile;
+    },
+    async use() {
+      throw new Error("普通配置不得领取凭据");
+    },
+  });
+  return { profile, environment };
+}
+
+test("普通 Agent 配置复用 resolver 和原 Core 启动，保留空字符串与单次请求归属", async () => {
+  const { client, runs, runEnvironments } = fakeClient();
+  const { profile, environment } = ordinaryProfile("claude");
+  const { svc, space, work } = setup(client, {
+    interactiveEnvironment: environment,
+    resolve: async () => ({ command: path.join(work, "agent"), argv: ["argument with spaces"], warnings: [], env: { SAMPLE: "original", CLEARED: "original", BASE: "kept" } }),
+  });
+  const input = { ...req(space), provider: "claude" as const };
+  const preview = await svc.previewEnvironment(input, { id: profile.id, revision: profile.revision });
+  expect(environment.available).toBe(false);
+  expect(preview).toMatchObject({ cwd: work, argv: [path.join(work, "agent"), "argument with spaces"], ordinaryNames: ["BASE", "CLEARED", "SAMPLE"], protectedNames: [] });
+  expect(JSON.stringify(preview)).not.toContain("portable-value");
+  const approved = { ...input, environment: preview.environment };
+  const result = await svc.launch(approved);
+  expect(runs).toEqual([{ cwd: work, argv: preview.argv }]);
+  expect(runEnvironments).toEqual([{ BASE: "kept", SAMPLE: "portable-value", CLEARED: "" }]);
+  profile.revision = "later";
+  expect(await svc.launch(approved)).toMatchObject({ id: result.id, terminalId: result.terminalId });
+  expect(runs).toHaveLength(1);
+  await expect(svc.launch({ ...approved, requestId: "stale-profile-new-request" })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  expect(runs).toHaveLength(1);
+});
+
+test("普通终端配置在连接 Core 后复核版本，并使用 Core 默认 shell", async () => {
+  const { client, runs, runEnvironments } = fakeClient();
+  const { profile, environment } = ordinaryProfile("shell");
+  let changeOnConnect = true;
+  const { svc, space, work } = setup(client, {
+    interactiveEnvironment: environment,
+    core: async () => {
+      if (changeOnConnect) profile.revision = "changed-after-preview";
+      return client;
+    },
+  });
+  const input = req(space);
+  const preview = await svc.previewEnvironment(input, { id: profile.id, revision: profile.revision });
+  expect(preview.argv).toEqual([]);
+  await expect(svc.launch({ ...input, environment: preview.environment })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  expect(runs).toHaveLength(0);
+
+  changeOnConnect = false;
+  const revised = await svc.previewEnvironment(input, { id: profile.id, revision: profile.revision });
+  await svc.launch({ ...input, requestId: "reapproved-shell", environment: revised.environment });
+  expect(runs).toEqual([{ cwd: work }]);
+  expect(runEnvironments).toEqual([{ SAMPLE: "portable-value", CLEARED: "" }]);
 });
 
 describe("HerdrCore.peek（不 mock：真实端点检查）", () => {

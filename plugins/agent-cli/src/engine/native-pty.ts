@@ -1,11 +1,17 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, realpathSync } from "node:fs";
+import { constants, createReadStream, realpathSync } from "node:fs";
+import { open } from "node:fs/promises";
 import path from "node:path";
 import { errors } from "@huhu/contracts";
 
-export type PinnedImage = { path: string; sha256: string };
-type Directory = { path: string; id: { volume: string; index: string; created: string } };
+type FileIdentity = { volume: string; index: string; created: string };
+export type PinnedImage = { path: string; sha256: string; id?: FileIdentity };
+export type ApprovedLinuxShell = {
+  executable: { path: string; identity: string; birthtimeNs: string; ctimeNs: string; mtimeNs: string; size: string; sha256: string };
+  argv: [executable: string, flag: "-c", command: string];
+};
+type Directory = { path: string; id: FileIdentity };
 export interface NativeLaunchPlan {
   directory: Directory;
   image: PinnedImage;
@@ -14,6 +20,7 @@ export interface NativeLaunchPlan {
   argv: string[];
   ordinary: Record<string, string>;
   protect: string[];
+  approvedShell?: ApprovedLinuxShell["executable"];
 }
 
 const WIN_AMBIENT = new Set([
@@ -54,12 +61,59 @@ export function windowsAgentEnvironment(env: NodeJS.ProcessEnv, ordinary: Record
   return Object.fromEntries(values.values());
 }
 
+const LINUX_AMBIENT = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "LANG",
+  "LANGUAGE",
+  "TMPDIR",
+  "TERM",
+  "COLORTERM",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_STATE_HOME",
+  "XDG_RUNTIME_DIR",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XAUTHORITY",
+]);
+
+export function nativeHostPlatform(): "linux" | "win32" | undefined {
+  return process.arch === "x64" && (process.platform === "linux" || process.platform === "win32") ? process.platform : undefined;
+}
+
+export function protectedLinuxVariable(name: string): boolean {
+  return !name.startsWith("LD_") && name !== "GLIBC_TUNABLES";
+}
+
+export function nativeAgentEnvironment(env: NodeJS.ProcessEnv, ordinary: Record<string, string>): Record<string, string> {
+  if (process.platform === "win32") return windowsAgentEnvironment(env, ordinary);
+  return { ...Object.fromEntries(Object.entries(env).flatMap(([name, value]) => (value !== undefined && (LINUX_AMBIENT.has(name) || /^LC_[A-Z_]+$/.test(name)) ? [[name, value]] : []))), ...ordinary };
+}
+
 export async function pinNativeImage(file: string): Promise<PinnedImage> {
   if (!path.isAbsolute(file)) throw errors.invalidInput("请使用本机绝对文件路径");
   try {
     const resolved = realpathSync.native(file);
     const hash = createHash("sha256");
-    for await (const chunk of createReadStream(resolved)) hash.update(chunk);
+    if (process.platform === "linux") {
+      const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const stat = await handle.stat({ bigint: true });
+        if (!stat.isFile() || stat.size > 512n * 1024n * 1024n) throw new Error("Invalid executable file");
+        for await (const chunk of handle.createReadStream({ autoClose: false, end: Number(stat.size) })) hash.update(chunk);
+        if ((await handle.stat({ bigint: true })).ctimeNs !== stat.ctimeNs) throw new Error("Executable changed during verification");
+      } finally {
+        await handle.close();
+      }
+    } else {
+      for await (const chunk of createReadStream(resolved)) hash.update(chunk);
+    }
     return { path: resolved, sha256: hash.digest("hex") };
   } catch {
     throw errors.invalidInput("无法核对受保护启动所需的程序文件");
@@ -75,15 +129,30 @@ function helperStatus(exe: string, args: string[], signal?: AbortSignal): Promis
         timeout: 5000,
         maxBuffer: 4096,
         windowsHide: true,
-        env: windowsAgentEnvironment(process.env, {}),
+        env: nativeAgentEnvironment(process.env, {}),
         ...(signal && { signal }),
       },
       (error, stdout) => {
-        if (error) reject(errors.invalidInput("Windows 受保护宿主无法核对本机文件或进程"));
+        if (error) reject(errors.invalidInput("受保护终端宿主无法核对本机文件或进程"));
         else resolve(stdout.trim());
       },
     );
   });
+}
+
+function identityFromStatus(status: string, operation: "DIRECTORY" | "PROGRAM"): FileIdentity {
+  const match = /^HUHU_PTY (DIRECTORY|PROGRAM) 1 (\d{1,20}) (\d{1,20}) (\d{1,20})$/.exec(status);
+  if (!match || match[1] !== operation) throw errors.invalidInput("无法核对受保护启动的程序或工作目录");
+  return { volume: match[2]!, index: match[3]!, created: match[4]! };
+}
+
+export async function linuxProgramIdentity(helper: PinnedImage, image: PinnedImage): Promise<PinnedImage> {
+  try {
+    const status = await helperStatus(helper.path, ["program", image.path, image.sha256]);
+    return { ...image, id: identityFromStatus(status, "PROGRAM") };
+  } catch {
+    throw errors.invalidInput("Linux 受保护启动需要可核验的本机 ELF 可执行文件");
+  }
 }
 
 export async function nativeDirectory(helper: PinnedImage, cwd: string): Promise<Directory> {
@@ -93,9 +162,8 @@ export async function nativeDirectory(helper: PinnedImage, cwd: string): Promise
   } catch {
     throw errors.invalidInput("工作目录已变化，请重新选择");
   }
-  const identity = /^HUHU_PTY DIRECTORY 1 (\d{1,20}) (\d{1,20}) (\d{1,20})$/.exec(await helperStatus(helper.path, ["directory", resolved]));
-  if (!identity) throw errors.invalidInput("无法核对受保护启动的工作目录");
-  return { path: resolved, id: { volume: identity[1]!, index: identity[2]!, created: identity[3]! } };
+  const id = identityFromStatus(await helperStatus(helper.path, ["directory", resolved]), "DIRECTORY");
+  return { path: resolved, id };
 }
 
 export type BrokerOutcome = "started" | "not-started" | "unknown";
@@ -118,7 +186,7 @@ export class NativePtyBroker {
     this.signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(24_000), ...(signal ? [signal] : [])]);
     this.signal.throwIfAborted();
     this.child = spawn(helper.path, ["broker", this.runId], {
-      env: windowsAgentEnvironment(process.env, {}),
+      env: nativeAgentEnvironment(process.env, {}),
       windowsHide: true,
       stdio: "pipe",
       signal: this.signal,
@@ -155,16 +223,22 @@ export class NativePtyBroker {
 
   async hostArgv(): Promise<string[]> {
     const created = await this.ready;
-    if (!created || this.signal.aborted) throw errors.invalidInput("Windows 受保护宿主未就绪");
+    if (!created || this.signal.aborted) throw errors.invalidInput("受保护终端宿主未就绪");
     return [this.helper.path, "host", this.runId, String(this.child.pid), created];
   }
 
   async inspectHost(hostPid: number): Promise<{ pid: number; created: string; image: PinnedImage } | null> {
     if (this.signal.aborted) return null;
     try {
-      const status = await helperStatus(this.helper.path, ["inspect", String(hostPid), this.helper.path, this.helper.sha256], this.signal);
-      const process = /^HUHU_PTY PROCESS 1 (\d{1,10}) (\d{1,20})$/.exec(status);
-      return process && Number(process[1]) === hostPid ? { pid: hostPid, created: process[2]!, image: this.helper } : null;
+      const args = ["inspect", String(hostPid), this.helper.path, this.helper.sha256];
+      if (process.platform === "linux") {
+        const created = await this.ready;
+        if (!created || !this.child.pid) return null;
+        args.push(this.runId, String(this.child.pid), created);
+      }
+      const status = await helperStatus(this.helper.path, args, this.signal);
+      const match = /^HUHU_PTY PROCESS 1 (\d{1,10}) (\d{1,20})$/.exec(status);
+      return match && Number(match[1]) === hostPid ? { pid: hostPid, created: match[2]!, image: this.helper } : null;
     } catch {
       return null;
     }
@@ -174,8 +248,9 @@ export class NativePtyBroker {
     if (this.issued || this.signal.aborted) return "not-started";
     this.issued = true;
     const { ordinary, ...target } = plan;
-    const environment = new Map(Object.entries(ordinary).map(([name, value]) => [name.toUpperCase(), [name, value] as const]));
-    for (const [name, value] of protectedValues) environment.set(name.toUpperCase(), [name, value]);
+    const key = (name: string) => (process.platform === "win32" ? name.toUpperCase() : name);
+    const environment = new Map(Object.entries(ordinary).map(([name, value]) => [key(name), [name, value] as const]));
+    for (const [name, value] of protectedValues) environment.set(key(name), [name, value]);
     const message = Buffer.from(
       JSON.stringify({
         version: 1,

@@ -1,80 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"time"
 
 	"golang.org/x/sys/windows"
 )
-
-const (
-	usageFailure = 64
-	hostFailure  = 70
-	denied       = 73
-	pinDenied    = 74
-	timedOut     = 75
-)
-
-var (
-	runID      = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	errInput   = errors.New("invalid private authorization")
-	errPin     = errors.New("approved file or directory changed")
-	errPeer    = errors.New("peer denied")
-	errTimeout = errors.New("authorization timed out")
-)
-
-func main() {
-	os.Exit(safeMain(os.Args[1:]))
-}
-
-// Public diagnostics contain protocol facts only, even when an I/O error refers to private input.
-func safeMain(args []string) (status int) {
-	defer func() {
-		if recover() != nil {
-			fmt.Fprintln(os.Stderr, "HUHU_PTY FAILED")
-			status = hostFailure
-		}
-	}()
-	code, err := run(args)
-	var failed startupFailure
-	switch {
-	case err == nil:
-		return code
-	case code == usageFailure:
-		fmt.Fprintln(os.Stderr, "HUHU_PTY USAGE")
-		return code
-	case errors.Is(err, errPeer), errors.Is(err, errInput):
-		fmt.Fprintln(os.Stderr, "HUHU_PTY DENIED")
-		return denied
-	case errors.Is(err, errPin):
-		fmt.Fprintln(os.Stderr, "HUHU_PTY PIN_DENIED")
-		return pinDenied
-	case errors.Is(err, errTimeout):
-		fmt.Fprintln(os.Stderr, "HUHU_PTY TIMEOUT")
-		return timedOut
-	case errors.As(err, &failed):
-		return int(failed.code)
-	default:
-		fmt.Fprintln(os.Stderr, "HUHU_PTY FAILED")
-		return hostFailure
-	}
-}
-
-func parseProcess(pid, created string) (processID, error) {
-	p, err := strconv.ParseUint(pid, 10, 32)
-	if err != nil || p == 0 {
-		return processID{}, errInput
-	}
-	t, err := strconv.ParseUint(created, 10, 64)
-	if err != nil || t == 0 || strconv.FormatUint(t, 10) != created {
-		return processID{}, errInput
-	}
-	return processID{uint32(p), created}, nil
-}
 
 func run(args []string) (int, error) {
 	if len(args) < 2 {
@@ -103,7 +36,7 @@ func run(args []string) (int, error) {
 		}
 		locks := newPins()
 		defer locks.close()
-		image, err := locks.file(fileSpec{args[2], args[3]})
+		image, err := locks.file(fileSpec{Path: args[2], SHA256: args[3]})
 		if err != nil {
 			return 0, err
 		}

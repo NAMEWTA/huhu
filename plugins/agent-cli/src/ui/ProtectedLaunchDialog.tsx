@@ -21,12 +21,17 @@ export function ProtectedLaunchDialog({ spaceId, spaceRevision, onClose, onLaunc
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fieldId = useId();
+  const statusId = useId();
   const selected = profiles.data?.profiles.find((profile) => profile.id === id);
+  const needsProtection = (selected?.protectedNames.length ?? 0) > 0;
+  const missingHost = needsProtection && profiles.data?.nativeAvailable === false;
   const configured = selected?.protectedNames.every((name) => selected.states[name] === "configured") ?? false;
-  const currentPreview = preview?.environment.id === selected?.id && preview?.environment.revision === selected?.revision ? preview : null;
+  const status = missingHost ? "当前桌面未配置所选环境需要的受保护终端宿主。" : selected && !configured ? "请在智能体设置中配置本机受保护变量。" : null;
+  const canPreview = !!selected && configured && !missingHost && !busy;
+  const currentPreview = canPreview && preview?.environment.id === selected.id && preview.environment.revision === selected.revision ? preview : null;
 
   async function prepare() {
-    if (!selected || busy) return;
+    if (!selected || !canPreview) return;
     setBusy(true);
     setPreview(null);
     setError(null);
@@ -53,6 +58,7 @@ export function ProtectedLaunchDialog({ spaceId, spaceRevision, onClose, onLaunc
           id={fieldId}
           value={id}
           disabled={busy}
+          aria-describedby={status ? statusId : undefined}
           onChange={(event) => {
             setId(event.target.value);
             setPreview(null);
@@ -68,8 +74,11 @@ export function ProtectedLaunchDialog({ spaceId, spaceRevision, onClose, onLaunc
         </select>
       </div>
       {profiles.isError ? <p role="alert">{profiles.error.message}</p> : null}
-      {profiles.data && !profiles.data.nativeAvailable ? <p role="status">当前桌面未提供 Windows 受保护终端宿主。</p> : null}
-      {!configured && selected ? <p role="status">请在智能体设置中配置本机受保护变量。</p> : null}
+      {status ? (
+        <p id={statusId} role="status">
+          {status}
+        </p>
+      ) : null}
       {error ? <p role="alert">{error}</p> : null}
       {currentPreview ? (
         <dl>
@@ -79,13 +88,17 @@ export function ProtectedLaunchDialog({ spaceId, spaceRevision, onClose, onLaunc
           </dd>
           <dt>程序和参数</dt>
           <dd>
-            <ol>
-              {currentPreview.argv.map((arg, i) => (
-                <li key={i}>
-                  <code>{arg}</code>
-                </li>
-              ))}
-            </ol>
+            {currentPreview.argv.length ? (
+              <ol>
+                {currentPreview.argv.map((arg, i) => (
+                  <li key={i}>
+                    <code>{arg}</code>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              "默认终端"
+            )}
           </dd>
           <dt>普通变量</dt>
           <dd>{currentPreview.ordinaryNames.join("、") || "无"}</dd>
@@ -98,7 +111,7 @@ export function ProtectedLaunchDialog({ spaceId, spaceRevision, onClose, onLaunc
         {currentPreview && selected ? (
           <Button onClick={() => onLaunch(selected.provider, currentPreview.environment)}>确认启动</Button>
         ) : (
-          <Button disabled={!selected || !configured || busy || !profiles.data?.nativeAvailable} onClick={() => void prepare()}>
+          <Button disabled={!canPreview} onClick={() => void prepare()}>
             {busy ? "正在核对…" : "预览启动"}
           </Button>
         )}

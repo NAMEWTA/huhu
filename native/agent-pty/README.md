@@ -1,4 +1,22 @@
-# Windows Agent PTY
+# Agent PTY
+
+## Linux x64
+
+`huhu-agent-pty` 复用版本 1 的 broker、host 和一次消费回执。内层 Linux PTY 转发输入、窗口尺寸和遮蔽后的合并输出。独立监督进程持有本次启动的私有管道，外层宿主结束后杀死并回收内层进程和重新托管的后代。
+
+```sh
+bash native/agent-pty/build.sh --test
+native_fixture_dir=$(mktemp -d)
+(cd native/agent-pty && go build -mod=readonly -o "$native_fixture_dir/agent" ./tests/linux-fixture)
+python3 native/agent-pty/tests/verify-linux.py \
+  --helper native/agent-pty/bin/huhu-agent-pty --fixture "$native_fixture_dir/agent"
+```
+
+随包路径为 `resources/agent-pty/huhu-agent-pty`。目标为 Linux x64 且内核须提供 `openat2`、`faccessat2`、`pidfd` 与可执行 `memfd`。交互保护入口接受可核验的本机 x86-64 ELF。系统 sh 规则的批准绑定 `/bin/sh` 当前解析的规范 ELF 和原命令，执行持有的同一文件。内核、安装路径、文件与授权格式见 [接线协议](PROTOCOL.md#linux-x64)。
+
+Linux PTY 使用与 Motty 相同的 [creack/pty v1.1.24](https://github.com/creack/pty/tree/v1.1.24)，许可为 [MIT](LICENSE-creack-pty.txt)。外层终端的 raw 模式由 [x/term v0.46.0](https://pkg.go.dev/golang.org/x/term@v0.46.0) 提供，随包附 [BSD-3-Clause](LICENSE-x-term.txt) 和 [PATENTS](PATENTS-x-term.txt)。Linux 内核绑定沿用 x/sys。
+
+## Windows x64
 
 Windows x64 上的 Console 子系统程序 `huhu-agent-pty.exe` 包含单次交付的 broker 和安装在 Core 外层终端中的 host。Engine 保有 broker 的进程及私有 stdin 和 stdout。host 校验对端后，用独立 ConPTY、经确认的工作目录和完整批准环境启动内层命令。broker 经私有通道分别报告授权已消费和内层已运行。两端的参数、JSON、状态和构建产物见 [接线协议](PROTOCOL.md)。
 

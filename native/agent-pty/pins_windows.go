@@ -12,22 +12,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type fileSpec struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
-
-type fileID struct {
-	Volume  string `json:"volume"`
-	Index   string `json:"index"`
-	Created string `json:"created"`
-}
-
-type directorySpec struct {
-	Path string `json:"path"`
-	ID   fileID `json:"id"`
-}
-
 type pinnedFile struct {
 	path   string
 	f      *os.File
@@ -172,11 +156,6 @@ func (p *pins) file(want fileSpec) (*pinnedFile, error) {
 		return nil, errPin
 	}
 	return file, nil
-}
-
-type processID struct {
-	PID     uint32 `json:"pid"`
-	Created string `json:"created"`
 }
 
 func openProcess(pid uint32) (windows.Handle, error) {

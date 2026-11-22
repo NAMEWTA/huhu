@@ -731,6 +731,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   );
   api.provide("agentCli", { spaces, detector, core });
   api.provide("agentProtectedTerminal", {
+    launchApprovedShell: async (input: Parameters<SessionsService["launchApprovedShell"]>[0], signal?: AbortSignal) => {
+      const session = await sessions.launchApprovedShell(input, signal);
+      waiting.poke();
+      return { id: session.id };
+    },
     launch: async (input: Parameters<SessionsService["launch"]>[0] & { provider: "shell"; env: Record<string, string>; command: string }, signal?: AbortSignal) => {
       const session = await sessions.launch(input, signal);
       waiting.poke();

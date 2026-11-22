@@ -1,72 +1,22 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf16"
-	"unicode/utf8"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
-
-const (
-	protocol         = 1
-	maxAuthorization = 1024 * 1024
-	acceptedByte     = byte('A')
-	runningByte      = byte('R')
-	failedByte       = byte('F')
-)
-
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-
-type authorization struct {
-	Version int `json:"version"`
-	Host    struct {
-		processID
-		Image fileSpec `json:"image"`
-	} `json:"host"`
-	Launch launchSpec `json:"launch"`
-}
-
-type launchSpec struct {
-	Directory   directorySpec     `json:"directory"`
-	Image       fileSpec          `json:"image"`
-	Entry       *fileSpec         `json:"entry,omitempty"`
-	Files       []fileSpec        `json:"files,omitempty"`
-	Argv        []string          `json:"argv"`
-	Environment map[string]string `json:"environment"`
-	Protect     []string          `json:"protect"`
-}
-
-func decodeAuthorization(raw []byte) (authorization, error) {
-	var auth authorization
-	if !utf8.Valid(raw) {
-		return auth, errInput
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&auth) != nil || decoder.Decode(new(any)) != io.EOF || auth.Version != protocol {
-		return auth, errInput
-	}
-	if _, err := parseProcess(strconv.FormatUint(uint64(auth.Host.PID), 10), auth.Host.Created); err != nil {
-		return auth, errInput
-	}
-	return auth, nil
-}
 
 func (s launchSpec) environmentBlock() ([]uint16, []string, error) {
 	if len(s.Environment) == 0 || len(s.Environment) > 256 || len(s.Protect) > 32 {
@@ -107,7 +57,7 @@ func (s launchSpec) environmentBlock() ([]uint16, []string, error) {
 }
 
 func (s launchSpec) pin(p *pins, protected []string) (*pinnedFile, error) {
-	if len(s.Argv) == 0 || len(s.Argv) > 256 || len(s.Files) > 128 ||
+	if s.ApprovedShell != nil || len(s.Argv) == 0 || len(s.Argv) > 256 || len(s.Files) > 128 ||
 		!strings.EqualFold(filepath.Ext(s.Image.Path), ".exe") || !samePath(s.Image.Path, s.Argv[0]) {
 		return nil, errInput
 	}
@@ -238,46 +188,6 @@ func broker(id string, self *pinnedFile, deadline time.Time) error {
 	}
 	// Only the verified pipe can advance the broker's private Engine receipt.
 	return relayReceipts(p, func() error { return p.writeAll([]byte{acceptedByte}) }, os.Stdout)
-}
-
-type startupFailure struct{ code byte }
-
-func (startupFailure) Error() string { return "verified child startup failed" }
-
-func relayReceipts(pipe io.Reader, acknowledge func() error, output io.Writer) error {
-	var consumed [1]byte
-	if _, err := io.ReadFull(pipe, consumed[:]); err != nil {
-		if errors.Is(err, io.EOF) {
-			return errPeer
-		}
-		return err
-	}
-	if consumed[0] != acceptedByte {
-		return errPeer
-	}
-	if _, err := fmt.Fprintln(output, "HUHU_PTY ISSUED_ONCE"); err != nil {
-		return err
-	}
-	var outcome [2]byte
-	err := acknowledge()
-	if err == nil {
-		_, err = io.ReadFull(pipe, outcome[:])
-	}
-	if err == nil {
-		switch outcome {
-		case [2]byte{runningByte, 0}:
-			_, err = fmt.Fprintln(output, "HUHU_PTY RUNNING")
-			return err
-		case [2]byte{failedByte, hostFailure}, [2]byte{failedByte, pinDenied}:
-			if _, err := fmt.Fprintf(output, "HUHU_PTY START_FAILED %d\n", outcome[1]); err != nil {
-				return err
-			}
-			return startupFailure{outcome[1]}
-		}
-		err = errors.New("invalid startup receipt")
-	}
-	fmt.Fprintln(output, "HUHU_PTY START_UNKNOWN")
-	return err
 }
 
 type launchApproval struct {

@@ -15,7 +15,7 @@ import type { CodexDispatch } from "./codex-dispatch.js";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import type { NativeStop, NativeStopStatus } from "./native-stop.js";
 import type { AgentEnvironmentApproval, AgentEnvironmentSelection, InteractiveEnvironment, InteractiveNativePlan } from "./interactive-environment.js";
-import { NativePtyBroker } from "./native-pty.js";
+import { nativeAgentEnvironment, nativeHostPlatform, NativePtyBroker, type ApprovedLinuxShell, type BrokerOutcome, type NativeLaunchPlan } from "./native-pty.js";
 
 export interface SessionRecord {
   id: string;
@@ -143,6 +143,8 @@ export interface LaunchInput {
   env?: Record<string, string> | undefined;
   /** 私有受保护启动票据的批准工作目录。 */
   approvedDirectory?: ProtectedDirectory;
+  /** Private proof supplied by the approved Linux terminal-rule service. */
+  approvedShell?: ApprovedLinuxShell;
   expectedConfigurationId?: string;
   controlled?: "codex";
   environment?: AgentEnvironmentApproval;
@@ -151,6 +153,16 @@ export interface LaunchInput {
 type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
 type LaunchIntent = { literalHash: string; resolvedHash: string | null };
 type LaunchIndex = Pick<LaunchReceipt, "vaultId" | "machineId" | "intentHash" | "executionHash" | "literalIntentHash"> & { requestId: string; sessionId: string };
+type ApprovedShellInput = Pick<LaunchInput, "spaceId" | "spaceRevision" | "requestId" | "shell"> & {
+  provider: "shell";
+  command: string;
+  env: Record<string, string>;
+  approvedDirectory: ProtectedDirectory;
+  approvedShell: ApprovedLinuxShell;
+};
+type NativeDelivery = Pick<InteractiveNativePlan, "helper" | "launch" | "approval"> & {
+  use(consumer: (values: ReadonlyMap<string, string>) => Promise<BrokerOutcome>): Promise<BrokerOutcome>;
+};
 
 export interface SessionsDeps {
   dir: string;
@@ -315,6 +327,32 @@ export class SessionsService {
     return { literalHash, resolvedHash: literalHash };
   }
 
+  async launchApprovedShell(input: ApprovedShellInput, signal?: AbortSignal): Promise<SessionRecord> {
+    const { argv, executable } = input.approvedShell;
+    if (
+      nativeHostPlatform() !== "linux" ||
+      input.provider !== "shell" ||
+      input.shell !== "sh" ||
+      argv.length !== 3 ||
+      argv[0] !== executable.path ||
+      argv[1] !== "-c" ||
+      argv[2] !== input.command ||
+      !path.isAbsolute(executable.path) ||
+      path.normalize(executable.path) !== executable.path
+    ) {
+      throw errors.permissionDenied("无法使用已批准的 Linux sh 执行映像");
+    }
+    const values = Object.values(input.env);
+    if (
+      !values.length ||
+      Object.keys(input.env).some((name) => !/^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name)) ||
+      values.some((value) => !value || argv.some((arg) => arg.includes(value)) || input.approvedDirectory.path.includes(value))
+    ) {
+      throw errors.invalidInput("已批准的规则环境无效");
+    }
+    return this.launch(input, signal);
+  }
+
   async launch(input: LaunchInput, callerSignal?: AbortSignal): Promise<SessionRecord> {
     const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
     signal?.throwIfAborted();
@@ -327,7 +365,8 @@ export class SessionsService {
     const newPiId = canTrackPi ? `huhu-${launchHash([this.d.vaultId, input.spaceId, input.requestId])}` : undefined;
     const trackPi = !previous || previous.nativeSessionId === newPiId ? newPiId : undefined;
     let prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined;
-    let native: InteractiveNativePlan | undefined;
+    let native: NativeDelivery | undefined;
+    let environmentApproval: string | undefined;
     try {
       prepared = await this.prepareLaunch(input, trackPi);
       if (previous?.launchReceipt?.attempt && trackPi && prepared.nativeSessionId !== trackPi) {
@@ -335,9 +374,14 @@ export class SessionsService {
         prepared = undefined;
       }
       if (prepared && input.environment && !previous?.launchReceipt?.attempt) {
-        native = await this.prepareNativeEnvironment(input, input.environment, prepared);
-        if (native.approval !== input.environment.approval) throw new HuhuError("VERSION_CONFLICT", "程序、目录或环境已变化，请重新预览");
-      }
+        const plan = await this.prepareEnvironment(input, input.environment, prepared);
+        if (plan.approval !== input.environment.approval) throw new HuhuError("VERSION_CONFLICT", "程序、目录或环境已变化，请重新预览");
+        if (plan.kind === "native") native = { ...plan, use: (consumer) => this.d.interactiveEnvironment!.use(plan, consumer) };
+        else {
+          prepared = { ...prepared, env: Object.keys(plan.env).length ? plan.env : undefined };
+          environmentApproval = plan.approval;
+        }
+      } else if (prepared && input.approvedShell && !previous?.launchReceipt?.attempt) native = await this.prepareApprovedShell(input, prepared.cwd);
     } catch (error) {
       // A sent operation remains queryable even when its old directory or executable is gone.
       if (!previous?.launchReceipt?.attempt) throw error;
@@ -346,7 +390,7 @@ export class SessionsService {
     if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
       throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
     }
-    const executionHash = input.environment && previous?.launchReceipt?.attempt ? undefined : prepared && (native?.approval ?? this.configurationId(prepared));
+    const executionHash = (input.environment || input.approvedShell) && previous?.launchReceipt?.attempt ? undefined : prepared && (native?.approval ?? environmentApproval ?? this.configurationId(prepared));
     if (input.expectedConfigurationId && prepared?.env) this.rejectDispatchEnvironment();
     if (input.expectedConfigurationId && executionHash && input.expectedConfigurationId !== executionHash) {
       throw new HuhuError("VERSION_CONFLICT", "已冻结的启动配置发生变化");
@@ -399,7 +443,7 @@ export class SessionsService {
       controlled = await this.d.codex.prepare(input);
     } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
-      argv = shellCommand(input.shell ?? "default", input.command);
+      argv = input.approvedShell?.argv ?? shellCommand(input.shell ?? "default", input.command);
       if (input.env && Object.keys(input.env).length > 0) env = input.env;
     } else if (input.provider !== "shell") {
       const r = await this.d.resolve({ agentId: input.provider, mode: "interactive", model: input.model, effort: input.effort, fast: input.fast, prompt: input.prompt, resume: input.resumeSessionId, history: input.history, newPiId });
@@ -411,7 +455,30 @@ export class SessionsService {
     return { space, cwd, argv, env, controlled, nativeSessionId };
   }
 
-  private async prepareNativeEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
+  private async prepareApprovedShell(input: LaunchInput, cwd: string): Promise<NativeDelivery> {
+    const { approvedDirectory, approvedShell, env } = input;
+    const host = this.d.interactiveEnvironment;
+    if (!host || !approvedDirectory || !approvedShell || !env) throw errors.permissionDenied("本机 Linux sh 受保护宿主不可用");
+    const helper = await host.pinHelper();
+    const identity = (value: string, created: string) => {
+      const match = /^(\d{1,20}):(\d{1,20})$/.exec(value);
+      if (!match || !/^\d{1,20}$/.test(created)) throw errors.invalidInput("Linux sh 的批准文件身份无效");
+      return { volume: match[1]!, index: match[2]!, created };
+    };
+    const { executable, argv } = approvedShell;
+    const launch: NativeLaunchPlan = {
+      approvedShell: executable,
+      directory: { path: cwd, id: identity(approvedDirectory.identity, approvedDirectory.birthtimeNs) },
+      image: { path: executable.path, sha256: executable.sha256, id: identity(executable.identity, executable.ctimeNs) },
+      files: [],
+      argv,
+      ordinary: nativeAgentEnvironment(process.env, {}),
+      protect: Object.keys(env).sort(),
+    };
+    return { helper, launch, approval: launchHash({ helper, launch }), use: (consumer) => consumer(new Map(Object.entries(env))) };
+  }
+
+  private async prepareEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
     const { interactiveEnvironment } = this.d;
     if (!interactiveEnvironment || input.controlled || input.command !== undefined || input.env !== undefined || input.approvedDirectory) throw errors.invalidInput("当前启动方式无法使用本机环境");
     return interactiveEnvironment.prepare(selection, input.provider, prepared.cwd, prepared.argv, prepared.env);
@@ -419,8 +486,11 @@ export class SessionsService {
 
   async previewEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection) {
     const prepared = await this.prepareLaunch(input);
-    const { approval, launch } = await this.prepareNativeEnvironment(input, selection, prepared);
-    return { environment: { ...selection, approval }, cwd: launch.directory.path, argv: launch.argv, ordinaryNames: Object.keys(launch.ordinary).sort(), protectedNames: launch.protect };
+    const plan = await this.prepareEnvironment(input, selection, prepared);
+    const environment = { ...selection, approval: plan.approval };
+    if (plan.kind === "ordinary") return { environment, cwd: prepared.cwd, argv: prepared.argv ?? [], ordinaryNames: Object.keys(plan.env).sort(), protectedNames: [] };
+    const { launch } = plan;
+    return { environment, cwd: launch.directory.path, argv: launch.argv, ordinaryNames: Object.keys(launch.ordinary).sort(), protectedNames: launch.protect };
   }
 
   /** 已保存配置的会话预览。Core 默认 shell 由 Core 配置选择。 */
@@ -471,7 +541,7 @@ export class SessionsService {
     executionHash: string | undefined,
     prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined,
     signal: AbortSignal | undefined,
-    native: InteractiveNativePlan | undefined,
+    native: NativeDelivery | undefined,
   ): Promise<SessionRecord> {
     const previous = this.recordedLaunch(input.requestId);
     const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
@@ -506,7 +576,7 @@ export class SessionsService {
       terminalId: null,
       name: input.command !== undefined ? "命令：" + input.command.replace(/\s+/g, " ").slice(0, 40) : input.provider === "shell" ? "终端" : (agentById(input.provider)?.displayName ?? input.provider),
       ...(input.command !== undefined ? { command: input.command } : {}),
-      ...(env && !native ? { hasEnv: true } : {}),
+      ...(env && (!native || input.approvedShell) ? { hasEnv: true } : {}),
       cwd,
       createdAt: this.d.now().toISOString(),
       ...(nativeSessionId ? { nativeSessionId } : {}),
@@ -520,7 +590,7 @@ export class SessionsService {
     let core: Awaited<ReturnType<typeof identifyCore>>;
     let protectedPort: number | undefined;
     try {
-      if (!native && input.provider === "shell" && env) {
+      if (!native && input.command !== undefined && env) {
         if (!this.d.protectedLaunch) throw new Error("Missing protected shell launcher");
         protectedPort = await this.d.protectedLaunch.listen();
       }
@@ -534,7 +604,12 @@ export class SessionsService {
       throw this.confirmNotCreated(current, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
     }
     signal?.throwIfAborted();
-    if (native) return this.launchNative(native, this.d.interactiveEnvironment!, session, receipt, intent, client, core, signal);
+    if (native) return this.launchNative(native, session, receipt, intent, client, core, signal);
+    if (input.environment) {
+      const currentPlan = await this.prepareEnvironment(input, input.environment, prepared);
+      if (currentPlan.kind !== "ordinary" || currentPlan.approval !== executionHash) throw new HuhuError("VERSION_CONFLICT", "启动环境已变化，请重新预览");
+      signal?.throwIfAborted();
+    }
     // The Vault writer makes this read, claim and synchronous RPC submission a single turn.
     // Another service may have claimed the same request while this connection was opening.
     const current = this.currentLaunch(session, intent, executionHash);
@@ -594,8 +669,7 @@ export class SessionsService {
   }
 
   private async launchNative(
-    native: InteractiveNativePlan,
-    credentials: InteractiveEnvironment,
+    native: NativeDelivery,
     session: SessionRecord,
     receipt: LaunchReceipt,
     intent: LaunchIntent,
@@ -621,7 +695,7 @@ export class SessionsService {
           throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
         }
       }
-      signal?.throwIfAborted();
+      if (signal?.aborted) throw this.unknown(pending, "launch_scope_ended");
       let binding = terminal && this.verifyTerminal(pending, terminal);
       if (!binding) {
         const snapshot = await this.snapshot();
@@ -656,8 +730,8 @@ export class SessionsService {
         return next;
       };
       let beganDelivery = false;
-      const outcome = await credentials
-        .use(native, (values) => {
+      const outcome = await native
+        .use((values) => {
           beganDelivery = true;
           return broker.start(host, native.launch, values, () => transition("consumed"));
         })
@@ -1046,7 +1120,7 @@ export class SessionsService {
   async output(id: string, lines = 200, observer?: HerdrClient): Promise<{ text: string; complete: boolean }> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
-    if (s.hasEnv && !this.secrets.has(id)) return { text: "（引擎重启过：无法确认环境变量值已从输出里抹掉，没有收录输出）", complete: false };
+    if (s.hasEnv && !s.launchReceipt?.attempt?.nativeStatus && !this.secrets.has(id)) return { text: "（引擎重启过：无法确认环境变量值已从输出里抹掉，没有收录输出）", complete: false };
     const r = await (await this.terminalClient(s, observer)).call<{ text?: string; screen?: string; history?: string }>("terminal.read", { terminal: s.terminalId, lines: Math.min(Math.max(lines, 1), 2000) });
     const text = r.text ?? [r.history, r.screen].filter(Boolean).join("\n");
     return {

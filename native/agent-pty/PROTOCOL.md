@@ -1,4 +1,6 @@
-# Windows Native PTY 接口
+# Native PTY 接口
+
+## Windows x64
 
 适用 `t17c/task11.md`，协议版本 `1`。实现与构建脚本在现有工作树的 `native/agent-pty/`。
 
@@ -48,3 +50,10 @@
 ## 构建产物
 
 在 Windows x64、Go `1.26.7` 与本机缓存 `golang.org/x/sys v0.50.0` 下，从工作树根执行 `& .\native\agent-pty\build.ps1 -Test`。构建产物为 `native/agent-pty/bin/huhu-agent-pty.exe`，该目录已忽略。产品资源路径和安装清单由 Lead 的装配决定；broker、host、inspect 和 directory 都调用同一份已知映像。
+
+## Linux x64
+
+- `broker` 和 `host` 延用相同 argv 形状。`created` 改为 `/proc/<pid>/stat` 第 22 字段的启动 tick，保持十进制字符串。`inspect <rootPid> <helperPath> <helperSha256> <runId> <brokerPid> <brokerCreated>` 检查 Core 根 PID 的 pidfd、实际映像与对应 host argv。两端使用抽象 Unix socket 的内核对端凭据核对 UID 与 PID，并复查进程实例。
+- `program <path> <sha256>` 输出 `HUHU_PTY PROGRAM 1 <device> <inode> <ctime_ns>`。Linux 消息里的 `image.id` 用这三个十进制字段。`directory` 输出设备、inode 和出生时间，缺少出生时间的文件系统使用 ctime。Engine 和 host 复核目标路径在核对时的身份，host 持有打开的目录描述符到内层启动。
+- Linux ELF 交互程序以批准摘要校验的密封 memfd 启动。外部批准的系统 sh 使用 `launch.approvedShell` 的规范绝对路径、`dev:ino`、出生时间、ctime、mtime、大小和 SHA-256，且 argv 形状为 `[path, "-c", command]`。核对通过后通过已打开的原文件描述符执行。
+- 私有帧、`ISSUED_ONCE`、`RUNNING` 和未知状态沿用版本 1。Linux env 名区分大小写。Linux 拒绝 `LD_*` 和 `GLIBC_TUNABLES`。受保护值与内层输出使用同一流式遮蔽。Linux 信号退出状态为 `128 + signal`，监督进程在内层退出或外层管道关闭后回收已重新托管的后代。

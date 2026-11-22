@@ -1,11 +1,12 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { errors } from "@huhu/contracts";
 import { findOnPath } from "./detect.js";
 import { launchHash } from "./launch-binding.js";
 import type { AgentEnvironmentAccess } from "./launch-environment.js";
 import type { LaunchInput } from "./sessions.js";
-import { nativeDirectory, pinNativeImage, windowsAgentEnvironment, type NativeLaunchPlan, type PinnedImage } from "./native-pty.js";
+import { nativeDirectory, nativeHostPlatform, pinNativeImage, nativeAgentEnvironment, linuxProgramIdentity, protectedLinuxVariable, type NativeLaunchPlan, type PinnedImage } from "./native-pty.js";
 
 export interface AgentEnvironmentSelection {
   id: string;
@@ -17,10 +18,17 @@ export interface AgentEnvironmentApproval extends AgentEnvironmentSelection {
 }
 
 export interface InteractiveNativePlan {
+  kind: "native";
   helper: PinnedImage;
   launch: NativeLaunchPlan;
   selection: AgentEnvironmentSelection;
   provider: LaunchInput["provider"];
+  approval: string;
+}
+
+interface InteractiveOrdinaryPlan {
+  kind: "ordinary";
+  env: Record<string, string>;
   approval: string;
 }
 
@@ -72,7 +80,7 @@ function codexExecutable(shim: string): string {
   return image;
 }
 
-async function nativeProgram(provider: LaunchInput["provider"], resolvedArgv: string[] | undefined) {
+async function windowsProgram(provider: LaunchInput["provider"], resolvedArgv: string[] | undefined) {
   const [command, ...args] = resolvedArgv ?? [process.env["ComSpec"] ?? process.env["COMSPEC"] ?? ""];
   const base = path.basename(command ?? "").toLowerCase();
   const convertPi = provider === "pi" && base === "pi.cmd";
@@ -107,6 +115,41 @@ async function nativeProgram(provider: LaunchInput["provider"], resolvedArgv: st
   };
 }
 
+function linuxCodexImage(command: string): { file: string; ordinary: Record<string, string> } {
+  const shim = realpathSync(command);
+  const pkg = path.dirname(path.dirname(shim));
+  if (path.basename(shim) !== "codex.js" || path.basename(pkg) !== "codex" || path.basename(path.dirname(pkg)) !== "@openai") return { file: shim, ordinary: {} };
+  const target = "x86_64-unknown-linux-musl";
+  const roots = [pkg];
+  try {
+    roots.unshift(path.dirname(createRequire(shim).resolve("@openai/codex-linux-x64/package.json")));
+  } catch {
+    // Older npm releases ship the vendor directory in the main package.
+  }
+  const layouts = [["bin", "codex"], ["codex", "codex"], ["codex"]];
+  const image = roots.flatMap((root) => layouts.map((layout) => path.join(root, "vendor", target, ...layout))).find(existsSync);
+  if (!image) throw errors.invalidInput("请在智能体设置中指定本机 Codex ELF 可执行文件");
+  return { file: image, ordinary: { CODEX_MANAGED_PACKAGE_ROOT: pkg } };
+}
+
+async function linuxProgram(helper: PinnedImage, provider: LaunchInput["provider"], resolvedArgv: string[] | undefined) {
+  const [command = "", ...args] = resolvedArgv ?? [process.env["SHELL"] || "/bin/sh", "-l"];
+  let imagePath = command;
+  let ordinary: Record<string, string> = {};
+  if (provider === "codex") {
+    try {
+      ({ file: imagePath, ordinary } = linuxCodexImage(command));
+    } catch {
+      throw errors.invalidInput("请在智能体设置中指定本机 Codex ELF 可执行文件");
+    }
+  }
+  const image = await linuxProgramIdentity(helper, await pinNativeImage(imagePath));
+  if (provider !== "shell" && /^(?:node(?:js)?|volta-shim|mise)$/.test(path.basename(image.path))) {
+    throw errors.invalidInput("Linux 受保护启动需要直接使用智能体的本机 ELF 入口");
+  }
+  return { image, files: [], argv: [image.path, ...args], ordinary };
+}
+
 export class InteractiveEnvironment {
   constructor(
     private readonly helperFile: string | undefined,
@@ -114,26 +157,48 @@ export class InteractiveEnvironment {
   ) {}
 
   get available(): boolean {
-    return process.platform === "win32" && process.arch === "x64" && this.credentials.available && !!this.helperFile && existsSync(this.helperFile);
+    return this.credentials.available && this.helperAvailable;
   }
 
-  async prepare(selection: AgentEnvironmentSelection, provider: LaunchInput["provider"], cwd: string, argv: string[] | undefined, env: Record<string, string> | undefined): Promise<InteractiveNativePlan> {
-    if (!this.available) throw errors.invalidInput("当前桌面未配置 Windows 受保护终端宿主");
+  get helperAvailable(): boolean {
+    return nativeHostPlatform() !== undefined && !!this.helperFile && existsSync(this.helperFile);
+  }
+
+  async pinHelper(): Promise<PinnedImage> {
+    if (!this.helperAvailable) throw errors.invalidInput("当前桌面未配置本机受保护终端宿主");
+    return pinNativeImage(this.helperFile!);
+  }
+
+  async prepare(selection: AgentEnvironmentSelection, provider: LaunchInput["provider"], cwd: string, argv: string[] | undefined, env: Record<string, string> | undefined): Promise<InteractiveOrdinaryPlan | InteractiveNativePlan> {
     if (argv && provider === "shell") throw errors.invalidInput("本机启动环境仅用于交互终端");
     const profile = await this.credentials.profile(selection, provider);
-    const helper = await pinNativeImage(this.helperFile!);
-    const [directory, program] = await Promise.all([nativeDirectory(helper, cwd), nativeProgram(provider, argv)]);
-    const ordinary = windowsAgentEnvironment(process.env, {
+    const overlay = Object.fromEntries(profile.ordinary.map(({ name, value }) => [name, value]));
+    const version = { id: selection.id, revision: selection.revision };
+    if (!profile.protectedNames.length) {
+      const ordinary = process.platform === "win32" ? Object.fromEntries(new Map(Object.entries({ ...env, ...overlay }).map(([name, value]) => [name.toUpperCase(), [name, value]] as const)).values()) : { ...env, ...overlay };
+      return { kind: "ordinary", env: ordinary, approval: launchHash({ kind: "ordinary", cwd, argv, ordinary, selection: version, provider }) };
+    }
+
+    const platform = nativeHostPlatform();
+    if (!platform || !this.available) throw errors.invalidInput("当前桌面未配置本机受保护终端宿主");
+    const helper = await this.pinHelper();
+    const [directory, program] = await Promise.all([nativeDirectory(helper, cwd), platform === "win32" ? windowsProgram(provider, argv) : linuxProgram(helper, provider, argv)]);
+    const ordinary = nativeAgentEnvironment(process.env, {
       ...env,
       ...program.ordinary,
-      ...Object.fromEntries(profile.ordinary.map(({ name, value }) => [name, value])),
+      ...overlay,
     });
     const protect = profile.protectedNames;
+    const key = (name: string) => (platform === "win32" ? name.toUpperCase() : name);
+    const protectedKeys = new Set(protect.map(key));
+    if (platform === "linux" && [...Object.keys(ordinary), ...protect].some((name) => !protectedLinuxVariable(name))) {
+      throw errors.invalidInput("受保护启动不能覆盖 Linux 动态加载器配置");
+    }
     for (const name of Object.keys(ordinary)) {
-      if (protect.some((protectedName) => protectedName.toUpperCase() === name.toUpperCase())) delete ordinary[name];
+      if (protectedKeys.has(key(name))) delete ordinary[name];
     }
     const launch = { ...program, directory, ordinary, protect };
-    return { helper, launch, selection, provider, approval: launchHash({ helper, launch, selection: { id: selection.id, revision: selection.revision }, provider }) };
+    return { kind: "native", helper, launch, selection: version, provider, approval: launchHash({ helper, launch, selection: version, provider }) };
   }
 
   async use<R>(plan: InteractiveNativePlan, consumer: (values: ReadonlyMap<string, string>) => Promise<R>): Promise<R> {
