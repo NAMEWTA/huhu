@@ -37,3 +37,9 @@ Node 24.21.0、pnpm 12.10.1，测试使用临时 Vault 和独立 `XDG_RUNTIME_DI
 2026-11-22 在 `690e9097` 核对 `d2601f83`、`7cfed9bf` 和 `1c2f8089` 均为祖先。运行抽屉从 `tasks.dispatch.recent` 读取任务运行，任务详情用 `tasks.dispatch.list`，终端规则列表保留独立终端记录。定时和手动规则通过 `TaskScanOccurrences` 交给 Tasks。
 
 在隔离 Vault 串行运行 `pnpm exec vitest run apps/engine/test/engine.test.ts -t "Agent 任务自动化的预览和立即运行|恢复 Engine 时只查询新任务派遣"`。两项通过，48 项由筛选排除。重交保留一个发生与派遣，旧监督文件原字节保留，四个旧能力返回不存在。日志在本机 `temp/issue-evidence/huhu-2026-11-22/t71-cutover-690e9097.log`。安装版 W8.3 与 W8.2、T7.2 的独立签收仍待共同候选。
+
+## T7.2 原生夹具复查
+
+`2ece5866` 为候选包用例准备独立 HOME、Vault、Core 套接字和回环模型响应。T7.2 先创建原生会话，定时任务接续同一会话，期望一个可核对的提问、一次用户回答和一条最终结果。回环服务返回合成内容，真实 Codex 负责原生问答和会话处理。E2E 仍需要同一 W8.3 安装包和匹配的 SHA，模型响应由测试自带。
+
+Linux x64 的 Codex ELF 通过仓库指纹 `880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971` 核验，版本为 0.170.0，Herdr Core 0.1.19。定向执行 `pnpm exec vitest run plugins/agent-cli/test/codex-native.live.test.ts`，新会话和原会话两项通过。Playwright 能枚举 T7.2 和 W8.2/W8.3 两条安装包用例。日志为 `temp/issue-evidence/huhu-2026-11-22/t72-original-session-preflight.log`。定时、安装包、真实工作台和最终联验仍待运行。

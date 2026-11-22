@@ -82,3 +82,5 @@ Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他�
 | `3456b450` | 本机 PTY、由桌面选择的 OpenSSH 文件与工作台认证应答保留可用能力登记。CLI 和 MCP 的认证应答走自己的连接挑战入口。 | `domain-exposure.engine.test.ts` 2 项、Engine 本机 PTY 2 项、OpenSSH 同步 1 项、CLI/MCP 外部认证 2 项通过。剩余过滤用例数见 `h7-device-policy-before.log`、`h7-device-policy-after.log`。 |
 
 私有 Core 在标准关闭路径的测试不覆盖 Engine 崩溃、启动被中断、Unix 上主动脱离 PTY 的后代或 WSL 来宾进程。本机生命周期分析见批次协作记录 `t5h/report01.md`。密钥、录制、代理分享的外部权限合同仍需核对。
+
+`951fe442` 处理丢失 `terminal.run` 回复后的首次对账。重新查询本地 Core，按唯一启动标签回收，跳过不匹配或属于另一 Core 的终端。断线或空列表时返回启动和回收结果待核对。替身桥、正常启动与回收回归 5 项通过。Engine 的两条原生 PTY 启动路径仍通过，一条 Web 分享用例由筛选排除。日志 `h7-local-launch-before.log`、`h7-local-launch-after.log`。持久清单、异常进程与退出共同时限仍需实现和验证。
