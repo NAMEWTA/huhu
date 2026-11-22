@@ -404,6 +404,7 @@ export class ArchivesService {
     const defs = this.defsOf(type);
     const idx = `${dir}/${INDEX}`;
     const cur = this.text(idx);
+    if (cur === null && input.expectedVersion !== undefined) throw errors.notFound(`文件不存在：${idx}`);
     const changes = this.fieldChanges(defs, input.fields ?? {});
     for (const k of input.removeKeys ?? []) {
       if (isReservedKey(k)) throw errors.invalidInput(`「${k}」不能删除`);
@@ -419,7 +420,7 @@ export class ArchivesService {
       }
       if (input.body !== undefined) text = replaceBody(text, input.body);
       if (text !== (cur?.text ?? "")) {
-        await this.d.files.write(idx, Buffer.from(text), { expectedVersion: cur ? (input.expectedVersion ?? cur.version) : null });
+        await this.d.files.write(idx, Buffer.from(text), { expectedVersion: input.expectedVersion ?? cur?.version ?? null });
         await this.d.notes.ensureId(idx);
         this.touch([idx]);
       }

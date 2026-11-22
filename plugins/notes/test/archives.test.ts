@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { OperationLog, Trash, VaultFiles, VaultIndex } from "@huhu/vault";
@@ -131,6 +131,30 @@ describe("档案（AR-02 / AR-03 / AR-05 / AR-19）", () => {
     const now = svc.read(e.path);
     await svc.update({ path: e.path, expectedVersion: now.version!, fields: { 年龄: "" }, body: "新正文\n" });
     expect(rd(root, "Archives/通讯录/空/index.md")).toBe('---\n电话: "1"\n---\n新正文\n');
+  });
+
+  test("带旧版本的档案字段更新被拒绝，外部移走的 index.md 不会重建", async () => {
+    const archivePath = "Archives/通讯录/张三/";
+    const indexPath = `${archivePath}index.md`;
+    const original = '---\n电话: "0123"\n---\n原正文\n';
+    const { svc, root } = await setup({
+      "Archives/通讯录/index.md": "---\nfields:\n  - {name: 电话, type: text}\n---\n",
+      [indexPath]: original,
+    });
+    const archive = svc.read(archivePath);
+    expect(archive.version).toEqual(expect.any(String));
+    const request = { path: archive.path, expectedVersion: archive.version!, fields: { 电话: "0456" } };
+
+    const originalPath = path.join(root, indexPath);
+    const movedPath = path.join(root, "外部移走的档案.md");
+    renameSync(originalPath, movedPath);
+    expect(existsSync(path.dirname(originalPath))).toBe(true);
+    expect(existsSync(originalPath)).toBe(false);
+
+    const [result] = await Promise.allSettled([svc.update(request)]);
+    expect.soft(result.status).toBe("rejected");
+    expect(existsSync(originalPath)).toBe(false);
+    expect(readFileSync(movedPath, "utf8")).toBe(original);
   });
 });
 
