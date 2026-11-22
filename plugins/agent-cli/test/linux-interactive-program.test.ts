@@ -101,13 +101,15 @@ test.skipIf(!platform)("Volta Pi 区分全局配对与项目 Node，保持 resol
   const work = realpathSync.native(mkdtempSync(path.join(tmpdir(), "huhu-linux-program-")));
   try {
     const fixture = installFixture(work);
-    const environment = environments(fixture.helper, { SHELL: shell, HUHU_PRIVATE_RESOLUTION_FIXTURE: "ordinary", PI_PACKAGE_DIR: "/ignored" });
+    const returnAlias = path.join(work, "sh");
+    symlinkSync(realpathSync.native(shell), returnAlias);
+    const environment = environments(fixture.helper, { SHELL: returnAlias, HUHU_PRIVATE_RESOLUTION_FIXTURE: "ordinary", PI_PACKAGE_DIR: "/ignored" });
     const plan = await environment.prepare(selection, "pi", fixture.cwd, [path.join(fixture.bin, "pi"), ...argv], {});
     assert(plan.kind === "native");
     expect(plan.launch.argv).toEqual([fixture.node, fixture.piEntry, ...argv]);
     expect(plan.launch.files.map(({ path: file }) => file)).toEqual(expect.arrayContaining([fixture.chunk, fixture.theme]));
     expect(plan.launch.ordinary).not.toHaveProperty("PI_PACKAGE_DIR");
-    expect(plan.launch.returnShell).toMatchObject({ image: { path: realpathSync.native(shell) }, argv: [shell, "-i"], source: shell });
+    expect(plan.launch.returnShell).toMatchObject({ image: { path: realpathSync.native(shell) }, argv: [returnAlias, "-i"], source: returnAlias });
     expect(plan.launch.directory.path).toBe(fixture.cwd);
     expect(plan.launch.linuxInstallation).toMatchObject({ kind: "pi-node", localModules: expect.stringContaining("pi-coding-agent/node_modules") });
 
