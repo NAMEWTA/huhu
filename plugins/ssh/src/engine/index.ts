@@ -29,8 +29,10 @@ import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probe
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
 import { PublicForwarding } from "./public-forwarding.js";
+import { PublicMonitors } from "./public-monitors.js";
 import { PublicShells } from "./public-shells.js";
 import { PublicTransfers } from "./public-transfers.js";
+import { PublicWorkspaces } from "./public-workspaces.js";
 import * as sftp from "./sftp.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -89,8 +91,11 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     };
   };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations, (id) => api.events.publish("entity.changed", { kind: "ssh-external-connection", id, op: "updated" }));
-  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity, (id) => api.events.publish("entity.changed", { kind: "ssh-exec-job", id, op: "updated" })) : undefined;
+  const publicJobs = operations
+    ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity, (id) => api.events.publish("entity.changed", { kind: "ssh-exec-job", id, op: "updated" }))
+    : undefined;
   const publicShells = new PublicShells(publicProbes, hostIntents, credentialHost, (id) => api.events.publish("entity.changed", { kind: "ssh-external-shell", id, op: "updated" }));
+  const publicWorkspaces = new PublicWorkspaces(api.vault.files, publicProbes, publicShells, templates, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const publicFiles = new PublicFileSessions(manager, publicProbes, hostIntents, credentialHost, (id) => {
     publicTransfers.releaseFileSession(id);
     api.events.publish("entity.changed", { kind: "ssh-external-file-session", id, op: "updated" });
@@ -107,23 +112,28 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const publicForwarding = new PublicForwarding(api.vault.files, forwardRules, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
+  const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "tool-access") {
       publicJobs?.revokeUnauthorized();
       publicForwarding.revokeUnauthorized();
+      publicWorkspaces.revokeUnauthorized();
       publicProbes.revokeUnauthorized();
     }
     if (event.payload.kind === "ssh-host") publicProbes.revalidateConnections();
     if (event.payload.kind === "ssh-forward") publicForwarding.revalidateRules();
+    if (event.payload.kind === "ssh-monitor-panel") publicMonitors.revalidatePanels();
   });
   ctx.effect(() => () => {
     publicJobs?.dispose();
     publicProbes.dispose();
+    publicWorkspaces.dispose();
     publicShells.dispose();
     publicTransfers.dispose();
     publicFiles.dispose();
     monitors.dispose();
+    publicMonitors.dispose();
     publicForwarding.dispose();
     forwarding.dispose();
     transfers.dispose();
@@ -147,21 +157,51 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionGet, (context, input) => publicProbes.read(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionList, (context) => publicProbes.list(context)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesTrustDecide, (context, input) => publicProbes.decide(context, input)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsList, (context, { hostId }) => {
-    if (!publicJobs) return [];
-    return isWorkbenchCaller(context.caller) ? publicJobs.workbenchList(hostId) : publicJobs.list(context, hostId);
-  }));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.keyboardRespond, (context, input) => publicProbes.respondKeyboard(context, input)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.jobsList, (context, { hostId }) => {
+      if (!publicJobs) return [];
+      return isWorkbenchCaller(context.caller) ? publicJobs.workbenchList(hostId) : publicJobs.list(context, hostId);
+    }),
+  );
   if (publicJobs) {
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsPrepare, (context, input) => publicJobs.prepare(context, input)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsStart, (context, input) => publicJobs.start(context, input)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsGet, (context, input) => publicJobs.get(context, input.jobId)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsOutputRead, (context, input) => publicJobs.read(context, input)));
-    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsCancel, (context, input) => isWorkbenchCaller(context.caller) ? publicJobs.cancelWorkbench(input.jobId) : publicJobs.cancel(context, input.jobId)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsCancel, (context, input) => (isWorkbenchCaller(context.caller) ? publicJobs.cancelWorkbench(input.jobId) : publicJobs.cancel(context, input.jobId))));
   }
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionChange, (_c, i) => monitors.session(i)));
+  const desktopMonitor = ({ caller }: CapabilityContext) => {
+    if (isWorkbenchCaller(caller) && caller !== "desktop") throw errors.permissionDenied("SSH 监控工作台");
+    return caller === "desktop";
+  };
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (context, input) => {
+      if ("attemptId" in input) return publicMonitors.open(context, input);
+      if (!desktopMonitor(context)) throw errors.invalidInput("外部 SSH 监控需要本主体的连接和意图");
+      return monitors.open(input);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorToolsRead, (context, input) => {
+      if ("attemptId" in input) return publicMonitors.tool(context, input);
+      if (!desktopMonitor(context)) throw errors.invalidInput("外部 SSH 查询需要本主体的连接和意图");
+      return readMonitorTool(manager, input, context.signal);
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (context, { id }) => (desktopMonitor(context) ? monitors.get(id) : publicMonitors.get(context, id))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionList, (context) => publicMonitors.list(desktopMonitor(context) ? undefined : context)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorSessionChange, (context, input) => {
+      const { id, action, intentKey } = input;
+      const request = input.action === "interval" ? { id, action: input.action, interval: input.interval } : { id, action: input.action };
+      if (desktopMonitor(context)) {
+        if (action === "close" && publicMonitors.closeWorkbench(id)) return null;
+        return monitors.session(request);
+      }
+      return publicMonitors.change(context, request, intentKey);
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.monitorPanelsList, (context) => {
       if (isWorkbenchCaller(context.caller)) return monitorPanels.list();
@@ -189,6 +229,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         run: async () => {
           const { id, revision } = await save((previous) => {
             if (input.previous && !previous) throw errors.notFound("监控面板");
+            if (previous) publicMonitors.assertPanelInactive(previous.id);
             routes.require([...input.hostIds, ...(previous?.hostIds ?? [])]);
           });
           return { id, revision };
@@ -216,6 +257,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         run: () =>
           remove((previous) => {
             if (!previous) throw errors.notFound("监控面板");
+            publicMonitors.assertPanelInactive(previous.id);
             routes.require(previous.hostIds);
           }),
       });
@@ -229,11 +271,24 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       const panel = monitorPanels.get(id);
       if (!panel || panel.hostIds.some((hostId) => !routes.has(hostId))) throw errors.notFound("监控面板");
       if (panel.revision !== expectedRevision) throw errors.versionConflict(panel.revision);
-      const identities = new Map(panel.hostIds.map((hostId) => [hostId, routes.get(hostId)!.connectionIdentity]));
-      return monitors.cachedDashboard(panel, identities);
+      return publicMonitors.readPanel(context, { id, expectedRevision });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsChange, ({ signal }, i) => monitors.change(i, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsChange, (context, input) => {
+      const { id, expectedRevision, intentKey, connections, runId, action } = input;
+      const request = input.action === "retry" ? { id, expectedRevision, action: input.action, hostId: input.hostId } : { id, expectedRevision, action: input.action };
+      if (desktopMonitor(context)) {
+        if (!runId) return monitors.change(request, context.signal);
+        if (action !== "stop") throw errors.invalidInput("工作台只能停止指定的外部监控运行");
+        publicMonitors.closeWorkbenchPanel(runId);
+        return null;
+      }
+      if (runId) throw errors.invalidInput("外部 SSH 监控操作需使用本主体的面板");
+      return publicMonitors.panelChange(context, request, intentKey, connections);
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsExternalList, (context) => publicMonitors.panelsList(desktopMonitor(context) ? undefined : context)));
   const visibleForwardRules = (context: CapabilityContext) => {
     const routes = visibleSshRoutes(api.vault.files, context);
     return forwardRules.list().flatMap((rule) => {
@@ -384,11 +439,39 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsList, () => runs.list()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsStart, ({ signal }, i) => runs.start(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsReconnect, ({ signal }, i) => runs.reconnect(i.id, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsClose, ({ signal }, i) => runs.close(i.id, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsSaveTemplate, ({ signal }, i) => runs.saveTemplate(i.id, i.name, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsList, (context) => (isWorkbenchCaller(context.caller) ? [...runs.list(), ...publicWorkspaces.list()] : publicWorkspaces.list(context))));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceRunsStart, (context, input) => {
+      if ("connections" in input) return publicWorkspaces.start(context, input);
+      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部工作区需要本主体的原连接和意图");
+      return runs.start(input, context.signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceRunsReconnect, (context, input) => {
+      if ("connections" in input) return publicWorkspaces.reconnect(context, input);
+      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部工作区重连需要运行代次、本主体连接和意图");
+      return runs.reconnect(input.id, context.signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceRunsClose, async (context, input) => {
+      if (isWorkbenchCaller(context.caller)) {
+        if (publicWorkspaces.closeWorkbench(input.id)) return { ok: true as const };
+        return runs.close(input.id, context.signal);
+      }
+      if (!("generation" in input)) throw errors.invalidInput("关闭外部 SSH 工作区需要原运行代次和意图");
+      await publicWorkspaces.close(context, input);
+      return { ok: true as const };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceRunsSaveTemplate, (context, input) => {
+      if ("generation" in input) return publicWorkspaces.saveTemplate(context, input);
+      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("保存外部 SSH 工作区需要原运行代次和意图");
+      return runs.saveTemplate(input.id, input.name, context.signal);
+    }),
+  );
   api.defineCapability(hostImportPreview(hosts, api.vault.files));
   api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(
@@ -594,15 +677,17 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (context, input) => {
-    if ("jobId" in input) {
-      if (!publicJobs) throw errors.notFound("SSH 作业");
-      return publicJobs.start(context, input);
-    }
-    if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SSH 执行需要已准备的自有作业和会话");
-    const { hostId, command, timeoutSec, execId } = input;
-    return manager.exec(hostId, command, { ...(timeoutSec && { timeoutSec }), ...(execId && { execId }) });
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.execRun, (context, input) => {
+      if ("jobId" in input) {
+        if (!publicJobs) throw errors.notFound("SSH 作业");
+        return publicJobs.start(context, input);
+      }
+      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SSH 执行需要已准备的自有作业和会话");
+      const { hostId, command, timeoutSec, execId } = input;
+      return manager.exec(hostId, command, { ...(timeoutSec && { timeoutSec }), ...(execId && { execId }) });
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.execCancel, (context, { execId, jobId, hostId, routeRevision }) => {
       if (isWorkbenchCaller(context.caller)) {
@@ -670,31 +755,37 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsLocalList, (_c, i) => files.localList(i.fileSessionId, i.parts, i.root)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsSearch, (context, { fileSessionId, path, query, searchId }) => {
-    if (isWorkbenchCaller(context.caller)) return files.search(fileSessionId, path, query, context.signal);
-    if (!searchId) throw errors.invalidInput("外部 SSH 搜索需要本主体的搜索 ID");
-    return publicFiles.withSftp(context, fileSessionId, (channel, signal) => sftp.searchNames(channel, path, query, signal), { kind: "search", id: searchId });
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (context, input) => {
-    if (isWorkbenchCaller(context.caller)) return { cancelled: files.cancelSearch(input.fileSessionId) };
-    if (!input.searchId) throw errors.invalidInput("取消外部 SSH 搜索需要原搜索 ID");
-    return publicFiles.cancelRequest(context, "ssh.fileSessions.cancelSearch", input, "search", input.searchId);
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsSearch, (context, { fileSessionId, path, query, searchId }) => {
+      if (isWorkbenchCaller(context.caller)) return files.search(fileSessionId, path, query, context.signal);
+      if (!searchId) throw errors.invalidInput("外部 SSH 搜索需要本主体的搜索 ID");
+      return publicFiles.withSftp(context, fileSessionId, (channel, signal) => sftp.searchNames(channel, path, query, signal), { kind: "search", id: searchId });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (context, input) => {
+      if (isWorkbenchCaller(context.caller)) return { cancelled: files.cancelSearch(input.fileSessionId) };
+      if (!input.searchId) throw errors.invalidInput("取消外部 SSH 搜索需要原搜索 ID");
+      return publicFiles.cancelRequest(context, "ssh.fileSessions.cancelSearch", input, "search", input.searchId);
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, (context, i) => {
       if (isWorkbenchCaller(context.caller)) return files.readDocument(i.fileSessionId, i.path, context.signal);
       return publicFiles.use(context, i.fileSessionId, (owned) => owned.readDocument(i.fileSessionId, i.path, context.signal));
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, async (context, input) => {
-    const { fileSessionId, path, text, expectedVersion } = input;
-    if (isWorkbenchCaller(context.caller)) return files.writeDocument(fileSessionId, path, text, expectedVersion, context.signal);
-    const capability = sshCapabilityDescriptors.fileSessionsDocumentSave;
-    const digest = await publicFiles.seal(context, fileSessionId, capability.name, text);
-    return publicFiles.mutate(context, capability.name, input, { path, digest, expectedVersion }, capability.output, (check) =>
-      publicFiles.use(context, fileSessionId, (owned) => owned.writeDocument(fileSessionId, path, text, expectedVersion, context.signal, check)),
-    );
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, async (context, input) => {
+      const { fileSessionId, path, text, expectedVersion } = input;
+      if (isWorkbenchCaller(context.caller)) return files.writeDocument(fileSessionId, path, text, expectedVersion, context.signal);
+      const capability = sshCapabilityDescriptors.fileSessionsDocumentSave;
+      const digest = await publicFiles.seal(context, fileSessionId, capability.name, text);
+      return publicFiles.mutate(context, capability.name, input, { path, digest, expectedVersion }, capability.output, (check) =>
+        publicFiles.use(context, fileSessionId, (owned) => owned.writeDocument(fileSessionId, path, text, expectedVersion, context.signal, check)),
+      );
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.fileSessionsProperties, (context, i) => {
       if (isWorkbenchCaller(context.caller)) return files.properties(i.fileSessionId, i.path, context.signal);
@@ -709,30 +800,34 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return { applied: files.commitDirectory(i.fileSessionId, i.follow) };
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, (context, input) => {
-    const { fileSessionId, path, expectedRevision, change } = input;
-    if (isWorkbenchCaller(context.caller)) return files.changeProperties(fileSessionId, path, expectedRevision, change, context.signal);
-    const capability = sshCapabilityDescriptors.fileSessionsChangeProperties;
-    return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, change }, capability.output, (check) =>
-      publicFiles.use(context, fileSessionId, (owned) => owned.changeProperties(fileSessionId, path, expectedRevision, change, context.signal, check)),
-    );
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, (context, input) => {
-    const { fileSessionId, path, entry } = input;
-    if (isWorkbenchCaller(context.caller)) return files.createEntry(fileSessionId, path, entry, context.signal);
-    const capability = sshCapabilityDescriptors.fileSessionsCreateEntry;
-    return publicFiles.mutate(context, capability.name, input, { path, entry }, capability.output, (check) =>
-      publicFiles.use(context, fileSessionId, (owned) => owned.createEntry(fileSessionId, path, entry, context.signal, check)),
-    );
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, (context, input) => {
-    const { fileSessionId, path, expectedRevision, destination } = input;
-    if (isWorkbenchCaller(context.caller)) return files.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal);
-    const capability = sshCapabilityDescriptors.fileSessionsMoveEntry;
-    return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, destination }, capability.output, (check) =>
-      publicFiles.use(context, fileSessionId, (owned) => owned.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal, check)),
-    );
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, (context, input) => {
+      const { fileSessionId, path, expectedRevision, change } = input;
+      if (isWorkbenchCaller(context.caller)) return files.changeProperties(fileSessionId, path, expectedRevision, change, context.signal);
+      const capability = sshCapabilityDescriptors.fileSessionsChangeProperties;
+      return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, change }, capability.output, (check) =>
+        publicFiles.use(context, fileSessionId, (owned) => owned.changeProperties(fileSessionId, path, expectedRevision, change, context.signal, check)),
+      );
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, (context, input) => {
+      const { fileSessionId, path, entry } = input;
+      if (isWorkbenchCaller(context.caller)) return files.createEntry(fileSessionId, path, entry, context.signal);
+      const capability = sshCapabilityDescriptors.fileSessionsCreateEntry;
+      return publicFiles.mutate(context, capability.name, input, { path, entry }, capability.output, (check) => publicFiles.use(context, fileSessionId, (owned) => owned.createEntry(fileSessionId, path, entry, context.signal, check)));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, (context, input) => {
+      const { fileSessionId, path, expectedRevision, destination } = input;
+      if (isWorkbenchCaller(context.caller)) return files.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal);
+      const capability = sshCapabilityDescriptors.fileSessionsMoveEntry;
+      return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, destination }, capability.output, (check) =>
+        publicFiles.use(context, fileSessionId, (owned) => owned.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal, check)),
+      );
+    }),
+  );
   const ownedFileId = ({ fileSessionId }: { fileSessionId?: string | undefined }) => {
     if (!fileSessionId) throw errors.invalidInput("外部 SFTP 操作需要本主体的文件会话");
     return fileSessionId;

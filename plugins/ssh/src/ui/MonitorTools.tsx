@@ -11,7 +11,7 @@ export function MonitorTools({ hostId, shellId, name, onClose }: { hostId: strin
   const [error, setError] = useState("");
   useEffect(() => {
     const request = new AbortController();
-    void engine.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool }, { signal: request.signal }).then(
+    void engine.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool }, { write: true, signal: request.signal }).then(
       (value) => {
         if (!request.signal.aborted) setResult(value);
       },

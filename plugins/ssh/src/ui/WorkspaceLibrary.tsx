@@ -239,7 +239,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
         </div>
         <div className="hu-resource-list">
           {runs.data?.length ? <div className="ssh-list-label">工作区运行</div> : null}
-          {runs.data?.map(({ id, name: title, generation }) => (
+          {runs.data?.map(({ id, name: title, generation, source }) => (
             <button
               className={`ssh-resource-row${id === runId ? " active" : ""}`}
               type="button"
@@ -252,7 +252,10 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
                 void runs.refetch();
               }}
             >
-              <strong>{title}</strong>
+              <strong>
+                {source === "external" ? "外部工具 · " : ""}
+                {title}
+              </strong>
               <span>代次 {generation}</span>
             </button>
           ))}
@@ -291,12 +294,12 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
           {run && (
             <>
               <div className="ssh-workspace-controls">
-                {run.panes.every(({ phase }) => phase === "reconnect") && (
+                {run.source !== "external" && run.panes.every(({ phase }) => phase === "reconnect") && (
                   <Button loading={busy} onClick={() => void runAction("reconnect", run.id)}>
                     重连工作区
                   </Button>
                 )}
-                {!run.templateId && (
+                {run.source !== "external" && !run.templateId && (
                   <Button
                     onClick={() => {
                       setError(undefined);
@@ -310,7 +313,17 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
                   关闭运行
                 </Button>
               </div>
-              <WorkspaceRunView key={run.id} run={run} shown={shown} onTrust={trust} onOpenFiles={onFiles} />
+              {run.source === "external" ? (
+                <ul>
+                  {run.panes.map(({ paneId, label, phase }) => (
+                    <li key={paneId}>
+                      {label} · {phase === "ready" ? "运行中" : "已结束"}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <WorkspaceRunView key={run.id} run={run} shown={shown} onTrust={trust} onOpenFiles={onFiles} />
+              )}
             </>
           )}
           {current && (

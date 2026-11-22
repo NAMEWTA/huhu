@@ -4,7 +4,7 @@ import type { CapabilityContext, HuhuApi, OperationReceipts } from "@huhu/kernel
 import type { Client } from "ssh2";
 import { z } from "zod";
 import { KnownHostKey, type ConnectionStatus, type HostKeyPrompt } from "../shared/trust.js";
-import type { SshManager } from "./manager.js";
+import type { KeyboardPrompt, SshManager } from "./manager.js";
 import type { RetainActivity } from "./public-jobs.js";
 import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, ResourceHost, ResourceHostId, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { workspaceTarget } from "./workspace-target.js";
@@ -30,14 +30,38 @@ export const DecidePublicProbe = PublicProbeId.extend({
   accept: z.boolean(),
 });
 const statusBase = PublicProbeId.extend({ routeRevision: ResourceHost.shape.routeRevision });
+const keyboardIdentity = PublicTrustPrompt.pick({ promptId: true, promptRevision: true, hop: true, serverHostId: true });
+const PublicKeyboardPrompt = keyboardIdentity.extend({
+  instructions: z.string().max(1024),
+  prompts: z
+    .array(z.strictObject({ label: z.string().max(512), echo: z.boolean() }))
+    .min(1)
+    .max(8),
+});
+export const RespondPublicKeyboard = statusBase.extend({
+  ...keyboardIdentity.shape,
+  responses: z
+    .array(
+      z
+        .string()
+        .max(512)
+        .refine((value) => !value.includes("\0")),
+    )
+    .min(1)
+    .max(8),
+});
 export const PublicProbeStatus = z.discriminatedUnion("state", [
   statusBase.extend({ state: z.enum(["connecting", "verified", "connected", "disconnected"]) }),
   statusBase.extend({ state: z.enum(["waiting", "key-changed"]), prompt: PublicTrustPrompt }),
+  statusBase.extend({ state: z.literal("keyboard"), keyboard: PublicKeyboardPrompt }),
   statusBase.extend({ state: z.literal("failed"), reason: z.enum(["route-changed", "authentication-failed", "timeout", "connection-failed"]) }),
 ]);
 
 type Status = z.infer<typeof PublicProbeStatus>;
 type Binding = z.infer<typeof StartPublicProbe>;
+function isAuthenticating(state: Status["state"]) {
+  return state === "connecting" || state === "waiting" || state === "keyboard";
+}
 type Probe = {
   owner: string;
   kind: "probe" | "job" | "connection";
@@ -85,7 +109,7 @@ export class PublicSshProbes {
     readBoundRoute(this.files, context, binding);
     const existing = [...this.probes.values()].find(
       ({ owner: recordOwner, kind, expires, status }) =>
-        recordOwner === owner && kind === "probe" && expires > Date.now() && status.hostId === binding.hostId && status.routeRevision === binding.routeRevision && (status.state === "connecting" || status.state === "waiting"),
+        recordOwner === owner && kind === "probe" && expires > Date.now() && status.hostId === binding.hostId && status.routeRevision === binding.routeRevision && isAuthenticating(status.state),
     );
     if (existing) return { attemptId: existing.status.attemptId };
     return this.startProbe(context, owner, binding);
@@ -187,9 +211,11 @@ export class PublicSshProbes {
       if (probe.kind === "probe") probe.abort.abort();
       this.probes.delete(id);
     }
-    const running = [...this.probes.values()].filter((probe) => probe.owner === owner && (probe.status.state === "connecting" || probe.status.state === "waiting" || probe.status.state === "connected"));
+    const own = [...this.probes.values()].filter((probe) => probe.owner === owner);
+    const running = own.filter((probe) => isAuthenticating(probe.status.state));
     if (this.probes.size >= 64) throw errors.invalidInput("SSH 核验记录已满，请稍后重试");
     if (running.length >= 4) throw errors.invalidInput("当前主体的 SSH 连接核验过多");
+    if (kind === "connection" && own.filter((probe) => probe.status.state === "connected").length >= 12) throw errors.invalidInput("当前主体的 SSH 连接过多");
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 180_000);
     timeout.unref();
@@ -213,11 +239,25 @@ export class PublicSshProbes {
       }
       if (kind === "connection") this.connectionChanged?.(event.attemptId);
     };
-    const connection = this.manager.openExternalConnection(chain, abort.signal, current, apply);
+    const keyboard = (prompt: KeyboardPrompt) => {
+      const probe = this.probes.get(attemptId);
+      if (!probe || probe.abort.signal.aborted) return;
+      const promptRevision = createHash("sha256")
+        .update(JSON.stringify([hostId, routeRevision, attemptId, prompt]))
+        .digest("hex");
+      probe.status = { hostId, routeRevision, attemptId, state: "keyboard", keyboard: { ...prompt, promptRevision } };
+      if (kind === "connection") this.connectionChanged?.(attemptId);
+    };
+    const connection = this.manager.openExternalConnection(chain, abort.signal, current, apply, keyboard);
     const { attemptId } = connection;
     const hostIds = chain.map(({ id }) => id);
     this.probes.set(attemptId, {
-      owner, kind, hostIds, authorized: () => hasSshHosts(context, hostIds), validate: current, abort,
+      owner,
+      kind,
+      hostIds,
+      authorized: () => hasSshHosts(context, hostIds),
+      validate: current,
+      abort,
       expires: kind === "connection" ? Infinity : now + 300_000,
       status: { hostId, routeRevision, attemptId, state: "connecting" },
     });
@@ -244,12 +284,14 @@ export class PublicSshProbes {
   }
 
   workbenchConnections(): ConnectionStatus[] {
-    return [...this.probes.values()].filter(({ kind }) => kind === "connection").map(({ status }) => ({
-      hostId: status.hostId,
-      attemptId: status.attemptId,
-      source: "external" as const,
-      state: status.state === "connected" ? "connected" : status.state === "failed" || status.state === "disconnected" || status.state === "key-changed" ? "disconnected" : "connecting",
-    }));
+    return [...this.probes.values()]
+      .filter(({ kind }) => kind === "connection")
+      .map(({ status }) => ({
+        hostId: status.hostId,
+        attemptId: status.attemptId,
+        source: "external" as const,
+        state: status.state === "connected" ? "connected" : status.state === "failed" || status.state === "disconnected" || status.state === "key-changed" ? "disconnected" : "connecting",
+      }));
   }
 
   closeWorkbench(attemptId: string, hostId: string): void {
@@ -300,11 +342,23 @@ export class PublicSshProbes {
     if (probe.status.routeRevision !== input.routeRevision) throw errors.notFound("SSH 连接核验");
     readBoundRoute(this.files, context, input);
     context.signal.throwIfAborted();
-    if (!probe.abort.signal.aborted && (probe.status.state === "connecting" || probe.status.state === "waiting" || probe.status.state === "connected")) {
+    if (!probe.abort.signal.aborted && (isAuthenticating(probe.status.state) || probe.status.state === "connected")) {
       probe.cancelled = true;
       probe.abort.abort();
     }
     return { ok: true as const };
+  }
+
+  respondKeyboard(context: CapabilityContext, input: z.infer<typeof RespondPublicKeyboard>) {
+    const { status } = this.get(context, input);
+    if (status.state !== "keyboard") throw errors.notFound("SSH 键盘交互待答");
+    const { keyboard } = status;
+    if (status.routeRevision !== input.routeRevision || keyboard.promptId !== input.promptId || keyboard.promptRevision !== input.promptRevision || keyboard.hop !== input.hop || keyboard.serverHostId !== input.serverHostId) {
+      throw errors.notFound("SSH 键盘交互待答");
+    }
+    context.signal.throwIfAborted();
+    if (!this.manager.respondPublicKeyboard(input.attemptId, input.promptId, input.hop, input.responses)) throw errors.notFound("SSH 键盘交互待答");
+    return { applied: true as const };
   }
 
   decide(context: CapabilityContext, input: z.infer<typeof DecidePublicProbe>, kind?: Probe["kind"]) {

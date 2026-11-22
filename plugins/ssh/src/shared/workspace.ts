@@ -64,6 +64,7 @@ const RunPane = z.object({
 });
 export const WorkspaceRun = z.object({
   id: z.uuid(),
+  source: z.literal("external").optional(),
   templateId: z.uuid().optional(),
   name: WorkspaceName,
   generation: z.number().int().min(1),

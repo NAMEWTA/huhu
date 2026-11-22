@@ -15,6 +15,7 @@ import { TestProtection } from "../../../packages/kernel/test/fixtures/credentia
 import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import type { ExecJobStatus, ExecOutputPage } from "../src/engine/public-jobs.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../src/engine/monitor-sample.js";
+import { PROCESS_LIST } from "../src/engine/monitor-tools.js";
 import { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
@@ -41,6 +42,84 @@ type Probe = z.infer<typeof PublicProbeStatus>;
 type Waiting = Extract<Probe, { prompt: unknown }>;
 type JobStatus = z.infer<typeof ExecJobStatus>;
 type OutputPage = z.infer<typeof ExecOutputPage>;
+
+test.each(["cli", "mcp"] as const)("%s isolates monitor subscriptions and keeps active query output out of receipts", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  let queries = 0;
+  try {
+    const proc = "fixture-private-process-label";
+    const { hostId } = await f.host("owned monitor fixture", [], {
+      onExec: (command) => {
+        if (command === PLATFORM_COMMAND) return { stdout: "Linux\n" };
+        if (command === PROCESS_LIST) {
+          queries++;
+          return { stdout: `12 ${proc}\n` };
+        }
+        if (command === LINUX_SAMPLE) return { stdout: "cpu 25 100\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet 80 50\ndisk 40960 20480\n" };
+      },
+    });
+    const spare = await f.host("unrelated monitoring grant");
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const open = "ssh.monitor.session.open";
+    const get = "ssh.monitor.session.get";
+    const list = "ssh.monitor.session.list";
+    const change = "ssh.monitor.session.change";
+    const tool = "ssh.monitor.tools.read";
+    const panelChange = "ssh.monitor.panels.change";
+    const panelRead = "ssh.monitor.panels.run";
+    const panelsList = "ssh.monitor.panels.external.list";
+    const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    expect(await invoke(open, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    for (const id of ["ssh.connect", probeGet, trustDecide, open, get, list, change, tool, panelChange, panelRead, panelsList]) await f.allow(id);
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const route = { hostId, routeRevision };
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", { ...route, intentKey: randomUUID() })));
+    const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+    const pending = await vi.waitFor(async () => {
+      const current = await status();
+      if (current.state !== "waiting") throw new Error("Waiting for monitor fixture trust");
+      return current;
+    });
+    expect(await invoke(trustDecide, decision(pending))).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+    const connection = { ...route, attemptId };
+    const intent = { ...connection, interval: 2, intentKey: randomUUID() };
+    expect(await peer(open, intent)).toMatchObject(missing);
+    const { id } = z.object({ id: z.uuid() }).parse(data(await invoke(open, intent)));
+    expect(await invoke(open, intent)).toMatchObject({ ok: true, data: { id } });
+    expect(data(await peer(list, {}))).toEqual([]);
+    expect(await peer(get, { id })).toMatchObject(missing);
+    expect(await peer(change, { id, action: "close", intentKey: randomUUID() })).toMatchObject(missing);
+    expect(await f.desktop(list)).toMatchObject([{ id, source: "external" }]);
+    await vi.waitFor(async () => expect(await invoke(get, { id })).toMatchObject({ ok: true, data: { host: { latest: { sample: { memory: { total: expect.any(Number) } } } } } }), { timeout: 5000 });
+    const query = { ...connection, tool: "processes", intentKey: randomUUID() };
+    const result = await invoke(tool, query);
+    expect(result).toMatchObject({ ok: true, data: { rows: [{ name: proc }] } });
+    expect(await invoke(tool, query)).toEqual(result);
+    expect(await peer(tool, query)).toMatchObject(missing);
+    expect(queries).toBe(1);
+    const panel = await f.desktop<MonitorPanel>("ssh.monitor.panels.save", { name: "owned fixture monitor", note: "", hostIds: [hostId], interval: 2, retention: 15 });
+    const selectedPanel = { id: panel.id, expectedRevision: panel.revision };
+    const start = { ...selectedPanel, action: "start", connections: [connection], intentKey: randomUUID() };
+    expect(await invoke(panelChange, start)).toMatchObject({ ok: true, data: { state: "running" } });
+    expect(await invoke(panelChange, start)).toMatchObject({ ok: true, data: { id: panel.id } });
+    expect(data(await peer(panelRead, selectedPanel))).toBeNull();
+    const [running] = await f.desktop<{ id: string; runId: string }[]>(panelsList);
+    expect(running).toMatchObject({ id: panel.id, runId: expect.any(String) });
+    expect(data(await peer(panelsList, {}))).toEqual([]);
+    await vi.waitFor(async () => expect(await invoke(panelRead, selectedPanel)).toMatchObject({ ok: true, data: { hosts: [{ hostId, latest: { sample: { memory: { total: expect.any(Number) } } } }] } }), { timeout: 5000 });
+    expect(await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8")).not.toContain(proc);
+    await f.chooseHosts([spare.hostId]);
+    expect(data(await invoke(list, {}))).toEqual([]);
+    expect(await invoke(tool, query)).toMatchObject(denied);
+    expect(await f.desktop(list)).toEqual([]);
+    expect(await f.desktop(panelsList)).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
 
 function data<T>(reply: { ok: true; data: T } | { ok: false; error: { code: string } }): T {
   if (!reply.ok) throw new Error(reply.error.code);
@@ -835,7 +914,7 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
         if (key?.hop !== hop) throw new Error("Waiting for monitor route trust");
         return key;
       });
-      expect(data(await invoke(cached, binding))).toEqual({ id: panel.id, revision: panel.revision, state: "running", hosts: [] });
+      expect(data(await invoke(cached, binding))).toBeNull();
       await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop, promptId: prompt.promptId, accept: true, remember: false });
     }
     await vi.waitFor(async () => {
@@ -844,26 +923,12 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
     });
     await f.desktop(change, { ...binding, action: "pause" });
     const before = samples;
-    const result = data(await invoke(cached, binding));
-    expect(result).toEqual({
-      id: panel.id,
-      revision: panel.revision,
-      state: "paused",
-      hosts: [
-        {
-          hostId: target.hostId,
-          state: "paused",
-          platform: "linux",
-          latest: { at: expect.any(Number), sample: expect.objectContaining({ memory: { total: 8192, available: 4096 } }) },
-          history: expect.any(Array),
-        },
-      ],
-    });
+    expect(data(await invoke(cached, binding))).toBeNull();
     const deletion = { ...binding, bindings, intentKey: randomUUID() };
     expect(await invoke(save, { ...creation, intentKey: randomUUID(), previous: binding })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     expect(await invoke(remove, deletion)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised monitor jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
-    expect(data(await invoke(cached, binding))).toMatchObject({ hosts: [] });
+    expect(data(await invoke(cached, binding))).toBeNull();
     expect(samples).toBe(before);
     expect(jump.server.conns).toHaveLength(1);
     expect(target.server.conns).toHaveLength(1);
@@ -1051,7 +1116,7 @@ test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward
       try {
         await f.close();
       } finally {
-        if (echo.listening) await new Promise<void>((resolve, reject) => echo.close((error) => error ? reject(error) : resolve()));
+        if (echo.listening) await new Promise<void>((resolve, reject) => echo.close((error) => (error ? reject(error) : resolve())));
       }
     }
   }
@@ -1179,6 +1244,58 @@ test.each(["cli", "mcp"] as const)("%s owns a live connection and controls only 
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s answers only its original SSH keyboard-interactive challenge", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  try {
+    const answer = `synthetic-challenge-${randomUUID()}`;
+    const { hostId, server } = await f.host("keyboard authentication fixture", [], { keyboardResponse: answer });
+    const other = await f.host("unrelated authorized host");
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const respond = "ssh.auth.keyboardInteractive.respond";
+    const connect = "ssh.connect";
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const route = { hostId, routeRevision };
+    const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    const closed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    for (const tool of [connect, probeGet, trustDecide]) await f.allow(tool);
+    async function challenge() {
+      const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke(connect, { ...route, intentKey: randomUUID() })));
+      const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+      const key = await vi.waitFor(async () => {
+        const value = await status();
+        if (value.state !== "waiting") throw new Error("Waiting for fixture key");
+        return value;
+      });
+      expect(await invoke(trustDecide, decision(key))).toMatchObject({ ok: true });
+      const pending = await vi.waitFor(async () => {
+        const value = await status();
+        if (value.state !== "keyboard") throw new Error("Waiting for fixture challenge");
+        return value;
+      });
+      expect(pending.keyboard.prompts).toEqual([{ label: "Fixture response", echo: false }]);
+      const { promptId, promptRevision, hop, serverHostId } = pending.keyboard;
+      return { status, input: { ...route, attemptId, promptId, promptRevision, hop, serverHostId, responses: [answer] } };
+    }
+    const first = await challenge();
+    expect(await invoke(respond, first.input)).toMatchObject(closed);
+    await f.allow(respond);
+    expect(await peer(respond, first.input)).toMatchObject(missing);
+    expect(await invoke(respond, { ...first.input, promptRevision: "0".repeat(64) })).toMatchObject(missing);
+    expect(await invoke(respond, first.input)).toEqual({ ok: true, data: { applied: true } });
+    expect(await invoke(respond, first.input)).toMatchObject(missing);
+    await vi.waitFor(async () => expect(await first.status()).toMatchObject({ state: "connected" }));
+    const next = await challenge();
+    await f.chooseHosts([other.hostId]);
+    expect(await invoke(respond, next.input)).toMatchObject(denied);
+    await vi.waitFor(() => expect(server.closed()).toBe(2));
+    expect(await readFile(path.join(f.engine.vault.runtimeDir, "ssh-exec-intents.ndjson"), "utf8")).not.toContain(answer);
+  } finally {
+    await f.close();
+  }
+});
+
 test.each(["cli", "mcp"] as const)("%s isolates SSH terminal I/O and closes the PTY when a jump loses authorization", { timeout: 35_000 }, async (entry) => {
   const f = await fixture();
   const input: string[] = [];
@@ -1197,20 +1314,28 @@ test.each(["cli", "mcp"] as const)("%s isolates SSH terminal I/O and closes the 
     const write = "ssh.shells.write";
     const resize = "ssh.shells.resize";
     const close = "ssh.shells.close";
+    const startWorkspace = "ssh.workspace.runs.start";
+    const listWorkspaces = "ssh.workspace.runs.list";
+    const closeWorkspace = "ssh.workspace.runs.close";
+    const reconnectWorkspace = "ssh.workspace.runs.reconnect";
+    const saveWorkspace = "ssh.workspace.runs.saveTemplate";
     const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
     const missing = { ok: false, error: { code: "NOT_FOUND" } };
     const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
     const binding = { hostId, routeRevision };
     expect(await invokeA(open, binding)).toMatchObject(disabled);
-    for (const capability of [connect, open, list, read, write, resize, close, probeGet, trustDecide]) await f.allow(capability);
+    for (const capability of [connect, open, list, read, write, resize, close, probeGet, trustDecide, startWorkspace, listWorkspaces, closeWorkspace, reconnectWorkspace, saveWorkspace]) await f.allow(capability);
     const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invokeA(connect, { ...binding, intentKey: randomUUID() })));
     const status = async () => PublicProbeStatus.parse(data(await invokeA(probeGet, { hostId, attemptId })));
     for (const hop of [0, 1]) {
-      const pending = await vi.waitFor(async () => {
-        const result = await status();
-        if (result.state !== "waiting" || result.prompt.hop !== hop) throw new Error("Waiting for loopback trust");
-        return result;
-      }, { timeout: 5000 });
+      const pending = await vi.waitFor(
+        async () => {
+          const result = await status();
+          if (result.state !== "waiting" || result.prompt.hop !== hop) throw new Error("Waiting for loopback trust");
+          return result;
+        },
+        { timeout: 5000 },
+      );
       expect(await invokeA(trustDecide, decision(pending))).toMatchObject({ ok: true });
     }
     await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
@@ -1233,13 +1358,27 @@ test.each(["cli", "mcp"] as const)("%s isolates SSH terminal I/O and closes the 
     expect(await invokeA(write, { ...send, dataBase64: "YQ==" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
     expect(data(await invokeA(read, { shellId, cursor: banner.nextCursor, waitMs: 1000 }))).toMatchObject({ text: `ECHO:${content}`, ended: false });
     expect(input).toEqual([content]);
+    const workspace = { name: "owned fixture workspace", layout: { kind: "one" }, connections: [{ ...binding, attemptId }], intentKey: randomUUID() };
+    const started = await invokeA(startWorkspace, workspace);
+    const run = z.object({ id: z.uuid(), generation: z.literal(1) }).parse(data(started));
+    expect(await invokeA(startWorkspace, workspace)).toEqual(started);
+    expect(data(await invokeB(listWorkspaces, {}))).toEqual([]);
+    expect(await invokeB(closeWorkspace, { ...run, intentKey: randomUUID() })).toMatchObject(missing);
+    expect(await f.desktop(listWorkspaces)).toMatchObject([{ ...run, source: "external" }]);
+    const template = z.object({ id: z.uuid(), revision: z.uuid() }).parse(data(await invokeA(saveWorkspace, { ...run, name: "owned runtime template", intentKey: randomUUID() })));
+    await f.desktop("ssh.workspace.templates.delete", { id: template.id, expectedRevision: template.revision });
+    const reconnect = { ...run, connections: workspace.connections, intentKey: randomUUID() };
+    expect(await invokeA(reconnectWorkspace, reconnect)).toMatchObject({ ok: true, data: { generation: 2 } });
+    expect(await invokeA(reconnectWorkspace, reconnect)).toMatchObject({ ok: true, data: { generation: 2 } });
+    expect(await invokeA(closeWorkspace, { ...run, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
     const receipts = await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8");
     for (const secret of [content, send.dataBase64, send.intentKey, target.password, "welcome"]) expect(receipts).not.toContain(secret);
     await f.chooseHosts([hostId]);
-    await vi.waitFor(() => expect(closed).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(closed).toBe(3), { timeout: 5000 });
     expect(await invokeA(write, send)).toMatchObject(denied);
     expect(await invokeA(read, { shellId })).toMatchObject(denied);
     expect(data(await invokeA(list, { hostId }))).toEqual([]);
+    expect(data(await invokeA(listWorkspaces, {}))).toEqual([]);
     await f.chooseHosts([hostId, jump.hostId]);
     expect(await invokeA(write, send)).toMatchObject(denied);
     expect(await invokeA(read, { shellId })).toMatchObject(denied);
@@ -1287,7 +1426,8 @@ test.each(["cli", "mcp"] as const)("%s binds byte transfers to owned SFTP sessio
     const invalid = { ok: false, error: { code: "INVALID_INPUT" } };
     const notExposed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
     expect(await invoke(open, {})).toMatchObject(notExposed);
-    for (const tool of ["ssh.connect", probeGet, trustDecide, open, list, close, upload, download, cancel, properties, openDocument, saveDocument, createEntry, changeProperties, moveEntry, search, searchCancel, "ssh.sftp.list"]) await f.allow(tool);
+    for (const tool of ["ssh.connect", probeGet, trustDecide, open, list, close, upload, download, cancel, properties, openDocument, saveDocument, createEntry, changeProperties, moveEntry, search, searchCancel, "ssh.sftp.list"])
+      await f.allow(tool);
     const bind = { hostId, routeRevision, intentKey: randomUUID() };
     const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", bind)));
     const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
@@ -1413,12 +1553,15 @@ test.each(["cli", "mcp"] as const)("%s owns the remote transfer queue and consum
     const job = data(await invoke(start, request)) as TransferJob;
     expect(data(await invoke(start, request))).toMatchObject({ transferId: job.transferId });
     const waitForState = (transferId: string, state: TransferJob["state"]) =>
-      vi.waitFor(async () => {
-        const queue = data(await invoke(list, {})) as TransferQueue;
-        const found = queue.jobs.find((entry) => entry.transferId === transferId);
-        expect(found).toMatchObject({ transferId, state });
-        return found!;
-      }, { timeout: 5000 });
+      vi.waitFor(
+        async () => {
+          const queue = data(await invoke(list, {})) as TransferQueue;
+          const found = queue.jobs.find((entry) => entry.transferId === transferId);
+          expect(found).toMatchObject({ transferId, state });
+          return found!;
+        },
+        { timeout: 5000 },
+      );
     const waiting = await waitForState(job.transferId, "waiting");
     expect(waiting.conflictRevision).toBeTruthy();
     expect(data(await peer(list, {}))).toMatchObject({ jobs: [], batches: [] });

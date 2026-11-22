@@ -24,16 +24,17 @@ import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, Transf
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
 import { PublicHostView, ResourceHost, ResourceHostId, RouteIntentFields } from "./public-resources.js";
-import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIntent } from "./public-probes.js";
+import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, RespondPublicKeyboard, StartPublicProbeIntent } from "./public-probes.js";
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { ChangeOwnedShell, OpenOwnedShell, ReadOwnedShell, ResizeOwnedShell, Shell, ShellCloseReceipt, ShellOutputPage, ShellResizeReceipt, ShellSize, ShellWriteReceipt, WriteOwnedShell } from "./public-shells.js";
 import { DownloadBytes, DownloadPage, FileIntentFields, OpenOwnedFiles, TargetRevision, TransferHandle, UploadBytes } from "./public-files.js";
 import { ResumeOwnedForward, RunId as ForwardRunId, StartOwnedForward, StopOwnedForward } from "./public-forwarding.js";
+import { MonitorPanelRuntime, OpenOwnedMonitor, OwnedMonitorTool, PanelRuntimeFields } from "./public-monitors.js";
+import { OwnedRun, ReconnectOwnedRun, SaveOwnedTemplate, StartOwnedWorkspace } from "./public-workspaces.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardDestination, ForwardMode, ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import {
-  MonitorHost,
   MonitorPanel,
   MonitorPanelChange,
   MonitorPanelRevision,
@@ -51,9 +52,7 @@ const Ok = z.object({ ok: z.literal(true) });
 const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
 const external = { ...ssh, exposable: true } as const;
 const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
-const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
-const externalMonitor = { ...monitor, ...resource } as const;
-const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
+const externalMonitor = { ...resource, desktopOnly: true, risk: "normal" } as const;
 const ForwardSaveRequest = SaveForward.options[0].extend({ mode: ForwardMode, target: ForwardDestination.optional(), ...RouteIntentFields });
 export const ForwardRuleReceipt = z.strictObject({ id: ForwardRevision.shape.id, revision: ForwardRevision.shape.expectedRevision });
 export const WorkspaceTemplateReceipt = z.strictObject({ id: WorkspaceTemplate.shape.id, revision: WorkspaceTemplate.shape.revision });
@@ -179,6 +178,17 @@ export const sshCapabilityDescriptors = {
     input: DecidePublicProbe,
     output: z.object({ applied: z.literal(true) }),
   }),
+  keyboardRespond: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.auth.keyboardInteractive.respond",
+    title: "响应 SSH 键盘交互认证",
+    description: "仅响应本主体原连接中的一次性挑战。答案仅提交给原 SSH 跳点。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: RespondPublicKeyboard,
+    output: z.strictObject({ applied: z.literal(true) }),
+  }),
   settingsGet: defineCapabilityDescriptor({
     ...external,
     name: "ssh.settings.get",
@@ -203,23 +213,56 @@ export const sshCapabilityDescriptors = {
     output: VaultPreferencesSnapshot,
   }),
   monitorToolsRead: defineCapabilityDescriptor({
-    ...monitor,
+    ...resource,
     name: "ssh.monitor.tools.read",
     title: "读取已绑定服务器的进程和容器状态",
     description: "在原分栏执行固定只读查询。",
-    scope: "read",
-    input: MonitorToolRequest,
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: z.union([OwnedMonitorTool, MonitorToolRequest]),
     output: MonitorToolResult,
   }),
-  monitorSessionOpen: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.open", title: "打开分栏监控", description: "采样当前分栏的原 SSH 连接。", scope: "execute", input: MonitorSessionOpen, output: MonitorSession }),
-  monitorSessionGet: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.session.get", title: "查看分栏监控", description: "读取分栏样本与当前连接状态。", scope: "read", input: MonitorSessionId, output: MonitorSession }),
+  monitorSessionOpen: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.monitor.session.open",
+    title: "打开 SSH 监控",
+    description: "采样原分栏或本主体拥有的 SSH 连接。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: z.union([OpenOwnedMonitor, MonitorSessionOpen]),
+    output: MonitorSession,
+  }),
+  monitorSessionGet: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.monitor.session.get",
+    title: "查看 SSH 监控",
+    description: "读取订阅拥有的样本与当前连接状态。",
+    scope: "read",
+    risk: "normal",
+    input: MonitorSessionId,
+    output: MonitorSession,
+  }),
+  monitorSessionList: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.monitor.session.list",
+    title: "列出外部 SSH 监控订阅",
+    description: "查询当前外部订阅，外部调用只列出本主体的订阅。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(MonitorSession),
+  }),
   monitorSessionChange: defineCapabilityDescriptor({
-    ...monitor,
+    ...resource,
     name: "ssh.monitor.session.change",
     title: "控制分栏监控",
     description: "暂停、继续、重试、调整周期或关闭订阅。",
     scope: "execute",
-    input: MonitorSessionChange,
+    risk: "high",
+    idempotency: "handler",
+    input: z.discriminatedUnion("action", [MonitorSessionChange.options[0].extend(FileIntentFields), MonitorSessionChange.options[1].extend(FileIntentFields)]),
     output: MonitorSession.nullable(),
   }),
   monitorPanelsList: defineCapabilityDescriptor({
@@ -256,19 +299,31 @@ export const sshCapabilityDescriptors = {
     ...externalMonitor,
     name: "ssh.monitor.panels.run",
     title: "查看多主机监控样本",
-    description: "按源连接读取当前运行和有界历史。外部调用使用面板修订读取当前路由上的缓存样本。",
+    description: "按源连接读取当前运行和有界历史。外部工具只读取本主体的面板运行。",
     scope: "read",
     input: MonitorSessionId.extend({ expectedRevision: MonitorPanelRevision.shape.expectedRevision.optional() }),
-    output: z.union([MonitorPanelRun, CachedMonitorPanel]).nullable(),
+    output: MonitorPanelRun.nullable(),
   }),
   monitorPanelsChange: defineCapabilityDescriptor({
-    ...monitor,
+    ...resource,
     name: "ssh.monitor.panels.change",
     title: "控制多主机监控",
     description: "手动开始、暂停、继续、停止或重试指定主机。",
     scope: "execute",
-    input: MonitorPanelChange,
+    risk: "high",
+    idempotency: "handler",
+    input: z.discriminatedUnion("action", [MonitorPanelChange.options[0].extend(PanelRuntimeFields), MonitorPanelChange.options[1].extend(PanelRuntimeFields)]),
     output: MonitorPanelRun.nullable(),
+  }),
+  monitorPanelsExternalList: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.monitor.panels.external.list",
+    title: "列出外部 SSH 监控面板运行",
+    description: "查询当前外部监控面板实例。外部工具只看到本主体获准的面板实例。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({}),
+    output: z.array(MonitorPanelRuntime),
   }),
   forwardRulesList: defineCapabilityDescriptor({
     ...resource,
@@ -492,7 +547,7 @@ export const sshCapabilityDescriptors = {
     output: z.object({ removed: z.number() }),
   }),
   workspaceRunsList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.runs.list",
     title: "SSH 工作区运行",
     description: "查看分栏会话及等待中的主机密钥确认。",
@@ -502,43 +557,47 @@ export const sshCapabilityDescriptors = {
     output: z.array(WorkspaceRun),
   }),
   workspaceRunsStart: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.runs.start",
     title: "启动 SSH 工作区",
     description: "提交分栏绑定并分别建立 SSH 会话。",
     scope: "execute",
     risk: "high",
-    input: StartWorkspace,
+    idempotency: "handler",
+    input: z.union([StartOwnedWorkspace, StartWorkspace]),
     output: WorkspaceRun,
   }),
   workspaceRunsReconnect: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.runs.reconnect",
     title: "重连 SSH 工作区",
     description: "按已保存的绑定重连应用重启前的工作区。",
     scope: "execute",
     risk: "high",
-    input: RunId,
+    idempotency: "handler",
+    input: z.union([ReconnectOwnedRun, RunId]),
     output: WorkspaceRun,
   }),
   workspaceRunsClose: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.runs.close",
     title: "关闭 SSH 工作区",
     description: "移除运行绑定并关闭所属 Shell。",
     scope: "execute",
-    risk: "normal",
-    input: RunId,
+    risk: "high",
+    idempotency: "handler",
+    input: z.union([OwnedRun, RunId]),
     output: Ok,
   }),
   workspaceRunsSaveTemplate: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.runs.saveTemplate",
     title: "将 SSH 工作区存为模板",
     description: "从运行的分栏绑定生成工作区模板。",
     scope: "write",
     risk: "normal",
-    input: SaveRunTemplate,
+    idempotency: "handler",
+    input: z.union([SaveOwnedTemplate, SaveRunTemplate]),
     output: WorkspaceTemplate,
   }),
   workspaceTemplatesList: defineCapabilityDescriptor({
@@ -895,7 +954,11 @@ export const sshCapabilityDescriptors = {
     scope: "write",
     risk: "normal",
     idempotency: "handler",
-    input: FileSessionId.extend({ path: RemoteFilePath, entry: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("file") }), z.strictObject({ kind: z.literal("link"), target: z.string().min(1).max(4096) })]), ...FileIntentFields }),
+    input: FileSessionId.extend({
+      path: RemoteFilePath,
+      entry: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("file") }), z.strictObject({ kind: z.literal("link"), target: z.string().min(1).max(4096) })]),
+      ...FileIntentFields,
+    }),
     output: Ok,
   }),
   fileSessionsMoveEntry: defineCapabilityDescriptor({

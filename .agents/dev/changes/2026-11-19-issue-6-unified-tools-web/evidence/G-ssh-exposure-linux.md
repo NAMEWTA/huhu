@@ -136,3 +136,10 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.fileSessions.search/cancelSearch/document.save/changeProperties/createEntry/moveEntry` 默认关闭。搜索使用原会话和唯一搜索 ID；取消不会命中其他搜索代次或 SFTP 传输。持久写校验当前会话及版本，在远端写入前再次核对授权。
 - 文档保存使用保护存储 HMAC 绑定输入，回执仅保存所写版本与元数据。CLI / HTTP MCP 验证了版本冲突、主体隔离和重复提交。
 - Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 CLI / MCP 文件用例 2 项通过。
+
+## Task05 第七批 · 监控、认证待答和工作区
+
+- `ssh.monitor.session.open/get/change/list`、`ssh.monitor.tools.read`、`ssh.monitor.panels.change`、`ssh.monitor.panels.external.list` 默认关闭。外部面板回读仅可观察本主体原始运行。固定查询输出只在内存短期保留，主机撤权关闭采样。
+- `ssh.auth.keyboardInteractive.respond` 默认关闭，按本主体原尝试、跳点、挑战 ID 及修订消费一次。答案只进入 SSH 握手，回执无答案。
+- `ssh.workspace.runs.list/start/reconnect/close/saveTemplate` 默认关闭。外部工作区使用本主体的原连接和分栏，重连核对持有者、全路由及代次，撤权关闭分栏。模板运行不执行保存的登录命令。工作台可见来源并关闭运行。
+- Node 24.21.0 下 SSH 单包类型检查通过，CLI / HTTP MCP 的终端工作区、监控和认证定向 8 项通过。

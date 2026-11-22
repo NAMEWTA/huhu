@@ -71,7 +71,7 @@ export class PublicShells {
         const running = [...this.shells.values()].filter(({ channel }) => channel);
         const opening = this.pending.get(owner) ?? 0;
         const totalPending = [...this.pending.values()].reduce((total, count) => total + count, 0);
-        if (this.shells.size + totalPending >= 64 || running.length + totalPending >= 16 || running.filter((shell) => shell.owner === owner).length + opening >= 4) {
+        if (this.shells.size + totalPending >= 64 || running.length + totalPending >= 16 || running.filter((shell) => shell.owner === owner).length + opening >= 12) {
           throw errors.invalidInput("SSH 终端数量已达上限");
         }
         this.pending.set(owner, opening + 1);
@@ -152,6 +152,10 @@ export class PublicShells {
 
   workbenchList(hostId?: string) {
     return [...this.shells.values()].filter(({ view }) => !hostId || view.hostId === hostId).map(({ view }) => view);
+  }
+
+  state(id: string) {
+    return this.shells.get(id)?.view.state;
   }
 
   closeWorkbench(id: string): boolean {
