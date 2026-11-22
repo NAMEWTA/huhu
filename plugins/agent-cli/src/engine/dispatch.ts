@@ -89,10 +89,11 @@ export class AgentDispatch {
         .map(async (session) => {
           const provider = session.provider as AgentId;
           const adapter = this.d.providers[provider];
-          let reason = unavailable ?? (adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
+          let reason = unavailable ?? (session.state === "exited" ? "session_ended" : adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
           if (!reason && snapshot) reason = "binding_unverified";
           const current = reason ? null : await this.d.sessions.executionSession(session.id);
-          if (!reason && (!current || current.finished)) reason = "binding_unverified";
+          if (!reason && current?.finished) reason = "session_ended";
+          if (!reason && !current) reason = "binding_unverified";
           if (!reason && adapter?.transport === "native" && !current?.nativeExisting) reason = "provider_generation_unavailable";
           if (!reason && !this.d.ownership.availableForTask(session.id)) reason = "input_owned";
           return { mode: "existing" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId: null, sessionId: session.id, binding: current?.binding ?? null, available: reason === null, reason };

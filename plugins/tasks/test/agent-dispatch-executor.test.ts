@@ -51,3 +51,48 @@ test("the bound input uses the frozen body and requires a matching provider ACK"
   expect(await executor.inspect(work, signal)).toEqual({ state: "accepted", execution });
   expect(call).toHaveBeenLastCalledWith("agent.runs.inspect", { ...key, machineId: "machine-fixture" }, { signal });
 });
+
+test("an ended bound session is unavailable while an unverified binding remains pending", async () => {
+  const call = vi.fn<HuhuApi["call"]>();
+  const executor = createAgentDispatchExecutor({ vault: { vaultId: "vault-fixture" }, call }, "machine-fixture");
+  const binding = { machineId: "machine-fixture", sessionId: "ended-session", coreId: "core-fixture", coreAddress: "t1", processGeneration: "original", provider: "codex", nativeSessionId: "original-thread" };
+  const snapshot: TaskDispatchWork["snapshot"] = {
+    taskId: "task-fixture",
+    expectedVersion: "before",
+    taskVersion: "before",
+    inputRevision: 1,
+    inputHash: "a".repeat(16),
+    body: "Continue only the original session",
+    references: [],
+    source: { kind: "desktop" },
+    execution: { spaceId: "original-space", provider: "codex", model: null, effort: null, fast: false, target: { mode: "existing", sessionId: binding.sessionId } },
+  };
+  const work: TaskDispatchWork = {
+    eventId: "event-fixture",
+    dispatchId: "dispatch-fixture",
+    runId: "run-fixture",
+    attempt: 1,
+    snapshot,
+    snapshotHash: fingerprint(snapshot),
+    agentTarget: { mode: "existing", spaceId: "original-space", spaceRevision: 3, binding },
+  };
+  const target = {
+    mode: "existing",
+    provider: "codex",
+    spaceId: "original-space",
+    spaceRevision: 3,
+    configurationId: null,
+    sessionId: binding.sessionId,
+    binding: null,
+    available: false,
+    structuredReply: false,
+    structuredResult: false,
+    cancel: false,
+  };
+  const signal = new AbortController().signal;
+  call.mockResolvedValueOnce([{ ...target, reason: "binding_unverified" }]);
+  expect(await executor.ready(work, signal)).toBe("busy");
+  call.mockResolvedValueOnce([{ ...target, reason: "session_ended" }]);
+  expect(await executor.ready(work, signal)).toBe("unavailable");
+  expect(call.mock.calls.map(([capability]) => capability)).toEqual(["agent.targets.list", "agent.targets.list"]);
+});

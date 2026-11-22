@@ -62,6 +62,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
       signal.throwIfAborted();
       const target = listing.find((item) => item.mode === preference.mode && item.spaceId === spaceId && (preference.mode === "existing" ? item.sessionId === preference.sessionId : item.provider === provider));
       if (!target) return work.agentTarget ? "busy" : "unavailable";
+      if (target.reason === "session_ended") return "unavailable";
       if (target.reason && Unsupported.has(target.reason)) return work.agentTarget ? "busy" : "unsupported";
       const selected = AgentDispatchTargetSchema.safeParse(
         preference.mode === "existing"

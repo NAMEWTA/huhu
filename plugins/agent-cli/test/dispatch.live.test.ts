@@ -34,7 +34,7 @@ class FixtureViewer extends EventEmitter {
   }
 }
 
-type Target = { mode: string; provider: string; available: boolean; reason: string | null; configurationId: string | null; binding: ExecutionBinding["sessionBinding"] | null };
+type Target = { mode: string; provider: string; available: boolean; reason: string | null; configurationId: string | null; sessionId?: string; binding: ExecutionBinding["sessionBinding"] | null };
 type Result = { status: string; reason: string | null; acceptedAt: string | null; execution: ExecutionBinding | null; coreWrite: string; providerAcceptance: unknown; ownerActive: boolean };
 test.skipIf(!bin)(
   "locked Core keeps durable task ownership and independent provider evidence",
@@ -298,6 +298,10 @@ test.skipIf(!bin)(
       expect(JSON.parse(wait.stdout)).toMatchObject({ ended: true, exit_code: 0 });
       expect(await call<Result>("agent.runs.inspect", key("zeroExit"))).toMatchObject({ status: "unknown", coreWrite: "core_written", providerAcceptance: null, ownerActive: false });
       expect(readers(exitAddress)).toHaveLength(1);
+      const endedTarget = (await call<Target[]>("agent.targets.list", { ...scope, spaceId: target.spaceId })).find(({ sessionId }) => sessionId === exited.execution!.sessionBinding.sessionId);
+      expect(endedTarget).toMatchObject({ available: false, reason: "session_ended" });
+      const unverifiedTarget = (await call<Target[]>("agent.targets.list", { ...scope, spaceId: target.spaceId })).find(({ sessionId }) => sessionId === manualSession.id);
+      expect(unverifiedTarget).toMatchObject({ available: false, reason: "binding_unverified" });
 
       const gated = work("disabled-during-ready", target);
       const readiness = createFixtureGate();
