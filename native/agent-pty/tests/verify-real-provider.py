@@ -50,6 +50,9 @@ def staged_process(host, expected_digest, cwd):
 def run(helper, provider, mode, launch):
     hooks = runpy.run_path(str(Path(__file__).with_name("verify-linux.py")))
     wait_for, size, read_pty, stop = (hooks[name] for name in ("wait_for", "size", "read_pty", "stop_process"))
+    verify_return_shell = hooks["verify_return_shell"]
+    report_terminal_tail = hooks["report_terminal_tail"]
+    ansi = hooks["TERMINAL_ESCAPES"]
     marker = "isolated-provider-" + uuid.uuid4().hex
     protect = launch["protect"]
     assert protect == ["HUHU_PROVIDER_FIXTURE_SECRET"]
@@ -69,9 +72,10 @@ def run(helper, provider, mode, launch):
         if host == 0:
             os.execve(helper, host_argv, env)
         waited = False
+        terminal = bytearray()
+        os.set_blocking(master, False)
         try:
             size(master, 48, 140)
-            os.set_blocking(master, False)
 
             def inspect():
                 check = subprocess.run(
@@ -86,8 +90,6 @@ def run(helper, provider, mode, launch):
             receipts, _ = broker.communicate(json.dumps(request).encode(), timeout=30)
             assert broker.returncode == 0, (broker.returncode, receipts)
             assert receipts.decode().splitlines() == ["HUHU_PTY ISSUED_ONCE", "HUHU_PTY RUNNING"]
-            terminal = bytearray()
-            ansi = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
             cursor = b"\x1b[6n"
 
             def drain():
@@ -135,10 +137,8 @@ def run(helper, provider, mode, launch):
                         os.write(master, b"\x03")
                 wait_for(lambda: seen(rb"HUHU_PTY AGENT_EXIT \d+"), "provider returned to the same PTY")
 
-            os.write(master, b'printf "provider-shell:%s:%s:%s\\n" "$HUHU_PROVIDER_FIXTURE_PLAIN" "${HUHU_PROVIDER_FIXTURE_SECRET-absent}" "$PWD"\n')
-            expected = b"provider-shell:ordinary:absent:" + os.fsencode(launch["directory"]["path"])
-            wait_for(lambda: expected in drain(), "return shell has ordinary environment, approved cwd and no protected value")
-            os.write(master, b"exit 23\n")
+            verify_return_shell(master, drain, launch["directory"]["path"], "HUHU_PROVIDER_FIXTURE", "ordinary", 48, 140)
+            os.write(master, b"exit 23\r")
 
             def reap():
                 pid, state = os.waitpid(host, os.WNOHANG)
@@ -152,6 +152,10 @@ def run(helper, provider, mode, launch):
             if stage is not None:
                 assert not stage.exists()
             print(json.dumps({"provider": provider, "mode": mode, "hostPid": host, "exit": 23, "offline": True}))
+        except Exception:
+            terminal.extend(read_pty(master))
+            report_terminal_tail(terminal, marker, f"{provider}/{mode}")
+            raise
         finally:
             if not waited:
                 stop(host)

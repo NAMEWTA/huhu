@@ -8,14 +8,19 @@ import json
 import os
 from pathlib import Path
 import pty
+import re
 import shutil
 import signal
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import time
 import uuid
+
+
+TERMINAL_ESCAPES = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
 
 
 def wait_for(observe, label):
@@ -49,6 +54,36 @@ def read_pty(master):
             output.extend(data)
         except (BlockingIOError, OSError):
             return output
+
+
+def report_terminal_tail(transcript, canary, label):
+    visible = TERMINAL_ESCAPES.sub(b"", transcript).replace(canary.encode(), b"[REDACTED]")
+    tail = visible[-2048:].decode("utf-8", errors="backslashreplace")
+    print(f"{label} PTY tail (last 2048 redacted bytes): {tail!r}", file=sys.stderr)
+
+
+def verify_return_shell(master, output, cwd, environment_prefix, plain, rows, columns):
+    # The outer PTY remains raw. Query fd 0 of a command actually executed by
+    # the returned shell, which inherits the inner PTY slave.
+    command = (
+        "printf 'shell-%s:%s:%s:%s:%s:%s\\n' proof "
+        f'"${environment_prefix}_PLAIN" "${{{environment_prefix}_SECRET+x}}" '
+        '''"$(pwd -P)" "$(stty size)" '''
+        '''"$(python3 -I -S -c 'import termios; print("canonical" if termios.tcgetattr(0)[3] & termios.ICANON else "noncanonical")')"\r'''
+    )
+    os.write(master, command.encode("ascii"))
+    # The full marker is absent from the command itself, so tty echo cannot pass the check.
+    def observation():
+        transcript = output()
+        proof = re.search(rb"shell-proof:([^\r\n]*)\r?\n", transcript)
+        if not proof and b"HUHU_PTY CHILD_EXIT" in transcript:
+            raise AssertionError("outer host exited before the return shell completed its terminal probe")
+        return proof
+
+    proof = wait_for(observation, "return shell executed its terminal probe")
+    facts, _, mode = proof.group(1).rpartition(b":")
+    assert mode == b"canonical", "return shell stdin must have ICANON set"
+    assert facts == os.fsencode(f"{plain}::{cwd}:{rows} {columns}"), "return shell must preserve cwd, size and ordinary environment and omit the protected variable"
 
 
 def stop_process(pid):
@@ -116,9 +151,15 @@ def proof_for(helper, fixture, work, case):
             os.execve(helper, host_args, names)
         descendants = []
         host_waited = False
+        transcript = bytearray()
+        os.set_blocking(master, False)
+
+        def output():
+            transcript.extend(read_pty(master))
+            return transcript
+
         try:
             size(master, 24, 80)
-            os.set_blocking(master, False)
 
             def inspect():
                 try:
@@ -196,20 +237,14 @@ def proof_for(helper, fixture, work, case):
                 os.write(master, b"q")
                 wait_for(lambda: observe_file(proof, "input"), "inner PTY received input")
 
-            transcript = bytearray()
-
             def saw(value):
-                transcript.extend(read_pty(master))
-                return value in transcript
+                return value in output()
 
             if case in ("normal", "return-shell-crash"):
                 wait_for(lambda: saw(b"HUHU_PTY AGENT_EXIT 17"), "agent exit in the same terminal")
-                assert termios.tcgetattr(master)[3] & termios.ICANON
-                os.write(master, b'printf "shell-proof:%s:%s:%s:%s\\n" "$HUHU_AGENT_FIXTURE_PLAIN" "${HUHU_AGENT_FIXTURE_SECRET-absent}" "$PWD" "$(stty size)"\n')
-                expected = b"shell-proof:fixture-ordinary:absent:" + os.fsencode(work) + b":43 101"
-                wait_for(lambda: saw(expected), "return shell inherited cwd, size, and ordinary environment")
+                verify_return_shell(master, output, work, "HUHU_AGENT_FIXTURE", "fixture-ordinary", 43, 101)
                 if case == "return-shell-crash":
-                    os.write(master, b'/bin/sleep 60 & printf "%s %s\\n" "$$" "$!" > return-shell-pids\n')
+                    os.write(master, b'/bin/sleep 60 & printf "%s %s\\n" "$$" "$!" > return-shell-pids\r')
                     pid_file = work / "return-shell-pids"
 
                     def return_pids():
@@ -221,7 +256,7 @@ def proof_for(helper, fixture, work, case):
                     descendants.extend(os.pidfd_open(int(pid)) for pid in shell_pids)
                     stop_process(host)
                 else:
-                    os.write(master, b"exit 23\n")
+                    os.write(master, b"exit 23\r")
 
             _, state = wait_for(reap_host, "outer host exit")
             host_waited = True
@@ -248,6 +283,9 @@ def proof_for(helper, fixture, work, case):
                 assert sum(json.loads(line)["event"] == "ready" for line in proof.read_text().splitlines()) == 1
             finally:
                 os.close(retry_master)
+        except Exception:
+            report_terminal_tail(output(), synthetic, case)
+            raise
         finally:
             for fd in descendants:
                 try:
