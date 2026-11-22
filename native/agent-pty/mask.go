@@ -43,6 +43,10 @@ func prefixTail(data, key []byte) int {
 }
 
 func maskStream(dst io.Writer, src io.Reader, values []string) error {
+	return maskStreamWithMarker(dst, src, values, []byte("[REDACTED]"))
+}
+
+func maskStreamWithMarker(dst io.Writer, src io.Reader, values []string, marker []byte) error {
 	if len(values) == 0 {
 		_, err := io.Copy(dst, src)
 		return err
@@ -110,7 +114,7 @@ func maskStream(dst io.Writer, src io.Reader, values []string) error {
 			if err := emit(pending[:best]); err != nil {
 				return err
 			}
-			if err := emit([]byte("[REDACTED]")); err != nil {
+			if err := emit(marker); err != nil {
 				return err
 			}
 			pending = pending[best+len(found.first):]
@@ -126,7 +130,7 @@ func maskStream(dst io.Writer, src io.Reader, values []string) error {
 			}
 			if (len(pending) > 0 || len(partialRune) > 0) && len(endings) == 0 {
 				partialRune = nil
-				return emit([]byte("[REDACTED]"))
+				return emit(marker)
 			}
 			return nil
 		}

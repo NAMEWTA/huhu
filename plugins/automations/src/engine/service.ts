@@ -70,6 +70,13 @@ export type ApprovedTerminalReceipt = {
   startedAt: string;
   finishedAt: string | null;
 };
+type ApprovedTerminalPlan = {
+  intent: string;
+  target: Omit<TerminalRuleLaunch, "requestId">;
+  fingerprint: string;
+  validate(): void;
+  launch(input: TerminalRuleLaunch, signal: AbortSignal, onPending: (completion: Promise<{ id: string }>) => void): Promise<{ id: string }>;
+};
 type TerminalSession = { id: string; requestId: string; state: string; exitCode?: number | null; hasEnv?: boolean };
 type TerminalReservation = { run: Entity; input?: TerminalRuleLaunch; created: boolean };
 const terminalRequestId = (runId: string) => `autorun-${runId}`;
@@ -157,6 +164,7 @@ export class AutomationsService {
   }
 
   private readonly runAbort = new Map<string, AbortController>();
+  private readonly approvedForeground = new Map<string, Promise<ApprovedTerminalReceipt>>();
   private readonly pendingTerminalRuns = new Map<string, Promise<TerminalReservation>>();
   private readonly background = new Set<Promise<void>>();
   private reconciling: Promise<void> | undefined;
@@ -443,13 +451,21 @@ export class AutomationsService {
     });
   }
 
-  private async withRule<T>(ruleId: string, operation: () => Promise<T>): Promise<T> {
+  private claimRule(ruleId: string): () => void {
     if (this.ruleAbort.has(ruleId)) throw errors.invalidInput("这条规则正在执行");
-    this.ruleAbort.set(ruleId, new AbortController());
+    const owner = new AbortController();
+    this.ruleAbort.set(ruleId, owner);
+    return () => {
+      if (this.ruleAbort.get(ruleId) === owner) this.ruleAbort.delete(ruleId);
+    };
+  }
+
+  private async withRule<T>(ruleId: string, operation: () => Promise<T>): Promise<T> {
+    const release = this.claimRule(ruleId);
     try {
       return await operation();
     } finally {
-      this.ruleAbort.delete(ruleId);
+      release();
     }
   }
 
@@ -529,66 +545,96 @@ export class AutomationsService {
     return submittedAt;
   }
 
-  /** 由已授权的模块在规则配置事务内调用。重投只返回原意图的运行。 */
-  async invokeApprovedTerminal(
-    ruleId: string,
-    intentId: string,
-    intent: string,
-    start: (submit: (target: Omit<TerminalRuleLaunch, "requestId">, fingerprint: string, validate: () => void, launch: (input: TerminalRuleLaunch, signal: AbortSignal) => Promise<{ id: string }>) => Promise<void>) => Promise<void>,
-  ): Promise<ApprovedTerminalReceipt> {
+  /** Admit under the configuration queue; host verification and settlement can wait outside it. */
+  async invokeApprovedTerminal(ruleId: string, intentId: string, prepare: () => ApprovedTerminalPlan): Promise<ApprovedTerminalReceipt> {
     const identity = hash(["external-terminal", intentId]).slice(0, 32);
     const runId = `arun-${identity}`;
-    const receipt = (run: Entity): ApprovedTerminalReceipt => {
+    const receipt = (run: Entity, intent: string): ApprovedTerminalReceipt => {
       const data = run.data as unknown as AutomationRunFrontmatter;
       if (!this.d.terminalOwner || data.terminalOwner !== this.d.terminalOwner) throw errors.permissionDenied("外部运行必须属于当前本机 Vault");
       if (data.actionKind !== "terminal" || data.ruleId !== ruleId || data.terminalIntent !== intent || !data.activationId || !data.startedAt) throw errors.idempotencyMismatch();
       return { runId, activationId: data.activationId, state: data.state, startedAt: data.startedAt, finishedAt: data.finishedAt };
     };
-    const previous = this.d.repo.list("automation-run").find(({ id }) => id === runId);
-    if (previous) return receipt(previous);
-    const title = this.rule(ruleId).data.title;
-    return this.withRule(ruleId, async () => {
-      await start(async (target, fingerprint, validate, launch) => {
-        validate();
-        this.abort.signal.throwIfAborted();
-        const startedAt = iso(this.d.now());
+    const accepted = await this.withRuleConfiguration(async () => {
+      const plan = prepare();
+      const previous = this.d.repo.list("automation-run").find(({ id }) => id === runId);
+      if (previous) return { reply: receipt(previous, plan.intent), foreground: this.approvedForeground.get(runId) };
+      this.abort.signal.throwIfAborted();
+      plan.validate();
+      const title = this.rule(ruleId).data.title;
+      const release = this.claimRule(ruleId);
+      try {
         const activationId = `act-${identity}`;
-        const rec: ActivationRecord = { ruleId, activationId, trigger: "manual", scheduledFor: null, startedAt };
-        const run = await this.createTerminalRun(rec, { runId, terminalLaunch: { fingerprint, submittedAt: null }, terminalIntent: intent });
+        const rec: ActivationRecord = { ruleId, activationId, trigger: "manual", scheduledFor: null, startedAt: iso(this.d.now()) };
+        const run = await this.createTerminalRun(rec, { runId, terminalLaunch: { fingerprint: plan.fingerprint, submittedAt: null }, terminalIntent: plan.intent });
         this.d.publish("automation.activated", { ruleId, activationId, trigger: "manual" });
         const cancel = this.terminalSignal(ruleId, runId);
-        const signal = AbortSignal.any([cancel, this.abort.signal]);
-        let settling = false;
-        let possiblySubmitted = false;
-        try {
-          validate();
-          signal.throwIfAborted();
-          const submittedAt = await this.markTerminalSubmission(run, fingerprint);
-          possiblySubmitted = true;
-          validate();
-          signal.throwIfAborted();
-          const session = await launch({ ...target, requestId: terminalRequestId(runId) }, signal);
-          const current = this.d.repo.read("automation-run", runId);
-          await this.d.repo.patch("automation-run", runId, { sessionId: session.id }, current.version);
-          this.track(
-            this.settleTerminalRun(runId, session.id, submittedAt, title, cancel)
-              .then(() => undefined)
-              .finally(() => this.runAbort.delete(runId)),
-          );
-          settling = true;
-        } catch (error) {
-          if (!this.abort.signal.aborted) {
-            if (isHuhuError(error) && error.code === "SPACE_INVALID" && error.details?.["reason"] === "approved_directory_changed") {
-              await this.finishTerminalRun(runId, "failed", error.message);
-            } else if (possiblySubmitted) await this.terminalPending(runId, "核对原启动及终端状态。");
-            else await this.terminalPending(runId, "原手动运行已受理，启动状态待核对。");
-          }
-        } finally {
-          if (!settling) this.runAbort.delete(runId);
-        }
-      });
-      return receipt(this.d.repo.read("automation-run", runId));
+        const submittedAt = await this.markTerminalSubmission(run, plan.fingerprint);
+        const foreground = Promise.withResolvers<ApprovedTerminalReceipt>();
+        void foreground.promise.catch(() => undefined);
+        this.approvedForeground.set(runId, foreground.promise);
+        return { plan, submittedAt, title, cancel, release, foreground };
+      } catch (error) {
+        this.runAbort.delete(runId);
+        release();
+        throw error;
+      }
     });
+    if ("reply" in accepted && accepted.reply) return accepted.foreground ?? accepted.reply;
+
+    const { plan, submittedAt, title, cancel, release, foreground } = accepted;
+    const signal = AbortSignal.any([cancel, this.abort.signal]);
+    const settle = async ({ id: sessionId }: { id: string }) => {
+      if (this.abort.signal.aborted) return;
+      const current = this.d.repo.read("automation-run", runId);
+      if (current.data["finishedAt"] || current.data["terminalOwner"] !== this.d.terminalOwner || current.data["terminalIntent"] !== plan.intent || (current.data["sessionId"] && current.data["sessionId"] !== sessionId)) return;
+      if (current.data["sessionId"] !== sessionId) await this.d.repo.patch("automation-run", runId, { sessionId }, current.version);
+      await this.settleTerminalRun(runId, sessionId, submittedAt, title, cancel);
+    };
+    let completion: Promise<{ id: string }> | undefined;
+    let settling = false;
+    let submitted = false;
+    try {
+      try {
+        plan.validate();
+        signal.throwIfAborted();
+        submitted = true;
+        const session = await plan.launch({ ...plan.target, requestId: terminalRequestId(runId) }, signal, (pending) => {
+          completion = pending;
+        });
+        settling = true;
+        this.track(settle(session).finally(() => this.runAbort.delete(runId)));
+      } catch (error) {
+        if (!this.abort.signal.aborted) {
+          if (!submitted) {
+            await this.finishTerminalRun(runId, cancel.aborted ? "cancelled" : "failed", "已批准的终端命令未提交。");
+          } else if (isHuhuError(error) && error.code === "SPACE_INVALID" && error.details?.["reason"] === "approved_directory_changed") {
+            await this.finishTerminalRun(runId, "failed", error.message);
+          } else {
+            await this.terminalPending(runId, "核对原启动及终端状态。");
+          }
+        }
+        if (completion) {
+          settling = true;
+          this.track(
+            completion.then(settle).finally(async () => {
+              this.runAbort.delete(runId);
+              if (!this.abort.signal.aborted) await this.reconcileTerminals();
+            }),
+          );
+        }
+      }
+      const result = receipt(this.d.repo.read("automation-run", runId), plan.intent);
+      foreground.resolve(result);
+      return result;
+    } catch (error) {
+      foreground.reject(error);
+      throw error;
+    } finally {
+      this.approvedForeground.delete(runId);
+      release();
+      if (!settling) this.runAbort.delete(runId);
+    }
   }
 
   private async terminalInput(action: TerminalRuleAction, runId: string): Promise<TerminalRuleLaunch> {
@@ -730,7 +776,8 @@ export class AutomationsService {
     }
     if (this.abort.signal.aborted) return { state: "running" };
     const exitCode = sess.exitCode ?? null;
-    const state = killedFor === "cancel" ? "cancelled" : killedFor === "timeout" || sess.state === "failed" ? "failed" : exitCode === 0 ? "succeeded" : exitCode === null ? "unknown" : "failed";
+    const cancelled = killedFor === "cancel" || (sess.state === "failed" && signal.aborted);
+    const state = cancelled ? "cancelled" : killedFor === "timeout" || sess.state === "failed" ? "failed" : exitCode === 0 ? "succeeded" : exitCode === null ? "unknown" : "failed";
     const note = killedFor === "timeout" ? `超过 ${TERMINAL_TIMEOUT_MS / 60_000} 分钟，已结束终端。\n` : "";
     const cur = this.d.repo.read("automation-run", runId);
     await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()), exitCode, ...(sess.hasEnv && { sessionId, terminalReleasePending: true }) }, cur.version, `\n## 输出\n\n${note}${output}\n`);

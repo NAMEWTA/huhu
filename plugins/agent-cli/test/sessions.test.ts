@@ -1,8 +1,9 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, assert, describe, expect, test, vi } from "vitest";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
+import { filesystemIdentity } from "@huhu/vault";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import { AgentDetector } from "../src/engine/detect.js";
 import { resolveAgentLaunch } from "../src/engine/launch.js";
@@ -11,6 +12,8 @@ import { SessionsService } from "../src/engine/sessions.js";
 import { SpaceStore } from "../src/engine/spaces.js";
 import { InteractiveEnvironment } from "../src/engine/interactive-environment.js";
 import type { AgentEnvironmentProfile } from "../src/engine/launch-environment.js";
+import type { BrokerOutcome, NativePtyBroker } from "../src/engine/native-pty.js";
+import type { SessionRecord } from "../src/engine/sessions.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,7 +25,7 @@ const tmp = () => {
   return d;
 };
 
-function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean } = {}) {
+function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean; snapshot?: () => "unavailable" | "empty" | "ambiguous" | "current"; coreId?: () => string; output?: string } = {}) {
   const terminals: { address: string; labels: Record<string, string>; argv?: string[]; cwd: string; pid: number; created_ms: number; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
@@ -31,7 +34,7 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
   const client = {
     call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string; env?: Record<string, string> }) => {
       calls.push(method);
-      if (method === "hello") return { core: { id: "fake-core" }, generation: 1 };
+      if (method === "hello") return { core: { id: opts.coreId?.() ?? "fake-core" }, generation: 1 };
       if (method === "terminal.send") {
         if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } });
         if (opts.failSendTransport) throw new Error("timeout");
@@ -57,7 +60,14 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
         if (opts.failRun === "throw-after-create") throw new Error("响应丢失");
         return t;
       }
-      if (method === "terminal.list") return { terminals: terminals.filter((t) => Object.entries(params.labels ?? {}).every(([k, v]) => t.labels[k] === v)) };
+      if (method === "terminal.list") {
+        const mode = opts.snapshot?.();
+        if (mode === "unavailable") throw new Error("Core snapshot unavailable");
+        const matches = mode === "empty" ? [] : terminals.filter((t) => Object.entries(params.labels ?? {}).every(([k, v]) => t.labels[k] === v));
+        if (mode === "ambiguous" && matches[0]) matches.push({ ...matches[0], address: "ambiguity" });
+        return { terminals: matches };
+      }
+      if (method === "terminal.read") return { text: opts.output ?? "" };
       return {};
     },
   } as unknown as HerdrClient;
@@ -80,7 +90,7 @@ function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof S
   chmodSync(path.join(bin, "claude"), 0o755);
   const spaces = new SpaceStore(path.join(root, "spaces"), "m1");
   const space = spaces.save({ name: "S", root: work });
-  const svc = new SessionsService({
+  const deps: ConstructorParameters<typeof SessionsService>[0] = {
     dir: path.join(root, "sessions"),
     vaultId: "vault-x",
     spaces,
@@ -91,8 +101,9 @@ function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof S
     },
     now: () => new Date("2026-11-11T00:00:00Z"),
     ...over,
-  });
-  return { svc, space, work };
+  };
+  const reopen = (overrides: Partial<ConstructorParameters<typeof SessionsService>[0]> = {}) => new SessionsService({ ...deps, ...overrides });
+  return { svc: reopen(), reopen, space, work, sessionsDir: deps.dir };
 }
 const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({
   spaceId: space.id,
@@ -129,9 +140,9 @@ function ordinaryProfile(provider: AgentEnvironmentProfile["provider"]) {
 }
 
 test("普通 Agent 配置复用 resolver 和原 Core 启动，保留空字符串与单次请求归属", async () => {
-  const { client, runs, runEnvironments } = fakeClient();
+  const { client, runs, runEnvironments } = fakeClient({ output: "ordinary portable-value" });
   const { profile, environment } = ordinaryProfile("claude");
-  const { svc, space, work } = setup(client, {
+  const { svc, reopen, space, work } = setup(client, {
     interactiveEnvironment: environment,
     resolve: async () => ({ command: path.join(work, "agent"), argv: ["argument with spaces"], warnings: [], env: { SAMPLE: "original", CLEARED: "original", BASE: "kept" } }),
   });
@@ -142,6 +153,9 @@ test("普通 Agent 配置复用 resolver 和原 Core 启动，保留空字符串
   expect(JSON.stringify(preview)).not.toContain("portable-value");
   const approved = { ...input, environment: preview.environment };
   const result = await svc.launch(approved);
+  expect(result.hasEnv).toBeUndefined();
+  expect(await svc.output(result.id)).toEqual({ text: "ordinary portable-value", complete: true });
+  expect(await reopen().output(result.id)).toEqual({ text: "ordinary portable-value", complete: true });
   expect(runs).toEqual([{ cwd: work, argv: preview.argv }]);
   expect(runEnvironments).toEqual([{ BASE: "kept", SAMPLE: "portable-value", CLEARED: "" }]);
   profile.revision = "later";
@@ -155,7 +169,7 @@ test("普通终端配置在连接 Core 后复核版本，并使用 Core 默认 s
   const { client, runs, runEnvironments } = fakeClient();
   const { profile, environment } = ordinaryProfile("shell");
   let changeOnConnect = true;
-  const { svc, space, work } = setup(client, {
+  const { svc, reopen, space, work } = setup(client, {
     interactiveEnvironment: environment,
     core: async () => {
       if (changeOnConnect) profile.revision = "changed-after-preview";
@@ -167,12 +181,199 @@ test("普通终端配置在连接 Core 后复核版本，并使用 Core 默认 s
   expect(preview.argv).toEqual([]);
   await expect(svc.launch({ ...input, environment: preview.environment })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   expect(runs).toHaveLength(0);
+  const [rejected] = reopen().list(space.id);
+  expect(rejected).toMatchObject({ state: "failed", terminalId: null, requestId: input.requestId });
+  expect(rejected?.launchReceipt?.attempt).toBeUndefined();
 
   changeOnConnect = false;
   const revised = await svc.previewEnvironment(input, { id: profile.id, revision: profile.revision });
   await svc.launch({ ...input, requestId: "reapproved-shell", environment: revised.environment });
   expect(runs).toEqual([{ cwd: work }]);
   expect(runEnvironments).toEqual([{ SAMPLE: "portable-value", CLEARED: "" }]);
+});
+
+function nativeLaunchFixture() {
+  let view: "unavailable" | "current" | "ambiguous" | "empty" = "unavailable";
+  let instance = "original";
+  const core = fakeClient({ failRun: "throw-after-create", snapshot: () => view, coreId: () => instance });
+  const expiry = new AbortController();
+  const cancel = new AbortController();
+  const lifetime = new AbortController();
+  const helper = path.join(tmp(), "agent-pty");
+  writeFileSync(helper, "fixture helper image");
+  const interactive = new InteractiveEnvironment(helper, {
+    available: false,
+    async profile() {
+      throw new Error("unexpected profile");
+    },
+    async use() {
+      throw new Error("unexpected lease");
+    },
+  });
+  const inspectHost = vi.fn(async (pid: number) => ({ pid, created: "123", image: { path: helper, sha256: "fixture" } }));
+  const revoke = vi.fn();
+  const start = vi.fn<NativePtyBroker["start"]>();
+  const { svc, reopen, space, work, sessionsDir } = setup(core.client, {
+    signal: lifetime.signal,
+    interactiveEnvironment: interactive,
+    nativeBroker: (_helper, signal) => ({
+      waiting: AbortSignal.any([expiry.signal, ...(signal ? [signal] : [])]),
+      hostArgv: async () => [helper, "host", "original-broker"],
+      inspectHost,
+      start,
+      revoke,
+    }),
+  });
+  const cwd = realpathSync.native(work);
+  const stats = statSync(cwd, { bigint: true });
+  const identity = filesystemIdentity(stats);
+  assert(identity);
+  const name = "HUHU_RULE_SECRET_FIXTURE";
+  const marker = "synthesized-value-must-stay-in-lease";
+  const command = "printf fixture";
+  const executable = { path: "/bin/sh", identity: "1:2", birthtimeNs: "3", ctimeNs: "4", mtimeNs: "5", size: "6", sha256: "a".repeat(64) };
+  const use = vi.fn(async (consumer: (values: ReadonlyMap<string, string>) => Promise<BrokerOutcome>) => consumer(new Map([[name, marker]])));
+  const onPending = vi.fn<(completion: Promise<SessionRecord>) => void>();
+  const input: Parameters<SessionsService["launchApprovedShell"]>[0] = {
+    ...req(space),
+    provider: "shell",
+    shell: "sh",
+    command,
+    approvedDirectory: { path: cwd, identity, birthtimeNs: String(stats.birthtimeNs) },
+    approvedShell: { executable, argv: [executable.path, "-c", command] },
+    names: [name],
+    use,
+    onPending,
+  };
+  return {
+    ...core,
+    svc,
+    reopen,
+    sessionsDir,
+    expiry,
+    cancel,
+    lifetime,
+    input,
+    use,
+    onPending,
+    start,
+    inspectHost,
+    revoke,
+    marker,
+    setView: (next: typeof view) => {
+      view = next;
+    },
+    replaceCore: () => {
+      instance = "replacement";
+    },
+    launch: () => svc.launchApprovedShell(input, cancel.signal),
+    pending: () => onPending.mock.calls[0]![0],
+  };
+}
+
+const linuxNativeOnly = process.platform !== "linux" || process.arch !== "x64";
+
+test.skipIf(linuxNativeOnly)("原生短断恢复只向原 host 写一帧，并在重开后核对已启动进程", async () => {
+  const f = nativeLaunchFixture();
+  await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN", details: { reason: "native_host_unverified" } });
+  const [waiting] = f.svc.list();
+  expect(waiting?.launchReceipt?.attempt).toMatchObject({ nativeStatus: "waiting-host" });
+  expect(f.use).not.toHaveBeenCalled();
+  await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+  f.start.mockImplementation(async (host, _plan, _values, consumed) => {
+    expect(f.svc.get(waiting!.id).launchReceipt?.attempt).toMatchObject({ nativeStatus: "delivering", binding: { pid: host.pid } });
+    consumed();
+    expect(f.svc.get(waiting!.id).launchReceipt?.attempt?.nativeConsumed).toBe(true);
+    return "started";
+  });
+  f.setView("current");
+  const running = await f.pending();
+  const [terminal] = f.terminals;
+  expect(running).toMatchObject({ id: waiting!.id, terminalId: terminal!.address, launchReceipt: { attempt: { id: waiting!.launchReceipt!.attempt!.id, nativeStatus: "started", nativeConsumed: true } } });
+  expect(JSON.stringify(running)).not.toContain(f.marker);
+  expect(f.runs).toHaveLength(1);
+  expect(f.use).toHaveBeenCalledTimes(1);
+  expect(f.start).toHaveBeenCalledTimes(1);
+  expect(f.revoke).toHaveBeenCalledTimes(1);
+  f.finish(terminal!.address, 0);
+  const reopened = f.reopen();
+  await expect(reopened.recover(running.id, new AbortController().signal)).resolves.toMatchObject({ id: running.id, state: "exited", exitCode: 0 });
+});
+
+test.skipIf(linuxNativeOnly).each(["delivering", "consumed", "legacy"] as const)("原生缺启动回执时标为 unknown，最后证据=%s", async (evidence) => {
+  const f = nativeLaunchFixture();
+  f.setView("current");
+  f.start.mockImplementation(async (_host, _launch, _values, reportConsumed) => {
+    expect(f.svc.list()[0]?.launchReceipt?.attempt?.nativeStatus).toBe("delivering");
+    if (evidence === "consumed") reportConsumed();
+    return "unknown";
+  });
+  await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN", details: { reason: "native_start_unknown" } });
+  const [waiting] = f.svc.list();
+  const attempt = waiting!.launchReceipt!.attempt!;
+  expect(attempt.nativeConsumed).toBe(evidence === "consumed" ? true : undefined);
+  if (evidence === "legacy") {
+    attempt.nativeStatus = "pending";
+    writeFileSync(path.join(f.sessionsDir, waiting!.id + ".json"), JSON.stringify(waiting));
+  }
+  f.finish(f.terminals[0]!.address, 0);
+  const reopened = f.reopen();
+  await reopened.reconcile();
+  await expect(reopened.launchApprovedShell(f.input)).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+  expect(reopened.get(waiting!.id)).toMatchObject({ state: "unknown", terminalId: null, launchReceipt: { attempt: { id: attempt.id, nativeStatus: evidence === "legacy" ? "pending" : "delivering" } } });
+  expect(f.start).toHaveBeenCalledTimes(1);
+  expect(f.runs).toHaveLength(1);
+});
+
+test.skipIf(linuxNativeOnly)("原生宿主已核验但领取仍在等待时，过期后不接受迟到的交付", async () => {
+  const f = nativeLaunchFixture();
+  const taking = Promise.withResolvers<void>();
+  const available = Promise.withResolvers<void>();
+  f.use.mockImplementationOnce(async (consumer) => {
+    taking.resolve();
+    await available.promise;
+    return consumer(new Map([[f.input.names[0]!, f.marker]]));
+  });
+  await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+  f.setView("current");
+  await taking.promise;
+  f.expiry.abort();
+  expect(await f.pending()).toMatchObject({ state: "failed", launchReceipt: { attempt: { nativeStatus: "failed", nativeCleanup: "pending" } } });
+  available.resolve();
+  await expect(f.use.mock.results[0]?.value).rejects.toThrow();
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.runs).toHaveLength(1);
+});
+
+test.skipIf(linuxNativeOnly).each(["expiry", "cancel", "ambiguous", "generation", "shutdown"] as const)("原生等待阶段 %s 后保留失败尝试且零私有交付", async (event) => {
+  const f = nativeLaunchFixture();
+  f.setView("empty");
+  await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
+  const [waiting] = f.svc.list();
+  const id = waiting!.id;
+  const attemptId = waiting!.launchReceipt!.attempt!.id;
+  expect(f.inspectHost).not.toHaveBeenCalled();
+  if (event === "expiry") f.expiry.abort();
+  if (event === "cancel") f.cancel.abort();
+  if (event === "ambiguous") f.setView("ambiguous");
+  if (event === "generation") {
+    f.replaceCore();
+    f.setView("current");
+  }
+  if (event === "shutdown") {
+    f.lifetime.abort();
+    await expect(f.pending()).rejects.toThrow();
+    expect(f.svc.get(id).launchReceipt?.attempt?.nativeStatus).toBe("waiting-host");
+    const reopened = f.reopen({ signal: new AbortController().signal });
+    await reopened.reconcile();
+    expect(reopened.get(id)).toMatchObject({ state: "failed", launchReceipt: { attempt: { id: attemptId, nativeStatus: "failed", nativeCleanup: "pending" } } });
+  } else {
+    expect(await f.pending()).toMatchObject({ id, state: "failed", launchReceipt: { attempt: { id: attemptId, nativeStatus: "failed", nativeCleanup: "pending" } } });
+  }
+  expect(f.inspectHost).not.toHaveBeenCalled();
+  expect(f.use).not.toHaveBeenCalled();
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.runs).toHaveLength(1);
 });
 
 describe("HerdrCore.peek（不 mock：真实端点检查）", () => {

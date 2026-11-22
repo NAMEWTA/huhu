@@ -152,7 +152,11 @@ func runLinuxHost(approval *linuxApproval) (int, error) {
 	redactions := append([]string(nil), approval.protected...)
 	go func() {
 		defer clear(redactions)
-		_ = maskStream(os.Stdout, linuxMaster{master}, redactions)
+		if approval.launch.ApprovedShell {
+			_ = maskStreamWithMarker(os.Stdout, linuxMaster{master}, redactions, []byte("***"))
+		} else {
+			_ = maskStream(os.Stdout, linuxMaster{master}, redactions)
+		}
 		close(outputDone)
 	}()
 	inputDone := make(chan struct{})

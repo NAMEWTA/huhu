@@ -32,8 +32,10 @@ export interface LaunchAttempt {
   addressHint?: string;
   binding?: ProcessBinding;
   issue?: string;
-  nativeStatus?: "pending" | "started" | "failed";
+  // Legacy pending records predate the write-ahead delivery boundary.
+  nativeStatus?: "pending" | "waiting-host" | "delivering" | "started" | "failed";
   nativeConsumed?: true;
+  nativeCleanup?: "pending" | "complete";
 }
 
 export interface LaunchReceipt {

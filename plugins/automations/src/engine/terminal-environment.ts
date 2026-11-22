@@ -177,14 +177,28 @@ type Approval = z.infer<typeof approval>;
 type ProtectedTerminalLaunch = TerminalRuleLaunch & { env: Record<string, string>; approvedDirectory: ProtectedDirectory };
 type ProtectedTerminal = {
   launch(request: ProtectedTerminalLaunch, signal: AbortSignal): Promise<{ id: string }>;
-  launchApprovedShell?(request: ProtectedTerminalLaunch & { approvedShell: ApprovedLinuxShell }, signal: AbortSignal): Promise<{ id: string }>;
+  launchApprovedShell?(
+    request: TerminalRuleLaunch & {
+      approvedDirectory: ProtectedDirectory;
+      approvedShell: ApprovedLinuxShell;
+      names: readonly string[];
+      use<R>(consumer: (values: ReadonlyMap<string, string>) => Promise<R>, waiting: AbortSignal): Promise<R>;
+      onPending(completion: Promise<{ id: string }>): void;
+    },
+    signal: AbortSignal,
+  ): Promise<{ id: string }>;
 };
 const unavailableLinuxLaunch = "本机受保护启动服务尚不支持核验 Linux sh 的执行映像";
 const hash = (data: unknown) => createHash("sha256").update(JSON.stringify(data)).digest("hex");
 const sameNames = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((value) => right.includes(value));
 const targetOf = (ruleId: string, action: Pick<TerminalAction, "spaceId" | "shell" | "command">, spaceId: string, spaceRevision: number) => hash([ruleId, action.spaceId, action.shell, action.command, spaceId, spaceRevision]);
 
-export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "invokeApprovedTerminal">, host?: AutomationCredentialHost) {
+export function registerTerminalEnvironments(
+  api: HuhuApi,
+  rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "invokeApprovedTerminal">,
+  host?: AutomationCredentialHost,
+  principalCurrent?: (caller: "cli" | "mcp" | "http", subject: string) => boolean,
+) {
   const store = host && new ModuleCredentials({ ...host, pluginId: "automations", definition: Definition, targets: (definition) => Object.fromEntries(definition.names.map((name) => [name, definition.fingerprint])) });
   const local = host && new VaultFiles(host.localRoot, undefined, host.vault.readOnly);
   const receipts = host && local && automationReceipts(local.abs(`automations-terminal-approvals/${host.localVaultInstanceId}/receipts.ndjson`));
@@ -481,39 +495,73 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   api.defineCapability(bindCapability(terminalEnvironmentDescriptors.externalSave, (c, input) => rules.withRuleConfiguration(() => saveExternal(c, terminalEnvironmentDescriptors.externalSave.name, input))));
   api.defineCapability(
     bindCapability(terminalEnvironmentDescriptors.externalRun, (c, { ruleId, expectedRuleVersion, expectedRevision, intentId }) =>
-      rules.withRuleConfiguration(async () => {
+      rules.invokeApprovedTerminal(ruleId, intentId, () => {
         const capability = terminalEnvironmentDescriptors.externalRun.name;
         api.vault.files.assertWritable();
-        const { signal, caller } = c;
+        c.signal.throwIfAborted();
+        const owner = assertExternal(c, capability);
+        const { caller, subject } = c;
         const { grant, current } = authorizeExternal(c, capability, ruleId);
         const intent = hash([caller, ruleId, grant.id, expectedRuleVersion, expectedRevision]);
-        return rules.invokeApprovedTerminal(ruleId, intentId, intent, async (submit) => {
-          signal.throwIfAborted();
-          if (!store) throw errors.permissionDenied("本机规则批准不可用");
-          const validate = () => {
-            const latest = authorizeExternal(c, capability, ruleId);
-            if (latest.grant.id !== grant.id || latest.current.target !== current.target || latest.current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(latest.current.ruleVersion);
-            if (!latest.config || latest.config.revision !== expectedRevision || latest.config.definition.fingerprint !== current.environmentTarget) {
-              throw errors.versionConflict(latest.config?.revision ?? "");
-            }
-          };
-          validate();
-          const agent = protectedTerminal();
-          if (!agent) throw errors.permissionDenied("受保护启动服务不可用");
-          await store
-            .use(ruleId, grant.names, async (definition, values, revision) => {
-              signal.throwIfAborted();
-              if (revision !== expectedRevision || !sameNames(definition.names, grant.names) || definition.fingerprint !== current.environmentTarget) throw errors.permissionDenied("已批准的规则配置不可用");
-              const { command, shell, space } = current;
-              await submit({ command, shell, provider: "shell", spaceId: space.id, spaceRevision: space.revision }, current.target, validate, (input, launchSignal) => {
-                const request = { ...input, env: Object.fromEntries(values), approvedDirectory: current.directory };
-                if (!current.approvedShell) return agent.launch(request, launchSignal);
-                if (typeof agent.launchApprovedShell !== "function") throw errors.permissionDenied(unavailableLinuxLaunch);
-                return agent.launchApprovedShell({ ...request, approvedShell: current.approvedShell }, launchSignal);
-              });
-            })
-            .catch(translate);
-        });
+        if (!store) throw errors.permissionDenied("本机规则批准不可用");
+        const validate = () => {
+          c.assertCapabilityCurrent?.();
+          if (automationToolOwner(c) !== owner || !subject || (caller !== "cli" && caller !== "mcp" && caller !== "http") || (principalCurrent && !principalCurrent(caller, subject))) {
+            throw errors.permissionDenied("原终端规则调用者已失效");
+          }
+          const latest = authorizeExternal(c, capability, ruleId);
+          if (latest.grant.id !== grant.id || latest.current.target !== current.target || latest.current.ruleVersion !== expectedRuleVersion) throw errors.versionConflict(latest.current.ruleVersion);
+          if (!latest.config || latest.config.revision !== expectedRevision || latest.config.definition.fingerprint !== current.environmentTarget) {
+            throw errors.versionConflict(latest.config?.revision ?? "");
+          }
+          const configured = new Set(latest.config.configured);
+          if (grant.names.some((purpose) => !configured.has(purpose))) throw errors.invalidInput("请先配置本机已批准的保护变量");
+        };
+        const use = <R>(signal: AbortSignal, consumer: (values: ReadonlyMap<string, string>) => Promise<R>): Promise<R> =>
+          rules.withRuleConfiguration(() => {
+            signal.throwIfAborted();
+            validate();
+            return store
+              .use(ruleId, grant.names, (definition, values, revision) => {
+                signal.throwIfAborted();
+                validate();
+                if (revision !== expectedRevision || !sameNames(definition.names, grant.names) || definition.fingerprint !== current.environmentTarget) {
+                  throw errors.permissionDenied("已批准的规则配置不可用");
+                }
+                return consumer(values);
+              })
+              .catch(translate);
+          });
+        const { command, shell, space, approvedShell, directory } = current;
+        return {
+          intent,
+          target: { command, shell, provider: "shell", spaceId: space.id, spaceRevision: space.revision },
+          fingerprint: current.target,
+          validate,
+          launch: (input, launchSignal, onPending) => {
+            const signal = AbortSignal.any([c.signal, launchSignal]);
+            const agent = protectedTerminal();
+            if (!agent) throw errors.permissionDenied("受保护启动服务不可用");
+            if (!approvedShell) return use(signal, (values) => agent.launch({ ...input, env: Object.fromEntries(values), approvedDirectory: directory }, signal));
+            if (!agent.launchApprovedShell) throw errors.permissionDenied(unavailableLinuxLaunch);
+            let taken = false;
+            return agent.launchApprovedShell(
+              {
+                ...input,
+                approvedDirectory: directory,
+                approvedShell,
+                names: grant.names,
+                onPending,
+                use: (consumer, waiting) => {
+                  if (taken) throw errors.permissionDenied("本次启动的凭据领取已结束");
+                  taken = true;
+                  return use(AbortSignal.any([signal, waiting]), consumer);
+                },
+              },
+              signal,
+            );
+          },
+        };
       }),
     ),
   );

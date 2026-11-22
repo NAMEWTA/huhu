@@ -1,7 +1,7 @@
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { assert, expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { SessionsService, type SessionRecord } from "../../../plugins/agent-cli/src/engine/sessions.js";
 
 const prefix = "automations.terminal.external";
 const approvals = "automations.terminal.approval";
@@ -33,6 +34,8 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
     const userData = path.join(fixture, "app");
     const archive = path.join(fixture, "vault.zip");
     const restored = path.join(fixture, "restored");
+    const counter = path.join(fixture, "execution-count");
+    const count = () => readFileSync(counter, "utf8").split("\n").filter(Boolean).length;
     const marker = `synthetic-approval-${randomUUID()}`;
     const rotatedMarker = `synthetic-rotation-${randomUUID()}`;
     const variable = "HUHU_RULE_SECRET_FIXTURE";
@@ -41,10 +44,23 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
     const moduleCredentialProtection = linux ? new TestProtection(keys) : undefined;
     const starts: unknown[] = [];
     let omitCoreAck = true;
+    let loseStartedReply = false;
+    let lostStartedReply = false;
     let e: RunningEngine | undefined;
     let copy: RunningEngine | undefined;
     let cleanup: (() => Promise<void>) | undefined;
     const original = HerdrClient.prototype.call;
+    const launchApprovedShell = SessionsService.prototype.launchApprovedShell;
+    const agentProbe = vi.spyOn(SessionsService.prototype, "launchApprovedShell").mockImplementation(async function (this: SessionsService, input, signal) {
+      const session = await launchApprovedShell.call(this, input, signal);
+      if (loseStartedReply) {
+        loseStartedReply = false;
+        expect(session.launchReceipt?.attempt).toMatchObject({ nativeStatus: "started", nativeConsumed: true, binding: { address: session.terminalId } });
+        lostStartedReply = true;
+        throw new Error("丢失 Agent 已保存内层启动回执后的回复");
+      }
+      return session;
+    });
     const probe = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, input?: unknown) {
       if (method === "terminal.list" && starts.length === 1 && omitCoreAck) throw new Error("暂时无法核对原终端");
       const out = await original.call(this, method, input);
@@ -101,9 +117,10 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       mkdirSync(vault);
       mkdirSync(userData);
       if (linux) mkdirSync(keys);
+      if (linux) writeFileSync(counter, "", { mode: 0o600 });
       e = await boot({ vaultPath: vault, create: true, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
       const command = linux
-        ? 'test -n "$HUHU_RULE_SECRET_FIXTURE" || exit 7; printf "%s\\n" "$HUHU_RULE_SECRET_FIXTURE" approved-fixture-ok; pwd -P'
+        ? `test -n "$HUHU_RULE_SECRET_FIXTURE" || exit 7; printf 'executed\\n' >> '${counter.replaceAll("'", `'"'"'`)}' || exit 8; printf '%s\\n' "$HUHU_RULE_SECRET_FIXTURE" approved-fixture-ok; pwd -P`
         : "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'; [Console]::WriteLine((Get-Location).Path)";
       const create = (title: string) =>
         desktop<{ id: string; version: string }>("automations.create", {
@@ -177,6 +194,19 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       const first = repeat.data as { runId: string; activationId: string; state: string };
       expect(first.state).toBe("unknown");
       expect(starts).toHaveLength(1);
+      const originalSession = () => {
+        const dir = path.join(e!.vault.stateDir, "agent-cli", "sessions");
+        return readdirSync(dir)
+          .filter((file) => file.endsWith(".json"))
+          .map((file) => JSON.parse(readFileSync(path.join(dir, file), "utf8")) as SessionRecord)
+          .find((row) => row.requestId === `autorun-${first.runId}`);
+      };
+      const waiting = linux ? originalSession() : undefined;
+      if (linux) {
+        expect(count()).toBe(0);
+        expect(waiting?.launchReceipt?.attempt).toMatchObject({ nativeStatus: "waiting-host" });
+        expect(waiting?.launchReceipt?.attempt?.nativeConsumed).toBeUndefined();
+      }
       expect(await cli("run", { ...intent, expectedRevision: randomUUID() })).toMatchObject(denied("IDEMPOTENCY_MISMATCH"));
       expect(await tool("run", intent)).toMatchObject({ ok: false, data: { code: "IDEMPOTENCY_MISMATCH" } });
       omitCoreAck = false;
@@ -188,14 +218,28 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       expect(details.body).not.toContain(marker);
       expect(JSON.stringify(starts)).not.toContain(marker);
       if (linux) expect(JSON.stringify(starts)).not.toContain(command);
+      if (linux) {
+        expect(count()).toBe(1);
+        expect(starts).toHaveLength(1);
+        expect(originalSession()).toMatchObject({ id: waiting!.id, state: "exited", launchReceipt: { attempt: { id: waiting!.launchReceipt!.attempt!.id, nativeStatus: "started", nativeConsumed: true } } });
+        expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } });
+        await e.shutdown();
+        e = await boot({ vaultPath: vault, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
+        session = await openMcpSession(`http://127.0.0.1:${e.port}/mcp`, e.mcpToken);
+        expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } });
+        expect(count()).toBe(1);
+      }
 
       const rotated = await tool("save", { ...expected, expectedRevision: revision, changes: [{ name: variable, action: "replace", value: rotatedMarker }] });
       expect(rotated).toMatchObject({ ok: true, data: { states: { [variable]: "configured" } } });
       const mcpIntent = { ...intent, expectedRevision: rotated.data.revision as string, intentId: randomUUID() };
+      loseStartedReply = linux;
       const mcpRun = await tool("run", mcpIntent);
       expect(mcpRun.ok).toBe(true);
+      if (linux) expect({ lostStartedReply, state: mcpRun.data.state }).toEqual({ lostStartedReply: true, state: "unknown" });
       await vi.waitFor(async () => expect(await tool("run", mcpIntent)).toMatchObject({ ok: true, data: { runId: mcpRun.data.runId, state: "succeeded" } }), { timeout: 8_000, interval: 300 });
       expect(starts).toHaveLength(2);
+      if (linux) expect(count()).toBe(2);
       expect(JSON.stringify(starts)).not.toContain(rotatedMarker);
       await setAccess("run", false);
       expect(await cli("run", intent)).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
@@ -252,6 +296,7 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       } finally {
         await Promise.allSettled([e?.shutdown(), copy?.shutdown()]);
         probe.mockRestore();
+        agentProbe.mockRestore();
         vi.unstubAllEnvs();
         rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
       }

@@ -279,7 +279,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     now,
     zone,
   });
-  const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost);
+  const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost, opts.taskScanPrincipalCurrent);
 
   const publishActivation = ({ ruleId, activationId, trigger, finishedAt }: ActivationRecord) => {
     if (finishedAt) api.events.publish("entity.changed", { kind: "automation-activation", id: activationId, op: "updated" });

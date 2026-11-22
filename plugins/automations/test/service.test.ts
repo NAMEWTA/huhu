@@ -143,6 +143,13 @@ function terminalLaunches(calls: Call[]) {
   return calls.filter(({ capability }) => capability === "agent.sessions.launch");
 }
 
+type ApprovedLaunchFixture = {
+  requestId: string;
+  approvedShell: ApprovedLinuxShell;
+  use<T>(consumer: (values: ReadonlyMap<string, string>) => Promise<T>, signal: AbortSignal): Promise<T>;
+  onPending(completion: Promise<{ id: string }>): void;
+};
+
 test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、版本、工作目录和单次启动", async () => {
   const { svc, root, d, sessions, calls } = setup();
   const localRoot = path.join(d, "local");
@@ -156,7 +163,11 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
   const secret = "synthetic-terminal-environment";
   const bindings = new Map<string, CapabilityDefinition>();
   const launch = vi.fn();
-  const launchApprovedShell = vi.fn(async (input: { requestId: string; approvedShell: ApprovedLinuxShell }) => {
+  let supplied = false;
+  const launchApprovedShell = vi.fn(async (input: ApprovedLaunchFixture, signal: AbortSignal) => {
+    await input.use(async (values) => {
+      supplied = values.get(variable) === secret;
+    }, signal);
     const id = `approved-${sessions.size + 1}`;
     sessions.set(id, { id, state: "exited", exitCode: 0, requestId: input.requestId, hasEnv: true });
     return { id };
@@ -211,7 +222,11 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     const saved = await invoke<Status>("external.save", { ...base, changes: [{ name: variable, action: "replace", value: secret }] }, "cli");
     expect(saved).toMatchObject({ states: { [variable]: "configured" } });
     expect(JSON.stringify(saved)).not.toContain(secret);
-    const intent = { ...base, expectedRevision: saved.revision, intentId: randomUUID() };
+    const cleared = await invoke<Status>("external.save", { ...base, expectedRevision: saved.revision, changes: [{ name: variable, action: "clear" }] }, "cli");
+    await expect(invoke("external.run", { ...base, expectedRevision: cleared.revision, intentId: randomUUID() }, "cli")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(launchApprovedShell).not.toHaveBeenCalled();
+    const restored = await invoke<Status>("external.save", { ...base, expectedRevision: cleared.revision, changes: [{ name: variable, action: "replace", value: secret }] }, "cli");
+    const intent = { ...base, expectedRevision: restored.revision, intentId: randomUUID() };
     const execute = (input: unknown = intent, caller = "cli") => invoke<{ runId: string; activationId: string }>("external.run", input, caller);
     await expect(execute({ ...intent, expectedRuleVersion: "obsolete" })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
     expect(launchApprovedShell).not.toHaveBeenCalled();
@@ -219,7 +234,8 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     expect(second).toMatchObject({ runId: first.runId, activationId: first.activationId });
     expect(launchApprovedShell).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        env: { [variable]: secret },
+        names: [variable],
+        use: expect.any(Function),
         approvedDirectory: expect.objectContaining({ path: realpathSync.native(root), identity: expect.any(String) }),
         approvedShell: {
           executable: expect.objectContaining({ path: realpathSync.native("/bin/sh"), identity: expect.any(String), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
@@ -228,6 +244,8 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
       }),
       expect.any(AbortSignal),
     );
+    expect(supplied).toBe(true);
+    expect(launchApprovedShell.mock.calls[0]?.[0]).not.toHaveProperty("env");
     expect(launch).not.toHaveBeenCalled();
     await svc.idle();
     const run = svc.runDetail(first.runId);
@@ -263,6 +281,12 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     }
     expect(await review()).toMatchObject({ approvalId: null, target: before.target });
     await expect(execute({ ...intent, intentId: randomUUID() }, "mcp")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const restoredApproval = await approve();
+    launcherAvailable = false;
+    await expect(approve()).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(await invoke("approval.revoke", { ...id, expectedApprovalId: restoredApproval.approvalId })).toEqual({ revoked: true });
+    expect(await review()).toMatchObject({ approvalId: null, unavailableReason: expect.stringContaining("核验 Linux sh") });
+    launcherAvailable = true;
     await approve();
     spaceRevision++;
     await expect(execute({ ...intent, intentId: randomUUID() })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
@@ -271,6 +295,7 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     await expect(execute({ ...intent, intentId: randomUUID() })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     expect(launchApprovedShell).toHaveBeenCalledTimes(1);
 
+    launcherAvailable = false;
     const ordinary = await svc.create({ title: "普通终端", trigger: every5, action: terminalAction });
     await expect(invoke("approval.review", { ruleId: ordinary.id })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await svc.activateNonAgent(ordinary.id, "manual");
@@ -282,6 +307,103 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     expect(terminalLaunches(calls)[1]?.input).toMatchObject({ shell: "sh", command: terminalAction.command });
   } finally {
     svc.abortAll();
+    await svc.idle();
+    await vault.close();
+  }
+});
+
+test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "principal", "exposure", "cancel"] as const)("Linux 原运行等待宿主时 %s", async (event) => {
+  const { svc, root, d, sessions } = setup();
+  const keys = path.join(d, "keys");
+  const localRoot = path.join(d, "local");
+  mkdirSync(keys);
+  mkdirSync(localRoot);
+  const vault = await Vault.open(root, { create: true });
+  const variable = "HUHU_RULE_SECRET_FIXTURE";
+  const marker = "synthetic-delayed-rule-value";
+  const protection = new TestProtection(keys);
+  const read = vi.spyOn(protection, "read");
+  const bindings = new Map<string, CapabilityDefinition>();
+  const ready = Promise.withResolvers<void>();
+  const consume = vi.fn(async (values: ReadonlyMap<string, string>) => {
+    expect(values.get(variable)).toBe(marker);
+  });
+  let principal = true;
+  const launch = vi.fn(async (input: ApprovedLaunchFixture, signal: AbortSignal) => {
+    const id = "same-original-session";
+    const completion = ready.promise.then(async () => {
+      const result = await input.use(consume, signal).then(
+        () => ({ state: "exited", exitCode: 0 }),
+        () => ({ state: "failed", exitCode: null }),
+      );
+      sessions.set(id, { id, requestId: input.requestId, hasEnv: true, ...result });
+      return { id };
+    });
+    input.onPending(completion);
+    throw new HuhuError("RUN_UNKNOWN", "fixture cannot yet inspect host");
+  });
+  const api = {
+    vault,
+    defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry),
+    service: (name: string) => {
+      if (name === "agentCli") return { spaces: { list: () => [{ id: "space-1", revision: 1, root }] } };
+      if (name === "agentProtectedTerminal") return { launchApprovedShell: launch };
+    },
+  } as unknown as HuhuApi;
+  registerTerminalEnvironments(api, svc, { vault, localRoot, localVaultInstanceId: "delayed-approved", protection }, (_caller, subject) => principal && subject === "fixture");
+  const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
+  const invoke = async <T>(name: string, input: unknown, caller = "desktop"): Promise<T> => {
+    const cap = bindings.get(`automations.terminal.${name}`)!;
+    const result = await cap.handler({ signal: new AbortController().signal, caller, subject: "fixture", requestId: randomUUID() }, cap.input.parse(input));
+    return cap.output.parse(result) as T;
+  };
+  try {
+    await exposure.initialize([...bindings.keys()]);
+    await exposure.setMany(["save", "run"].map((operation) => ({ capability: `automations.terminal.external.${operation}`, exposed: true })));
+    const rule = await svc.create({ title: "延迟领取", trigger: every5, action: { ...terminalAction, shell: "sh" } });
+    const request = { ruleId: rule.id, expectedRuleVersion: rule.version };
+    const { target } = await invoke<{ target: string }>("approval.review", { ruleId: rule.id });
+    const { approvalId } = await invoke<{ approvalId: string }>("approval.approve", { ...request, target, names: [variable], expectedApprovalId: null });
+    const { revision } = await invoke<{ revision: string }>("external.save", { ...request, expectedRevision: null, changes: [{ name: variable, action: "replace", value: marker }] }, "cli");
+    const intent = { ...request, expectedRevision: revision, intentId: randomUUID() };
+    const run = () => invoke<{ runId: string; activationId: string; state: string }>("external.run", intent, "cli");
+    read.mockClear();
+    const [admitted, retry] = await Promise.all([run(), run()]);
+    expect(admitted.state).toBe("unknown");
+    expect(retry).toEqual(admitted);
+    expect(svc.runDetail(admitted.runId).live).toBe(true);
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(read).not.toHaveBeenCalled();
+    expect(consume).not.toHaveBeenCalled();
+    expect(launch.mock.calls[0]?.[0]).not.toHaveProperty("env");
+
+    if (event === "revoke") expect(await invoke("approval.revoke", { ruleId: rule.id, expectedApprovalId: approvalId })).toEqual({ revoked: true });
+    if (event === "rotate") {
+      await invoke("external.save", { ...request, expectedRevision: revision, changes: [{ name: variable, action: "replace", value: "rotated-synthetic-rule-value" }] }, "cli");
+      read.mockClear();
+    }
+    if (event === "principal") principal = false;
+    if (event === "exposure") await exposure.set("automations.terminal.external.run", false);
+    if (event === "cancel") expect(svc.cancelRun(admitted.runId)).toBe(true);
+    ready.resolve();
+    await svc.idle();
+    const settled = svc.runDetail(admitted.runId);
+    expect(settled).toMatchObject({ live: false, data: { activationId: admitted.activationId, sessionId: "same-original-session", state: event === "resume" ? "succeeded" : event === "cancel" ? "cancelled" : "failed" } });
+    expect(consume).toHaveBeenCalledTimes(event === "resume" ? 1 : 0);
+    if (event === "resume") {
+      expect(read).toHaveBeenCalled();
+      const [lease] = consume.mock.calls[0]!;
+      expect(lease.size).toBe(0);
+      await expect(Promise.resolve().then(() => launch.mock.calls[0]![0].use(consume, launch.mock.calls[0]![1]))).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      expect((await run()).state).toBe("succeeded");
+    } else {
+      expect(read).not.toHaveBeenCalled();
+    }
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(settled)).not.toContain(marker);
+  } finally {
+    svc.abortAll();
+    ready.resolve();
     await svc.idle();
     await vault.close();
   }

@@ -8,6 +8,17 @@ import (
 	"testing/iotest"
 )
 
+func TestApprovedRuleMarkerPreservesLiteralOutput(t *testing.T) {
+	var output bytes.Buffer
+	input := iotest.OneByteReader(strings.NewReader("literal [REDACTED], secret synthetic-rule-value"))
+	if err := maskStreamWithMarker(&output, input, []string{"synthetic-rule-value"}, []byte("***")); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != "literal [REDACTED], secret ***" {
+		t.Fatalf("unexpected masking: %q", output.String())
+	}
+}
+
 func TestMaskStream(t *testing.T) {
 	const canary = "fixture-huhu-521bc72446fb8d5aca1051ab319a7a2f-雪🧪"
 	input := "普通 prompt>" + canary[:21] + "\x1b[1mPUBLIC_EVENT\x1b[0m" + canary[21:] + " ✓ short and clean"

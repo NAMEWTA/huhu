@@ -174,6 +174,7 @@ export class NativePtyBroker {
   private transcript = "";
   private readonly controller = new AbortController();
   private readonly signal: AbortSignal;
+  readonly waiting: AbortSignal;
   private readonly exit: Promise<number | null>;
   private readonly ready: Promise<string | null>;
   private issued = false;
@@ -197,6 +198,9 @@ export class NativePtyBroker {
       this.child.once("error", () => resolve(null));
       this.child.once("close", (code) => resolve(code));
     });
+    const stopped = new AbortController();
+    this.waiting = AbortSignal.any([this.signal, stopped.signal]);
+    void this.exit.then(() => stopped.abort());
     this.ready = new Promise((resolve) => {
       this.child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
         if (this.transcript.length + chunk.length > 4096) {

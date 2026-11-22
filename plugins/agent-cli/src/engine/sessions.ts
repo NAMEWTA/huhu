@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { HuhuError, errors, newId, type ExecutionBinding } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { isValidNativeId, isWithin, isPiHistoryFile } from "./history/scanner.js";
@@ -156,13 +157,18 @@ type LaunchIndex = Pick<LaunchReceipt, "vaultId" | "machineId" | "intentHash" | 
 type ApprovedShellInput = Pick<LaunchInput, "spaceId" | "spaceRevision" | "requestId" | "shell"> & {
   provider: "shell";
   command: string;
-  env: Record<string, string>;
+  names: readonly string[];
+  use: NativeDelivery["use"];
+  onPending: NonNullable<NativeDelivery["onPending"]>;
   approvedDirectory: ProtectedDirectory;
   approvedShell: ApprovedLinuxShell;
 };
 type NativeDelivery = Pick<InteractiveNativePlan, "helper" | "launch" | "approval"> & {
-  use(consumer: (values: ReadonlyMap<string, string>) => Promise<BrokerOutcome>): Promise<BrokerOutcome>;
+  use(consumer: (values: ReadonlyMap<string, string>) => Promise<BrokerOutcome>, signal: AbortSignal): Promise<BrokerOutcome>;
+  onPending?: (completion: Promise<SessionRecord>) => void;
 };
+type NativeBroker = Pick<NativePtyBroker, "waiting" | "hostArgv" | "inspectHost" | "start" | "revoke">;
+type VerifiedNativeHost = { terminal: Terminal; binding: ProcessBinding; host: NonNullable<Awaited<ReturnType<NativeBroker["inspectHost"]>>> };
 
 export interface SessionsDeps {
   dir: string;
@@ -178,6 +184,7 @@ export interface SessionsDeps {
   codex?: CodexDispatch | undefined;
   protectedLaunch?: ProtectedLaunch | undefined;
   interactiveEnvironment?: InteractiveEnvironment;
+  nativeBroker?: (helper: NativeDelivery["helper"], signal?: AbortSignal) => NativeBroker;
   signal?: AbortSignal;
 }
 
@@ -312,6 +319,7 @@ export class SessionsService {
   }
 
   private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; signal: AbortSignal | undefined; result: Promise<SessionRecord> }>();
+  private readonly nativeAttempts = new Map<string, string>();
 
   private launchIntent({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput, preparedCwd?: string): LaunchIntent {
     const literal = cwd && path.isAbsolute(cwd) ? localDrivePath(path.normalize(cwd)) : cwd;
@@ -328,7 +336,8 @@ export class SessionsService {
   }
 
   async launchApprovedShell(input: ApprovedShellInput, signal?: AbortSignal): Promise<SessionRecord> {
-    const { argv, executable } = input.approvedShell;
+    const { names, use, onPending, ...launch } = input;
+    const { argv, executable } = launch.approvedShell;
     if (
       nativeHostPlatform() !== "linux" ||
       input.provider !== "shell" ||
@@ -342,18 +351,13 @@ export class SessionsService {
     ) {
       throw errors.permissionDenied("无法使用已批准的 Linux sh 执行映像");
     }
-    const values = Object.values(input.env);
-    if (
-      !values.length ||
-      Object.keys(input.env).some((name) => !/^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name)) ||
-      values.some((value) => !value || argv.some((arg) => arg.includes(value)) || input.approvedDirectory.path.includes(value))
-    ) {
+    if (!names.length || names.length > 32 || new Set(names).size !== names.length || names.some((name) => !/^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name))) {
       throw errors.invalidInput("已批准的规则环境无效");
     }
-    return this.launch(input, signal);
+    return this.launch(launch, signal, { names, use, onPending });
   }
 
-  async launch(input: LaunchInput, callerSignal?: AbortSignal): Promise<SessionRecord> {
+  async launch(input: LaunchInput, callerSignal?: AbortSignal, approvedDelivery?: Pick<ApprovedShellInput, "names" | "use" | "onPending">): Promise<SessionRecord> {
     const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
     signal?.throwIfAborted();
     const intent = this.launchIntent(input);
@@ -376,12 +380,22 @@ export class SessionsService {
       if (prepared && input.environment && !previous?.launchReceipt?.attempt) {
         const plan = await this.prepareEnvironment(input, input.environment, prepared);
         if (plan.approval !== input.environment.approval) throw new HuhuError("VERSION_CONFLICT", "程序、目录或环境已变化，请重新预览");
-        if (plan.kind === "native") native = { ...plan, use: (consumer) => this.d.interactiveEnvironment!.use(plan, consumer) };
-        else {
+        if (plan.kind === "native") {
+          native = {
+            ...plan,
+            use: async (consumer, waiting) => {
+              waiting.throwIfAborted();
+              return this.d.interactiveEnvironment!.use(plan, consumer);
+            },
+          };
+        } else {
           prepared = { ...prepared, env: Object.keys(plan.env).length ? plan.env : undefined };
           environmentApproval = plan.approval;
         }
-      } else if (prepared && input.approvedShell && !previous?.launchReceipt?.attempt) native = await this.prepareApprovedShell(input, prepared.cwd);
+      } else if (prepared && input.approvedShell && !previous?.launchReceipt?.attempt) {
+        if (!approvedDelivery) throw errors.permissionDenied("缺少已批准的保护值领取操作");
+        native = await this.prepareApprovedShell(input, prepared.cwd, approvedDelivery);
+      }
     } catch (error) {
       // A sent operation remains queryable even when its old directory or executable is gone.
       if (!previous?.launchReceipt?.attempt) throw error;
@@ -451,14 +465,14 @@ export class SessionsService {
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
       nativeSessionId = r.nativeSessionId;
     }
-    if (approvedDirectory && (input.provider !== "shell" || !env || !argv)) throw errors.invalidInput("批准的工作目录仅用于受保护终端命令");
+    if (approvedDirectory && (input.provider !== "shell" || !(env || input.approvedShell) || !argv)) throw errors.invalidInput("批准的工作目录仅用于受保护终端命令");
     return { space, cwd, argv, env, controlled, nativeSessionId };
   }
 
-  private async prepareApprovedShell(input: LaunchInput, cwd: string): Promise<NativeDelivery> {
-    const { approvedDirectory, approvedShell, env } = input;
+  private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending">): Promise<NativeDelivery> {
+    const { approvedDirectory, approvedShell } = input;
     const host = this.d.interactiveEnvironment;
-    if (!host || !approvedDirectory || !approvedShell || !env) throw errors.permissionDenied("本机 Linux sh 受保护宿主不可用");
+    if (!host || !approvedDirectory || !approvedShell) throw errors.permissionDenied("本机 Linux sh 受保护宿主不可用");
     const helper = await host.pinHelper();
     const identity = (value: string, created: string) => {
       const match = /^(\d{1,20}):(\d{1,20})$/.exec(value);
@@ -473,9 +487,9 @@ export class SessionsService {
       files: [],
       argv,
       ordinary: nativeAgentEnvironment(process.env, {}),
-      protect: Object.keys(env).sort(),
+      protect: [...delivery.names].sort(),
     };
-    return { helper, launch, approval: launchHash({ helper, launch }), use: (consumer) => consumer(new Map(Object.entries(env))) };
+    return { helper, launch, approval: launchHash({ helper, launch }), use: delivery.use, onPending: delivery.onPending };
   }
 
   private async prepareEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
@@ -553,6 +567,7 @@ export class SessionsService {
     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
     const { space, cwd, env, controlled } = prepared;
+    const redactEnv = env && !native && !input.environment ? env : undefined;
     this.d.spaces.validateForLaunch(space.id, input.spaceRevision);
     let { argv } = prepared;
     const receipt: LaunchReceipt = priorReceipt ?? {
@@ -576,7 +591,7 @@ export class SessionsService {
       terminalId: null,
       name: input.command !== undefined ? "命令：" + input.command.replace(/\s+/g, " ").slice(0, 40) : input.provider === "shell" ? "终端" : (agentById(input.provider)?.displayName ?? input.provider),
       ...(input.command !== undefined ? { command: input.command } : {}),
-      ...(env && (!native || input.approvedShell) ? { hasEnv: true } : {}),
+      ...(input.approvedShell || redactEnv ? { hasEnv: true } : {}),
       cwd,
       createdAt: this.d.now().toISOString(),
       ...(nativeSessionId ? { nativeSessionId } : {}),
@@ -606,9 +621,16 @@ export class SessionsService {
     signal?.throwIfAborted();
     if (native) return this.launchNative(native, session, receipt, intent, client, core, signal);
     if (input.environment) {
-      const currentPlan = await this.prepareEnvironment(input, input.environment, prepared);
-      if (currentPlan.kind !== "ordinary" || currentPlan.approval !== executionHash) throw new HuhuError("VERSION_CONFLICT", "启动环境已变化，请重新预览");
-      signal?.throwIfAborted();
+      try {
+        const currentPlan = await this.prepareEnvironment(input, input.environment, prepared);
+        if (currentPlan.kind !== "ordinary" || currentPlan.approval !== executionHash) throw new HuhuError("VERSION_CONFLICT", "启动环境已变化，请重新预览");
+        signal?.throwIfAborted();
+      } catch (error) {
+        const current = this.currentLaunch(session, intent, executionHash);
+        if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+        this.save({ ...current, state: "failed", error: "启动环境未通过提交前复核，启动请求尚未发送。" });
+        throw error;
+      }
     }
     // The Vault writer makes this read, claim and synchronous RPC submission a single turn.
     // Another service may have claimed the same request while this connection was opening.
@@ -637,7 +659,7 @@ export class SessionsService {
       ticket?.revoke();
       throw error;
     }
-    if (env) this.secrets.set(session.id, Object.values(env));
+    if (redactEnv) this.secrets.set(session.id, Object.values(redactEnv));
     let terminal: Terminal | undefined;
     let rejectedBeforeCreation = false;
     try {
@@ -677,16 +699,32 @@ export class SessionsService {
     core: Awaited<ReturnType<typeof identifyCore>>,
     signal: AbortSignal | undefined,
   ): Promise<SessionRecord> {
-    const broker = new NativePtyBroker(native.helper, signal);
+    const broker = this.d.nativeBroker ? this.d.nativeBroker(native.helper, signal) : new NativePtyBroker(native.helper, signal);
+    let releaseBroker = () => broker.revoke();
+    let retained = false;
     try {
       const argv = await broker.hostArgv();
       signal?.throwIfAborted();
       const current = this.currentLaunch(session, intent, receipt.executionHash);
       if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
-      const attempt: LaunchAttempt = { id: randomUUID(), core, nativeStatus: "pending" };
+      const attempt: LaunchAttempt = { id: randomUUID(), core, nativeStatus: "waiting-host" };
       const pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, argvHash: launchHash(argv), attempt } };
       delete pending.error;
       this.save(pending);
+      this.nativeAttempts.set(pending.requestId, attempt.id);
+      releaseBroker = () => {
+        broker.revoke();
+        if (this.nativeAttempts.get(pending.requestId) === attempt.id) this.nativeAttempts.delete(pending.requestId);
+      };
+      const latest = (phase: "waiting-host" | "delivering") => {
+        const entry = this.currentLaunch(pending, intent, receipt.executionHash);
+        const active = entry.launchReceipt?.attempt;
+        if (this.nativeAttempts.get(pending.requestId) !== attempt.id || active?.id !== attempt.id || active.nativeStatus !== phase) {
+          throw this.unknown(entry, "attempt_changed");
+        }
+        return entry;
+      };
+
       let terminal: Terminal | undefined;
       try {
         terminal = await client.call<Terminal>("terminal.run", { argv, cwd: session.cwd, labels: launchLabels(this.d.vaultId, pending), name: session.id, no_parent: true, keep: false });
@@ -695,56 +733,123 @@ export class SessionsService {
           throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
         }
       }
-      if (signal?.aborted) throw this.unknown(pending, "launch_scope_ended");
-      let binding = terminal && this.verifyTerminal(pending, terminal);
-      if (!binding) {
-        const snapshot = await this.snapshot();
-        if (snapshot.kind === "available" && sameCore(core, snapshot.core)) {
-          const found = snapshot.terminals.filter((item) => hasLaunchLabels(item, launchLabels(this.d.vaultId, pending)));
-          terminal = found.length === 1 ? found[0] : undefined;
-          binding = terminal && this.verifyTerminal(pending, terminal);
-        }
+      if (terminal?.address && this.matchesTerminal(pending, terminal)) {
+        const entry = latest("waiting-host");
+        const binding = processBinding(terminal);
+        this.save({ ...entry, launchReceipt: { ...entry.launchReceipt!, attempt: { ...entry.launchReceipt!.attempt!, addressHint: terminal.address, ...(binding && { binding }) } } });
       }
-      if (!terminal || !binding || terminal.state !== "live" || signal?.aborted) throw this.unknown(pending, "native_host_unverified");
-      const host = await broker.inspectHost(binding.pid);
-      if (!host) throw this.unknown(pending, "native_host_unverified");
-      const addressHint = binding.address;
-      const transition = (stage: "consumed" | "started" | "failed") => {
-        const latest = this.currentLaunch(pending, intent, receipt.executionHash);
-        const latestReceipt = latest.launchReceipt!;
-        const latestAttempt = latestReceipt.attempt;
-        if (latestAttempt?.id !== attempt.id) throw this.unknown(latest, "attempt_changed");
-        const next: SessionRecord = {
-          ...latest,
-          ...(stage === "failed" && { state: "failed", error: "受保护进程未启动，请检查当前启动环境并重新选择。" }),
-          launchReceipt: {
-            ...latestReceipt,
-            attempt: {
-              ...latestAttempt,
-              addressHint,
-              ...(stage === "consumed" ? { nativeConsumed: true } : { nativeStatus: stage, ...(stage === "started" && { nativeConsumed: true }) }),
-            },
-          },
-        };
-        this.save(next);
-        return next;
+
+      const checkHost = async (reply?: Terminal) => {
+        if (broker.waiting.aborted) return "unavailable" as const;
+        const entry = latest("waiting-host");
+        const candidate = reply && this.verifyTerminal(entry, reply) ? reply : this.nativeHostCandidate(entry, await this.snapshot());
+        if (broker.waiting.aborted) return "unavailable" as const;
+        if (!candidate || candidate === "unavailable") return candidate;
+        const binding = this.verifyTerminal(entry, candidate);
+        if (!binding) return undefined;
+        if (candidate.state !== "live") return "unavailable" as const;
+        const current = latest("waiting-host");
+        const receipt = current.launchReceipt!;
+        if (!receipt.attempt!.binding) this.save({ ...current, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, addressHint: binding.address, binding } } });
+        const host = await broker.inspectHost(binding.pid);
+        if (broker.waiting.aborted) return "unavailable" as const;
+        return host ? { terminal: candidate, binding, host } : undefined;
       };
-      let beganDelivery = false;
-      const outcome = await native
-        .use((values) => {
-          beganDelivery = true;
-          return broker.start(host, native.launch, values, () => transition("consumed"));
-        })
-        .catch(() => (beganDelivery ? "unknown" : "not-started"));
-      if (outcome === "unknown") throw this.unknown(pending, "native_start_unknown");
-      if (outcome === "not-started") {
-        const failed = transition("failed");
-        throw errors.invalidInput(failed.error!);
+      const finish = (candidate: VerifiedNativeHost | "unavailable") => (candidate === "unavailable" ? this.failNativeBeforeStart(latest("waiting-host")) : this.deliverNative(native, broker, candidate, latest));
+      const first = await checkHost(terminal);
+      if (first) {
+        const result = await finish(first);
+        if (result.state === "failed") throw errors.invalidInput(result.error!);
+        return result;
       }
-      return this.bind(transition("started"), terminal, binding);
+
+      this.markUnknown(latest("waiting-host"), "native_host_unverified");
+      const waitForHost = async () => {
+        while (!broker.waiting.aborted) {
+          await delay(200, undefined, { signal: broker.waiting }).catch(() => undefined);
+          const candidate = await checkHost();
+          if (candidate) return finish(candidate);
+        }
+        return finish("unavailable");
+      };
+      const completion = waitForHost().finally(releaseBroker);
+      // The original caller can return while this one broker still owns the attempt.
+      retained = true;
+      void completion.catch(() => undefined);
+      native.onPending?.(completion);
+      throw this.unknown(pending, "native_host_unverified");
     } finally {
-      broker.revoke();
+      if (!retained) releaseBroker();
     }
+  }
+
+  private nativeHostCandidate(session: SessionRecord, snapshot: TerminalSnapshot): Terminal | "unavailable" | undefined {
+    const attempt = session.launchReceipt!.attempt!;
+    if (snapshot.kind !== "available") return undefined;
+    if (!sameCore(attempt.core, snapshot.core)) return "unavailable";
+    const matches = snapshot.terminals.filter((item) => hasLaunchLabels(item, launchLabels(this.d.vaultId, session)));
+    if (matches.length > 1) return "unavailable";
+    const candidate = matches[0];
+    if (!candidate || candidate.reason === "spawn_pending") return undefined;
+    const binding = this.verifyTerminal(session, candidate);
+    if (!binding || (attempt.addressHint && attempt.addressHint !== binding.address) || (attempt.binding && !sameProcess(attempt.binding, binding))) return "unavailable";
+    return candidate;
+  }
+
+  private failNativeBeforeStart(session: SessionRecord): SessionRecord {
+    const receipt = session.launchReceipt!;
+    const failed: SessionRecord = {
+      ...session,
+      state: "failed",
+      terminalId: null,
+      error: "受保护进程未启动，请检查当前启动环境并重新选择。",
+      launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, nativeStatus: "failed", nativeCleanup: "pending" } },
+    };
+    this.save(failed);
+    return failed;
+  }
+
+  private async deliverNative(native: NativeDelivery, broker: NativeBroker, { terminal, binding, host }: VerifiedNativeHost, latest: (phase: "waiting-host" | "delivering") => SessionRecord): Promise<SessionRecord> {
+    let phase: "waiting-host" | "delivering" = "waiting-host";
+    const delivery = Promise.withResolvers<BrokerOutcome>();
+    const stopWaiting = () => {
+      if (phase === "waiting-host") delivery.resolve("not-started");
+    };
+    broker.waiting.addEventListener("abort", stopWaiting, { once: true });
+    if (broker.waiting.aborted) stopWaiting();
+    const take = async () => {
+      broker.waiting.throwIfAborted();
+      return native.use((values) => {
+        broker.waiting.throwIfAborted();
+        if (
+          native.launch.approvedShell &&
+          (values.size !== native.launch.protect.length ||
+            native.launch.protect.some((name) => {
+              const value = values.get(name);
+              return !value || native.launch.argv.some((arg) => arg.includes(value)) || native.launch.directory.path.includes(value);
+            }))
+        )
+          throw errors.invalidInput("已批准的规则环境无效");
+        const entry = latest("waiting-host");
+        const receipt = entry.launchReceipt!;
+        // The only private write is preceded by a durable record tied to this host.
+        this.save({ ...entry, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, addressHint: binding.address, binding, nativeStatus: "delivering" } } });
+        phase = "delivering";
+        return broker.start(host, native.launch, values, () => {
+          const current = latest("delivering");
+          const pinned = current.launchReceipt!;
+          this.save({ ...current, launchReceipt: { ...pinned, attempt: { ...pinned.attempt!, nativeConsumed: true } } });
+        });
+      }, broker.waiting);
+    };
+    void take().then(delivery.resolve, () => delivery.resolve(phase === "delivering" ? "unknown" : "not-started"));
+    const outcome = await delivery.promise;
+    broker.waiting.removeEventListener("abort", stopWaiting);
+    const current = latest(phase);
+    if (outcome === "unknown") throw this.unknown(this.markUnknown(current, "native_start_unknown"), "native_start_unknown");
+    if (outcome === "not-started") return this.failNativeBeforeStart(current);
+    const receipt = current.launchReceipt!;
+    return this.bind({ ...current, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, nativeStatus: "started", nativeConsumed: true } } }, terminal, binding);
   }
 
   private currentLaunch(session: SessionRecord, intent: LaunchIntent, executionHash: string | undefined): SessionRecord {
@@ -779,6 +884,7 @@ export class SessionsService {
       throw this.unknown(current, current.launchReceipt?.attempt?.issue ?? "attempt_changed");
     }
     const updated = this.applySnapshot(current, snapshot);
+    if (updated.state === "failed") throw errors.invalidInput(updated.error ?? "受保护进程未启动");
     if (snapshot.kind === "unavailable") throw this.unknown(updated, "snapshot_unavailable");
     if (updated.state === "running" || updated.state === "exited") return updated;
     throw this.unknown(updated, updated.launchReceipt?.attempt?.issue ?? "snapshot_unavailable");
@@ -796,12 +902,15 @@ export class SessionsService {
     return new HuhuError("SPACE_INVALID", "受保护的终端工作目录已变化，命令未启动。", { details: { reason: "approved_directory_changed" } });
   }
 
-  private verifyTerminal(session: SessionRecord, terminal: Terminal): ProcessBinding | null {
+  private matchesTerminal(session: SessionRecord, terminal: Terminal): boolean {
     const receipt = session.launchReceipt;
-    if (!receipt || !hasLaunchLabels(terminal, launchLabels(this.d.vaultId, session))) return null;
-    if (!terminal.cwd || localDrivePath(terminal.cwd) !== session.cwd) return null;
-    if (receipt.argvHash !== null && (!Array.isArray(terminal.argv) || launchHash(terminal.argv) !== receipt.argvHash)) return null;
-    return processBinding(terminal);
+    if (!receipt || !hasLaunchLabels(terminal, launchLabels(this.d.vaultId, session))) return false;
+    if (!terminal.cwd || localDrivePath(terminal.cwd) !== session.cwd) return false;
+    return receipt.argvHash === null || (Array.isArray(terminal.argv) && launchHash(terminal.argv) === receipt.argvHash);
+  }
+
+  private verifyTerminal(session: SessionRecord, terminal: Terminal): ProcessBinding | null {
+    return this.matchesTerminal(session, terminal) ? processBinding(terminal) : null;
   }
 
   private bind(session: SessionRecord, terminal: Terminal, binding: ProcessBinding): SessionRecord {
@@ -852,6 +961,9 @@ export class SessionsService {
   private applySnapshot(session: SessionRecord, snapshot: TerminalSnapshot): SessionRecord {
     const attempt = session.launchReceipt?.attempt;
     if (!attempt) return session;
+    if (attempt.nativeStatus === "failed") return session;
+    if (this.nativeAttempts.get(session.requestId) === attempt.id) return session;
+    if (attempt.nativeStatus === "waiting-host") return this.failNativeBeforeStart(session);
     if (attempt.nativeStatus && attempt.nativeStatus !== "started") return this.markUnknown(session, "native_start_unknown");
     if (snapshot.kind !== "available") {
       if (snapshot.kind === "unavailable" && attempt.binding) return session;
@@ -1143,6 +1255,10 @@ export class SessionsService {
     }
     this.secrets.delete(id);
     const attempt = s.launchReceipt?.attempt;
+    if (attempt?.nativeCleanup) {
+      if (attempt.nativeCleanup === "complete" || (await this.cleanupNativeHost(s, await this.snapshot(), signal))) return;
+      throw this.unknown(s, "native_host_cleanup_pending");
+    }
     if (!s.terminalId && !attempt) return;
     if (!s.terminalId || !attempt?.binding) throw this.unknown(s, "binding_lost");
     const snapshot = await this.snapshot();
@@ -1174,6 +1290,38 @@ export class SessionsService {
     await snapshot.client.call("terminal.rm", { terminal: binding.address });
   }
 
+  private async cleanupNativeHost(session: SessionRecord, snapshot: TerminalSnapshot, signal?: AbortSignal): Promise<boolean> {
+    const attempt = session.launchReceipt?.attempt;
+    if (attempt?.nativeStatus !== "failed" || attempt.nativeCleanup !== "pending" || snapshot.kind !== "available" || !sameCore(attempt.core, snapshot.core)) return false;
+    const host = this.nativeHostCandidate(session, snapshot);
+    if (host === "unavailable") return false;
+    const binding = host && this.verifyTerminal(session, host);
+    const absent = !host && !!attempt.binding && !snapshot.terminals.some((terminal) => terminal.address === attempt.binding!.address || hasLaunchLabels(terminal, launchLabels(this.d.vaultId, session)));
+    if (!binding && !absent) return false;
+    const current = () => {
+      signal?.throwIfAborted();
+      this.d.signal?.throwIfAborted();
+      const entry = this.recordedLaunch(session.requestId);
+      return entry?.id === session.id && launchHash(entry.launchReceipt?.attempt) === launchHash(attempt) ? entry : undefined;
+    };
+    const entry = current();
+    if (!entry) return false;
+    if (binding && !attempt.binding) {
+      // Preserve the identity before cleanup so a lost remove reply can be reconciled.
+      this.save({ ...entry, launchReceipt: { ...entry.launchReceipt!, attempt: { ...attempt, addressHint: binding.address, binding } } });
+      return this.cleanupNativeHost(this.get(entry.id), snapshot, signal);
+    }
+    if (host?.state === "live") {
+      await snapshot.client.call("terminal.kill", { terminal: host.address });
+      return false;
+    }
+    if (binding) await snapshot.client.call("terminal.rm", { terminal: binding.address });
+    const final = current();
+    if (!final) return false;
+    this.save({ ...final, launchReceipt: { ...final.launchReceipt!, attempt: { ...attempt, nativeCleanup: "complete" } } });
+    return true;
+  }
+
   async interrupt(id: string, generation?: string): Promise<void> {
     const s = this.get(id);
     if (!s.terminalId) throw errors.invalidInput("会话没有终端");
@@ -1192,17 +1340,23 @@ export class SessionsService {
    * 用只读快照查回未确定的启动，并核对已绑定进程的退出。列表打开时调用，2 秒内只查一次。
    */
   async reconcile(): Promise<void> {
-    const mine = this.list().filter((x) => !this.inflight.has(x.requestId) && ((x.state === "running" && x.terminalId) || (x.launchReceipt?.attempt && (x.state === "launching" || x.state === "unknown"))));
+    const mine = this.list().filter(
+      (x) =>
+        !this.inflight.has(x.requestId) &&
+        !this.nativeAttempts.has(x.requestId) &&
+        ((x.state === "running" && x.terminalId) || (x.launchReceipt?.attempt && (x.state === "launching" || x.state === "unknown" || x.launchReceipt.attempt.nativeCleanup === "pending"))),
+    );
     if (mine.length === 0 || Date.now() - this.lastReconcile < 2000) return;
     this.lastReconcile = Date.now();
     const snapshot = await this.snapshot();
     for (const sess of mine) {
-      if (this.inflight.has(sess.requestId)) continue;
+      if (this.inflight.has(sess.requestId) || this.nativeAttempts.has(sess.requestId)) continue;
       try {
         const current = this.get(sess.id);
         if (current.state !== sess.state || current.terminalId !== sess.terminalId || current.launchReceipt?.attempt?.id !== sess.launchReceipt?.attempt?.id) continue;
         if (current.launchReceipt) {
-          this.applySnapshot(current, snapshot);
+          const updated = this.applySnapshot(current, snapshot);
+          if (updated.launchReceipt?.attempt?.nativeCleanup === "pending") await this.cleanupNativeHost(updated, snapshot);
           continue;
         }
         if (snapshot.kind === "unavailable") continue;
