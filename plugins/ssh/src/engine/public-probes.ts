@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { errors, type HuhuError } from "@huhu/contracts";
-import type { CapabilityContext, HuhuApi } from "@huhu/kernel";
+import { CapabilityIntentKeySchema, errors, HuhuError } from "@huhu/contracts";
+import type { CapabilityContext, HuhuApi, OperationReceipts } from "@huhu/kernel";
 import { z } from "zod";
 import { KnownHostKey, type ConnectionStatus, type HostKeyPrompt } from "../shared/trust.js";
 import type { SshManager } from "./manager.js";
-import { externalSshOwner, readBoundRoute, ResourceHost, ResourceHostId } from "./public-resources.js";
+import { assertSshHosts, externalSshOwner, readBoundRoute, ResourceHost, ResourceHostId, selectedSshHosts } from "./public-resources.js";
 
 const attemptId = z.string().min(1).max(128);
 export const StartPublicProbe = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
+export const StartPublicProbeIntent = StartPublicProbe.extend({ intentKey: CapabilityIntentKeySchema.optional() });
 export const PublicProbeId = ResourceHostId.extend({ attemptId });
 const PublicTrustPrompt = z.strictObject({
   promptId: z.string().min(1).max(128),
@@ -32,7 +33,7 @@ export const PublicProbeStatus = z.discriminatedUnion("state", [
 
 type Status = z.infer<typeof PublicProbeStatus>;
 type Binding = z.infer<typeof StartPublicProbe>;
-type Probe = { owner: string; kind: "probe" | "job"; abort: AbortController; expires: number; status: Status };
+type Probe = { owner: string; kind: "probe" | "job"; hostIds: string[]; abort: AbortController; expires: number; status: Status };
 
 function promptView({ hostId, attemptId, routeRevision }: Status, prompt: HostKeyPrompt): z.infer<typeof PublicTrustPrompt> {
   const { promptId, hop, keyType, fingerprint } = prompt;
@@ -55,28 +56,61 @@ export class PublicSshProbes {
   constructor(
     private readonly files: HuhuApi["vault"]["files"],
     private readonly manager: SshManager,
+    private readonly operations?: { vaultInstance: string; receipts: OperationReceipts },
   ) {}
 
-  start(context: CapabilityContext, binding: Binding) {
+  start(context: CapabilityContext, { intentKey, ...binding }: z.infer<typeof StartPublicProbeIntent>) {
     const owner = externalSshOwner(context);
     context.signal.throwIfAborted();
-    readBoundRoute(this.files, binding);
+    assertSshHosts(context, [binding.hostId]);
+    if (intentKey !== undefined) return this.startIntent(context, owner, binding, intentKey);
+    readBoundRoute(this.files, context, binding);
     const existing = [...this.probes.values()].find(
       ({ owner: recordOwner, kind, expires, status }) =>
         recordOwner === owner && kind === "probe" && expires > Date.now() && status.hostId === binding.hostId && status.routeRevision === binding.routeRevision && (status.state === "connecting" || status.state === "waiting"),
     );
     if (existing) return { attemptId: existing.status.attemptId };
-    const connection = this.open(owner, binding, "probe");
+    return this.startProbe(context, owner, binding);
+  }
+
+  private startIntent(context: CapabilityContext, owner: string, binding: Binding, key: string) {
+    if (!this.operations) throw errors.invalidInput("此 Vault 无法保存 SSH 核验意图");
+    this.files.assertWritable();
+    const { receipts, vaultInstance } = this.operations;
+    const receiptOwner = createHash("sha256")
+      .update(JSON.stringify([vaultInstance, owner]))
+      .digest("hex");
+    const capability = "ssh.resources.connection.start";
+    const previous = receipts.lookup(receiptOwner, { capability, intentKey: key });
+    if (previous) {
+      const { mismatch } = receipts.claim(receiptOwner, capability, key, binding);
+      if (mismatch) throw errors.idempotencyMismatch();
+      assertSshHosts(context, previous.resources?.["ssh.hosts"] ?? [binding.hostId]);
+      const result = previous.phase === "completed" && previous.result.ok ? PublicProbeId.pick({ attemptId: true }).safeParse(previous.result.data) : undefined;
+      const probe = result?.success ? this.probes.get(result.data.attemptId) : undefined;
+      if (probe && probe.expires > Date.now() && result?.success) return result.data;
+      throw new HuhuError("INTERNAL", "原 SSH 核验结果待核实", { retryable: false, details: { outcome: "unknown", operationId: previous.operationId } });
+    }
+    const chain = readBoundRoute(this.files, context, binding);
+    const { entry } = receipts.claim(receiptOwner, capability, key, binding, { "ssh.hosts": chain.map(({ id }) => id) });
+    if (entry.phase !== "accepted") throw errors.invalidInput("SSH 核验意图已结束");
+    const result = this.startProbe(context, owner, binding);
+    receipts.complete(entry, "completed", { ok: true, data: result });
+    return result;
+  }
+
+  private startProbe(context: CapabilityContext, owner: string, binding: Binding) {
+    const connection = this.open(context, owner, binding, "probe");
     void connection.ready.then(connection.close, connection.close);
     return { attemptId: connection.attemptId };
   }
 
-  openForJob(owner: string, binding: Binding) {
-    return this.open(owner, binding, "job");
+  openForJob(context: CapabilityContext, owner: string, binding: Binding) {
+    return this.open(context, owner, binding, "job");
   }
 
-  private open(owner: string, { hostId, routeRevision }: Binding, kind: Probe["kind"]) {
-    const current = () => readBoundRoute(this.files, { hostId, routeRevision });
+  private open(context: CapabilityContext, owner: string, { hostId, routeRevision }: Binding, kind: Probe["kind"]) {
+    const current = () => readBoundRoute(this.files, context, { hostId, routeRevision });
     const chain = current();
     const now = Date.now();
     for (const [id, probe] of this.probes) {
@@ -111,7 +145,7 @@ export class PublicSshProbes {
     };
     const connection = this.manager.openExternalConnection(chain, abort.signal, current, apply);
     const { attemptId } = connection;
-    this.probes.set(attemptId, { owner, kind, abort, expires: now + 300_000, status: { hostId, routeRevision, attemptId, state: "connecting" } });
+    this.probes.set(attemptId, { owner, kind, hostIds: chain.map(({ id }) => id), abort, expires: now + 300_000, status: { hostId, routeRevision, attemptId, state: "connecting" } });
     return {
       attemptId,
       ready: connection.ready.finally(() => clearTimeout(timeout)),
@@ -122,13 +156,15 @@ export class PublicSshProbes {
   read(context: CapabilityContext, input: z.infer<typeof PublicProbeId>): Status {
     const probe = this.probes.get(input.attemptId);
     if (probe?.owner !== externalSshOwner(context) || probe.status.hostId !== input.hostId || probe.expires <= Date.now()) throw errors.notFound("SSH 连接核验");
+    assertSshHosts(context, probe.hostIds);
     return probe.status;
   }
 
   list(context: CapabilityContext): Status[] {
     const owner = externalSshOwner(context);
+    const selected = selectedSshHosts(context);
     const now = Date.now();
-    return [...this.probes.values()].filter((probe) => probe.owner === owner && probe.expires > now).map(({ status }) => status);
+    return [...this.probes.values()].filter((probe) => probe.owner === owner && probe.expires > now && probe.hostIds.every((id) => selected.has(id))).map(({ status }) => status);
   }
 
   decide(context: CapabilityContext, input: z.infer<typeof DecidePublicProbe>) {

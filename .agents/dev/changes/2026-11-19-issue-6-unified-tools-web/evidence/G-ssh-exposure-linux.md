@@ -18,3 +18,14 @@
 `apps/engine/src/boot.ts` 已声明 `registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors))`，现有 `ssh.apply` 绑定其中的 `settingsGet` 和 `settingsUpdate`。本批复用这两处装配。
 
 Q6-3 已定案从同一 Gateway 策略按已保存主机选择和撤销。目前工具策略只有按能力名索引的布尔选择，调用授权和回执读取还没有主机选择输入或检查。后续接入现有策略中的主机授权读写，再由 SSH 沿用可移植定义、当前逻辑主体、路由修订和所有权校验实施剩余动作。主机授权撤销须覆盖旧句柄及已登记的操作回读。当前公开资源和作业入口已有主体与路由校验，仍需接入主机选择来完成 Q6-3。
+
+## 续批 Q6-3 与主机目录
+
+`d89c5e04` 后续候选完成按已保存主机授权、工作台双端配置和首批两项 SSH 读取。静态及运行时可选工具现为 14 个，默认关闭。先前 10 个公共 SSH 入口均接入资源级实时授权。两个新增读取入口见下表。其余 79 个待逐项实施的动作保持默认且不可选，详见 Core 主题 `t2y/report02.md`。
+
+| 能力 | 候选元数据 | 验收 |
+| --- | --- | --- |
+| `ssh.hosts.directory` | true / false，read / normal | 当前主机选择、便携定义、分组祖先过滤。未选主机及其分组无法枚举。 |
+| `ssh.hosts.list` | true / false，read / normal | 当前主机选择、脱敏便携投影，不读取本机凭据状态。 |
+
+[资源选择实现及测试](G-resource-grants-linux.md)

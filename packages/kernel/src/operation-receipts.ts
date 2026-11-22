@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { CapabilityResultSchema, HuhuError, type CapabilityResult } from "@huhu/contracts";
+import { CapabilityResultSchema, HuhuError, ToolAccessResourcesSchema, type CapabilityResult, type ToolAccessResources } from "@huhu/contracts";
 import { z } from "zod";
 import { canonicalJson } from "./idempotency.js";
 
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
-const Identity = z.strictObject({ operationId: z.uuidv4(), key: Hash, input: Hash, owner: z.string(), capability: z.string() });
+const Identity = z.strictObject({ operationId: z.uuidv4(), key: Hash, input: Hash, owner: z.string(), capability: z.string(), resources: ToolAccessResourcesSchema.optional() });
 const Finished = z.enum(["completed", "failed", "invalid-output", "unknown", "paused"]);
 const Entry = z.discriminatedUnion("phase", [Identity.extend({ phase: z.literal("accepted") }), Identity.extend({ phase: Finished, result: CapabilityResultSchema })]);
 type Entry = z.infer<typeof Entry>;
@@ -37,6 +37,7 @@ export class OperationReceipts {
 
   private transition(old: Entry, item: Entry): boolean {
     if (old.operationId !== item.operationId || old.owner !== item.owner || old.input !== item.input || old.capability !== item.capability) return false;
+    if (canonicalJson(old.resources ?? null) !== canonicalJson(item.resources ?? null)) return false;
     return old.phase === "accepted" ? item.phase !== "accepted" : old.phase === "paused" && item.phase === "accepted";
   }
 
@@ -70,13 +71,13 @@ export class OperationReceipts {
     }
   }
 
-  claim(owner: string, capability: string, intentKey: string, input: unknown) {
+  claim(owner: string, capability: string, intentKey: string, input: unknown, resources?: ToolAccessResources) {
     const key = hash([owner, capability, intentKey]);
     const inputDigest = hash(input);
     const existing = this.byKey.get(key);
     if (existing) return { entry: existing, mismatch: existing.input !== inputDigest, fresh: false };
     if (this.damaged) throw this.unavailable();
-    const accepted: Accepted = { operationId: randomUUID(), key, input: inputDigest, owner, capability, phase: "accepted" };
+    const accepted: Accepted = { operationId: randomUUID(), key, input: inputDigest, owner, capability, phase: "accepted", ...(resources && { resources }) };
     this.append(accepted);
     return { entry: accepted, mismatch: false, fresh: true };
   }

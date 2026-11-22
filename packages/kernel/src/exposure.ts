@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { errors, ToolAccessFileSchema, type ToolAccessSnapshot } from "@huhu/contracts";
+import { errors, ToolAccessFileSchema, type ToolAccessResources, type ToolAccessSnapshot } from "@huhu/contracts";
 import { versionOf, type VaultFiles } from "@huhu/vault";
 
 export const TOOL_ACCESS_FILE = ".huhu/gateway/tool-access.json";
@@ -13,6 +13,10 @@ const policyError = (reason: PolicyError["reason"], message: string): PolicyErro
 
 export function toolSelection(policy: ToolAccessSnapshot, name: string): boolean | null {
   return policy.state === "ready" && Object.hasOwn(policy.choices, name) ? (policy.choices[name] ?? null) : null;
+}
+
+export function toolResourceIds(policy: ToolAccessSnapshot, group: keyof ToolAccessResources): readonly string[] {
+  return policy.state === "ready" ? (policy.resources?.[group] ?? []) : [];
 }
 
 /** 每个 Vault 的工具开放策略。内置插件启停使用独立的 plugins.json。 */
@@ -37,7 +41,7 @@ export class ExposureStore {
     }
     try {
       const parsed = ToolAccessFileSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-      return { state: "ready", revision: parsed.revision, choices: parsed.choices, version: versionOf(bytes) };
+      return { state: "ready", revision: parsed.revision, choices: parsed.choices, ...(parsed.resources && { resources: parsed.resources }), version: versionOf(bytes) };
     } catch {
       return policyError("invalid-format", "工具开放配置的格式或版本无效");
     }
@@ -54,7 +58,7 @@ export class ExposureStore {
 
   snapshot(): ToolAccessSnapshot {
     const policy = this.readPolicy();
-    if (policy.state === "ready") return { state: "ready", revision: policy.revision, choices: policy.choices };
+    if (policy.state === "ready") return { state: "ready", revision: policy.revision, choices: policy.choices, ...(policy.resources && { resources: policy.resources }) };
     return policy;
   }
 
@@ -62,26 +66,29 @@ export class ExposureStore {
     return this.setMany([{ capability: name, exposed: selected }]).then(({ revision }) => revision);
   }
 
-  setMany(changes: readonly { capability: string; exposed: boolean }[], expectedRevision?: number, assertCurrentCatalog?: () => void): Promise<{ revision: number; changed: boolean }> {
+  setMany(changes: readonly { capability: string; exposed: boolean }[], expectedRevision?: number, assertCurrentCatalog?: () => void, resources?: ToolAccessResources): Promise<{ revision: number; changed: boolean }> {
     const save = this.pending.then(async () => {
       this.files.assertWritable();
       const policy = this.readPolicy();
       if (policy.state === "error") throw errors.invalidInput(policy.message, { reason: policy.reason });
       if (expectedRevision !== undefined && policy.revision !== expectedRevision) throw errors.versionConflict(String(policy.revision));
       assertCurrentCatalog?.();
-      if (changes.every(({ capability, exposed }) => toolSelection(policy, capability) === exposed)) return { revision: policy.revision, changed: false };
+      const previouslySelected = new Set(toolResourceIds(policy, "ssh.hosts"));
+      const selected = resources?.["ssh.hosts"];
+      const sameResources = !selected || (selected.length === previouslySelected.size && selected.every((id) => previouslySelected.has(id)));
+      if (sameResources && changes.every(({ capability, exposed }) => toolSelection(policy, capability) === exposed)) return { revision: policy.revision, changed: false };
       if (policy.revision === Number.MAX_SAFE_INTEGER) throw errors.invalidInput("工具开放配置的版本已达上限");
       const revision = policy.revision + 1;
       const choices = { ...policy.choices, ...Object.fromEntries(changes.map(({ capability, exposed }) => [capability, exposed])) };
-      await this.writePolicy(revision, choices, policy.version);
+      await this.writePolicy(revision, choices, policy.version, resources ?? policy.resources);
       return { revision, changed: true };
     });
     this.pending = save.catch(() => undefined);
     return save;
   }
 
-  private writePolicy(revision: number, choices: ReadyPolicy["choices"], expectedVersion: string | null) {
-    return this.files.write(TOOL_ACCESS_FILE, Buffer.from(JSON.stringify({ formatVersion: 1, revision, choices }, null, 2) + "\n"), { expectedVersion });
+  private writePolicy(revision: number, choices: ReadyPolicy["choices"], expectedVersion: string | null, resources?: ToolAccessResources) {
+    return this.files.write(TOOL_ACCESS_FILE, Buffer.from(JSON.stringify({ formatVersion: 1, revision, choices, resources }, null, 2) + "\n"), { expectedVersion });
   }
 
   private loadPlugins(): Record<string, unknown> {

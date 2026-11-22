@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { errors } from "@huhu/contracts";
+import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes } from "./auth-profile.js";
@@ -22,6 +22,10 @@ export const ResourceHost = routeHop.extend({
   routeRevision,
   route: z.array(routeHop),
 });
+export const PublicHostView = z.strictObject({
+  id: OwnedHostId,
+  ...ManagedHostView.pick({ name: true, host: true, port: true, user: true, tags: true, revision: true }).shape,
+});
 
 type Files = HuhuApi["vault"]["files"];
 
@@ -32,37 +36,59 @@ export function externalSshOwner({ caller, subject, session }: CapabilityContext
   return JSON.stringify([caller, subject]);
 }
 
-export function readBoundRoute(files: Files, { hostId, routeRevision }: Pick<z.infer<typeof ResourceHost>, "hostId" | "routeRevision">): ManagedHost[] {
+export function selectedSshHosts(context: CapabilityContext): ReadonlySet<string> {
+  const ids = new Set(context.toolResourceIds?.("ssh.hosts"));
+  if (!ids.size) throw errors.permissionDenied("SSH 主机授权");
+  return ids;
+}
+
+export function assertSshHosts(context: CapabilityContext, hostIds: readonly string[]): void {
+  const selected = selectedSshHosts(context);
+  if (hostIds.some((id) => !selected.has(id))) throw errors.permissionDenied("SSH 主机授权");
+}
+
+export function authorizedResourceRoute(files: Files, context: CapabilityContext, hostId: string) {
+  if (isWorkbenchCaller(context.caller)) return readResourceRoute(files, hostId);
+  assertSshHosts(context, [hostId]);
   const route = readResourceRoute(files, hostId);
+  assertSshHosts(
+    context,
+    route.chain.map(({ id }) => id),
+  );
+  return route;
+}
+
+export function readBoundRoute(files: Files, context: CapabilityContext, { hostId, routeRevision }: Pick<z.infer<typeof ResourceHost>, "hostId" | "routeRevision">): ManagedHost[] {
+  const route = authorizedResourceRoute(files, context, hostId);
   if (route.view.routeRevision !== routeRevision) throw errors.versionConflict(route.view.routeRevision);
   return route.chain;
 }
 
 /** Reads only portable definitions. HostConfigurations.list checks private credential material. */
-export function readResourceRoute(files: Files, hostId: string) {
-  let chain: ManagedHost[];
+export function readPortableHost(files: Files, id: string): ManagedHost | undefined {
+  return readPortableHosts(files, new Set([id]))[0];
+}
+
+export function readPortableHosts(files: Files, ids: ReadonlySet<string>): ManagedHost[] {
+  if (!ids.size) return [];
   try {
-    chain = routeForHost(
-      {
-        get(id) {
-          if (!OwnedHostId.safeParse(id).success) return undefined;
-          const row = ModuleCredentials.readPortableDefinition(files, "ssh", HostDefinition, id);
-          if (!row) return undefined;
-          const { format: _format, authKind, ...profile } = row.definition;
-          // Portable flags choose the required purposes. The actual credential
-          // and its availability are checked only when the executor takes a lease.
-          const required = purposes[authKind];
-          const authState: ManagedHost["authState"] = Object.fromEntries(required.map((purpose) => [purpose, row.configured.includes(purpose) ? "configured" : "unconfigured"]));
-          const configured = required.every((purpose) => purpose === "passphrase" || row.configured.includes(purpose));
-          return { ...profile, id, revision: row.revision, auth: { kind: authKind, source: "ssh" }, authState, configured };
-        },
-      },
-      hostId,
-    );
+    return ModuleCredentials.readPortableDefinitions(files, "ssh", HostDefinition).flatMap((row) => {
+      const id = row.entityId;
+      if (!ids.has(id) || !OwnedHostId.safeParse(id).success) return [];
+      const { format: _format, authKind, ...profile } = row.definition;
+      const required = purposes[authKind];
+      const authState: ManagedHost["authState"] = Object.fromEntries(required.map((purpose) => [purpose, row.configured.includes(purpose) ? "configured" : "unconfigured"]));
+      const configured = required.every((purpose) => purpose === "passphrase" || row.configured.includes(purpose));
+      return [{ ...profile, id, revision: row.revision, auth: { kind: authKind, source: "ssh" }, authState, configured }];
+    });
   } catch (error) {
     if (error instanceof CredentialError) throw errors.invalidInput("SSH 可移植配置无法读取");
     throw error;
   }
+}
+
+export function readResourceRoute(files: Files, hostId: string) {
+  const chain = routeForHost({ get: (id) => readPortableHost(files, id) }, hostId);
   const resourceRoute = chain.map(({ id, revision, host, port }) => ({ hostId: id, revision, host, port }));
   const boundRevision = createHash("sha256")
     .update(JSON.stringify([workspaceTarget(chain), chain.map(({ revision, configId }) => [revision, configId])]))

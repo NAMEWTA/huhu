@@ -6,10 +6,11 @@ import path from "node:path";
 import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { expect, test, vi } from "vitest";
-import type { z } from "zod";
+import { z } from "zod";
 import { run } from "../../../apps/cli/src/main.js";
 import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import type { ExecJobStatus, ExecOutputPage } from "../src/engine/public-jobs.js";
 import type { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
@@ -70,6 +71,21 @@ async function fixture() {
     if (!result.ok) throw new Error(`${capability}: ${result.error.code}`);
     return result.data;
   }
+  const chooseHosts = async (ids: readonly string[]) => {
+    const resources = { "ssh.hosts": ids };
+    const { revision, catalogRevision } = await desktop<{ revision: number; catalogRevision: string }>("gateway.policy.preview", { resources });
+    return desktop("gateway.policy.update", { resources, expectedRevision: revision, catalogRevision });
+  };
+  async function cliArgs(args: string[]) {
+    const output: string[] = [];
+    await run([...args, "--vault", vaultPath, "--json"], {
+      out: (line) => output.push(line),
+      err: (line) => {
+        throw new Error(line);
+      },
+    });
+    return JSON.parse(output.join(""));
+  }
   return {
     get engine() {
       return engine;
@@ -81,6 +97,7 @@ async function fixture() {
     },
     call,
     desktop,
+    chooseHosts,
     server,
     allow: (capability: string, exposed = true) => desktop("gateway.update", { capability, exposed }),
     mcpEndpoint: () => `${baseUrl()}/mcp`,
@@ -92,14 +109,10 @@ async function fixture() {
       return (await response.json()).result;
     },
     async cli(capability: string, input: unknown) {
-      const output: string[] = [];
-      await run(["call", capability, "--vault", vaultPath, "--input-json", JSON.stringify(input), "--json"], {
-        out: (line) => output.push(line),
-        err: (line) => {
-          throw new Error(line);
-        },
-      });
-      return CapabilityResultSchema.parse(JSON.parse(output.join("")));
+      return CapabilityResultSchema.parse(await cliArgs(["call", capability, "--input-json", JSON.stringify(input)]));
+    },
+    async cliTools() {
+      return z.object({ data: z.array(z.object({ name: z.string() })) }).parse(await cliArgs(["capabilities", "list"])).data;
     },
     async host(name: string, jumpHostIds: string[] = [], opts: FakeSshOptions = {}) {
       const password = `synthetic-${randomUUID()}`;
@@ -107,6 +120,7 @@ async function fixture() {
       const profile = { name, host: "127.0.0.1", port: ssh.port, user: "fixture-login", authKind: "password", jumpHostIds };
       const saved = await desktop<{ hostId: string; revision: string }>("ssh.hosts.configure", { ...profile, expectedRevision: null, credentials: [{ purpose: "password", action: "replace", value: password }] });
       hosts.push(saved.hostId);
+      await chooseHosts(hosts);
       return { server: ssh, password, profile, ...saved };
     },
     async close() {
@@ -128,6 +142,199 @@ async function fixture() {
   };
 }
 
+test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all public entry points", { timeout: 45_000 }, async (entry) => {
+  const f = await fixture();
+  const hostList = "ssh.hosts.list";
+  const directory = "ssh.hosts.directory";
+  const tools = [hostList, directory, hostGet, probeStart, probeGet, probeList, trustDecide, ...jobCapabilities];
+  const commands: string[] = [];
+  const notExposed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  const notGranted = { ok: false, error: { code: "PERMISSION_DENIED" } };
+  try {
+    const a = await f.host("visible fixture", [], {
+      onExec: (command) => {
+        commands.push(command);
+        return { stdout: "fixture output", code: 0 };
+      },
+    });
+    const b = await f.host("hidden fixture");
+    const group = (name: string, expectedVersion: string) => f.desktop<{ version: string; groups: { name: string; groupId: string }[] }>("ssh.hosts.organize", { expectedVersion, operation: { type: "group.create", name, parentId: null } });
+    const first = await group("selected group", "0");
+    const second = await group("hidden group", first.version);
+    const visible = second.groups.find(({ name }) => name === "selected group")!.groupId;
+    const hidden = second.groups.find(({ name }) => name === "hidden group")!.groupId;
+    const move = (hostId: string, groupId: string, expectedVersion: string) => f.desktop<{ version: string }>("ssh.hosts.organize", { expectedVersion, operation: { type: "hosts.move", hostIds: [hostId], groupId } });
+    const placed = await move(a.hostId, visible, second.version);
+    await move(b.hostId, hidden, placed.version);
+    await f.chooseHosts([]);
+
+    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "resource matrix" });
+    let session = entry === "mcp" ? await openRecoverableMcpSession(f.mcpEndpoint(), token) : undefined;
+    const name = (id: string) => (entry === "mcp" ? id.replaceAll(".", "_") : id);
+    const discover = async () => {
+      if (entry === "cli") return (await f.cliTools()).map(({ name }) => name);
+      const result = await f.mcp(token, "tools/list", {}, session!.handle);
+      return z
+        .array(z.object({ name: z.string() }))
+        .parse(result.tools)
+        .map(({ name }) => name);
+    };
+    const invoke = async (id: string, args: object = {}): Promise<CapabilityResult<unknown>> => {
+      if (entry === "cli") return f.cli(id, args);
+      const result = await f.mcp(token, "tools/call", { name: name(id), arguments: args }, session!.handle);
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
+    };
+    const discardReply = async (id: string, args: object) => {
+      if (entry === "cli") {
+        await f.cli(id, args);
+        return;
+      }
+      const response = await mcpRequest(f.mcpEndpoint(), token, mcpRpc("tools/call", { name: name(id), arguments: args }), session!.handle);
+      expect(response.status).toBe(200);
+      await response.body!.cancel();
+    };
+    expect((await discover()).filter((id) => tools.map(name).includes(id))).toEqual([]);
+    for (const id of tools) {
+      expect(await invoke(id), id).toMatchObject(notExposed);
+      await f.allow(id);
+    }
+    expect(await discover()).toEqual(expect.arrayContaining(tools.map(name)));
+    const host = await f.desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId: a.hostId });
+    const binding = { hostId: a.hostId, routeRevision: host.routeRevision };
+    const intent = { ...binding, intentKey: randomUUID() };
+    const prepare = { ...binding, intentKey: randomUUID(), command: "fixture command" };
+    for (const [id, input] of [
+      [hostList, {}],
+      [directory, {}],
+      [hostGet, binding],
+      [probeStart, intent],
+      [jobPrepare, prepare],
+    ] as const) {
+      const args = id === hostGet ? { hostId: a.hostId } : input;
+      expect(await invoke(id, args), id).toMatchObject(notGranted);
+    }
+    expect(a.server.conns).toHaveLength(0);
+    await f.chooseHosts([a.hostId]);
+    const version = () => f.engine.vault.files.currentVersion(".huhu/ssh/host-directory.json");
+    const beforeRead = version();
+    const sideEffects = [vi.spyOn(HerdrCore.prototype, "ensure"), vi.spyOn(ModuleCredentials.prototype, "list"), vi.spyOn(ModuleCredentials.prototype, "use")];
+    try {
+      const list = data(await invoke(hostList));
+      expect(list).toEqual([{ id: a.hostId, name: a.profile.name, host: "127.0.0.1", port: a.server.port, user: "fixture-login", tags: [], revision: a.revision }]);
+      expect(data(await invoke(directory))).toMatchObject({ groups: [{ groupId: visible }], hosts: [{ hostId: a.hostId }] });
+      expect(await invoke(directory, { groupId: hidden })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(data(await invoke(hostGet, { hostId: a.hostId }))).toEqual(host);
+      expect(await invoke(hostGet, { hostId: b.hostId })).toMatchObject(notGranted);
+      expect(a.server.conns).toHaveLength(0);
+      expect(b.server.conns).toHaveLength(0);
+      expect(version()).toBe(beforeRead);
+      for (const spy of sideEffects) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of sideEffects) spy.mockRestore();
+    }
+
+    const [left] = await Promise.all([invoke(probeStart, intent), discardReply(probeStart, intent)]);
+    expect(await invoke(probeStart, intent)).toEqual(left);
+    const probe = { hostId: a.hostId, ...z.object({ attemptId: z.string() }).parse(data(left)) };
+    const waitForTrust = (address: typeof probe) =>
+      vi.waitFor(async () => {
+        const status = data(await invoke(probeGet, address));
+        expect(status).toMatchObject({ state: "waiting" });
+        return status as Waiting;
+      });
+    const prompt = await waitForTrust(probe);
+    expect(data(await invoke(probeList))).toEqual(expect.arrayContaining([expect.objectContaining(probe)]));
+    expect(data(await invoke(trustDecide, decision(prompt)))).toEqual({ applied: true });
+    const [firstJob] = await Promise.all([invoke(jobPrepare, prepare), discardReply(jobPrepare, prepare)]);
+    expect(await invoke(jobPrepare, prepare)).toEqual(firstJob);
+    const job = z.object({ jobId: z.string() }).parse(data(firstJob));
+    const field = async (key: "attemptId" | "sessionId") => vi.waitFor(async () => z.object({ [key]: z.string() }).parse(data(await invoke(jobGet, job)))[key]!);
+    const jobPrompt = await waitForTrust({ hostId: a.hostId, attemptId: await field("attemptId") });
+    expect(data(await invoke(trustDecide, decision(jobPrompt)))).toEqual({ applied: true });
+    const start = { ...binding, ...job, sessionId: await field("sessionId") };
+    const cursor = { ...job, stream: "stdout", cursor: 0 };
+    expect(data(await invoke(jobStart, start))).toEqual(job);
+    await vi.waitFor(async () => expect(data(await invoke(jobGet, job))).toMatchObject({ state: "exited" }));
+    expect(data(await invoke(jobOutput, cursor))).toMatchObject({ text: "fixture output" });
+    expect(data(await invoke(jobCancel, job))).toEqual({ requested: false });
+    expect(commands).toEqual([prepare.command]);
+    expect(a.server.conns).toHaveLength(2);
+
+    const rows = [
+      [hostList, {}],
+      [directory, {}],
+      [hostGet, { hostId: a.hostId }],
+      [probeStart, intent],
+      [probeGet, probe],
+      [probeList, {}],
+      [trustDecide, decision(prompt)],
+      [jobPrepare, prepare],
+      [jobStart, start],
+      [jobGet, job],
+      [jobOutput, cursor],
+      [jobCancel, job],
+    ] as const;
+    for (const [id, input] of rows) {
+      await f.allow(id, false);
+      expect(await discover()).not.toContain(name(id));
+      expect(await invoke(id, input), id).toMatchObject(notExposed);
+      await f.allow(id, true);
+    }
+    await f.chooseHosts([b.hostId]);
+    for (const [id, input] of rows.filter(([id]) => ![hostList, directory, probeList].includes(id))) expect(await invoke(id, input), id).toMatchObject(notGranted);
+    expect(data(await invoke(probeList))).toEqual([]);
+    await f.chooseHosts([a.hostId]);
+    await f.restart();
+    if (session) session = await openRecoverableMcpSession(f.mcpEndpoint(), token, session.recovery);
+    expect(data(await invoke(jobGet, job))).toMatchObject({ state: "exited", exitCode: 0 });
+    expect(await invoke(probeStart, intent)).toMatchObject({ ok: false, error: { details: { outcome: "unknown" } } });
+    if (entry === "cli") expect(data(await invoke(jobPrepare, prepare))).toEqual(job);
+    await f.chooseHosts([]);
+    expect(await invoke(jobGet, job)).toMatchObject(notGranted);
+    expect(await invoke(jobOutput, cursor)).toMatchObject(notGranted);
+    expect(commands).toEqual([prepare.command]);
+    expect(a.server.conns).toHaveLength(2);
+    expect(b.server.conns).toHaveLength(0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("the legacy policy defaults to no SSH access and resource changes share an atomic policy revision", async () => {
+  const f = await fixture();
+  try {
+    const access = () => f.desktop<{ toolAccess: { revision: number; choices: Record<string, boolean>; resources?: { "ssh.hosts": string[] } } }>("gateway.get").then(({ toolAccess }) => toolAccess);
+    expect(await access()).not.toHaveProperty("resources");
+    const { hostId } = await f.host("resource revision fixture");
+    const current = await access();
+    const resources = { "ssh.hosts": [] };
+    const changes = [{ capability: hostGet, exposed: true }];
+    const preview = await f.desktop<{ revision: number; catalogRevision: string }>("gateway.policy.preview", { changes, resources, expectedRevision: current.revision });
+    const token = f.engine.rendererToken;
+    const saved = { changes, resources, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision };
+    const changeAgain = { ...saved, resources: { "ssh.hosts": [hostId] }, changes: [{ capability: probeGet, exposed: true }] };
+    const outcomes = await Promise.all([f.call(token, "gateway.policy.update", saved), f.call(token, "gateway.policy.update", changeAgain)]);
+    expect(outcomes.filter((reply) => reply.ok)).toHaveLength(1);
+    expect(outcomes.find((reply) => !reply.ok)).toMatchObject({ error: { code: "VERSION_CONFLICT" } });
+    const committed = await access();
+    expect(committed.revision).toBe(current.revision + 1);
+    const granted = committed.resources?.["ssh.hosts"].includes(hostId);
+    expect(committed.choices[hostGet]).toBe(!granted);
+    expect(await f.call(token, "gateway.policy.preview", { resources: { "ssh.hosts": [`host-owned-${"e".repeat(32)}`] } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+    await f.allow("gateway.get");
+    await f.allow("gateway.policy.preview");
+    const external = f.engine.cliToken;
+    expect(data(await f.call<{ toolAccess: object }>(external, "gateway.get")).toolAccess).not.toHaveProperty("resources");
+    expect(await f.call(external, "gateway.policy.preview", { resources })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await f.call(external, "gateway.policy.update", saved)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect((await access()).resources).toEqual(committed.resources);
+  } finally {
+    await f.close();
+  }
+});
+
 test("only authorized Engine, CLI and MCP resolve the same portable SSH host and route without credentials or a dial", { timeout: 30_000 }, async () => {
   const f = await fixture();
   try {
@@ -138,6 +345,9 @@ test("only authorized Engine, CLI and MCP resolve the same portable SSH host and
     expect(await f.call(cliToken, hostGet, { hostId })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     const enabled = await f.allow(hostGet);
     expect(enabled).toMatchObject({ exposed: true });
+    await f.chooseHosts([target.hostId]);
+    expect(await f.cli(hostGet, { hostId })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await f.chooseHosts([jump.hostId, target.hostId]);
     await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
     const using = vi.spyOn(ModuleCredentials.prototype, "use");
     const checking = vi.spyOn(ModuleCredentials.prototype, "list");
@@ -155,7 +365,7 @@ test("only authorized Engine, CLI and MCP resolve the same portable SSH host and
       });
       expect(await f.cli(hostGet, { hostId })).toEqual({ ok: true, data: projected });
       expect(await f.mcp(mcpToken, "tools/call", { name: "ssh_resources_host_get", arguments: { hostId } })).toMatchObject({ structuredContent: { data: projected } });
-      expect(await f.call(cliToken, hostGet, { hostId: `host-owned-${"a".repeat(32)}` })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await f.call(cliToken, hostGet, { hostId: `host-owned-${"a".repeat(32)}` })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(await f.call(cliToken, hostGet, { hostId, includeSecrets: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       for (const srv of [jump, target]) expect(srv.server.conns).toHaveLength(0);
       expect(using).not.toHaveBeenCalled();
@@ -591,6 +801,16 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
       expect(reply).toMatchObject({ structuredContent: { data: { text: "hello", nextCursor: 5 } } });
       return reply.structuredContent;
     });
+    await f.chooseHosts([]);
+    const resourceDenied = { isError: true, content: [{ text: expect.stringContaining("PERMISSION_DENIED") }] };
+    expect(await invokeA(probeGet, key)).toMatchObject(resourceDenied);
+    expect(await invokeA(probeList, {})).toMatchObject(resourceDenied);
+    expect(await read()).toMatchObject(resourceDenied);
+    expect(await invokeA(jobGet, { jobId })).toMatchObject(resourceDenied);
+    expect(await invokeA(jobPrepare, prepare)).toMatchObject(resourceDenied);
+    expect(await invokeA(jobCancel, { jobId })).toMatchObject(resourceDenied);
+    expect(commands).toEqual([prepare.command]);
+    await f.chooseHosts([hostId]);
     const beforeReconnect = await mcpRequest(f.mcpEndpoint(), a.token, undefined, sessionA, { method: "GET" });
     expect(beforeReconnect.status).toBe(200);
     await beforeReconnect.body!.cancel();
@@ -635,6 +855,10 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     const invokeRestored = tool(a.token, restored.handle);
     expect(await invokeRestored(jobGet, { jobId })).toMatchObject({ structuredContent: { data: { jobId, state: "exited", exitCode: 130 } } });
     expect(await invokeRestored(jobOutput, { jobId, stream: "stdout", cursor: 0 })).toMatchObject({ structuredContent: { data: { text: "", nextCursor: 5, skippedBytes: 5, truncated: true } } });
+    await f.chooseHosts([]);
+    expect(await invokeRestored(jobGet, { jobId })).toMatchObject(resourceDenied);
+    expect(await invokeRestored(jobOutput, { jobId, stream: "stdout", cursor: 0 })).toMatchObject(resourceDenied);
+    await f.chooseHosts([hostId]);
     expect(await invokeRestored(jobStart, start)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('"outcome":"unknown"') }] });
     expect(commands).toEqual([prepare.command]);
     await f.desktop("gateway.mcp.update", { enabled: false, transport: "http" });

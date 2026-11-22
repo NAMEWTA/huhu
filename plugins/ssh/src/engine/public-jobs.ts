@@ -6,7 +6,7 @@ import { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import { ExecOutput, unavailableOutput } from "./job-output.js";
 import { StartPublicProbe, type PublicSshProbes } from "./public-probes.js";
-import { externalSshOwner, readBoundRoute } from "./public-resources.js";
+import { assertSshHosts, externalSshOwner, readBoundRoute } from "./public-resources.js";
 
 export const PrepareExecJob = StartPublicProbe.extend({
   intentKey: CapabilityIntentKeySchema,
@@ -119,20 +119,23 @@ export class PublicExecJobs {
   prepare(context: CapabilityContext, { intentKey, ...input }: z.infer<typeof PrepareExecJob>) {
     const { owner, receiptOwner } = this.owners(context);
     context.signal.throwIfAborted();
+    assertSshHosts(context, [input.hostId]);
     const lookup = { capability, intentKey };
     const earlier = this.receipts.lookup(receiptOwner, lookup);
     if (earlier) {
       const replay = this.receipts.claim(receiptOwner, capability, intentKey, input);
       if (replay.mismatch) throw errors.idempotencyMismatch();
+      if (earlier.resources) assertSshHosts(context, earlier.resources["ssh.hosts"]);
+      else readBoundRoute(this.files, context, input);
       return { jobId: earlier.operationId };
     }
     this.files.assertWritable();
-    readBoundRoute(this.files, input);
+    const chain = readBoundRoute(this.files, context, input);
     this.trimOutput();
     const running = [...this.jobs.values()].filter((job) => job.endedAt === undefined);
     if (running.filter((job) => job.owner === owner).length >= 4 || running.length >= 16) throw errors.invalidInput("SSH 作业运行数量已达上限");
     context.signal.throwIfAborted();
-    const { entry, fresh } = this.receipts.claim(receiptOwner, capability, intentKey, input);
+    const { entry, fresh } = this.receipts.claim(receiptOwner, capability, intentKey, input, { "ssh.hosts": chain.map(({ id }) => id) });
     const { operationId: jobId } = entry;
     if (!fresh || entry.phase !== "accepted") return { jobId };
     const job: Job = {
@@ -159,7 +162,7 @@ export class PublicExecJobs {
     this.jobs.set(jobId, job);
     try {
       if (this.retainActivity) job.releaseActivity = this.retainActivity();
-      const connection = this.probes.openForJob(owner, input);
+      const connection = this.probes.openForJob(context, owner, input);
       job.close = connection.close;
       job.status.attemptId = connection.attemptId;
       void connection.ready.then(
@@ -193,7 +196,7 @@ export class PublicExecJobs {
     context.signal.throwIfAborted();
     this.files.assertWritable();
     try {
-      readBoundRoute(this.files, input);
+      readBoundRoute(this.files, context, input);
     } catch (error) {
       this.finish(job, connectionFailure(error));
       throw error;
@@ -327,13 +330,21 @@ export class PublicExecJobs {
   private find(context: CapabilityContext, jobId: string): { job?: Job; status: z.infer<typeof ExecJobStatus> } {
     const { owner, receiptOwner } = this.owners(context);
     const job = this.jobs.get(jobId);
-    if (job?.owner === owner) return { job, status: this.view(job) };
+    if (job?.owner === owner) {
+      assertSshHosts(context, job.claim.resources?.["ssh.hosts"] ?? [job.status.hostId]);
+      return { job, status: this.view(job) };
+    }
     const receipt = this.receipts.lookup(receiptOwner, { operationId: jobId });
     if (!receipt || receipt.capability !== capability) throw errors.notFound("SSH 作业");
+    if (receipt.resources) assertSshHosts(context, receipt.resources["ssh.hosts"]);
     if (receipt.phase !== "accepted" && receipt.result.ok) {
       const terminal = lifecycle.safeParse(receipt.result.data);
-      if (terminal.success) return { status: terminal.data };
+      if (terminal.success) {
+        if (!receipt.resources) readBoundRoute(this.files, context, terminal.data);
+        return { status: terminal.data };
+      }
     }
+    if (!receipt.resources) throw errors.notFound("SSH 作业");
     return { status: { jobId, state: "unknown", reason: "engine-interrupted" } };
   }
 

@@ -40,13 +40,21 @@ export type CapabilityAvailability = (typeof CAPABILITY_AVAILABILITIES)[number];
 
 const ToolAccessChoicesSchema = z.record(z.string().min(1), z.boolean());
 const ToolAccessRevisionSchema = z.int().nonnegative();
+export const ToolAccessResourcesSchema = z.strictObject({
+  "ssh.hosts": z
+    .array(z.string().min(1).max(128))
+    .max(1000)
+    .refine((ids) => new Set(ids).size === ids.length),
+});
+export type ToolAccessResources = z.infer<typeof ToolAccessResourcesSchema>;
 export const ToolAccessFileSchema = z.strictObject({
   formatVersion: z.literal(1),
   revision: ToolAccessRevisionSchema,
   choices: ToolAccessChoicesSchema,
+  resources: ToolAccessResourcesSchema.optional(),
 });
 export const ToolAccessSnapshotSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("ready"), revision: ToolAccessRevisionSchema, choices: ToolAccessChoicesSchema }),
+  z.object({ state: z.literal("ready"), revision: ToolAccessRevisionSchema, choices: ToolAccessChoicesSchema, resources: ToolAccessResourcesSchema.optional() }),
   z.object({ state: z.literal("error"), reason: z.enum(["missing", "unreadable", "invalid-format"]), message: z.string() }),
 ]);
 export type ToolAccessSnapshot = z.infer<typeof ToolAccessSnapshotSchema>;

@@ -9,6 +9,7 @@ import { useCapability, useEngine, useQueryClient } from "../engine-client/react
 import { tGateway as g } from "../i18n/zh-CN.js";
 import { openSettings, type UiState } from "../state/ui-store.js";
 import { CliSection } from "./CliSection.js";
+import { SshHostGrants } from "./SshHostGrants.js";
 import { ToolPolicyCatalog } from "./ToolPolicyCatalog.js";
 import { WebSharePanel } from "./WebSharePanel.js";
 
@@ -441,6 +442,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                 </section>
               ) : null}
               <div hidden={mcpTab !== "tools"}>
+                <SshHostGrants policy={gw.data?.toolAccess} />
                 <ToolPolicyCatalog entries={all} filter={filter} policy={gw.data?.toolAccess} />
               </div>
               <div className="hu-callout shell-system-note">

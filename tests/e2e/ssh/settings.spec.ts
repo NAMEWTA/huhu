@@ -1,5 +1,5 @@
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test, type Browser } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
-import { desktopCall } from "./workbench.js";
+import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 import type { CapabilityCatalogEntry } from "../../../packages/contracts/src/capability.js";
 
 test("SSH preferences apply to workspace, terminal, file views and transfer queue", async () => {
@@ -149,7 +149,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const revision = shared.getByTestId("ssh-tool-policy-revision");
     const initial = await desktopCall<{ toolAccess: { revision: number } }>(page, "gateway.get");
     await expect(revision).toHaveText(String(initial.toolAccess.revision));
-    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.hosts.list", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
+    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.hosts.configure", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
 
     const { id, token } = await desktopCall<{ id: string; token: string }>(page, "gateway.tokens.create", { name: "temporary MCP loopback fixture" });
     const url = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");
@@ -159,6 +159,12 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     expect((await rpc("tools/list")).status).toBe(404);
     await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
     const gateway = page.getByTestId("gateway-module");
+    const grants = gateway.getByRole("form", { name: "允许外部工具访问的 SSH 主机" });
+    const grant = grants.getByRole("checkbox", { name: /^外部只读目录回环/ });
+    await expect(grant).not.toBeChecked();
+    await grant.check();
+    await grants.getByRole("button", { name: "保存主机授权" }).click();
+    await expect(grants.getByRole("status")).toContainText("已保存 SSH 主机授权");
     const mcp = gateway.getByRole("switch", { name: "启用 MCP 服务" });
     await mcp.click();
     await expect(mcp).toBeChecked();
@@ -225,11 +231,55 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await desktopCall(page, "ssh.hosts.remove", { hostId, expectedRevision: hostRevision });
     await desktopCall(page, "plugins.setEnabled", { id: "ssh", enabled: false });
     const catalog = await desktopCall<CapabilityCatalogEntry[]>(page, "capabilities.list", { includeInactive: true });
-    expect(catalog.find(({ name }) => name === "ssh.hosts.list")).toMatchObject({ availability: "plugin-disabled", exposable: false, exposed: false });
+    expect(catalog.find(({ name }) => name === "ssh.hosts.list")).toMatchObject({ availability: "plugin-disabled", exposable: true, exposed: false });
     expect(catalog.find(({ name }) => name === resource)).toMatchObject({ availability: "plugin-disabled", exposable: true, exposed: false, scope: "read" });
     await expect(page.getByRole("button", { name: "远程连接", exact: true })).toHaveCount(0);
   } finally {
     await fixture.close();
     await server.close();
+  }
+});
+
+test("SSH host grants are editable from desktop and invited browser workbenches", async () => {
+  test.skip(!browserBinary, "需要 Playwright Chromium 或 Microsoft Edge");
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const host = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", { name: "共享授权回环", host: "127.0.0.1", user: "fixture", authKind: "agent", expectedRevision: null });
+    const link = await localWebLink(page);
+    browser = await chromium.launch({ executablePath: browserBinary, headless: true });
+    const web = await browser.newPage();
+    await web.goto(link);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    for (const view of [page, web]) {
+      await view.getByRole("button", { name: "能力网关", exact: true }).first().click();
+      await view.getByRole("tab", { name: "MCP" }).click();
+    }
+    const form = (view: typeof page) => view.getByRole("form", { name: "允许外部工具访问的 SSH 主机" });
+    const checkbox = (view: typeof page) => form(view).getByRole("checkbox", { name: /^共享授权回环/ });
+    const save = async (view: typeof page) => {
+      await form(view).getByRole("button", { name: "保存主机授权" }).click();
+      await expect(form(view).getByRole("status")).toContainText("已保存 SSH 主机授权");
+    };
+    await expect(checkbox(page)).not.toBeChecked();
+    await expect(checkbox(web)).not.toBeChecked();
+    await checkbox(page).check();
+    await save(page);
+    await expect(checkbox(web)).toBeChecked();
+    expect(await desktopCall(page, "gateway.get")).toMatchObject({ toolAccess: { resources: { "ssh.hosts": [host.hostId] } } });
+    await checkbox(web).uncheck();
+    await save(web);
+    await expect(checkbox(page)).not.toBeChecked();
+    await checkbox(web).check();
+    await save(web);
+    await expect(checkbox(page)).toBeChecked();
+    await checkbox(page).uncheck();
+    await save(page);
+    await expect(checkbox(web)).not.toBeChecked();
+    expect(await desktopCall(page, "gateway.get")).toMatchObject({ toolAccess: { resources: { "ssh.hosts": [] } } });
+  } finally {
+    await browser?.close();
+    await close();
   }
 });
