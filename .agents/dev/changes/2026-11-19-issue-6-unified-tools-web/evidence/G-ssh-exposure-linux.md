@@ -143,3 +143,18 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.auth.keyboardInteractive.respond` 默认关闭，按本主体原尝试、跳点、挑战 ID 及修订消费一次。答案只进入 SSH 握手，回执无答案。
 - `ssh.workspace.runs.list/start/reconnect/close/saveTemplate` 默认关闭。外部工作区使用本主体的原连接和分栏，重连核对持有者、全路由及代次，撤权关闭分栏。模板运行不执行保存的登录命令。工作台可见来源并关闭运行。
 - Node 24.21.0 下 SSH 单包类型检查通过，CLI / HTTP MCP 的终端工作区、监控和认证定向 8 项通过。
+
+## Task06 六项外部 SSH 工具与代理、远端监听
+
+候选实现 `133dfc0b`，基线 `b25c6322`。六个既有工具 ID 均为可选开放、默认关闭。外部请求沿用当前主机及跳板授权、主体和原连接代。
+
+| 能力 | Linux 回环证据 |
+| --- | --- |
+| `ssh.archives.support`、`ssh.archives.run` | CLI 与 HTTP MCP 都拒绝跨主体会话和 Engine 本机目录。每条连接缓存一次远端工具探测。回环 SSH 端实际运行远端命令，源与覆盖修订来自 SFTP 属性。TAR、TGZ、ZIP 均生成成功，TGZ 查看、解压和字节还原成功。大小限制、源或目标修订变更、缺少覆盖确认和主机撤权均已验证。重复意图返回原收据，回执里无归档文件内容。 |
+| `ssh.fileSessions.directory`、`ssh.fileSessions.prepareDirectory`、`ssh.fileSessions.commitDirectory` | 使用拥有者和同代 PTY，SFTP 确认规范目录，原提示符修订与输入状态锁定提交。提交令牌有效五秒，重新提交或直接写入 PTY 后旧令牌不可再使用。相同意图重交只写一次。跨连接、跨主体和撤权均拒绝。 |
+| `ssh.hosts.import.confirm` | 来源内容摘要、主体、当前可见路由和目录修订共同决定预览令牌。改动源或目录、跨主体使用旧令牌均被拒绝。成员只进入调用方可见的既有分组，其他项落到未分组。新主机在两种外部入口都未获得使用权限。 |
+| `ssh.forwarding.runs.start/resume/stop/list` | 本机固定目标、SOCKS5 和 HTTP CONNECT 绑定 Engine 的 IPv4 回环随机端口，均验证回传。远端监听占用时返回显式错误，延迟成功回执时保持启动中，收到成功后可实测回传。撤销主机后四种监听都释放。远端成功回执不提供服务器真实绑定地址，结果保留 `server-policy-unknown`。 |
+
+验证使用 Node 24.21.0、pnpm 12.10.1。SSH 单包 `pnpm exec tsc --noEmit -p plugins/ssh` 通过。单文件 `public-resources.engine.test.ts` 46/46 通过，`shell-directory.test.ts` 2/2 通过。归档夹具在本机回环 SSH 服务端独立进程中执行，Engine 目录不参与归档。远端归档依赖远端 Python 3、Linux 原子目录发布支持与相应 tar/gzip 或 zip 工具。Windows 原生 ZIP 仍由工作台使用。未验证真实远端服务器的绑定策略或非 Linux 归档环境。
+
+`tests/e2e/ssh/owned.spec.ts` 增补 CLI 与 HTTP MCP 两个场景，名称均以前缀标识入口，后接 `isolates SSH terminals, files, imports and forwarded listeners`。按分工仅编写，等待 Lead 串行执行。
