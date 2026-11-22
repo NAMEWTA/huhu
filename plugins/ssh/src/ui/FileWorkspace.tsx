@@ -266,7 +266,9 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
             {!transfers && current?.source === "external" && (
               <section>
                 <h2>外部工具文件会话 · {current.name}</h2>
-                <p><code>{source(current)}</code></p>
+                <p>
+                  <code>{source(current)}</code>
+                </p>
                 <Button onClick={() => void close(current.fileSessionId)}>关闭外部文件会话</Button>
               </section>
             )}

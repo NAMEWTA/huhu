@@ -22,7 +22,10 @@ const LayoutRevisionReceipt = RunReceipt.extend({ layoutRevision: z.uuid() });
 const LayoutReceipt = z.union([
   WorkspaceRun.extend({
     layoutRevision: z.uuid(),
-    panes: z.array(WorkspaceRun.shape.panes.element.omit({ prompt: true, authPrompt: true, error: true })).min(1).max(MAX_WORKSPACE_PANES),
+    panes: z
+      .array(WorkspaceRun.shape.panes.element.omit({ prompt: true, authPrompt: true, error: true }))
+      .min(1)
+      .max(MAX_WORKSPACE_PANES),
   }),
   LayoutRevisionReceipt,
 ]);

@@ -27,13 +27,20 @@ const chunkLimit = 256 * 1024;
 export const UploadBytes = TransferHandle.extend({
   remotePath: RemoteFilePath,
   intentKey: CapabilityIntentKeySchema,
-  dataBase64: z.base64().max(Math.ceil(chunkLimit / 3) * 4).refine((data) => Buffer.byteLength(data, "base64") <= chunkLimit),
+  dataBase64: z
+    .base64()
+    .max(Math.ceil(chunkLimit / 3) * 4)
+    .refine((data) => Buffer.byteLength(data, "base64") <= chunkLimit),
   overwrite: z.boolean().default(false),
   expectedRevision: TargetRevision.optional(),
 });
 export const DownloadBytes = TransferHandle.extend({
   remotePath: RemoteFilePath,
-  offset: z.int().min(0).max(Number.MAX_SAFE_INTEGER - chunkLimit).default(0),
+  offset: z
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER - chunkLimit)
+    .default(0),
   limit: z.int().min(1).max(chunkLimit).default(chunkLimit),
 });
 export const DownloadPage = z.strictObject({ dataBase64: z.base64(), size: z.int().min(0).max(chunkLimit), nextOffset: z.int().nonnegative(), eof: z.boolean() });
@@ -113,10 +120,18 @@ export class PublicFileSessions {
   }
 
   close(context: CapabilityContext, request: z.infer<typeof FileSessionId> & { intentKey?: string | undefined }) {
-    return this.mutate(context, "ssh.fileSessions.close", request, {}, Ok, async () => {
-      this.closeWorkbench(request.fileSessionId);
-      return { ok: true as const };
-    }, true);
+    return this.mutate(
+      context,
+      "ssh.fileSessions.close",
+      request,
+      {},
+      Ok,
+      async () => {
+        this.closeWorkbench(request.fileSessionId);
+        return { ok: true as const };
+      },
+      true,
+    );
   }
 
   closeWorkbench(id: string): boolean {
@@ -162,9 +177,7 @@ export class PublicFileSessions {
         }
       });
     }
-    return this.use(context, id, (files) =>
-      this.manager.withSftp(files.source({ fileSessionId: id }), "external", "", work, { signal: context.signal, timeoutMs: 30_000 }),
-    );
+    return this.use(context, id, (files) => this.manager.withSftp(files.source({ fileSessionId: id }), "external", "", work, { signal: context.signal, timeoutMs: 30_000 }));
   }
 
   download(context: CapabilityContext, { fileSessionId, remotePath, offset, limit, transferId }: z.infer<typeof DownloadBytes>) {
@@ -201,14 +214,20 @@ export class PublicFileSessions {
     if (overwrite && !expectedRevision) throw errors.invalidInput("覆盖远端文件需要原文件修订");
     const digest = await this.seal(context, fileSessionId, capability, content.toString("base64"));
     return this.mutate(context, capability, request, { remotePath, digest, overwrite, expectedRevision, transferId }, Size, (assertCurrent) =>
-      this.withSftp(context, fileSessionId, (channel, signal) => sftp.writeAtomic(channel, remotePath, Readable.from(content), {
-        overwrite,
-        signal,
-        verifyTarget: async () => {
-          if (expectedRevision) await assertEntryRevision(channel, remotePath, expectedRevision);
-          assertCurrent();
-        },
-      }), transferId ? { kind: "transfer", id: transferId } : undefined),
+      this.withSftp(
+        context,
+        fileSessionId,
+        (channel, signal) =>
+          sftp.writeAtomic(channel, remotePath, Readable.from(content), {
+            overwrite,
+            signal,
+            verifyTarget: async () => {
+              if (expectedRevision) await assertEntryRevision(channel, remotePath, expectedRevision);
+              assertCurrent();
+            },
+          }),
+        transferId ? { kind: "transfer", id: transferId } : undefined,
+      ),
     );
   }
 

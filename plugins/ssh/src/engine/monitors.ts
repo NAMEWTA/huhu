@@ -231,26 +231,26 @@ export class Monitors {
     const connection = binding.acquire
       ? Promise.resolve().then(binding.acquire)
       : this.manager.acquireMonitor(binding.host.hostId, dial.signal, (status) => {
-        if (dial.signal.aborted || binding.dial !== dial) return;
-        binding.host.state = status.state === "waiting" ? "trust" : "connecting";
-        binding.host.prompt = status.state === "waiting" || status.state === "key-changed" ? status.prompt : undefined;
-      });
-    void connection.then(
-        (connection) => {
-          if (dial.signal.aborted || binding.dial !== dial || this.disposed) {
-            connection.release();
-            return;
-          }
-          delete binding.dial;
-          this.attach(binding, connection);
-        },
-        (error: unknown) => {
           if (dial.signal.aborted || binding.dial !== dial) return;
-          delete binding.dial;
-          binding.host.state = error instanceof HuhuError && error.code === "NOT_FOUND" ? "missing" : "failed";
-          binding.host.message = error instanceof HuhuError ? error.message : "无法建立监控连接";
-        },
-      );
+          binding.host.state = status.state === "waiting" ? "trust" : "connecting";
+          binding.host.prompt = status.state === "waiting" || status.state === "key-changed" ? status.prompt : undefined;
+        });
+    void connection.then(
+      (connection) => {
+        if (dial.signal.aborted || binding.dial !== dial || this.disposed) {
+          connection.release();
+          return;
+        }
+        delete binding.dial;
+        this.attach(binding, connection);
+      },
+      (error: unknown) => {
+        if (dial.signal.aborted || binding.dial !== dial) return;
+        delete binding.dial;
+        binding.host.state = error instanceof HuhuError && error.code === "NOT_FOUND" ? "missing" : "failed";
+        binding.host.message = error instanceof HuhuError ? error.message : "无法建立监控连接";
+      },
+    );
   }
 
   private attach(binding: Binding, connection: MonitorConnection) {

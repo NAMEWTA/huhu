@@ -271,9 +271,7 @@ export class PublicExecJobs {
   list(context: CapabilityContext, hostId?: string) {
     const owner = externalSshOwner(context);
     const routes = visibleSshRoutes(this.files, context);
-    return [...this.jobs.values()]
-      .filter((job) => job.owner === owner && !job.revoked && (!hostId || job.status.hostId === hostId) && routes.get(job.status.hostId)?.routeRevision === job.status.routeRevision)
-      .map((job) => this.view(job));
+    return [...this.jobs.values()].filter((job) => job.owner === owner && !job.revoked && (!hostId || job.status.hostId === hostId) && routes.get(job.status.hostId)?.routeRevision === job.status.routeRevision).map((job) => this.view(job));
   }
 
   workbenchList(hostId?: string) {

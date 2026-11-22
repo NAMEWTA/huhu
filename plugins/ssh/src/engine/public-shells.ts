@@ -30,7 +30,11 @@ export const ShellOutputPage = ExecOutputPage.extend({ ended: z.boolean() });
 export const ChangeOwnedShell = ShellId.extend({ intentKey });
 export const ResizeOwnedShell = ChangeOwnedShell.extend(ShellSize);
 const inputLimit = 16 * 1024;
-const inputBytes = z.base64().min(4).max(Math.ceil(inputLimit / 3) * 4).refine((value) => Buffer.byteLength(value, "base64") <= inputLimit);
+const inputBytes = z
+  .base64()
+  .min(4)
+  .max(Math.ceil(inputLimit / 3) * 4)
+  .refine((value) => Buffer.byteLength(value, "base64") <= inputLimit);
 export const WriteOwnedShell = ChangeOwnedShell.extend({ dataBase64: inputBytes });
 export const ShellWriteReceipt = z.strictObject({ bytes: z.int().nonnegative().max(inputLimit) });
 export const ShellResizeReceipt = z.strictObject({ resized: z.literal(true) });
@@ -148,16 +152,18 @@ export class PublicShells {
   list(context: CapabilityContext, hostId?: string) {
     const owner = externalSshOwner(context);
     const selected = selectedSshHosts(context);
-    return [...this.shells.values()].filter((shell) => {
-      if (shell.owner !== owner || (hostId && shell.binding.hostId !== hostId) || shell.hostIds.some((id) => !selected.has(id))) return false;
-      try {
-        this.connections.connection(context, shell.binding);
-        return true;
-      } catch (error) {
-        if (!(error instanceof HuhuError)) throw error;
-        return false;
-      }
-    }).map(({ view }) => view);
+    return [...this.shells.values()]
+      .filter((shell) => {
+        if (shell.owner !== owner || (hostId && shell.binding.hostId !== hostId) || shell.hostIds.some((id) => !selected.has(id))) return false;
+        try {
+          this.connections.connection(context, shell.binding);
+          return true;
+        } catch (error) {
+          if (!(error instanceof HuhuError)) throw error;
+          return false;
+        }
+      })
+      .map(({ view }) => view);
   }
 
   workbenchList(hostId?: string) {
