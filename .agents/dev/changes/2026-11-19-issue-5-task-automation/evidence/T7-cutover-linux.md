@@ -67,3 +67,5 @@ Lead 对四个相关 E2E 文件进行了单独 TypeScript 检查，包含桌面�
 `bash scripts/accept-linux-candidate.sh <模式> <AppImage> <SHA-256> <完整提交> <固定 Codex ELF>` 提供三种独立模式：`tasks` 对应 T7.2，`workspace` 对应 W8.2/W8.3，`credentials` 对应 CLI/MCP 与 Mail/Safe。三次必须使用同一制品、摘要和提交，不以各自通过的不同包拼成组合通过。
 
 入口要求干净工作树与提交相符，校验固定 Codex 摘要，使用独立 HOME/XDG、D-Bus Secret Service 和 Xvfb，并以 `/tmp/huhu-heavy.lock` 串行执行。每次只选择一项包用例，JSON 报告必须为 1 项通过、0 失败、0 跳过、0 重试后通过。报告保存在 `temp/candidate-acceptance/<模式>.<随机目录>/result.json`，测试附件记录实际运行程序与随包资源身份。命令和脚本存在不代表已经完成验收；待最终代码与审查完成、构建同一候选后填写实际命令及结果。
+
+`native` 模式另外接收第六个参数（同源码构建的 `native/agent-pty/bin/linux-fixture`），在同一候选包检查两项 Linux Agent 桌面用例；该模式要求 2 项通过、0 跳过，其余三种模式仍各要求 1 项。入口记录夹具二进制摘要，仍不替代最终实际执行记录。
