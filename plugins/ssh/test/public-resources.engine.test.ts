@@ -1176,6 +1176,97 @@ test.each(["cli", "mcp"] as const)("%s isolates SSH terminal I/O and closes the 
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s binds byte transfers to owned SFTP sessions and rejects every Engine local path", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const readFileBegan = latch();
+  const releaseRead = latch();
+  const heldPath = "/home/test/held.bin";
+  try {
+    const { hostId, server, password } = await f.host("owned SFTP fixture", [], {
+      waitReadFile: (path) => {
+        if (path !== heldPath) return;
+        readFileBegan.resolve();
+        return releaseRead.promise;
+      },
+    });
+    const other = await f.host("other selected resource");
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const open = "ssh.fileSessions.open";
+    const list = "ssh.fileSessions.list";
+    const close = "ssh.fileSessions.close";
+    const upload = "ssh.sftp.upload";
+    const download = "ssh.sftp.download";
+    const cancel = "ssh.sftp.cancel";
+    const properties = "ssh.fileSessions.properties";
+    const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    const invalid = { ok: false, error: { code: "INVALID_INPUT" } };
+    const notExposed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    expect(await invoke(open, {})).toMatchObject(notExposed);
+    for (const tool of ["ssh.connect", probeGet, trustDecide, open, list, close, upload, download, cancel, properties, "ssh.sftp.list"]) await f.allow(tool);
+    const bind = { hostId, routeRevision, intentKey: randomUUID() };
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", bind)));
+    const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+    const pending = await vi.waitFor(async () => {
+      const result = await status();
+      if (result.state !== "waiting") throw new Error("Waiting for loopback trust");
+      return result;
+    });
+    expect(await invoke(trustDecide, decision(pending))).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+    const openIntent = { ...bind, attemptId, intentKey: randomUUID() };
+    const opened = await invoke(open, openIntent);
+    expect(await invoke(open, openIntent)).toEqual(opened);
+    expect(await peer(open, openIntent)).toMatchObject(missing);
+    const { fileSessionId } = z.object({ fileSessionId: z.uuid() }).parse(data(opened));
+    expect(data(await peer(list, {}))).toEqual([]);
+    expect(await f.desktop(list)).toMatchObject([{ fileSessionId, source: "external" }]);
+    expect(await peer(close, { fileSessionId, intentKey: randomUUID() })).toMatchObject(missing);
+    const remotePath = "/home/test/binary.dat";
+    for (const capability of [upload, download]) {
+      expect(await invoke(capability, { fileSessionId, remotePath, localPath: "/fixture/engine-local" })).toMatchObject(invalid);
+    }
+    expect(await invoke("ssh.fileSessions.localList", { fileSessionId, root: "/fixture/engine-local", parts: [] })).toMatchObject(notExposed);
+    const bytes = Buffer.concat([Buffer.from([0, 255]), Buffer.from("fixture-remote-data")]);
+    const uploadIntent = { fileSessionId, remotePath, dataBase64: bytes.toString("base64"), transferId: randomUUID(), intentKey: randomUUID() };
+    expect(await peer(upload, uploadIntent)).toMatchObject(missing);
+    const sent = await invoke(upload, uploadIntent);
+    expect(sent).toEqual({ ok: true, data: { size: bytes.length } });
+    expect(await invoke(upload, uploadIntent)).toEqual(sent);
+    expect(await invoke(upload, { ...uploadIntent, dataBase64: "YQ==" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(server.fs.files.get(remotePath)).toEqual(bytes);
+    const downloaded = (offset: number, limit: number) => invoke(download, { fileSessionId, remotePath, offset, limit, transferId: randomUUID() });
+    expect(await downloaded(0, 2)).toEqual({ ok: true, data: { dataBase64: "AP8=", size: 2, nextOffset: 2, eof: false } });
+    expect(await downloaded(2, bytes.length)).toEqual({ ok: true, data: { dataBase64: bytes.subarray(2).toString("base64"), size: bytes.length - 2, nextOffset: bytes.length, eof: true } });
+    expect(await invoke(properties, { fileSessionId, path: remotePath })).toMatchObject({ ok: true, data: { size: bytes.length, revision: expect.any(String) } });
+    const receipts = await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8");
+    for (const secret of [password, "fixture-remote-data", uploadIntent.dataBase64, uploadIntent.intentKey]) expect(receipts).not.toContain(secret);
+
+    server.fs.files.set(heldPath, Buffer.from("withhold pending result"));
+    const transferId = randomUUID();
+    const pendingDownload = invoke(download, { fileSessionId, remotePath: heldPath, transferId });
+    await readFileBegan.promise;
+    expect(await peer(cancel, { fileSessionId, transferId, intentKey: randomUUID() })).toMatchObject(missing);
+    const cancellation = { fileSessionId, transferId, intentKey: randomUUID() };
+    expect(await invoke(cancel, cancellation)).toEqual({ ok: true, data: { cancelled: true } });
+    expect(await invoke(cancel, cancellation)).toEqual({ ok: true, data: { cancelled: true } });
+    expect(await pendingDownload).toMatchObject({ ok: false });
+    releaseRead.resolve();
+    await f.chooseHosts([other.hostId]);
+    await vi.waitFor(() => expect(server.closed()).toBe(1));
+    expect(await downloaded(0, 1)).toMatchObject(denied);
+    expect(await invoke(upload, uploadIntent)).toMatchObject(denied);
+    expect(await f.desktop(list)).toEqual([]);
+    await f.allow(upload, false);
+    expect(await invoke(upload, uploadIntent)).toMatchObject(notExposed);
+  } finally {
+    releaseRead.resolve();
+    await f.close();
+  }
+});
+
 test.each(["cli", "mcp"] as const)("%s previews inline SSH import bytes against only authorized routes and binds the preview to its subject", { timeout: 35_000 }, async (entry) => {
   const f = await fixture();
   const preview = "ssh.hosts.import.preview";

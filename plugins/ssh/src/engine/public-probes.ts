@@ -230,9 +230,15 @@ export class PublicSshProbes {
   connection(context: CapabilityContext, input: z.infer<typeof OwnedConnection>) {
     const record = this.get(context, input, "connection");
     if (record.status.routeRevision !== input.routeRevision) throw errors.notFound("原 SSH 连接");
-    readBoundRoute(this.files, context, input);
+    const target = readBoundRoute(this.files, context, input).at(-1)!;
     if (!record.client || record.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
-    return { client: record.client, signal: record.abort.signal, hostIds: record.hostIds };
+    const { name, host, user, port } = target;
+    return {
+      client: record.client,
+      signal: record.abort.signal,
+      hostIds: record.hostIds,
+      origin: { connectionId: input.attemptId, hostId: input.hostId, name, host, user, port },
+    };
   }
 
   workbenchConnections(): ConnectionStatus[] {

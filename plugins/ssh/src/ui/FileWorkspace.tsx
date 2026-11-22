@@ -201,7 +201,9 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
     if (active) void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
   }, [active, selectedId, qc, engine.vaultId, seed]);
   useEngineEvents((event) => {
-    if (event.type === "ssh.connectionChanged") void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
+    if (event.type === "ssh.connectionChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-external-file-session")) {
+      void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
+    }
   });
 
   async function close(id: string) {
@@ -241,7 +243,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                 }}
               >
                 <strong>{session.name}</strong>
-                <span>{session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
+                <span>{session.source === "external" ? "外部工具会话" : session.state === "ready" ? "原连接在线" : "原连接已断开"}</span>
               </button>
             ))}
           </div>
@@ -261,7 +263,15 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
               />
             )}
             {!transfers && !current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
+            {!transfers && current?.source === "external" && (
+              <section>
+                <h2>外部工具文件会话 · {current.name}</h2>
+                <p><code>{source(current)}</code></p>
+                <Button onClick={() => void close(current.fileSessionId)}>关闭外部文件会话</Button>
+              </section>
+            )}
             {sessions.data?.map((session) => {
+              if (session.source === "external") return null;
               const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} focus={fileFocus?.id === session.fileSessionId ? fileFocus : undefined} />];
               const remoteFirst = reversed[session.fileSessionId] ?? remoteOnLeft;
               if (remoteFirst) panes.reverse();

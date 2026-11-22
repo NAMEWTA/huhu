@@ -215,11 +215,20 @@ export async function readText(s: SFTPWrapper, p: string, signal?: AbortSignal):
   }
 }
 
-async function readBounded(s: SFTPWrapper, abs: string, max: number, tooLarge: string, signal?: AbortSignal): Promise<Buffer> {
+export async function downloadChunk(s: SFTPWrapper, input: string, offset: number, limit: number, signal: AbortSignal) {
+  const abs = normalizeRemote(input);
+  const st = await call<Stats>((cb) => s.stat(abs, cb));
+  if (typeOf(st.mode) !== "file") throw errors.invalidInput("只能下载普通文件");
+  const buffer = await readBounded(s, abs, limit + 1, "下载块超过长度上限", signal, { start: offset, end: offset + limit });
+  const bytes = buffer.subarray(0, limit);
+  return { dataBase64: bytes.toString("base64"), size: bytes.length, nextOffset: offset + bytes.length, eof: buffer.length <= limit };
+}
+
+async function readBounded(s: SFTPWrapper, abs: string, max: number, tooLarge: string, signal?: AbortSignal, range?: { start: number; end: number }): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let got = 0;
   await pipeline(
-    s.createReadStream(abs),
+    s.createReadStream(abs, range),
     new Transform({
       transform(c: Buffer, _e, cb) {
         got += c.length;
@@ -325,10 +334,12 @@ export async function writeAtomic(
     signal?: AbortSignal;
     maxBytes?: number;
     checkedReplace?: { mode: number; verify: () => Promise<unknown> };
+    verifyTarget?: () => Promise<void>;
   },
 ): Promise<{ size: number }> {
   const abs = normalizeRemote(target);
   if (abs === ".") throw errors.invalidInput("需要完整的远端文件路径");
+  await opts.verifyTarget?.();
   const existing = await statOrNull(s, abs);
   if (existing && !opts.overwrite) {
     source.destroy();
@@ -355,6 +366,8 @@ export async function writeAtomic(
       await opts.checkedReplace.verify();
       opts.signal?.throwIfAborted();
     }
+    await opts.verifyTarget?.();
+    opts.signal?.throwIfAborted();
     if (existing) {
       await replaceRemote(s, tmp, abs);
     } else {
@@ -416,27 +429,30 @@ export async function downloadToLocal(s: SFTPWrapper, remote: string, localFile:
   }
 }
 
-export async function mkdir(s: SFTPWrapper, p: string): Promise<void> {
+export async function mkdir(s: SFTPWrapper, p: string, beforeWrite?: () => void): Promise<void> {
   const abs = normalizeRemote(p);
   if (await statOrNull(s, abs)) throw errors.nameConflict(abs);
+  beforeWrite?.();
   await callv((cb) => s.mkdir(abs, cb));
 }
 
-export async function rename(s: SFTPWrapper, from: string, to: string, overwrite: boolean): Promise<void> {
+export async function rename(s: SFTPWrapper, from: string, to: string, overwrite: boolean, beforeWrite?: () => void): Promise<void> {
   const a = normalizeRemote(from);
   const b = normalizeRemote(to);
   const target = await statOrNull(s, b);
   if (target && !overwrite) throw errors.nameConflict(b);
   if (target && typeOf(target.mode) === "dir") throw errors.invalidInput("目标是目录，不能覆盖");
+  beforeWrite?.();
   if (target) return replaceRemote(s, a, b);
   await callv((cb) => s.rename(a, b, cb));
 }
 
 /** 删除文件 / 符号链接 / 空目录；不递归，不跟随符号链接。 */
-export async function remove(s: SFTPWrapper, p: string): Promise<void> {
+export async function remove(s: SFTPWrapper, p: string, beforeWrite?: () => void): Promise<void> {
   const abs = normalizeRemote(p);
   if (abs === "." || abs === "/") throw errors.invalidInput("不能删除根目录或登录目录");
   const st = await call<{ mode: number }>((cb) => s.lstat(abs, cb));
+  beforeWrite?.();
   if (typeOf(st.mode) === "dir") await callv((cb) => s.rmdir(abs, cb));
   else await callv((cb) => s.unlink(abs, cb));
 }

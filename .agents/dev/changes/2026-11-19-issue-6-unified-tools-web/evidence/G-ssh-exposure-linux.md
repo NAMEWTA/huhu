@@ -104,3 +104,10 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.shells.open`、`ssh.shells.list`、`ssh.shells.close` 转为默认关闭的可选工具，新增 `ssh.shells.read`、`ssh.shells.write`、`ssh.shells.resize`。PTY 不接工作台 WebSocket，工作台可查看来源并关闭。输出保留在内存，字节输入使用保护存储的 HMAC 绑定意图。
 - 已有 `ssh.jobs.*` 作业和探针在 SSH 主机授权变更后主动释放连接。撤权作业在原主体恢复、主机重新授权后仍禁止访问。输出以有限 UTF-8 字节游标读取，可等待至多 5 秒。
 - Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 定向 8 项和 `domain-exposure.engine.test.ts` 2 项通过。新增 `tests/e2e/ssh/owned.spec.ts` 的 CLI / HTTP MCP 用例由 Lead 运行。
+
+## Task05 第二批 · 自有文件会话和远端 SFTP
+
+- 外部文件会话仅绑定本主体的活动连接。工作台可以看到来源、关闭会话。撤销路由授权关闭连接和文件会话，终止待处理操作。
+- `ssh.fileSessions.open/list/close/properties/document.open` 默认关闭，选择后沿主体及原连接授权。原设备目录能力 `ssh.fileSessions.localList` 仍限工作台。
+- `ssh.sftp.list/read/write/upload/download/cancel/mkdir/rename/delete` 默认关闭。外部上传接受最多 256 KiB 的 base64 内容，下载按偏移分页；显式拒绝外部 Engine 本机路径。传输 ID 成对绑定文件会话，暂停中的传输只能由原主体取消。写入回执保存大小或操作结果，内容摘要使用受保护 HMAC。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 2 项 CLI / MCP 文件用例、`domain-exposure.engine.test.ts` 2 项、`sftp.test.ts` 11 项通过。`tests/e2e/ssh/owned.spec.ts` 追加本机路径拒绝、字节往返及撤权用例，留给 Lead。

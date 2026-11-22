@@ -19,7 +19,10 @@ const open = "ssh.shells.open";
 const list = "ssh.shells.list";
 const read = "ssh.shells.read";
 const write = "ssh.shells.write";
-const actions = [connect, get, trust, open, list, read, write];
+const filesOpen = "ssh.fileSessions.open";
+const upload = "ssh.sftp.upload";
+const download = "ssh.sftp.download";
+const actions = [connect, get, trust, open, list, read, write, filesOpen, upload, download];
 
 function accepted<T>(reply: CapabilityResult<unknown>): T {
   if (!reply.ok) throw new Error(reply.error.code);
@@ -104,11 +107,23 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await invoke(write, send)).toEqual({ ok: true, data: { bytes: 12 } });
       expect(await invoke(write, send)).toEqual({ ok: true, data: { bytes: 12 } });
       await expect.poll(() => input).toEqual(["fixture-only"]);
+      const { fileSessionId } = accepted<{ fileSessionId: string }>(await invoke(filesOpen, { ...binding, attemptId, intentKey: randomUUID() }));
+      expect(await desktopCall(page, "ssh.fileSessions.list")).toMatchObject([{ fileSessionId, source: "external" }]);
+      const remotePath = "/home/test/owned.bin";
+      const remote = { fileSessionId, remotePath };
+      const bytes = { ...remote, transferId: randomUUID(), intentKey: randomUUID(), dataBase64: "AP8=" };
+      for (const action of [upload, download]) {
+        expect(await invoke(action, { ...remote, localPath: "/fixture/local-only" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      }
+      expect(await peer(download, { ...remote, transferId: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await invoke(upload, bytes)).toEqual({ ok: true, data: { size: 2 } });
+      expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject({ ok: true, data: { dataBase64: "AP8=", eof: true } });
       await policy([]);
       await expect.poll(() => closed).toBe(2);
       const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
       expect(await invoke(write, send)).toMatchObject(denied);
       expect(await invoke(read, fresh)).toMatchObject(denied);
+      expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject(denied);
       await policy([hostId], false);
       expect(await invoke(open, openIntent)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     } finally {
