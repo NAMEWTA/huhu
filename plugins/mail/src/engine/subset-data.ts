@@ -208,10 +208,10 @@ function missingFor(files: Files, row: Data, data: Packet) {
   return [...attachmentRefs(row).values()].filter(({ digest, size }) => data.attachments[digest] === undefined && !bytesAt(files, digest, size)).length;
 }
 
-async function inspect(files: Files, accounts: Accounts, removals: AccountRemovals, confirmed: ReadonlyMap<string, string>, data: Packet): Promise<PlanRow[]> {
+async function inspect(files: Files, accounts: Accounts, removals: AccountRemovals, confirmed: ReadonlyMap<string, string>, data: Packet) {
   const current = await accounts.list();
   const { snapshot } = readDraftSnapshot(files);
-  return data.accounts.map((row) => {
+  const matches = data.accounts.map((row) => {
     const key = fingerprint(row);
     const previousKey = row.messageLocations ? hash(json(row)) : key;
     const confirmedTargetId = confirmed.get(key) ?? confirmed.get(previousKey);
@@ -219,8 +219,13 @@ async function inspect(files: Files, accounts: Accounts, removals: AccountRemova
       if (confirmedTargetId && accountId !== confirmedTargetId) return false;
       return definition.restoredFrom === key || definition.restoredFrom === previousKey;
     });
+    return { row, confirmedTargetId, restored };
+  });
+  // Retrying the original IDs can reuse the same-address accounts confirmed by this Vault's journal.
+  const restoredInBatch = new Set(matches.flatMap(({ row, confirmedTargetId, restored }) => (restored?.accountId === row.accountId && confirmedTargetId === row.accountId ? [row.accountId] : [])));
+  const rows = matches.map(({ row, confirmedTargetId, restored }): PlanRow => {
     const sameId = current.find(({ accountId }) => accountId === row.accountId);
-    const sameAddress = current.find(({ definition }) => definition.settings.email.toLowerCase() === emailOf(row));
+    const sameAddress = current.find(({ accountId, definition }) => !restoredInBatch.has(accountId) && definition.settings.email.toLowerCase() === emailOf(row));
     const blocked =
       !!confirmedTargetId ||
       !!removals.read(row.accountId) ||
@@ -245,6 +250,7 @@ async function inspect(files: Files, accounts: Accounts, removals: AccountRemova
       ...(unmappedReadOverrides > 0 && { unmappedReadOverrides }),
     };
   });
+  return { rows, restoredInBatch };
 }
 
 function prepare(files: Files, row: Data, data: Packet, targetId: string): OpStep[] {
@@ -406,7 +412,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
         async () => {
           signal.throwIfAborted();
           const parsed = validate(readMailArchive(Buffer.from(content, "base64")));
-          const rows = await withMailSnapshot(files, () => inspect(files, ownerAccounts, removals, confirmed, parsed));
+          const { rows } = await withMailSnapshot(files, () => inspect(files, ownerAccounts, removals, confirmed, parsed));
           signal.throwIfAborted();
           const now = Date.now();
           for (const [id, plan] of plans) if (!plan.restoring && plan.expires <= now) plans.delete(id);
@@ -471,14 +477,15 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
               if (blocked) throw invalid("本机 Mail 恢复记录需要检查。");
               const data = plan.packet;
               const chosen = new Set(accountIds);
-              const rows = (await inspect(files, ownerAccounts, removals, confirmed, data)).filter(({ accountId }) => chosen.has(accountId));
+              const inspection = await inspect(files, ownerAccounts, removals, confirmed, data);
+              const { restoredInBatch } = inspection;
+              const rows = inspection.rows.filter(({ accountId }) => chosen.has(accountId));
               const incompatible = rows.some(({ accountId, state, canKeepSeparate, existing }) => {
                 if (state === "restored") return false;
                 if (separate.has(accountId)) return !canKeepSeparate || existing?.accountId !== previewed.get(accountId)?.existing?.accountId;
                 return state === "conflict";
               });
               if (rows.length !== chosen.size || incompatible) throw invalid("所选邮箱存在冲突，请重新预检并选择可恢复项。");
-              const restoredInBatch = new Set<string>();
               for (const row of data.accounts) {
                 if (!chosen.has(row.accountId) || rows.find(({ accountId }) => accountId === row.accountId)?.state === "restored") continue;
                 signal.throwIfAborted();
@@ -508,7 +515,8 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                 await files.write(done(id), json({ format: 1 }), { expectedVersion: null }).catch(() => undefined);
                 if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: targetId, op: "created" });
               }
-              return { accounts: (await inspect(files, ownerAccounts, removals, confirmed, data)).filter(({ accountId }) => chosen.has(accountId)) };
+              const { rows: result } = await inspect(files, ownerAccounts, removals, confirmed, data);
+              return { accounts: result.filter(({ accountId }) => chosen.has(accountId)) };
             });
           // Account removal also takes its account lock before entering the snapshot writer.
           const run = [...accountIds].sort().reduceRight((next, id) => () => removals.serialize(id, next), commit);

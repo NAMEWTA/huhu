@@ -15,6 +15,7 @@ import { mailIntents } from "../src/engine/tool-intents.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { mailAttachmentPackagePaths, openMailAccounts, type MailDraftAttachments, type MailOutboxService } from "../src/engine/index.js";
 import { outboxReceipt } from "../src/engine/outbox.js";
+import { operationIdFor } from "../src/engine/outbox-storage.js";
 import { forwardSeed, newTopicSeed } from "../src/engine/prepare-forward.js";
 import { replySeed, type ReplySeed } from "../src/engine/prepare-reply.js";
 import { openImapFixture } from "./fixtures/imap.js";
@@ -487,6 +488,124 @@ engineTest("Mail 备份内的同地址账号可按各自 ID 恢复到空 Vault",
     expect(accounts.find(({ accountId }) => accountId === existingId)).toEqual(previous);
   } finally {
     await Promise.all(opened.map(({ close }) => close()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+engineTest.each([
+  { scenario: "按原选择继续", occupied: false },
+  { scenario: "仍拦截后来出现的同地址账号", occupied: true },
+])("Mail 同地址子集第二账号失败并重开后$scenario", async ({ occupied }) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-"));
+  const discover = vi.fn().mockRejectedValue(new Error("restore must not start a connection"));
+  const signal = new AbortController().signal;
+  const timestamp = "2026-01-01T00:00:00.000Z";
+  const smtp = { host: "127.0.0.1", port: 1025, security: "none" } as const;
+  const rows = ["第一邮箱", "第二邮箱"].map((label) => {
+    const accountId = randomUUID();
+    const draftId = randomUUID();
+    const revision = randomUUID();
+    const operationId = operationIdFor(draftId, revision);
+    const definition = { ...subsetAccountDefinition, settings: { ...subsetAccountDefinition.settings, label, smtpEnabled: true, smtp } };
+    const bytes = Buffer.from(label);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const draft = { ...content, accountId, attachments: [{ digest, name: "fixture.txt", size: bytes.length }] };
+    const stored = { revision, updatedAt: timestamp, draft };
+    const delivery = { format: 1, operationId, draftId, revision, messageId: `<${randomUUID()}@huhu.local>`, claimedAt: timestamp, from: sender, auth: "password", smtp, draft, text: "fixture", result: null };
+    const marker = createHash("sha256").update(accountId).digest("hex");
+    return {
+      account: { accountId, definition, drafts: { [draftId]: stored }, deliveries: [delivery], readOverrides: [marker] },
+      draftId,
+      stored,
+      delivery,
+      digest,
+      bytes,
+      marker,
+    };
+  });
+  const [first, second] = [rows[0]!, rows[1]!];
+  const accountIds = rows.map(({ account }) => account.accountId);
+  const [firstId, secondId] = [first.account.accountId, second.account.accountId];
+  const packet = {
+    format: "huhu-mail-subset",
+    version: 1,
+    accounts: rows.map(({ account }) => account),
+    attachments: Object.fromEntries(rows.map(({ bytes, digest }) => [digest, bytes.toString("base64")])),
+  };
+  let target: Awaited<ReturnType<typeof openSubsetFixture>> | undefined;
+  try {
+    target = await openSubsetFixture(directory, discover);
+    const archive = (await createMailArchive(target.vault.files.read(".huhu/vault.json")!.bytes, packet, signal)).toString("base64");
+    const preview = async (fixture: NonNullable<typeof target>) => (await fixture.call("preview", { content: archive })) as MailSubsetPreview;
+    const restore = (fixture: NonNullable<typeof target>, previewId: string) => fixture.call("restore", { previewId, accountIds, confirm: true });
+    const ready = await preview(target);
+    expect(ready.accounts).toMatchObject(accountIds.map((accountId) => ({ accountId, state: "ready" })));
+    const files = target.vault.files;
+    const write = files.write.bind(files);
+    const failedSecond = vi.spyOn(files, "write").mockImplementation(async (...args) => {
+      if (args[0] === `.huhu/mail/read-overrides/${secondId}.json`) throw new Error("synthetic second-account write failure");
+      return write(...args);
+    });
+    try {
+      await expect(restore(target, ready.previewId)).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    } finally {
+      failedSecond.mockRestore();
+    }
+    expect((await target.accounts.list()).map(({ accountId }) => accountId)).toEqual([firstId]);
+    expect(files.exists(`${outboxDir}/${first.delivery.operationId}.json`)).toBe(true);
+    expect(files.exists(`${outboxDir}/${second.delivery.operationId}.json`)).toBe(false);
+    expect(files.exists(`.huhu/mail/attachments/${second.digest}`)).toBe(false);
+    const firstDefinition = target.accounts.readDefinition(firstId)!;
+    const saved = await target.credentials.save({
+      entityId: firstId,
+      expectedRevision: firstDefinition.revision,
+      definition: firstDefinition.definition,
+      actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "first local password" }],
+    });
+    await target.close();
+    target = await openSubsetFixture(directory, discover);
+
+    if (occupied) {
+      const existingId = randomUUID();
+      const existing = await target.credentials.save({
+        entityId: existingId,
+        expectedRevision: null,
+        definition: subsetAccountDefinition,
+        actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "other local password" }],
+      });
+      const conflict = await preview(target);
+      expect(conflict.accounts).toMatchObject([
+        { accountId: firstId, state: "restored" },
+        { accountId: secondId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } },
+      ]);
+      await expect(restore(target, conflict.previewId)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([firstId, existingId].sort());
+      expect(await target.credentials.use(existingId, [accountPasswordPurpose], (_definition, values, revision) => Promise.resolve([values.get(accountPasswordPurpose), revision]))).toEqual(["other local password", existing.revision]);
+      expect(target.events.publish).not.toHaveBeenCalled();
+    } else {
+      const reopened = await preview(target);
+      const result = await restore(target, reopened.previewId);
+      expect(reopened.accounts).toMatchObject([
+        { accountId: firstId, state: "restored" },
+        { accountId: secondId, state: "ready" },
+      ]);
+      expect(result).toMatchObject({ accounts: accountIds.map((accountId) => ({ accountId, state: "restored", existing: { accountId } })) });
+      expect(await restore(target, reopened.previewId)).toEqual(result);
+      expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([...accountIds].sort());
+      const read = (file: string) => target!.vault.files.read(file)!.bytes;
+      expect(JSON.parse(read(".huhu/mail/drafts.json").toString()).drafts).toEqual(Object.fromEntries(rows.map(({ draftId, stored }) => [draftId, stored])));
+      expect(readdirSync(path.join(target.vault.root, outboxDir)).sort()).toEqual(rows.map(({ delivery }) => `${delivery.operationId}.json`).sort());
+      for (const { account, delivery, digest, bytes, marker } of rows) {
+        expect(JSON.parse(read(`${outboxDir}/${delivery.operationId}.json`).toString())).toEqual(delivery);
+        expect(JSON.parse(read(`.huhu/mail/read-overrides/${account.accountId}.json`).toString())).toEqual({ format: 1, messages: [marker] });
+        expect(read(`.huhu/mail/attachments/${digest}`)).toEqual(bytes);
+      }
+      expect(target.events.publish).toHaveBeenCalledExactlyOnceWith("entity.changed", { kind: "mail-account", id: secondId, op: "created" });
+    }
+    expect(await target.credentials.use(firstId, [accountPasswordPurpose], (_definition, values, revision) => Promise.resolve([values.get(accountPasswordPurpose), revision]))).toEqual(["first local password", saved.revision]);
+    expect(discover).not.toHaveBeenCalled();
+  } finally {
+    await target?.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });

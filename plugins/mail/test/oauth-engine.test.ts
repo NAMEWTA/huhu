@@ -913,6 +913,8 @@ engineTest(
           restoredAccount,
           { ...googleAccount.definition, settings: { ...googleAccount.definition.settings, email: restoredAddress } },
           new AbortController().signal,
+          false,
+          new Set<string>(),
         );
         const exported = await archiveSource.dispatcher.call("desktop", { capability: "mail.subset.create", input: { accountIds: [restoredAccount] }, requestId: randomUUID(), idempotencyKey: randomUUID() });
         assert(exported.ok, JSON.stringify(exported));
