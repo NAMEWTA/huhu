@@ -1,7 +1,7 @@
 import { Button, Field } from "@huhu/ui";
 import { Clock } from "lucide-react";
 import { useCapability } from "@huhu/workbench";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { nextRuns } from "../shared/cron.js";
 import { PRESETS, cronFor, presetOf, type PresetId } from "./cron-presets.js";
 import { t } from "./i18n.js";
@@ -12,6 +12,7 @@ export interface EditableRule {
   body: string;
   data: {
     title: string;
+    enabled: boolean;
     trigger: { preset: string; cron: string; zone: string };
     action: Action;
     legacyEnvironment?: boolean;
@@ -46,13 +47,14 @@ export function RuleEditor({
 }: {
   rule?: EditableRule;
   zone: string;
-  onSave(v: { title: string; trigger: { preset: string; cron: string; zone: string }; action: Record<string, unknown>; body: string }): Promise<boolean>;
+  onSave(v: { title: string; expectedVersion?: string; trigger: { preset: string; cron: string; zone: string }; action: Record<string, unknown>; body: string }): Promise<boolean>;
   onCancel?(): void;
 }) {
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const providers = useCapability<Detected[]>("agent.catalog.detect", {});
-  const init = rule ? presetOf(rule.data.trigger.cron) : { preset: "every5" as PresetId, time: "09:00" };
-  const a = rule?.data.action;
+  const [start] = useState(rule);
+  const init = start ? presetOf(start.data.trigger.cron) : { preset: "every5" as PresetId, time: "09:00" };
+  const a = start?.data.action;
   const [title, setTitle] = useState(rule?.data.title ?? "");
   const [preset, setPreset] = useState<PresetId>(init.preset);
   const [time, setTime] = useState(init.time);
@@ -70,20 +72,22 @@ export function RuleEditor({
   const [command, setCommand] = useState(a?.kind === "terminal" ? a.command : "");
   const [replaceLegacy, setReplaceLegacy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const scheduleError = useId();
   const cron = cronFor(preset, time, custom);
   const found = (providers.data ?? []).filter((p) => p.installed && p.headless);
 
   const actionValid = kind === "reminder" ? text.trim() !== "" : kind === "agent_prompt" ? spaceId !== "" && provider !== "" && prompt.trim() !== "" : kind === "terminal" ? command.trim() !== "" : true;
-  const timeOk = !PRESETS.find((p) => p.id === preset)?.time || /^\d{1,2}:\d{2}$/.test(time);
+  const timeOk = !PRESETS.find((p) => p.id === preset)?.time || /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
   // 触发设置的即时校验：cron 或时区不合法时在表单里就给出原因，并显示接下来三次激活
   let upcoming: string[] = [];
   let triggerError: string | null = null;
   if (!timeOk) triggerError = t.timeRequired;
   else if (cron === "") triggerError = t.cronRequired;
+  else if (!tz.trim()) triggerError = "请输入规则的时区。";
   else {
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() || zone });
-      upcoming = nextRuns(cron, tz.trim() || zone, 3);
+      new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() });
+      upcoming = nextRuns(cron, tz.trim(), 3);
     } catch (e) {
       triggerError = /Range|time ?zone/i.test(String(e)) ? t.zoneInvalid : t.cronInvalid;
     }
@@ -104,7 +108,7 @@ export function RuleEditor({
           : kind === "agent_tasks"
             ? { kind: "agent", input: { source: "tasks", tags, maxConcurrent: a?.kind === "agent" && a.input.source === "tasks" ? a.input.maxConcurrent : 1 } }
             : { kind: "terminal", command: command.trim(), shell: a?.kind === "terminal" ? a.shell : "default", spaceId: spaceId || null };
-    const ok = await onSave({ title: title.trim(), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" || kind === "agent_tasks" ? prompt.trim() : "" });
+    const ok = await onSave({ title: title.trim(), ...(start && { expectedVersion: start.version }), trigger: { preset, cron, zone: tz.trim() }, action, body: kind === "agent_prompt" || kind === "agent_tasks" ? prompt.trim() : "" });
     setBusy(false);
     if (ok && !rule) {
       setTitle("");
@@ -119,7 +123,7 @@ export function RuleEditor({
       aria-label={rule ? t.editRule : t.ruleEditor}
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid) void submit();
+        if (valid && !busy) void submit();
       }}
     >
       <div className="hu-tw-editor-grid">
@@ -160,15 +164,15 @@ export function RuleEditor({
                     <option value="both">{t.reminderModes.both}</option>
                   </select>
                 </Field>
-                <Field label={t.ruleText}>
-                  <input aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
+                <Field label={t.ruleText} description={!text.trim() ? "填写要发送的提醒内容。" : undefined}>
+                  <input required aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
                 </Field>
               </>
             ) : null}
             {kind === "agent_prompt" ? (
               <>
-                <Field label={t.space}>
-                  <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                <Field label={t.space} description={!spaceId ? "请选择规则执行的工作区。" : undefined}>
+                  <select required aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
                     <option value="">{t.choose}</option>
                     {(spaces.data ?? []).map((s) => (
                       <option key={s.id} value={s.id}>
@@ -177,8 +181,8 @@ export function RuleEditor({
                     ))}
                   </select>
                 </Field>
-                <Field label={t.provider}>
-                  <select aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                <Field label={t.provider} description={!provider ? "请选择执行任务的 CLI。" : undefined}>
+                  <select required aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
                     <option value="">{t.choose}</option>
                     {found.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -196,15 +200,15 @@ export function RuleEditor({
                 <Field label={t.model}>
                   <input aria-label={t.model} placeholder={t.model} value={model} onChange={(e) => setModel(e.target.value)} />
                 </Field>
-                <Field label={t.prompt}>
-                  <textarea className="automations-description-input" rows={7} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+                <Field label={t.prompt} description={!prompt.trim() ? "填写每次激活要执行的要求。" : undefined}>
+                  <textarea required className="automations-description-input" rows={7} aria-label={t.prompt} placeholder={t.prompt} data-testid="rule-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
                 </Field>
               </>
             ) : null}
             {kind === "terminal" ? (
               <>
-                <Field label={t.command}>
-                  <textarea className="automations-description-input" rows={3} aria-label={t.command} placeholder={t.commandPlaceholder} data-testid="rule-command" value={command} onChange={(e) => setCommand(e.target.value)} />
+                <Field label={t.command} description={!command.trim() ? "填写规则激活时要运行的命令。" : undefined}>
+                  <textarea required className="automations-description-input" rows={3} aria-label={t.command} placeholder={t.commandPlaceholder} data-testid="rule-command" value={command} onChange={(e) => setCommand(e.target.value)} />
                 </Field>
                 <Field label={t.space}>
                   <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
@@ -257,22 +261,32 @@ export function RuleEditor({
           ) : null}
           <Field label={t.ruleCron}>{preset === "custom" ? <input aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}</Field>
           <Field label={t.zone}>
-            <input aria-label={t.zone} placeholder={t.zone} value={tz} aria-invalid={triggerError === t.zoneInvalid} onChange={(e) => setTz(e.target.value)} />
+            <input
+              aria-label={t.zone}
+              name="zone"
+              placeholder={t.zone}
+              value={tz}
+              aria-invalid={!tz.trim() || triggerError === t.zoneInvalid || undefined}
+              aria-describedby={triggerError ? scheduleError : undefined}
+              onChange={(e) => setTz(e.target.value)}
+            />
           </Field>
           {triggerError ? (
-            <p role="alert" className="automations-schedule-error" data-testid="rule-trigger-error">
+            <p id={scheduleError} role="alert" className="automations-schedule-error" data-testid="rule-trigger-error">
               {triggerError}
             </p>
           ) : (
             <div className="automations-schedule-preview" data-testid="rule-upcoming">
               <strong>{t.upcoming}</strong>
-              <small>{tz.trim() || zone} · 仅预览</small>
+              <small>{tz.trim()} · 仅预览</small>
               {upcoming.map((x) => (
-                <time key={x}>{new Date(x).toLocaleString("zh-CN", { timeZone: tz.trim() || zone, hour12: false })}</time>
+                <time key={x} dateTime={x}>
+                  {new Date(x).toLocaleString("zh-CN", { timeZone: tz.trim(), hour12: false, timeZoneName: "shortOffset" })}
+                </time>
               ))}
             </div>
           )}
-          <p className="tasks-hint">{t.savedPaused}</p>
+          <p className="tasks-hint">{start?.data.legacyEnvironment ? "保存并替换旧环境后暂停。" : start ? (start.data.enabled ? "保存后保持启用，后续触发采用新日程。已受理的派遣保留原设置。" : "保存后保持暂停。") : t.savedPaused}</p>
         </aside>
       </div>
       <div className="automations-modal-actions">

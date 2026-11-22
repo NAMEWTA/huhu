@@ -118,6 +118,18 @@ export function TaskDetail({
             <dd>{task.due ?? t.detail.dueNone}</dd>
           </div>
           <div>
+            <dt>最早派遣时间</dt>
+            <dd>
+              {task.availableAt ? (
+                <time dateTime={task.availableAt}>
+                  {fmt(task.availableAt, zone ?? "UTC")} · {zone ?? "UTC"}
+                </time>
+              ) : (
+                t.detail.none
+              )}
+            </dd>
+          </div>
+          <div>
             <dt>{t.detail.execution}</dt>
             <dd>{agent ? t.detail.targetAgent(space ? `${space.name} · ${space.root}` : (agent.spaceId ?? t.detail.none), agent.provider ?? t.detail.none) : t.manual}</dd>
           </div>

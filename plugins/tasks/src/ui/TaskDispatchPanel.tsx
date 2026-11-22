@@ -4,7 +4,7 @@ import { CapabilityError, createRequestId, host, requestOpenAgentSession, useCap
 import { History } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { z } from "zod";
-import type { DispatchInput, DispatchReceipt, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
+import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
 import { TaskMarkdownView } from "./compact.js";
@@ -58,7 +58,7 @@ const stopStates: Record<StopReceipt["status"], string> = {
 };
 
 export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null | undefined) {
-  return (run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state];
+  return row.superseded ? "已失败" : ((run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state]);
 }
 
 export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate }: { task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
@@ -66,12 +66,14 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
   const qc = useQueryClient();
   const [opened, setOpened] = useState<string | null>(null);
   const [request, setRequest] = useState<DispatchInput | null>(null);
+  const [retry, setRetry] = useState<RetryDispatch | null>(null);
   const [earlyDialog, setEarlyDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
-  const busyTask = rows?.some(({ state, runId }) => ["pending", "claimed", "sending", "unknown"].includes(state) || (state === "running" && !runs.some(({ id, finishedAt }) => id === runId && finishedAt))) ?? false;
-  const canDispatch = !task.readOnly && task.status === "not_started" && !busyTask && rows !== undefined && !readError && task.dispatchBlockers.length === 0;
+  const busyTask =
+    rows?.some(({ state, runId, superseded }) => !superseded && (["pending", "claimed", "sending", "unknown"].includes(state) || (state === "running" && !runs.some(({ id, finishedAt }) => id === runId && finishedAt)))) ?? false;
+  const canDispatch = !task.readOnly && task.status === "not_started" && !busyTask && !retry && rows !== undefined && !readError && task.dispatchBlockers.length === 0;
   const early = !isTaskAvailable(task.availableAt, new Date());
 
   useEffect(() => {
@@ -108,6 +110,27 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
     }
   }
 
+  async function submitRetry(intent: RetryDispatch) {
+    setRetry(intent);
+    setSubmitting(true);
+    setNote("");
+    setError("");
+    try {
+      await engine.call("tasks.dispatch.retry", intent, { write: true, idempotencyKey: intent.retryId });
+      setRetry(null);
+      setNote("原输入重试已受理。");
+      await refresh();
+    } catch (failure) {
+      if (failure instanceof CapabilityError && failure.code !== "INTERNAL" && failure.code !== "UNAUTHENTICATED") {
+        setRetry(null);
+        setError(failure.message);
+        await refresh();
+      } else setNote("未收到重试确认。请核对原重试。");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <section className="hu-tw-detail-section" aria-label="Agent 派遣">
       <h3>
@@ -126,6 +149,11 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
           )}
         </div>
       ) : null}
+      {retry ? (
+        <Button loading={submitting} disabled={submitting} onClick={() => void submitRetry(retry)}>
+          核对原重试
+        </Button>
+      ) : null}
       <p role="status">{note}</p>
       {error || readError ? (
         <p role="alert" className="hu-field-error">
@@ -134,18 +162,26 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
       ) : null}
       {rows?.map((row) => {
         const run = runs.find(({ id }) => id === row.runId);
-        const expanded = opened === row.runId;
+        const expanded = opened === row.dispatchId;
         return (
-          <article key={row.runId} className="tasks-task-run" data-testid="managed-task-run" data-run-id={row.runId}>
+          <article key={row.dispatchId} className="tasks-task-run" data-testid="managed-task-run" data-run-id={row.runId}>
             <header>
               <Badge tone={row.state === "unknown" ? "warning" : "neutral"}>{taskRunLabel(row, run)}</Badge>
+              {row.attempt > 1 || row.superseded ? <span>第 {row.attempt} 次尝试</span> : null}
               <time dateTime={row.acceptedAt}>{new Date(row.acceptedAt).toLocaleString(undefined, zone ? { timeZone: zone } : {})}</time>
-              <button type="button" aria-expanded={expanded} onClick={() => setOpened(expanded ? null : row.runId)}>
-                {expanded ? t.detail.collapse : t.detail.expand}
-              </button>
+              {!row.superseded ? (
+                <button type="button" aria-expanded={expanded} onClick={() => setOpened(expanded ? null : row.dispatchId)}>
+                  {expanded ? t.detail.collapse : t.detail.expand}
+                </button>
+              ) : null}
             </header>
             {row.reason ? <p role="status">{receiptReason[row.reason]}</p> : null}
-            <CancelQueuedRun task={task} row={row} refresh={refresh} />
+            {row.canRetry && !retry ? (
+              <Button disabled={submitting || !!request} onClick={() => void submitRetry({ taskId: task.id, dispatchId: row.dispatchId, retryId: createRequestId() })}>
+                重试原输入
+              </Button>
+            ) : null}
+            {!row.superseded ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
             {expanded ? <TaskRunDetails task={task} row={row} run={run} onOpenAgent={onNavigate} /> : null}
           </article>
         );

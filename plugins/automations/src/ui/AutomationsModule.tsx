@@ -1,14 +1,19 @@
 import { Badge, Button, Dialog, EmptyState, IconButton } from "@huhu/ui";
 import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
-import { host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
 import { RunsPanel } from "./RunsPanel.js";
 import { TerminalEnvironment } from "./TerminalEnvironment.js";
 
-interface Rule extends EditableRule {
-  data: EditableRule["data"] & { enabled: boolean };
+type Rule = EditableRule;
+type AgentRunIntent = { id: string; expectedVersion: string; intentId: string };
+
+function createRunIntentId(): string {
+  const id = createRequestId();
+  // LAN HTTP uses the random-byte fallback. Format it as a UUID accepted by runNow.
+  return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
 }
 interface Preview {
   next: string[];
@@ -35,6 +40,8 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null); // 正在编辑的规则 id（null = 底部显示“新建”）
+  const [agentRunIntent, setAgentRunIntent] = useState<AgentRunIntent | null>(null);
+  const [runningAgentRule, setRunningAgentRule] = useState(false);
   const rules = useCapability<Rule[]>("automations.list", {});
   const acts = useCapability<Activation[]>("automations.activations", {});
   const cur = (rules.data ?? []).find((r) => r.id === sel) ?? rules.data?.[0] ?? null;
@@ -49,6 +56,23 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       return null;
+    }
+  }
+
+  async function runAgentRule(intent: AgentRunIntent) {
+    setAgentRunIntent(intent);
+    setRunningAgentRule(true);
+    setError(null);
+    try {
+      await engine.call("automations.runNow", intent, { write: true, idempotencyKey: intent.intentId });
+      setAgentRunIntent(null);
+      await refresh();
+    } catch (failure) {
+      const ambiguous = !(failure instanceof CapabilityError) || failure.code === "INTERNAL" || failure.code === "UNAUTHENTICATED";
+      if (!ambiguous) setAgentRunIntent(null);
+      setError(ambiguous ? "未收到运行确认，可核对原运行。" : (failure as CapabilityError).message);
+    } finally {
+      setRunningAgentRule(false);
     }
   }
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -193,15 +217,24 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                     <TerminalEnvironment key={cur.id} ruleId={cur.id} showExternalApproval={cur.data.action.shell === "powershell"} />
                   )
                 ) : null}
-                <RuleSchedule id={cur.id} zone={cur.data.trigger.zone} />
+                <RuleSchedule id={cur.id} version={cur.version} zone={cur.data.trigger.zone} />
                 <div className="automations-rule-preview-action">
                   <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>
                     {cur.data.action.kind === "agent" && cur.data.action.input.source === "tasks" ? "预览将处理的任务" : t.preview}
                   </Button>
                   <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>
                   <div className="row" style={{ marginTop: 10 }}>
-                    <Button variant="primary" icon={Play} disabled={cur.data.legacyEnvironment} onClick={() => void act("automations.runNow", { id: cur.id })}>
-                      {t.runNow}
+                    <Button
+                      variant="primary"
+                      icon={Play}
+                      disabled={cur.data.legacyEnvironment || runningAgentRule || (agentRunIntent !== null && agentRunIntent.id !== cur.id)}
+                      onClick={() => {
+                        if (agentRunIntent?.id === cur.id) void runAgentRule(agentRunIntent);
+                        else if (cur.data.action.kind === "agent") void runAgentRule({ id: cur.id, expectedVersion: cur.version, intentId: createRunIntentId() });
+                        else void act("automations.runNow", { id: cur.id });
+                      }}
+                    >
+                      {agentRunIntent?.id === cur.id && !runningAgentRule ? "核对原运行" : t.runNow}
                     </Button>
                     <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>
                     <Button variant="danger" onClick={() => void act("automations.delete", { id: cur.id })}>
@@ -294,14 +327,14 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
         </Dialog>
       ) : null}
       {cur && editing === cur.id ? (
-        <Dialog open wide title="编辑自动化" description="修改后保持暂停；提示词与时间的改动立即写入规则文件。" onClose={() => setEditing(null)} error={error} testId="rule-dialog">
+        <Dialog open wide title="编辑自动化" onClose={() => setEditing(null)} error={error} testId="rule-dialog">
           <RuleEditor
             key={cur.id}
             rule={cur}
             zone={zone}
             onCancel={() => setEditing(null)}
             onSave={async (v) => {
-              const r = await act("automations.update", { id: cur.id, expectedVersion: cur.version, patch: { title: v.title, trigger: v.trigger, action: v.action }, body: v.body });
+              const r = await act("automations.update", { id: cur.id, expectedVersion: v.expectedVersion, patch: { title: v.title, trigger: v.trigger, action: v.action }, body: v.body });
               if (r !== null) setEditing(null);
               return r !== null;
             }}
@@ -313,8 +346,8 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
 }
 
 /** 规则详情里常驻的“接下来的激活时间”（原型 SchedulePreview）：只预览，不写日志、不运行。 */
-function RuleSchedule({ id, zone }: { id: string; zone: string }) {
-  const preview = useCapability<Preview>("automations.preview", { id });
+function RuleSchedule({ id, version, zone }: { id: string; version: string; zone: string }) {
+  const preview = useCapability<Preview>("automations.preview", { id, expectedVersion: version });
   if (preview.isError || !preview.data) return null;
   const fmt = new Intl.DateTimeFormat("sv-SE", { timeZone: zone || undefined, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
   return (
@@ -322,7 +355,9 @@ function RuleSchedule({ id, zone }: { id: string; zone: string }) {
       <strong>接下来的激活时间</strong>
       <small>{zone || "本地时区"} · 仅预览</small>
       {preview.data.next.map((time) => (
-        <time key={time}>{fmt.format(new Date(time))}</time>
+        <time key={time} dateTime={time}>
+          {fmt.format(new Date(time))}
+        </time>
       ))}
     </div>
   );

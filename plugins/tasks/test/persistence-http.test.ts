@@ -480,6 +480,83 @@ function submitReceipt(engine: RunningEngine, receipt: ExecutionReceipt) {
   return engine.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
 }
 
+test("确认失败后用原快照追加 attempt，旧派遣重传保持原身份", async () => {
+  const { engine, task, fake, run, execution } = await startBoundRun();
+  const retry = { taskId: task.id, dispatchId: run.dispatchId, retryId: randomUUID() };
+  const redo = (input = retry) => call<DispatchReceipt>(engine, "tasks.dispatch.retry", input);
+  expect(await redo()).toMatchObject({ ok: false, error: { code: "RUN_UNKNOWN" } });
+  expect(await submitReceipt(engine, { version: 1, kind: "failed", receiptId: "retry-confirmed-failure", execution, payload: { code: "fixture", message: "原轮失败" } })).toMatchObject({ ok: true });
+  await vi.waitFor(async () => expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ data: { status: "in_progress" } }));
+  const { data: current } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  const edited = await call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: current.version, baseEditHash: current.editHash, patch: { body: "编辑后的正文" } });
+  expect(edited).toMatchObject({ ok: true });
+
+  const results = await Promise.all([redo(), redo()]);
+  const accepted = results[0]!.data;
+  expect(results[0]).toMatchObject({ ok: true, data: { runId: run.runId, attempt: 2 } });
+  expect(results[1]).toMatchObject({ ok: true, data: { dispatchId: accepted.dispatchId, attempt: 2 } });
+  expect(await redo({ ...retry, retryId: randomUUID() })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(accepted.dispatchId).not.toBe(run.dispatchId);
+  expect(await call(engine, "tasks.dispatch", intent(task, run.dispatchId))).toMatchObject({ ok: true, data: { runId: run.runId, dispatchId: run.dispatchId, attempt: 1 } });
+  await waitDispatch(engine, accepted, { state: "running" });
+  const old = recordOf(engine, run);
+  const next = recordOf(engine, accepted);
+  expect(next.snapshotHash).toBe(old.snapshotHash);
+  expect(next.snapshot).toEqual(old.snapshot);
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  expect(fake.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ attempt: 2, snapshotHash: old.snapshotHash, snapshot: old.snapshot }), expect.any(AbortSignal));
+  expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, state: "running" }] });
+  expect(await submitReceipt(engine, { version: 1, kind: "result", receiptId: "retry-success", execution: next.boundExecution!, payload: { message: "第二轮成功" } })).toMatchObject({ ok: true });
+  await vi.waitFor(async () => expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, state: "succeeded", result: { delivery: "delivered" } }] }));
+
+  const { data: running } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  const reset = await call<TaskDto>(engine, "tasks.setStatus", { id: task.id, expectedVersion: running.version, status: "not_started" });
+  expect(reset).toMatchObject({ ok: true });
+  const fresh = await acceptDispatch(engine, intent(reset.data));
+  expect(fresh.runId).not.toBe(run.runId);
+  expect(recordOf(engine, fresh).snapshot.body).toBe("编辑后的正文");
+});
+
+test("关闭任务或损坏已失败的派遣时拒绝新重试，保留原记录", async () => {
+  const { engine, task, run, execution } = await startBoundRun();
+  const retry = { taskId: task.id, dispatchId: run.dispatchId, retryId: randomUUID() };
+  expect(await submitReceipt(engine, { version: 1, kind: "failed", receiptId: "retry-invalid-task-failure", execution, payload: { code: "fixture", message: "执行失败" } })).toMatchObject({ ok: true });
+  await vi.waitFor(async () => {
+    const { data: current } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+    expect(current.comments.some(({ event }) => event === "failed")).toBe(true);
+  });
+  const stored = recordOf(engine, run);
+  const { data: current } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  const closed = await call<TaskDto>(engine, "tasks.setStatus", { id: task.id, expectedVersion: current.version, status: "completed" });
+  expect(closed).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.dispatch.retry", retry)).toMatchObject({ ok: false, error: { details: { reason: "task_unavailable" } } });
+  expect(recordOf(engine, run)).toEqual(stored);
+  const reopened = await call(engine, "tasks.setStatus", { id: task.id, expectedVersion: closed.data.version, status: "not_started" });
+  expect(reopened).toMatchObject({ ok: true });
+  writeFileSync(recordFile(engine, run.eventId), JSON.stringify({ ...stored, snapshotHash: "corrupt" }));
+  expect(await call(engine, "tasks.dispatch.retry", retry)).toMatchObject({ ok: false, error: { code: "WRITE_PARTIAL" } });
+});
+
+test("目标预检明确未发送时可用原快照重试，领取前关联当前任务版本", async () => {
+  const fake = executor();
+  vi.mocked(fake.ready).mockResolvedValue("unavailable");
+  fixture.executor = fake;
+  const engine = await start(tempVault(), true);
+  const task = await createDispatchable(engine);
+  const first = await acceptDispatch(engine, intent(task));
+  await waitDispatch(engine, first, { state: "blocked", reason: "target_unavailable" });
+  expect(fake.dispatch).not.toHaveBeenCalled();
+  expect(await call(engine, "tasks.dispatch.list", { taskId: task.id })).toMatchObject({ ok: true, data: [{ dispatchId: first.dispatchId, canRetry: true }] });
+  const edited = await call(engine, "tasks.update", { id: task.id, expectedVersion: task.version, patch: { body: "保存新的正文" } });
+  expect(edited).toMatchObject({ ok: true });
+  vi.mocked(fake.ready).mockResolvedValue("ready");
+  const retry = await call<DispatchReceipt>(engine, "tasks.dispatch.retry", { taskId: task.id, dispatchId: first.dispatchId, retryId: randomUUID() });
+  expect(retry).toMatchObject({ ok: true, data: { runId: first.runId, attempt: 2 } });
+  await waitDispatch(engine, retry.data, { state: "running" });
+  expect(recordOf(engine, retry.data).snapshot.body).toBe(task.body);
+  await vi.waitFor(async () => expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ data: { status: "in_progress", body: "保存新的正文" } }));
+});
+
 test("命令行分别授权 Agent 任务创建与派遣，不能替换工作区或提前发送", { timeout: 30_000 }, async () => {
   const root = tempVault();
   const engine = await start(root, true);

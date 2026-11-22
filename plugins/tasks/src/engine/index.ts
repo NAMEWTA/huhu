@@ -28,7 +28,7 @@ import path from "node:path";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, RetryDispatch, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
@@ -200,6 +200,19 @@ export const taskToolDescriptors = {
     title: "列出任务派遣",
     description: "读取指定任务的派遣记录。",
     risk: "normal",
+  }),
+  dispatchRetry: defineCapabilityDescriptor({
+    name: "tasks.dispatch.retry",
+    plugin: "tasks",
+    scope: "execute",
+    exposable: false,
+    defaultExposed: false,
+    idempotency: "handler",
+    input: RetryDispatch,
+    output: DispatchReceipt,
+    title: "重试原任务输入",
+    description: "以原运行的已保存快照重做证实已结束的失败执行。",
+    risk: "high",
   }),
   dispatchRecent: defineCapabilityDescriptor({
     name: "tasks.dispatch.recent",
@@ -515,6 +528,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.dispatchRetry, async ({ caller, signal }, input) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("重试原任务输入需要工作台");
+      const receipt = await dispatch.retry(input, signal);
+      void dispatch.check();
+      return receipt;
+    }),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchRecent, (c, { limit }) => dispatch.recent(limit, toolOwner(c))));
   api.defineCapability(
     bindCapability(taskToolDescriptors.dispatchCancel, (c, i) => {

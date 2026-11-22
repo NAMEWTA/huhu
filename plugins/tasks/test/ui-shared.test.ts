@@ -90,6 +90,7 @@ describe("编辑表单", () => {
       completedAt: null,
       tags: ["周报"],
       due: "2026-11-12",
+      availableAt: "2026-11-11T22:30:42.000Z",
       project: "工作",
       origin: { kind: "desktop" },
       execution: { spaceId: "s", provider: "codex", model: null, effort: null, fast: false },
@@ -105,6 +106,16 @@ describe("编辑表单", () => {
       dispatchBlockers: [],
     };
     const w = draftToWritable(draftFromTask(task));
-    expect(w).toMatchObject({ title: "T", body: "正文 [[Notes/a.md]]", type: "agent", tags: ["周报"], due: "2026-11-12", project: "工作", execution: { spaceId: "s", provider: "codex" }, reminders: task.reminders });
+    expect(w).toMatchObject({
+      title: "T",
+      body: "正文 [[Notes/a.md]]",
+      type: "agent",
+      tags: ["周报"],
+      due: "2026-11-12",
+      availableAt: task.availableAt,
+      project: "工作",
+      execution: { spaceId: "s", provider: "codex" },
+      reminders: task.reminders,
+    });
   });
 });

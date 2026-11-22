@@ -12,6 +12,7 @@ const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
 export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional() }).strict();
 export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
+export const RetryDispatch = DispatchLookup.extend({ retryId: Id });
 const StopRecord = z.strictObject({
   stopId: AgentNativeStopInputSchema.shape.stopId,
   status: z.enum(["pending", "sending", ...AgentNativeStopStatusSchema.options]),
@@ -75,6 +76,8 @@ export const DispatchReceipt = DispatchLookup.extend({
 export const TaskDispatchView = DispatchReceipt.extend({
   session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
   stop: StopRecord.omit({ toolOwner: true }).optional(),
+  canRetry: z.literal(true).optional(),
+  superseded: z.literal(true).optional(),
 });
 export const TaskRunSummary = z.object({
   id: z.string(),
@@ -91,6 +94,7 @@ export type TaskRunSummary = z.infer<typeof TaskRunSummary>;
 export type RecentTaskRun = z.infer<typeof RecentTaskRun>;
 const RecordFields = z.object({
   receipt: DispatchReceipt,
+  retryOf: z.strictObject({ intent: RetryDispatch, taskInput: InputIdentity }).optional(),
   requestHash: z.string(),
   snapshot: Snapshot,
   snapshotHash: z.string(),
@@ -111,6 +115,7 @@ const DispatchRecord = z.discriminatedUnion("schema", [RecordFields.extend({ sch
 
 export type DispatchInput = z.infer<typeof DispatchInput>;
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
+export type RetryDispatch = z.infer<typeof RetryDispatch>;
 export type RuleSource = z.infer<typeof RuleSource>;
 export type DispatchSource = z.infer<typeof Source>;
 export type DispatchSnapshot = z.infer<typeof Snapshot>;
@@ -129,6 +134,10 @@ export function fingerprint(value: unknown): string {
 
 export function eventIdOf(dispatchId: string): string {
   return `evt-${fingerprint(dispatchId)}`;
+}
+
+export function retryDispatchId(dispatchId: string): string {
+  return `retry-${fingerprint(dispatchId)}`;
 }
 
 function identityOf({ owner, receipt, requestHash, snapshotHash }: Omit<UnsealedRecord, "identityHash">): string {
@@ -208,8 +217,12 @@ export class DispatchStore {
       if (receipt.parentRunId !== ("parent" in snapshot.source ? snapshot.source.parent?.runId : undefined)) throw new Error("后续运行关联不一致");
       const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly } = snapshot;
       const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion, ...(allowEarly !== undefined && { allowEarly }) };
-      if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run") || receipt.attempt !== 1) throw new Error("派遣身份校验失败");
-      if (fingerprint(snapshot) !== snapshotHash || fingerprint({ input, source }) !== requestHash) throw new Error("请求或快照校验失败");
+      if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run")) throw new Error("派遣身份校验失败");
+      const { retryOf } = record;
+      if (retryOf ? record.schema !== 2 || receipt.attempt < 2 || retryOf.intent.taskId !== taskId || retryDispatchId(retryOf.intent.dispatchId) !== receipt.dispatchId : receipt.attempt !== 1) {
+        throw new Error("重试身份校验失败");
+      }
+      if (fingerprint(snapshot) !== snapshotHash || fingerprint(retryOf?.intent ?? { input, source }) !== requestHash) throw new Error("请求或快照校验失败");
       if ((receipt.state === "pending" && claim) || (["claimed", "sending", "running", "unknown"].includes(receipt.state) && !claim)) throw new Error("领取状态与记录不符");
       const execution = record.boundExecution;
       if (record.stop && (!execution || receipt.state !== "running")) throw new Error("停止意图的原执行绑定无效");
