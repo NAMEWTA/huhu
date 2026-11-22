@@ -19,6 +19,8 @@ export const ProxyDefinition = z.strictObject({
 export type ProxyDefinition = z.infer<typeof ProxyDefinition>;
 export const ProxyProfile = ProxyDefinition.extend({ id: ProxyId, revision: z.uuidv4(), available: z.boolean() });
 export type ProxyProfile = z.infer<typeof ProxyProfile>;
+export const OutboundProxySummary = z.strictObject({ source: z.enum(["inherit", "direct", "profile"]), protocol: ProxyDefinition.shape.protocol.optional(), name: ProxyDefinition.shape.name.optional() });
+export type OutboundProxySummary = z.infer<typeof OutboundProxySummary>;
 export const SaveProxyProfile = ProxyDefinition.omit({ authenticated: true }).extend({
   id: ProxyId.optional(),
   expectedRevision: z.uuidv4().nullable(),

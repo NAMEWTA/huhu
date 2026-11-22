@@ -4,6 +4,7 @@ import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvent
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
+import type { OutboundProxySummary } from "../shared/outbound-proxy.js";
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
@@ -54,6 +55,11 @@ const routeStages: Record<ConnectionHop["stage"], string> = {
   connected: "成功",
   failed: "失败",
 };
+
+function proxyDescription(proxy: OutboundProxySummary): string {
+  if (proxy.name) return `${proxy.source === "inherit" ? "Vault 默认代理" : "主机指定代理"} ${proxy.name}（${proxy.protocol === "socks5" ? "SOCKS5" : "HTTP CONNECT"}）`;
+  return proxy.source === "inherit" ? "继承 Vault 默认，首段直连" : "按主机设置首段直连";
+}
 
 function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId: string): string {
   if (!directory) return "";
@@ -106,6 +112,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
   const recoveredHostId = connections.data?.find((status) => (status.state === "waiting" || status.state === "auth-waiting") && !status.workspace)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
+  const outbound = useCapability<OutboundProxySummary>("ssh.outboundProxies.preview", host ? { hostId: host.id } : {}, { enabled: Boolean(host && isManagedHost(host)) });
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
   const jobs = useCapability<{ jobId: string; state: string }[]>("ssh.jobs.list", host ? { hostId: host.id } : {});
   const ownShells = shells.data?.filter(({ source }) => source !== "external") ?? [];
@@ -593,6 +600,15 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                   <span>Desktop host</span>
                 </div>
                 <ArrowRight size={18} aria-hidden />
+                {outbound.data?.name && (
+                  <>
+                    <div>
+                      <Cable size={22} aria-hidden />
+                      <strong>{proxyDescription(outbound.data)}</strong>
+                    </div>
+                    <ArrowRight size={18} aria-hidden />
+                  </>
+                )}
                 {nextRoute.map((jump) => {
                   return (
                     <Fragment key={jump.id}>
@@ -613,6 +629,8 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                   </span>
                 </div>
               </div>
+              {outbound.data && !outbound.data.name && <p>{proxyDescription(outbound.data)}</p>}
+              {outbound.isError && <p role="status">无法读取此主机的首段出站配置。</p>}
             </section>
             {Boolean(connection?.route?.length) && (
               <section className="hu-card-alt ssh-connection-config" aria-label="实际连接路径">
@@ -627,15 +645,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                     <li key={`${hop.id}:${index}`}>
                       {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
                       {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
-                      {hop.outboundProxy ? (
-                        <span>
-                          {" "}
-                          ·{" "}
-                          {hop.outboundProxy.name
-                            ? `${hop.outboundProxy.source === "inherit" ? "Vault 默认代理" : "主机指定代理"} ${hop.outboundProxy.name}（${hop.outboundProxy.protocol === "socks5" ? "SOCKS5" : "HTTP CONNECT"}）`
-                            : "首段直连"}
-                        </span>
-                      ) : null}
+                      {hop.outboundProxy ? <span> · {proxyDescription(hop.outboundProxy)}</span> : null}
                     </li>
                   ))}
                 </ol>

@@ -68,7 +68,11 @@ export function OutboundProxyPanel() {
   }
 
   const profiles = state.data?.profiles ?? [];
-  const selectedDefault = selected?.profileId ?? state.data?.routing.defaultProfileId ?? "";
+  const currentDefault = state.data?.routing.defaultProfileId ?? "";
+  const currentRevision = state.data?.routing.revision ?? null;
+  const selectedDefault = selected?.profileId ?? currentDefault;
+  const staleSelection = selected && selected.revision !== currentRevision;
+  const selectedAvailable = !selectedDefault || profiles.some(({ id }) => id === selectedDefault);
   return (
     <section className="hu-card-alt hu-stack" aria-labelledby={heading}>
       <div className="ssh-workspace-controls">
@@ -94,12 +98,13 @@ export function OutboundProxyPanel() {
           className="ssh-workspace-controls"
           onSubmit={(event) => {
             event.preventDefault();
-            if (selected) void save("ssh.outboundProxies.setDefault", { defaultProfileId: selected.profileId || null, expectedRevision: selected.revision }, "已保存默认代理。", () => setSelected(undefined));
+            if (selected && !staleSelection && selectedAvailable)
+              void save("ssh.outboundProxies.setDefault", { defaultProfileId: selected.profileId || null, expectedRevision: selected.revision }, "已保存默认代理。", () => setSelected(undefined));
           }}
         >
           <label className="hu-field">
             Vault 默认出站代理
-            <select name="proxy" value={selectedDefault} disabled={saving} onChange={(event) => setSelected({ profileId: event.currentTarget.value, revision: state.data!.routing.revision })}>
+            <select name="proxy" value={selectedDefault} disabled={saving} onChange={(event) => setSelected({ profileId: event.currentTarget.value, revision: currentRevision })}>
               <option value="">直连</option>
               {profiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
@@ -109,9 +114,36 @@ export function OutboundProxyPanel() {
               {selectedDefault && !profiles.some(({ id }) => id === selectedDefault) ? <option value={selectedDefault}>原代理配置缺失</option> : null}
             </select>
           </label>
-          <Button type="submit" loading={saving} disabled={(state.data.routing.defaultProfileId ?? "") === selectedDefault}>
+          <Button type="submit" loading={saving} disabled={currentDefault === selectedDefault || Boolean(staleSelection) || !selectedAvailable}>
             保存默认设置
           </Button>
+          {staleSelection ? (
+            <div className="hu-stack">
+              <p role="status">当前默认设置已更新为 {currentDefault ? (profiles.find(({ id }) => id === currentDefault)?.name ?? "原代理配置缺失") : "直连"}。</p>
+              <div className="ssh-workspace-controls">
+                <Button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setSelected(undefined);
+                    setError(undefined);
+                  }}
+                >
+                  使用当前设置
+                </Button>
+                <Button
+                  type="button"
+                  disabled={saving || !selectedAvailable}
+                  onClick={() => {
+                    setSelected({ profileId: selected.profileId, revision: currentRevision });
+                    setError(undefined);
+                  }}
+                >
+                  继续编辑所选设置
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </form>
       ) : null}
       {profiles.length > 0 ? (

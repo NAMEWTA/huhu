@@ -4,7 +4,7 @@ import type { Duplex } from "node:stream";
 import { errors, HuhuError } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CredentialAction, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { ProxyDefinition, ProxyRouting, type ProxyProfile, type SaveProxyProfile, type SetDefaultProxy } from "../shared/outbound-proxy.js";
+import { ProxyDefinition, ProxyRouting, type OutboundProxySummary, type ProxyProfile, type SaveProxyProfile, type SetDefaultProxy } from "../shared/outbound-proxy.js";
 import { HostDefinition, type SshHostProfile } from "./auth-profile.js";
 import type { SshCredentialHost } from "./host-configurations.js";
 
@@ -70,6 +70,10 @@ export function effectiveOutboundProxy(files: Files, host: Pick<SshHostProfile, 
 export function outboundProxyVersion({ source, profile }: EffectiveProxy): string | undefined {
   if (profile) return JSON.stringify([source, profile.id, profile.revision]);
   return source === "direct" ? source : undefined;
+}
+
+export function summarizeOutboundProxy({ source, profile }: EffectiveProxy): OutboundProxySummary {
+  return { source, ...(profile && { protocol: profile.protocol, name: profile.name }) };
 }
 
 function proxyError(error: unknown): never {

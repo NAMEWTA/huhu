@@ -301,6 +301,8 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
     const proxyPort = (proxy.address() as { port: number }).port;
     const { hostId } = destination;
     const direct = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const preview = () => f.desktop("ssh.outboundProxies.preview", { hostId });
+    expect(await preview()).toEqual({ source: "inherit" });
     const profile = await f.desktop<ProxyProfile>("ssh.outboundProxies.save", {
       expectedRevision: null,
       name: "authorized proxy fixture",
@@ -312,6 +314,7 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
     expect(profile).toMatchObject({ available: true, authenticated: true });
     expect(JSON.stringify(profile)).not.toContain(proxyAuth.password);
     const current = await f.desktop<ProxyRouting>("ssh.outboundProxies.setDefault", { expectedRevision: null, defaultProfileId: profile.id });
+    expect(await preview()).toEqual({ source: "inherit", protocol: profile.protocol, name: profile.name });
     const route = await f.desktop<ResourceHost>(hostGet, { hostId });
     expect(route.route.map(({ hostId }) => hostId)).toEqual([...jumps.map(({ hostId }) => hostId), hostId]);
     expect(route.routeRevision).not.toBe(direct.routeRevision);
@@ -344,8 +347,10 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
     await f.desktop("ssh.hosts.configure", { ...destination.profile, hostId, expectedRevision: destination.revision, credentials: [], outboundProxy: { mode: "direct" } });
     const override = await f.desktop<ResourceHost>(hostGet, { hostId });
     expect(override.routeRevision).not.toBe(route.routeRevision);
+    expect(await preview()).toEqual({ source: "direct" });
     await f.desktop("ssh.outboundProxies.setDefault", { expectedRevision: current.revision, defaultProfileId: null });
     expect(await f.desktop<ResourceHost>(hostGet, { hostId })).toEqual(override);
+    expect(await preview()).toEqual({ source: "direct" });
     await f.desktop("ssh.outboundProxies.remove", { id: profile.id, revision: profile.revision });
   } finally {
     try {

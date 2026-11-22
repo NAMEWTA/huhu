@@ -1,11 +1,26 @@
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
+import { errors } from "@huhu/contracts";
 import { z } from "zod";
-import { ProxyProfile, ProxyProfileRevision, ProxyRouting, SaveProxyProfile, SetDefaultProxy } from "../shared/outbound-proxy.js";
+import { OutboundProxySummary, ProxyProfile, ProxyProfileRevision, ProxyRouting, SaveProxyProfile, SetDefaultProxy } from "../shared/outbound-proxy.js";
+import { OwnedHostId } from "./auth-profile.js";
 import type { HostConfigurations } from "./host-configurations.js";
-import type { OutboundProxies } from "./outbound-proxies.js";
+import { effectiveOutboundProxy, summarizeOutboundProxy, type OutboundProxies } from "./outbound-proxies.js";
+import { readPortableHosts } from "./public-resources.js";
 
 const desktop = { plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false } as const;
 export const sshOutboundProxyDescriptors = {
+  outboundProxiesPreview: defineCapabilityDescriptor({
+    plugin: "ssh",
+    exposable: false,
+    defaultExposed: false,
+    name: "ssh.outboundProxies.preview",
+    title: "预览 SSH 首段路径",
+    description: "读取该主机下次连接采用的首段出站方式。",
+    scope: "read",
+    risk: "normal",
+    input: z.strictObject({ hostId: OwnedHostId }),
+    output: OutboundProxySummary,
+  }),
   outboundProxiesList: defineCapabilityDescriptor({
     ...desktop,
     name: "ssh.outboundProxies.list",
@@ -51,6 +66,13 @@ export const sshOutboundProxyDescriptors = {
 export function registerOutboundProxies(api: HuhuApi, proxies: OutboundProxies, hosts: HostConfigurations): void {
   const descriptors = sshOutboundProxyDescriptors;
   const changed = () => api.events.publish("entity.changed", { kind: "ssh-outbound-proxy", id: "outbound", op: "updated" });
+  api.defineCapability(
+    bindCapability(descriptors.outboundProxiesPreview, (_context, { hostId }) => {
+      const [host] = readPortableHosts(api.vault.files, new Set([hostId]));
+      if (!host) throw errors.notFound("SSH 主机");
+      return summarizeOutboundProxy(effectiveOutboundProxy(api.vault.files, host));
+    }),
+  );
   api.defineCapability(bindCapability(descriptors.outboundProxiesList, () => proxies.list()));
   api.defineCapability(
     bindCapability(descriptors.outboundProxiesSave, async ({ signal }, input) => {

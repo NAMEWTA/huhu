@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OutboundProxySummary } from "./outbound-proxy.js";
 
 export const KnownHostKey = z.object({
   host: z.string().min(1),
@@ -41,7 +42,7 @@ const HopStage = z.enum(["dialing", "proxy", "trust", "authenticating", "answeri
 export const ConnectionHop = ConnectionHost.extend({
   user: z.string(),
   auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
-  outboundProxy: z.object({ source: z.enum(["inherit", "direct", "profile"]), protocol: z.enum(["socks5", "http-connect"]).optional(), name: z.string().optional() }).optional(),
+  outboundProxy: OutboundProxySummary.optional(),
   stage: HopStage,
   timeline: z.array(z.strictObject({ stage: HopStage, at: z.iso.datetime() })),
 });

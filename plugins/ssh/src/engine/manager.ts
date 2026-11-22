@@ -16,7 +16,7 @@ import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/p
 import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
-import { outboundProxyVersion, type EffectiveProxy } from "./outbound-proxies.js";
+import { outboundProxyVersion, summarizeOutboundProxy, type EffectiveProxy } from "./outbound-proxies.js";
 
 export interface AuditEntry {
   at: string;
@@ -437,7 +437,7 @@ export class SshManager {
       validate();
       onHop?.(hop, host);
       if (attempt.route) {
-        const proxy = hop === 0 && outbound && outboundVersion !== undefined ? { source: outbound.source, ...(outbound.profile && { protocol: outbound.profile.protocol, name: outbound.profile.name }) } : undefined;
+        const proxy = hop === 0 && outbound ? summarizeOutboundProxy(outbound) : undefined;
         attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }) });
         this.trace(attempt, hop, "dialing");
       }

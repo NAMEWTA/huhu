@@ -76,6 +76,7 @@
       "ssh.resources.trust.decide",
       "ssh.routes.edit",
       "ssh.outboundProxies.list",
+      "ssh.outboundProxies.preview",
       "ssh.outboundProxies.save",
       "ssh.outboundProxies.setDefault",
       "ssh.outboundProxies.remove",
