@@ -360,3 +360,20 @@ t18f 关闭 HUHU_PERF_DIAGNOSTICS，按原严格阈值串行三轮正式验证�
 同构建终端洪流仍失败。t18c bridge诊断显示约256ms内收到并调用发送7990925B，完成回调停在3548999B，最大bufferedAmount4447404B。密集输入停止后约20.1秒才继续发送并出现尾标；浏览器截止前仅2975788B，20秒无尾标，不能计性能通过。分段附件及结果已保留于 `temp/final-audit/flood-bridge-artifacts-9350f32b`，日志 `bridge-flood-diagnostic.log`。原始trace路径已被后续插件测试清理，本次保全仅含JSON分段数据和运行日志，不声称trace保全。t18d正在只读分析真实消费和测试驱动影响；尚无根因结论。SSH仍暂停；最终共同安装包和main交付未完成。
 
 t18g 在同一9350构建复验直接调用方，三个真实界面用例全部通过（8.8s）：旧看板任务卡保留独立筛选/时区/布局及冲突后重读，Agent入口随插件启停及活动筛选，智能体设置检测/持久化/预览/菜单。日志 `temp/final-audit/names-caller-ui.log`。
+
+
+### 停键时间反事实（仅诊断）
+
+固定9350应用，临时用例由 `temp/final-audit/generate-perf-stop-diagnostic.mjs` 从正式用例严格单次锚点生成，沿用10MiB命令、原焦点、20秒尾标阈值、真实键入及清理，仅预定停止发键后等待原尾标通知。t18j在+5秒停键，bridge在322ms已见尾标但发送完成平台直到5196ms，DOM尾标5611ms；775次驱动中757次窗内有效输入，p95 32.6ms。t18k在+10秒停键，bridge尾标362ms，发送完成10795ms，DOM尾标11239ms；1461次驱动中1456次窗内有效输入，p95 33.1ms。两轮命令退出0、清理完成，但均为减少持续输入时长的诊断变体，不能替代正式性能验收。
+
+日志 `temp/final-audit/stop-five.log` / `stop-ten.log`，原始结果为证据根 `stop-5000-9350f32bbe014243e4c81546b0ac1aa5afa9e226.cOe6Ls` 与 `stop-10000-9350f32bbe014243e4c81546b0ac1aa5afa9e226.s6kFU5`。分段JSON保全 `temp/final-audit/stop-keys-{5000,10000}-artifacts`。两轮发送积压均在停止输入后消退，支持持续输入或派键活动维持积压，仍待区分应用处理和驱动影响。临时测试文件已删除，未修改正式测试或业务行为。
+
+
+t18m原生XTEST首轮在预检DISPLAY对照失败，未发键，无性能结果。t18d/task03确认应从拥有BrowserWindow的主进程读取PID/固定环境字段，不能把可被Chromium进程标题改写的/proc初始环境区当作当前环境。修正仅在临时夹具；私有Xvfb socket peer、Xauthority和窗口PID核对保留。
+
+t18n实际主进程及启动PID均2373556、DISPLAY均:99，身份核对通过。1461个XTEST按键全部到达原搜索框，逐秒分桶125/158/162/152/149/139/145/144/139/148，间隔中位6.5ms、p95 10.4ms，与CDP对照接近。仍在10秒停键后才出现DOM尾标（10509.7ms），1458窗内样本p95 33.9ms。原生输入同样复现，逐键CDP调用不是必要条件；CDP Network观察仍在两臂开启，尚不能排除其共同开销。body断言通过但夹具app.close报错，整体退出1；Core停止true、desktopClosed=false/directoryRemoved=false，随后/proc/2373556已不存在。保留失败状态。完整结果及trace目录 `temp/final-audit/native-10000-9350f32bbe014243e4c81546b0ac1aa5afa9e226.VZJgeg`。下一步只补页面内WS实际接收统计与观测开关对照，尚未修改生产性能实现。
+
+
+t18p增加renderer内WebSocket message聚合观测，t18q移除夹具Playwright WebSocket订阅做对照，两轮均退出0且清理成功。两轮都完整接收1461次原生按键；双观测message尾标10407.6ms、DOM10415.5ms，页面单观测message尾标10256.6ms、DOM10272.7ms。实际收包尾标距显示约8–16ms，延迟主要位于页面message交付之前；不能只归因为xterm尾标渲染。页面单观测仅移除测试订阅，Playwright内部Network.enable仍保留，不等于关闭整个CDP网络采集。
+
+结果及trace分别保全 `temp/final-audit/native-10000-both-9350f32bbe014243e4c81546b0ac1aa5afa9e226.QEryTT` 和 `native-10000-page-only-9350f32bbe014243e4c81546b0ac1aa5afa9e226.BHBV6N`，对应日志 `page-receive-both.log` / `page-receive-only.log`。均为十秒停键诊断，不记正式持续输入吞吐通过。生产代码尚未因本诊断修改。
