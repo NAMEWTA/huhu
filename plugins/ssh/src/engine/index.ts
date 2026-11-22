@@ -547,6 +547,14 @@ export function apply(
     }),
   );
   api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.routesEdit, async ({ caller, signal }, input) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshCapabilityDescriptors.routesEdit.name);
+      const result = await hosts.editRoutes(input, signal);
+      for (const id of result.updated) api.events.publish("entity.changed", { kind: "ssh-host", id, op: "updated" });
+      return result;
+    }),
+  );
+  api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsConfigure, async (context, request) => {
       const { intentKey, routeRevision, ...input } = request;
       const save = async (assertCurrent?: () => void) => {

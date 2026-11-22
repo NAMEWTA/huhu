@@ -41,6 +41,9 @@ interface Definition<T> {
   configured: string[];
 }
 
+type DefinitionRevision = { entityId: string; expectedRevision: string };
+type PortableDefinition<T> = Readonly<Pick<Definition<T>, "entityId" | "definition">>;
+
 interface Pin {
   directory: string;
   snapshot: Snapshot;
@@ -264,6 +267,77 @@ export class ModuleCredentials<T> {
         await this.#collect(queue);
       }
     });
+  }
+
+  /** Atomically edit existing definitions with identical credential targets. The planner sees only portable data. */
+  async editDefinitions(targets: readonly DefinitionRevision[], prepare: (entries: readonly PortableDefinition<T>[]) => ReadonlyMap<string, T>, signal?: AbortSignal): Promise<string[]> {
+    this.#vault.assertWritable();
+    const requested = parse(z.array(z.strictObject({ entityId: entityIdSchema, expectedRevision: generation })).min(1), targets, "invalid-input");
+    assertUnique(
+      requested.map(({ entityId }) => entityId),
+      "invalid-input",
+    );
+    const result = await this.#serial(async (queue) => {
+      if (signal?.aborted) throw new CredentialError("cancelled");
+      const { entries, version } = this.#load();
+      const selected = new Map<string, Definition<T>>();
+      const byId = new Map(entries.map((entry) => [entry.entityId, entry]));
+      for (const { entityId, expectedRevision } of requested) {
+        const entry = byId.get(entityId);
+        if (!entry) throw new CredentialError("not-found");
+        if (entry.revision !== expectedRevision) throw new CredentialError("conflict");
+        selected.set(entityId, entry);
+      }
+
+      let changes: ReadonlyMap<string, T>;
+      try {
+        changes = prepare(entries.map(({ entityId, definition }) => ({ entityId, definition: structuredClone(definition) })));
+      } catch (error) {
+        // Return planner validation errors without classifying them as storage failures.
+        return { error };
+      }
+      if (!changes.size) return { updated: [] };
+
+      const next = new Map<string, Definition<T>>();
+      const snapshots: Snapshot[] = [];
+      const missing: Definition<T>[] = [];
+      for (const [entityId, candidate] of changes) {
+        const current = selected.get(entityId);
+        if (!current) throw new CredentialError("invalid-input");
+        const definition = parse(this.#definition, candidate, "invalid-input");
+        parse(z.json(), definition, "invalid-input");
+        const before = this.#targets(current.definition);
+        const after = this.#targets(definition);
+        if (before.size !== after.size || [...before].some(([purpose, target]) => after.get(purpose) !== target)) throw new CredentialError("invalid-input");
+
+        const revision = randomUUID();
+        const previous = this.#snapshot(current, before);
+        if (current.configured.length) {
+          if (!previous) missing.push(current);
+          snapshots.push({ format: 1, entityId, revision, references: previous?.references ?? [] });
+        }
+        next.set(entityId, { ...current, revision, definition });
+      }
+      if (missing.length) {
+        this.#versions.recordInitiallyUnbound(entries.filter((entry) => entry.configured.length > 0));
+        const proven = this.#versions.initiallyUnbound();
+        // An unexplained missing snapshot could still own local material.
+        if (missing.some(({ entityId, revision }) => !proven.has(identityHash(entityId, revision)))) throw new CredentialError("corrupt");
+      }
+      try {
+        for (const snapshot of snapshots) this.#versions.stageSnapshot(snapshot);
+        if (signal?.aborted) throw new CredentialError("cancelled");
+        await this.#publish(
+          entries.map((entry) => next.get(entry.entityId) ?? entry),
+          version,
+        );
+        return { updated: [...next.keys()] };
+      } finally {
+        await this.#collect(queue);
+      }
+    });
+    if ("error" in result) throw result.error;
+    return result.updated;
   }
 
   async #existingKey(entries: readonly Definition<T>[], reconfigure: boolean): Promise<string | undefined> {

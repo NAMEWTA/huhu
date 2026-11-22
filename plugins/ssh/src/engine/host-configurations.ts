@@ -8,7 +8,9 @@ import type { z } from "zod";
 import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
 import { KeyLibrary } from "./key-library.js";
+import { EditHostRoutes, type HostRouteEditResult } from "./route-edits.js";
 import type { AddSshKey, SshKeySummary } from "../shared/key-library.js";
+import { routeForHost } from "../shared/route.js";
 
 export type SshCredentialHost = Pick<CredentialOwner<HostDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 export type ManagedHost = z.infer<typeof ManagedHostView> & { configId: string };
@@ -187,6 +189,60 @@ export class HostConfigurations {
       assertCurrent?.();
       const saved = summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
       return selected ? { ...saved, configured: selected.available, authState: { privateKey: selected.available ? "configured" : "temporarily-unavailable" } } : saved;
+    });
+  }
+
+  editRoutes(input: EditHostRoutes, signal: AbortSignal): Promise<HostRouteEditResult> {
+    return this.mutate(async () => {
+      const parsed = EditHostRoutes.safeParse(input);
+      if (!parsed.success) throw errors.invalidInput("批量路由需要 1–100 个不同的有效主机、预期版本和有效操作", parsed.error.issues);
+      const { targets, change } = parsed.data;
+      const updated = await this.credentials().editDefinitions(
+        targets.map(({ hostId, expectedRevision }) => ({ entityId: hostId, expectedRevision })),
+        (entries) => {
+          const graph = new Map(entries.filter(({ entityId }) => OwnedHostId.safeParse(entityId).success).map(({ entityId, definition }) => [entityId, definition]));
+          const next = new Map<string, HostDefinition>();
+          if (change.action === "associate" && !graph.has(change.jumpHostId)) throw errors.notFound("所选 SSH 跳板不存在或需要修复");
+          for (const { hostId } of targets) {
+            const host = graph.get(hostId)!;
+            const directJump = host.jumpHostIds[0];
+            if (change.action === "associate") {
+              if ((directJump && change.ifExists === "skip") || directJump === change.jumpHostId) continue;
+              if (hostId === change.jumpHostId) throw errors.invalidInput(`「${host.name}」不能用自身作为跳板`);
+              next.set(hostId, { ...host, jumpHostIds: [change.jumpHostId] });
+            } else {
+              if (!directJump) throw errors.invalidInput(`「${host.name}」尚未设置跳板，无法启停路由`);
+              if (change.enabled === !host.routeDisabled) continue;
+              const { routeDisabled: _disabled, ...definition } = host;
+              next.set(hostId, change.enabled ? definition : { ...definition, routeDisabled: true });
+            }
+          }
+          if (next.size) {
+            for (const [id, definition] of next) graph.set(id, definition);
+            // Validate configured edges, including stopped routes, against the whole proposed graph.
+            const configured = new Map([...graph].map(([id, definition]) => [id, { id, jumpHostIds: definition.jumpHostIds }]));
+            const checked = new Set<string>();
+            const unchecked = {
+              get(id: string) {
+                return checked.has(id) ? { id, jumpHostIds: [] } : configured.get(id);
+              },
+            };
+            for (const [id, definition] of graph) {
+              if (checked.has(id)) continue;
+              try {
+                for (const node of routeForHost(unchecked, id)) checked.add(node.id);
+              } catch (error) {
+                if (!(error instanceof HuhuError)) throw error;
+                throw errors.invalidInput(`「${definition.name}」的路由无效。 ${error.message}`);
+              }
+            }
+          }
+          return next;
+        },
+        signal,
+      );
+      const changed = new Set(updated);
+      return { updated, skipped: targets.map(({ hostId }) => hostId).filter((id) => !changed.has(id)) };
     });
   }
 

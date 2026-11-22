@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import type { ManagedHost } from "../../../plugins/ssh/src/ui/host-record.js";
 import type { RecordingContent, RecordingSummary } from "../../../plugins/ssh/src/shared/recordings.js";
 import type { ConnectionStatus } from "../../../plugins/ssh/src/shared/trust.js";
 import type { WorkspaceRun } from "../../../plugins/ssh/src/shared/workspace.js";
@@ -260,5 +261,112 @@ test("H5.3 回放已停止的录制，可暂停并按时间定位，切换 Shell
     await app.close();
     await left.close();
     await right.close();
+  }
+});
+
+test("H3.2 路由页批量关联、覆盖与启停，旧 Shell 保留原连接路径", async () => {
+  const password = randomUUID();
+  const jump = await startFakeSsh({ password });
+  const target = await startFakeSsh({ password });
+  const app = await openApp();
+  const { page } = app;
+  try {
+    await openSsh(page);
+    const a = await saveHost(page, "批量目标甲", target.port, password);
+    const b = await saveHost(page, "批量目标乙", target.port, password);
+    const beforeJump = await saveHost(page, "跳板一", jump.port, password);
+    const selectedJump = await saveHost(page, "跳板二", jump.port, password);
+    const list = async () => new Map((await desktopCall<ManagedHost[]>(page, "ssh.hosts.list")).map((entry) => [entry.id, entry]));
+    const initial = await list();
+    const aHost = initial.get(a.hostId)!;
+    await desktopCall(page, "ssh.hosts.configure", {
+      hostId: a.hostId,
+      expectedRevision: aHost.revision,
+      name: aHost.name,
+      host: aHost.host,
+      user: aHost.user,
+      port: aHost.port,
+      authKind: aHost.auth.kind,
+      jumpHostIds: [beforeJump.hostId],
+      credentials: [],
+    });
+    expect(await desktopCall(page, "safe.status")).toMatchObject({ initialized: false });
+
+    await page.getByRole("button", { name: "跳板路由", exact: true }).click();
+    const checkbox = (name: string) => page.getByRole("checkbox", { name, exact: true });
+    const selectBatch = async () => {
+      await checkbox("批量目标甲").check();
+      await checkbox("批量目标乙").check();
+    };
+    await selectBatch();
+    const candidate = page.getByLabel("批量跳板");
+    await expect(candidate.getByRole("option", { name: /批量目标乙.*自身/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "批量启用", exact: true })).toBeDisabled();
+    const targetSearch = page.getByRole("textbox", { name: "筛选目标主机…" });
+    await targetSearch.fill("目标甲");
+    await expect(page.getByText("已选 2 台，其中 1 台在当前筛选范围外")).toBeVisible();
+    await page.getByRole("textbox", { name: "搜索批量跳板…" }).fill("跳板二");
+    await candidate.selectOption(selectedJump.hostId);
+    await page.getByRole("button", { name: "批量关联", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已更新 1 台，跳过 1 台" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "各目标的批量结果" })).toContainText("批量目标甲 · 已跳过（已有路由）");
+    const first = await list();
+    expect(first.get(a.hostId)?.jumpHostIds).toEqual([beforeJump.hostId]);
+    expect(first.get(b.hostId)?.jumpHostIds).toEqual([selectedJump.hostId]);
+    expect(first.get(beforeJump.hostId)).toEqual(initial.get(beforeJump.hostId));
+
+    await targetSearch.clear();
+    await selectBatch();
+    await page.getByRole("checkbox", { name: "覆盖已有路由（默认跳过）" }).check();
+    await page.getByRole("button", { name: "批量关联", exact: true }).click();
+    await expect(page.getByRole("list", { name: "各目标的批量结果" })).toContainText("批量目标乙 · 已跳过（直接跳板相同）");
+    await checkbox("按直接跳板分组").check();
+    await expect(page.getByRole("heading", { name: "跳板二", exact: true })).toBeVisible();
+    expect((await list()).get(a.hostId)).toMatchObject({ jumpHostIds: [selectedJump.hostId], port: aHost.port, user: aHost.user, authState: { password: "configured" } });
+
+    const connect = () => desktopCall(page, "ssh.connect", { hostId: a.hostId, background: true });
+    const status = async () => (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find(({ hostId }) => hostId === a.hostId);
+    const connectedPath = async () => {
+      const connection = await status();
+      return connection?.state === "connected" ? connection.route?.map(({ id }) => id) : undefined;
+    };
+    await connect();
+    await approve(page, a.hostId);
+    await expect
+      .poll(async () => {
+        const connection = await status();
+        return connection?.state === "waiting" ? connection.prompt.hop : undefined;
+      })
+      .toBe(1);
+    await approve(page, a.hostId);
+    await expect.poll(connectedPath).toEqual([selectedJump.hostId, a.hostId]);
+    const shell = await desktopCall<{ id: string }>(page, "ssh.shells.open", { hostId: a.hostId });
+    const connectionId = (await status())?.connectionId;
+
+    await selectBatch();
+    await page.getByRole("button", { name: "批量停用", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已更新 2 台，跳过 0 台" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "各目标的批量结果" })).toContainText("批量目标乙 · 已更新");
+    expect((await list()).get(a.hostId)).toMatchObject({ jumpHostIds: [selectedJump.hostId], routeDisabled: true });
+    expect((await status())?.connectionId).toBe(connectionId);
+    expect(await connectedPath()).toEqual([selectedJump.hostId, a.hostId]);
+    expect(await desktopCall(page, "ssh.shells.list", { hostId: a.hostId })).toEqual(expect.arrayContaining([expect.objectContaining({ id: shell.id, state: "running" })]));
+    await desktopCall(page, "ssh.disconnect", { hostId: a.hostId });
+    await connect();
+    await expect.poll(connectedPath).toEqual([a.hostId]);
+
+    await selectBatch();
+    await page.getByRole("button", { name: "批量启用", exact: true }).click();
+    await expect.poll(async () => (await list()).get(a.hostId)?.routeDisabled).toBeUndefined();
+    await expect(page.getByRole("list", { name: "各目标的批量结果" })).toContainText("批量目标甲 · 已更新");
+    expect(await connectedPath()).toEqual([a.hostId]);
+    await desktopCall(page, "ssh.disconnect", { hostId: a.hostId });
+    await connect();
+    await expect.poll(connectedPath).toEqual([selectedJump.hostId, a.hostId]);
+    await desktopCall(page, "ssh.disconnect", { hostId: a.hostId });
+  } finally {
+    await app.close();
+    await target.close();
+    await jump.close();
   }
 });

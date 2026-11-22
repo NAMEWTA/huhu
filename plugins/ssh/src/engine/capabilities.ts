@@ -10,6 +10,7 @@ import { sshDraftDescriptor } from "./draft-connection.js";
 import { sshKeyDescriptors } from "./key-library-capabilities.js";
 import { sshLocalShellDescriptors } from "./local-shell.js";
 import { sshProxyShareDescriptors } from "./proxy-share.js";
+import { EditHostRoutes, HostRouteEditResult } from "./route-edits.js";
 import { sshRecordingDescriptors } from "./terminal-recordings.js";
 import { sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
@@ -81,6 +82,16 @@ export const sshCapabilityDescriptors = {
   authenticationAnswer: sshAuthenticationDescriptor,
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
+  routesEdit: defineCapabilityDescriptor({
+    ...ssh,
+    name: "ssh.routes.edit",
+    title: "批量编辑 SSH 跳板路由",
+    description: "按主机版本批量关联直接跳板或启停路由，工作台已打开的连接保留建立时的路径。",
+    scope: "write",
+    risk: "high",
+    input: EditHostRoutes,
+    output: HostRouteEditResult,
+  }),
   jobsPrepare: defineCapabilityDescriptor({
     ...resource,
     name: "ssh.jobs.prepare",

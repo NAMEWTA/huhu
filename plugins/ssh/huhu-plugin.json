@@ -74,6 +74,7 @@
       "ssh.resources.connection.list",
       "ssh.resources.connection.start",
       "ssh.resources.trust.decide",
+      "ssh.routes.edit",
       "ssh.settings.get",
       "ssh.settings.update",
       "ssh.sftp.cancel",
