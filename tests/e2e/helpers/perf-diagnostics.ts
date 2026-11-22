@@ -1,6 +1,7 @@
 import type { CDPSession, ElectronApplication, Page, Request, TestInfo } from "@playwright/test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 const taskCapabilities = new Set(["tasks.create", "tasks.list", "home.focus.get", "home.summary", "health.run"]);
 
@@ -54,10 +55,27 @@ export function observeTerminalFlood(page: Page, tail: string) {
   };
 }
 
+const floodSessionId = z.string().regex(/^sess-[a-z0-9]{5,20}$/u);
+const floodCount = z.number().int().nonnegative();
+const floodTime = z.number().nonnegative();
+const floodTransfer = z.object({ frames: floodCount, bytes: floodCount, lastAt: floodTime.nullable(), tailAt: floodTime.nullable() });
+const floodStage = floodTransfer.extend({ firstAt: floodTime.nullable() });
+// z.object strips unknown fields at each level before the record enters an attachment.
+const floodBridgeRecord = z.object({
+  sessionId: floodSessionId,
+  connectionId: z.uuidv4(),
+  event: z.enum(["progress", "core-tail", "send-tail", "send-tail-completed", "send-drained", "abort", "close"]),
+  at: floodTime,
+  core: floodStage,
+  credit: z.object({ blocked: floodCount, maxBufferedAmount: floodCount }),
+  sent: floodStage,
+  completed: floodTransfer.extend({ errors: floodCount }),
+});
+
 export function observeTerminalFloodBridge(app: ElectronApplication) {
   const prefix = "[huhu-terminal-flood-bridge] ";
   const stderr = app.process()?.stderr;
-  const records: { sessionId: string; connectionId: string; event: string; at: number }[] = [];
+  const records: z.infer<typeof floodBridgeRecord>[] = [];
   let remainder = "";
   let sessionId: string | null = null;
   let window: { releasedAt: number; deadline: number } | undefined;
@@ -70,8 +88,9 @@ export function observeTerminalFloodBridge(app: ElectronApplication) {
       const line = raw.replaceAll("[engine] ", "");
       if (!line.startsWith(prefix)) continue;
       try {
-        const record = JSON.parse(line.slice(prefix.length)) as (typeof records)[number];
-        if (typeof record.sessionId !== "string" || typeof record.connectionId !== "string" || typeof record.event !== "string" || typeof record.at !== "number") continue;
+        const parsed = floodBridgeRecord.safeParse(JSON.parse(line.slice(prefix.length)));
+        if (!parsed.success) continue;
+        const record = parsed.data;
         if (sessionId !== null && record.sessionId !== sessionId) continue;
         records.push(record);
         if (records.length > 64) {
@@ -87,7 +106,8 @@ export function observeTerminalFloodBridge(app: ElectronApplication) {
   const snapshot = () => ({ collectedAt: Date.now(), stderrAvailable: Boolean(stderr), sessionId, ...window, dropped, records: records.filter((record) => sessionId === null || record.sessionId === sessionId) });
   return {
     select(id: string | null) {
-      sessionId = id;
+      const parsed = floodSessionId.safeParse(id);
+      sessionId = parsed.success ? parsed.data : null;
     },
     start(releasedAt: number, deadline: number) {
       window = { releasedAt, deadline };

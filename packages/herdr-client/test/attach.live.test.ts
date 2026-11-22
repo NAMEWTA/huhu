@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterAll, describe, expect, test } from "vitest";
-import { HerdrClient, attachTerminal, type TerminalStream } from "../src/index.js";
+import { HerdrClient, HerdrError, attachTerminal, type TerminalStream } from "../src/index.js";
 
 const BIN = process.env["HUHU_HERDR_BIN"] ?? path.resolve(import.meta.dirname, "../../..", "apps/desktop/resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
 const dir = mkdtempSync(path.join(tmpdir(), "huhu-hl-"));
@@ -31,9 +31,30 @@ function hasProbeHome(pid: number, home: string): boolean {
   }
 }
 
+const probeErrorCodes = new Set(["ENOENT", "EACCES", "EPERM", "EINVAL", "ESRCH", "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "EPIPE", "HERDR_UNAVAILABLE"]);
+const probeRpcCodes = new Set([-32700, -32600, -32601, -32602, -32603, -32000]);
+
+function summarizeProbeError(error: unknown): { category: "rpc" | "timeout" | "abort" | "exception" | "unknown"; code: string | number | null } {
+  if (error instanceof HerdrError) return { category: "rpc", code: probeRpcCodes.has(error.rpc.code) ? error.rpc.code : null };
+  if (error instanceof DOMException && error.name === "TimeoutError") return { category: "timeout", code: null };
+  if (error instanceof DOMException && error.name === "AbortError") return { category: "abort", code: null };
+  if (!(error instanceof Error)) return { category: "unknown", code: null };
+  const code = "code" in error && typeof error.code === "string" && probeErrorCodes.has(error.code) ? error.code : null;
+  return { category: "exception", code };
+}
+
+type ProbeFailure = { stage: string; error: ReturnType<typeof summarizeProbeError> };
+
+function reportProbeFailures(run: () => Promise<ProbeFailure[]>) {
+  return async () => {
+    const failures = await run().catch((error) => [{ stage: "setup-or-finalization", error: summarizeProbeError(error) }]);
+    if (failures.length) throw new Error(`直连诊断或清理失败 ${JSON.stringify(failures)}`);
+  };
+}
+
 test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"] === "1")(
   "隔离终端洪流阶段取证",
-  async () => {
+  reportProbeFailures(async () => {
     const bin = realpathSync(BIN);
     const binSha256 = createHash("sha256").update(readFileSync(bin)).digest("hex");
     expect(binSha256, "锁定 Core 0.1.19 Linux x64 可执行文件").toBe("d408197a6b85af97b2fe93a10e6f4bee18d3a654307db94df2b35aea277c466f");
@@ -60,13 +81,13 @@ test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"
     mkdirSync(home, { mode: 0o700 });
     mkdirSync(runtime, { mode: 0o700 });
     const core = spawn(bin, ["serve"], { cwd: root, env: probeEnv, stdio: ["ignore", "ignore", "pipe"] });
-    let serveError: string | undefined;
-    let serveStderr = "";
+    let spawnFailure: ReturnType<typeof summarizeProbeError> | undefined;
+    let stderrBytes = 0;
     core.on("error", (error) => {
-      serveError = error.message;
+      spawnFailure = summarizeProbeError(error);
     });
     core.stderr.on("data", (chunk: Buffer) => {
-      serveStderr = (serveStderr + chunk.toString("utf8")).slice(-4096);
+      stderrBytes += chunk.length;
     });
     const ownedPids = () =>
       readdirSync("/proc")
@@ -88,22 +109,25 @@ test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"
     const tailSeen = new Promise<void>((resolve) => {
       endSample = resolve;
     });
-    let read: { status: "read"; atMs: number; complete: boolean; how: string; characters: number; hasTail: boolean; hasPromptLikeLastLine: boolean } | { status: "error"; message: string } | undefined;
-    let stop: { stopped: boolean } | { error: string } | undefined;
+    let read: { status: "read"; atMs: number; complete: boolean; how: string | null; characters: number; hasTail: boolean; hasPromptLikeLastLine: boolean } | { status: "error"; error: ReturnType<typeof summarizeProbeError> } | undefined;
+    let stop: { stopped: boolean } | { error: ReturnType<typeof summarizeProbeError> } | undefined;
     const forcedPids: number[] = [];
-    const failures: unknown[] = [];
+    const failures: ProbeFailure[] = [];
+    let stage = "core-start";
     try {
-      await expect.poll(() => serveError ?? { ready: lstatSync(endpoint, { throwIfNoEntry: false })?.isSocket() ?? false, exit: core.exitCode }, { timeout: 6_000 }).toEqual({ ready: true, exit: null });
+      await expect.poll(() => ({ ready: !spawnFailure && (lstatSync(endpoint, { throwIfNoEntry: false })?.isSocket() ?? false), exit: core.exitCode }), { timeout: 6_000 }).toEqual({ ready: true, exit: null });
+      stage = "core-identity";
       await c.connect(AbortSignal.timeout(3_000));
       const status = await c.call<{ pid: number; version: string }>("server.status", {}, AbortSignal.timeout(3_000));
       expect(status.pid).toBe(core.pid);
       expect(readlinkSync(`/proc/${status.pid}/exe`)).toBe(bin);
       verifiedCore = true;
-      state.version = status.version;
       expect(status.version).toBe("0.1.19");
+      state.version = status.version;
+      stage = "terminal-attach";
       const run = await c.call<{ address: string }>("terminal.run", { argv: ["/bin/sh"], cwd: root, name: "flood-attach-probe", env: probeEnv, no_parent: true, keep: false });
       address = run.address;
-      expect(address).toBeTruthy();
+      expect(address).toMatch(/^t[1-9][0-9bcdfghjkmnpqrstvwxyz]{0,7}$/u);
       t = await attachTerminal(endpoint, { terminal: address, cols: 100, rows: 30, signal: AbortSignal.timeout(6_000) });
       t.onData((bytes) => {
         const target = releasedAt === undefined ? ready : marker;
@@ -128,7 +152,9 @@ test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"
       });
       const gate = path.join(root, "gate");
       t.write(Buffer.from(`printf 'HUHU-FLOOD-READY-%s\\n' "$((6*7))"; while [ ! -f '${gate}' ]; do sleep 0.01; done; count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count\n`));
+      stage = "shell-ready";
       await expect.poll(() => readySeen, { timeout: 4_000 }).toBe(true);
+      stage = "flood-window";
       suffix = Buffer.alloc(0);
       releasedAt = performance.now();
       writeFileSync(gate, "");
@@ -144,29 +170,34 @@ test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"
         read = {
           status: "read",
           atMs: performance.now() - releasedAt,
-          complete: output.complete,
-          how: output.how,
+          complete: output.complete === true,
+          how: output.how === "history" || output.how === "screen" || output.how === "stitched" ? output.how : null,
           characters: output.text.length,
           hasTail: output.text.includes(marker.toString("utf8")),
           hasPromptLikeLastLine: /[$#%>❯]$/u.test(output.text.trimEnd().split(/\r?\n/u).at(-1) ?? ""),
         };
       } catch (error) {
-        read = { status: "error", message: String(error) };
+        read = { status: "error", error: summarizeProbeError(error) };
       }
       console.info("flood-attach-probe", JSON.stringify({ address, binSha256, windowMs: sampleMs, snapshot, throughCoreRead: state, read }));
+      stage = "tail-deadline";
       expect(snapshot.tailMs !== null && snapshot.tailMs <= sampleMs, "直连 attach 必须在 20 秒内收到洪流尾标").toBe(true);
+      stage = "core-read";
       expect(read).toMatchObject({ status: "read", hasTail: true });
     } catch (error) {
-      failures.push(error);
+      failures.push({ stage, error: summarizeProbeError(error) });
     }
 
     try {
       t?.close();
       if (verifiedCore) {
-        stop = await c.call<{ stopped: boolean }>("server.stop", {}, AbortSignal.timeout(9_000)).catch((error) => ({ error: String(error) }));
+        stop = await c.call<{ stopped: boolean }>("server.stop", {}, AbortSignal.timeout(9_000)).then(
+          ({ stopped }) => ({ stopped: stopped === true }),
+          (error) => ({ error: summarizeProbeError(error) }),
+        );
       }
     } catch (error) {
-      failures.push(error);
+      failures.push({ stage: "core-stop", error: summarizeProbeError(error) });
     } finally {
       c.close();
     }
@@ -182,24 +213,23 @@ test.runIf(process.platform === "linux" && process.env["HUHU_ATTACH_FLOOD_PROBE"
           process.kill(pid, "SIGKILL");
           forcedPids.push(pid);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ESRCH") failures.push(error);
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") failures.push({ stage: "process-cleanup", error: summarizeProbeError(error) });
         }
       }
       await expect.poll(() => ({ pids: ownedPids(), coreAlive: core.pid !== undefined && core.exitCode === null && core.signalCode === null }), { timeout: 4_000 }).toEqual({ pids: [], coreAlive: false });
       if (verifiedCore) expect(stop, "私有 Core 应返回停止回执").toEqual({ stopped: true });
       expect(forcedPids, "Core 和 holder 应正常退出").toEqual([]);
     } catch (error) {
-      failures.push(error);
+      failures.push({ stage: "cleanup-verification", error: summarizeProbeError(error) });
     } finally {
       const remaining = ownedPids();
       const coreExited = core.pid === undefined || core.exitCode !== null || core.signalCode !== null;
       const sockets = readdirSync(runtime).filter((name) => /^hc(?:\.holder(?:\.[^.]+)?)?\.sock$/u.test(name));
-      console.info("flood-attach-cleanup", JSON.stringify({ root, corePid: core.pid, exit: core.exitCode, signal: core.signalCode, stop, forcedPids, remaining, sockets, readySeen, serveError, serveStderr }));
+      console.info("flood-attach-cleanup", JSON.stringify({ root, corePid: core.pid, exit: core.exitCode, signal: core.signalCode, stop, forcedPids, remaining, sockets, readySeen, spawnFailure, stderrBytes }));
       if (remaining.length === 0 && coreExited) rmSync(root, { recursive: true, force: true });
     }
-    if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) throw new AggregateError(failures, "直连诊断和清理发生多项失败");
-  },
+    return failures;
+  }),
   90_000,
 );
 

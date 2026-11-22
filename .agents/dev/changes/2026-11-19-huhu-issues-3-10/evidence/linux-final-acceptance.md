@@ -349,3 +349,14 @@ t183 冷启动/插件/内存单项通过：1845ms，停用38ms/启用279ms，RSS
 t188 在同一锁定Core二进制（d408197a6b85af97b2fe93a10e6f4bee18d3a654307db94df2b35aea277c466f）上，用私有HOME/XDG/socket和/bin/sh执行原满速10MiB命令：首DATA15.6ms，完整尾标300.4ms，5658帧/11102595B，CAN重绘标记0。独立Core读取303ms有尾标。正常server.stop回执、Core退出0，forcedPids/remaining/sockets均空。日志 `temp/final-audit/direct-attach-lead-probe.log`。这是直连协议路径证据，不替代浏览器终端验收。t187未启动测试（固定PATH找不到pnpm），改绝对pnpm路径后执行t188。
 
 t189 名称目录源码定向3/3通过：同身份names/full等价、插件启停、Web的desktop-only排除及邀请撤销、MCP完整字段。日志 `temp/final-audit/names-catalog-check.log`。候选源码尚待独审与新构建真实性能验证，旧da645应用数字不算新实现效果。
+
+
+### 9350f32b 名称目录实测与终端桥诊断
+
+组合构建 `9350f32bbe014243e4c81546b0ac1aa5afa9e226`（t18b）通过。名称目录实现 `5f51af24` 经 t17c/task12 独审：工作台按当前身份返回名称；默认完整目录及外部工具契约保留，权限仍即时重查。t18c 网络诊断确认 namesOnly=true，响应14150–14342B，停用后的首字节1.939ms；停用19ms、启用30ms、RSS200MiB。与旧da645的约14MB响应相比，工作台不再传输完整参数schema。
+
+t18f 关闭 HUHU_PERF_DIAGNOSTICS，按原严格阈值串行三轮正式验证全部通过：冷启动1730/1727/1705ms，停用27/18/24ms，启用37/28/31ms，RSS均198MiB。日志 `temp/final-audit/names-plugin-formal-{1,2,3}.log`；原始result.json位于证据根目录 `followup-plugin-9350f32bbe014243e4c81546b0ac1aa5afa9e226.{K3Ll63,X1BPmP,Dnaqrm}`。没有放宽3s/300ms/600MiB阈值。
+
+同构建终端洪流仍失败。t18c bridge诊断显示约256ms内收到并调用发送7990925B，完成回调停在3548999B，最大bufferedAmount4447404B。密集输入停止后约20.1秒才继续发送并出现尾标；浏览器截止前仅2975788B，20秒无尾标，不能计性能通过。分段附件及结果已保留于 `temp/final-audit/flood-bridge-artifacts-9350f32b`，日志 `bridge-flood-diagnostic.log`。原始trace路径已被后续插件测试清理，本次保全仅含JSON分段数据和运行日志，不声称trace保全。t18d正在只读分析真实消费和测试驱动影响；尚无根因结论。SSH仍暂停；最终共同安装包和main交付未完成。
+
+t18g 在同一9350构建复验直接调用方，三个真实界面用例全部通过（8.8s）：旧看板任务卡保留独立筛选/时区/布局及冲突后重读，Agent入口随插件启停及活动筛选，智能体设置检测/持久化/预览/菜单。日志 `temp/final-audit/names-caller-ui.log`。
