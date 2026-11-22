@@ -1,5 +1,5 @@
 import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
-import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, Unplug, X } from "lucide-react";
+import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, TextCursorInput, Unplug, X } from "lucide-react";
 import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
@@ -20,6 +20,7 @@ import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
 import { SshTerminal } from "./SshTerminal.js";
 import { RoutePanel } from "./RoutePanel.js";
+import { ShortcutPanel } from "./ShortcutPanel.js";
 import { RecordTerminal, TerminalRecordingsPanel } from "./TerminalRecordings.js";
 import { LocalShellPanel } from "./LocalShellPanel.js";
 import { directJumpIds, routeForHost } from "../shared/route.js";
@@ -92,6 +93,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [workspaces, setWorkspaces] = useState(false);
   const [keyLibrary, setKeyLibrary] = useState(false);
   const [routes, setRoutes] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
   const [recordings, setRecordings] = useState(false);
   const [localTerminal, setLocalTerminal] = useState(false);
   const [forwarding, setForwarding] = useState(false);
@@ -258,6 +260,17 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   if (recordings) return <TerminalRecordingsPanel onBack={() => setRecordings(false)} />;
   if (localTerminal) return <LocalShellPanel onBack={() => setLocalTerminal(false)} />;
   if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
+  if (shortcuts)
+    return (
+      <div className="hu-stack">
+        <div>
+          <Button type="button" onClick={() => setShortcuts(false)}>
+            返回主机
+          </Button>
+        </div>
+        <ShortcutPanel />
+      </div>
+    );
   if (monitoring)
     return withFileWorkspace(
       <MonitorDashboard
@@ -365,6 +378,9 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
               会话日志
             </Button>
           )}
+          <Button variant="ghost" icon={TextCursorInput} onClick={() => setShortcuts(true)}>
+            快捷命令
+          </Button>
           {desktop && (
             <Button variant="ghost" icon={Terminal} onClick={() => setLocalTerminal(true)}>
               本地终端

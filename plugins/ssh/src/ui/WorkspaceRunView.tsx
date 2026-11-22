@@ -204,7 +204,7 @@ export function WorkspaceRunView({
         </div>
       </details>
       <div role="status">{deviceNotice}</div>
-      {shown && <TerminalActions targets={targetInputs} />}
+      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} />}
       <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
           <WorkspaceCanvas

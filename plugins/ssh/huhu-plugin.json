@@ -79,6 +79,8 @@
       "ssh.outboundProxies.save",
       "ssh.outboundProxies.setDefault",
       "ssh.outboundProxies.remove",
+      "ssh.shortcuts.list",
+      "ssh.shortcuts.save",
       "ssh.settings.get",
       "ssh.settings.update",
       "ssh.sftp.cancel",

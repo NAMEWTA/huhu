@@ -44,6 +44,7 @@ import { PublicShells } from "./public-shells.js";
 import { PublicTransfers } from "./public-transfers.js";
 import { PublicWorkspaces } from "./public-workspaces.js";
 import { registerSshProxyShare } from "./proxy-share.js";
+import { registerShortcuts } from "./shortcuts.js";
 import { registerSshTerminalBridge } from "./terminal-bridge.js";
 import { registerSshRecordings } from "./terminal-recordings.js";
 import { registerSshWorkspacePanes } from "./workspace-pane-capability.js";
@@ -140,6 +141,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
   registerOutboundProxies(api, outboundProxies, hosts);
+  registerShortcuts(api);
   registerSshDraft(api, hosts, manager);
   registerSshAuthentication(api, manager);
   registerSshConfigSync(api, hosts);

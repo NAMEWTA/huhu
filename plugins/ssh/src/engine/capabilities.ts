@@ -12,6 +12,7 @@ import { sshLocalShellDescriptors } from "./local-shell.js";
 import { sshOutboundProxyDescriptors } from "./outbound-proxy-capabilities.js";
 import { sshProxyShareDescriptors } from "./proxy-share.js";
 import { EditHostRoutes, HostRouteEditResult } from "./route-edits.js";
+import { sshShortcutDescriptors } from "./shortcuts.js";
 import { sshRecordingDescriptors } from "./terminal-recordings.js";
 import { sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
@@ -79,6 +80,7 @@ export const sshCapabilityDescriptors = {
   ...sshConfigSyncDescriptors,
   ...sshLocalShellDescriptors,
   ...sshOutboundProxyDescriptors,
+  ...sshShortcutDescriptors,
   ...sshProxyShareDescriptors,
   ...sshRecordingDescriptors,
   authenticationAnswer: sshAuthenticationDescriptor,

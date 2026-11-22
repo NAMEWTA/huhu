@@ -15,6 +15,8 @@ const ENTITY_CAPS: Record<string, string[]> = {
   capture: ["inbox."],
   comment: ["comments."],
   "ssh-host": ["ssh.hosts."],
+  "ssh-outbound-proxy": ["ssh.outboundProxies.", "ssh.hosts.list"],
+  "ssh-shortcuts": ["ssh.shortcuts."],
   "home-dashboard": ["home.dashboard.get"],
   "tool-access": ["gateway.get", "capabilities.list"],
   "automation-activation": ["automations.activations"],

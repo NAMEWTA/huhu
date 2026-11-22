@@ -393,6 +393,11 @@ export class Dispatcher {
       subject,
       requestId: req.requestId,
       toolResourceIds: (group) => toolResourceIds(this.d.toolAccess(), group),
+      assertCapabilityCurrent: () => {
+        ac.signal.throwIfAborted();
+        const denied = (invocation.forwarder && this.currentAuthorization(caller, invocation.forwarder)) || this.currentAuthorization(caller, def) || this.commandDependencies(caller, def);
+        if (denied) throw denied;
+      },
       ...(session && { session }),
       ...(delegatedBy && { delegatedBy }),
       ...(parentOperationId && { parentOperationId }),

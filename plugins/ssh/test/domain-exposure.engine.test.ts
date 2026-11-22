@@ -189,6 +189,8 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.resources.connection.start",
         "ssh.resources.host.get",
         "ssh.resources.trust.decide",
+        "ssh.shortcuts.list",
+        "ssh.shortcuts.save",
         "ssh.sftp.cancel",
         "ssh.sftp.delete",
         "ssh.sftp.download",
@@ -229,8 +231,11 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     expect(available.every(({ selected }) => selected === false)).toBe(true);
     for (const row of closed) expect(await invoke(row.name), row.name).toMatchObject(denied);
     const bulk = (rows: typeof ssh) => ({ changes: rows.map(({ name }) => ({ capability: name, exposed: true })) });
-    const preview = z.object({ targets: z.array(z.object({ capability: z.string() })) }).parse(await success("gateway.policy.preview", bulk(available)));
-    expect(preview.targets.map(({ capability }) => capability)).toEqual(available.map(({ name }) => name));
+    const registry = engine.registry;
+    const batchable = available.filter(({ name }) => !registry.getDescriptor(name)?.individualExposure);
+    const preview = z.object({ targets: z.array(z.object({ capability: z.string() })) }).parse(await success("gateway.policy.preview", bulk(batchable)));
+    expect(preview.targets.map(({ capability }) => capability)).toEqual(batchable.map(({ name }) => name));
+    expect(await desktop("gateway.policy.preview", bulk(available))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(await desktop("gateway.policy.preview", bulk(ssh))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
 
     const core = vi.spyOn(HerdrCore.prototype, "ensure");
@@ -244,6 +249,24 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
       const { toolAccess } = gateway.parse(await success("gateway.get"));
       expect(await success("gateway.update", { capability, exposed })).toMatchObject({ exposed, revision: toolAccess.revision + 1 });
     };
+    const shortcutsList = "ssh.shortcuts.list";
+    const shortcutsSave = "ssh.shortcuts.save";
+    const shortcuts = [{ id: "example", name: "Fixture", text: "合成文本\n第二行" }];
+    const saveShortcuts = { expectedRevision: null, shortcuts };
+    expect(await invoke(shortcutsList)).toMatchObject(denied);
+    expect(await invoke(shortcutsSave, saveShortcuts)).toMatchObject(denied);
+    await choose(shortcutsList, true);
+    expect(await tools()).toContainEqual(expect.objectContaining({ name: name(shortcutsList) }));
+    expect(await invoke(shortcutsList)).toMatchObject({ ok: true, data: { shortcuts: [] } });
+    expect(await invoke(shortcutsSave, saveShortcuts)).toMatchObject(denied);
+    await choose(shortcutsSave, true);
+    expect(await invoke(shortcutsSave, saveShortcuts)).toMatchObject({ ok: true, data: { shortcuts } });
+    expect(await invoke(shortcutsList)).toMatchObject({ ok: true, data: { shortcuts } });
+    await choose(shortcutsList, false);
+    await choose(shortcutsSave, false);
+    expect(await invoke(shortcutsList)).toMatchObject(denied);
+    expect(await invoke(shortcutsSave, saveShortcuts)).toMatchObject(denied);
+
     const input = { expectedRevision: null, change: { section: "transfer", values: { parallel: 4 } } };
     const different = { ...input, change: { ...input.change, values: { parallel: 5 } } };
     const intent = randomUUID();

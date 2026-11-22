@@ -10,6 +10,8 @@ export interface CapabilityContext {
   session?: McpSessionIdentity;
   /** Re-read the current Vault policy, including after asynchronous work. */
   toolResourceIds?(group: keyof ToolAccessResources): readonly string[];
+  /** Recheck this invocation against the live tool and plugin policy before committing work. */
+  assertCapabilityCurrent?(): void;
   requestId: string;
   idempotencyKey?: string;
   parentOperationId?: string;

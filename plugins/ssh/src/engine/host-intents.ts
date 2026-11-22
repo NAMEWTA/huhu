@@ -82,6 +82,7 @@ export class HostIntents {
         .then(async () => {
           const assertCurrent = () => {
             context.signal.throwIfAborted();
+            context.assertCapabilityCurrent?.();
             assertSshHosts(context, hosts);
             mutation.authorize();
           };
