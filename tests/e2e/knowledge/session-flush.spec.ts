@@ -35,22 +35,27 @@ async function inputWithPendingBridge(page: Page): Promise<void> {
   expect(await source()).not.toContain(last);
 }
 
-async function manualSave(page: Page): Promise<void> {
+async function setAutosave(page: Page, enabled: boolean): Promise<void> {
   await page.getByRole("button", { name: "设置", exact: true }).first().click();
   await page.getByTestId("settings-nav-editor").click();
   const autosave = page.getByRole("switch", { name: "自动保存" });
-  await autosave.click();
-  await expect(autosave).not.toBeChecked();
+  if ((await autosave.isChecked()) !== enabled) await autosave.click();
+  await expect(autosave).toBeChecked({ checked: enabled });
 }
 
+const manualSave = (page: Page) => setAutosave(page, false);
+
 test("应用菜单保存当前文档，关窗先处理看板草稿再结算文档", async () => {
-  test.skip(process.platform !== "win32", "Windows 自动化覆盖菜单按钮与 F10");
+  test.skip(process.platform === "darwin", "此路径覆盖 Windows 与 Linux 的菜单按钮和 F10。macOS 使用系统菜单栏。");
   const { app, page, vault, close } = await openApp();
   const file = path.join(vault, name);
+  const other = path.join(vault, "其他文档.md");
   const layout = path.join(vault, ".huhu/home/widgets.json");
   try {
     writeFileSync(file, original + "\n独立段落\n".repeat(405));
+    writeFileSync(other, original);
     await engineReady(page);
+    await manualSave(page);
     await openNote(page);
     await app.evaluate(({ Menu }) => {
       Menu.prototype.popup = function (options) {
@@ -61,6 +66,8 @@ test("应用菜单保存当前文档，关窗先处理看板草稿再结算文�
     await prose(page).click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.insertText("菜单保存");
+    await expect(prose(page)).toContainText("菜单保存");
+    expect(readFileSync(file, "utf8")).not.toContain("菜单保存");
     await app.evaluate(({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]!;
       win.webContents.sendInputEvent({ type: "keyDown", keyCode: "F10" });
@@ -83,7 +90,10 @@ test("应用菜单保存当前文档，关窗先处理看板草稿再结算文�
       file.submenu.getMenuItemById("huhu-document-save").click();
     });
     await expect.poll(() => readFileSync(file, "utf8")).toContain("菜单保存");
+    expect(readFileSync(other, "utf8")).toBe(original);
 
+    await setAutosave(page, true);
+    await openNote(page);
     await prose(page).click();
     await page.keyboard.press("ControlOrMeta+End");
     const source = await holdBridgeTimers(prose(page));
@@ -109,6 +119,7 @@ test("应用菜单保存当前文档，关窗先处理看板草稿再结算文�
     await closed;
     expect(JSON.parse(readFileSync(layout, "utf8")).instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
     expect(readFileSync(file, "utf8")).toContain(last);
+    expect(readFileSync(other, "utf8")).toBe(original);
   } finally {
     if (!page.isClosed()) {
       await page

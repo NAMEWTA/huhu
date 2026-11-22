@@ -72,6 +72,13 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     const [first, second, other] = browsers;
     await expect(aRow).toContainText("2 个会话");
     await expect(rows.filter({ hasText: "1 个会话" })).toHaveCount(1);
+    const browserTitlebar = other!.getByTestId("window-titlebar");
+    await expect(browserTitlebar.getByTestId("app-menu-button")).toHaveCount(0);
+    await browserTitlebar.getByRole("button", { name: "搜索与命令", exact: true }).click();
+    const palette = other!.getByRole("dialog", { name: "命令面板" });
+    await expect(palette).toBeVisible();
+    await other!.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
 
     const otherBoard = other!.getByTestId("home-dashboard");
     const focus = otherBoard.locator('[data-instance-id="default-focus"]');
