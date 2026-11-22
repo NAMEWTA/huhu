@@ -362,7 +362,7 @@ async function createDispatchable(engine: RunningEngine, title = "派遣夹具")
   return task.data;
 }
 
-function intent(task: TaskDto, dispatchId = randomUUID()) {
+function intent(task: TaskDto, dispatchId: string = randomUUID()) {
   return { taskId: task.id, dispatchId, expectedVersion: task.version, inputHash: task.inputHash, inputRevision: task.inputRevision };
 }
 
