@@ -1,5 +1,6 @@
 import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
+import { SshKeyId } from "../shared/key-library.js";
 
 export const SshHostProfile = z.object({
   name: z.string(),
@@ -38,9 +39,9 @@ const Revision = z.uuidv4();
 const CredentialState = z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"]);
 const AuthState = z.record(z.string(), CredentialState);
 
-export const HostDefinition = z.strictObject({ ...SshHostProfile.shape, format: z.literal(1), configId: z.uuidv4(), authKind: AuthKind });
+export const HostDefinition = z.strictObject({ ...SshHostProfile.shape, format: z.literal(1), configId: z.uuidv4(), authKind: AuthKind, keyId: SshKeyId.optional() });
 export type HostDefinition = z.infer<typeof HostDefinition>;
-export const ConfigureHost = z.strictObject({ ...SshHostProfile.shape, hostId: OwnedHostId.optional(), expectedRevision: Revision.nullable(), authKind: AuthKind, credentials: z.array(CredentialPatch).default([]) });
+export const ConfigureHost = z.strictObject({ ...SshHostProfile.shape, hostId: OwnedHostId.optional(), expectedRevision: Revision.nullable(), authKind: AuthKind, keyId: SshKeyId.nullable().optional(), credentials: z.array(CredentialPatch).default([]) });
 export type ConfigureHost = z.infer<typeof ConfigureHost>;
 export const HostRevision = z.strictObject({ hostId: OwnedHostId, expectedRevision: Revision });
 export const CopyHost = HostRevision.extend({ name: z.string() });
@@ -50,6 +51,7 @@ export const ManagedHostView = z.object({
   ...SshHostProfile.shape,
   id: OwnedHostId,
   auth: z.object({ kind: AuthKind, source: z.literal("ssh") }),
+  keyId: SshKeyId.optional(),
   revision: Revision,
   authState: AuthState,
   configured: z.boolean(),

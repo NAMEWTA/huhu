@@ -12,6 +12,7 @@ import { HostImportDialog } from "./HostImportDialog.js";
 import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
 import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
+import { KeyLibraryPanel } from "./KeyLibraryPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { ForwardingPanel } from "./ForwardingPanel.js";
@@ -73,6 +74,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
   const [workspaces, setWorkspaces] = useState(false);
+  const [keyLibrary, setKeyLibrary] = useState(false);
   const [forwarding, setForwarding] = useState(false);
   const [monitoring, setMonitoring] = useState(false);
   const [fileView, showFileView] = useState(false);
@@ -186,6 +188,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
     </>
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (keyLibrary) return <KeyLibraryPanel onBack={() => { setKeyLibrary(false); void refresh(); }} />;
   if (monitoring)
     return withFileWorkspace(
       <MonitorDashboard
@@ -277,6 +280,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           <Button variant="ghost" icon={Fingerprint} onClick={() => openReview(null)}>
             已知主机
           </Button>
+          {desktop && <Button variant="ghost" icon={KeyRound} onClick={() => setKeyLibrary(true)}>密钥</Button>}
           <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
             全部连接审计
           </Button>
