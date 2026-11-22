@@ -102,6 +102,15 @@ export function ExcalidrawEmbed({
   const [error, setError] = useState<{ docName: string; kind: EmbedErrorKind } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const retryFocusRef = useRef(false);
+  const currentError = error && error.docName === boardDocName ? error : null;
+  const showError =
+    currentError !== null || live.kind === 'unreachable' || live.kind === 'at-capacity';
+  const readyText = live.kind === 'ready' ? live.text : null;
+
+  // These transitions remove the image, so its URL can be released before the board recovers.
+  if (snapshot && (snapshot.docName !== boardDocName || showError || live.kind === 'empty')) {
+    setSnapshot(null);
+  }
 
   useEffect(() => {
     if (!boardDocName) return;
@@ -154,7 +163,10 @@ export function ExcalidrawEmbed({
 
   useEffect(() => {
     void exportKick;
-    if (!scene || !boardDocName || scene.docName !== boardDocName) return;
+    const owner = containerRef.current;
+    if (!owner || showError || !scene || scene.docName !== boardDocName || scene.text !== readyText) {
+      return;
+    }
     if (
       snapshot &&
       snapshot.docName === scene.docName &&
@@ -195,7 +207,7 @@ export function ExcalidrawEmbed({
       const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
       const prev = lastUrlRef.current;
       lastUrlRef.current = url;
-      retainSnapshotUrl(url);
+      retainSnapshotUrl(url, owner);
       if (prev) releaseSnapshotUrl(prev);
       setSnapshot({ docName: scene.docName, url, sceneValue: scene.value, colorMode });
       setError(null);
@@ -217,11 +229,8 @@ export function ExcalidrawEmbed({
     return () => {
       cancelled = true;
     };
-  }, [scene, colorMode, boardDocName, snapshot, exportKick]);
+  }, [scene, colorMode, boardDocName, snapshot, exportKick, readyText, showError]);
 
-  const currentError = error && error.docName === boardDocName ? error : null;
-  const showError =
-    currentError !== null || live.kind === 'unreachable' || live.kind === 'at-capacity';
   const currentSnapshot = snapshot && snapshot.docName === boardDocName ? snapshot : null;
   const expandable = currentSnapshot !== null && !showError;
 

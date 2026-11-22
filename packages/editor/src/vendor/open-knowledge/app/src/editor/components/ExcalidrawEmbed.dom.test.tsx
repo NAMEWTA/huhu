@@ -39,7 +39,8 @@ const panzoomInstance = {
 vi.doMock('@panzoom/panzoom', () => ({ default: vi.fn(() => panzoomInstance) }));
 
 const { boardDocNameFromSrc, ExcalidrawEmbed } = await import('./ExcalidrawEmbed');
-const { __resetSnapshotUrlPoolForTests } = await import('./snapshot-url-pool.ts');
+const { __resetSnapshotUrlPoolForTests, MAX_LIVE_SNAPSHOT_URLS } =
+  await import('./snapshot-url-pool.ts');
 const { TooltipProvider } = await import('@/components/ui/tooltip');
 
 const BOARD_JSON = JSON.stringify({ elements: [{ id: 'a' }] });
@@ -92,6 +93,65 @@ describe('ExcalidrawEmbed', () => {
     expect(screen.getByRole('img', { name: 'Flow board' })).not.toBeNull();
     expect(snapshotImg()?.src).toMatch(/^blob:/);
     expect(screen.getByTestId('excalidraw-embed-snapshot').querySelector('svg')).toBeNull();
+  });
+
+  test('unmounting the embed releases its last snapshot URL', async () => {
+    const { unmount } = renderEmbed({ src: '/tests/board.excalidraw' });
+    await waitFor(() => expect(snapshotImg()).not.toBeNull());
+    const url = snapshotImg()!.src;
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(url);
+    unmount();
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith(url));
+  });
+
+  test.each(['unreachable', 'empty'] as const)(
+    'a board recovering from %s with identical content mounts a usable snapshot',
+    async (kind) => {
+      const view = () => (
+        <TooltipProvider>
+          <ExcalidrawEmbed src="/tests/board.excalidraw" />
+        </TooltipProvider>
+      );
+      const { rerender, unmount } = render(view());
+      await waitFor(() => expect(snapshotImg()).not.toBeNull());
+      const firstUrl = snapshotImg()!.src;
+
+      liveStatus = { kind };
+      rerender(view());
+      expect(snapshotImg()).toBeNull();
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith(firstUrl));
+
+      liveStatus = { kind: 'ready', text: BOARD_JSON };
+      rerender(view());
+      await waitFor(() => expect(snapshotImg()?.src).toMatch(/^blob:/));
+      const recoveredUrl = snapshotImg()!.src;
+      expect(recoveredUrl).not.toBe(firstUrl);
+      expect(revokeObjectURL).not.toHaveBeenCalledWith(recoveredUrl);
+
+      unmount();
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith(recoveredUrl));
+    },
+  );
+
+  test('mounts a new snapshot when every URL at the pool limit is in use', async () => {
+    const view = (count: number) => (
+      <TooltipProvider>
+        {Array.from({ length: count }, (_, index) => {
+          const src = `/tests/board-${index}.excalidraw`;
+          return <ExcalidrawEmbed key={src} src={src} title={src} />;
+        })}
+      </TooltipProvider>
+    );
+    const { rerender } = render(view(MAX_LIVE_SNAPSHOT_URLS));
+    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(MAX_LIVE_SNAPSHOT_URLS));
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    rerender(view(MAX_LIVE_SNAPSHOT_URLS + 1));
+    const newest = await screen.findByRole<HTMLImageElement>('img', {
+      name: `/tests/board-${MAX_LIVE_SNAPSHOT_URLS}.excalidraw`,
+    });
+    expect(newest.src).toMatch(/^blob:/);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
   });
 
   test('a theme toggle re-exports in place with dark mode, without re-parsing', async () => {
@@ -177,6 +237,7 @@ describe('ExcalidrawEmbed', () => {
     const parses = restoreElements.mock.calls.length;
     const exports = exportToSvg.mock.calls.length;
     const urls = createObjectURL.mock.calls.length;
+    const snapshotUrl = snapshotImg()!.src;
 
     rerender(view(true));
     rerender(view(false));
@@ -187,6 +248,7 @@ describe('ExcalidrawEmbed', () => {
     expect(restoreElements.mock.calls.length).toBe(parses);
     expect(exportToSvg.mock.calls.length).toBe(exports);
     expect(createObjectURL.mock.calls.length).toBe(urls);
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(snapshotUrl);
     expect(snapshotImg()).not.toBeNull();
   });
 

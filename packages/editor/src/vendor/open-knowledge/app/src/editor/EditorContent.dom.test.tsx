@@ -9,8 +9,19 @@ import {
 import StarterKit from '@tiptap/starter-kit';
 import { Activity, type ReactNode, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { OkFetchContext } from '@/lib/ok-fetch';
 import { EditorContent } from './EditorContent';
+import { ExcalidrawEmbed } from './components/ExcalidrawEmbed';
+import { LocalReferenceContext } from './components/live-doc-pool';
+import { __resetSnapshotUrlPoolForTests } from './components/snapshot-url-pool';
+
+vi.mock('@excalidraw/excalidraw', () => ({
+  exportToSvg: async () => document.createElementNS('http://www.w3.org/2000/svg', 'svg'),
+  restoreElements: () => [],
+  restoreAppState: () => ({}),
+}));
 
 const blockViewEffects: string[] = [];
 
@@ -34,21 +45,35 @@ const ViewBlock = Node.create({
   addNodeView: () => ReactNodeViewRenderer(BlockView),
 });
 
+const BoardBlock = ViewBlock.extend({
+  addNodeView: () =>
+    ReactNodeViewRenderer(() => (
+      <NodeViewWrapper>
+        <ExcalidrawEmbed src="/tests/board.excalidraw" title="Flow board" />
+      </NodeViewWrapper>
+    )),
+});
+
 function Host({
   visible,
   contentKey = 0,
   show = 'first',
   mounted = true,
+  block = ViewBlock,
+  onEditorDestroy,
 }: {
   visible: boolean;
   contentKey?: number;
   show?: 'first' | 'second';
   mounted?: boolean;
+  block?: typeof ViewBlock;
+  onEditorDestroy?: () => void;
 }) {
   const first = useEditor({
-    extensions: [StarterKit, ViewBlock],
+    extensions: [StarterKit, block],
     content: '<p>First document</p><view-block></view-block>',
     immediatelyRender: true,
+    onDestroy: () => onEditorDestroy?.(),
   });
   const second = useEditor({
     extensions: [StarterKit, ViewBlock],
@@ -125,6 +150,74 @@ describe('EditorContent', () => {
     rerender(<Host visible />);
 
     expect(await screen.findByTestId('block-view')).toBe(view);
+  });
+
+  test('keeps a board snapshot while its editor is parked and revokes it on close', async ({
+    onTestFinished,
+  }) => {
+    let nextUrl = 0;
+    const revokeObjectURL = vi.fn();
+    const onEditorDestroy = vi.fn();
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = () => `blob:editor-snapshot-${++nextUrl}`;
+        static revokeObjectURL = revokeObjectURL;
+      },
+    );
+    onTestFinished(() => {
+      __resetSnapshotUrlPoolForTests();
+      vi.unstubAllGlobals();
+    });
+
+    const localReferenceHost = {
+      subscribe: () => () => {},
+      readPdf: async () => new Blob(),
+    };
+    const readBoard = async () => Response.json({ text: JSON.stringify({ elements: [] }) });
+    const boardTab = (visible: boolean, contentKey = 0) => (
+      <OkFetchContext.Provider value={readBoard}>
+        <LocalReferenceContext.Provider value={localReferenceHost}>
+          <TooltipProvider>
+            <Host
+              visible={visible}
+              contentKey={contentKey}
+              block={BoardBlock}
+              onEditorDestroy={onEditorDestroy}
+            />
+          </TooltipProvider>
+        </LocalReferenceContext.Provider>
+      </OkFetchContext.Provider>
+    );
+    const { rerender, unmount } = render(boardTab(true));
+    const image = await screen.findByRole<HTMLImageElement>('img', { name: 'Flow board' });
+    const url = image.src;
+    expect(url).toMatch(/^blob:/);
+
+    const hide = async (snapshotUrl: string, contentKey = 0) => {
+      rerender(boardTab(false, contentKey));
+      // Let the snapshot pool observe the detach before reattaching or closing the editor.
+      await Promise.resolve();
+      expect(screen.queryByRole('img', { name: 'Flow board' })).toBeNull();
+      expect(onEditorDestroy).not.toHaveBeenCalled();
+      expect(revokeObjectURL).not.toHaveBeenCalledWith(snapshotUrl);
+    };
+    await hide(url);
+    rerender(boardTab(true));
+    const restored = await screen.findByRole<HTMLImageElement>('img', { name: 'Flow board' });
+    expect(restored.src).toBe(url);
+    expect(revokeObjectURL).not.toHaveBeenCalledWith(url);
+
+    await hide(url);
+    rerender(boardTab(true, 1));
+    const rebound = await screen.findByRole<HTMLImageElement>('img', { name: 'Flow board' });
+    expect(rebound.src).not.toBe(url);
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url));
+
+    await hide(rebound.src, 1);
+    unmount();
+    await waitFor(() => expect(onEditorDestroy).toHaveBeenCalledOnce());
+    await waitFor(() => expect(revokeObjectURL.mock.calls).toEqual([[url], [rebound.src]]));
   });
 
   test('shows a block view that changed while its tab was hidden', async () => {

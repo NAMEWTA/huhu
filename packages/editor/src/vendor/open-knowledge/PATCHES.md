@@ -633,3 +633,13 @@ OP-D04 将 OK 请求改用模块内入口。B05 共用文档撤销管理器，�
 - `app/src/components/FileTree.tsx`、`app/src/components/file-tree-listing-transport.ts`、`app/src/components/use-file-tree-listing.ts`、`app/src/components/NewItemDialog.tsx`、`app/src/hooks/use-folder-config.ts`、`app/src/lib/folder-config-api.ts`、`app/src/lib/create-page-request.ts`、`app/src/lib/use-workspace.ts`：树列举、写操作和对话框使用各自根传入的请求。
 - `app/src/editor/TiptapEditor.tsx`、`app/src/editor/components/TagDialog.tsx`、`app/src/editor/extensions/tag-suggestion.ts`、`app/src/editor/extensions/wiki-link-suggestion.ts`、`app/src/editor/image-upload/index.ts`、`app/src/editor/components/PropPanel.tsx`、`app/src/components/OutlinePanel.tsx`、`app/src/components/LinksPanel.tsx`：编辑器建议、上传及详情查询使用当前编辑器和根的宿主请求。
 - `app/src/editor/extensions/InternalLinkPropPanel.tsx`、`app/src/editor/extensions/WikiLinkPropPanel.tsx`、`app/src/lib/create-page.ts`、`app/src/editor/link-preview/external-link-preview.ts`、`app/src/editor/link-preview/internal-doc-preview.ts`、`app/src/editor/link-preview/use-external-link-preview.ts`、`app/src/editor/link-preview/use-internal-doc-preview.ts`：创建链接目标及读取预览时保留原请求的作用域，预览按请求函数缓存。
+
+## 2026-11-22 组合验收：G07 同文档导航
+
+- `app/src/editor/extensions/wiki-link.ts`：文档链接同窗口导航沿用资产分支的 `Location.hash`，在宿主带 `<base>` 时保留当前 pathname 和 query，避免片段链接解析到根页面并重载。来源仍为 R-46 / Open Knowledge `44a2e0a6acce5952da0764746e3693fded5025b4` / GPL-3.0-or-later；G07 回归检查真实点击、目标文档、HashChangeEvent 和页面 timeOrigin。
+
+## 2026-11-23 B01 快照资源生命周期
+
+- `app/src/editor/components/ExcalidrawEmbed.tsx`：画板暂不可达或清空时清除快照状态。原内容恢复时复用已解析场景并重新生成快照。
+- `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。
+- `app/src/editor/EditorContent.dom.test.tsx`、`app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`、`app/src/editor/components/snapshot-url-pool.dom.test.ts`：覆盖 TipTap Activity 重接、换绑和关闭、停放树换源和移除、同内容恢复、池满后挂载、待挂载画板卸载、同文档移动及内联图与灯箱共享 URL。来源和许可沿用原登记。

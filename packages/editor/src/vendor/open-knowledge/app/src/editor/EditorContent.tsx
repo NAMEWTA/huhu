@@ -1,11 +1,26 @@
 import type { Editor } from '@tiptap/core';
 import { type EditorContentProps, PureEditorContent } from '@tiptap/react';
+import { observeParkedSnapshotImages } from './components/snapshot-url-pool';
 import { getEditorView } from './utils/get-editor-view';
 
 type ContentBoundEditor = Editor & {
   contentComponent?: unknown;
   isEditorContentInitialized?: boolean;
 };
+
+const parkedSnapshotObservers = new WeakMap<Editor, () => void>();
+
+function observeParkedEditorSnapshots(editor: Editor, root: HTMLElement): void {
+  if (parkedSnapshotObservers.has(editor)) return;
+  const stopObserving = observeParkedSnapshotImages(root);
+  const stop = () => {
+    editor.off('unmount', stop);
+    parkedSnapshotObservers.delete(editor);
+    stopObserving();
+  };
+  parkedSnapshotObservers.set(editor, stop);
+  editor.on('unmount', stop);
+}
 
 /*
  * UPSTREAM(@tiptap/react@3.22.3): PureEditorContent destroys every node view in
@@ -28,6 +43,7 @@ class ActivityEditorContent extends PureEditorContent {
     }
     super.init();
     this.boundContent = editor.contentComponent ?? null;
+    parkedSnapshotObservers.get(editor)?.();
   }
 
   override render() {
@@ -41,12 +57,15 @@ class ActivityEditorContent extends PureEditorContent {
 
   override componentWillUnmount(): void {
     const editor: ContentBoundEditor | null = this.props.editor;
-    if (!editor) return;
+    if (!editor || this.boundContent === null || editor.contentComponent !== this.boundContent) {
+      return;
+    }
     editor.isEditorContentInitialized = false;
-    const holder = getEditorView(editor)?.dom.parentNode;
-    if (!holder) return;
+    const root = getEditorView(editor)?.dom;
+    if (!root?.parentNode) return;
+    observeParkedEditorSnapshots(editor, root);
     const detached = document.createElement('div');
-    detached.append(...holder.childNodes);
+    detached.append(...root.parentNode.childNodes);
     editor.setOptions({ element: detached });
   }
 
@@ -58,6 +77,7 @@ class ActivityEditorContent extends PureEditorContent {
       editor.setOptions({ element });
     }
     editor.isEditorContentInitialized = true;
+    parkedSnapshotObservers.get(editor)?.();
   }
 }
 

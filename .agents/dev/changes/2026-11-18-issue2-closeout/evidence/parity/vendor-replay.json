@@ -12,7 +12,7 @@
       "target": "PATCHES.md",
       "upstream": null,
       "blob": null,
-      "sha256": "316b419822109d17968e71f25eefe2eab99f85a056c82d78c8f5896d5191a5d8",
+      "sha256": "7b0cac6114b4b82f645430f71f3a57221480d290d95ed59df389222332f0a158",
       "method": "local",
       "description": "本地说明或生成文件，实际改动见重放补丁。"
     },
@@ -2184,15 +2184,17 @@
       "target": "app/src/editor/EditorContent.dom.test.tsx",
       "upstream": "packages/app/src/editor/EditorContent.dom.test.tsx",
       "blob": "42c056350f7837dfdfbe51c247d76249b6dbd5bb",
-      "sha256": "df7149f78a62872faff33dd07e73e705b2ed1e81f867f002e690947a0e4219b8",
-      "method": "copy"
+      "sha256": "fb220c1261f99629fa9060128da5a570ac7f934f57da2862c766476ac241e1af",
+      "method": "patch",
+      "description": "PATCHES.md:291 - `app/src/editor/EditorContent.dom.test.tsx`：原样迁入固定上游 DOM 用例。"
     },
     {
       "target": "app/src/editor/EditorContent.tsx",
       "upstream": "packages/app/src/editor/EditorContent.tsx",
       "blob": "8aeec51bf6dbea381945724675e0f66a28d77b47",
-      "sha256": "dc012ce1757a05de1c513d3f1e5099665da254b2c0a9b83ebab72d3546dcdb67",
-      "method": "copy"
+      "sha256": "17b18fd78120493569eaadfc04d88a2e7641a054e30ec9cdd6a8b998cabc0b60",
+      "method": "patch",
+      "description": "PATCHES.md:644 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
     },
     {
       "target": "app/src/editor/SourceEditor.dom.test.tsx",
@@ -2997,14 +2999,15 @@
       "target": "app/src/editor/components/ExcalidrawEmbed.dom.test.tsx",
       "upstream": "packages/app/src/editor/components/ExcalidrawEmbed.dom.test.tsx",
       "blob": "6d97843a9e71392d6b5d2b2d14561daae5439927",
-      "sha256": "db4b4a4bdaf1acf05138e363311f51baa6fcd18f8a14d13d2dac94a04853cd1f",
-      "method": "copy"
+      "sha256": "ddcc00517e0fc6788d747f8b589de430b950987c08c9a6b2c671537abe3db885",
+      "method": "patch",
+      "description": "PATCHES.md:618 - `app/src/editor/components/ExcalidrawEmbed.dom.test.tsx`：固定上游 `44a2e0a` 测试原样迁入。"
     },
     {
       "target": "app/src/editor/components/ExcalidrawEmbed.tsx",
       "upstream": "packages/app/src/editor/components/ExcalidrawEmbed.tsx",
       "blob": "1b327ceff1fbbd2ffa85ac312add5fa73a2b55f1",
-      "sha256": "bdb521c65c06f6beadc5f112d12ee0919f402b149ced6e6ea4cc8ddc21c57f98",
+      "sha256": "570f4c537e3bed55747b9f9e140c2742da9bfd9a044d5047d36fc08276bde159",
       "method": "patch",
       "description": "PATCHES.md:360 - `app/src/editor/components/ExcalidrawEmbed.tsx`：接受桌面工作台中同宿主的画板地址。"
     },
@@ -3363,15 +3366,17 @@
       "target": "app/src/editor/components/snapshot-url-pool.dom.test.ts",
       "upstream": "packages/app/src/editor/components/snapshot-url-pool.dom.test.ts",
       "blob": "a6a680c86a5626944d59413451b89a6feea91e05",
-      "sha256": "7848b712a78c31687fadb501ec3ce100ee3dc6f85996c9cef812e1671a6dcc88",
-      "method": "copy"
+      "sha256": "e6623348108da9ca5c34c6f6a9abada1aabead7de5750cddc0d1d3548014352d",
+      "method": "patch",
+      "description": "PATCHES.md:193 - `app/src/editor/components/snapshot-url-pool.dom.test.ts`"
     },
     {
       "target": "app/src/editor/components/snapshot-url-pool.ts",
       "upstream": "packages/app/src/editor/components/snapshot-url-pool.ts",
       "blob": "8744fcba5b34e026130cae34563f75db293e6c08",
-      "sha256": "5e0d007297d11df615bf591beba80cca2f32caae9c5b897db2bb9b8b18c0a512",
-      "method": "copy"
+      "sha256": "db05ed07de38c6c915dcf0c8c5c53ba9aaf2ab5f82d81402b33aae77fb839c23",
+      "method": "patch",
+      "description": "PATCHES.md:644 - `app/src/editor/EditorContent.tsx`、`app/src/editor/components/snapshot-url-pool.ts`：待挂载的 Blob URL 在已连接或由 TipTap 停放的画板中保留。文档和停放树中的图片移除或更换源时，最后一个消费者离场即释放旧 URL。停放树随 EditorContent 重接、换绑或 TipTap 视图销毁结束观察。"
     },
     {
       "target": "app/src/editor/components/use-app-color-mode.dom.test.tsx",
@@ -4582,8 +4587,9 @@
       "target": "app/src/editor/extensions/wiki-link.ts",
       "upstream": "packages/app/src/editor/extensions/wiki-link.ts",
       "blob": "cf51a12c12f98a0901ae783064cf07ab714c5784",
-      "sha256": "f03db152821c1807ecaf8f176ef4c5f13897a87f17c2cf5928bfeee035f8dc73",
-      "method": "copy"
+      "sha256": "aab469e1bf4efc9441d6857efca08b5e9d7c3aa3b8b61914e907558c8974551c",
+      "method": "patch",
+      "description": "PATCHES.md:639 - `app/src/editor/extensions/wiki-link.ts`：文档链接同窗口导航沿用资产分支的 `Location.hash`，在宿主带 `<base>` 时保留当前 pathname 和 query，避免片段链接解析到根页面并重载。来源仍为 R-46 / Open Knowledge `44a2e0a6acce5952da0764746e3693fded5025b4` / GPL-3.0-or-later；G07 回归检查真实点击、目标文档、HashChangeEvent 和页面 timeOrigin。"
     },
     {
       "target": "app/src/editor/find-replace/FindReplaceBar.tsx",

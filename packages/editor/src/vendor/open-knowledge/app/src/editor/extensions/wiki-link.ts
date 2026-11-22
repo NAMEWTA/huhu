@@ -267,9 +267,11 @@ export const WikiLink = BaseWikiLink.extend<{ docName: string }>({
               anchor: classified.anchor,
             });
           } else {
-            window.location.assign(
-              toInternalHashHref({ docName: targetDocName, anchor: classified.anchor }),
-            );
+            // Keep navigation on the current document even when it has a <base> URL.
+            window.location.hash = toInternalHashHref({
+              docName: targetDocName,
+              anchor: classified.anchor,
+            });
           }
           return true;
         }

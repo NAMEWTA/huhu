@@ -51,7 +51,8 @@ async function switchVault(app: ElectronApplication, page: Page, target: string)
   await Promise.all([page.waitForEvent("load"), page.getByTestId("svault-switch-confirm").click()]);
 }
 
-test("B01：镜像与画板读取未打开文件，更新及切 Vault 后释放旧快照", async () => {
+test("B01：镜像与画板读取未打开文件，更新及切 Vault 后释放旧快照", async ({ browserName }, testInfo) => {
+  void browserName;
   const seed = (dir: string, text: string, width: number) => {
     writeFileSync(path.join(dir, note), '<Mirror src="source" name="摘录" />\n\n<Excalidraw src="/board.excalidraw" title="画板" />\n');
     writeFileSync(path.join(dir, "source.md"), source(text));
@@ -59,6 +60,20 @@ test("B01：镜像与画板读取未打开文件，更新及切 Vault 后释放�
   };
   const other = mkdtempSync(path.join(tmpdir(), "huhu-reference-other-"));
   const { app, page, vault, close } = await openApp({}, (dir) => seed(dir, "第一库内容", 60));
+  const diagnostics: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning" || message.type() === "error") diagnostics.push(message.text());
+  });
+  page.on("pageerror", (error) => diagnostics.push(error.stack ?? error.message));
+  const canDecode = (url: string) =>
+    page.evaluate(async (src) => {
+      const probe = new Image();
+      probe.src = src;
+      return probe.decode().then(
+        () => probe.naturalWidth > 0,
+        () => false,
+      );
+    }, url);
   try {
     const image = page.getByTestId("excalidraw-embed-snapshot").locator("img");
     const surface = page.getByTestId("markdown-editor");
@@ -67,37 +82,33 @@ test("B01：镜像与画板读取未打开文件，更新及切 Vault 后释放�
     await expect(image).toHaveAttribute("src", /^blob:/);
     await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBeGreaterThan(0);
     const oldUrl = (await image.getAttribute("src"))!;
+    expect(await canDecode(oldUrl)).toBe(true);
     writeFileSync(path.join(vault, "source.md"), source("第一库更新"));
     writeFileSync(path.join(vault, "board.excalidraw"), board(150));
     await expect(surface.getByText("第一库更新", { exact: true })).toBeVisible({ timeout: 35_000 });
     await expect(image).not.toHaveAttribute("src", oldUrl, { timeout: 35_000 });
     const currentUrl = (await image.getAttribute("src"))!;
-    await expect
-      .poll(() =>
-        page.evaluate(
-          (url) =>
-            fetch(url).then(
-              () => false,
-              () => true,
-            ),
-          oldUrl,
-        ),
-      )
-      .toBe(true);
+    expect(await canDecode(currentUrl)).toBe(true);
+    await expect.poll(() => canDecode(oldUrl)).toBe(false);
+    await page.getByRole("button", { name: "huhu workbench 首页" }).click();
+    await expect(image).toBeHidden();
+    expect(await canDecode(currentUrl)).toBe(true);
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await expect(image).toBeVisible();
+    await expect(image).toHaveAttribute("src", currentUrl);
+
+    // Keep the scene bytes identical on recovery: a revoked URL must not be reused.
+    writeFileSync(path.join(vault, "board.excalidraw"), "");
+    await expect(image).toHaveCount(0, { timeout: 35_000 });
+    await expect.poll(() => canDecode(currentUrl)).toBe(false);
+    writeFileSync(path.join(vault, "board.excalidraw"), board(150));
+    await expect(image).toHaveAttribute("src", /^blob:/, { timeout: 35_000 });
+    await expect(image).not.toHaveAttribute("src", currentUrl);
+    const recoveredUrl = (await image.getAttribute("src"))!;
+    expect(await canDecode(recoveredUrl)).toBe(true);
     await page.getByRole("button", { name: "关闭 引用块", exact: true }).click();
     await expect(image).toHaveCount(0);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          (url) =>
-            fetch(url).then(
-              () => false,
-              () => true,
-            ),
-          currentUrl,
-        ),
-      )
-      .toBe(true);
+    await expect.poll(() => canDecode(recoveredUrl)).toBe(false);
 
     seed(other, "第二库独立内容", 220);
     await switchVault(app, page, other);
@@ -107,8 +118,15 @@ test("B01：镜像与画板读取未打开文件，更新及切 Vault 后释放�
     await expect(image).toHaveAttribute("src", /^blob:/);
     await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.naturalWidth)).toBeGreaterThan(0);
   } finally {
-    await close();
-    rmTree(other);
+    try {
+      await testInfo.attach("snapshot-renderer-diagnostics", { body: diagnostics.join("\n"), contentType: "text/plain" });
+    } finally {
+      try {
+        await close();
+      } finally {
+        rmTree(other);
+      }
+    }
   }
 });
 
