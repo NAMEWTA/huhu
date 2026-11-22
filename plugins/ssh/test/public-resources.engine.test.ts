@@ -876,10 +876,12 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
   }
 });
 
-test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listener summaries on current authorized routes", { timeout: 35_000 }, async (entry) => {
+test.each(["cli", "mcp"] as const)("%s scopes forwarding reads and dormant configuration edits to current authorized routes", { timeout: 35_000 }, async (entry) => {
   const f = await fixture();
   const rules = "ssh.forwarding.rules.list";
   const runs = "ssh.forwarding.runs.list";
+  const save = "ssh.forwarding.rules.save";
+  const remove = "ssh.forwarding.rules.delete";
   const start = "ssh.forwarding.runs.start";
   try {
     const jump = await f.host("forwarding jump");
@@ -893,18 +895,20 @@ test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listen
     reserve.close();
     await closed;
     if (!address || typeof address === "string") throw new Error("No loopback fixture port");
-    const rule = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", {
+    const draft = {
       name: "loopback fixture",
       mode: "local",
       hostId: target.hostId,
       listenPort: address.port,
       target: { host: "127.0.0.1", port: 8080 },
       resume: false,
-    });
-    const other = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", { name: "hidden fixture", mode: "socks5", hostId: jump.hostId, listenPort: address.port, resume: false });
+    };
+    const rule = await f.desktop<ForwardRule>(save, draft);
+    const spare = { name: "spare fixture", mode: "socks5", hostId: jump.hostId, listenPort: address.port, resume: false };
+    const other = await f.desktop<ForwardRule>(save, spare);
     const revision = { id: rule.id, expectedRevision: rule.revision };
     const invoke = await externalTool(f, entry);
-    for (const id of [rules, runs]) {
+    for (const id of [rules, runs, save, remove]) {
       expect(await invoke(id, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       await f.allow(id);
     }
@@ -914,6 +918,21 @@ test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listen
     await f.chooseHosts([jump.hostId, target.hostId]);
     expect(data(await invoke(rules, {}))).toEqual([rule, other]);
     expect(data(await invoke(runs, {}))).toEqual([]);
+    const route = (hostId: string) => f.desktop<ResourceHost>(hostGet, { hostId });
+    const binding = (value: ResourceHost) => ({ hostId: value.hostId, routeRevision: value.routeRevision });
+    const bindings = [binding(await route(jump.hostId))];
+    const rename = { ...spare, name: "renamed fixture", previous: { id: other.id, expectedRevision: other.revision }, bindings, intentKey: randomUUID() };
+    const stopped = { ...draft, name: "authorized rename", previous: revision, bindings: [binding(await route(target.hostId))], intentKey: randomUUID() };
+    expect(await invoke(save, { ...spare, bindings, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await invoke(save, { ...stopped, target: { host: "127.0.0.1", port: 9090 } })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    const [renamed, duplicate] = await Promise.all([invoke(save, rename), invoke(save, rename)]);
+    expect(renamed).toEqual(duplicate);
+    const updated = z.object({ id: z.string(), revision: z.string() }).parse(data(renamed));
+    expect(updated.id).toBe(other.id);
+    expect(updated.revision).not.toBe(other.revision);
+    const deleteIdle = { id: updated.id, expectedRevision: updated.revision, bindings, intentKey: randomUUID() };
+    expect(data(await invoke(remove, deleteIdle))).toEqual({ ok: true });
+    expect(data(await invoke(remove, deleteIdle))).toEqual({ ok: true });
     expect(await invoke(start, revision)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(jump.server.conns).toHaveLength(0);
     expect(target.server.conns).toHaveLength(0);
@@ -948,15 +967,16 @@ test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listen
         downloaded: 0,
       },
     ]);
+    expect(await invoke(save, { ...stopped, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await invoke(remove, { ...revision, bindings: stopped.bindings, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised forwarding jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
     expect(data(await invoke(runs, {}))).toEqual([]);
-    expect(data(await invoke(rules, {}))).toEqual([rule, other]);
+    expect(data(await invoke(rules, {}))).toEqual([rule]);
     expect(jump.server.conns).toHaveLength(1);
     expect(target.server.conns).toHaveLength(1);
     await f.allow(runs, false);
     expect(await invoke(runs, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
-    await f.desktop("ssh.forwarding.rules.delete", revision);
-    await f.desktop("ssh.forwarding.rules.delete", { id: other.id, expectedRevision: other.revision });
+    await f.desktop(remove, revision);
   } finally {
     await f.close();
   }

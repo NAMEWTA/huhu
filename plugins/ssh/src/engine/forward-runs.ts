@@ -3,7 +3,7 @@ import { errors, HuhuError } from "@huhu/contracts";
 import type { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { ForwardListener } from "./forward-listener.js";
-import type { ForwardRules } from "./forward-rules.js";
+import type { ForwardRules, ForwardRuleScope } from "./forward-rules.js";
 import type { ForwardLease, SshManager } from "./manager.js";
 
 type Run = {
@@ -58,20 +58,28 @@ export class ForwardRuns {
     });
   }
 
-  save(input: SaveForward, signal: AbortSignal) {
+  save(input: SaveForward, signal: AbortSignal, scope?: ForwardRuleScope) {
     return this.serial(async () => {
-      const saved = await this.rules.save(input, signal, (old) => this.stopRule(old));
+      const saved = await this.rules.save(input, signal, (old) => this.stopRule(old), scope && this.inactiveScope(scope));
       this.runs.delete(saved.id);
       return saved;
     });
   }
 
-  delete(input: ForwardRevision, signal: AbortSignal) {
+  delete(input: ForwardRevision, signal: AbortSignal, scope?: ForwardRuleScope) {
     return this.serial(async () => {
-      const result = await this.rules.delete(input, signal, (old) => this.stopRule(old));
+      const result = await this.rules.delete(input, signal, (old) => this.stopRule(old), scope && this.inactiveScope(scope));
       this.runs.delete(input.id);
       return result;
     });
+  }
+
+  private inactiveScope(scope: ForwardRuleScope): ForwardRuleScope {
+    return (rule) => {
+      scope(rule);
+      const run = this.runs.get(rule.id);
+      if (run && (live.has(run.view.state) || run.view.state === "interrupted" || run.lease)) throw errors.permissionDenied("转发规则仍在使用");
+    };
   }
 
   start(input: ForwardRevision, signal: AbortSignal, resume = false) {

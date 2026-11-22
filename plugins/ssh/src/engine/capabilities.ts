@@ -28,7 +28,7 @@ import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIn
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
-import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
+import { ForwardDestination, ForwardMode, ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import {
   MonitorHost,
   MonitorPanel,
@@ -52,6 +52,8 @@ const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const externalMonitor = { ...monitor, ...resource } as const;
 const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
 const PublicForwardRun = ForwardRun.omit({ connection: true, prompt: true, message: true, lastError: true }).extend({ connectionKind: ForwardRun.shape.connection.unwrap().shape.kind.optional() }).strict();
+const ForwardSaveRequest = SaveForward.options[0].extend({ mode: ForwardMode, target: ForwardDestination.optional(), ...RouteIntentFields });
+export const ForwardRuleReceipt = z.strictObject({ id: ForwardRevision.shape.id, revision: ForwardRevision.shape.expectedRevision });
 export const WorkspaceTemplateReceipt = z.strictObject({ id: WorkspaceTemplate.shape.id, revision: WorkspaceTemplate.shape.revision });
 export const MonitorPanelReceipt = MonitorPanel.pick({ id: true, revision: true });
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
@@ -269,25 +271,27 @@ export const sshCapabilityDescriptors = {
     output: z.array(ForwardRule),
   }),
   forwardRulesSave: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.forwarding.rules.save",
     title: "保存 SSH 转发规则",
-    description: "按版本保存转发规则。",
+    description: "按版本保存转发规则。外部调用可为闲置规则修改显示名称。",
     scope: "write",
     risk: "normal",
-    input: SaveForward,
-    output: ForwardRule,
+    idempotency: "handler",
+    input: ForwardSaveRequest,
+    output: z.union([ForwardRule, ForwardRuleReceipt]),
   }),
   forwardRulesDelete: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.forwarding.rules.delete",
     title: "删除 SSH 转发规则",
-    description: "按版本删除指定的转发规则。",
+    description: "按版本删除转发规则。外部调用可删除闲置规则。",
     scope: "write",
-    risk: "normal",
-    input: ForwardRevision,
+    risk: "high",
+    idempotency: "handler",
+    input: ForwardRevision.extend(RouteIntentFields),
     output: Ok,
   }),
   forwardRunsList: defineCapabilityDescriptor({

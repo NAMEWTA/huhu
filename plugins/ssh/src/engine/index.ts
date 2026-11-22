@@ -2,8 +2,9 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
-import { MonitorPanelReceipt, sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
+import { ForwardRuleReceipt, MonitorPanelReceipt, sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
 import type { WorkspaceTemplate } from "../shared/workspace.js";
+import { SaveForward } from "../shared/forwarding.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
@@ -17,7 +18,7 @@ import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
-import { ForwardRules } from "./forward-rules.js";
+import { ForwardRules, type ForwardRuleScope } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
@@ -211,18 +212,59 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     });
   };
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, (context) => (isWorkbenchCaller(context.caller) ? forwardRules.list() : visibleForwardRules(context).map(({ rule }) => rule))));
+  const forwardRuleScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2]) => {
+    const routes = configurationRoutes(context, bindings);
+    const scope: ForwardRuleScope = ({ hostId, boundTarget }) => {
+      if (routes.require([hostId]).get(hostId)?.targetIdentity !== boundTarget) throw errors.notFound("当前授权内的 SSH 转发规则");
+    };
+    return { scope, authorize: routes.authorize };
+  };
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {
-      const result = await forwarding.save(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.forwardRulesSave, (context, { bindings, intentKey, ...request }) => {
+      const parsed = SaveForward.safeParse(request);
+      if (!parsed.success) throw errors.invalidInput("SSH 转发规则配置无效");
+      const input = parsed.data;
+      const save = async (scope?: ForwardRuleScope) => {
+        const result = await forwarding.save(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      if (!hostIntents || !bindings || !intentKey || !input.previous) throw errors.invalidInput("外部编辑需要原转发规则、主机路由版本和意图键");
+      const { scope, authorize } = forwardRuleScope(context, bindings);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.forwardRulesSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: ForwardRuleReceipt,
+        authorize,
+        run: async () => {
+          const { id, revision } = await save(scope);
+          return { id, revision };
+        },
+      });
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.forwardRulesDelete, async ({ signal }, input) => {
-      const result = await forwarding.delete(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.forwardRulesDelete, (context, { bindings, intentKey, ...input }) => {
+      const remove = async (scope?: ForwardRuleScope) => {
+        const result = await forwarding.delete(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return remove();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除规则需要主机路由版本和意图键");
+      const { scope, authorize } = forwardRuleScope(context, bindings);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.forwardRulesDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.forwardRulesDelete.output,
+        authorize,
+        run: () => remove(scope),
+      });
     }),
   );
   api.defineCapability(

@@ -9,6 +9,7 @@ import { routeForHost, workspaceTarget } from "./workspace-target.js";
 const FILE = ".huhu/ssh/forward-rules.json";
 const MAX_RULES = 100;
 const State = z.strictObject({ version: z.literal(1), rules: z.array(ForwardRule).max(MAX_RULES) });
+export type ForwardRuleScope = (rule: ForwardRule) => void;
 
 export class ForwardRules {
   constructor(
@@ -46,12 +47,33 @@ export class ForwardRules {
     return this.match(this.list(), input);
   }
 
-  save(input: SaveForward, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>) {
+  save(input: SaveForward, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>, scope?: ForwardRuleScope) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { rules, fileVersion } = this.read();
       const { previous, rebind, ...draft } = input;
-      const existing = previous && this.match(rules, previous);
+      const existing = previous && this.match(rules, previous, scope);
+      if (scope) {
+        if (!existing) throw errors.permissionDenied("转发规则的新监听与出口");
+        if (
+          rebind ||
+          existing.hostId !== draft.hostId ||
+          existing.mode !== draft.mode ||
+          existing.listenPort !== draft.listenPort ||
+          existing.resume !== draft.resume ||
+          existing.relay !== draft.relay ||
+          ("target" in existing && (!("target" in draft) || existing.target.host !== draft.target.host || existing.target.port !== draft.target.port))
+        ) {
+          throw errors.permissionDenied("转发规则的监听与出口配置");
+        }
+        const saved = { ...existing, name: draft.name, revision: randomUUID() };
+        signal.throwIfAborted();
+        await this.write(
+          rules.map((rule) => (rule.id === saved.id ? saved : rule)),
+          fileVersion,
+        );
+        return saved;
+      }
       if (!existing && rules.length >= MAX_RULES) throw errors.invalidInput("转发规则已达 100 条上限");
       const hosts = new Map((await this.hosts.list()).map((host) => [host.id, host]));
       const chain = routeForHost(hosts, draft.hostId);
@@ -65,13 +87,13 @@ export class ForwardRules {
     });
   }
 
-  delete(input: ForwardRevision, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>) {
+  delete(input: ForwardRevision, signal: AbortSignal, beforeChange: (rule: ForwardRule) => Promise<unknown>, scope?: ForwardRuleScope) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { rules, fileVersion } = this.read();
-      const existing = this.match(rules, input);
+      const existing = this.match(rules, input, scope);
       signal.throwIfAborted();
-      await beforeChange(existing);
+      if (!scope) await beforeChange(existing);
       signal.throwIfAborted();
       await this.write(
         rules.filter(({ id }) => id !== input.id),
@@ -81,9 +103,10 @@ export class ForwardRules {
     });
   }
 
-  private match(rules: readonly ForwardRule[], { id, expectedRevision }: ForwardRevision) {
+  private match(rules: readonly ForwardRule[], { id, expectedRevision }: ForwardRevision, scope?: ForwardRuleScope) {
     const current = rules.find((rule) => rule.id === id);
     if (!current) throw errors.notFound("转发规则已移除");
+    scope?.(current);
     if (current.revision !== expectedRevision) throw errors.versionConflict(current.revision);
     return current;
   }
