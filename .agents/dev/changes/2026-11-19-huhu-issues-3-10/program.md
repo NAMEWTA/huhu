@@ -36,7 +36,10 @@
 - #7 外部工作区换栏与关栏在 `f2159c2e` 通过 CLI/HTTP MCP 定向回归。Linux PTY 已分别从随包路径和 PATH 验证重挂、Web 隔离及 SSH 停用回收。快捷文本按终端模式校验并逐分栏回报。 [定向证据](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#快捷文本core-路径及外部布局)
 - #4/#5 已核验真实 Codex 0.170.0 的锁定指纹。在 Linux 下，原生 Core 新会话和原会话问答两项通过。定时任务的安装包 E2E 已采用独立 HOME 和回环夹具，待共同包。 [原生夹具](../2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md#t72-原生夹具复查)
 - #3/#6/#10 已核对桌面菜单、看板离场、Web 邀请和布局持久化现有入口。Web 分享界面默认局域网，服务由用户启动。`891ddd8a` 区分正文写入、恢复草稿和保存结果待确认。文档会话 35 项通过。真实菜单、三会话与关窗组合待固定候选实跑。 [#3 证据](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md#linux-集成关窗反馈)
-- #7 已用 Linux OpenSSH 验证 Ed25519 用户证书。批量路由已有工作台能力、整批 CAS 和提交前取消证据。SSH 私有 Core 的回收待核对反馈、握手取消及外部布局原回执均已完成定向复查。仍需完成主机 CA、出站代理和中继、跨窗口与终端工具栏，并运行新增桌面和公开入口用例。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
+- #7 已用 Linux OpenSSH 验证 Ed25519 用户证书及主机 CA。主机证书握手、重协商、错误 CA 和已撤销叶钥通过定向测试。批量路由已有工作台能力、整批 CAS 和提交前取消证据。SSH 私有 Core 的回收待核对反馈、握手取消及外部布局原回执均已完成定向复查。跨窗口仍需在真实工作台验证。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
+- #7 工具栏与首段出站代理已合入。`31352cae` 的 SOCKS5、HTTP CONNECT 回环传输及 CLI/HTTP MCP 三跳连接通过。首段代理的工作台实际操作与其他中继合同待验证。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
+- #7 `feddafd8` 接通快捷文本库、搜索、分组排序与分栏预览。CLI 和 HTTP MCP 的默认关闭、逐项授权和撤销均通过，浏览器与桌面真实交互待执行。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
+- #6/#8/#9 在 `46987e71` 从同一合成源 Vault 分别经过 CLI 和 HTTP MCP，验证默认关闭、授权和撤销、Safe 锁定时 Mail 仍可通过 IMAP 认证，以及新格式数据包恢复。外部导出已收录所需的 Mail/SSH 可移植定义，恢复前校验 Safe 与 Mail 附件完整性。固定安装包联验待执行。 [权限与凭据复验](../2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md#同一源-vault-联验)
 - #4 与 #5 以 W8.3 共同候选分别验证 W8.2 与 T7.2。#6 和 #9 在模块凭据与授权联验中汇合。#3 与 #10 在关窗和草稿离场路径汇合。
 - 最终检查在固定组合提交上串行执行，全部改动合入 `main` 后运行一次全量 E2E，收尾时生成并检查候选包。逐 Issue 按实际 SHA、平台和观察结果记录通过、失败、跳过及未运行。
 
