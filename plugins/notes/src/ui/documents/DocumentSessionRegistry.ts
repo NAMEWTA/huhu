@@ -87,8 +87,11 @@ export class DocumentSessionRegistry {
       e = { session, refs: 0, parkedRefs: 0, settling: null, teardown: bind?.(session) ?? (() => undefined) };
       this.map.set(key, e);
     }
-    e.refs++;
     const entry = e;
+    const resuming = entry.parkedRefs > 0 && entry.refs === entry.parkedRefs && entry.session.getSnapshot().loaded;
+    entry.refs++;
+    // 停放期间文档视图可能已卸载，错过的文件事件在第一个活动引用恢复时补一次核对。
+    if (resuming) entry.session.notifyExternalChange();
     let released = false;
     return {
       session: entry.session,

@@ -2083,6 +2083,100 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(reg.get("v", "a.md")).toBeUndefined();
   });
 
+  test("首个活动租约恢复时读取停放期间错过通知的正文", async () => {
+    const eng = new FakeEngine({ "a.md": "桌面已保存正文" });
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", "a.md", make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+
+    expect(reg.refs("v", "a.md")).toBe(1);
+    expect(before.session.getSnapshot().hasUnsaved).toBe(false);
+    eng.externalWrite("a.md", "Web 写入的新正文");
+    eng.calls.length = 0;
+
+    const resumed = await reg.acquire("v", "a.md", make(eng));
+    expect(resumed.session).toBe(before.session);
+    await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ text: "Web 写入的新正文", baseVersion: "2", state: "saved", hasUnsaved: false }));
+    expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(1);
+    const anotherView = await reg.acquire("v", "a.md", make(eng));
+    expect(anotherView.session).toBe(resumed.session);
+    expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(1);
+
+    await Promise.all([anotherView.release(), resumed.release(), evict()]);
+    expect(eng.calls).not.toContain("notes.save");
+  });
+
+  test("恢复干净的停放会话时保留可恢复草稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const draft = { text: "本地草稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" };
+    eng.drafts.set(path, draft);
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", path, make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "Web 正文");
+    eng.calls.length = 0;
+
+    const resumed = await reg.acquire("v", path, make(eng));
+    await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ text: "Web 正文", baseVersion: "2", hasUnsaved: false, draft }));
+    expect(eng.drafts.get(path)).toEqual(draft);
+    expect(eng.calls).not.toContain("notes.draft.discard");
+    await Promise.all([resumed.release(), evict()]);
+    expect(eng.calls).not.toContain("notes.save");
+  });
+
+  test("恢复仍有本地编辑的停放会话时确认冲突并保留正文", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const makeManual = (id: ConstructorParameters<typeof DocumentSession>[0]["id"]) => new DocumentSession({ id, engine: eng, autosave: () => false, pollMs: 0 });
+    const before = await reg.acquire("v", path, makeManual);
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    before.session.setText("停放后交付的本地编辑");
+    eng.externalWrite(path, "Web 正文");
+    eng.calls.length = 0;
+
+    const resumed = await reg.acquire("v", path, makeManual);
+    await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ text: "停放后交付的本地编辑", baseVersion: "1", state: "conflict", hasUnsaved: true }));
+    expect(eng.calls).toEqual(["notes.read"]);
+    expect(eng.disk(path)).toBe("Web 正文");
+    await Promise.all([resumed.release(), evict()]);
+    expect(eng.calls).not.toContain("notes.save");
+  });
+
+  test("停放恢复读取在途时保留新输入，并发租约共用同一次核对", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const makeManual = (id: ConstructorParameters<typeof DocumentSession>[0]["id"]) => new DocumentSession({ id, engine: eng, autosave: () => false, pollMs: 0 });
+    const before = await reg.acquire("v", path, makeManual);
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "Web 正文");
+    eng.calls.length = 0;
+
+    const held = Promise.withResolvers<void>();
+    eng.readGate = held.promise;
+    const [resumed, anotherView] = await Promise.all([reg.acquire("v", path, makeManual), reg.acquire("v", path, makeManual)]);
+    expect(resumed.session).toBe(anotherView.session);
+    expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(1);
+    resumed.session.setText("读盘期间的新输入");
+    held.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(resumed.session.getSnapshot()).toMatchObject({ text: "读盘期间的新输入", baseVersion: "1", state: "dirty", hasUnsaved: true });
+    expect(eng.disk(path)).toBe("Web 正文");
+    await Promise.all([anotherView.release(), resumed.release(), evict()]);
+    expect(eng.calls).not.toContain("notes.save");
+  });
+
   test("C06：停放时文件已消失，草稿写成后最后引用仍可释放，恢复路径后可读取草稿", async () => {
     const eng = new FakeEngine({ "a.md": "原稿" });
     const reg = new DocumentSessionRegistry();
