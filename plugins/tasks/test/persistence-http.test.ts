@@ -89,6 +89,7 @@ vi.mock("node:child_process", async (original) => ({
 }));
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const engine of engines.splice(0)) await engine.shutdown();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   delete fixture.now;

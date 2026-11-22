@@ -12,8 +12,10 @@ import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixt
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import type { DispatchReceipt, TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
-import { candidatePackage, candidateEnvironment, confirmCandidate } from "../helpers/candidate-package.js";
+import { candidatePackage, candidateEnvironment, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
 import { openApp, rmTree } from "../helpers/launch.js";
+
+test.afterAll(disposeCandidate);
 
 type Rule = { id: string; version: string; data: { enabled: boolean; trigger: { preset: string; cron: string; zone: string } } };
 type Activation = { activationId: string; ruleId: string; scheduledFor: string | null; summary?: { processed: number; skipped: number } };
@@ -207,7 +209,10 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const packageArtifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
-  test.skip(process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1" || !packageArtifact || !expectedSha || !provider, "需 W8.3 候选包及 SHA、受控派遣白名单中的真实 Codex 构建，并显式设置 HUHU_TASK_JOURNEY_ACCEPTANCE=1。");
+  test.skip(process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1", "需 W8.3 候选包及 SHA、受控派遣白名单中的真实 Codex 构建，并显式设置 HUHU_TASK_JOURNEY_ACCEPTANCE=1。");
+  expect(packageArtifact).toBeTruthy();
+  expect(expectedSha).toBeTruthy();
+  expect(provider).toBeTruthy();
   const { executablePath, sha } = await candidatePackage();
   const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-task-journey-"));
   const vault = path.join(sandbox, "vault");
@@ -337,7 +342,10 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
                 },
             ),
         );
-        return receipts.find(({ receipt }) => receipt.execution.runId === run!.runId && receipt.kind === "result");
+        const matches = receipts.filter(({ receipt }) => receipt.execution.runId === run!.runId && receipt.kind === "result");
+        expect(matches).toHaveLength(1);
+        expect(matches[0]!.receipt).toEqual(pending);
+        return matches[0];
       };
       await expect.poll(readResultReceipt).toMatchObject({ receipt: { execution: { runId: run!.runId, dispatchId: run!.dispatchId, attempt: 1 } }, consumption: { delivery: { messageId: result.id } }, status: "delivered" });
       const saved = (await readResultReceipt())!;
@@ -349,9 +357,14 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
           },
           { timeout: 20_000 },
         )
-        .toEqual([{ stage: "tasks_consumed", receipt: saved.consumption.delivery.receipt }]);
+        .toEqual([held]);
+      expect(held).toEqual({ stage: "tasks_consumed", receipt: saved.consumption.delivery.receipt });
       expect((await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("in_progress");
       const restoredDetail = await openTask(page, task.title);
+      const visibleResult = restoredDetail.getByTestId("task-timeline").locator(`[data-comment-id="${result.id}"]`);
+      await expect(visibleResult).toHaveCount(1);
+      await expect(visibleResult).toContainText(responses.result);
+      expect((await timeline()).filter(({ event }) => event === "result")).toHaveLength(1);
       await restoredDetail.getByTestId("task-status").selectOption("completed");
       await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
       await testInfo.attach("T7.2 原生任务回执身份", {
@@ -389,10 +402,10 @@ test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费
   const artifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
-  test.skip(
-    process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1" || process.platform !== "linux" || process.arch !== "x64" || !artifact || !expectedSha || !provider,
-    "需 Linux x64、W8.3 候选包和 SHA、受控的 Codex ELF，并显式设置 HUHU_AGENT_WORKSPACE_ACCEPTANCE=1。Windows 实机走独立的原生 Pi 用例。",
-  );
+  test.skip(process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1", "需 Linux x64、W8.3 候选包和 SHA、受控的 Codex ELF，并显式设置 HUHU_AGENT_WORKSPACE_ACCEPTANCE=1。Windows 实机走独立的原生 Pi 用例。");
+  expect(artifact).toBeTruthy();
+  expect(expectedSha).toBeTruthy();
+  expect(provider).toBeTruthy();
   const { executablePath, sha } = await candidatePackage();
 
   const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-w8-workspace-"));

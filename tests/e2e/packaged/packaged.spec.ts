@@ -8,13 +8,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
-import { candidateEnvironment, candidatePackage, confirmCandidate } from "../helpers/candidate-package.js";
+import { candidateEnvironment, candidatePackage, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
 
 /**
  * 打包后的 E2E 子集（release.md §5）：对安装/解包后的可执行文件运行。
  * 用法：HUHU_PACKAGED_EXE=<可执行文件> pnpm e2e:packaged
  * （Linux 解包目录：apps/desktop/release/linux-unpacked/huhu；CI 需要 xvfb-run。）
  */
+test.afterAll(disposeCandidate);
+
 const EXE = process.env["HUHU_PACKAGED_EXE"];
 const candidateAcceptance = process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] === "1";
 test.skip(!EXE && !candidateAcceptance, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
@@ -227,7 +229,7 @@ test("打包后：自动化发生、运行抽屉与任务详情使用同一笔�
 });
 
 test("打包后：CLI 与 HTTP MCP 逐项授权，Safe 锁定期间读取邮件并恢复新格式备份", async () => {
-  test.skip(process.platform !== "linux" || process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] !== "1", "需隔离的 Linux Secret Service 会话和候选安装包");
+  test.skip(process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] !== "1", "需隔离的 Linux Secret Service 会话和候选安装包");
   test.setTimeout(120_000);
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-pk-credentials-"));
   const password = randomUUID();
