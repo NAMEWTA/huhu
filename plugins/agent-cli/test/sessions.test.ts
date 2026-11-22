@@ -327,19 +327,25 @@ test.skipIf(linuxNativeOnly).each(["delivering", "consumed", "legacy"] as const)
 
 test.skipIf(linuxNativeOnly)("原生宿主已核验但领取仍在等待时，过期后不接受迟到的交付", async () => {
   const f = nativeLaunchFixture();
-  const taking = Promise.withResolvers<void>();
-  const available = Promise.withResolvers<void>();
+  let markTaking!: () => void;
+  const taking = new Promise<void>((resolve) => {
+    markTaking = () => resolve();
+  });
+  let makeAvailable!: () => void;
+  const available = new Promise<void>((resolve) => {
+    makeAvailable = () => resolve();
+  });
   f.use.mockImplementationOnce(async (consumer) => {
-    taking.resolve();
-    await available.promise;
+    markTaking();
+    await available;
     return consumer(new Map([[f.input.names[0]!, f.marker]]));
   });
   await expect(f.launch()).rejects.toMatchObject({ code: "RUN_UNKNOWN" });
   f.setView("current");
-  await taking.promise;
+  await taking;
   f.expiry.abort();
   expect(await f.pending()).toMatchObject({ state: "failed", launchReceipt: { attempt: { nativeStatus: "failed", nativeCleanup: "pending" } } });
-  available.resolve();
+  makeAvailable();
   await expect(f.use.mock.results[0]?.value).rejects.toThrow();
   expect(f.start).not.toHaveBeenCalled();
   expect(f.runs).toHaveLength(1);

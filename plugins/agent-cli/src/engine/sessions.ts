@@ -811,9 +811,12 @@ export class SessionsService {
 
   private async deliverNative(native: NativeDelivery, broker: NativeBroker, { terminal, binding, host }: VerifiedNativeHost, latest: (phase: "waiting-host" | "delivering") => SessionRecord): Promise<SessionRecord> {
     let phase: "waiting-host" | "delivering" = "waiting-host";
-    const delivery = Promise.withResolvers<BrokerOutcome>();
+    let resolveDelivery!: (outcome: BrokerOutcome) => void;
+    const delivery = new Promise<BrokerOutcome>((resolve) => {
+      resolveDelivery = resolve;
+    });
     const stopWaiting = () => {
-      if (phase === "waiting-host") delivery.resolve("not-started");
+      if (phase === "waiting-host") resolveDelivery("not-started");
     };
     broker.waiting.addEventListener("abort", stopWaiting, { once: true });
     if (broker.waiting.aborted) stopWaiting();
@@ -842,8 +845,8 @@ export class SessionsService {
         });
       }, broker.waiting);
     };
-    void take().then(delivery.resolve, () => delivery.resolve(phase === "delivering" ? "unknown" : "not-started"));
-    const outcome = await delivery.promise;
+    void take().then(resolveDelivery, () => resolveDelivery(phase === "delivering" ? "unknown" : "not-started"));
+    const outcome = await delivery;
     broker.waiting.removeEventListener("abort", stopWaiting);
     const current = latest(phase);
     if (outcome === "unknown") throw this.unknown(this.markUnknown(current, "native_start_unknown"), "native_start_unknown");

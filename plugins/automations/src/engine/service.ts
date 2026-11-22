@@ -570,9 +570,15 @@ export class AutomationsService {
         this.d.publish("automation.activated", { ruleId, activationId, trigger: "manual" });
         const cancel = this.terminalSignal(ruleId, runId);
         const submittedAt = await this.markTerminalSubmission(run, plan.fingerprint);
-        const foreground = Promise.withResolvers<ApprovedTerminalReceipt>();
-        void foreground.promise.catch(() => undefined);
-        this.approvedForeground.set(runId, foreground.promise);
+        let resolveForeground!: (result: ApprovedTerminalReceipt) => void;
+        let rejectForeground!: (error: unknown) => void;
+        const promise = new Promise<ApprovedTerminalReceipt>((resolve, reject) => {
+          resolveForeground = resolve;
+          rejectForeground = reject;
+        });
+        const foreground = { resolve: resolveForeground, reject: rejectForeground };
+        void promise.catch(() => undefined);
+        this.approvedForeground.set(runId, promise);
         return { plan, submittedAt, title, cancel, release, foreground };
       } catch (error) {
         this.runAbort.delete(runId);

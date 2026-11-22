@@ -324,14 +324,17 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
   const protection = new TestProtection(keys);
   const read = vi.spyOn(protection, "read");
   const bindings = new Map<string, CapabilityDefinition>();
-  const ready = Promise.withResolvers<void>();
+  let markReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
   const consume = vi.fn(async (values: ReadonlyMap<string, string>) => {
     expect(values.get(variable)).toBe(marker);
   });
   let principal = true;
   const launch = vi.fn(async (input: ApprovedLaunchFixture, signal: AbortSignal) => {
     const id = "same-original-session";
-    const completion = ready.promise.then(async () => {
+    const completion = ready.then(async () => {
       const result = await input.use(consume, signal).then(
         () => ({ state: "exited", exitCode: 0 }),
         () => ({ state: "failed", exitCode: null }),
@@ -385,7 +388,7 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
     if (event === "principal") principal = false;
     if (event === "exposure") await exposure.set("automations.terminal.external.run", false);
     if (event === "cancel") expect(svc.cancelRun(admitted.runId)).toBe(true);
-    ready.resolve();
+    markReady();
     await svc.idle();
     const settled = svc.runDetail(admitted.runId);
     expect(settled).toMatchObject({ live: false, data: { activationId: admitted.activationId, sessionId: "same-original-session", state: event === "resume" ? "succeeded" : event === "cancel" ? "cancelled" : "failed" } });
@@ -403,7 +406,7 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
     expect(JSON.stringify(settled)).not.toContain(marker);
   } finally {
     svc.abortAll();
-    ready.resolve();
+    markReady();
     await svc.idle();
     await vault.close();
   }
