@@ -24,7 +24,8 @@ declare global {
       engine(): Promise<{ baseUrl: string; token: string; vaultId: string }>;
       engineState(): Promise<EngineState>;
       restartEngine(): Promise<void>;
-      takeExitSave(vaultPath: string): Promise<unknown>;
+      readExitSave(vaultPath: string): Promise<unknown>;
+      acknowledgeExitSave(vaultPath: string, id: string): Promise<void>;
       onExit(prepare: import("../exit-ipc.js").PrepareExit, release: import("../exit-ipc.js").ReleaseExit): () => void;
       onEngineState(cb: (s: EngineState) => void): () => void;
     };

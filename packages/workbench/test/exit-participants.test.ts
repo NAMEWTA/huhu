@@ -1,5 +1,25 @@
 import { expect, test, vi } from "vitest";
 import { checkExitParticipants, registerExitParticipant, type ExitRequest } from "../src/state/exit-participants.js";
+import { registerFlusher, runFlushers } from "../src/state/flushers.js";
+
+test("退出结算失败时保留已写入的文档和草稿计数", async () => {
+  const failure = new Error("fixture save failed");
+  const release = [
+    registerFlusher(async () => "file"),
+    registerFlusher(async () => "draft"),
+    registerFlusher(async () => {
+      throw failure;
+    }),
+  ];
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await expect(runFlushers()).resolves.toEqual({ files: 1, drafts: 1, failed: true });
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ errors: [failure] }));
+  } finally {
+    for (const unregister of release) unregister();
+    log.mockRestore();
+  }
+});
 
 function request(signal = new AbortController().signal): ExitRequest {
   return { signal, waitForUser: (decision) => decision };

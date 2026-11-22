@@ -44,7 +44,7 @@ import {
 import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { exitSaveMessage, isExitSaveSummary, type PrepareExit, type ReleaseExit } from "../exit-ipc.js";
+import { exitSaveMessage, isExitSaveReceipt, type PrepareExit, type ReleaseExit } from "../exit-ipc.js";
 import { browserEndpoint, browserLocation, joinBrowserWorkbench, type BrowserEndpoint } from "./web-host.js";
 
 // 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
@@ -381,11 +381,15 @@ function ExitSaveFeedback({ vaultPath }: { vaultPath: string }) {
   useEffect(() => {
     let active = true;
     void window.huhuHost
-      .takeExitSave(vaultPath)
+      .readExitSave(vaultPath)
       .then((summary) => {
-        if (!active || !isExitSaveSummary(summary)) return;
+        if (!active || !isExitSaveReceipt(summary)) return;
         const message = exitSaveMessage(summary);
-        if (message) feedback(message, "info", { duration: 7000 });
+        if (!message) return;
+        const acknowledge = () => {
+          if (active) void window.huhuHost.acknowledgeExitSave(vaultPath, summary.id).catch(() => undefined);
+        };
+        feedback(message, "info", { duration: 7000, onDismiss: acknowledge, onAutoClose: acknowledge });
       })
       .catch(() => undefined);
     return () => {

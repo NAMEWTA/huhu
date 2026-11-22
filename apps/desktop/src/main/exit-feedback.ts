@@ -3,25 +3,23 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { endpointRootBinding } from "@huhu/vault";
 import { app, Notification } from "electron";
-import { exitSaveMessage, isExitSaveSummary, type ExitSaveSummary } from "../exit-ipc.js";
-
-type Receipt = ExitSaveSummary & { id: string };
+import { exitSaveMessage, isExitSaveReceipt, type ExitSaveReceipt, type ExitSaveSummary } from "../exit-ipc.js";
 
 function receiptFile(vaultRoot: string): string {
   const key = createHash("sha256").update(endpointRootBinding(vaultRoot)).digest("hex");
   return path.join(app.getPath("userData"), "exit-save", key + ".json");
 }
 
-function readReceipt(file: string): Receipt | undefined {
+function readReceipt(file: string): ExitSaveReceipt | undefined {
   try {
     const receipt: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (isExitSaveSummary(receipt) && "id" in receipt && typeof receipt.id === "string") return { files: receipt.files, drafts: receipt.drafts, id: receipt.id };
+    if (isExitSaveReceipt(receipt)) return { files: receipt.files, drafts: receipt.drafts, id: receipt.id };
   } catch {
     // 首次打开或记录不可读时，工作台仍可正常启动。
   }
 }
 
-let notification: Notification | undefined;
+let outgoing: { id: string; notification: Notification; shown: boolean } | undefined;
 
 export function showExitSaveFeedback(vaultRoot: string, summary: ExitSaveSummary): void {
   const message = exitSaveMessage(summary);
@@ -43,8 +41,10 @@ export function showExitSaveFeedback(vaultRoot: string, summary: ExitSaveSummary
   }
   try {
     if (!Notification.isSupported()) return;
-    notification = new Notification({ title: "HUHU 文档保存", body: message, silent: true });
+    const notification = new Notification({ title: "HUHU 文档保存", body: message, silent: true });
+    outgoing = { id: receipt.id, notification, shown: false };
     notification.once("show", () => {
+      if (outgoing?.id === receipt.id) outgoing.shown = true;
       try {
         if (file && readReceipt(file)?.id === receipt.id) rmSync(file, { force: true });
       } catch {
@@ -57,14 +57,28 @@ export function showExitSaveFeedback(vaultRoot: string, summary: ExitSaveSummary
   }
 }
 
-export function takeExitSaveFeedback(vaultRoot: string): ExitSaveSummary | null {
+export function readExitSaveFeedback(vaultRoot: string): ExitSaveReceipt | null {
   try {
-    const file = receiptFile(vaultRoot);
-    const receipt = readReceipt(file);
+    const receipt = readReceipt(receiptFile(vaultRoot));
     if (!receipt) return null;
-    rmSync(file, { force: true });
-    return { files: receipt.files, drafts: receipt.drafts };
+    if (outgoing?.id === receipt.id) {
+      if (outgoing.shown) return null;
+      const { notification } = outgoing;
+      outgoing = undefined;
+      notification.removeAllListeners("show");
+      try {
+        notification.close();
+      } catch {
+        // 系统通知失效时仍交给工作台显示本机回执。
+      }
+    }
+    return receipt;
   } catch {
     return null;
   }
+}
+
+export function acknowledgeExitSaveFeedback(vaultRoot: string, id: string): void {
+  const file = receiptFile(vaultRoot);
+  if (readReceipt(file)?.id === id) rmSync(file, { force: true });
 }

@@ -507,7 +507,12 @@ for (const autosave of [true, false]) {
       expect(disk).toBe(autosave ? written : original);
       const reopened = await openApp({ HUHU_VAULT: vault });
       try {
-        await expect(reopened.page.getByText(autosave ? "已写入 1 份文档。" : "已保留 1 份可恢复草稿。", { exact: true })).toBeVisible();
+        const saveNotice = reopened.page.getByText(autosave ? "已写入 1 份文档。" : "已保留 1 份可恢复草稿。", { exact: true });
+        await expect(saveNotice).toBeVisible();
+        if (!autosave) {
+          await reopened.page.reload();
+          await expect(saveNotice).toBeVisible();
+        }
         await engineReady(reopened.page);
         expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
         if (!autosave) expect((await call<{ text: string }>(reopened.page, "notes.draft.get", { path: name })).text).toBe(written);
@@ -844,8 +849,8 @@ test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确�
         await fixture.loadURL(origin.getURL());
         const originalSend = origin.send;
         const awaitingChoice = Promise.withResolvers<number>();
-        const acknowledged = Promise.withResolvers<boolean>();
-        const onReply = (event: Electron.IpcMainEvent, _id: number, saved: boolean) => {
+        const acknowledged = Promise.withResolvers<unknown>();
+        const onReply = (event: Electron.IpcMainEvent, _id: number, saved: unknown) => {
           if (event.sender === origin) acknowledged.resolve(saved);
         };
         let requests = 0;
@@ -884,7 +889,7 @@ test("TB-15 应用退出接管在途关窗，另一窗口取消时保留已确�
       },
       path.join(root, "out/preload/index.cjs"),
     );
-    expect(result).toEqual({ saved: true, requests: 1, during: true, frozen: true, after: true });
+    expect(result).toEqual({ saved: { files: 0, drafts: 0 }, requests: 1, during: true, frozen: true, after: true });
     await expect.poll(() => page.evaluate(() => document.body.inert)).toBe(false);
     expect((await call<{ id: string }>(page, "vault.info", {})).id).toBeTruthy();
     await openNote(page);

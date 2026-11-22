@@ -79,7 +79,8 @@ contextBridge.exposeInMainWorld("huhuHost", {
   cliUninstall: (): Promise<unknown> => ipcRenderer.invoke("huhu:cliUninstall"),
   notices: (): Promise<string> => ipcRenderer.invoke("huhu:notices"),
   restartEngine: (): Promise<void> => ipcRenderer.invoke("huhu:restartEngine"),
-  takeExitSave: (vaultPath: string): Promise<unknown> => ipcRenderer.invoke("huhu:vault:take-exit-save", vaultPath),
+  readExitSave: (vaultPath: string): Promise<unknown> => ipcRenderer.invoke("huhu:vault:exit-save", vaultPath),
+  acknowledgeExitSave: (vaultPath: string, id: string): Promise<void> => ipcRenderer.invoke("huhu:vault:ack-exit-save", vaultPath, id),
   /** 只传本次退出的 ID 与状态，Electron 事件留在 preload。 */
   onExit: (prepare: PrepareExit, release: ReleaseExit): (() => void) => {
     const onRequest = (_event: unknown, requestId: number) => {

@@ -7,18 +7,14 @@ export function registerFlusher(fn: Flusher): () => void {
   return () => flushers.delete(fn);
 }
 
-export async function runFlushers(): Promise<{ files: number; drafts: number }> {
+export async function runFlushers(): Promise<{ files: number; drafts: number; failed?: true }> {
   const results = await Promise.allSettled([...flushers].map(async (flush) => flush()));
   const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
-  if (failures.length) {
-    const error = new AggregateError(failures, "退出前保存失败");
-    // 回执将失败传回桌面端，让用户保留窗口并重试。
-    console.error(error);
-    throw error;
-  }
+  if (failures.length) console.error(new AggregateError(failures, "退出前保存失败"));
   return {
     files: results.filter((result) => result.status === "fulfilled" && result.value === "file").length,
     drafts: results.filter((result) => result.status === "fulfilled" && result.value === "draft").length,
+    ...(failures.length > 0 && { failed: true as const }),
   };
 }
 
