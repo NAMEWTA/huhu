@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
 import { exitSaveMessage, isExitSaveOutcome, type ExitPhase, type ExitSaveOutcome, type ExitSaveReceipt, type ExitSaveSummary } from "../exit-ipc.js";
 import { installAppMenu } from "./app-menu.js";
+import { applyChromium152InputDeferral } from "./chromium-compatibility.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
@@ -17,6 +18,8 @@ import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandler
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 import { installWindowChrome, nativeTitleOptions } from "./window-chrome.js";
 import { windowErrorPage } from "./window-error-page.js";
+
+applyChromium152InputDeferral(app.commandLine, process.versions.chrome);
 
 let supervisor: EngineSupervisor | null = null;
 

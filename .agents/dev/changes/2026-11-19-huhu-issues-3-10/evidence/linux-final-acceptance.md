@@ -377,3 +377,12 @@ t18n实际主进程及启动PID均2373556、DISPLAY均:99，身份核对通过�
 t18p增加renderer内WebSocket message聚合观测，t18q移除夹具Playwright WebSocket订阅做对照，两轮均退出0且清理成功。两轮都完整接收1461次原生按键；双观测message尾标10407.6ms、DOM10415.5ms，页面单观测message尾标10256.6ms、DOM10272.7ms。实际收包尾标距显示约8–16ms，延迟主要位于页面message交付之前；不能只归因为xterm尾标渲染。页面单观测仅移除测试订阅，Playwright内部Network.enable仍保留，不等于关闭整个CDP网络采集。
 
 结果及trace分别保全 `temp/final-audit/native-10000-both-9350f32bbe014243e4c81546b0ac1aa5afa9e226.QEryTT` 和 `native-10000-page-only-9350f32bbe014243e4c81546b0ac1aa5afa9e226.BHBV6N`，对应日志 `page-receive-both.log` / `page-receive-only.log`。均为十秒停键诊断，不记正式持续输入吞吐通过。生产代码尚未因本诊断修改。
+
+
+### Chromium 152 调度策略因果对照
+
+t18r的disabled臂未施加成功：Playwright Electron loader在用户CLI参数之后重写disable-features，实际explicitDisable为false，在gate前断言失败，不计性能数据。临时preload改为在loader之后读取有效列表并仅追加目标feature，两臂均加载同一preload（default不改变开关），未改node_modules。
+
+t18t同一9350应用两臂实际Chrome152.0.7977.167/Electron44.9.1、其余enable/disable列表完全一致。default：1461键，DOM尾标10150.7ms（十秒停键后），输入p95 33.4ms。仅禁用DeferRendererTasksAfterInput：同参考节奏的前313键全部实收，DOM尾标2131ms，在持续输入中主动因尾标停键；301个窗内有效样本p95 37.1ms、最大46.6ms，三等分76/111/114。默认前两秒125/158键、禁用124/159键，未降低共同窗口输入密度。两轮清理成功。此结果支持该输入调度策略对当前受控桌面运行时延迟的因果贡献，尚未代替生产修复后原正式持续输入用例。
+
+原始结果及trace：`temp/final-audit/native-10000-page-only-9350f32bbe014243e4c81546b0ac1aa5afa9e226.d4XkN6`、`native-10000-page-only-input-deferral-disabled-9350f32bbe014243e4c81546b0ac1aa5afa9e226.7jmJXN`，日志`deferral-preload-{default,disabled}.log`。锁定上游源码及实验设计见`t18d-report04.md`。Lead决定只针对捆绑Chromium152配置可复核的桌面调度兼容点，保留其他功能列表并在版本升级后重新验证；不修改Web协议、消息粒度或CREDIT，不声称改善未测的外部浏览器性能。实现与原始用例复验待完成。
