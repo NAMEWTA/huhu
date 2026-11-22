@@ -330,3 +330,16 @@ t176/task07只读确认诊断runner在env -i和隔离HOME下仍继承宿主Volta
 后续 t17w 在纠正PATH后，旧4a应用20秒内没有尾标，测试失败；4339个窗内键入不替代完整输出要求。独立teardown附件desktopClosed/coreStopped/directoryRemoved全true，外层无清理错误。t17x使用同一fixture并将测试总时限注入为5000ms，结果timedOut，Core已启动且上述三段仍全true；这是超时清理的正向证据，不记性能通过。原始报告分别为 `temp/issue-evidence/huhu-2026-11-22/followup-flood-4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73.qKbH7D/result.json` 和 `followup-timeout-flood-4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73.Ug0KV3/result.json`；trace另保全integration/temp/final-audit/flood-{isolated,timeout}-cleanup-artifacts。t17c/task07提出取消后续动作边界，t178/task06正在补齐。旧残留目录已在同HOME进程0复查后删除。
 
 终端fixture最后取消边界由t17c/task08复审关闭（blob f0abccd5efaa0d97c6186f4c9e73805f28486b6e）。t178/task06定向类型/语法/lint/format通过。保持20秒尾标和原性能阈值。进入固定组合构建，后续新版本结果另记。
+
+
+## 固定da645ee8构建复验
+
+t17y clean组合构建通过，t17z核对远端feature=da645ee844f98f99dd2175b31b1e54f6714490e3，main仍4ae7e7e4。t180受影响性能用例3通过/2失败，另3个F09扩展旅程按现有开关跳过，非全量。通过：1MiB文档444ms；80次输入p95 11.6ms；1000任务滚动最大帧间隔50ms，0次>66ms且退出完成。失败：inbox插件启用472ms>300ms（冷启1984ms、停用15ms），终端20秒无尾标（2956窗内样本）。不得把终端部分响应读数算完整通过。产物 `temp/final-audit/query-fixed-perf-artifacts-da645ee8` 和日志 `query-fixed-perf-da645ee8.log`，原始JSON在 `temp/issue-evidence/huhu-2026-11-22/followup-perf-da645ee844f98f99dd2175b31b1e54f6714490e3.nOaIGz/result.json`。
+
+t181同构建任务结果完整旅程1项通过13.1s：自动化Agent规则经Tasks派遣，运行页显示已完成及结果，定位原会话。日志 `temp/final-audit/query-fixed-task-result-da645ee8.log`。包装无清理错误；后续性能问题分别由t178/task07和t176/task09定向调查。仍未满足整个批次交付。
+
+### da645ee8 终端分段与插件网络诊断（t182 / t183）
+
+固定应用 da645ee844f98f99dd2175b31b1e54f6714490e3，新增测试观测不改变阈值。t182 终端仍失败：20秒截止前 WebSocket 847308 字节，约21秒累计978380字节/161帧，无尾标；DOM原节点没有替换。截止后独立 Core terminal.read 已有完整尾标和 shell 提示，不能据此推断其在截止前何时完成。隔离 Core 与目录清理均成功。证据 `temp/final-audit/flood-stages-artifacts-da645ee8`，继续定位 attach/bridge。
+
+t183 冷启动/插件/内存单项通过：1845ms，停用38ms/启用279ms，RSS341MiB。前次472ms失败仍保留。网络观测：能力目录响应14184843字节；停用后目录首字节约232ms，随后的启用请求 requestStart约220ms、responseStart约237ms。时间线表明请求发送前等待，但尚未单独证明目录生成或解析各自成本。证据 `temp/final-audit/plugin-network-artifacts-da645ee8`；未用一次通过代替波动分析。

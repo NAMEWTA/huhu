@@ -10,7 +10,8 @@ import { fixtureProcessRunning } from "../../plugins/agent-cli/test/fixtures/cor
 import { createScaleVault } from "../perf/scale-vault.js";
 import { withFixtureCleanup, withFixtureDeadline } from "./helpers/candidate-desktop.js";
 import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
-import { observeTaskPerformance, observeTaskQuit } from "./helpers/perf-diagnostics.js";
+import { observeTaskPerformance, observeTaskQuit, observeTerminalFlood, readTerminalFloodTail } from "./helpers/perf-diagnostics.js";
+import { observePluginPerformance } from "./helpers/plugin-perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
 
 import { journeyMachine, journeyPercentiles, launchJourney, measureNoteJourney, noteScenarios, prepareNotes, seedComments } from "./perf-note-journey.js";
@@ -43,8 +44,10 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
   }
   const t0 = Date.now();
   const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
+  let diagnostics: ReturnType<typeof observePluginPerformance> | undefined;
   try {
     const page = await app.firstWindow();
+    if (process.env["HUHU_PERF_DIAGNOSTICS"] === "1") diagnostics = observePluginPerformance(page, test.info());
     await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const cold = Date.now() - t0;
@@ -67,12 +70,17 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
     // 等索引建完再量内存
     await expect.poll(async () => ((await call("vault.search", { query: "笔记1999" })) as any).data?.indexing, { timeout: 60_000 }).toBe(false);
 
+    diagnostics?.mark("index-ready");
     const t1 = Date.now();
+    diagnostics?.mark("disable-start", t1);
     expect(((await call("plugins.setEnabled", { id: "inbox", enabled: false })) as any).ok).toBe(true);
     const off = Date.now() - t1;
+    diagnostics?.mark("disable-end", t1 + off);
     const t2 = Date.now();
+    diagnostics?.mark("enable-start", t2);
     expect(((await call("plugins.setEnabled", { id: "inbox", enabled: true })) as any).ok).toBe(true);
     const on = Date.now() - t2;
+    diagnostics?.mark("enable-end", t2 + on);
     note("插件停用 / 启用", `${off} ms / ${on} ms（目标 ≤ 300）`);
     atMost(off, 300);
     atMost(on, 300);
@@ -85,8 +93,12 @@ test("冷启动到工作台可交互 ≤ 3 s；插件停用/启用 ≤ 300 ms；
       expect(rssKiB / 1024).toBeLessThanOrEqual(600);
     }
   } finally {
-    await app.close();
-    rmSync(vault, { recursive: true, force: true });
+    try {
+      if (diagnostics) await withFixtureDeadline(2_000, () => diagnostics!.attach()).catch(() => console.error("[perf-diagnostics] plugin attachment incomplete"));
+    } finally {
+      await app.close();
+      rmSync(vault, { recursive: true, force: true });
+    }
   }
 });
 
@@ -421,6 +433,9 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   // The runner may stop waiting at the test timeout while an already issued Playwright call is still settling.
   signal.throwIfAborted();
   const page = await app.firstWindow();
+  const diagnostics = process.env["HUHU_PERF_DIAGNOSTICS"] === "1";
+  const tail = "FLOOD-DONE-42-10485760";
+  const traffic = diagnostics ? observeTerminalFlood(page, tail) : undefined;
   signal.throwIfAborted();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
   signal.throwIfAborted();
@@ -431,20 +446,23 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   signal.throwIfAborted();
   await page.getByTestId("launch-shell").click();
   signal.throwIfAborted();
-  await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+  const terminal = page.getByTestId("terminal-view");
+  await expect(terminal).toHaveAttribute("data-state", "open", { timeout: 15_000 });
   terminalPerf.coreStarted = true;
   signal.throwIfAborted();
   await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+  const sessionId = diagnostics ? await terminal.evaluate((view) => view.closest("[data-session-id]")?.getAttribute("data-session-id") ?? null).catch(() => null) : null;
   signal.throwIfAborted();
   const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
   await expect(search).toBeVisible();
   const gate = path.join(vault, ".huhu", "perf-flood-start");
   const quotedGate = `'${gate.replaceAll("'", "'\"'\"'")}'`;
-  const tail = "FLOOD-DONE-42-10485760";
   type KeySample = { key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
+  type RowObservation = { originalDetachedAt: number | null; replacements: number; firstReplacementAt: number | null; originalRowsAtSnapshot: boolean; visibleTailAtSnapshot: boolean };
   type FloodWindow = Window & {
     __huhuFloodDone: () => Promise<void>;
-    __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[] };
+    __huhuFinishFloodRows?: () => void;
+    __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[]; rows?: RowObservation };
   };
   let signaledAt: number | undefined;
   signal.throwIfAborted();
@@ -461,57 +479,84 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   signal.throwIfAborted();
   await search.focus();
   signal.throwIfAborted();
-  await search.evaluate((input, tail) => {
-    if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
-    const w = window as unknown as FloodWindow;
-    const now = () => performance.timeOrigin + performance.now();
-    const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
-    w.__flood = probe;
-    const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
-    if (!rows) throw new Error("终端输出行未挂载");
-    const observer = new MutationObserver(() => {
-      const text = rows.textContent ?? "";
-      if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
-      if (!text.includes(tail)) return;
-      probe.tailAt = now();
-      observer.disconnect();
-      void w.__huhuFloodDone();
-    });
-    observer.observe(rows, { subtree: true, childList: true, characterData: true });
-    input.addEventListener(
-      "keydown",
-      (event) => {
-        if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
-        const start = performance.now();
-        const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
-        const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
-        probe.keys.push(sample);
-        if (phase !== "during") return;
-        probe.pending++;
-        requestAnimationFrame(() => {
-          sample.firstFrameAt = now();
-          requestAnimationFrame(() => {
-            sample.latency = performance.now() - start;
-            probe.pending--;
-          });
+  await search.evaluate(
+    (input, { tail, diagnostics, sessionId }) => {
+      if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
+      const w = window as unknown as FloodWindow;
+      const now = () => performance.timeOrigin + performance.now();
+      const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
+      w.__flood = probe;
+      const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
+      if (!rows) throw new Error("终端输出行未挂载");
+      const observer = new MutationObserver(() => {
+        const text = rows.textContent ?? "";
+        if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
+        if (!text.includes(tail)) return;
+        probe.tailAt = now();
+        observer.disconnect();
+        void w.__huhuFloodDone();
+      });
+      observer.observe(rows, { subtree: true, childList: true, characterData: true });
+      if (diagnostics) {
+        const state: RowObservation = { originalDetachedAt: null, replacements: 0, firstReplacementAt: null, originalRowsAtSnapshot: false, visibleTailAtSnapshot: false };
+        probe.rows = state;
+        const scope = sessionId ? `[data-session-id="${CSS.escape(sessionId)}"] ` : "";
+        const currentRows = () => document.querySelector(`${scope}[data-testid="terminal-view"] .xterm-rows`);
+        let observedRows = rows;
+        const watchRows = new MutationObserver(() => {
+          if (observedRows.isConnected) return;
+          state.originalDetachedAt ??= now();
+          const next = currentRows();
+          if (!next || next === observedRows) return;
+          observedRows = next;
+          state.replacements++;
+          state.firstReplacementAt ??= now();
         });
-      },
-      true,
-    );
-    input.addEventListener(
-      "input",
-      (event) => {
-        const sample = probe.keys.at(-1);
-        if (!sample || !event.isTrusted || event.target !== input) return;
-        sample.inputAt = now();
-        sample.valueAfter = input.value.length;
-      },
-      true,
-    );
-  }, tail);
+        watchRows.observe(document.body, { childList: true, subtree: true });
+        w.__huhuFinishFloodRows = () => {
+          watchRows.disconnect();
+          const current = currentRows();
+          state.originalRowsAtSnapshot = current === rows;
+          state.visibleTailAtSnapshot = current?.textContent?.includes(tail) ?? false;
+        };
+      }
+      input.addEventListener(
+        "keydown",
+        (event) => {
+          if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
+          const start = performance.now();
+          const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
+          const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
+          probe.keys.push(sample);
+          if (phase !== "during") return;
+          probe.pending++;
+          requestAnimationFrame(() => {
+            sample.firstFrameAt = now();
+            requestAnimationFrame(() => {
+              sample.latency = performance.now() - start;
+              probe.pending--;
+            });
+          });
+        },
+        true,
+      );
+      input.addEventListener(
+        "input",
+        (event) => {
+          const sample = probe.keys.at(-1);
+          if (!sample || !event.isTrusted || event.target !== input) return;
+          sample.inputAt = now();
+          sample.valueAfter = input.value.length;
+        },
+        true,
+      );
+    },
+    { tail, diagnostics, sessionId },
+  );
   signal.throwIfAborted();
   const releasedAt = Date.now();
   const deadline = releasedAt + 20_000;
+  if (sessionId) traffic?.start(sessionId, deadline);
   writeFileSync(gate, "");
   let dispatched = 0;
   for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
@@ -522,8 +567,27 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   signal.throwIfAborted();
   await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
   signal.throwIfAborted();
-  const probe = await page.evaluate(() => (window as unknown as FloodWindow).__flood);
+  const probe = await page.evaluate(() => {
+    const w = window as unknown as FloodWindow;
+    w.__huhuFinishFloodRows?.();
+    return w.__flood;
+  });
   signal.throwIfAborted();
+  if (traffic) {
+    const webSocketSnapshotAt = Date.now();
+    const sockets = traffic.finish(sessionId);
+    const coreReadStartedAt = Date.now();
+    const core = sessionId === null ? { status: "no-session" } : await withFixtureDeadline(4_000, () => readTerminalFloodTail(page, sessionId, tail)).catch(() => ({ status: "unavailable" }));
+    signal.throwIfAborted();
+    const coreReadFinishedAt = Date.now();
+    await withFixtureDeadline(2_000, () =>
+      test.info().attach("terminal-flood-stages.json", {
+        body: JSON.stringify({ sessionId, releasedAt, deadline, webSocketSnapshotAt, sockets, dom: probe.rows, coreReadStartedAt, coreReadFinishedAt, core }),
+        contentType: "application/json",
+      }),
+    ).catch(() => console.error("[perf-diagnostics] terminal stage attachment incomplete"));
+    signal.throwIfAborted();
+  }
   const during = probe.keys.filter(({ phase }) => phase === "during");
   const thirds = [0, 0, 0];
   if (probe.firstOutputAt !== null && probe.tailAt !== null && probe.tailAt > probe.firstOutputAt) {

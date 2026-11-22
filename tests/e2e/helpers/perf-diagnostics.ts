@@ -4,6 +4,84 @@ import path from "node:path";
 
 const taskCapabilities = new Set(["tasks.create", "tasks.list", "home.focus.get", "home.summary", "health.run"]);
 
+type FloodSocketSummary = {
+  sessionId: string;
+  frames: number;
+  bytes: number;
+  bytesByDeadline: number;
+  firstAt: number | null;
+  lastAt: number | null;
+  tailAt: number | null;
+  closedAt: number | null;
+};
+
+export function observeTerminalFlood(page: Page, tail: string) {
+  const marker = Buffer.from(tail);
+  const overlap = marker.length - 1;
+  let sampling: { sessionId: string; deadline: number } | undefined;
+  const sockets: FloodSocketSummary[] = [];
+  page.on("websocket", (socket) => {
+    const sessionId = /^\/ws\/terminal\/([A-Za-z0-9._-]+)$/u.exec(new URL(socket.url()).pathname)?.[1];
+    if (!sessionId) return;
+    const record: FloodSocketSummary = { sessionId, frames: 0, bytes: 0, bytesByDeadline: 0, firstAt: null, lastAt: null, tailAt: null, closedAt: null };
+    sockets.push(record);
+    let suffix = Buffer.alloc(0);
+    socket.on("framereceived", ({ payload }) => {
+      if (sampling?.sessionId !== sessionId || typeof payload === "string") return;
+      const at = Date.now();
+      record.frames++;
+      record.bytes += payload.length;
+      if (at <= sampling.deadline) record.bytesByDeadline += payload.length;
+      record.firstAt ??= at;
+      record.lastAt = at;
+      if (record.tailAt !== null) return;
+      const boundary = Buffer.concat([suffix, payload.subarray(0, overlap)]);
+      if (payload.includes(marker) || boundary.includes(marker)) record.tailAt = at;
+      suffix = Buffer.from((payload.length >= overlap ? payload : boundary).subarray(-overlap));
+    });
+    socket.on("close", () => {
+      record.closedAt = Date.now();
+    });
+  });
+  return {
+    start(sessionId: string, deadline: number) {
+      sampling = { sessionId, deadline };
+    },
+    finish(sessionId: string | null) {
+      sampling = undefined;
+      return sockets.filter((socket) => socket.sessionId === sessionId).map((socket) => ({ ...socket }));
+    },
+  };
+}
+
+export function readTerminalFloodTail(page: Page, sessionId: string, tail: string) {
+  return page.evaluate(
+    async ({ sessionId, tail }) => {
+      const endpoint = await window.huhuHost.engine();
+      const response = await fetch(`${endpoint.baseUrl}/api/v1/call`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ capability: "agent.sessions.output", input: { id: sessionId, lines: 40 }, requestId: crypto.randomUUID() }),
+        signal: AbortSignal.timeout(3_000),
+      });
+      const result = (await response.json()) as { ok: true; data: { text: string; complete: boolean } } | { ok: false; error: { code: string } };
+      if (!result.ok) return { status: "error", code: result.error.code };
+      const { text, complete } = result.data;
+      const end = text.trimEnd().split(/\r?\n/u).at(-1) ?? "";
+      return {
+        status: "read",
+        complete,
+        characters: text.length,
+        hasTail: text.includes(tail),
+        hasTailPrefix: text.includes(tail.slice(0, tail.lastIndexOf("-") + 1)),
+        hasTailAcrossRows: text.replace(/[\r\n]/gu, "").includes(tail),
+        hasPromptLikeLastLine: /[$#%>❯]$/u.test(end),
+      };
+    },
+    { sessionId, tail },
+  );
+}
+
 export async function observeTaskPerformance(page: Page, info: TestInfo) {
   const marks: { name: string; at: number }[] = [];
   const requests: { capability: string; requestId?: string; phase: string; at: number; status?: number }[] = [];
