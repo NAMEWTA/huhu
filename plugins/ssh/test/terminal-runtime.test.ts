@@ -8,6 +8,7 @@ import { SshLocalShells } from "../src/engine/local-shell.js";
 class ViewSocket extends EventEmitter {
   readonly OPEN = 1;
   readyState = this.OPEN;
+  bufferedAmount = 0;
   sent: string[] = [];
   send(data: string) {
     this.sent.push(data.toString());
@@ -15,6 +16,9 @@ class ViewSocket extends EventEmitter {
   close() {
     this.readyState = 3;
     this.emit("close");
+  }
+  terminate() {
+    this.close();
   }
   asSocket() {
     return this as unknown as WebSocket;
@@ -64,6 +68,29 @@ test("SSH 终端按当前 socket 授予输入和 resize，仅请求控制的后�
     [80, 20],
     [80, 20],
   ]);
+});
+
+test("慢终端视图退出时释放控制，其他视图仍收到输出", async () => {
+  const views: { onData(buffer: Buffer): void; detach: ReturnType<typeof vi.fn> }[] = [];
+  const attach = makeSshTerminalBridge((_id, view) => {
+    const detach = vi.fn();
+    views.push({ onData: view.onData, detach });
+    return { write: vi.fn(), resize: vi.fn(), detach };
+  });
+  const slow = new ViewSocket();
+  const next = new ViewSocket();
+  const options = { cols: 80, rows: 20, observe: false };
+  await attach("ssh-fixture", slow.asSocket(), options);
+  await attach("ssh-fixture", next.asSocket(), options);
+  slow.bufferedAmount = 4 * 1024 * 1024;
+  for (const view of views) view.onData(Buffer.from("live output"));
+  await Promise.resolve();
+  expect(views[0]!.detach).toHaveBeenCalledOnce();
+  expect(slow.sent).not.toContain("live output");
+  expect(views[1]!.detach).not.toHaveBeenCalled();
+  expect(next.sent).toContain("live output");
+  expect(next.sent).toContainEqual(expect.stringContaining("control-free"));
+  next.close();
 });
 
 test("本机终端重连沿用原环境，环境移除后不启动回退进程", async () => {

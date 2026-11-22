@@ -4,6 +4,7 @@ import type { SshManager } from "./manager.js";
 
 export type SshTerminalAttacher = Pick<SshManager, "attachShell">["attachShell"];
 type View = { cols: number; rows: number; observe: boolean };
+const maxBufferedOutput = 4 * 1024 * 1024;
 const size = (point: number, min: number, max: number) => Math.min(max, Math.max(min, point));
 const message = (socket: WebSocket, payload: object) => {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
@@ -15,9 +16,17 @@ export function makeSshTerminalBridge(attachShell: SshTerminalAttacher) {
   return async (shellId: string, socket: WebSocket, request: View) => {
     const holder = controllers.get(shellId);
     const controls = !request.observe && (!holder || holder.readyState !== holder.OPEN);
+    let overflowed = false;
     const attachment = attachShell(shellId, {
       onData: (data) => {
-        if (socket.readyState === socket.OPEN) socket.send(data, { binary: true });
+        if (overflowed || socket.readyState !== socket.OPEN) return;
+        if (socket.bufferedAmount + data.length > maxBufferedOutput) {
+          overflowed = true;
+          // Replay may call onData before attachShell returns its detach handle.
+          queueMicrotask(() => socket.terminate());
+          return;
+        }
+        socket.send(data, { binary: true });
       },
       onEnd: () => {
         if (controllers.get(shellId) === socket) controllers.delete(shellId);
@@ -27,6 +36,10 @@ export function makeSshTerminalBridge(attachShell: SshTerminalAttacher) {
       },
     });
     if (!attachment) return false;
+    if (overflowed) {
+      attachment.detach();
+      return true;
+    }
     if (controls) {
       controllers.set(shellId, socket);
       message(socket, { type: "mode", mode: "control" });
@@ -40,7 +53,7 @@ export function makeSshTerminalBridge(attachShell: SshTerminalAttacher) {
 
     socket.on("error", () => undefined);
     socket.on("message", (data, binary) => {
-      if (controllers.get(shellId) !== socket || socket.readyState !== socket.OPEN) return;
+      if (overflowed || controllers.get(shellId) !== socket || socket.readyState !== socket.OPEN) return;
       if (binary) {
         const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer);
         if (bytes.length) attachment.write(bytes);
