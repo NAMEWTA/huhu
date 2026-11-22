@@ -361,6 +361,109 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s retires every external connection when its effective proxy changes", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  let dispatches = 0;
+  try {
+    const { hostId, server } = await f.host("outbound policy fixture", [], {
+      onInteractiveExec: (_command, channel) => {
+        dispatches++;
+        channel.write("fixture started");
+        return true;
+      },
+    });
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const binding = { hostId, routeRevision };
+    const invoke = await externalTool(f, entry);
+    for (const capability of [probeStart, probeGet, trustDecide, jobPrepare, jobStart, jobGet]) await f.allow(capability);
+
+    const waitForTrust = async (attemptId: string) =>
+      vi.waitFor(async () => {
+        const status = PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+        if (status.state !== "waiting") throw new Error("Waiting for fixture trust");
+        return status;
+      });
+    const openJob = async () => {
+      const { jobId } = data(await invoke(jobPrepare, { ...binding, intentKey: randomUUID(), command: "fixture command" })) as { jobId: string };
+      const status = async () => data(await invoke(jobGet, { jobId })) as JobStatus;
+      const { attemptId } = await vi.waitFor(async () => {
+        const job = await status();
+        if (!("attemptId" in job) || !job.attemptId) throw new Error("Waiting for fixture attempt");
+        return job;
+      });
+      expect(await invoke(trustDecide, decision(await waitForTrust(attemptId!)))).toMatchObject({ ok: true });
+      const ready = await vi.waitFor(async () => {
+        const job = await status();
+        if (job.state !== "ready") throw new Error("Waiting for ready fixture job");
+        return job;
+      });
+      return { jobId, ready, status };
+    };
+    const unstarted = await openJob();
+    const running = await openJob();
+    if (!("sessionId" in running.ready)) throw new Error("Ready fixture requires a session");
+    expect(await invoke(jobStart, { ...binding, jobId: running.jobId, sessionId: running.ready.sessionId })).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect(await running.status()).toMatchObject({ state: "running" }));
+
+    const { attemptId } = data(await invoke(probeStart, binding)) as { attemptId: string };
+    await waitForTrust(attemptId);
+    expect(server.conns).toHaveLength(3);
+    const proxy = await f.desktop<ProxyProfile>("ssh.outboundProxies.save", { expectedRevision: null, name: "changed policy", protocol: "socks5", host: "127.0.0.1", port: server.port, authentication: { action: "none" } });
+    await f.desktop("ssh.outboundProxies.setDefault", { expectedRevision: null, defaultProfileId: proxy.id });
+    await vi.waitFor(() => expect(server.closed()).toBe(3), { timeout: 2000 });
+    expect(await unstarted.status()).toMatchObject({ state: "failed" });
+    expect(await running.status()).toMatchObject({ state: "unknown", exitCode: null });
+    expect(data(await invoke(probeGet, { hostId, attemptId }))).toMatchObject({ state: "failed", reason: "route-changed" });
+    expect(dispatches).toBe(1);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s rejects SSH host changes when their proxy binding changes before publication", { timeout: 20_000 }, async (entry) => {
+  const f = await fixture();
+  let markHeld!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    markHeld = resolve;
+  });
+  let releaseWrite!: () => void;
+  const resume = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  try {
+    const host = await f.host("host binding publication fixture");
+    const initial = await f.desktop<ResourceHost>(hostGet, { hostId: host.hostId });
+    const proxy = await f.desktop<ProxyProfile>("ssh.outboundProxies.save", { expectedRevision: null, name: "other path", protocol: "http-connect", host: "127.0.0.1", port: host.server.port, authentication: { action: "none" } });
+    const invoke = await externalTool(f, entry);
+    const capability = "ssh.hosts.configure";
+    await f.allow(capability);
+    const files = f.engine.vault.files;
+    const write = files.write.bind(files);
+    let held = false;
+    const pause = vi.spyOn(files, "write").mockImplementation(async (relative, bytes, options) => {
+      if (!held && relative.startsWith(".huhu/module-credentials/")) {
+        held = true;
+        markHeld();
+        await resume;
+      }
+      return write(relative, bytes, options);
+    });
+    const update = invoke(capability, { ...host.profile, hostId: host.hostId, name: "changed too late", expectedRevision: initial.revision, routeRevision: initial.routeRevision, intentKey: randomUUID(), credentials: [] });
+    try {
+      expect(await Promise.race([entered.then(() => "held"), update.then(() => "finished")])).toBe("held");
+      await f.desktop("ssh.outboundProxies.setDefault", { expectedRevision: null, defaultProfileId: proxy.id });
+    } finally {
+      releaseWrite();
+      pause.mockRestore();
+    }
+    expect(await update).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(await f.desktop<ResourceHost>(hostGet, { hostId: host.hostId })).toMatchObject({ name: host.profile.name, revision: initial.revision });
+    expect(host.server.conns).toHaveLength(0);
+  } finally {
+    await f.close();
+  }
+});
+
 test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all public entry points", { timeout: 45_000 }, async (entry) => {
   const f = await fixture();
   const hostList = "ssh.hosts.list";

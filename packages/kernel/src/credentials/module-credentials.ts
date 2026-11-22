@@ -271,7 +271,7 @@ export class ModuleCredentials<T> {
         if (signal?.aborted) throw new CredentialError("cancelled");
         if (input.isCurrent && !input.isCurrent()) throw new CredentialError("conflict");
         const updated = current ? entries.map((entry) => (entry === current ? next : entry)) : [...entries, next];
-        await this.#publish(updated, version);
+        await this.#publish(updated, version, signal, input.isCurrent);
         return summary;
       } finally {
         await this.#collect(queue);
@@ -371,7 +371,7 @@ export class ModuleCredentials<T> {
     return undefined;
   }
 
-  async delete(entityId: string, expectedRevision: string, signal?: AbortSignal): Promise<void> {
+  async delete(entityId: string, expectedRevision: string, signal?: AbortSignal, isCurrent?: () => boolean): Promise<void> {
     this.#vault.assertWritable();
     parse(entityIdSchema, entityId, "invalid-input");
     parse(generation, expectedRevision, "invalid-input");
@@ -383,18 +383,21 @@ export class ModuleCredentials<T> {
       await this.#publish(
         entries.filter((entry) => entry !== current),
         version,
+        signal,
+        isCurrent,
       );
       await this.#collect(queue);
     });
   }
 
-  async #publish(entries: Definition<T>[], expectedVersion: string | null, signal?: AbortSignal): Promise<void> {
+  async #publish(entries: Definition<T>[], expectedVersion: string | null, signal?: AbortSignal, isCurrent?: () => boolean): Promise<void> {
     try {
       const options = {
         expectedVersion,
-        ...(signal && {
+        ...((signal || isCurrent) && {
           beforeCommit: () => {
-            if (signal.aborted) throw new CredentialError("cancelled");
+            if (signal?.aborted) throw new CredentialError("cancelled");
+            if (isCurrent && !isCurrent()) throw new CredentialError("conflict");
           },
         }),
       };

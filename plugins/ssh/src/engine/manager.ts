@@ -663,7 +663,7 @@ export class SshManager {
         else resolve();
       };
       const cancel = () => {
-        finish(new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消", { details: { hop } }));
+        finish(signal.reason instanceof HuhuError ? signal.reason : new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消", { details: { hop } }));
         client.end();
       };
       const resumeTimer = () => {

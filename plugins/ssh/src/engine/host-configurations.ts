@@ -27,6 +27,20 @@ export function hostPackageFile(files: SshCredentialHost["vault"]["files"]) {
   return ModuleCredentials.portablePackageFile(files, hostModule, HostDefinition);
 }
 
+function routeCommitGuard(assertCurrent: (() => void) | undefined) {
+  if (!assertCurrent) return {};
+  return {
+    isCurrent() {
+      try {
+        assertCurrent();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
 function authError(reason: string): HuhuError {
   const message = reason === "identity-file-unavailable" ? "本机身份文件不可用，请检查路径和文件权限" : reason === "invalid-private-key-or-passphrase" ? "无法解锁私钥，请检查文件格式和口令" : "SSH 本机认证不可用，请在主机配置中检查凭据";
   return new HuhuError("SSH_AUTH_FAILED", message, { details: { reason } });
@@ -205,7 +219,7 @@ export class HostConfigurations {
         }
       }
       assertCurrent?.();
-      const saved = summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
+      const saved = summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal, ...routeCommitGuard(assertCurrent) }), authKind);
       return selected ? { ...saved, configured: selected.available, authState: { privateKey: selected.available ? "configured" : "temporarily-unavailable" } } : saved;
     });
   }
@@ -278,7 +292,7 @@ export class HostConfigurations {
           const profile = validateHost(row.profile, row.hostId, current);
           const definition = { ...profile, configId: randomUUID(), format: 1 as const, authKind: "agent" as const };
           assertCurrent?.();
-          await owner.save({ entityId: row.hostId, expectedRevision: null, definition, actions: [], signal });
+          await owner.save({ entityId: row.hostId, expectedRevision: null, definition, actions: [], signal, ...routeCommitGuard(assertCurrent) });
           published = true;
         }
       } catch (error) {
@@ -299,7 +313,7 @@ export class HostConfigurations {
       const definition = validateHost({ ...source, name: input.name, configId: randomUUID() }, entityId, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
       const actions = purposes[definition.authKind].map((purpose) => ({ purpose, action: "keep" as const }));
       assertCurrent?.();
-      return summary(await owner.save({ entityId, expectedRevision: null, definition, actions, signal }), definition.authKind);
+      return summary(await owner.save({ entityId, expectedRevision: null, definition, actions, signal, ...routeCommitGuard(assertCurrent) }), definition.authKind);
     });
   }
 
@@ -310,7 +324,7 @@ export class HostConfigurations {
       await this.assertUnused(hostId);
       assertUnused?.();
       assertCurrent?.();
-      await owner.delete(hostId, expectedRevision, signal);
+      await owner.delete(hostId, expectedRevision, signal, routeCommitGuard(assertCurrent).isCurrent);
     });
   }
 

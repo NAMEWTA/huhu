@@ -155,7 +155,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       publicWorkspaces.revokeUnauthorized();
       publicProbes.revokeUnauthorized();
     }
-    if (event.payload.kind === "ssh-host" || event.payload.kind === "ssh-outbound-proxy") publicProbes.revalidateConnections();
+    if (event.payload.kind === "ssh-host" || event.payload.kind === "ssh-outbound-proxy") publicProbes.revalidateRoutes();
     if (event.payload.kind === "ssh-forward") publicForwarding.revalidateRules();
     if (event.payload.kind === "ssh-monitor-panel") publicMonitors.revalidatePanels();
   });

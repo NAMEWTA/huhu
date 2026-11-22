@@ -178,17 +178,31 @@ export class OutboundProxies {
       return establish({ host, port, protocol, ...(credentials && { credentials }) }, target, signal);
     };
     if (!profile.authenticated) return connect();
-    const result = await this.credentialStore()
-      .use(profile.id, purposes, async (_definition, values, revision) => {
-        try {
-          if (revision !== profile.revision) throw errors.versionConflict(revision);
-          return { stream: await connect({ username: values.get("username")!, password: values.get("password")! }) };
-        } catch (error) {
-          return { error };
-        }
-      })
-      .catch(proxyError);
-    if ("error" in result) throw result.error;
-    return result.stream;
+    let pending: Duplex | undefined;
+    const close = () => pending?.destroy();
+    signal.addEventListener("abort", close, { once: true });
+    try {
+      const result = await this.credentialStore()
+        .use(profile.id, purposes, async (_definition, values, revision) => {
+          try {
+            if (revision !== profile.revision) throw errors.versionConflict(revision);
+            pending = await connect({ username: values.get("username")!, password: values.get("password")! });
+            signal.throwIfAborted();
+            return { stream: pending };
+          } catch (error) {
+            close();
+            return { error };
+          }
+        })
+        .catch(proxyError);
+      if ("error" in result) throw result.error;
+      signal.throwIfAborted();
+      return result.stream;
+    } catch (error) {
+      close();
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", close);
+    }
   }
 }

@@ -258,13 +258,17 @@ export class PublicSshProbes {
       authorized: () => hasSshHosts(context, hostIds),
       validate: current,
       abort,
-      expires: kind === "connection" ? Infinity : now + 300_000,
+      expires: kind === "probe" ? now + 300_000 : Infinity,
       status: { hostId, routeRevision, attemptId, state: "connecting" },
     });
     return {
       attemptId,
       ready: connection.ready.finally(() => clearTimeout(timeout)),
-      close: () => abort.abort(),
+      close: () => {
+        abort.abort();
+        const probe = this.probes.get(attemptId);
+        if (kind === "job" && probe) probe.expires = Date.now() + 300_000;
+      },
     };
   }
 
@@ -301,13 +305,13 @@ export class PublicSshProbes {
     probe.abort.abort();
   }
 
-  revalidateConnections(): void {
+  revalidateRoutes(): void {
     for (const probe of this.probes.values()) {
-      if (probe.kind !== "connection" || probe.abort.signal.aborted) continue;
+      if (probe.abort.signal.aborted) continue;
       try {
         probe.validate();
-      } catch {
-        probe.abort.abort();
+      } catch (error) {
+        probe.abort.abort(error);
       }
     }
   }
