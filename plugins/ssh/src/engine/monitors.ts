@@ -4,7 +4,7 @@ import type { Client } from "ssh2";
 import type { z } from "zod";
 import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
-import type { MonitorPanels } from "./monitor-panels.js";
+import type { MonitorPanels, MonitorPanelScope } from "./monitor-panels.js";
 import { detectPlatform, readSample, SampleError, type Counters, type Platform } from "./monitor-sample.js";
 
 const MAX_POINTS = 1800;
@@ -112,20 +112,28 @@ export class Monitors {
     return { id: panel.id, revision: panel.revision, state: entry.state, hosts };
   }
 
-  save(input: SaveMonitorPanel, signal: AbortSignal) {
+  save(input: SaveMonitorPanel, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.serial(async () => {
-      const saved = await this.panels.save(input, signal);
+      const saved = await this.panels.save(input, signal, scope && this.inactiveScope(scope));
       this.clearDashboard(saved.id);
       return saved;
     });
   }
 
-  delete(input: z.infer<typeof MonitorPanelRevision>, signal: AbortSignal) {
+  delete(input: z.infer<typeof MonitorPanelRevision>, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.serial(async () => {
-      const result = await this.panels.delete(input, signal);
+      const result = await this.panels.delete(input, signal, scope && this.inactiveScope(scope));
       this.clearDashboard(input.id);
       return result;
     });
+  }
+
+  private inactiveScope(scope: MonitorPanelScope): MonitorPanelScope {
+    return (panel) => {
+      scope(panel);
+      const run = panel && this.dashboards.get(panel.id);
+      if (run && run.state !== "stopped") throw errors.permissionDenied("监控面板仍在使用");
+    };
   }
 
   change(input: z.infer<typeof MonitorPanelChange>, signal: AbortSignal) {

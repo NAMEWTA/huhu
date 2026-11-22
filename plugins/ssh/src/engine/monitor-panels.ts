@@ -9,6 +9,7 @@ const FILE = ".huhu/ssh/monitor-panels.json";
 const LIMIT = 24;
 const State = z.strictObject({ version: z.literal(1), panels: z.array(MonitorPanel).max(LIMIT) });
 type Revision = z.infer<typeof MonitorPanelRevision>;
+export type MonitorPanelScope = (previous: MonitorPanel | undefined) => void;
 
 export class MonitorPanels {
   constructor(
@@ -40,18 +41,22 @@ export class MonitorPanels {
   }
 
   require(input: Revision) {
-    return this.match(this.list(), input);
+    return this.match(this.get(input.id), input.expectedRevision);
   }
 
-  save(input: SaveMonitorPanel, signal: AbortSignal) {
+  save(input: SaveMonitorPanel, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { panels, version } = this.read();
       const { previous, ...draft } = input;
-      const old = previous && this.match(panels, previous);
+      const current = previous && panels.find(({ id }) => id === previous.id);
+      scope?.(current);
+      const old = previous && this.match(current, previous.expectedRevision);
       if (!old && panels.length >= LIMIT) throw errors.invalidInput("最多保存 24 个监控面板");
-      const available = new Set((await this.hosts.list()).map(({ id }) => id));
-      if (draft.hostIds.some((id) => !available.has(id))) throw errors.notFound("所选主机已移除");
+      if (!scope) {
+        const available = new Set((await this.hosts.list()).map(({ id }) => id));
+        if (draft.hostIds.some((id) => !available.has(id))) throw errors.notFound("所选主机已移除");
+      }
       const saved = { ...draft, id: old?.id ?? randomUUID(), revision: randomUUID() };
       signal.throwIfAborted();
       await this.write(old ? panels.map((entry) => (entry.id === old.id ? saved : entry)) : [...panels, saved], version);
@@ -59,11 +64,13 @@ export class MonitorPanels {
     });
   }
 
-  delete(input: Revision, signal: AbortSignal) {
+  delete(input: Revision, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { panels, version } = this.read();
-      this.match(panels, input);
+      const current = panels.find(({ id }) => id === input.id);
+      scope?.(current);
+      this.match(current, input.expectedRevision);
       signal.throwIfAborted();
       await this.write(
         panels.filter(({ id }) => id !== input.id),
@@ -73,8 +80,7 @@ export class MonitorPanels {
     });
   }
 
-  private match(panels: readonly MonitorPanel[], { id, expectedRevision }: Revision) {
-    const panel = panels.find((entry) => entry.id === id);
+  private match(panel: MonitorPanel | undefined, expectedRevision: string) {
     if (!panel) throw errors.notFound("监控面板已移除");
     if (panel.revision !== expectedRevision) throw errors.versionConflict(panel.revision);
     return panel;

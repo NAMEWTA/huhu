@@ -53,6 +53,7 @@ const externalMonitor = { ...monitor, ...resource } as const;
 const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
 const PublicForwardRun = ForwardRun.omit({ connection: true, prompt: true, message: true, lastError: true }).extend({ connectionKind: ForwardRun.shape.connection.unwrap().shape.kind.optional() }).strict();
 export const WorkspaceTemplateReceipt = z.strictObject({ id: WorkspaceTemplate.shape.id, revision: WorkspaceTemplate.shape.revision });
+export const MonitorPanelReceipt = MonitorPanel.pick({ id: true, revision: true });
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -217,8 +218,27 @@ export const sshCapabilityDescriptors = {
     input: z.strictObject({}),
     output: z.array(MonitorPanel),
   }),
-  monitorPanelsSave: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.save", title: "保存多主机监控面板", description: "按版本保存面板配置。", scope: "write", input: SaveMonitorPanel, output: MonitorPanel }),
-  monitorPanelsDelete: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.delete", title: "删除多主机监控面板", description: "按版本删除面板并释放订阅。", scope: "write", input: MonitorPanelRevision, output: Ok }),
+  monitorPanelsSave: defineCapabilityDescriptor({
+    ...externalMonitor,
+    name: "ssh.monitor.panels.save",
+    title: "保存多主机监控面板",
+    description: "按版本保存面板配置。外部调用可保存闲置面板。",
+    scope: "write",
+    idempotency: "handler",
+    input: SaveMonitorPanel.extend(RouteIntentFields),
+    output: z.union([MonitorPanel, MonitorPanelReceipt]),
+  }),
+  monitorPanelsDelete: defineCapabilityDescriptor({
+    ...externalMonitor,
+    name: "ssh.monitor.panels.delete",
+    title: "删除多主机监控面板",
+    description: "按版本删除面板。外部调用可删除闲置面板。",
+    scope: "write",
+    risk: "high",
+    idempotency: "handler",
+    input: MonitorPanelRevision.extend(RouteIntentFields),
+    output: Ok,
+  }),
   monitorPanelsRun: defineCapabilityDescriptor({
     ...externalMonitor,
     name: "ssh.monitor.panels.run",

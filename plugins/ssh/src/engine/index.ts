@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
-import { sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
+import { MonitorPanelReceipt, sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
 import type { WorkspaceTemplate } from "../shared/workspace.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { HostDirectory } from "./directory.js";
@@ -19,7 +19,7 @@ import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
 import { ForwardRules } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
-import { MonitorPanels } from "./monitor-panels.js";
+import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
@@ -69,6 +69,18 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     const target = chain.at(-1)!;
     if (target.revision !== binding.expectedRevision) throw errors.versionConflict(target.revision);
     return { target, ids: chain.map(({ id }) => id) };
+  };
+  const configurationRoutes = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2]) => {
+    const read = () => boundSshRoutes(api.vault.files, context, bindings);
+    return {
+      authorize: () => [...read().values()].flatMap(({ route }) => route.map(({ hostId }) => hostId)),
+      require: (hostIds: readonly string[]) => {
+        const routes = read();
+        const required = new Set(hostIds);
+        if (routes.size !== required.size || [...required].some((id) => !routes.has(id))) throw errors.notFound("当前授权内的 SSH 配置绑定");
+        return routes;
+      },
+    };
   };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations);
   const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity) : undefined;
@@ -127,17 +139,55 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.monitorPanelsSave, async ({ signal }, i) => {
-      const saved = await monitors.save(i, signal);
-      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: saved.id, op: i.previous ? "updated" : "created" });
-      return saved;
+    bindCapability(sshCapabilityDescriptors.monitorPanelsSave, (context, { bindings, intentKey, ...input }) => {
+      const save = async (scope?: MonitorPanelScope) => {
+        const saved = await monitors.save(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: saved.id, op: input.previous ? "updated" : "created" });
+        return saved;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部保存面板需要主机路由版本和意图键");
+      const routes = configurationRoutes(context, bindings);
+      routes.authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.monitorPanelsSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: MonitorPanelReceipt,
+        authorize: routes.authorize,
+        run: async () => {
+          const { id, revision } = await save((previous) => {
+            if (input.previous && !previous) throw errors.notFound("监控面板");
+            routes.require([...input.hostIds, ...(previous?.hostIds ?? [])]);
+          });
+          return { id, revision };
+        },
+      });
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.monitorPanelsDelete, async ({ signal }, i) => {
-      const result = await monitors.delete(i, signal);
-      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: i.id, op: "deleted" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.monitorPanelsDelete, (context, { bindings, intentKey, ...input }) => {
+      const remove = async (scope?: MonitorPanelScope) => {
+        const result = await monitors.delete(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: input.id, op: "deleted" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return remove();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除面板需要主机路由版本和意图键");
+      const routes = configurationRoutes(context, bindings);
+      routes.authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.monitorPanelsDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.monitorPanelsDelete.output,
+        authorize: routes.authorize,
+        run: () =>
+          remove((previous) => {
+            if (!previous) throw errors.notFound("监控面板");
+            routes.require(previous.hostIds);
+          }),
+      });
     }),
   );
   api.defineCapability(
@@ -196,16 +246,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   const templateWriteScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2], hostIds: readonly string[], editing: boolean) => {
-    const read = () => boundSshRoutes(api.vault.files, context, bindings);
+    const configuration = configurationRoutes(context, bindings);
     return {
-      authorize: () => [...read().values()].flatMap(({ route }) => route.map(({ hostId }) => hostId)),
+      authorize: configuration.authorize,
       scope: (previous: WorkspaceTemplate | undefined) => {
-        const routes = read();
+        if (editing && !previous) throw errors.notFound("SSH 工作区模板");
         const original = previous?.panes ?? [];
-        const targets = new Set([...hostIds, ...original.map(({ hostId }) => hostId)]);
-        if ((editing && !previous) || routes.size !== targets.size || [...targets].some((id) => !routes.has(id)) || original.some(({ hostId, target }) => routes.get(hostId)?.targetIdentity !== target)) {
-          throw errors.notFound("当前授权内的 SSH 工作区模板绑定");
-        }
+        const routes = configuration.require([...hostIds, ...original.map(({ hostId }) => hostId)]);
+        if (original.some(({ hostId, target }) => routes.get(hostId)?.targetIdentity !== target)) throw errors.notFound("当前授权内的 SSH 工作区模板绑定");
         return new Map([...routes].map(([id, route]) => [id, route.targetIdentity]));
       },
     };

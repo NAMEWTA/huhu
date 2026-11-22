@@ -769,11 +769,12 @@ test.each(["cli", "mcp"] as const)("%s reads current SSH connection, known host 
   }
 });
 
-test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations and cached samples without starting a sampler", { timeout: 35_000 }, async (entry) => {
+test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authorized routes without starting a sampler", { timeout: 35_000 }, async (entry) => {
   const f = await fixture();
   const list = "ssh.monitor.panels.list";
   const cached = "ssh.monitor.panels.run";
   const save = "ssh.monitor.panels.save";
+  const remove = "ssh.monitor.panels.delete";
   const change = "ssh.monitor.panels.change";
   let samples = 0;
   try {
@@ -799,17 +800,28 @@ test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations a
       const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: args }, session);
       return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
     };
-    for (const tool of [list, cached]) {
+    for (const tool of [list, cached, save, remove]) {
       expect(await invoke(tool)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       await f.allow(tool);
     }
+    const route = () => f.desktop<ResourceHost>(hostGet, { hostId: target.hostId });
+    const { routeRevision } = await route();
+    const bindings = [{ hostId: target.hostId, routeRevision }];
+    const creation = { ...draft, name: "idle monitor", bindings, intentKey: randomUUID() };
     await f.chooseHosts([target.hostId]);
     expect(data(await invoke(list))).toEqual([]);
     expect(await invoke(cached, binding)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await invoke(save, creation)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.chooseHosts([target.hostId, jump.hostId]);
     expect(data(await invoke(list))).toEqual([panel]);
     expect(await invoke(cached, { ...binding, expectedRevision: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
     expect(data(await invoke(cached, binding))).toBeNull();
+    const [created, replay] = await Promise.all([invoke(save, creation), invoke(save, creation)]);
+    expect(created).toEqual(replay);
+    const idle = z.object({ id: z.string(), revision: z.string() }).parse(data(created));
+    const removeIdle = { id: idle.id, expectedRevision: idle.revision, bindings, intentKey: randomUUID() };
+    expect(data(await invoke(remove, removeIdle))).toEqual({ ok: true });
+    expect(data(await invoke(remove, removeIdle))).toEqual({ ok: true });
     expect(jump.server.conns).toHaveLength(0);
     expect(target.server.conns).toHaveLength(0);
 
@@ -845,6 +857,9 @@ test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations a
         },
       ],
     });
+    const deletion = { ...binding, bindings, intentKey: randomUUID() };
+    expect(await invoke(save, { ...creation, intentKey: randomUUID(), previous: binding })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await invoke(remove, deletion)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised monitor jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
     expect(data(await invoke(cached, binding))).toMatchObject({ hosts: [] });
     expect(samples).toBe(before);
@@ -852,7 +867,10 @@ test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations a
     expect(target.server.conns).toHaveLength(1);
     await f.allow(cached, false);
     expect(await invoke(cached, binding)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
-    await f.desktop("ssh.monitor.panels.delete", binding);
+    await f.desktop(change, { ...binding, action: "stop" });
+    expect(await invoke(remove, deletion)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const fresh = await route();
+    expect(data(await invoke(remove, { ...deletion, bindings: [{ hostId: target.hostId, routeRevision: fresh.routeRevision }], intentKey: randomUUID() }))).toEqual({ ok: true });
   } finally {
     await f.close();
   }
