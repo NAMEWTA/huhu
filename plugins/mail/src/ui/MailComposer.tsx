@@ -535,11 +535,6 @@ export function MailComposer({
                     }}
                   />
                 )}
-                {!desktop && busy === "attach" && (
-                  <Button type="button" onClick={() => selection.current?.abort()}>
-                    取消上传
-                  </Button>
-                )}
                 <span className="hu-mail-help" role="status">
                   {attachmentNotice}
                 </span>
@@ -580,6 +575,12 @@ export function MailComposer({
             </section>
           )}
         </fieldset>
+        {/* Outside the busy fieldset, which would otherwise disable it during the upload it cancels. */}
+        {!desktop && busy === "attach" && (
+          <Button type="button" onClick={() => selection.current?.abort()}>
+            取消上传
+          </Button>
+        )}
         {attachmentIssue && <Banner>请先处理无法读取的附件。</Banner>}
         {missingSource.length > 0 && <Banner>请补选同名文件，或选择不转发缺少字节的附件。</Banner>}
         <footer className="hu-mail-row">

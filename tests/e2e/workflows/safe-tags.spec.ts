@@ -194,6 +194,9 @@ test("保险箱只复制所选第三个账号，剪贴板拒绝有反馈且锁�
         { account: "第三账号", password: value },
       ],
     });
+    // The backdoor write skips the list refresh; relock as the tag test does.
+    await page.getByRole("button", { name: "手动锁定" }).click();
+    await unlock(page);
     await page.getByTestId("safe-item").filter({ hasText: "复制测试条目" }).click();
     await page.getByRole("combobox", { name: "账号", exact: true }).selectOption({ index: 2 });
     const copy = page.getByRole("button", { name: "复制密码", exact: true });
@@ -241,7 +244,8 @@ test("保险箱只复制所选第三个账号，剪贴板拒绝有反馈且锁�
     try {
       await copy.click();
       await ready.promise;
-      await call("safe.lock", { session });
+      const current = await call<{ instanceId: string; generation: number }>("safe.status");
+      await call("safe.lock", { session: { instanceId: current.instanceId, generation: current.generation } });
       await expect(page.getByTestId("safe-locked")).toBeVisible();
     } finally {
       release.resolve();
