@@ -6,6 +6,8 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "@huhu/contracts";
+import { HerdrCore } from "../../../packages/herdr-client/src/herdr-core.js";
+import { machineId } from "../../../packages/vault/src/vault.js";
 import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
@@ -65,6 +67,20 @@ async function openRun(page: Page, title: string) {
   const expand = run.getByRole("button", { name: "展开结果", exact: true });
   if (await expand.isVisible()) await expand.click();
   return run;
+}
+
+async function stopFixtureCore(coreBin: string, runtime: string, env: NodeJS.ProcessEnv, vaultId?: string) {
+  let endpoints: string[];
+  if (process.platform === "win32") {
+    if (!vaultId) return;
+    endpoints = [new HerdrCore({ bin: coreBin, vaultId, machineId: machineId(), runtimeDir: runtime }).endpoint];
+  } else {
+    endpoints = (await readdir(runtime)).filter((name) => /^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/u.test(name)).map((name) => path.join(runtime, name));
+  }
+  for (const endpoint of endpoints) {
+    const core = fixtureCoreCli(coreBin, { ...env, HC_SESSION: "huhu", HC_SOCKET: endpoint });
+    expect(core("server", "stop").status).toBe(0);
+  }
 }
 
 test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目标不可用时可人工关闭", async ({}, testInfo) => {
@@ -191,11 +207,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const packageArtifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
-  const providerHome = process.env["HUHU_CODEX_DISPATCH_HOME"];
-  test.skip(
-    process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1" || !executablePath || !packageArtifact || !expectedSha || !provider || !providerHome,
-    "需 W8.3 候选包、受控派遣白名单中的真实 Codex 构建及专用测试 provider 配置。Linux 普通工作树没有整段原生问答所需的输入。",
-  );
+  test.skip(process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1" || !executablePath || !packageArtifact || !expectedSha || !provider, "需 W8.3 候选包及 SHA、受控派遣白名单中的真实 Codex 构建，并显式设置 HUHU_TASK_JOURNEY_ACCEPTANCE=1。");
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(packageArtifact!)) hash.update(chunk);
   const sha = hash.digest("hex");
@@ -203,16 +215,38 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-task-journey-"));
   const vault = path.join(sandbox, "vault");
   const userData = path.join(sandbox, "desktop");
-  const env = { ...process.env, HUHU_VAULT: vault };
-  delete (env as NodeJS.ProcessEnv)["HUHU_HERDR_BIN"];
+  const home = path.join(sandbox, "home");
+  const providerHome = path.join(sandbox, "provider");
+  const runtime = path.join(sandbox, "runtime");
+  const responses = await startCodexResponsesFixture({ seedReply: "READY", result: "TASK-JOURNEY-RESULT You chose Circle." });
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HUHU_VAULT: vault,
+    HOME: home,
+    USERPROFILE: home,
+    XDG_RUNTIME_DIR: runtime,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    XDG_STATE_HOME: path.join(home, ".state"),
+    XDG_DATA_HOME: path.join(home, ".local", "share"),
+    CODEX_HOME: path.join(home, ".codex"),
+    CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
+    PI_CODING_AGENT_DIR: path.join(home, ".pi"),
+    PI_CODING_AGENT_SESSION_DIR: path.join(home, ".pi", "sessions"),
+    HUHU_CODEX_DISPATCH_HOME: providerHome,
+  };
+  for (const key of ["HUHU_HERDR_BIN", "HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SOCKET", "HC_SESSION", "HC_SCOPE"]) delete env[key];
+  let coreBin: string | undefined;
+  let vaultId: string | undefined;
   try {
-    await mkdir(vault);
-    await mkdir(userData);
+    for (const dir of [vault, userData, home, providerHome, runtime]) await mkdir(dir, { mode: 0o700 });
+    await writeFile(path.join(providerHome, "config.toml"), responses.config, { mode: 0o600 });
     const app = await electron.launch({ executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env });
     try {
+      coreBin = path.join(await app.evaluate(() => process.resourcesPath), "herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
       const page = await app.firstWindow();
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 25_000 });
       const call = caller(page);
+      ({ id: vaultId } = await call<{ id: string }>("vault.info"));
       await pauseRules(call);
       const [space] = await call<{ id: string }[]>("agent.spaces.list");
       const seed = await call<TaskDto>("tasks.create", {
@@ -256,6 +290,11 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const timeline = async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments;
       await expect.poll(async () => (await timeline()).filter(({ event }) => event === "result"), { timeout: 45_000 }).toMatchObject([{ run: run!.runId, session: session.id, body: expect.stringContaining("TASK-JOURNEY-RESULT") }]);
       const result = (await timeline()).find(({ event }) => event === "result")!;
+      expect(result.body).toBe(responses.result);
+      expect(responses.requests).toHaveLength(3);
+      const answers = responses.requests[2]!.input.filter(({ type, call_id }) => type === "function_call_output" && call_id === responses.callId);
+      expect(answers).toHaveLength(1);
+      expect(answers[0]!.output).toContain("Circle");
       const occurrences = await call<Activation[]>("automations.activations");
       const occurrence = occurrences.find(({ ruleId, scheduledFor }) => ruleId === rule.id && scheduledFor === at.toISOString());
       expect(occurrence?.summary?.processed).toBe(1);
@@ -292,7 +331,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       expect((await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("in_progress");
       await detail.getByTestId("task-status").selectOption("completed");
       await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
-      await testInfo.attach("W8.3 任务回执身份", {
+      await testInfo.attach("T7.2 原生任务回执身份", {
         contentType: "application/json",
         body: JSON.stringify({
           sha,
@@ -310,7 +349,12 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       await app.close();
     }
   } finally {
-    rmTree(sandbox);
+    try {
+      if (coreBin) await stopFixtureCore(coreBin, runtime, env, vaultId);
+    } finally {
+      await responses.close();
+      rmTree(sandbox);
+    }
   }
 });
 
@@ -554,12 +598,7 @@ esac
       await app?.close();
     } finally {
       try {
-        if (coreBin) {
-          for (const socket of (await readdir(runtime)).filter((name) => /^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/.test(name))) {
-            const core = fixtureCoreCli(coreBin, { ...env, HC_SESSION: "huhu", HC_SOCKET: path.join(runtime, socket) });
-            if (core("server", "status").status === 0) core("server", "stop");
-          }
-        }
+        if (coreBin) await stopFixtureCore(coreBin, runtime, env);
       } finally {
         await responses.close();
         rmTree(sandbox);
