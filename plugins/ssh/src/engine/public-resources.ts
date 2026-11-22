@@ -21,6 +21,7 @@ export const ResourceHost = routeHop.extend({
   routeRevision: SshRouteRevision,
   route: z.array(routeHop),
 });
+export type ResourceHost = z.infer<typeof ResourceHost>;
 const RouteBinding = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
 export const RouteIntentFields = {
   intentKey: CapabilityIntentKeySchema.optional(),
