@@ -1,9 +1,10 @@
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
+import { attachTerminal } from "../src/client.js";
 import { HerdrCore } from "../src/herdr-core.js";
 
 async function privateCoreFixture(run: (core: HerdrCore, server: Server) => Promise<void>) {
@@ -54,5 +55,39 @@ test.skipIf(process.platform === "win32")("只有私有 holder 可达时，Core 
     await once(server, "listening");
     await expect(core.stop({ requireConfirmation: true })).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE", details: { outcome: "unknown" } });
     expect(server.listening).toBe(true);
+  });
+});
+
+test.skipIf(process.platform === "win32")("终端 attach 在等待 framed hello 回执时可取消并释放连接", async () => {
+  await privateCoreFixture(async (core, server) => {
+    let receivedHello!: () => void;
+    let releasedConnection!: () => void;
+    const hello = new Promise<void>((resolve) => {
+      receivedHello = resolve;
+    });
+    const disconnected = new Promise<void>((resolve) => {
+      releasedConnection = resolve;
+    });
+    let connection: Socket | undefined;
+    server.on("connection", (wire) => {
+      connection = wire;
+      wire.once("data", receivedHello);
+      wire.once("close", releasedConnection);
+    });
+    server.listen(core.endpoint);
+    await once(server, "listening");
+    const cancellation = new AbortController();
+    const reason = new Error("fixture cancelled attach");
+    const reply = attachTerminal(core.endpoint, { terminal: "t-fixture", cols: 80, rows: 24, signal: cancellation.signal }).catch((error: unknown) => error);
+    await hello;
+    cancellation.abort(reason);
+    try {
+      const timeout = AbortSignal.timeout(500);
+      const missed = new Promise<undefined>((resolve) => timeout.addEventListener("abort", () => resolve(undefined), { once: true }));
+      expect(await Promise.race([reply, missed])).toBe(reason);
+      expect(await Promise.race([disconnected.then(() => true), missed])).toBe(true);
+    } finally {
+      connection?.destroy();
+    }
   });
 });

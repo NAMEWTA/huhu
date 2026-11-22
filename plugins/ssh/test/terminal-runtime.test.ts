@@ -119,7 +119,7 @@ test("Herdr 本地 PTY 保留 argv 并在停止时只回收自身终端", async 
   const signal = new AbortController().signal;
   const pty = await createHerdrLocalPty(core, attach)({ argv, cwd: "/fixture", signal }, { data: () => {}, end });
   expect(calls[0]).toMatchObject({ method: "terminal.run", params: { argv, cwd: "/fixture", keep: false, no_parent: true } });
-  expect(attach).toHaveBeenCalledWith("fixture", { terminal: "t-test", cols: 80, rows: 24 });
+  expect(attach).toHaveBeenCalledWith("fixture", { terminal: "t-test", cols: 80, rows: 24, signal });
   pty.write(Buffer.from("text"));
   pty.resize(91, 28);
   await Promise.all([pty.stop(), pty.stop()]);

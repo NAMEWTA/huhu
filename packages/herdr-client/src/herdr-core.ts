@@ -85,14 +85,16 @@ export class HerdrCore {
   }
 
   /** 确保 Core 在运行并返回已连接的客户端；二进制缺失或启动失败 → HERDR_UNAVAILABLE。 */
-  async ensure(): Promise<HerdrClient> {
+  async ensure(signal?: AbortSignal): Promise<HerdrClient> {
+    signal?.throwIfAborted();
     this.o.signal?.throwIfAborted();
+    if (this.stopping) throw new HuhuError("HERDR_UNAVAILABLE", "Herdr Core 正在停止");
     if (this.client) return this.client;
     // 并发的 ensure（打开终端与健康诊断同时发生）共用同一次启动，不各自 spawn `server start`
     this.starting ??= this.start().finally(() => {
       this.starting = null;
     });
-    return this.starting;
+    return waitForStart(this.starting, signal);
   }
   private starting: Promise<HerdrClient> | null = null;
 
@@ -250,10 +252,14 @@ export class HerdrCore {
   }
 
   private async stopPrivate(): Promise<void> {
-    await this.starting?.catch(() => undefined);
     const deadline = AbortSignal.timeout(8_000);
     const unconfirmed = () => new HuhuError("HERDR_UNAVAILABLE", "无法确认私有 Herdr Core 与终端持有进程已停止", { retryable: false, details: { outcome: "unknown" } });
     try {
+      if (this.starting)
+        await waitForStart(
+          this.starting.catch(() => undefined),
+          deadline,
+        );
       const client = await this.peek(deadline);
       if (client === "absent" && !this.hasHolderEndpoint()) return;
       if (!client || client === "absent") throw unconfirmed();
@@ -278,4 +284,22 @@ export class HerdrCore {
     const base = path.basename(this.endpoint, ".sock") + ".holder";
     return readdirSync(directory).some((name) => name === base + ".sock" || (name.startsWith(base + ".") && name.endsWith(".sock")));
   }
+}
+async function waitForStart<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return pending;
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const cancel = () => reject(signal.reason);
+    signal.addEventListener("abort", cancel, { once: true });
+    void pending.then(
+      (value) => {
+        signal.removeEventListener("abort", cancel);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", cancel);
+        reject(error);
+      },
+    );
+  });
 }

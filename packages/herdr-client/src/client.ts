@@ -176,8 +176,8 @@ export class HerdrClient {
   }
 
   /** 切换到 framed 模式（attach 需要）。 */
-  async hello(): Promise<unknown> {
-    const r = await this.call("hello", { framed: true });
+  async hello(signal?: AbortSignal): Promise<unknown> {
+    const r = await this.call("hello", { framed: true }, signal);
     this.framed = true;
     return r;
   }
@@ -210,7 +210,7 @@ export interface TerminalStream {
  * 在独立连接上 attach 到终端：返回字节流。framed 模式只影响这条连接，不影响共享的 plain 客户端。
  * 每转交一段输出就回报 CREDIT（Herdr 的流控）。
  */
-export async function attachTerminal(endpoint: string, o: { terminal: string; cols: number; rows: number; observe?: boolean; history?: number; canSend?: () => boolean }): Promise<TerminalStream> {
+export async function attachTerminal(endpoint: string, o: { terminal: string; cols: number; rows: number; observe?: boolean; history?: number; canSend?: () => boolean; signal?: AbortSignal }): Promise<TerminalStream> {
   const dataFns: ((b: Buffer) => void)[] = [];
   const closeFns: Parameters<TerminalStream["onClose"]>[0][] = [];
   // 订阅者尚未注册时到达的输出/结束事件先暂存，注册时补发（首屏和 CLOSE 不会丢）
@@ -220,9 +220,9 @@ export async function attachTerminal(endpoint: string, o: { terminal: string; co
   const c = new HerdrClient({ endpoint, timeoutMs: 10_000, onClose: () => finish(null) });
   let r: { channel: number };
   try {
-    await c.connect();
-    await c.hello();
-    r = await c.call<{ channel: number }>("terminal.attach", { terminal: o.terminal, cols: o.cols, rows: o.rows, ...(o.observe ? { observe: true } : {}), ...(o.history ? { history: o.history } : {}) });
+    await c.connect(o.signal);
+    await c.hello(o.signal);
+    r = await c.call<{ channel: number }>("terminal.attach", { terminal: o.terminal, cols: o.cols, rows: o.rows, ...(o.observe ? { observe: true } : {}), ...(o.history ? { history: o.history } : {}) }, o.signal);
   } catch (e) {
     c.close(); // attach 失败：不留下泄漏的 socket
     throw e;
