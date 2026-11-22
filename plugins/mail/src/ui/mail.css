@@ -262,6 +262,18 @@
     min-width: 0;
   }
 
+  .hu-mail-timeline {
+    display: grid;
+    gap: 0.25rem;
+    max-block-size: 18rem;
+    overflow: auto;
+    padding: 0.25rem;
+  }
+
+  .hu-mail-timeline > [aria-hidden="true"] {
+    block-size: 1px;
+  }
+
   .hu-mail-body-viewport {
     max-block-size: 280px;
     overflow: auto;
@@ -280,6 +292,11 @@
 
   .hu-mail-body-content p {
     margin-block: 0 0.6em;
+  }
+
+  .hu-mail-body-content img {
+    max-inline-size: 100%;
+    block-size: auto;
   }
 
   .hu-mail-body-content blockquote {

@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import path from "node:path";
 import { getRequestListener } from "@hono/node-server";
-import { errors } from "@huhu/contracts";
+import { errors, HuhuError } from "@huhu/contracts";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { parse as parseCookie } from "hono/utils/cookie";
@@ -15,6 +15,7 @@ import { acceptsWebOrigin, WEB_SESSION_COOKIE, webSessionRoutes } from "./web-se
 import { attachWorkbenchStreams, type TerminalBridge } from "./ws-workbench.js";
 
 export type WebShareStatus = WebListenerStatus | { state: "error"; config: WebListenerConfig; reason: "assets-unavailable" };
+type MailAttachmentUpload = (caller: string, handle: string, body: ReadableStream<Uint8Array>, contentLength: number | undefined, signal: AbortSignal) => Promise<unknown>;
 
 /** 当前 Vault 的共享入口。控制 listener 和桌面／CLI／MCP 凭据保持独立。 */
 export class WebShareService {
@@ -29,6 +30,7 @@ export class WebShareService {
     dispatcher: Dispatcher,
     events: EventBus,
     terminal: TerminalBridge,
+    uploadMailAttachment?: MailAttachmentUpload,
   ) {
     const app = new Hono<CapabilityHttpEnv>();
     app.route("/", webSessionRoutes({ invitations: () => this.currentInvitations(), origins: () => this.origins() }));
@@ -36,6 +38,27 @@ export class WebShareService {
       const session = this.currentInvitations()?.authenticate(getCookie(c, WEB_SESSION_COOKIE));
       return session ? { caller: `web:${session.id}`, signal: session.signal } : c.json({ error: "会话不可用" }, 401);
     });
+    if (uploadMailAttachment) {
+      app.post("/api/v1/mail/attachments/:handle", async (c) => {
+        const { caller, signal: session } = c.get("principal");
+        const handle = c.req.param("handle");
+        const { body, signal } = c.req.raw;
+        if (!session || session.aborted) return c.json({ error: "会话不可用" }, 401);
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(handle)) return c.json({ error: "上传句柄无效" }, 400);
+        if (!body || c.req.header("content-type") !== "application/octet-stream") return c.json({ error: "需要二进制附件内容" }, 415);
+        const length = c.req.header("content-length");
+        try {
+          const data = await uploadMailAttachment(caller, handle, body, length === undefined ? undefined : Number(length), AbortSignal.any([signal, session]));
+          if (session.aborted) return c.json({ error: "会话不可用" }, 401);
+          return c.json({ ok: true, data });
+        } catch (cause) {
+          if (session.aborted) return c.json({ error: "会话不可用" }, 401);
+          const error = cause instanceof HuhuError ? cause : new HuhuError("INTERNAL", "无法上传邮件附件。");
+          const status = error.code === "NOT_FOUND" ? 404 : error.code === "VERSION_CONFLICT" ? 409 : error.code === "INVALID_INPUT" ? 400 : error.code === "INTERNAL" ? 500 : 403;
+          return c.json({ ok: false, error: error.toJSON() }, status);
+        }
+      });
+    }
     if (assetRoot) app.route("/", webAssetRoutes(assetRoot));
     this.listener = new WebListener(getRequestListener(app.fetch), undefined, (server, generation) => {
       const owner = new WebInvitations(this.vaultId, generation);

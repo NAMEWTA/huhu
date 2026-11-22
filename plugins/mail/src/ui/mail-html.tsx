@@ -1,6 +1,6 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import { parseFragment } from "parse5";
-import { isMailBodyElement, mailTextBreaks, type MailHtmlNode } from "../mail-html-tree.js";
+import { isMailBodyElement, mailTextBreaks, remoteImageUrl, type MailHtmlNode } from "../mail-html-tree.js";
 
 const containers = new Set([
   "a",
@@ -50,11 +50,12 @@ function externalLink(value: string | undefined) {
   }
 }
 
-export function prepareMailHtml(html: string, link: (href: string, children: ReactNode) => ReactNode) {
+export function prepareMailHtml(html: string, link: (href: string, children: ReactNode) => ReactNode, images?: ReadonlyMap<string, string>) {
   // This parser builds a data tree without a browser document or any resource loading.
   const fragment = parseFragment(html);
   const text: string[] = [];
   let blockedImages = false;
+  let canLoadImages = false;
   let count = 0;
   function render(node: MailHtmlNode, key: number, depth: number): ReactNode {
     if (++count > 12_000 || depth > 64) return null;
@@ -65,8 +66,12 @@ export function prepareMailHtml(html: string, link: (href: string, children: Rea
     if (!isMailBodyElement(node)) return null;
     if (node.tagName === "img") {
       blockedImages ||= node.attrs.some(({ name }) => name === "src" || name === "srcset");
+      const url = remoteImageUrl(node);
+      canLoadImages ||= !!url;
       const alt = node.attrs.find(({ name }) => name === "alt")?.value;
       if (alt) text.push(alt);
+      const image = url && images?.get(url);
+      if (image) return <img key={key} src={image} alt={alt ?? ""} />;
       return alt ?? null;
     }
     const children = node.childNodes.map((child, index) => render(child, index, depth + 1));
@@ -88,5 +93,5 @@ export function prepareMailHtml(html: string, link: (href: string, children: Rea
     return createElement(containers.has(node.tagName) ? node.tagName : Fragment, { key }, children);
   }
   const content = fragment.childNodes.map((node, index) => render(node, index, 0));
-  return { content, text: text.join("").trim(), blockedImages };
+  return { content, text: text.join("").trim(), blockedImages, canLoadImages };
 }

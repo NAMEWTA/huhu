@@ -3,8 +3,9 @@ import { closeSync, fstatSync, openSync, readdirSync, readSync, unlinkSync } fro
 import { HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import { MAX_DRAFT_ATTACHMENT_BYTES } from "../desktop-attachments.js";
 
-export const MAX_DRAFT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+export { MAX_DRAFT_ATTACHMENT_BYTES };
 const maxDraftBytes = 2 * MAX_DRAFT_ATTACHMENT_BYTES;
 const maxDraftAttachments = 100;
 const objectsDir = ".huhu/mail/attachments";
@@ -15,7 +16,7 @@ export const attachmentName = z
   .min(1)
   .max(255)
   .refine((name) => !/[/\\\p{Cc}]/u.test(name) && name !== "." && name !== "..");
-const attachmentSize = z.number().int().min(0).max(MAX_DRAFT_ATTACHMENT_BYTES);
+export const attachmentSize = z.number().int().min(0).max(MAX_DRAFT_ATTACHMENT_BYTES);
 const attachmentRef = z.strictObject({ digest: attachmentDigest, name: attachmentName, size: attachmentSize });
 export const attachmentRefs = z
   .array(attachmentRef)

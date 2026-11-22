@@ -1,5 +1,6 @@
 import type { Draft } from "./engine/drafts.js";
 
+export const MAX_DRAFT_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 export type DraftAttachmentState = Pick<Draft, "draftId" | "revision" | "attachments">;
 
 export interface SelectDraftAttachment {

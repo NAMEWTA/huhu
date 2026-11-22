@@ -17,6 +17,7 @@ const composeActions = [
 type ComposeAction = (typeof composeActions)[number]["id"];
 type Body = { text: string | null; untrustedHtml: string | null; attachments: { name: string; mediaType: string }[] };
 type BodyReply = { state: "ready"; body: Body; sourceDigest: string } | { state: "needs-refresh" };
+type RemoteImages = { images: { url: string; mediaType: string; base64: string }[]; failed: number };
 type ReadState = "local" | "synced" | "needs-refresh";
 const readLabels = { unknown: "已读状态尚未核实", unread: "未读", local: "本机已读 · 待同步", synced: "已读 · 服务器已确认", "needs-refresh": "邮件定位已变化" };
 
@@ -56,6 +57,7 @@ export function MailReader({
   const { accountId, folder, localMessageId } = message;
   const identity = useMemo(() => ({ accountId, folder, localMessageId }), [accountId, folder, localMessageId]);
   const [attempt, setAttempt] = useState(0);
+  const [visible, setVisible] = useState(false);
   const [body, setBody] = useState<(Body & { sourceDigest: string }) | null>(null);
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -70,6 +72,9 @@ export function MailReader({
   const [marking, setMarking] = useState(false);
   const [markError, setMarkError] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
+  const [images, setImages] = useState<{ digest: string; sources: ReadonlyMap<string, string>; failed: number }>();
+  const [imageFeedback, setImageFeedback] = useState("");
+  const [loadingImages, setLoadingImages] = useState(false);
   const [composeMenu, setComposeMenu] = useState(false);
   const [preparing, setPreparing] = useState<ComposeAction | null>(null);
   const [composeError, setComposeError] = useState("");
@@ -77,9 +82,11 @@ export function MailReader({
   const composeButtons = useRef<HTMLDivElement>(null);
   const marked = useRef(false);
   const activeWrite = useRef<AbortController | null>(null);
+  const reader = useRef<HTMLElement>(null);
   const readingArea = useRef<HTMLDivElement>(null);
   const bodyContent = useRef<HTMLDivElement>(null);
   const sourceRequest = useRef<AbortController | null>(null);
+  const imageRequest = useRef<AbortController | null>(null);
   const revoke = useRef(onRevoked);
   revoke.current = onRevoked;
   const contentId = useId();
@@ -90,12 +97,27 @@ export function MailReader({
   });
 
   useEffect(() => {
+    const region = reader.current;
+    if (!region) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    });
+    observer.observe(region);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
     const controller = new AbortController();
     const capability = view === "conversation" ? "mail.conversations.loadBody" : "mail.messages.loadBody";
     void engine.call<BodyReply>(capability, identity, { signal: controller.signal }).then(
       (result) => {
         if (controller.signal.aborted) return;
         if (result.state === "ready") {
+          setBodyError(null);
           setBody({ ...result.body, sourceDigest: result.sourceDigest });
           setStale(false);
         } else {
@@ -110,7 +132,15 @@ export function MailReader({
       },
     );
     return () => controller.abort();
-  }, [engine, identity, attempt, view]);
+  }, [engine, identity, attempt, view, visible]);
+
+  const currentDigest = body?.sourceDigest;
+  useEffect(() => {
+    setImages(undefined);
+    setImageFeedback("");
+    setLoadingImages(false);
+    return () => imageRequest.current?.abort();
+  }, [engine, identity, currentDigest]);
 
   useEffect(
     () => () => {
@@ -178,7 +208,6 @@ export function MailReader({
   }, [body]);
 
   async function viewSource() {
-    if (view !== "mailbox") return;
     setShowSource(true);
     if (source !== null || sourceRequest.current) return;
     const controller = new AbortController();
@@ -212,21 +241,45 @@ export function MailReader({
         className="hu-mail-copy-link"
         title={href}
         onClick={() =>
-          void desktop.copyText(href).then(
-            () => setLinkFeedback("已复制链接。"),
-            () => setLinkFeedback(href),
-          )
+          void (async () => {
+            try {
+              if (desktop.openExternal && (await desktop.openExternal(href))) return;
+              await desktop.copyText(href);
+              setLinkFeedback("已复制链接。");
+            } catch {
+              setLinkFeedback(href);
+            }
+          })()
         }
       >
         {children}
       </button>
     );
   }, []);
-  const prepared = useMemo(() => (body?.untrustedHtml ? prepareMailHtml(body.untrustedHtml, link) : null), [body?.untrustedHtml, link]);
+  const displayedImages = !stale && readResult !== "needs-refresh" && images?.digest === currentDigest ? images : undefined;
+  const prepared = useMemo(() => (body?.untrustedHtml ? prepareMailHtml(body.untrustedHtml, link, displayedImages?.sources) : null), [body?.untrustedHtml, displayedImages, link]);
   const state = readResult ?? message.readState;
   const changed = stale || state === "needs-refresh";
   const currentText = body?.text ?? prepared?.text ?? "";
   const canCompose = !!body && !changed && !readOnly;
+
+  async function showRemoteImages() {
+    if (!currentDigest || changed || imageRequest.current) return;
+    const controller = new AbortController();
+    imageRequest.current = controller;
+    setLoadingImages(true);
+    setImageFeedback("");
+    try {
+      const result = await engine.call<RemoteImages>("mail.messages.loadRemoteImages", { ...identity, sourceDigest: currentDigest, view }, { write: true, signal: controller.signal });
+      controller.signal.throwIfAborted();
+      setImages({ digest: currentDigest, sources: new Map(result.images.map(({ url, mediaType, base64 }) => [url, `data:${mediaType};base64,${base64}`])), failed: result.failed });
+    } catch {
+      if (!controller.signal.aborted) setImageFeedback("无法加载外部图片，请重试。");
+    } finally {
+      if (imageRequest.current === controller) imageRequest.current = null;
+      if (!controller.signal.aborted) setLoadingImages(false);
+    }
+  }
 
   async function startCompose(action: ComposeAction, trigger: HTMLElement | null, suggestion?: string) {
     if (!canCompose || composeRequest.current) return;
@@ -265,6 +318,7 @@ export function MailReader({
 
   return (
     <section
+      ref={reader}
       className="hu-mail-reader"
       aria-label="邮件阅读"
       onContextMenu={(event) => {
@@ -312,18 +366,16 @@ export function MailReader({
       )}
       {!body && !bodyError && !changed && <p>正在读取邮件正文…</p>}
       <div className="hu-mail-row">
-        {view === "mailbox" && (
-          <Button
-            aria-pressed={showSource}
-            loading={loadingSource}
-            onClick={() => {
-              if (showSource) setShowSource(false);
-              else void viewSource();
-            }}
-          >
-            {showSource ? "收起原文" : "查看原文"}
-          </Button>
-        )}
+        <Button
+          aria-pressed={showSource}
+          loading={loadingSource}
+          onClick={() => {
+            if (showSource) setShowSource(false);
+            else void viewSource();
+          }}
+        >
+          {showSource ? "收起原文" : "查看原文"}
+        </Button>
         {prepared && (
           <Button aria-pressed={plain} onClick={() => setPlain(!plain)}>
             {plain ? "HTML 显示" : "纯文本显示"}
@@ -338,7 +390,17 @@ export function MailReader({
       {showSource && source !== null && <pre className="hu-mail-source">{source}</pre>}
       {body && (
         <div>
-          {prepared?.blockedImages && !plain && <p className="hu-mail-help">邮件中的外部图片已屏蔽。</p>}
+          {prepared?.blockedImages && !plain && !showSource && (
+            <div className="hu-mail-row">
+              {!displayedImages && <p className="hu-mail-help">邮件中的外部图片已屏蔽。</p>}
+              {prepared.canLoadImages && !changed && (!displayedImages || displayedImages.failed > 0) && (
+                <Button type="button" loading={loadingImages} onClick={() => void showRemoteImages()}>
+                  {displayedImages ? "重试本封外部图片" : "加载本封外部图片"}
+                </Button>
+              )}
+              {imageFeedback || displayedImages?.failed ? <p role="status">{imageFeedback || "部分外部图片无法加载。"}</p> : null}
+            </div>
+          )}
           <div id={contentId} ref={readingArea} className="hu-mail-body-viewport" data-expanded={expanded}>
             <div ref={bodyContent} className="hu-mail-body-content" aria-label="正文" role="region">
               {prepared && !plain ? prepared.content : currentText ? <PlainBody text={currentText} /> : <p>没有可显示的正文。</p>}

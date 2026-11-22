@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -244,5 +244,128 @@ test("桌面邮件用原生选择结果导入受管附件，重开草稿后可�
   } finally {
     await close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("窄屏 Web 工作台流式上传 9 MiB 邮件附件，重开草稿验证哈希并可取消", async () => {
+  const edge = process.platform === "win32" ? path.join(process.env["ProgramFiles(x86)"] ?? "C:/Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe") : "";
+  const executablePath = [chromium.executablePath(), edge].find((file) => file && existsSync(file));
+  test.skip(!executablePath, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
+  const { page, vault, close } = await openApp();
+  let browser: Browser | undefined;
+  const subject = "Web 流附件夹具";
+  try {
+    const call = await desktopMailCalls(page);
+    await call("web.share.start", { mode: "local" });
+    const { links } = await call<{ links: string[] }>("web.invitations.create");
+    browser = await chromium.launch({ executablePath, headless: true });
+    const web = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await web.goto(links[0]!);
+    await web.getByRole("button", { name: "邮件", exact: true }).first().click();
+    await web.getByRole("button", { name: "写信", exact: true }).click();
+    const composer = web.getByRole("form", { name: "写信" });
+    await composer.getByLabel("主题").fill(subject);
+    const bytes = Buffer.alloc(9 * 1024 * 1024, 0x7a);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const [chooser] = await Promise.all([web.waitForEvent("filechooser"), composer.getByRole("button", { name: "添加附件" }).click()]);
+    await chooser.setFiles({ name: "web-fixture.bin", mimeType: "application/octet-stream", buffer: bytes });
+    await expect(composer.getByRole("list", { name: "已有附件" })).toContainText("web-fixture.bin");
+    await composer.getByRole("button", { name: "关闭写信" }).click();
+    await web.getByRole("button", { name: "草稿", exact: true }).click();
+    await web.getByRole("button", { name: subject, exact: true }).click();
+    await web.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(composer.getByRole("list", { name: "已有附件" })).toContainText("web-fixture.bin");
+    const stored = readFileSync(path.join(vault, ".huhu", "mail", "attachments", digest));
+    expect(stored.length).toBe(bytes.length);
+    expect(createHash("sha256").update(stored).digest("hex")).toBe(digest);
+
+    const requested = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    await web.route("**/api/v1/mail/attachments/*", async (route) => {
+      requested.resolve();
+      await release.promise;
+      await route.abort().catch(() => undefined);
+    });
+    try {
+      await composer.locator('input[type="file"]').setInputFiles({ name: "cancelled.txt", mimeType: "text/plain", buffer: Buffer.from("synthetic cancel") });
+      await requested.promise;
+      await composer.getByRole("button", { name: "取消上传" }).click();
+      await expect(composer.getByText("附件上传已取消。", { exact: true })).toBeVisible();
+    } finally {
+      release.resolve();
+    }
+    await expect(composer.getByRole("list", { name: "已有附件" })).not.toContainText("cancelled.txt");
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
+
+test("邮件阅读按单封放行图片，原文和切换邮件保持默认屏蔽", async () => {
+  const currentDate = new Date().toUTCString();
+  const subjects = ["合成旧邮件", "合成最新邮件"];
+  const messages = subjects.map((subject, index): FixtureImapMessage => ({
+    uidValidity: 63,
+    uid: index + 1,
+    subject,
+    source: [
+      "From: Sender <sender@example.test>",
+      "To: fixture@example.test",
+      `Date: ${currentDate}`,
+      `Message-ID: <fixture-${index}@example.test>`,
+      `Subject: ${subject}`,
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      `<p>${"合成长正文<br>".repeat(100)}</p><blockquote>合成引用</blockquote><img src="https://images.example.invalid/${index}.png" alt="合成外部图片">`,
+      "",
+    ].join("\r\n"),
+  }));
+  const imap = await openImapFixture({ windows: { INBOX: { uidValidity: 63, messages } } });
+  const { page, close } = await openApp();
+  try {
+    const call = await desktopMailCalls(page);
+    const connection = { host: "127.0.0.1", port: imap.port, security: "none" };
+    const { setupId } = await call<{ setupId: string }>("mail.accounts.testConnection", {
+      settings: { provider: "custom_imap", email: "fixture@example.test", label: "图片测试", auth: "password", imap: connection, smtpEnabled: false, smtp: connection },
+      password: "synthetic-loopback-password",
+    });
+    const { accountId } = await call<{ accountId: string }>("mail.accounts.save", { setupId, folders: ["INBOX"] });
+    await call("mail.sync.refresh", { accountId, folder: "INBOX" });
+    let approvals = 0;
+    let rendererRequests = 0;
+    await page.route("https://images.example.invalid/**", (route) => {
+      rendererRequests++;
+      return route.abort();
+    });
+    await page.route("**/api/v1/call", (route) => {
+      if (route.request().postDataJSON()?.capability !== "mail.messages.loadRemoteImages") return route.continue();
+      approvals++;
+      return route.fulfill({
+        json: { ok: true, data: { images: [{ url: "https://images.example.invalid/0.png", mediaType: "image/gif", base64: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" }], failed: 0 } },
+      });
+    });
+    await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+    const timeline = page.getByRole("region", { name: "往来邮件", exact: true });
+    await expect(timeline.locator("[data-mail-timeline-message]")).toHaveText(subjects);
+    await timeline.getByRole("button", { name: subjects[0] }).click();
+    await page.getByRole("region", { name: "邮件阅读", exact: true }).scrollIntoViewIfNeeded();
+    const reader = page.getByRole("region", { name: "正文", exact: true });
+    await expect(reader).toContainText("合成长正文");
+    await page.getByRole("button", { name: "查看原文" }).click();
+    await expect(page.locator(".hu-mail-source")).toContainText("https://images.example.invalid/0.png");
+    await expect(reader.getByRole("img")).toHaveCount(0);
+    expect(approvals).toBe(0);
+    await page.getByRole("button", { name: "收起原文" }).click();
+    await page.getByRole("button", { name: "加载本封外部图片" }).click();
+    await expect(reader.getByRole("img", { name: "合成外部图片" })).toHaveAttribute("src", /^data:image\/gif;/);
+    await page.getByRole("button", { name: "返回最新" }).click();
+    await page.getByRole("region", { name: "邮件阅读", exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole("button", { name: "加载本封外部图片" })).toBeVisible();
+    await expect(reader.getByRole("img")).toHaveCount(0);
+    expect(approvals).toBe(1);
+    expect(rendererRequests).toBe(0);
+  } finally {
+    await close();
+    await imap.close();
   }
 });

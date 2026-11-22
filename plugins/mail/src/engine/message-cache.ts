@@ -17,6 +17,7 @@ import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDig
 import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply.js";
 import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
 import { preserveReadOverrides, readOverridePath, readOverrides } from "./read-overrides.js";
+import { loadRemoteImages, maxRemoteImages, remoteImageTypes } from "./remote-images.js";
 import { sourceMessage } from "./reply-context.js";
 import { searchableHtml, type makeMailSearchText } from "./search-text.js";
 
@@ -300,6 +301,22 @@ export const messageCacheDescriptors = {
   }),
   messagesLoadBody: defineCapabilityDescriptor({ ...mailTool, name: "mail.messages.loadBody", title: "读取邮件正文", description: "读取指定来源的已缓存正文。", risk: "high", scope: "read", input: messageKey, output: bodyOutput }),
   conversationsLoadBody: defineCapabilityDescriptor({ ...mailTool, name: "mail.conversations.loadBody", title: "读取邮件正文", description: "读取指定来源的已缓存正文。", risk: "high", scope: "read", input: messageKey, output: bodyOutput }),
+  remoteImages: defineCapabilityDescriptor({
+    plugin: "mail",
+    exposable: false,
+    defaultExposed: false,
+    name: "mail.messages.loadRemoteImages",
+    title: "加载单封邮件的外部图片",
+    description: "按明确操作加载当前邮件缓存版本中的 HTTPS 图片。",
+    risk: "high",
+    scope: "execute",
+    idempotency: "handler",
+    input: messageKey.extend({ sourceDigest: z.hash("sha256", { enc: "hex" }), view: z.enum(["conversation", "mailbox"]) }),
+    output: z.strictObject({
+      images: z.array(z.strictObject({ url: z.url(), mediaType: z.enum(remoteImageTypes), base64: z.base64() })).max(maxRemoteImages),
+      failed: z.int().nonnegative().max(maxRemoteImages),
+    }),
+  }),
 };
 
 export function registerMessageCache(
@@ -805,6 +822,29 @@ export function registerMessageCache(
       }),
     );
   }
+  api.defineCapability(
+    bindCapability(messageCacheDescriptors.remoteImages, async ({ caller, signal }, { sourceDigest: approved, view, ...input }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(messageCacheDescriptors.remoteImages.name);
+      const publicOnly = view === "conversation";
+      const current = () => configured(input, publicOnly) && findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
+      const message = current();
+      if (!message) throw errors.notFound("该邮件已不在当前缓存。");
+      const bytes = Buffer.from(message.source, "base64");
+      if (sourceDigest(bytes) !== approved) throw errors.invalidInput("邮件正文已变化，请核对后重新加载图片。");
+      const cancelled = AbortSignal.any([signal, lifetime, epoch.signal, removals.signal(input.accountId)]);
+      cancelled.throwIfAborted();
+      const body = await parseMessageBody(bytes);
+      const assertCurrent = () => {
+        cancelled.throwIfAborted();
+        const latest = current();
+        if (!latest || latest.source !== message.source) throw errors.invalidInput("邮件正文已变化，请核对后重新加载图片。");
+      };
+      assertCurrent();
+      const result = body.untrustedHtml ? await loadRemoteImages(body.untrustedHtml, cancelled) : { images: [], failed: 0 };
+      assertCurrent();
+      return result;
+    }),
+  );
   api.defineCapability(
     bindCapability(messageCacheDescriptors.messagesMarkRead, (context, { requestId, expectedRevision, ...input }) => {
       const { caller, signal } = context;

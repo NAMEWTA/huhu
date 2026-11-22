@@ -18,6 +18,7 @@ import { makeMailSearchText } from "./search-text.js";
 import { subsetDescriptors, registerMailSubset } from "./subset-data.js";
 import { mailTool, requireMailCaller } from "./tool-access.js";
 import { mailIntents } from "./tool-intents.js";
+import { webAttachmentDescriptors } from "./web-attachments.js";
 
 const { provider, email, label, auth, smtpEnabled } = accountSettingsSchema.shape;
 const toolAccountDefinition = z.strictObject({
@@ -49,6 +50,7 @@ export const mailCapabilityDescriptors = [
   ...Object.values(accountSetupDescriptors),
   ...Object.values(conversationsDescriptors),
   ...Object.values(draftDescriptors),
+  ...Object.values(webAttachmentDescriptors),
   ...Object.values(mailAiCapabilityDescriptors),
   ...Object.values(mailOAuthCapabilityDescriptors),
   ...Object.values(messageCacheDescriptors),
