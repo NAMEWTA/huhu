@@ -301,6 +301,155 @@ test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all 
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s confines host edits, copies, directory changes and removal to the authorized SSH route", { timeout: 45_000 }, async (entry) => {
+  const f = await fixture();
+  const configure = "ssh.hosts.configure";
+  const copy = "ssh.hosts.copy";
+  const remove = "ssh.hosts.remove";
+  const organize = "ssh.hosts.organize";
+  const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+  const closed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  try {
+    const jump = await f.host("granted jump");
+    const target = await f.host("original target", [jump.hostId]);
+    const hidden = await f.host("ungranted host");
+    const describeRoute = (hostId: string) => f.desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId });
+    const selectedRoute = await describeRoute(target.hostId);
+    const jumpRoute = await describeRoute(jump.hostId);
+    const targetBinding = { hostId: target.hostId, routeRevision: selectedRoute.routeRevision };
+    const jumpBinding = { hostId: jump.hostId, routeRevision: jumpRoute.routeRevision, expectedRevision: jumpRoute.revision };
+    const createGroup = (name: string, expectedVersion: string) => f.desktop<{ version: string; groups: { groupId: string; name: string }[] }>(organize, { expectedVersion, operation: { type: "group.create", name, parentId: null } });
+    const { version: initial } = await createGroup("visible group", "0");
+    const { version: withGroup, groups } = await createGroup("hidden group", initial);
+    const visibleId = groups.find(({ name }) => name === "visible group")!.groupId;
+    const hiddenId = groups.find(({ name }) => name === "hidden group")!.groupId;
+    const place = (hostId: string, groupId: string, expectedVersion: string) => f.desktop<{ version: string }>(organize, { expectedVersion, operation: { type: "hosts.move", hostIds: [hostId], groupId } });
+    const placedTarget = await place(target.hostId, visibleId, withGroup);
+    const placedHidden = await place(hidden.hostId, hiddenId, placedTarget.version);
+
+    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "host mutation fixture" });
+    let session = entry === "mcp" ? await openRecoverableMcpSession(f.mcpEndpoint(), token) : undefined;
+    const invoke = async (id: string, args: object = {}): Promise<CapabilityResult<unknown>> => {
+      if (entry === "cli") return f.cli(id, args);
+      const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: args }, session!.handle);
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
+    };
+    const capabilities = [configure, copy, remove, organize];
+    for (const id of capabilities) {
+      expect(await invoke(id), id).toMatchObject(closed);
+      await f.allow(id);
+    }
+    if (entry === "cli") {
+      expect((await f.cliTools()).map(({ name }) => name)).toEqual(expect.arrayContaining(capabilities));
+    } else {
+      const discovered = await f.mcp(token, "tools/list", {}, session!.handle);
+      expect(discovered.tools).toEqual(expect.arrayContaining(capabilities.map((id) => expect.objectContaining({ name: id.replaceAll(".", "_"), inputSchema: expect.objectContaining({ type: "object" }) }))));
+    }
+    const secret = `synthetic-rotation-${randomUUID()}`;
+    const edit = {
+      ...target.profile,
+      ...targetBinding,
+      expectedRevision: target.revision,
+      name: "revised target",
+      intentKey: randomUUID(),
+      credentials: [{ purpose: "password", action: "replace", value: secret }],
+    };
+    await f.chooseHosts([target.hostId]);
+    expect(await invoke(configure, edit)).toMatchObject(denied);
+    await f.chooseHosts([target.hostId, jump.hostId]);
+    expect(await invoke(configure, { ...edit, port: hidden.server.port })).toMatchObject(denied);
+    expect(await invoke(configure, { ...edit, credentials: [{ purpose: "identityFile", action: "replace", value: "/synthetic-fixture" }] })).toMatchObject(denied);
+    expect(await invoke(configure, { ...edit, routeRevision: "0".repeat(64) })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+
+    const pin = { expectedVersion: placedHidden.version, operation: { type: "hosts.pin", hostIds: [target.hostId], pinned: true }, bindings: [targetBinding], intentKey: randomUUID() };
+    expect(await invoke(organize, { ...pin, operation: { type: "hosts.move", hostIds: [target.hostId], groupId: hiddenId } })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const scopedPin = { ...pin, intentKey: randomUUID() };
+    const validPin = await invoke(organize, scopedPin);
+    expect(validPin).toEqual({ ok: true, data: { version: expect.any(String) } });
+    expect(await invoke(organize, scopedPin)).toEqual(validPin);
+    expect(await invoke(organize, { ...scopedPin, operation: { type: "sort.set", sort: "manual" } })).toMatchObject(denied);
+    const version = (reply: CapabilityResult<unknown>) => z.object({ version: z.string() }).parse(data(reply)).version;
+    const jumpDirectoryBinding = { hostId: jump.hostId, routeRevision: jumpRoute.routeRevision };
+    const moved = await invoke(organize, {
+      expectedVersion: version(validPin),
+      operation: { type: "hosts.move", hostIds: [jump.hostId], groupId: visibleId },
+      bindings: [jumpDirectoryBinding],
+      intentKey: randomUUID(),
+    });
+    const order = {
+      expectedVersion: version(moved),
+      operation: { type: "hosts.reorder", hostIds: [target.hostId, jump.hostId], groupId: visibleId },
+      bindings: [targetBinding, jumpDirectoryBinding],
+      intentKey: randomUUID(),
+    };
+    expect(await invoke(organize, order)).toEqual({ ok: true, data: { version: expect.any(String) } });
+    const directory = await f.desktop<{ hosts: { hostId: string; pinned: boolean; groupId: string }[] }>("ssh.hosts.directory");
+    expect(directory.hosts.find(({ hostId }) => hostId === target.hostId)).toMatchObject({ pinned: true, groupId: visibleId });
+    expect(directory.hosts.find(({ hostId }) => hostId === jump.hostId)).toMatchObject({ groupId: visibleId });
+    expect(directory.hosts.find(({ hostId }) => hostId === hidden.hostId)).toMatchObject({ pinned: false, groupId: hiddenId });
+
+    const [firstEdit, repeatedEdit] = await Promise.all([invoke(configure, edit), invoke(configure, edit)]);
+    expect(repeatedEdit).toEqual(firstEdit);
+    const current = await describeRoute(target.hostId);
+    expect(current).toMatchObject({ name: edit.name });
+    expect(firstEdit).toEqual({ ok: true, data: { hostId: target.hostId, revision: current.revision } });
+    expect(await invoke(configure, { ...edit, credentials: [{ purpose: "password", action: "replace", value: "other-synthetic-secret" }] })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    expect(await invoke(configure, { ...edit, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+
+    const copyRequest = { ...jumpBinding, name: "new independent host", intentKey: randomUUID() };
+    const [copyResult, retryCopy] = await Promise.all([invoke(copy, copyRequest), invoke(copy, copyRequest)]);
+    expect(retryCopy).toEqual(copyResult);
+    const copied = z.object({ hostId: z.string(), revision: z.string() }).parse(data(copyResult));
+    expect(copyResult).toEqual({ ok: true, data: copied });
+    expect(copied.hostId).not.toBe(jump.hostId);
+    const copiedRoute = await describeRoute(copied.hostId);
+    const removingCopy = { hostId: copied.hostId, routeRevision: copiedRoute.routeRevision, expectedRevision: copied.revision, intentKey: randomUUID() };
+    expect(await invoke(remove, removingCopy)).toMatchObject(denied);
+    expect(await invoke(remove, { ...jumpBinding, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const workbench = await f.desktop<{ id: string; configured: boolean }[]>("ssh.hosts.list");
+    expect(workbench.find(({ id }) => id === copied.hostId)?.configured).toBe(false);
+    await f.chooseHosts([target.hostId, jump.hostId, copied.hostId]);
+    expect(await invoke(remove, removingCopy)).toEqual({ ok: true, data: { ok: true } });
+    expect(await invoke(remove, removingCopy)).toEqual({ ok: true, data: { ok: true } });
+
+    for (const [id, request] of [
+      [configure, edit],
+      [copy, copyRequest],
+      [remove, removingCopy],
+      [organize, scopedPin],
+    ] as const) {
+      await f.allow(id, false);
+      expect(await invoke(id, request), id).toMatchObject(closed);
+      await f.allow(id, true);
+    }
+    await f.chooseHosts([target.hostId]);
+    expect(await invoke(configure, edit)).toMatchObject(denied);
+    expect(await invoke(organize, scopedPin)).toMatchObject(denied);
+    expect(await invoke(copy, copyRequest)).toMatchObject(denied);
+    expect(await invoke(remove, removingCopy)).toMatchObject(denied);
+    await f.chooseHosts([target.hostId, jump.hostId]);
+    const receipts = await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8");
+    expect(receipts).not.toContain(secret);
+    expect(receipts).not.toContain("authState");
+    expect(receipts).not.toContain("configured");
+    await f.restart();
+    if (session) session = await openRecoverableMcpSession(f.mcpEndpoint(), token, session.recovery);
+    if (entry === "cli") {
+      expect(await invoke(configure, edit)).toEqual(firstEdit);
+      expect(await invoke(copy, copyRequest)).toEqual(copyResult);
+    } else {
+      expect(await invoke(configure, edit)).toMatchObject({ ok: false, error: { details: { outcome: "unknown" } } });
+      expect(await invoke(copy, copyRequest)).toMatchObject({ ok: false, error: { details: { outcome: "unknown" } } });
+    }
+    expect((await describeRoute(target.hostId)).revision).toBe(current.revision);
+    expect((await f.desktop<{ id: string }[]>("ssh.hosts.list")).some(({ id }) => id === copied.hostId)).toBe(false);
+    for (const host of [target, jump, hidden]) expect(host.server.conns).toHaveLength(0);
+  } finally {
+    await f.close();
+  }
+});
+
 test("the legacy policy defaults to no SSH access and resource changes share an atomic policy revision", async () => {
   const f = await fixture();
   try {

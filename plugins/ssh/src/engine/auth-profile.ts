@@ -1,3 +1,4 @@
+import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
 
 export const SshHostProfile = z.object({
@@ -31,6 +32,8 @@ const CredentialPatch = z.discriminatedUnion("action", [
 ]);
 
 export const OwnedHostId = z.string().regex(/^host-owned-[a-f0-9]{32}$/);
+export const SshRouteRevision = z.string().regex(/^[0-9a-f]{64}$/);
+export const HostMutationBinding = z.strictObject({ routeRevision: SshRouteRevision, intentKey: CapabilityIntentKeySchema });
 const Revision = z.uuidv4();
 const CredentialState = z.enum(["unconfigured", "configured", "temporarily-unavailable", "needs-reconfiguration", "corrupt"]);
 const AuthState = z.record(z.string(), CredentialState);
@@ -42,6 +45,7 @@ export type ConfigureHost = z.infer<typeof ConfigureHost>;
 export const HostRevision = z.strictObject({ hostId: OwnedHostId, expectedRevision: Revision });
 export const CopyHost = HostRevision.extend({ name: z.string() });
 export const HostAuthSummary = z.object({ hostId: OwnedHostId, revision: Revision, authKind: AuthKind, configured: z.boolean(), authState: AuthState });
+export const PublicHostMutation = HostAuthSummary.pick({ hostId: true, revision: true });
 export const ManagedHostView = z.object({
   ...SshHostProfile.shape,
   id: OwnedHostId,

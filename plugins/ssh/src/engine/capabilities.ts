@@ -1,8 +1,8 @@
 import { defineCapabilityDescriptor, durableExternal } from "@huhu/kernel";
 import { z } from "zod";
 import { ConnectionStatus, KnownHostKey } from "../shared/trust.js";
-import { ConfigureHost, CopyHost, HostAuthSummary, HostRevision, LegacyHostView, ManagedHostView } from "./auth-profile.js";
-import { DirectoryQuery, DirectoryUpdate, DirectoryView } from "./directory-schema.js";
+import { ConfigureHost, CopyHost, HostAuthSummary, HostMutationBinding, HostRevision, LegacyHostView, ManagedHostView, PublicHostMutation } from "./auth-profile.js";
+import { DirectoryMutationRequest, DirectoryQuery, DirectoryView, PublicDirectoryMutation } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import {
@@ -49,6 +49,7 @@ const external = { ...ssh, exposable: true } as const;
 const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
+const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
 const fileTarget = <T extends z.ZodRawShape>(shape: T) => z.union([FileSessionId.extend(shape), LegacySftpHost.extend(shape)]);
 const Size = z.object({ size: z.number() });
@@ -545,14 +546,14 @@ export const sshCapabilityDescriptors = {
     output: DirectoryView,
   }),
   hostsOrganize: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.hosts.organize",
     title: "整理 SSH 主机目录",
-    description: "按目录版本修改分组、主机归属、置顶或排序。",
+    description: "按目录版本整理分组与主机。外部调用限于已授权主机的移动、置顶或组内排序，须提交各主机的路由版本与意图键。",
     scope: "write",
     risk: "normal",
-    input: DirectoryUpdate,
-    output: DirectoryView,
+    input: DirectoryMutationRequest,
+    output: z.union([DirectoryView, PublicDirectoryMutation]),
   }),
   hostsList: defineCapabilityDescriptor({
     ...resource,
@@ -566,26 +567,29 @@ export const sshCapabilityDescriptors = {
   }),
   hostsConfigure: defineCapabilityDescriptor({
     ...desktopHost,
+    ...resource,
     name: "ssh.hosts.configure",
     title: "配置 SSH 主机认证",
-    description: "按版本保存主机与本机认证补丁。",
-    input: ConfigureHost,
-    output: HostAuthSummary,
+    description: "按版本保存主机与本机认证补丁。外部编辑需要原路由版本及意图键，限于原目标与认证类型。",
+    input: ConfigureHost.extend(hostBinding),
+    output: z.union([HostAuthSummary, PublicHostMutation]),
   }),
   hostsCopy: defineCapabilityDescriptor({
     ...desktopHost,
+    ...resource,
     name: "ssh.hosts.copy",
     title: "复制 SSH 主机配置",
-    description: "复制主机设置，按新主机独立配置凭据。",
-    input: CopyHost,
-    output: HostAuthSummary,
+    description: "复制主机设置，新主机凭据及授权独立。外部调用需要原路由版本和意图键。",
+    input: CopyHost.extend(hostBinding),
+    output: z.union([HostAuthSummary, PublicHostMutation]),
   }),
   hostsRemove: defineCapabilityDescriptor({
     ...desktopHost,
+    ...resource,
     name: "ssh.hosts.remove",
     title: "移除 SSH 主机配置",
-    description: "按版本移除未被用作跳板的主机及其认证。",
-    input: HostRevision,
+    description: "按版本移除未被引用的主机及其认证。外部调用需要原路由版本和意图键。",
+    input: HostRevision.extend(hostBinding),
     output: Ok,
   }),
   connect: defineCapabilityDescriptor({

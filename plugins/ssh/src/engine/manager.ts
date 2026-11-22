@@ -150,6 +150,10 @@ export class SshManager {
     return this.conns.has(hostId);
   }
 
+  hasWorkbenchConnection(hostId: string): boolean {
+    return this.isConnected(hostId) || this.connecting.has(hostId);
+  }
+
   connectionStatuses(): ConnectionStatus[] {
     return [...this.statuses.values()];
   }
