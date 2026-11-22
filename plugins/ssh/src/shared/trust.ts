@@ -37,10 +37,11 @@ export const SshAuthenticationPrompt = z.strictObject({
 });
 export type SshAuthenticationPrompt = z.infer<typeof SshAuthenticationPrompt>;
 
-const HopStage = z.enum(["dialing", "trust", "authenticating", "answering", "forwarding", "connected", "failed"]);
+const HopStage = z.enum(["dialing", "proxy", "trust", "authenticating", "answering", "forwarding", "connected", "failed"]);
 export const ConnectionHop = ConnectionHost.extend({
   user: z.string(),
   auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
+  outboundProxy: z.object({ source: z.enum(["inherit", "direct", "profile"]), protocol: z.enum(["socks5", "http-connect"]).optional(), name: z.string().optional() }).optional(),
   stage: HopStage,
   timeline: z.array(z.strictObject({ stage: HopStage, at: z.iso.datetime() })),
 });

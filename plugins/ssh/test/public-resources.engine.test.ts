@@ -2,7 +2,8 @@ import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recovery
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createConnection, createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
@@ -23,6 +24,7 @@ import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
 import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
 import { WorkspaceRun, type WorkspaceTemplate } from "../src/shared/workspace.js";
+import type { ProxyProfile, ProxyRouting } from "../src/shared/outbound-proxy.js";
 import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 import { ownedArchiveFixture } from "./owned-archive-fixture.js";
@@ -257,6 +259,107 @@ async function connectOwned(f: Awaited<ReturnType<typeof fixture>>, invoke: Awai
   await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
   return { hostId, routeRevision, attemptId };
 }
+
+test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the first of three SSH jumps", { timeout: 45_000 }, async (entry) => {
+  const f = await fixture();
+  const proxy = createHttpServer();
+  const sockets = new Set<Socket>();
+  try {
+    const jumps: Awaited<ReturnType<typeof f.host>>[] = [];
+    for (const name of ["first", "middle", "last"]) {
+      const previous = jumps.at(-1)?.hostId;
+      jumps.push(await f.host(name + " jump fixture", previous ? [previous] : []));
+    }
+    const destination = await f.host("destination fixture", [jumps[2]!.hostId]);
+    const first = jumps[0]!;
+    const authority = `127.0.0.1:${first.server.port}`;
+    const proxyAuth = { action: "replace", username: "fixture-proxy-user", password: "fixture-proxy-passphrase" } as const;
+    const expectedHeader = `Basic ${Buffer.from(`${proxyAuth.username}:${proxyAuth.password}`).toString("base64")}`;
+    const received: string[] = [];
+    proxy.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    });
+    proxy.on("connect", (request, wire) => {
+      received.push(request.url ?? "");
+      if (request.url !== authority || request.headers["proxy-authorization"] !== expectedHeader) {
+        wire.end("HTTP/1.1 407 Proxy Authentication Required\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      const upstream = createConnection(first.server.port, "127.0.0.1");
+      upstream.on("error", () => wire.destroy());
+      wire.on("error", () => upstream.destroy());
+      upstream.once("close", () => wire.destroy());
+      wire.once("close", () => upstream.destroy());
+      upstream.once("connect", () => {
+        wire.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        upstream.pipe(wire).pipe(upstream);
+      });
+    });
+    proxy.listen(0, "127.0.0.1");
+    await once(proxy, "listening");
+    const proxyPort = (proxy.address() as { port: number }).port;
+    const { hostId } = destination;
+    const direct = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const profile = await f.desktop<ProxyProfile>("ssh.outboundProxies.save", {
+      expectedRevision: null,
+      name: "authorized proxy fixture",
+      protocol: "http-connect",
+      host: "127.0.0.1",
+      port: proxyPort,
+      authentication: proxyAuth,
+    });
+    expect(profile).toMatchObject({ available: true, authenticated: true });
+    expect(JSON.stringify(profile)).not.toContain(proxyAuth.password);
+    const current = await f.desktop<ProxyRouting>("ssh.outboundProxies.setDefault", { expectedRevision: null, defaultProfileId: profile.id });
+    const route = await f.desktop<ResourceHost>(hostGet, { hostId });
+    expect(route.route.map(({ hostId }) => hostId)).toEqual([...jumps.map(({ hostId }) => hostId), hostId]);
+    expect(route.routeRevision).not.toBe(direct.routeRevision);
+    const invoke = await externalTool(f, entry);
+    for (const capability of ["ssh.connect", probeGet, trustDecide]) await f.allow(capability);
+    const intent = { hostId, routeRevision: route.routeRevision, intentKey: randomUUID() };
+    expect(await invoke("ssh.connect", { ...intent, routeRevision: direct.routeRevision })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    await f.chooseHosts([hostId]);
+    expect(await invoke("ssh.connect", intent)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(received).toEqual([]);
+    await f.chooseHosts([...jumps.map(({ hostId }) => hostId), hostId]);
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", intent)));
+    const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+    for (let hop = 0; hop < 4; hop++) {
+      const waiting = await vi.waitFor(
+        async () => {
+          const result = await status();
+          if (result.state !== "waiting" || result.prompt.hop !== hop) throw new Error(`Waiting for fixture SSH hop ${hop}`);
+          return result;
+        },
+        { timeout: 6000 },
+      );
+      expect(await invoke(trustDecide, decision(waiting))).toMatchObject({ ok: true });
+    }
+    await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+    expect(received).toEqual([authority]);
+
+    const removed = await f.call(f.engine.rendererToken, "ssh.outboundProxies.remove", { id: profile.id, revision: profile.revision });
+    expect(removed).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    await f.desktop("ssh.hosts.configure", { ...destination.profile, hostId, expectedRevision: destination.revision, credentials: [], outboundProxy: { mode: "direct" } });
+    const override = await f.desktop<ResourceHost>(hostGet, { hostId });
+    expect(override.routeRevision).not.toBe(route.routeRevision);
+    await f.desktop("ssh.outboundProxies.setDefault", { expectedRevision: current.revision, defaultProfileId: null });
+    expect(await f.desktop<ResourceHost>(hostGet, { hostId })).toEqual(override);
+    await f.desktop("ssh.outboundProxies.remove", { id: profile.id, revision: profile.revision });
+  } finally {
+    try {
+      await f.close();
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      if (proxy.listening) {
+        const closed = once(proxy, "close");
+        proxy.close();
+        await closed;
+      }
+    }
+  }
+});
 
 test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all public entry points", { timeout: 45_000 }, async (entry) => {
   const f = await fixture();

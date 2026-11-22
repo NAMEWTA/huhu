@@ -49,6 +49,7 @@ const routeStages: Record<ConnectionHop["stage"], string> = {
   authenticating: "认证",
   answering: "等待回答",
   forwarding: "打开跳板连接",
+  proxy: "建立首段出站代理连接",
   connected: "成功",
   failed: "失败",
 };
@@ -610,6 +611,15 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                     <li key={`${hop.id}:${index}`}>
                       {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
                       {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
+                      {hop.outboundProxy ? (
+                        <span>
+                          {" "}
+                          ·{" "}
+                          {hop.outboundProxy.name
+                            ? `${hop.outboundProxy.source === "inherit" ? "Vault 默认代理" : "主机指定代理"} ${hop.outboundProxy.name}（${hop.outboundProxy.protocol === "socks5" ? "SOCKS5" : "HTTP CONNECT"}）`
+                            : "首段直连"}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ol>

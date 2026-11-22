@@ -8,6 +8,7 @@ import { authLabels, credentialLabels, credentialState, type Host, type ManagedH
 import { t } from "./i18n.js";
 import type { SshKeySummary } from "../shared/key-library.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
+import type { ProxyProfile } from "../shared/outbound-proxy.js";
 
 function EditorField({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -25,7 +26,9 @@ const initialTags = (host: ManagedHost | null) => host?.tags.join("，") ?? "";
 
 export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { editing: ManagedHost | null; hosts: readonly Host[]; group: string; onClose(): void; onSaved(hostId: string): Promise<void> }) {
   const engine = useEngine();
-  const keys = useCapability<SshKeySummary[]>("ssh.keys.list", {}, { enabled: Boolean(desktopHost()) });
+  const desktop = Boolean(desktopHost());
+  const keys = useCapability<SshKeySummary[]>("ssh.keys.list", {}, { enabled: desktop });
+  const proxies = useCapability<{ profiles: ProxyProfile[] }>("ssh.outboundProxies.list", {}, { enabled: desktop });
   const formId = useId();
   const form = useRef<HTMLFormElement>(null);
   const working = useRef(false);
@@ -39,6 +42,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
   const [cleared, setCleared] = useState<Partial<Record<Purpose, boolean>>>({});
   const [jump, setJump] = useState(editing?.jumpHostIds[0] ?? "");
   const [routeDisabled, setRouteDisabled] = useState(Boolean(editing?.routeDisabled));
+  const originalProxy = editing?.outboundProxy?.mode === "profile" ? editing.outboundProxy.profileId : (editing?.outboundProxy?.mode ?? "inherit");
   const draftRun = useRef<AbortController | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<DraftConnectionResult | null>(null);
@@ -90,6 +94,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
     const interval = text("keepaliveIntervalSec");
     const count = text("keepaliveCountMax");
     const timeout = text("connectTimeoutSec");
+    const proxy = text("outboundProxy");
     const credentials: ConfigureHost["credentials"] = [];
     for (const purpose of credentialPurposes) {
       const value = purpose === "identityFile" ? values[purpose]?.trim() : values[purpose];
@@ -121,6 +126,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
       ...(count && { keepaliveCountMax: Number(count) }),
       jumpHostIds: jump ? [jump] : [],
       ...(jump && { routeDisabled }),
+      ...(desktop && proxy && proxy !== originalProxy && { outboundProxy: proxy === "inherit" || proxy === "direct" ? { mode: proxy } : { mode: "profile" as const, profileId: proxy } }),
       authKind,
       ...(authKind === "key" && keyId !== (editing?.keyId ?? "") && { keyId: keyId || null }),
       credentials,
@@ -253,6 +259,22 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
               <input type="checkbox" checked={!routeDisabled} onChange={(event) => setRouteDisabled(!event.currentTarget.checked)} /> 启用跳板路由
             </label>
           )}
+          {desktop ? (
+            <EditorField label="首段出站代理">
+              {(id) => (
+                <select id={id} name="outboundProxy" defaultValue={originalProxy}>
+                  <option value="inherit">沿用 Vault 默认</option>
+                  <option value="direct">直接连接首段</option>
+                  {editing?.outboundProxy?.mode === "profile" && !proxies.data?.profiles.some(({ id }) => id === originalProxy) ? <option value={originalProxy}>原代理配置不可用</option> : null}
+                  {proxies.data?.profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </EditorField>
+          ) : null}
           <details
             className="hu-stack"
             onInvalid={(event) => {
@@ -280,11 +302,13 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   setCleared({});
                 }}
               >
-                {Object.entries(authLabels).map(([kind, label]) => (
-                  <option key={kind} value={kind}>
-                    {label}
-                  </option>
-                ))}
+                {Object.entries(authLabels)
+                  .filter(([kind]) => desktop || kind !== "identity-file" || editing?.auth.kind === kind)
+                  .map(([kind, label]) => (
+                    <option key={kind} value={kind}>
+                      {label}
+                    </option>
+                  ))}
               </select>
             )}
           </EditorField>
@@ -325,8 +349,8 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                     id,
                     name: purpose,
                     value: fieldValue,
-                    disabled: cleared[purpose],
-                    required,
+                    disabled: cleared[purpose] || (purpose === "identityFile" && !desktop),
+                    required: required && (purpose !== "identityFile" || desktop),
                     "aria-describedby": `${id}-state`,
                     onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setValues((current) => ({ ...current, [purpose]: event.target.value })),
                   };
@@ -339,9 +363,19 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                       )}
                       <div className="row">
                         <span id={`${id}-state`} className="hu-field-description hu-flex-fill">
-                          {cleared[purpose] ? "保存时清空" : editing ? `${credentialState(editing, purpose)} · 留空保留` : purpose === "passphrase" ? "可选" : purpose === "identityFile" ? "填写本机绝对路径" : "必填"}
+                          {cleared[purpose]
+                            ? "保存时清空"
+                            : purpose === "identityFile" && !desktop
+                              ? "在桌面选择身份文件，此处沿用已保存的身份。"
+                              : editing
+                                ? `${credentialState(editing, purpose)} · 留空保留`
+                                : purpose === "passphrase"
+                                  ? "可选"
+                                  : purpose === "identityFile"
+                                    ? "填写本机绝对路径"
+                                    : "必填"}
                         </span>
-                        {purpose === "identityFile" ? (
+                        {purpose === "identityFile" && desktop ? (
                           <Button disabled={cleared[purpose]} onClick={() => void chooseIdentityFile()}>
                             选择本机文件
                           </Button>

@@ -9,6 +9,7 @@ import { sshConfigSyncDescriptors } from "./config-sync.js";
 import { sshDraftDescriptor } from "./draft-connection.js";
 import { sshKeyDescriptors } from "./key-library-capabilities.js";
 import { sshLocalShellDescriptors } from "./local-shell.js";
+import { sshOutboundProxyDescriptors } from "./outbound-proxy-capabilities.js";
 import { sshProxyShareDescriptors } from "./proxy-share.js";
 import { EditHostRoutes, HostRouteEditResult } from "./route-edits.js";
 import { sshRecordingDescriptors } from "./terminal-recordings.js";
@@ -77,6 +78,7 @@ export const sshCapabilityDescriptors = {
   ...sshKeyDescriptors,
   ...sshConfigSyncDescriptors,
   ...sshLocalShellDescriptors,
+  ...sshOutboundProxyDescriptors,
   ...sshProxyShareDescriptors,
   ...sshRecordingDescriptors,
   authenticationAnswer: sshAuthenticationDescriptor,

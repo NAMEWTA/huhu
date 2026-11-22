@@ -9,6 +9,7 @@ import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHos
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
 import { readIdentityCertificate } from "./identity-certificate.js";
 import { KeyLibrary } from "./key-library.js";
+import { requireOutboundProfile } from "./outbound-proxies.js";
 import { EditHostRoutes, type HostRouteEditResult } from "./route-edits.js";
 import type { AddSshKey, SshKeySummary } from "../shared/key-library.js";
 import { routeForHost } from "../shared/route.js";
@@ -88,6 +89,7 @@ function asHost(stored: StoredHost, keys?: ReadonlyMap<string, boolean>): Manage
 export class HostConfigurations {
   private readonly owner: ModuleCredentials<HostDefinition> | undefined;
   private readonly keys: KeyLibrary;
+  private readonly vaultFiles: SshCredentialHost["vault"]["files"] | undefined;
   private tail: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -95,6 +97,7 @@ export class HostConfigurations {
     host?: SshCredentialHost,
   ) {
     this.keys = new KeyLibrary(host);
+    this.vaultFiles = host?.vault.files;
     if (host) {
       this.owner = new ModuleCredentials({
         ...host,
@@ -161,7 +164,7 @@ export class HostConfigurations {
 
   configure(input: ConfigureHost, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
-      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, ...profile } = input;
+      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, outboundProxy, ...profile } = input;
       if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
       const owner = this.credentials();
       const existing = await owner.list();
@@ -169,12 +172,18 @@ export class HostConfigurations {
       const old = this.checkRevision(id, expectedRevision, existing);
       if (assertCurrent && (selectedKey !== undefined || (old?.definition.keyId && credentials.some(({ action }) => action !== "keep")))) throw errors.permissionDenied("SSH 密钥库关联");
       if (assertCurrent && routeDisabled !== undefined && routeDisabled !== Boolean(old?.definition.routeDisabled)) throw errors.permissionDenied("SSH 跳板路由状态");
+      if (assertCurrent && outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
       if (selectedKey && authKind !== "key") throw errors.invalidInput("只可为私钥认证选择密钥库");
       const keyId = authKind === "key" ? (selectedKey === undefined ? old?.definition.keyId : selectedKey) : undefined;
       const selected = keyId ? (await this.keys.list()).find((key) => key.id === keyId) : undefined;
       if (keyId && (!selected || (!selected.available && keyId !== old?.definition.keyId))) throw errors.invalidInput("所选密钥在本机不可用");
       const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && old?.definition.routeDisabled);
-      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
+      const proxy = outboundProxy ?? old?.definition.outboundProxy;
+      if (proxy?.mode === "profile") {
+        if (!this.vaultFiles) throw errors.invalidInput("此 Vault 无法读取 SSH 出站代理");
+        requireOutboundProfile(this.vaultFiles, proxy.profileId);
+      }
+      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
       const definition: HostDefinition = { ...settings, authKind, ...(keyId && { keyId }), configId: randomUUID(), format: 1 };
       const applicable = new Set<Purpose>(keyId ? [] : purposes[authKind]);
       const actions = new Map<string, CredentialAction>();

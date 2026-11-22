@@ -17,6 +17,9 @@ import { HostIntents, sealCredentialPatches } from "./host-intents.js";
 import { hostImportCapabilities } from "./import/capability.js";
 import { registerSshKeys } from "./key-library-capabilities.js";
 import { registerSshLocalShells, type LaunchLocalPty } from "./local-shell.js";
+import { OutboundProxies, effectiveOutboundProxy } from "./outbound-proxies.js";
+import { registerOutboundProxies } from "./outbound-proxy-capabilities.js";
+import { dialOutboundProxy } from "./outbound-proxy-dial.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
@@ -65,6 +68,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const forwardRules = new ForwardRules(api.vault.files, hosts);
   const monitorPanels = new MonitorPanels(api.vault.files, hosts);
   const preferences = new SshPreferences(api.vault.files);
+  const outboundProxies = new OutboundProxies(api.vault.files, credentialHost);
   const assertHostUnused = (id: string) => {
     templates.assertUnused(id);
     forwardRules.assertUnused(id);
@@ -79,6 +83,10 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
     connectionPreferences: () => preferences.runtime().connection,
+    outbound: {
+      resolve: (host) => effectiveOutboundProxy(api.vault.files, host),
+      dial: (proxy, target, signal, assertCurrent) => outboundProxies.dial(proxy, target, signal, dialOutboundProxy, assertCurrent),
+    },
   });
   const runs = new WorkspaceRuns(api.vault.files, hosts, templates, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
   const operations = execJobs && { ...execJobs, receipts: new OperationReceipts(path.join(execJobs.runtimeDir, "ssh-exec-intents.ndjson")) };
@@ -126,6 +134,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const monitors = new Monitors(monitorPanels, manager);
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
+  registerOutboundProxies(api, outboundProxies, hosts);
   registerSshDraft(api, hosts, manager);
   registerSshAuthentication(api, manager);
   registerSshConfigSync(api, hosts);
@@ -141,7 +150,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       publicWorkspaces.revokeUnauthorized();
       publicProbes.revokeUnauthorized();
     }
-    if (event.payload.kind === "ssh-host") publicProbes.revalidateConnections();
+    if (event.payload.kind === "ssh-host" || event.payload.kind === "ssh-outbound-proxy") publicProbes.revalidateConnections();
     if (event.payload.kind === "ssh-forward") publicForwarding.revalidateRules();
     if (event.payload.kind === "ssh-monitor-panel") publicMonitors.revalidatePanels();
   });
@@ -551,6 +560,10 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
         return saved;
       };
+      if (context.caller === "web") {
+        if (input.outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
+        if (input.credentials.some(({ purpose, action }) => purpose === "identityFile" && action === "replace")) throw errors.permissionDenied("SSH 本机身份文件");
+      }
       if (isWorkbenchCaller(context.caller)) return save();
       const { hostId, expectedRevision } = input;
       if (!hostIntents || !intentKey || !routeRevision || !hostId || !expectedRevision) throw errors.invalidInput("外部编辑需要已授权主机、主机版本、路由版本和意图键");

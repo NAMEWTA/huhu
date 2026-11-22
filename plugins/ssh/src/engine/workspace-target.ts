@@ -3,8 +3,9 @@ import type { HostRecord } from "./host-configurations.js";
 import { directJumpIds } from "../shared/route.js";
 export { routeForHost } from "../shared/route.js";
 
-export function connectionIdentity(chain: readonly { id: string; revision: string }[]): string {
-  return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
+export function connectionIdentity(chain: readonly { id: string; revision: string }[], proxyVersion?: string): string {
+  const hosts = chain.map(({ id, revision }) => [id, revision]);
+  return JSON.stringify(proxyVersion === undefined ? hosts : [hosts, proxyVersion]);
 }
 
 export function workspaceTarget(route: readonly HostRecord[]): string {

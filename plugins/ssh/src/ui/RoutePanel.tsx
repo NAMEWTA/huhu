@@ -6,6 +6,7 @@ import { maxRouteEditTargets, type EditHostRoutes, type HostRouteEditResult } fr
 import { routeForHost } from "../shared/route.js";
 import { isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { ConfigSyncPanel } from "./ConfigSyncPanel.js";
+import { OutboundProxyPanel } from "./OutboundProxyPanel.js";
 import { ProxySharePanel } from "./ProxySharePanel.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 
@@ -148,6 +149,7 @@ export function RoutePanel({ hosts, connections, onBack, onChanged }: { hosts: r
           <input type="checkbox" checked={groupByJump} onChange={(event) => setGroupByJump(event.currentTarget.checked)} /> 按直接跳板分组
         </label>
       </div>
+      <OutboundProxyPanel />
       <fieldset className="hu-card-alt hu-stack" disabled={Boolean(saving)}>
         <legend>批量路由</legend>
         <div className="ssh-workspace-controls">

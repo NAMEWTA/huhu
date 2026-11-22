@@ -1,6 +1,7 @@
 import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
 import { SshKeyId } from "../shared/key-library.js";
+import { OutboundProxyPolicy } from "../shared/outbound-proxy.js";
 
 export const SshHostProfile = z.object({
   name: z.string(),
@@ -9,6 +10,7 @@ export const SshHostProfile = z.object({
   user: z.string(),
   jumpHostIds: z.array(z.string()).max(1).default([]),
   routeDisabled: z.literal(true).optional(),
+  outboundProxy: OutboundProxyPolicy.optional(),
   tags: z.array(z.string()).default([]),
   connectTimeoutSec: z.number().min(1).max(300).optional(),
   keepaliveIntervalSec: z.int().min(0).max(3600).optional(),

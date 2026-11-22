@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
-import { Readable } from "node:stream";
+import { Readable, type Duplex } from "node:stream";
 import { Client, type ClientChannel, type SFTPWrapper } from "ssh2";
 import type { HuhuApi } from "@huhu/kernel";
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt, KnownHostKey, SshAuthenticationPrompt } from "../shared/trust.js";
@@ -16,6 +16,7 @@ import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/p
 import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
+import { outboundProxyVersion, type EffectiveProxy } from "./outbound-proxies.js";
 
 export interface AuditEntry {
   at: string;
@@ -41,6 +42,10 @@ export interface SshDeps {
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
   connectionPreferences?(): ConnectionPreferences;
+  outbound?: {
+    resolve(host: ManagedHost): EffectiveProxy;
+    dial(profile: NonNullable<EffectiveProxy["profile"]>, target: { host: string; port: number }, signal: AbortSignal, assertCurrent: () => void): Promise<Duplex>;
+  };
   decisionTimeoutMs?: number;
 }
 
@@ -71,6 +76,8 @@ type Attempt = {
   authentication?: { prompt: SshAuthenticationPrompt; answer(answers: string[] | null): void } | undefined;
   changed?: HostKeyPrompt;
   route?: ConnectionHop[];
+  outbound?: EffectiveProxy;
+  validateRoute?: () => void;
 };
 export type KeyboardPrompt = { promptId: string; hop: number; serverHostId: string; instructions: string; prompts: { label: string; echo: boolean }[] };
 type DialResult = { attemptId: string; connection: Conn };
@@ -313,6 +320,10 @@ export class SshManager {
     });
   }
 
+  private routeIdentity(chain: readonly ManagedHost[], outbound = this.d.outbound?.resolve(chain.at(-1)!)): string {
+    return connectionIdentity(chain, outbound && outboundProxyVersion(outbound));
+  }
+
   private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult>; direct: boolean; workspaces: number }>();
 
   /** 同一主机的并发 connect 合并为一次，避免产生被遗弃的重复连接。 */
@@ -369,7 +380,9 @@ export class SshManager {
       if (attempt.expectedTarget && attempt.routeTarget !== attempt.expectedTarget) throw new HuhuError("VERSION_CONFLICT", "绑定的 SSH 主机、账户或跳板身份已变更");
       if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
       const target = chain[chain.length - 1]!;
-      const routeIdentity = connectionIdentity(chain);
+      const outbound = this.d.outbound?.resolve(target);
+      if (outbound) attempt.outbound = outbound;
+      const routeIdentity = this.routeIdentity(chain, outbound);
       const existing = this.conns.get(hostId);
       if (existing?.routeIdentity === routeIdentity) {
         existing.attemptId = attemptId;
@@ -410,32 +423,53 @@ export class SshManager {
   private async dialChain(chain: ManagedHost[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: ManagedHost) => void): Promise<Client> {
     const target = chain[chain.length - 1]!;
     const defaults = this.d.connectionPreferences?.() ?? defaultVaultPreferences.connection;
-    const validate = attempt.publicProbe?.validate ?? attempt.draft?.validate;
+    const outbound = attempt.outbound ?? this.d.outbound?.resolve(target);
+    const outboundVersion = outbound && outboundProxyVersion(outbound);
+    const validate = () => {
+      (attempt.publicProbe?.validate ?? attempt.draft?.validate)?.();
+      const current = this.d.outbound?.resolve(target);
+      if ((current && outboundProxyVersion(current)) !== outboundVersion) throw errors.versionConflict("SSH 出站代理已更新");
+    };
+    attempt.validateRoute = validate;
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
-      validate?.();
+      validate();
       onHop?.(hop, host);
       if (attempt.route) {
-        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [] });
+        const proxy = hop === 0 && outbound && outboundVersion !== undefined ? { source: outbound.source, ...(outbound.profile && { protocol: outbound.profile.protocol, name: outbound.profile.name }) } : undefined;
+        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }) });
         this.trace(attempt, hop, "dialing");
       }
       const client = new Client();
       opened.push(client);
-      const authenticate = (auth: ConnectionAuth) => {
-        validate?.();
-        return this.connectHop(client, host, target, hop, attempt, auth, socket, {
+      const authenticate = async (auth: ConnectionAuth) => {
+        validate();
+        const preferences = {
           connectTimeoutSec: host.connectTimeoutSec ?? defaults.connectTimeoutSec,
           keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
           keepaliveCountMax: host.keepaliveCountMax ?? defaults.keepaliveCountMax,
-        });
+        };
+        if (hop !== 0 || !outbound?.profile || !this.d.outbound) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
+        this.trace(attempt, hop, "proxy");
+        const deadline = AbortSignal.any([attempt.signal, AbortSignal.timeout(preferences.connectTimeoutSec * 1000)]);
+        const stream = await this.d.outbound.dial(outbound.profile, host, deadline, validate);
+        try {
+          deadline.throwIfAborted();
+          validate();
+          this.trace(attempt, hop, "dialing");
+          await this.connectHop(client, host, target, hop, attempt, auth, stream, preferences);
+        } catch (error) {
+          stream.destroy();
+          throw error;
+        }
       };
       if (attempt.draft && host === target) await attempt.draft.authenticate(authenticate);
       else await this.d.withManagedAuth(host, authenticate);
       client.setNoDelay(true);
       const next = chain[hop + 1];
       if (next) {
-        validate?.();
+        validate();
         this.trace(attempt, hop, "forwarding");
         socket = await new Promise((resolve, reject) =>
           client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
@@ -522,9 +556,9 @@ export class SshManager {
     const chain = this.route(hostId, await this.d.hosts.list());
     const stale = () => new HuhuError("VERSION_CONFLICT", scope === "forward" ? "转发规则所绑定的主机、账户或跳板配置已变更" : "监控的主机、账户或跳板配置已变更");
     if (boundTarget && workspaceTarget(chain) !== boundTarget) throw stale();
-    const identity = connectionIdentity(chain);
+    const identity = this.routeIdentity(chain);
     const validate = async () => {
-      if (connectionIdentity(this.route(hostId, await this.d.hosts.list())) !== identity) throw stale();
+      if (this.routeIdentity(this.route(hostId, await this.d.hosts.list())) !== identity) throw stale();
       signal.throwIfAborted();
     };
     signal.throwIfAborted();
@@ -644,7 +678,7 @@ export class SshManager {
       };
       const currentTarget = () => {
         try {
-          const validate = attempt.publicProbe?.validate ?? attempt.draft?.validate;
+          const validate = attempt.validateRoute ?? attempt.publicProbe?.validate ?? attempt.draft?.validate;
           validate?.();
           return true;
         } catch (error) {
@@ -881,7 +915,7 @@ export class SshManager {
       signal.removeEventListener("abort", release);
       release();
     }
-    if (connection.routeIdentity !== connectionIdentity(chain) || workspaceTarget(this.route(hostId, await this.d.hosts.list())) !== target) throw bindingChanged();
+    if (connection.routeIdentity !== this.routeIdentity(chain) || workspaceTarget(this.route(hostId, await this.d.hosts.list())) !== target) throw bindingChanged();
     signal.throwIfAborted();
     const shell = await this.openShell(hostId, undefined, connection, onEnd, !loginCommand);
     if (signal.aborted) {
