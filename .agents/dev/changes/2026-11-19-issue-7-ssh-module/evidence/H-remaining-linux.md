@@ -39,7 +39,7 @@ Node 24.21.0，pnpm 12.10.1。单独运行四个 Vitest 文件，均使用 `--ma
 
 ## Lead 合并与接线
 
-2026-11-22 在 Linux 本机工作树 `temp/issue-worktrees/integration` 实施。定向日志保存在本机 `temp/issue-evidence/huhu-2026-11-22/`。Node 24.21.0，pnpm 12.10.1。SSH 上游文件已对照 Motty v0.4.12 固定版本，见项目台账 R-72 至 R-77。
+2026-11-22 在 Linux 本机工作树 `temp/issue-worktrees/integration` 实施。定向日志保存在本机 `temp/issue-evidence/huhu-2026-11-22/`。Node 24.21.0，pnpm 12.10.1。Motty v0.4.12 和 ssh2 的固定来源、改动与许可见项目台账 R-72 至 R-81。 [上游台账](../../../../../docs/upstream/ledger.md)
 
 | 阶段 | 实际检查与结果 | 证据 |
 | --- | --- | --- |
@@ -84,3 +84,12 @@ Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他�
 私有 Core 在标准关闭路径的测试不覆盖 Engine 崩溃、启动被中断、Unix 上主动脱离 PTY 的后代或 WSL 来宾进程。本机生命周期分析见批次协作记录 `t5h/report01.md`。密钥、录制、代理分享的外部权限合同仍需核对。
 
 `951fe442` 处理丢失 `terminal.run` 回复后的首次对账。重新查询本地 Core，按唯一启动标签回收，跳过不匹配或属于另一 Core 的终端。断线或空列表时返回启动和回收结果待核对。替身桥、正常启动与回收回归 5 项通过。Engine 的两条原生 PTY 启动路径仍通过，一条 Web 分享用例由筛选排除。日志 `h7-local-launch-before.log`、`h7-local-launch-after.log`。持久清单、异常进程与退出共同时限仍需实现和验证。
+
+## 后续集成复验
+
+| 集成提交 | 入口及观察结果 | 证据 |
+| --- | --- | --- |
+| `29c3fe32`、`526699ef` | 路由页的关联和启停使用一个 Vault 定义事务。工作台能力按现有主机版本校验。真实写入队列中的取消保留原定义和本机凭据快照，原请求可重新发起。已有工作台 Shell 保留实际旧路由。 | SSH 路由 9 项、Kernel 凭据 18 项，Kernel 类型检查通过。执行 `pnpm exec vitest run plugins/ssh/test/route-edits.test.ts` 与 `pnpm exec vitest run packages/kernel/test/credentials.test.ts`。`h7-batch-routes-integration.log`、`h7-route-cancel-before.log`、`h7-route-cancel-after.log`、`h7-route-credentials.log`。H3.2 Electron 用例只有枚举证据。 |
+| `bb7b9b6a` | CLI 和 HTTP MCP 在合法后续编辑完成后，重交原布局意图收到该意图原始结果。关闭分栏只发生一次，当前布局仍保留后续修改，撤权后旧回执拒绝读取。 | `public-resources.engine.test.ts -t "changes only the owned SSH workspace layout\|isolates SSH terminal I/O"` 通过 4 项，46 项由筛选排除。SSH 类型检查通过。`h7-layout-receipt-before.log`、`h7-layout-receipt-after.log`。 |
+| `d4544abb`、`6f1b6cd3`、`717ae0a4` | 私有 Core 经当前 RPC 停止并核对套接字与 holder。异常停用后 SSH 不再接收新调用，插件列表和停用响应显示回收待核对。移除测试 holder 后可以复查停用和重新启用。启动等待、run、framed hello 与 attach 可取消，剩余回收有时限。 | `herdr-core.test.ts` 3 项、真实 `attach.live.test.ts` 1 项、`terminal-runtime.test.ts` 5 项、Engine `web-share.test.ts` 4 项，Herdr 客户端和 Engine 类型检查通过。`h7-core-stop-after.log`、`h7-cleanup-feedback-after.log`、`h7-attach-cancel-after.log`。Unix 脱离进程、跨进程恢复、Windows holder 和 WSL 仍待验证或实现。 |
+| `c4281b1c`、`e71f47b0` | 工作台连接和草稿对选中设备身份匹配 Ed25519 伴随证书。在 Linux OpenSSH 10.2p1 回环服务上，用加密身份和证书执行命令。服务端拒绝证书时，即使另行授权同一裸钥，连接仍返回认证失败。移除证书后，通过裸钥对照验证服务端配置。 | `HUHU_TEST_OPENSSH_SSHD=/usr/sbin/sshd pnpm exec vitest run plugins/ssh/test/identity-certificate.test.ts` 10 项通过，SSH 类型检查通过。`h7-user-cert-openssh.log`。外部对象入参透传由替身验证。主机 CA 及其他用户证书算法仍待实施。 |

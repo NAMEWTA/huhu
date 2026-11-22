@@ -17,3 +17,9 @@ Windows x64 26300，Electron 44.9.1。`t4t` 针对早期构建 `7d4fef5` 运行�
 `a4681d747e5808d1721036dc79b75029ad8fe428` 的 `t70` Windows `pnpm build` 退出 0，产物 build-info 指向同一提交。`t73` 在 Electron 44.9.1 上运行完整 `session-flush.spec.ts`，14 项通过（1.2 分钟）。这次第二窗使用可信主 frame 和合成参与者状态。第一窗口已完成文档检查时，仍等待第二窗决定并保持正文区不可编辑。第二窗选择留下后，两窗保留，第一窗恢复编辑，随后输入的最后一段在下一轮退出后从磁盘读回。
 
 另外在真实 Main 注入参与者拒绝、失败、超时及旧请求许可，确认均保留窗口和 Engine。两个 Workbench 行为测试覆盖登记顺序、取消后的迟到许可以及保存失败。原始记录为原工作区 `temp/issue-baseline/core-finished/t70.log`、`t73.log`、`t6z.log`。应用菜单、原生窗口截图和真实看板行为仍待相应验收。
+
+## Linux 集成关窗反馈
+
+`891ddd8a` 将文档实际写入和恢复草稿的计数带回可信主进程。关窗完成后显示系统通知。系统没有显示时，重开同一 Vault 可看到一次工作台提示。本机保存用于提示的计数。等待保存超时显示无法确认，仍可保留窗口。看板的离场选择继续先于文档结算。
+
+在 Linux、Node 24.21.0 和 pnpm 12.10.1 上执行 `pnpm --filter @huhu/desktop typecheck` 及 `pnpm exec vitest run plugins/notes/test/document-session.test.ts`，35 项通过。原先两项断言分别因缺少正文写入和草稿回执失败。`pnpm exec playwright test --list tests/e2e/knowledge/session-flush.spec.ts` 枚举 26 项。桌面实际关窗与重开提示待固定候选运行。日志为 `temp/issue-evidence/huhu-2026-11-22/desktop-save-feedback-before.log` 和 `desktop-save-feedback-after.log`。
