@@ -42,7 +42,15 @@ const AuthState = z.record(z.string(), CredentialState);
 
 export const HostDefinition = z.strictObject({ ...SshHostProfile.shape, format: z.literal(1), configId: z.uuidv4(), authKind: AuthKind, keyId: SshKeyId.optional() });
 export type HostDefinition = z.infer<typeof HostDefinition>;
-export const ConfigureHost = z.strictObject({ ...SshHostProfile.shape, routeDisabled: z.boolean().optional(), hostId: OwnedHostId.optional(), expectedRevision: Revision.nullable(), authKind: AuthKind, keyId: SshKeyId.nullable().optional(), credentials: z.array(CredentialPatch).default([]) });
+export const ConfigureHost = z.strictObject({
+  ...SshHostProfile.shape,
+  routeDisabled: z.boolean().optional(),
+  hostId: OwnedHostId.optional(),
+  expectedRevision: Revision.nullable(),
+  authKind: AuthKind,
+  keyId: SshKeyId.nullable().optional(),
+  credentials: z.array(CredentialPatch).default([]),
+});
 export type ConfigureHost = z.infer<typeof ConfigureHost>;
 export const HostRevision = z.strictObject({ hostId: OwnedHostId, expectedRevision: Revision });
 export const CopyHost = HostRevision.extend({ name: z.string() });

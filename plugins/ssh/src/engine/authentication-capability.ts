@@ -18,9 +18,11 @@ export const sshAuthenticationDescriptor = defineCapabilityDescriptor({
 });
 
 export function registerSshAuthentication(api: HuhuApi, manager: SshManager): void {
-  api.defineCapability(bindCapability(sshAuthenticationDescriptor, ({ caller, signal }, { attemptId, hop, promptId, answers }) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshAuthenticationDescriptor.name);
-    signal.throwIfAborted();
-    return { applied: manager.decideAuthentication(attemptId, hop, promptId, answers) };
-  }));
+  api.defineCapability(
+    bindCapability(sshAuthenticationDescriptor, ({ caller, signal }, { attemptId, hop, promptId, answers }) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshAuthenticationDescriptor.name);
+      signal.throwIfAborted();
+      return { applied: manager.decideAuthentication(attemptId, hop, promptId, answers) };
+    }),
+  );
 }

@@ -49,16 +49,49 @@ function AddKeyDialog({ action, onClose, save }: { action: AddSshKey["action"]; 
   }
 
   return (
-    <Dialog open title={action === "generate" ? "生成 Ed25519 密钥" : "导入 SSH 私钥"} onClose={() => { if (!busy && !reading) onClose(); }}
-      actions={<><Button disabled={busy || reading} onClick={onClose}>取消</Button><Button type="submit" form={formId} loading={busy} disabled={reading} variant="primary">保存密钥</Button></>}>
+    <Dialog
+      open
+      title={action === "generate" ? "生成 Ed25519 密钥" : "导入 SSH 私钥"}
+      onClose={() => {
+        if (!busy && !reading) onClose();
+      }}
+      actions={
+        <>
+          <Button disabled={busy || reading} onClick={onClose}>
+            取消
+          </Button>
+          <Button type="submit" form={formId} loading={busy} disabled={reading} variant="primary">
+            保存密钥
+          </Button>
+        </>
+      }
+    >
       <form id={formId} method="post" className="hu-form-body" onSubmit={(event) => void submit(event)}>
-        <label className="hu-field">名称<input name="name" required maxLength={120} disabled={busy} /></label>
-        {action === "import" && <>
-          <label className="hu-field">选择私钥文件<input type="file" disabled={busy || reading} onChange={(event) => void importFile(event.currentTarget.files?.[0])} /></label>
-          <label className="hu-field">私钥内容<textarea name="privateKey" required maxLength={1024 * 1024} rows={5} spellCheck={false} value={privateKey} disabled={busy || reading} onChange={(event) => setPrivateKey(event.currentTarget.value)} /></label>
-        </>}
-        <label className="hu-field">私钥口令（可选）<input name="passphrase" type="password" autoComplete="new-password" disabled={busy} maxLength={1024} /></label>
-        {error && <p className="hu-field-error" role="alert">{error}</p>}
+        <label className="hu-field">
+          名称
+          <input name="name" required maxLength={120} disabled={busy} />
+        </label>
+        {action === "import" && (
+          <>
+            <label className="hu-field">
+              选择私钥文件
+              <input type="file" disabled={busy || reading} onChange={(event) => void importFile(event.currentTarget.files?.[0])} />
+            </label>
+            <label className="hu-field">
+              私钥内容
+              <textarea name="privateKey" required maxLength={1024 * 1024} rows={5} spellCheck={false} value={privateKey} disabled={busy || reading} onChange={(event) => setPrivateKey(event.currentTarget.value)} />
+            </label>
+          </>
+        )}
+        <label className="hu-field">
+          私钥口令（可选）
+          <input name="passphrase" type="password" autoComplete="new-password" disabled={busy} maxLength={1024} />
+        </label>
+        {error && (
+          <p className="hu-field-error" role="alert">
+            {error}
+          </p>
+        )}
       </form>
     </Dialog>
   );
@@ -114,25 +147,64 @@ export function KeyLibraryPanel({ onBack }: { onBack(): void }) {
         {keys.data?.map((key) => (
           <li key={key.id} className="hu-stack">
             <strong>{key.name}</strong>
-            <code>{key.keyType} {key.fingerprint}</code>
-            <p>{key.encrypted ? "需要私钥口令" : "无私钥口令"} · {key.available ? "本机可用" : "本机不可用"}{key.referenced ? " · 已被主机引用" : ""}</p>
+            <code>
+              {key.keyType} {key.fingerprint}
+            </code>
+            <p>
+              {key.encrypted ? "需要私钥口令" : "无私钥口令"} · {key.available ? "本机可用" : "本机不可用"}
+              {key.referenced ? " · 已被主机引用" : ""}
+            </p>
             <div className="ssh-workspace-controls">
-              <Button onClick={() => void copy(key)} aria-label={`复制「${key.name}」公钥`}>复制公钥</Button>
-              <Button disabled={key.referenced} onClick={() => { setError(""); setRemove(key); }} aria-label={`删除「${key.name}」`}>删除</Button>
+              <Button onClick={() => void copy(key)} aria-label={`复制「${key.name}」公钥`}>
+                复制公钥
+              </Button>
+              <Button
+                disabled={key.referenced}
+                onClick={() => {
+                  setError("");
+                  setRemove(key);
+                }}
+                aria-label={`删除「${key.name}」`}
+              >
+                删除
+              </Button>
             </div>
           </li>
         ))}
       </ul>
-      {add && <AddKeyDialog action={add} onClose={() => setAdd(undefined)} save={async (input) => {
-        await engine.call("ssh.keys.add", input, { write: true });
-        setAdd(undefined);
-        await keys.refetch();
-      }} />}
-      {remove && <Dialog open title={`删除「${remove.name}」`} onClose={() => { if (!busy) setRemove(undefined); }}
-        actions={<><Button disabled={busy} onClick={() => setRemove(undefined)}>取消</Button><Button loading={busy} onClick={() => void removeKey(remove)}>删除密钥</Button></>}>
-        <p>此操作会删除本机保存的私钥。</p>
-        {error && <p role="alert">{error}</p>}
-      </Dialog>}
+      {add && (
+        <AddKeyDialog
+          action={add}
+          onClose={() => setAdd(undefined)}
+          save={async (input) => {
+            await engine.call("ssh.keys.add", input, { write: true });
+            setAdd(undefined);
+            await keys.refetch();
+          }}
+        />
+      )}
+      {remove && (
+        <Dialog
+          open
+          title={`删除「${remove.name}」`}
+          onClose={() => {
+            if (!busy) setRemove(undefined);
+          }}
+          actions={
+            <>
+              <Button disabled={busy} onClick={() => setRemove(undefined)}>
+                取消
+              </Button>
+              <Button loading={busy} onClick={() => void removeKey(remove)}>
+                删除密钥
+              </Button>
+            </>
+          }
+        >
+          <p>此操作会删除本机保存的私钥。</p>
+          {error && <p role="alert">{error}</p>}
+        </Dialog>
+      )}
     </section>
   );
 }

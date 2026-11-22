@@ -30,7 +30,10 @@ export const SshAuthenticationPrompt = z.strictObject({
   hop: z.int().nonnegative(),
   name: z.string().max(2048),
   instructions: z.string().max(4096),
-  questions: z.array(z.strictObject({ text: z.string().max(2048), echo: z.boolean() })).min(1).max(32),
+  questions: z
+    .array(z.strictObject({ text: z.string().max(2048), echo: z.boolean() }))
+    .min(1)
+    .max(32),
 });
 export type SshAuthenticationPrompt = z.infer<typeof SshAuthenticationPrompt>;
 

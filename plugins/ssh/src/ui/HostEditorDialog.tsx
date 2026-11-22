@@ -190,7 +190,17 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
         </>
       }
     >
-      <form ref={form} id={formId} method="post" className="hu-form-body ssh-host-form" onSubmit={(event) => void save(event)} onChange={() => { setError(null); clearTest(); }}>
+      <form
+        ref={form}
+        id={formId}
+        method="post"
+        className="hu-form-body ssh-host-form"
+        onSubmit={(event) => void save(event)}
+        onChange={() => {
+          setError(null);
+          clearTest();
+        }}
+      >
         {error ? (
           <p ref={errorSummary} role="alert" tabIndex={-1} className="hu-field-error">
             {error}
@@ -238,7 +248,11 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
               </EditorField>
             )}
           </div>
-          {jump && <label className="row"><input type="checkbox" checked={!routeDisabled} onChange={(event) => setRouteDisabled(!event.currentTarget.checked)} /> 启用跳板路由</label>}
+          {jump && (
+            <label className="row">
+              <input type="checkbox" checked={!routeDisabled} onChange={(event) => setRouteDisabled(!event.currentTarget.checked)} /> 启用跳板路由
+            </label>
+          )}
           <details
             className="hu-stack"
             onInvalid={(event) => {
@@ -278,14 +292,23 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
           {authKind === "key" && (keys.data || keyId) && (
             <EditorField label="私钥来源">
               {(id) => (
-                <select id={id} value={keyId} onChange={(event) => {
-                  setKeyId(event.target.value);
-                  setValues({});
-                  setCleared({});
-                }}>
+                <select
+                  id={id}
+                  value={keyId}
+                  onChange={(event) => {
+                    setKeyId(event.target.value);
+                    setValues({});
+                    setCleared({});
+                  }}
+                >
                   <option value="">为此主机配置私钥</option>
                   {keyId && !keys.data?.some((key) => key.id === keyId) && <option value={keyId}>密钥库中的原密钥（不可用）</option>}
-                  {keys.data?.map((key) => <option key={key.id} value={key.id} disabled={!key.available && key.id !== editing?.keyId}>{key.name} · {key.keyType}{key.available ? "" : " · 本机不可用"}</option>)}
+                  {keys.data?.map((key) => (
+                    <option key={key.id} value={key.id} disabled={!key.available && key.id !== editing?.keyId}>
+                      {key.name} · {key.keyType}
+                      {key.available ? "" : " · 本机不可用"}
+                    </option>
+                  ))}
                 </select>
               )}
             </EditorField>
@@ -345,11 +368,25 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
           {editing && editing.auth.kind !== authKind ? <p className="hu-hint-text">切换认证方式时，系统会清理旧方式专用的凭据。</p> : null}
         </fieldset>
         <div className="ssh-workspace-controls">
-          {testing ? <Button type="button" onClick={clearTest}>取消测试</Button> : <Button type="button" disabled={busy || choosingFile} onClick={() => void testDraft()}>测试连接</Button>}
+          {testing ? (
+            <Button type="button" onClick={clearTest}>
+              取消测试
+            </Button>
+          ) : (
+            <Button type="button" disabled={busy || choosingFile} onClick={() => void testDraft()}>
+              测试连接
+            </Button>
+          )}
           <span role="status">
-            {testing ? "正在测试连接…" : testResult?.state === "authenticated" ? "测试成功，已通过认证。"
-              : testResult?.state === "reachable" ? `第 ${testResult.hop + 1} 跳可达，${testResult.reason === "host-key" ? "需要在正式连接时确认指纹" : "等待认证"}。`
-              : testResult?.state === "failed" ? `${testResult.hop === undefined ? "" : `第 ${testResult.hop + 1} 跳 · `}${testResult.message}` : ""}
+            {testing
+              ? "正在测试连接…"
+              : testResult?.state === "authenticated"
+                ? "测试成功，已通过认证。"
+                : testResult?.state === "reachable"
+                  ? `第 ${testResult.hop + 1} 跳可达，${testResult.reason === "host-key" ? "需要在正式连接时确认指纹" : "等待认证"}。`
+                  : testResult?.state === "failed"
+                    ? `${testResult.hop === undefined ? "" : `第 ${testResult.hop + 1} 跳 · `}${testResult.message}`
+                    : ""}
           </span>
         </div>
       </form>

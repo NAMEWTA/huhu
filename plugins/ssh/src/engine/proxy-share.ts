@@ -18,18 +18,27 @@ const error = (message: string) => new HuhuError("SSH_DISCONNECTED", message);
 function dialLocal(port: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: FORWARD_BIND, port, signal: limit(signal) });
-    socket.once("connect", () => { socket.end(); resolve(); });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve();
+    });
     socket.once("error", () => reject(error("本机代理端口未响应")));
   });
 }
 
 // Motty local_proxy_tunnel.go verifies the actual server policy before enabling the tunnel.
 export function privateRemoteListeners(output: string, port: number): boolean {
-  const rows = output.trim().split("\n").filter((line) => line.trim());
-  return rows.length > 0 && rows.every((line) => {
-    const [state, , , bind] = line.trim().split(/\s+/u);
-    return state === "LISTEN" && bind === `${FORWARD_BIND}:${port}`;
-  });
+  const rows = output
+    .trim()
+    .split("\n")
+    .filter((line) => line.trim());
+  return (
+    rows.length > 0 &&
+    rows.every((line) => {
+      const [state, , , bind] = line.trim().split(/\s+/u);
+      return state === "LISTEN" && bind === `${FORWARD_BIND}:${port}`;
+    })
+  );
 }
 
 function collect(channel: ClientChannel, signal: AbortSignal, done: (error: Error | undefined, data?: string) => void, headersOnly = false): void {
@@ -63,7 +72,7 @@ function useChannel(signal: AbortSignal, open: (receive: (err: Error | undefined
     open((failure, channel) => {
       deadline.removeEventListener("abort", abort);
       if (failure) return reject(error("远端代理验证所需的 SSH 通道不可用"));
-      collect(channel, deadline, (err, data) => err ? reject(err) : resolve(data!), headersOnly);
+      collect(channel, deadline, (err, data) => (err ? reject(err) : resolve(data!)), headersOnly);
       if (headersOnly && !deadline.aborted) channel.write(`CONNECT ${testTarget} HTTP/1.1\r\nHost: ${testTarget}\r\n\r\n`);
     });
   });
@@ -94,15 +103,25 @@ export class SshProxyShare {
       try {
         await this.detect(config.localPort, operation);
         const client = this.manager.proxyShareTransport(config.hostId, config.connectionId);
-        const listener = new ForwardListener({
-          id: randomUUID(), revision: randomUUID(), name: "辅助代理分享", mode: "remote", resume: false,
-          hostId: config.hostId, listenPort: config.remotePort, boundTarget: "0".repeat(64), target: { host: FORWARD_BIND, port: config.localPort },
-        }, client);
+        const listener = new ForwardListener(
+          {
+            id: randomUUID(),
+            revision: randomUUID(),
+            name: "辅助代理分享",
+            mode: "remote",
+            resume: false,
+            hostId: config.hostId,
+            listenPort: config.remotePort,
+            boundTarget: "0".repeat(64),
+            target: { host: FORWARD_BIND, port: config.localPort },
+          },
+          client,
+        );
         const lost = () => {
           void this.serial(async () => {
             if (this.run?.listener !== listener) return this.view;
             await this.close(true);
-            return this.view = { state: "stopped", message: "原 SSH 连接已结束" };
+            return (this.view = { state: "stopped", message: "原 SSH 连接已结束" });
           });
         };
         client.once("close", lost);
@@ -112,14 +131,14 @@ export class SshProxyShare {
         if (!privateRemoteListeners(output, config.remotePort)) throw error("远端代理监听未确认只绑定 IPv4 回环地址");
         operation.throwIfAborted();
         listener.enable();
-        return this.view = { state: "running", config };
+        return (this.view = { state: "running", config });
       } catch (reason) {
         try {
           await this.close(false);
         } catch {
-          return this.view = { state: "stop-failed", config, message: "代理分享未启动，远端端口释放仍待确认" };
+          return (this.view = { state: "stop-failed", config, message: "代理分享未启动，远端端口释放仍待确认" });
         }
-        return this.view = { state: "failed", message: reason instanceof HuhuError ? reason.message : "无法开启代理分享" };
+        return (this.view = { state: "failed", message: reason instanceof HuhuError ? reason.message : "无法开启代理分享" });
       }
     });
   }
@@ -133,9 +152,9 @@ export class SshProxyShare {
         const { client } = this.run;
         const reply = await useChannel(AbortSignal.any([signal, this.lifetime.signal]), (receive) => client.forwardOut(FORWARD_BIND, 0, FORWARD_BIND, config.remotePort, receive), true);
         if (!reply.includes("\r\n\r\n") || !/^HTTP\/1\.[01] 200(?:[ \r]|$)/u.test(reply)) throw error("本机代理拒绝 CONNECT 或要求认证");
-        return this.view = { state: "running", config, tested: "accepted" };
+        return (this.view = { state: "running", config, tested: "accepted" });
       } catch (reason) {
-        return this.view = { state: "running", config, tested: "failed", message: reason instanceof HuhuError ? reason.message : "代理测试失败" };
+        return (this.view = { state: "running", config, tested: "failed", message: reason instanceof HuhuError ? reason.message : "代理测试失败" });
       }
     });
   }
@@ -146,9 +165,9 @@ export class SshProxyShare {
       const { config } = this.view;
       try {
         await this.close(false);
-        return this.view = { state: "stopped" };
+        return (this.view = { state: "stopped" });
       } catch {
-        return this.view = { state: "stop-failed", ...(config && { config }), message: "未确认远端已释放端口，可再次停止" };
+        return (this.view = { state: "stop-failed", ...(config && { config }), message: "未确认远端已释放端口，可再次停止" });
       }
     });
   }
@@ -176,9 +195,25 @@ export class SshProxyShare {
 const common = { plugin: "ssh", desktopOnly: true, exposable: true, defaultExposed: false, risk: "normal" } as const;
 const empty = z.strictObject({});
 export const sshProxyShareDescriptors = {
-  proxyShareDetect: defineCapabilityDescriptor({ ...common, name: "ssh.proxyShare.detect", title: "检测本机代理端口", description: "仅检测本机回环 TCP 端口。", scope: "execute", input: z.strictObject({ port: ForwardPort }), output: z.strictObject({ available: z.boolean() }) }),
+  proxyShareDetect: defineCapabilityDescriptor({
+    ...common,
+    name: "ssh.proxyShare.detect",
+    title: "检测本机代理端口",
+    description: "仅检测本机回环 TCP 端口。",
+    scope: "execute",
+    input: z.strictObject({ port: ForwardPort }),
+    output: z.strictObject({ available: z.boolean() }),
+  }),
   proxyShareStatus: defineCapabilityDescriptor({ ...common, name: "ssh.proxyShare.status", title: "读取辅助代理分享状态", description: "查看正在使用的分享、远端端口及测试结果。", scope: "read", input: empty, output: ProxyShareStatus }),
-  proxyShareStart: defineCapabilityDescriptor({ ...common, name: "ssh.proxyShare.start", title: "开始辅助代理分享", description: "使用当前 SSH 连接向远端回环分享本机 HTTP 代理。", scope: "execute", input: ProxyShareConfig, output: ProxyShareStatus }),
+  proxyShareStart: defineCapabilityDescriptor({
+    ...common,
+    name: "ssh.proxyShare.start",
+    title: "开始辅助代理分享",
+    description: "使用当前 SSH 连接向远端回环分享本机 HTTP 代理。",
+    scope: "execute",
+    input: ProxyShareConfig,
+    output: ProxyShareStatus,
+  }),
   proxyShareTest: defineCapabilityDescriptor({ ...common, name: "ssh.proxyShare.test", title: "测试辅助代理分享", description: "从远端回环测试本机代理的 CONNECT 答复。", scope: "execute", input: empty, output: ProxyShareStatus }),
   proxyShareStop: defineCapabilityDescriptor({ ...common, name: "ssh.proxyShare.stop", title: "停止辅助代理分享", description: "关闭隧道并确认远端端口释放。", scope: "execute", input: empty, output: ProxyShareStatus }),
 };
@@ -186,15 +221,39 @@ export const sshProxyShareDescriptors = {
 export function registerSshProxyShare(api: HuhuApi, manager: SshManager): SshProxyShare {
   const share = new SshProxyShare(manager);
   const d = sshProxyShareDescriptors;
-  const requireDesktop = (caller: string) => { if (caller !== "desktop") throw errors.permissionDenied("SSH 辅助代理分享"); };
-  api.defineCapability(bindCapability(d.proxyShareDetect, async ({ caller, signal }, { port }) => {
-    requireDesktop(caller);
-    await share.detect(port, signal);
-    return { available: true };
-  }));
-  api.defineCapability(bindCapability(d.proxyShareStatus, ({ caller }) => { requireDesktop(caller); return share.status(); }));
-  api.defineCapability(bindCapability(d.proxyShareStart, ({ caller, signal }, config) => { requireDesktop(caller); return share.start(config, signal); }));
-  api.defineCapability(bindCapability(d.proxyShareTest, ({ caller, signal }) => { requireDesktop(caller); return share.test(signal); }));
-  api.defineCapability(bindCapability(d.proxyShareStop, ({ caller, signal }) => { requireDesktop(caller); return share.stop(signal); }));
+  const requireDesktop = (caller: string) => {
+    if (caller !== "desktop") throw errors.permissionDenied("SSH 辅助代理分享");
+  };
+  api.defineCapability(
+    bindCapability(d.proxyShareDetect, async ({ caller, signal }, { port }) => {
+      requireDesktop(caller);
+      await share.detect(port, signal);
+      return { available: true };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(d.proxyShareStatus, ({ caller }) => {
+      requireDesktop(caller);
+      return share.status();
+    }),
+  );
+  api.defineCapability(
+    bindCapability(d.proxyShareStart, ({ caller, signal }, config) => {
+      requireDesktop(caller);
+      return share.start(config, signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(d.proxyShareTest, ({ caller, signal }) => {
+      requireDesktop(caller);
+      return share.test(signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(d.proxyShareStop, ({ caller, signal }) => {
+      requireDesktop(caller);
+      return share.stop(signal);
+    }),
+  );
   return share;
 }

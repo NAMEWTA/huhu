@@ -59,41 +59,72 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
     <section className="hu-view-content">
       <PageHead title="OpenSSH 配置同步" description="选择配置文件和已保存主机，预览 Host 块中的跳板、身份文件与保活字段。" actions={<Button onClick={onBack}>返回跳板路由</Button>} />
       <form className="hu-card-alt hu-form-body" onSubmit={(event) => void inspect(event)}>
-        <label className="hu-field">配置文件<input value={source.path} readOnly /></label>
-        <Button type="button" disabled={busy} onClick={() => void choose()}>选择配置文件</Button>
-        <label className="hu-field">OpenSSH Host 别名<input value={source.alias} required maxLength={255} disabled={busy} onChange={(event) => edit({ alias: event.currentTarget.value.trim() })} /></label>
-        <label className="hu-field">Huhu 主机<select value={source.hostId} required disabled={busy} onChange={(event) => edit({ hostId: event.currentTarget.value })}>
-          <option value="">选择主机</option>
-          {hosts.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
-        </select></label>
-        <Button type="submit" loading={busy} disabled={!source.path}>预览同步</Button>
+        <label className="hu-field">
+          配置文件
+          <input value={source.path} readOnly />
+        </label>
+        <Button type="button" disabled={busy} onClick={() => void choose()}>
+          选择配置文件
+        </Button>
+        <label className="hu-field">
+          OpenSSH Host 别名
+          <input value={source.alias} required maxLength={255} disabled={busy} onChange={(event) => edit({ alias: event.currentTarget.value.trim() })} />
+        </label>
+        <label className="hu-field">
+          Huhu 主机
+          <select value={source.hostId} required disabled={busy} onChange={(event) => edit({ hostId: event.currentTarget.value })}>
+            <option value="">选择主机</option>
+            {hosts.map(({ id, name }) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button type="submit" loading={busy} disabled={!source.path}>
+          预览同步
+        </Button>
       </form>
       {feedback && <p role="alert">{feedback}</p>}
       {preview && (
         <section className="hu-card-alt hu-stack">
           <h3>同步差异</h3>
-          <p>源文件指纹 <code>{preview.fingerprint}</code></p>
-          <p>主机版本 <code>{preview.hostRevision}</code></p>
+          <p>
+            源文件指纹 <code>{preview.fingerprint}</code>
+          </p>
+          <p>
+            主机版本 <code>{preview.hostRevision}</code>
+          </p>
           <ul className="hu-stack">
             {preview.rows.map((row) => (
               <li key={row.field}>
                 <strong>{row.field}</strong> · {states[row.change]}
                 <dl className="ssh-definition">
-                  <dt>配置文件</dt><dd>{row.file ?? "未设置"}</dd>
-                  <dt>Huhu</dt><dd>{row.huhu ?? "未设置"}</dd>
+                  <dt>配置文件</dt>
+                  <dd>{row.file ?? "未设置"}</dd>
+                  <dt>Huhu</dt>
+                  <dd>{row.huhu ?? "未设置"}</dd>
                 </dl>
                 {row.change === "same" ? (
-                  <Button disabled={busy} onClick={() => void apply(row.field, "establish")}>记录基准</Button>
+                  <Button disabled={busy} onClick={() => void apply(row.field, "establish")}>
+                    记录基准
+                  </Button>
                 ) : (
                   <div className="ssh-workspace-controls">
-                    <Button disabled={busy} onClick={() => void apply(row.field, "file-to-huhu")}>将文件值应用到主机</Button>
-                    <Button disabled={busy} onClick={() => void apply(row.field, "huhu-to-file")}>将主机值写入文件</Button>
+                    <Button disabled={busy} onClick={() => void apply(row.field, "file-to-huhu")}>
+                      将文件值应用到主机
+                    </Button>
+                    <Button disabled={busy} onClick={() => void apply(row.field, "huhu-to-file")}>
+                      将主机值写入文件
+                    </Button>
                   </div>
                 )}
               </li>
             ))}
           </ul>
-          <Button disabled={busy} onClick={() => setPreview(undefined)}>收起预览</Button>
+          <Button disabled={busy} onClick={() => setPreview(undefined)}>
+            收起预览
+          </Button>
         </section>
       )}
     </section>

@@ -127,7 +127,11 @@ export class WorkspaceRuns {
       const problem = layoutProblem(panes, layout);
       if (problem) throw errors.invalidInput(problem);
       const saved = { ...current, layout, panes, layoutRevision: randomUUID() };
-      await this.write(runs.map((run) => run.id === id ? saved : run), fileVersion, signal);
+      await this.write(
+        runs.map((run) => (run.id === id ? saved : run)),
+        fileVersion,
+        signal,
+      );
       if (change.action === "close") {
         const live = this.live.get(id);
         if (live) this.releasePane(live, change.paneId);

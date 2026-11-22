@@ -1000,6 +1000,11 @@
     cursor: grab;
   }
 
+  .ssh-recording-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .ssh-workspace-trust {
     overflow-wrap: anywhere;
   }

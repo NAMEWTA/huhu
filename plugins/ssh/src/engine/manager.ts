@@ -443,7 +443,9 @@ export class SshManager {
     };
     signal.addEventListener("abort", close, { once: true });
     try {
-      await this.dialChain(chain, attempt, opened, (index) => { hop = index; });
+      await this.dialChain(chain, attempt, opened, (index) => {
+        hop = index;
+      });
       signal.throwIfAborted();
       return { state: "authenticated" };
     } catch (error) {
@@ -939,10 +941,10 @@ export class SshManager {
     return true;
   }
   /** 绑定一个查看者（WebSocket）：先回放最近输出，再接实时输出。返回 detach 函数；不会关闭 channel。 */
-  attachShell(id: string, view: { onData(b: Buffer): void; onEnd(): void }): { write(b: Buffer): void; resize(cols: number, rows: number): void; detach(): void } | null {
+  attachShell(id: string, view: { onData(b: Buffer): void; onEnd(): void }, replay = true): { write(b: Buffer): void; resize(cols: number, rows: number): void; detach(): void } | null {
     const s = this.shells.get(id);
     if (!s) return null;
-    for (const b of s.buffer) view.onData(b);
+    if (replay) for (const b of s.buffer) view.onData(b);
     s.viewers.add(view.onData);
     s.closers.add(view.onEnd);
     if (s.state === "ended") queueMicrotask(view.onEnd);

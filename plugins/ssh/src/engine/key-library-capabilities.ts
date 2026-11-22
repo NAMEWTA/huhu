@@ -37,17 +37,23 @@ export const sshKeyDescriptors = {
 };
 
 export function registerSshKeys(api: HuhuApi, hosts: HostConfigurations): void {
-  api.defineCapability(bindCapability(sshKeyDescriptors.keysList, ({ caller }) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysList.name);
-    return hosts.listKeys();
-  }));
-  api.defineCapability(bindCapability(sshKeyDescriptors.keysAdd, ({ caller, signal }, input) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysAdd.name);
-    return hosts.addKey(input, signal);
-  }));
-  api.defineCapability(bindCapability(sshKeyDescriptors.keysRemove, async ({ caller, signal }, { id, revision }) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysRemove.name);
-    await hosts.removeKey(id, revision, signal);
-    return { ok: true as const };
-  }));
+  api.defineCapability(
+    bindCapability(sshKeyDescriptors.keysList, ({ caller }) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysList.name);
+      return hosts.listKeys();
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshKeyDescriptors.keysAdd, ({ caller, signal }, input) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysAdd.name);
+      return hosts.addKey(input, signal);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshKeyDescriptors.keysRemove, async ({ caller, signal }, { id, revision }) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshKeyDescriptors.keysRemove.name);
+      await hosts.removeKey(id, revision, signal);
+      return { ok: true as const };
+    }),
+  );
 }

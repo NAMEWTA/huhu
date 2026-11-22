@@ -118,7 +118,10 @@ async function readSource(file: string) {
 export class SshConfigSync {
   private tail: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly hosts: HostConfigurations, private readonly files: HuhuApi["vault"]["files"]) {}
+  constructor(
+    private readonly hosts: HostConfigurations,
+    private readonly files: HuhuApi["vault"]["files"],
+  ) {}
 
   private async snapshot(source: Source) {
     const { text, fingerprint, mode } = await readSource(source.path);
@@ -231,18 +234,38 @@ export class SshConfigSync {
 
 const descriptor = { plugin: "ssh", desktopOnly: true, exposable: true, defaultExposed: false, risk: "normal" } as const;
 export const sshConfigSyncDescriptors = {
-  configSyncPreview: defineCapabilityDescriptor({ ...descriptor, name: "ssh.configSync.preview", title: "预览 OpenSSH 配置同步", description: "按主机 ID 比较所选配置文件中的 Host 块与 Huhu。", scope: "read", input: ConfigSyncSource, output: ConfigSyncPreview }),
-  configSyncApply: defineCapabilityDescriptor({ ...descriptor, name: "ssh.configSync.apply", title: "应用 OpenSSH 配置同步", description: "按已预览版本和用户选择应用一个字段。", scope: "write", input: ApplyConfigSync, output: ConfigSyncPreview }),
+  configSyncPreview: defineCapabilityDescriptor({
+    ...descriptor,
+    name: "ssh.configSync.preview",
+    title: "预览 OpenSSH 配置同步",
+    description: "按主机 ID 比较所选配置文件中的 Host 块与 Huhu。",
+    scope: "read",
+    input: ConfigSyncSource,
+    output: ConfigSyncPreview,
+  }),
+  configSyncApply: defineCapabilityDescriptor({
+    ...descriptor,
+    name: "ssh.configSync.apply",
+    title: "应用 OpenSSH 配置同步",
+    description: "按已预览版本和用户选择应用一个字段。",
+    scope: "write",
+    input: ApplyConfigSync,
+    output: ConfigSyncPreview,
+  }),
 };
 
 export function registerSshConfigSync(api: HuhuApi, hosts: HostConfigurations): void {
   const sync = new SshConfigSync(hosts, api.vault.files);
-  api.defineCapability(bindCapability(sshConfigSyncDescriptors.configSyncPreview, ({ caller }, source) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshConfigSyncDescriptors.configSyncPreview.name);
-    return sync.preview(source);
-  }));
-  api.defineCapability(bindCapability(sshConfigSyncDescriptors.configSyncApply, ({ caller, signal }, input) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshConfigSyncDescriptors.configSyncApply.name);
-    return sync.apply(input, signal);
-  }));
+  api.defineCapability(
+    bindCapability(sshConfigSyncDescriptors.configSyncPreview, ({ caller }, source) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshConfigSyncDescriptors.configSyncPreview.name);
+      return sync.preview(source);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshConfigSyncDescriptors.configSyncApply, ({ caller, signal }, input) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshConfigSyncDescriptors.configSyncApply.name);
+      return sync.apply(input, signal);
+    }),
+  );
 }

@@ -10,6 +10,9 @@ import { MonitorSidebar } from "./MonitorSidebar.js";
 import { SshTerminal } from "./SshTerminal.js";
 import { useDevicePreferences } from "./device-preferences.js";
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
+import { TerminalActions } from "./TerminalActions.js";
+import type { TerminalInput } from "../shared/terminal-actions.js";
+import { RecordTerminal } from "./TerminalRecordings.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -42,6 +45,9 @@ export function WorkspaceRunView({
   const [maximized, setMaximized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [layoutError, setLayoutError] = useState("");
+  const [locked, setLocked] = useState<Record<string, boolean>>({});
+  const [inputs, setInputs] = useState<Record<string, TerminalInput>>({});
+  const [inputCallbacks] = useState(() => new Map<string, (input: TerminalInput | undefined) => void>());
   const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
   const [dock, setDock] = useState<"left" | "right">("right");
@@ -54,7 +60,7 @@ export function WorkspaceRunView({
     setLayoutError("");
     try {
       const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: run.layoutRevision ?? run.id, change }, { write: true });
-      qc.setQueryData<WorkspaceRun[]>(query, (value) => value?.map((item) => item.id === next.id ? next : item));
+      qc.setQueryData<WorkspaceRun[]>(query, (value) => value?.map((item) => (item.id === next.id ? next : item)));
     } catch (error) {
       setLayoutError(error instanceof Error ? error.message : "无法保存分栏布局。");
     } finally {
@@ -74,27 +80,74 @@ export function WorkspaceRunView({
     relayout(run.layout, ids);
   }
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
+  const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
+  const targetInputs = visiblePanes.map((pane) => ({ id: pane.paneId, label: pane.label, sessionId: pane.sessionId!, send: locked[pane.paneId] ? undefined : inputs[pane.sessionId!] }));
+  function inputCallback(sessionId: string) {
+    let send = inputCallbacks.get(sessionId);
+    if (!send) {
+      send = (input) =>
+        setInputs((current) => {
+          if (current[sessionId] === input) return current;
+          const next = { ...current };
+          if (input) next[sessionId] = input;
+          else delete next[sessionId];
+          return next;
+        });
+      inputCallbacks.set(sessionId, send);
+    }
+    return send;
+  }
   return (
     <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏">
       <p>连接代次 {run.generation}</p>
       <div className="ssh-workspace-controls">
-        <label className="row">运行布局<select value={run.layout.kind} disabled={saving} onChange={(event) => {
-          const kind = event.currentTarget.value as WorkspaceLayout["kind"];
-          relayout(kind === "custom" ? { kind, tree: splitTree(run.panes.length) } : { kind });
-        }}>{Object.entries(LAYOUT_LABELS).map(([kind, label]) => <option value={kind} key={kind}>{label}</option>)}</select></label>
-        {tree?.kind === "split" && <>
-          <Button disabled={saving} onClick={() => relayout({ kind: "custom", tree: { ...tree, axis: tree.axis === "row" ? "column" : "row" } })}>切换分割方向</Button>
-          <Button disabled={saving || tree.firstPercent <= 10} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.max(10, tree.firstPercent - 5) } })}>缩小首个分区</Button>
-          <Button disabled={saving || tree.firstPercent >= 90} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.min(90, tree.firstPercent + 5) } })}>放大首个分区</Button>
-        </>}
-        {activePane && <>
-          <Button onClick={() => setMaximized(!maximized)}>{maximized ? "还原分栏" : "最大化活动分栏"}</Button>
-          <Button disabled={saving || activeIndex < 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex - 1]!.paneId)}>与前一分栏交换</Button>
-          <Button disabled={saving || activeIndex >= run.panes.length - 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex + 1]!.paneId)}>与后一分栏交换</Button>
-          <Button disabled={saving || run.panes.length < 2} onClick={() => void apply({ action: "close", paneId: activePane.paneId })}>关闭活动分栏</Button>
-        </>}
+        <label className="row">
+          运行布局
+          <select
+            value={run.layout.kind}
+            disabled={saving}
+            onChange={(event) => {
+              const kind = event.currentTarget.value as WorkspaceLayout["kind"];
+              relayout(kind === "custom" ? { kind, tree: splitTree(run.panes.length) } : { kind });
+            }}
+          >
+            {Object.entries(LAYOUT_LABELS).map(([kind, label]) => (
+              <option value={kind} key={kind}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {tree?.kind === "split" && (
+          <>
+            <Button disabled={saving} onClick={() => relayout({ kind: "custom", tree: { ...tree, axis: tree.axis === "row" ? "column" : "row" } })}>
+              切换分割方向
+            </Button>
+            <Button disabled={saving || tree.firstPercent <= 10} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.max(10, tree.firstPercent - 5) } })}>
+              缩小首个分区
+            </Button>
+            <Button disabled={saving || tree.firstPercent >= 90} onClick={() => relayout({ kind: "custom", tree: { ...tree, firstPercent: Math.min(90, tree.firstPercent + 5) } })}>
+              放大首个分区
+            </Button>
+          </>
+        )}
+        {activePane && (
+          <>
+            <Button onClick={() => setMaximized(!maximized)}>{maximized ? "还原分栏" : "最大化活动分栏"}</Button>
+            <Button disabled={saving || activeIndex < 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex - 1]!.paneId)}>
+              与前一分栏交换
+            </Button>
+            <Button disabled={saving || activeIndex >= run.panes.length - 1} onClick={() => swap(activePane.paneId, run.panes[activeIndex + 1]!.paneId)}>
+              与后一分栏交换
+            </Button>
+            <Button disabled={saving || run.panes.length < 2} onClick={() => void apply({ action: "close", paneId: activePane.paneId })}>
+              关闭活动分栏
+            </Button>
+          </>
+        )}
       </div>
       {layoutError && <p role="alert">{layoutError}</p>}
+      {shown && <TerminalActions targets={targetInputs} />}
       <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
           <WorkspaceCanvas
@@ -142,6 +195,12 @@ export function WorkspaceRunView({
                   <header className="ssh-workspace-controls">
                     <strong>{pane.label}</strong>
                     <span role="status">{PHASES[pane.phase]}</span>
+                    {pane.phase === "ready" && (
+                      <Button aria-pressed={Boolean(locked[pane.paneId])} onClick={() => setLocked((current) => ({ ...current, [pane.paneId]: !current[pane.paneId] }))}>
+                        {locked[pane.paneId] ? "解除输入锁定" : "锁定输入"}
+                      </Button>
+                    )}
+                    {pane.phase === "ready" && pane.sessionId && <RecordTerminal shellId={pane.sessionId} />}
                     {paneTools === "top" && toolbar}
                   </header>
                   {pane.error && <p role="alert">{pane.error.message}</p>}
@@ -169,7 +228,15 @@ export function WorkspaceRunView({
                   )}
                   {pane.phase === "ready" && pane.sessionId && (
                     <div className="ssh-workspace-terminal">
-                      <SshTerminal key={pane.sessionId} ariaLabel={`${pane.label} 终端`} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={pane.sessionId} />
+                      <SshTerminal
+                        key={pane.sessionId}
+                        ariaLabel={`${pane.label} 终端`}
+                        baseUrl={endpoint.baseUrl}
+                        token={endpoint.token}
+                        sessionId={pane.sessionId}
+                        observe={Boolean(locked[pane.paneId])}
+                        onTerminalInput={inputCallback(pane.sessionId)}
+                      />
                     </div>
                   )}
                   {paneTools === "bottom" && toolbar}

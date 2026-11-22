@@ -20,6 +20,8 @@ import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
 import { SshTerminal } from "./SshTerminal.js";
 import { RoutePanel } from "./RoutePanel.js";
+import { RecordTerminal, TerminalRecordingsPanel } from "./TerminalRecordings.js";
+import { LocalShellPanel } from "./LocalShellPanel.js";
 import { directJumpIds, routeForHost } from "../shared/route.js";
 import { t } from "./i18n.js";
 
@@ -88,6 +90,8 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [workspaces, setWorkspaces] = useState(false);
   const [keyLibrary, setKeyLibrary] = useState(false);
   const [routes, setRoutes] = useState(false);
+  const [recordings, setRecordings] = useState(false);
+  const [localTerminal, setLocalTerminal] = useState(false);
   const [forwarding, setForwarding] = useState(false);
   const [monitoring, setMonitoring] = useState(false);
   const [fileView, showFileView] = useState(false);
@@ -211,7 +215,17 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
     </>
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
-  if (keyLibrary) return <KeyLibraryPanel onBack={() => { setKeyLibrary(false); void refresh(); }} />;
+  if (keyLibrary)
+    return (
+      <KeyLibraryPanel
+        onBack={() => {
+          setKeyLibrary(false);
+          void refresh();
+        }}
+      />
+    );
+  if (recordings) return <TerminalRecordingsPanel onBack={() => setRecordings(false)} />;
+  if (localTerminal) return <LocalShellPanel onBack={() => setLocalTerminal(false)} />;
   if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
   if (monitoring)
     return withFileWorkspace(
@@ -305,8 +319,26 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           <Button variant="ghost" icon={Fingerprint} onClick={() => openReview(null)}>
             已知主机
           </Button>
-          {desktop && <Button variant="ghost" icon={KeyRound} onClick={() => setKeyLibrary(true)}>密钥</Button>}
-          {desktop && <Button variant="ghost" icon={Network} onClick={() => setRoutes(true)}>跳板路由</Button>}
+          {desktop && (
+            <Button variant="ghost" icon={KeyRound} onClick={() => setKeyLibrary(true)}>
+              密钥
+            </Button>
+          )}
+          {desktop && (
+            <Button variant="ghost" icon={Network} onClick={() => setRoutes(true)}>
+              跳板路由
+            </Button>
+          )}
+          {desktop && (
+            <Button variant="ghost" icon={Activity} onClick={() => setRecordings(true)}>
+              会话日志
+            </Button>
+          )}
+          {desktop && (
+            <Button variant="ghost" icon={Terminal} onClick={() => setLocalTerminal(true)}>
+              本地终端
+            </Button>
+          )}
           <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
             全部连接审计
           </Button>
@@ -329,13 +361,18 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                     {t.disconnect}
                   </Button>
                 ) : authWaiting ? (
-                  <Button variant="primary" onClick={() => {
-                    if (connection.workspace) setWorkspaces(true);
-                    else {
-                      setTab("overview");
-                      setDismissed(null);
-                    }
-                  }}>继续交互认证</Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      if (connection.workspace) setWorkspaces(true);
+                      else {
+                        setTab("overview");
+                        setDismissed(null);
+                      }
+                    }}
+                  >
+                    继续交互认证
+                  </Button>
                 ) : waiting ? (
                   <Button
                     icon={Fingerprint}
@@ -513,7 +550,11 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             {Boolean(connection?.route?.length) && (
               <section className="hu-card-alt ssh-connection-config" aria-label="实际连接路径">
                 <h3>实际连接路径</h3>
-                {connection?.connectionId && <p>连接 {connection.connectionId} · {shells.data?.filter((shell) => shell.state === "running").length ?? 0} 个活动终端</p>}
+                {connection?.connectionId && (
+                  <p>
+                    连接 {connection.connectionId} · {shells.data?.filter((shell) => shell.state === "running").length ?? 0} 个活动终端
+                  </p>
+                )}
                 <ol>
                   {connection?.route?.map((hop, index) => (
                     <li key={`${hop.id}:${index}`}>
@@ -615,6 +656,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                   <div className="hu-ssh-console-panel-head">
                     <Terminal size={13} aria-hidden />
                     <strong className="hu-flex-fill">{(shells.data ?? []).find((s) => s.id === activeShell)?.name}</strong>
+                    {(shells.data ?? []).some((shell) => shell.id === activeShell && shell.state === "running") && <RecordTerminal shellId={activeShell} />}
                     <Button variant="danger" icon={X} onClick={() => void engine.call("ssh.shells.close", { id: activeShell }, { write: true }).then(refresh)}>
                       {t.endShell}
                     </Button>

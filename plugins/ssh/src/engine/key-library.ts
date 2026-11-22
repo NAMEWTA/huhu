@@ -26,7 +26,12 @@ function translate(error: unknown): never {
 
 // Normalization follows Motty internal/keyidentity/generate.go (Apache-2.0).
 function normalizePrivateKey(value: string): string {
-  const text = value.replace(/\r\n?/g, "\n").split("\n").map((line) => line.trim()).join("\n").trim();
+  const text = value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .trim();
   if (!text.includes("PRIVATE KEY") && !text.startsWith("PuTTY-User-Key-File-")) throw errors.invalidInput("请选择或粘贴私钥内容");
   return text + "\n";
 }
@@ -85,31 +90,32 @@ export class KeyLibrary {
     const parsedWithoutPassphrase = ssh2.utils.parseKey(privateKey);
     const encrypted = parsedWithoutPassphrase instanceof Error;
     const definition = { name: input.name, publicKey: `${key.type} ${publicBytes.toString("base64")}`, keyType: key.type, fingerprint: fingerprintSha256(publicBytes), encrypted };
-    const saved = await owner.save({
-      entityId: randomUUID(),
-      expectedRevision: null,
-      definition,
-      actions: [
-        { purpose: "privateKey", action: "replace", value: privateKey },
-        ...(encrypted && input.passphrase ? [{ purpose: "passphrase", action: "replace" as const, value: input.passphrase }] : []),
-      ],
-      signal,
-    }).catch(translate);
+    const saved = await owner
+      .save({
+        entityId: randomUUID(),
+        expectedRevision: null,
+        definition,
+        actions: [{ purpose: "privateKey", action: "replace", value: privateKey }, ...(encrypted && input.passphrase ? [{ purpose: "passphrase", action: "replace" as const, value: input.passphrase }] : [])],
+        signal,
+      })
+      .catch(translate);
     return this.summary(definition, saved);
   }
 
   async use(id: string, connect: (auth: ConnectionAuth) => Promise<void>) {
     const key = (await this.list()).find((candidate) => candidate.id === id);
     if (!key?.available) throw new HuhuError("SSH_AUTH_FAILED", "所选密钥在本机不可用", { details: { reason: "stored-key-unavailable" } });
-    const result = await this.credentials().use(id, key.encrypted ? ["privateKey", "passphrase"] : ["privateKey"], async (_definition, values, revision) => {
-      try {
-        if (key.revision !== revision) throw errors.versionConflict(revision);
-        await connect({ privateKey: values.get("privateKey")!, ...(key.encrypted && { passphrase: values.get("passphrase")! }) });
-        return null;
-      } catch (error) {
-        return error instanceof HuhuError ? error : new HuhuError("SSH_AUTH_FAILED", "所选密钥认证失败");
-      }
-    }).catch(translate);
+    const result = await this.credentials()
+      .use(id, key.encrypted ? ["privateKey", "passphrase"] : ["privateKey"], async (_definition, values, revision) => {
+        try {
+          if (key.revision !== revision) throw errors.versionConflict(revision);
+          await connect({ privateKey: values.get("privateKey")!, ...(key.encrypted && { passphrase: values.get("passphrase")! }) });
+          return null;
+        } catch (error) {
+          return error instanceof HuhuError ? error : new HuhuError("SSH_AUTH_FAILED", "所选密钥认证失败");
+        }
+      })
+      .catch(translate);
     if (result) throw result;
   }
 

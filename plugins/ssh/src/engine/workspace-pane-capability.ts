@@ -17,8 +17,10 @@ export const sshWorkspacePaneDescriptor = defineCapabilityDescriptor({
 });
 
 export function registerSshWorkspacePanes(api: HuhuApi, runs: WorkspaceRuns) {
-  api.defineCapability(bindCapability(sshWorkspacePaneDescriptor, ({ caller, signal }, input) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshWorkspacePaneDescriptor.name);
-    return runs.changeLayout(input, signal);
-  }));
+  api.defineCapability(
+    bindCapability(sshWorkspacePaneDescriptor, ({ caller, signal }, input) => {
+      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshWorkspacePaneDescriptor.name);
+      return runs.changeLayout(input, signal);
+    }),
+  );
 }

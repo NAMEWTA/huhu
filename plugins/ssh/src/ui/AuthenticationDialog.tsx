@@ -38,12 +38,22 @@ export function AuthenticationDialog({ prompt, onClose, onAnswered }: { prompt: 
       open
       title="SSH 交互认证"
       description={`目标 ${prompt.target.name} · 第 ${prompt.hop + 1} 跳 ${hostEndpoint(prompt.server)}`}
-      onClose={() => { if (!inFlight.current) onClose(); }}
-      actions={<>
-        <Button disabled={busy} onClick={onClose}>稍后回答</Button>
-        <Button disabled={busy} onClick={() => void answer(null)}>取消连接</Button>
-        <Button form={formId} type="submit" loading={busy} variant="primary">提交回答</Button>
-      </>}
+      onClose={() => {
+        if (!inFlight.current) onClose();
+      }}
+      actions={
+        <>
+          <Button disabled={busy} onClick={onClose}>
+            稍后回答
+          </Button>
+          <Button disabled={busy} onClick={() => void answer(null)}>
+            取消连接
+          </Button>
+          <Button form={formId} type="submit" loading={busy} variant="primary">
+            提交回答
+          </Button>
+        </>
+      }
     >
       <form id={formId} method="post" className="hu-form-body" onSubmit={submit}>
         {prompt.name && <p>{prompt.name}</p>}

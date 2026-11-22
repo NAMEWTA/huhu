@@ -19,11 +19,7 @@ type StoredHost = CredentialSummary & { definition: HostDefinition };
 type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
 
 function authError(reason: string): HuhuError {
-  const message = reason === "identity-file-unavailable"
-    ? "本机身份文件不可用，请检查路径和文件权限"
-    : reason === "invalid-private-key-or-passphrase"
-      ? "无法解锁私钥，请检查文件格式和口令"
-      : "SSH 本机认证不可用，请在主机配置中检查凭据";
+  const message = reason === "identity-file-unavailable" ? "本机身份文件不可用，请检查路径和文件权限" : reason === "invalid-private-key-or-passphrase" ? "无法解锁私钥，请检查文件格式和口令" : "SSH 本机认证不可用，请在主机配置中检查凭据";
   return new HuhuError("SSH_AUTH_FAILED", message, { details: { reason } });
 }
 
@@ -79,7 +75,7 @@ function asHost(stored: StoredHost, keys?: ReadonlyMap<string, boolean>): Manage
   const { format: _format, authKind, ...profile } = stored.definition;
   const { hostId: id, revision, configured, authState } = summary(stored, authKind);
   const available = profile.keyId ? keys?.get(profile.keyId) === true : configured;
-  const state = profile.keyId ? { privateKey: available ? "configured" : "temporarily-unavailable" } as const : authState;
+  const state = profile.keyId ? ({ privateKey: available ? "configured" : "temporarily-unavailable" } as const) : authState;
   return { ...profile, id, revision, configured: available, authState: state, auth: { kind: authKind, source: "ssh" } };
 }
 
@@ -239,10 +235,12 @@ export class HostConfigurations {
   async syncIdentityFile(host: ManagedHost): Promise<string | null> {
     if (host.auth.kind !== "identity-file" || host.authState.identityFile === "unconfigured") return null;
     if (host.authState.identityFile !== "configured") throw authError("identity-file-unavailable");
-    const result = await this.credentials().use(host.id, ["identityFile"], async (_definition, values, revision) => ({
-      revision,
-      path: values.get("identityFile")!,
-    })).catch(translate);
+    const result = await this.credentials()
+      .use(host.id, ["identityFile"], async (_definition, values, revision) => ({
+        revision,
+        path: values.get("identityFile")!,
+      }))
+      .catch(translate);
     if (result.revision !== host.revision) throw errors.versionConflict(result.revision);
     return result.path;
   }
@@ -269,15 +267,17 @@ export class HostConfigurations {
       else await connect(buildAuth(input.authKind, values));
     };
     if (!saved || !retained.length) return applyDraft(new Map());
-    const result = await this.credentials().use(saved.id, retained, async (_definition, values, revision) => {
-      try {
-        if (revision !== saved.revision) throw errors.versionConflict(revision);
-        await applyDraft(values);
-        return null;
-      } catch (error) {
-        return error instanceof HuhuError ? error : authError("connection-setup-failed");
-      }
-    }).catch(translate);
+    const result = await this.credentials()
+      .use(saved.id, retained, async (_definition, values, revision) => {
+        try {
+          if (revision !== saved.revision) throw errors.versionConflict(revision);
+          await applyDraft(values);
+          return null;
+        } catch (error) {
+          return error instanceof HuhuError ? error : authError("connection-setup-failed");
+        }
+      })
+      .catch(translate);
     if (result) throw result;
   }
 

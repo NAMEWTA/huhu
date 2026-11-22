@@ -18,7 +18,15 @@ const name = z.string().trim().min(1).max(120);
 const passphrase = z.string().min(1).max(1024).optional();
 export const AddSshKey = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("generate"), name, passphrase }),
-  z.strictObject({ action: z.literal("import"), name, passphrase, privateKey: z.string().min(1).max(1024 * 1024) }),
+  z.strictObject({
+    action: z.literal("import"),
+    name,
+    passphrase,
+    privateKey: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  }),
 ]);
 export type AddSshKey = z.infer<typeof AddSshKey>;
 

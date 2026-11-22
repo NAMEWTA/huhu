@@ -50,8 +50,10 @@ export async function testSshDraft(hosts: HostConfigurations, manager: SshManage
 }
 
 export function registerSshDraft(api: HuhuApi, hosts: HostConfigurations, manager: SshManager): void {
-  api.defineCapability(bindCapability(sshDraftDescriptor, ({ caller, signal }, input) => {
-    if (caller !== "desktop") throw errors.permissionDenied(sshDraftDescriptor.name);
-    return testSshDraft(hosts, manager, input, signal);
-  }));
+  api.defineCapability(
+    bindCapability(sshDraftDescriptor, ({ caller, signal }, input) => {
+      if (caller !== "desktop") throw errors.permissionDenied(sshDraftDescriptor.name);
+      return testSshDraft(hosts, manager, input, signal);
+    }),
+  );
 }

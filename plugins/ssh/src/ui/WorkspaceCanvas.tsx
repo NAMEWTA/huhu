@@ -32,7 +32,10 @@ function boundaries(cells: Cell[], start: "x" | "y", size: "w" | "h"): number[] 
   return [...new Set(cells.flatMap((cell) => [precision(cell[start]), precision(cell[start] + cell[size])]))].sort((a, b) => a - b);
 }
 function tracks(edges: number[], type: "row" | "column"): string {
-  return edges.slice(1).map((edge, index) => `minmax(${type === "row" ? "18rem" : "0"}, ${precision(edge - edges[index]!)}fr)`).join(" ");
+  return edges
+    .slice(1)
+    .map((edge, index) => `minmax(${type === "row" ? "18rem" : "0"}, ${precision(edge - edges[index]!)}fr)`)
+    .join(" ");
 }
 function edge(edges: number[], point: number): number {
   return edges.indexOf(precision(point)) + 1;
@@ -45,21 +48,38 @@ function neighbor(view: HTMLElement, candidates: HTMLElement[], direction: Direc
   const a = view.getBoundingClientRect();
   const horizontal = direction === "left" || direction === "right";
   const reverse = direction === "left" || direction === "up";
-  return candidates.flatMap((item) => {
-    if (item === view || item.hidden) return [];
-    const b = item.getBoundingClientRect();
-    const gap = horizontal ? (reverse ? a.left - b.right : b.left - a.right) : (reverse ? a.top - b.bottom : b.top - a.bottom);
-    if (gap < -1) return [];
-    const [aStart, aEnd, bStart, bEnd] = horizontal ? [a.top, a.bottom, b.top, b.bottom] : [a.left, a.right, b.left, b.right];
-    const offset = Math.abs(aStart + aEnd - bStart - bEnd) / 2;
-    const aligned = Math.min(aEnd, bEnd) > Math.max(aStart, bStart);
-    return [{ item, gap, offset, aligned }];
-  }).sort((l, r) => Number(r.aligned) - Number(l.aligned) || (l.aligned ? l.gap - r.gap || l.offset - r.offset : l.gap + 2 * l.offset - r.gap - 2 * r.offset))[0]?.item;
+  return candidates
+    .flatMap((item) => {
+      if (item === view || item.hidden) return [];
+      const b = item.getBoundingClientRect();
+      const gap = horizontal ? (reverse ? a.left - b.right : b.left - a.right) : reverse ? a.top - b.bottom : b.top - a.bottom;
+      if (gap < -1) return [];
+      const [aStart, aEnd, bStart, bEnd] = horizontal ? [a.top, a.bottom, b.top, b.bottom] : [a.left, a.right, b.left, b.right];
+      const offset = Math.abs(aStart + aEnd - bStart - bEnd) / 2;
+      const aligned = Math.min(aEnd, bEnd) > Math.max(aStart, bStart);
+      return [{ item, gap, offset, aligned }];
+    })
+    .sort((l, r) => Number(r.aligned) - Number(l.aligned) || (l.aligned ? l.gap - r.gap || l.offset - r.offset : l.gap + 2 * l.offset - r.gap - 2 * r.offset))[0]?.item;
 }
 
-export function WorkspaceCanvas({ layout, panes, active, maximized, tabs, onActive, onSwap, render }: {
-  layout: WorkspaceLayout; panes: WorkspaceRunPane[]; active: string | undefined; maximized: boolean; tabs: "top" | "left";
-  onActive(id: string): void; onSwap(from: string, to: string): void; render(pane: WorkspaceRunPane, visible: boolean): ReactNode;
+export function WorkspaceCanvas({
+  layout,
+  panes,
+  active,
+  maximized,
+  tabs,
+  onActive,
+  onSwap,
+  render,
+}: {
+  layout: WorkspaceLayout;
+  panes: WorkspaceRunPane[];
+  active: string | undefined;
+  maximized: boolean;
+  tabs: "top" | "left";
+  onActive(id: string): void;
+  onSwap(from: string, to: string): void;
+  render(pane: WorkspaceRunPane, visible: boolean): ReactNode;
 }) {
   const parent = useRef<HTMLDivElement>(null);
   const dragging = useRef<string | undefined>(undefined);
@@ -80,22 +100,44 @@ export function WorkspaceCanvas({ layout, panes, active, maximized, tabs, onActi
     <>
       {layout.kind !== "tabs" && !maximized && panes.length > 1 && (
         <div className="ssh-workspace-controls" aria-label="分栏方向导航">
-          {Object.entries(directions).map(([id, label]) => <Button key={id} onClick={() => navigate(id as Direction)}>{label}</Button>)}
+          {Object.entries(directions).map(([id, label]) => (
+            <Button key={id} onClick={() => navigate(id as Direction)}>
+              {label}
+            </Button>
+          ))}
         </div>
       )}
       <div className={layout.kind === "tabs" && !maximized ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
-        {layout.kind === "tabs" && !maximized && <div className="ssh-workspace-tabstrip" aria-label="内部标签">
-          {panes.map((pane) => <button type="button" key={pane.paneId} aria-pressed={pane.paneId === active} onClick={() => onActive(pane.paneId)}>{pane.label}</button>)}
-        </div>}
+        {layout.kind === "tabs" && !maximized && (
+          <div className="ssh-workspace-tabstrip" aria-label="内部标签">
+            {panes.map((pane) => (
+              <button type="button" key={pane.paneId} aria-pressed={pane.paneId === active} onClick={() => onActive(pane.paneId)}>
+                {pane.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div ref={parent} className="ssh-workspace-grid" style={{ gridTemplateColumns: tracks(x, "column"), gridTemplateRows: tracks(y, "row") }}>
           {panes.map((pane, index) => {
             const { x: left, y: top, w, h } = rects[index]!;
             const style: CSSProperties = { gridColumn: `${edge(x, left)} / ${edge(x, left + w)}`, gridRow: `${edge(y, top)} / ${edge(y, top + h)}` };
             const visible = (!maximized && layout.kind !== "tabs") || pane.paneId === active;
             return (
-              <div key={pane.paneId} className="ssh-workspace-spot" data-workspace-spot={pane.paneId} data-active={pane.paneId === active} style={style}
-                hidden={!visible} tabIndex={-1} onFocusCapture={() => onActive(pane.paneId)}
-                onDragOver={(event) => { if (dragging.current && dragging.current !== pane.paneId) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+              <div
+                key={pane.paneId}
+                className="ssh-workspace-spot"
+                data-workspace-spot={pane.paneId}
+                data-active={pane.paneId === active}
+                style={style}
+                hidden={!visible}
+                tabIndex={-1}
+                onFocusCapture={() => onActive(pane.paneId)}
+                onDragOver={(event) => {
+                  if (dragging.current && dragging.current !== pane.paneId) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }
+                }}
                 onDrop={(event) => {
                   const from = dragging.current;
                   if (!from || from === pane.paneId || !event.dataTransfer.types.includes("application/x-huhu-ssh-pane")) return;
@@ -103,10 +145,26 @@ export function WorkspaceCanvas({ layout, panes, active, maximized, tabs, onActi
                   dragging.current = undefined;
                   onActive(from);
                   onSwap(from, pane.paneId);
-                }}>
-                {panes.length > 1 && visible && !maximized && <button type="button" className="ssh-pane-drag" draggable aria-label={`拖动${pane.label}分栏`}
-                  onDragStart={(event) => { dragging.current = pane.paneId; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-huhu-ssh-pane", pane.paneId); }}
-                  onDragEnd={() => { dragging.current = undefined; }}>拖动</button>}
+                }}
+              >
+                {panes.length > 1 && visible && !maximized && (
+                  <button
+                    type="button"
+                    className="ssh-pane-drag"
+                    draggable
+                    aria-label={`拖动${pane.label}分栏`}
+                    onDragStart={(event) => {
+                      dragging.current = pane.paneId;
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("application/x-huhu-ssh-pane", pane.paneId);
+                    }}
+                    onDragEnd={() => {
+                      dragging.current = undefined;
+                    }}
+                  >
+                    拖动
+                  </button>
+                )}
                 {render(pane, visible)}
               </div>
             );
