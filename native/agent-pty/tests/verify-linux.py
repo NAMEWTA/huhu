@@ -109,7 +109,7 @@ def approved_sh(file, image, names):
 
 def proof_for(helper, fixture, work, case):
     rule = case == "approved-rule"
-    shell = Path("/bin/sh").resolve(strict=True)
+    shell = Path("/bin/bash" if case == "shell-alias" else "/bin/sh").resolve(strict=True)
     program = shell if rule else work / "agent"
     if not rule:
         shutil.copy2(fixture, program)
@@ -187,6 +187,10 @@ def proof_for(helper, fixture, work, case):
                 return_image = image(shell)
                 return_image["id"] = identity(status("program", shell, return_image["sha256"])[3:])
                 launch["returnShell"] = {"image": return_image, "argv": [str(shell), "-i"]}
+                if case == "shell-alias":
+                    alias = work / "sh"
+                    alias.symlink_to(shell)
+                    launch["returnShell"].update({"source": str(alias), "argv": [str(alias), "-i"]})
             authorization = {
                 "version": 1,
                 "host": {"pid": host, "created": actual[4], "image": root},
@@ -240,9 +244,12 @@ def proof_for(helper, fixture, work, case):
             def saw(value):
                 return value in output()
 
-            if case in ("normal", "return-shell-crash"):
+            if case in ("normal", "return-shell-crash", "shell-alias"):
                 wait_for(lambda: saw(b"HUHU_PTY AGENT_EXIT 17"), "agent exit in the same terminal")
                 verify_return_shell(master, output, work, "HUHU_AGENT_FIXTURE", "fixture-ordinary", 43, 101)
+                if case == "shell-alias":
+                    os.write(master, b"if shopt -oq posix; then printf 'alias-%s\\n' preserved; fi\r")
+                    wait_for(lambda: saw(b"alias-preserved"), "Bash invoked as sh preserves POSIX mode")
                 if case == "return-shell-crash":
                     os.write(master, b'/bin/sleep 60 & printf "%s %s\\n" "$$" "$!" > return-shell-pids\r')
                     pid_file = work / "return-shell-pids"
@@ -260,7 +267,7 @@ def proof_for(helper, fixture, work, case):
 
             _, state = wait_for(reap_host, "outer host exit")
             host_waited = True
-            if case == "normal":
+            if case in ("normal", "shell-alias"):
                 assert os.waitstatus_to_exitcode(state) == 23
                 transcript.extend(read_pty(master))
                 assert b"fixture:redact [REDACTED]" in transcript and synthetic.encode() not in transcript
@@ -309,7 +316,7 @@ def main():
     args = parser.parse_args()
     helper = args.helper.resolve(strict=True)
     fixture = args.fixture.resolve(strict=True)
-    for case in ["normal", "host-crash", "return-shell-crash", "changed-file", "approved-rule"]:
+    for case in ["normal", "host-crash", "return-shell-crash", "changed-file", "approved-rule", "shell-alias"]:
         with tempfile.TemporaryDirectory(prefix="huhu-native-linux-") as work:
             proof_for(helper, fixture, Path(work).resolve(), case)
         print(f"{case}: passed")

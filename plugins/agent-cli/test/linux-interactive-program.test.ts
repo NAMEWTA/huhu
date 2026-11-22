@@ -107,7 +107,7 @@ test.skipIf(!platform)("Volta Pi 区分全局配对与项目 Node，保持 resol
     expect(plan.launch.argv).toEqual([fixture.node, fixture.piEntry, ...argv]);
     expect(plan.launch.files.map(({ path: file }) => file)).toEqual(expect.arrayContaining([fixture.chunk, fixture.theme]));
     expect(plan.launch.ordinary).not.toHaveProperty("PI_PACKAGE_DIR");
-    expect(plan.launch.returnShell).toMatchObject({ argv: [realpathSync.native(shell), "-i"] });
+    expect(plan.launch.returnShell).toMatchObject({ image: { path: realpathSync.native(shell) }, argv: [shell, "-i"], source: shell });
     expect(plan.launch.directory.path).toBe(fixture.cwd);
     expect(plan.launch.linuxInstallation).toMatchObject({ kind: "pi-node", localModules: expect.stringContaining("pi-coding-agent/node_modules") });
 

@@ -156,3 +156,21 @@ func TestLinuxApprovedRuleRejectsReturnShell(t *testing.T) {
 		t.Fatalf("an approved rule accepted a return shell: %v", err)
 	}
 }
+
+func TestLinuxReturnShellKeepsCheckedInvocationName(t *testing.T) {
+	plan := installationFixture(t)
+	alias := filepath.Join(plan.Directory.Path, "sh")
+	if err := os.Symlink(plan.Image.Path, alias); err != nil {
+		t.Fatal(err)
+	}
+	plan.ReturnShell = &returnShellSpec{Image: plan.Image, Source: alias, Argv: []string{alias, "-i"}}
+	pins, err := pinLinuxLaunch(plan, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pins.close()
+	plan.ReturnShell.Argv[0] = plan.Image.Path
+	if _, err := pinLinuxLaunch(plan, nil, false); !errors.Is(err, errInput) {
+		t.Fatalf("changed invocation accepted: %v", err)
+	}
+}

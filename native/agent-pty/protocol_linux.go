@@ -79,7 +79,11 @@ func pinLinuxLaunch(s launchSpec, protected []string, materialize bool) (_ *linu
 	paths := append([]string{s.Directory.Path}, s.Argv...)
 	if s.ReturnShell != nil {
 		r := s.ReturnShell
-		if r.Image.ID == nil || len(r.Argv) != 2 || r.Argv[0] != r.Image.Path || r.Argv[1] != "-i" {
+		invocation := r.Image.Path
+		if r.Source != "" {
+			invocation = r.Source
+		}
+		if r.Image.ID == nil || len(r.Argv) != 2 || r.Argv[0] != invocation || r.Argv[1] != "-i" {
 			return nil, errInput
 		}
 		paths = append(paths, r.Argv...)

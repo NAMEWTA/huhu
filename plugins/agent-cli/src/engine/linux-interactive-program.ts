@@ -271,7 +271,7 @@ export async function linuxInteractiveProgram(helper: PinnedImage, provider: str
       files: pinned,
       argv: [image.path, ...(pinnedEntry ? [pinnedEntry.path] : []), ...args],
       ...(installation && { linuxInstallation: installation }),
-      ...(returnImage && { returnShell: { image: returnImage, argv: [returnImage.path, "-i"], ...(returnSource && returnSource !== returnImage.path && { source: returnSource }) } }),
+      ...(returnImage && { returnShell: { image: returnImage, argv: [returnSource ?? returnImage.path, "-i"], ...(returnSource && returnSource !== returnImage.path && { source: returnSource }) } }),
     };
   } catch {
     throw invalid();
