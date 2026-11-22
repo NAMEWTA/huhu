@@ -1,11 +1,13 @@
 import { Button, Dialog, IconButton } from "@huhu/ui";
-import { CapabilityError, host as desktopHost, useEngine } from "@huhu/workbench";
+import { CapabilityError, host as desktopHost, useCapability, useEngine } from "@huhu/workbench";
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import type { z } from "zod";
 import { purposes, type AuthKind, type ConfigureHost, type HostAuthSummary, type Purpose } from "../engine/auth-profile.js";
 import { authLabels, credentialLabels, credentialState, type Host, type ManagedHost } from "./host-record.js";
 import { t } from "./i18n.js";
+import type { SshKeySummary } from "../shared/key-library.js";
+import type { DraftConnectionResult } from "../shared/draft-connection.js";
 
 function EditorField({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -23,24 +25,43 @@ const initialTags = (host: ManagedHost | null) => host?.tags.join("，") ?? "";
 
 export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { editing: ManagedHost | null; hosts: readonly Host[]; group: string; onClose(): void; onSaved(hostId: string): Promise<void> }) {
   const engine = useEngine();
+  const keys = useCapability<SshKeySummary[]>("ssh.keys.list", {}, { enabled: Boolean(desktopHost()) });
   const formId = useId();
+  const form = useRef<HTMLFormElement>(null);
   const working = useRef(false);
   const picking = useRef(false);
   const [busy, setBusy] = useState(false);
   const [choosingFile, setChoosingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [authKind, setAuthKind] = useState<AuthKind>(editing?.auth.kind ?? "password");
+  const [keyId, setKeyId] = useState(editing?.keyId ?? "");
   const [values, setValues] = useState<Partial<Record<Purpose, string>>>({});
   const [cleared, setCleared] = useState<Partial<Record<Purpose, boolean>>>({});
   const [jump, setJump] = useState(editing?.jumpHostIds[0] ?? "");
+  const [routeDisabled, setRouteDisabled] = useState(Boolean(editing?.routeDisabled));
+  const draftRun = useRef<AbortController | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<DraftConnectionResult | null>(null);
   const errorSummary = useRef<HTMLParagraphElement>(null);
-  const primaryPurpose = purposes[authKind][0];
+  const storedKey = authKind === "key" && keyId !== "";
+  const credentialPurposes = storedKey ? [] : purposes[authKind];
+  const primaryPurpose = credentialPurposes[0];
   useEffect(() => {
     if (error) errorSummary.current?.focus();
   }, [error]);
+  useEffect(() => () => draftRun.current?.abort(), []);
+
+  function clearTest() {
+    draftRun.current?.abort();
+    draftRun.current = null;
+    setTesting(false);
+    setTestResult(null);
+  }
 
   function close() {
-    if (!working.current && !picking.current) onClose();
+    if (working.current || picking.current) return;
+    clearTest();
+    onClose();
   }
 
   async function chooseIdentityFile() {
@@ -52,6 +73,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
       if (path) {
         setValues((current) => ({ ...current, identityFile: path }));
         setError(null);
+        clearTest();
       }
     } catch {
       setError("无法打开本机文件选择器，请重试或填写绝对路径。");
@@ -61,24 +83,22 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
     }
   }
 
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (working.current || picking.current) return;
-    const data = new FormData(event.currentTarget);
+  function readDraft(element: HTMLFormElement): ConfigureHost {
+    const data = new FormData(element);
     const text = (field: string) => String(data.get(field) ?? "").trim();
     const tags = String(data.get("tags") ?? "");
     const interval = text("keepaliveIntervalSec");
     const count = text("keepaliveCountMax");
     const timeout = text("connectTimeoutSec");
     const credentials: ConfigureHost["credentials"] = [];
-    for (const purpose of purposes[authKind]) {
+    for (const purpose of credentialPurposes) {
       const value = purpose === "identityFile" ? values[purpose]?.trim() : values[purpose];
       if (cleared[purpose]) credentials.push({ purpose, action: "clear" });
       else if (value) {
         credentials.push({ purpose, action: "replace", value, ...(editing?.authState[purpose] === "needs-reconfiguration" && { reconfigure: true }) });
       }
     }
-    const input: ConfigureHost = {
+    return {
       ...(editing && { hostId: editing.id }),
       expectedRevision: editing?.revision ?? null,
       name: text("name"),
@@ -100,9 +120,43 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
       ...(interval && { keepaliveIntervalSec: Number(interval) }),
       ...(count && { keepaliveCountMax: Number(count) }),
       jumpHostIds: jump ? [jump] : [],
+      ...(jump && { routeDisabled }),
       authKind,
+      ...(authKind === "key" && keyId !== (editing?.keyId ?? "") && { keyId: keyId || null }),
       credentials,
     };
+  }
+
+  async function testDraft() {
+    const element = form.current;
+    if (!element || working.current || picking.current || draftRun.current) return;
+    const input = readDraft(element);
+    if (!input.host || !input.user || input.port < 1 || input.port > 65535 || !Number.isInteger(input.port)) {
+      setTestResult({ state: "failed", message: "请检查服务器地址、端口和用户名。" });
+      return;
+    }
+    const run = new AbortController();
+    draftRun.current = run;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await engine.call<DraftConnectionResult>("ssh.hosts.testDraft", { ...input, name: input.name || input.host }, { signal: run.signal });
+      if (draftRun.current === run) setTestResult(result);
+    } catch (reason) {
+      if (draftRun.current === run) setTestResult({ state: "failed", message: reason instanceof Error ? reason.message : "测试连接失败。" });
+    } finally {
+      if (draftRun.current === run) {
+        draftRun.current = null;
+        setTesting(false);
+      }
+    }
+  }
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (working.current || picking.current) return;
+    const input = readDraft(event.currentTarget);
+    clearTest();
     working.current = true;
     setBusy(true);
     setError(null);
@@ -136,7 +190,17 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
         </>
       }
     >
-      <form id={formId} method="post" className="hu-form-body ssh-host-form" onSubmit={(event) => void save(event)} onChange={() => setError(null)}>
+      <form
+        ref={form}
+        id={formId}
+        method="post"
+        className="hu-form-body ssh-host-form"
+        onSubmit={(event) => void save(event)}
+        onChange={() => {
+          setError(null);
+          clearTest();
+        }}
+      >
         {error ? (
           <p ref={errorSummary} role="alert" tabIndex={-1} className="hu-field-error">
             {error}
@@ -161,7 +225,9 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   label="移除跳板"
                   onClick={() => {
                     setJump("");
+                    setRouteDisabled(false);
                     setError(null);
+                    clearTest();
                   }}
                 />
               </div>
@@ -171,7 +237,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   <select id={id} value="" onChange={(event) => setJump(event.target.value)}>
                     <option value="">直接连接</option>
                     {hosts
-                      .filter((host) => host.id !== editing?.id)
+                      .filter((host) => host.id !== editing?.id && "revision" in host)
                       .map((host) => (
                         <option key={host.id} value={host.id}>
                           {host.name}（{host.host}）
@@ -182,6 +248,11 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
               </EditorField>
             )}
           </div>
+          {jump && (
+            <label className="row">
+              <input type="checkbox" checked={!routeDisabled} onChange={(event) => setRouteDisabled(!event.currentTarget.checked)} /> 启用跳板路由
+            </label>
+          )}
           <details
             className="hu-stack"
             onInvalid={(event) => {
@@ -218,10 +289,34 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
             )}
           </EditorField>
           {authKind === "agent" ? <p className="hu-hint-text">连接时检查本机系统 ssh-agent（SSH_AUTH_SOCK）。</p> : null}
-          {purposes[authKind].map((purpose) => {
+          {authKind === "key" && (keys.data || keyId) && (
+            <EditorField label="私钥来源">
+              {(id) => (
+                <select
+                  id={id}
+                  value={keyId}
+                  onChange={(event) => {
+                    setKeyId(event.target.value);
+                    setValues({});
+                    setCleared({});
+                  }}
+                >
+                  <option value="">为此主机配置私钥</option>
+                  {keyId && !keys.data?.some((key) => key.id === keyId) && <option value={keyId}>密钥库中的原密钥（不可用）</option>}
+                  {keys.data?.map((key) => (
+                    <option key={key.id} value={key.id} disabled={!key.available && key.id !== editing?.keyId}>
+                      {key.name} · {key.keyType}
+                      {key.available ? "" : " · 本机不可用"}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </EditorField>
+          )}
+          {credentialPurposes.map((purpose) => {
             const label = credentialLabels[purpose];
             const canClear = editing && editing.authState[purpose] && editing.authState[purpose] !== "unconfigured";
-            const required = !editing && purpose === primaryPurpose;
+            const required = (!editing || Boolean(editing.keyId)) && purpose === primaryPurpose;
             const fieldValue = values[purpose] ?? "";
             return (
               <EditorField key={purpose} label={label}>
@@ -257,6 +352,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                               setValues((current) => ({ ...current, [purpose]: "" }));
                               setCleared((current) => ({ ...current, [purpose]: !current[purpose] }));
                               setError(null);
+                              clearTest();
                             }}
                           >
                             {cleared[purpose] ? `撤销清空${label}` : `清空${label}`}
@@ -271,6 +367,28 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
           })}
           {editing && editing.auth.kind !== authKind ? <p className="hu-hint-text">切换认证方式时，系统会清理旧方式专用的凭据。</p> : null}
         </fieldset>
+        <div className="ssh-workspace-controls">
+          {testing ? (
+            <Button type="button" onClick={clearTest}>
+              取消测试
+            </Button>
+          ) : (
+            <Button type="button" disabled={busy || choosingFile} onClick={() => void testDraft()}>
+              测试连接
+            </Button>
+          )}
+          <span role="status">
+            {testing
+              ? "正在测试连接…"
+              : testResult?.state === "authenticated"
+                ? "测试成功，已通过认证。"
+                : testResult?.state === "reachable"
+                  ? `第 ${testResult.hop + 1} 跳可达，${testResult.reason === "host-key" ? "需要在正式连接时确认指纹" : "等待认证"}。`
+                  : testResult?.state === "failed"
+                    ? `${testResult.hop === undefined ? "" : `第 ${testResult.hop + 1} 跳 · `}${testResult.message}`
+                    : ""}
+          </span>
+        </div>
       </form>
     </Dialog>
   );

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, splitTree, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import type { HostConfigurations } from "./host-configurations.js";
 import type { SshManager } from "./manager.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
@@ -19,6 +19,7 @@ const SavedRun = z
     templateId: z.uuid().optional(),
     name: WorkspaceName,
     generation: z.number().int().min(1),
+    layoutRevision: z.uuid().optional(),
     layout: WorkspaceLayout,
     panes: z.array(Binding).min(1).max(MAX_WORKSPACE_PANES),
   })
@@ -30,7 +31,7 @@ const SavedRun = z
 const State = z.strictObject({ version: z.literal(1), runs: z.array(SavedRun) });
 type SavedRun = z.infer<typeof SavedRun>;
 type PaneState = Pick<WorkspaceRunPane, "sessionId" | "error">;
-type LiveRun = { generation: number; controller: AbortController; panes: Map<string, PaneState> };
+type LiveRun = { generation: number; panes: Map<string, PaneState>; controllers: Map<string, AbortController> };
 
 export class WorkspaceRuns {
   private live = new Map<string, LiveRun>();
@@ -104,6 +105,42 @@ export class WorkspaceRuns {
     });
   }
 
+  changeLayout({ id, expectedLayoutRevision, change }: ChangeWorkspaceRun, signal: AbortSignal): Promise<WorkspaceRun> {
+    return this.hosts.withStableDirectory(async () => {
+      const { runs, fileVersion } = this.read();
+      const current = this.find(runs, id);
+      const revision = current.layoutRevision ?? current.id;
+      if (expectedLayoutRevision !== revision) throw errors.versionConflict(revision);
+      const byId = new Map(current.panes.map((pane) => [pane.paneId, pane]));
+      let layout = current.layout;
+      let panes: SavedRun["panes"];
+      if (change.action === "layout") {
+        if (change.paneIds.length !== byId.size || new Set(change.paneIds).size !== byId.size || change.paneIds.some((paneId) => !byId.has(paneId))) throw errors.invalidInput("分栏位置必须包含当前的所有分栏");
+        panes = change.paneIds.map((paneId) => byId.get(paneId)!);
+        layout = change.layout;
+      } else {
+        if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
+        if (byId.size === 1) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
+        panes = current.panes.filter(({ paneId }) => paneId !== change.paneId);
+        if (layout.kind === "custom") layout = { kind: "custom", tree: splitTree(panes.length) };
+      }
+      const problem = layoutProblem(panes, layout);
+      if (problem) throw errors.invalidInput(problem);
+      const saved = { ...current, layout, panes, layoutRevision: randomUUID() };
+      await this.write(
+        runs.map((run) => (run.id === id ? saved : run)),
+        fileVersion,
+        signal,
+      );
+      if (change.action === "close") {
+        const live = this.live.get(id);
+        if (live) this.releasePane(live, change.paneId);
+      }
+      this.changed(id);
+      return this.view(saved);
+    });
+  }
+
   saveTemplate(id: string, name: string, signal: AbortSignal) {
     const run = this.find(this.read().runs, id);
     const panes = run.panes.map(({ hostId, loginCommand }) => ({ hostId, ...(loginCommand === undefined ? {} : { loginCommand }) }));
@@ -117,18 +154,20 @@ export class WorkspaceRuns {
 
   private begin(run: SavedRun): void {
     if (this.disposed) return;
-    const live: LiveRun = { generation: run.generation, controller: new AbortController(), panes: new Map() };
+    const live: LiveRun = { generation: run.generation, controllers: new Map(), panes: new Map() };
     this.live.set(run.id, live);
     for (const pane of run.panes) {
+      const controller = new AbortController();
+      live.controllers.set(pane.paneId, controller);
       void this.manager
-        .openWorkspaceShell(pane, live.controller.signal, () => this.changed(run.id))
+        .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id))
         .then(
           (shell) => {
-            if (this.live.get(run.id) === live) live.panes.set(pane.paneId, { sessionId: shell.id });
+            if (this.live.get(run.id) === live && !controller.signal.aborted) live.panes.set(pane.paneId, { sessionId: shell.id });
             else this.manager.closeShell(shell.id);
           },
           (error: unknown) => {
-            if (this.live.get(run.id) !== live) return;
+            if (this.live.get(run.id) !== live || controller.signal.aborted) return;
             live.panes.set(pane.paneId, {
               error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
             });
@@ -145,8 +184,15 @@ export class WorkspaceRuns {
     const live = this.live.get(id);
     if (!live) return;
     this.live.delete(id);
-    live.controller.abort();
-    for (const { sessionId } of live.panes.values()) if (sessionId) this.manager.closeShell(sessionId);
+    for (const paneId of live.controllers.keys()) this.releasePane(live, paneId);
+  }
+
+  private releasePane(live: LiveRun, paneId: string): void {
+    live.controllers.get(paneId)?.abort();
+    live.controllers.delete(paneId);
+    const shell = live.panes.get(paneId)?.sessionId;
+    live.panes.delete(paneId);
+    if (shell) this.manager.closeShell(shell);
   }
 
   private view(run: SavedRun): WorkspaceRun {
@@ -158,6 +204,8 @@ export class WorkspaceRuns {
       if (pane?.error) return { ...base, phase: "failed", error: pane.error };
       if (pane?.sessionId) return { ...base, phase: this.manager.shellInfo(pane.sessionId)?.state === "running" ? "ready" : "ended", sessionId: pane.sessionId };
       const prompt = this.manager.workspacePrompt(hostId, target);
+      const authPrompt = this.manager.workspaceAuthentication(hostId, target);
+      if (authPrompt) return { ...base, phase: "authentication", authPrompt };
       return prompt ? { ...base, phase: "trust", prompt } : { ...base, phase: "connecting" };
     });
     return { ...run, panes };

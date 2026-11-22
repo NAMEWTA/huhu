@@ -22,10 +22,35 @@ export const HostKeyPrompt = z.object({
 });
 export type HostKeyPrompt = z.infer<typeof HostKeyPrompt>;
 
-const connection = { hostId: z.string(), attemptId: z.string(), source: z.literal("external").optional() };
+export const SshAuthenticationPrompt = z.strictObject({
+  promptId: z.string(),
+  attemptId: z.string(),
+  target: ConnectionHost,
+  server: ConnectionHost,
+  hop: z.int().nonnegative(),
+  name: z.string().max(2048),
+  instructions: z.string().max(4096),
+  questions: z
+    .array(z.strictObject({ text: z.string().max(2048), echo: z.boolean() }))
+    .min(1)
+    .max(32),
+});
+export type SshAuthenticationPrompt = z.infer<typeof SshAuthenticationPrompt>;
+
+const HopStage = z.enum(["dialing", "trust", "authenticating", "answering", "forwarding", "connected", "failed"]);
+export const ConnectionHop = ConnectionHost.extend({
+  user: z.string(),
+  auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
+  stage: HopStage,
+  timeline: z.array(z.strictObject({ stage: HopStage, at: z.iso.datetime() })),
+});
+export type ConnectionHop = z.infer<typeof ConnectionHop>;
+
+const connection = { hostId: z.string(), attemptId: z.string(), source: z.literal("external").optional(), route: z.array(ConnectionHop).optional(), connectionId: z.string().optional() };
 export const ConnectionStatus = z.discriminatedUnion("state", [
   z.object({ ...connection, state: z.enum(["connecting", "connected", "disconnected"]) }),
   z.object({ ...connection, state: z.enum(["waiting", "key-changed"]), prompt: HostKeyPrompt, workspace: z.literal(true).optional() }),
+  z.object({ ...connection, state: z.literal("auth-waiting"), authPrompt: SshAuthenticationPrompt, workspace: z.literal(true).optional() }),
   z.object({ ...connection, state: z.literal("failed"), message: z.string(), hop: z.int().nonnegative().optional(), server: ConnectionHost.optional() }),
 ]);
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>;

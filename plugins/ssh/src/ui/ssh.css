@@ -981,6 +981,30 @@
     padding: 8px;
   }
 
+  .ssh-workspace-spot {
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: auto;
+  }
+
+  .ssh-workspace-spot[data-active="true"] > .ssh-workspace-run-pane {
+    border-color: var(--accent);
+  }
+
+  .ssh-workspace-spot:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .ssh-pane-drag {
+    cursor: grab;
+  }
+
+  .ssh-recording-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .ssh-workspace-trust {
     overflow-wrap: anywhere;
   }

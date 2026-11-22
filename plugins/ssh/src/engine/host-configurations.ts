@@ -7,6 +7,8 @@ import ssh2, { type ConnectConfig } from "ssh2";
 import type { z } from "zod";
 import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
+import { KeyLibrary } from "./key-library.js";
+import type { AddSshKey, SshKeySummary } from "../shared/key-library.js";
 
 export type SshCredentialHost = Pick<CredentialOwner<HostDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 export type ManagedHost = z.infer<typeof ManagedHostView> & { configId: string };
@@ -17,7 +19,8 @@ type StoredHost = CredentialSummary & { definition: HostDefinition };
 type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
 
 function authError(reason: string): HuhuError {
-  return new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用，请在主机配置中检查凭据", { details: { reason } });
+  const message = reason === "identity-file-unavailable" ? "本机身份文件不可用，请检查路径和文件权限" : reason === "invalid-private-key-or-passphrase" ? "无法解锁私钥，请检查文件格式和口令" : "SSH 本机认证不可用，请在主机配置中检查凭据";
+  return new HuhuError("SSH_AUTH_FAILED", message, { details: { reason } });
 }
 
 function translate(error: unknown): never {
@@ -68,26 +71,31 @@ function summary({ entityId, revision, authState }: CredentialSummary, authKind:
   return { hostId: entityId, revision, authKind, configured, authState };
 }
 
-function asHost(stored: StoredHost): ManagedHost {
+function asHost(stored: StoredHost, keys?: ReadonlyMap<string, boolean>): ManagedHost {
   const { format: _format, authKind, ...profile } = stored.definition;
   const { hostId: id, revision, configured, authState } = summary(stored, authKind);
-  return { ...profile, id, revision, configured, authState, auth: { kind: authKind, source: "ssh" } };
+  const available = profile.keyId ? keys?.get(profile.keyId) === true : configured;
+  const state = profile.keyId ? ({ privateKey: available ? "configured" : "temporarily-unavailable" } as const) : authState;
+  return { ...profile, id, revision, configured: available, authState: state, auth: { kind: authKind, source: "ssh" } };
 }
 
 export class HostConfigurations {
   private readonly owner: ModuleCredentials<HostDefinition> | undefined;
+  private readonly keys: KeyLibrary;
   private tail: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly legacy: HostStore,
     host?: SshCredentialHost,
   ) {
+    this.keys = new KeyLibrary(host);
     if (host) {
       this.owner = new ModuleCredentials({
         ...host,
         pluginId: "ssh",
         definition: HostDefinition,
         targets: (definition) => {
+          if (definition.keyId) return {};
           const target = JSON.stringify([definition.host.toLowerCase(), definition.port, definition.user]);
           return Object.fromEntries(purposes[definition.authKind].map((purpose) => [purpose, target]));
         },
@@ -109,7 +117,25 @@ export class HostConfigurations {
   async list(): Promise<HostRecord[]> {
     const managed = (await this.owner?.list().catch(translate)) ?? [];
     const legacy = this.legacy.list().filter((host) => !OwnedHostId.safeParse(host.id).success);
-    return [...legacy, ...managed.map(asHost)].sort((left, right) => left.name.localeCompare(right.name));
+    const keys = managed.some(({ definition }) => definition.keyId) ? new Map((await this.keys.list()).map(({ id, available }) => [id, available])) : undefined;
+    return [...legacy, ...managed.map((host) => asHost(host, keys))].sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async listKeys(): Promise<SshKeySummary[]> {
+    const [keys, hosts] = await Promise.all([this.keys.list(), this.owner?.list().catch(translate)]);
+    const referenced = new Set(hosts?.map(({ definition }) => definition.keyId));
+    return keys.map((key) => ({ ...key, referenced: referenced.has(key.id) }));
+  }
+
+  async addKey(input: AddSshKey, signal: AbortSignal): Promise<SshKeySummary> {
+    return { ...(await this.keys.add(input, signal)), referenced: false };
+  }
+
+  removeKey(id: string, revision: string, signal: AbortSignal): Promise<void> {
+    return this.mutate(async () => {
+      if ((await this.credentials().list()).some(({ definition }) => definition.keyId === id)) throw errors.invalidInput("请先移除主机对该密钥的引用");
+      await this.keys.remove(id, revision, signal);
+    });
   }
 
   withStableDirectory<T>(operation: () => Promise<T>): Promise<T> {
@@ -129,17 +155,25 @@ export class HostConfigurations {
 
   configure(input: ConfigureHost, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
-      const { hostId, expectedRevision, authKind, credentials, ...profile } = input;
+      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, ...profile } = input;
       if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
       const owner = this.credentials();
       const existing = await owner.list();
       const id = hostId ?? `host-owned-${randomUUID().replaceAll("-", "")}`;
       const old = this.checkRevision(id, expectedRevision, existing);
-      const settings = validateHost(profile, id, [...this.legacy.list(), ...existing.map(asHost)]);
-      const definition: HostDefinition = { ...settings, authKind, configId: randomUUID(), format: 1 };
-      const applicable = new Set<Purpose>(purposes[authKind]);
+      if (assertCurrent && (selectedKey !== undefined || (old?.definition.keyId && credentials.some(({ action }) => action !== "keep")))) throw errors.permissionDenied("SSH 密钥库关联");
+      if (assertCurrent && routeDisabled !== undefined && routeDisabled !== Boolean(old?.definition.routeDisabled)) throw errors.permissionDenied("SSH 跳板路由状态");
+      if (selectedKey && authKind !== "key") throw errors.invalidInput("只可为私钥认证选择密钥库");
+      const keyId = authKind === "key" ? (selectedKey === undefined ? old?.definition.keyId : selectedKey) : undefined;
+      const selected = keyId ? (await this.keys.list()).find((key) => key.id === keyId) : undefined;
+      if (keyId && (!selected || (!selected.available && keyId !== old?.definition.keyId))) throw errors.invalidInput("所选密钥在本机不可用");
+      const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && old?.definition.routeDisabled);
+      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
+      const definition: HostDefinition = { ...settings, authKind, ...(keyId && { keyId }), configId: randomUUID(), format: 1 };
+      const applicable = new Set<Purpose>(keyId ? [] : purposes[authKind]);
       const actions = new Map<string, CredentialAction>();
       for (const patch of credentials) {
+        if (keyId && patch.action === "keep" && purposes.key.includes(patch.purpose)) continue;
         if (actions.has(patch.purpose) || !applicable.has(patch.purpose)) throw errors.invalidInput("SSH 凭据补丁与认证方式不符");
         if (patch.purpose === "identityFile" && patch.action === "replace" && (!path.isAbsolute(patch.value) || /^(?:\\\\|\/\/)/.test(patch.value))) throw errors.invalidInput("SSH 身份文件需要本机绝对路径");
         actions.set(patch.purpose, patch);
@@ -147,11 +181,12 @@ export class HostConfigurations {
       for (const purpose of applicable) if (!actions.has(purpose)) actions.set(purpose, { purpose, action: "keep" });
       if (old) {
         for (const purpose of purposes[old.definition.authKind]) {
-          if (!applicable.has(purpose) && old.authState[purpose] !== "unconfigured") actions.set(purpose, { purpose, action: "clear" });
+          if (!applicable.has(purpose) && old.authState[purpose] && old.authState[purpose] !== "unconfigured") actions.set(purpose, { purpose, action: "clear" });
         }
       }
       assertCurrent?.();
-      return summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
+      const saved = summary(await owner.save({ entityId: id, expectedRevision, definition, actions: [...actions.values()], signal }), authKind);
+      return selected ? { ...saved, configured: selected.available, authState: { privateKey: selected.available ? "configured" : "temporarily-unavailable" } } : saved;
     });
   }
 
@@ -186,7 +221,8 @@ export class HostConfigurations {
       const existing = await owner.list();
       const from = this.checkRevision(input.hostId, input.expectedRevision, existing)!;
       const entityId = `host-owned-${randomUUID().replaceAll("-", "")}`;
-      const definition = validateHost({ ...from.definition, name: input.name, configId: randomUUID() }, entityId, [...this.legacy.list(), ...existing.map(asHost)]);
+      const { keyId: _keyId, ...source } = from.definition;
+      const definition = validateHost({ ...source, name: input.name, configId: randomUUID() }, entityId, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
       const actions = purposes[definition.authKind].map((purpose) => ({ purpose, action: "keep" as const }));
       assertCurrent?.();
       return summary(await owner.save({ entityId, expectedRevision: null, definition, actions, signal }), definition.authKind);
@@ -204,13 +240,63 @@ export class HostConfigurations {
     });
   }
 
+  async syncIdentityFile(host: ManagedHost): Promise<string | null> {
+    if (host.auth.kind !== "identity-file" || host.authState.identityFile === "unconfigured") return null;
+    if (host.authState.identityFile !== "configured") throw authError("identity-file-unavailable");
+    const result = await this.credentials()
+      .use(host.id, ["identityFile"], async (_definition, values, revision) => ({
+        revision,
+        path: values.get("identityFile")!,
+      }))
+      .catch(translate);
+    if (result.revision !== host.revision) throw errors.versionConflict(result.revision);
+    return result.path;
+  }
+
+  /** Existing secrets are eligible only at their saved endpoint, even when omitted in the draft. */
+  async withDraftAuthentication(input: ConfigureHost, saved: ManagedHost | undefined, connect: (auth: ConnectionAuth) => Promise<void>): Promise<void> {
+    const sameTarget = saved?.revision === input.expectedRevision && saved.auth.kind === input.authKind && saved.host.toLowerCase() === input.host.toLowerCase() && saved.port === input.port && saved.user === input.user;
+    if (input.keyId && input.authKind !== "key") throw errors.invalidInput("只可为私钥认证选择密钥库");
+    const keyId = input.authKind === "key" ? (input.keyId === undefined && sameTarget ? saved.keyId : input.keyId) : undefined;
+    const applicable = purposes[input.authKind];
+    const patches = new Map(input.credentials.map((patch) => [patch.purpose, patch]));
+    if (patches.size !== input.credentials.length || [...patches.keys()].some((purpose) => !applicable.includes(purpose))) throw errors.invalidInput("SSH 凭据补丁与认证方式不符");
+    const identity = patches.get("identityFile");
+    if (identity?.action === "replace" && (!path.isAbsolute(identity.value) || /^(?:\\\\|\/\/)/.test(identity.value))) throw errors.invalidInput("SSH 身份文件需要本机绝对路径");
+    if (keyId) return this.keys.use(keyId, connect);
+    const retained = sameTarget && !saved.keyId ? applicable.filter((purpose) => saved.authState[purpose] === "configured" && (!patches.has(purpose) || patches.get(purpose)?.action === "keep")) : [];
+    const applyDraft = async (kept: ReadonlyMap<string, string>) => {
+      const values = new Map(kept);
+      for (const patch of patches.values()) {
+        if (patch.action === "replace") values.set(patch.purpose, patch.value);
+      }
+      const primary = applicable[0];
+      if (primary && !values.has(primary)) await connect({});
+      else await connect(buildAuth(input.authKind, values));
+    };
+    if (!saved || !retained.length) return applyDraft(new Map());
+    const result = await this.credentials()
+      .use(saved.id, retained, async (_definition, values, revision) => {
+        try {
+          if (revision !== saved.revision) throw errors.versionConflict(revision);
+          await applyDraft(values);
+          return null;
+        } catch (error) {
+          return error instanceof HuhuError ? error : authError("connection-setup-failed");
+        }
+      })
+      .catch(translate);
+    if (result) throw result;
+  }
+
   async withAuthentication(host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>): Promise<void> {
-    const required = purposes[host.auth.kind].filter((purpose) => purpose !== "passphrase" || host.authState[purpose] !== "unconfigured");
+    const required = host.keyId ? [] : purposes[host.auth.kind].filter((purpose) => purpose !== "passphrase" || host.authState[purpose] !== "unconfigured");
     const result = await this.credentials()
       .use(host.id, required, async (definition, values, revision) => {
         try {
           if (revision !== host.revision || definition.configId !== host.configId) throw new HuhuError("VERSION_CONFLICT", "SSH 主机配置已更新，请重新连接");
-          await connect(buildAuth(definition.authKind, values));
+          if (definition.keyId) await this.keys.use(definition.keyId, connect);
+          else await connect(buildAuth(definition.authKind, values));
           return null;
         } catch (error) {
           return error instanceof HuhuError ? error : authError("connection-setup-failed");

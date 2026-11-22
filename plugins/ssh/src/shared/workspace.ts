@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HostKeyPrompt } from "./trust.js";
+import { HostKeyPrompt, SshAuthenticationPrompt } from "./trust.js";
 
 export const MAX_WORKSPACE_PANES = 12;
 export const PRESETS = ["one", "two", "three", "main-right", "main-bottom", "tabs"] as const;
@@ -57,9 +57,10 @@ const RunPane = z.object({
   paneId: z.uuid(),
   hostId: z.string(),
   label: z.string(),
-  phase: z.enum(["reconnect", "connecting", "trust", "ready", "failed", "ended"]),
+  phase: z.enum(["reconnect", "connecting", "trust", "authentication", "ready", "failed", "ended"]),
   sessionId: z.string().optional(),
   prompt: HostKeyPrompt.optional(),
+  authPrompt: SshAuthenticationPrompt.optional(),
   error: z.object({ code: z.string(), message: z.string() }).optional(),
 });
 export const WorkspaceRun = z.object({
@@ -68,11 +69,21 @@ export const WorkspaceRun = z.object({
   templateId: z.uuid().optional(),
   name: WorkspaceName,
   generation: z.number().int().min(1),
+  layoutRevision: z.uuid().optional(),
   layout: WorkspaceLayout,
   panes: z.array(RunPane).min(1).max(MAX_WORKSPACE_PANES),
 });
 export type WorkspaceRun = z.infer<typeof WorkspaceRun>;
 export type WorkspaceRunPane = WorkspaceRun["panes"][number];
+
+const runChange = z.strictObject({ id: z.uuid(), expectedLayoutRevision: z.uuid() });
+export const ChangeWorkspaceRun = runChange.extend({
+  change: z.discriminatedUnion("action", [
+    z.strictObject({ action: z.literal("layout"), layout: WorkspaceLayout, paneIds: z.array(z.uuid()).min(1).max(MAX_WORKSPACE_PANES) }),
+    z.strictObject({ action: z.literal("close"), paneId: z.uuid() }),
+  ]),
+});
+export type ChangeWorkspaceRun = z.infer<typeof ChangeWorkspaceRun>;
 
 // Leaves correspond to panes in reading order, as in Motty workspace/spec.go.
 export function splitTree(count: number): SplitTree {

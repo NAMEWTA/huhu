@@ -378,3 +378,88 @@ describe("Shell（ACC-SH-05）", () => {
     expect(v.ended).toBeGreaterThan(0);
   });
 });
+
+test("交互认证按当前尝试、跳点和轮次消费，多问 OTP 不写审计", async () => {
+  const { Server } = await import("ssh2");
+  const hostKey = genHostKey();
+  const server = new Server({ hostKeys: [hostKey] }, (client) => {
+    client.on("error", () => undefined);
+    client.on("authentication", (ctx) => {
+      if (ctx.method !== "keyboard-interactive") return ctx.reject(["keyboard-interactive"]);
+      ctx.prompt(
+        [
+          { prompt: "Account alias", echo: true },
+          { prompt: "Phrase", echo: false },
+        ],
+        (first) => {
+          if (first.join("/") !== "fixture/only-for-this-round") return ctx.reject();
+          ctx.prompt([{ prompt: "OTP", echo: false }], (second) => (second[0] === "042913" ? ctx.accept() : ctx.reject()));
+        },
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { mgr, add } = setup();
+  closers.push(() => {
+    server.close();
+  });
+  const host = add((server.address() as import("node:net").AddressInfo).port);
+  const { attemptId } = mgr.start(host.id);
+  const read = () => mgr.connectionStatuses().find((status) => status.attemptId === attemptId);
+  await expect.poll(() => read()?.state).toBe("waiting");
+  const waiting = read();
+  if (waiting?.state !== "waiting") throw new Error("Missing host key prompt");
+  expect(mgr.decide(attemptId, 0, true, waiting.prompt.promptId, false)).toBe(true);
+  await expect.poll(() => read()?.state).toBe("auth-waiting");
+  const first = read();
+  if (first?.state !== "auth-waiting") throw new Error("Missing authentication prompt");
+  expect(first.authPrompt.questions.map(({ echo }) => echo)).toEqual([true, false]);
+  expect(mgr.decideAuthentication(attemptId, 1, first.authPrompt.promptId, ["fixture", "only-for-this-round"])).toBe(false);
+  expect(mgr.decideAuthentication(attemptId, 0, first.authPrompt.promptId, ["fixture"])).toBe(false);
+  expect(mgr.decideAuthentication(attemptId, 0, first.authPrompt.promptId, ["fixture", "only-for-this-round"])).toBe(true);
+  await expect
+    .poll(() => {
+      const status = read();
+      return status?.state === "auth-waiting" && status.authPrompt.promptId !== first.authPrompt.promptId;
+    })
+    .toBe(true);
+  const second = read();
+  if (second?.state !== "auth-waiting") throw new Error("Missing OTP prompt");
+  expect(mgr.decideAuthentication(attemptId, 0, first.authPrompt.promptId, ["042913"])).toBe(false);
+  expect(mgr.decideAuthentication(attemptId, 0, second.authPrompt.promptId, ["042913"])).toBe(true);
+  await expect.poll(() => read()?.state).toBe("connected");
+  expect(JSON.stringify(mgr.auditList())).not.toMatch(/only-for-this-round|042913/);
+});
+
+test("录制从明确开始处捕获 UTF-8 输出，停止后可按会话重新读取", async () => {
+  const { TerminalRecordings } = await import("../src/engine/terminal-recordings.js");
+  const dir = tmp();
+  const wire: { current?: (b: Buffer) => void } = {};
+  const manager = {
+    shellInfo(id: string) {
+      return { id, state: "running" as const, hostId: "fixture", name: "shell", createdAt: new Date().toISOString() };
+    },
+    attachShell(_id: string, view: { onData(data: Buffer): void; onEnd(): void }, replay = true) {
+      wire.current = view.onData;
+      if (replay) view.onData(Buffer.from("输出在录制开始前"));
+      return {
+        detach: () => {
+          delete wire.current;
+        },
+        write: () => undefined,
+        resize: () => undefined,
+      };
+    },
+  };
+  const records = new TerminalRecordings(manager, path.join(dir, "recordings"));
+  const id = records.start("ssh-record-a").id;
+  const encoded = Buffer.from("\u001b[31m中文字\u001b[0m");
+  wire.current?.(encoded.subarray(0, 7));
+  wire.current?.(encoded.subarray(7));
+  records.stop("ssh-record-a");
+  wire.current?.(Buffer.from("录制已停止"));
+  const reopened = new TerminalRecordings(manager, path.join(dir, "recordings"));
+  expect(reopened.list("ssh-record-b")).toEqual([]);
+  expect(reopened.list("ssh-record-a")).toHaveLength(1);
+  expect(reopened.read(id)).toMatchObject({ text: "中文字", summary: { reason: "stopped", truncated: false } });
+});
