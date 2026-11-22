@@ -33,6 +33,7 @@
 - 2026-11-22 Linux 在 `resume-linux` 保留 `cc671b5f` 与 `53e516ca` 的恢复检查点。当前实施位于 `temp/issue-worktrees/integration`。#7 候选已合为 `ade79b58`，通过合并回归。SSH 接线已有 Engine 和 Linux 本地 PTY 定向证据。桌面工作台与 CLI/MCP 的串联验收待运行。 [#7 合并与接线证据](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#lead-合并与接线)
 - 已核对 GitHub 的 #3–#10 正文与本地快照一致，八项仍开放且没有新评论。#7 接线候选 `690e9097` 的规格和规范审查已完成，先修复外部草稿试连、Unix 套接字权限、布局和录制。录制回放集成提交为 `67d1f008`。#7 的桌面工作台、其他新增公开能力及异常资源回收仍按成员规格验收。 [#7 当前证据](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md)
 - #5 T7.1 已在 `690e9097` 按 HTTP Engine 复验两项，旧监督记录保留原字节，生产派遣与抽屉查询由 Tasks 处理。W8.3 安装候选和 W8.2、T7.2 的独立签收仍待共同制品。 [T7.1 复验](../2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md#集成版本复查)
+- #7 外部工作区换栏与关栏在 `f2159c2e` 通过 CLI/HTTP MCP 定向回归。Linux PTY 已分别从随包路径和 PATH 验证重挂、Web 隔离及 SSH 停用回收。快捷文本按终端模式校验并逐分栏回报。 [定向证据](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#快捷文本core-路径及外部布局)
 - #7 继续核对新动作授权后的领域处理，以及 OpenSSH CA、批量路由、出站代理、跨窗口、终端工具栏和日志回放缺口。#4 与 #5 的组合入口先核对 T7.1 的直接调用方和回执合同，再为 W8.3 固定共同候选，分别验证 W8.2 与 T7.2。#6 和 #9 在实际模块凭据与授权联验中汇合。#3 与 #10 在关窗和草稿离场路径汇合。
 - 最终检查在固定组合提交上串行执行，全部改动合入 `main` 后运行一次全量 E2E，收尾时生成并检查候选包。逐 Issue 按实际 SHA、平台和观察结果记录通过、失败、跳过及未运行。
 

@@ -71,3 +71,14 @@ Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他�
 实施记录 `t4x/report01.md` 对应提交 `4eade18a`，合入集成为 `67d1f008`。停止后的录制支持播放、暂停、时间定位和会话筛选。时间点和文本有上限，可按原捕获时间读取净化文本。旧录制和无效时间轴继续显示正文。安装环境的 SSH 单包类型检查、`manager.test.ts` 22 项及 `remaining.spec.ts` 语法检查通过，日志为 `h7-playback-67d1f008.log`。Electron 的回放、搜索、会话隔离和原 Shell 无新增输入仍待 E2E。
 
 强制使临时文件重命名失败时，首次复查显示丢失「待保存」状态。修复后可在日志页用同一记录重试，原始停止点和文本保留，停止后输出仍未录入。定向运行 `manager.test.ts -t "录制"`，4 项通过，19 项由筛选排除。SSH 单包类型检查通过。本机日志为 `h7-recording-retry-before.log` 与 `h7-recording-retry-after.log`。
+
+## 快捷文本、Core 路径及外部布局
+
+| 集成提交 | 已复核行为 | 定向证据 |
+| --- | --- | --- |
+| `4198354d` | 只在当前受控终端写入快捷文本。按是否启用分段粘贴校验制表符和换行，拒绝其他终端控制字符，按目标显示写入结果。 | `packages/ui/test/terminal-paste.test.ts` 由 3 项失败变为 3 项通过，UI 与 SSH 单包类型检查通过。日志 `h7-shortcut-before.log`、`h7-shortcut-after.log`。真实桌面多目标用例仍待跑。 |
+| `96b22c0a` | 随包绝对路径和仅在 PATH 上的 Core 均可打开真 PTY。缺失二进制时返回不可用。已启动的 Core 可在 PATH 变化后正常停止。 | `apps/engine/test/web-share.test.ts` 3 项通过，Agent CLI 的 `findOnPath` 回归 1 项通过，23 项由筛选排除。Herdr 客户端、Agent CLI、SSH 和 Engine 定向类型检查通过。日志 `h7-herdr-path-before.log`、`h7-herdr-path-after.log`。 |
+| `f2159c2e` | CLI 和 HTTP MCP 只调整本主体持有、当前主机路由仍授权的运行。换栏保留原会话，单独关闭分栏后，其余路由及 Shell 保留。回执绑定原授权、代次和布局版本。 | `public-resources.engine.test.ts -t "changes only the owned SSH workspace layout\|isolates SSH terminal I/O"` 4 项通过，46 项由筛选排除。SSH 单包类型检查及工作台分栏过滤回归 1 项通过，7 项由筛选排除。日志 `h7-external-layout-before.log`、`h7-external-layout-after.log`。 |
+| `3456b450` | 本机 PTY、由桌面选择的 OpenSSH 文件与工作台认证应答保留可用能力登记。CLI 和 MCP 的认证应答走自己的连接挑战入口。 | `domain-exposure.engine.test.ts` 2 项、Engine 本机 PTY 2 项、OpenSSH 同步 1 项、CLI/MCP 外部认证 2 项通过。剩余过滤用例数见 `h7-device-policy-before.log`、`h7-device-policy-after.log`。 |
+
+私有 Core 在标准关闭路径的测试不覆盖 Engine 崩溃、启动被中断、Unix 上主动脱离 PTY 的后代或 WSL 来宾进程。本机生命周期分析见批次协作记录 `t5h/report01.md`。密钥、录制、代理分享的外部权限合同仍需核对。
