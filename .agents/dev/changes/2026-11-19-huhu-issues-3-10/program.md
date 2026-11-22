@@ -22,6 +22,10 @@ Linux 终端批准候选已于 `fc38dc86` 合入集成，绑定系统 sh 的规�
 
 Linux 原生实现候选 `d0f50bbb` 已通过 Go 测试、Linux helper 构建、真实 PTY 正常／宿主崩溃／映像变化三组夹具、Agent 定向类型检查及 Windows 交叉编译。Windows 未实际运行。CLI 已批准终端实程回归仍有一项失败：Core 创建宿主的回包丢失后，原命令尚未交付，当前不能在原启动上恢复。`t86/task02.md` 正在修复该生命周期，`t8y/task01.md` 独审固定原生候选。详细命令与限制见 [Linux 环境证据](../2026-11-19-issue-4-agent-cli/evidence/W7.3-linux-environment.md)。
 
+恢复候选 `be992934` 与类型兼容修正 `5c7385b1` 已由 Lead 复验：Agent/Automations/CLI 定向类型检查通过，Linux helper Go 测试与构建通过，完整会话测试 41/41、真实 CLI/MCP 批准终端 2/2 通过，差异 lint/格式通过。独审仍发现前台取消结算和交付前 Core 换代两处边界，交 `t86/task05.md` 修复。真实 provider 入口与 Agent 退出后同 pane 返回 shell 由 `t8k/task03.md` 实施，未签收。
+
+Mail 进一步以 `dbe58665` 将部分恢复豁免绑定到原主体、ZIP 和完整选择，支持已显式独立恢复批次的原参数续跑。Lead `t99` 完整 `outbox-engine.test.ts` 20/20 与 Mail 定向类型检查通过，日志 `temp/issue-evidence/huhu-2026-11-22/mail-batch-recheck.log`。审查中关于未发布旧开发候选恢复日志迁移的建议不作为本轮新格式交付要求；当前版 v1/v2 数据身份与正常新格式恢复仍保留验收。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
