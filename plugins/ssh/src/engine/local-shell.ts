@@ -66,6 +66,8 @@ export async function discoverLocalEnvironments(signal: AbortSignal): Promise<En
           text
             .split(/\r?\n/u)
             .map((line) => line.replace(/^\uFEFF/u, "").trim())
+            // Reject control bytes in discovered environment names.
+            // eslint-disable-next-line no-control-regex
             .filter((line) => line && !line.startsWith("-") && !/[\x00-\x1F\x7F]/u.test(line)),
         ),
       ];

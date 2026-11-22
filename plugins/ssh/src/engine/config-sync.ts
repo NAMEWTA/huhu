@@ -207,6 +207,8 @@ export class SshConfigSync {
 
   private async toFile(file: string, rec: Awaited<ReturnType<SshConfigSync["snapshot"]>>, field: ConfigField, value: string | null, signal: AbortSignal) {
     if (field === "ProxyJump" && value && !aliasPattern.safeParse(value).success) throw errors.invalidInput("Huhu 跳板名称需要是有效的 OpenSSH 别名");
+    // Control bytes cannot be represented in an OpenSSH field value.
+    // eslint-disable-next-line no-control-regex
     if (value && /[\x00-\x1f\x7f]/u.test(value)) throw errors.invalidInput("配置值包含无法保存的控制字符");
     const original = rec.parsed.values.get(field);
     const lines = rec.parsed.lines.slice();
