@@ -42,10 +42,11 @@ export class EngineClient {
     return this.endpoint.vaultId;
   }
 
-  async capabilities(signal: AbortSignal): Promise<{ name: string }[]> {
+  async capabilities(signal: AbortSignal, view?: "names"): Promise<{ name: string }[]> {
     const headers = new Headers();
     if (this.endpoint.token) headers.set("authorization", `Bearer ${this.endpoint.token}`);
-    const response = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/capabilities`, { headers, signal });
+    const search = view ? `?${new URLSearchParams({ view })}` : "";
+    const response = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/capabilities${search}`, { headers, signal });
     if (!response.ok) throw new Error("无法读取当前会话的能力目录");
     return (await response.json()) as { name: string }[];
   }

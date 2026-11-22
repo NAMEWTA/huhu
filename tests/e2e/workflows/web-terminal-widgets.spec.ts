@@ -350,13 +350,16 @@ function observeWebCalls(web: Page, origin: string) {
 // discovery response to exercise UI degradation while leaving business calls live.
 async function hideDiscoveredCapability(web: Page, origin: string, hidden: string) {
   let presentInOriginal = false;
-  await web.route(`${origin}/api/v1/capabilities`, async (route) => {
-    const response = await route.fetch();
-    if (!response.ok()) return route.fulfill({ response });
-    const capabilities = (await response.json()) as { name: string }[];
-    presentInOriginal ||= capabilities.some(({ name }) => name === hidden);
-    await route.fulfill({ response, json: capabilities.filter(({ name }) => name !== hidden) });
-  });
+  await web.route(
+    (url) => url.origin === origin && url.pathname === "/api/v1/capabilities",
+    async (route) => {
+      const response = await route.fetch();
+      if (!response.ok()) return route.fulfill({ response });
+      const capabilities = (await response.json()) as { name: string }[];
+      presentInOriginal ||= capabilities.some(({ name }) => name === hidden);
+      await route.fulfill({ response, json: capabilities.filter(({ name }) => name !== hidden) });
+    },
+  );
   return () => presentInOriginal;
 }
 

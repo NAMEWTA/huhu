@@ -101,7 +101,7 @@ export function useCapability<T>(capability: string, input: unknown = {}, option
 
 export function useDiscoveredCapabilities() {
   const engine = useEngine();
-  return useQuery({ queryKey: queryKey(engine.vaultId, "capabilities.discovered"), queryFn: ({ signal }) => engine.capabilities(signal) });
+  return useQuery({ queryKey: queryKey(engine.vaultId, "capabilities.discovered"), queryFn: ({ signal }) => engine.capabilities(signal, "names") });
 }
 
 export function useCapabilityMutation<T, V>(capability: (v: V) => { name: string; input: unknown }, opts: Omit<UseMutationOptions<T, Error, V>, "mutationFn"> = {}) {

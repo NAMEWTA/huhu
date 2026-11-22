@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { CapabilityCatalogEntrySchema, CapabilityResultSchema } from "@huhu/contracts";
+import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, CapabilityResultSchema } from "@huhu/contracts";
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { expect, test } from "vitest";
 import { z } from "zod";
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { boot, type RunningEngine } from "../src/boot.js";
+
+const capabilitiesPath = "/api/v1/capabilities";
+const namesPath = `${capabilitiesPath}?view=names`;
 
 async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, intentKey?: string) {
   const reply = await fetch("http://127.0.0.1:" + engine.port + "/api/v1/call", {
@@ -24,13 +28,21 @@ async function directory(engine: RunningEngine, includeInactive: boolean, token 
   return z.array(CapabilityCatalogEntrySchema).parse(result.data);
 }
 
-async function discoveredNames(engine: RunningEngine) {
-  const reply = await fetch("http://127.0.0.1:" + engine.port + "/api/v1/capabilities", { headers: { authorization: "Bearer " + engine.rendererToken } });
+async function discover(url: string, headers: HeadersInit) {
+  const reply = await fetch(url, { headers });
   expect(reply.ok).toBe(true);
-  return z
-    .array(z.object({ name: z.string() }))
-    .parse(await reply.json())
-    .map((entry) => entry.name);
+  expect(reply.headers.get("cache-control")).toBe("no-store");
+  return (await reply.json()) as unknown;
+}
+
+async function discoveredNames(origin: string, headers: HeadersInit) {
+  const names = z.array(z.strictObject({ name: z.string() })).safeParse(await discover(`${origin}${namesPath}`, headers));
+  expect(names.success).toBe(true);
+  return names.data!.map(({ name }) => name);
+}
+
+function desktopDiscovery(engine: RunningEngine) {
+  return [`http://127.0.0.1:${engine.port}`, { authorization: `Bearer ${engine.rendererToken}` }] as const;
 }
 
 test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同一 Engine 执行活动工具", async () => {
@@ -71,14 +83,19 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
       output: { properties: { ok: { const: true } } },
     });
     expect(await call(engine, "ssh.hosts.list")).toEqual({ ok: true, data: [] });
-    expect(await discoveredNames(engine)).toContain("ssh.hosts.list");
+    const [origin, headers] = desktopDiscovery(engine);
+    const full = z.array(CapabilityDiscoveryEntrySchema).parse(await discover(`${origin}${capabilitiesPath}`, headers));
+    const names = await discoveredNames(origin, headers);
+    expect(names).toEqual(full.map(({ name }) => name));
+    expect(names).toContain("ssh.hosts.list");
+    expect(names).toContain("web.share.start");
     expect(await call(engine, "ssh.hosts.list", {}, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
 
     expect(await call(engine, "plugins.setEnabled", { id: "ssh", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
     const inactive = published.map((entry) => ({ ...entry, availability: "plugin-disabled" }));
     expect((await directory(engine, true)).filter((entry) => entry.plugin === "ssh")).toEqual(inactive);
     expect((await directory(engine, false)).some((entry) => entry.plugin === "ssh")).toBe(false);
-    expect(await discoveredNames(engine)).not.toContain("ssh.hosts.list");
+    expect(await discoveredNames(origin, headers)).not.toContain("ssh.hosts.list");
     expect(await call(engine, "capabilities.list", { includeInactive: true }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     expect(await call(engine, "gateway.check", { capability: "ssh.hosts.list" })).toMatchObject({
       ok: true,
@@ -97,7 +114,10 @@ test("静态目录在 SSH 停用、重启和重新启用后保留描述，由同
     expect(await call(engine, "ssh.hosts.list")).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
     expect(await call(engine, "notes.read", noteInput)).toEqual(fromDesktop);
 
+    const restarted = desktopDiscovery(engine);
+    expect(await discoveredNames(...restarted)).not.toContain("ssh.hosts.list");
     expect(await call(engine, "plugins.setEnabled", { id: "ssh", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+    expect(await discoveredNames(...restarted)).toContain("ssh.hosts.list");
     expect((await directory(engine, true)).filter((entry) => entry.plugin === "ssh")).toEqual(published);
     expect(await call(engine, "ssh.hosts.list")).toEqual({ ok: true, data: [] });
   } finally {
@@ -129,11 +149,71 @@ test("任务插件停用时可预配置静态工具，重开与启用沿用相�
     expect((await directory(engine, true)).find((item) => item.name === capability)).toEqual({ ...entry, selected: true, exposed: true, availability: "active" });
     const created = await call(engine, capability, input, engine.cliToken, "static-catalog-create");
     expect(created, JSON.stringify(created)).toMatchObject({ ok: true, data: input });
+
+    expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+    const origin = `http://127.0.0.1:${engine.port}`;
+    const stdioSession = await openMcpSession(`${origin}/api/v1/mcp`, engine.mcpToken);
+    const mcpHeaders = { authorization: `Bearer ${engine.mcpToken}`, "mcp-session-id": stdioSession };
+    const full = await discover(`${origin}${capabilitiesPath}`, mcpHeaders);
+    expect(full).toEqual([expect.objectContaining({ name: capability, input: entry.input, output: entry.output, durableIntent: true })]);
+    expect(await discover(`${origin}${namesPath}`, mcpHeaders)).toEqual(full);
+
+    const mcpUrl = `${origin}/mcp`;
+    const httpSession = await openMcpSession(mcpUrl, engine.mcpToken);
+    const reply = await mcpRequest(mcpUrl, engine.mcpToken, mcpRpc("tools/list"), httpSession);
+    expect(reply.status).toBe(200);
+    expect(await reply.json()).toMatchObject({
+      result: { tools: [{ name: "tasks_create", inputSchema: entry.input, outputSchema: { type: "object", properties: { data: expect.any(Object) } }, _meta: { "huhu.dev/intent-key": "optional" } }] },
+    });
   } finally {
     try {
       await engine?.shutdown();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}, 60_000);
+
+test("Web 名称目录沿用会话权限，邀请撤销后拒绝原 cookie", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-web-catalog-"));
+  const vaultPath = path.join(root, "vault");
+  const webAssetsDir = path.join(root, "web");
+  let engine: RunningEngine | undefined;
+  try {
+    mkdirSync(vaultPath);
+    mkdirSync(webAssetsDir);
+    writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>工作台</title>");
+    engine = await boot({ vaultPath, webAssetsDir, create: true });
+    const started = await call(engine, "web.share.start", { mode: "local" });
+    if (!started.ok) throw new Error(started.error.message);
+    const {
+      addresses: [{ url: origin }],
+    } = z.object({ addresses: z.tuple([z.object({ url: z.string() })], z.unknown()) }).parse(started.data);
+    const invitation = await call(engine, "web.invitations.create");
+    if (!invitation.ok) throw new Error(invitation.error.message);
+    const {
+      id,
+      links: [link],
+    } = z.object({ id: z.string(), links: z.tuple([z.string()], z.string()) }).parse(invitation.data);
+    const secret = new URLSearchParams(new URL(link).hash.slice(1)).get("invite");
+    const joined = await fetch(`${origin}/api/v1/session`, { method: "POST", headers: { origin, authorization: `Bearer ${secret}` } });
+    expect(joined.status).toBe(204);
+    const cookie = joined.headers.get("set-cookie")!.split(";")[0]!;
+    const headers = { origin, cookie };
+
+    expect((await fetch(`${origin}${namesPath}`)).status).toBe(401);
+    const full = z.array(CapabilityDiscoveryEntrySchema).parse(await discover(`${origin}${capabilitiesPath}`, headers));
+    const names = await discoveredNames(origin, headers);
+    expect(names).toEqual(full.map(({ name }) => name));
+    expect(names).toContain("tasks.create");
+    expect(names).not.toContain("web.share.start");
+    expect(await call(engine, "web.invitations.revoke", { id })).toMatchObject({ ok: true, data: { revoked: true } });
+    expect((await fetch(`${origin}${namesPath}`, { headers })).status).toBe(401);
+  } finally {
+    try {
+      await engine?.shutdown();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }
 }, 60_000);

@@ -1,5 +1,5 @@
 import type { IncomingMessage } from "node:http";
-import { CapabilityOperationLookupSchema, CapabilityRequestSchema, errors, toJsonSchema, type Caller, type McpSessionPrincipal } from "@huhu/contracts";
+import { CapabilityOperationLookupSchema, CapabilityRequestSchema, errors, isWorkbenchCaller, toJsonSchema, type Caller, type McpSessionPrincipal } from "@huhu/contracts";
 import { type Context, type Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { Dispatcher } from "../dispatcher.js";
@@ -106,7 +106,9 @@ export function registerCapabilityHttp(app: Hono<CapabilityHttpEnv>, dispatcher:
   app.get("/api/v1/capabilities", (c) => {
     c.header("cache-control", "no-store");
     const { caller, signal } = c.get("principal");
-    return signal?.aborted ? c.json(revokedSession, 401) : c.json(discoverCapabilities(dispatcher, caller));
+    if (signal?.aborted) return c.json(revokedSession, 401);
+    if (isWorkbenchCaller(caller) && c.req.query("view") === "names") return c.json(dispatcher.discover(caller).map(({ name }) => ({ name })));
+    return c.json(discoverCapabilities(dispatcher, caller));
   });
   app.get("/api/v1/operations", (c) => {
     c.header("cache-control", "no-store");

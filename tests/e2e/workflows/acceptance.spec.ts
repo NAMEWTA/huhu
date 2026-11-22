@@ -35,7 +35,7 @@ async function hideCapability(page: Page, unavailable: string) {
       const originalFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const response = await originalFetch(input, init);
-        if (input !== url || (init?.method ?? "GET").toUpperCase() !== "GET" || !new Headers(init?.headers).get("authorization")?.startsWith("Bearer ") || !response.ok) return response;
+        if ((input !== url && input !== `${url}?view=names`) || (init?.method ?? "GET").toUpperCase() !== "GET" || !new Headers(init?.headers).get("authorization")?.startsWith("Bearer ") || !response.ok) return response;
         const readJson = response.json.bind(response);
         response.json = async () => {
           const original = (await readJson()) as { name: string }[];
