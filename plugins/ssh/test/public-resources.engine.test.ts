@@ -20,6 +20,7 @@ import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
 import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
+import type { WorkspaceTemplate } from "../src/shared/workspace.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 const hostGet = "ssh.resources.host.get";
@@ -940,6 +941,66 @@ test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listen
     await f.desktop("ssh.forwarding.rules.delete", { id: other.id, expectedRevision: other.revision });
   } finally {
     await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s manages workspace templates only within current bindings and preserves private login commands", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const list = "ssh.workspace.templates.list";
+  const save = "ssh.workspace.templates.save";
+  const remove = "ssh.workspace.templates.delete";
+  const notExposed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+  try {
+    const jump = await f.host("template jump");
+    const target = await f.host("template host", [jump.hostId]);
+    const { hostId, routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId: target.hostId });
+    const bindings = [{ hostId, routeRevision }];
+    const draft = { name: "fixture layout", layout: { kind: "one" }, panes: [{ hostId }] };
+    const command = "private-fixture-login";
+    const original = await f.desktop<WorkspaceTemplate>(save, { ...draft, panes: [{ hostId, loginCommand: command }] });
+    const input = { ...draft, name: "fixture renamed", previous: { id: original.id, expectedRevision: original.revision }, bindings, intentKey: randomUUID() };
+    const invoke = await externalTool(f, entry);
+    expect(await invoke(list, {})).toMatchObject(notExposed);
+    expect(await invoke(save, input)).toMatchObject(notExposed);
+    expect(await invoke(remove, input.previous)).toMatchObject(notExposed);
+    for (const tool of [list, save, remove]) await f.allow(tool);
+    await f.chooseHosts([hostId]);
+    expect(data(await invoke(list, {}))).toEqual([]);
+    expect(await invoke(save, input)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await f.chooseHosts([hostId, jump.hostId]);
+    expect(data(await invoke(list, {}))).toEqual([{ ...original, panes: [{ hostId, target: original.panes[0]!.target }] }]);
+    expect(await invoke(save, { ...input, panes: [{ hostId, loginCommand: "untrusted fixture command" }] })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await invoke(save, { ...input, bindings: [{ hostId, routeRevision: "0".repeat(64) }] })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const [first, second] = await Promise.all([invoke(save, input), invoke(save, input)]);
+    const saved = z.object({ id: z.string(), revision: z.string() }).parse(data(first));
+    expect(saved.id).toBe(original.id);
+    expect(saved.revision).not.toBe(original.revision);
+    expect(second).toEqual(first);
+    expect(await invoke(save, { ...input, name: "different intent payload" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+    const [updated] = await f.desktop<WorkspaceTemplate[]>(list);
+    expect(updated).toEqual({ ...original, ...saved, name: input.name });
+    const creation = { ...draft, bindings, intentKey: randomUUID() };
+    const [create, replay] = await Promise.all([invoke(save, creation), invoke(save, creation)]);
+    expect(replay).toEqual(create);
+    const created = z.object({ id: z.string(), revision: z.string() }).parse(data(create));
+    expect(created.id).not.toBe(saved.id);
+    expect(data(await invoke(list, {}))).toHaveLength(2);
+    expect(await invoke(remove, { ...input.previous, bindings, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const deletion = { id: saved.id, expectedRevision: saved.revision, bindings, intentKey: randomUUID() };
+    expect(data(await invoke(remove, deletion))).toEqual({ ok: true });
+    expect(data(await invoke(remove, deletion))).toEqual({ ok: true });
+    await f.chooseHosts([hostId]);
+    expect(await invoke(remove, deletion)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(jump.server.conns).toHaveLength(0);
+    expect(target.server.conns).toHaveLength(0);
+    await f.allow(save, false);
+    expect(await invoke(save, creation)).toMatchObject(notExposed);
+  } finally {
+    try {
+      for (const { id, revision } of await f.desktop<WorkspaceTemplate[]>(list)) await f.desktop(remove, { id, expectedRevision: revision });
+    } finally {
+      await f.close();
+    }
   }
 });
 

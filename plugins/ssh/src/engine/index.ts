@@ -2,7 +2,8 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
-import { sshCapabilityDescriptors } from "./capabilities.js";
+import { sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
+import type { WorkspaceTemplate } from "../shared/workspace.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
@@ -22,7 +23,7 @@ import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
@@ -184,9 +185,68 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStart, ({ signal }, input) => forwarding.start(input, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsResume, ({ signal }, input) => forwarding.start(input, signal, true)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStop, ({ signal }, input) => forwarding.stop(input, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return templates.list();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      return templates
+        .list()
+        .filter(({ panes }) => panes.every(({ hostId, target }) => routes.get(hostId)?.targetIdentity === target))
+        .map((template) => ({ ...template, panes: template.panes.map(({ hostId, target }) => ({ hostId, target })) }));
+    }),
+  );
+  const templateWriteScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2], hostIds: readonly string[], editing: boolean) => {
+    const read = () => boundSshRoutes(api.vault.files, context, bindings);
+    return {
+      authorize: () => [...read().values()].flatMap(({ route }) => route.map(({ hostId }) => hostId)),
+      scope: (previous: WorkspaceTemplate | undefined) => {
+        const routes = read();
+        const original = previous?.panes ?? [];
+        const targets = new Set([...hostIds, ...original.map(({ hostId }) => hostId)]);
+        if ((editing && !previous) || routes.size !== targets.size || [...targets].some((id) => !routes.has(id)) || original.some(({ hostId, target }) => routes.get(hostId)?.targetIdentity !== target)) {
+          throw errors.notFound("当前授权内的 SSH 工作区模板绑定");
+        }
+        return new Map([...routes].map(([id, route]) => [id, route.targetIdentity]));
+      },
+    };
+  };
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, (context, { bindings, intentKey, ...input }) => {
+      if (isWorkbenchCaller(context.caller)) return templates.save(input, context.signal);
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部保存模板需要主机路由版本和意图键");
+      if (input.panes.some(({ loginCommand }) => loginCommand !== undefined) || input.rebindHostIds?.length) throw errors.permissionDenied("SSH 模板登录命令与端点重绑");
+      const hostIds = input.panes.map(({ hostId }) => hostId);
+      const { authorize, scope } = templateWriteScope(context, bindings, hostIds, input.previous !== undefined);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.workspaceTemplatesSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: WorkspaceTemplateReceipt,
+        authorize,
+        run: async () => {
+          const { id, revision } = await templates.save(input, context.signal, undefined, scope);
+          return { id, revision };
+        },
+      });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, (context, { bindings, intentKey, ...input }) => {
+      if (isWorkbenchCaller(context.caller)) return templates.delete(input, context.signal);
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除模板需要主机路由版本和意图键");
+      const { authorize, scope } = templateWriteScope(context, bindings, [], true);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.workspaceTemplatesDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.workspaceTemplatesDelete.output,
+        authorize,
+        run: () => templates.delete(input, context.signal, scope),
+      });
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsList, () => runs.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsStart, ({ signal }, i) => runs.start(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsReconnect, ({ signal }, i) => runs.reconnect(i.id, signal)));

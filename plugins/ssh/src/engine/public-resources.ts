@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
+import { CapabilityIntentKeySchema, errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
@@ -21,6 +21,11 @@ export const ResourceHost = routeHop.extend({
   routeRevision: SshRouteRevision,
   route: z.array(routeHop),
 });
+const RouteBinding = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
+export const RouteIntentFields = {
+  intentKey: CapabilityIntentKeySchema.optional(),
+  bindings: z.array(RouteBinding).min(1).max(24).optional(),
+};
 export const PublicHostView = z.strictObject({
   id: OwnedHostId,
   ...ManagedHostView.pick({ name: true, host: true, port: true, user: true, tags: true, revision: true }).shape,
@@ -92,6 +97,19 @@ export function readResourceRoute(files: Files, hostId: string) {
 }
 
 type VisibleSshRoute = ResourceHost & { targetIdentity: string; connectionIdentity: string };
+
+export function boundSshRoutes(files: Files, context: CapabilityContext, bindings: readonly z.infer<typeof RouteBinding>[]) {
+  const visible = visibleSshRoutes(files, context);
+  const routes = new Map<string, VisibleSshRoute>();
+  for (const { hostId, routeRevision } of bindings) {
+    if (routes.has(hostId)) throw errors.invalidInput("主机路由绑定不能重复");
+    const route = visible.get(hostId);
+    if (!route) throw errors.permissionDenied("SSH 主机授权");
+    if (route.routeRevision !== routeRevision) throw errors.versionConflict(route.routeRevision);
+    routes.set(hostId, route);
+  }
+  return routes;
+}
 
 export function visibleSshRoutes(files: Files, context: CapabilityContext): ReadonlyMap<string, VisibleSshRoute> {
   externalSshOwner(context);

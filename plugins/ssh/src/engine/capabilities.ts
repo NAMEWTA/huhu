@@ -23,7 +23,7 @@ import {
 import { TransferBatch, TransferBatchRequest, TransferChoice, TransferId, TransferJob, TransferLocation, TransferQueue, TransferRequest } from "../shared/transfers.js";
 import { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/preferences.js";
-import { PublicHostView, ResourceHost, ResourceHostId } from "./public-resources.js";
+import { PublicHostView, ResourceHost, ResourceHostId, RouteIntentFields } from "./public-resources.js";
 import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIntent } from "./public-probes.js";
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
@@ -52,6 +52,7 @@ const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const externalMonitor = { ...monitor, ...resource } as const;
 const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
 const PublicForwardRun = ForwardRun.omit({ connection: true, prompt: true, message: true, lastError: true }).extend({ connectionKind: ForwardRun.shape.connection.unwrap().shape.kind.optional() }).strict();
+export const WorkspaceTemplateReceipt = z.strictObject({ id: WorkspaceTemplate.shape.id, revision: WorkspaceTemplate.shape.revision });
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -508,33 +509,35 @@ export const sshCapabilityDescriptors = {
     output: WorkspaceTemplate,
   }),
   workspaceTemplatesList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.templates.list",
     title: "SSH 工作区模板",
-    description: "列出本 Vault 的工作区模板。",
+    description: "列出本 Vault 的工作区模板。外部工具只读取当前授权的绑定和布局。",
     scope: "read",
     risk: "normal",
     input: z.strictObject({}),
     output: z.array(WorkspaceTemplate),
   }),
   workspaceTemplatesSave: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.templates.save",
     title: "保存 SSH 工作区模板",
-    description: "保存有序的主机引用及布局。",
+    description: "按主机路由绑定和意图键保存有序的主机引用及布局。外部工具的输入仅包含配置数据。",
     scope: "write",
     risk: "normal",
-    input: SaveTemplate,
-    output: WorkspaceTemplate,
+    idempotency: "handler",
+    input: SaveTemplate.extend(RouteIntentFields),
+    output: z.union([WorkspaceTemplate, WorkspaceTemplateReceipt]),
   }),
   workspaceTemplatesDelete: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.workspace.templates.delete",
     title: "删除 SSH 工作区模板",
     description: "删除指定版本的工作区模板。",
     scope: "write",
-    risk: "normal",
-    input: TemplateRevision,
+    risk: "high",
+    idempotency: "handler",
+    input: TemplateRevision.extend(RouteIntentFields),
     output: Ok,
   }),
   hostsImportPreview: hostImportPreviewDescriptor,

@@ -129,6 +129,9 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.resources.connection.start",
         "ssh.resources.host.get",
         "ssh.resources.trust.decide",
+        "ssh.workspace.templates.delete",
+        "ssh.workspace.templates.list",
+        "ssh.workspace.templates.save",
       ].sort(),
     );
     expect(available.every(({ selected }) => selected === false)).toBe(true);
