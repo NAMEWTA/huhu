@@ -55,3 +55,9 @@ Node 24.21.0，pnpm 12.10.1。单独运行四个 Vitest 文件，均使用 `--ma
 CLI 与 HTTP MCP 可用 `ssh.hosts.testDraft` 测试已授权的保存主机。外部调用提交主机和路由版本，草稿只能使用同一主机地址、账户与路由。外部工具不能通过草稿任意选择设备上的身份文件或密钥。首次遇到未知指纹时返回可达，不保存信任、不注册连接，也未发送认证。正式外部连接仍通过外部主体的原信任应答。
 
 使用隔离 Vault 和两个回环主机运行 `pnpm exec vitest run plugins/ssh/test/public-resources.engine.test.ts -t "can test a draft only at its authorized SSH route"`。修复前两项拒绝新的路由字段，修复后两项通过，46 项由筛选排除。验证了工具默认关闭、按主机开放、过期路由版本、改写端口或账户、选择本机身份、首次可达、撤权与目录状态。SSH 单包类型检查和草稿及密钥文件的 8 项回归通过。本机日志为 `h7-public-draft-before.log` 与 `h7-public-draft-after.log`。
+
+## SSH 本地 Core 套接字隔离
+
+随包 Herdr Core 0.1.19 在权限 1777 的隔离目录中创建的 Unix socket 权限为 0775。SSH 本地 Core 现将 socket 放入只对当前用户开放的真实目录，拒绝不可信的目录。路径长度预留 holder 后缀。
+
+Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他用户权限而失败，修复后通过。它同时验证 shell 仍能打开并重挂，停用 SSH 后连同私有目录下的活动套接字一起释放。Engine 单包类型检查通过。本机日志为 `h7-private-socket-before.log` 与 `h7-private-socket-after.log`。异常启动取消、主动脱离 PTY 的子进程回收以及 Windows 命名管道仍有待验项。

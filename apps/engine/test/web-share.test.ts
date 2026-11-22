@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, DashboardView } from "@huhu/contracts";
@@ -142,6 +142,7 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
   const webAssetsDir = path.join(fixture, "web");
   const vaultPath = path.join(fixture, "vault");
   for (const directory of [runtime, home, webAssetsDir, vaultPath]) mkdirSync(directory);
+  chmodSync(runtime, 0o1777);
   writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>SSH test</title>");
   vi.stubEnv("HUHU_HERDR_BIN", herdrBin);
   vi.stubEnv("XDG_RUNTIME_DIR", runtime);
@@ -162,6 +163,9 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
     expect(readdirSync(runtime)).toEqual([]);
     const session = await desktop<{ id: string; state: string }>("ssh.local.open", { action: "launch", environmentId: shell!.id });
     expect(session.state).toBe("running");
+    const coreSocket = readdirSync(runtime, { recursive: true, encoding: "utf8" }).find((file) => /^huhu-ssh-[a-f0-9]{20}\.sock$/u.test(path.basename(file)));
+    expect(coreSocket).toBeDefined();
+    expect(statSync(path.dirname(path.join(runtime, coreSocket!))).mode & 0o077).toBe(0);
     const route = "/ws/terminal/" + session.id + "?cols=101&rows=29";
     const control = "http://127.0.0.1:" + running.port;
     const terminal = await openStream(control, route, {}, running.rendererToken);
@@ -205,7 +209,7 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
         }
       })
       .toBe(false);
-    expect(readdirSync(runtime).filter((file) => file.endsWith(".sock"))).toEqual([]);
+    expect(readdirSync(runtime, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".sock"))).toEqual([]);
   } finally {
     try {
       await engine?.shutdown();

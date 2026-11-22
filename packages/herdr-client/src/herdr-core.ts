@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
@@ -27,6 +27,7 @@ export interface HerdrCoreOptions {
   runtimeDir: string;
   signal?: AbortSignal;
   session?: string;
+  /** A distinct endpoint for an application-owned Core. Unix stores it under a private directory. */
   socketName?: string;
 }
 
@@ -38,7 +39,35 @@ export class HerdrCore {
 
   get endpoint(): string {
     const tag = this.o.socketName ?? `huhu-${this.o.vaultId.replace(/^vault-/, "").slice(0, 8)}-${this.o.machineId.slice(0, 4)}`;
-    return process.platform === "win32" ? `\\\\.\\pipe\\${tag}` : path.join(process.env["XDG_RUNTIME_DIR"] ?? os.tmpdir(), `${tag}.sock`);
+    if (process.platform === "win32") return `\\\\.\\pipe\\${tag}`;
+    const runtime = process.env["XDG_RUNTIME_DIR"] ?? os.tmpdir();
+    const filename = `${tag}.sock`;
+    if (!this.o.socketName) return path.join(runtime, filename);
+    const privateDirectory = `huhu-hc-${process.getuid?.()}`;
+    const endpoint = path.join(path.isAbsolute(runtime) ? runtime : os.tmpdir(), privateDirectory, filename);
+    // Herdr Core appends ".holder" and an eight-character holder ID to this path.
+    return Buffer.byteLength(endpoint) + 16 <= 103 ? endpoint : path.join("/tmp", privateDirectory, filename);
+  }
+
+  private checkSocketDirectory(create: boolean): void {
+    if (process.platform === "win32" || !this.o.socketName) return;
+    const directory = path.dirname(this.endpoint);
+    if (!create && !lstatSync(directory, { throwIfNoEntry: false })) return;
+    const parent = path.dirname(directory);
+    const entry = statSync(parent, { throwIfNoEntry: false });
+    const uid = process.getuid?.();
+    const ownerOnly = entry && entry.uid === uid && (entry.mode & 0o022) === 0;
+    const sticky = entry && (entry.uid === 0 || entry.uid === uid) && (entry.mode & 0o1000) !== 0;
+    if (!path.isAbsolute(parent) || uid === undefined || !entry?.isDirectory() || (!ownerOnly && !sticky)) throw new HuhuError("HERDR_UNAVAILABLE", "Herdr Core 的运行目录不可信");
+    if (create) {
+      try {
+        mkdirSync(directory, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+    const actual = lstatSync(directory, { throwIfNoEntry: false });
+    if (!actual?.isDirectory() || actual.uid !== uid || (actual.mode & 0o077) !== 0) throw new HuhuError("HERDR_UNAVAILABLE", "Herdr Core 的私有套接字目录不可信");
   }
 
   get connected(): HerdrClient | null {
@@ -69,6 +98,7 @@ export class HerdrCore {
 
   private async start(): Promise<HerdrClient> {
     if (!existsSync(this.o.bin)) throw new HuhuError("HERDR_UNAVAILABLE", `找不到 Herdr Core：${this.o.bin}`);
+    this.checkSocketDirectory(true);
     mkdirSync(this.o.runtimeDir, { recursive: true });
     await new Promise<void>((resolve, reject) => {
       const p = spawn(this.o.bin, ["server", "start"], { env: this.env(), stdio: "ignore", windowsHide: true });
@@ -116,6 +146,7 @@ export class HerdrCore {
    */
   async peek(): Promise<HerdrClient | "absent" | null> {
     if (this.o.signal?.aborted) return null;
+    this.checkSocketDirectory(false);
     if (this.client) return this.client;
     if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
     try {
