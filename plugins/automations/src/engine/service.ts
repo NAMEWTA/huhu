@@ -597,6 +597,18 @@ export class AutomationsService {
       if (current.data["sessionId"] !== sessionId) await this.d.repo.patch("automation-run", runId, { sessionId }, current.version);
       await this.settleTerminalRun(runId, sessionId, submittedAt, title, cancel);
     };
+    const settleCancellation = async (error: unknown) => {
+      if (!isHuhuError(error) || error.code !== "INVALID_INPUT" || error.details?.["reason"] !== "native_cancelled_before_start" || error.details["requestId"] !== terminalRequestId(runId)) return false;
+      const sessionId = error.details["sessionId"];
+      const cleanup = error.details["cleanupRequired"];
+      if (typeof sessionId !== "string" || typeof cleanup !== "boolean") return false;
+      if (this.abort.signal.aborted) return true;
+      const current = this.d.repo.read("automation-run", runId);
+      if (current.data["finishedAt"] || current.data["terminalOwner"] !== this.d.terminalOwner || current.data["terminalIntent"] !== plan.intent || (current.data["sessionId"] && current.data["sessionId"] !== sessionId)) return true;
+      await this.finishTerminalRun(runId, "cancelled", error.message, { sessionId, ...(cleanup && { terminalReleasePending: true }) });
+      if (cleanup) this.track(this.releaseTerminal(runId, sessionId));
+      return true;
+    };
     let completion: Promise<{ id: string }> | undefined;
     let settling = false;
     let submitted = false;
@@ -616,17 +628,21 @@ export class AutomationsService {
             await this.finishTerminalRun(runId, cancel.aborted ? "cancelled" : "failed", "已批准的终端命令未提交。");
           } else if (isHuhuError(error) && error.code === "SPACE_INVALID" && error.details?.["reason"] === "approved_directory_changed") {
             await this.finishTerminalRun(runId, "failed", error.message);
-          } else {
+          } else if (!(await settleCancellation(error))) {
             await this.terminalPending(runId, "核对原启动及终端状态。");
           }
         }
         if (completion) {
           settling = true;
           this.track(
-            completion.then(settle).finally(async () => {
-              this.runAbort.delete(runId);
-              if (!this.abort.signal.aborted) await this.reconcileTerminals();
-            }),
+            completion
+              .then(settle, async (error) => {
+                if (!(await settleCancellation(error))) throw error;
+              })
+              .finally(async () => {
+                this.runAbort.delete(runId);
+                if (!this.abort.signal.aborted) await this.reconcileTerminals();
+              }),
           );
         }
       }
@@ -735,9 +751,9 @@ export class AutomationsService {
     }
   }
 
-  private async finishTerminalRun(runId: string, state: "failed" | "cancelled", message: string): Promise<{ state: string }> {
+  private async finishTerminalRun(runId: string, state: "failed" | "cancelled", message: string, terminal?: { sessionId: string; terminalReleasePending?: true }): Promise<{ state: string }> {
     const cur = this.d.repo.read("automation-run", runId);
-    await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()) }, cur.version, `${cur.body}\n## 输出\n\n${message}\n`);
+    await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()), ...terminal }, cur.version, `${cur.body}\n## 输出\n\n${message}\n`);
     this.d.publish("run.stateChanged", { runId, kind: "automation-run", state });
     return { state };
   }

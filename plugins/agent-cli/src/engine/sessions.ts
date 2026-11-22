@@ -159,16 +159,39 @@ type ApprovedShellInput = Pick<LaunchInput, "spaceId" | "spaceRevision" | "reque
   command: string;
   names: readonly string[];
   use: NativeDelivery["use"];
+  assertCurrent?: () => void;
   onPending: NonNullable<NativeDelivery["onPending"]>;
   approvedDirectory: ProtectedDirectory;
   approvedShell: ApprovedLinuxShell;
 };
 type NativeDelivery = Pick<InteractiveNativePlan, "helper" | "launch" | "approval"> & {
   use(consumer: (values: ReadonlyMap<string, string>) => Promise<BrokerOutcome>, signal: AbortSignal): Promise<BrokerOutcome>;
+  assertCurrent?: () => void;
   onPending?: (completion: Promise<SessionRecord>) => void;
 };
 type NativeBroker = Pick<NativePtyBroker, "waiting" | "hostArgv" | "inspectHost" | "start" | "revoke">;
 type VerifiedNativeHost = { terminal: Terminal; binding: ProcessBinding; host: NonNullable<Awaited<ReturnType<NativeBroker["inspectHost"]>>> };
+
+async function waitForNative<T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return read();
+  signal.throwIfAborted();
+  let stop!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    stop = () => reject(signal.reason);
+  });
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => {
+        signal.throwIfAborted();
+        return read();
+      }),
+      aborted,
+    ]);
+  } finally {
+    signal.removeEventListener("abort", stop);
+  }
+}
 
 export interface SessionsDeps {
   dir: string;
@@ -336,7 +359,7 @@ export class SessionsService {
   }
 
   async launchApprovedShell(input: ApprovedShellInput, signal?: AbortSignal): Promise<SessionRecord> {
-    const { names, use, onPending, ...launch } = input;
+    const { names, use, onPending, assertCurrent, ...launch } = input;
     const { argv, executable } = launch.approvedShell;
     if (
       nativeHostPlatform() !== "linux" ||
@@ -354,15 +377,16 @@ export class SessionsService {
     if (!names.length || names.length > 32 || new Set(names).size !== names.length || names.some((name) => !/^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name))) {
       throw errors.invalidInput("已批准的规则环境无效");
     }
-    return this.launch(launch, signal, { names, use, onPending });
+    return this.launch(launch, signal, { names, use, onPending, ...(assertCurrent && { assertCurrent }) });
   }
 
-  async launch(input: LaunchInput, callerSignal?: AbortSignal, approvedDelivery?: Pick<ApprovedShellInput, "names" | "use" | "onPending">): Promise<SessionRecord> {
+  async launch(input: LaunchInput, callerSignal?: AbortSignal, approvedDelivery?: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">): Promise<SessionRecord> {
     const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
     signal?.throwIfAborted();
     const intent = this.launchIntent(input);
     const previous = this.recordedLaunch(input.requestId);
     if (previous) this.verifyIntent(previous, intent);
+    if (previous?.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(previous);
     if (previous?.launchReceipt?.attempt && input.history) return this.doLaunch(input, intent, undefined, undefined, signal, undefined);
 
     const canTrackPi = input.provider === "pi" && !input.environment && !input.history && !input.resumeSessionId && !input.expectedConfigurationId;
@@ -413,7 +437,7 @@ export class SessionsService {
     if (running) {
       const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
       if (!sameIntent || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
-      if (!running.signal?.aborted) return running.result;
+      if (native || !running.signal?.aborted) return running.result;
     }
     const result = this.doLaunch(input, intent, executionHash, prepared, signal, native).finally(() => {
       if (this.inflight.get(input.requestId)?.result === result) this.inflight.delete(input.requestId);
@@ -469,7 +493,7 @@ export class SessionsService {
     return { space, cwd, argv, env, controlled, nativeSessionId };
   }
 
-  private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending">): Promise<NativeDelivery> {
+  private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">): Promise<NativeDelivery> {
     const { approvedDirectory, approvedShell } = input;
     const host = this.d.interactiveEnvironment;
     if (!host || !approvedDirectory || !approvedShell) throw errors.permissionDenied("本机 Linux sh 受保护宿主不可用");
@@ -489,7 +513,7 @@ export class SessionsService {
       ordinary: nativeAgentEnvironment(process.env, {}),
       protect: [...delivery.names].sort(),
     };
-    return { helper, launch, approval: launchHash({ helper, launch }), use: delivery.use, onPending: delivery.onPending };
+    return { helper, launch, approval: launchHash({ helper, launch }), use: delivery.use, onPending: delivery.onPending, ...(delivery.assertCurrent && { assertCurrent: delivery.assertCurrent }) };
   }
 
   private async prepareEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
@@ -544,7 +568,7 @@ export class SessionsService {
   private verifyIntent(session: SessionRecord, intent: LaunchIntent, executionHash?: string): LaunchReceipt {
     const receipt = session.launchReceipt;
     if (!receipt) throw this.unknown(session, "legacy_record");
-    const sameIntent = intent.resolvedHash === null ? !!receipt.attempt && receipt.literalIntentHash === intent.literalHash : receipt.intentHash === intent.resolvedHash;
+    const sameIntent = intent.resolvedHash === null ? (receipt.attempt || receipt.nativeCancelledBeforeStart) && receipt.literalIntentHash === intent.literalHash : receipt.intentHash === intent.resolvedHash;
     if (!sameIntent || (executionHash && receipt.executionHash !== executionHash)) throw errors.idempotencyMismatch();
     return receipt;
   }
@@ -559,6 +583,7 @@ export class SessionsService {
   ): Promise<SessionRecord> {
     const previous = this.recordedLaunch(input.requestId);
     const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
+    if (previous && priorReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(previous);
     if (previous && priorReceipt?.attempt) {
       this.recordLaunchRequest(previous, priorReceipt);
       if (previous.state === "exited") return previous;
@@ -609,10 +634,15 @@ export class SessionsService {
         if (!this.d.protectedLaunch) throw new Error("Missing protected shell launcher");
         protectedPort = await this.d.protectedLaunch.listen();
       }
-      client = await this.d.core();
+      client = native ? await waitForNative(() => this.d.core(), signal) : await this.d.core();
       signal?.throwIfAborted();
-      core = await identifyCore(client);
+      core = native ? await waitForNative(() => identifyCore(client), signal) : await identifyCore(client);
+      if (native) signal?.throwIfAborted();
     } catch {
+      if (native && signal?.aborted) {
+        const current = this.currentLaunch(session, intent, executionHash);
+        if (!current.launchReceipt?.attempt) throw this.nativeCancellation(this.failNativeBeforeStart(current, true));
+      }
       signal?.throwIfAborted();
       const current = this.currentLaunch(session, intent, executionHash);
       if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
@@ -699,12 +729,23 @@ export class SessionsService {
     core: Awaited<ReturnType<typeof identifyCore>>,
     signal: AbortSignal | undefined,
   ): Promise<SessionRecord> {
-    const broker = this.d.nativeBroker ? this.d.nativeBroker(native.helper, signal) : new NativePtyBroker(native.helper, signal);
-    let releaseBroker = () => broker.revoke();
+    let releaseBroker: (() => void) | undefined;
     let retained = false;
     try {
-      const argv = await broker.hostArgv();
-      signal?.throwIfAborted();
+      let broker: NativeBroker;
+      let argv: string[];
+      try {
+        broker = this.d.nativeBroker ? this.d.nativeBroker(native.helper, signal) : new NativePtyBroker(native.helper, signal);
+        releaseBroker = () => broker.revoke();
+        argv = await waitForNative(() => broker.hostArgv(), broker.waiting);
+        signal?.throwIfAborted();
+        broker.waiting.throwIfAborted();
+      } catch {
+        const current = this.currentLaunch(session, intent, receipt.executionHash);
+        if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+        if (signal?.aborted) throw this.nativeCancellation(this.failNativeBeforeStart(current, true));
+        throw this.confirmNotCreated(current, receipt, "run", "受保护终端宿主未就绪，启动请求尚未发送");
+      }
       const current = this.currentLaunch(session, intent, receipt.executionHash);
       if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
       const attempt: LaunchAttempt = { id: randomUUID(), core, nativeStatus: "waiting-host" };
@@ -742,8 +783,10 @@ export class SessionsService {
       const checkHost = async (reply?: Terminal) => {
         if (broker.waiting.aborted) return "unavailable" as const;
         const entry = latest("waiting-host");
-        const candidate = reply && this.verifyTerminal(entry, reply) ? reply : this.nativeHostCandidate(entry, await this.snapshot());
+        const verifiedReply = reply && this.verifyTerminal(entry, reply);
+        const snapshot = verifiedReply ? null : await waitForNative(() => this.snapshot(), broker.waiting).catch(() => null);
         if (broker.waiting.aborted) return "unavailable" as const;
+        const candidate = verifiedReply ? reply : snapshot && this.nativeHostCandidate(entry, snapshot);
         if (!candidate || candidate === "unavailable") return candidate;
         const binding = this.verifyTerminal(entry, candidate);
         if (!binding) return undefined;
@@ -751,11 +794,15 @@ export class SessionsService {
         const current = latest("waiting-host");
         const receipt = current.launchReceipt!;
         if (!receipt.attempt!.binding) this.save({ ...current, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, addressHint: binding.address, binding } } });
-        const host = await broker.inspectHost(binding.pid);
+        const host = await waitForNative(() => broker.inspectHost(binding.pid), broker.waiting).catch(() => null);
         if (broker.waiting.aborted) return "unavailable" as const;
         return host ? { terminal: candidate, binding, host } : undefined;
       };
-      const finish = (candidate: VerifiedNativeHost | "unavailable") => (candidate === "unavailable" ? this.failNativeBeforeStart(latest("waiting-host")) : this.deliverNative(native, broker, candidate, latest));
+      const finish = async (candidate: VerifiedNativeHost | "unavailable") => {
+        const result = candidate === "unavailable" ? this.failNativeBeforeStart(latest("waiting-host"), signal?.aborted) : await this.deliverNative(native, broker, candidate, latest, signal);
+        if (result.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(result);
+        return result;
+      };
       const first = await checkHost(terminal);
       if (first) {
         const result = await finish(first);
@@ -779,7 +826,7 @@ export class SessionsService {
       native.onPending?.(completion);
       throw this.unknown(pending, "native_host_unverified");
     } finally {
-      if (!retained) releaseBroker();
+      if (!retained) releaseBroker?.();
     }
   }
 
@@ -796,20 +843,36 @@ export class SessionsService {
     return candidate;
   }
 
-  private failNativeBeforeStart(session: SessionRecord): SessionRecord {
+  private failNativeBeforeStart(session: SessionRecord, cancelled = false): SessionRecord {
     const receipt = session.launchReceipt!;
     const failed: SessionRecord = {
       ...session,
       state: "failed",
       terminalId: null,
-      error: "受保护进程未启动，请检查当前启动环境并重新选择。",
-      launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, nativeStatus: "failed", nativeCleanup: "pending" } },
+      error: cancelled ? "受保护进程在交付前已取消。" : "受保护进程未启动，请检查当前启动环境并重新选择。",
+      launchReceipt: {
+        ...receipt,
+        ...(receipt.attempt && { attempt: { ...receipt.attempt, nativeStatus: "failed", nativeCleanup: "pending" } }),
+        ...(cancelled && { nativeCancelledBeforeStart: true }),
+      },
     };
     this.save(failed);
     return failed;
   }
 
-  private async deliverNative(native: NativeDelivery, broker: NativeBroker, { terminal, binding, host }: VerifiedNativeHost, latest: (phase: "waiting-host" | "delivering") => SessionRecord): Promise<SessionRecord> {
+  private nativeCancellation(session: SessionRecord): HuhuError {
+    return new HuhuError("INVALID_INPUT", session.error!, {
+      details: { reason: "native_cancelled_before_start", requestId: session.requestId, sessionId: session.id, cleanupRequired: session.launchReceipt?.attempt?.nativeCleanup === "pending" },
+    });
+  }
+
+  private async deliverNative(
+    native: NativeDelivery,
+    broker: NativeBroker,
+    { terminal, binding, host }: VerifiedNativeHost,
+    latest: (phase: "waiting-host" | "delivering") => SessionRecord,
+    signal: AbortSignal | undefined,
+  ): Promise<SessionRecord> {
     let phase: "waiting-host" | "delivering" = "waiting-host";
     let resolveDelivery!: (outcome: BrokerOutcome) => void;
     const delivery = new Promise<BrokerOutcome>((resolve) => {
@@ -822,7 +885,7 @@ export class SessionsService {
     if (broker.waiting.aborted) stopWaiting();
     const take = async () => {
       broker.waiting.throwIfAborted();
-      return native.use((values) => {
+      return native.use(async (values) => {
         broker.waiting.throwIfAborted();
         if (
           native.launch.approvedShell &&
@@ -833,12 +896,21 @@ export class SessionsService {
             }))
         )
           throw errors.invalidInput("已批准的规则环境无效");
+        // The credential queue can outlive the first observation of this host.
+        const observed = await waitForNative(() => broker.inspectHost(binding.pid), broker.waiting);
+        if (!observed || observed.created !== host.created || observed.pid !== host.pid) throw errors.invalidInput("受保护终端宿主已变化");
+        const snapshot = await waitForNative(() => this.snapshot(), broker.waiting);
         const entry = latest("waiting-host");
+        const candidate = this.nativeHostCandidate(entry, snapshot);
+        const currentBinding = candidate && candidate !== "unavailable" && candidate.state === "live" && this.verifyTerminal(entry, candidate);
+        if (!currentBinding || !sameProcess(binding, currentBinding)) throw errors.invalidInput("无法重新核对原受保护终端");
+        native.assertCurrent?.();
+        broker.waiting.throwIfAborted();
         const receipt = entry.launchReceipt!;
         // The only private write is preceded by a durable record tied to this host.
         this.save({ ...entry, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, addressHint: binding.address, binding, nativeStatus: "delivering" } } });
         phase = "delivering";
-        return broker.start(host, native.launch, values, () => {
+        return broker.start(observed, native.launch, values, () => {
           const current = latest("delivering");
           const pinned = current.launchReceipt!;
           this.save({ ...current, launchReceipt: { ...pinned, attempt: { ...pinned.attempt!, nativeConsumed: true } } });
@@ -850,7 +922,7 @@ export class SessionsService {
     broker.waiting.removeEventListener("abort", stopWaiting);
     const current = latest(phase);
     if (outcome === "unknown") throw this.unknown(this.markUnknown(current, "native_start_unknown"), "native_start_unknown");
-    if (outcome === "not-started") return this.failNativeBeforeStart(current);
+    if (outcome === "not-started") return this.failNativeBeforeStart(current, phase === "waiting-host" && signal?.aborted);
     const receipt = current.launchReceipt!;
     return this.bind({ ...current, launchReceipt: { ...receipt, attempt: { ...receipt.attempt!, nativeStatus: "started", nativeConsumed: true } } }, terminal, binding);
   }
@@ -865,7 +937,7 @@ export class SessionsService {
   async recover(id: string, signal: AbortSignal): Promise<SessionRecord> {
     const session = this.get(id);
     const origin = this.recordedLaunch(session.requestId);
-    if (origin?.id !== id || !origin.launchReceipt?.attempt) throw errors.invalidInput("没有可核对的原启动请求");
+    if (origin?.id !== id || !origin.launchReceipt || (!origin.launchReceipt.attempt && !origin.launchReceipt.nativeCancelledBeforeStart)) throw errors.invalidInput("没有可核对的原启动请求");
     return this.findLaunch(origin, signal);
   }
 
@@ -875,6 +947,7 @@ export class SessionsService {
 
   private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
     if (session.state === "exited") return session;
+    if (session.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(session);
     if (session.launchReceipt?.attempt?.nativeStatus === "failed") throw errors.invalidInput(session.error ?? "受保护进程未启动");
     const snapshot = await this.snapshot();
     if (signal?.aborted) throw this.unknown(session, "launch_scope_ended");
@@ -882,6 +955,7 @@ export class SessionsService {
     const attempt = session.launchReceipt?.attempt;
     if (current?.id !== session.id || current.launchReceipt?.attempt?.id !== attempt?.id) throw this.unknown(session, "attempt_changed");
     if (current.state === "exited") return current;
+    if (current.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(current);
     if (launchHash(current.launchReceipt?.attempt) !== launchHash(attempt)) {
       if (current.state === "running" && current.launchReceipt?.attempt?.binding) return current;
       throw this.unknown(current, current.launchReceipt?.attempt?.issue ?? "attempt_changed");

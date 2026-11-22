@@ -45,6 +45,7 @@ export interface LaunchReceipt {
   literalIntentHash?: string;
   executionHash: string;
   argvHash: string | null;
+  nativeCancelledBeforeStart?: true;
   // An empty attempt means no run was sent or Core explicitly rejected it before creation.
   attempt?: LaunchAttempt;
 }

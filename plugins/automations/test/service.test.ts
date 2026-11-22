@@ -312,8 +312,11 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
   }
 });
 
-test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "principal", "exposure", "cancel"] as const)("Linux 原运行等待宿主时 %s", async (event) => {
-  const { svc, root, d, sessions } = setup();
+test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "principal", "exposure", "cancel", "foreground-cancel", "preflight-cancel"] as const)("Linux 原运行等待宿主时 %s", async (event) => {
+  const foregroundCancel = event === "foreground-cancel" || event === "preflight-cancel";
+  const cleanupRequired = event === "foreground-cancel";
+  let releaseUnavailable = cleanupRequired;
+  const { svc, root, d, sessions, calls, open } = setup({ terminal: { releaseUnavailable: () => releaseUnavailable } });
   const keys = path.join(d, "keys");
   const localRoot = path.join(d, "local");
   mkdirSync(keys);
@@ -334,12 +337,21 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
   let principal = true;
   const launch = vi.fn(async (input: ApprovedLaunchFixture, signal: AbortSignal) => {
     const id = "same-original-session";
+    if (foregroundCancel) {
+      await ready;
+      expect(signal.aborted).toBe(true);
+      sessions.set(id, { id, requestId: input.requestId, hasEnv: true, state: "failed", exitCode: null });
+      throw new HuhuError("INVALID_INPUT", "已在交付前取消", { details: { reason: "native_cancelled_before_start", requestId: input.requestId, sessionId: id, cleanupRequired } });
+    }
     const completion = ready.then(async () => {
       const result = await input.use(consume, signal).then(
         () => ({ state: "exited", exitCode: 0 }),
         () => ({ state: "failed", exitCode: null }),
       );
       sessions.set(id, { id, requestId: input.requestId, hasEnv: true, ...result });
+      if (event === "cancel") {
+        throw new HuhuError("INVALID_INPUT", "已在交付前取消", { details: { reason: "native_cancelled_before_start", requestId: input.requestId, sessionId: id, cleanupRequired: true } });
+      }
       return { id };
     });
     input.onPending(completion);
@@ -371,6 +383,31 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
     const intent = { ...request, expectedRevision: revision, intentId: randomUUID() };
     const run = () => invoke<{ runId: string; activationId: string; state: string }>("external.run", intent, "cli");
     read.mockClear();
+    if (foregroundCancel) {
+      const pending = run();
+      await vi.waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
+      const runId = svc.runs()[0]!.id;
+      expect(svc.cancelRun(runId)).toBe(true);
+      const retry = run();
+      markReady();
+      const cancelled = await pending;
+      expect(cancelled).toMatchObject({ runId, state: "cancelled" });
+      expect(await retry).toEqual(cancelled);
+      await svc.idle();
+      const reopened = open().svc;
+      expect(reopened.runDetail(runId)).toMatchObject({ live: false, data: { state: "cancelled", sessionId: "same-original-session" } });
+      expect(reopened.runDetail(runId).data.terminalReleasePending ?? false).toBe(cleanupRequired);
+      expect(read).not.toHaveBeenCalled();
+      expect(consume).not.toHaveBeenCalled();
+      expect(launch).toHaveBeenCalledTimes(1);
+      expect(calls.filter(({ capability }) => capability === "agent.sessions.release")).toHaveLength(cleanupRequired ? 1 : 0);
+      if (cleanupRequired) {
+        releaseUnavailable = false;
+        await reopened.reconcileTerminals();
+        expect(reopened.runDetail(runId).data.terminalReleasePending).toBe(false);
+      }
+      return;
+    }
     const [admitted, retry] = await Promise.all([run(), run()]);
     expect(admitted.state).toBe("unknown");
     expect(retry).toEqual(admitted);

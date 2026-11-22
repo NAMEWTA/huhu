@@ -182,6 +182,7 @@ type ProtectedTerminal = {
       approvedDirectory: ProtectedDirectory;
       approvedShell: ApprovedLinuxShell;
       names: readonly string[];
+      assertCurrent(): void;
       use<R>(consumer: (values: ReadonlyMap<string, string>) => Promise<R>, waiting: AbortSignal): Promise<R>;
       onPending(completion: Promise<{ id: string }>): void;
     },
@@ -551,6 +552,7 @@ export function registerTerminalEnvironments(
                 approvedDirectory: directory,
                 approvedShell,
                 names: grant.names,
+                assertCurrent: validate,
                 onPending,
                 use: (consumer, waiting) => {
                   if (taken) throw errors.permissionDenied("本次启动的凭据领取已结束");

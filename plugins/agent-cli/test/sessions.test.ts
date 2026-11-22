@@ -25,7 +25,17 @@ const tmp = () => {
   return d;
 };
 
-function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?: string; failSendTransport?: boolean; snapshot?: () => "unavailable" | "empty" | "ambiguous" | "current"; coreId?: () => string; output?: string } = {}) {
+function fakeClient(
+  opts: {
+    failRun?: "throw-after-create" | "throw";
+    failSend?: string;
+    failSendTransport?: boolean;
+    snapshot?: () => "unavailable" | "empty" | "ambiguous" | "current";
+    coreId?: () => string;
+    output?: string;
+    beforeHello?: () => Promise<void>;
+  } = {},
+) {
   const terminals: { address: string; labels: Record<string, string>; argv?: string[]; cwd: string; pid: number; created_ms: number; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
   const calls: string[] = [];
   const runs: { argv?: string[]; cwd?: string }[] = [];
@@ -34,7 +44,10 @@ function fakeClient(opts: { failRun?: "throw-after-create" | "throw"; failSend?:
   const client = {
     call: async (method: string, params: { labels?: Record<string, string>; terminal?: string; argv?: string[]; cwd?: string; text?: string; env?: Record<string, string> }) => {
       calls.push(method);
-      if (method === "hello") return { core: { id: opts.coreId?.() ?? "fake-core" }, generation: 1 };
+      if (method === "hello") {
+        await opts.beforeHello?.();
+        return { core: { id: opts.coreId?.() ?? "fake-core" }, generation: 1 };
+      }
       if (method === "terminal.send") {
         if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } });
         if (opts.failSendTransport) throw new Error("timeout");
@@ -103,7 +116,7 @@ function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof S
     ...over,
   };
   const reopen = (overrides: Partial<ConstructorParameters<typeof SessionsService>[0]> = {}) => new SessionsService({ ...deps, ...overrides });
-  return { svc: reopen(), reopen, space, work, sessionsDir: deps.dir };
+  return { svc: reopen(), reopen, space, spaces, work, sessionsDir: deps.dir };
 }
 const req = (space: { id: string; revision: number }, over: Record<string, unknown> = {}) => ({
   spaceId: space.id,
@@ -192,10 +205,10 @@ test("普通终端配置在连接 Core 后复核版本，并使用 Core 默认 s
   expect(runEnvironments).toEqual([{ SAMPLE: "portable-value", CLEARED: "" }]);
 });
 
-function nativeLaunchFixture() {
+function nativeLaunchFixture(before?: (stage: "connect" | "hello" | "broker") => Promise<void> | undefined) {
   let view: "unavailable" | "current" | "ambiguous" | "empty" = "unavailable";
   let instance = "original";
-  const core = fakeClient({ failRun: "throw-after-create", snapshot: () => view, coreId: () => instance });
+  const core = fakeClient({ failRun: "throw-after-create", snapshot: () => view, coreId: () => instance, beforeHello: async () => before?.("hello") });
   const expiry = new AbortController();
   const cancel = new AbortController();
   const lifetime = new AbortController();
@@ -213,12 +226,19 @@ function nativeLaunchFixture() {
   const inspectHost = vi.fn(async (pid: number) => ({ pid, created: "123", image: { path: helper, sha256: "fixture" } }));
   const revoke = vi.fn();
   const start = vi.fn<NativePtyBroker["start"]>();
-  const { svc, reopen, space, work, sessionsDir } = setup(core.client, {
+  const { svc, reopen, space, spaces, work, sessionsDir } = setup(core.client, {
+    core: async () => {
+      await before?.("connect");
+      return core.client;
+    },
     signal: lifetime.signal,
     interactiveEnvironment: interactive,
     nativeBroker: (_helper, signal) => ({
       waiting: AbortSignal.any([expiry.signal, ...(signal ? [signal] : [])]),
-      hostArgv: async () => [helper, "host", "original-broker"],
+      hostArgv: async () => {
+        await before?.("broker");
+        return [helper, "host", "original-broker"];
+      },
       inspectHost,
       start,
       revoke,
@@ -249,6 +269,8 @@ function nativeLaunchFixture() {
     ...core,
     svc,
     reopen,
+    space,
+    spaces,
     sessionsDir,
     expiry,
     cancel,
@@ -272,6 +294,139 @@ function nativeLaunchFixture() {
 }
 
 const linuxNativeOnly = process.platform !== "linux" || process.arch !== "x64";
+
+function nativeGate() {
+  let reached!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    entered,
+    release,
+    pause: () => {
+      reached();
+      return waiting;
+    },
+  };
+}
+
+test.skipIf(linuxNativeOnly).each(["connect", "hello", "broker"] as const)("原生前台取消在 %s 等待时结算原会话且释放 Space", async (stage) => {
+  const gate = nativeGate();
+  const f = nativeLaunchFixture((at) => (at === stage ? gate.pause() : undefined));
+  const launch = f.launch();
+  void launch.catch(() => undefined);
+  await gate.entered;
+  const [session] = f.svc.list(f.space.id);
+  expect(session).toMatchObject({ state: "launching", requestId: f.input.requestId });
+  const expected = { details: { reason: "native_cancelled_before_start", requestId: f.input.requestId, sessionId: session!.id, cleanupRequired: false } };
+  f.cancel.abort();
+  // Cancellation must settle even while the original operation is still blocked.
+  try {
+    await expect(Promise.race([launch, new Promise((resolve) => setTimeout(() => resolve("still blocked"), 200))])).rejects.toMatchObject(expected);
+  } finally {
+    gate.release();
+  }
+  const reopened = f.reopen();
+  expect(reopened.list(f.space.id)).toEqual([expect.objectContaining({ id: session!.id, requestId: f.input.requestId, state: "failed", terminalId: null })]);
+  expect(reopened.hasLaunchAttempt(f.input.requestId)).toBe(false);
+  await expect(reopened.launchApprovedShell(f.input)).rejects.toMatchObject(expected);
+  expect(reopened.list(f.space.id).filter(({ state }) => state === "running" || state === "launching" || state === "unknown")).toEqual([]);
+  f.spaces.delete(f.space.id);
+  expect(f.spaces.list()).toEqual([]);
+  expect(f.runs).toHaveLength(0);
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+test.skipIf(linuxNativeOnly)("原生前台取消在凭据放行前保留原会话和外层清理待办", async () => {
+  const f = nativeLaunchFixture();
+  const gate = nativeGate();
+  f.setView("current");
+  f.use.mockImplementationOnce(async (consumer) => {
+    await gate.pause();
+    return consumer(new Map([[f.input.names[0]!, f.marker]]));
+  });
+  const launch = f.launch();
+  void launch.catch(() => undefined);
+  await gate.entered;
+  const [session] = f.svc.list();
+  f.cancel.abort();
+  try {
+    await expect(launch).rejects.toMatchObject({ details: { reason: "native_cancelled_before_start", requestId: f.input.requestId, sessionId: session!.id, cleanupRequired: true } });
+  } finally {
+    gate.release();
+  }
+  await expect(f.use.mock.results[0]?.value).rejects.toThrow();
+  const reopened = f.reopen();
+  expect(reopened.get(session!.id)).toMatchObject({ state: "failed", launchReceipt: { attempt: { nativeCleanup: "pending", id: session!.launchReceipt!.attempt!.id } } });
+  expect(f.onPending).not.toHaveBeenCalled();
+  f.finish(f.terminals[0]!.address, 70);
+  await reopened.release(session!.id, f.input.requestId);
+  expect(reopened.get(session!.id).launchReceipt?.attempt?.nativeCleanup).toBe("complete");
+  expect(f.calls).toContain("terminal.rm");
+  expect(f.runs).toHaveLength(1);
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+test.skipIf(linuxNativeOnly).each(["generation", "ambiguous", "replaced", "empty", "reused-pid"] as const)("原生交付前再核验拒绝 %s，保留原尝试", async (change) => {
+  const f = nativeLaunchFixture();
+  const gate = nativeGate();
+  f.setView("current");
+  f.start.mockResolvedValue("started");
+  f.use.mockImplementationOnce(async (consumer) => {
+    await gate.pause();
+    return consumer(new Map([[f.input.names[0]!, f.marker]]));
+  });
+  const launch = f.launch();
+  void launch.catch(() => undefined);
+  await gate.entered;
+  const original = f.svc.list()[0]!;
+  if (change === "generation") f.replaceCore();
+  if (change === "ambiguous" || change === "empty") f.setView(change);
+  if (change === "replaced") f.terminals[0]!.pid++;
+  if (change === "reused-pid") f.inspectHost.mockImplementationOnce(async (pid) => ({ pid, created: "456", image: { path: "fixture", sha256: "fixture" } }));
+  gate.release();
+  await expect(launch).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  expect(f.reopen().get(original.id)).toMatchObject({ state: "failed", launchReceipt: { attempt: { id: original.launchReceipt!.attempt!.id, nativeCleanup: "pending" } } });
+  expect(f.runs).toHaveLength(1);
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+test.skipIf(linuxNativeOnly).each(["cancel", "expiry"] as const)("原生交付前再核验卡在 Core 时 %s 释放 lease 且零交付", async (event) => {
+  const gate = nativeGate();
+  let taking = false;
+  const f = nativeLaunchFixture((stage) => (stage === "hello" && taking ? gate.pause() : undefined));
+  f.setView("current");
+  const lease = new Map([[f.input.names[0]!, f.marker]]);
+  f.use.mockImplementationOnce(async (consumer) => {
+    taking = true;
+    try {
+      return await consumer(lease);
+    } finally {
+      lease.clear();
+    }
+  });
+  const launch = f.launch();
+  void launch.catch(() => undefined);
+  await gate.entered;
+  const original = f.svc.list()[0]!;
+  (event === "cancel" ? f.cancel : f.expiry).abort();
+  try {
+    const timeout = new Promise((resolve) => setTimeout(() => resolve("still blocked"), 200));
+    await expect(Promise.race([launch, timeout])).rejects.toMatchObject({ code: "INVALID_INPUT", ...(event === "cancel" && { details: { reason: "native_cancelled_before_start", sessionId: original.id } }) });
+    await expect(Promise.race([f.use.mock.results[0]!.value as Promise<BrokerOutcome>, timeout])).rejects.toThrow();
+    expect(lease.size).toBe(0);
+  } finally {
+    taking = false;
+    gate.release();
+  }
+  expect(f.reopen().get(original.id)).toMatchObject({ state: "failed", launchReceipt: { attempt: { id: original.launchReceipt!.attempt!.id, nativeCleanup: "pending" } } });
+  expect(f.start).not.toHaveBeenCalled();
+  expect(f.runs).toHaveLength(1);
+});
 
 test.skipIf(linuxNativeOnly)("原生短断恢复只向原 host 写一帧，并在重开后核对已启动进程", async () => {
   const f = nativeLaunchFixture();
@@ -373,6 +528,9 @@ test.skipIf(linuxNativeOnly).each(["expiry", "cancel", "ambiguous", "generation"
     const reopened = f.reopen({ signal: new AbortController().signal });
     await reopened.reconcile();
     expect(reopened.get(id)).toMatchObject({ state: "failed", launchReceipt: { attempt: { id: attemptId, nativeStatus: "failed", nativeCleanup: "pending" } } });
+  } else if (event === "cancel") {
+    await expect(f.pending()).rejects.toMatchObject({ details: { reason: "native_cancelled_before_start", requestId: f.input.requestId, sessionId: id, cleanupRequired: true } });
+    expect(f.reopen().get(id)).toMatchObject({ state: "failed", launchReceipt: { nativeCancelledBeforeStart: true, attempt: { id: attemptId, nativeStatus: "failed", nativeCleanup: "pending" } } });
   } else {
     expect(await f.pending()).toMatchObject({ id, state: "failed", launchReceipt: { attempt: { id: attemptId, nativeStatus: "failed", nativeCleanup: "pending" } } });
   }
