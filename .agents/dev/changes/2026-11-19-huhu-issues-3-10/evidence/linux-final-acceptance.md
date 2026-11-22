@@ -316,3 +316,17 @@ t178/task03 单文件回归24项通过：真实 QueryClient/QueryObserver 下，
 t17c/task04独立复算终端原始附件确认1311个真实输入、p95 32.4ms及完整尾标；补充现有值变化/input事件断言防止未来空按键通过。当前基线数据满足新断言，未为该断言重复运行同一基线。
 
 t17c/task05独审确认普通查询合并，但复现权限/插件目录在途请求收到撤销事件仍等待旧请求，并指出scope中止只处理未开始补刷、没有及时结算已开始刷新等待。两项已交t178/task04；安全缓存同步移除未退化。当前24项绿灯不能覆盖上述缺口，查询实现尚未验收。新构建推迟到返工独审完成；perf驱动真实输入低项已独立关闭。
+
+
+## 2026-11-23 查询合并返工与终端夹具环境
+
+`a97ece844bfdbc132b2d17a83bfb127610ffdeb4` 已推送 feature/issue-fix（t17v回读），main仍4ae7e7e4。普通事件合并当前请求后的补刷；权限与插件目录仍即时失效重查；作用域中止只结算自身等待。t178/task04及t17c/task06独立单文件29项通过，t17t Workbench类型检查通过，定向格式与diff检查通过。实际新构建滚动与退出尚待验。
+
+t17s在固定4a应用运行新终端夹具，568个窗内样本，p95 32.9ms、max44.1ms，1项通过12.2s；Core停止及PID/socket退出检查完成。日志 `temp/final-audit/terminal-flood-cleanup-check-4a54f0a9.log`。包装随后报告临时HOME清理不完整，因此不记整体验证完成。
+
+t176/task07只读确认诊断runner在env -i和隔离HOME下仍继承宿主Volta shim PATH，空注册触发同名外部命令递归。Lead按逐成员精确HOME核对后回收测试Electron进程组2210964，复查同HOME活进程0。记录 `temp/final-audit/flood-cleanup-incident.md` 与 `t176-probe-analysis.md`。两个后续runner已限定固定Node及/usr/bin:/bin，系统依赖存在、bash语法通过；尚未复跑，不将路径修正当作真实清理通过。独审另提出测试总超时后的独立清理预算，t178/task05正在修复。暂停重型验证直至返工完成。
+
+
+后续 t17w 在纠正PATH后，旧4a应用20秒内没有尾标，测试失败；4339个窗内键入不替代完整输出要求。独立teardown附件desktopClosed/coreStopped/directoryRemoved全true，外层无清理错误。t17x使用同一fixture并将测试总时限注入为5000ms，结果timedOut，Core已启动且上述三段仍全true；这是超时清理的正向证据，不记性能通过。原始报告分别为 `temp/issue-evidence/huhu-2026-11-22/followup-flood-4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73.qKbH7D/result.json` 和 `followup-timeout-flood-4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73.Ug0KV3/result.json`；trace另保全integration/temp/final-audit/flood-{isolated,timeout}-cleanup-artifacts。t17c/task07提出取消后续动作边界，t178/task06正在补齐。旧残留目录已在同HOME进程0复查后删除。
+
+终端fixture最后取消边界由t17c/task08复审关闭（blob f0abccd5efaa0d97c6186f4c9e73805f28486b6e）。t178/task06定向类型/语法/lint/format通过。保持20秒尾标和原性能阈值。进入固定组合构建，后续新版本结果另记。

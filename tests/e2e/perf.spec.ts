@@ -1,10 +1,14 @@
 /* oxlint-disable typescript/no-explicit-any */
-import { _electron as electron, expect, test } from "@playwright/test";
+import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { HerdrClient, HerdrCore } from "../../packages/herdr-client/src/index.js";
+import { machineId } from "../../packages/vault/src/vault.js";
+import { fixtureProcessRunning } from "../../plugins/agent-cli/test/fixtures/core-cli.js";
 import { createScaleVault } from "../perf/scale-vault.js";
+import { withFixtureCleanup, withFixtureDeadline } from "./helpers/candidate-desktop.js";
 import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
 import { observeTaskPerformance, observeTaskQuit } from "./helpers/perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
@@ -285,142 +289,285 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
   }
 });
 
-test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", async () => {
-  test.skip(!existsSync(HERDR) || process.platform === "win32", "需要 Herdr Core 与 POSIX shell（yes）");
-  const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
-  const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault, HUHU_HERDR_BIN: HERDR } });
-  try {
-    const page = await app.firstWindow();
-    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-    await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    // Core starts on the first real terminal request; merely viewing Agent CLI does not start it.
-    await page.getByRole("button", { name: "新终端", exact: true }).click();
-    await page.getByTestId("launch-shell").click();
-    await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
-    const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
-    await expect(search).toBeVisible();
-    const gate = path.join(vault, ".huhu", "perf-flood-start");
-    const quotedGate = `'${gate.replaceAll("'", "'\"'\"'")}'`;
-    const tail = "FLOOD-DONE-42-10485760";
-    type KeySample = { key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
-    type FloodWindow = Window & {
-      __huhuFloodDone: () => Promise<void>;
-      __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[] };
-    };
-    let signaledAt: number | undefined;
-    await page.exposeFunction("__huhuFloodDone", () => {
-      signaledAt = Date.now();
-    });
-    await page.locator(".xterm-helper-textarea").focus();
-    // 等待只发生在生产者启动前。放行后仍使用原来的满速 10 MiB 管道。
-    await page.keyboard.type(`while [ ! -f ${quotedGate} ]; do sleep 0.01; done; count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count`);
-    await page.keyboard.press("Enter");
-    await search.focus();
-    await search.evaluate((input, tail) => {
-      if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
-      const w = window as unknown as FloodWindow;
-      const now = () => performance.timeOrigin + performance.now();
-      const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
-      w.__flood = probe;
-      const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
-      if (!rows) throw new Error("终端输出行未挂载");
-      const observer = new MutationObserver(() => {
-        const text = rows.textContent ?? "";
-        if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
-        if (!text.includes(tail)) return;
-        probe.tailAt = now();
-        observer.disconnect();
-        void w.__huhuFloodDone();
-      });
-      observer.observe(rows, { subtree: true, childList: true, characterData: true });
-      input.addEventListener(
-        "keydown",
-        (event) => {
-          if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
-          const start = performance.now();
-          const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
-          const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
-          probe.keys.push(sample);
-          if (phase !== "during") return;
-          probe.pending++;
-          requestAnimationFrame(() => {
-            sample.firstFrameAt = now();
-            requestAnimationFrame(() => {
-              sample.latency = performance.now() - start;
-              probe.pending--;
-            });
-          });
-        },
-        true,
-      );
-      input.addEventListener(
-        "input",
-        (event) => {
-          const sample = probe.keys.at(-1);
-          if (!sample || !event.isTrusted || event.target !== input) return;
-          sample.inputAt = now();
-          sample.valueAfter = input.value.length;
-        },
-        true,
-      );
-    }, tail);
-    const releasedAt = Date.now();
-    const deadline = releasedAt + 20_000;
-    writeFileSync(gate, "");
-    let dispatched = 0;
-    for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
-      await page.keyboard.press(dispatched % 2 === 0 ? "a" : "Backspace");
+async function stopTerminalPerfCore(vault: string, runtime: string, coreStarted: boolean): Promise<void> {
+  const meta = path.join(vault, ".huhu", "vault.json");
+  if (!coreStarted && !existsSync(meta)) return;
+  const { id: vaultId } = JSON.parse(readFileSync(meta, "utf8")) as { id: string };
+  const machine = machineId();
+  const core = new HerdrCore({ bin: HERDR, vaultId, machineId: machine, runtimeDir: path.join(vault, ".huhu", "runtime", machine, "herdr") });
+  const filename = path.basename(core.endpoint);
+  const endpoint = path.join(runtime, filename);
+  const holderPrefix = `${path.basename(filename, ".sock")}.holder`;
+  const socket = lstatSync(endpoint, { throwIfNoEntry: false });
+  if (coreStarted && !socket) throw new Error("已连接的终端性能夹具缺少 Core socket，无法确认停止");
+  const pids: number[] = [];
+  if (socket) {
+    if (!socket.isSocket() || socket.uid !== process.getuid?.()) throw new Error("终端性能夹具的 Core socket 类型或所有者不符");
+    const client = new HerdrClient({ endpoint });
+    const deadline = AbortSignal.timeout(8_000);
+    try {
+      await client.connect(deadline);
+      const status = await client.call<{ pid: number; holders: { pid: number }[] }>("server.status", {}, deadline);
+      if (!Array.isArray(status.holders)) throw new Error("缺少终端性能夹具的 holder 身份");
+      pids.push(status.pid, ...status.holders.map(({ pid }) => pid));
+      if (pids.some((pid) => !Number.isSafeInteger(pid) || pid <= 0)) throw new Error("终端性能夹具返回无效的 Core 或 holder PID");
+      if (process.platform === "linux") expect(readlinkSync(`/proc/${status.pid}/exe`), "终端性能夹具的 Core 可执行文件").toBe(realpathSync(HERDR));
+      expect(await client.call("server.stop", {}, deadline), "终端性能夹具的 Core 停止回执").toMatchObject({ stopped: true });
+    } finally {
+      client.close();
     }
-    // 窗口结束后仍等待窗内按键的两帧回调，保留慢样本。
-    await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
-    const probe = await page.evaluate(() => (window as unknown as FloodWindow).__flood);
-    const during = probe.keys.filter(({ phase }) => phase === "during");
-    const thirds = [0, 0, 0];
-    if (probe.firstOutputAt !== null && probe.tailAt !== null && probe.tailAt > probe.firstOutputAt) {
-      const start = probe.firstOutputAt;
-      const span = probe.tailAt - start;
-      for (const { at } of during) {
-        const index = Math.min(2, Math.floor(((at - start) * 3) / span));
-        thirds[index] = thirds[index]! + 1;
-      }
-    }
-    note(
-      "终端洪流采样窗口",
-      JSON.stringify({
-        releasedAt,
-        signaledAt,
-        focusedAt: probe.focusedAt,
-        firstOutputAt: probe.firstOutputAt,
-        tailAt: probe.tailAt,
-        dispatched,
-        before: probe.keys.filter(({ phase }) => phase === "before").length,
-        during: during.length,
-        after: probe.keys.filter(({ phase }) => phase === "after").length,
-        thirds,
-      }),
-    );
-    await test.info().attach("terminal-flood-keys.json", {
-      body: JSON.stringify({ releasedAt, signaledAt, dispatched, thirds, ...probe }, null, 2),
-      contentType: "application/json",
-    });
-    // The browser records the tail before notifying Node. A tail seen during frame drain can be too late.
-    expect(probe.tailAt !== null && probe.tailAt <= deadline, "必须在放行后 20 秒内观察到实际洪流尾标").toBe(true);
-    expect(probe.firstOutputAt, "必须观察到实际终端输出开始").not.toBeNull();
-    await expect(page.getByTestId("terminal-view").locator(".xterm-rows")).toContainText(tail);
-    const lat = during.map(({ latency }) => latency!);
-    expect(
-      during.every(({ inputAt, valueBefore, valueAfter, key }) => typeof inputAt === "number" && valueAfter === (key === "a" ? valueBefore + 1 : Math.max(0, valueBefore - 1))),
-      "窗内按键必须产生真实输入事件并修改搜索框内容",
-    ).toBe(true);
-    expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
-    const v = p95(lat);
-    note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
-    atMost(v, 100);
-  } finally {
-    await app.close();
-    rmSync(vault, { recursive: true, force: true });
   }
+  await expect
+    .poll(
+      () => ({
+        pids: pids.filter(fixtureProcessRunning),
+        sockets: readdirSync(runtime).filter((name) => name === filename || name === `${holderPrefix}.sock` || (name.startsWith(`${holderPrefix}.`) && name.endsWith(".sock"))),
+      }),
+      { timeout: 8_000, message: "终端性能夹具的 Core 与 holder 已退出" },
+    )
+    .toEqual({ pids: [], sockets: [] });
+}
+
+type TerminalPerfFixture = {
+  vault: string;
+  signal: AbortSignal;
+  coreStarted: boolean;
+  launch(): Promise<ElectronApplication>;
+};
+
+const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
+  terminalPerf: [
+    async ({ browserName }, use, info) => {
+      void browserName;
+      info.skip(!existsSync(HERDR) || process.platform === "win32", "需要 Herdr Core 与 POSIX shell（yes）");
+      const directory = mkdtempSync(path.join("/tmp", "huhu-flood-"));
+      const vault = path.join(directory, "vault");
+      const runtime = path.join(directory, "runtime");
+      const teardown = new AbortController();
+      let launch: Promise<ElectronApplication> | undefined;
+      let desktopClosed = false;
+      let coreStopped = false;
+      let directoryRemoved = false;
+      const fixture: TerminalPerfFixture = {
+        vault,
+        signal: teardown.signal,
+        coreStarted: false,
+        async launch() {
+          teardown.signal.throwIfAborted();
+          launch = electron.launch({
+            args: [root, "--no-sandbox", USER_DATA_ARG],
+            env: { ...process.env, HUHU_VAULT: vault, HUHU_HERDR_BIN: HERDR, XDG_RUNTIME_DIR: runtime },
+            timeout: info.timeout,
+          });
+          const app = await launch;
+          teardown.signal.throwIfAborted();
+          return app;
+        },
+      };
+      await withFixtureCleanup(async () => {
+        mkdirSync(vault, { mode: 0o700 });
+        mkdirSync(runtime, { mode: 0o700 });
+        await use(fixture);
+      }, [
+        [
+          `关闭终端性能夹具的 Electron（${directory}）`,
+          async () => {
+            teardown.abort();
+            const launched = launch;
+            if (launched) {
+              await withFixtureDeadline(12_000, async () => {
+                const app = await launched;
+                await app.close();
+              });
+            }
+            desktopClosed = true;
+          },
+        ],
+        [
+          `停止并核对终端性能夹具的 Core（${directory}）`,
+          async () => {
+            await stopTerminalPerfCore(vault, runtime, fixture.coreStarted);
+            coreStopped = true;
+          },
+        ],
+        [
+          "删除已确认退出的终端性能夹具目录",
+          () => {
+            if (!desktopClosed || !coreStopped) return;
+            rmTree(directory);
+            directoryRemoved = true;
+          },
+        ],
+        [
+          "记录终端性能夹具清理结果",
+          () =>
+            withFixtureDeadline(2_000, () =>
+              info.attach("terminal-flood-cleanup.json", {
+                body: JSON.stringify({ directory, testStatus: info.status, desktopLaunchAttempted: launch !== undefined, desktopClosed, coreStarted: fixture.coreStarted, coreStopped, directoryRemoved }),
+                contentType: "application/json",
+              }),
+            ),
+        ],
+      ]);
+    },
+    // Allow the 12 s close, 8 s Core RPC, 8 s poll, and cleanup evidence after the test times out.
+    { timeout: 45_000 },
+  ],
+});
+
+terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", async ({ terminalPerf }) => {
+  const { vault, signal } = terminalPerf;
+  const app = await terminalPerf.launch();
+  // The runner may stop waiting at the test timeout while an already issued Playwright call is still settling.
+  signal.throwIfAborted();
+  const page = await app.firstWindow();
+  signal.throwIfAborted();
+  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+  signal.throwIfAborted();
+  await page.getByRole("button", { name: "Agent CLI" }).first().click();
+  // Core starts on the first real terminal request; merely viewing Agent CLI does not start it.
+  signal.throwIfAborted();
+  await page.getByRole("button", { name: "新终端", exact: true }).click();
+  signal.throwIfAborted();
+  await page.getByTestId("launch-shell").click();
+  signal.throwIfAborted();
+  await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+  terminalPerf.coreStarted = true;
+  signal.throwIfAborted();
+  await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+  signal.throwIfAborted();
+  const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
+  await expect(search).toBeVisible();
+  const gate = path.join(vault, ".huhu", "perf-flood-start");
+  const quotedGate = `'${gate.replaceAll("'", "'\"'\"'")}'`;
+  const tail = "FLOOD-DONE-42-10485760";
+  type KeySample = { key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
+  type FloodWindow = Window & {
+    __huhuFloodDone: () => Promise<void>;
+    __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[] };
+  };
+  let signaledAt: number | undefined;
+  signal.throwIfAborted();
+  await page.exposeFunction("__huhuFloodDone", () => {
+    signaledAt = Date.now();
+  });
+  signal.throwIfAborted();
+  await page.locator(".xterm-helper-textarea").focus();
+  // 等待只发生在生产者启动前。放行后仍使用原来的满速 10 MiB 管道。
+  signal.throwIfAborted();
+  await page.keyboard.type(`while [ ! -f ${quotedGate} ]; do sleep 0.01; done; count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count`);
+  signal.throwIfAborted();
+  await page.keyboard.press("Enter");
+  signal.throwIfAborted();
+  await search.focus();
+  signal.throwIfAborted();
+  await search.evaluate((input, tail) => {
+    if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
+    const w = window as unknown as FloodWindow;
+    const now = () => performance.timeOrigin + performance.now();
+    const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
+    w.__flood = probe;
+    const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
+    if (!rows) throw new Error("终端输出行未挂载");
+    const observer = new MutationObserver(() => {
+      const text = rows.textContent ?? "";
+      if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
+      if (!text.includes(tail)) return;
+      probe.tailAt = now();
+      observer.disconnect();
+      void w.__huhuFloodDone();
+    });
+    observer.observe(rows, { subtree: true, childList: true, characterData: true });
+    input.addEventListener(
+      "keydown",
+      (event) => {
+        if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
+        const start = performance.now();
+        const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
+        const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
+        probe.keys.push(sample);
+        if (phase !== "during") return;
+        probe.pending++;
+        requestAnimationFrame(() => {
+          sample.firstFrameAt = now();
+          requestAnimationFrame(() => {
+            sample.latency = performance.now() - start;
+            probe.pending--;
+          });
+        });
+      },
+      true,
+    );
+    input.addEventListener(
+      "input",
+      (event) => {
+        const sample = probe.keys.at(-1);
+        if (!sample || !event.isTrusted || event.target !== input) return;
+        sample.inputAt = now();
+        sample.valueAfter = input.value.length;
+      },
+      true,
+    );
+  }, tail);
+  signal.throwIfAborted();
+  const releasedAt = Date.now();
+  const deadline = releasedAt + 20_000;
+  writeFileSync(gate, "");
+  let dispatched = 0;
+  for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
+    signal.throwIfAborted();
+    await page.keyboard.press(dispatched % 2 === 0 ? "a" : "Backspace");
+  }
+  // 窗口结束后仍等待窗内按键的两帧回调，保留慢样本。
+  signal.throwIfAborted();
+  await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
+  signal.throwIfAborted();
+  const probe = await page.evaluate(() => (window as unknown as FloodWindow).__flood);
+  signal.throwIfAborted();
+  const during = probe.keys.filter(({ phase }) => phase === "during");
+  const thirds = [0, 0, 0];
+  if (probe.firstOutputAt !== null && probe.tailAt !== null && probe.tailAt > probe.firstOutputAt) {
+    const start = probe.firstOutputAt;
+    const span = probe.tailAt - start;
+    for (const { at } of during) {
+      const index = Math.min(2, Math.floor(((at - start) * 3) / span));
+      thirds[index] = thirds[index]! + 1;
+    }
+  }
+  note(
+    "终端洪流采样窗口",
+    JSON.stringify({
+      releasedAt,
+      signaledAt,
+      focusedAt: probe.focusedAt,
+      firstOutputAt: probe.firstOutputAt,
+      tailAt: probe.tailAt,
+      dispatched,
+      before: probe.keys.filter(({ phase }) => phase === "before").length,
+      during: during.length,
+      after: probe.keys.filter(({ phase }) => phase === "after").length,
+      thirds,
+    }),
+  );
+  await test.info().attach("terminal-flood-keys.json", {
+    body: JSON.stringify({ releasedAt, signaledAt, dispatched, thirds, ...probe }, null, 2),
+    contentType: "application/json",
+  });
+  signal.throwIfAborted();
+  // The browser records the tail before notifying Node. A tail seen during frame drain can be too late.
+  expect(probe.tailAt !== null && probe.tailAt <= deadline, "必须在放行后 20 秒内观察到实际洪流尾标").toBe(true);
+  expect(probe.firstOutputAt, "必须观察到实际终端输出开始").not.toBeNull();
+  await expect(page.getByTestId("terminal-view").locator(".xterm-rows")).toContainText(tail);
+  signal.throwIfAborted();
+  const lat = during.map(({ latency }) => latency!);
+  expect(
+    during.every(({ inputAt, valueBefore, valueAfter, key }) => typeof inputAt === "number" && valueAfter === (key === "a" ? valueBefore + 1 : Math.max(0, valueBefore - 1))),
+    "窗内按键必须产生真实输入事件并修改搜索框内容",
+  ).toBe(true);
+  expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
+  const v = p95(lat);
+  note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
+  atMost(v, 100);
 });
 
 test("scale-vault（10,000 篇笔记 / 1,000 任务 / 1,000 档案）：打开到文件树可用 ≤ 6 s；索引在后台完成；Engine 内存 ≤ 600 MiB", async () => {
