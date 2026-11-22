@@ -47,8 +47,28 @@ export async function startCodexResponsesFixture() {
     }
   });
   await new Promise<void>((resolve, reject) => server.once("error", reject).listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
   return {
-    baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+    config: `model = "gpt-5.4"
+model_provider = "fixture"
+check_for_update_on_startup = false
+[features]
+plugins = false
+remote_plugin = false
+skill_mcp_dependency_install = false
+api_key_model_discovery = false
+[analytics]
+enabled = false
+[feedback]
+enabled = false
+[model_providers.fixture]
+name = "Isolated Responses fixture"
+base_url = "${baseUrl}"
+wire_api = "responses"
+requires_openai_auth = false
+request_max_retries = 0
+stream_max_retries = 0
+`,
     requests,
     result,
     toolName,

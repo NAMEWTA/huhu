@@ -112,7 +112,7 @@ export function AgentSettingsPage() {
               {found.length} 个已检测{checkedAt ? ` · 检测于 ${hhmm(checkedAt)}` : ""}
             </p>
           </div>
-          <Button icon={RefreshCw} disabled={busy} data-testid="agent-redetect" onClick={() => void call("agent.catalog.detect", { refresh: true })}>
+          <Button icon={RefreshCw} disabled={busy} data-testid="agent-redetect" onClick={() => void call("agent.catalog.refresh", {})}>
             刷新
           </Button>
         </div>

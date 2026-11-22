@@ -16,6 +16,8 @@ export interface DetectInfo {
   via?: "path" | "installDir" | "override";
   headless: boolean;
   detectedAt: string;
+  /** Pi flags confirmed by the last explicit probe. */
+  history?: { resume: boolean; fork: boolean };
 }
 
 const exts = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => (platform === "win32" ? (env["PATHEXT"] ?? ".EXE;.CMD;.BAT").split(";").map((e) => e.toLowerCase()) : [""]);
@@ -87,10 +89,13 @@ export async function probeVersion(exe: string, args: string[] = ["--version"], 
 }
 
 export async function supportsPiHistory(exe: string, mode: "resume" | "fork" | "new", env: NodeJS.ProcessEnv): Promise<boolean> {
-  const help = await probeText(exe, ["--help"], 5000, env);
-  if (!help) return false;
-  if (mode === "resume") return /^\s+--session\s/m.test(help);
-  return /^\s+--session-id\s/m.test(help) && (mode === "new" || /^\s+--fork\s/m.test(help));
+  return (await probePiHistory(exe, env))[mode];
+}
+
+async function probePiHistory(exe: string, env: NodeJS.ProcessEnv) {
+  const help = (await probeText(exe, ["--help"], 5000, env)) ?? "";
+  const sessionId = /^\s+--session-id\s/m.test(help);
+  return { resume: /^\s+--session\s/m.test(help), fork: sessionId && /^\s+--fork\s/m.test(help), new: sessionId };
 }
 
 function probeText(exe: string, args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -129,13 +134,26 @@ export interface DetectorDeps {
   catalog?: readonly AgentCatalogEntry[];
 }
 
-/** 检测缓存 10 分钟；`refresh` 强制重测；设置里的 command / enabled 变化时由调用方 invalidate。HUHU 不读取智能体的凭据文件。 */
+/** 读取保留上一次快照。主动探测可复用十分钟内的结果，或由工作台强制更新。 */
 export class AgentDetector {
-  private cache: { at: number; results: DetectInfo[] } | null = null;
+  private cache: { at: number; probed: boolean; results: DetectInfo[] } | null = null;
+  private pending: Promise<DetectInfo[]> | undefined;
   constructor(private readonly d: DetectorDeps) {}
 
   invalidate(): void {
     this.cache = null;
+    this.pending = undefined;
+  }
+
+  /** Read the latest published data without resolving paths or running provider commands. */
+  cached(): DetectInfo[] {
+    return this.cache?.results ?? [];
+  }
+
+  /** Seed the workbench from executable availability without starting a provider. */
+  snapshot(): DetectInfo[] {
+    if (!this.cache) this.cache = { at: (this.d.now ?? Date.now)(), probed: false, results: this.scanLocations() };
+    return this.cache.results;
   }
 
   /** 查找实际启动的程序，不执行版本命令。启动与会话预览使用同一位置解析。 */
@@ -159,22 +177,38 @@ export class AgentDetector {
     return inDir ? { path: inDir, via: "installDir" } : null;
   }
 
+  private scanLocations(): DetectInfo[] {
+    const settings = this.d.settings();
+    const detectedAt = new Date((this.d.now ?? Date.now)()).toISOString();
+    return (this.d.catalog ?? AGENT_CATALOG).map((entry) => {
+      const base = { id: entry.id, displayName: entry.displayName, headless: entry.headless !== undefined, detectedAt };
+      if (!isEnabled(settings, entry.id)) return { ...base, installed: false, skipped: true };
+      const found = this.locateEntry(entry, settings);
+      return { ...base, ...found, installed: found !== null };
+    });
+  }
+
   async detect(refresh = false): Promise<DetectInfo[]> {
     const now = this.d.now ?? Date.now;
-    if (!refresh && this.cache && now() - this.cache.at < TTL_MS) return this.cache.results;
+    if (!refresh && this.cache?.probed && now() - this.cache.at < TTL_MS) return this.cache.results;
+    if (this.pending) return this.pending;
     const env = this.d.env ?? process.env;
-    const settings = this.d.settings();
-    const results = await Promise.all(
-      (this.d.catalog ?? AGENT_CATALOG).map(async (e): Promise<DetectInfo> => {
-        const base = { id: e.id, displayName: e.displayName, headless: e.headless !== undefined, detectedAt: new Date(now()).toISOString() };
-        if (!isEnabled(settings, e.id)) return { ...base, installed: false, skipped: true };
-        const found = this.locateEntry(e, settings);
-        if (!found) return { ...base, installed: false };
-        const version = await probeVersion(found.path, e.detect.versionArgs, 5000, env);
-        return { ...base, installed: true, path: found.path, via: found.via, ...(version ? { version } : {}) };
-      }),
-    );
-    this.cache = { at: now(), results };
-    return results;
+    const catalog = this.d.catalog ?? AGENT_CATALOG;
+    const checks = this.scanLocations().map(async (result, index) => {
+      if (!result.path) return result;
+      const [version, history] = await Promise.all([probeVersion(result.path, catalog[index]?.detect.versionArgs, 5000, env), result.id === "pi" ? probePiHistory(result.path, env) : undefined]);
+      return { ...result, ...(version && { version }), ...(history && { history: { resume: history.resume, fork: history.fork } }) };
+    });
+    const pending = Promise.all(checks)
+      .then((results) => {
+        if (this.pending !== pending) return this.cached();
+        this.cache = { at: now(), probed: true, results };
+        return results;
+      })
+      .finally(() => {
+        if (this.pending === pending) this.pending = undefined;
+      });
+    this.pending = pending;
+    return pending;
   }
 }

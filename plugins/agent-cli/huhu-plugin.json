@@ -15,6 +15,7 @@
     "commands": [],
     "capabilities": [
       "agent.catalog.detect",
+      "agent.catalog.refresh",
       "agent.core.restart",
       "agent.core.status",
       "agent.history.list",

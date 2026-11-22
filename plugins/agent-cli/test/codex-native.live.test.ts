@@ -36,30 +36,7 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
       return result.data as T;
     };
     try {
-      writeFileSync(
-        path.join(codexHome, "config.toml"),
-        `model = "gpt-5.4"
-model_provider = "fixture"
-check_for_update_on_startup = false
-[features]
-plugins = false
-remote_plugin = false
-skill_mcp_dependency_install = false
-api_key_model_discovery = false
-[analytics]
-enabled = false
-[feedback]
-enabled = false
-[model_providers.fixture]
-name = "Isolated Responses fixture"
-base_url = "${responses.baseUrl}"
-wire_api = "responses"
-requires_openai_auth = false
-request_max_retries = 0
-stream_max_retries = 0
-`,
-        { mode: 0o600 },
-      );
+      writeFileSync(path.join(codexHome, "config.toml"), responses.config, { mode: 0o600 });
       vi.stubEnv("HOME", home);
       vi.stubEnv("CODEX_HOME", unusedCodexHome);
       vi.stubEnv("HUHU_HERDR_BIN", coreBin);

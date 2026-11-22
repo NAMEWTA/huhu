@@ -19,7 +19,7 @@ import type { Space } from "../src/shared/space.js";
 const roots: string[] = [];
 const engines = new Set<RunningEngine>();
 const noExposure = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
-const closed = ["agent.catalog.detect", "agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect", "agent.runs.answer", "agent.runs.answer.inspect", "agent.runs.stop", "agent.runs.stop.inspect", "agent.sessions.release"];
+const closed = ["agent.catalog.refresh", "agent.targets.list", "agent.runs.dispatch", "agent.runs.inspect", "agent.runs.answer", "agent.runs.answer.inspect", "agent.runs.stop", "agent.runs.stop.inspect", "agent.sessions.release"];
 const entries = ["CLI", "HTTP MCP"] as const;
 type Entry = (typeof entries)[number];
 let historyHome: string;
@@ -562,6 +562,39 @@ test.each(entries)("%s 外部设置回执脱敏，Space 与环境变更并发及
   }
 });
 
+test.each(entries)("%s Agent 可用性只读取脱敏缓存，只有工作台刷新启动探针", { timeout: 60_000 }, async (entry) => {
+  const fixture = scratch();
+  const vault = path.join(fixture, "vault");
+  mkdirSync(vault);
+  const engine = await start(vault, true);
+  const { manage, tool, withTool } = await gateway(engine, entry);
+  const win = process.platform === "win32";
+  const command = path.join(fixture, win ? "fixture-claude.cmd" : "fixture-claude");
+  const probe = path.join(fixture, "version-probe.log");
+  writeFileSync(command, win ? `@echo off\r\necho hit>>"${probe}"\r\necho fixture-version\r\n` : `#!/bin/sh\nprintf 'hit\\n' >> "${probe}"\nprintf 'fixture-version\\n'\n`, { mode: 0o755 });
+  unwrap(await manage("agent.settings.update", { expectedRevision: 0, defaultAgent: "claude", agents: { claude: { command }, codex: { enabled: false }, pi: { enabled: false } } }));
+  const capability = "agent.catalog.detect";
+  const view = { id: "claude", installed: true };
+  const read = () => manage(capability);
+  const passive = unwrap(await read());
+  expect(passive).toEqual(expect.arrayContaining([expect.objectContaining({ ...view, path: command, via: "override" })]));
+  expect(readdirSync(fixture)).not.toContain(path.basename(probe));
+  const ensure = vi.spyOn(HerdrCore.prototype, "ensure");
+  await withTool(capability, {}, async () => {
+    const before = unwrap(await tool.call(capability, {}));
+    expect(before).toEqual(expect.arrayContaining([expect.objectContaining(view)]));
+    expect(await tool.call("agent.catalog.refresh", {})).toMatchObject(noExposure);
+    expect(readdirSync(fixture)).not.toContain(path.basename(probe));
+    const refreshed = unwrap(await manage("agent.catalog.refresh"));
+    expect(refreshed).toContainEqual(expect.objectContaining({ ...view, path: command, version: "fixture-version" }));
+    expect(unwrap(await read())).toEqual(refreshed);
+    const external = unwrap(await tool.call(capability, {}));
+    expect(JSON.stringify(external)).not.toMatch(/fixture-version|fixture-claude|override/);
+    expect(readFileSync(probe, "utf8").trim()).toBe("hit");
+    expect(ensure).not.toHaveBeenCalled();
+  });
+});
+
 test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按原启动回读", { timeout: 60_000 }, async (entry) => {
   const fixture = scratch();
   const root = path.join(fixture, "vault");
@@ -592,6 +625,10 @@ test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按�
   unwrap(await manage("agent.settings.update", { expectedRevision: 0, defaultAgent: "pi", agents: { pi: { command: bin } } }));
   const selection = selectedSpace(space);
   const query = { spaceId: space.id, provider: "pi" };
+  unwrap(await manage("agent.catalog.refresh"));
+  expect(unwrap(await manage("agent.history.list", query))).toMatchObject({
+    entries: expect.arrayContaining([expect.objectContaining({ canResume: true, canFork: false, forkBlocked: "当前 Pi CLI 不支持 --fork 和 --session-id" })]),
+  });
   const histories = await withTool("agent.history.list", query, async () => {
     const peek = core.peek.mock.calls.length;
     const rows = unwrap(await tool.call<{ entries: Array<{ historyId: string; nativeSessionId: string; revision: string }> }>("agent.history.list", query)).entries;
@@ -622,6 +659,8 @@ test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按�
   );
   expect(unwrap(await manage("agent.history.list", query))).toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ historyId: reference.historyId, pinned: true })]) });
   const launched = { ...reference, ...selection, baseVersion: 0, target: { kind: "tab" }, requestId: "fixture-pi-workspace-launch" };
+  expect(await manage("agent.history.workspaceLaunch", { ...launched, historyRevision: "f".repeat(64) })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(core.terminals).toHaveLength(0);
   const workspace = await withTool("agent.history.workspaceLaunch", launched, async () => {
     const [one, two] = await Promise.all([tool.call<{ sessionId: string; placement: { tab: string; leaf: string } }>("agent.history.workspaceLaunch", launched), tool.call("agent.history.workspaceLaunch", launched)]);
     expect(two).toEqual(one);
@@ -633,6 +672,10 @@ test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按�
     expect(await tool.call("agent.history.locate", reference)).toMatchObject({ ok: true, data: { spaceId: space.id, sessionId: workspace.sessionId, ...workspace.placement } });
     expect(core.peek).toHaveBeenCalledTimes(peek);
     expect(core.ensure).toHaveBeenCalledTimes(ensure);
+  });
+  writeFileSync(source, bytes + "\n");
+  await withTool("agent.history.workspaceLaunch", launched, async () => {
+    expect(await tool.call("agent.history.workspaceLaunch", launched)).toMatchObject({ ok: true, data: { sessionId: workspace.sessionId } });
   });
 
   const resume = { ...secondReference, ...selection, requestId: "fixture-pi-resume" };
@@ -651,7 +694,7 @@ test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按�
   else expect(reply).toMatchObject({ ok: false, error: { code: "INTERNAL", details: { outcome: "unknown" } } });
   expect(await restored.call("agent.sessions.list", { spaceId: space.id })).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: resumed.id })]) });
   expect(core.terminals).toHaveLength(2);
-  expect(readFileSync(source, "utf8")).toBe(bytes);
+  expect(readFileSync(source, "utf8")).toBe(bytes + "\n");
 });
 
 test.each(entries)("%s worktree 创建与打开只作用于授权仓库和真实候选目录", { timeout: 60_000 }, async (entry) => {

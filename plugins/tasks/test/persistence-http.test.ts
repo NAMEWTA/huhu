@@ -617,8 +617,12 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     expect(await consume(engine)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
     expect(await resultComments(engine)).toEqual([]);
     fault = "after-comment";
-    // The origin can lose the first successful response without losing the committed payload.
-    expect(await consume(engine)).toEqual(expected);
+    const gate = path.join(root, "test-ack-gate");
+    mkdirSync(gate);
+    writeFileSync(path.join(gate, "dispatch-id"), run.dispatchId);
+    vi.stubEnv("HUHU_E2E_TASK_RECEIPT_ACK_GATE", gate);
+    expect(await consume(engine)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+    expect(JSON.parse(readFileSync(path.join(gate, "held.json"), "utf8"))).toEqual(expected.data);
     const receiptDir = path.join(engine.vault.stateDir, "tasks", "receipts");
     const [file] = readdirSync(receiptDir);
     expect(file).toBeDefined();
@@ -632,6 +636,7 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     await stop(engine);
     fault = null;
     const reopened = await start(root);
+    writeFileSync(path.join(gate, "release"), "");
     expect(await consume(reopened)).toEqual(expected);
     expect(await consume(reopened, { ...input, payload: { message: "同 ID 异载荷" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     await vi.waitFor(() => expect(durable().status).toBe("delivered"));
@@ -648,6 +653,7 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     expect(reopenedTask).toMatchObject({ ok: true, data: { status: "not_started", inputRevision: afterResult.inputRevision + 1 } });
     expect(fake.dispatch).toHaveBeenCalledTimes(1);
   } finally {
+    vi.unstubAllEnvs();
     injection.mockRestore();
   }
 });
