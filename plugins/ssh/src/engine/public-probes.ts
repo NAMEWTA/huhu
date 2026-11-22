@@ -54,7 +54,7 @@ export const PublicProbeStatus = z.discriminatedUnion("state", [
   statusBase.extend({ state: z.enum(["connecting", "verified", "connected", "disconnected"]) }),
   statusBase.extend({ state: z.enum(["waiting", "key-changed"]), prompt: PublicTrustPrompt }),
   statusBase.extend({ state: z.literal("keyboard"), keyboard: PublicKeyboardPrompt }),
-  statusBase.extend({ state: z.literal("failed"), reason: z.enum(["route-changed", "authentication-failed", "timeout", "connection-failed"]) }),
+  statusBase.extend({ state: z.literal("failed"), reason: z.enum(["route-changed", "authentication-failed", "host-key-rejected", "timeout", "connection-failed"]) }),
 ]);
 
 type Status = z.infer<typeof PublicProbeStatus>;
@@ -88,6 +88,7 @@ function promptView({ hostId, attemptId, routeRevision }: Status, prompt: HostKe
 function failure(error?: HuhuError["code"]): Extract<Status, { state: "failed" }>["reason"] {
   if (error === "VERSION_CONFLICT" || error === "NOT_FOUND") return "route-changed";
   if (error === "SSH_AUTH_FAILED") return "authentication-failed";
+  if (error === "SSH_HOST_KEY_MISMATCH") return "host-key-rejected";
   return error === "SSH_TIMEOUT" ? "timeout" : "connection-failed";
 }
 

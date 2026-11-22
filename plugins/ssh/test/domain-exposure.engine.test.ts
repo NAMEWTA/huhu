@@ -15,6 +15,7 @@ import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import { SshPreferences } from "../src/engine/preferences.js";
 import { Transfers } from "../src/engine/transfers.js";
 import { defaultVaultPreferences } from "../src/shared/preferences.js";
+import { KnownHostAuthorities } from "../src/shared/trust.js";
 
 const get = "ssh.settings.get";
 const update = "ssh.settings.update";
@@ -101,7 +102,10 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     expect(initialTools.filter(({ name }) => name.startsWith(entry === "mcp" ? "ssh_" : "ssh."))).toEqual([]);
     const closed = ssh.filter(({ exposable }) => !exposable);
     const available = ssh.filter(({ exposable }) => exposable);
-    for (const capability of ["ssh.authentication.answer", "ssh.configSync.apply", "ssh.configSync.preview", "ssh.local.close", "ssh.local.environments", "ssh.local.list", "ssh.local.open"]) {
+    const authorityList = "ssh.knownHosts.authorities.list";
+    const authorityAdd = "ssh.knownHosts.authorities.add";
+    const authorityRemove = "ssh.knownHosts.authorities.remove";
+    for (const capability of ["ssh.authentication.answer", "ssh.configSync.apply", "ssh.configSync.preview", "ssh.local.close", "ssh.local.environments", "ssh.local.list", "ssh.local.open", authorityList, authorityAdd, authorityRemove]) {
       expect(closed.find(({ name }) => name === capability)).toMatchObject({ availability: "active", exposable: false, selected: false });
       expect(await desktop("gateway.update", { capability, exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       expect(await success("gateway.check", { capability })).toMatchObject({
@@ -237,6 +241,20 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     expect(preview.targets.map(({ capability }) => capability)).toEqual(batchable.map(({ name }) => name));
     expect(await desktop("gateway.policy.preview", bulk(available))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
     expect(await desktop("gateway.policy.preview", bulk(ssh))).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+
+    const { hostId, revision: expectedRevision } = z
+      .object({ hostId: z.string(), revision: z.string() })
+      .parse(await success("ssh.hosts.configure", { name: "CA scope fixture", host: "127.0.0.1", port: 22022, user: "fixture", authKind: "agent", expectedRevision: null, credentials: [] }));
+    const publicKey = ssh2.utils.generateKeyPairSync("ed25519").public;
+    const approval = { hostId, expectedRevision, expectedTrustRevision: null, publicKey };
+    expect(await success(authorityList)).toEqual({ revision: null, authorities: [] });
+    expect(await invoke(authorityAdd, approval)).toMatchObject(denied);
+    const savedAuthority = KnownHostAuthorities.parse(await success(authorityAdd, approval));
+    expect(savedAuthority.authorities).toMatchObject([{ scope: "[127.0.0.1]:22022", keyType: "ssh-ed25519" }]);
+    expect(await desktop(authorityAdd, approval)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const removal = { authority: savedAuthority.authorities[0], expectedTrustRevision: savedAuthority.revision };
+    expect(await invoke(authorityRemove, removal)).toMatchObject(denied);
+    expect(await success(authorityRemove, removal)).toMatchObject({ authorities: [] });
 
     const core = vi.spyOn(HerdrCore.prototype, "ensure");
     const dial = vi.spyOn(ssh2.Client.prototype, "connect");

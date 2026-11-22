@@ -12,6 +12,7 @@ import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
 import { registerSshDraft } from "./draft-connection.js";
 import { HostStore } from "./hosts.js";
+import { registerHostAuthorities } from "./host-authorities.js";
 import { HostConfigurations, hostPackageFile, type SshCredentialHost } from "./host-configurations.js";
 import { HostIntents, sealCredentialPatches } from "./host-intents.js";
 import { hostImportCapabilities } from "./import/capability.js";
@@ -141,6 +142,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
   registerOutboundProxies(api, outboundProxies, hosts);
+  registerHostAuthorities(api, hosts, manager);
   registerShortcuts(api);
   registerSshDraft(api, hosts, manager);
   registerSshAuthentication(api, manager);

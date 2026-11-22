@@ -7,6 +7,7 @@ import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./impo
 import { sshAuthenticationDescriptor } from "./authentication-capability.js";
 import { sshConfigSyncDescriptors } from "./config-sync.js";
 import { sshDraftDescriptor } from "./draft-connection.js";
+import { sshHostAuthorityDescriptors } from "./host-authorities.js";
 import { sshKeyDescriptors } from "./key-library-capabilities.js";
 import { sshLocalShellDescriptors } from "./local-shell.js";
 import { sshOutboundProxyDescriptors } from "./outbound-proxy-capabilities.js";
@@ -80,6 +81,7 @@ export const sshCapabilityDescriptors = {
   ...sshConfigSyncDescriptors,
   ...sshLocalShellDescriptors,
   ...sshOutboundProxyDescriptors,
+  ...sshHostAuthorityDescriptors,
   ...sshShortcutDescriptors,
   ...sshProxyShareDescriptors,
   ...sshRecordingDescriptors,

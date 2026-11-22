@@ -113,6 +113,127 @@ index 7302488..0bb6fd5 100644
        packet.set(signature, p += 4);
 
        // Servers shouldn't send packet type 60 in response to signed publickey
+diff --git a/lib/protocol/constants.js b/lib/protocol/constants.js
+index ad77592..5121f95 100644
+--- a/lib/protocol/constants.js
++++ b/lib/protocol/constants.js
+@@ -74,6 +74,9 @@ if (eddsaSupported)
+ const SUPPORTED_SERVER_HOST_KEY = DEFAULT_SERVER_HOST_KEY.concat([
+   'ssh-dss',
+ ]);
++const OPENSSH_ED25519_CERT = 'ssh-ed25519-cert-v01@openssh.com';
++if (eddsaSupported)
++  SUPPORTED_SERVER_HOST_KEY.push(OPENSSH_ED25519_CERT);
+
+
+ const canUseCipher = (() => {
+@@ -340,6 +343,7 @@ module.exports = {
+   SUPPORTED_KEX,
+   DEFAULT_SERVER_HOST_KEY,
+   SUPPORTED_SERVER_HOST_KEY,
++  OPENSSH_ED25519_CERT,
+   DEFAULT_CIPHER,
+   SUPPORTED_CIPHER,
+   DEFAULT_MAC,
+diff --git a/lib/protocol/kex.js b/lib/protocol/kex.js
+index 811e631..eb14805 100644
+--- a/lib/protocol/kex.js
++++ b/lib/protocol/kex.js
+@@ -18,6 +18,7 @@ const {
+   curve25519Supported,
+   DEFAULT_KEX,
+   DEFAULT_SERVER_HOST_KEY,
++  OPENSSH_ED25519_CERT,
+   DEFAULT_CIPHER,
+   DEFAULT_MAC,
+   DEFAULT_COMPRESSION,
+@@ -623,6 +624,11 @@ const createKeyExchange = (() => {
+       const exchangeHash = hash.digest();
+
+       if (!isServer) {
++        const ed25519Certificate = negotiated.serverHostKey
++                                   === OPENSSH_ED25519_CERT;
++        const expectedSignatureType = (ed25519Certificate
++                                       ? 'ssh-ed25519'
++                                       : negotiated.serverHostKey);
+         bufferParser.init(this._sig, 0);
+         const sigType = bufferParser.readString(true);
+
+@@ -635,11 +641,11 @@ const createKeyExchange = (() => {
+           );
+         }
+
+-        if (sigType !== negotiated.serverHostKey) {
++        if (sigType !== expectedSignatureType) {
+           return doFatalError(
+             this._protocol,
+             `Wrong signature type: ${sigType}, `
+-              + `expected: ${negotiated.serverHostKey}`,
++              + `expected: ${expectedSignatureType}`,
+             'handshake',
+             DISCONNECT_REASON.KEY_EXCHANGE_FAILED
+           );
+@@ -648,9 +654,12 @@ const createKeyExchange = (() => {
+         // "s"
+         let sigValue = bufferParser.readString();
+
++        const trailingSignatureBytes = bufferParser.avail();
+         bufferParser.clear();
+
+-        if (sigValue === undefined) {
++        if (sigValue === undefined || (ed25519Certificate
++                                      && (sigValue.length !== 64
++                                          || trailingSignatureBytes))) {
+           return doFatalError(
+             this._protocol,
+             'Malformed packet while reading signature',
+@@ -671,8 +680,29 @@ const createKeyExchange = (() => {
+         let parsedHostKey;
+         {
+           bufferParser.init(this._hostKey, 0);
+-          const name = bufferParser.readString(true);
+-          const hostKey = this._hostKey.slice(bufferParser.pos());
++          let name = bufferParser.readString(true);
++          let start = bufferParser.pos();
++          let end = this._hostKey.length;
++          if (ed25519Certificate) {
++            // K_S still contains the exact certificate. Verify H separately
++            // with the certified leaf's ordinary public key.
++            const nonce = bufferParser.skipString();
++            start = bufferParser.pos();
++            const leafLength = bufferParser.skipString();
++            end = bufferParser.pos();
++            if (name !== OPENSSH_ED25519_CERT || nonce === undefined
++                || leafLength !== 32) {
++              bufferParser.clear();
++              return doFatalError(
++                this._protocol,
++                'Malformed Ed25519 host certificate',
++                'handshake',
++                DISCONNECT_REASON.KEY_EXCHANGE_FAILED
++              );
++            }
++            name = 'ssh-ed25519';
++          }
++          const hostKey = this._hostKey.slice(start, end);
+           bufferParser.clear();
+           parsedHostKey = parseDERKey(hostKey, name);
+           if (parsedHostKey instanceof Error) {
+@@ -1192,6 +1222,14 @@ const createKeyExchange = (() => {
+             let checked = false;
+             let ret;
+             if (this._protocol._hostVerifier === undefined) {
++              if (hostPubKeyType === OPENSSH_ED25519_CERT) {
++                return doFatalError(
++                  this._protocol,
++                  'Host certificate requires an explicit verifier',
++                  'handshake',
++                  DISCONNECT_REASON.KEY_EXCHANGE_FAILED
++                );
++              }
+               ret = true;
+               this._protocol._debug && this._protocol._debug(
+                 'Host accepted by default (no verification)'
 diff --git a/lib/protocol/keyParser.js b/lib/protocol/keyParser.js
 index a276c1a..8662b1a 100644
 --- a/lib/protocol/keyParser.js

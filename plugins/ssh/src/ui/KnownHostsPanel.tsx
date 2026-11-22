@@ -4,6 +4,7 @@ import { Fingerprint } from "lucide-react";
 import { useRef, useState } from "react";
 import type { HostKeyPrompt, KnownHostKey } from "../shared/trust.js";
 import { hostEndpoint } from "./HostKeyDialog.js";
+import { HostAuthoritiesPanel } from "./HostAuthoritiesPanel.js";
 
 const KEY_LIST = "ssh.knownHosts.list";
 const rowKey = (key: KnownHostKey) => JSON.stringify([key.host, key.port, key.keyType, key.fingerprint]);
@@ -94,6 +95,7 @@ export function KnownHostsPanel({ desktop, review }: { desktop: boolean; review:
           ]}
         />
       )}
+      {desktop && <HostAuthoritiesPanel />}
       {selected ? (
         <Dialog
           open

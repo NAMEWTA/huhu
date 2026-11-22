@@ -13,6 +13,7 @@ import { testSshDraft } from "../src/engine/draft-connection.js";
 import { HostConfigurations, type ManagedHost } from "../src/engine/host-configurations.js";
 import { HostStore } from "../src/engine/hosts.js";
 import { SshManager } from "../src/engine/manager.js";
+import { fingerprintSha256 } from "../src/engine/known-hosts.js";
 
 const certificateType = "ssh-ed25519-cert-v01@openssh.com";
 const principal = "certificate-principal-fixture";
@@ -272,13 +273,36 @@ test.skipIf(process.platform === "win32")("悬空符号链接不能触发裸钥�
 
 const sshd = process.env["HUHU_TEST_OPENSSH_SSHD"];
 
-test.skipIf(process.platform !== "linux" || !sshd)("OpenSSH 服务端接受配对证书，拒绝后不尝试同一裸钥", { timeout: 15_000 }, async () => {
+async function loopbackPort() {
   const reservation = createServer().listen(0, "127.0.0.1");
   await once(reservation, "listening");
   const port = (reservation.address() as { port: number }).port;
   const released = once(reservation, "close");
   reservation.close();
   await released;
+  return port;
+}
+
+async function startSshd(config: string, port: number) {
+  const server = spawn(sshd!, ["-D", "-e", "-f", config], { stdio: ["ignore", "ignore", "pipe"] });
+  let output = "";
+  server.once("error", (error) => {
+    output += error.message;
+  });
+  server.stderr.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8");
+  });
+  const stopped = new Promise<void>((resolve) => server.once("close", () => resolve()));
+  cleanups.push(async () => {
+    server.kill();
+    await stopped;
+  });
+  await expect.poll(() => output, { timeout: 2500 }).toContain(`Server listening on 127.0.0.1 port ${port}`);
+  return () => output;
+}
+
+test.skipIf(process.platform !== "linux" || !sshd)("OpenSSH 服务端接受配对证书，拒绝后不尝试同一裸钥", { timeout: 15_000 }, async () => {
+  const port = await loopbackPort();
   const { username: user } = userInfo();
   const { root, hosts, host, draft, companion, subject, ca } = await setup({ port, user, passphrase: "fixture key passphrase" });
   const pathFor = (name: string) => path.join(root, name);
@@ -309,20 +333,7 @@ test.skipIf(process.platform !== "linux" || !sshd)("OpenSSH 服务端接受配�
     ].join("\n"),
   );
 
-  const server = spawn(sshd!, ["-D", "-e", "-f", pathFor("sshd_config")], { stdio: ["ignore", "ignore", "pipe"] });
-  let output = "";
-  server.once("error", (error) => {
-    output += error.message;
-  });
-  server.stderr.on("data", (chunk: Buffer) => {
-    output += chunk.toString("utf8");
-  });
-  const stopped = new Promise<void>((resolve) => server.once("close", () => resolve()));
-  cleanups.push(async () => {
-    server.kill();
-    await stopped;
-  });
-  await expect.poll(() => output, { timeout: 2500 }).toContain(`Server listening on 127.0.0.1 port ${port}`);
+  await startSshd(pathFor("sshd_config"), port);
 
   const manager = new SshManager({
     hosts,
@@ -351,4 +362,69 @@ test.skipIf(process.platform !== "linux" || !sshd)("OpenSSH 服务端接受配�
   rmSync(companion);
   await manager.connect(host.id);
   manager.disconnect(host.id);
+});
+
+test.skipIf(process.platform !== "linux" || !sshd)("同一 OpenSSH 传输用批准 CA 验证主机，重协商后仍在原连接，拒绝错误 CA 与已撤销叶钥", { timeout: 20_000 }, async () => {
+  const port = await loopbackPort();
+  const { username: user } = userInfo();
+  const { root, hosts, host, subject, ca } = await setup({ port, user });
+  const pathFor = (name: string) => path.join(root, name);
+  const serverKey = ssh2.utils.generateKeyPairSync("ed25519");
+  const serverLeaf = signer(serverKey.private);
+  const authorityLine = (key: ParsedKey) => `${key.type} ${key.getPublicSSH().toString("base64")}`;
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const certificate = issueCertificate(serverLeaf, ca, { kind: 2, principals: sshString("127.0.0.1"), validAfter: now - 300n, validBefore: now + 300n });
+  writeFileSync(pathFor("server-key"), serverKey.private.trimEnd() + "\n", { mode: 0o600 });
+  writeFileSync(pathFor("server-key-cert.pub"), certificate.line + "\n");
+  writeFileSync(pathFor("authorized_keys"), `${authorityLine(subject)}\n`, { mode: 0o600 });
+  writeFileSync(
+    pathFor("sshd_config"),
+    [
+      `Port ${port}`,
+      "ListenAddress 127.0.0.1",
+      `HostKey ${pathFor("server-key")}`,
+      `HostCertificate ${pathFor("server-key-cert.pub")}`,
+      `PidFile ${pathFor("sshd.pid")}`,
+      `AuthorizedKeysFile ${pathFor("authorized_keys")}`,
+      `AllowUsers ${user}`,
+      "StrictModes no",
+      "UsePAM no",
+      "PasswordAuthentication no",
+      "KbdInteractiveAuthentication no",
+      "AuthenticationMethods publickey",
+      "PermitUserRC no",
+      "DisableForwarding yes",
+      "LogLevel DEBUG1",
+      "RekeyLimit 16K",
+      "ForceCommand /usr/bin/head -c 131072 /dev/zero",
+      "",
+    ].join("\n"),
+  );
+  const log = await startSshd(pathFor("sshd_config"), port);
+  const knownHostsFile = pathFor("known_hosts");
+  const manager = new SshManager({ hosts, knownHostsFile, auditDir: pathFor("audit"), now: () => new Date(), withManagedAuth: (configured, run) => hosts.withAuthentication(configured, run), publish: () => undefined });
+  cleanups.push(() => manager.disposeAll());
+  expect(manager.knownAuthorities()).toEqual({ revision: null, authorities: [] });
+  const { revision, authorities } = await manager.addHostAuthority(host, authorityLine(ca), null, new AbortController().signal);
+  const [authority] = authorities;
+  expect(authority).toMatchObject({ scope: `[127.0.0.1]:${port}`, keyType: "ssh-ed25519", fingerprint: fingerprintSha256(ca.getPublicSSH()) });
+  const { attemptId } = await manager.connect(host.id);
+  const result = await manager.exec(host.id, "fixture byte count");
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toHaveLength(131072);
+  await expect.poll(() => log().match(/SSH2_MSG_NEWKEYS sent/gu)?.length ?? 0).toBeGreaterThan(1);
+  expect(manager.connectionStatuses()).toMatchObject([{ attemptId, state: "connected", route: [{ verifiedHost: { kind: "certificate", fingerprint: fingerprintSha256(serverLeaf.getPublicSSH()), authority: authority!.fingerprint } }] }]);
+  manager.disconnect(host.id);
+
+  const approved = readFileSync(knownHostsFile, "utf8");
+  const authentications = () => log().match(/userauth-request.*method publickey/gu)?.length ?? 0;
+  const before = authentications();
+  expect(before).toBeGreaterThan(0);
+  const wrongCa = signer(ssh2.utils.generateKeyPairSync("ed25519").private);
+  await manager.removeHostAuthority(authority!, revision, new AbortController().signal);
+  await manager.addHostAuthority(host, authorityLine(wrongCa), manager.knownAuthorities().revision, new AbortController().signal);
+  await expect(manager.connect(host.id)).rejects.toMatchObject({ code: "SSH_HOST_KEY_MISMATCH", details: { reason: "untrusted-ca", hop: 0 } });
+  writeFileSync(knownHostsFile, `${approved}@revoked [127.0.0.1]:${port} ${authorityLine(serverLeaf)}\n`);
+  await expect(manager.connect(host.id)).rejects.toMatchObject({ code: "SSH_HOST_KEY_MISMATCH", details: { reason: "revoked", hop: 0 } });
+  expect(authentications()).toBe(before);
 });

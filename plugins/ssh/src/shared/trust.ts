@@ -8,6 +8,10 @@ export const KnownHostKey = z.object({
   fingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}$/),
 });
 export type KnownHostKey = z.infer<typeof KnownHostKey>;
+export const KnownHostAuthority = z.strictObject({ scope: z.string().min(1), keyType: KnownHostKey.shape.keyType, fingerprint: KnownHostKey.shape.fingerprint });
+export type KnownHostAuthority = z.infer<typeof KnownHostAuthority>;
+export const KnownHostAuthorities = z.strictObject({ revision: z.string().min(1).nullable(), authorities: z.array(KnownHostAuthority) });
+export type KnownHostAuthorities = z.infer<typeof KnownHostAuthorities>;
 
 const ConnectionHost = z.object({ id: z.string(), name: z.string(), host: z.string(), port: z.number() });
 
@@ -43,6 +47,12 @@ export const ConnectionHop = ConnectionHost.extend({
   user: z.string(),
   auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
   outboundProxy: OutboundProxySummary.optional(),
+  verifiedHost: z
+    .discriminatedUnion("kind", [
+      z.strictObject({ kind: z.literal("fingerprint"), fingerprint: KnownHostKey.shape.fingerprint }),
+      z.strictObject({ kind: z.literal("certificate"), fingerprint: KnownHostKey.shape.fingerprint, authority: KnownHostKey.shape.fingerprint }),
+    ])
+    .optional(),
   stage: HopStage,
   timeline: z.array(z.strictObject({ stage: HopStage, at: z.iso.datetime() })),
 });

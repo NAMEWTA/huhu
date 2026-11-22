@@ -47,7 +47,7 @@ type HostAction = { kind: "create" } | { kind: "edit" | "copy" | "remove"; host:
 const CONNECTIONS = "ssh.connections.status";
 const routeStages: Record<ConnectionHop["stage"], string> = {
   dialing: "拨号",
-  trust: "核对指纹",
+  trust: "核对主机身份",
   authenticating: "认证",
   answering: "等待回答",
   forwarding: "打开跳板连接",
@@ -646,6 +646,12 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                       {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
                       {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
                       {hop.outboundProxy ? <span> · {proxyDescription(hop.outboundProxy)}</span> : null}
+                      {hop.verifiedHost?.kind === "certificate" && (
+                        <span>
+                          {" "}
+                          · 主机证书 <code>{hop.verifiedHost.fingerprint}</code> · 签发 CA <code>{hop.verifiedHost.authority}</code>
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ol>

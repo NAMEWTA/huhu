@@ -5,9 +5,10 @@ import { HuhuError, errors, newId, type EventPayload, type EventType } from "@hu
 import { Readable, type Duplex } from "node:stream";
 import { Client, type ClientChannel, type SFTPWrapper } from "ssh2";
 import type { HuhuApi } from "@huhu/kernel";
-import type { ConnectionHop, ConnectionStatus, HostKeyPrompt, KnownHostKey, SshAuthenticationPrompt } from "../shared/trust.js";
+import type { ConnectionHop, ConnectionStatus, HostKeyPrompt, KnownHostAuthority, KnownHostKey, SshAuthenticationPrompt } from "../shared/trust.js";
 import * as sftp from "./sftp.js";
-import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
+import { KnownHosts, fingerprintSha256, type TrustBlock } from "./known-hosts.js";
+import { OPENSSH_ED25519_CERT } from "./host-certificate.js";
 import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
 import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
@@ -17,6 +18,17 @@ import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
 import { outboundProxyVersion, summarizeOutboundProxy, type EffectiveProxy } from "./outbound-proxies.js";
+
+const hostTrustErrors: Partial<Record<TrustBlock, string>> = {
+  revoked: "SSH 主机身份或签发 CA 已撤销",
+  "untrusted-ca": "主机证书的签发 CA 未获批准",
+  "certificate-required": "此主机需要可信 CA 签发的证书",
+  "principal-mismatch": "SSH 主机证书与此跳的主机地址不匹配",
+  "no-principals": "SSH 主机证书未绑定主机地址",
+  expired: "SSH 主机证书已过期",
+  "not-yet-valid": "SSH 主机证书尚未生效",
+  "invalid-host-policy": "已知主机信任规则无效",
+};
 
 export interface AuditEntry {
   at: string;
@@ -218,6 +230,18 @@ export class SshManager {
 
   forgetHostKey(key: KnownHostKey, assertCurrent?: () => void): Promise<void> {
     return this.known.forget(key, assertCurrent);
+  }
+
+  knownAuthorities() {
+    return this.known.authorities();
+  }
+
+  addHostAuthority(host: Pick<HostRecord, "host" | "port">, publicKey: string, revision: string | null, signal: AbortSignal) {
+    return this.known.addAuthority(host.host, host.port, publicKey, revision, signal);
+  }
+
+  removeHostAuthority(authority: KnownHostAuthority, revision: string | null, signal: AbortSignal) {
+    return this.known.removeAuthority(authority, revision, signal);
   }
 
   private update(status: ConnectionStatus) {
@@ -651,6 +675,9 @@ export class SshManager {
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
       let done = false;
+      let ready = false;
+      let certificateRequired = false;
+      let accepted: { key: Buffer; authority?: Buffer } | undefined;
       const finish = (error?: HuhuError) => {
         if (done) return;
         done = true;
@@ -696,9 +723,27 @@ export class SshManager {
         finish(new HuhuError("SSH_HOST_KEY_MISMATCH", "主机密钥与记录不符，已拒绝连接", { details: { hop } }));
         verify(false);
       };
+      const blockTrust = (reason: TrustBlock, verify: (ok: boolean) => void) => {
+        finish(new HuhuError("SSH_HOST_KEY_MISMATCH", hostTrustErrors[reason] ?? "SSH 主机证书核验失败", { details: { hop, reason } }));
+        verify(false);
+      };
+      const acceptTrust = (key: Buffer, authority: Buffer | undefined, verify: (ok: boolean) => void) => {
+        accepted = { key: Buffer.from(key), ...(authority && { authority: Buffer.from(authority) }) };
+        const step = attempt.route?.[hop];
+        if (step) {
+          const fingerprint = fingerprintSha256(key);
+          step.verifiedHost = authority ? { kind: "certificate", fingerprint, authority: fingerprintSha256(authority) } : { kind: "fingerprint", fingerprint };
+        }
+        this.trace(attempt, hop, "authenticating");
+        verify(true);
+      };
       if (signal.aborted) return cancel();
       signal.addEventListener("abort", cancel, { once: true });
-      client.once("ready", () => finish());
+      client.once("ready", () => {
+        if (done) return;
+        ready = true;
+        finish();
+      });
       client.once("close", () => finish(new HuhuError("SSH_DISCONNECTED", "SSH 连接已关闭", { details: { hop } })));
       client.on("error", (e: Error & { level?: string }) => {
         if (e.level === "client-authentication") {
@@ -706,6 +751,7 @@ export class SshManager {
           if (h.auth.kind === "agent" && !auth.agent) return finish(new HuhuError("SSH_AUTH_FAILED", "本机 SSH Agent 不可用，请检查 SSH_AUTH_SOCK 或系统服务", { details: { hop, reason: "agent-unavailable" } }));
           return finish(new HuhuError("SSH_AUTH_FAILED", `认证失败（第 ${hop + 1} 跳）`, { details: { hop } }));
         }
+        if (certificateRequired && e.level === "handshake") return finish(new HuhuError("SSH_HOST_KEY_MISMATCH", "SSH 主机证书握手未通过", { details: { hop, reason: "certificate-handshake" } }));
         finish(new HuhuError("SSH_DISCONNECTED", `连接失败（第 ${hop + 1} 跳）`, { details: { hop } }));
       });
       const setWaiting = !attempt.report && !attempt.draft;
@@ -794,6 +840,7 @@ export class SshManager {
       }
       resumeTimer();
       try {
+        certificateRequired = this.known.certificateRequired(h.host, h.port);
         client.connect({
           ...(sock ? { sock: sock as never } : { host: h.host, port: h.port }),
           username: h.user,
@@ -802,20 +849,29 @@ export class SshManager {
           ...(preferences.keepaliveIntervalSec !== null ? { keepaliveInterval: preferences.keepaliveIntervalSec * 1000 } : {}),
           ...(preferences.keepaliveCountMax !== null ? { keepaliveCountMax: preferences.keepaliveCountMax } : {}),
           ...auth,
+          ...(certificateRequired && { algorithms: { serverHostKey: [OPENSSH_ED25519_CERT] } }),
           ...((attempt.publicProbe || setWaiting || attempt.draft) && { tryKeyboard: true }),
           hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
-            if (done || !currentTarget()) return verify(false);
+            if (!ready && (signal.aborted || done || !currentTarget())) return verify(false);
             const keyType = keyTypeOf(key);
             let check: ReturnType<KnownHosts["check"]>;
             try {
-              check = this.known.check(h.host, h.port, keyType, key);
+              check = this.known.check(h.host, h.port, keyType, key, this.d.now());
             } catch {
               finish(new HuhuError("INTERNAL", "读取已知主机记录失败", { details: { hop } }));
               return verify(false);
             }
+            if (accepted) {
+              // Rekey verifies the authenticated identity again, without any new trust prompt.
+              if (check.state === "trusted") {
+                const sameAuthority = accepted.authority ? check.authority !== undefined && accepted.authority.equals(check.authority) : !check.authority;
+                return verify(sameAuthority && accepted.key.equals(check.key));
+              }
+              return verify(check.state === "unknown" && !accepted.authority && accepted.key.equals(key));
+            }
+            if (check.state === "blocked") return blockTrust(check.reason, verify);
             if (check.state === "trusted") {
-              this.trace(attempt, hop, "authenticating");
-              return verify(true);
+              return acceptTrust(check.key, check.authority, verify);
             }
             const prompt: HostKeyPrompt = {
               promptId: newId("cap").replace("cap", "prompt"),
@@ -823,9 +879,9 @@ export class SshManager {
               target: describeHost(target),
               server: describeHost(h),
               hop,
-              keyType,
-              fingerprint: fingerprintSha256(key),
-              recorded: check.recorded,
+              keyType: keyType === OPENSSH_ED25519_CERT ? "ssh-ed25519" : keyType,
+              fingerprint: fingerprintSha256(check.state === "mismatch" ? check.key : key),
+              recorded: check.state === "mismatch" ? check.recorded : [],
             };
             if (check.state === "mismatch") return blockChanged(prompt, verify);
             if (attempt.draft) {
@@ -854,11 +910,11 @@ export class SshManager {
                   .approve(h.host, h.port, keyType, key, remember, signal)
                   .then((result) => {
                     if (done) return;
+                    if (result.state === "blocked") return blockTrust(result.reason, verify);
                     if (result.state === "mismatch") return blockChanged({ ...prompt, promptId: newId("cap").replace("cap", "prompt"), recorded: result.recorded }, verify);
                     if (!currentTarget()) return verify(false);
                     resumeTimer();
-                    this.trace(attempt, hop, "authenticating");
-                    verify(true);
+                    acceptTrust(key, undefined, verify);
                   })
                   .catch(() => {
                     if (done) return;
@@ -874,8 +930,9 @@ export class SshManager {
             publishKey(prompt, "first");
           },
         } as never);
-      } catch {
-        finish(new HuhuError("SSH_AUTH_FAILED", "SSH 连接设置无法使用", { details: { hop } }));
+      } catch (error) {
+        if (error instanceof HuhuError) finish(new HuhuError(error.code, error.message, { details: { ...error.details, hop } }));
+        else finish(new HuhuError("SSH_AUTH_FAILED", "SSH 连接设置无法使用", { details: { hop } }));
       }
     });
   }

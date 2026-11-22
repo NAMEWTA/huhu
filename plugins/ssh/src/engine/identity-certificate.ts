@@ -1,5 +1,6 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
 import { HuhuError } from "@huhu/contracts";
+import { SshFields } from "./ssh-wire.js";
 
 const maxCertificateBytes = 64 * 1024;
 const certificateAlgorithm = "ssh-ed25519-cert-v01@openssh.com";
@@ -52,33 +53,12 @@ function readCompanion(file: string): Buffer | undefined {
   }
 }
 
-class SshFields {
-  private offset = 0;
-
-  constructor(private readonly bytes: Buffer) {}
-
-  get done() {
-    return this.offset === this.bytes.length;
-  }
-
-  take(length: number): Buffer {
-    const begin = this.offset;
-    this.offset += length;
-    if (this.offset > this.bytes.length) certificateError("identity-certificate-invalid");
-    return this.bytes.subarray(begin, this.offset);
-  }
-
-  uint32() {
-    return this.take(4).readUInt32BE(0);
-  }
-
-  string() {
-    return this.take(this.uint32());
-  }
+function invalidFields(): never {
+  return certificateError("identity-certificate-invalid");
 }
 
 function checkStringList(bytes: Buffer, hasValues: boolean) {
-  const fields = new SshFields(bytes);
+  const fields = new SshFields(bytes, invalidFields);
   while (!fields.done) {
     const name = fields.string();
     if (name.includes(0) || (hasValues && !name.length)) certificateError("identity-certificate-invalid");
@@ -105,7 +85,7 @@ function matchingCertificate(bytes: Buffer, signerPublicKey: Buffer): string {
   const blob = Buffer.from(encoded, "base64");
   if (blob.toString("base64") !== encoded) certificateError("identity-certificate-invalid");
 
-  const fields = new SshFields(blob);
+  const fields = new SshFields(blob, invalidFields);
   if (readAlgorithm(fields) !== certificateAlgorithm) certificateError("identity-certificate-invalid");
   fields.string(); // Nonce
   const subject = fields.string();
@@ -118,11 +98,11 @@ function matchingCertificate(bytes: Buffer, signerPublicKey: Buffer): string {
   checkStringList(fields.string(), true); // Critical options
   checkStringList(fields.string(), true); // Extensions
   fields.string(); // Reserved
-  const authority = new SshFields(fields.string());
+  const authority = new SshFields(fields.string(), invalidFields);
   const authorityAlgorithm = readAlgorithm(authority);
   if (authorityAlgorithm.endsWith("-cert-v01@openssh.com") || authority.done) certificateError("identity-certificate-invalid");
   if (authorityAlgorithm === publicKeyAlgorithm && (authority.string().length !== ed25519PublicKeyBytes || !authority.done)) certificateError("identity-certificate-invalid");
-  const signature = new SshFields(fields.string());
+  const signature = new SshFields(fields.string(), invalidFields);
   const signatureAlgorithm = readAlgorithm(signature);
   const signatureBytes = signature.string();
   if (!signatureBytes.length || (signatureAlgorithm === publicKeyAlgorithm && signatureBytes.length !== 64) || !signature.done || !fields.done) {
@@ -130,7 +110,7 @@ function matchingCertificate(bytes: Buffer, signerPublicKey: Buffer): string {
   }
 
   if (kind !== userCertificate) certificateError("identity-certificate-not-user");
-  const signer = new SshFields(signerPublicKey);
+  const signer = new SshFields(signerPublicKey, invalidFields);
   if (readAlgorithm(signer) !== publicKeyAlgorithm || !signer.string().equals(subject) || !signer.done) certificateError("identity-certificate-mismatch");
   // Retain the exact wire blob. A file comment is not used for authentication.
   return `${certificateAlgorithm} ${encoded}`;
