@@ -250,17 +250,18 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    // Core starts on the first real terminal request; merely viewing Agent CLI does not start it.
     await page.getByRole("button", { name: "新终端", exact: true }).click();
     await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.locator(".xterm-helper-textarea").focus();
     await page.keyboard.type("yes 0123456789abcdef | head -c 10485760; echo FLOOD-DONE-$((6*7))");
     // 命令文本已输入完：从这里开始只统计洪流期间的按键，并记下洪流结束时已有多少样本
     await page.evaluate(() => {
       const w = window as unknown as { __lat: number[]; __doneAt?: number };
       w.__lat = [];
-      w.__doneAt = undefined;
+      delete w.__doneAt;
       document.addEventListener(
         "keydown",
         () => {

@@ -510,11 +510,11 @@ test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话
     // 当前是刚建好的“空间乙”
     await expect(items).toHaveCount(1);
     await expect(items.first()).toContainText("乙目录里的提问");
-    await page.getByLabel("搜索当前 Space 历史").fill("乙目录");
+    await page.getByLabel("搜索会话历史").fill("乙目录");
     await page.getByRole("button", { name: /空间甲/ }).click();
     await expect(items).toHaveCount(1);
     await expect(items.first()).toContainText("甲目录里的提问");
-    await expect(page.getByLabel("搜索当前 Space 历史")).toHaveValue("");
+    await expect(page.getByLabel("搜索会话历史")).toHaveValue("");
   } finally {
     await close();
     rmSync(base, { recursive: true, force: true });
@@ -1161,7 +1161,9 @@ test("任务详情：提前派遣先核对原目标，不可用时重开仍显�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     await expect.poll(async () => (await call("agent.spaces.list")).data?.length).toBeGreaterThan(0);
-    const [{ id: spaceId }] = (await call("agent.spaces.list")).data as { id: string }[];
+    const spaces = (await call("agent.spaces.list")).data as { id: string }[];
+    expect(spaces.length).toBeGreaterThan(0);
+    const spaceId = spaces[0]!.id;
     const created = await call("tasks.create", {
       title: "先核对原会话",
       type: "agent",
@@ -1258,7 +1260,9 @@ test("工作流 W-A：收件箱想法进入 Agent 任务后，自动化在任务
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     expect((await call("inbox.capture", { title: "整理研究资料", body: "把本周的研究笔记整理成摘要" })).ok).toBe(true);
-    const [{ id: spaceId }] = (await call("agent.spaces.list")).data as { id: string }[];
+    const spaces = (await call("agent.spaces.list")).data as { id: string }[];
+    expect(spaces.length).toBeGreaterThan(0);
+    const spaceId = spaces[0]!.id;
     const created = await call("tasks.create", {
       title: "整理研究资料",
       type: "agent",
@@ -1515,6 +1519,9 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
     const settingsPage = page.getByTestId("agent-settings");
     await expect(settingsPage).toBeVisible();
     const row = settingsPage.locator('[data-provider="claude"]');
+    await expect(row).toContainText("已检测");
+    // 初次读取只扫描程序位置；版本命令由显式刷新触发。
+    await settingsPage.getByTestId("agent-redetect").click();
     await expect(row).toContainText("2.1.0", { timeout: 15_000 });
     await expect(row.getByTestId("agent-command-preview")).toContainText("claude --dangerously-skip-permissions");
     await row.getByRole("button", { expanded: false }).first().click();

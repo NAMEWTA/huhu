@@ -4,6 +4,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { CapabilityResult, TaskDto } from "../../packages/contracts/src/index.js";
+import { HerdrClient } from "../../packages/herdr-client/src/client.js";
+import { HerdrCore } from "../../packages/herdr-client/src/herdr-core.js";
+import { machineId } from "../../packages/vault/src/vault.js";
+import { startCodexResponsesFixture } from "../../plugins/agent-cli/test/fixtures/codex-responses.js";
+import type { RecentTaskRun } from "../../plugins/tasks/src/engine/dispatch-store.js";
+import { candidateEnvironment } from "./helpers/candidate-package.js";
 import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
 
@@ -447,10 +454,10 @@ test("ACC-AG-08：有运行中的会话，退出 HUHU 再打开同一 Vault，�
     let page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.getByRole("button", { name: "新终端", exact: true }).click();
     await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.locator(".xterm-helper-textarea").focus();
     await page.keyboard.type("echo BEFORE-QUIT-$((6*7))");
     await page.keyboard.press("Enter");
@@ -902,6 +909,8 @@ test("保险箱：本机 Web 邀请加入后可初始化、锁定并解锁", asy
     await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
     await page.getByRole("tab", { name: "服务端" }).click();
     const share = page.getByTestId("web-share-panel");
+    await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("lan");
+    await share.getByRole("combobox", { name: "分享范围" }).selectOption("local");
     await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("local");
     await share.getByRole("button", { name: "启动分享" }).click();
     await share.getByRole("button", { name: "创建邀请" }).click();
@@ -944,8 +953,12 @@ test("保险箱：本机 Web 邀请加入后可初始化、锁定并解锁", asy
 test("保险箱：窄窗创建三账号，保存回执丢失与编辑冲突", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);
-  const page = await app.firstWindow();
+  let cleanupPage: Page | undefined;
+  let failed = false;
+  const cleanupErrors: unknown[] = [];
   try {
+    const page = await app.firstWindow();
+    cleanupPage = page;
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
     await expect.poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight])).toEqual([390, 844]);
@@ -1028,11 +1041,29 @@ test("保险箱：窄窗创建三账号，保存回执丢失与编辑冲突", as
     await page.unrouteAll({ behavior: "wait" });
     await page.getByRole("button", { name: "手动锁定" }).click();
     await expect(page.getByTestId("safe-locked")).toBeVisible();
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    await page.unrouteAll({ behavior: "ignoreErrors" });
-    await app.close();
-    rmTree(vault);
+    try {
+      await cleanupPage?.unrouteAll({ behavior: "ignoreErrors" });
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      await app.close();
+      rmTree(vault);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    if (failed && cleanupErrors.length) {
+      await test
+        .info()
+        .attach("safe-narrow-cleanup", { body: cleanupErrors.map(String).join("\n"), contentType: "text/plain" })
+        .catch(() => {});
+    }
   }
+  if (cleanupErrors.length) throw new AggregateError(cleanupErrors, "窄窗验收清理失败");
 });
 
 test("设置与通知：切换主题立即生效并持久化，重启后仍保持；通知入口显示未读", async () => {
@@ -1133,10 +1164,10 @@ test("ACC-AG-04 Agent CLI：在 Space 里启动 shell，经 xterm 输入并看�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.getByRole("button", { name: "新终端", exact: true }).click();
     await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.locator(".xterm-helper-textarea").focus();
     await page.keyboard.type("echo E2E-TERM-$((6*7))");
     await page.keyboard.press("Enter");
@@ -1668,12 +1699,17 @@ test("设置：编辑器页的开关真正生效（关闭自动保存 → 只在
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("手动保存的正文");
     await page.getByTestId("note-save").click();
     await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("手动保存的正文");
+    const state = page.getByTestId("save-state");
+    await expect(state).toHaveText("已保存");
     // Mod+S 立即保存（快捷键登记表里的“立即保存当前笔记”）：手动保存模式下按键后落盘
+    await editor.locator(".ProseMirror").click();
+    await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.type("，快捷键保存");
     await page.waitForTimeout(1500);
     expect(readFileSync(path.join(vault, "手动保存.md"), "utf8")).not.toContain("快捷键保存");
     await page.keyboard.press("ControlOrMeta+s");
     await expect.poll(() => readFileSync(path.join(vault, "手动保存.md"), "utf8")).toContain("快捷键保存");
+    await expect(state).toHaveText("已保存");
 
     // 没点保存就离开：手动保存模式不改动文件，编辑留作草稿，回来时可恢复
     await page.keyboard.type("，离开前的补充");
@@ -2385,11 +2421,11 @@ test("Agent CLI：shell 里 exit 之后，会话标记为已结束（带退出�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     for (let i = 0; i < 2; i++) {
       await page.getByRole("button", { name: "新终端", exact: true }).click();
       await page.getByTestId("launch-shell").click();
       await expect(page.getByTestId("session-tab")).toHaveCount(i + 1, { timeout: 15_000 });
+      await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     }
     await page.getByTestId("session-tab").first().click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
@@ -2420,10 +2456,10 @@ test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上�
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     await page.getByRole("button", { name: "新终端", exact: true }).click();
     await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
 
     await page.getByTestId("agent-review-toggle").click();
     await expect(page.getByTestId("review-panel")).toContainText("不是 Git 仓库"); // Vault 目录还不是仓库
@@ -2640,44 +2676,166 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
   }
 });
 
-test("自动化运行：Agent 规则经监督进程运行，运行页显示已完成、会话 id 与结果", async () => {
-  test.skip(process.platform === "win32", "用 POSIX 脚本冒充 claude；Windows 需要 .cmd 假程序，待补");
-  const { chmodSync } = await import("node:fs");
-  const bin = mkdtempSync(path.join(tmpdir(), "huhu-e2e-bin-"));
-  writeFileSync(
-    path.join(bin, "claude"),
-    '#!/bin/sh\ncase "$*" in *" -p"*|"-p "*) cat >/dev/null; printf \'%s\\n\' \'{"type":"result","result":"周报已整理","session_id":"e2e-sess-1","is_error":false}\';; *) echo \'2.0.0 (Claude Code)\';; esac\n',
-  );
-  chmodSync(path.join(bin, "claude"), 0o755);
-  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
-  const app = await launch(vault, { PATH: `${bin}${path.delimiter}${process.env["PATH"] ?? ""}` });
+async function stopAutomationFixtureCore(vault: string, runtime: string): Promise<void> {
+  const meta = path.join(vault, ".huhu", "vault.json");
+  if (!existsSync(meta)) return;
+  const { id: vaultId } = JSON.parse(readFileSync(meta, "utf8")) as { id: string };
+  const machine = machineId();
+  const runtimeDir = path.join(vault, ".huhu", "runtime", machine, "herdr");
+  if (!existsSync(runtimeDir)) return;
+  const core = new HerdrCore({ bin: HERDR, vaultId, machineId: machine, runtimeDir });
+  if (process.platform === "win32") {
+    await core.stop({ requireConfirmation: true });
+    return;
+  }
+  const endpoint = path.join(runtime, path.basename(core.endpoint));
+  if (!existsSync(endpoint)) return;
+  const client = new HerdrClient({ endpoint });
+  const deadline = AbortSignal.timeout(8_000);
   try {
+    await client.connect(deadline);
+    expect(await client.call("server.stop", {}, deadline)).toMatchObject({ stopped: true });
+  } finally {
+    client.close();
+  }
+  await expect.poll(() => existsSync(endpoint), { timeout: 8_000 }).toBe(false);
+}
+
+test("自动化运行：Agent 规则经 Tasks 派遣，运行页显示已完成和结果并可定位原会话", async ({ browserName }, testInfo) => {
+  void browserName;
+  test.setTimeout(100_000);
+  const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  if (!provider || !path.isAbsolute(provider)) throw new Error("HUHU_CODEX_DISPATCH_BIN 需要指向验收固定的 Codex 可执行文件");
+  const sandbox = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "huhu-auto-"));
+  const vault = path.join(sandbox, "vault");
+  const home = path.join(sandbox, "home");
+  const providerHome = path.join(sandbox, "provider");
+  const runtime = path.join(sandbox, "runtime");
+  const userData = path.join(sandbox, "desktop");
+  const title = "整理周报";
+  const result = "周报已整理";
+  const env: Record<string, string> = {
+    ...candidateEnvironment(),
+    HUHU_HERDR_BIN: path.resolve(HERDR),
+    HUHU_VAULT: vault,
+    HOME: home,
+    USERPROFILE: home,
+    XDG_RUNTIME_DIR: runtime,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    XDG_STATE_HOME: path.join(home, ".state"),
+    XDG_DATA_HOME: path.join(home, ".local", "share"),
+    XDG_CACHE_HOME: path.join(home, ".cache"),
+    CODEX_HOME: path.join(home, ".codex"),
+    CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
+    PI_CODING_AGENT_DIR: path.join(home, ".pi"),
+    PI_CODING_AGENT_SESSION_DIR: path.join(home, ".pi", "sessions"),
+    HUHU_CODEX_DISPATCH_HOME: providerHome,
+  };
+  if (process.platform === "win32") {
+    for (const key of ["SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "USERNAME", "SYSTEMDRIVE", "PROGRAMDATA"]) {
+      const value = process.env[key];
+      if (value !== undefined) env[key] = value;
+    }
+    Object.assign(env, { LOCALAPPDATA: path.join(home, "local"), APPDATA: path.join(home, "roaming"), TEMP: sandbox, TMP: sandbox });
+  } else {
+    Object.assign(env, { SHELL: "/bin/sh", TMPDIR: sandbox });
+  }
+  let app: ElectronApplication | undefined;
+  let responses: Awaited<ReturnType<typeof startCodexResponsesFixture>> | undefined;
+  let failed = false;
+  const cleanupFailures: string[] = [];
+  try {
+    for (const dir of [vault, home, providerHome, runtime, userData]) mkdirSync(dir, { mode: 0o700 });
+    responses = await startCodexResponsesFixture({ seedReply: result });
+    writeFileSync(path.join(providerHome, "config.toml"), responses.config, { mode: 0o600 });
+    app = await electron.launch({ args: [root, "--no-sandbox", `--user-data-dir=${userData}`], env });
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+
+    async function call<T>(capability: string, input: unknown = {}): Promise<T> {
+      const reply = (await page.evaluate(
+        async ([cap, payload]) => {
+          const endpoint = await window.huhuHost.engine();
+          const response = await fetch(`${endpoint.baseUrl}/api/v1/call`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ capability: cap, input: payload, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          });
+          return response.json();
+        },
+        [capability, input] as const,
+      )) as CapabilityResult<T>;
+      if (!reply.ok) throw new Error(`${capability}: ${reply.error.code}`);
+      return reply.data;
+    }
+    const { settings } = await call<{ settings: { revision: number } }>("agent.settings.get");
+    await call("agent.settings.update", {
+      expectedRevision: settings.revision,
+      defaultAgent: "codex",
+      agents: { codex: { command: provider }, claude: { enabled: false }, pi: { enabled: false } },
+    });
+
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-new").click();
     const editor = page.getByTestId("rule-editor");
-    await editor.getByLabel("规则名称").fill("整理周报");
+    await editor.getByLabel("规则名称").fill(title);
     await editor.getByTestId("rule-kind").selectOption("agent_prompt");
-    await expect(editor.getByTestId("rule-provider")).toContainText("Claude Code", { timeout: 15_000 });
     await editor.getByTestId("rule-space").selectOption({ index: 1 });
-    await editor.getByTestId("rule-provider").selectOption("claude");
+    await editor.getByTestId("rule-provider").selectOption("codex");
     await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录。");
     await editor.getByTestId("rule-save").click();
-    await page.getByTestId("rule-row").filter({ hasText: "整理周报" }).click();
+    await page.getByTestId("rule-row").filter({ hasText: title }).click();
     await page.getByRole("button", { name: "立即运行" }).click();
     await page.getByRole("button", { name: "运行", exact: true }).click();
-    const row = page.getByTestId("run-row").filter({ hasText: "整理周报" });
-    await expect(row).toContainText("已完成", { timeout: 30_000 });
-    await row.getByRole("button").first().click();
-    await expect(page.getByTestId("run-state")).toHaveText("已完成");
-    await expect(page.getByTestId("run-session")).toHaveText("e2e-sess-1");
-    await expect(page.getByTestId("run-body")).toContainText("周报已整理");
+    const row = page.getByTestId("run-row").filter({ hasText: title });
+    await expect(row).toContainText("已完成", { timeout: 45_000 });
+    await row.getByRole("button", { name: title, exact: true }).click();
+    const detail = page.getByTestId("run-detail");
+    await expect(detail.getByTestId("run-state")).toHaveText("已完成");
+    await expect(detail.getByTestId("managed-run-result")).toContainText(result);
+
+    const runs = (await call<RecentTaskRun[]>("tasks.dispatch.recent")).filter((run) => run.title === title);
+    expect(runs).toHaveLength(1);
+    const { dispatch } = runs[0]!;
+    const task = await call<TaskDto>("tasks.read", { id: dispatch.taskId });
+    const receipts = task.comments.filter(({ run, event }) => run === dispatch.runId && event === "result");
+    expect(receipts).toMatchObject([{ session: expect.any(String), body: result }]);
+    const sessionId = receipts[0]!.session;
+    expect(dispatch.session?.id).toBe(sessionId);
+    await expect(detail.locator("[data-run-id]")).toHaveAttribute("data-run-id", dispatch.runId);
+    await detail.getByRole("button", { name: "定位原会话", exact: true }).click();
+    await page.getByTestId("workspace-session-preview").getByRole("button", { name: "放入新标签", exact: true }).click();
+    const pane = page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${sessionId}"]`));
+    await expect(pane).toHaveAttribute("data-active", "true");
+    expect(responses.requests).toHaveLength(1);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    await app.close();
-    rmTree(vault);
-    rmTree(bin);
+    const steps = [
+      ["关闭 Electron", () => app?.close()],
+      ["关闭独立 Core", () => stopAutomationFixtureCore(vault, runtime)],
+      ["关闭回环响应服务", () => responses?.close()],
+      [
+        "删除独立测试目录",
+        () => {
+          if (!cleanupFailures.length) rmTree(sandbox);
+        },
+      ],
+    ] as const;
+
+    for (const [label, cleanup] of steps) {
+      try {
+        await cleanup();
+      } catch {
+        cleanupFailures.push(label);
+      }
+    }
+    if (cleanupFailures.length) {
+      await testInfo.attach("automation-fixture-cleanup", { body: cleanupFailures.join("\n"), contentType: "text/plain" }).catch(() => {});
+    }
   }
+  if (!failed && cleanupFailures.length) throw new Error(`自动化夹具清理失败：${cleanupFailures.join("、")}`);
 });
 
 test("任务界面：分类计数、搜索、新建对话框（截止日 / 项目 / Agent 执行）、列表 / 看板 / 月历、详情面板、编辑与删除", async () => {
@@ -2817,9 +2975,9 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await row.getByRole("switch").click();
     await page.getByRole("dialog", { name: "关闭工具" }).getByRole("button", { name: "保存选择" }).click();
     await expect.poll(() => JSON.parse(readFileSync(policyFile, "utf8")).choices["tasks.create"]).toBe(false);
-    await page.getByLabel("筛选能力").fill("safe.audit.list");
-    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.audit.list" }).getByRole("switch")).toHaveCount(0);
-    await expect(page.getByTestId("cap-row").filter({ hasText: "safe.audit.list" })).toContainText("不可开放");
+    await page.getByLabel("筛选能力").fill("gateway.tokens.create");
+    await expect(page.getByTestId("cap-row").filter({ hasText: "gateway.tokens.create" }).getByRole("switch")).toHaveCount(0);
+    await expect(page.getByTestId("cap-row").filter({ hasText: "gateway.tokens.create" })).toContainText("不可开放");
     await page.getByLabel("筛选能力").fill("safe.accounts.reveal");
     const revealRow = page.locator('[data-cap="safe.accounts.reveal"]');
     await expect(revealRow).toContainText("逐项开放");
@@ -2853,7 +3011,7 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByRole("textbox", { name: "测试台" }).fill("tasks.create");
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-row").first()).toHaveAttribute("data-allowed", "false"); // 刚才关掉了
-    await page.getByRole("textbox", { name: "测试台" }).fill("safe.audit.list");
+    await page.getByRole("textbox", { name: "测试台" }).fill("gateway.tokens.create");
     await page.getByRole("button", { name: "检查" }).click();
     await expect(page.getByTestId("bench-row").first()).toContainText("永不对外");
     await page.getByRole("textbox", { name: "测试台" }).fill("no.such.cap");

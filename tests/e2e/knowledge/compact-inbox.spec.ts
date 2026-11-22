@@ -88,8 +88,32 @@ test("G07 收件正文的普通段落与原 OK 阅读器复制两种 MIME 一致
     await expect(ok).toHaveCount(0);
     expect(readFileSync(file, "utf8")).toBe(before);
     await captureRow(page, "双链").click();
+
+    const navigation = await page.evaluateHandle(() => {
+      const url = new URL(location.href);
+      url.searchParams.set("inbox-navigation", "probe");
+      url.hash = "";
+      history.replaceState(history.state, "", url);
+      const observed = { href: location.href, timeOrigin: performance.timeOrigin, hashUrl: "" };
+      window.addEventListener(
+        "hashchange",
+        (event) => {
+          observed.hashUrl = event.newURL;
+        },
+        { once: true },
+      );
+      return observed;
+    });
+    const beforeNavigation = await navigation.jsonValue();
+    const expectedHashUrl = new URL(beforeNavigation.href);
+    expectedHashUrl.hash = `#/${encodeURIComponent("下一页")}`;
     await ok.locator("[data-wiki-link]").click();
+    // OkRoot consumes the fragment, so observe the URL from the hashchange event.
+    await expect.poll(() => navigation.evaluate(({ hashUrl }) => hashUrl)).toBe(expectedHashUrl.href);
+    await expect(page.getByTestId("document-tabs").getByRole("button", { name: "下一页", exact: true })).toHaveAttribute("aria-current", "true");
     await expect(page.getByTestId("markdown-editor")).toContainText("收件正文引用内容。");
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(beforeNavigation.timeOrigin);
+    await expect(page).toHaveURL(beforeNavigation.href);
   } finally {
     await close();
   }

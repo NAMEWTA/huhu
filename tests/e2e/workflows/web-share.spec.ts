@@ -1,9 +1,11 @@
 import { chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
+import { disposeCandidate } from "../helpers/candidate-package.js";
 import { openApp } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
-import { engineReady } from "../knowledge/session-slow-bridge.js";
+import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 const edge = process.platform === "win32" ? path.join(process.env["ProgramFiles(x86)"] ?? "C:/Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe") : "";
 const browserBinary = [chromium.executablePath(), edge].find((file) => file && existsSync(file));
@@ -12,7 +14,28 @@ const otherNoteName = "旁路文档.md";
 const original = "# 桌面与 Web 联验\n\n桌面初始正文\n";
 const otherOriginal = "# 旁路文档\n\n其他文件的原始正文\n";
 const menuEdit = "经应用菜单保存的联验正文";
+const browserEdit = "浏览器刷新后写入的正文";
+const desktopEdit = "桌面收到后继续写入的正文";
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror");
+
+const packaged = process.env["HUHU_WEB_SHARE_ACCEPTANCE"] === "1";
+test.use({ trace: "off", screenshot: "off", video: "off" });
+test.afterAll(disposeCandidate);
+
+async function openSharedApp(options: Parameters<typeof openCandidateDesktop>[0]) {
+  if (packaged) return openCandidateDesktop(options);
+  return { ...(await openApp(options.vault ? { HUHU_VAULT: options.vault } : {}, options.prepareVault)), confirmEngine: undefined };
+}
+
+async function visitInvite(page: Page, link: string, origin: string) {
+  try {
+    const target = new URL(link);
+    if (target.origin === "null" || target.origin !== origin) throw new Error("Web 邀请的访问来源不符");
+    await page.goto(link);
+  } catch {
+    throw new Error("无法打开合成 Web 邀请");
+  }
+}
 
 async function openNote(page: Page) {
   if (!(await page.getByTestId("notes-module").isVisible())) await page.getByRole("button", { name: "知识库", exact: true }).first().click();
@@ -55,19 +78,25 @@ async function saveFromAppMenu(app: ElectronApplication, page: Page) {
 }
 
 test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板保存重开", async () => {
+  const testInfo = test.info();
   test.skip(!browserBinary, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
-  test.setTimeout(90_000);
-  const { app, page, vault, close } = await openApp({}, (directory) => {
-    writeFileSync(path.join(directory, noteName), original);
-    writeFileSync(path.join(directory, otherNoteName), otherOriginal);
+  test.setTimeout(packaged ? 180_000 : 120_000);
+  const desktop = await openSharedApp({
+    identityAttachment: "web-candidate-identity",
+    prepareVault(directory) {
+      writeFileSync(path.join(directory, noteName), original);
+      writeFileSync(path.join(directory, otherNoteName), otherOriginal);
+    },
   });
+  const { app, page, vault, close } = desktop;
   const noteFile = path.join(vault, noteName);
   const otherNoteFile = path.join(vault, otherNoteName);
   const layoutFile = path.join(vault, ".huhu/home/widgets.json");
   let browser: Browser | undefined;
-  try {
+  await withFixtureCleanup(async () => {
     await engineReady(page);
-    const savedNote = await test.step("应用菜单只保存当前选定文档", async () => {
+    const firstEngine = await desktop.confirmEngine?.();
+    let savedNote = await test.step("应用菜单只保存当前选定文档", async () => {
       const autosave = await openAutosaveSettings(page);
       const wasEnabled = await autosave.isChecked();
       if (wasEnabled) await autosave.click();
@@ -105,6 +134,17 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     const localAddress = addresses.getByRole("link", { name: /^http:\/\/127\.0\.0\.1:/u });
     await expect(localAddress).toBeVisible();
     const url = (await localAddress.getAttribute("href"))!;
+    const webOrigin = new URL(url).origin;
+    if (desktop.confirmEngine !== undefined) {
+      const engine = await desktop.confirmEngine();
+      const status = await call(page, "web.share.status", {});
+      expect(status).toMatchObject({ state: "running", addresses: [{ url }] });
+      // The share listener has its own port, published by this same Engine.
+      await testInfo.attach("web-candidate-listener", {
+        body: JSON.stringify({ engine, webEndpoint: webOrigin }),
+        contentType: "application/json",
+      });
+    }
     await addresses.getByRole("button", { name: `复制访问地址 ${url}` }).click();
     await expect(share.getByRole("status")).toContainText("已复制访问地址。");
     await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(url);
@@ -123,12 +163,10 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
         opened.push(link);
       };
     });
-    try {
+    await withFixtureCleanup(async () => {
       await localAddress.click();
       await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "webShareOpened"))).toEqual([new URL(url).href]);
-    } finally {
-      await app.evaluate(() => Reflect.get(globalThis, "restoreWebShareExternalLink")?.());
-    }
+    }, [["恢复桌面外部链接处理器", () => app.evaluate(() => Reflect.get(globalThis, "restoreWebShareExternalLink")?.())]]);
 
     const links = page.getByRole("dialog", { name: "Web 邀请链接" });
     const readLink = async () => {
@@ -143,10 +181,10 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     const aId = await rows.first().getAttribute("data-invitation-id");
     const aRow = rows.and(share.locator(`[data-invitation-id="${aId}"]`));
     await aRow.getByRole("button", { name: "取回链接" }).click();
-    expect(await readLink()).toBe(a);
+    expect((await readLink()) === a, "取回同一份邀请").toBe(true);
     await share.getByRole("button", { name: "创建邀请" }).click();
     const b = await readLink();
-    expect(b).not.toBe(a);
+    expect(b !== a, "两个邀请应独立").toBe(true);
     await expect(rows).toHaveCount(2);
 
     browser = await chromium.launch({ executablePath: browserBinary!, headless: true });
@@ -154,9 +192,11 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
       [a, a, b].map(async (link) => {
         const context = await browser!.newContext();
         const tab = await context.newPage();
-        await tab.goto(link);
+        await visitInvite(tab, link, webOrigin);
         await expect(tab.getByTestId("home-dashboard")).toBeVisible();
-        expect(new URL(tab.url()).hash).toBe("");
+        const current = new URL(tab.url());
+        expect(current.hash === "", "浏览器应移除邀请片段").toBe(true);
+        expect(current.origin).toBe(webOrigin);
         return tab;
       }),
     );
@@ -170,6 +210,39 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await expect(palette).toBeVisible();
     await other!.keyboard.press("Escape");
     await expect(palette).toHaveCount(0);
+
+    await test.step("Web 深链接刷新与桌面双向编辑使用同一文档", async () => {
+      const link = new URL("/notes/" + encodeURIComponent(noteName), url).href;
+      await other!.goto(link);
+      await expect(prose(other!)).toContainText(menuEdit);
+      await other!.reload();
+      await expect(prose(other!)).toContainText(menuEdit);
+      expect(new URL(other!.url()).pathname).toBe(new URL(link).pathname);
+      await prose(other!).click();
+      await other!.keyboard.press("ControlOrMeta+End");
+      await other!.keyboard.insertText(browserEdit);
+      await expect.poll(() => readFileSync(noteFile, "utf8")).toContain(browserEdit);
+      await openNote(page);
+      await expect(prose(page)).toContainText(browserEdit);
+      await prose(page).click();
+      await page.keyboard.press("ControlOrMeta+End");
+      await page.keyboard.insertText(desktopEdit);
+      await expect.poll(() => readFileSync(noteFile, "utf8")).toContain(desktopEdit);
+      await expect(prose(other!)).toContainText(desktopEdit);
+      await other!.reload();
+      await expect(prose(other!)).toContainText(desktopEdit);
+      for (const fragment of [menuEdit, browserEdit, desktopEdit]) {
+        await expect(prose(other!)).toContainText(fragment);
+        await expect(prose(page)).toContainText(fragment);
+        expect(readFileSync(noteFile, "utf8")).toContain(fragment);
+      }
+      savedNote = readFileSync(noteFile, "utf8");
+      await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+      await page.getByRole("tab", { name: "服务端" }).click();
+      await expect(aRow).toContainText("2 个会话");
+      await other!.goto(url);
+      await expect(other!.getByTestId("home-dashboard")).toBeVisible();
+    });
 
     const otherBoard = other!.getByTestId("home-dashboard");
     const focus = otherBoard.locator('[data-instance-id="default-focus"]');
@@ -192,7 +265,7 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await confirmation.getByRole("button", { name: "确认撤销" }).click();
     await expect(rows).toHaveCount(1);
     await Promise.all([first!, second!].map((tab) => expect(tab.getByText("浏览器会话不可用", { exact: true })).toBeVisible({ timeout: 12_000 })));
-    await first!.goto(a);
+    await visitInvite(first!, a, webOrigin);
     await expect(first!.getByText("浏览器会话不可用", { exact: true })).toBeVisible();
     await other!.reload();
     await expect(otherBoard).toBeVisible();
@@ -243,37 +316,39 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     });
 
     await test.step("重新启动桌面并打开同一 Vault，回读文档与两次布局修改", async () => {
-      const reopened = await openApp({ HUHU_VAULT: vault });
-      try {
+      const reopened = await openSharedApp({ vault, identityAttachment: "web-reopen-candidate-identity" });
+      await withFixtureCleanup(async () => {
         await engineReady(reopened.page);
         expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+        if (firstEngine && reopened.confirmEngine !== undefined) {
+          const engine = await reopened.confirmEngine();
+          expect(engine.vaultId).toBe(firstEngine.vaultId);
+          expect(engine.startHash).not.toBe(firstEngine.startHash);
+        }
         const dashboard = reopened.page.getByTestId("home-dashboard");
         await expect(dashboard.getByTestId("card-tasks")).toBeVisible();
         await expect(dashboard.locator('[data-instance-id="default-focus"]')).toHaveCount(0);
         await expect(dashboard.locator('[data-instance-id="default-notes"]')).toHaveCount(0);
         await openNote(reopened.page);
-        await expect(prose(reopened.page)).toContainText(menuEdit);
+        for (const fragment of [menuEdit, browserEdit, desktopEdit]) await expect(prose(reopened.page)).toContainText(fragment);
         expect(readFileSync(noteFile, "utf8")).toBe(savedNote);
         expect(readFileSync(otherNoteFile, "utf8")).toBe(otherOriginal);
         expect(readFileSync(layoutFile, "utf8")).toBe(savedLayout);
-      } finally {
-        await reopened.close();
-      }
+      }, [["关闭重开的桌面夹具", reopened.close]]);
     });
-  } finally {
-    try {
-      await browser?.close();
-    } finally {
-      try {
-        if (!page.isClosed()) {
-          for (const name of ["继续编辑", "取消编辑"]) {
+  }, [
+    ["关闭分享浏览器", () => browser?.close()],
+    ...(["继续编辑", "取消编辑"] as const).map(
+      (name) =>
+        [
+          `退出桌面编辑提示「${name}」`,
+          async () => {
+            if (page.isClosed()) return;
             const button = page.getByRole("button", { name, exact: true });
-            if (await button.isVisible()) await button.click({ timeout: 500 }).catch(() => undefined);
-          }
-        }
-      } finally {
-        await close();
-      }
-    }
-  }
+            if (await button.isVisible()) await button.click({ timeout: 500 });
+          },
+        ] as const,
+    ),
+    ["关闭最初的桌面夹具", close],
+  ]);
 });

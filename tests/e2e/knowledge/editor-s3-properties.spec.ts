@@ -322,9 +322,16 @@ test("F02：Markdown、TXT 和 JSON 在显式转换前保留旧编码字节", as
       await expect(page.getByTestId("file-encoding-unsupported")).toBeVisible();
       await expect(page.locator(".ProseMirror[contenteditable=true], .cm-content[contenteditable=true]")).toHaveCount(0);
       const convert = page.getByRole("button", { name: "转换并保存为 UTF-8" });
-      await expect(convert).toBeDisabled();
+      const preview = page.getByRole("button", { name: "预览解码" });
+      await expect(preview).toBeDisabled();
+      await expect(convert).toHaveCount(0);
       await page.getByLabel("原文件编码").selectOption("gb18030");
       expect(readFileSync(file)).toEqual(bytes);
+      await expect(convert).toHaveCount(0);
+      await preview.click();
+      await expect(page.getByTestId("file-encoding-preview")).toHaveText(text);
+      expect(readFileSync(file)).toEqual(bytes);
+      await expect(convert).toBeEnabled();
       await convert.click();
       await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(text));
       const editor = name.endsWith(".md") ? prose(page) : page.locator(".cm-content");

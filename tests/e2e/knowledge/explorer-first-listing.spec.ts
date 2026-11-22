@@ -65,7 +65,7 @@ test("首次挂载与新建完成同批时，真实根目录列举和树都显�
     const handled = "if (result === PASS_HOST_ROUTE) continue;";
     instrumentChunk(
       assets,
-      "config-provider",
+      "host-fetch",
       handled,
       `${handled}
       if (url.pathname === '/api/documents' && url.searchParams.get('showAll') === 'true' && !url.searchParams.get('dir') && Array.isArray(result?.documents)) {
@@ -78,12 +78,12 @@ test("首次挂载与新建完成同批时，真实根目录列举和树都显�
       const page = await app.firstWindow();
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
       await page.evaluate(() => {
-        (window as ProbeWindow).firstListingProbe = { closeGate: Promise.withResolvers<void>() };
+        (window as unknown as ProbeWindow).firstListingProbe = { closeGate: Promise.withResolvers<void>() };
       });
       await page.getByRole("button", { name: "知识库", exact: true }).first().press("Enter");
-      await expect.poll(() => page.evaluate(() => typeof (window as ProbeWindow).firstListingProbe.ready)).toBe("function");
+      await expect.poll(() => page.evaluate(() => typeof (window as unknown as ProbeWindow).firstListingProbe.ready)).toBe("function");
       await expect(page.getByTestId("ok-explorer")).toHaveCount(0);
-      const beforeCreate = await page.evaluate(() => (window as ProbeWindow).firstListingProbe.refresh ?? 0);
+      const beforeCreate = await page.evaluate(() => (window as unknown as ProbeWindow).firstListingProbe.refresh ?? 0);
       await page.getByRole("button", { name: "新建笔记", exact: true }).first().press("Enter");
       const dialog = page.getByTestId("new-note-dialog");
       await dialog.getByLabel("文件名").fill("首次列举");
@@ -91,14 +91,14 @@ test("首次挂载与新建完成同批时，真实根目录列举和树都显�
       await expect
         .poll(() =>
           page.evaluate((before) => {
-            const probe = (window as ProbeWindow).firstListingProbe;
+            const probe = (window as unknown as ProbeWindow).firstListingProbe;
             return probe.createReturned === true && (probe.refresh ?? 0) > before;
           }, beforeCreate),
         )
         .toBe(true);
       expect(existsSync(path.join(vault, "首次列举.md"))).toBe(true);
       await expect(page.getByTestId("ok-explorer")).toHaveCount(0);
-      await page.evaluate(() => (window as ProbeWindow).firstListingProbe.closeGate.resolve());
+      await page.evaluate(() => (window as unknown as ProbeWindow).firstListingProbe.closeGate.resolve());
       await expect(dialog).toBeHidden();
       await expect(page.getByTestId("document-tab").filter({ hasText: "首次列举" })).toBeVisible();
 
@@ -106,7 +106,7 @@ test("首次挂载与新建完成同批时，真实根目录列举和树都显�
       await expect
         .poll(async () => ({
           ...(await page.evaluate(() => {
-            const { firstRootResponse, rootPaths } = (window as ProbeWindow).firstListingProbe;
+            const { firstRootResponse, rootPaths } = (window as unknown as ProbeWindow).firstListingProbe;
             return { firstRootResponse, rootPaths };
           })),
           row: await row.isVisible(),

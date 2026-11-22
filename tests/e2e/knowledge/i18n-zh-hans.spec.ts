@@ -98,6 +98,9 @@ const allowed = new Set([
   "initial",
   "unset",
   "guides/install 或 https://example.com",
+  // 文件树保留真实受保护目录名称，提示正文必须仍是中文。
+  ".agents — 受保护的资源，仅可查看元信息",
+  ".huhu — 受保护的资源，仅可查看元信息",
 ]);
 const allowedWords = new Set([...allowed].map((label) => label.toLowerCase()));
 const starterSample: Record<string, string> = {

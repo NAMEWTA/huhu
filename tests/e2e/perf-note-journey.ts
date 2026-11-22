@@ -70,7 +70,9 @@ async function clockEditor(page: Page, target: Locator, title: string, comments:
     { polling: "raf", timeout: 120_000 },
   );
   try {
-    return (await result.jsonValue()).milliseconds;
+    const measured = await result.jsonValue();
+    if (!measured) throw new Error("笔记就绪计时未完成");
+    return measured.milliseconds;
   } finally {
     await result.dispose();
   }
@@ -152,7 +154,9 @@ export async function measureNoteJourney(app: ElectronApplication, page: Page, v
     null,
     { timeout: 15_000 },
   );
-  const inputMs = (await result.jsonValue()).milliseconds;
+  const measured = await result.jsonValue();
+  if (!measured) throw new Error("输入计时未完成");
+  const inputMs = measured.milliseconds;
   await result.dispose();
   const expected = fixture.original.replace(`# ${headline}`, `# ${headline}x`);
   // 采自动保存。在确认完整字节前只轮询短前缀，减少大文件反复分配和磁盘检查开销。
