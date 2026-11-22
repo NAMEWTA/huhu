@@ -4,7 +4,7 @@ import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvent
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
-import type { ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
+import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
@@ -12,12 +12,15 @@ import { HostImportDialog } from "./HostImportDialog.js";
 import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
 import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
+import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { KeyLibraryPanel } from "./KeyLibraryPanel.js";
 import { authAvailability, authLabels, isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { WorkspaceLibrary } from "./WorkspaceLibrary.js";
 import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
 import { SshTerminal } from "./SshTerminal.js";
+import { RoutePanel } from "./RoutePanel.js";
+import { directJumpIds, routeForHost } from "../shared/route.js";
 import { t } from "./i18n.js";
 
 interface Shell {
@@ -37,6 +40,15 @@ interface ExecResult {
 type Tab = "overview" | "terminal" | "exec" | "files" | "audit" | "known";
 type HostAction = { kind: "create" } | { kind: "edit" | "copy" | "remove"; host: ManagedHost };
 const CONNECTIONS = "ssh.connections.status";
+const routeStages: Record<ConnectionHop["stage"], string> = {
+  dialing: "拨号",
+  trust: "核对指纹",
+  authenticating: "认证",
+  answering: "等待回答",
+  forwarding: "打开跳板连接",
+  connected: "成功",
+  failed: "失败",
+};
 
 function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId: string): string {
   if (!directory) return "";
@@ -75,6 +87,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [query, setQuery] = useState("");
   const [workspaces, setWorkspaces] = useState(false);
   const [keyLibrary, setKeyLibrary] = useState(false);
+  const [routes, setRoutes] = useState(false);
   const [forwarding, setForwarding] = useState(false);
   const [monitoring, setMonitoring] = useState(false);
   const [fileView, showFileView] = useState(false);
@@ -83,7 +96,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [importVault, setImportVault] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ vaultId: string; text: string; pending: boolean } | null>(null);
   const importStatus = importResult?.vaultId === engine.vaultId ? importResult : null;
-  const recoveredHostId = connections.data?.find((status) => status.state === "waiting" && !status.workspace)?.hostId;
+  const recoveredHostId = connections.data?.find((status) => (status.state === "waiting" || status.state === "auth-waiting") && !status.workspace)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
@@ -149,11 +162,13 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const connection = host ? byHost.get(host.id) : undefined;
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
+  const authWaiting = connection?.state === "auth-waiting";
+  const authPrompt = authWaiting && !connection.workspace ? connection.authPrompt : null;
   const changed = connection?.state === "key-changed";
   const workspacePrompt = (waiting || changed) && connection.workspace;
   const prompt = waiting || changed ? connection.prompt : null;
   const connecting = connection?.state === "connecting" || (host !== null && requestHost === host.id);
-  const status = isConn ? "connected" : connecting || waiting ? "connecting" : "disconnected";
+  const status = isConn ? "connected" : connecting || waiting || authWaiting ? "connecting" : "disconnected";
   const failure = connection?.state === "failed" ? connection : null;
   const requestError = connectError?.hostId === host?.id ? connectError?.message : null;
   const openReview = (item: HostKeyPrompt | null) => {
@@ -163,6 +178,14 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   };
   const audit = useCapability<{ at: string; action: string; hostId: string; result?: string; detail?: string }[]>("ssh.audit.list", { limit: 100 });
   const shown = (hosts.data ?? []).filter((h) => `${h.name}${h.host}`.toLowerCase().includes(query.toLowerCase()));
+  let nextRoute: Host[] = [];
+  if (host) {
+    try {
+      nextRoute = routeForHost(new Map(hosts.data?.map((item) => [item.id, item])), host.id).slice(0, -1);
+    } catch {
+      // The route editor displays missing or invalid configuration separately from the last connection.
+    }
+  }
   async function disconnect(h: Host) {
     setConnectError(null);
     try {
@@ -189,6 +212,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
   if (keyLibrary) return <KeyLibraryPanel onBack={() => { setKeyLibrary(false); void refresh(); }} />;
+  if (routes) return <RoutePanel hosts={hosts.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
   if (monitoring)
     return withFileWorkspace(
       <MonitorDashboard
@@ -261,6 +285,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 </span>
               </span>
               {byHost.get(h.id)?.state === "waiting" ? <Badge tone="warning">待核对</Badge> : null}
+              {byHost.get(h.id)?.state === "auth-waiting" ? <Badge tone="warning">待认证</Badge> : null}
               {byHost.get(h.id)?.state === "key-changed" ? <Badge tone="danger">密钥变化</Badge> : null}
               {!isManagedHost(h) && <Badge tone="warning">需要修复</Badge>}
               <span className={`hu-execution-status-dot ${byHost.get(h.id)?.state === "connected" ? "connected" : "disconnected"}`} aria-label={byHost.get(h.id)?.state === "connected" ? t.connected : t.notConnected} />
@@ -281,6 +306,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             已知主机
           </Button>
           {desktop && <Button variant="ghost" icon={KeyRound} onClick={() => setKeyLibrary(true)}>密钥</Button>}
+          {desktop && <Button variant="ghost" icon={Network} onClick={() => setRoutes(true)}>跳板路由</Button>}
           <Button variant="ghost" icon={Activity} onClick={() => setTab("audit")}>
             全部连接审计
           </Button>
@@ -302,6 +328,14 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                   <Button icon={Unplug} onClick={() => void disconnect(host)}>
                     {t.disconnect}
                   </Button>
+                ) : authWaiting ? (
+                  <Button variant="primary" onClick={() => {
+                    if (connection.workspace) setWorkspaces(true);
+                    else {
+                      setTab("overview");
+                      setDismissed(null);
+                    }
+                  }}>继续交互认证</Button>
                 ) : waiting ? (
                   <Button
                     icon={Fingerprint}
@@ -430,7 +464,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             <div className="ssh-meta-grid">
               {[
                 { Icon: KeyRound, label: "认证方式", value: authLabels[host.auth.kind] },
-                { Icon: Network, label: "连接路径", value: (host.jumpHostIds ?? []).length > 0 ? "经跳板转发" : "直接连接" },
+                { Icon: Network, label: "下次连接路径", value: directJumpIds(host).length > 0 ? "经跳板转发" : "直接连接" },
                 { Icon: ShieldCheck, label: "主机信任", value: isConn ? "已核验本次连接" : changed ? "指纹变化，待复核" : "连接时核验主机身份" },
                 { Icon: Folder, label: "分组", value: groupPath(directory.data, host.id) },
               ]
@@ -446,8 +480,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             </div>
             <section className="hu-card-alt hu-execution-connection-route" data-testid="ssh-route">
               <div className="ssh-section-heading">
-                <h3>连接路径</h3>
-                <span className="muted small">可视化跳板链</span>
+                <h3>下次连接路径</h3>
               </div>
               <div className="ssh-route">
                 <div>
@@ -456,14 +489,13 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                   <span>Desktop host</span>
                 </div>
                 <ArrowRight size={18} aria-hidden />
-                {(host.jumpHostIds ?? []).map((jid) => {
-                  const j = (hosts.data ?? []).find((x) => x.id === jid);
+                {nextRoute.map((jump) => {
                   return (
-                    <Fragment key={jid}>
+                    <Fragment key={jump.id}>
                       <div>
                         <Network size={22} aria-hidden />
-                        <strong>{j?.name ?? jid}</strong>
-                        <span>{j ? `${j.host} · Proxy jump` : "Proxy jump"}</span>
+                        <strong>{jump.name}</strong>
+                        <span>{jump.host}</span>
                       </div>
                       <ArrowRight size={18} aria-hidden />
                     </Fragment>
@@ -478,6 +510,19 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 </div>
               </div>
             </section>
+            {Boolean(connection?.route?.length) && (
+              <section className="hu-card-alt ssh-connection-config" aria-label="实际连接路径">
+                <h3>实际连接路径</h3>
+                {connection?.connectionId && <p>连接 {connection.connectionId} · {shells.data?.filter((shell) => shell.state === "running").length ?? 0} 个活动终端</p>}
+                <ol>
+                  {connection?.route?.map((hop, index) => (
+                    <li key={`${hop.id}:${index}`}>
+                      {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} · {routeStages[hop.stage]}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
             <section className="hu-card-alt ssh-connection-config">
               <h3>连接与安全</h3>
               <div className="ssh-definition">
@@ -615,6 +660,9 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
       {prompt && !workspacePrompt && tab === "overview" && dismissed !== prompt.promptId && !hostAction && importVault !== engine.vaultId ? (
         <HostKeyDialog key={prompt.promptId} prompt={prompt} changed={changed} onClose={() => setDismissed(prompt.promptId)} onReview={() => openReview(prompt)} onRefresh={refetchConnections} />
       ) : null}
+      {authPrompt && tab === "overview" && dismissed !== authPrompt.promptId && !hostAction && importVault !== engine.vaultId && (
+        <AuthenticationDialog key={authPrompt.promptId} prompt={authPrompt} onClose={() => setDismissed(authPrompt.promptId)} onAnswered={refetchConnections} />
+      )}
       {desktop && (hostAction?.kind === "create" || hostAction?.kind === "edit") ? (
         <HostEditorDialog
           editing={hostAction.kind === "edit" ? hostAction.host : null}

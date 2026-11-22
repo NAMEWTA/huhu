@@ -38,6 +38,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
   const [values, setValues] = useState<Partial<Record<Purpose, string>>>({});
   const [cleared, setCleared] = useState<Partial<Record<Purpose, boolean>>>({});
   const [jump, setJump] = useState(editing?.jumpHostIds[0] ?? "");
+  const [routeDisabled, setRouteDisabled] = useState(Boolean(editing?.routeDisabled));
   const draftRun = useRef<AbortController | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<DraftConnectionResult | null>(null);
@@ -119,6 +120,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
       ...(interval && { keepaliveIntervalSec: Number(interval) }),
       ...(count && { keepaliveCountMax: Number(count) }),
       jumpHostIds: jump ? [jump] : [],
+      ...(jump && { routeDisabled }),
       authKind,
       ...(authKind === "key" && keyId !== (editing?.keyId ?? "") && { keyId: keyId || null }),
       credentials,
@@ -213,6 +215,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   label="移除跳板"
                   onClick={() => {
                     setJump("");
+                    setRouteDisabled(false);
                     setError(null);
                     clearTest();
                   }}
@@ -224,7 +227,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
                   <select id={id} value="" onChange={(event) => setJump(event.target.value)}>
                     <option value="">直接连接</option>
                     {hosts
-                      .filter((host) => host.id !== editing?.id)
+                      .filter((host) => host.id !== editing?.id && "revision" in host)
                       .map((host) => (
                         <option key={host.id} value={host.id}>
                           {host.name}（{host.host}）
@@ -235,6 +238,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
               </EditorField>
             )}
           </div>
+          {jump && <label className="row"><input type="checkbox" checked={!routeDisabled} onChange={(event) => setRouteDisabled(!event.currentTarget.checked)} /> 启用跳板路由</label>}
           <details
             className="hu-stack"
             onInvalid={(event) => {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { HostKeyPrompt } from "./trust.js";
+import { HostKeyPrompt, SshAuthenticationPrompt } from "./trust.js";
 
 export const MAX_WORKSPACE_PANES = 12;
 export const PRESETS = ["one", "two", "three", "main-right", "main-bottom", "tabs"] as const;
@@ -57,9 +57,10 @@ const RunPane = z.object({
   paneId: z.uuid(),
   hostId: z.string(),
   label: z.string(),
-  phase: z.enum(["reconnect", "connecting", "trust", "ready", "failed", "ended"]),
+  phase: z.enum(["reconnect", "connecting", "trust", "authentication", "ready", "failed", "ended"]),
   sessionId: z.string().optional(),
   prompt: HostKeyPrompt.optional(),
+  authPrompt: SshAuthenticationPrompt.optional(),
   error: z.object({ code: z.string(), message: z.string() }).optional(),
 });
 export const WorkspaceRun = z.object({

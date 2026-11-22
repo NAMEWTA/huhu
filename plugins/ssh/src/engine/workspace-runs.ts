@@ -158,6 +158,8 @@ export class WorkspaceRuns {
       if (pane?.error) return { ...base, phase: "failed", error: pane.error };
       if (pane?.sessionId) return { ...base, phase: this.manager.shellInfo(pane.sessionId)?.state === "running" ? "ready" : "ended", sessionId: pane.sessionId };
       const prompt = this.manager.workspacePrompt(hostId, target);
+      const authPrompt = this.manager.workspaceAuthentication(hostId, target);
+      if (authPrompt) return { ...base, phase: "authentication", authPrompt };
       return prompt ? { ...base, phase: "trust", prompt } : { ...base, phase: "connecting" };
     });
     return { ...run, panes };

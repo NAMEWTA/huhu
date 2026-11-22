@@ -27,6 +27,7 @@ export function validateHost<T extends SshHostProfile>(input: T, id: string, all
   if (!input.user.trim()) throw errors.invalidInput("用户名必填");
   if (input.connectTimeoutSec !== undefined && (input.connectTimeoutSec < 1 || input.connectTimeoutSec > 300)) throw errors.invalidInput("连接超时 1–300 秒");
   if (input.jumpHostIds.some((jump) => jump === id || !all.some((host) => host.id === jump))) throw errors.invalidInput("无效的跳板主机");
+  if (input.routeDisabled && input.jumpHostIds.length === 0) throw errors.invalidInput("只有已设置跳板的主机可以停用路由");
   if (findJumpCycle([...all.filter((host) => host.id !== id), { id, jumpHostIds: input.jumpHostIds }], id)) throw errors.invalidInput("跳板链不能形成循环");
   return { ...input, name: input.name.trim(), host: input.host.trim(), user: input.user.trim() };
 }

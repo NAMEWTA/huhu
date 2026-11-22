@@ -23,7 +23,7 @@ export const sshDraftDescriptor = defineCapabilityDescriptor({
 });
 
 export async function testSshDraft(hosts: HostConfigurations, manager: SshManager, input: ConfigureHost, signal: AbortSignal): Promise<DraftConnectionResult> {
-  const { hostId, expectedRevision, authKind, credentials: _credentials, keyId: _keyId, ...profile } = input;
+  const { hostId, expectedRevision, authKind, credentials: _credentials, keyId: _keyId, routeDisabled, ...profile } = input;
   if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
   const existing = await hosts.list();
   signal.throwIfAborted();
@@ -31,7 +31,8 @@ export async function testSshDraft(hosts: HostConfigurations, manager: SshManage
   if (hostId && !saved) throw errors.notFound("SSH 主机不存在");
   if (saved && saved.revision !== expectedRevision) throw errors.versionConflict(saved.revision);
   const id = hostId ?? "ssh-draft";
-  const normalized = validateHost(profile, id, existing);
+  const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && saved?.routeDisabled);
+  const normalized = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }) }, id, existing);
   const draft: ManagedHost = {
     ...normalized,
     id,

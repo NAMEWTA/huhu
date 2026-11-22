@@ -19,7 +19,12 @@ type StoredHost = CredentialSummary & { definition: HostDefinition };
 type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
 
 function authError(reason: string): HuhuError {
-  return new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用，请在主机配置中检查凭据", { details: { reason } });
+  const message = reason === "identity-file-unavailable"
+    ? "本机身份文件不可用，请检查路径和文件权限"
+    : reason === "invalid-private-key-or-passphrase"
+      ? "无法解锁私钥，请检查文件格式和口令"
+      : "SSH 本机认证不可用，请在主机配置中检查凭据";
+  return new HuhuError("SSH_AUTH_FAILED", message, { details: { reason } });
 }
 
 function translate(error: unknown): never {
@@ -154,18 +159,20 @@ export class HostConfigurations {
 
   configure(input: ConfigureHost, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
-      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, ...profile } = input;
+      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, ...profile } = input;
       if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
       const owner = this.credentials();
       const existing = await owner.list();
       const id = hostId ?? `host-owned-${randomUUID().replaceAll("-", "")}`;
       const old = this.checkRevision(id, expectedRevision, existing);
       if (assertCurrent && (selectedKey !== undefined || (old?.definition.keyId && credentials.some(({ action }) => action !== "keep")))) throw errors.permissionDenied("SSH 密钥库关联");
+      if (assertCurrent && routeDisabled !== undefined && routeDisabled !== Boolean(old?.definition.routeDisabled)) throw errors.permissionDenied("SSH 跳板路由状态");
       if (selectedKey && authKind !== "key") throw errors.invalidInput("只可为私钥认证选择密钥库");
       const keyId = authKind === "key" ? (selectedKey === undefined ? old?.definition.keyId : selectedKey) : undefined;
       const selected = keyId ? (await this.keys.list()).find((key) => key.id === keyId) : undefined;
       if (keyId && (!selected || (!selected.available && keyId !== old?.definition.keyId))) throw errors.invalidInput("所选密钥在本机不可用");
-      const settings = validateHost(profile, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
+      const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && old?.definition.routeDisabled);
+      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
       const definition: HostDefinition = { ...settings, authKind, ...(keyId && { keyId }), configId: randomUUID(), format: 1 };
       const applicable = new Set<Purpose>(keyId ? [] : purposes[authKind]);
       const actions = new Map<string, CredentialAction>();

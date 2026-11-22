@@ -114,3 +114,29 @@ test("取消挂起的草稿立即关闭测试传输", async () => {
   await closed;
   expect(manager.connectionStatuses()).toEqual([]);
 });
+
+test("停用路由只影响下次拨号，现有连接保留实际跳点", async () => {
+  const { hosts, manager, remember } = await setup();
+  const signal = new AbortController().signal;
+  const jumpKey = genHostKey();
+  const targetKey = genHostKey();
+  const jump = await startFakeSsh({ hostKey: jumpKey });
+  const target = await startFakeSsh({ hostKey: targetKey });
+  cleanups.push(jump.close, target.close);
+  await remember(jump.port, jumpKey);
+  await remember(target.port, targetKey);
+  const credentials = [{ action: "replace" as const, purpose: "password" as const, value: "pw" }];
+  const jumpHost = await hosts.configure({ ...configuration(jump.port), credentials }, signal);
+  const profile = { ...configuration(target.port), jumpHostIds: [jumpHost.hostId] };
+  const host = await hosts.configure({ ...profile, credentials }, signal);
+  await manager.connect(host.hostId, signal);
+  const active = manager.connectionStatuses()[0]!;
+  expect(active.route?.map(({ id, stage }) => [id, stage])).toEqual([[jumpHost.hostId, "connected"], [host.hostId, "connected"]]);
+  await expect(hosts.configure({ ...configuration(jump.port), hostId: jumpHost.hostId, expectedRevision: jumpHost.revision, jumpHostIds: [host.hostId] }, signal)).rejects.toThrow("循环");
+  await hosts.configure({ ...profile, hostId: host.hostId, expectedRevision: host.revision, routeDisabled: true }, signal);
+  expect(await hosts.list()).toContainEqual(expect.objectContaining({ id: host.hostId, routeDisabled: true, jumpHostIds: [jumpHost.hostId] }));
+  expect(manager.connectionStatuses()).toEqual([active]);
+  await manager.connect(host.hostId, signal);
+  expect(manager.connectionStatuses()[0]?.route?.map(({ id }) => id)).toEqual([host.hostId]);
+  expect(manager.connectionStatuses()[0]?.connectionId).not.toBe(active.connectionId);
+});

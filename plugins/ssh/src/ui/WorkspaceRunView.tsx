@@ -8,11 +8,13 @@ import type { FileSession } from "../shared/files.js";
 import { MonitorSidebar } from "./MonitorSidebar.js";
 import { SshTerminal } from "./SshTerminal.js";
 import { useDevicePreferences } from "./device-preferences.js";
+import { AuthenticationDialog } from "./AuthenticationDialog.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
   connecting: "连接中",
   trust: "等待主机密钥确认",
+  authentication: "等待交互认证",
   ready: "已连接",
   failed: "连接失败",
   ended: "会话已结束",
@@ -32,6 +34,7 @@ export function WorkspaceRunView({
   const { endpoint } = useEngine();
   const { paneTools, showPaneFiles } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
+  const [authentication, setAuthentication] = useState<string>();
   const [active, setActive] = useState(0);
   const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
@@ -105,6 +108,10 @@ export function WorkspaceRunView({
                         </Button>
                       </div>
                     </div>
+                  )}
+                  {pane.authPrompt && <Button onClick={() => setAuthentication(pane.authPrompt?.promptId)}>继续交互认证</Button>}
+                  {shown && pane.authPrompt && authentication === pane.authPrompt.promptId && (
+                    <AuthenticationDialog key={authentication} prompt={pane.authPrompt} onClose={() => setAuthentication(undefined)} onAnswered={() => setAuthentication(undefined)} />
                   )}
                   {pane.phase === "ready" && pane.sessionId && (
                     <div className="ssh-workspace-terminal">
