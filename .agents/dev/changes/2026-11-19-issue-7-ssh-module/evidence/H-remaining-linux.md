@@ -65,3 +65,9 @@ Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他�
 ## 分栏审查返工
 
 三台回环夹具复现关闭自定义分栏时把比例从 70% 改成 50%，以及重连后仍能用旧布局版本关闭新会话。现在只折叠被关闭的叶子，重连生成新布局版本。定向回归验证其余分栏的比例、方向、身份和活动 Shell。SSH 单包类型检查与 `draft-and-keys.test.ts` 的 8 项通过，日志为 `h7-layout-before.log`、`h7-layout-revision-before.log` 和 `h7-layout-after.log`。工作台连接卡片改为统计工作台自己的活动终端，页面交互留待 Electron 验收。
+
+## 录制回放和保存重试
+
+实施记录 `t4x/report01.md` 对应提交 `4eade18a`，合入集成为 `67d1f008`。停止后的录制支持播放、暂停、时间定位和会话筛选。时间点和文本有上限，可按原捕获时间读取净化文本。旧录制和无效时间轴继续显示正文。安装环境的 SSH 单包类型检查、`manager.test.ts` 22 项及 `remaining.spec.ts` 语法检查通过，日志为 `h7-playback-67d1f008.log`。Electron 的回放、搜索、会话隔离和原 Shell 无新增输入仍待 E2E。
+
+强制使临时文件重命名失败时，首次复查显示丢失「待保存」状态。修复后可在日志页用同一记录重试，原始停止点和文本保留，停止后输出仍未录入。定向运行 `manager.test.ts -t "录制"`，4 项通过，19 项由筛选排除。SSH 单包类型检查通过。本机日志为 `h7-recording-retry-before.log` 与 `h7-recording-retry-after.log`。

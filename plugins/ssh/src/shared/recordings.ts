@@ -9,6 +9,7 @@ export const RecordingSummary = z.strictObject({
   endedAt: z.iso.datetime().nullable(),
   truncated: z.boolean(),
   reason: z.enum(["stopped", "shell-ended", "vault-closed"]).nullable(),
+  savePending: z.literal(true).optional(),
 });
 export type RecordingSummary = z.infer<typeof RecordingSummary>;
 

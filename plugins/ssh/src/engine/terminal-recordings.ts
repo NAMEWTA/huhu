@@ -33,6 +33,10 @@ type Active = {
   detach(): void;
 };
 
+function activeSummary({ summary }: Active): RecordingSummary {
+  return { ...summary, ...(summary.endedAt && { savePending: true as const }) };
+}
+
 function capture(active: Active, bytes: Buffer) {
   if (active.durationMs !== undefined) return;
   const remaining = bytesPerRecording - active.bytes;
@@ -82,7 +86,8 @@ export class TerminalRecordings {
   start(shellId: string): RecordingSummary {
     const shell = this.manager.shellInfo(shellId);
     if (shell?.state !== "running") throw errors.notFound("活动的 SSH Shell");
-    if (this.active.has(shellId)) return { ...this.active.get(shellId)!.summary };
+    const existing = this.active.get(shellId);
+    if (existing) return activeSummary(existing);
     if (this.active.size >= maxActive) throw errors.invalidInput("最多同时录制 8 个 Shell");
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
     const summary: RecordingSummary = { id: randomUUID(), shellId, hostId: shell.hostId, label: shell.name, startedAt: new Date().toISOString(), endedAt: null, truncated: false, reason: null };
@@ -123,7 +128,7 @@ export class TerminalRecordings {
   }
 
   list(shellId?: string): RecordingSummary[] {
-    const ongoing = [...this.active.values()].map(({ summary }) => ({ ...summary }));
+    const ongoing = [...this.active.values()].map(activeSummary);
     const disk = this.saved().flatMap((id) => {
       const content = this.readSaved(id, false);
       return content ? [content.summary] : [];
@@ -133,7 +138,7 @@ export class TerminalRecordings {
 
   read(id: string): RecordingContent {
     const own = [...this.active.values()].find(({ summary }) => summary.id === id);
-    const value = own ? this.content(own) : this.readSaved(id);
+    const value = own ? { ...this.content(own), summary: activeSummary(own) } : this.readSaved(id);
     if (!value) throw errors.notFound("SSH 录制");
     return value;
   }
@@ -161,6 +166,9 @@ export class TerminalRecordings {
     try {
       writeFileSync(temporary, JSON.stringify(content), { mode: 0o600, flag: "wx", flush: true });
       renameSync(temporary, file);
+    } catch (error) {
+      this.changed(content.summary.id);
+      throw error;
     } finally {
       rmSync(temporary, { force: true });
     }

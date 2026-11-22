@@ -20,14 +20,14 @@ export function RecordTerminal({ shellId }: { shellId: string }) {
   const records = useRecordings();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const live = records.data?.find((entry) => entry.shellId === shellId && !entry.endedAt);
+  const current = records.data?.find((entry) => entry.shellId === shellId && (!entry.endedAt || entry.savePending));
   if (!desktopHost()) return null;
   async function toggle() {
     if (busy) return;
     setBusy(true);
     setMessage("");
     try {
-      await engine.call(live ? "ssh.recordings.stop" : "ssh.recordings.start", { shellId }, { write: true });
+      await engine.call(current ? "ssh.recordings.stop" : "ssh.recordings.start", { shellId }, { write: true });
       await records.refetch();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "无法更新录制。");
@@ -38,7 +38,7 @@ export function RecordTerminal({ shellId }: { shellId: string }) {
   return (
     <>
       <Button loading={busy} disabled={!records.data} onClick={() => void toggle()}>
-        {live ? "停止录制" : "开始录制"}
+        {current?.savePending ? "重试保存录制" : current ? "停止录制" : "开始录制"}
       </Button>
       {message && <span role="alert">{message}</span>}
     </>
@@ -71,9 +71,12 @@ function playbackTime(ms: number) {
   return `${minutes}:${seconds}`;
 }
 
-function RecordingDetail({ content }: { content: RecordingContent }) {
+function RecordingDetail({ content, refetch }: { content: RecordingContent; refetch(): Promise<unknown> }) {
+  const engine = useEngine();
   const { summary, text, timeline } = content;
   const [query, setQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [positionMs, setPositionMs] = useState<number | null>(null);
   const [playback, setPlayback] = useState<{ startedAt: number; fromMs: number } | null>(null);
   const durationMs = timeline?.durationMs ?? 0;
@@ -102,6 +105,20 @@ function RecordingDetail({ content }: { content: RecordingContent }) {
     setPlayback({ fromMs, startedAt: performance.now() });
   }
 
+  async function retrySave() {
+    if (saving) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await engine.call("ssh.recordings.stop", { shellId: summary.shellId }, { write: true });
+      await refetch();
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : "无法保存录制。");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const visibleEnd = hasPlayback ? (timeline?.checkpoints.findLast(({ atMs }) => atMs <= position)?.end ?? 0) : text.length;
   const visibleText = text.slice(0, visibleEnd);
   const output = useMemo(() => highlighted(visibleText, query), [visibleText, query]);
@@ -123,6 +140,15 @@ function RecordingDetail({ content }: { content: RecordingContent }) {
         {new Date(summary.startedAt).toLocaleString()} – {summary.endedAt ? new Date(summary.endedAt).toLocaleString() : "正在录制"}
       </p>
       <p>录制前的输出未收集。{summary.truncated ? "已达到 256 KiB 上限，后续输出未收录。" : ""}</p>
+      {summary.savePending && (
+        <div className="row">
+          <p>录制待保存。</p>
+          <Button loading={saving} onClick={() => void retrySave()}>
+            重试保存录制
+          </Button>
+        </div>
+      )}
+      {saveError && <p role="alert">{saveError}</p>}
       {hasPlayback && (
         <div className="ssh-recording-playback">
           <Button onClick={togglePlayback}>{playback ? "暂停回放" : "播放录制"}</Button>
@@ -224,12 +250,12 @@ export function TerminalRecordingsPanel({ onBack }: { onBack(): void }) {
         {entries.map((entry) => (
           <li key={entry.id}>
             <Button aria-pressed={selected === entry.id} onClick={() => setSelected(entry.id)}>
-              {entry.label} · {new Date(entry.startedAt).toLocaleString()} · {entry.endedAt ? "已停止" : "录制中"}
+              {entry.label} · {new Date(entry.startedAt).toLocaleString()} · {entry.savePending ? "待保存" : entry.endedAt ? "已停止" : "录制中"}
             </Button>
           </li>
         ))}
       </ul>
-      {recording && <RecordingDetail key={recording.summary.id} content={recording} />}
+      {recording && <RecordingDetail key={recording.summary.id} content={recording} refetch={refetchContent} />}
     </section>
   );
 }

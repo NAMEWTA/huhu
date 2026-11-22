@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { utils } from "ssh2";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -536,6 +536,27 @@ test("录制读取保留旧文本和时间轴损坏时的文本", () => {
   };
   writeFileSync(file, JSON.stringify({ summary, text, timeline }));
   expect(reopen().read(id)).toEqual({ summary, text });
+});
+
+test("录制保存失败后维持原记录和停止点，可以重试保存", () => {
+  const { records, reopen, start } = recordingFixture();
+  const shellId = "ssh-record-retry";
+  const { id, emit, file } = start(shellId);
+  vi.advanceTimersByTime(20);
+  emit(Buffer.from("保存前的输出"));
+  vi.advanceTimersByTime(20);
+  mkdirSync(file);
+  expect(() => records.stop(shellId)).toThrow();
+  expect(records.list(shellId)).toEqual([expect.objectContaining({ id, savePending: true })]);
+  expect(records.read(id)).toMatchObject({ text: "保存前的输出", summary: { savePending: true }, timeline: { durationMs: 40 } });
+  expect(records.start(shellId)).toMatchObject({ id, savePending: true });
+  emit(Buffer.from("停止后的输出"));
+  vi.advanceTimersByTime(100);
+  rmSync(file, { recursive: true });
+  expect(records.stop(shellId)).not.toHaveProperty("savePending");
+  const saved = reopen().read(id);
+  expect(saved).toMatchObject({ text: "保存前的输出", summary: { id, reason: "stopped" }, timeline: { durationMs: 40 } });
+  expect(saved.summary).not.toHaveProperty("savePending");
 });
 
 test("密集录制的时间轴受限，截断保留字节上限和完整字符", () => {

@@ -44,6 +44,7 @@
 | R-75 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/workbench/{local_proxy_tunnel,local_proxy_ui}.go` | `plugins/ssh/src/engine/proxy-share.ts` | 参考远端回环检查和固定端口，复用 Huhu 的转发监听器、现有连接和 HTTP CONNECT 测试。 |
 | R-76 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/workspace/spec.go`、`internal/workbench/{terminal_input_guard,terminal_recording}.go`、`internal/sessionlog/store.go` | `plugins/ssh/src/{ui/WorkspaceCanvas.tsx,engine/terminal-bridge.ts,engine/terminal-recordings.ts}` | 参考分栏阅读顺序和输入、录制生命周期，复用 Huhu 的终端视图、SSH Shell 和本机运行目录。 |
 | R-77 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/localshell/{discovery_other,discovery_windows,wsl_windows}.go` | `plugins/ssh/src/engine/{local-shell,local-pty-herdr}.ts` | 参考设备和 WSL 探测，PTY 复用 Huhu 随包的 Herdr Core。 |
+| R-78 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/workbench/terminal_recording.go`、`internal/sessionlog/{model,store}.go` | `plugins/ssh/src/{engine/terminal-recordings.ts,shared/recordings.ts,ui/TerminalRecordings.tsx}` | 参考相对时间、事件排序与索引上限。Huhu 使用现有录制文件的可选文本偏移和工作台纯文本播放器。 |
 
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
