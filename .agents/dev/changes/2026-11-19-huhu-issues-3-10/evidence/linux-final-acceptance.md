@@ -271,3 +271,48 @@ Notes 每次 writeId 的首轮 91 项、Engine2项、contracts/Notes/Agent定向
 ### 2026-11-23 04:33 本轮返工关闭
 
 t15t/task04 跨重载反例 2 红灯后最小调整成功标识登记顺序，会话 **93 项通过**。t16n/task03 用相同阻塞读盘和错误读盘探针独立核对，两个跨重载反例关闭，真实其他来源更新仍读取并接纳。t171 Vault/Notes 定向类型通过，之前 t16w contracts/Notes/Agent 定向类型通过。两份最终独审报告为 `temp/final-audit/t168-report05.md` 与 `t16n-report03.md`。本轮源码冻结后进入串行构建和受影响 UI 复验；这些源码证据尚不能代替新组合包验收。
+
+
+## 2026-11-23 固定 4a54f0a9 的定向 UI 复验
+
+应用源码和 `apps/desktop/out/build-info.json` 都为 `4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73`；t173 组合构建退出0。t174 在隔离 HOME/XDG、DBus、Xvfb 和 `/tmp/huhu-heavy.lock` 下串行运行以下三组，未重跑全量。驱动 `temp/final-audit/run-followup-groups.py`，原始日志 `followup-{failed,notes,mail}-4a54f0a9.log`，对应产物保存为 `followup-{group}-artifacts-4a54f0a9`。
+
+- 原失败集11项：3通过、8失败。H05撤销空提交、Agent审查输入和网关能力交互通过。四项性能仍超标；终端10MiB得到5个窗内样本（p95 29.7ms），因不足10个样本失败，不能签吞吐通过。自动化结果展示、两卡权限夹具、Agent设置冷缓存夹具另有3项失败。
+- Notes文档/看板关窗组：31通过、1失败。失败的“两篇笔记切Vault”在初次 `engineReady` 等待20s时即无元素，未进入保存操作。独立保全 `followup-notes-two-doc-evidence-4a54f0a9`。t177随后使用相同应用构建、仅加失败页面诊断附件重跑原单项，1通过（11.8s）；说明本轮未复现启动失败，不代表间歇启动问题已修复。
+- Mail工作台组：13项全部通过，覆盖Graph降权读取与停发/再授权重试、同步取消、恢复原批次、OAuth浏览器回执、通知定位、草稿保留、原生附件及Web 9MiB上传、单信图片许可。包装命令退出1是退出trap删除临时目录时 `Directory not empty`，测试自身13通过；清理异常单列，不改成整条命令通过。t177也有同类清理异常。
+
+任务滚动的两类失败分开保全：10个66–133ms帧间隔导致原断言失败，随后 `app.close()` 的 Close context 无返回，约54秒后用例总超时。trace `followup-task-scroll-evidence-4a54f0a9/trace.zip` SHA256 `bc64972e7f19725504dae06698fbc0e0a52d39264c69d9e47769dc9443a4197c`。t175只读报告给出分段剖析方案，尚无CPU采样证明具体热点，不把05a与4a的单轮差值作为性能改善。
+
+t176只读诊断核对：持久结果需要等5s扫描再投递；能力目录响应拦截在途使卡片一直等待权限；Automations启动主动探测提前填了Agent版本缓存。限定修复已派发。t179真实Engine两条回归均红灯：收件后仍pending、扫描中到件未及时再投递，日志 `task-receipt-wakeup-red.log`。不延长原正文断言来隐藏投递等待。t178正在准备不改变正式阈值的可选性能取证和更低往返开销的真实键盘采样。
+
+远端最后核对 `feature/issue-fix=4a54f0a9fc0a2dbc46aae816b4c0ae9399a59b73`，`main=4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。没有4a的新安装包，也未完成最终共同候选签收。#7继续暂停。Graph S5.2旧邮件移回收件箱是否通知的规则已再次通过异步问题请求用户决定，其余工作继续。
+
+后续 t17b 对即时唤醒修复运行完整 `persistence-http.test.ts`，40/40通过（15.85s），日志 `task-receipt-wakeup-check.log`。独立并发审查与新构建UI复验尚未完成。
+
+### 回执唤醒独审和夹具复验
+
+t17c/task02 关闭 ACK 同步扫描问题：最终实现只登记合并后的延后检查，保留原持久 ACK 和唯一评论路径。t17f 两条定向回归通过（38 项过滤），t17g Tasks 定向类型通过。独审另指出首次查询无缓存和正文缺失的反馈不完整，已交 t176/task04；新生产结果 UI 仍待构建后验证。
+
+t17d 用相同 4a 应用和修正夹具运行权限卡片及 Agent 设置三项，3/3 通过（19.4s），包装命令退出0。日志 `temp/final-audit/ui-fixture-diagnostic-4a54f0a9.log`，对应 artifacts 已保存。该结果不覆盖尚未构建的 Tasks 改动。
+
+t17h 新性能诊断探针定向类型发现3项错误：可选 requestId、首尾 taskId 传入 undefined，以及 Electron 对话框 BaseWindow 重载。尚未运行新探针，已派发修正，不计为性能通过。
+
+### 诊断收敛与已审改动保存
+
+t17j 性能探针定向类型通过。t17k 固定4a应用诊断中1000个文件通知触发1002次 tasks.list（3+720+279），滚动2次超过66ms、最大133ms；结束采样时668个请求尚未结束。退出进入 flushing 后 home.focus.get 发出但未完成，3秒后主进程显示“无法确认退出前的保存结果”对话框，最终测试60秒超时。原始日志 `task-scroll-diagnostic-4a54f0a9.log` 及 `task-scroll-diagnostic-artifacts-4a54f0a9` 已保全。正在修复重复查询；尚未证明修复后时延。
+
+t17m 终端探针在约3495.6ms发出400个按键后提前停止，其中395个窗内事件，尾标尚未到达；失败不能解释为性能不达标。原始日志 `terminal-flood-diagnostic-4a54f0a9.log` 与 artifacts 已保全，按原20秒界限修正驱动次数上限，不改变输出量或延迟阈值。
+
+t17c/task03 关闭两入口加载反馈低项，定向格式/lint和已有类型证据通过。Tasks及夹具已保存到提交 `5aeac32e`；未构建这些生产变化、未完成最终包验收。
+
+t17p 在同一4a应用完整终端负载通过（17.1s）：首输出到尾标10372.2ms，1311个窗内真实按键，三等分372/431/508，p95 32.4ms、最大44.0ms，完整10485760字节尾标。仍使用20秒时限、原p95≤100ms及≥10样本要求。日志 `terminal-flood-window-check-4a54f0a9.log`、产物 `terminal-flood-window-artifacts-4a54f0a9`。包装退出0同时报告 CLEANUP_INCOMPLETE，临时目录残留单列。此结果是4a构建基线，不替代未来共同包验证。
+
+t17n 已核对远端 feature/issue-fix=`5aeac32ee00e0f3d5cfd2faf4e27f1840762865c`，main仍`4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。
+
+### 事件查询合并候选
+
+t178/task03 单文件回归24项通过：真实 QueryClient/QueryObserver 下，1000事件旧实现触发1000在途调用的反例失败，新实现合并为2次并得到最终1000版本；覆盖冷加载、缓存移除重建、错误/取消、观察者停用和不同Vault。t17q Workbench定向类型退出0。t17c/task05独审中，尚未构建，不将单元请求数替代真实千行滚动和退出证据。
+
+t17c/task04独立复算终端原始附件确认1311个真实输入、p95 32.4ms及完整尾标；补充现有值变化/input事件断言防止未来空按键通过。当前基线数据满足新断言，未为该断言重复运行同一基线。
+
+t17c/task05独审确认普通查询合并，但复现权限/插件目录在途请求收到撤销事件仍等待旧请求，并指出scope中止只处理未开始补刷、没有及时结算已开始刷新等待。两项已交t178/task04；安全缓存同步移除未退化。当前24项绿灯不能覆盖上述缺口，查询实现尚未验收。新构建推迟到返工独审完成；perf驱动真实输入低项已独立关闭。

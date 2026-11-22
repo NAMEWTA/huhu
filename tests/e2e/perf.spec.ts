@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScaleVault } from "../perf/scale-vault.js";
 import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
+import { observeTaskPerformance, observeTaskQuit } from "./helpers/perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
 
 import { journeyMachine, journeyPercentiles, launchJourney, measureNoteJourney, noteScenarios, prepareNotes, seedComments } from "./perf-note-journey.js";
@@ -169,8 +170,12 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
     const lat = await page.evaluate(() => (window as unknown as { __edit: number[] }).__edit);
     expect(lat.length).toBeGreaterThan(60);
     const stages = await page.evaluate(() => (window as unknown as { __huhuPerf: { cm: number[]; toString: number[]; onChange: number[] } }).__huhuPerf);
-    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
-    note("输入延迟分阶段（中位数）", `keydown→CM 事务完成 ${med(stages.cm).toFixed(1)} ms；doc.function toString() { [native code] } ${med(stages.toString).toFixed(1)} ms；onChange 同步部分 ${med(stages.onChange).toFixed(1)} ms`);
+    const median = (xs: number[]) => {
+      if (xs.length === 0) return "未采到（n=0）";
+      const sorted = [...xs].sort((a, b) => a - b);
+      return `${sorted[Math.floor(sorted.length / 2)]!.toFixed(1)} ms（n=${sorted.length}）`;
+    };
+    note("输入延迟分阶段（中位数）", `keydown→CM 事务完成 ${median(stages.cm)}；doc.toString() ${median(stages.toString)}；onChange 同步部分 ${median(stages.onChange)}`);
     const v = p95(lat);
     note("编辑输入延迟（keydown→编辑区 DOM 更新）", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 p95 ≤ 16 ms）`);
     atMost(v, 16);
@@ -183,8 +188,11 @@ test("编辑输入延迟 p95 ≤ 16 ms（实时预览，5,000 行文档）", asy
 test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-perf-"));
   const app = await electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
+  const collectDiagnostics = process.env["HUHU_PERF_DIAGNOSTICS"] === "1";
+  let diagnostics: Awaited<ReturnType<typeof observeTaskPerformance>> | undefined;
   try {
     const page = await app.firstWindow();
+    if (collectDiagnostics) diagnostics = await observeTaskPerformance(page, test.info());
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     // 先用 API 建一个任务作为模板，再把文件复制成 1,000 份（逐个调 API 创建要几分钟，不是本用例要测的东西）
     const ep = await page.evaluate(() => window.huhuHost.engine());
@@ -197,14 +205,17 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
       return (await r.json()) as { data: { id: string; path: string } };
     }, ep);
     const tpl = readFileSync(path.join(vault, created.data.path), "utf8");
+    diagnostics?.mark("file-writes-start");
     for (let i = 0; i < 1000; i++) {
       const id = `${created.data.id}${String(i).padStart(4, "0")}`;
       writeFileSync(path.join(vault, "Tasks", `任务 ${i}--${id}.md`), tpl.replaceAll(created.data.id, id).replace("模板任务", `任务 ${i}`));
     }
+    diagnostics?.mark("file-writes-done");
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await expect(page.getByTestId("task-row").first()).toBeVisible({ timeout: 30_000 });
+    diagnostics?.mark("first-row-visible");
     // 用相邻 rAF 回调的间隔衡量卡顿（本环境不上报 longtask 条目）；正向对照：人为阻塞 120 ms，必须被看到
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (collectDiagnostics) => {
       const frame = () => new Promise<number>((r) => requestAnimationFrame((t) => r(t)));
       const gaps = async (work: (i: number) => void, n: number) => {
         const out: number[] = [];
@@ -228,16 +239,48 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
       while (el && el.scrollHeight <= el.clientHeight + 4) el = el.parentElement;
       const target = el ?? document.scrollingElement!;
       const total = target.scrollHeight - target.clientHeight;
+      const scrollStart = collectDiagnostics ? performance.timeOrigin + performance.now() : undefined;
       const scroll = await gaps((i) => (target.scrollTop = (total * i) / 90), 91);
-      return { controlMax: Math.max(...control), longs: scroll.filter((g) => g > 66), worst: Math.max(...scroll), total, rows: document.querySelectorAll('[data-testid="task-row"]').length };
-    });
+      const scrollEnd = collectDiagnostics ? performance.timeOrigin + performance.now() : undefined;
+      const rows = document.querySelectorAll<HTMLElement>('[data-testid="task-row"]');
+      let diagnostics;
+      if (collectDiagnostics) {
+        const firstTaskId = rows[0]?.dataset["taskId"];
+        const lastTaskId = rows[rows.length - 1]?.dataset["taskId"];
+        diagnostics = {
+          scrollStart: scrollStart!,
+          scrollEnd: scrollEnd!,
+          ...(firstTaskId !== undefined ? { firstTaskId } : {}),
+          ...(lastTaskId !== undefined ? { lastTaskId } : {}),
+          scrollTop: target.scrollTop,
+        };
+      }
+      return {
+        controlMax: Math.max(...control),
+        longs: scroll.filter((g) => g > 66),
+        worst: Math.max(...scroll),
+        total,
+        rows: rows.length,
+        diagnostics,
+      };
+    }, collectDiagnostics);
+    if (result.diagnostics) diagnostics?.recordScroll(result.diagnostics);
     expect(result.controlMax, "帧间隔探针看不到人为的 120 ms 阻塞").toBeGreaterThan(100);
     note("任务列表 1,000 行滚动", `帧间隔最大 ${result.worst.toFixed(0)} ms，超过 66 ms（约 4 帧）的有 ${result.longs.length} 次；可滚动高度 ${result.total}px；DOM 行数 ${result.rows}`);
     expect(result.total).toBeGreaterThan(0);
     // 目标：没有 >50 ms 的卡顿；帧间隔量化为 16.7 ms，>50 ms 即至少 4 帧（>66 ms）才会被算作一次卡顿
     if (STRICT) expect(result.longs).toEqual([]);
   } finally {
-    await app.close();
+    await diagnostics?.finishProfile();
+    await diagnostics?.attach("before-close");
+    if (collectDiagnostics) await observeTaskQuit(app, vault);
+    diagnostics?.mark("app.close-start");
+    try {
+      await app.close();
+    } finally {
+      diagnostics?.mark("app.close-settled");
+      await diagnostics?.attach("after-close");
+    }
     rmSync(vault, { recursive: true, force: true });
   }
 });
@@ -257,59 +300,122 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
     await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
     const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
     await expect(search).toBeVisible();
+    const gate = path.join(vault, ".huhu", "perf-flood-start");
+    const quotedGate = `'${gate.replaceAll("'", "'\"'\"'")}'`;
+    const tail = "FLOOD-DONE-42-10485760";
+    type KeySample = { key: string; at: number; phase: "before" | "during" | "after"; valueBefore: number; inputAt?: number; valueAfter?: number; firstFrameAt?: number; latency?: number };
+    type FloodWindow = Window & {
+      __huhuFloodDone: () => Promise<void>;
+      __flood: { focusedAt: number; firstOutputAt: number | null; tailAt: number | null; pending: number; keys: KeySample[] };
+    };
+    let signaledAt: number | undefined;
+    await page.exposeFunction("__huhuFloodDone", () => {
+      signaledAt = Date.now();
+    });
     await page.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.type("count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count");
-    // 按键开始于实际输出窗口才入样；窗口结束后仍等待这些按键的两帧回调，保留慢样本。
-    await page.evaluate(() => {
-      const probe = { started: false, done: false, samples: [] as { latency?: number }[] };
-      const w = window as unknown as { __flood: typeof probe };
+    // 等待只发生在生产者启动前。放行后仍使用原来的满速 10 MiB 管道。
+    await page.keyboard.type(`while [ ! -f ${quotedGate} ]; do sleep 0.01; done; count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count`);
+    await page.keyboard.press("Enter");
+    await search.focus();
+    await search.evaluate((input, tail) => {
+      if (!(input instanceof HTMLInputElement) || input.type !== "search" || document.activeElement !== input) throw new Error("真实会话搜索框未获得焦点");
+      const w = window as unknown as FloodWindow;
+      const now = () => performance.timeOrigin + performance.now();
+      const probe: FloodWindow["__flood"] = { focusedAt: now(), firstOutputAt: null, tailAt: null, pending: 0, keys: [] };
       w.__flood = probe;
-      const rows = document.querySelector(".xterm-rows")!;
-      const observeOutput = () => {
+      const rows = document.querySelector('[data-testid="terminal-view"] .xterm-rows');
+      if (!rows) throw new Error("终端输出行未挂载");
+      const observer = new MutationObserver(() => {
         const text = rows.textContent ?? "";
-        if ((text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.started = true;
-        if (text.includes("FLOOD-DONE-42-10485760")) probe.done = true;
-      };
-      const observer = new MutationObserver(observeOutput);
+        if (probe.firstOutputAt === null && (text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.firstOutputAt = now();
+        if (!text.includes(tail)) return;
+        probe.tailAt = now();
+        observer.disconnect();
+        void w.__huhuFloodDone();
+      });
       observer.observe(rows, { subtree: true, childList: true, characterData: true });
-      document.addEventListener(
+      input.addEventListener(
         "keydown",
         (event) => {
-          observeOutput();
-          if (!(event.target instanceof HTMLInputElement) || event.target.type !== "search" || event.target.getAttribute("aria-label") !== "搜索会话历史") return;
-          if (!probe.started || probe.done) return;
-          const sample: { latency?: number } = {};
-          probe.samples.push(sample);
+          if (!event.isTrusted || event.target !== input || (event.key !== "a" && event.key !== "Backspace")) return;
           const start = performance.now();
-          requestAnimationFrame(() =>
+          const phase = probe.tailAt !== null ? "after" : probe.firstOutputAt !== null ? "during" : "before";
+          const sample: KeySample = { key: event.key, at: performance.timeOrigin + start, phase, valueBefore: input.value.length };
+          probe.keys.push(sample);
+          if (phase !== "during") return;
+          probe.pending++;
+          requestAnimationFrame(() => {
+            sample.firstFrameAt = now();
             requestAnimationFrame(() => {
               sample.latency = performance.now() - start;
-            }),
-          );
+              probe.pending--;
+            });
+          });
         },
         true,
       );
-    });
-    await page.keyboard.press("Enter");
-    const t0 = Date.now();
-    for (let i = 0; i < 400 && Date.now() - t0 < 20_000; i++) {
-      if (await page.evaluate(() => (window as unknown as { __flood: { done: boolean } }).__flood.done)) break;
-      await search.press(i % 2 === 0 ? "a" : "Backspace");
+      input.addEventListener(
+        "input",
+        (event) => {
+          const sample = probe.keys.at(-1);
+          if (!sample || !event.isTrusted || event.target !== input) return;
+          sample.inputAt = now();
+          sample.valueAfter = input.value.length;
+        },
+        true,
+      );
+    }, tail);
+    const releasedAt = Date.now();
+    const deadline = releasedAt + 20_000;
+    writeFileSync(gate, "");
+    let dispatched = 0;
+    for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
+      await page.keyboard.press(dispatched % 2 === 0 ? "a" : "Backspace");
     }
-    expect(await page.evaluate(() => (window as unknown as { __flood: { done: boolean } }).__flood.done), "输入探测必须覆盖到洪流结束；达到次数或时间上限不能算通过").toBe(true);
-    await expect(page.locator(".xterm-rows")).toContainText("FLOOD-DONE-42-10485760");
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const probe = (window as unknown as { __flood: { started: boolean; done: boolean; samples: { latency?: number }[] } }).__flood;
-          return probe.started && probe.done && probe.samples.every(({ latency }) => latency !== undefined);
-        }),
-      )
-      .toBe(true);
-    const lat = await page.evaluate(() => (window as unknown as { __flood: { samples: { latency: number }[] } }).__flood.samples.map(({ latency }) => latency));
+    // 窗口结束后仍等待窗内按键的两帧回调，保留慢样本。
+    await page.waitForFunction(() => (window as unknown as FloodWindow).__flood.pending === 0, null, { timeout: 10_000 });
+    const probe = await page.evaluate(() => (window as unknown as FloodWindow).__flood);
+    const during = probe.keys.filter(({ phase }) => phase === "during");
+    const thirds = [0, 0, 0];
+    if (probe.firstOutputAt !== null && probe.tailAt !== null && probe.tailAt > probe.firstOutputAt) {
+      const start = probe.firstOutputAt;
+      const span = probe.tailAt - start;
+      for (const { at } of during) {
+        const index = Math.min(2, Math.floor(((at - start) * 3) / span));
+        thirds[index] = thirds[index]! + 1;
+      }
+    }
+    note(
+      "终端洪流采样窗口",
+      JSON.stringify({
+        releasedAt,
+        signaledAt,
+        focusedAt: probe.focusedAt,
+        firstOutputAt: probe.firstOutputAt,
+        tailAt: probe.tailAt,
+        dispatched,
+        before: probe.keys.filter(({ phase }) => phase === "before").length,
+        during: during.length,
+        after: probe.keys.filter(({ phase }) => phase === "after").length,
+        thirds,
+      }),
+    );
+    await test.info().attach("terminal-flood-keys.json", {
+      body: JSON.stringify({ releasedAt, signaledAt, dispatched, thirds, ...probe }, null, 2),
+      contentType: "application/json",
+    });
+    // The browser records the tail before notifying Node. A tail seen during frame drain can be too late.
+    expect(probe.tailAt !== null && probe.tailAt <= deadline, "必须在放行后 20 秒内观察到实际洪流尾标").toBe(true);
+    expect(probe.firstOutputAt, "必须观察到实际终端输出开始").not.toBeNull();
+    await expect(page.getByTestId("terminal-view").locator(".xterm-rows")).toContainText(tail);
+    const lat = during.map(({ latency }) => latency!);
+    expect(
+      during.every(({ inputAt, valueBefore, valueAfter, key }) => typeof inputAt === "number" && valueAfter === (key === "a" ? valueBefore + 1 : Math.max(0, valueBefore - 1))),
+      "窗内按键必须产生真实输入事件并修改搜索框内容",
+    ).toBe(true);
+    expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
     const v = p95(lat);
     note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
-    expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);
     atMost(v, 100);
   } finally {
     await app.close();
