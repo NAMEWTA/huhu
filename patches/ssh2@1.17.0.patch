@@ -1,0 +1,150 @@
+diff --git a/lib/client.js b/lib/client.js
+index 7291c2c..abc80b0 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -33,7 +33,7 @@ const {
+ } = require('./protocol/constants.js');
+ const { init: cryptoInit } = require('./protocol/crypto.js');
+ const Protocol = require('./protocol/Protocol.js');
+-const { parseKey } = require('./protocol/keyParser.js');
++const { parseEd25519Certificate, parseKey } = require('./protocol/keyParser.js');
+ const { SFTP } = require('./protocol/SFTP.js');
+ const {
+   bufferCopy,
+@@ -254,6 +254,7 @@ class Client extends EventEmitter {
+     this._agent = (this.config.agent ? this.config.agent : undefined);
+     this._remoteVer = undefined;
+     let privateKey;
++    let authCertificate;
+
+     if (this.config.privateKey) {
+       privateKey = parseKey(this.config.privateKey, cfg.passphrase);
+@@ -270,6 +271,18 @@ class Client extends EventEmitter {
+       }
+     }
+
++    const certificate = cfg.publicKeyCertificate;
++    if (certificate !== undefined) {
++      if (!privateKey || privateKey.type !== 'ssh-ed25519')
++        throw new Error('Ed25519 user certificate requires an Ed25519 private key');
++      if (typeof certificate !== 'string'
++          || Buffer.byteLength(certificate) > 64 * 1024)
++        throw new Error('Invalid Ed25519 user certificate');
++      authCertificate = parseEd25519Certificate(certificate);
++      if (authCertificate === null || authCertificate instanceof Error)
++        throw new Error('Invalid Ed25519 user certificate');
++    }
++
+     let hostVerifier;
+     if (typeof cfg.hostVerifier === 'function') {
+       const hashCb = cfg.hostVerifier;
+@@ -462,7 +475,8 @@ class Client extends EventEmitter {
+             });
+           } else if (curAuth.type === 'publickey') {
+             proto.authPK(curAuth.username, curAuth.key, keyAlgo, (buf, cb) => {
+-              const signature = curAuth.key.sign(buf, hashAlgo);
++              const signingKey = curAuth.signingKey || curAuth.key;
++              const signature = signingKey.sign(buf, hashAlgo);
+               if (signature instanceof Error) {
+                 signature.message =
+                   `Error signing data with key: ${signature.message}`;
+@@ -882,7 +896,12 @@ class Client extends EventEmitter {
+             nextAuth = { type, username, password: this.config.password };
+             break;
+           case 'publickey':
+-            nextAuth = { type, username, key: privateKey };
++            nextAuth = {
++              type,
++              username,
++              key: authCertificate || privateKey,
++              signingKey: privateKey,
++            };
+             break;
+           case 'hostbased':
+             nextAuth = {
+diff --git a/lib/protocol/Protocol.js b/lib/protocol/Protocol.js
+index 7302488..0bb6fd5 100644
+--- a/lib/protocol/Protocol.js
++++ b/lib/protocol/Protocol.js
+@@ -648,6 +648,11 @@ class Protocol {
+
+     const userLen = Buffer.byteLength(username);
+     const algoLen = Buffer.byteLength(keyAlgo);
++    // Advertise the certificate in the request and the raw key algorithm in
++    // the nested signature, which is produced by the corresponding private key.
++    const certificate = keyType === 'ssh-ed25519-cert-v01@openssh.com';
++    const sigAlgo = certificate ? 'ssh-ed25519' : keyAlgo;
++    const sigAlgoLen = Buffer.byteLength(sigAlgo);
+     const pubKeyLen = pubKey.length;
+     const sessionID = this._kex.sessionID;
+     const sesLen = sessionID.length;
+@@ -697,7 +702,7 @@ class Protocol {
+     }
+
+     cbSign(packet, (signature) => {
+-      signature = convertSignature(signature, keyType);
++      signature = convertSignature(signature, certificate ? sigAlgo : keyType);
+       if (signature === false)
+         throw new Error('Error while converting handshake signature');
+
+@@ -705,7 +710,7 @@ class Protocol {
+       p = this._packetRW.write.allocStart;
+       packet = this._packetRW.write.alloc(
+         1 + 4 + userLen + 4 + 14 + 4 + 9 + 1 + 4 + algoLen + 4 + pubKeyLen + 4
+-          + 4 + algoLen + 4 + sigLen
++          + 4 + sigAlgoLen + 4 + sigLen
+       );
+
+       // TODO: simply copy from original "packet" to new `packet` to avoid
+@@ -729,12 +734,12 @@ class Protocol {
+       writeUInt32BE(packet, pubKeyLen, p += algoLen);
+       packet.set(pubKey, p += 4);
+
+-      writeUInt32BE(packet, 4 + algoLen + 4 + sigLen, p += pubKeyLen);
++      writeUInt32BE(packet, 4 + sigAlgoLen + 4 + sigLen, p += pubKeyLen);
+
+-      writeUInt32BE(packet, algoLen, p += 4);
+-      packet.utf8Write(keyAlgo, p += 4, algoLen);
++      writeUInt32BE(packet, sigAlgoLen, p += 4);
++      packet.utf8Write(sigAlgo, p += 4, sigAlgoLen);
+
+-      writeUInt32BE(packet, sigLen, p += algoLen);
++      writeUInt32BE(packet, sigLen, p += sigAlgoLen);
+       packet.set(signature, p += 4);
+
+       // Servers shouldn't send packet type 60 in response to signed publickey
+diff --git a/lib/protocol/keyParser.js b/lib/protocol/keyParser.js
+index a276c1a..8662b1a 100644
+--- a/lib/protocol/keyParser.js
++++ b/lib/protocol/keyParser.js
+@@ -1192,7 +1192,7 @@ OpenSSH_Public.prototype = BaseKey;
+     regexp = /^(((?:ssh-(?:rsa|dss|ed25519))|ecdsa-sha2-nistp(?:256|384|521))(?:-cert-v0[01]@openssh.com)?) ([A-Z0-9a-z/+=]+)(?:$|\s+([\S].*)?)$/;
+   else
+     regexp = /^(((?:ssh-(?:rsa|dss))|ecdsa-sha2-nistp(?:256|384|521))(?:-cert-v0[01]@openssh.com)?) ([A-Z0-9a-z/+=]+)(?:$|\s+([\S].*)?)$/;
+-  OpenSSH_Public.parse = (str) => {
++  OpenSSH_Public.parse = (str, certificateOnly = false) => {
+     const m = regexp.exec(str);
+     if (m === null)
+       return null;
+@@ -1210,6 +1210,14 @@ OpenSSH_Public.prototype = BaseKey;
+     if (type === undefined || type.indexOf(baseType) !== 0)
+       return new Error('Malformed OpenSSH public key');
+
++    if (certificateOnly) {
++      if (fullType !== 'ssh-ed25519-cert-v01@openssh.com' || type !== fullType)
++        return new Error('Invalid Ed25519 user certificate');
++      // Preserve the signed wire representation for publickey authentication.
++      delete data._pos;
++      return new OpenSSH_Public(fullType, comment, null, data, null);
++    }
++
+     return parseDER(data, baseType, comment, fullType);
+   };
+ }
+@@ -1480,5 +1488,6 @@ module.exports = {
+   isParsedKey,
+   isSupportedKeyType,
+   parseDERKey: (data, type) => parseDER(data, type, '', type),
++  parseEd25519Certificate: (data) => OpenSSH_Public.parse(data.trim(), true),
+   parseKey,
+ };
