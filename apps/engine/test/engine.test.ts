@@ -750,15 +750,21 @@ describe("Engine 启动与关闭", () => {
     const { mkdirSync, writeFileSync } = await import("node:fs");
     mkdirSync(path.join(dir, "Tasks"), { recursive: true });
     writeFileSync(path.join(dir, "Tasks", "bad.md"), "---\nhuhu: {kind: task, id: task-bad001, schema: 1}\ntitle: 1\n---\n");
-    const e = await boot({ vaultPath: dir, create: true });
+    let e: RunningEngine;
+    vi.stubEnv("HUHU_HERDR_BIN", path.join(dir, "missing-herdr-core"));
+    try {
+      e = await boot({ vaultPath: dir, create: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
     await call("tasks.list", {}); // 触发一次扫描，让文件问题登记
     const h = (await call("health.run", {})).data as { overall: string; checks: { id: string; status: string; detail: string }[] };
-    // 本测试环境没有 Herdr Core（未设 HUHU_HERDR_BIN）：该项应为“需处理”并带“重启 Core”（ACC-SY-02），其余项的总体状态是 warning
+    // 显式缺失的 Core 应提示处理，不依赖开发机器的 PATH 或随包资源。
     const herdr = h.checks.find((c) => c.id === "herdr") as { status: string; action?: { label: string; capability?: string } } | undefined;
-    if (!process.env["HUHU_HERDR_BIN"]) expect(herdr).toMatchObject({ status: "error", action: { label: "重启 Core", capability: "agent.core.restart" } });
+    expect(herdr).toMatchObject({ status: "error", action: { label: "重启 Core", capability: "agent.core.restart" } });
     expect(h.checks.filter((c) => c.id !== "herdr").some((c) => c.status === "error")).toBe(false);
     expect(h.checks.find((c) => c.id === "files")).toMatchObject({ status: "warning" });
     expect(h.checks.find((c) => c.id === "files")?.detail).toContain("bad.md");
