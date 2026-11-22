@@ -51,6 +51,7 @@ const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const externalMonitor = { ...monitor, ...resource } as const;
 const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
+const PublicForwardRun = ForwardRun.omit({ connection: true, prompt: true, message: true, lastError: true }).extend({ connectionKind: ForwardRun.shape.connection.unwrap().shape.kind.optional() }).strict();
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -236,7 +237,7 @@ export const sshCapabilityDescriptors = {
     output: MonitorPanelRun.nullable(),
   }),
   forwardRulesList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.forwarding.rules.list",
     title: "查看 SSH 转发规则",
@@ -269,15 +270,15 @@ export const sshCapabilityDescriptors = {
     output: Ok,
   }),
   forwardRunsList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.forwarding.runs.list",
     title: "查看 SSH 转发运行状态",
-    description: "读取真实监听、SSH 连接归属和流量计数。",
+    description: "读取监听、连接类型和流量计数。外部结果限于当前规则及原连接均在授权范围内的运行。",
     scope: "read",
     risk: "normal",
     input: z.strictObject({}),
-    output: z.array(ForwardRun),
+    output: z.union([z.array(PublicForwardRun), z.array(ForwardRun)]),
   }),
   forwardRunsStart: defineCapabilityDescriptor({
     ...ssh,

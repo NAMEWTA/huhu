@@ -1,6 +1,8 @@
 import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
@@ -17,6 +19,7 @@ import { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
+import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 const hostGet = "ssh.resources.host.get";
@@ -142,6 +145,17 @@ async function fixture() {
         await rm(root, { recursive: true, force: true, maxRetries: 4 });
       }
     },
+  };
+}
+
+async function externalTool(f: Awaited<ReturnType<typeof fixture>>, entry: "cli" | "mcp") {
+  if (entry === "cli") return f.cli;
+  await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+  const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "SSH tool fixture" });
+  const session = await openMcpSession(f.mcpEndpoint(), token);
+  return async (id: string, args: object) => {
+    const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: args }, session);
+    return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
   };
 }
 
@@ -838,6 +852,92 @@ test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations a
     await f.allow(cached, false);
     expect(await invoke(cached, binding)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     await f.desktop("ssh.monitor.panels.delete", binding);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s reads forwarding configuration and listener summaries on current authorized routes", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const rules = "ssh.forwarding.rules.list";
+  const runs = "ssh.forwarding.runs.list";
+  const start = "ssh.forwarding.runs.start";
+  try {
+    const jump = await f.host("forwarding jump");
+    const target = await f.host("forwarding host", [jump.hostId]);
+    const reserve = createServer();
+    const listening = once(reserve, "listening");
+    reserve.listen(0, "127.0.0.1");
+    await listening;
+    const address = reserve.address();
+    const closed = once(reserve, "close");
+    reserve.close();
+    await closed;
+    if (!address || typeof address === "string") throw new Error("No loopback fixture port");
+    const rule = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", {
+      name: "loopback fixture",
+      mode: "local",
+      hostId: target.hostId,
+      listenPort: address.port,
+      target: { host: "127.0.0.1", port: 8080 },
+      resume: false,
+    });
+    const other = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", { name: "hidden fixture", mode: "socks5", hostId: jump.hostId, listenPort: address.port, resume: false });
+    const revision = { id: rule.id, expectedRevision: rule.revision };
+    const invoke = await externalTool(f, entry);
+    for (const id of [rules, runs]) {
+      expect(await invoke(id, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+      await f.allow(id);
+    }
+    await f.chooseHosts([target.hostId]);
+    expect(data(await invoke(rules, {}))).toEqual([]);
+    expect(data(await invoke(runs, {}))).toEqual([]);
+    await f.chooseHosts([jump.hostId, target.hostId]);
+    expect(data(await invoke(rules, {}))).toEqual([rule, other]);
+    expect(data(await invoke(runs, {}))).toEqual([]);
+    expect(await invoke(start, revision)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    expect(jump.server.conns).toHaveLength(0);
+    expect(target.server.conns).toHaveLength(0);
+
+    await f.desktop(start, revision);
+    for (const hop of [0, 1]) {
+      const prompt = await vi.waitFor(async () => {
+        const current = (await f.desktop<ForwardRun[]>(runs))[0];
+        const key = current?.prompt;
+        if (key?.hop !== hop) throw new Error("Waiting for forwarding route trust");
+        return key;
+      });
+      expect(data(await invoke(runs, {}))).toEqual([]);
+      await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop, promptId: prompt.promptId, accept: true, remember: false });
+    }
+    const listeningRun = await vi.waitFor(async () => {
+      const [run] = await f.desktop<ForwardRun[]>(runs);
+      expect(run?.state).toBe("running");
+      return run!;
+    });
+    expect(data(await invoke(runs, {}))).toEqual([
+      {
+        id: listeningRun.id,
+        ruleId: rule.id,
+        revision: rule.revision,
+        state: "running",
+        listener: { device: "local", host: "127.0.0.1", port: address.port },
+        connectionKind: "dedicated",
+        active: 0,
+        accepted: 0,
+        uploaded: 0,
+        downloaded: 0,
+      },
+    ]);
+    await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised forwarding jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
+    expect(data(await invoke(runs, {}))).toEqual([]);
+    expect(data(await invoke(rules, {}))).toEqual([rule, other]);
+    expect(jump.server.conns).toHaveLength(1);
+    expect(target.server.conns).toHaveLength(1);
+    await f.allow(runs, false);
+    expect(await invoke(runs, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.desktop("ssh.forwarding.rules.delete", revision);
+    await f.desktop("ssh.forwarding.rules.delete", { id: other.id, expectedRevision: other.revision });
   } finally {
     await f.close();
   }

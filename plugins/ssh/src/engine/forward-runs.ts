@@ -15,12 +15,25 @@ type Run = {
   lease?: ForwardLease;
   listener?: ForwardListener;
   offTransport?: () => void;
+  routeIdentity?: string;
   lost?: boolean;
 };
 
 const live = new Set<ForwardRun["state"]>(["starting", "waiting", "running", "stopping", "stop-failed"]);
 const empty = { active: 0, accepted: 0, uploaded: 0, downloaded: 0 };
 const reason = (error: unknown) => (error instanceof Error ? error.message : "转发操作失败");
+const publicForwardRun = (run: ForwardRun) => ({
+  id: run.id,
+  ruleId: run.ruleId,
+  revision: run.revision,
+  state: run.state,
+  listener: run.listener,
+  connectionKind: run.connection?.kind,
+  active: run.active,
+  accepted: run.accepted,
+  uploaded: run.uploaded,
+  downloaded: run.downloaded,
+});
 
 export class ForwardRuns {
   private readonly runs = new Map<string, Run>();
@@ -35,6 +48,14 @@ export class ForwardRuns {
 
   list() {
     return [...this.runs.values()].map((run) => this.snapshot(run));
+  }
+
+  visibleRuns(rules: ReadonlyMap<string, { revision: string; connectionIdentity: string }>) {
+    return [...this.runs.values()].flatMap((run) => {
+      const rule = rules.get(run.rule.id);
+      if (!rule || rule.revision !== run.rule.revision || rule.connectionIdentity !== run.routeIdentity) return [];
+      return [publicForwardRun(this.snapshot(run))];
+    });
   }
 
   save(input: SaveForward, signal: AbortSignal) {
@@ -128,6 +149,7 @@ export class ForwardRuns {
         return;
       }
       run.lease = lease;
+      run.routeIdentity = lease.routeIdentity;
       const disconnected = () => {
         run.lost = true;
         void this.serial(async () => {

@@ -25,7 +25,6 @@ import { SshPreferences } from "./preferences.js";
 import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
-import { connectionIdentity } from "./workspace-target.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -148,12 +147,19 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       const panel = monitorPanels.get(id);
       if (!panel || panel.hostIds.some((hostId) => !routes.has(hostId))) throw errors.notFound("监控面板");
       if (panel.revision !== expectedRevision) throw errors.versionConflict(panel.revision);
-      const identities = new Map(panel.hostIds.map((hostId) => [hostId, connectionIdentity(routes.get(hostId)!.route.map((hop) => ({ id: hop.hostId, revision: hop.revision })))]));
+      const identities = new Map(panel.hostIds.map((hostId) => [hostId, routes.get(hostId)!.connectionIdentity]));
       return monitors.cachedDashboard(panel, identities);
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsChange, ({ signal }, i) => monitors.change(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
+  const visibleForwardRules = (context: CapabilityContext) => {
+    const routes = visibleSshRoutes(api.vault.files, context);
+    return forwardRules.list().flatMap((rule) => {
+      const route = routes.get(rule.hostId);
+      return route?.targetIdentity === rule.boundTarget ? [{ rule, route }] : [];
+    });
+  };
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, (context) => (isWorkbenchCaller(context.caller) ? forwardRules.list() : visibleForwardRules(context).map(({ rule }) => rule))));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {
       const result = await forwarding.save(input, signal);
@@ -168,7 +174,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return result;
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsList, () => forwarding.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRunsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return forwarding.list();
+      const rules = new Map(visibleForwardRules(context).map(({ rule, route }) => [rule.id, { revision: rule.revision, connectionIdentity: route.connectionIdentity }]));
+      return forwarding.visibleRuns(rules);
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStart, ({ signal }, input) => forwarding.start(input, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsResume, ({ signal }, input) => forwarding.start(input, signal, true)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStop, ({ signal }, input) => forwarding.stop(input, signal)));

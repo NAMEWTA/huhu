@@ -4,7 +4,7 @@ import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuAp
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
 import type { ManagedHost } from "./host-configurations.js";
-import { routeForHost, workspaceTarget } from "./workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 
 export const ResourceHostId = z.strictObject({ hostId: OwnedHostId });
 const revision = ManagedHostView.shape.revision;
@@ -91,13 +91,17 @@ export function readResourceRoute(files: Files, hostId: string) {
   return { chain, view: resourceView(chain) };
 }
 
-export function visibleSshRoutes(files: Files, context: CapabilityContext): ReadonlyMap<string, ResourceHost> {
+type VisibleSshRoute = ResourceHost & { targetIdentity: string; connectionIdentity: string };
+
+export function visibleSshRoutes(files: Files, context: CapabilityContext): ReadonlyMap<string, VisibleSshRoute> {
   externalSshOwner(context);
   const hosts = new Map(readPortableHosts(files, selectedSshHosts(context)).map((host) => [host.id, host]));
-  const routes = new Map<string, ResourceHost>();
+  const routes = new Map<string, VisibleSshRoute>();
   for (const id of hosts.keys()) {
     try {
-      routes.set(id, resourceView(routeForHost(hosts, id)));
+      const chain = routeForHost(hosts, id);
+      const targetIdentity = workspaceTarget(chain);
+      routes.set(id, { ...resourceView(chain, targetIdentity), targetIdentity, connectionIdentity: connectionIdentity(chain) });
     } catch (error) {
       // Deleted, ungranted or invalid hops make the whole route unavailable.
       if (!(error instanceof HuhuError) || (error.code !== "NOT_FOUND" && error.code !== "INVALID_INPUT")) throw error;
@@ -106,10 +110,10 @@ export function visibleSshRoutes(files: Files, context: CapabilityContext): Read
   return routes;
 }
 
-function resourceView(chain: readonly ManagedHost[]): ResourceHost {
+function resourceView(chain: readonly ManagedHost[], targetIdentity = workspaceTarget(chain)): ResourceHost {
   const resourceRoute = chain.map(({ id, revision, host, port }) => ({ hostId: id, revision, host, port }));
   const boundRevision = createHash("sha256")
-    .update(JSON.stringify([workspaceTarget(chain), chain.map(({ revision, configId }) => [revision, configId])]))
+    .update(JSON.stringify([targetIdentity, chain.map(({ revision, configId }) => [revision, configId])]))
     .digest("hex");
   const target = chain.at(-1)!;
   return { ...resourceRoute.at(-1)!, name: target.name, authKind: target.auth.kind, routeRevision: boundRevision, route: resourceRoute };
