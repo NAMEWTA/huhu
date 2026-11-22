@@ -2,11 +2,11 @@
 
 ## 当前状态（2026-11-23）
 
-远端已核对 `feature/issue-fix=ce3a3b7b82410ea1e25cb2955df4140fa2b934bc`，`main=4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。前者保存已审查的源码与验收用例；Mail 候选已保存，agent-linux 的 Notes 后续差异仍待收口。以下 rc.4 制品属于旧 main，不能用于签收这些后续修复。
+源码候选固定为 `80db95d0`。此前已保存至远端的 feature 为 `9252eeea`，main仍为 `4ae7e7e4`；后续推送与固定组合门禁待实际输出核对。旧rc.4制品不代表当前源码。
 
-第一次全量 E2E 已结束：351 passed、48 failed、18 skipped，另有6项测试外错误。非 SSH 失败映射为当前34项（旧33项中的撤销/删除拆分），其中33项安排源码构建复验，W8.2/W8.3一项安排同包 workspace 验收。新增受影响用例另加，不重复全量套件。
+Notes 83项会话测试、11项完整Engine能力测试及定向类型、格式、lint通过，独审t152/task04关闭最后两条草稿缺口。Mail 29项后端回归及类型/lint通过，实际恢复重试E2E已写但未运行。进入当前组合门禁与构建阶段，尚未签真实UI和安装包通过。
 
-当前 Mail OAuth9项与 Outbox20项通过，包及差异E2E类型、23文件lint通过；恢复提示和实际重试断言已保存，真实 UI 待验。Notes t155 会话74项、真实 Engine 草稿跨重启1项及包类型检查通过，独审后新增的草稿明确处理问题正在修复。真实包验证、三组联验与逐Issue最终结论仍未完成。
+第一次全量E2E已结束：351 passed、48 failed、18 skipped，另有6项测试外错误。非SSH失败映射为当前34项，其中33项源码复验，W8.2/W8.3一项安排同包workspace验收。新增Notes/Mail等受影响场景另加，不重复全量套件。
 
 以下按时间保留旧候选与逐轮验证记录；后续条目替代对应早期“尚未运行”状态，未标同包的定向证据不代表安装包验收。
 
@@ -224,3 +224,9 @@ t13b/task11 的修前筛选4失败、1通过，最终筛选10通过，日志 `sa
 Notes候选 `ce3a3b7b82410ea1e25cb2955df4140fa2b934bc` 已推送 `feature/issue-fix` 并用 ls-remote 核对；main仍为 `4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。独审关闭原保存误清、单会话明确放弃和档案入口场景，但指出跨工作台替换草稿可能被当前确认删除，以及Engine吞掉草稿读取异常会假成功。两条仅有源码证据，交 t13b/task12 先复现再修复。尚未开始新组合构建/包验收，不签最终通过。
 
 后续定向源码运行脚本准备于 `temp/final-audit/run-targeted-source.sh`（failed/notes/mail三组），要求固定完整SHA和干净工作区，沿用隔离HOME/XDG/DBus/Secret Service/Xvfb与重型锁；目前仅bash语法检查，未执行E2E。组合门禁脚本 `run-combined-gates.sh` 同样尚未执行。
+
+## 80db95d0：草稿身份关闭与收尾候选
+
+t13b/task12 实际修前会话2失败、Engine2失败，修后会话83/83、Engine定向4/4。Lead t15f Notes及差异E2E类型通过，格式失败两处；格式修正后t15g四文件格式/lint通过，完整domain-exposure.engine 11/11通过，包含CLI/MCP默认关、授权、撤销、重启与旧外部版本行为。日志 `save-draft-identity-session-{red,green}.log`、`save-draft-identity-engine-{red,green}.log`、`notes-draft-identity-types.log`、`notes-draft-identity-recheck.log`。
+
+独审 `t152-report04.md` 确认两项关闭和直接兼容通过。代码保存为 `80db95d0`；没有追加新功能。后续使用包含本记录的固定HEAD运行串行门禁、构建和定向真实入口验证。未重跑全量Vitest或全量E2E。
