@@ -62,7 +62,9 @@ func probe() int {
 	if err != nil {
 		return 34
 	}
-	defer term.Restore(in, state)
+	if os.Getenv("HUHU_AGENT_FIXTURE_LEAVE_RAW") != "1" {
+		defer term.Restore(in, state)
+	}
 	resize := make(chan os.Signal, 1)
 	signal.Notify(resize, syscall.SIGWINCH)
 	defer signal.Stop(resize)

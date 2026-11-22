@@ -61,6 +61,7 @@ async function startDesktop(protection: boolean) {
     XDG_DATA_HOME: path.join(directory, "data"),
     XDG_STATE_HOME: path.join(directory, "state"),
     XDG_CACHE_HOME: path.join(directory, "cache"),
+    SHELL: "/bin/sh",
     HUHU_VAULT: path.join(directory, "vault"),
     ...(!protection && { DBUS_SESSION_BUS_ADDRESS: "unix:path=" + path.join(directory, "unavailable-bus") }),
     ...(!packaged && { HUHU_AGENT_PTY_HOST: protection ? nativePath : path.join(directory, "unavailable-helper") }),
@@ -140,13 +141,26 @@ async function currentSession(page: Page): Promise<Session> {
   return (await sessions()).find(({ state }) => state === "running")!;
 }
 
-async function finishFromTerminal(page: Page, session: Session, proof: string) {
+async function finishFromTerminal(page: Page, session: Session, proof: string, returnsToShell = false) {
   const pane = page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${session.id}"]`));
   await expect(pane.locator(".xterm")).toBeVisible();
   await pane.locator(".xterm").click();
   await page.keyboard.type("q");
   await expect.poll(() => observe(proof).some(({ event }) => event === "input")).toBe(true);
-  await expect.poll(async () => (await call<Session[]>(page, "agent.sessions.list", {})).find(({ id }) => id === session.id)).toMatchObject({ state: "exited", exitCode: 17, terminalId: session.terminalId });
+  const current = async () => (await call<Session[]>(page, "agent.sessions.list", {})).find(({ id }) => id === session.id);
+  let exitCode = 17;
+  if (returnsToShell) {
+    const output = async () => (await call<{ text: string }>(page, "agent.sessions.output", { id: session.id })).text;
+    await expect.poll(output).toContain("HUHU_PTY AGENT_EXIT 17");
+    await expect.poll(current).toMatchObject({ state: "running", terminalId: session.terminalId });
+    await page.keyboard.type('printf "return-shell:%s:%s\\n" "$HUHU_AGENT_FIXTURE_PLAIN" "${HUHU_AGENT_FIXTURE_SECRET+present}"');
+    await page.keyboard.press("Enter");
+    await expect.poll(output).toMatch(/return-shell:fixture-ordinary:\r?\n/);
+    await page.keyboard.type("exit 23");
+    await page.keyboard.press("Enter");
+    exitCode = 23;
+  }
+  await expect.poll(current).toMatchObject({ state: "exited", exitCode, terminalId: session.terminalId });
 }
 
 test("Linux 普通 Agent 环境可编辑并在保护服务缺席时进入真实 Core", async () => {
@@ -242,7 +256,7 @@ test("Linux 受保护 Agent 在 Safe 三态使用真实 PTY、键盘和 resize�
         await page.getByRole("button", { name: "知识库" }).first().click();
         await page.getByRole("button", { name: "Agent CLI" }).first().click();
       }
-      await finishFromTerminal(page, session, proof);
+      await finishFromTerminal(page, session, proof, true);
       await expect.poll(() => existsSync(`/proc/${started.detached}`)).toBe(false);
       expect(observe(proof).filter(({ event }) => event === "ready")).toHaveLength(1);
     }

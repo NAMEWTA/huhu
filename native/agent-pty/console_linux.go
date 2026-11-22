@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -23,13 +24,16 @@ type linuxChild struct {
 	Argv          []string `json:"argv"`
 	Env           []string `json:"env"`
 	ApprovedShell bool     `json:"approvedShell,omitempty"`
+	ReturnArgv    []string `json:"returnArgv,omitempty"`
+	ReturnEnv     []string `json:"returnEnv,omitempty"`
+	Stage         string   `json:"stage,omitempty"`
 }
 
 func runLinuxHost(approval *linuxApproval) (int, error) {
 	defer approval.receipt.Close()
-	defer approval.directory.Close()
-	defer approval.image.Close()
+	defer approval.pins.close()
 	defer clear(approval.launch.Env)
+	defer clear(approval.launch.ReturnEnv)
 	defer clear(approval.protected)
 	notStarted := true
 	defer func() {
@@ -92,10 +96,15 @@ func runLinuxHost(approval *linuxApproval) (int, error) {
 	guard := exec.Command("/proc/self/exe", "supervise")
 	guard.Env = []string{}
 	guard.Stdin, guard.Stdout, guard.Stderr = slave, slave, slave
-	guard.ExtraFiles = []*os.File{approval.image, approval.directory, control, ready}
+	guard.ExtraFiles = []*os.File{approval.pins.image, approval.pins.directory, control, ready}
 	// The Core can terminate its foreground group without taking away the
 	// supervisor that cleans up the inner process tree.
 	guard.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if approval.pins.shell != nil {
+		// The supervisor holds the controlling terminal across both foreground groups.
+		guard.SysProcAttr.Setctty = true
+		guard.ExtraFiles = append(guard.ExtraFiles, approval.pins.shell)
+	}
 	if err := guard.Start(); err != nil {
 		return 0, err
 	}
@@ -103,8 +112,11 @@ func runLinuxHost(approval *linuxApproval) (int, error) {
 	_ = slave.Close()
 	_ = control.Close()
 	_ = ready.Close()
-	_ = approval.image.Close()
-	_ = approval.directory.Close()
+	_ = approval.pins.image.Close()
+	_ = approval.pins.directory.Close()
+	if approval.pins.shell != nil {
+		_ = approval.pins.shell.Close()
+	}
 	exited := make(chan error, 1)
 	go func() { exited <- guard.Wait() }()
 	guardWaited := false
@@ -117,6 +129,7 @@ func runLinuxHost(approval *linuxApproval) (int, error) {
 
 	raw, err := json.Marshal(approval.launch)
 	clear(approval.launch.Env)
+	clear(approval.launch.ReturnEnv)
 	if err != nil {
 		return 0, err
 	}
@@ -245,17 +258,41 @@ func superviseLinuxChild() (int, error) {
 		return 0, errInput
 	}
 	defer clear(launch.Env)
-	if launch.ApprovedShell {
-		var st unix.Stat_t
-		if unix.Fstat(int(image.Fd()), &st) != nil || !trustedLinuxShellMode(st) || checkELF(image) != nil {
+	defer clear(launch.ReturnEnv)
+	var state *unix.Termios
+	interactive := len(launch.ReturnArgv) != 0
+	if interactive {
+		unix.CloseOnExec(7)
+		shell := os.NewFile(7, "approved-return-shell")
+		defer shell.Close()
+		if !sealedImage(shell) {
 			return 0, errPin
 		}
-	} else {
-		seals, err := unix.FcntlInt(image.Fd(), unix.F_GET_SEALS, 0)
-		if err != nil || seals&programSeals != programSeals {
+		state, err = unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCGETS)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	switch {
+	case launch.ApprovedShell:
+		var st unix.Stat_t
+		if interactive || launch.Stage != "" || unix.Fstat(int(image.Fd()), &st) != nil || !trustedLinuxShellMode(st) || checkELF(image) != nil {
+			return 0, errPin
+		}
+	case launch.Stage != "":
+		imagePath, err := os.Readlink("/proc/self/fd/3")
+		relative, within := installationRelative(launch.Stage, imagePath)
+		if err != nil || !within || relative == "." || !strings.HasPrefix(filepath.Base(launch.Stage), "huhu-agent-install-") || !checkedStagedImage(image) {
+			return 0, errPin
+		}
+		defer os.RemoveAll(launch.Stage)
+	default:
+		if !sealedImage(image) {
 			return 0, errPin
 		}
 	}
+
 	// A Go fork inherits the OS thread's no_new_privs and its parent-death
 	// signal is bound to that same thread. Keep the thread for the full run.
 	runtime.LockOSThread()
@@ -266,51 +303,131 @@ func superviseLinuxChild() (int, error) {
 	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
 		return 0, err
 	}
+	hangup := make(chan os.Signal, 1)
+	if interactive {
+		// The supervisor can be foreground briefly between the two commands.
+		// Their exec resets caught signals to the child's default disposition.
+		interrupt := make(chan os.Signal, 1)
+		signal.Notify(interrupt, syscall.SIGINT, syscall.SIGQUIT)
+		defer signal.Stop(interrupt)
+		signal.Notify(hangup, syscall.SIGHUP)
+		defer signal.Stop(hangup)
+	}
 	shutdown := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(io.Discard, control)
 		close(shutdown)
 	}()
-	select {
-	case <-shutdown:
+	if !linuxLeaseActive(control, shutdown, hangup) {
 		return 0, errPeer
-	default:
 	}
 
-	cmd := &exec.Cmd{
-		Path:        "/proc/self/fd/3",
-		Args:        launch.Argv,
-		Dir:         "/proc/self/fd/4",
-		Env:         launch.Env,
-		Stdin:       os.Stdin,
-		Stdout:      os.Stdout,
-		Stderr:      os.Stderr,
-		SysProcAttr: &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0, Pdeathsig: syscall.SIGKILL},
-	}
-	if err := cmd.Start(); err != nil {
+	agent := linuxCommand("/proc/self/fd/3", launch.Argv, launch.Env, interactive)
+	if err := agent.Start(); err != nil {
 		return 0, err
 	}
 	failed = false
 	clear(launch.Env)
 	_ = image.Close()
-	_ = directory.Close()
-	if _, err := status.Write([]byte{runningByte}); err != nil {
-		_ = cmd.Process.Kill()
-	}
+	_, writeErr := status.Write([]byte{runningByte})
 	_ = status.Close()
+	if writeErr != nil {
+		_ = agent.Process.Kill()
+	}
+	code, settled, err := waitLinuxCommand(agent, shutdown, hangup)
+	if err != nil || !interactive || !settled || writeErr != nil || !linuxLeaseActive(control, shutdown, hangup) {
+		return code, err
+	}
+	if launch.Stage != "" {
+		if err := os.RemoveAll(launch.Stage); err != nil {
+			return 0, err
+		}
+	}
+	if err := restoreSupervisorTerminal(state); err != nil {
+		return 0, err
+	}
+	fmt.Fprintf(os.Stderr, "\r\nHUHU_PTY AGENT_EXIT %d\n", code)
+	if !linuxLeaseActive(control, shutdown, hangup) {
+		return hostFailure, nil
+	}
+	shell := linuxCommand("/proc/self/fd/7", launch.ReturnArgv, launch.ReturnEnv, true)
+	if err := shell.Start(); err != nil {
+		return 0, err
+	}
+	clear(launch.ReturnEnv)
+	_ = directory.Close()
+	code, _, err = waitLinuxCommand(shell, shutdown, hangup)
+	return code, err
+}
+
+func sealedImage(image *os.File) bool {
+	seals, err := unix.FcntlInt(image.Fd(), unix.F_GET_SEALS, 0)
+	return err == nil && seals&programSeals == programSeals
+}
+
+func linuxLeaseActive(lease *os.File, shutdown <-chan struct{}, hangup <-chan os.Signal) bool {
+	select {
+	case <-shutdown:
+		return false
+	case <-hangup:
+		return false
+	default:
+		poll := []unix.PollFd{{Fd: int32(lease.Fd()), Events: unix.POLLIN}}
+		n, err := unix.Poll(poll, 0)
+		return err == nil && n == 0
+	}
+}
+
+func linuxCommand(image string, argv, env []string, foreground bool) *exec.Cmd {
+	attributes := &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0, Pdeathsig: syscall.SIGKILL}
+	if foreground {
+		attributes = &syscall.SysProcAttr{Foreground: true, Ctty: int(os.Stdin.Fd()), Pdeathsig: syscall.SIGKILL}
+	}
+	return &exec.Cmd{
+		Path:  image,
+		Args:  argv,
+		Dir:   "/proc/self/fd/4",
+		Env:   env,
+		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		SysProcAttr: attributes,
+	}
+}
+
+func waitLinuxCommand(cmd *exec.Cmd, shutdown <-chan struct{}, hangup <-chan os.Signal) (int, bool, error) {
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	var waitErr error
+	settled := false
 	select {
 	case waitErr = <-exited:
+		settled = true
 	case <-shutdown:
+		_ = cmd.Process.Kill()
+		waitErr = <-exited
+	case <-hangup:
 		_ = cmd.Process.Kill()
 		waitErr = <-exited
 	}
 	if err := reapLinuxDescendants(); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return exitStatus(waitErr), nil
+	return exitStatus(waitErr), settled, nil
+}
+
+func restoreSupervisorTerminal(state *unix.Termios) error {
+	fd := int(os.Stdin.Fd())
+	// The preceding foreground process group has exited. Reclaim the
+	// terminal for the supervisor, then hand it to the next group on exec.
+	var block, previous unix.Sigset_t
+	block.Val[0] = 1 << (unix.SIGTTOU - 1)
+	if err := unix.PthreadSigmask(unix.SIG_BLOCK, &block, &previous); err != nil {
+		return err
+	}
+	defer unix.PthreadSigmask(unix.SIG_SETMASK, &previous, nil)
+	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, unix.Getpgrp()); err != nil {
+		return err
+	}
+	return unix.IoctlSetTermios(fd, unix.TCSETS, state)
 }
 
 func exitStatus(waitErr error) int {

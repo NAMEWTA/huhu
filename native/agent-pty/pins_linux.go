@@ -70,7 +70,7 @@ func checkedLinuxFile(spec fileSpec, copyTo io.Writer) (*os.File, fileID, error)
 			_ = file.Close()
 		}
 	}()
-	if before.Mode&unix.S_IFMT != unix.S_IFREG || before.Size < 4 || before.Size > maxImageSize || (spec.ID != nil && *spec.ID != id) {
+	if before.Mode&unix.S_IFMT != unix.S_IFREG || before.Size < 0 || before.Size > maxImageSize || (spec.ID != nil && *spec.ID != id) {
 		return nil, fileID{}, errPin
 	}
 	hash := sha256.New()

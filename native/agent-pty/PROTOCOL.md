@@ -55,5 +55,7 @@
 
 - `broker` 和 `host` 延用相同 argv 形状。`created` 改为 `/proc/<pid>/stat` 第 22 字段的启动 tick，保持十进制字符串。`inspect <rootPid> <helperPath> <helperSha256> <runId> <brokerPid> <brokerCreated>` 检查 Core 根 PID 的 pidfd、实际映像与对应 host argv。两端使用抽象 Unix socket 的内核对端凭据核对 UID 与 PID，并复查进程实例。
 - `program <path> <sha256>` 输出 `HUHU_PTY PROGRAM 1 <device> <inode> <ctime_ns>`。Linux 消息里的 `image.id` 用这三个十进制字段。`directory` 输出设备、inode 和出生时间，缺少出生时间的文件系统使用 ctime。Engine 和 host 复核目标路径在核对时的身份，host 持有打开的目录描述符到内层启动。
-- Linux ELF 交互程序以批准摘要校验的密封 memfd 启动。外部批准的系统 sh 使用 `launch.approvedShell` 的规范绝对路径、`dev:ino`、出生时间、ctime、mtime、大小和 SHA-256，且 argv 形状为 `[path, "-c", command]`。核对通过后通过已打开的原文件描述符执行。
+- Linux ELF 默认以批准摘要校验的密封 memfd 启动。私有字段 `linuxInstallation` 支持 `codex-npm`、`pi-node` 和 `claude-native`。broker 与 host 核对声明文件、安装解析记录和入口链接。host 从已核对的 FD 复制到每次运行独占的目录，保持声明文件的相对布局，从核对后的具名映像 FD 执行。Pi 的 `entry` 须等于原 `argv[1]`，宿主在运行副本内替换映像和入口两个前缀，用户参数原样转发。声明外的 Node 依赖和系统动态库沿用安装信任边界。
+- 私有字段 `returnShell` 绑定交互返回 shell 的 `image`、`argv: [image.path, "-i"]` 和可选的原链接 `source`。Agent 自然退出时，监督进程回收后代、恢复 PTY 的 termios，并以另一前台进程组在同一 PTY 启动 shell。返回环境剔除保护变量和值，并且仅 Agent 收到安装适配使用的专用变量。公开 `HUHU_PTY AGENT_EXIT <code>` 用于诊断。外层 host 在 shell 退出时报告 `CHILD_EXIT` 并返回 shell 的退出码。
+- 外部批准的系统 sh 使用 `launch.approvedShell` 的规范绝对路径、`dev:ino`、出生时间、ctime、mtime、大小和 SHA-256，argv 形状为 `[path, "-c", command]`，禁止同时带安装副本或返回 shell。通过核对后从原 FD 执行一次，命令结束时 host 返回其退出码。
 - 私有帧、`ISSUED_ONCE`、`RUNNING` 和未知状态沿用版本 1。Linux env 名区分大小写。Linux 拒绝 `LD_*` 和 `GLIBC_TUNABLES`。受保护值与内层输出使用同一流式遮蔽。Linux 信号退出状态为 `128 + signal`，监督进程在内层退出或外层管道关闭后回收已重新托管的后代。

@@ -12,7 +12,9 @@ python3 native/agent-pty/tests/verify-linux.py \
   --helper native/agent-pty/bin/huhu-agent-pty --fixture "$native_fixture_dir/agent"
 ```
 
-随包路径为 `resources/agent-pty/huhu-agent-pty`。目标为 Linux x64 且内核须提供 `openat2`、`faccessat2`、`pidfd` 与可执行 `memfd`。交互保护入口接受可核验的本机 x86-64 ELF。系统 sh 规则的批准绑定 `/bin/sh` 当前解析的规范 ELF 和原命令，执行持有的同一文件。内核、安装路径、文件与授权格式见 [接线协议](PROTOCOL.md#linux-x64)。
+随包路径为 `resources/agent-pty/huhu-agent-pty`。目标为 Linux x64 且内核须提供 `openat2`、`faccessat2`、`pidfd` 与可执行 `memfd`。交互保护支持可核验的本机 x86-64 ELF、Volta Codex、Volta／npm Pi 与原生 Claude。需要安装布局的程序使用可执行的本机临时目录持有声明文件的私有副本。交互 Agent 自然返回后，同一 PTY 保留用户 shell。系统 sh 规则从批准的原文件执行一次。安装路径、文件与授权格式见 [接线协议](PROTOCOL.md#linux-x64)。
+
+合成夹具验证 Agent 退出 17、同一 PTY 返回 shell 退出 23、原目录与窗口尺寸、普通环境和受保护值隔离、进程清理，以及规则单次退出。真实安装另用 `plugins/agent-cli/test/linux-interactive-program.test.ts` 的「真实 provider」用例，在只有回环接口的网络命名空间运行。给用例设 `HUHU_REAL_PROVIDER_HELPER`，并分别提供 `HUHU_REAL_VOLTA_CODEX`、`HUHU_REAL_VOLTA_PI`、`HUHU_REAL_DIRECT_PI`、`HUHU_REAL_CLAUDE` 的实际入口和 `HUHU_REAL_NODE` 的绝对路径。
 
 Linux PTY 使用与 Motty 相同的 [creack/pty v1.1.24](https://github.com/creack/pty/tree/v1.1.24)，许可为 [MIT](LICENSE-creack-pty.txt)。外层终端的 raw 模式由 [x/term v0.46.0](https://pkg.go.dev/golang.org/x/term@v0.46.0) 提供，随包附 [BSD-3-Clause](LICENSE-x-term.txt) 和 [PATENTS](PATENTS-x-term.txt)。Linux 内核绑定沿用 x/sys。
 

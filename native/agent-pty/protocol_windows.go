@@ -57,7 +57,7 @@ func (s launchSpec) environmentBlock() ([]uint16, []string, error) {
 }
 
 func (s launchSpec) pin(p *pins, protected []string) (*pinnedFile, error) {
-	if s.ApprovedShell != nil || len(s.Argv) == 0 || len(s.Argv) > 256 || len(s.Files) > 128 ||
+	if s.ApprovedShell != nil || s.LinuxInstallation != nil || s.ReturnShell != nil || len(s.Argv) == 0 || len(s.Argv) > 256 || len(s.Files) > 128 ||
 		!strings.EqualFold(filepath.Ext(s.Image.Path), ".exe") || !samePath(s.Image.Path, s.Argv[0]) {
 		return nil, errInput
 	}

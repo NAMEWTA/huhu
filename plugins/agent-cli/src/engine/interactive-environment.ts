@@ -1,12 +1,12 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { errors } from "@huhu/contracts";
 import { findOnPath } from "./detect.js";
 import { launchHash } from "./launch-binding.js";
+import { linuxInstallationEnvironment, linuxInteractiveProgram } from "./linux-interactive-program.js";
 import type { AgentEnvironmentAccess } from "./launch-environment.js";
 import type { LaunchInput } from "./sessions.js";
-import { nativeDirectory, nativeHostPlatform, pinNativeImage, nativeAgentEnvironment, linuxProgramIdentity, protectedLinuxVariable, type NativeLaunchPlan, type PinnedImage } from "./native-pty.js";
+import { nativeDirectory, nativeHostPlatform, pinNativeImage, nativeAgentEnvironment, protectedLinuxVariable, type NativeLaunchPlan, type PinnedImage } from "./native-pty.js";
 
 export interface AgentEnvironmentSelection {
   id: string;
@@ -115,41 +115,6 @@ async function windowsProgram(provider: LaunchInput["provider"], resolvedArgv: s
   };
 }
 
-function linuxCodexImage(command: string): { file: string; ordinary: Record<string, string> } {
-  const shim = realpathSync(command);
-  const pkg = path.dirname(path.dirname(shim));
-  if (path.basename(shim) !== "codex.js" || path.basename(pkg) !== "codex" || path.basename(path.dirname(pkg)) !== "@openai") return { file: shim, ordinary: {} };
-  const target = "x86_64-unknown-linux-musl";
-  const roots = [pkg];
-  try {
-    roots.unshift(path.dirname(createRequire(shim).resolve("@openai/codex-linux-x64/package.json")));
-  } catch {
-    // Older npm releases ship the vendor directory in the main package.
-  }
-  const layouts = [["bin", "codex"], ["codex", "codex"], ["codex"]];
-  const image = roots.flatMap((root) => layouts.map((layout) => path.join(root, "vendor", target, ...layout))).find(existsSync);
-  if (!image) throw errors.invalidInput("请在智能体设置中指定本机 Codex ELF 可执行文件");
-  return { file: image, ordinary: { CODEX_MANAGED_PACKAGE_ROOT: pkg } };
-}
-
-async function linuxProgram(helper: PinnedImage, provider: LaunchInput["provider"], resolvedArgv: string[] | undefined) {
-  const [command = "", ...args] = resolvedArgv ?? [process.env["SHELL"] || "/bin/sh", "-l"];
-  let imagePath = command;
-  let ordinary: Record<string, string> = {};
-  if (provider === "codex") {
-    try {
-      ({ file: imagePath, ordinary } = linuxCodexImage(command));
-    } catch {
-      throw errors.invalidInput("请在智能体设置中指定本机 Codex ELF 可执行文件");
-    }
-  }
-  const image = await linuxProgramIdentity(helper, await pinNativeImage(imagePath));
-  if (provider !== "shell" && /^(?:node(?:js)?|volta-shim|mise)$/.test(path.basename(image.path))) {
-    throw errors.invalidInput("Linux 受保护启动需要直接使用智能体的本机 ELF 入口");
-  }
-  return { image, files: [], argv: [image.path, ...args], ordinary };
-}
-
 export class InteractiveEnvironment {
   constructor(
     private readonly helperFile: string | undefined,
@@ -182,13 +147,26 @@ export class InteractiveEnvironment {
     const platform = nativeHostPlatform();
     if (!platform || !this.available) throw errors.invalidInput("当前桌面未配置本机受保护终端宿主");
     const helper = await this.pinHelper();
-    const [directory, program] = await Promise.all([nativeDirectory(helper, cwd), platform === "win32" ? windowsProgram(provider, argv) : linuxProgram(helper, provider, argv)]);
-    const ordinary = nativeAgentEnvironment(process.env, {
-      ...env,
-      ...program.ordinary,
-      ...overlay,
-    });
+    const effective = nativeAgentEnvironment(process.env, { ...env, ...overlay });
+    const directory = await nativeDirectory(helper, cwd);
+    let ordinary = effective;
+    let program: Pick<NativeLaunchPlan, "image" | "entry" | "files" | "argv" | "linuxInstallation" | "returnShell">;
+    if (platform === "linux") {
+      program = await linuxInteractiveProgram(helper, provider, directory.path, argv, effective);
+    } else {
+      const windows = await windowsProgram(provider, argv);
+      const { ordinary: derived } = windows;
+      // Keep the first-generation Windows launch plan and approval shape.
+      program = windows;
+      ordinary = nativeAgentEnvironment(process.env, { ...env, ...derived, ...overlay });
+    }
     const protect = profile.protectedNames;
+    if (platform === "linux") {
+      for (const name of linuxInstallationEnvironment(program.linuxInstallation)) {
+        if (protect.includes(name)) throw errors.invalidInput("受保护变量不能覆盖已核对的安装参数");
+        delete ordinary[name];
+      }
+    }
     const key = (name: string) => (platform === "win32" ? name.toUpperCase() : name);
     const protectedKeys = new Set(protect.map(key));
     if (platform === "linux" && [...Object.keys(ordinary), ...protect].some((name) => !protectedLinuxVariable(name))) {

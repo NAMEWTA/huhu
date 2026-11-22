@@ -34,14 +34,37 @@ type authorization struct {
 }
 
 type launchSpec struct {
-	Directory     directorySpec       `json:"directory"`
-	Image         fileSpec            `json:"image"`
-	Entry         *fileSpec           `json:"entry,omitempty"`
-	Files         []fileSpec          `json:"files,omitempty"`
-	Argv          []string            `json:"argv"`
-	Environment   map[string]string   `json:"environment"`
-	Protect       []string            `json:"protect"`
-	ApprovedShell *approvedLinuxImage `json:"approvedShell,omitempty"`
+	Directory         directorySpec          `json:"directory"`
+	Image             fileSpec               `json:"image"`
+	Entry             *fileSpec              `json:"entry,omitempty"`
+	Files             []fileSpec             `json:"files,omitempty"`
+	Argv              []string               `json:"argv"`
+	Environment       map[string]string      `json:"environment"`
+	Protect           []string               `json:"protect"`
+	ApprovedShell     *approvedLinuxImage    `json:"approvedShell,omitempty"`
+	LinuxInstallation *linuxInstallationSpec `json:"linuxInstallation,omitempty"`
+	ReturnShell       *returnShellSpec       `json:"returnShell,omitempty"`
+}
+
+type linuxInstallationSpec struct {
+	Kind           string       `json:"kind"`
+	Root           string       `json:"root"`
+	PackageRoot    string       `json:"packageRoot,omitempty"`
+	LocalModules   string       `json:"localModules,omitempty"`
+	HoistedModules string       `json:"hoistedModules,omitempty"`
+	Aliases        []linuxAlias `json:"aliases,omitempty"`
+	Records        []fileSpec   `json:"records,omitempty"`
+}
+
+type linuxAlias struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
+}
+
+type returnShellSpec struct {
+	Image  fileSpec `json:"image"`
+	Argv   []string `json:"argv"`
+	Source string   `json:"source,omitempty"`
 }
 
 type approvedLinuxImage struct {

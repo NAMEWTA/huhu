@@ -12,6 +12,15 @@ export type ApprovedLinuxShell = {
   argv: [executable: string, flag: "-c", command: string];
 };
 type Directory = { path: string; id: FileIdentity };
+export type LinuxInstallation = {
+  kind: "codex-npm" | "pi-node" | "claude-native";
+  root: string;
+  packageRoot?: string;
+  localModules?: string;
+  hoistedModules?: string;
+  aliases?: { path: string; target: string }[];
+  records?: PinnedImage[];
+};
 export interface NativeLaunchPlan {
   directory: Directory;
   image: PinnedImage;
@@ -21,6 +30,8 @@ export interface NativeLaunchPlan {
   ordinary: Record<string, string>;
   protect: string[];
   approvedShell?: ApprovedLinuxShell["executable"];
+  linuxInstallation?: LinuxInstallation;
+  returnShell?: { image: PinnedImage; argv: [string, "-i"]; source?: string };
 }
 
 const WIN_AMBIENT = new Set([
@@ -108,6 +119,7 @@ export async function pinNativeImage(file: string): Promise<PinnedImage> {
         if (!stat.isFile() || stat.size > 512n * 1024n * 1024n) throw new Error("Invalid executable file");
         for await (const chunk of handle.createReadStream({ autoClose: false, end: Number(stat.size) })) hash.update(chunk);
         if ((await handle.stat({ bigint: true })).ctimeNs !== stat.ctimeNs) throw new Error("Executable changed during verification");
+        return { path: resolved, sha256: hash.digest("hex"), id: { volume: String(stat.dev), index: String(stat.ino), created: String(stat.ctimeNs) } };
       } finally {
         await handle.close();
       }
