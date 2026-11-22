@@ -26,6 +26,9 @@ export async function openApp(extraEnv: Record<string, string> = {}, prepareVaul
     page,
     vault,
     close: async () => {
+      // Quit flushes through the Engine HTTP API. A route left by the test would hold those calls
+      // while Playwright closes the context, and the desktop correctly keeps the window open.
+      await Promise.all(app.windows().map((window) => window.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined)));
       await app.close();
       rmTree(vault);
     },
