@@ -372,15 +372,6 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
                       <IconButton icon={Copy} disabled={locked} label={`复制 ${name}`} onClick={() => insert({ ...instance, instanceId: createRequestId(), config: structuredClone(instance.config) }, p)} />
                     ) : null}
                   </div>
-                  {instance.widgetType === "widget:kernel:tasks" ? (
-                    <label className="row">
-                      显示任务
-                      <select aria-label={`${name}任务范围`} disabled={locked} value={instance.config["filter"] === "today" ? "today" : "all"} onChange={(event) => changeInstance(p.instanceId, { config: { filter: event.target.value } })}>
-                        <option value="all">全部待办</option>
-                        <option value="today">今日</option>
-                      </select>
-                    </label>
-                  ) : null}
                   {configureWidget?.(instance, (config) => changeInstance(p.instanceId, { config }), locked)}
                 </div>
               ) : null;

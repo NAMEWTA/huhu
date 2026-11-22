@@ -41,7 +41,7 @@ import {
   WindowTitleBar,
   type EngineEndpoint,
 } from "@huhu/workbench";
-import { Activity, Bell, Blocks, CalendarDays, HeartPulse, House, LayoutGrid, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
+import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
@@ -163,13 +163,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
           group: "primary",
           order: 0,
           icon: <House size={18} aria-hidden />,
-          nav: "tabs",
-          sections: [
-            { id: "overview", label: "总览", tabIcon: LayoutGrid },
-            { id: "today", label: "今日安排", tabIcon: CalendarDays },
-            { id: "activity", label: "最近活动", tabIcon: Activity },
-          ],
-          component: (p) => <HomeModule ui={ui} registry={r} section={p.section} onSection={p.onSection} />,
+          component: () => <HomeModule ui={ui} registry={r} />,
         },
       ],
     });

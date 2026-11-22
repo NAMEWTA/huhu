@@ -1,5 +1,21 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
+  .tasks-home-widget-task {
+    min-width: 0;
+    user-select: text;
+  }
+  .tasks-home-widget-task > strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-list);
+  }
+  .tasks-home-widget-task > span {
+    display: block;
+    font-size: var(--fs-meta);
+    color: var(--muted);
+  }
   .tasks-task-table {
     min-width: 700px;
   }

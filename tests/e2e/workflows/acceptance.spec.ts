@@ -26,6 +26,14 @@ async function caller(page: Page): Promise<Call> {
     );
 }
 
+async function hideCapability(page: Page, unavailable: string) {
+  const endpoint = await page.evaluate(() => window.huhuHost.engine());
+  const response = await fetch(`${endpoint.baseUrl}/api/v1/capabilities`, { headers: { authorization: `Bearer ${endpoint.token}` } });
+  expect(response.ok).toBe(true);
+  const capabilities = (await response.json()) as { name: string }[];
+  await page.route("**/api/v1/capabilities", (route) => route.fulfill({ headers: { "access-control-allow-origin": "*" }, json: capabilities.filter(({ name }) => name !== unavailable) }));
+}
+
 test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任务进入已完成", async () => {
   const { page, close } = await openApp();
   try {
@@ -43,6 +51,243 @@ test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任�
     const list = await call("tasks.list", { category: "ended" });
     expect((list.data as { title: string }[]).map((x) => x.title)).toContain("首页勾选");
   } finally {
+    await close();
+  }
+});
+
+test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后重读任务", async () => {
+  const legacy = {
+    schemaVersion: 1,
+    boardId: "home",
+    revision: "legacy",
+    updatedAt: null,
+    instances: [
+      { instanceId: "all-tasks", widgetType: "widget:kernel:tasks", title: "全部工作", hidden: false, config: {} },
+      { instanceId: "today-tasks", widgetType: "widget:kernel:tasks", title: "当地今日", hidden: false, config: { filter: "today" } },
+    ],
+    layout: [
+      { instanceId: "all-tasks", x: 0, y: 0, w: 3, h: 3 },
+      { instanceId: "today-tasks", x: 3, y: 0, w: 3, h: 3 },
+    ],
+  };
+  const legacyBytes = JSON.stringify(legacy);
+  const { page, vault, close } = await openApp({}, (root) => {
+    mkdirSync(path.join(root, ".huhu/home"), { recursive: true });
+    writeFileSync(path.join(root, ".huhu/home/widgets.json"), legacyBytes);
+  });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const now = new Date();
+    const calendarDate = (zone: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: zone, dateStyle: "short" }).format(now);
+    const west = "Pacific/Pago_Pago";
+    const east = "Pacific/Kiritimati";
+    expect(calendarDate(east)).not.toBe(calendarDate(west));
+    expect((await call("settings.update", { patch: { dateTime: { zone: east } } })).ok).toBe(true);
+    const create = async (title: string, due: string) => {
+      const task = await call("tasks.create", { title, due, body: "", project: null, type: "human", tags: [], reminders: [] });
+      expect(task.ok).toBe(true);
+      return task.data as { id: string; version: string };
+    };
+    const eastTask = await create("东侧日期任务", calendarDate(east));
+    await create("西侧日期任务", calendarDate(west));
+    await page.reload();
+    const all = page.locator('[data-instance-id="all-tasks"]');
+    const today = page.locator('[data-instance-id="today-tasks"]');
+    await expect(page.getByRole("tablist", { name: "工作台页面" })).toHaveCount(0);
+    await expect(all.getByText("2", { exact: true })).toBeVisible();
+    await expect(today.getByText("1", { exact: true })).toBeVisible();
+    await expect(today.getByText("东侧日期任务", { exact: true })).toBeVisible();
+    await expect(today.getByText("西侧日期任务", { exact: true })).toHaveCount(0);
+    await all.getByRole("tab", { name: "今天" }).click();
+    await expect(all.getByText("西侧日期任务", { exact: true })).toHaveCount(0);
+    await all.getByRole("tab", { name: "全部" }).click();
+    await expect(today.getByText("西侧日期任务", { exact: true })).toHaveCount(0);
+
+    const endpoint = await page.evaluate(() => window.huhuHost.engine());
+    let replaceVersion = true;
+    await page.route("**/api/v1/call", async (route) => {
+      if (replaceVersion && route.request().postDataJSON()?.capability === "tasks.setStatus") {
+        replaceVersion = false;
+        const response = await route.fetch({
+          headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+          postData: { capability: "tasks.setStatus", input: { id: eastTask.id, expectedVersion: eastTask.version, status: "in_progress" }, requestId: "task-concurrent-edit", idempotencyKey: "task-concurrent-edit" },
+        });
+        expect(await response.json()).toMatchObject({ ok: true });
+      }
+      await route.continue();
+    });
+    const complete = today.getByRole("button", { name: "完成任务 东侧日期任务" });
+    await complete.click();
+    await expect(today.getByRole("alert")).toContainText("任务已被修改");
+    await expect(all.getByRole("alert")).toHaveCount(0);
+    await complete.click();
+    await expect(today.getByText("今天没有待办任务")).toBeVisible();
+    await expect(all.getByText("西侧日期任务", { exact: true })).toBeVisible();
+    expect((await call("tasks.list", { category: "ended" })).data).toEqual([expect.objectContaining({ id: eastTask.id, status: "completed" })]);
+    const savedPath = path.join(vault, ".huhu/home/widgets.json");
+    expect(readFileSync(savedPath, "utf8")).toBe(legacyBytes);
+
+    await page.getByTestId("home-customize").click();
+    await all.getByRole("textbox", { name: "全部工作标题" }).fill("两张任务卡");
+    await page.getByTestId("home-dashboard-save").click();
+    await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("布局已保存");
+    const saved = JSON.parse(readFileSync(savedPath, "utf8"));
+    expect(saved.instances).toEqual(legacy.instances.map((instance, index) => ({ ...instance, widgetType: "widget:tasks:tasks", title: index === 0 ? "两张任务卡" : instance.title })));
+    expect(saved.layout).toEqual(legacy.layout);
+
+    await hideCapability(page, "tasks.setStatus");
+    await page.reload();
+    await expect(all.getByRole("button", { name: "完成任务 西侧日期任务" })).toBeDisabled();
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+    if (await cancel.isVisible()) await cancel.click();
+    await close();
+  }
+});
+
+test("W05-W06 最近笔记定位文件，失效与撤权在单卡内恢复", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const first = await call("notes.create", { name: "先前笔记", folder: "样例" });
+    const target = await call("notes.create", { name: "最近修改笔记", folder: "样例" });
+    expect(first.ok && target.ok).toBe(true);
+    const note = await call("notes.read", { path: target.data.path });
+    expect((await call("notes.save", { path: target.data.path, text: "# 最近修改笔记\n\n目标正文", expectedVersion: note.data.version })).ok).toBe(true);
+    await page.reload();
+    const recent = page.getByTestId("card-recent");
+    const openNote = recent.getByRole("button", { name: "最近修改笔记", exact: true });
+    await expect(recent.getByText("最近修改笔记 目标正文")).toBeVisible();
+    let errorCode = "NOT_FOUND";
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON();
+      if (errorCode && request?.capability === "notes.read" && request.input.path === target.data.path) {
+        await route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: { ok: false, error: { code: errorCode, message: "无法读取目标" } } });
+      } else await route.continue();
+    });
+    await openNote.click();
+    await expect(recent.getByRole("alert")).toContainText("无法打开「最近修改笔记」");
+    await expect(page.getByTestId("card-focus")).toBeVisible();
+    errorCode = "PERMISSION_DENIED";
+    await openNote.click();
+    await expect(recent.getByRole("alert")).toContainText("无法读取目标");
+    errorCode = "";
+    await openNote.click();
+    const documents = page.getByRole("navigation", { name: "打开的文档" });
+    await expect(documents.getByRole("button", { name: "最近修改笔记", exact: true })).toBeVisible();
+    await expect(documents.getByRole("button", { name: "先前笔记", exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("markdown-editor")).toContainText("目标正文");
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await close();
+  }
+});
+
+test("W05-W06 待处理捕获可定位，插件重新启用后恢复旧实例", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const capture = async (title: string) => {
+      const response = await call("inbox.capture", { title, body: title });
+      expect(response.ok).toBe(true);
+      return response.data.id as string;
+    };
+    const chosen = await capture("要打开的捕获");
+    const remaining = await capture("另一条待处理");
+    const processed = await capture("已处理的捕获");
+    expect((await call("inbox.convert", { id: processed, target: "note", fields: { name: "整理出的笔记" } })).ok).toBe(true);
+    const board = (await call("home.dashboard.get")).data.board;
+    const layout = [...board.layout, { instanceId: "existing-capture", x: 3, y: 5, w: 3, h: 3 }];
+    const instances = [...board.instances, { instanceId: "existing-capture", widgetType: "widget:kernel:inbox", title: "要整理", config: {}, hidden: false }];
+    const saved = await call("home.dashboard.update", { baseRevision: board.revision, instances, layout });
+    expect(saved.data.board.instances.at(-1)).toMatchObject({ instanceId: "existing-capture", widgetType: "widget:inbox:inbox", title: "要整理" });
+    const filename = path.join(vault, ".huhu/home/widgets.json");
+    const before = readFileSync(filename);
+    let inboxReads = 0;
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON();
+      if (request?.capability === "inbox.list" && request.input.status === "pending") inboxReads++;
+      await route.continue();
+    });
+    await page.reload();
+    const card = page.getByTestId("card-inbox-list");
+    await expect(card.getByText("2", { exact: true })).toBeVisible();
+    await expect(card.getByText("已处理的捕获", { exact: true })).toHaveCount(0);
+    const home = page.getByRole("button", { name: "工作台", exact: true }).first();
+    await card.getByRole("button", { name: "打开收件 另一条待处理" }).click();
+    await expect(page.getByTestId("inbox-module").getByRole("heading", { name: "另一条待处理" })).toBeVisible();
+    await home.click();
+    await card.getByRole("button", { name: "打开收件 要打开的捕获" }).click();
+    await expect(page.getByTestId("inbox-module").getByRole("heading", { name: "要打开的捕获" })).toBeVisible();
+    expect((await call("inbox.dismiss", { id: chosen })).ok).toBe(true);
+    await home.click();
+    await expect(card.getByText("1", { exact: true })).toBeVisible();
+    await expect(card.getByText("另一条待处理", { exact: true })).toBeVisible();
+    const readCount = inboxReads;
+    expect((await call("plugins.setEnabled", { id: "inbox", enabled: false })).ok).toBe(true);
+    await page.reload();
+    const tile = page.locator('[data-instance-id="existing-capture"]');
+    await expect(tile).toContainText("卡片所需的插件已停用");
+    await expect(card).toHaveCount(0);
+    expect(inboxReads).toBe(readCount);
+    expect((await call("plugins.setEnabled", { id: "inbox", enabled: true })).ok).toBe(true);
+    await expect(card.getByText("另一条待处理", { exact: true })).toBeVisible();
+    expect(inboxReads).toBeGreaterThan(readCount);
+    expect((await call("inbox.dismiss", { id: remaining })).ok).toBe(true);
+    await expect(card.getByText("收件箱已清空")).toBeVisible();
+    expect(readFileSync(filename)).toEqual(before);
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await close();
+  }
+});
+
+test("W05-W06 Agent 入口随插件启停，最近活动在看板内筛选", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect((await call("notes.create", { name: "活动笔记", folder: "样例" })).ok).toBe(true);
+    expect((await call("inbox.capture", { title: "活动捕获", body: "样例" })).ok).toBe(true);
+    await page.getByTestId("home-customize").click();
+    for (const name of ["Agent CLI", "最近活动"]) {
+      await page.getByRole("button", { name: "添加卡片", exact: true }).click();
+      await page.getByRole("button", { name: `添加 ${name}`, exact: true }).click();
+    }
+    await page.getByTestId("home-dashboard-save").click();
+    const activity = page.getByTestId("card-activity");
+    const events = await call("health.events", { limit: 100 });
+    expect(events.data.modules).toEqual(expect.arrayContaining(["笔记", "收件箱"]));
+    const filter = activity.getByRole("combobox", { name: "按来源筛选" });
+    await filter.selectOption("笔记");
+    await expect(activity.locator(".shell-activity-row")).toHaveCount(events.data.events.filter(({ module }: { module: string }) => module === "笔记").length);
+    await filter.selectOption("");
+    await expect(activity.locator(".shell-activity-row")).toHaveCount(events.data.events.length);
+    const agent = page.getByTestId("card-agent-cli-entry");
+    await expect(agent.getByRole("button", { name: "管理 CLI 会话" })).toBeVisible();
+    await expect(agent.getByTestId("core-status")).toHaveCount(0);
+    await agent.getByRole("button", { name: "管理 CLI 会话" }).click();
+    await expect(page.getByTestId("agent-cli-module")).toBeVisible();
+    await expect(page.getByTestId("session-tab")).toHaveCount(0);
+    await page.getByRole("button", { name: "工作台", exact: true }).first().click();
+    expect((await call("plugins.setEnabled", { id: "agent-cli", enabled: false })).ok).toBe(true);
+    await expect(agent).toHaveCount(0);
+    await expect(activity).toBeVisible();
+    expect((await call("plugins.setEnabled", { id: "agent-cli", enabled: true })).ok).toBe(true);
+    await expect(agent.getByRole("button", { name: "管理 CLI 会话" })).toBeVisible();
+    await hideCapability(page, "agent.core.status");
+    await page.reload();
+    await expect(page.getByTestId("home-dashboard")).toContainText("当前连接没有卡片所需的读取权限", { timeout: 20_000 });
+    await expect(agent).toHaveCount(0);
+    await expect(activity).toBeVisible();
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+    if (await cancel.isVisible()) await cancel.click();
     await close();
   }
 });

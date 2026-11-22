@@ -169,9 +169,19 @@ const DashboardInstanceIdSchema = z
   .string()
   .min(1)
   .regex(/^\S(?:.*\S)?$/u);
+const renamedWidgetTypes = new Map<string, HomeWidgetType>([
+  ["widget:kernel:tasks", "widget:tasks:tasks"],
+  ["widget:kernel:notes", "widget:notes:recent"],
+  ["widget:kernel:inbox", "widget:inbox:inbox"],
+  ["widget:kernel:agent", "widget:agent-cli:entry"],
+]);
 const DashboardInstanceSchema = z.strictObject({
   instanceId: DashboardInstanceIdSchema,
-  widgetType: z.string().regex(WIDGET_ID),
+  // Normalize the original v1 types on read, update and restore. IDs and geometry remain stable.
+  widgetType: z
+    .string()
+    .regex(WIDGET_ID)
+    .overwrite((type) => renamedWidgetTypes.get(type) ?? type),
   title: z.string().optional(),
   config: z.record(z.string(), z.json()),
   hidden: z.boolean(),
@@ -235,53 +245,42 @@ export const DashboardRecoveryResultSchema = z.strictObject({ view: DashboardVie
 export type DashboardRecoveryResult = z.infer<typeof DashboardRecoveryResultSchema>;
 
 const emptyWidgetConfig = z.strictObject({});
-const tasksWidgetConfig = z.strictObject({ filter: z.enum(["all", "today"]).optional() });
-
-function kernelWidget(id: string, title: string, description: string, w: number, h: number, options: { minW?: number; multiple?: boolean; config?: z.ZodObject; capabilities?: HomeWidgetDefinition["capabilities"] } = {}) {
+function kernelWidget(id: string, title: string, description: string, w: number, h: number, minW = 2) {
   return defineHomeWidget({
     owner: "kernel",
     id,
     title,
     description,
     defaultSize: { w, h },
-    minSize: { w: options.minW ?? 2, h: 2 },
+    minSize: { w: minW, h: 2 },
     maxSize: { w: DASHBOARD_COLUMNS, h: 6 },
-    maxInstances: options.multiple ? null : 1,
+    maxInstances: 1,
     defaultConfig: {},
-    configSchema: options.config ?? emptyWidgetConfig,
-    capabilities: options.capabilities ?? [],
+    configSchema: emptyWidgetConfig,
+    capabilities: [],
   });
 }
 
 export const kernelHomeWidgets = {
-  metrics: kernelWidget("metrics", "概览", "查看待办、笔记、捕获与启用规则。", 6, 2, { minW: 3 }),
-  tasks: kernelWidget("tasks", "我的任务", "查看全部待办或今日安排。", 3, 3, { multiple: true, config: tasksWidgetConfig, capabilities: [{ name: "tasks.list", required: true }] }),
-  notes: kernelWidget("notes", "最近笔记", "继续编辑最近打开的笔记。", 3, 3, { capabilities: [{ name: "notes.list", required: true }] }),
+  metrics: kernelWidget("metrics", "概览", "查看待办、笔记、捕获与启用规则。", 6, 2, 3),
   focus: kernelWidget("focus", "专注", "开始专注并跟踪计时。", 3, 2),
   habits: kernelWidget("habits", "习惯", "查看和记录今天的习惯。", 3, 2),
-  inbox: kernelWidget("inbox", "收件箱", "查看等待整理的捕获。", 3, 3, { capabilities: [{ name: "inbox.list", required: true }] }),
   activity: kernelWidget("activity", "最近活动", "查看工作区最近的活动。", 3, 3),
-  agent: kernelWidget("agent", "Agent CLI", "打开工作区的 Agent 会话。", 3, 2, { capabilities: [{ name: "agent.core.status", required: true }] }),
 } as const;
 
 export function defaultDashboardBoard(): DashboardBoard {
   const defaults = [
-    { definition: kernelHomeWidgets.metrics, x: 0, y: 0 },
-    { definition: kernelHomeWidgets.tasks, x: 0, y: 2 },
-    { definition: kernelHomeWidgets.notes, x: 3, y: 2 },
-    { definition: kernelHomeWidgets.focus, x: 0, y: 5 },
-  ];
+    { instanceId: "default-metrics", widgetType: "widget:kernel:metrics", x: 0, y: 0, ...kernelHomeWidgets.metrics.defaultSize },
+    { instanceId: "default-tasks", widgetType: "widget:tasks:tasks", x: 0, y: 2, w: 3, h: 3 },
+    { instanceId: "default-notes", widgetType: "widget:notes:recent", x: 3, y: 2, w: 3, h: 3 },
+    { instanceId: "default-focus", widgetType: "widget:kernel:focus", x: 0, y: 5, ...kernelHomeWidgets.focus.defaultSize },
+  ] as const;
   return {
     schemaVersion: DASHBOARD_SCHEMA_VERSION,
     boardId: "home",
     revision: "0",
     updatedAt: null,
-    instances: defaults.map(({ definition }) => ({
-      instanceId: `default-${definition.id}`,
-      widgetType: homeWidgetType(definition.owner, definition.id),
-      config: definition.defaultConfig,
-      hidden: false,
-    })),
-    layout: defaults.map(({ definition, x, y }) => ({ instanceId: `default-${definition.id}`, x, y, ...definition.defaultSize })),
+    instances: defaults.map(({ instanceId, widgetType }) => ({ instanceId, widgetType, config: {}, hidden: false })),
+    layout: defaults.map(({ instanceId, x, y, w, h }) => ({ instanceId, x, y, w, h })),
   };
 }

@@ -11,7 +11,7 @@
   "contributes": {
     "modules": ["notes"],
     "settingsPages": [],
-    "homeWidgets": [],
+    "homeWidgets": ["recent"],
     "commands": ["notes.new", "notes.openDaily"],
     "capabilities": [
       "archives.addFile",

@@ -11,7 +11,7 @@
   "contributes": {
     "modules": ["agent-cli"],
     "settingsPages": ["agent-cli"],
-    "homeWidgets": [],
+    "homeWidgets": ["entry"],
     "commands": [],
     "capabilities": [
       "agent.catalog.detect",

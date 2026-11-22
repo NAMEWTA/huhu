@@ -124,6 +124,73 @@ test("应用菜单保存当前文档，关窗先处理看板草稿再结算文�
   }
 });
 
+for (const choice of ["保存", "放弃"] as const) {
+  test(`W05-W06 关闭时${choice}看板草稿，结算笔记并暂停专注`, async () => {
+    const { app, page, vault, close } = await openApp();
+    const filename = path.join(vault, name);
+    const board = path.join(vault, ".huhu/home/widgets.json");
+    try {
+      writeFileSync(filename, original);
+      await engineReady(page);
+      await openNote(page);
+      expect((await call<{ running: boolean }>(page, "home.focus.update", { action: "start" })).running).toBe(true);
+      await inputWithPendingBridge(page);
+      await page.getByRole("button", { name: "huhu workbench 首页" }).click();
+      await page.getByTestId("home-customize").click();
+      const hidden = page.locator('[data-instance-id="default-focus"]').getByRole("checkbox", { name: "隐藏" });
+      await hidden.check();
+      const dialog = page.getByRole("dialog", { name: "关闭窗口前处理看板草稿" });
+      const requestClose = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
+      await requestClose();
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "继续编辑" }).click();
+      await expect(dialog).toHaveCount(0);
+      expect(existsSync(board)).toBe(false);
+      expect(readFileSync(filename, "utf8")).not.toContain(last);
+
+      if (choice === "保存") {
+        const rejectUpdate = async (route: import("@playwright/test").Route) => {
+          if (route.request().postDataJSON()?.capability === "home.dashboard.update") {
+            await route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, json: { ok: false, error: { code: "INVALID_INPUT", message: "写入测试失败" } } });
+          } else await route.continue();
+        };
+        await page.route("**/api/v1/call", rejectUpdate);
+        await requestClose();
+        await dialog.getByTestId("home-dashboard-save-leave").click();
+        await expect(dialog).toHaveCount(0);
+        await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("草稿仍在");
+        await expect(hidden).toBeChecked();
+        expect(existsSync(board)).toBe(false);
+        expect(readFileSync(filename, "utf8")).not.toContain(last);
+        expect((await call<{ running: boolean }>(page, "home.focus.get", {})).running).toBe(true);
+        await page.unroute("**/api/v1/call", rejectUpdate);
+      }
+
+      await app.evaluate(({ app }) => app.quit());
+      await expect(dialog).toBeVisible();
+      const closed = page.waitForEvent("close");
+      await dialog.getByRole("button", { name: `${choice}并离开` }).click();
+      await closed;
+      if (choice === "保存") {
+        expect(JSON.parse(readFileSync(board, "utf8")).instances).toContainEqual(expect.objectContaining({ instanceId: "default-focus", hidden: true }));
+      } else {
+        expect(existsSync(board)).toBe(false);
+      }
+      expect(readFileSync(filename, "utf8")).toBe(written);
+      expect(JSON.parse(readFileSync(path.join(vault, ".huhu/home/focus.json"), "utf8")).running).toBe(false);
+    } finally {
+      if (!page.isClosed()) {
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        const stay = page.getByRole("button", { name: "继续编辑", exact: true });
+        if (await stay.isVisible()) await stay.click();
+        const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+        if (await cancel.isVisible()) await cancel.click();
+      }
+      await close();
+    }
+  });
+}
+
 test("B09：等待富文本和源码写入回执才切模式，三种视图共用属性和正文", async () => {
   const { page, vault, close } = await openApp();
   const file = path.join(vault, name);
