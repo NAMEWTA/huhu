@@ -65,6 +65,8 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | `nodemailer@10.6.0` | Andris Reinman，MIT-0，按发布包固定版本与完整性摘要。 [发布包](https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.0.tgz) | Engine 装配 Mail SMTP 传输，调用发布的 `nodemailer/lib/smtp-connection` 与 `nodemailer/lib/mail-composer` 构造器。Mail 自行管理草稿认领、收件人投递证据和故障恢复。该版本没有运行时传递依赖。 |
 | `@zone-eu/mailsplit@5.4.31`、`parse5@8.1.1` | 本仓库已锁定的发布包。mailsplit 为 MIT OR EUPL-1.1+，parse5 为 MIT。 | Mail Engine 用 Splitter 解析 MIME 边界和传输编码。阅读器用 parse5 生成无网络副作用的数据树，按自身允许清单构造 React 节点。 |
 | Go `1.26.7`、`golang.org/x/sys v0.50.0` | BSD-3-Clause。Go 提交 `e3336a22ad3f0a90bd252c95d8b5544e02674205`，x/sys 提交 `00227f1d192842e243cba7763c1f9a1fcb1c4344`。 [Go 标签](https://go.googlesource.com/go/+/refs/tags/go1.26.7) · [x/sys 标签](https://go.googlesource.com/sys/+/refs/tags/v0.50.0) | 使用 `windows/{syscall_windows,zsyscall_windows,types_windows}.go` 的 Win32 调用构建 Windows 受保护 PTY。Huhu 实现身份核验和授权协议，`native/agent-pty/go.sum` 固定依赖摘要，应用随 Windows 安装资源交付两份许可和专利文件。 |
+| `github.com/creack/pty v1.1.24` | MIT，提交 `edfbf75025b0ba4ee17c19f52d9b600fad80a787`，Go 模块缓存发布元数据与 `go.sum` 固定。 [固定来源](https://github.com/creack/pty/tree/edfbf75025b0ba4ee17c19f52d9b600fad80a787) | Linux Agent helper 调用 `pty.Open` 建立真实 PTY。未改上游模块，Huhu 的 `console_linux.go` 负责进程监督、输入转发、尺寸与生命周期。许可 `native/agent-pty/LICENSE-creack-pty.txt` 随包交付。 |
+| `golang.org/x/term v0.46.0` | BSD-3-Clause，提交 `6226200ed12cba417a9d9e799c2a7179d3fc0e27`。 [固定来源](https://go.googlesource.com/term/+/6226200ed12cba417a9d9e799c2a7179d3fc0e27) | Linux Agent helper 复用 `IsTerminal`、`MakeRaw`、`Restore`，未改上游模块；`LICENSE-x-term.txt` 与 `PATENTS-x-term.txt` 随包交付。Linux 构建另复用已锁定的 x/sys Unix 接口，实际 Go 工具链由构建日志及 `go version -m` 记录，本轮为 Go 1.27.1，许可和专利文件已与本机工具链逐字节比对一致。 |
 
 ## 黄金往返测试夹具
 
