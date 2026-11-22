@@ -106,7 +106,14 @@
       "ssh.workspace.runs.start",
       "ssh.workspace.templates.delete",
       "ssh.workspace.templates.list",
-      "ssh.workspace.templates.save"
+      "ssh.workspace.templates.save",
+      "ssh.auth.keyboardInteractive.respond",
+      "ssh.jobs.list",
+      "ssh.monitor.panels.external.list",
+      "ssh.monitor.session.list",
+      "ssh.shells.read",
+      "ssh.shells.resize",
+      "ssh.shells.write"
     ],
     "fileKinds": []
   }

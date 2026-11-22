@@ -109,10 +109,11 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await invoke(open, openIntent)).toEqual(opened);
       const first = accepted<{ shellId: string }>(opened);
       expect(accepted(await peer(list, { hostId }))).toEqual([]);
-      expect(await peer(read, first)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+      expect(await peer(read, { shellId: first.shellId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
 
       await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
       const moduleView = page.getByTestId("ssh-module");
+      await moduleView.getByRole("button", { name: /^外部终端回环夹具 / }).click();
       await expect(moduleView.getByRole("heading", { name: "外部工具连接" })).toBeVisible();
       await moduleView.getByRole("tab", { name: "交互终端", exact: true }).click();
       await expect(moduleView.getByRole("heading", { name: "外部工具终端" })).toBeVisible();
@@ -120,7 +121,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       await expect.poll(() => closed).toBe(1);
 
       const fresh = accepted<{ shellId: string }>(await invoke(open, { ...openIntent, intentKey: randomUUID() }));
-      const send = { ...fresh, intentKey: randomUUID(), dataBase64: Buffer.from("fixture-only").toString("base64") };
+      const send = { shellId: fresh.shellId, intentKey: randomUUID(), dataBase64: Buffer.from("fixture-only").toString("base64") };
       expect(await invoke(write, send)).toEqual({ ok: true, data: { bytes: 12 } });
       expect(await invoke(write, send)).toEqual({ ok: true, data: { bytes: 12 } });
       await expect.poll(() => input).toEqual(["fixture-only"]);
@@ -165,7 +166,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       await expect.poll(() => closed).toBe(2);
       const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
       expect(await invoke(write, send)).toMatchObject(denied);
-      expect(await invoke(read, fresh)).toMatchObject(denied);
+      expect(await invoke(read, { shellId: fresh.shellId })).toMatchObject(denied);
       expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject(denied);
       expect(accepted(await invoke(queue))).toMatchObject({ jobs: [] });
       expect(accepted(await invoke(forwards))).toEqual([]);
