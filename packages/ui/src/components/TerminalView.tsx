@@ -2,6 +2,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
+import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
+
+/** Input is sent only through the socket currently controlling this terminal. */
+export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
 
 export interface TerminalViewProps {
   /** 工作台所在的 Engine 基址；桌面附带回环令牌，浏览器自动携带同源 cookie。 */
@@ -14,7 +18,7 @@ export interface TerminalViewProps {
   /** 程序结束或连接断开时通知宿主。 */
   onExit?(reason: string): void;
   /** 桥接器授予输入控制后发布，离开此连接时撤回。 */
-  onTerminalInput?(input: ((text: string, enter: boolean) => boolean) | undefined): void;
+  onTerminalInput?(input: TerminalInput | undefined): void;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -70,12 +74,13 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       inputGranted = false;
       onTerminalInput?.(undefined);
     };
-    const sendInput = (text: string, enter: boolean) => {
-      if (!inputGranted || !canSend()) return false;
-      if (!enter && /[\r\n]/u.test(text) && !term.modes.bracketedPasteMode) return false;
+    const sendInput: TerminalInput = (text, enter) => {
+      if (!inputGranted || !canSend()) return "unavailable";
+      const error = shortcutPasteError(text, enter, term.modes.bracketedPasteMode);
+      if (error) return error;
       term.paste(text);
       if (enter) ws.send(enc.encode("\r"));
-      return true;
+      return "sent";
     };
     setDemoted(false);
     ws.onopen = () => {

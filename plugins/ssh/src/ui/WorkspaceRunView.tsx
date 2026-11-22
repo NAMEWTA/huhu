@@ -1,4 +1,4 @@
-import { Button } from "@huhu/ui";
+import { Button, type TerminalInput } from "@huhu/ui";
 import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
 import { splitTree, type ChangeWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
@@ -11,7 +11,6 @@ import { SshTerminal } from "./SshTerminal.js";
 import { useDevicePreferences } from "./device-preferences.js";
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
-import type { TerminalInput } from "../shared/terminal-actions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {

@@ -1,8 +1,13 @@
-import { Button } from "@huhu/ui";
+import { Button, type TerminalInput } from "@huhu/ui";
 import { useState } from "react";
-import type { TerminalInput } from "../shared/terminal-actions.js";
 
 type Target = { id: string; label: string; sessionId: string; send: TerminalInput | undefined };
+
+const INPUT_ERRORS = {
+  unavailable: "已失去输入控制，请重新选择目标",
+  "control-character": "请移除文本中的终端控制字符",
+  "bracketed-paste-required": "当前终端需要单行文本才能插入，也不能接收制表符",
+} satisfies Record<Exclude<ReturnType<TerminalInput>, "sent">, string>;
 
 export function TerminalActions({ targets }: { targets: Target[] }) {
   const [selected, setSelected] = useState<Record<string, string>>({});
@@ -22,9 +27,12 @@ export function TerminalActions({ targets }: { targets: Target[] }) {
       setFeedback("目标已变化，请重新预览。");
       return;
     }
-    const delivered = preview.targets.filter(({ send }) => send?.(preview.text, enter)).map(({ label }) => label);
+    const outcome = preview.targets.map(({ label, send }) => {
+      const result = send?.(preview.text, enter) ?? "unavailable";
+      return result === "sent" ? `${label} 已${enter ? "发送" : "插入"}` : `${label} 未接收，${INPUT_ERRORS[result]}`;
+    });
     setPreview(undefined);
-    setFeedback(delivered.length ? `已${enter ? "发送" : "插入"}到 ${delivered.join("、")}` : "选中的终端未接受这段输入。");
+    setFeedback(outcome.join("。") + "。");
   }
 
   return (
