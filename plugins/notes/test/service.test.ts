@@ -511,6 +511,32 @@ test("F02 显式转换需要原字节版本，按所选编码解码后才允许�
   expect(readFileSync(file)).toEqual(Buffer.from("你好\n"));
 });
 
+test.each(["html", "htm", "HTML"])("HTML 源码可探测、读取和按版本保存（%s）", async (ext) => {
+  const name = `页面.${ext}`;
+  const original = "<!doctype html><p>原文</p>";
+  const changed = "<!doctype html><p>新正文</p>";
+  const { root, svc } = await setup({ [name]: original });
+  const info = svc.inspectEncoding(name);
+  expect(info).toMatchObject({ state: "ok", encodings: [] });
+  expect(svc.read(name)).toEqual({ path: name, text: original, version: info.version });
+  await svc.save(name, changed, info.version);
+  expect(rd(root, name)).toBe(changed);
+  await expect(svc.save(name, original, info.version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  writeFileSync(path.join(root, name), Buffer.alloc(8 * 1024 * 1024 + 1, 0x61));
+  expect(() => svc.inspectEncoding(name)).toThrow(/8 MiB/);
+});
+
+test("HTML 保存按 UTF-8 字节上限拒绝超限正文并保留原文件", async () => {
+  const name = "页面.html";
+  const original = "<p>原文</p>";
+  const { root, svc } = await setup({ [name]: original });
+  const { version } = svc.read(name);
+  const oversized = "中".repeat(Math.floor((8 * 1024 * 1024) / 3) + 1);
+  await expect(svc.save(name, oversized, version)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  expect(rd(root, name)).toBe(original);
+  expect(svc.read(name).version).toBe(version);
+});
+
 test("编码探测和转换根据实际大小与真实目标拒绝读取", async () => {
   const { root, svc } = await setup({ "large.txt": "a", ".huhu/private.txt": "secret" });
   writeFileSync(path.join(root, "large.txt"), Buffer.alloc(1024 * 1024 + 1, 0xfe));

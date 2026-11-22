@@ -56,6 +56,7 @@ export const MARKDOWN_EXT = new Set(["md", "mdx", "markdown"]);
 const DOTFILE_TEXT = new Set([".gitignore", ".gitattributes", ".editorconfig", ".env", ".npmrc", ".prettierrc"]);
 
 export const TEXT_LIMIT = 1024 * 1024; // 文本在应用内编辑的上限 1 MiB（ACC-KN-10：不把大文件当文本加载）
+export const HTML_LIMIT = 8 * 1024 * 1024;
 /** Markdown 笔记的上限：笔记是产品的主格式，大文档以源码优先方式打开（S3 P-S3-01），不适用 ACC-KN-10 的 1 MiB（那条约束的是非 Markdown 文件）。 */
 export const NOTE_LIMIT = 16 * 1024 * 1024;
 export const NO_EXT_TEXT_PROBE_LIMIT = 64 * 1024;
@@ -65,6 +66,7 @@ export function textViewerLimit(rel: string): number | null {
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
   if (MARKDOWN_EXT.has(ext)) return NOTE_LIMIT;
+  if (ext === "html" || ext === "htm") return HTML_LIMIT;
   if (ext === "json" || TEXT_EXT.has(ext) || DOTFILE_TEXT.has(name.toLowerCase())) return TEXT_LIMIT;
   return ext ? null : NO_EXT_TEXT_PROBE_LIMIT;
 }

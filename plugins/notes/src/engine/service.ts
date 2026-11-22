@@ -8,7 +8,7 @@ import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES,
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
 
-import { legacyTextEncodings, NO_EXT_TEXT_PROBE_LIMIT, textViewerLimit, unsupportedEncoding, type LegacyTextEncoding } from "../shared/text-encoding.js";
+import { HTML_LIMIT, legacyTextEncodings, NO_EXT_TEXT_PROBE_LIMIT, textViewerLimit, unsupportedEncoding, type LegacyTextEncoding } from "../shared/text-encoding.js";
 import { decodeUtf8, requireUtf8, textEncodingOf } from "./text-encoding.js";
 
 export interface NotesDeps {
@@ -582,6 +582,7 @@ export class NotesService {
     if (!file) throw errors.notFound(`文件不存在：${rel}`);
     const previous = { text: requireUtf8(file.bytes), version: file.version };
     if (file.bytes.includes(0)) throw errors.invalidInput("不能把二进制文件当作文本覆盖");
+    if (textViewerLimit(norm) === HTML_LIMIT && Buffer.byteLength(text, "utf8") > HTML_LIMIT) throw errors.invalidInput("HTML 正文超过 8 MiB，请缩小内容后重试保存");
     const r = await this.d.files.write(norm, Buffer.from(text), { expectedVersion });
     this.d.index.refreshPaths([norm]);
     return { ...r, previous };

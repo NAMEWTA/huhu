@@ -1,5 +1,5 @@
 import { extensionOf, fileIconKind } from "@huhu/ui";
-import { MARKDOWN_EXT, NO_EXT_TEXT_PROBE_LIMIT, textViewerLimit } from "../../shared/text-encoding.js";
+import { HTML_LIMIT, MARKDOWN_EXT, NO_EXT_TEXT_PROBE_LIMIT, textViewerLimit } from "../../shared/text-encoding.js";
 
 /**
  * 查看器分派（design §11.1）。扩展名大小写不敏感，类别判断与 `FileIcon` 同源（`@huhu/ui` 的映射表）；
@@ -20,7 +20,7 @@ export interface ViewerChoice {
 
 export { NOTE_LIMIT, NO_EXT_TEXT_PROBE_LIMIT, TEXT_LIMIT } from "../../shared/text-encoding.js";
 export const IMAGE_LIMIT = 10 * 1024 * 1024;
-export const HTML_LIMIT = 8 * 1024 * 1024;
+export { HTML_LIMIT } from "../../shared/text-encoding.js";
 
 export const IMAGE_MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", avif: "image/avif", ico: "image/x-icon" };
 
