@@ -110,6 +110,9 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = caller(page);
     await call("settings.update", { patch: { dateTime: { zone: "America/New_York" } } });
+    // The backdoor caller bypasses the workbench cache invalidation, so reload to read the new zone.
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const task = await call<TaskDto>("tasks.create", { title: "回拨与截止", due: "2099-12-01" });
     const detail = await openTask(page, task.title);
     await detail.getByTestId("detail-edit").click();
