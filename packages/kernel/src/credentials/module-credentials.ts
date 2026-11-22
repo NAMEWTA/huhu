@@ -330,6 +330,7 @@ export class ModuleCredentials<T> {
         await this.#publish(
           entries.map((entry) => next.get(entry.entityId) ?? entry),
           version,
+          signal,
         );
         return { updated: [...next.keys()] };
       } finally {
@@ -377,9 +378,17 @@ export class ModuleCredentials<T> {
     });
   }
 
-  async #publish(entries: Definition<T>[], expectedVersion: string | null): Promise<void> {
+  async #publish(entries: Definition<T>[], expectedVersion: string | null, signal?: AbortSignal): Promise<void> {
     try {
-      await this.#vault.files.write(this.#file, Buffer.from(JSON.stringify({ format: 1, entries }) + "\n"), { expectedVersion });
+      const options = {
+        expectedVersion,
+        ...(signal && {
+          beforeCommit: () => {
+            if (signal.aborted) throw new CredentialError("cancelled");
+          },
+        }),
+      };
+      await this.#vault.files.write(this.#file, Buffer.from(JSON.stringify({ format: 1, entries }) + "\n"), options);
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === "VERSION_CONFLICT" || code === "NAME_CONFLICT" || code === "NOT_FOUND") throw new CredentialError("conflict");

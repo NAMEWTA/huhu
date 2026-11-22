@@ -175,6 +175,29 @@ test("启停保留实际连接的旧路径和配置边，重复状态不写入",
   expect(routeForHost(await read(), b.hostId).map(({ id }) => id)).toEqual([jump.hostId, a.hostId, b.hostId]);
 });
 
+test("批量路由写入排队后取消，保留原定义和凭据快照", async () => {
+  const { add, hosts, portable, localFiles, vault } = await setup();
+  const a = await add("甲", undefined, fixturePassword);
+  const b = await add("乙", undefined, fixturePassword);
+  const jump = await add("跳板");
+  const before = portable();
+  const snapshots = localFiles(".json");
+  const abort = new AbortController();
+  const write = vault.files.write.bind(vault.files);
+  vi.spyOn(vault.files, "write").mockImplementationOnce(async (file, bytes, options) => {
+    const earlier = write(file, before, options?.expectedVersion !== undefined ? { expectedVersion: options.expectedVersion } : {});
+    const queued = write(file, bytes, options);
+    abort.abort();
+    await earlier;
+    return queued;
+  });
+  const edit = { targets: [a, b], change: associate(jump.hostId) };
+  await expect(hosts.editRoutes(edit, abort.signal)).rejects.toMatchObject({ code: "SSH_DISCONNECTED" });
+  expect(portable()).toEqual(before);
+  expect(localFiles(".json")).toEqual(snapshots);
+  await expect(hosts.editRoutes(edit, signal)).resolves.toEqual({ updated: [a.hostId, b.hostId], skipped: [] });
+});
+
 test("CAS 冲突回收暂存，独立服务共享队列并保留并发认证的快照 pin", async () => {
   const { add, hosts, read, localFiles, localRoot, portable, vault, configurations } = await setup();
   const a = await add("甲", undefined, fixturePassword);
