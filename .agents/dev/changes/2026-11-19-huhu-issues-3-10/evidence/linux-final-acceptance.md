@@ -386,3 +386,12 @@ t18r的disabled臂未施加成功：Playwright Electron loader在用户CLI参数
 t18t同一9350应用两臂实际Chrome152.0.7977.167/Electron44.9.1、其余enable/disable列表完全一致。default：1461键，DOM尾标10150.7ms（十秒停键后），输入p95 33.4ms。仅禁用DeferRendererTasksAfterInput：同参考节奏的前313键全部实收，DOM尾标2131ms，在持续输入中主动因尾标停键；301个窗内有效样本p95 37.1ms、最大46.6ms，三等分76/111/114。默认前两秒125/158键、禁用124/159键，未降低共同窗口输入密度。两轮清理成功。此结果支持该输入调度策略对当前受控桌面运行时延迟的因果贡献，尚未代替生产修复后原正式持续输入用例。
 
 原始结果及trace：`temp/final-audit/native-10000-page-only-9350f32bbe014243e4c81546b0ac1aa5afa9e226.d4XkN6`、`native-10000-page-only-input-deferral-disabled-9350f32bbe014243e4c81546b0ac1aa5afa9e226.7jmJXN`，日志`deferral-preload-{default,disabled}.log`。锁定上游源码及实验设计见`t18d-report04.md`。Lead决定只针对捆绑Chromium152配置可复核的桌面调度兼容点，保留其他功能列表并在版本升级后重新验证；不修改Web协议、消息粒度或CREDIT，不声称改善未测的外部浏览器性能。实现与原始用例复验待完成。
+
+
+### e5693dbf 正式性能回归
+
+固定构建 e5693dbf95bc61958fcf764995ae27c7d7d4144a（t18v）仅对 Chromium 152 应用输入调度兼容点。t18w 关闭诊断后运行原终端洪流用例：完整 10 MiB DOM 尾标在 gate 后 973.1ms 到达，31 个窗内样本 p95 32.7ms，1 项通过；桌面、Core 和目录清理成功。t18x 同构建受影响五项正式性能回归全部通过（28.3s）：冷启动1665ms、插件停用15/启用31ms、RSS198MiB；1MiB文档444ms；80次编辑输入p95 11.8ms；1000任务滚动最大17ms、无超限长帧且正常退出；终端重复尾标997.2ms、46样本p95 35ms。保留原阈值。另3个F09扩展旅程按既有开关跳过，不计通过。
+
+日志 `temp/final-audit/chromium152-formal-flood.log`、`chromium152-perf-regression.log`。原始结果在证据根 `followup-flood-e5693dbf95bc61958fcf764995ae27c7d7d4144a.DE1syA/result.json` 和 `followup-perf-e5693dbf95bc61958fcf764995ae27c7d7d4144a.ezGIAq/result.json`，另复制至 integration 的 `temp/final-audit/chromium152-formal-{flood,perf}-e5693dbf`。
+
+t17c/task15 独审确认默认路径和正式证据，指出显式 feature 分组后缀及空白解析遗漏；交 t176/task18 定向修复。上述通过结果属于默认配置，不能替代该显式配置回归。剩余源码失败选择缩至3项（H05撤销为空、Agent变更审查、能力网关）；已通过性能和名称目录直接调用方不重复运行。笔记和邮件文件及最终同包联验仍待执行，main尚未更新。

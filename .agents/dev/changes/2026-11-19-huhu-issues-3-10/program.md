@@ -147,3 +147,10 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 当前可推进：t14j 关闭核对保存修复，t144/task02 修复已复现 Mail 三项P2与工作台刷新P3；Lead 随后定向验证并固定组合候选。Graph S5.2 通知口径等待用户决定，S4.2 补位回归不代表通知验收。最终固定候选仍须覆盖三组联验与之前失败的非 SSH 场景；既有全量测试和全量 E2E 已执行，不重复全量运行。#7 SSH 继续暂停并保留原分支/change。
 
 证据、失败与未运行范围见 [Linux 最终验收记录](evidence/linux-final-acceptance.md)。
+
+
+## 2026-11-23 当前接续：integration
+
+当前工作树已回到 `temp/issue-worktrees/integration`，分支 `impl/huhu-acceptance-followup`。远端保存检查点 `feature/issue-fix=0f0a65fd`；main仍为4ae7e7e4。此前agent-linux记录为历史阶段，不是当前工作目录。
+
+查询合并、模块名称目录和终端调度修复已经形成定向证据；e5693dbf组合构建的五项正式性能回归通过，另外3项扩展用例按原开关跳过。正在修复独审发现的显式Chromium参数解析边界，随后固定新候选执行剩余3个失败场景、笔记和邮件定向旅程，再串行验收同一安装包。先前全量检查不重复。Graph S5.2通知口径仍待决定，外部设备/真实邮箱未覆盖范围仍单列；#7暂停状态与change保留不变。具体数据与产物见Linux最终验收记录。

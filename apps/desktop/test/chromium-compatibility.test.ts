@@ -43,6 +43,28 @@ test.each([
   expect(args.appendSwitch).not.toHaveBeenCalled();
 });
 
+test.each([`${feature}.UserGroup:policy/minimal-types`, `${feature} :policy/minimal-types`, `${feature} < UserTrial . UserGroup : policy/minimal-types`])(
+  "preserves an explicit enable with Chromium group or separator whitespace (%s)",
+  (entry) => {
+    const disabled = "Before, After";
+    const enabled = `EnabledBefore, ${entry} ,EnabledAfter`;
+    const args = commandLine(disabled, enabled);
+    applyChromium152InputDeferral(args, chromium152);
+    expect(args.appendSwitch).not.toHaveBeenCalled();
+    expect(args.getSwitchValue("disable-features")).toBe(disabled);
+    expect(args.getSwitchValue("enable-features")).toBe(enabled);
+  },
+);
+
+test("only matches the target name in the feature portion of an enable entry", () => {
+  const disabled = "Before, After";
+  const enabled = `Other<${feature}.UserGroup:policy/minimal-types`;
+  const args = commandLine(disabled, enabled);
+  applyChromium152InputDeferral(args, chromium152);
+  expect(args.appendSwitch).toHaveBeenCalledExactlyOnceWith("disable-features", `${disabled},${feature}`);
+  expect(args.getSwitchValue("enable-features")).toBe(enabled);
+});
+
 test.each([undefined, "151.0.0.0", "153.0.0.0", "1520.0.0.0"])("leaves Chromium %s untouched", (version) => {
   const args = commandLine("Existing");
   applyChromium152InputDeferral(args, version);
