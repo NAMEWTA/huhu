@@ -178,6 +178,8 @@ export class TaskDispatch {
   private readonly acceptance = new WriteQueue();
   private readonly abort = new AbortController();
   private checking = false;
+  private receiptCheckQueued = false;
+  private receiptCheckImmediate: NodeJS.Immediate | undefined;
 
   constructor(
     private readonly tasks: TasksService,
@@ -192,6 +194,7 @@ export class TaskDispatch {
 
   async close(): Promise<void> {
     this.abort.abort();
+    clearImmediate(this.receiptCheckImmediate);
     await this.tasks.drainWrites();
   }
 
@@ -747,10 +750,25 @@ export class TaskDispatch {
     });
   }
 
+  wakeAfterReceipt(): void {
+    this.receiptCheckQueued = true;
+    this.scheduleReceiptCheck();
+  }
+
+  private scheduleReceiptCheck(): void {
+    if (!this.receiptCheckQueued || this.receiptCheckImmediate || this.checking || this.abort.signal.aborted) return;
+    // The receipt ACK can return before replay reads the inbox synchronously.
+    this.receiptCheckImmediate = setImmediate(() => {
+      this.receiptCheckImmediate = undefined;
+      if (this.receiptCheckQueued) void this.check();
+    });
+  }
+
   /** 受理成功后与重开都走相同的领取路径。 */
   async check(): Promise<void> {
     if (this.store.readOnly || this.checking || this.abort.signal.aborted) return;
     this.checking = true;
+    this.receiptCheckQueued = false;
     try {
       await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
       const events = this.store
@@ -786,6 +804,7 @@ export class TaskDispatch {
       this.onError?.(error);
     } finally {
       this.checking = false;
+      this.scheduleReceiptCheck();
     }
   }
 

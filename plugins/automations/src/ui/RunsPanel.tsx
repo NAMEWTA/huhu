@@ -104,7 +104,8 @@ function ManagedRun({ row, onNavigate }: { row: RecentTaskRun; onNavigate: Navig
           {task.error.message}
         </p>
       ) : null}
-      {task.data ? <TaskRunDetails task={task.data} row={dispatch} run={run} showQueue onOpenAgent={onNavigate ? () => onNavigate("agent-cli") : undefined} /> : null}
+      {task.isPending ? <p role="status">正在读取原任务…</p> : null}
+      {task.data ? <TaskRunDetails task={task.data} taskRefreshing={task.isFetching} row={dispatch} run={run} showQueue onOpenAgent={onNavigate ? () => onNavigate("agent-cli") : undefined} /> : null}
     </section>
   );
 }

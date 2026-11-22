@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 interface BridgeDoc {
   emit(event: string, args: unknown[]): void;
@@ -40,7 +40,22 @@ export async function holdBridgeTimers(prose: Locator) {
 }
 
 export async function engineReady(page: Page): Promise<void> {
-  await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+  } catch (error) {
+    const document = await page
+      .evaluate(() => ({
+        url: location.href,
+        readyState: window.document.readyState,
+        title: window.document.title,
+        body: window.document.body?.innerText,
+        hostAvailable: typeof window.huhuHost !== "undefined",
+        resources: performance.getEntriesByType("resource").map(({ name, duration }) => ({ name, duration })),
+      }))
+      .catch((failure: unknown) => ({ unavailable: String(failure) }));
+    await test.info().attach("engine-ready-failure", { body: JSON.stringify(document), contentType: "application/json" });
+    throw error;
+  }
 }
 
 export async function call<T>(page: Page, capability: string, input: object): Promise<T> {

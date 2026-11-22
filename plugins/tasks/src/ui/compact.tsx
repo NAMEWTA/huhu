@@ -1,3 +1,4 @@
+import { CompactMarkdownReader } from "@huhu/editor/reading";
 import type { ReferenceCandidate, RichEditorPort } from "@huhu/editor/rich";
 import { Suspense, lazy } from "react";
 import type { ReferenceIndex } from "./references.js";
@@ -11,6 +12,20 @@ export function TaskMarkdownView({ id, value, refs, onOpen }: { id: string; valu
     <Suspense fallback={null}>
       <View id={id} value={value} pages={refs.pages} {...(onOpen ? { onOpenPath: onOpen } : {})} />
     </Suspense>
+  );
+}
+
+export function TaskRunMarkdownView({ id, value, refs }: { id: string; value: string; refs: ReferenceIndex }) {
+  return (
+    <CompactMarkdownReader
+      id={id}
+      value={value}
+      renderFallback={(view) => (
+        <Suspense fallback={<p role="status">正在读取运行结果…</p>}>
+          <View {...view} pages={refs.pages} />
+        </Suspense>
+      )}
+    />
   );
 }
 

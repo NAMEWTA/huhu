@@ -18,6 +18,7 @@ import type { FollowUps } from "../../automations/src/engine/follow-ups.js";
 import type { TaskDispatchExecutor } from "../src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord, RuleSource } from "../src/engine/dispatch-store.js";
 import type { TaskRuleDispatch } from "../src/engine/index.js";
+import { TaskReceiptInbox } from "../src/engine/receipt-inbox.js";
 import { externalEntries, externalToolEntry } from "./external-tool-entry.js";
 import { TasksService } from "../src/engine/service.js";
 
@@ -589,6 +590,65 @@ test("命令行分别授权 Agent 任务创建与派遣，不能替换工作区�
   expect(await call(engine, "tasks.dispatch", attempt, token)).toMatchObject({ ok: false, error: { details: { reason: "not_due" } } });
   expect(await call(engine, "tasks.dispatch.list", { taskId: task.data.id })).toMatchObject({ ok: true, data: [] });
   expect(await call(engine, "agent.runs.dispatch", {}, token)).toMatchObject(denied);
+});
+
+test("持久收件后无需扫描定时器即可投递结果，重复收件仅保留原评论", async () => {
+  fixture.checkMs = 60_000;
+  const { engine, task, run, execution } = await startBoundRun();
+  const receipt = { version: 1, receiptId: "immediate-result", kind: "result", execution, payload: { message: "即时收到的结果" } } as const satisfies ExecutionReceipt;
+  const ack = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(receipt) } };
+  const delivered = [{ run: run.runId, session: execution.sessionBinding.sessionId, body: receipt.payload.message }];
+
+  const replay = vi.spyOn(TaskReceiptInbox.prototype, "replay");
+  try {
+    expect(await submitReceipt(engine, receipt)).toMatchObject(ack);
+    expect(replay).not.toHaveBeenCalled();
+  } finally {
+    replay.mockRestore();
+  }
+  await vi.waitFor(
+    async () => {
+      expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, result: { delivery: "delivered" } }] });
+    },
+    { timeout: 2_000 },
+  );
+  expect(await submitReceipt(engine, receipt)).toMatchObject(ack);
+  const { data } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  expect(data.comments.filter(({ event }) => event === "result")).toMatchObject(delivered);
+});
+
+test("扫描经过回执检查后到件，先返回 ACK 并合并一次后续投递", async () => {
+  fixture.checkMs = 60_000;
+  const { engine, task, run, execution, fake } = await startBoundRun();
+  let release: ((state: "ready") => void) | undefined;
+  const ready = new Promise<"ready">((resolve) => {
+    release = resolve;
+  });
+  const held = vi.fn<TaskDispatchExecutor["ready"]>(() => ready);
+  fake.ready = held;
+  const other = await createDispatchable(engine, "暂停扫描的另一任务");
+  const otherRun = await acceptDispatch(engine, intent(other));
+  const receipt = { version: 1, receiptId: "result-during-check", kind: "result", execution, payload: { message: "扫描期间收到的结果" } } as const satisfies ExecutionReceipt;
+  const ack = { ok: true, data: { stage: "tasks_consumed", receipt: executionReceiptIdentity(receipt) } };
+  try {
+    await vi.waitFor(() => expect(held).toHaveBeenCalledTimes(1));
+    expect(await submitReceipt(engine, receipt)).toMatchObject(ack);
+    expect(await submitReceipt(engine, receipt)).toMatchObject(ack);
+    const { data } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+    expect(data.comments.filter(({ event }) => event === "result")).toEqual([]);
+  } finally {
+    release?.("ready");
+  }
+
+  await waitDispatch(engine, otherRun, { state: "running" });
+  await vi.waitFor(
+    async () => {
+      expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, result: { delivery: "delivered" } }] });
+    },
+    { timeout: 2_000 },
+  );
+  const { data } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  expect(data.comments.filter(({ event }) => event === "result")).toMatchObject([{ run: run.runId, session: execution.sessionBinding.sessionId, body: receipt.payload.message }]);
 });
 
 test("持久验收原回执后才 ACK，重开补送原评论一次且不重新执行", { timeout: 60_000 }, async () => {

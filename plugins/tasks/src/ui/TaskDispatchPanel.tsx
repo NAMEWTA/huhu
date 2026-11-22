@@ -7,7 +7,7 @@ import type { z } from "zod";
 import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
-import { TaskMarkdownView } from "./compact.js";
+import { TaskRunMarkdownView } from "./compact.js";
 import { t } from "./i18n.js";
 import { useReferenceIndex } from "./references.js";
 
@@ -64,6 +64,8 @@ export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null |
 export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate }: { task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
   const engine = useEngine();
   const qc = useQueryClient();
+  // Observe the list query that supplies this task without starting a second request.
+  const { isFetching: taskRefreshing } = useCapability<TaskDto[]>("tasks.list", { category: "all" }, { enabled: false });
   const [opened, setOpened] = useState<string | null>(null);
   const [request, setRequest] = useState<DispatchInput | null>(null);
   const [retry, setRetry] = useState<RetryDispatch | null>(null);
@@ -182,7 +184,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
               </Button>
             ) : null}
             {!row.superseded ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
-            {expanded ? <TaskRunDetails task={task} row={row} run={run} onOpenAgent={onNavigate} /> : null}
+            {expanded ? <TaskRunDetails task={task} taskRefreshing={taskRefreshing} row={row} run={run} onOpenAgent={onNavigate} /> : null}
           </article>
         );
       })}
@@ -232,7 +234,21 @@ function CancelQueuedRun({ task, row, refresh }: { task: TaskDto; row: TaskDispa
   );
 }
 
-export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent }: { task: TaskDto; row: TaskDispatchView; run: TaskRunSummary | null | undefined; showQueue?: boolean; onOpenAgent?: (() => void) | undefined }) {
+export function TaskRunDetails({
+  task,
+  taskRefreshing,
+  row,
+  run,
+  showQueue = false,
+  onOpenAgent,
+}: {
+  task: TaskDto;
+  taskRefreshing: boolean;
+  row: TaskDispatchView;
+  run: TaskRunSummary | null | undefined;
+  showQueue?: boolean;
+  onOpenAgent?: (() => void) | undefined;
+}) {
   const engine = useEngine();
   const qc = useQueryClient();
   const refs = useReferenceIndex();
@@ -241,8 +257,13 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
   const session = row.session;
   const messages = task.comments.filter((comment) => comment.run === row.runId && (comment.event === "result" || comment.event === "failed"));
   const result = run?.result;
-  const deliveryNotice =
-    result?.kind === "no_update" ? "原会话已结束，本轮没有结果正文。" : result?.delivery === "pending" ? "已保存原结果回执，正在核对任务时间线投递。" : result?.delivery === "target_missing" ? "原结果回执已保存，投递时未找到原任务。" : "";
+  let deliveryNotice = "";
+  if (result?.kind === "no_update") deliveryNotice = "原会话已结束，本轮没有结果正文。";
+  else if (result?.delivery === "pending") deliveryNotice = "已保存原结果回执，正在核对任务时间线投递。";
+  else if (result?.delivery === "target_missing") deliveryNotice = "原结果回执已保存，投递时未找到原任务。";
+  else if (result?.delivery === "delivered" && messages.length === 0) {
+    deliveryNotice = taskRefreshing ? "正在读取任务时间线中的运行结果…" : "未在原任务时间线中找到本次运行的结果正文。";
+  }
   return (
     <>
       {showQueue && row.reason ? <p role="status">{receiptReason[row.reason]}</p> : null}
@@ -274,7 +295,7 @@ export function TaskRunDetails({ task, row, run, showQueue = false, onOpenAgent 
         <div data-testid="managed-run-result">
           {deliveryNotice ? <p role="status">{deliveryNotice}</p> : null}
           {messages.map((message) => (
-            <TaskMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
+            <TaskRunMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
           ))}
         </div>
       ) : null}

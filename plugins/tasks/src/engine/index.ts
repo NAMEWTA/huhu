@@ -466,7 +466,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       handler: async ({ caller, signal }, input) => {
         if (caller !== "plugin:agent-cli") throw errors.permissionDenied("接收 Agent 任务回执");
         const result = await dispatch.consumeReceipt(input, signal);
-        if (result.stage === "tasks_consumed") publishRun(input.execution.runId);
+        if (result.stage === "tasks_consumed") {
+          publishRun(input.execution.runId);
+          if (input.kind === "result" || input.kind === "failed" || input.kind === "no_update") dispatch.wakeAfterReceipt();
+        }
         return result;
       },
     }),

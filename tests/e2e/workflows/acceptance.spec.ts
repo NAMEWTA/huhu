@@ -26,20 +26,29 @@ async function caller(page: Page): Promise<Call> {
     );
 }
 
+type CapabilityFixtureWindow = Window & { huhuCapabilityFixture?: { original: string[]; delivered: string[] } };
+
 async function hideCapability(page: Page, unavailable: string) {
   const endpoint = await page.evaluate(() => window.huhuHost.engine());
-  await page.route(`${endpoint.baseUrl}/api/v1/capabilities`, async (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    const response = await route.fetch();
-    expect(response.ok()).toBe(true);
-    const capabilities = (await response.json()) as { name: string }[];
-    expect(capabilities.some(({ name }) => name === unavailable)).toBe(true);
-    const headers = response.headers();
-    delete headers["content-length"];
-    delete headers["content-encoding"];
-    delete headers["transfer-encoding"];
-    await route.fulfill({ response, headers, json: capabilities.filter(({ name }) => name !== unavailable) });
-  });
+  await page.addInitScript(
+    ({ url, unavailable }) => {
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const response = await originalFetch(input, init);
+        if (input !== url || (init?.method ?? "GET").toUpperCase() !== "GET" || !new Headers(init?.headers).get("authorization")?.startsWith("Bearer ") || !response.ok) return response;
+        const readJson = response.json.bind(response);
+        response.json = async () => {
+          const original = (await readJson()) as { name: string }[];
+          const delivered = original.filter(({ name }) => name !== unavailable);
+          (window as CapabilityFixtureWindow).huhuCapabilityFixture = { original: original.map(({ name }) => name), delivered: delivered.map(({ name }) => name) };
+          return delivered;
+        };
+        return response;
+      };
+    },
+    { url: `${endpoint.baseUrl}/api/v1/capabilities`, unavailable },
+  );
+  return () => page.evaluate(() => (window as CapabilityFixtureWindow).huhuCapabilityFixture);
 }
 
 test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任务进入已完成", async () => {
@@ -98,7 +107,7 @@ test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后
       return task.data as { id: string; version: string };
     };
     const eastTask = await create("东侧日期任务", calendarDate(east));
-    await create("西侧日期任务", calendarDate(west));
+    const westTask = await create("西侧日期任务", calendarDate(west));
     await page.reload();
     const all = page.locator('[data-instance-id="all-tasks"]');
     const today = page.locator('[data-instance-id="today-tasks"]');
@@ -142,10 +151,26 @@ test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后
     expect(saved.instances).toEqual(legacy.instances.map((instance, index) => ({ ...instance, widgetType: "widget:tasks:tasks", title: index === 0 ? "两张任务卡" : instance.title })));
     expect(saved.layout).toEqual(legacy.layout);
 
-    await hideCapability(page, "tasks.setStatus");
+    await expect(all.getByRole("button", { name: "完成任务 西侧日期任务" })).toBeEnabled();
+    const capabilityDelivery = await hideCapability(page, "tasks.setStatus");
+    const writes: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url() === `${endpoint.baseUrl}/api/v1/call` && request.postDataJSON()?.capability === "tasks.setStatus") writes.push(request.url());
+    });
     await page.reload();
-    await expect(all.getByRole("button", { name: "打开任务 西侧日期任务" })).toBeEnabled();
-    await expect(all.getByRole("button", { name: "完成任务 西侧日期任务" })).toBeDisabled();
+    const openWest = all.getByRole("button", { name: "打开任务 西侧日期任务" });
+    const completeWest = all.getByRole("button", { name: "完成任务 西侧日期任务" });
+    await expect(openWest).toBeEnabled();
+    await expect(completeWest).toBeDisabled();
+    const delivery = await capabilityDelivery();
+    expect(delivery?.original).toContain("tasks.setStatus");
+    expect(delivery?.delivered).toContain("tasks.list");
+    expect(delivery?.delivered).not.toContain("tasks.setStatus");
+    await completeWest.click({ force: true });
+    await openWest.click();
+    await expect(page.getByTestId("detail-title")).toHaveText("西侧日期任务");
+    expect(writes).toEqual([]);
+    expect(await call("tasks.read", { id: westTask.id })).toMatchObject({ ok: true, data: { version: westTask.version, status: "not_started" } });
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" });
     const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
@@ -286,9 +311,12 @@ test("W05-W06 Agent 入口随插件启停，最近活动在看板内筛选", asy
     await expect(activity).toBeVisible();
     expect((await call("plugins.setEnabled", { id: "agent-cli", enabled: true })).ok).toBe(true);
     await expect(agent.getByRole("button", { name: "管理 CLI 会话" })).toBeVisible();
-    await hideCapability(page, "agent.core.status");
+    const capabilityDelivery = await hideCapability(page, "agent.core.status");
     await page.reload();
     await expect(page.getByTestId("home-dashboard")).toContainText("当前连接没有卡片所需的读取权限", { timeout: 20_000 });
+    const delivery = await capabilityDelivery();
+    expect(delivery?.original).toContain("agent.core.status");
+    expect(delivery?.delivered).not.toContain("agent.core.status");
     await expect(agent).toHaveCount(0);
     await expect(activity).toBeVisible();
   } finally {
@@ -1515,12 +1543,15 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
   const claude = path.join(bin, "claude");
-  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version} (Claude Code)"; exit 0; fi\nsleep 30\n`, { mode: 0o755 });
+  const probeLog = path.join(bin, "version-probe.log");
+  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version}" >> "$HUHU_E2E_AGENT_PROBE_LOG"; echo "${version} (Claude Code)"; exit 0; fi\nsleep 30\n`, { mode: 0o755 });
   writeVersion("2.1.0");
-  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` }, (vault) => {
+  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}`, HUHU_E2E_AGENT_PROBE_LOG: probeLog }, (vault) => {
     const directory = path.join(vault, ".huhu/agent-cli");
     mkdirSync(directory, { recursive: true });
     writeFileSync(path.join(directory, "agents.json"), JSON.stringify({ schema: 1, revision: 0, defaultAgent: null, agents: { codex: { enabled: false }, pi: { enabled: false } } }));
+    // Automations probes versions on startup. Isolate the settings page's cold catalogue.
+    writeFileSync(path.join(vault, ".huhu/plugins.json"), JSON.stringify({ builtin: { automations: { enabled: false } } }));
   });
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -1532,9 +1563,11 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
     await expect(settingsPage).toBeVisible();
     const row = settingsPage.locator('[data-provider="claude"]');
     await expect(row).toContainText("已检测");
+    expect(existsSync(probeLog)).toBe(false);
     // 初次读取只扫描程序位置；版本命令由显式刷新触发。
     await settingsPage.getByTestId("agent-redetect").click();
     await expect(row).toContainText("2.1.0", { timeout: 15_000 });
+    expect(readFileSync(probeLog, "utf8")).toBe("2.1.0\n");
     await expect(row.getByTestId("agent-command-preview")).toContainText("claude --dangerously-skip-permissions");
     await row.getByRole("button", { expanded: false }).first().click();
     await row.getByLabel("Claude Code 模型").selectOption("opus");
@@ -1543,6 +1576,7 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
     writeVersion("2.1.1");
     await settingsPage.getByTestId("agent-redetect").click();
     await expect(row).toContainText("2.1.1");
+    expect(readFileSync(probeLog, "utf8")).toBe("2.1.0\n2.1.1\n");
     await settingsPage.getByTestId("agent-core-restart").click();
     await expect(settingsPage.getByTestId("agent-core-restart-yes")).toBeVisible(); // 先确认，不会直接重启
     await settingsPage.getByRole("button", { name: "取消" }).click();
