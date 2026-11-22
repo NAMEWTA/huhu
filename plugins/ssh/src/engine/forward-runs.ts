@@ -3,7 +3,7 @@ import { errors, HuhuError } from "@huhu/contracts";
 import type { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { ForwardListener } from "./forward-listener.js";
-import type { ForwardRules } from "./forward-rules.js";
+import type { ForwardRules, ForwardRuleScope } from "./forward-rules.js";
 import type { ForwardLease, SshManager } from "./manager.js";
 
 type Run = {
@@ -15,12 +15,25 @@ type Run = {
   lease?: ForwardLease;
   listener?: ForwardListener;
   offTransport?: () => void;
+  routeIdentity?: string;
   lost?: boolean;
 };
 
 const live = new Set<ForwardRun["state"]>(["starting", "waiting", "running", "stopping", "stop-failed"]);
 const empty = { active: 0, accepted: 0, uploaded: 0, downloaded: 0 };
 const reason = (error: unknown) => (error instanceof Error ? error.message : "转发操作失败");
+const publicForwardRun = (run: ForwardRun) => ({
+  id: run.id,
+  ruleId: run.ruleId,
+  revision: run.revision,
+  state: run.state,
+  listener: run.listener,
+  connectionKind: run.connection?.kind,
+  active: run.active,
+  accepted: run.accepted,
+  uploaded: run.uploaded,
+  downloaded: run.downloaded,
+});
 
 export class ForwardRuns {
   private readonly runs = new Map<string, Run>();
@@ -37,20 +50,36 @@ export class ForwardRuns {
     return [...this.runs.values()].map((run) => this.snapshot(run));
   }
 
-  save(input: SaveForward, signal: AbortSignal) {
+  visibleRuns(rules: ReadonlyMap<string, { revision: string; connectionIdentity: string }>) {
+    return [...this.runs.values()].flatMap((run) => {
+      const rule = rules.get(run.rule.id);
+      if (!rule || rule.revision !== run.rule.revision || rule.connectionIdentity !== run.routeIdentity) return [];
+      return [publicForwardRun(this.snapshot(run))];
+    });
+  }
+
+  save(input: SaveForward, signal: AbortSignal, scope?: ForwardRuleScope) {
     return this.serial(async () => {
-      const saved = await this.rules.save(input, signal, (old) => this.stopRule(old));
+      const saved = await this.rules.save(input, signal, (old) => this.stopRule(old), scope && this.inactiveScope(scope));
       this.runs.delete(saved.id);
       return saved;
     });
   }
 
-  delete(input: ForwardRevision, signal: AbortSignal) {
+  delete(input: ForwardRevision, signal: AbortSignal, scope?: ForwardRuleScope) {
     return this.serial(async () => {
-      const result = await this.rules.delete(input, signal, (old) => this.stopRule(old));
+      const result = await this.rules.delete(input, signal, (old) => this.stopRule(old), scope && this.inactiveScope(scope));
       this.runs.delete(input.id);
       return result;
     });
+  }
+
+  private inactiveScope(scope: ForwardRuleScope): ForwardRuleScope {
+    return (rule) => {
+      scope(rule);
+      const run = this.runs.get(rule.id);
+      if (run && (live.has(run.view.state) || run.view.state === "interrupted" || run.lease)) throw errors.permissionDenied("转发规则仍在使用");
+    };
   }
 
   start(input: ForwardRevision, signal: AbortSignal, resume = false) {
@@ -128,6 +157,7 @@ export class ForwardRuns {
         return;
       }
       run.lease = lease;
+      run.routeIdentity = lease.routeIdentity;
       const disconnected = () => {
         run.lost = true;
         void this.serial(async () => {

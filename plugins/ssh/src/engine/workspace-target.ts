@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { errors } from "@huhu/contracts";
 import type { HostRecord } from "./host-configurations.js";
 
+export function connectionIdentity(chain: readonly { id: string; revision: string }[]): string {
+  return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
+}
+
 export function workspaceTarget(route: readonly HostRecord[]): string {
   return createHash("sha256")
     .update(JSON.stringify(route.map(({ id, host, port, user, jumpHostIds }) => [id, host.toLowerCase(), port, user, jumpHostIds])))

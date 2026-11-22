@@ -124,6 +124,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
   const password = randomUUID();
   const server = await startFakeSsh({ password });
   const resource = "ssh.resources.host.get";
+  const statuses = "ssh.connections.status";
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const { hostId, revision: hostRevision } = await desktopCall<{ hostId: string; revision: string }>(page, "ssh.hosts.configure", {
@@ -149,7 +150,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const revision = shared.getByTestId("ssh-tool-policy-revision");
     const initial = await desktopCall<{ toolAccess: { revision: number } }>(page, "gateway.get");
     await expect(revision).toHaveText(String(initial.toolAccess.revision));
-    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.connect", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
+    await expect(desktopCall(page, "gateway.policy.preview", { changes: [{ capability: "ssh.exec.run", exposed: true }] })).rejects.toThrow("INVALID_INPUT");
 
     const { id, token } = await desktopCall<{ id: string; token: string }>(page, "gateway.tokens.create", { name: "temporary MCP loopback fixture" });
     const url = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");
@@ -175,6 +176,7 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const changes = [
       { capability: "notes.list", exposed: true },
       { capability: resource, exposed: true },
+      { capability: statuses, exposed: true },
     ];
     const preview = await desktopCall<{ revision: number; catalogRevision: string }>(page, "gateway.policy.preview", { changes });
     const saved = await desktopCall<{ revision: number }>(page, "gateway.policy.update", { changes, expectedRevision: preview.revision, catalogRevision: preview.catalogRevision });
@@ -196,8 +198,10 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const listed = await rpc("tools/list");
     expect(listed.status).toBe(200);
     const tool = "ssh_resources_host_get";
-    expect(await listed.json()).toMatchObject({ result: { tools: expect.arrayContaining([{ name: "notes_list" }, { name: tool }].map((row) => expect.objectContaining(row))) } });
+    const statusTool = "ssh_connections_status";
+    expect(await listed.json()).toMatchObject({ result: { tools: expect.arrayContaining(["notes_list", tool, statusTool].map((name) => expect.objectContaining({ name }))) } });
     expect(await (await rpc("tools/call", { name: tool, arguments: { hostId } })).json()).toMatchObject({ result: { structuredContent: { data: host } } });
+    expect(await (await rpc("tools/call", { name: statusTool, arguments: {} })).json()).toMatchObject({ result: { structuredContent: { data: [] } } });
     const cli = path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs");
     const { stdout } = await promisify(execFile)(process.execPath, [cli, "capabilities", "list", "--vault", vault, "--json"]);
     expect(JSON.parse(stdout)).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ name: "notes.list" }), expect.objectContaining({ name: resource })]) });
@@ -217,6 +221,8 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     }
 
     expect(server.conns).toHaveLength(0);
+    await desktopCall(page, "gateway.update", { capability: statuses, exposed: false });
+    expect(await (await rpc("tools/call", { name: statusTool, arguments: {} })).json()).toMatchObject({ result: { isError: true } });
     await desktopCall(page, "gateway.update", { capability: resource, exposed: false });
     expect(await (await rpc("tools/call", { name: tool, arguments: { hostId } })).json()).toMatchObject({ result: { isError: true } });
     const denied = await rpc("tools/call", { name: "ssh_hosts_list", arguments: {} });

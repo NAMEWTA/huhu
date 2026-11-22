@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { Readable } from "node:stream";
@@ -8,7 +9,7 @@ import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../shared/tr
 import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
-import { routeForHost, workspaceTarget } from "./workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { ShellDirectory, shellDirectoryProbe, type IntegratedShell } from "./shell-directory.js";
 import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
@@ -19,15 +20,22 @@ export interface AuditEntry {
   at: string;
   hostId: string;
   action: string;
-  result: "ok" | "failed" | "cancelled";
+  result: "ok" | "failed" | "cancelled" | "unknown";
   detail: string;
 }
+
+type ExternalAudit = AuditEntry & { owner: string; routeRevision: string };
+const auditOwner = (vaultInstance: string, owner: string) =>
+  createHash("sha256")
+    .update(JSON.stringify([vaultInstance, owner]))
+    .digest("hex");
 
 export interface SshDeps {
   hosts: { list(): HostRecord[] | Promise<HostRecord[]> };
   knownHostsFile: string;
   knownHostsFiles?: HuhuApi["vault"]["files"];
   auditDir: string;
+  externalAudit?: { directory: string; vaultInstance: string };
   withManagedAuth: (host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>) => Promise<void>;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
@@ -67,16 +75,13 @@ type ForwardDial = {
 export type ForwardLease = {
   id: string;
   client: Client;
+  routeIdentity: string;
   kind: "borrowed" | "dedicated";
   holders(): number;
   validate(): Promise<void>;
   release(): void;
 };
-export type MonitorConnection = Pick<ForwardLease, "id" | "client" | "release"> & { onClose(notify: () => void): () => void };
-
-function connectionIdentity(chain: readonly ManagedHost[]): string {
-  return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
-}
+export type MonitorConnection = Pick<ForwardLease, "id" | "client" | "release" | "routeIdentity"> & { onClose(notify: () => void): () => void };
 
 interface ExecRun {
   channel: ClientChannel;
@@ -129,19 +134,50 @@ export class SshManager {
   }
 
   // ---- 审计（不含凭据）----
-  private audit(e: Omit<AuditEntry, "at">): void {
-    mkdirSync(this.d.auditDir, { recursive: true });
-    appendFileSync(path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`), JSON.stringify({ at: this.d.now().toISOString(), ...e }) + "\n");
+  private audit(e: Omit<AuditEntry, "at"> | Omit<ExternalAudit, "at">, directory = this.d.auditDir): void {
+    const at = this.d.now().toISOString();
+    mkdirSync(directory, { recursive: true });
+    appendFileSync(path.join(directory, `${at.slice(0, 7)}.ndjson`), JSON.stringify({ at, ...e }) + "\n");
   }
+
+  recordExternalAudit(owner: string, binding: { hostId: string; routeRevision: string }, action: "connect" | "exec", result: AuditEntry["result"]): void {
+    const journal = this.d.externalAudit;
+    if (!journal) return;
+    try {
+      const { hostId, routeRevision } = binding;
+      this.audit({ hostId, action, result, detail: "", owner: auditOwner(journal.vaultInstance, owner), routeRevision }, journal.directory);
+    } catch {
+      // Failing to write audit metadata must not change the connection or job result.
+    }
+  }
+
   auditList(hostId?: string, limit = 200): AuditEntry[] {
-    if (!existsSync(this.d.auditDir)) return [];
-    const month = path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
+    return this.readAudit<AuditEntry>(this.d.auditDir, (entry) => !hostId || entry.hostId === hostId, limit);
+  }
+
+  externalAuditList(owner: string, routes: ReadonlyMap<string, { routeRevision: string }>, hostId: string | undefined, limit: number): AuditEntry[] {
+    const journal = this.d.externalAudit;
+    if (!journal) return [];
+    const ownerId = auditOwner(journal.vaultInstance, owner);
+    return this.readAudit<ExternalAudit>(
+      journal.directory,
+      (entry) => {
+        if ((hostId !== undefined && entry.hostId !== hostId) || entry.owner !== ownerId) return false;
+        const route = routes.get(entry.hostId);
+        return route !== undefined && route.routeRevision === entry.routeRevision;
+      },
+      limit,
+    ).map(({ at, action, result, hostId }) => ({ at, action, result, hostId, detail: "" }));
+  }
+
+  private readAudit<T extends AuditEntry>(directory: string, matches: (entry: T) => boolean, limit: number): T[] {
+    const month = path.join(directory, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
     if (!existsSync(month)) return []; // 目录在、当月文件还没有
     return readFileSync(month, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((l) => JSON.parse(l) as AuditEntry)
-      .filter((a) => !hostId || a.hostId === hostId)
+      .map((l) => JSON.parse(l) as T)
+      .filter(matches)
       .slice(-limit)
       .reverse();
   }
@@ -363,6 +399,7 @@ export class SshManager {
     return {
       id: lease.id,
       client: lease.client,
+      routeIdentity: lease.routeIdentity,
       release: lease.release,
       onClose: (closed) => {
         lease.client.once("close", closed);
@@ -378,6 +415,7 @@ export class SshManager {
     return {
       id: this.fileOrigins.get(conn)!.connectionId,
       client: conn.target,
+      routeIdentity: conn.routeIdentity,
       release: () => undefined,
       onClose: (closed) => {
         shell.closers.add(closed);
@@ -398,13 +436,14 @@ export class SshManager {
     signal.throwIfAborted();
     const borrowed = this.conns.get(hostId);
     if (borrowed?.routeIdentity === identity) {
-      if (scope === "monitor") return { id: this.fileOrigins.get(borrowed)!.connectionId, client: borrowed.target, kind: "borrowed", holders: () => 0, validate, release: () => undefined };
+      if (scope === "monitor") return { id: this.fileOrigins.get(borrowed)!.connectionId, client: borrowed.target, routeIdentity: identity, kind: "borrowed", holders: () => 0, validate, release: () => undefined };
       const owners = this.borrowedForwards.get(borrowed) ?? new Set<ForwardOwner>();
       owners.add(notify);
       this.borrowedForwards.set(borrowed, owners);
       return {
         id: this.fileOrigins.get(borrowed)!.connectionId,
         client: borrowed.target,
+        routeIdentity: identity,
         kind: "borrowed",
         holders: () => owners.size,
         validate,
@@ -431,7 +470,7 @@ export class SshManager {
       const client = await Promise.race([dial.ready, cancelled]);
       await validate();
       if (dial.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 专用连接已结束");
-      return { id: dial.id, client, kind: "dedicated", holders: () => dial.owners.size, validate, release };
+      return { id: dial.id, client, routeIdentity: identity, kind: "dedicated", holders: () => dial.owners.size, validate, release };
     } catch (error) {
       release();
       throw error;

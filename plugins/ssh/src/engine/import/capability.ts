@@ -1,12 +1,13 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { errors, isHuhuError, isWorkbenchCaller } from "@huhu/contracts";
-import { bindCapability, defineCapabilityDescriptor } from "@huhu/kernel";
+import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { SshHostProfile } from "../auth-profile.js";
-import { importFormats, importIssueCodes, MAX_BYTES, MAX_RECORDS } from "./input.js";
+import { importFormats, importIssueCodes, MAX_BYTES, MAX_RECORDS, type ImportIssue } from "./input.js";
 import { hostEndpoint, hostName, previewHostImport } from "./preview.js";
 import type { HostConfigurations, HostRecord } from "../host-configurations.js";
 import type { HostDirectory } from "../directory.js";
+import { externalSshOwner, visibleSshRoutes } from "../public-resources.js";
 
 const format = z.enum(importFormats);
 const location = z.strictObject({ kind: z.enum(["line", "record"]), index: z.int().positive() });
@@ -46,13 +47,14 @@ const confirm = z.strictObject({ source, token: preview.shape.token, selected: z
 type Confirm = z.infer<typeof confirm>;
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+type CatalogueHost = Pick<z.infer<typeof SshHostProfile>, "name" | "host" | "port" | "user"> & { id: string; revision?: string };
 
-function tokenFor(source: Source, hosts: readonly HostRecord[]): string {
-  const catalogue = [...hosts].sort((a, b) => a.id.localeCompare(b.id)).map((host) => ({ id: host.id, name: hostName(host.name), endpoint: hostEndpoint(host), revision: "revision" in host ? host.revision : null }));
+function tokenFor(source: Source, hosts: readonly CatalogueHost[]): string {
+  const catalogue = [...hosts].sort((a, b) => a.id.localeCompare(b.id)).map((host) => ({ id: host.id, name: hostName(host.name), endpoint: hostEndpoint(host), revision: host.revision ?? null }));
   return digest([source.format, source.filename, source.encoding, source.contentBase64, catalogue]);
 }
 
-function parseSource({ contentBase64, encoding, ...input }: Source, existing: readonly HostRecord[]) {
+function parseSource({ contentBase64, encoding, ...input }: Source, existing: readonly CatalogueHost[]) {
   return previewHostImport({ ...input, content: Buffer.from(contentBase64, "base64"), ...(encoding && { encoding }) }, existing);
 }
 
@@ -60,11 +62,12 @@ export const hostImportPreviewDescriptor = defineCapabilityDescriptor({
   name: "ssh.hosts.import.preview",
   plugin: "ssh",
   title: "预览 SSH 主机导入",
-  description: "解析所选文件，列出主机、冲突和跳过原因。",
+  description: "解析提交的文件内容，列出主机、冲突和跳过原因。外部预览按当前授权筛选已有冲突。",
   scope: "read",
   risk: "normal",
-  exposable: false,
+  exposable: true,
   defaultExposed: false,
+  resourceGuarded: "ssh.hosts",
   input: source,
   output: preview,
 });
@@ -86,12 +89,30 @@ export const hostImportConfirmDescriptor = defineCapabilityDescriptor({
   }),
 });
 
-export function hostImportPreview(hosts: Pick<HostConfigurations, "list">) {
-  return bindCapability(hostImportPreviewDescriptor, async ({ caller, signal }, input) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(hostImportPreviewDescriptor.name);
-    const existing = await hosts.list();
-    signal.throwIfAborted();
-    return { ...parseSource(input, existing), token: tokenFor(input, existing) };
+const publicIssue = ({ code, location }: ImportIssue) => ({ code, ...(location && { location }) });
+
+export function hostImportPreview(hosts: Pick<HostConfigurations, "list">, files: HuhuApi["vault"]["files"]) {
+  const key = randomBytes(32);
+  return bindCapability(hostImportPreviewDescriptor, async (context, input) => {
+    if (isWorkbenchCaller(context.caller)) {
+      const existing = await hosts.list();
+      context.signal.throwIfAborted();
+      return { ...parseSource(input, existing), token: tokenFor(input, existing) };
+    }
+    const owner = externalSshOwner(context);
+    const routes = [...visibleSshRoutes(files, context).values()].sort((a, b) => a.hostId.localeCompare(b.hostId));
+    const existing = routes.map(({ hostId, name, host, port, user, revision }) => ({ id: hostId, name, host, port, user, revision }));
+    context.signal.throwIfAborted();
+    const result = parseSource(input, existing);
+    const token = createHmac("sha256", key)
+      .update(JSON.stringify([owner, tokenFor(input, existing), routes.map(({ routeRevision }) => routeRevision)]))
+      .digest("hex");
+    return {
+      ...result,
+      token,
+      issues: result.issues.map(publicIssue),
+      rows: result.rows.map((row) => ({ ...row, issues: row.issues.map(publicIssue) })),
+    };
   });
 }
 

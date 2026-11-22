@@ -2,7 +2,9 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
-import { sshCapabilityDescriptors } from "./capabilities.js";
+import { ForwardRuleReceipt, MonitorPanelReceipt, sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
+import type { WorkspaceTemplate } from "../shared/workspace.js";
+import { SaveForward } from "../shared/forwarding.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
@@ -16,14 +18,14 @@ import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
-import { ForwardRules } from "./forward-rules.js";
+import { ForwardRules, type ForwardRuleScope } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
-import { MonitorPanels } from "./monitor-panels.js";
+import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts } from "./public-resources.js";
-import { PublicSshProbes } from "./public-probes.js";
+import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { DecidePublicProbe, PublicSshProbes, StartPublicProbeIntent } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -54,6 +56,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     knownHostsFile: path.join(root, "known_hosts"),
     ...(stateInVault && { knownHostsFiles: api.vault.files }),
     auditDir: path.join(root, "audit"),
+    ...(execJobs && { externalAudit: { directory: path.join(execJobs.runtimeDir, "ssh-audit"), vaultInstance: execJobs.vaultInstance } }),
     withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
@@ -68,8 +71,20 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     if (target.revision !== binding.expectedRevision) throw errors.versionConflict(target.revision);
     return { target, ids: chain.map(({ id }) => id) };
   };
+  const configurationRoutes = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2]) => {
+    const read = () => boundSshRoutes(api.vault.files, context, bindings);
+    return {
+      authorize: () => [...read().values()].flatMap(({ route }) => route.map(({ hostId }) => hostId)),
+      require: (hostIds: readonly string[]) => {
+        const routes = read();
+        const required = new Set(hostIds);
+        if (routes.size !== required.size || [...required].some((id) => !routes.has(id))) throw errors.notFound("当前授权内的 SSH 配置绑定");
+        return routes;
+      },
+    };
+  };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations);
-  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, operations.retainActivity) : undefined;
+  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity) : undefined;
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -117,51 +132,217 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionChange, (_c, i) => monitors.session(i)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsList, () => monitorPanels.list()));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.monitorPanelsSave, async ({ signal }, i) => {
-      const saved = await monitors.save(i, signal);
-      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: saved.id, op: i.previous ? "updated" : "created" });
-      return saved;
+    bindCapability(sshCapabilityDescriptors.monitorPanelsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return monitorPanels.list();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      return monitorPanels.list().filter(({ hostIds }) => hostIds.every((id) => routes.has(id)));
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.monitorPanelsDelete, async ({ signal }, i) => {
-      const result = await monitors.delete(i, signal);
-      api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: i.id, op: "deleted" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.monitorPanelsSave, (context, { bindings, intentKey, ...input }) => {
+      const save = async (scope?: MonitorPanelScope) => {
+        const saved = await monitors.save(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: saved.id, op: input.previous ? "updated" : "created" });
+        return saved;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部保存面板需要主机路由版本和意图键");
+      const routes = configurationRoutes(context, bindings);
+      routes.authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.monitorPanelsSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: MonitorPanelReceipt,
+        authorize: routes.authorize,
+        run: async () => {
+          const { id, revision } = await save((previous) => {
+            if (input.previous && !previous) throw errors.notFound("监控面板");
+            routes.require([...input.hostIds, ...(previous?.hostIds ?? [])]);
+          });
+          return { id, revision };
+        },
+      });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsRun, (_c, i) => monitors.dashboard(i.id)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsDelete, (context, { bindings, intentKey, ...input }) => {
+      const remove = async (scope?: MonitorPanelScope) => {
+        const result = await monitors.delete(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-monitor-panel", id: input.id, op: "deleted" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return remove();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除面板需要主机路由版本和意图键");
+      const routes = configurationRoutes(context, bindings);
+      routes.authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.monitorPanelsDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.monitorPanelsDelete.output,
+        authorize: routes.authorize,
+        run: () =>
+          remove((previous) => {
+            if (!previous) throw errors.notFound("监控面板");
+            routes.require(previous.hostIds);
+          }),
+      });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsRun, (context, { id, expectedRevision }) => {
+      if (isWorkbenchCaller(context.caller)) return monitors.dashboard(id);
+      if (!expectedRevision) throw errors.invalidInput("读取外部监控样本需要面板修订");
+      const routes = visibleSshRoutes(api.vault.files, context);
+      const panel = monitorPanels.get(id);
+      if (!panel || panel.hostIds.some((hostId) => !routes.has(hostId))) throw errors.notFound("监控面板");
+      if (panel.revision !== expectedRevision) throw errors.versionConflict(panel.revision);
+      const identities = new Map(panel.hostIds.map((hostId) => [hostId, routes.get(hostId)!.connectionIdentity]));
+      return monitors.cachedDashboard(panel, identities);
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsChange, ({ signal }, i) => monitors.change(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
+  const visibleForwardRules = (context: CapabilityContext) => {
+    const routes = visibleSshRoutes(api.vault.files, context);
+    return forwardRules.list().flatMap((rule) => {
+      const route = routes.get(rule.hostId);
+      return route?.targetIdentity === rule.boundTarget ? [{ rule, route }] : [];
+    });
+  };
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, (context) => (isWorkbenchCaller(context.caller) ? forwardRules.list() : visibleForwardRules(context).map(({ rule }) => rule))));
+  const forwardRuleScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2]) => {
+    const routes = configurationRoutes(context, bindings);
+    const scope: ForwardRuleScope = ({ hostId, boundTarget }) => {
+      if (routes.require([hostId]).get(hostId)?.targetIdentity !== boundTarget) throw errors.notFound("当前授权内的 SSH 转发规则");
+    };
+    return { scope, authorize: routes.authorize };
+  };
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.forwardRulesSave, async ({ signal }, input) => {
-      const result = await forwarding.save(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.forwardRulesSave, (context, { bindings, intentKey, ...request }) => {
+      const parsed = SaveForward.safeParse(request);
+      if (!parsed.success) throw errors.invalidInput("SSH 转发规则配置无效");
+      const input = parsed.data;
+      const save = async (scope?: ForwardRuleScope) => {
+        const result = await forwarding.save(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-forward", id: result.id, op: input.previous ? "updated" : "created" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return save();
+      if (!hostIntents || !bindings || !intentKey || !input.previous) throw errors.invalidInput("外部编辑需要原转发规则、主机路由版本和意图键");
+      const { scope, authorize } = forwardRuleScope(context, bindings);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.forwardRulesSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: ForwardRuleReceipt,
+        authorize,
+        run: async () => {
+          const { id, revision } = await save(scope);
+          return { id, revision };
+        },
+      });
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.forwardRulesDelete, async ({ signal }, input) => {
-      const result = await forwarding.delete(input, signal);
-      api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.forwardRulesDelete, (context, { bindings, intentKey, ...input }) => {
+      const remove = async (scope?: ForwardRuleScope) => {
+        const result = await forwarding.delete(input, context.signal, scope);
+        api.events.publish("entity.changed", { kind: "ssh-forward", id: input.id, op: "deleted" });
+        return result;
+      };
+      if (isWorkbenchCaller(context.caller)) return remove();
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除规则需要主机路由版本和意图键");
+      const { scope, authorize } = forwardRuleScope(context, bindings);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.forwardRulesDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.forwardRulesDelete.output,
+        authorize,
+        run: () => remove(scope),
+      });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsList, () => forwarding.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRunsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return forwarding.list();
+      const rules = new Map(visibleForwardRules(context).map(({ rule, route }) => [rule.id, { revision: rule.revision, connectionIdentity: route.connectionIdentity }]));
+      return forwarding.visibleRuns(rules);
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStart, ({ signal }, input) => forwarding.start(input, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsResume, ({ signal }, input) => forwarding.start(input, signal, true)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStop, ({ signal }, input) => forwarding.stop(input, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, () => templates.list()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, ({ signal }, i) => templates.save(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, ({ signal }, i) => templates.delete(i, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return templates.list();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      return templates
+        .list()
+        .filter(({ panes }) => panes.every(({ hostId, target }) => routes.get(hostId)?.targetIdentity === target))
+        .map((template) => ({ ...template, panes: template.panes.map(({ hostId, target }) => ({ hostId, target })) }));
+    }),
+  );
+  const templateWriteScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2], hostIds: readonly string[], editing: boolean) => {
+    const configuration = configurationRoutes(context, bindings);
+    return {
+      authorize: configuration.authorize,
+      scope: (previous: WorkspaceTemplate | undefined) => {
+        if (editing && !previous) throw errors.notFound("SSH 工作区模板");
+        const original = previous?.panes ?? [];
+        const routes = configuration.require([...hostIds, ...original.map(({ hostId }) => hostId)]);
+        if (original.some(({ hostId, target }) => routes.get(hostId)?.targetIdentity !== target)) throw errors.notFound("当前授权内的 SSH 工作区模板绑定");
+        return new Map([...routes].map(([id, route]) => [id, route.targetIdentity]));
+      },
+    };
+  };
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesSave, (context, { bindings, intentKey, ...input }) => {
+      if (isWorkbenchCaller(context.caller)) return templates.save(input, context.signal);
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部保存模板需要主机路由版本和意图键");
+      if (input.panes.some(({ loginCommand }) => loginCommand !== undefined) || input.rebindHostIds?.length) throw errors.permissionDenied("SSH 模板登录命令与端点重绑");
+      const hostIds = input.panes.map(({ hostId }) => hostId);
+      const { authorize, scope } = templateWriteScope(context, bindings, hostIds, input.previous !== undefined);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.workspaceTemplatesSave.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: WorkspaceTemplateReceipt,
+        authorize,
+        run: async () => {
+          const { id, revision } = await templates.save(input, context.signal, undefined, scope);
+          return { id, revision };
+        },
+      });
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.workspaceTemplatesDelete, (context, { bindings, intentKey, ...input }) => {
+      if (isWorkbenchCaller(context.caller)) return templates.delete(input, context.signal);
+      if (!hostIntents || !bindings || !intentKey) throw errors.invalidInput("外部删除模板需要主机路由版本和意图键");
+      const { authorize, scope } = templateWriteScope(context, bindings, [], true);
+      authorize();
+      return hostIntents.run(context, sshCapabilityDescriptors.workspaceTemplatesDelete.name, {
+        hosts: bindings.map(({ hostId }) => hostId),
+        intentKey,
+        input: { ...input, bindings },
+        output: sshCapabilityDescriptors.workspaceTemplatesDelete.output,
+        authorize,
+        run: () => templates.delete(input, context.signal, scope),
+      });
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsList, () => runs.list()));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsStart, ({ signal }, i) => runs.start(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsReconnect, ({ signal }, i) => runs.reconnect(i.id, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsClose, ({ signal }, i) => runs.close(i.id, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.workspaceRunsSaveTemplate, ({ signal }, i) => runs.saveTemplate(i.id, i.name, signal)));
-  api.defineCapability(hostImportPreview(hosts));
+  api.defineCapability(hostImportPreview(hosts, api.vault.files));
   api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsOrganize, async (context, request) => {
@@ -292,22 +473,50 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.connect, ({ caller, signal }, i) => {
-      if (!i.background) return manager.connect(i.hostId, signal);
+    bindCapability(sshCapabilityDescriptors.connect, (context, { hostId, background, routeRevision, intentKey }) => {
+      const { caller, signal } = context;
+      if (!isWorkbenchCaller(caller)) {
+        const input = StartPublicProbeIntent.safeParse({ hostId, routeRevision, intentKey });
+        if (background || !input.success || !input.data.intentKey) throw errors.invalidInput("外部连接核验需要主机路由版本和意图键");
+        readBoundRoute(api.vault.files, context, input.data);
+        return publicProbes.start(context, input.data);
+      }
+      if (!background) return manager.connect(hostId, signal);
       if (caller !== "desktop") throw errors.permissionDenied("ssh.connect");
       signal.throwIfAborted();
-      return manager.start(i.hostId);
+      return manager.start(hostId);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, () => manager.connectionStatuses()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, (context) => (isWorkbenchCaller(context.caller) ? manager.connectionStatuses() : publicProbes.currentStatuses(context))));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => {
-      if (i.accept && i.remember !== false) api.vault.files.assertWritable();
-      return { applied: manager.decide(i.attemptId, i.hop, i.accept, i.promptId, i.remember) };
+    bindCapability(sshCapabilityDescriptors.disconnect, (context, { hostId, attemptId, routeRevision }) => {
+      if (isWorkbenchCaller(context.caller)) {
+        manager.disconnect(hostId);
+        return { ok: true as const };
+      }
+      if (!attemptId || !routeRevision) throw errors.invalidInput("撤销外部连接核验需要原尝试和路由版本");
+      return publicProbes.cancel(context, { hostId, attemptId, routeRevision });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.knownHostsList, () => manager.knownHosts()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.hostKeyDecide, (context, { remember, ...request }) => {
+      if (!isWorkbenchCaller(context.caller)) {
+        const input = DecidePublicProbe.safeParse(request);
+        if (remember || !input.success) throw errors.invalidInput("外部信任决定需要原核验待答和精确指纹");
+        return publicProbes.decide(context, input.data, "probe");
+      }
+      if (request.accept && remember !== false) api.vault.files.assertWritable();
+      return { applied: manager.decide(request.attemptId, request.hop, request.accept, request.promptId, remember) };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.knownHostsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return manager.knownHosts();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      const addresses = new Set([...routes.values()].map(({ host, port }) => JSON.stringify([host, port])));
+      return manager.knownHosts().filter(({ host, port }) => addresses.has(JSON.stringify([host, port])));
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.knownHostsForget, async (_c, key) => {
       api.vault.files.assertWritable();
@@ -317,8 +526,26 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.execCancel, (_c, i) => ({ cancelled: manager.cancel(i.execId) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.execCancel, (context, { execId, jobId, hostId, routeRevision }) => {
+      if (isWorkbenchCaller(context.caller)) {
+        if (execId === undefined) throw errors.invalidInput("缺少 SSH 命令 ID");
+        return { cancelled: manager.cancel(execId) };
+      }
+      if (execId !== undefined || !jobId || !hostId || !routeRevision) throw errors.invalidInput("取消外部 SSH 作业需要作业、主机和路由版本");
+      if (!publicJobs) throw errors.notFound("SSH 作业");
+      return { cancelled: publicJobs.cancel(context, jobId, { hostId, routeRevision }).requested };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.auditList, (context, { hostId, limit }) => {
+      if (isWorkbenchCaller(context.caller)) return manager.auditList(hostId, limit);
+      const owner = externalSshOwner(context);
+      const routes = visibleSshRoutes(api.vault.files, context);
+      if (hostId !== undefined && !routes.has(hostId)) throw errors.permissionDenied("SSH 主机授权");
+      return manager.externalAuditList(owner, routes, hostId, limit);
+    }),
+  );
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (_c, i) => files.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveSupport, ({ signal }, i) => archives.support(i.fileSessionId, signal)));

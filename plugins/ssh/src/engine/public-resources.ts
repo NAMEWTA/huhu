@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { errors, isWorkbenchCaller } from "@huhu/contracts";
+import { CapabilityIntentKeySchema, errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
 import type { ManagedHost } from "./host-configurations.js";
-import { routeForHost, workspaceTarget } from "./workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 
 export const ResourceHostId = z.strictObject({ hostId: OwnedHostId });
 const revision = ManagedHostView.shape.revision;
@@ -21,6 +21,11 @@ export const ResourceHost = routeHop.extend({
   routeRevision: SshRouteRevision,
   route: z.array(routeHop),
 });
+const RouteBinding = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
+export const RouteIntentFields = {
+  intentKey: CapabilityIntentKeySchema.optional(),
+  bindings: z.array(RouteBinding).min(1).max(24).optional(),
+};
 export const PublicHostView = z.strictObject({
   id: OwnedHostId,
   ...ManagedHostView.pick({ name: true, host: true, port: true, user: true, tags: true, revision: true }).shape,
@@ -88,11 +93,46 @@ export function readPortableHosts(files: Files, ids: ReadonlySet<string>): Manag
 
 export function readResourceRoute(files: Files, hostId: string) {
   const chain = routeForHost({ get: (id) => readPortableHost(files, id) }, hostId);
+  return { chain, view: resourceView(chain) };
+}
+
+type VisibleSshRoute = ResourceHost & { user: string; targetIdentity: string; connectionIdentity: string };
+
+export function boundSshRoutes(files: Files, context: CapabilityContext, bindings: readonly z.infer<typeof RouteBinding>[]) {
+  const visible = visibleSshRoutes(files, context);
+  const routes = new Map<string, VisibleSshRoute>();
+  for (const { hostId, routeRevision } of bindings) {
+    if (routes.has(hostId)) throw errors.invalidInput("主机路由绑定不能重复");
+    const route = visible.get(hostId);
+    if (!route) throw errors.permissionDenied("SSH 主机授权");
+    if (route.routeRevision !== routeRevision) throw errors.versionConflict(route.routeRevision);
+    routes.set(hostId, route);
+  }
+  return routes;
+}
+
+export function visibleSshRoutes(files: Files, context: CapabilityContext): ReadonlyMap<string, VisibleSshRoute> {
+  externalSshOwner(context);
+  const hosts = new Map(readPortableHosts(files, selectedSshHosts(context)).map((host) => [host.id, host]));
+  const routes = new Map<string, VisibleSshRoute>();
+  for (const id of hosts.keys()) {
+    try {
+      const chain = routeForHost(hosts, id);
+      const targetIdentity = workspaceTarget(chain);
+      routes.set(id, { ...resourceView(chain, targetIdentity), user: chain.at(-1)!.user, targetIdentity, connectionIdentity: connectionIdentity(chain) });
+    } catch (error) {
+      // Deleted, ungranted or invalid hops make the whole route unavailable.
+      if (!(error instanceof HuhuError) || (error.code !== "NOT_FOUND" && error.code !== "INVALID_INPUT")) throw error;
+    }
+  }
+  return routes;
+}
+
+function resourceView(chain: readonly ManagedHost[], targetIdentity = workspaceTarget(chain)): ResourceHost {
   const resourceRoute = chain.map(({ id, revision, host, port }) => ({ hostId: id, revision, host, port }));
   const boundRevision = createHash("sha256")
-    .update(JSON.stringify([workspaceTarget(chain), chain.map(({ revision, configId }) => [revision, configId])]))
+    .update(JSON.stringify([targetIdentity, chain.map(({ revision, configId }) => [revision, configId])]))
     .digest("hex");
   const target = chain.at(-1)!;
-  const view: z.infer<typeof ResourceHost> = { ...resourceRoute.at(-1)!, name: target.name, authKind: target.auth.kind, routeRevision: boundRevision, route: resourceRoute };
-  return { chain, view };
+  return { ...resourceRoute.at(-1)!, name: target.name, authKind: target.auth.kind, routeRevision: boundRevision, route: resourceRoute };
 }
