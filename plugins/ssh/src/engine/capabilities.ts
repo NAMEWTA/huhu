@@ -26,6 +26,7 @@ import { UpdateVaultPreferences, VaultPreferencesSnapshot } from "../shared/pref
 import { PublicHostView, ResourceHost, ResourceHostId, RouteIntentFields } from "./public-resources.js";
 import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIntent } from "./public-probes.js";
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
+import { ChangeOwnedShell, OpenOwnedShell, ReadOwnedShell, ResizeOwnedShell, Shell, ShellCloseReceipt, ShellOutputPage, ShellResizeReceipt, ShellSize, ShellWriteReceipt, WriteOwnedShell } from "./public-shells.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardDestination, ForwardMode, ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -61,7 +62,6 @@ const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
 const fileTarget = <T extends z.ZodRawShape>(shape: T) => z.union([FileSessionId.extend(shape), LegacySftpHost.extend(shape)]);
 const Size = z.object({ size: z.number() });
-const Shell = z.object({ id: z.string(), hostId: z.string(), name: z.string(), state: z.enum(["running", "ended"]), createdAt: z.string() });
 
 export const sshCapabilityDescriptors = {
   jobsPrepare: defineCapabilityDescriptor({
@@ -627,7 +627,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.connect",
     title: "连接 SSH 主机",
-    description: "使用已保存配置建立连接。外部调用使用意图键完成一次认证核验，返回可查询的尝试 ID。",
+    description: "使用已保存配置建立连接。外部连接由原主体持有，使用意图键创建并返回连接尝试 ID。",
     scope: "execute",
     risk: "high",
     timeoutMs: 5 * 60_000,
@@ -644,7 +644,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.connections.status",
     title: "查看 SSH 连接状态和待答指纹",
-    description: "读取当前连接尝试及待答跳点。外部调用只读取本主体、当前获准路由的核验和作业连接状态。",
+    description: "读取当前连接尝试及待答跳点。外部调用只读取本主体、当前获准路由的连接、核验和作业连接状态。",
     scope: "read",
     risk: "normal",
     input: z.object({}),
@@ -654,7 +654,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.disconnect",
     title: "断开 SSH 连接",
-    description: "关闭活动连接。外部调用仅能撤销本主体的原连接核验。",
+    description: "关闭活动连接。外部调用仅能用原尝试 ID 关闭本主体的连接或核验。",
     scope: "execute",
     risk: "high",
     idempotency: "handler",
@@ -665,7 +665,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.hostKey.decide",
     title: "处理 SSH 主机密钥",
-    description: "批准或拒绝指定连接尝试中的一跳主机密钥。外部调用只能处理本主体原核验的首次待答，信任仅用于该次核验。",
+    description: "批准或拒绝指定连接尝试中的一跳主机密钥。外部调用只能处理本主体原尝试的首次待答，信任仅用于该次连接。",
     scope: "execute",
     risk: "high",
     idempotency: "handler",
@@ -984,33 +984,67 @@ export const sshCapabilityDescriptors = {
     output: Ok,
   }),
   shellsOpen: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.shells.open",
     title: "打开 SSH Shell",
-    description: "在已连接主机上启动交互 Shell。",
+    description: "在已连接主机上启动交互 Shell。外部工具提供本主体的连接尝试和路由版本，使用 intentKey 重取原 shellId。",
     scope: "execute",
     risk: "high",
-    input: z.object({ hostId: z.string(), cols: z.number().int().min(1).max(500).default(80), rows: z.number().int().min(1).max(500).default(24) }),
+    idempotency: "handler",
+    input: z.union([OpenOwnedShell, z.strictObject({ hostId: z.string(), ...ShellSize })]),
     output: Shell,
   }),
   shellsList: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.shells.list",
     title: "列出 SSH Shell",
-    description: "列出当前 Shell 会话，可按主机筛选。",
+    description: "列出当前 Shell 会话。外部工具仅列出本主体在当前授权路由上的会话。",
     scope: "read",
     risk: "normal",
     input: z.object({ hostId: z.string().optional() }),
     output: z.array(Shell),
   }),
   shellsClose: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.shells.close",
     title: "关闭 SSH Shell",
-    description: "结束指定的交互 Shell。",
+    description: "结束指定的交互 Shell。外部工具提供本主体的 shellId 和 intentKey。",
     scope: "execute",
     risk: "high",
-    input: z.object({ id: z.string() }),
-    output: z.object({ closed: z.boolean() }),
+    idempotency: "handler",
+    input: z.union([ChangeOwnedShell, z.strictObject({ id: z.string() })]),
+    output: ShellCloseReceipt,
+  }),
+  shellsRead: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.shells.read",
+    title: "分页读取 SSH 终端输出",
+    description: "使用 UTF-8 字节游标读取本主体终端的有界输出，可以短时等待新字节。",
+    scope: "read",
+    risk: "normal",
+    input: ReadOwnedShell,
+    output: ShellOutputPage,
+  }),
+  shellsWrite: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.shells.write",
+    title: "写入 SSH 终端",
+    description: "将最多 16 KiB 的 base64 字节写入本主体终端。同一意图只写入一次。",
+    scope: "execute",
+    risk: "high",
+    idempotency: "handler",
+    input: WriteOwnedShell,
+    output: ShellWriteReceipt,
+  }),
+  shellsResize: defineCapabilityDescriptor({
+    ...resource,
+    name: "ssh.shells.resize",
+    title: "调整 SSH 终端尺寸",
+    description: "更新本主体终端的行列数。",
+    scope: "execute",
+    risk: "normal",
+    idempotency: "handler",
+    input: ResizeOwnedShell,
+    output: ShellResizeReceipt,
   }),
 } as const;

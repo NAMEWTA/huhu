@@ -97,3 +97,10 @@ CLI 和 HTTP MCP 检查未授权冲突不显示、同内容令牌按主体隔离
 保存和删除可逐项开放，默认关闭。外部保存只为原闲置规则改名，按原规则修订、完整授权路由及意图键校验。删除也只接受原闲置规则。监听、出口、代理类型、自动恢复配置及活跃运行继续由工作台管理。
 
 CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出口变更拒绝，以及活跃规则写入拒绝。最终单文件 Vitest 26 项通过。Task04 累计 19 个可选工具，其余 56 项保留既有关闭状态，见 t2y/report04.md。
+
+## Task05 第一批 · 外部连接、PTY 和现有 Exec 作业撤权
+
+- `ssh.connect` 建立稳定意图绑定的持续连接。`ssh.resources.connection.start` 仍用于短时核验。外部状态、断线和信任决定沿主体与原路由查找。工作台展示并可断开外部连接。
+- `ssh.shells.open`、`ssh.shells.list`、`ssh.shells.close` 转为默认关闭的可选工具，新增 `ssh.shells.read`、`ssh.shells.write`、`ssh.shells.resize`。PTY 不接工作台 WebSocket，工作台可查看来源并关闭。输出保留在内存，字节输入使用保护存储的 HMAC 绑定意图。
+- 已有 `ssh.jobs.*` 作业和探针在 SSH 主机授权变更后主动释放连接。撤权作业在原主体恢复、主机重新授权后仍禁止访问。输出以有限 UTF-8 字节游标读取，可等待至多 5 秒。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 定向 8 项和 `domain-exposure.engine.test.ts` 2 项通过。新增 `tests/e2e/ssh/owned.spec.ts` 的 CLI / HTTP MCP 用例由 Lead 运行。

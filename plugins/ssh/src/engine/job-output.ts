@@ -16,7 +16,9 @@ export function unavailableOutput(cursor: number, endCursor: number) {
 export class ExecOutput {
   private readonly decoder = new StringDecoder("utf8");
   private readonly ring = Buffer.allocUnsafe(retentionBytes);
+  private readonly listeners = new Set<() => void>();
   private position = 0;
+  private ended = false;
 
   get endCursor() {
     return this.position;
@@ -27,7 +29,10 @@ export class ExecOutput {
   }
 
   finish(): void {
+    if (this.ended) return;
+    this.ended = true;
     this.appendText(this.decoder.end());
+    for (const notify of this.listeners) notify();
   }
 
   private appendText(text: string) {
@@ -39,6 +44,25 @@ export class ExecOutput {
     bytes.copy(this.ring, offset, start, firstEnd);
     if (firstEnd < bytes.length) bytes.copy(this.ring, 0, firstEnd);
     this.position += bytes.length;
+    for (const notify of this.listeners) notify();
+  }
+
+  async wait(cursor: number, waitMs: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (!waitMs || this.ended || cursor !== this.endCursor) return;
+    if (this.listeners.size >= 8) throw errors.invalidInput("SSH 输出等待数量已达上限");
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", done);
+        this.listeners.delete(done);
+        resolve();
+      };
+      const timer = setTimeout(done, waitMs);
+      this.listeners.add(done);
+      signal.addEventListener("abort", done, { once: true });
+    });
+    signal.throwIfAborted();
   }
 
   read(cursor: number, limit: number) {
