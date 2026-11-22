@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
 import { errors, newVaultId } from "@huhu/contracts";
 import { Zip, ZipDeflate, unzipSync } from "fflate";
 import { z } from "zod";
 import { normalizeRelPath } from "../paths.js";
+import { renameNoReplace } from "../rename.js";
 import { HUHU_DIR, VaultJsonSchema } from "../vault.js";
-import { CREATION_STAGE_PREFIX } from "../write.js";
+import { CREATION_STAGE_PREFIX, VaultFiles } from "../write.js";
 
 export const PACKAGE_MANIFEST = "huhu-package.json";
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;
@@ -21,6 +22,7 @@ const ManifestSchema = z.object({
   files: z.array(z.object({ path: z.string(), sha256: z.string(), size: z.number().int().min(0) })),
 });
 export type PackageManifest = z.infer<typeof ManifestSchema>;
+export type ValidatePackageStaging = (files: VaultFiles, restored: ReadonlyMap<string, string>) => void;
 
 const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history", "gateways.json"]);
 const IGNORED_ROOT = new Set([".git", "node_modules", ".agents"]);
@@ -128,8 +130,9 @@ function reject(msg: string): never {
  * 导入数据包到空目录 `targetRoot`：先完整校验，再解压到临时目录，最后移动；任何失败都不留文件。
  * 目标已含同 id 的 Vault 时生成新 id（`existingVaultIds`）。
  */
-export function importPackage(zipPath: string, targetRoot: string, opts: { existingVaultIds?: string[]; regenerateId?: boolean } = {}): { vaultId: string; files: number } {
-  if (existsSync(targetRoot) && readdirSync(targetRoot).length > 0) reject("目标目录必须为空");
+export function importPackage(zipPath: string, targetRoot: string, opts: { existingVaultIds?: string[]; regenerateId?: boolean; validateStaging?: ValidatePackageStaging } = {}): { vaultId: string; files: number } {
+  const target = lstatSync(targetRoot, { throwIfNoEntry: false });
+  if (target && (!target.isDirectory() || readdirSync(targetRoot).length > 0)) reject("目标目录必须为空");
   const zipBytes = readFileSync(zipPath);
   let entries: Record<string, Uint8Array>;
   try {
@@ -180,17 +183,15 @@ export function importPackage(zipPath: string, targetRoot: string, opts: { exist
     }
     const vjPath = path.join(tmp, HUHU_DIR, "vault.json");
     const vj = VaultJsonSchema.parse(JSON.parse(readFileSync(vjPath, "utf8")));
+    opts.validateStaging?.(new VaultFiles(tmp, undefined, true), new Map(restorable.map(({ path, sha256 }) => [path, sha256])));
     if (opts.regenerateId || opts.existingVaultIds?.includes(vj.id)) {
       vj.id = newVaultId();
       writeFileSync(vjPath, JSON.stringify(vj, null, 2) + "\n");
     }
-    if (existsSync(targetRoot)) rmSync(targetRoot, { recursive: true });
-    renameSync(tmp, targetRoot);
+    if (target) rmdirSync(targetRoot);
+    renameNoReplace(tmp, targetRoot, targetRoot);
     return { vaultId: vj.id, files: restorable.length };
-  } catch (e) {
-    rmSync(tmp, { recursive: true, force: true });
-    throw e;
   } finally {
-    if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
+    rmSync(tmp, { recursive: true, force: true });
   }
 }

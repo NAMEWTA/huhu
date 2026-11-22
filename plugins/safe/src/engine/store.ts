@@ -176,6 +176,14 @@ export function withSafePackageSnapshot<T>(files: SafeFiles, read: (required: Re
   return withSafeSnapshot(files, () => read(new SafeStore(files, path.join(files.root, SAFE_DIR)).packageFiles()));
 }
 
+export function validateSafePackage(files: SafeFiles): void {
+  try {
+    new SafeStore(files, path.join(files.root, SAFE_DIR)).packageFiles();
+  } catch {
+    throw errors.invalidInput("数据包中的保险箱文件不完整或格式无效");
+  }
+}
+
 export function safeGitSnapshots(files: SafeFiles) {
   const store = new SafeStore(files, path.join(files.root, SAFE_DIR));
   return {
@@ -336,7 +344,7 @@ export class SafeStore {
     for (const file of currentPaths(this.relativeDir, state.manifest)) {
       if (!entryAt(this.files.abs(file))?.isFile()) throw corruptStore(`${forOperation}所需的保险箱文件`);
       const snapshot = this.files.read(file);
-      if (!snapshot) throw corruptStore(`${forOperation}所需的保险箱文件`);
+      if (!snapshot || (file.endsWith(".bin") && !hasSealedEnvelope(snapshot.bytes))) throw corruptStore(`${forOperation}所需的保险箱文件`);
       required.set(file, capture(snapshot.bytes));
     }
     this.assertVersion(state);

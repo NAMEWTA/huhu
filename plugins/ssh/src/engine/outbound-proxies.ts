@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 import type { Duplex } from "node:stream";
 import { errors, HuhuError } from "@huhu/contracts";
@@ -20,17 +20,27 @@ const settings = ProxyRouting.pick({ defaultProfileId: true }).extend({ format: 
 const credentialModule = "ssh.proxy";
 const purposes = ["username", "password"] as const;
 
-function routing(files: Files): ProxyRouting {
+function routing(files: Files, onBytes?: (bytes: Buffer) => void): ProxyRouting {
   const file = files.read(defaultFile);
   if (!file) {
     if (files.exists(defaultFile)) throw errors.invalidInput("SSH 出站代理设置路径应为普通文件");
     return { defaultProfileId: null, revision: null };
   }
   try {
-    return { defaultProfileId: settings.parse(JSON.parse(file.bytes.toString("utf8"))).defaultProfileId, revision: file.version };
+    const { defaultProfileId } = settings.strict().parse(JSON.parse(file.bytes.toString("utf8")));
+    onBytes?.(file.bytes);
+    return { defaultProfileId, revision: file.version };
   } catch {
     throw errors.invalidInput("SSH 出站代理设置格式无效");
   }
+}
+
+export function outboundProxyPackageFiles(files: Files) {
+  let sha256: string | null = null;
+  routing(files, (bytes) => {
+    sha256 = createHash("sha256").update(bytes).digest("hex");
+  });
+  return [ModuleCredentials.portablePackageFile(files, credentialModule, ProxyDefinition), { path: defaultFile, sha256 }];
 }
 
 function profileRows(files: Files) {

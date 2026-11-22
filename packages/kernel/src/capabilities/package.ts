@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream, existsSync, lstatSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
-import { directoryInstance, exportPackage, importPackage, protectedKindOf, type Vault } from "@huhu/vault";
+import { directoryInstance, exportPackage, importPackage, protectedKindOf, type ValidatePackageStaging, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import type { CapabilityRegistry } from "./define.js";
 import { durableExternal, registerKernelCapability } from "./system.js";
@@ -49,7 +49,11 @@ function sha256File(file: string): Promise<string> {
   });
 }
 
-type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "includeFile" | "verifyFiles">;
+type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "includeFile" | "verifyFiles"> & { externalFiles?: ReadonlySet<string> };
+type PackageOptions = {
+  withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal) => Promise<T>;
+  validateStaging?: ValidatePackageStaging;
+};
 const packageId = z.uuidv4();
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -68,7 +72,7 @@ function privateChild(parent: string, name: string, create: boolean): string {
   return child;
 }
 
-export function registerPackageCapabilities(registry: CapabilityRegistry, vault: Vault, withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal) => Promise<T>): () => void {
+export function registerPackageCapabilities(registry: CapabilityRegistry, vault: Vault, { withSnapshot, validateStaging }: PackageOptions = {}): () => void {
   const publicTool = { plugin: "kernel", exposable: true, defaultExposed: false, desktopOnly: true } as const;
   const exporting = new Set<string>();
   function packageDirectory(caller: string, subject: string | undefined, create: boolean): string {
@@ -116,7 +120,7 @@ export function registerPackageCapabilities(registry: CapabilityRegistry, vault:
             ...(external && {
               includeFile: (relative: string) => {
                 if (selection?.includeFile?.(relative) === false) return false;
-                if (!protectedKindOf(relative)) return true;
+                if (!protectedKindOf(relative) || selection?.externalFiles?.has(relative)) return true;
                 const state = relative.toLowerCase();
                 return state === ".huhu/vault.json" || state.startsWith(".huhu/home/") || state.startsWith(".huhu/guide/") || (!!selection && (state.startsWith(".huhu/safe/") || state.startsWith(".huhu/mail/")));
               },
@@ -167,7 +171,7 @@ export function registerPackageCapabilities(registry: CapabilityRegistry, vault:
         const target = realish(targetDir);
         if (within(root, target) || within(target, root)) throw errors.invalidInput("目标目录不能在当前 Vault 里面，也不能包含它");
         // 同 id 的 Vault 已经打开着：导入的副本生成新的 id，避免两个 Vault 共用一个标识
-        const r = importPackage(zipPath, targetDir, { existingVaultIds: [vault.id], regenerateId: external });
+        const r = importPackage(zipPath, targetDir, { existingVaultIds: [vault.id], regenerateId: external, ...(validateStaging && { validateStaging }) });
         return { vaultId: r.vaultId, files: r.files, targetDir };
       },
     }),

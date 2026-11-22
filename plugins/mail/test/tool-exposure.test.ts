@@ -84,7 +84,7 @@ async function external(entry: Entry, engine: RunningEngine, token: string, reco
       return JSON.parse(output.join("")) as CapabilityResult<T>;
     };
     return {
-      call: <T = unknown>(name: string, input: unknown = {}) => cli<T>("call", name, "--input-json", JSON.stringify(input)),
+      call: <T = unknown>(name: string, input: unknown = {}, intentKey?: string) => cli<T>("call", name, "--input-json", JSON.stringify(input), ...(intentKey ? ["--intent-key", intentKey] : [])),
       list: async () => unwrap(await cli<{ name: string }[]>("capabilities", "list")).map(({ name }) => name),
       recovery: undefined,
     };
@@ -97,8 +97,8 @@ async function external(entry: Entry, engine: RunningEngine, token: string, reco
     return ((await response.json()) as { result: { tools?: { name: string; inputSchema: object }[]; isError?: boolean; content?: { text: string }[]; structuredContent?: { data: unknown } } }).result;
   };
   return {
-    call: async <T = unknown>(name: string, input: unknown = {}): Promise<CapabilityResult<T>> => {
-      const result = await rpc("tools/call", { name: name.replaceAll(".", "_"), arguments: input });
+    call: async <T = unknown>(name: string, input: unknown = {}, intentKey?: string): Promise<CapabilityResult<T>> => {
+      const result = await rpc("tools/call", { name: name.replaceAll(".", "_"), arguments: input, ...(intentKey && { _meta: { "huhu.dev/intent-key": intentKey } }) });
       return result.isError ? { ok: false, error: JSON.parse(result.content![0]!.text) } : { ok: true, data: result.structuredContent!.data as T };
     },
     list: async () =>
@@ -139,6 +139,161 @@ test("Mail 静态目录完整，默认关闭且秘密编辑和工作台批准不
       .sort(),
   ).toEqual(["mail.ai.approvals.approve", "mail.ai.approvals.cancel", "mail.ai.approvals.review", "mail.ai.saveSettings", "mail.ai.verifyConnection", "mail.drafts.beginAttachmentUpload", "mail.drafts.cancelAttachmentUpload"]);
 });
+
+test.each(entries)(
+  "保险箱锁定时 Mail 仍可按授权认证，整库包恢复定义和受管附件（%s）",
+  async (entry) => {
+    const root = mkdtempSync(path.join(tmpdir(), "huhu-portable-vault-"));
+    const vaultPath = path.join(root, "vault");
+    const desktopUserData = path.join(root, "desktop");
+    mkdirSync(vaultPath);
+    mkdirSync(desktopUserData);
+    const message = { uidValidity: 31, uid: 9, subject: "备份夹具", source: "From: sender@example.invalid\r\nSubject: backup fixture\r\n\r\nBody" };
+    const imap = await openImapFixture({ windows: { INBOX: { uidValidity: 31, messages: [message] } }, acceptPassword: (value) => value === password });
+    const smtp = await loopbackSmtp(password);
+    const engines: RunningEngine[] = [];
+    const start = async (vaultPath: string, create = false) => {
+      const engine = await boot({ vaultPath, desktopUserData, create });
+      engines.push(engine);
+      return engine;
+    };
+    try {
+      const engine = await start(vaultPath, true);
+      const desktop = asWorkbench(engine);
+      const changeAccess = async (capability: string, exposed: boolean) => unwrap(await desktop("gateway.update", { capability, exposed }));
+      const { token } = unwrap(await desktop<{ token: string }>("gateway.tokens.create", { name: "临时包测试" }));
+      unwrap(await desktop("gateway.mcp.update", { enabled: true, transport: "http" }));
+      const tool = await external(entry, engine, token);
+      expect(await tool.list()).not.toContain("mail.sync.refresh");
+      expect(await tool.call("mail.accounts.list")).toMatchObject(closed);
+      expect(await tool.call("safe.accounts.reveal")).toMatchObject(closed);
+
+      const { setupId } = unwrap(await desktop<{ setupId: string }>("mail.accounts.testConnection", { requestId: randomUUID(), settings: accountAuth(imap.port, smtp.port, sender), password }));
+      const { accountId } = unwrap(await desktop<{ accountId: string }>("mail.accounts.save", { setupId, folders: ["INBOX"] }));
+      type AccountList = { accounts: { accountId: string; revision: string; authState: Record<string, string> }[] };
+      const { revision } = unwrap(await desktop<AccountList>("mail.accounts.list")).accounts[0]!;
+      const sshSecret = `ssh-${randomUUID()}`;
+      const { hostId } = unwrap(
+        await desktop<{ hostId: string }>("ssh.hosts.configure", {
+          name: "备份测试主机",
+          host: "127.0.0.1",
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: sshSecret }],
+        }),
+      );
+      const safePassword = `safe-${randomUUID()}`;
+      const safeSecrets = [randomUUID(), randomUUID(), randomUUID()];
+      const accounts = safeSecrets.map((password, i) => ({ account: `账号 ${i + 1}`, password }));
+      unwrap(await desktop("safe.setup", { password: safePassword }));
+      const session = unwrap(await desktop("safe.status"));
+      const { tagId } = unwrap(await desktop<{ tagId: string }>("safe.tags.create", { session, expectedRevision: 0, name: "归档夹具", color: "purple" }));
+      const { entryId, accountIds } = unwrap(await desktop<{ entryId: string; accountIds: string[] }>("safe.entries.create", { session, expectedRevision: 1, name: "恢复夹具", accounts, tagIds: [tagId] }));
+      unwrap(await desktop("safe.lock"));
+      expect(unwrap(await desktop("safe.status"))).toMatchObject({ initialized: true, locked: true });
+
+      const logins = () => imap.commands.filter((command) => command === "LOGIN").length;
+      const refresh = () => ({ accountId, folder: "INBOX", expectedRevision: revision, requestId: randomUUID() });
+      expect(await tool.call("mail.sync.refresh", refresh())).toMatchObject(closed);
+      await changeAccess("mail.accounts.list", true);
+      await changeAccess("mail.sync.refresh", true);
+      expect(unwrap(await tool.call<AccountList>("mail.accounts.list")).accounts).toMatchObject([{ accountId }]);
+      const before = logins();
+      expect(unwrap(await tool.call("mail.sync.refresh", refresh()))).toMatchObject({ message: { localMessageId: expect.any(String) } });
+      expect(logins()).toBeGreaterThan(before);
+      await changeAccess("mail.sync.refresh", false);
+      expect(await tool.list()).not.toContain("mail.sync.refresh");
+      const after = logins();
+      expect(await tool.call("mail.sync.refresh", refresh())).toMatchObject(closed);
+      expect(logins()).toBe(after);
+      expect(unwrap(await desktop("mail.sync.refresh", refresh()))).toMatchObject({ message: { localMessageId: expect.any(String) } });
+      expect(unwrap(await desktop("safe.status"))).toMatchObject({ locked: true });
+
+      const draftId = randomUUID();
+      const { revision: draftRevision } = unwrap(await desktop<{ revision: string }>("mail.drafts.save", { draftId, expectedRevision: null, draft: { accountId, subject: "恢复附件", to: [], cc: [], bcc: [], body: { type: "doc" } } }));
+      const managed = services.get(vaultPath);
+      assert(managed);
+      const bytes = Buffer.from("只保存已引用的合成附件。");
+      const attachmentDigest = createHash("sha256").update(bytes).digest("hex");
+      const attachment = `.huhu/mail/attachments/${attachmentDigest}`;
+      await managed.addAttachment(
+        { draftId, expectedRevision: draftRevision },
+        {
+          name: "fixture.txt",
+          size: bytes.length,
+          async *read() {
+            yield bytes;
+          },
+        },
+      );
+
+      const packageId = randomUUID();
+      const extraDefinition = ".huhu/module-credentials/fixture-private.json";
+      await engine.vault.files.write(extraDefinition, Buffer.from("仅用于测试范围的合成文件"));
+      expect(await tool.call("vault.exportPackage", { packageId })).toMatchObject(closed);
+      await changeAccess("vault.exportPackage", true);
+      await changeAccess("vault.importPackage", true);
+      const backup = unwrap(await tool.call<{ path: string; sha256: string }>("vault.exportPackage", { packageId, includeAttachments: false }, randomUUID()));
+      expect(backup.sha256).toBe(createHash("sha256").update(readFileSync(backup.path)).digest("hex"));
+      const restore = unwrap(await tool.call<{ vaultId: string; targetDir: string }>("vault.importPackage", { packageId, expectedSha256: backup.sha256, restoreId: randomUUID() }, randomUUID()));
+      expect(restore.vaultId).not.toBe(engine.vault.id);
+      expect(readFileSync(path.join(restore.targetDir, attachment))).toEqual(bytes);
+      expect(existsSync(path.join(restore.targetDir, ".huhu/gateways.json"))).toBe(false);
+      expect(existsSync(path.join(restore.targetDir, ".huhu/runtime"))).toBe(false);
+      expect(existsSync(path.join(restore.targetDir, extraDefinition))).toBe(false);
+      const exported = readText(restore.targetDir, () => true);
+      for (const secret of [password, sshSecret, safePassword, ...safeSecrets]) expect(exported).not.toContain(secret);
+
+      const reopened = asWorkbench(await start(restore.targetDir));
+      expect(unwrap(await reopened<AccountList>("mail.accounts.list")).accounts).toMatchObject([{ accountId, authState: { "account-password": "needs-reconfiguration" } }]);
+      expect(unwrap(await reopened("mail.drafts.get", { draftId }))).toMatchObject({ draft: { accountId, attachments: [{ digest: attachmentDigest }] } });
+      expect(unwrap(await reopened("ssh.hosts.list"))).toMatchObject([{ id: hostId, configured: false }]);
+      unwrap(await reopened("safe.unlock", { password: safePassword }));
+      const restoredSession = unwrap(await reopened("safe.status"));
+      expect(unwrap(await reopened("safe.entries.get", { session: restoredSession, entryId }))).toMatchObject({ tagIds: [tagId], accounts: accounts.map(({ account }) => ({ account })) });
+      for (const [i, accountId] of accountIds.entries()) expect(unwrap(await reopened("safe.accounts.reveal", { session: restoredSession, entryId, accountId }))).toMatchObject({ password: safeSecrets[i] });
+      expect(smtp.counts.data).toBe(0);
+
+      if (entry === "CLI") {
+        for (const [name, omitted, problem] of [
+          ["safe", ".huhu/safe/current/keyring.json", "保险箱"],
+          ["mail", attachment, "邮件"],
+        ]) {
+          const incomplete = path.join(root, `${name}-missing.zip`);
+          await exportPackage(vaultPath, incomplete, { includeFile: (file) => file !== omitted });
+          const targetDir = path.join(root, `${name}-rejected`);
+          mkdirSync(targetDir);
+          expect(await desktop("vault.importPackage", { zipPath: incomplete, targetDir })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT", message: expect.stringContaining(problem!) } });
+          expect(readdirSync(targetDir)).toEqual([]);
+        }
+
+        const newSafePassword = `safe-${randomUUID()}`;
+        unwrap(await desktop("safe.unlock", { password: safePassword }));
+        const beforeRotation = unwrap(await desktop("safe.status"));
+        unwrap(await desktop("safe.changePassword", { session: beforeRotation, oldPassword: safePassword, newPassword: newSafePassword }));
+        unwrap(await desktop("safe.lock"));
+        const zipPath = path.join(root, "after-password-change.zip");
+        unwrap(await desktop("vault.exportPackage", { dest: zipPath }));
+        const targetDir = path.join(root, "after-password-change");
+        unwrap(await desktop("vault.importPackage", { zipPath, targetDir }));
+        const rotated = asWorkbench(await start(targetDir));
+        expect(await rotated("safe.unlock", { password: safePassword })).toMatchObject({ ok: false, error: { code: "SAFE_BAD_PASSWORD" } });
+        unwrap(await rotated("safe.unlock", { password: newSafePassword }));
+        const afterRotation = unwrap(await rotated("safe.status"));
+        expect(unwrap(await rotated("safe.entries.get", { session: afterRotation, entryId }))).toMatchObject({ tagIds: [tagId], accounts: accounts.map(({ account }) => ({ account })) });
+        for (const [i, accountId] of accountIds.entries()) expect(unwrap(await rotated("safe.accounts.reveal", { session: afterRotation, entryId, accountId }))).toMatchObject({ password: safeSecrets[i] });
+      }
+    } finally {
+      await Promise.all(engines.map((engine) => engine.shutdown()));
+      services.clear();
+      await imap.close();
+      await smtp.close();
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+    }
+  },
+  60_000,
+);
 
 test.each(entries)(
   "Mail 逐项默认关、开放、撤销、领域重交及 AI 一次性批准（%s）",

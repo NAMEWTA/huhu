@@ -95,6 +95,23 @@ describe("数据包", () => {
     writeFileSync(path.join(t, "x"), "1");
     expect(() => importPackage(zip, t)).toThrowError(/必须为空/);
   });
+  test("暂存核验期间写入原目标的文件不会被覆盖", async () => {
+    const zip = path.join(tmp(), "staged.zip");
+    await exportPackage(makeVault(), zip);
+    const target = tmp();
+    expect(() =>
+      importPackage(zip, target, {
+        validateStaging(files, restored) {
+          expect(files.readOnly).toBe(true);
+          expect(files.read("笔记.md")?.bytes.toString()).toBe("# 笔记\n");
+          expect(restored.get("笔记.md")).toBe(sha(Buffer.from("# 笔记\n")));
+          writeFileSync(path.join(target, "other.txt"), "保留");
+        },
+      }),
+    ).toThrow();
+    expect(readdirSync(target)).toEqual(["other.txt"]);
+    expect(readFileSync(path.join(target, "other.txt"), "utf8")).toBe("保留");
+  });
   const cases: [string, () => string, RegExp][] = [
     ["绝对路径", () => evilZip({ "/etc/x": "1", ".huhu/vault.json": VJ }), /非法路径/],
     ["..", () => evilZip({ "../escape.md": "1", ".huhu/vault.json": VJ }), /非法路径/],

@@ -196,28 +196,38 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       return r.data;
     },
   });
-  registerPackageCapabilities(registry, vault, (read, signal) =>
-    safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
-      mail.withMailSnapshot(vault.files, () => {
-        signal.throwIfAborted();
-        const mailSelection = mail.mailPackageSelection(vault.files);
-        return read(signal, {
-          includeFile(relative) {
-            const normalized = relative.toLowerCase();
-            if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
-            return mailSelection.includeFile(relative);
-          },
-          verifyFiles(files) {
-            const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
-            for (const [path, expected] of safeFiles) {
-              if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
-            }
-            mailSelection.verifyFiles(written);
-          },
-        });
-      }),
-    ),
-  );
+  registerPackageCapabilities(registry, vault, {
+    withSnapshot: (read, signal) =>
+      safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
+        mail.withMailSnapshot(vault.files, () => {
+          signal.throwIfAborted();
+          const mailSelection = mail.mailPackageSelection(vault.files);
+          const definitions = [mail.mailAccountPackageFile(vault.files), ...ssh.sshPortablePackageFiles(vault.files)];
+          return read(signal, {
+            externalFiles: new Set(definitions.map(({ path }) => path)),
+            includeFile(relative) {
+              const normalized = relative.toLowerCase();
+              if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
+              return mailSelection.includeFile(relative);
+            },
+            verifyFiles(files) {
+              const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
+              for (const { path, sha256 } of definitions) {
+                if ((written.get(path) ?? null) !== sha256) throw new HuhuError("VERSION_CONFLICT", "备份期间 Mail 或 SSH 定义已变化，请重新导出");
+              }
+              for (const [path, expected] of safeFiles) {
+                if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
+              }
+              mailSelection.verifyFiles(written);
+            },
+          });
+        }),
+      ),
+    validateStaging(files, restored) {
+      safe.validateSafePackage(files);
+      mail.validateMailPackage(files, restored);
+    },
+  });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
   const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);

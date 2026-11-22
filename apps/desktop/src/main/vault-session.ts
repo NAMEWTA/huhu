@@ -1,5 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { validateMailPackage } from "@huhu/plugin-mail/engine";
+import { validateSafePackage } from "@huhu/plugin-safe/engine";
 import { importPackage } from "@huhu/vault";
 
 export interface RecentVault {
@@ -53,7 +55,12 @@ export function importPackageTo(zipPath: string, target: string): OpenFailure | 
   const bad = checkEmptyTarget(target);
   if (bad) return bad;
   try {
-    importPackage(zipPath, target);
+    importPackage(zipPath, target, {
+      validateStaging(files, restored) {
+        validateSafePackage(files);
+        validateMailPackage(files, restored);
+      },
+    });
     return null;
   } catch (e) {
     const err = e as { code?: string; message?: string };

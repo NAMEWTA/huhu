@@ -9,6 +9,11 @@ import type { ConnectionAuth, SshCredentialHost } from "./host-configurations.js
 
 const KeyDefinition = SshKeySummary.pick({ name: true, keyType: true, publicKey: true, fingerprint: true, encrypted: true });
 type KeyDefinition = z.infer<typeof KeyDefinition>;
+const keysModule = "ssh.keys";
+
+export function keyLibraryPackageFile(files: SshCredentialHost["vault"]["files"]) {
+  return ModuleCredentials.portablePackageFile(files, keysModule, KeyDefinition.strict());
+}
 
 function translate(error: unknown): never {
   if (!(error instanceof CredentialError)) throw error;
@@ -53,7 +58,7 @@ export class KeyLibrary {
     if (host) {
       this.owner = new ModuleCredentials({
         ...host,
-        pluginId: "ssh.keys",
+        pluginId: keysModule,
         definition: KeyDefinition,
         targets: ({ encrypted }) => ({ privateKey: "", ...(encrypted ? { passphrase: "" } : {}) }),
       });

@@ -21,6 +21,11 @@ export type ConnectionAuth = Pick<ConnectConfig, "password" | "privateKey" | "pa
 
 type StoredHost = CredentialSummary & { definition: HostDefinition };
 type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
+const hostModule = "ssh";
+
+export function hostPackageFile(files: SshCredentialHost["vault"]["files"]) {
+  return ModuleCredentials.portablePackageFile(files, hostModule, HostDefinition);
+}
 
 function authError(reason: string): HuhuError {
   const message = reason === "identity-file-unavailable" ? "本机身份文件不可用，请检查路径和文件权限" : reason === "invalid-private-key-or-passphrase" ? "无法解锁私钥，请检查文件格式和口令" : "SSH 本机认证不可用，请在主机配置中检查凭据";
@@ -101,7 +106,7 @@ export class HostConfigurations {
     if (host) {
       this.owner = new ModuleCredentials({
         ...host,
-        pluginId: "ssh",
+        pluginId: hostModule,
         definition: HostDefinition,
         targets: (definition) => {
           if (definition.keyId) return {};

@@ -117,6 +117,14 @@ export function mailPackageSelection(files: VaultFiles) {
   };
 }
 
+export function validateMailPackage(files: VaultFiles, written: ReadonlyMap<string, string>): void {
+  try {
+    mailPackageSelection(files).verifyFiles(written);
+  } catch {
+    throw errors.invalidInput("数据包中的邮件记录或引用的附件不完整");
+  }
+}
+
 const snapshotTails = new WeakMap<VaultFiles, Promise<void>>();
 
 /** Keep the same writer boundary even if Mail is disabled or installed again during export. */

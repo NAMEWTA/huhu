@@ -12,12 +12,13 @@ import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
 import { registerSshDraft } from "./draft-connection.js";
 import { HostStore } from "./hosts.js";
-import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
+import { HostConfigurations, hostPackageFile, type SshCredentialHost } from "./host-configurations.js";
 import { HostIntents, sealCredentialPatches } from "./host-intents.js";
 import { hostImportCapabilities } from "./import/capability.js";
 import { registerSshKeys } from "./key-library-capabilities.js";
+import { keyLibraryPackageFile } from "./key-library.js";
 import { registerSshLocalShells, type LaunchLocalPty } from "./local-shell.js";
-import { OutboundProxies, effectiveOutboundProxy } from "./outbound-proxies.js";
+import { OutboundProxies, effectiveOutboundProxy, outboundProxyPackageFiles } from "./outbound-proxies.js";
 import { registerOutboundProxies } from "./outbound-proxy-capabilities.js";
 import { dialOutboundProxy } from "./outbound-proxy-dial.js";
 import { SshManager } from "./manager.js";
@@ -55,6 +56,10 @@ export { createHerdrLocalPty } from "./local-pty-herdr.js";
 
 export function hasSavedSshHosts(files: HuhuApi["vault"]["files"], ids: readonly string[]): boolean {
   return readPortableHosts(files, new Set(ids)).length === ids.length;
+}
+
+export function sshPortablePackageFiles(files: HuhuApi["vault"]["files"]) {
+  return [hostPackageFile(files), keyLibraryPackageFile(files), ...outboundProxyPackageFiles(files)];
 }
 
 export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost, execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity }, launchLocalPty?: LaunchLocalPty): { manager: SshManager } {

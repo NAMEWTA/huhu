@@ -1,10 +1,10 @@
-export { openMailAccounts, type MailAccount, type MailAccountDraft } from "./accounts.js";
+export { mailAccountPackageFile, openMailAccounts, type MailAccount, type MailAccountDraft } from "./accounts.js";
 export type { MailAccountDefinition, MailAccountSettings, MailFolder } from "./account-definition.js";
 export { MailAccountError, type MailAccountErrorCode, type MailFolderDiscovery } from "./discovery.js";
 export { mailPreset, mailProviderSchema, type MailProvider } from "./presets.js";
 export { apply, mailCapabilityDescriptors } from "./registration.js";
 export { MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource } from "./draft-attachments.js";
-export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, mailPackageSelection, withMailSnapshot, type MailDraftAttachments } from "./drafts.js";
+export { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, mailPackageSelection, validateMailPackage, withMailSnapshot, type MailDraftAttachments } from "./drafts.js";
 export { MAIL_WEB_ATTACHMENTS_SERVICE, type MailWebAttachmentUpload } from "./web-attachments.js";
 export { MAIL_OUTBOX_SERVICE, type MailOutboxService } from "./outbox.js";
 export { createMailSmtpTransport, type MailSmtpTransport } from "./smtp.js";

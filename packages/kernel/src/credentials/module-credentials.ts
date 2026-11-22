@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import type { Vault } from "@huhu/vault";
 import { z } from "zod";
@@ -69,7 +69,7 @@ function assertUnique(values: readonly string[], code: "invalid-input" | "corrup
 const definitionFile = (pluginId: string) => `.huhu/module-credentials/${identityHash(pluginId)}.json`;
 type DefinitionFiles = Pick<Vault["files"], "abs" | "read">;
 
-function loadDefinitions<T>(files: DefinitionFiles, path: string, definition: z.ZodType<T>): { entries: Definition<T>[]; version: string | null } {
+function loadDefinitions<T>(files: DefinitionFiles, path: string, definition: z.ZodType<T>, onBytes?: (bytes: Buffer) => void): { entries: Definition<T>[]; version: string | null } {
   const stats = lstatSync(files.abs(path), { throwIfNoEntry: false });
   if (stats && !stats.isFile()) throw new CredentialError("corrupt");
   const file = files.read(path);
@@ -88,6 +88,7 @@ function loadDefinitions<T>(files: DefinitionFiles, path: string, definition: z.
     "corrupt",
   );
   for (const entry of entries) assertUnique(entry.configured, "corrupt");
+  onBytes?.(file.bytes);
   return { entries, version: file.version };
 }
 
@@ -102,6 +103,15 @@ export class ModuleCredentials<T> {
 
   static readPortableDefinitions<T>(files: DefinitionFiles, pluginId: string, definition: z.ZodType<T>): readonly Definition<T>[] {
     return loadDefinitions(files, definitionFile(pluginId), definition).entries;
+  }
+
+  static portablePackageFile<T>(files: DefinitionFiles, pluginId: string, definition: z.ZodType<T>): { path: string; sha256: string | null } {
+    const path = definitionFile(pluginId);
+    let sha256: string | null = null;
+    loadDefinitions(files, path, definition, (bytes) => {
+      sha256 = createHash("sha256").update(bytes).digest("hex");
+    });
+    return { path, sha256 };
   }
 
   readonly #vault: Vault;

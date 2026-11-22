@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
-import { ModuleCredentials, type CredentialOwner, type CredentialSummary } from "@huhu/kernel";
+import { ModuleCredentials, type CredentialOwner, type CredentialSummary, type HuhuApi } from "@huhu/kernel";
 import {
   accountPasswordPurpose,
   accountTargets,
@@ -34,6 +34,11 @@ type FolderDiscovery = {
 export type MailAccount = Omit<CredentialSummary, "entityId"> & { accountId: string; definition: MailAccountDefinition };
 export type MailAccountVersion = { accountId: string; expectedRevision: string };
 type RepairAccount = Pick<MailAccount, "accountId" | "revision" | "definition">;
+const accountsModule = "mail";
+
+export function mailAccountPackageFile(files: HuhuApi["vault"]["files"]) {
+  return ModuleCredentials.portablePackageFile(files, accountsModule, mailAccountDefinitionSchema);
+}
 
 function mailAccount({ entityId, revision, authState }: CredentialSummary, definition: MailAccountDefinition): MailAccount {
   return { accountId: entityId, revision, authState, definition };
@@ -43,11 +48,11 @@ function mailAccount({ entityId, revision, authState }: CredentialSummary, defin
 export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders, removals = new AccountRemovals(owner.vault.files), oauth?: MailOAuthRuntime, lifetime = new AbortController().signal) {
   const credentials = new ModuleCredentials({
     ...owner,
-    pluginId: "mail",
+    pluginId: accountsModule,
     definition: mailAccountDefinitionSchema,
     targets: ({ settings, oauth: identity }) => accountTargets(settings, identity),
   });
-  const readDefinition = (id: string) => ModuleCredentials.readPortableDefinition(owner.vault.files, "mail", mailAccountDefinitionSchema, id);
+  const readDefinition = (id: string) => ModuleCredentials.readPortableDefinition(owner.vault.files, accountsModule, mailAccountDefinitionSchema, id);
   function current({ accountId, expectedRevision }: MailAccountVersion): RepairAccount {
     removals.assertActive(accountId);
     const found = readDefinition(accountId);
