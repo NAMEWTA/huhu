@@ -9,8 +9,18 @@ import { assertSshHosts, externalSshOwner } from "./public-resources.js";
 const resourceGroup = "ssh.hosts";
 
 /** Uses the same protected storage as SSH credentials so receipt hashes cannot verify password guesses. */
-export async function sealCredentialPatches(patches: ConfigureHost["credentials"], host: SshCredentialHost | undefined) {
+export function sealCredentialPatches(patches: ConfigureHost["credentials"], host: SshCredentialHost | undefined) {
   if (!patches.some(({ action }) => action === "replace")) return patches;
+  return withIntentSeal(host, (seal) =>
+    patches.map((patch) => {
+      if (patch.action !== "replace") return patch;
+      const { value, ...metadata } = patch;
+      return { ...metadata, digest: seal([patch.purpose, value]) };
+    }),
+  );
+}
+
+export async function withIntentSeal<T>(host: SshCredentialHost | undefined, run: (seal: (value: unknown) => string) => T): Promise<T> {
   if (!host) throw errors.permissionDenied("SSH 本机凭据保护不可用");
   const keyId = createHash("sha256")
     .update(JSON.stringify(["ssh-host-intents-v1", host.localVaultInstanceId]))
@@ -31,16 +41,7 @@ export async function sealCredentialPatches(patches: ConfigureHost["credentials"
       }
     }
     const secretKey = key;
-    return patches.map((patch) => {
-      if (patch.action !== "replace") return patch;
-      const { value, ...metadata } = patch;
-      return {
-        ...metadata,
-        digest: createHmac("sha256", secretKey)
-          .update(JSON.stringify([patch.purpose, value]))
-          .digest("hex"),
-      };
-    });
+    return run((value) => createHmac("sha256", secretKey).update(JSON.stringify(value)).digest("hex"));
   } catch {
     throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机凭据保护不可用");
   } finally {

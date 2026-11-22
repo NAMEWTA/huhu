@@ -59,7 +59,7 @@ export const MonitorHost = z.object({
   history: z.array(MonitorPoint),
 });
 export type MonitorHost = z.infer<typeof MonitorHost>;
-export const MonitorSession = MonitorSessionId.extend({ interval: SessionInterval, host: MonitorHost });
+export const MonitorSession = MonitorSessionId.extend({ interval: SessionInterval, host: MonitorHost, source: z.literal("external").optional() });
 export type MonitorSession = z.infer<typeof MonitorSession>;
 export const MonitorPanelRun = z.object({ id: z.uuid(), revision: z.uuid(), state: z.enum(["running", "paused", "stopped"]), hosts: z.array(MonitorHost) });
 export type MonitorPanelRun = z.infer<typeof MonitorPanelRun>;

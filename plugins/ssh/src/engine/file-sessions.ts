@@ -2,12 +2,15 @@ import { randomUUID } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
-import type { DirectoryFollowState, FileAttributes, FileDirectory, FileEntry, FileSession, PreparedFileDirectory } from "../shared/files.js";
+import type { Client } from "ssh2";
+import type { z } from "zod";
+import type { DirectoryFollowState, FileAttributes, FileDirectory, FileEntry, FileOrigin, FileSession, PreparedFileDirectory } from "../shared/files.js";
 import type { SshManager, SftpSource } from "./manager.js";
 import { changeProperties, createEntry, documentPath, list, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
 
 type Navigation = { follow?: { id: string; path: string; revision: number; expires: number } };
-type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation };
+type OwnedOrigin = { client: Client; signal: AbortSignal; origin: z.infer<typeof FileOrigin> };
+type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
@@ -28,8 +31,23 @@ export class FileSessions {
   }
 
   get(id: string): FileSession {
-    const { session } = this.lookup(id);
-    return { ...session, state: this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId ? "ready" : "disconnected" };
+    const { session, owned } = this.lookup(id);
+    const ready = owned ? !owned.signal.aborted : this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    return { ...session, state: ready ? "ready" : "disconnected" };
+  }
+
+  hasOriginalConnection(session: FileSession): boolean {
+    if (session.source !== "external") return this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    const owned = this.bindings.get(session.fileSessionId)?.owned;
+    return owned?.origin.connectionId === session.connectionId && !owned.signal.aborted;
+  }
+
+  openOwned(owned: OwnedOrigin): FileSession {
+    if (this.disposed) throw errors.notFound("文件会话所属的 Vault 已关闭");
+    owned.signal.throwIfAborted();
+    const session: FileSession = { ...owned.origin, fileSessionId: randomUUID(), source: "external", state: "ready" };
+    this.bindings.set(session.fileSessionId, { session, owned, detached: true, controller: new AbortController() });
+    return session;
   }
 
   list(): FileSession[] {
@@ -53,7 +71,8 @@ export class FileSessions {
 
   source(input: { hostId: string } | { fileSessionId: string }): SftpSource {
     if ("hostId" in input) return input.hostId;
-    const { session, controller } = this.lookup(input.fileSessionId);
+    const { session, controller, owned } = this.lookup(input.fileSessionId);
+    if (owned) return { ...session, externalClient: owned.client, signal: AbortSignal.any([controller.signal, owned.signal]) };
     return { ...session, signal: controller.signal };
   }
 
@@ -125,7 +144,7 @@ export class FileSessions {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal });
   }
 
-  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal) {
+  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
       this.source({ fileSessionId: id }),
@@ -133,19 +152,19 @@ export class FileSessions {
       path,
       async (channel, active) => {
         const abs = await documentPath(channel, path);
-        return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active));
+        return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active, beforeWrite));
       },
       { signal },
     );
   }
 
-  async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
-    await this.manager.withSftp(this.source({ fileSessionId: id }), "create", path, (channel, active) => createEntry(channel, path, entry, active), { signal });
+  async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal, beforeWrite?: () => void) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "create", path, (channel, active) => createEntry(channel, path, entry, active, beforeWrite), { signal });
     return { ok: true as const };
   }
 
-  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal) {
-    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active), { signal });
+  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), { signal });
     return { ok: true as const };
   }
 
@@ -153,7 +172,7 @@ export class FileSessions {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal });
   }
 
-  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal) {
+  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
       this.source({ fileSessionId: id }),
@@ -163,7 +182,7 @@ export class FileSessions {
         const abs = await documentPath(channel, file);
         return this.writeEntry(session, abs, () => {
           active.throwIfAborted();
-          return saveDocument(channel, abs, text, version, active);
+          return saveDocument(channel, abs, text, version, active, beforeWrite);
         });
       },
       { signal },

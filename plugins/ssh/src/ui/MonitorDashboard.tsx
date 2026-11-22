@@ -3,7 +3,8 @@ import { useCapability, useEngine, useEngineEvents } from "@huhu/workbench";
 import { useId, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
-import { PANEL_INTERVALS, RETENTION_MINUTES, SaveMonitorPanel, type MonitorPanel, type MonitorPanelChange, type MonitorPanelRun } from "../shared/monitoring.js";
+import type { MonitorPanelRuntime } from "../engine/public-monitors.js";
+import { PANEL_INTERVALS, RETENTION_MINUTES, SaveMonitorPanel, type MonitorPanel, type MonitorPanelChange, type MonitorPanelRun, type MonitorSession } from "../shared/monitoring.js";
 import type { HostKeyPrompt } from "../shared/trust.js";
 import { HostKeyDialog } from "./HostKeyDialog.js";
 import { MonitorMetrics, useMonitorPoll, useMonitorVisibility } from "./MonitorSidebar.js";
@@ -161,6 +162,8 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
   const engine = useEngine();
   const visible = useMonitorVisibility();
   const panels = useCapability<MonitorPanel[]>("ssh.monitor.panels.list");
+  const subscriptions = useCapability<MonitorSession[]>("ssh.monitor.session.list", {}, { enabled: visible });
+  const externalPanels = useCapability<z.infer<typeof MonitorPanelRuntime>[]>("ssh.monitor.panels.external.list", {}, { enabled: visible });
   const [selected, select] = useState("");
   const current = panels.data?.find(({ id }) => id === selected) ?? panels.data?.[0];
   const runs = useCapability<MonitorPanelRun | null>("ssh.monitor.panels.run", { id: current?.id ?? "" }, { enabled: Boolean(current && visible) });
@@ -177,6 +180,10 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
   useMonitorPoll(Boolean(visible && current && run && run.state !== "stopped"), refresh);
   useEngineEvents((event) => {
     if (visible && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-monitor-panel") void panels.refetch();
+    if (visible && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-external-monitor") {
+      void subscriptions.refetch();
+      void externalPanels.refetch();
+    }
   });
   async function call<T>(name: string, input: object, done?: (value: T) => void) {
     if (busy) return;
@@ -184,7 +191,7 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
     setError("");
     try {
       const result = await engine.call<T>(name, input, { write: true });
-      await Promise.all([panels.refetch(), refresh()]);
+      await Promise.all([panels.refetch(), refresh(), subscriptions.refetch(), externalPanels.refetch()]);
       done?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "监控操作失败");
@@ -200,6 +207,42 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
   return (
     <section className="hu-stack" data-testid="ssh-monitor-dashboard" aria-label="SSH 监控">
       <PageHead title="监控" />
+      {!!subscriptions.data?.length && (
+        <section className="hu-card-alt">
+          <h2>外部工具监控订阅</h2>
+          <ul>
+            {subscriptions.data.map(({ id, host, interval }) => (
+              <li key={id}>
+                <div className="row">
+                  <span className="hu-flex-fill">
+                    {hostName(host.hostId)} · {interval} 秒
+                  </span>
+                  <Button disabled={busy} aria-label={`关闭监控订阅 ${id}`} onClick={() => void call("ssh.monitor.session.change", { id, action: "close" })}>
+                    关闭监控订阅
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {!!externalPanels.data?.length && (
+        <section className="hu-card-alt">
+          <h2>外部工具监控面板</h2>
+          <ul>
+            {externalPanels.data.map(({ id, expectedRevision, runId, name, state }) => (
+              <li key={runId}>
+                <div className="row">
+                  <span className="hu-flex-fill">{name}</span>
+                  <Button disabled={busy || state === "stopped"} aria-label={`停止监控面板 ${name} ${runId}`} onClick={() => void call("ssh.monitor.panels.change", { id, expectedRevision, runId, action: "stop" })}>
+                    停止监控面板
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="ssh-workspace-controls">
         <Button onClick={onBack}>返回 SSH</Button>
         <Button

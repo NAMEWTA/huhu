@@ -1,7 +1,7 @@
 import { HuhuError } from "@huhu/contracts";
 import type { z } from "zod";
 import type { MonitorToolRequest, MonitorToolResult } from "../shared/monitoring.js";
-import type { SshManager } from "./manager.js";
+import type { MonitorConnection, SshManager } from "./manager.js";
 import { detectPlatform, monitorExec, powershellProbe, SampleError } from "./monitor-sample.js";
 
 // Read-only command subset adapted from Motty remotetools. Process arguments,
@@ -37,15 +37,18 @@ function containerRows(text: string): MonitorToolResult["rows"] {
 }
 
 export async function readMonitorTool(manager: SshManager, input: z.infer<typeof MonitorToolRequest>, request: AbortSignal): Promise<MonitorToolResult> {
-  const connection = manager.monitorPane(input.hostId, input.shellId);
+  return readMonitorConnection(manager.monitorPane(input.hostId, input.shellId), input.tool, request);
+}
+
+export async function readMonitorConnection(connection: MonitorConnection, tool: z.infer<typeof MonitorToolRequest>["tool"], request: AbortSignal): Promise<MonitorToolResult> {
   const close = new AbortController();
   const off = connection.onClose(() => close.abort());
   const signal = AbortSignal.any([request, close.signal, AbortSignal.timeout(12_000)]);
-  const base = { connectionId: connection.id, tool: input.tool };
+  const base = { connectionId: connection.id, tool };
   const status = (state: "unsupported" | "denied" | "failed", message: string) => ({ ...base, state, message, rows: [] });
   try {
     const platform = await detectPlatform(connection.client, signal);
-    const isProcess = input.tool === "processes";
+    const isProcess = tool === "processes";
     const command = platform === "linux" ? (isProcess ? PROCESS_LIST : CONTAINER_LIST) : isProcess ? WIN_PROCESS_LIST : WIN_CONTAINER_LIST;
     const read = await monitorExec(connection.client, command, signal);
     if (read.code === 127 || /(?:docker|ps): (?:command )?not found/i.test(read.stderr)) return status("unsupported", isProcess ? "系统未提供进程列表工具" : "当前主机缺少 Docker 命令");

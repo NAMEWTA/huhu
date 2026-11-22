@@ -97,3 +97,49 @@ CLI 和 HTTP MCP 检查未授权冲突不显示、同内容令牌按主体隔离
 保存和删除可逐项开放，默认关闭。外部保存只为原闲置规则改名，按原规则修订、完整授权路由及意图键校验。删除也只接受原闲置规则。监听、出口、代理类型、自动恢复配置及活跃运行继续由工作台管理。
 
 CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出口变更拒绝，以及活跃规则写入拒绝。最终单文件 Vitest 26 项通过。Task04 累计 19 个可选工具，其余 56 项保留既有关闭状态，见 t2y/report04.md。
+
+## Task05 第一批 · 外部连接、PTY 和现有 Exec 作业撤权
+
+- `ssh.connect` 建立稳定意图绑定的持续连接。`ssh.resources.connection.start` 仍用于短时核验。外部状态、断线和信任决定沿主体与原路由查找。工作台展示并可断开外部连接。
+- `ssh.shells.open`、`ssh.shells.list`、`ssh.shells.close` 转为默认关闭的可选工具，新增 `ssh.shells.read`、`ssh.shells.write`、`ssh.shells.resize`。PTY 不接工作台 WebSocket，工作台可查看来源并关闭。输出保留在内存，字节输入使用保护存储的 HMAC 绑定意图。
+- 已有 `ssh.jobs.*` 作业和探针在 SSH 主机授权变更后主动释放连接。撤权作业在原主体恢复、主机重新授权后仍禁止访问。输出以有限 UTF-8 字节游标读取，可等待至多 5 秒。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 定向 8 项和 `domain-exposure.engine.test.ts` 2 项通过。新增 `tests/e2e/ssh/owned.spec.ts` 的 CLI / HTTP MCP 用例由 Lead 运行。
+
+## Task05 第二批 · 自有文件会话和远端 SFTP
+
+- 外部文件会话仅绑定本主体的活动连接。工作台可以看到来源、关闭会话。撤销路由授权关闭连接和文件会话，终止待处理操作。
+- `ssh.fileSessions.open/list/close/properties/document.open` 默认关闭，选择后沿主体及原连接授权。原设备目录能力 `ssh.fileSessions.localList` 仍限工作台。
+- `ssh.sftp.list/read/write/upload/download/cancel/mkdir/rename/delete` 默认关闭。外部上传接受最多 256 KiB 的 base64 内容，下载按偏移分页；显式拒绝外部 Engine 本机路径。传输 ID 成对绑定文件会话，暂停中的传输只能由原主体取消。写入回执保存大小或操作结果，内容摘要使用受保护 HMAC。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 2 项 CLI / MCP 文件用例、`domain-exposure.engine.test.ts` 2 项、`sftp.test.ts` 11 项通过。`tests/e2e/ssh/owned.spec.ts` 追加本机路径拒绝、字节往返及撤权用例，留给 Lead。
+
+## Task05 第三批 · 自有远端传输队列
+
+- `ssh.transfers.start/startBatch/list/decide/cancel/pause/resume/retry/recheck/origin/clearHistory` 转为默认关闭的可选工具。外部启动仅接受同一本主体的两个远端文件会话，按两端的完整 SSH 路由核对当前授权。
+- 重交原意图重取原作业或批次，不重新复制。冲突决定另绑定当前待答修订；工作台可看到外部来源并取消，外部列表不包含工作台及其他主体任务。会话或主机授权撤销后，原任务被取消或停止底层提交并按既有队列语义报告结果。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 2 项 CLI / MCP 队列用例、`transfer-publication.test.ts` 4 项通过。E2E 增加 CLI / MCP 转移、跨主体不可见、同意图及撤权后的列表回读，未运行。
+
+## Task05 第四批 · 自有回环转发
+
+- `ssh.forwarding.runs.start/resume/stop` 以 execute/high 默认关闭；列表限原主体和当前获准路由。工作台可按 ID 查看来源及关闭具体外部监听。
+- 固定目标采用工作台保存的规则与修订，外部新监听由 Engine 在 127.0.0.1 分配端口。动态代理规则和无法确认远侧实际回环地址的远端监听未开放。主机撤权关闭监听及已有流；编辑旧规则会失效相应运行。
+- Node 24.21.0 下 SSH 单包类型检查通过，`public-resources.engine.test.ts` 转发定向 4 项通过。CLI 与 HTTP MCP 分别验证回环数据往返、另一主体不可见且不能停止、撤权后旧端口拒绝连接。E2E spec 增加同类断言，留给 Lead。
+
+## Task05 第五批 · Exec 提交别名和精确主机指纹管理
+
+- `ssh.exec.run` 转为默认关闭的 execute/high 能力，外部提交沿用 `ssh.jobs.start` 的原持有者、会话与连接代核对，同一作业的不同入口不会重复派发。
+- `ssh.jobs.list` 按主体和当前授权列出现存外部作业。工作台标记来源，可按 ID 取消。
+- `ssh.knownHosts.forget` 转为默认关闭的 admin/high 能力，校验当前路由和目标地址、端口、类型及精确指纹，发布本地修改前再次验权。相同意图可重取回执。
+- Node 24.21.0 下 SSH 单包类型检查通过；`public-resources.engine.test.ts` 中 CLI / HTTP MCP 的已知指纹与作业相关定向 4 项通过。E2E 设置页的闭合示例改为 Engine 本机目录能力，未运行。
+
+## Task05 第六批 · 自有文件搜索与版本写入
+
+- `ssh.fileSessions.search/cancelSearch/document.save/changeProperties/createEntry/moveEntry` 默认关闭。搜索使用原会话和唯一搜索 ID；取消不会命中其他搜索代次或 SFTP 传输。持久写校验当前会话及版本，在远端写入前再次核对授权。
+- 文档保存使用保护存储 HMAC 绑定输入，回执仅保存所写版本与元数据。CLI / HTTP MCP 验证了版本冲突、主体隔离和重复提交。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 CLI / MCP 文件用例 2 项通过。
+
+## Task05 第七批 · 监控、认证待答和工作区
+
+- `ssh.monitor.session.open/get/change/list`、`ssh.monitor.tools.read`、`ssh.monitor.panels.change`、`ssh.monitor.panels.external.list` 默认关闭。外部面板回读仅可观察本主体原始运行。固定查询输出只在内存短期保留，主机撤权关闭采样。
+- `ssh.auth.keyboardInteractive.respond` 默认关闭，按本主体原尝试、跳点、挑战 ID 及修订消费一次。答案只进入 SSH 握手，回执无答案。
+- `ssh.workspace.runs.list/start/reconnect/close/saveTemplate` 默认关闭。外部工作区使用本主体的原连接和分栏，重连核对持有者、全路由及代次，撤权关闭分栏。模板运行不执行保存的登录命令。工作台可见来源并关闭运行。
+- Node 24.21.0 下 SSH 单包类型检查通过，CLI / HTTP MCP 的终端工作区、监控和认证定向 8 项通过。

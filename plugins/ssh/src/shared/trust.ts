@@ -22,7 +22,7 @@ export const HostKeyPrompt = z.object({
 });
 export type HostKeyPrompt = z.infer<typeof HostKeyPrompt>;
 
-const connection = { hostId: z.string(), attemptId: z.string() };
+const connection = { hostId: z.string(), attemptId: z.string(), source: z.literal("external").optional() };
 export const ConnectionStatus = z.discriminatedUnion("state", [
   z.object({ ...connection, state: z.enum(["connecting", "connected", "disconnected"]) }),
   z.object({ ...connection, state: z.enum(["waiting", "key-changed"]), prompt: HostKeyPrompt, workspace: z.literal(true).optional() }),

@@ -52,6 +52,11 @@ export function assertSshHosts(context: CapabilityContext, hostIds: readonly str
   if (hostIds.some((id) => !selected.has(id))) throw errors.permissionDenied("SSH 主机授权");
 }
 
+export function hasSshHosts(context: CapabilityContext, hostIds: readonly string[]): boolean {
+  const selected = new Set(context.toolResourceIds?.("ssh.hosts"));
+  return hostIds.every((id) => selected.has(id));
+}
+
 export function authorizedResourceRoute(files: Files, context: CapabilityContext, hostId: string) {
   if (isWorkbenchCaller(context.caller)) return readResourceRoute(files, hostId);
   assertSshHosts(context, [hostId]);

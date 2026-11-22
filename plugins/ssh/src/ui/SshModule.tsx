@@ -24,6 +24,7 @@ interface Shell {
   hostId: string;
   name: string;
   state: "running" | "ended";
+  source?: "external";
 }
 interface ExecResult {
   stdout: string;
@@ -84,6 +85,9 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const recoveredHostId = connections.data?.find((status) => status.state === "waiting" && !status.workspace)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
+  const jobs = useCapability<{ jobId: string; state: string }[]>("ssh.jobs.list", host ? { hostId: host.id } : {});
+  const ownShells = shells.data?.filter(({ source }) => source !== "external") ?? [];
+  const externalShells = shells.data?.filter(({ source }) => source === "external") ?? [];
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
   async function hostApplied(hostId: string | null) {
     setSel(hostId);
@@ -101,8 +105,14 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
     if (recoveredHostId) setSel((current) => current ?? recoveredHostId);
   }, [recoveredHostId]);
   useEngineEvents((e) => {
-    if (e.type === "ssh.hostKeyPrompt" || e.type === "ssh.connectionChanged") {
+    if (e.type === "ssh.hostKeyPrompt" || e.type === "ssh.connectionChanged" || (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-external-connection")) {
       void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, CONNECTIONS), exact: true });
+    }
+    if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-external-shell") {
+      void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.shells.list"] });
+    }
+    if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-exec-job") {
+      void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.jobs.list"] });
     }
   });
 
@@ -142,8 +152,27 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
       setError(message(e));
     }
   }
+  async function endShell(id: string) {
+    setError(null);
+    try {
+      await engine.call("ssh.shells.close", { id }, { write: true });
+      await refresh();
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+  async function cancelJob(jobId: string) {
+    setError(null);
+    try {
+      await engine.call("ssh.jobs.cancel", { jobId }, { write: true });
+      await jobs.refetch();
+    } catch (e) {
+      setError(message(e));
+    }
+  }
 
-  const byHost = new Map(connections.data?.map((entry) => [entry.hostId, entry]));
+  const byHost = new Map(connections.data?.filter(({ source }) => source !== "external").map((entry) => [entry.hostId, entry]));
+  const externalConnections = connections.data?.filter(({ source, hostId, state }) => source === "external" && hostId === host?.id && (state === "connected" || state === "connecting")) ?? [];
   const connection = host ? byHost.get(host.id) : undefined;
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
@@ -161,10 +190,10 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   };
   const audit = useCapability<{ at: string; action: string; hostId: string; result?: string; detail?: string }[]>("ssh.audit.list", { limit: 100 });
   const shown = (hosts.data ?? []).filter((h) => `${h.name}${h.host}`.toLowerCase().includes(query.toLowerCase()));
-  async function disconnect(h: Host) {
+  async function disconnect(h: Host, attemptId?: string) {
     setConnectError(null);
     try {
-      await engine.call("ssh.disconnect", { hostId: h.id }, { write: true });
+      await engine.call("ssh.disconnect", { hostId: h.id, ...(attemptId && { attemptId }) }, { write: true });
       await refetchConnections();
     } catch (e) {
       setConnectError({ hostId: h.id, message: message(e) });
@@ -423,6 +452,26 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 </Button>
               ) : null}
             </div>
+            {externalConnections.length ? (
+              <section className="hu-card-alt">
+                <div className="ssh-section-heading">
+                  <h3>外部工具连接</h3>
+                </div>
+                <ul>
+                  {externalConnections.map(({ attemptId, state }) => (
+                    <li key={attemptId}>
+                      <div className="row">
+                        <code>{attemptId}</code>
+                        <span className="hu-flex-fill">{state === "connected" ? "已连接" : "连接中"}</span>
+                        <Button icon={Unplug} aria-label={`断开 ${attemptId}`} onClick={() => void disconnect(host, attemptId)}>
+                          断开
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
             <div className="ssh-meta-grid">
               {[
                 { Icon: KeyRound, label: "认证方式", value: authLabels[host.auth.kind] },
@@ -530,6 +579,28 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 {!isConn ? <p className="ssh-warning-text small">请先连接主机，才能使用 Exec。</p> : null}
               </form>
             </div>
+            {Boolean(jobs.data?.length) && (
+              <section className="hu-card-alt">
+                <div className="ssh-section-heading">
+                  <h3>外部工具作业</h3>
+                </div>
+                <ul>
+                  {jobs.data?.map(({ jobId, state }) => (
+                    <li key={jobId}>
+                      <div className="row">
+                        <code>{jobId}</code>
+                        <span className="hu-flex-fill">{state}</span>
+                        {["connecting", "ready", "dispatching", "running"].includes(state) && (
+                          <Button variant="danger" icon={X} aria-label={`取消外部作业 ${jobId}`} onClick={() => void cancelJob(jobId)}>
+                            取消外部作业
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {result ? (
               <div className="ssh-exec-result">
                 <div className="row">
@@ -551,7 +622,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           <div className="hu-ssh-console">
             <div className="hu-ssh-console-bar">
               <div className="ssh-console-tabs" role="tablist" aria-label={t.shells}>
-                {(shells.data ?? []).map((s) => (
+                {ownShells.map((s) => (
                   <button key={s.id} type="button" role="tab" aria-selected={s.id === activeShell} className={s.id === activeShell ? "active" : ""} data-testid="shell-tab" onClick={() => setActiveShell(s.id)}>
                     <Terminal size={13} aria-hidden /> {s.name} {s.state === "ended" ? "（已结束）" : ""}
                   </button>
@@ -560,13 +631,33 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
               <span className="hu-flex-fill" />
               <IconButton icon={Plus} label={t.newShell} disabled={!isConn} onClick={() => void newShell()} />
             </div>
+            {externalShells.length ? (
+              <section className="hu-card-alt">
+                <div className="ssh-section-heading">
+                  <h3>外部工具终端</h3>
+                </div>
+                <ul>
+                  {externalShells.map(({ id, state }) => (
+                    <li key={id}>
+                      <div className="row">
+                        <code>{id}</code>
+                        <span className="hu-flex-fill">{state === "ended" ? "已结束" : "运行中"}</span>
+                        <Button variant="danger" icon={X} aria-label={`${t.endShell} ${id}`} disabled={state === "ended"} onClick={() => void endShell(id)}>
+                          {t.endShell}
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
             {activeShell ? (
               <div className="ssh-console-stage">
                 <div className="ssh-console-panel" style={{ height: "52vh" }}>
                   <div className="hu-ssh-console-panel-head">
                     <Terminal size={13} aria-hidden />
-                    <strong className="hu-flex-fill">{(shells.data ?? []).find((s) => s.id === activeShell)?.name}</strong>
-                    <Button variant="danger" icon={X} onClick={() => void engine.call("ssh.shells.close", { id: activeShell }, { write: true }).then(refresh)}>
+                    <strong className="hu-flex-fill">{ownShells.find((s) => s.id === activeShell)?.name}</strong>
+                    <Button variant="danger" icon={X} onClick={() => void endShell(activeShell)}>
                       {t.endShell}
                     </Button>
                   </div>

@@ -64,12 +64,13 @@ export class KnownHosts {
     return { text: existsSync(this.file) ? readFileSync(this.file, "utf8") : "", version: null };
   }
 
-  private async write(text: string, version: string | null): Promise<void> {
+  private async write(text: string, version: string | null, beforeCommit?: () => void): Promise<void> {
     if (this.files && this.relative) {
-      await this.files.write(this.relative, Buffer.from(text), { expectedVersion: version });
+      await this.files.write(this.relative, Buffer.from(text), { expectedVersion: version, ...(beforeCommit && { beforeCommit }) });
       return;
     }
     mkdirSync(path.dirname(this.file), { recursive: true });
+    beforeCommit?.();
     writeFileSync(this.file, text);
   }
 
@@ -108,8 +109,9 @@ export class KnownHosts {
     return [...keys.values()];
   }
 
-  forget(key: KnownHostKey): Promise<void> {
+  forget(key: KnownHostKey, assertCurrent?: () => void): Promise<void> {
     return this.mutate(async () => {
+      assertCurrent?.();
       const { text, version } = this.read();
       const token = hostToken(key.host, key.port);
       const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
@@ -118,7 +120,7 @@ export class KnownHosts {
         return !(entry?.host === token && entry.type === key.keyType && identity(entry).fingerprint === key.fingerprint);
       });
       if (retained.length === lines.length) throw errors.notFound("这条已知主机记录已变更，请重新核对。");
-      await this.write(retained.join(""), version);
+      await this.write(retained.join(""), version, assertCurrent);
     });
   }
 }

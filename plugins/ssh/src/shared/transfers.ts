@@ -31,6 +31,7 @@ export const TransferJob = TransferId.extend({
   message: z.string().optional(),
   errorCode: z.string().optional(),
   recovery: z.object({ stagingPath: TransferPath, backupPath: TransferPath.optional() }).optional(),
+  conflictRevision: z.uuid().optional(),
   directory: z.boolean().optional(),
   batchId: z.uuid().optional(),
 });

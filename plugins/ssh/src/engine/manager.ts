@@ -58,12 +58,14 @@ type Attempt = {
   report?: (status: ConnectionStatus) => void;
   expectedTarget?: string;
   routeTarget?: string;
-  publicProbe?: { validate(): void };
+  publicProbe?: { validate(): void; keyboard(prompt: KeyboardPrompt): void };
   pending?: { prompt: HostKeyPrompt; answer(accept: boolean, remember: boolean): void } | undefined;
+  pendingKeyboard?: { prompt: KeyboardPrompt; answer(responses: string[]): void } | undefined;
   changed?: HostKeyPrompt;
 };
+export type KeyboardPrompt = { promptId: string; hop: number; serverHostId: string; instructions: string; prompts: { label: string; echo: boolean }[] };
 type DialResult = { attemptId: string; connection: Conn };
-export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal };
+export type SftpSource = string | { hostId: string; connectionId: string; fileSessionId: string; signal: AbortSignal; externalClient?: Client };
 type ForwardOwner = (status: ConnectionStatus) => void;
 type ForwardDial = {
   id: string;
@@ -198,8 +200,8 @@ export class SshManager {
     return this.known.list();
   }
 
-  forgetHostKey(key: KnownHostKey): Promise<void> {
-    return this.known.forget(key);
+  forgetHostKey(key: KnownHostKey, assertCurrent?: () => void): Promise<void> {
+    return this.known.forget(key, assertCurrent);
   }
 
   private update(status: ConnectionStatus) {
@@ -229,10 +231,21 @@ export class SshManager {
     return true;
   }
 
-  openExternalConnection(chain: ManagedHost[], signal: AbortSignal, validate: () => void, report: (status: ConnectionStatus, code?: HuhuError["code"]) => void) {
+  respondPublicKeyboard(attemptId: string, promptId: string, hop: number, responses: string[]): boolean {
+    const attempt = this.attempts.get(attemptId);
+    const pending = attempt?.pendingKeyboard;
+    if (!attempt?.publicProbe || attempt.signal.aborted || !pending || pending.prompt.promptId !== promptId || pending.prompt.hop !== hop) return false;
+    if (responses.length !== pending.prompt.prompts.length) throw errors.invalidInput("键盘交互响应数量不匹配");
+    attempt.publicProbe.validate();
+    attempt.pendingKeyboard = undefined;
+    pending.answer(responses);
+    return true;
+  }
+
+  openExternalConnection(chain: ManagedHost[], signal: AbortSignal, validate: () => void, report: (status: ConnectionStatus, code?: HuhuError["code"]) => void, keyboard: (prompt: KeyboardPrompt) => void) {
     const id = newId("cap").replace("cap", "att");
     const hostId = chain.at(-1)!.id;
-    const attempt: Attempt = { id, hostId, signal, requirePromptId: true, report, publicProbe: { validate } };
+    const attempt: Attempt = { id, hostId, signal, requirePromptId: true, report, publicProbe: { validate, keyboard } };
     this.attempts.set(id, attempt);
     const opened: Client[] = [];
     const close = () => {
@@ -528,6 +541,7 @@ export class SshManager {
         done = true;
         if (timer) clearTimeout(timer);
         if (attempt.pending?.prompt.hop === hop) attempt.pending = undefined;
+        if (attempt.pendingKeyboard?.prompt.hop === hop) attempt.pendingKeyboard = undefined;
         signal.removeEventListener("abort", cancel);
         if (error) reject(error);
         else resolve();
@@ -569,6 +583,42 @@ export class SshManager {
         if (e.level === "client-authentication") return finish(new HuhuError("SSH_AUTH_FAILED", `认证失败（第 ${hop + 1} 跳）`, { details: { hop } }));
         finish(new HuhuError("SSH_DISCONNECTED", `连接失败（第 ${hop + 1} 跳）`, { details: { hop } }));
       });
+      if (attempt.publicProbe) {
+        client.on("keyboard-interactive", (_name, instructions, _lang, prompts, respond) => {
+          if (done || !currentTarget()) return;
+          if (prompts.length > 8 || instructions.length > 1024 || prompts.some(({ prompt }) => prompt.length > 512) || attempt.pendingKeyboard) {
+            finish(new HuhuError("SSH_AUTH_FAILED", "SSH 键盘交互请求无效", { details: { hop } }));
+            client.end();
+            return;
+          }
+          if (!prompts.length) {
+            respond([]);
+            return;
+          }
+          const prompt: KeyboardPrompt = {
+            promptId: newId("cap").replace("cap", "prompt"),
+            hop,
+            serverHostId: h.id,
+            instructions,
+            prompts: prompts.map(({ prompt: label, echo }) => ({ label, echo: echo ?? false })),
+          };
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            finish(new HuhuError("SSH_TIMEOUT", "等待键盘交互响应超时", { details: { hop } }));
+            client.end();
+          }, this.d.decisionTimeoutMs ?? 120_000);
+          attempt.pendingKeyboard = {
+            prompt,
+            answer: (responses) => {
+              clearTimeout(timer);
+              attempt.report?.({ hostId, attemptId, state: "connecting" });
+              resumeTimer();
+              respond(responses);
+            },
+          };
+          attempt.publicProbe?.keyboard(prompt);
+        });
+      }
       resumeTimer();
       try {
         client.connect({
@@ -579,6 +629,7 @@ export class SshManager {
           ...(preferences.keepaliveIntervalSec !== null ? { keepaliveInterval: preferences.keepaliveIntervalSec * 1000 } : {}),
           ...(preferences.keepaliveCountMax !== null ? { keepaliveCountMax: preferences.keepaliveCountMax } : {}),
           ...auth,
+          ...(attempt.publicProbe && { tryKeyboard: true }),
           hostVerifier: (key: Buffer, verify: (ok: boolean) => void) => {
             if (done || !currentTarget()) return verify(false);
             const keyType = keyTypeOf(key);
@@ -916,12 +967,15 @@ export class SshManager {
     const binding = typeof source === "string" ? undefined : source;
     const hostId = typeof source === "string" ? source : source.hostId;
     const conn = this.conns.get(hostId);
-    if (!conn || (binding && this.fileOrigins.get(conn)?.connectionId !== binding.connectionId)) throw new HuhuError("SSH_DISCONNECTED", binding ? "文件会话的原连接已断开" : "尚未连接该主机");
-    if (opts.transfer && this.transferring.has(hostId)) throw errors.invalidInput("这台主机正在传输另一个文件，请等它完成后再试");
+    const external = binding?.externalClient;
+    const target = external ?? conn?.target;
+    if (!target || (!external && binding && (!conn || this.fileOrigins.get(conn)?.connectionId !== binding.connectionId))) throw new HuhuError("SSH_DISCONNECTED", binding ? "文件会话的原连接已断开" : "尚未连接该主机");
+    const transferKey = external ? binding.connectionId : hostId;
+    if (opts.transfer && this.transferring.has(transferKey)) throw errors.invalidInput("这台主机正在传输另一个文件，请等它完成后再试");
     const ac = new AbortController();
     const signal = AbortSignal.any([ac.signal, ...(binding ? [binding.signal] : []), ...(opts.signal ? [opts.signal] : [])]);
     signal.throwIfAborted();
-    if (opts.transfer) this.transferring.set(hostId, { controller: ac, ...(binding ? { fileSessionId: binding.fileSessionId } : {}) });
+    if (opts.transfer) this.transferring.set(transferKey, { controller: ac, ...(binding ? { fileSessionId: binding.fileSessionId } : {}) });
     let session: SFTPWrapper | undefined;
     let detach = (): void => undefined;
     try {
@@ -946,7 +1000,7 @@ export class SshManager {
       stop.catch(() => undefined);
       session = await Promise.race([
         new Promise<SFTPWrapper>((resolve, reject) =>
-          conn.target.sftp((err, channel) => {
+          target.sftp((err, channel) => {
             if (err) return reject(err);
             if (signal.aborted) {
               channel.end();
@@ -964,22 +1018,22 @@ export class SshManager {
           reject(new HuhuError("SSH_DISCONNECTED", "连接已中断"));
           ac.abort();
         }; // 先报断线，再中止流（否则会先被当成“已取消”）
-        conn.target.once("close", onClose);
+        target.once("close", onClose);
         live.once("close", onClose);
         const prev = detach;
         detach = () => {
           prev();
-          conn.target.removeListener("close", onClose);
+          target.removeListener("close", onClose);
           live.removeListener("close", onClose);
         };
       });
       dead.catch(() => undefined);
       const r = await Promise.race([fn(live, signal), dead, stop]);
-      this.audit({ hostId, action: `sftp.${action}`, result: "ok", detail: detail.slice(0, 500) });
+      if (!external) this.audit({ hostId, action: `sftp.${action}`, result: "ok", detail: detail.slice(0, 500) });
       return r;
     } catch (e) {
       const he = sftp.mapSftpError(e, detail);
-      this.audit({ hostId, action: `sftp.${action}`, result: /已取消/.test(he.message) ? "cancelled" : "failed", detail: `${detail.slice(0, 400)}：${he.message.slice(0, 100)}` });
+      if (!external) this.audit({ hostId, action: `sftp.${action}`, result: /已取消/.test(he.message) ? "cancelled" : "failed", detail: `${detail.slice(0, 400)}：${he.message.slice(0, 100)}` });
       throw he;
     } finally {
       detach();
@@ -988,13 +1042,13 @@ export class SshManager {
       } catch {
         /* 连接已断 */
       }
-      if (opts.transfer) this.transferring.delete(hostId);
+      if (opts.transfer) this.transferring.delete(transferKey);
     }
   }
 
   /** 取消这台主机上正在进行的传输。 */
   sftpCancel(source: SftpSource): boolean {
-    const transfer = this.transferring.get(typeof source === "string" ? source : source.hostId);
+    const transfer = this.transferring.get(typeof source === "string" ? source : source.externalClient ? source.connectionId : source.hostId);
     if (!transfer || (typeof source !== "string" && transfer.fileSessionId !== source.fileSessionId)) return false;
     transfer.controller.abort();
     return true;

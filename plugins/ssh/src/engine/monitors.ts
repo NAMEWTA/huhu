@@ -23,13 +23,13 @@ type Source = {
 };
 type Binding = {
   host: MonitorHost;
-  routeIdentity?: string;
   interval: number;
   retention: number;
   enabled: boolean;
   source?: Source;
   release?: () => void;
   dial?: AbortController;
+  acquire?: () => MonitorConnection;
 };
 type Pane = { id: string; binding: Binding; interval: z.infer<typeof SessionInterval>; expiry?: ReturnType<typeof setTimeout> };
 type Dashboard = { panel: MonitorPanel; state: MonitorPanelRun["state"]; bindings: Binding[] };
@@ -60,11 +60,15 @@ export class Monitors {
   ) {}
 
   open(input: z.infer<typeof MonitorSessionOpen>): MonitorSession {
+    return this.openConnection(input.hostId, input.interval, () => this.manager.monitorPane(input.hostId, input.shellId));
+  }
+
+  openConnection(hostId: string, interval: z.infer<typeof SessionInterval>, acquire: () => MonitorConnection): MonitorSession {
     this.assertOpen();
     if (this.panes.size >= 24) throw errors.invalidInput("监控侧栏已达上限");
-    const connection = this.manager.monitorPane(input.hostId, input.shellId);
-    const binding = this.binding(input.hostId, input.interval, 15);
-    const pane = { id: randomUUID(), binding, interval: input.interval };
+    const connection = acquire();
+    const binding = this.binding(hostId, interval, 15);
+    const pane = { id: randomUUID(), binding, interval };
     this.panes.set(pane.id, pane);
     this.attach(binding, connection);
     return this.paneView(pane);
@@ -72,6 +76,11 @@ export class Monitors {
 
   get(id: string) {
     return this.paneView(this.pane(id));
+  }
+
+  peek(id: string): MonitorSession | undefined {
+    const pane = this.panes.get(id);
+    return pane && { id, interval: pane.interval, host: this.view(pane.binding) };
   }
 
   session(input: z.infer<typeof MonitorSessionChange>): MonitorSession | null {
@@ -100,18 +109,6 @@ export class Monitors {
     return entry ? { id, revision: entry.panel.revision, state: entry.state, hosts: entry.bindings.map((binding) => this.view(binding)) } : null;
   }
 
-  cachedDashboard(panel: MonitorPanel, routes: ReadonlyMap<string, string>) {
-    const entry = this.dashboards.get(panel.id);
-    if (!entry || entry.panel.revision !== panel.revision) return null;
-    const hosts = entry.bindings.flatMap((binding) => {
-      const { hostId, state, platform, latest, history } = binding.host;
-      if (!binding.routeIdentity || routes.get(hostId) !== binding.routeIdentity) return [];
-      const cutoff = this.cutoff(binding);
-      return [{ hostId, state, platform, latest: latest && latest.at >= cutoff ? latest : undefined, history: reduceHistory(history.slice(this.historyStart(history, cutoff))) }];
-    });
-    return { id: panel.id, revision: panel.revision, state: entry.state, hosts };
-  }
-
   save(input: SaveMonitorPanel, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.serial(async () => {
       const saved = await this.panels.save(input, signal, scope && this.inactiveScope(scope));
@@ -136,7 +133,7 @@ export class Monitors {
     };
   }
 
-  change(input: z.infer<typeof MonitorPanelChange>, signal: AbortSignal) {
+  change(input: z.infer<typeof MonitorPanelChange>, signal: AbortSignal, acquire?: (hostId: string) => MonitorConnection) {
     return this.serial(async () => {
       this.assertOpen();
       signal.throwIfAborted();
@@ -145,6 +142,7 @@ export class Monitors {
       if (input.action === "start" && (!run || run.state === "stopped")) {
         if ([...this.dashboards.values()].filter(({ state }) => state !== "stopped").length >= 8) throw errors.invalidInput("最多同时打开 8 个监控面板");
         const bindings = panel.hostIds.map((hostId) => this.binding(hostId, panel.interval, panel.retention));
+        if (acquire) for (const binding of bindings) binding.acquire = () => acquire(binding.host.hostId);
         run = { panel, state: "running", bindings };
         this.dashboards.set(panel.id, run);
         for (const binding of bindings) this.dial(binding);
@@ -230,13 +228,14 @@ export class Monitors {
     binding.dial = dial;
     binding.enabled = true;
     Object.assign(binding.host, { state: "connecting", prompt: undefined, message: undefined });
-    void this.manager
-      .acquireMonitor(binding.host.hostId, dial.signal, (status) => {
+    const connection = binding.acquire
+      ? Promise.resolve().then(binding.acquire)
+      : this.manager.acquireMonitor(binding.host.hostId, dial.signal, (status) => {
         if (dial.signal.aborted || binding.dial !== dial) return;
         binding.host.state = status.state === "waiting" ? "trust" : "connecting";
         binding.host.prompt = status.state === "waiting" || status.state === "key-changed" ? status.prompt : undefined;
-      })
-      .then(
+      });
+    void connection.then(
         (connection) => {
           if (dial.signal.aborted || binding.dial !== dial || this.disposed) {
             connection.release();
@@ -265,7 +264,6 @@ export class Monitors {
     this.sources.set(source.id, source);
     source.users.add(binding);
     binding.source = source;
-    binding.routeIdentity = connection.routeIdentity;
     const off = connection.onClose(() => this.disconnect(binding, "disconnected"));
     binding.release = () => {
       off();

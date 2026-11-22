@@ -122,7 +122,7 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     });
     const left = await shell(client, a.id);
     const right = await shell(client, b.id);
-    const read = (hostId: string, shellId: string, tool: MonitorTool) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool });
+    const read = (hostId: string, shellId: string, tool: MonitorTool) => client.call<MonitorToolResult>("ssh.monitor.tools.read", { hostId, shellId, tool }, opts);
     const leftResult = await read(a.id, left, "processes");
     const rightResult = await read(b.id, right, "processes");
     expect(leftResult).toMatchObject({ state: "ready", rows: [{ id: "23", name: "tool-a" }] });

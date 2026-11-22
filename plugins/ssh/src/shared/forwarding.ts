@@ -46,6 +46,7 @@ export const ForwardRun = z.object({
   id: z.uuid(),
   ruleId: z.uuid(),
   revision: z.uuid(),
+  source: z.literal("external").optional(),
   state: z.enum(["starting", "waiting", "running", "stopping", "stop-failed", "failed", "interrupted", "stopped"]),
   listener: ForwardListenerView.optional(),
   connection: z.object({ id: z.string(), kind: z.enum(["borrowed", "dedicated"]), holders: z.number().int().nonnegative() }).optional(),

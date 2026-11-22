@@ -85,7 +85,7 @@ export async function properties(s: SFTPWrapper, input: string): Promise<FilePro
   return attributesView(abs, st, target);
 }
 
-export async function changeProperties(s: SFTPWrapper, input: string, revision: string, change: FileAttributes, signal: AbortSignal): Promise<FileProperties> {
+export async function changeProperties(s: SFTPWrapper, input: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void): Promise<FileProperties> {
   const selected = await properties(s, input);
   if (selected.revision !== revision) throw errors.versionConflict(selected.revision);
   if (selected.type !== "file" && selected.type !== "dir") throw errors.invalidInput("仅能修改普通文件或真实目录的权限和属主");
@@ -99,6 +99,7 @@ export async function changeProperties(s: SFTPWrapper, input: string, revision: 
     if (current.revision !== revision || fromHandle.revision !== revision) throw errors.versionConflict(current.revision);
     const attrs: InputAttributes = "owner" in change ? change.owner : { mode: (st.mode & 0o7000) | Number.parseInt(change.mode, 8) };
     signal.throwIfAborted();
+    beforeWrite?.();
     await callv((cb) => s.fsetstat(handle, attrs, cb));
     return attributesView(selected.path, await call<Stats>((cb) => s.fstat(handle, cb)), null);
   } finally {
@@ -106,10 +107,11 @@ export async function changeProperties(s: SFTPWrapper, input: string, revision: 
   }
 }
 
-export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
+export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal, beforeWrite?: () => void) {
   const abs = await canonicalEntry(s, input);
   if (await statOrNull(s, abs)) throw errors.nameConflict(abs);
   signal.throwIfAborted();
+  beforeWrite?.();
   if (entry.kind === "link") {
     const { target } = entry;
     if (!target || target.includes("\0")) throw errors.invalidInput("请输入有效的链接目标");
@@ -120,12 +122,13 @@ export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: 
   }
 }
 
-export async function moveEntry(s: SFTPWrapper, input: string, revision: string, destination: string, signal: AbortSignal) {
+export async function moveEntry(s: SFTPWrapper, input: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void) {
   const to = await canonicalEntry(s, destination);
   if (await statOrNull(s, to)) throw errors.nameConflict(to);
   const from = await properties(s, input);
   if (from.revision !== revision) throw errors.versionConflict(from.revision);
   signal.throwIfAborted();
+  beforeWrite?.();
   await callv((cb) => s.rename(from.path, to, cb));
 }
 
@@ -215,11 +218,20 @@ export async function readText(s: SFTPWrapper, p: string, signal?: AbortSignal):
   }
 }
 
-async function readBounded(s: SFTPWrapper, abs: string, max: number, tooLarge: string, signal?: AbortSignal): Promise<Buffer> {
+export async function downloadChunk(s: SFTPWrapper, input: string, offset: number, limit: number, signal: AbortSignal) {
+  const abs = normalizeRemote(input);
+  const st = await call<Stats>((cb) => s.stat(abs, cb));
+  if (typeOf(st.mode) !== "file") throw errors.invalidInput("只能下载普通文件");
+  const buffer = await readBounded(s, abs, limit + 1, "下载块超过长度上限", signal, { start: offset, end: offset + limit });
+  const bytes = buffer.subarray(0, limit);
+  return { dataBase64: bytes.toString("base64"), size: bytes.length, nextOffset: offset + bytes.length, eof: buffer.length <= limit };
+}
+
+async function readBounded(s: SFTPWrapper, abs: string, max: number, tooLarge: string, signal?: AbortSignal, range?: { start: number; end: number }): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let got = 0;
   await pipeline(
-    s.createReadStream(abs),
+    s.createReadStream(abs, range),
     new Transform({
       transform(c: Buffer, _e, cb) {
         got += c.length;
@@ -275,7 +287,7 @@ export async function openDocument(s: SFTPWrapper, input: string, signal: AbortS
   }
 }
 
-export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal): Promise<Omit<FileDocument, "text">> {
+export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void): Promise<Omit<FileDocument, "text">> {
   if (text.includes("\0") || Buffer.from(text, "utf8").toString("utf8") !== text) throw errors.invalidInput("需要不含空字符的 UTF-8 文本");
   async function verify() {
     try {
@@ -292,7 +304,7 @@ export async function saveDocument(s: SFTPWrapper, abs: string, text: string, ve
   const body = original.includes("\r\n") && !original.replaceAll("\r\n", "").includes("\n") ? text.replace(/\r\n|\n/g, "\r\n") : text;
   const bytes = Buffer.from((bom ? "\uFEFF" : "") + body, "utf8");
   if (bytes.length > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
-  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify } });
+  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify }, ...(beforeWrite && { verifyTarget: async () => beforeWrite() }) });
   return { path: abs, version: documentVersion(abs, mode, bytes), mode: mode.toString(8).padStart(3, "0") };
 }
 
@@ -325,10 +337,12 @@ export async function writeAtomic(
     signal?: AbortSignal;
     maxBytes?: number;
     checkedReplace?: { mode: number; verify: () => Promise<unknown> };
+    verifyTarget?: () => Promise<void>;
   },
 ): Promise<{ size: number }> {
   const abs = normalizeRemote(target);
   if (abs === ".") throw errors.invalidInput("需要完整的远端文件路径");
+  await opts.verifyTarget?.();
   const existing = await statOrNull(s, abs);
   if (existing && !opts.overwrite) {
     source.destroy();
@@ -355,6 +369,8 @@ export async function writeAtomic(
       await opts.checkedReplace.verify();
       opts.signal?.throwIfAborted();
     }
+    await opts.verifyTarget?.();
+    opts.signal?.throwIfAborted();
     if (existing) {
       await replaceRemote(s, tmp, abs);
     } else {
@@ -416,27 +432,30 @@ export async function downloadToLocal(s: SFTPWrapper, remote: string, localFile:
   }
 }
 
-export async function mkdir(s: SFTPWrapper, p: string): Promise<void> {
+export async function mkdir(s: SFTPWrapper, p: string, beforeWrite?: () => void): Promise<void> {
   const abs = normalizeRemote(p);
   if (await statOrNull(s, abs)) throw errors.nameConflict(abs);
+  beforeWrite?.();
   await callv((cb) => s.mkdir(abs, cb));
 }
 
-export async function rename(s: SFTPWrapper, from: string, to: string, overwrite: boolean): Promise<void> {
+export async function rename(s: SFTPWrapper, from: string, to: string, overwrite: boolean, beforeWrite?: () => void): Promise<void> {
   const a = normalizeRemote(from);
   const b = normalizeRemote(to);
   const target = await statOrNull(s, b);
   if (target && !overwrite) throw errors.nameConflict(b);
   if (target && typeOf(target.mode) === "dir") throw errors.invalidInput("目标是目录，不能覆盖");
+  beforeWrite?.();
   if (target) return replaceRemote(s, a, b);
   await callv((cb) => s.rename(a, b, cb));
 }
 
 /** 删除文件 / 符号链接 / 空目录；不递归，不跟随符号链接。 */
-export async function remove(s: SFTPWrapper, p: string): Promise<void> {
+export async function remove(s: SFTPWrapper, p: string, beforeWrite?: () => void): Promise<void> {
   const abs = normalizeRemote(p);
   if (abs === "." || abs === "/") throw errors.invalidInput("不能删除根目录或登录目录");
   const st = await call<{ mode: number }>((cb) => s.lstat(abs, cb));
+  beforeWrite?.();
   if (typeOf(st.mode) === "dir") await callv((cb) => s.rmdir(abs, cb));
   else await callv((cb) => s.unlink(abs, cb));
 }

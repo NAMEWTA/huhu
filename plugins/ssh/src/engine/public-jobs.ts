@@ -7,7 +7,7 @@ import { interruptExecChannel } from "./exec-interrupt.js";
 import { ExecOutput, unavailableOutput } from "./job-output.js";
 import type { SshManager } from "./manager.js";
 import { StartPublicProbe, type PublicSshProbes } from "./public-probes.js";
-import { assertSshHosts, externalSshOwner, readBoundRoute } from "./public-resources.js";
+import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, visibleSshRoutes } from "./public-resources.js";
 
 export const PrepareExecJob = StartPublicProbe.extend({
   intentKey: CapabilityIntentKeySchema,
@@ -22,7 +22,8 @@ export const ExecJobId = z.strictObject({ jobId: z.uuidv4() });
 export const StartExecJob = StartPublicProbe.extend({ ...ExecJobId.shape, sessionId: z.uuidv4() });
 const Cursor = z.int().nonnegative();
 const StreamName = z.enum(["stdout", "stderr"]);
-export const ReadExecOutput = ExecJobId.extend({ stream: StreamName, cursor: Cursor.default(0), limit: z.int().min(4).max(16384).default(4096) });
+export const ReadOutputFields = { cursor: Cursor.default(0), limit: z.int().min(4).max(16384).default(4096), waitMs: z.int().min(0).max(5000).default(0) };
+export const ReadExecOutput = ExecJobId.extend({ stream: StreamName, ...ReadOutputFields });
 export const ExecOutputPage = z.strictObject({ fromCursor: Cursor, nextCursor: Cursor, endCursor: Cursor, skippedBytes: Cursor, truncated: z.boolean(), text: z.string() });
 
 const Reason = z.enum([
@@ -42,6 +43,7 @@ const Reason = z.enum([
   "cancel-unconfirmed",
   "timeout-unconfirmed",
   "engine-interrupted",
+  "host-authorization-revoked",
 ]);
 const lifecycle = z.strictObject({
   ...ExecJobId.shape,
@@ -66,6 +68,8 @@ type Job = {
   owner: string;
   claim: Extract<Claim, { phase: "accepted" }>;
   status: Status;
+  authorized(): boolean;
+  revoked?: true;
   command: string | undefined;
   timeoutSec: number;
   close?: () => void;
@@ -108,6 +112,7 @@ export class PublicExecJobs {
     private readonly vaultInstance: string,
     private readonly manager: SshManager,
     private readonly retainActivity?: RetainActivity,
+    private readonly changed?: (id: string) => void,
   ) {}
 
   private owners(context: CapabilityContext) {
@@ -129,6 +134,7 @@ export class PublicExecJobs {
       if (replay.mismatch) throw errors.idempotencyMismatch();
       if (earlier.resources) assertSshHosts(context, earlier.resources["ssh.hosts"]);
       else readBoundRoute(this.files, context, input);
+      this.assertNotRevoked(earlier, this.jobs.get(earlier.operationId));
       return { jobId: earlier.operationId };
     }
     this.files.assertWritable();
@@ -137,12 +143,14 @@ export class PublicExecJobs {
     const running = [...this.jobs.values()].filter((job) => job.endedAt === undefined);
     if (running.filter((job) => job.owner === owner).length >= 4 || running.length >= 16) throw errors.invalidInput("SSH 作业运行数量已达上限");
     context.signal.throwIfAborted();
-    const { entry, fresh } = this.receipts.claim(receiptOwner, capability, intentKey, input, { "ssh.hosts": chain.map(({ id }) => id) });
+    const hostIds = chain.map(({ id }) => id);
+    const { entry, fresh } = this.receipts.claim(receiptOwner, capability, intentKey, input, { "ssh.hosts": hostIds });
     const { operationId: jobId } = entry;
     if (!fresh || entry.phase !== "accepted") return { jobId };
     const job: Job = {
       owner,
       claim: entry,
+      authorized: () => hasSshHosts(context, hostIds),
       command: input.command,
       timeoutSec: input.timeoutSec,
       streams: { stdout: new ExecOutput(), stderr: new ExecOutput() },
@@ -162,6 +170,7 @@ export class PublicExecJobs {
       },
     };
     this.jobs.set(jobId, job);
+    this.changed?.(jobId);
     try {
       if (this.retainActivity) job.releaseActivity = this.retainActivity();
       const connection = this.probes.openForJob(context, owner, input);
@@ -173,6 +182,7 @@ export class PublicExecJobs {
           job.client = client;
           job.status.sessionId = randomUUID();
           job.status.state = "ready";
+          this.changed?.(jobId);
           client.once("close", () => {
             if (job.endedAt !== undefined) return;
             if (job.status.state === "ready") this.finish(job, { state: "failed", reason: "connection-failed" });
@@ -206,6 +216,7 @@ export class PublicExecJobs {
     const { client, command } = job;
     job.command = undefined;
     job.status.state = "dispatching";
+    this.changed?.(input.jobId);
     this.timer(job, dispatchTimeout, () => this.finish(job, this.uncertain(job, "dispatch-timeout")));
     try {
       client.exec(command, (error, channel) => {
@@ -248,6 +259,7 @@ export class PublicExecJobs {
     if (job.status.stopRequested) this.interrupt(job);
     else {
       job.status.state = "running";
+      this.changed?.(job.status.jobId);
       this.timer(job, job.timeoutSec * 1000, () => this.stop(job, "timeout"));
     }
   }
@@ -256,10 +268,35 @@ export class PublicExecJobs {
     return this.find(context, jobId).status;
   }
 
-  read(context: CapabilityContext, input: z.infer<typeof ReadExecOutput>) {
+  list(context: CapabilityContext, hostId?: string) {
+    const owner = externalSshOwner(context);
+    const routes = visibleSshRoutes(this.files, context);
+    return [...this.jobs.values()]
+      .filter((job) => job.owner === owner && !job.revoked && (!hostId || job.status.hostId === hostId) && routes.get(job.status.hostId)?.routeRevision === job.status.routeRevision)
+      .map((job) => this.view(job));
+  }
+
+  workbenchList(hostId?: string) {
+    return [...this.jobs.values()].filter((job) => !hostId || job.status.hostId === hostId).map((job) => this.view(job));
+  }
+
+  cancelWorkbench(jobId: string) {
+    const job = this.jobs.get(jobId);
+    if (!job || job.endedAt !== undefined || job.status.stopRequested) return { requested: false };
+    this.stop(job, "cancel");
+    return { requested: true };
+  }
+
+  async read(context: CapabilityContext, input: z.infer<typeof ReadExecOutput>) {
     const { job, status } = this.find(context, input.jobId);
     if (!("stdoutEnd" in status)) throw new HuhuError("INTERNAL", "SSH 作业结果待核实", { retryable: false, details: { outcome: "unknown", jobId: input.jobId } });
-    if (job && (job.endedAt === undefined || Date.now() - job.endedAt < outputLifetime)) return job.streams[input.stream].read(input.cursor, input.limit);
+    if (job && (job.endedAt === undefined || Date.now() - job.endedAt < outputLifetime)) {
+      const stream = job.streams[input.stream];
+      await stream.wait(input.cursor, input.waitMs, context.signal);
+      this.find(context, input.jobId);
+      readBoundRoute(this.files, context, status);
+      return stream.read(input.cursor, input.limit);
+    }
     return unavailableOutput(input.cursor, input.stream === "stdout" ? status.stdoutEnd : status.stderrEnd);
   }
 
@@ -282,6 +319,7 @@ export class PublicExecJobs {
       return;
     }
     job.status.state = "stopping";
+    this.changed?.(job.status.jobId);
     if (job.channel) this.interrupt(job);
   }
 
@@ -307,7 +345,7 @@ export class PublicExecJobs {
 
   private finish(job: Job, fallback: End) {
     if (job.endedAt !== undefined) return;
-    const end = job.remoteExit ?? fallback;
+    const end = job.revoked ? fallback : (job.remoteExit ?? fallback);
     job.endedAt = Date.now();
     try {
       clearTimeout(job.timer);
@@ -317,6 +355,7 @@ export class PublicExecJobs {
       job.streams.stdout.finish();
       job.streams.stderr.finish();
       job.status = { ...this.view(job), state: end.state, reason: end.reason, exitCode: end.exitCode ?? null, exitSignal: end.exitSignal ?? null };
+      this.changed?.(job.status.jobId);
       job.close?.();
       delete job.close;
       delete job.client;
@@ -342,11 +381,13 @@ export class PublicExecJobs {
     const job = this.jobs.get(jobId);
     if (job?.owner === owner) {
       assertSshHosts(context, job.claim.resources?.["ssh.hosts"] ?? [job.status.hostId]);
+      this.assertNotRevoked(job.claim, job);
       return { job, status: this.view(job) };
     }
     const receipt = this.receipts.lookup(receiptOwner, { operationId: jobId });
     if (!receipt || receipt.capability !== capability) throw errors.notFound("SSH 作业");
     if (receipt.resources) assertSshHosts(context, receipt.resources["ssh.hosts"]);
+    this.assertNotRevoked(receipt);
     if (receipt.phase !== "accepted" && receipt.result.ok) {
       const terminal = lifecycle.safeParse(receipt.result.data);
       if (terminal.success) {
@@ -356,6 +397,23 @@ export class PublicExecJobs {
     }
     if (!receipt.resources) throw errors.notFound("SSH 作业");
     return { status: { jobId, state: "unknown", reason: "engine-interrupted" } };
+  }
+
+  private assertNotRevoked(receipt: Claim, job?: Job): void {
+    if (job?.revoked) throw errors.permissionDenied("SSH 主机授权");
+    if (receipt.phase === "accepted" || !receipt.result.ok) return;
+    const status = lifecycle.safeParse(receipt.result.data);
+    if (status.success && status.data.reason === "host-authorization-revoked") throw errors.permissionDenied("SSH 主机授权");
+  }
+
+  revokeUnauthorized(): void {
+    for (const job of this.jobs.values()) {
+      if (job.revoked || job.authorized()) continue;
+      job.revoked = true;
+      const state = job.status.state === "connecting" || job.status.state === "ready" ? "cancelled" : "unknown";
+      this.finish(job, { state, reason: "host-authorization-revoked" });
+      job.streams = { stdout: new ExecOutput(), stderr: new ExecOutput() };
+    }
   }
 
   private trimOutput() {

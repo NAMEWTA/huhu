@@ -43,7 +43,7 @@ export const FileOrigin = z.object({
   user: z.string(),
   port: z.number(),
 });
-export const FileSession = FileSessionId.extend({ ...FileOrigin.shape, shellId: z.string().optional(), state: z.enum(["ready", "disconnected"]) });
+export const FileSession = FileSessionId.extend({ ...FileOrigin.shape, shellId: z.string().optional(), source: z.literal("external").optional(), state: z.enum(["ready", "disconnected"]) });
 export type FileSession = z.infer<typeof FileSession>;
 
 export const FileSearch = z.object({ hits: z.array(z.object({ folder: z.string(), entry: FileEntry })), limited: z.boolean(), skipped: z.number() });

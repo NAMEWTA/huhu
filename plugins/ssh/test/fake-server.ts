@@ -24,7 +24,9 @@ export interface FakeSshOptions {
   publicKey?: string;
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
+  keyboardResponse?: string;
   onShellInput?: (text: string) => void;
+  onShellClose?: () => void;
   holdReadDirectory?: (dir: string) => boolean;
   waitReadDirectory?: (dir: string) => Promise<void> | undefined;
   onWriteFile?: (file: string) => void;
@@ -76,6 +78,14 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
     });
     client.on("authentication", (ctx) => {
       o.onAuth?.(ctx.username, ctx.method);
+      if (o.keyboardResponse !== undefined) {
+        if (ctx.method !== "keyboard-interactive") return ctx.reject(["keyboard-interactive"]);
+        ctx.prompt({ prompt: "Fixture response", echo: false }, (responses) => {
+          if (responses.length === 1 && responses[0] === o.keyboardResponse) ctx.accept();
+          else ctx.reject();
+        });
+        return;
+      }
       if (publicKey !== undefined && ctx.method === "publickey" && ctx.key.algo === publicKey.type && ctx.key.data.equals(publicKey.getPublicSSH())) {
         if (!ctx.signature || (ctx.blob && publicKey.verify(ctx.blob, ctx.signature, ctx.hashAlgo) === true)) return ctx.accept();
       }
@@ -159,6 +169,7 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
         session.on("window-change", (acceptWc) => acceptWc?.());
         session.on("shell", (acceptShell) => {
           const ch = acceptShell();
+          if (o.onShellClose) ch.once("close", o.onShellClose);
           ch.write("welcome\n");
           ch.on("data", (d: Buffer) => {
             const text = d.toString();
