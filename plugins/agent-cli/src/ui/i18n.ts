@@ -84,7 +84,6 @@ export const t = {
     noMatch: "当前 Space 没有匹配会话",
     resuming: "正在恢复…",
     active: "运行中",
-    notInstalled: "未检测到对应的 CLI，无法恢复",
     pin: (title: string) => `固定 ${title}`,
     unpin: (title: string) => `取消固定 ${title}`,
     skipped: (n: number) => `${n} 个历史文件无法解析，已跳过`,

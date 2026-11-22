@@ -914,7 +914,6 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
           <HistoryPanel
             key={space.id} // 切换 Space 时历史面板重新挂载：搜索框与筛选被清空（ACC-AG-05）
             space={space}
-            installed={new Set((detected.data ?? []).filter((p) => p.installed).map((p) => p.id))}
             writable={Boolean(view?.writable)}
             canLaunch={editable}
             planLaunch={planHistory}

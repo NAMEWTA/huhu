@@ -1254,6 +1254,11 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
     await expect(page.getByTestId("history-item")).toHaveCount(2, { timeout: 10_000 });
     await expect(page.getByTestId("history-title").filter({ hasText: "梳理发布清单" })).toBeVisible();
     await expect(page.getByTestId("history-title").filter({ hasText: "修复登录页" })).toBeVisible();
+    for (const row of await page.getByTestId("history-item").all()) {
+      const resume = row.getByTestId("history-resume");
+      await expect(resume).toBeDisabled();
+      await expect(resume).toHaveAccessibleDescription(/无法绑定所选历史文件，仅可预览/);
+    }
     // 恢复入口只对白名单里的会话开放：未知 id 被后端拒绝
     const err = await page.evaluate(async () => {
       const ep = await window.huhuHost.engine();

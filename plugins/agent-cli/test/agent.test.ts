@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -56,6 +56,22 @@ describe("智能体检测", () => {
     settings = settingsWith({ pi: { command: path.join(other, "mypi") } });
     det.invalidate();
     expect((await det.detect()).find((x) => x.id === "pi")).toMatchObject({ installed: true, via: "override", version: "mypi-1" });
+  });
+  test.skipIf(process.platform === "win32")("并行刷新共用探测，已变更的设置不接受旧探测结果", async () => {
+    const bin = tmp();
+    fakeBin(bin, "pi", `printf 'run\\n' >> "${path.join(bin, "probe.log")}"; printf '  --session FILE\\n'`);
+    let settings = settingsWith({ claude: { enabled: false }, codex: { enabled: false } });
+    const det = new AgentDetector({ settings: () => settings, env: { PATH: bin }, home: tmp() });
+    const before = det.snapshot();
+    const one = det.detect(true);
+    const two = det.detect(true);
+    expect(det.cached()).toBe(before);
+    settings = settingsWith({ claude: { enabled: false }, codex: { enabled: false }, pi: { enabled: false } });
+    det.invalidate();
+    const current = det.snapshot();
+    expect(await Promise.all([one, two])).toEqual([current, current]);
+    expect(det.cached().find(({ id }) => id === "pi")).toMatchObject({ installed: false, skipped: true });
+    expect(readFileSync(path.join(bin, "probe.log"), "utf8").trim().split("\n")).toEqual(["run", "run"]);
   });
   test.skipIf(process.platform === "win32")("PATH 里没有时回退到安装目录（via=installDir）", async () => {
     const home = tmp();

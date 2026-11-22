@@ -17,6 +17,8 @@ interface Entry {
   pinned: boolean;
   canResume: boolean;
   canFork: boolean;
+  resumeBlocked: string | null;
+  forkBlocked: string | null;
 }
 type Browse = { entries: Entry[]; skipped: number; total: number; nextOffset: number | null; limitedProviders: Entry["provider"][] };
 export type HistoryAction = "resume" | "fork";
@@ -35,6 +37,7 @@ function TranscriptDialog({ spaceId, allSpaces, entry, onClose, actions }: { spa
   const transcript = useCapability<Transcript>("agent.history.read", { spaceId, allSpaces, ...reference(entry) });
   return (
     <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose} actions={actions}>
+      {entry.forkBlocked ? <p id={`history-fork-reason-${entry.historyId}`}>{entry.forkBlocked}</p> : null}
       {transcript.isError ? (
         <div role="alert" className="hu-callout danger">
           <p>{transcript.error instanceof Error ? transcript.error.message : String(transcript.error)}</p>
@@ -57,14 +60,12 @@ function TranscriptDialog({ spaceId, allSpaces, entry, onClose, actions }: { spa
 
 export function HistoryPanel({
   space,
-  installed,
   writable,
   canLaunch,
   planLaunch,
   onLocate,
 }: {
   space: { id: string; name?: string; root?: string };
-  installed: Set<string>;
   writable: boolean;
   canLaunch: boolean;
   planLaunch: (selection: HistorySelection, action: HistoryAction) => LaunchPlan | null;
@@ -242,7 +243,7 @@ export function HistoryPanel({
         {!history.data && !history.isError ? <p className="agent-small-empty">正在扫描会话历史…</p> : null}
         {history.data && entries.length === 0 ? <p className="agent-small-empty">{query || provider || filter !== "all" ? t.history.noMatch : t.history.empty}</p> : null}
         {entries.map((e) => {
-          const ok = installed.has(e.provider);
+          const resumeReasonId = !e.active && e.resumeBlocked ? `history-resume-reason-${e.historyId}` : undefined;
           return (
             <div key={e.historyId} className="agent-history-item" data-testid="history-item">
               <span className={`agent-provider-mark provider-${e.provider}`}>{e.provider.slice(0, 1).toUpperCase()}</span>
@@ -253,10 +254,7 @@ export function HistoryPanel({
                   {e.active ? ` · ${t.history.active}` : ""}
                 </small>
                 <time>{new Date(e.updatedAt).toLocaleString("zh-CN", { hour12: false })}</time>
-                {!e.active && !ok ? <small>{t.history.notInstalled}</small> : null}
-                {e.possiblyActive ? <small>可能已在运行，请从会话列表核对</small> : null}
-                {!e.active && !e.possiblyActive && ok && !e.canResume && !e.canFork ? <small>当前 CLI 无法绑定这个历史文件，仅可预览</small> : null}
-                {!e.active && ok && !e.canResume && e.canFork ? <small>请在原 Space 中恢复</small> : null}
+                {resumeReasonId ? <small id={resumeReasonId}>{e.resumeBlocked}</small> : null}
               </span>
               <button
                 type="button"
@@ -277,7 +275,7 @@ export function HistoryPanel({
                   前往会话
                 </Button>
               ) : (
-                <Button disabled={!ok || !e.canResume || !canLaunch} data-testid="history-resume" onClick={() => selectLaunch(e, "resume")}>
+                <Button disabled={!e.canResume || !canLaunch} aria-describedby={resumeReasonId} data-testid="history-resume" onClick={() => selectLaunch(e, "resume")}>
                   {t.history.resume}
                 </Button>
               )}
@@ -303,7 +301,7 @@ export function HistoryPanel({
           entry={viewing}
           onClose={() => setViewing(null)}
           actions={
-            <Button disabled={!canLaunch || !viewing.canFork || !installed.has(viewing.provider)} data-testid="history-fork" onClick={() => selectLaunch(viewing, "fork")}>
+            <Button disabled={!canLaunch || !viewing.canFork} aria-describedby={viewing.forkBlocked ? `history-fork-reason-${viewing.historyId}` : undefined} data-testid="history-fork" onClick={() => selectLaunch(viewing, "fork")}>
               创建分支
             </Button>
           }

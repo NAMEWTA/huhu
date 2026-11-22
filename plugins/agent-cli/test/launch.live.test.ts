@@ -133,7 +133,7 @@ test.skipIf(!bin)(
         waitingTasks: false,
         agents: { claude: { command: agentCmd, args: ["--fixture", "two words"] }, codex: { command: failedBat, args: [] }, pi: { enabled: false } },
       });
-      const detected = await call<{ id: string; version?: string }[]>("agent.catalog.detect", { refresh: true });
+      const detected = await call<{ id: string; version?: string }[]>("agent.catalog.refresh", {});
       expect(detected).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ id: "claude", installed: true, via: "override", path: agentCmd, version: "synthetic-cli 1.0.0" }),

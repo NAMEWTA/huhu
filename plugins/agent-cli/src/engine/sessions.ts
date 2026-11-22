@@ -321,6 +321,7 @@ export class SessionsService {
     const intent = this.launchIntent(input);
     const previous = this.recordedLaunch(input.requestId);
     if (previous) this.verifyIntent(previous, intent);
+    if (previous?.launchReceipt?.attempt && input.history) return this.doLaunch(input, intent, undefined, undefined, signal, undefined);
 
     const canTrackPi = input.provider === "pi" && !input.environment && !input.history && !input.resumeSessionId && !input.expectedConfigurationId;
     const newPiId = canTrackPi ? `huhu-${launchHash([this.d.vaultId, input.spaceId, input.requestId])}` : undefined;

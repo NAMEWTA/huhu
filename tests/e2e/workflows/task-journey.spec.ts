@@ -1,10 +1,14 @@
-import { _electron as electron, expect, test, type Page } from "@playwright/test";
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityResult, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "@huhu/contracts";
+import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "@huhu/contracts";
+import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
+import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
+import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import type { DispatchReceipt, TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import type { z } from "zod";
@@ -53,6 +57,14 @@ async function openTask(page: Page, title: string) {
   await page.getByRole("button", { name: "任务", exact: true }).first().click();
   await page.getByRole("button", { name: `打开任务 ${title}`, exact: true }).click();
   return page.getByTestId("task-detail");
+}
+
+async function openRun(page: Page, title: string) {
+  const run = (await openTask(page, title)).getByTestId("managed-task-run");
+  await expect(run).toHaveCount(1);
+  const expand = run.getByRole("button", { name: "展开结果", exact: true });
+  if (await expand.isVisible()) await expand.click();
+  return run;
 }
 
 test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目标不可用时可人工关闭", async ({}, testInfo) => {
@@ -299,6 +311,256 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   }
 });
 
-test("T7.2 候选安装包：停用 Tasks、丢失一次消费 ACK 和原生进程恢复", () => {
-  test.skip(true, "安装包缺少可控制内部 Agent→Tasks ACK 的验收夹具。Linux 的内部消费协议与重交用 agent-cli/test/native-receipts.live.test.ts 的固定 Core 夹具验证，随包 Windows 原生恢复需 W8.3 环境。");
+test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费 ACK 重交与历史恢复", async ({}, testInfo) => {
+  test.setTimeout(240_000);
+  const executablePath = process.env["HUHU_PACKAGED_EXE"];
+  const artifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
+  const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
+  const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  test.skip(
+    process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1" || process.platform !== "linux" || process.arch !== "x64" || !executablePath || !artifact || !expectedSha || !provider,
+    "需 Linux x64、W8.3 候选包和 SHA、受控的 Codex ELF，并显式设置 HUHU_AGENT_WORKSPACE_ACCEPTANCE=1。Windows 实机走独立的原生 Pi 用例。",
+  );
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(artifact!)) hash.update(chunk);
+  const sha = hash.digest("hex");
+  expect(sha).toBe(expectedSha);
+
+  const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-w8-workspace-"));
+  const vault = path.join(sandbox, "vault");
+  const other = path.join(sandbox, "other-space");
+  const userData = path.join(sandbox, "desktop");
+  const fixtureHome = path.join(sandbox, "home");
+  const providerHome = path.join(sandbox, "provider");
+  const histories = path.join(sandbox, "pi-sessions");
+  const gate = path.join(sandbox, "ack-gate");
+  const runtime = path.join(sandbox, "runtime");
+  const responses = await startCodexResponsesFixture();
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HUHU_VAULT: vault,
+    HOME: fixtureHome,
+    XDG_RUNTIME_DIR: runtime,
+    CODEX_HOME: path.join(fixtureHome, ".codex"),
+    CLAUDE_CONFIG_DIR: path.join(fixtureHome, ".claude"),
+    PI_CODING_AGENT_DIR: path.join(fixtureHome, ".pi"),
+    PI_CODING_AGENT_SESSION_DIR: histories,
+    HUHU_CODEX_DISPATCH_HOME: providerHome,
+    HUHU_E2E_TASK_RECEIPT_ACK_GATE: gate,
+  };
+  delete env["HUHU_HERDR_BIN"];
+  delete env["HC_TERMINAL_ID"];
+  type Space = { id: string; name: string };
+  type Session = { id: string; terminalId: string; nativeSessionId?: string; state: string };
+  let app: ElectronApplication | undefined;
+  let coreBin: string | undefined;
+  const launch = async () => {
+    app = await electron.launch({ executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env });
+    coreBin = path.join(await app.evaluate(() => process.resourcesPath), "herdr", "linux-x64", "herdr-core");
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 25_000 });
+    await page.setViewportSize({ width: 1600, height: 1050 });
+    return { page, call: caller(page) };
+  };
+  try {
+    for (const dir of [vault, other, userData, fixtureHome, providerHome, histories, gate, runtime]) await mkdir(dir, { mode: 0o700 });
+    await writeFile(path.join(providerHome, "config.toml"), responses.config, { mode: 0o600 });
+    const source = path.join(histories, "original.jsonl");
+    const original =
+      [
+        { type: "session", version: 3, id: "fixture-w8-pi-history", cwd: vault },
+        { type: "message", id: "prompt", parentId: null, message: { role: "user", content: "W8 原历史" } },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join("\n") + "\n";
+    await writeFile(source, original);
+    const pi = path.join(sandbox, "pi-fixture");
+    const piLaunch = path.join(sandbox, "pi-launch.txt");
+    await writeFile(
+      pi,
+      `#!/bin/sh
+case "$1" in
+  --version) printf 'Pi history fixture 1\\n';;
+  --help) printf '  --session FILE\\n  --fork FILE\\n  --session-id ID\\n';;
+  --session)
+    printf '%s\\n' "$PWD" "$2" > "${piLaunch}"
+    while IFS= read -r line; do :; done;;
+  *) exit 2;;
+esac
+`,
+      { mode: 0o700 },
+    );
+    execFileSync("git", ["-C", vault, "init", "-q"], { env });
+    await writeFile(path.join(vault, "w8-review.md"), "合成工作区改动\n");
+
+    let { page, call } = await launch();
+    const catalog = await call<{ name: string; exposed: boolean; exposable: boolean }[]>("capabilities.list", { includeInactive: true });
+    expect(catalog.every(({ exposed }) => !exposed)).toBe(true);
+    expect(catalog.find(({ name }) => name === "tasks.receipts.consume")).toMatchObject({ exposable: false });
+    const catalogPolicy = (exposed: boolean) => call("gateway.update", { capability: "agent.catalog.detect", exposed });
+    expect(await catalogPolicy(true)).toMatchObject({ exposed: true });
+    const [homeSpace] = await call<Space[]>("agent.spaces.list");
+    const settings = await call<{ settings: { revision: number } }>("agent.settings.get");
+    await call("agent.settings.update", { expectedRevision: settings.settings.revision, defaultAgent: null, agents: { claude: { enabled: false }, pi: { command: pi, args: [] } } });
+    const sessions = (spaceId: string) => call<Session[]>("agent.sessions.list", { spaceId });
+    const workspace = (spaceId: string) => call<WorkspaceView>("agent.workspace.get", { spaceId });
+    const agent = () => page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    const pane = (id: string) => page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${id}"]`));
+    const startShell = async (trigger: ReturnType<Page["getByTestId"]>, count: number) => {
+      await trigger.click();
+      await page.getByTestId("launch-shell").click();
+      await expect(page.getByTestId("terminal-view")).toHaveCount(count, { timeout: 15_000 });
+    };
+    await agent();
+    await startShell(page.getByTestId("workspace-pane-launch"), 1);
+    const [anchor] = await sessions(homeSpace!.id);
+    for (const [index, direction] of ["right", "up", "down", "left"].entries()) {
+      await startShell(pane(anchor!.id).getByTestId(`workspace-split-${direction}`), index + 2);
+    }
+    const originalLayout = await workspace(homeSpace!.id);
+    await page.getByTestId("space-new").click();
+    await page.getByLabel("Space 名称").fill("W8 第二工作区");
+    await page.getByLabel("工作目录", { exact: true }).fill(other);
+    await page.getByTestId("space-save").click();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "W8 第二工作区" })).toHaveAttribute("aria-pressed", "true");
+    await startShell(page.getByTestId("workspace-pane-launch"), 1);
+    const otherSpace = (await call<Space[]>("agent.spaces.list")).find(({ name }) => name === "W8 第二工作区")!;
+    const otherLayout = await workspace(otherSpace.id);
+    expect((await workspace(homeSpace!.id)).layout).toEqual(originalLayout.layout);
+
+    const title = "W8 单次受控派遣";
+    const task = await call<TaskDto>("tasks.create", { title, body: "Use the fixture shape question.", type: "agent", execution: { spaceId: homeSpace!.id, provider: "codex" } });
+    const taskDetail = await openTask(page, title);
+    await taskDetail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    await expect.poll(() => listDispatches(call, task.id)).toMatchObject([{ runId: expect.any(String), attempt: 1 }]);
+    const run = (await listDispatches(call, task.id))[0]!;
+    const { dispatchId } = run;
+    await writeFile(path.join(gate, "dispatch-id"), dispatchId);
+    const questions = () => call<z.infer<typeof TaskQuestionView>[]>("tasks.questions.list", { taskId: task.id });
+    await expect.poll(questions, { timeout: 40_000 }).toMatchObject([{ runId: run.runId, status: "awaiting", mode: "native_deferred", options: ["Circle", "Square"] }]);
+    const [question] = await questions();
+    const session = (await sessions(homeSpace!.id)).find(({ id }) => id === question!.sessionId)!;
+    expect((await listDispatches(call, task.id))[0]).toMatchObject({ runId: run.runId, dispatchId, attempt: 1, session: { id: session.id, spaceId: homeSpace!.id } });
+    const detail = await openRun(page, title);
+    await detail.getByRole("button", { name: "定位原会话" }).click();
+    await page.getByTestId("workspace-session-preview").getByRole("button", { name: "放入新标签" }).click();
+    await expect(pane(session.id).getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    await pane(session.id).getByTestId("agent-review-toggle").click();
+    await expect(page.getByTestId("review-panel").getByTestId("review-file").filter({ hasText: "w8-review.md" })).toBeVisible();
+
+    await app!.close();
+    app = undefined;
+    ({ page, call } = await launch());
+    const reopened = await openRun(page, title);
+    await expect.poll(() => sessions(homeSpace!.id)).toContainEqual(expect.objectContaining({ id: session.id, terminalId: session.terminalId, state: "running" }));
+    expect(await questions()).toMatchObject([{ requestId: question!.requestId, sessionId: session.id, runId: run.runId, status: "awaiting" }]);
+    expect(await catalogPolicy(false)).toMatchObject({ exposed: false });
+    await reopened.getByRole("button", { name: "定位原会话" }).click();
+    await expect(pane(session.id)).toHaveAttribute("data-active", "true");
+    await expect(pane(session.id).getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    expect((await workspace(otherSpace.id)).layout).toEqual(otherLayout.layout);
+    const managed = await openRun(page, title);
+    await managed.getByRole("radio", { name: "Circle" }).check();
+    await managed.getByRole("button", { name: "发送回答" }).click();
+
+    const heldFile = path.join(gate, "held.json");
+    await expect.poll(() => readFile(heldFile, "utf8").catch(() => ""), { timeout: 35_000 }).toMatch(/^\{.+\}$/);
+    const held = JSON.parse(await readFile(heldFile, "utf8")) as ExecutionReceiptAck;
+    expect(held).toMatchObject({ stage: "tasks_consumed", receipt: { execution: { dispatchId, runId: run.runId, attempt: 1, sessionBinding: { sessionId: session.id, coreAddress: session.terminalId } } } });
+    const [localVault] = await readdir(path.join(userData, "agent-cli", "codex-dispatch"));
+    const agentRoot = path.join(userData, "agent-cli", "codex-dispatch", localVault!);
+    const books = path.join(agentRoot, "agent-receipts");
+    const saved = await Promise.all(
+      (await readdir(books))
+        .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
+        .map(async (file) => ({ file, ...(JSON.parse(await readFile(path.join(books, file), "utf8")) as { receipt: ExecutionReceipt; identity: ExecutionReceiptAck["receipt"] }) })),
+    );
+    const result = saved.find(({ receipt }) => receipt.receiptId === held.receipt.receiptId)!;
+    expect(result).toMatchObject({ receipt: { kind: "result" }, identity: held.receipt });
+    const helperAckName = `agent-ack-${result.receipt.receiptId}.json`;
+    const nativeDirs = (await readdir(agentRoot)).filter((file) => /^[a-f0-9]{64}$/.test(file));
+    const helperAcks = await Promise.all(nativeDirs.map(async (dir) => ((await readdir(path.join(agentRoot, dir))).includes(helperAckName) ? path.join(agentRoot, dir, helperAckName) : null)));
+    const helperAckFile = helperAcks.find((file) => file !== null)!;
+    expect(JSON.parse(await readFile(helperAckFile, "utf8"))).toMatchObject({ data: { stage: "agent_received", receipt: held.receipt }, mac: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    const missingAck = `${result.file}.tasks-ack`;
+    expect(await readdir(books)).not.toContain(missingAck);
+
+    const inbox = path.join(vault, ".huhu", "tasks", "receipts");
+    const deliveries = async () => {
+      const rows = await Promise.all(
+        (await readdir(inbox))
+          .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
+          .map(
+            async (file) =>
+              JSON.parse(await readFile(path.join(inbox, file), "utf8")) as {
+                receipt: ExecutionReceipt;
+                consumption: TasksReceiptConsumption;
+                status: string;
+              },
+          ),
+      );
+      return rows.filter(({ receipt }) => receipt.receiptId === result.receipt.receiptId);
+    };
+    const [durable] = await deliveries();
+    expect(durable).toMatchObject({ receipt: result.receipt, consumption: { delivery: { receipt: held.receipt } } });
+    expect(await call("plugins.setEnabled", { id: "tasks", enabled: false })).toMatchObject({ state: "disabled" });
+    await writeFile(path.join(gate, "release"), "");
+    expect(await readdir(books)).not.toContain(missingAck);
+    expect(await call("plugins.setEnabled", { id: "tasks", enabled: true })).toMatchObject({ state: "active" });
+    await expect.poll(() => readdir(books), { timeout: 20_000 }).toContain(missingAck);
+    expect(JSON.parse(await readFile(path.join(books, missingAck), "utf8"))).toEqual(held);
+    await expect.poll(deliveries).toEqual([{ ...durable, status: "delivered" }]);
+    const comments = async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result");
+    await expect.poll(comments).toMatchObject([{ id: durable!.consumption.delivery.messageId, run: run.runId, session: session.id, body: expect.stringContaining(responses.result) }]);
+    expect(responses.requests).toHaveLength(2);
+    expect(responses.requests[1]?.input).toContainEqual(expect.objectContaining({ type: "function_call_output", call_id: responses.callId, output: expect.stringContaining("Circle") }));
+
+    const currentTask = await openRun(page, title);
+    await currentTask.getByRole("button", { name: "定位原会话" }).click();
+    await pane(session.id).getByTestId("workspace-pane-close").click();
+    await page.getByRole("button", { name: "终止并关闭" }).click();
+    await expect(pane(session.id)).toHaveCount(0);
+    await expect.poll(async () => (await sessions(homeSpace!.id)).filter(({ id, state }) => id === session.id && state === "running")).toEqual([]);
+    const finalTask = await openTask(page, title);
+    await finalTask.getByTestId("task-status").selectOption("completed");
+    await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
+    expect((await listDispatches(call, task.id))[0]).toMatchObject({ runId: run.runId, dispatchId, attempt: 1 });
+
+    await agent();
+    await page.getByTestId("agent-space-item").filter({ hasText: homeSpace!.name }).click();
+    const toggleHistory = page.getByTestId("agent-history-toggle");
+    if (!(await page.getByTestId("agent-history").isVisible())) await toggleHistory.click();
+    const history = page.getByTestId("history-item").filter({ hasText: "W8 原历史" });
+    await history.getByTestId("history-resume").click();
+    await page.getByTestId("history-launch").getByRole("button", { name: "恢复会话" }).click();
+    await expect.poll(() => sessions(homeSpace!.id)).toContainEqual(expect.objectContaining({ nativeSessionId: "fixture-w8-pi-history", state: "running" }));
+    await expect.poll(() => readFile(piLaunch, "utf8").catch(() => "")).toBe(`${vault}\n${source}\n`);
+    expect(await readFile(source, "utf8")).toBe(original);
+    const next = await call<TaskDto>("tasks.create", { title: "W8 已关闭目标", type: "agent", body: "只用原会话", execution: { spaceId: homeSpace!.id, target: { mode: "existing", sessionId: session.id } } });
+    await call("tasks.dispatch", { taskId: next.id, dispatchId: randomUUID(), expectedVersion: next.version, inputRevision: next.inputRevision, inputHash: next.inputHash });
+    await expect.poll(() => listDispatches(call, next.id)).toMatchObject([{ state: "blocked", reason: "target_unavailable" }]);
+    await expect.poll(comments).toHaveLength(1);
+    const core = await call<{ version: string }>("agent.core.status");
+    const codexVersion = execFileSync(provider!, ["--version"], { env, encoding: "utf8" }).trim();
+    await testInfo.attach("W8 原生会话与两段 ACK", {
+      contentType: "application/json",
+      body: JSON.stringify({ sha, platform: process.platform, arch: process.arch, coreVersion: core.version, codexVersion, dispatchId, runId: run.runId, session, receipt: held.receipt, messageId: durable!.consumption.delivery.messageId }),
+    });
+  } finally {
+    try {
+      await app?.close();
+    } finally {
+      try {
+        if (coreBin) {
+          for (const socket of (await readdir(runtime)).filter((name) => /^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/.test(name))) {
+            const core = fixtureCoreCli(coreBin, { ...env, HC_SESSION: "huhu", HC_SOCKET: path.join(runtime, socket) });
+            if (core("server", "status").status === 0) core("server", "stop");
+          }
+        }
+      } finally {
+        await responses.close();
+        rmTree(sandbox);
+      }
+    }
+  }
 });

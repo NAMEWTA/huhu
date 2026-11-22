@@ -112,8 +112,14 @@ const Entry = z.object({
   pinned: z.boolean(),
   canResume: z.boolean(),
   canFork: z.boolean(),
+  resumeBlocked: z.string().nullable(),
+  forkBlocked: z.string().nullable(),
 });
-export const HistoryLaunchInput = HistoryReference.extend({ spaceRevision: z.number(), requestId: z.string(), action: z.enum(["resume", "fork"]).default("resume") });
+export const HistoryLaunchInput = HistoryReference.required({ historyId: true, historyRevision: true }).extend({
+  spaceRevision: z.number(),
+  requestId: z.string(),
+  action: z.enum(["resume", "fork"]).default("resume"),
+});
 const Line = z.object({ kind: z.enum(["ctx", "add", "del"]), oldLine: z.number().nullable(), newLine: z.number().nullable(), text: z.string(), noNewline: z.boolean().optional() });
 const Hunk = z.object({ header: z.string(), oldStart: z.number(), oldLines: z.number(), newStart: z.number(), newLines: z.number(), lines: z.array(Line) });
 const ReviewFile = z.object({
@@ -164,13 +170,24 @@ export const mainAgentDescriptors = {
   }),
   catalogDetect: defineCapabilityDescriptor({
     ...publicAgentTool,
-    exposable: false,
     name: "agent.catalog.detect",
     scope: "read",
     risk: "high",
-    title: "检测 Agent CLI",
-    description: "探测本机配置的 Agent CLI 版本。",
-    input: z.object({ refresh: z.boolean().optional() }),
+    title: "读取 Agent CLI 检测快照",
+    description: "读取本机已缓存的 Agent CLI 可用性。外部工具只获得可用性摘要。",
+    input: z.strictObject({}),
+    output: z.array(DetectOut),
+  }),
+  catalogRefresh: defineCapabilityDescriptor({
+    ...publicAgentTool,
+    exposable: false,
+    name: "agent.catalog.refresh",
+    scope: "execute",
+    risk: "high",
+    title: "刷新 Agent CLI 检测",
+    description: "由工作台主动检查已启用的 Agent CLI 及版本。",
+    timeoutMs: 10_000,
+    input: z.strictObject({}),
     output: z.array(DetectOut),
   }),
   settingsGet: defineCapabilityDescriptor({

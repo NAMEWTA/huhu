@@ -1,5 +1,6 @@
-import { readdirSync } from "node:fs";
-import { errors, ExecutionReceiptSchema, HuhuError, isHuhuError, TasksReceiptConsumptionSchema, type ExecutionBinding, type ExecutionReceipt } from "@huhu/contracts";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { errors, ExecutionReceiptSchema, HuhuError, isHuhuError, TasksReceiptConsumptionSchema, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck } from "@huhu/contracts";
 import { createExecutionReceiptAck, validateExecutionReceipt } from "@huhu/contracts/execution-receipt/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
@@ -32,6 +33,24 @@ export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string; re
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
+}
+
+/** Packaged acceptance can cut the internal response after the real inbox has committed it. */
+function holdFixtureAck(input: ExecutionReceipt, ack: ExecutionReceiptAck): void {
+  const gate = process.env["HUHU_E2E_TASK_RECEIPT_ACK_GATE"];
+  if (!gate || !path.isAbsolute(gate) || input.kind !== "result" || existsSync(path.join(gate, "release"))) return;
+  try {
+    if (readFileSync(path.join(gate, "dispatch-id"), "utf8") !== input.execution.dispatchId) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  try {
+    writeFileSync(path.join(gate, "held.json"), JSON.stringify(ack), { flag: "wx", flush: true, mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  throw new HuhuError("INTERNAL", "验收夹具已截断 Tasks 消费 ACK", { retryable: true });
 }
 
 /** Receipt IDs are unique within this Vault. The ACK is derived from the bytes read back. */
@@ -87,6 +106,7 @@ export class TaskReceiptInbox {
       if (durable) throw errors.invalidInput("任务回执与先前保存的内容冲突");
       throw new HuhuError("WRITE_PARTIAL", "未能回读任务回执");
     }
+    holdFixtureAck(input, ack.ack);
     return ack.ack;
   }
 
