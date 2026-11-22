@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, DashboardView } from "@huhu/contracts";
@@ -135,7 +135,7 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
 
 const herdrBin = path.resolve(import.meta.dirname, "../../desktop/resources/herdr", process.platform + "-" + process.arch, "herdr-core");
 
-test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 PTY 在 Agent 停用时可重挂，Web 无法访问，SSH 停用后释放进程", { timeout: 30_000 }, async () => {
+test.skipIf(process.platform !== "linux" || !existsSync(herdrBin)).each(["随包绝对路径", "PATH"] as const)("SSH 本地 PTY 在 Agent 停用时可重挂，Web 无法访问，SSH 停用后释放进程（%s）", { timeout: 30_000 }, async (source) => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ssh-local-"));
   const runtime = path.join(fixture, "run");
   const home = path.join(fixture, "home");
@@ -144,7 +144,7 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
   for (const directory of [runtime, home, webAssetsDir, vaultPath]) mkdirSync(directory);
   chmodSync(runtime, 0o1777);
   writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>SSH test</title>");
-  vi.stubEnv("HUHU_HERDR_BIN", herdrBin);
+  vi.stubEnv("HUHU_HERDR_BIN", source === "PATH" ? undefined : herdrBin);
   vi.stubEnv("XDG_RUNTIME_DIR", runtime);
   vi.stubEnv("HOME", home);
   vi.stubEnv("SHELL", "/bin/sh");
@@ -161,7 +161,18 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
     const shell = environments.find(({ name }) => name === "sh");
     expect(shell).toBeDefined();
     expect(readdirSync(runtime)).toEqual([]);
-    const session = await desktop<{ id: string; state: string }>("ssh.local.open", { action: "launch", environmentId: shell!.id });
+    const open = { action: "launch", environmentId: shell!.id };
+    if (source === "PATH") {
+      const bin = path.join(fixture, "bin");
+      mkdirSync(bin);
+      const previousPath = process.env["PATH"];
+      vi.stubEnv("PATH", bin);
+      await expect(desktop("ssh.local.open", open)).rejects.toThrow(/HERDR_UNAVAILABLE/u);
+      expect(readdirSync(runtime)).toEqual([]);
+      symlinkSync(herdrBin, path.join(bin, "herdr-core"));
+      vi.stubEnv("PATH", [bin, previousPath].filter(Boolean).join(path.delimiter));
+    }
+    const session = await desktop<{ id: string; state: string }>("ssh.local.open", open);
     expect(session.state).toBe("running");
     const coreSocket = readdirSync(runtime, { recursive: true, encoding: "utf8" }).find((file) => /^huhu-ssh-[a-f0-9]{20}\.sock$/u.test(path.basename(file)));
     expect(coreSocket).toBeDefined();
@@ -196,6 +207,7 @@ test.skipIf(process.platform !== "linux" || !existsSync(herdrBin))("SSH 本地 P
     expect(browser.output).toEqual([]);
     expect(reattached.ws.readyState).toBe(WebSocket.OPEN);
 
+    if (source === "PATH") vi.stubEnv("PATH", path.join(fixture, "bin-no-longer-in-use"));
     await desktop("plugins.setEnabled", { id: "ssh", enabled: false });
     expect(await reattached.closed).toBe(1000);
     await expect

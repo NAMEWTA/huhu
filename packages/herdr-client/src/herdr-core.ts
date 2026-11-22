@@ -1,22 +1,13 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, lstatSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { HuhuError } from "@huhu/contracts";
 import { HerdrClient } from "./client.js";
+import { findOnPath, runnable } from "./executable.js";
 
 type CoreStatus = { state: "connected" | "unavailable" | "idle"; version: string | null; coreId?: string; pid?: number; error?: string };
 type RunningCore = { version: string; core: { id: string }; pid: number };
-
-export function runnable(candidate: string, platform: NodeJS.Platform = process.platform): boolean {
-  try {
-    if (!statSync(candidate).isFile()) return false;
-    if (platform !== "win32") accessSync(candidate, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export interface HerdrCoreOptions {
   /** herdr-core 可执行文件（随应用打包；开发时可用 HUHU_HERDR_BIN）。 */
@@ -34,6 +25,7 @@ export interface HerdrCoreOptions {
 /** 实例隔离的 Herdr Core（interfaces.md §7）：独立 session、状态与配置目录、短路径 socket。 */
 export class HerdrCore {
   private client: HerdrClient | null = null;
+  private startedWith: string | undefined;
 
   constructor(private readonly o: HerdrCoreOptions) {}
 
@@ -84,6 +76,12 @@ export class HerdrCore {
     };
   }
 
+  private resolveBinary(): string | null {
+    const { bin } = this.o;
+    if (!path.isAbsolute(bin) && path.basename(bin) === bin) return findOnPath(bin);
+    return runnable(bin) ? path.resolve(bin) : null;
+  }
+
   /** 确保 Core 在运行并返回已连接的客户端；二进制缺失或启动失败 → HERDR_UNAVAILABLE。 */
   async ensure(): Promise<HerdrClient> {
     this.o.signal?.throwIfAborted();
@@ -97,11 +95,13 @@ export class HerdrCore {
   private starting: Promise<HerdrClient> | null = null;
 
   private async start(): Promise<HerdrClient> {
-    if (!existsSync(this.o.bin)) throw new HuhuError("HERDR_UNAVAILABLE", `找不到 Herdr Core：${this.o.bin}`);
+    const bin = this.resolveBinary();
+    if (!bin) throw new HuhuError("HERDR_UNAVAILABLE", `找不到可运行的 Herdr Core：${this.o.bin}`);
     this.checkSocketDirectory(true);
     mkdirSync(this.o.runtimeDir, { recursive: true });
+    this.startedWith = bin;
     await new Promise<void>((resolve, reject) => {
-      const p = spawn(this.o.bin, ["server", "start"], { env: this.env(), stdio: "ignore", windowsHide: true });
+      const p = spawn(bin, ["server", "start"], { env: this.env(), stdio: "ignore", windowsHide: true });
       const timer = setTimeout(() => {
         p.kill();
         reject(new HuhuError("HERDR_UNAVAILABLE", "启动 Herdr Core 超时"));
@@ -184,7 +184,7 @@ export class HerdrCore {
   async probe(): Promise<{ state: "connected" | "idle" | "unavailable"; version: string | null; error?: string }> {
     const status = await this.statusIfRunning();
     if (status.state !== "idle") return status;
-    return runnable(this.o.bin) ? status : { state: "unavailable", version: null, error: `找不到可运行的 Herdr Core：${this.o.bin}` };
+    return this.resolveBinary() ? status : { state: "unavailable", version: null, error: `找不到可运行的 Herdr Core：${this.o.bin}` };
   }
 
   async statusIfRunning(allowConnect = true): Promise<CoreStatus> {
@@ -234,8 +234,9 @@ export class HerdrCore {
       if ((await this.peek()) === "absent") return;
     }
     this.dispose();
+    const bin = this.startedWith ?? this.resolveBinary() ?? this.o.bin;
     await new Promise<void>((resolve, reject) => {
-      const p = spawn(this.o.bin, ["server", "stop"], { env: this.env(), stdio: "ignore", windowsHide: true });
+      const p = spawn(bin, ["server", "stop"], { env: this.env(), stdio: "ignore", windowsHide: true });
       p.once("exit", (code) => {
         if (!requireConfirmation || code === 0) resolve();
         else reject(new HuhuError("HERDR_UNAVAILABLE", `停止 Herdr Core 失败（退出码 ${code ?? "未知"}）`));

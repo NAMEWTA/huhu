@@ -2,9 +2,11 @@ import { execFile } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { runnable } from "@huhu/herdr-client";
+import { findInDirs, findOnPath, runnable } from "@huhu/herdr-client";
 import { AGENT_CATALOG, type AgentCatalogEntry, type AgentId } from "../shared/catalog.js";
 import { entryOf, isEnabled, type AgentSettingsFile } from "../shared/settings.js";
+
+export { findInDirs, findOnPath };
 
 export interface DetectInfo {
   id: AgentId;
@@ -19,27 +21,6 @@ export interface DetectInfo {
   detectedAt: string;
   /** Pi flags confirmed by the last explicit probe. */
   history?: { resume: boolean; fork: boolean };
-}
-
-const exts = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => (platform === "win32" ? (env["PATHEXT"] ?? ".EXE;.CMD;.BAT").split(";").map((e) => e.toLowerCase()) : [""]);
-
-/** 在一组目录里查找可执行文件（Windows 考虑 PATHEXT）。 */
-export function findInDirs(cmd: string, dirs: string[], env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
-  const extensions = exts(env, platform);
-  const suffixes = extensions.includes(path.extname(cmd).toLowerCase()) ? [""] : extensions;
-  for (const dir of dirs) {
-    for (const ext of suffixes) {
-      const candidate = path.resolve(dir, cmd + ext);
-      if (runnable(candidate, platform)) return candidate;
-    }
-  }
-  return null;
-}
-
-/** 在 PATH 里查找可执行文件。 */
-export function findOnPath(cmd: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
-  const dirs = (env["PATH"] ?? env["Path"] ?? "").split(platform === "win32" ? ";" : ":").filter(Boolean);
-  return findInDirs(cmd, dirs, env, platform);
 }
 
 /**
