@@ -2,13 +2,13 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile, execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
-import { USER_DATA_ARG } from "../helpers/launch.js";
+import { candidateEnvironment, candidatePackage, confirmCandidate } from "../helpers/candidate-package.js";
 
 /**
  * 打包后的 E2E 子集（release.md §5）：对安装/解包后的可执行文件运行。
@@ -16,15 +16,35 @@ import { USER_DATA_ARG } from "../helpers/launch.js";
  * （Linux 解包目录：apps/desktop/release/linux-unpacked/huhu；CI 需要 xvfb-run。）
  */
 const EXE = process.env["HUHU_PACKAGED_EXE"];
-test.skip(!EXE, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
+const candidateAcceptance = process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] === "1";
+test.skip(!EXE && !candidateAcceptance, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
 
-async function start(vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"))): Promise<{ app: ElectronApplication; page: Page; vault: string; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
+async function start(
+  vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-")),
+): Promise<{ app: ElectronApplication; page: Page; vault: string; env: Record<string, string>; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
   // 不传 HUHU_HERDR_BIN：必须用随包的 Herdr Core，而不是源码树里的那份
-  const env = { ...process.env, HUHU_VAULT: vault } as Record<string, string>;
-  delete env["HUHU_HERDR_BIN"];
-  const app = await electron.launch({ executablePath: EXE!, args: ["--no-sandbox", USER_DATA_ARG], env });
+  const profile = mkdtempSync(path.join(tmpdir(), "huhu-pk-profile-"));
+  const env: Record<string, string> = {
+    ...candidateEnvironment(),
+    HUHU_VAULT: vault,
+    HOME: path.join(profile, "home"),
+    USERPROFILE: path.join(profile, "home"),
+    XDG_RUNTIME_DIR: path.join(profile, "runtime"),
+    XDG_CONFIG_HOME: path.join(profile, "config"),
+    XDG_DATA_HOME: path.join(profile, "data"),
+    XDG_STATE_HOME: path.join(profile, "state"),
+    XDG_CACHE_HOME: path.join(profile, "cache"),
+    CODEX_HOME: path.join(profile, "codex"),
+    CLAUDE_CONFIG_DIR: path.join(profile, "claude"),
+    PI_CODING_AGENT_DIR: path.join(profile, "pi"),
+    PI_CODING_AGENT_SESSION_DIR: path.join(profile, "pi-sessions"),
+  };
+  for (const directory of ["home", "runtime", "config", "data", "state", "cache", "codex", "claude", "pi", "pi-sessions"]) mkdirSync(path.join(profile, directory), { mode: 0o700 });
+  const executablePath = candidateAcceptance ? (await candidatePackage()).executablePath : EXE!;
+  const app = await electron.launch({ executablePath, args: ["--no-sandbox", `--user-data-dir=${path.join(profile, "desktop")}`], env });
   const page = await app.firstWindow();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+  if (candidateAcceptance) await confirmCandidate(app, page);
   const ep = await page.evaluate(() => window.huhuHost.engine());
   const call = (capability: string, input: unknown = {}) =>
     page.evaluate(
@@ -42,6 +62,7 @@ async function start(vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"))): Prom
     app,
     page,
     vault,
+    env,
     call,
     stop: async () => {
       // 退出后 Engine 进程必须在 10 秒内消失（Herdr Core 允许保留）
@@ -71,6 +92,7 @@ async function start(vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"))): Prom
       // Windows 上 Herdr Core 等后台进程可能还占着 Vault 里的文件（EPERM）：重试，仍不行就留给系统清理
       try {
         rmSync(vault, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
       } catch (e) {
         if (process.platform !== "win32") throw e;
       }
@@ -147,11 +169,11 @@ test("打包后：随包命令行 huhu --version 与应用版本一致，huhu ca
   const s = await start();
   try {
     // 随包命令行的位置：Windows / Linux 在可执行文件旁的 resources/bin；macOS 在 HUHU.app/Contents/Resources/bin
-    const resources = process.platform === "darwin" ? path.join(path.dirname(EXE!), "..", "Resources") : path.join(path.dirname(EXE!), "resources");
+    const resources = await s.app.evaluate(() => process.resourcesPath);
     const bin = path.join(resources, "bin", process.platform === "win32" ? "huhu.cmd" : "huhu");
     expect(existsSync(bin)).toBe(true);
     // Node 不允许不经 shell 直接 spawn .cmd（EINVAL）
-    const run = (args: string[]) => execFileSync(process.platform === "win32" ? `"${bin}"` : bin, args, { encoding: "utf8", timeout: 30_000, ...(process.platform === "win32" ? { shell: true } : {}) });
+    const run = (args: string[]) => execFileSync(process.platform === "win32" ? `"${bin}"` : bin, args, { env: s.env, encoding: "utf8", timeout: 30_000, ...(process.platform === "win32" ? { shell: true } : {}) });
     const info = await s.page.evaluate(() => window.huhuHost.appInfo());
     const version = run(["--version"]).trim();
     expect(version).toBe(info.version);
@@ -221,10 +243,10 @@ test("打包后：CLI 与 HTTP MCP 逐项授权，Safe 锁定期间读取邮件�
   let app: Awaited<ReturnType<typeof start>> | undefined;
   try {
     const source = (app = await start(mkdtempSync(path.join(fixture, "vault-"))));
-    const bin = path.join(path.dirname(EXE!), "resources", "bin", "huhu");
+    const bin = path.join(await source.app.evaluate(() => process.resourcesPath), "bin", "huhu");
     const run = promisify(execFile);
     const cli = async (...args: string[]) => {
-      const output = await run(bin, [...args, "--vault", source.vault, "--json"], { encoding: "utf8", timeout: 30_000 }).catch((failure: unknown) => {
+      const output = await run(bin, [...args, "--vault", source.vault, "--json"], { env: source.env, encoding: "utf8", timeout: 30_000 }).catch((failure: unknown) => {
         if (failure && typeof failure === "object" && "stdout" in failure && typeof failure.stdout === "string" && failure.stdout.trim()) return { stdout: failure.stdout };
         throw failure;
       });
