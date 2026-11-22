@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, DashboardView } from "@huhu/contracts";
+import { HerdrCore } from "@huhu/herdr-client";
+import { endpointRootBinding } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { WebSocket } from "ws";
 import { boot } from "../src/boot.js";
@@ -134,6 +139,54 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
 });
 
 const herdrBin = path.resolve(import.meta.dirname, "../../desktop/resources/herdr", process.platform + "-" + process.arch, "herdr-core");
+
+test.skipIf(process.platform === "win32")("停用 SSH 后可见本机资源回收结果待核对，确认后可重新启用", async () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ssh-stop-"));
+  const runtime = path.join(fixture, "run");
+  const vaultPath = path.join(fixture, "vault");
+  mkdirSync(runtime, { mode: 0o700 });
+  mkdirSync(vaultPath);
+  vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+  const orphan = createServer();
+  let engine: Awaited<ReturnType<typeof boot>> | undefined;
+  try {
+    const running = (engine = await boot({ vaultPath, create: true }));
+    const digest = createHash("sha256").update(endpointRootBinding(running.vault.root)).digest("hex").slice(0, 20);
+    const core = new HerdrCore({ vaultId: running.vault.id, machineId: "fixture", runtimeDir: runtime, bin: "unused", socketName: `huhu-ssh-${digest}` });
+    mkdirSync(path.dirname(core.endpoint), { mode: 0o700, recursive: true });
+    const holder = core.endpoint.replace(/\.sock$/u, ".holder.1234abcd.sock");
+    orphan.listen(holder);
+    await once(orphan, "listening");
+
+    const desktop = (capability: string, input: unknown = {}) => running.dispatcher.call("desktop", { capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() });
+    const deactivate = { id: "ssh", enabled: false };
+    const unconfirmed = { ok: false, error: { code: "HERDR_UNAVAILABLE", details: { outcome: "unknown", state: "disabled" } } };
+    expect(await desktop("plugins.setEnabled", deactivate)).toMatchObject(unconfirmed);
+    expect(await desktop("plugins.list")).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: "ssh", state: "disabled", error: expect.stringContaining("无法确认") })]) });
+    expect(await desktop("ssh.local.environments")).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+    expect(await desktop("plugins.setEnabled", { ...deactivate, enabled: true })).toMatchObject(unconfirmed);
+    expect(orphan.listening).toBe(true);
+
+    const closed = once(orphan, "close");
+    orphan.close();
+    await closed;
+    expect(existsSync(holder)).toBe(false);
+    expect(await desktop("plugins.setEnabled", deactivate)).toEqual({ ok: true, data: { state: "disabled", alsoDisabled: [] } });
+    expect(await desktop("plugins.setEnabled", { ...deactivate, enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+  } finally {
+    if (orphan.listening) {
+      const closed = once(orphan, "close");
+      orphan.close();
+      await closed;
+    }
+    try {
+      await engine?.shutdown();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 3 });
+    }
+  }
+});
 
 test.skipIf(process.platform !== "linux" || !existsSync(herdrBin)).each(["随包绝对路径", "PATH"] as const)("SSH 本地 PTY 在 Agent 停用时可重挂，Web 无法访问，SSH 停用后释放进程（%s）", { timeout: 30_000 }, async (source) => {
   const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ssh-local-"));

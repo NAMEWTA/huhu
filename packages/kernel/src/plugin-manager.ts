@@ -1,4 +1,4 @@
-import { findDependencyCycle, type PluginManifest } from "@huhu/contracts";
+import { findDependencyCycle, HuhuError, type PluginManifest } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import type { EventBus, HuhuApi } from "./context.js";
 
@@ -7,6 +7,8 @@ export type PluginState = "active" | "disabled" | "failed";
 export interface PluginEntry {
   manifest: PluginManifest;
   apply: (ctx: Context, api: HuhuApi) => void | Promise<void>;
+  /** 确认由 Engine 托管的设备资源已停止。可在停用状态下重试。 */
+  confirmStopped?: () => Promise<void>;
 }
 
 interface Runtime {
@@ -14,6 +16,7 @@ interface Runtime {
   state: PluginState;
   error?: string;
   dispose?: () => Promise<void>;
+  cleanupError?: HuhuError;
 }
 
 /** 按 dependsOn 拓扑启停插件；停用先拒绝新调用，再释放作用域。 */
@@ -55,6 +58,10 @@ export class PluginManager {
     return this.plugins.get(id)?.error;
   }
 
+  cleanupError(id: string): HuhuError | undefined {
+    return this.plugins.get(id)?.cleanupError;
+  }
+
   /** 插件清单中声明的权限（内置插件的授予范围）。 */
   originOf(id: string): "builtin" | "external" {
     return this.plugins.get(id)?.entry.manifest.origin === "builtin" ? "builtin" : "external";
@@ -85,7 +92,13 @@ export class PluginManager {
   private async doEnable(id: string): Promise<PluginState> {
     const rt = this.plugins.get(id);
     if (!rt) throw new Error(`未知插件：${id}`);
+    const disabling = this.disabling.get(id);
+    if (disabling) await disabling;
     if (rt.state === "active") return "active";
+    if (rt.cleanupError) {
+      await this.confirmStopped(rt);
+      if (rt.cleanupError) return "disabled";
+    }
     for (const dep of rt.entry.manifest.dependsOn) {
       if (!this.plugins.has(dep)) return this.fail(rt, `缺少依赖插件：${dep}`);
       if ((await this.enable(dep)) !== "active") return this.fail(rt, `依赖插件 ${dep} 未能启用`);
@@ -137,15 +150,33 @@ export class PluginManager {
     for (const [otherId, other] of this.plugins) {
       if (other.state === "active" && other.entry.manifest.dependsOn.includes(id)) stopped.push(...(await this.disable(otherId)));
     }
-    if (rt.state !== "disabled") {
+    const changed = rt.state !== "disabled";
+    if (changed) {
       // 先标记为非活动（Dispatcher 据此拒绝新调用），再释放作用域
       rt.state = "disabled";
       await rt.dispose?.();
       delete rt.dispose;
-      this.events.publish("plugin.stateChanged", { id, state: "disabled" });
+    }
+    const hadCleanupError = rt.cleanupError !== undefined;
+    if (rt.entry.confirmStopped) await this.confirmStopped(rt);
+    if (changed || hadCleanupError || rt.cleanupError) {
+      this.events.publish("plugin.stateChanged", { id, state: "disabled", ...(rt.cleanupError && { error: rt.cleanupError.message }) });
       stopped.push(id);
     }
     return stopped;
+  }
+
+  private async confirmStopped(rt: Runtime): Promise<void> {
+    try {
+      await rt.entry.confirmStopped?.();
+      if (rt.cleanupError) {
+        delete rt.cleanupError;
+        delete rt.error;
+      }
+    } catch (error) {
+      rt.cleanupError = error instanceof HuhuError ? error : new HuhuError("INTERNAL", "无法确认设备资源已回收", { retryable: false, details: { outcome: "unknown" } });
+      rt.error = rt.cleanupError.message;
+    }
   }
 
   /** 运行期故障（例如外部扩展进程崩溃）：标记 failed 并释放资源，状态页显示原因并允许重试。 */

@@ -54,13 +54,7 @@ export function hasSavedSshHosts(files: HuhuApi["vault"]["files"], ids: readonly
   return readPortableHosts(files, new Set(ids)).length === ids.length;
 }
 
-export function apply(
-  ctx: Context,
-  api: HuhuApi,
-  credentialHost?: SshCredentialHost,
-  execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity },
-  localPty?: { launch: LaunchLocalPty; shutdown(): Promise<void> },
-): { manager: SshManager } {
+export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredentialHost, execJobs?: { runtimeDir: string; vaultInstance: string; retainActivity?: RetainActivity }, launchLocalPty?: LaunchLocalPty): { manager: SshManager } {
   const root = path.join(api.vault.stateDir, "ssh");
   const relativeState = path.relative(api.vault.files.root, root);
   const stateInVault = !path.isAbsolute(relativeState) && relativeState !== ".." && !relativeState.startsWith(`..${path.sep}`);
@@ -138,7 +132,7 @@ export function apply(
   const proxyShare = registerSshProxyShare(api, manager);
   registerSshWorkspacePanes(api, runs, publicWorkspaces);
   const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"));
-  const localShells = localPty && registerSshLocalShells(api, localPty.launch);
+  const localShells = launchLocalPty && registerSshLocalShells(api, launchLocalPty);
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "tool-access") {
@@ -169,12 +163,7 @@ export function apply(
     proxyShare.dispose();
     manager.disposeAll();
   });
-  if (localShells && localPty) {
-    ctx.effect(() => async () => {
-      await localShells.dispose();
-      await localPty.shutdown();
-    });
-  }
+  if (localShells) ctx.effect(() => () => localShells.dispose());
 
   api.defineCapability(bindCapability(sshCapabilityDescriptors.settingsGet, () => preferences.get()));
   api.defineCapability(

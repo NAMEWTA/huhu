@@ -7,6 +7,7 @@ import {
   ToolAccessResourcesSchema,
   ToolAccessSnapshotSchema,
   errors,
+  HuhuError,
   isWorkbenchCaller,
   toJsonSchema,
   type CapabilityAvailability,
@@ -197,13 +198,21 @@ export function registerSystemCapabilities(
             }
           }
           if (id === "kernel") return { state: "active", alsoDisabled: [] };
+          const confirmCleanup = (pluginIds: readonly string[]) => {
+            for (const pluginId of pluginIds) {
+              const error = plugins.cleanupError(pluginId);
+              if (error) throw new HuhuError(error.code, `插件已停用。${error.message}`, { retryable: false, details: { outcome: "unknown", state: "disabled", pluginId } });
+            }
+          };
           if (enabled) {
             const state = await plugins.enable(id);
+            confirmCleanup([id]);
             if (state === "active") exposure.setPluginEnabled?.(id, true);
             return { state, alsoDisabled: [] };
           }
           const stopped = await plugins.disable(id);
           for (const stoppedId of stopped) exposure.setPluginEnabled?.(stoppedId, false);
+          confirmCleanup(stopped);
           return { state: "disabled", alsoDisabled: stopped.filter((stoppedId) => stoppedId !== id) };
         });
         pluginChanges = next.catch(() => undefined);

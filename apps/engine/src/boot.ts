@@ -470,25 +470,26 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
       }),
   });
+  const sshLocalCore = vault.readOnly
+    ? undefined
+    : new HerdrCore({
+        bin: process.env["HUHU_HERDR_BIN"] ?? "herdr-core",
+        vaultId: vault.id,
+        machineId: machineId(),
+        runtimeDir: path.join(runtime, "ssh-local-herdr"),
+        session: "huhu-ssh-local",
+        socketName: `huhu-ssh-${createHash("sha256").update(endpointRootBinding(vault.root)).digest("hex").slice(0, 20)}`,
+      });
   plugins.register({
     manifest: PluginManifestSchema.parse(sshManifest),
+    ...(sshLocalCore && { confirmStopped: () => sshLocalCore.stop({ requireConfirmation: true }) }),
     apply: (ctx, api) => {
-      const localCore = vault.readOnly
-        ? undefined
-        : new HerdrCore({
-            bin: process.env["HUHU_HERDR_BIN"] ?? "herdr-core",
-            vaultId: vault.id,
-            machineId: machineId(),
-            runtimeDir: path.join(runtime, "ssh-local-herdr"),
-            session: "huhu-ssh-local",
-            socketName: `huhu-ssh-${createHash("sha256").update(endpointRootBinding(vault.root)).digest("hex").slice(0, 20)}`,
-          });
       ssh.apply(
         ctx,
         api,
         moduleCredentialHost ? { ...moduleCredentialHost, vault } : undefined,
         !vault.files.readOnly && rootIdentity ? { runtimeDir: runtime, vaultInstance: JSON.stringify([vault.id, ...rootIdentity]), retainActivity: retainLongOperation } : undefined,
-        localCore && { launch: ssh.createHerdrLocalPty(localCore, attachTerminal), shutdown: () => localCore.stop({ requireConfirmation: true }) },
+        sshLocalCore && ssh.createHerdrLocalPty(sshLocalCore, attachTerminal),
       );
     },
   });
