@@ -78,7 +78,9 @@ export function TerminalEnvironment({ ruleId, showExternalApproval }: { ruleId: 
         </div>
       ))}
       {configuration?.localAvailable ? <Button onClick={() => open("replace")}>添加受保护变量</Button> : null}
-      {configuration?.localAvailable && showExternalApproval ? <TerminalApproval ruleId={ruleId} /> : null}
+      {configuration?.localAvailable ? (
+        showExternalApproval ? <TerminalApproval ruleId={ruleId} /> : <p>外部批准支持 Linux 的显式 sh 和 Windows 的 PowerShell。</p>
+      ) : null}
       <p role="status">{notice}</p>
       <Dialog
         open={edit !== null}

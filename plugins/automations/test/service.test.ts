@@ -1,12 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError, type TaskDto } from "@huhu/contracts";
-import { OperationLog, SemanticRepository, VaultFiles } from "@huhu/vault";
+import { ExposureStore, type CapabilityDefinition, type HuhuApi } from "@huhu/kernel";
+import { OperationLog, SemanticRepository, Vault, VaultFiles } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import { AutomationsService } from "../src/engine/service.js";
+import { registerTerminalEnvironments } from "../src/engine/terminal-environment.js";
 
 const dirs: string[] = [];
 const terminalOwner = "a".repeat(64);
@@ -138,6 +142,130 @@ async function terminalRule(svc: AutomationsService) {
 function terminalLaunches(calls: Call[]) {
   return calls.filter(({ capability }) => capability === "agent.sessions.launch");
 }
+
+test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、版本、工作目录和单次启动", async () => {
+  const { svc, root, d, sessions, calls } = setup();
+  const localRoot = path.join(d, "local");
+  const keys = path.join(d, "keys");
+  const alternate = path.join(d, "alternate-path");
+  for (const dir of [localRoot, keys, alternate]) mkdirSync(dir);
+  writeFileSync(path.join(alternate, "sh"), "#!/bin/sh\nexit 42\n", { mode: 0o700 });
+  const vault = await Vault.open(root, { create: true });
+  const command = 'test -n "$HUHU_RULE_SECRET_FIXTURE" && printf "%s\\n" approved-fixture-ok';
+  const variable = "HUHU_RULE_SECRET_FIXTURE";
+  const secret = "synthetic-terminal-environment";
+  const bindings = new Map<string, CapabilityDefinition>();
+  const launch = vi.fn();
+  const launchApprovedShell = vi.fn(async (input: { requestId: string; approvedShell: ApprovedLinuxShell }) => {
+    const id = `approved-${sessions.size + 1}`;
+    sessions.set(id, { id, state: "exited", exitCode: 0, requestId: input.requestId, hasEnv: true });
+    return { id };
+  });
+  let launcherAvailable = false;
+  let spaceRevision = 1;
+  const api = {
+    vault,
+    defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry),
+    service: (name: string) => {
+      if (name === "agentCli") return { spaces: { list: () => [{ id: "space-1", revision: spaceRevision, root }] } };
+      if (name === "agentProtectedTerminal") return { launch, ...(launcherAvailable && { launchApprovedShell }) };
+    },
+  } as unknown as HuhuApi;
+  registerTerminalEnvironments(api, svc, { vault, localRoot, localVaultInstanceId: "linux-approved-test", protection: new TestProtection(keys) });
+  const access = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
+  const invoke = async <T>(name: string, input: unknown, caller = "desktop"): Promise<T> => {
+    const capability = bindings.get(`automations.terminal.${name}`)!;
+    const parsed = capability.input.parse(input);
+    const result = await capability.handler({ signal: new AbortController().signal, caller, subject: "fixture", requestId: randomUUID() }, parsed);
+    return capability.output.parse(result) as T;
+  };
+  type Review = { target: string; ruleVersion: string; approvalId: string | null };
+  type Status = { revision: string; ruleVersion: string };
+  const capability = (operation: string) => `automations.terminal.external.${operation}`;
+  try {
+    await access.initialize([...bindings.keys()]);
+    const rule = await svc.create({ title: "Linux 已批准规则", trigger: every5, action: { ...terminalAction, shell: "sh", command } });
+    const id = { ruleId: rule.id };
+    const review = () => invoke<Review>("approval.review", id);
+    const approve = async () => {
+      const { target, ruleVersion, approvalId } = await review();
+      return invoke<{ approvalId: string }>("approval.approve", { ...id, target, expectedRuleVersion: ruleVersion, expectedApprovalId: approvalId, names: [variable] });
+    };
+    expect(await review()).toMatchObject({ shell: "sh", command, executable: realpathSync.native("/bin/sh"), unavailableReason: expect.stringContaining("核验 Linux sh") });
+    await expect(approve()).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    launcherAvailable = true;
+    const before = await review();
+    vi.stubEnv("PATH", alternate);
+    try {
+      expect(await review()).toEqual(before);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    await expect(invoke("external.status", id, "cli")).rejects.toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
+    await access.setMany(["status", "save", "run"].map((op) => ({ capability: capability(op), exposed: true })));
+    await expect(invoke("external.status", id, "cli")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const { approvalId } = await approve();
+    const base = { ...id, expectedRuleVersion: rule.version, expectedRevision: null };
+    expect(await invoke("external.status", id, "cli")).toMatchObject({ ruleVersion: rule.version, revision: null, states: { [variable]: "unconfigured" } });
+    await expect(invoke("external.save", { ...base, changes: [{ name: "PATH", action: "replace", value: alternate }] }, "cli")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const saved = await invoke<Status>("external.save", { ...base, changes: [{ name: variable, action: "replace", value: secret }] }, "cli");
+    expect(saved).toMatchObject({ states: { [variable]: "configured" } });
+    expect(JSON.stringify(saved)).not.toContain(secret);
+    const intent = { ...base, expectedRevision: saved.revision, intentId: randomUUID() };
+    const execute = (input: unknown = intent, caller = "cli") => invoke<{ runId: string; activationId: string }>("external.run", input, caller);
+    await expect(execute({ ...intent, expectedRuleVersion: "obsolete" })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    expect(launchApprovedShell).not.toHaveBeenCalled();
+    const [first, second] = await Promise.all([execute(), execute()]);
+    expect(second).toMatchObject({ runId: first.runId, activationId: first.activationId });
+    expect(launchApprovedShell).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        env: { [variable]: secret },
+        approvedDirectory: expect.objectContaining({ path: realpathSync.native(root), identity: expect.any(String) }),
+        approvedShell: {
+          executable: expect.objectContaining({ path: realpathSync.native("/bin/sh"), identity: expect.any(String), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+          argv: [realpathSync.native("/bin/sh"), "-c", command],
+        },
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(launch).not.toHaveBeenCalled();
+    await svc.idle();
+    const run = svc.runDetail(first.runId);
+    expect(run.data["state"]).toBe("succeeded");
+    expect(JSON.stringify(run)).not.toContain(secret);
+
+    launcherAvailable = false;
+    await expect(execute()).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    launcherAvailable = true;
+    await access.set(capability("run"), false);
+    await expect(execute()).rejects.toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
+    await access.set(capability("run"), true);
+    await invoke("approval.revoke", { ...id, expectedApprovalId: approvalId });
+    await expect(execute({ ...intent, intentId: randomUUID() }, "mcp")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await approve();
+    spaceRevision++;
+    await expect(execute({ ...intent, intentId: randomUUID() })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    spaceRevision--;
+    await svc.update(rule.id, rule.version, { action: { ...terminalAction, shell: "sh", command: "printf changed" } });
+    await expect(execute({ ...intent, intentId: randomUUID() })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(launchApprovedShell).toHaveBeenCalledTimes(1);
+
+    const ordinary = await svc.create({ title: "普通终端", trigger: every5, action: terminalAction });
+    await expect(invoke("approval.review", { ruleId: ordinary.id })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await svc.activateNonAgent(ordinary.id, "manual");
+    expect(terminalLaunches(calls)).toHaveLength(1);
+    expect(terminalLaunches(calls)[0]?.input).toMatchObject({ shell: "default", command: terminalAction.command });
+    const ordinarySh = await svc.create({ title: "普通 sh 终端", trigger: every5, action: { ...terminalAction, shell: "sh" } });
+    await svc.activateNonAgent(ordinarySh.id, "manual");
+    expect(terminalLaunches(calls)).toHaveLength(2);
+    expect(terminalLaunches(calls)[1]?.input).toMatchObject({ shell: "sh", command: terminalAction.command });
+  } finally {
+    svc.abortAll();
+    await svc.idle();
+    await vault.close();
+  }
+});
+
 /** 一条已启用的“让 Agent 处理任务”规则。 */
 async function scanRule(svc: AutomationsService, tags: string[] = [], maxConcurrent = 1): Promise<string> {
   const r = await svc.create({ title: "处理 Agent 任务", trigger: every5, action: { kind: "agent", input: { source: "tasks", tags, maxConcurrent } } });

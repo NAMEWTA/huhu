@@ -14,6 +14,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { assert, expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 
 const prefix = "automations.terminal.external";
 const approvals = "automations.terminal.approval";
@@ -22,9 +23,10 @@ const exec = promisify(execFile);
 const bundle = process.env["HUHU_CLI_TEST_BUNDLE"];
 const cliEntry = bundle ? [bundle] : [createRequire(import.meta.url).resolve("tsx/cli"), path.resolve(import.meta.dirname, "../src/bin.ts")];
 const mcpName = (name: string) => `${prefix}.${name}`.replaceAll(".", "_");
+const linux = process.platform === "linux";
 
-test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinary)(
-  "Windows CLI/MCP 的终端授权、保护值轮换与原意图对账",
+test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64")) || !coreBinary)(
+  `${linux ? "Linux sh" : "Windows PowerShell"} CLI/MCP 的终端授权、保护值轮换与原意图对账`,
   async () => {
     const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-approved-terminal-")));
     const vault = path.join(fixture, "vault");
@@ -34,6 +36,9 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
     const marker = `synthetic-approval-${randomUUID()}`;
     const rotatedMarker = `synthetic-rotation-${randomUUID()}`;
     const variable = "HUHU_RULE_SECRET_FIXTURE";
+    const shell = linux ? "sh" : "powershell";
+    const keys = path.join(fixture, "synthetic-protection");
+    const moduleCredentialProtection = linux ? new TestProtection(keys) : undefined;
     const starts: unknown[] = [];
     let omitCoreAck = true;
     let e: RunningEngine | undefined;
@@ -95,13 +100,16 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       vi.stubEnv("HUHU_HERDR_BIN", coreBinary);
       mkdirSync(vault);
       mkdirSync(userData);
-      e = await boot({ vaultPath: vault, create: true, desktopUserData: userData });
-      const command = "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'; [Console]::WriteLine((Get-Location).Path)";
+      if (linux) mkdirSync(keys);
+      e = await boot({ vaultPath: vault, create: true, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
+      const command = linux
+        ? 'test -n "$HUHU_RULE_SECRET_FIXTURE" || exit 7; printf "%s\\n" "$HUHU_RULE_SECRET_FIXTURE" approved-fixture-ok; pwd -P'
+        : "if (-not $env:HUHU_RULE_SECRET_FIXTURE) { exit 7 }; [Console]::WriteLine($env:HUHU_RULE_SECRET_FIXTURE); Write-Output 'approved-fixture-ok'; [Console]::WriteLine((Get-Location).Path)";
       const create = (title: string) =>
         desktop<{ id: string; version: string }>("automations.create", {
           title,
           trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
-          action: { kind: "terminal", command, shell: "powershell", spaceId: null },
+          action: { kind: "terminal", command, shell, spaceId: null },
         });
       const rule = await create("仅用于授权测试");
       const other = await create("另一条未批准规则");
@@ -114,7 +122,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       expect((await mcp("tools/list", {})).tools?.map(({ name }) => name)).toEqual(expect.arrayContaining(["run", "save", "status"].map(mcpName)));
       expect(await cli("status", id)).toMatchObject(denied("PERMISSION_DENIED"));
       const review = await desktop<{ ruleVersion: string; target: string; command: string; space: { root: string }; approvalId: null }>(`${approvals}.review`, id);
-      expect(review).toMatchObject({ command, space: { root: vault }, approvalId: null });
+      expect(review).toMatchObject({ shell, command, space: { root: vault }, approvalId: null, ...(linux && { executable: realpathSync.native("/bin/sh") }) });
       const approve = { ...id, expectedRuleVersion: review.ruleVersion, target: review.target, names: [variable], expectedApprovalId: null };
       expect(await e.dispatcher.call("cli", { capability: `${approvals}.approve`, input: approve, requestId: randomUUID() })).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
       const { approvalId } = await desktop<{ approvalId: string }>(`${approvals}.approve`, approve);
@@ -125,7 +133,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
         return desktop(`${approvals}.approve`, { ruleId, target, expectedRuleVersion: ruleVersion, names: [variable], expectedApprovalId: approvalId });
       };
       await approveRule(other.id);
-      await desktop("automations.update", { id: other.id, expectedVersion: other.version, patch: { action: { kind: "terminal", command: "Write-Output 'changed fixture'", shell: "powershell", spaceId: null } } });
+      await desktop("automations.update", { id: other.id, expectedVersion: other.version, patch: { action: { kind: "terminal", command: linux ? "printf 'changed fixture'" : "Write-Output 'changed fixture'", shell, spaceId: null } } });
       expect(await cli("status", { ruleId: other.id })).toMatchObject(denied("PERMISSION_DENIED"));
       await approveRule(other.id);
       await desktop("automations.terminal.environment.save", {
@@ -143,7 +151,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       const isolated = await desktop<{ id: string }>("automations.create", {
         title: "Space 版本测试",
         trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
-        action: { kind: "terminal", command, shell: "powershell", spaceId: space.id },
+        action: { kind: "terminal", command, shell, spaceId: space.id },
       });
       await approveRule(isolated.id);
       expect(await cli("status", { ruleId: isolated.id })).toMatchObject({ ok: true });
@@ -179,6 +187,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       expect(details.body).toContain("***");
       expect(details.body).not.toContain(marker);
       expect(JSON.stringify(starts)).not.toContain(marker);
+      if (linux) expect(JSON.stringify(starts)).not.toContain(command);
 
       const rotated = await tool("save", { ...expected, expectedRevision: revision, changes: [{ name: variable, action: "replace", value: rotatedMarker }] });
       expect(rotated).toMatchObject({ ok: true, data: { states: { [variable]: "configured" } } });
@@ -205,13 +214,13 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
           return bytes.includes(marker) || bytes.includes(rotatedMarker);
         }),
       ).toBe(false);
-      copy = await boot({ vaultPath: restored, desktopUserData: userData });
+      copy = await boot({ vaultPath: restored, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
       await setAccess("run", true, copy);
       expect(await cli("run", intent, copy)).toMatchObject(denied("PERMISSION_DENIED"));
       await copy.shutdown();
       copy = undefined;
       await e.shutdown();
-      e = await boot({ vaultPath: vault, desktopUserData: userData });
+      e = await boot({ vaultPath: vault, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
       expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, state: "succeeded" } });
       await desktop("gateway.mcp.update", { enabled: true, transport: "stdio" });
       const stdio = new Client({ name: "approved-terminal-test", version: "1" });
@@ -251,7 +260,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
   90_000,
 );
 
-test.skipIf(process.platform === "win32")("POSIX 当前拒绝向外部授权尚未迁移的终端规则", async () => {
+test.skipIf(process.platform === "win32")("POSIX 拒绝向外部批准 default 终端规则", async () => {
   const fixture = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-approved-posix-")));
   const vaultPath = path.join(fixture, "vault");
   const desktopUserData = path.join(fixture, "app");
@@ -264,7 +273,7 @@ test.skipIf(process.platform === "win32")("POSIX 当前拒绝向外部授权尚�
     const created = await call("automations.create", {
       title: "POSIX 授权验证",
       trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
-      action: { kind: "terminal", command: "false", shell: "sh", spaceId: null },
+      action: { kind: "terminal", command: "false", shell: "default", spaceId: null },
     });
     assert(created.ok);
     const ruleId = (created.data as { id: string }).id;

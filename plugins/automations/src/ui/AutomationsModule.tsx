@@ -214,7 +214,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
                   cur.data.legacyEnvironment ? (
                     <p role="status">旧终端环境需要重新配置。编辑并确认替换后，规则会暂停。</p>
                   ) : (
-                    <TerminalEnvironment key={cur.id} ruleId={cur.id} showExternalApproval={cur.data.action.shell === "powershell"} />
+                    <TerminalEnvironment key={cur.id} ruleId={cur.id} showExternalApproval={cur.data.action.shell === "powershell" || cur.data.action.shell === "sh"} />
                   )
                 ) : null}
                 <RuleSchedule id={cur.id} version={cur.version} zone={cur.data.trigger.zone} />

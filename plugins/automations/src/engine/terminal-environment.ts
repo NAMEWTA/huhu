@@ -6,6 +6,7 @@ import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureSt
 import { filesystemIdentity, VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
+import { inspectLinuxShell, type ApprovedLinuxShell } from "./approved-linux-shell.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { hasLegacyTerminalEnvironment, sameDir, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
 
@@ -29,7 +30,9 @@ const review = z.strictObject({
   ruleVersion,
   target: digest,
   command: z.string(),
-  shell: z.literal("powershell"),
+  shell: z.enum(["powershell", "sh"]),
+  executable: z.string().optional(),
+  unavailableReason: z.string().optional(),
   space: z.strictObject({ id: z.string(), revision: z.number().int(), root: z.string() }),
   names: z.array(name),
   approvalId: z.uuidv4().nullable(),
@@ -171,6 +174,12 @@ function actionsFor(names: string[], previous: Definition | undefined, patches: 
 type TerminalAction = Extract<AutomationRuleFrontmatter["action"], { kind: "terminal" }>;
 type Space = { id: string; revision: number; root: string };
 type Approval = z.infer<typeof approval>;
+type ProtectedTerminalLaunch = TerminalRuleLaunch & { env: Record<string, string>; approvedDirectory: ProtectedDirectory };
+type ProtectedTerminal = {
+  launch(request: ProtectedTerminalLaunch, signal: AbortSignal): Promise<{ id: string }>;
+  launchApprovedShell?(request: ProtectedTerminalLaunch & { approvedShell: ApprovedLinuxShell }, signal: AbortSignal): Promise<{ id: string }>;
+};
+const unavailableLinuxLaunch = "本机受保护启动服务尚不支持核验 Linux sh 的执行映像";
 const hash = (data: unknown) => createHash("sha256").update(JSON.stringify(data)).digest("hex");
 const sameNames = (left: readonly string[], right: readonly string[]) => left.length === right.length && left.every((value) => right.includes(value));
 const targetOf = (ruleId: string, action: Pick<TerminalAction, "spaceId" | "shell" | "command">, spaceId: string, spaceRevision: number) => hash([ruleId, action.spaceId, action.shell, action.command, spaceId, spaceRevision]);
@@ -219,12 +228,22 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     if (!local || api.vault.files.readOnly) throw errors.permissionDenied("本机规则批准不可用");
     return local.write(approvalPath(ruleId), Buffer.from(JSON.stringify({ format: 1, approval: next, ...(suspended && { suspended: true }) }) + "\n"), { expectedVersion });
   };
+  const protectedTerminal = () => api.service<ProtectedTerminal>("agentProtectedTerminal");
+  const canLaunchApprovedShell = () => typeof protectedTerminal()?.launchApprovedShell === "function";
+  const requireApprovedShell = (shell: ApprovedLinuxShell | undefined) => {
+    if (shell && !canLaunchApprovedShell()) throw errors.permissionDenied(unavailableLinuxLaunch);
+  };
   const describeTarget = (ruleId: string) => {
     const rule = rules.rule(ruleId);
     const { action } = rule.data;
-    if (process.platform !== "win32" || action.kind !== "terminal" || action.shell !== "powershell" || hasLegacyTerminalEnvironment(action)) {
-      throw errors.permissionDenied("此批准仅用于已迁移的 Windows PowerShell 终端规则");
+    if (action.kind !== "terminal" || hasLegacyTerminalEnvironment(action)) {
+      throw errors.permissionDenied("仅可批准已迁移的终端规则");
     }
+    const shell = action.shell;
+    if (!(process.platform === "linux" && shell === "sh") && !(process.platform === "win32" && shell === "powershell")) {
+      throw errors.permissionDenied("外部批准支持 Linux 的显式 sh 和 Windows 的 PowerShell");
+    }
+    const approvedShell = shell === "sh" ? inspectLinuxShell(action.command) : undefined;
     const space = resolveSpace(action);
     if (!space) throw errors.permissionDenied("规则 Space 当前不可用");
     const root = realpathSync.native(space.root);
@@ -235,8 +254,10 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     if (!spaceStat.isDirectory() || !spaceIdentity || !ruleIdentity) throw errors.permissionDenied("规则目标的本机身份不可核对");
     const environmentTarget = targetOf(ruleId, action, space.id, space.revision);
     const directory: ProtectedDirectory = { path: root, identity: spaceIdentity, birthtimeNs: String(spaceStat.birthtimeNs) };
-    const target = hash([environmentTarget, space.root, directory.path, directory.identity, directory.birthtimeNs, rule.version, ruleIdentity, String(ruleStat.mtimeNs)]);
-    return { ruleVersion: rule.version, target, environmentTarget, directory, command: action.command, shell: action.shell, space: { id: space.id, root, revision: space.revision } };
+    const originalTarget = [environmentTarget, space.root, directory.path, directory.identity, directory.birthtimeNs, rule.version, ruleIdentity, String(ruleStat.mtimeNs)];
+    // Keep the existing Windows target digest and bind the Linux approval to a concrete image and argv.
+    const target = hash(approvedShell ? ["linux-sh", host?.localVaultInstanceId, originalTarget, approvedShell] : originalTarget);
+    return { ruleVersion: rule.version, target, environmentTarget, directory, approvedShell, command: action.command, shell, space: { id: space.id, root, revision: space.revision } };
   };
   const requireDesktop = (caller: string) => {
     if (caller !== "desktop") throw errors.permissionDenied("管理本机规则批准");
@@ -252,6 +273,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     const grant = readApproval(ruleId).approval;
     if (!grant) throw errors.permissionDenied("终端规则未获本机批准");
     const current = describeTarget(ruleId);
+    requireApprovedShell(current.approvedShell);
     const config = portable(ruleId);
     if (grant.target !== current.target || config?.definition.namesRevision !== grant.namesRevision || (config && !sameNames(config.definition.names, grant.names))) {
       throw errors.permissionDenied("终端规则目标或变量名已变化，需要重新批准");
@@ -375,9 +397,17 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   api.defineCapability(
     bindCapability(terminalEnvironmentDescriptors.review, (c, { ruleId }) => {
       if (c.caller !== "desktop") assertExternal(c, terminalEnvironmentDescriptors.review.name);
-      const { environmentTarget: _, directory: _directory, ...current } = describeTarget(ruleId);
+      const { environmentTarget: _, directory: _directory, approvedShell, ...current } = describeTarget(ruleId);
       const grant = readApproval(ruleId).approval;
-      return { ...current, names: portable(ruleId)?.definition.names ?? grant?.names ?? [], approvalId: grant?.id ?? null };
+      return {
+        ...current,
+        ...(approvedShell && {
+          executable: approvedShell.executable.path,
+          ...(!canLaunchApprovedShell() && { unavailableReason: unavailableLinuxLaunch }),
+        }),
+        names: portable(ruleId)?.definition.names ?? grant?.names ?? [],
+        approvalId: grant?.id ?? null,
+      };
     }),
   );
   api.defineCapability(
@@ -386,6 +416,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
         requireDesktop(caller);
         signal.throwIfAborted();
         const current = describeTarget(ruleId);
+        requireApprovedShell(current.approvedShell);
         if (current.ruleVersion !== expectedRuleVersion || current.target !== target) throw errors.versionConflict(current.ruleVersion);
         const prior = readApproval(ruleId);
         if ((prior.approval?.id ?? null) !== expectedApprovalId) throw errors.versionConflict(prior.approval?.id ?? "");
@@ -449,16 +480,19 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
             }
           };
           validate();
-          const agent = api.service<{ launch(request: TerminalRuleLaunch & { env: Record<string, string>; approvedDirectory: ProtectedDirectory }, signal: AbortSignal): Promise<{ id: string }> }>("agentProtectedTerminal");
+          const agent = protectedTerminal();
           if (!agent) throw errors.permissionDenied("受保护启动服务不可用");
           await store
             .use(ruleId, grant.names, async (definition, values, revision) => {
               signal.throwIfAborted();
               if (revision !== expectedRevision || !sameNames(definition.names, grant.names) || definition.fingerprint !== current.environmentTarget) throw errors.permissionDenied("已批准的规则配置不可用");
               const { command, shell, space } = current;
-              await submit({ command, shell, provider: "shell", spaceId: space.id, spaceRevision: space.revision }, current.target, validate, (input, launchSignal) =>
-                agent.launch({ ...input, env: Object.fromEntries(values), approvedDirectory: current.directory }, launchSignal),
-              );
+              await submit({ command, shell, provider: "shell", spaceId: space.id, spaceRevision: space.revision }, current.target, validate, (input, launchSignal) => {
+                const request = { ...input, env: Object.fromEntries(values), approvedDirectory: current.directory };
+                if (!current.approvedShell) return agent.launch(request, launchSignal);
+                if (typeof agent.launchApprovedShell !== "function") throw errors.permissionDenied(unavailableLinuxLaunch);
+                return agent.launchApprovedShell({ ...request, approvedShell: current.approvedShell }, launchSignal);
+              });
             })
             .catch(translate);
         });

@@ -6,6 +6,9 @@ interface Review {
   ruleVersion: string;
   target: string;
   command: string;
+  shell: "powershell" | "sh";
+  executable?: string;
+  unavailableReason?: string;
   space: { root: string };
   names: string[];
   approvalId: string | null;
@@ -15,6 +18,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
   const engine = useEngine();
   const form = useId();
   const hint = useId();
+  const unavailableHint = useId();
   const [open, setOpen] = useState(false);
   const [review, setReview] = useState<Review | null>(null);
   const [input, setInput] = useState("");
@@ -26,6 +30,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
     .map((line) => line.trim())
     .filter(Boolean);
   const valid = names.length > 0 && names.length <= 64 && new Set(names).size === names.length && names.every((name) => /^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name));
+  const shellLabel = review?.shell === "sh" ? "sh 命令" : "PowerShell 命令";
 
   async function inspect() {
     setOpen(true);
@@ -46,6 +51,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
 
   async function save(action: "approve" | "revoke") {
     if (!review || busy) return;
+    if (action === "approve" && review.unavailableReason) return;
     setBusy(true);
     setError("");
     try {
@@ -83,7 +89,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
             <Button disabled={busy} onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button type="submit" form={form} disabled={!review || !valid || busy}>
+            <Button type="submit" form={form} disabled={!review || !valid || busy || !!review.unavailableReason} aria-describedby={review?.unavailableReason ? unavailableHint : undefined}>
               批准这条规则
             </Button>
           </>
@@ -99,13 +105,20 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
             }}
           >
             <p>开放相应工具后，CLI 和 MCP 可以运行这条已批准的命令，并替换或清除下列变量的保护值。请核对命令如何使用这些值。</p>
+            {review.unavailableReason ? <p id={unavailableHint} role="status">{review.unavailableReason}</p> : null}
             <dl>
-              <dt>PowerShell 命令</dt>
+              <dt>{shellLabel}</dt>
               <dd>
-                <pre className="hu-tw-source-preview" aria-label="PowerShell 命令" role="region" tabIndex={0}>
+                <pre className="hu-tw-source-preview" aria-label={shellLabel} role="region" tabIndex={0}>
                   <code>{review.command}</code>
                 </pre>
               </dd>
+              {review.executable ? (
+                <div>
+                  <dt>解释器</dt>
+                  <dd><code>{review.executable}</code></dd>
+                </div>
+              ) : null}
               <dt>工作目录</dt>
               <dd>
                 <code>{review.space.root}</code>
