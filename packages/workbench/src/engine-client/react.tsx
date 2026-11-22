@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient
 import type { HuhuEvent } from "@huhu/contracts";
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { EngineClient, EventStream, type EngineEndpoint } from "./client.js";
-import { invalidateForEvent, queryKey } from "./query.js";
+import { invalidateForEvent, invalidateVaultQueries, queryKey } from "./query.js";
 
 const Ctx = createContext<EngineClient | null>(null);
 const EventsCtx = createContext<{ subscribe(fn: (e: HuhuEvent) => void): () => void } | null>(null);
@@ -53,16 +53,37 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
     void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId });
   }, [endpoint.baseUrl, endpoint.token, endpoint.vaultId, qc]);
   useEffect(() => {
+    const { vaultId } = endpoint;
+    let refreshes: AbortController | undefined = new AbortController();
     const stream = new EventStream(endpoint, {
       onEvent: (e) => {
-        void invalidateForEvent(qc, endpoint.vaultId, e);
+        if (!refreshes) return;
+        if (e.type === "engine.closing") {
+          refreshes.abort();
+          void qc.cancelQueries({ queryKey: [vaultId] });
+        }
+        void invalidateForEvent(qc, vaultId, e, refreshes.signal);
         for (const l of listeners) l(e);
       },
-      onResync: () => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === endpoint.vaultId }),
-      ...(onConnection ? { onState: onConnection } : {}),
+      onResync: () => {
+        if (refreshes) void invalidateVaultQueries(qc, vaultId, refreshes.signal);
+      },
+      onState: (state) => {
+        if (!refreshes) return;
+        if (state === "connected" && refreshes.signal.aborted) {
+          refreshes = new AbortController();
+          // The connection may recover at the same endpoint. Recheck data missed during shutdown.
+          void invalidateVaultQueries(qc, vaultId, refreshes.signal);
+        }
+        onConnection?.(state);
+      },
     });
     stream.start();
-    return () => stream.close();
+    return () => {
+      refreshes?.abort();
+      refreshes = undefined;
+      stream.close();
+    };
   }, [endpoint, qc, onConnection, listeners]);
   return (
     <Ctx.Provider value={client}>
@@ -75,7 +96,7 @@ export function EngineProvider({ endpoint, children, onConnection }: EngineProvi
 
 export function useCapability<T>(capability: string, input: unknown = {}, options: { enabled?: boolean } = {}) {
   const client = useEngine();
-  return useQuery({ queryKey: queryKey(client.vaultId, capability, input), queryFn: () => client.call<T>(capability, input), ...options });
+  return useQuery({ queryKey: queryKey(client.vaultId, capability, input), queryFn: ({ signal }) => client.call<T>(capability, input, { signal }), ...options });
 }
 
 export function useDiscoveredCapabilities() {
