@@ -16,7 +16,8 @@ const variable = "HUHU_RULE_SECRET_FIXTURE";
 type Status = { ruleVersion: string; revision: string | null; states: Record<string, string> };
 type Run = { runId: string; activationId: string };
 
-test("Linux 桌面批准 sh，CLI 和 MCP 配置及运行沿用原请求", async ({}, testInfo) => {
+test("Linux 桌面批准 sh，CLI 和 MCP 配置及运行沿用原请求", async ({ browserName }, testInfo) => {
+  void browserName;
   test.skip(process.platform !== "linux", "使用 Linux Secret Service、系统 sh 和真实 Herdr Core");
   test.setTimeout(90_000);
   const cli = process.env["HUHU_CLI_TEST_BUNDLE"] ?? path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs");

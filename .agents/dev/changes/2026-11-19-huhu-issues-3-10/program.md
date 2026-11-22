@@ -14,6 +14,8 @@
 
 原规格核对确认 #4 Linux Agent 环境与 #5 Linux 已批准终端规则外部执行缺正向路径，并无用户批准的 Windows 专用豁免。分别由 HC `t86/task01.md` 和 `t4x/task13.md` 实施。T7.2 已改为在临时规则的固定偏移时区内跨越真实午夜，按 Engine 创建日期、次日计划时间与唯一在线发生断言；源码调度时钟测试通过，仍待最终包实跑。
 
+Linux 终端批准候选已于 `fc38dc86` 合入集成，绑定系统 sh 的规范映像与参数。Lead 在集成复跑 Automations 单文件 34 项通过，日志 `temp/issue-evidence/huhu-2026-11-22/linux-approval-check.log`。实际 Agent/native 接线仍在实施，独审由 HC `t8g/task01.md` 执行；此处不记为 Linux 实程验收通过。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
