@@ -70,6 +70,7 @@ export type ApprovedTerminalReceipt = {
   startedAt: string;
   finishedAt: string | null;
 };
+export type ApprovedShellCancellation = { requestId: string; sessionId: string | null; cleanupRequired: boolean };
 type ApprovedTerminalPlan = {
   intent: string;
   target: Omit<TerminalRuleLaunch, "requestId">;
@@ -195,6 +196,12 @@ export class AutomationsService {
   }
 
   constructor(private readonly d: AutomationsDeps) {}
+
+  private approvedShellCancellation?: (requestId: string) => ApprovedShellCancellation | null | undefined;
+
+  setApprovedShellCancellationLookup(lookup: (requestId: string) => ApprovedShellCancellation | null | undefined): void {
+    this.approvedShellCancellation = lookup;
+  }
 
   /** 把规则自身的变更、桌面批准和外部受理放在同一顺序中。 */
   withRuleConfiguration<T>(operation: () => Promise<T> | T): Promise<T> {
@@ -601,12 +608,8 @@ export class AutomationsService {
       if (!isHuhuError(error) || error.code !== "INVALID_INPUT" || error.details?.["reason"] !== "native_cancelled_before_start" || error.details["requestId"] !== terminalRequestId(runId)) return false;
       const sessionId = error.details["sessionId"];
       const cleanup = error.details["cleanupRequired"];
-      if (typeof sessionId !== "string" || typeof cleanup !== "boolean") return false;
-      if (this.abort.signal.aborted) return true;
-      const current = this.d.repo.read("automation-run", runId);
-      if (current.data["finishedAt"] || current.data["terminalOwner"] !== this.d.terminalOwner || current.data["terminalIntent"] !== plan.intent || (current.data["sessionId"] && current.data["sessionId"] !== sessionId)) return true;
-      await this.finishTerminalRun(runId, "cancelled", error.message, { sessionId, ...(cleanup && { terminalReleasePending: true }) });
-      if (cleanup) this.track(this.releaseTerminal(runId, sessionId));
+      if ((sessionId !== null && typeof sessionId !== "string") || typeof cleanup !== "boolean" || (cleanup && !sessionId)) return false;
+      await this.finishApprovedCancellation(runId, { requestId: terminalRequestId(runId), sessionId, cleanupRequired: cleanup }, plan.intent);
       return true;
     };
     let completion: Promise<{ id: string }> | undefined;
@@ -758,6 +761,15 @@ export class AutomationsService {
     return { state };
   }
 
+  private async finishApprovedCancellation(runId: string, cancellation: ApprovedShellCancellation, intent: string): Promise<void> {
+    const { requestId, sessionId, cleanupRequired } = cancellation;
+    if (this.abort.signal.aborted || requestId !== terminalRequestId(runId) || (cleanupRequired && !sessionId)) return;
+    const current = this.d.repo.read("automation-run", runId);
+    if (current.data["finishedAt"] || current.data["terminalOwner"] !== this.d.terminalOwner || current.data["terminalIntent"] !== intent || (current.data["sessionId"] && current.data["sessionId"] !== sessionId)) return;
+    await this.finishTerminalRun(runId, "cancelled", "受保护进程在交付前已取消。", sessionId ? { sessionId, ...(cleanupRequired && { terminalReleasePending: true }) } : undefined);
+    if (sessionId && cleanupRequired) this.track(this.releaseTerminal(runId, sessionId));
+  }
+
   /** 等终端会话结束（轮询 agent.sessions.list；取消或超时就结束会话），读取脱敏后的输出，写回运行记录。引擎重启后的对账也走这里。 */
   private async terminalSessions(): Promise<TerminalSession[] | null> {
     return (await this.d.call("agent.sessions.list", {}).catch(() => null)) as TerminalSession[] | null;
@@ -868,7 +880,7 @@ export class AutomationsService {
     for (const run of rows) {
       const { id } = run;
       if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
-      const { ruleId, sessionId, startedAt, finishedAt, terminalLaunch, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
+      const { ruleId, sessionId, startedAt, finishedAt, terminalLaunch, terminalIntent, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
       if (finishedAt && sessionId) {
         await this.releaseTerminal(id, sessionId);
         continue;
@@ -884,9 +896,27 @@ export class AutomationsService {
         this.track(this.withRule(ruleId, () => this.runTerminalAction(run, title, action)).then(() => undefined));
         continue;
       }
+      let cancellationUnavailable = false;
+      if (terminalIntent && terminalLaunch?.submittedAt) {
+        let cancellation: ApprovedShellCancellation | null | undefined;
+        try {
+          cancellation = this.approvedShellCancellation?.(terminalRequestId(id));
+        } catch {
+          // The private receipt may still be present when its reader is unavailable.
+        }
+        if (cancellation) {
+          await this.finishApprovedCancellation(id, cancellation, terminalIntent);
+          continue;
+        }
+        cancellationUnavailable = cancellation === undefined;
+      }
       if (sessions === undefined) sessions = await this.terminalSessions();
       if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
       const session = sessions?.find((row) => row.requestId === terminalRequestId(id) && (!sessionId || row.id === sessionId));
+      if (cancellationUnavailable && session?.state === "failed") {
+        await this.terminalPending(id, "等待原受保护启动的取消事实。", run.version);
+        continue;
+      }
       if (!session || session.state === "launching" || session.state === "unknown") {
         await this.terminalPending(id, "原启动暂时无法核实。", run.version);
         continue;

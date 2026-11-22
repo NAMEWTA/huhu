@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
 import { inspectLinuxShell, unavailableLinuxImage, type ApprovedLinuxShell } from "./approved-linux-shell.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
-import { hasLegacyTerminalEnvironment, sameDir, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
+import { hasLegacyTerminalEnvironment, sameDir, type ApprovedShellCancellation, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
 
 const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
 const Definition = z.strictObject({ format: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), names: z.array(name).max(64), namesRevision: z.uuidv4().optional() });
@@ -177,6 +177,7 @@ type Approval = z.infer<typeof approval>;
 type ProtectedTerminalLaunch = TerminalRuleLaunch & { env: Record<string, string>; approvedDirectory: ProtectedDirectory };
 type ProtectedTerminal = {
   launch(request: ProtectedTerminalLaunch, signal: AbortSignal): Promise<{ id: string }>;
+  readApprovedShellCancellation?(requestId: string): ApprovedShellCancellation | null;
   launchApprovedShell?(
     request: TerminalRuleLaunch & {
       approvedDirectory: ProtectedDirectory;
@@ -196,7 +197,7 @@ const targetOf = (ruleId: string, action: Pick<TerminalAction, "spaceId" | "shel
 
 export function registerTerminalEnvironments(
   api: HuhuApi,
-  rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "invokeApprovedTerminal">,
+  rules: Pick<AutomationsService, "rule" | "withRuleConfiguration" | "invokeApprovedTerminal" | "setApprovedShellCancellationLookup">,
   host?: AutomationCredentialHost,
   principalCurrent?: (caller: "cli" | "mcp" | "http", subject: string) => boolean,
 ) {
@@ -244,6 +245,7 @@ export function registerTerminalEnvironments(
     return local.write(approvalPath(ruleId), Buffer.from(JSON.stringify({ format: 1, approval: next, ...(suspended && { suspended: true }) }) + "\n"), { expectedVersion });
   };
   const protectedTerminal = () => api.service<ProtectedTerminal>("agentProtectedTerminal");
+  rules.setApprovedShellCancellationLookup((requestId) => protectedTerminal()?.readApprovedShellCancellation?.(requestId));
   const canLaunchApprovedShell = () => typeof protectedTerminal()?.launchApprovedShell === "function";
   const requireApprovedShell = (shell: ApprovedLinuxShell | undefined) => {
     if (shell && !canLaunchApprovedShell()) throw errors.permissionDenied(unavailableLinuxLaunch);

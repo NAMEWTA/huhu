@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError, type TaskDto } from "@huhu/contracts";
 import { ExposureStore, type CapabilityDefinition, type HuhuApi } from "@huhu/kernel";
-import { OperationLog, SemanticRepository, Vault, VaultFiles } from "@huhu/vault";
+import { filesystemIdentity, OperationLog, SemanticRepository, Vault, VaultFiles } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { InteractiveEnvironment } from "../../agent-cli/src/engine/interactive-environment.js";
+import { publicSession, SessionsService } from "../../agent-cli/src/engine/sessions.js";
+import { SpaceStore } from "../../agent-cli/src/engine/spaces.js";
 import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import { AutomationsService } from "../src/engine/service.js";
@@ -444,6 +447,173 @@ test.skipIf(process.platform !== "linux").each(["resume", "rotate", "revoke", "p
   } finally {
     svc.abortAll();
     markReady();
+    await svc.idle();
+    await vault.close();
+  }
+});
+
+test.skipIf(process.platform !== "linux" || process.arch !== "x64").each(["helper-pin", "automation-write"] as const)("Linux 批准终端在 %s 窗口保留原运行的取消事实", async (stage) => {
+  let releaseUnavailable = true;
+  const { svc, repo, open, sessions, calls, root, d } = setup({ terminal: { releaseUnavailable: () => releaseUnavailable } });
+  const vault = await Vault.open(root, { create: true });
+  const spaces = new SpaceStore(path.join(d, "spaces"), "fixture-machine");
+  const space = spaces.save({ name: "Fixture", root });
+  const helper = path.join(d, "agent-pty");
+  writeFileSync(helper, "fixture helper image");
+  const interactive = new InteractiveEnvironment(helper, {
+    available: false,
+    async profile() {
+      throw new Error("unexpected profile");
+    },
+    async use() {
+      throw new Error("unexpected lease");
+    },
+  });
+  let reached!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const pin = interactive.pinHelper.bind(interactive);
+  if (stage === "helper-pin") {
+    vi.spyOn(interactive, "pinHelper").mockImplementation(async () => {
+      reached();
+      await gate;
+      return pin();
+    });
+  }
+  const coreCall = vi.fn(async (method: string, input?: object) => {
+    if (method === "hello") return { core: { id: "original" }, generation: 1 };
+    if (method === "terminal.run") return { ...input, state: "live", address: "original-host", pid: 100, created_ms: 200, finished_ms: null, exit_code: null };
+    throw new Error(`unexpected Core call: ${method}`);
+  });
+  const start = vi.fn();
+  const agentDeps: ConstructorParameters<typeof SessionsService>[0] = {
+    dir: path.join(d, "sessions"),
+    vaultId: "fixture-vault",
+    spaces,
+    core: async () => ({ call: coreCall }) as unknown as Awaited<ReturnType<ConstructorParameters<typeof SessionsService>[0]["core"]>>,
+    resolve: async () => {
+      throw new Error("unexpected Agent resolution");
+    },
+    now: () => new Date("2026-11-10T12:00:00Z"),
+    nativeBroker: (image, signal) => ({
+      waiting: signal ?? new AbortController().signal,
+      hostArgv: async () => [helper, "host"],
+      inspectHost: async (pid) => ({ pid, image, created: "123" }),
+      start,
+      revoke() {},
+    }),
+  };
+  let agent = new SessionsService({ ...agentDeps, interactiveEnvironment: interactive });
+  let lookupUnavailable = false;
+  const lookup = vi.fn((requestId: string) => {
+    if (lookupUnavailable) throw new Error("private service unavailable");
+    return agent.readApprovedShellCancellation(requestId);
+  });
+  const api = {
+    vault,
+    defineCapability() {},
+    service: (name: string) => (name === "agentProtectedTerminal" ? { readApprovedShellCancellation: lookup } : undefined),
+  } as unknown as HuhuApi;
+  registerTerminalEnvironments(api, svc);
+  const command = "printf fixture";
+  const cwd = realpathSync.native(root);
+  const stats = statSync(cwd, { bigint: true });
+  const executable = { path: "/bin/sh", identity: "1:2", birthtimeNs: "3", ctimeNs: "4", mtimeNs: "5", size: "6", sha256: "a".repeat(64) };
+  const launch = vi.fn(
+    async (input: Omit<Parameters<SessionsService["launchApprovedShell"]>[0], "names" | "use" | "onPending" | "approvedDirectory" | "approvedShell">, signal: AbortSignal, onPending: (completion: Promise<{ id: string }>) => void) =>
+      agent.launchApprovedShell(
+        {
+          ...input,
+          names: ["HUHU_RULE_SECRET_FIXTURE"],
+          onPending,
+          approvedDirectory: { path: cwd, identity: filesystemIdentity(stats)!, birthtimeNs: String(stats.birthtimeNs) },
+          approvedShell: { executable, argv: [executable.path, "-c", command] },
+          use: async (consumer) => {
+            reached();
+            await gate;
+            return consumer(new Map());
+          },
+        },
+        signal,
+      ),
+  );
+  try {
+    const rule = await svc.create({ title: "取消原运行", trigger: every5, action: { ...terminalAction, shell: "sh", command } });
+    const intentId = randomUUID();
+    const run = (service: AutomationsService) =>
+      service.invokeApprovedTerminal(rule.id, intentId, () => ({
+        intent: "b".repeat(64),
+        fingerprint: "c".repeat(64),
+        validate() {},
+        launch,
+        target: { spaceId: space.id, spaceRevision: space.revision, provider: "shell", shell: "sh", command },
+      }));
+    if (stage === "automation-write") {
+      const patch = repo.patch.bind(repo);
+      vi.spyOn(repo, "patch").mockImplementation(async (...args) => {
+        if (args[2]["state"] === "cancelled") throw new Error("injected cancellation write failure");
+        return patch(...args);
+      });
+    }
+    const pending = run(svc);
+    void pending.catch(() => undefined);
+    await Promise.race([
+      entered,
+      pending.then(({ state }) => {
+        throw new Error(`launch settled as ${state} before the controlled wait`);
+      }),
+    ]);
+    const runId = svc.runs()[0]!.id;
+    expect(svc.cancelRun(runId)).toBe(true);
+    if (stage === "helper-pin") {
+      // The live request must settle without waiting for the held file check.
+      const early = await Promise.race([pending, new Promise((resolve) => setTimeout(resolve, 200, "still blocked"))]).finally(release);
+      expect(await pending).toMatchObject({ runId, state: "cancelled" });
+      expect(early).toMatchObject({ runId, state: "cancelled" });
+      expect(agent.list()).toEqual([]);
+      expect(coreCall).not.toHaveBeenCalled();
+      expect(await run(open().svc)).toMatchObject({ runId, state: "cancelled" });
+      expect(calls).toEqual([]);
+    } else {
+      release();
+      await expect(pending).rejects.toThrow("injected cancellation write failure");
+      const [original] = agent.list();
+      expect(original).toMatchObject({ state: "failed", requestId: `autorun-${runId}`, launchReceipt: { nativeCancelledBeforeStart: true, attempt: { nativeCleanup: "pending" } } });
+      expect(coreCall.mock.calls.filter(([method]) => method === "terminal.run")).toHaveLength(1);
+      const listed = publicSession(original!);
+      expect(listed).not.toHaveProperty("launchReceipt");
+      sessions.set(listed.id, { ...listed, exitCode: null });
+      svc.abortAll();
+      agent = new SessionsService(agentDeps);
+      const reopened = open().svc;
+      registerTerminalEnvironments(api, reopened);
+      lookupUnavailable = true;
+      await reopened.reconcileTerminals();
+      await reopened.idle();
+      expect(reopened.runDetail(runId).data.finishedAt).toBeNull();
+      expect(calls.some(({ capability }) => capability === "agent.sessions.output" || capability === "agent.sessions.release")).toBe(false);
+      lookupUnavailable = false;
+      await reopened.reconcileTerminals();
+      await reopened.idle();
+      expect(lookup).toHaveBeenCalledWith(`autorun-${runId}`);
+      expect(reopened.runDetail(runId).data).toMatchObject({ state: "cancelled", sessionId: listed.id, terminalReleasePending: true });
+      expect(await run(reopened)).toMatchObject({ runId, state: "cancelled" });
+      releaseUnavailable = false;
+      await reopened.reconcileTerminals();
+      expect(reopened.runDetail(runId).data.terminalReleasePending).toBe(false);
+      const releaseCalls = calls.filter(({ capability }) => capability === "agent.sessions.release");
+      expect(releaseCalls.map(({ input }) => input)).toEqual(Array.from({ length: 2 }, () => ({ id: listed.id, requestId: `autorun-${runId}` })));
+    }
+    expect(start).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledTimes(1);
+  } finally {
+    svc.abortAll();
+    release();
     await svc.idle();
     await vault.close();
   }

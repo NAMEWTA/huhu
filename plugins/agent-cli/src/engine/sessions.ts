@@ -153,7 +153,9 @@ export interface LaunchInput {
 
 type TerminalSnapshot = { kind: "available"; client: HerdrClient; core: Awaited<ReturnType<typeof identifyCore>>; terminals: Terminal[] } | { kind: "absent" | "unavailable" };
 type LaunchIntent = { literalHash: string; resolvedHash: string | null };
-type LaunchIndex = Pick<LaunchReceipt, "vaultId" | "machineId" | "intentHash" | "executionHash" | "literalIntentHash"> & { requestId: string; sessionId: string };
+type LaunchIndexIdentity = Pick<LaunchReceipt, "vaultId" | "machineId" | "intentHash" | "literalIntentHash"> & { requestId: string };
+type LaunchIndex = LaunchIndexIdentity & { executionHash: string; sessionId: string };
+type CancelledPreflightIndex = LaunchIndexIdentity & { nativeCancelledBeforeStart: true };
 type ApprovedShellInput = Pick<LaunchInput, "spaceId" | "spaceRevision" | "requestId" | "shell"> & {
   provider: "shell";
   command: string;
@@ -255,22 +257,39 @@ export class SessionsService {
     }
   }
 
-  private recordedLaunch(requestId: string): SessionRecord | undefined {
-    const unavailable = (id?: string) => this.unknown({ requestId, ...(id ? { id } : {}) }, "launch_receipt_unavailable");
-    let contents: string | undefined;
+  private readRequestIndex(requestId: string): LaunchIndex | CancelledPreflightIndex | undefined {
+    let contents: string;
     try {
       contents = readFileSync(this.requestFile(requestId), "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw unavailable();
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw this.unknown({ requestId }, "launch_receipt_unavailable");
     }
-    if (contents !== undefined) {
-      let id: string | undefined;
+    try {
+      const index = JSON.parse(contents) as LaunchIndex | CancelledPreflightIndex;
+      if (
+        index.requestId !== requestId ||
+        index.vaultId !== this.d.vaultId ||
+        index.machineId !== this.d.spaces.machineId ||
+        ("sessionId" in index ? !/^sess-[a-z0-9-]+$/i.test(index.sessionId) : index.nativeCancelledBeforeStart !== true || !/^[a-f0-9]{64}$/.test(index.intentHash))
+      )
+        throw new Error("Launch index has no verifiable identity");
+      return index;
+    } catch {
+      throw this.unknown({ requestId }, "launch_receipt_unavailable");
+    }
+  }
+
+  private recordedLaunch(requestId: string, intent?: LaunchIntent, index = this.readRequestIndex(requestId)): SessionRecord | undefined {
+    const unavailable = (id?: string) => this.unknown({ requestId, ...(id ? { id } : {}) }, "launch_receipt_unavailable");
+    if (index) {
+      if (!("sessionId" in index)) {
+        if (!intent) return undefined;
+        if (intent.resolvedHash === null ? intent.literalHash !== index.literalIntentHash : intent.resolvedHash !== index.intentHash) throw errors.idempotencyMismatch();
+        throw this.nativeCancellation(requestId);
+      }
+      const id = index.sessionId;
       try {
-        const index = JSON.parse(contents) as LaunchIndex;
-        if (index.requestId !== requestId || index.vaultId !== this.d.vaultId || index.machineId !== this.d.spaces.machineId || !/^sess-[a-z0-9-]+$/i.test(index.sessionId)) {
-          throw unavailable();
-        }
-        id = index.sessionId;
         const session = this.readSessionFile(id + ".json");
         const receipt = session.launchReceipt;
         if (
@@ -384,7 +403,7 @@ export class SessionsService {
     const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
     signal?.throwIfAborted();
     const intent = this.launchIntent(input);
-    const previous = this.recordedLaunch(input.requestId);
+    const previous = this.recordedLaunch(input.requestId, intent);
     if (previous) this.verifyIntent(previous, intent);
     if (previous?.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(previous);
     if (previous?.launchReceipt?.attempt && input.history) return this.doLaunch(input, intent, undefined, undefined, signal, undefined);
@@ -418,12 +437,13 @@ export class SessionsService {
         }
       } else if (prepared && input.approvedShell && !previous?.launchReceipt?.attempt) {
         if (!approvedDelivery) throw errors.permissionDenied("缺少已批准的保护值领取操作");
-        native = await this.prepareApprovedShell(input, prepared.cwd, approvedDelivery);
+        native = await this.prepareApprovedShell(input, prepared.cwd, approvedDelivery, intent, signal);
       }
     } catch (error) {
       // A sent operation remains queryable even when its old directory or executable is gone.
       if (!previous?.launchReceipt?.attempt) throw error;
     }
+    if (native && input.approvedShell && signal?.aborted) this.cancelApprovedShellPreflight(input.requestId, intent);
     signal?.throwIfAborted();
     if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
       throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
@@ -493,11 +513,18 @@ export class SessionsService {
     return { space, cwd, argv, env, controlled, nativeSessionId };
   }
 
-  private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">): Promise<NativeDelivery> {
+  private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">, intent: LaunchIntent, signal?: AbortSignal): Promise<NativeDelivery> {
     const { approvedDirectory, approvedShell } = input;
     const host = this.d.interactiveEnvironment;
     if (!host || !approvedDirectory || !approvedShell) throw errors.permissionDenied("本机 Linux sh 受保护宿主不可用");
-    const helper = await host.pinHelper();
+    let helper: Awaited<ReturnType<InteractiveEnvironment["pinHelper"]>>;
+    try {
+      helper = await waitForNative(() => host.pinHelper(), signal);
+      signal?.throwIfAborted();
+    } catch (error) {
+      if (signal?.aborted && error === signal.reason) this.cancelApprovedShellPreflight(input.requestId, intent);
+      throw error;
+    }
     const identity = (value: string, created: string) => {
       const match = /^(\d{1,20}):(\d{1,20})$/.exec(value);
       if (!match || !/^\d{1,20}$/.test(created)) throw errors.invalidInput("Linux sh 的批准文件身份无效");
@@ -514,6 +541,30 @@ export class SessionsService {
       protect: [...delivery.names].sort(),
     };
     return { helper, launch, approval: launchHash({ helper, launch }), use: delivery.use, onPending: delivery.onPending, ...(delivery.assertCurrent && { assertCurrent: delivery.assertCurrent }) };
+  }
+
+  private cancelApprovedShellPreflight(requestId: string, intent: LaunchIntent): void {
+    this.d.signal?.throwIfAborted();
+    if (!intent.resolvedHash || this.inflight.has(requestId)) return;
+    const previous = this.recordedLaunch(requestId, intent);
+    if (previous) {
+      this.verifyIntent(previous, intent);
+      if (!previous.launchReceipt?.attempt) throw this.nativeCancellation(this.failNativeBeforeStart(previous, true));
+      return;
+    }
+    const file = this.requestFile(requestId);
+    const index: CancelledPreflightIndex = {
+      vaultId: this.d.vaultId,
+      machineId: this.d.spaces.machineId,
+      requestId,
+      intentHash: intent.resolvedHash,
+      literalIntentHash: intent.literalHash,
+      nativeCancelledBeforeStart: true,
+    };
+    // Reserve the original request without allocating a session or creating a Core attempt.
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(index), { flag: "wx", flush: true });
+    throw this.nativeCancellation(requestId);
   }
 
   private async prepareEnvironment(input: Omit<LaunchInput, "requestId" | "environment">, selection: AgentEnvironmentSelection, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>) {
@@ -581,7 +632,7 @@ export class SessionsService {
     signal: AbortSignal | undefined,
     native: NativeDelivery | undefined,
   ): Promise<SessionRecord> {
-    const previous = this.recordedLaunch(input.requestId);
+    const previous = this.recordedLaunch(input.requestId, intent);
     const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
     if (previous && priorReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(previous);
     if (previous && priorReceipt?.attempt) {
@@ -860,10 +911,21 @@ export class SessionsService {
     return failed;
   }
 
-  private nativeCancellation(session: SessionRecord): HuhuError {
-    return new HuhuError("INVALID_INPUT", session.error!, {
-      details: { reason: "native_cancelled_before_start", requestId: session.requestId, sessionId: session.id, cleanupRequired: session.launchReceipt?.attempt?.nativeCleanup === "pending" },
+  private nativeCancellation(session: SessionRecord | string): HuhuError {
+    return new HuhuError("INVALID_INPUT", "受保护进程在交付前已取消。", {
+      details: { reason: "native_cancelled_before_start", ...(typeof session === "string" ? { requestId: session, sessionId: null, cleanupRequired: false } : this.sessionCancellation(session)) },
     });
+  }
+
+  private sessionCancellation(session: SessionRecord) {
+    return { requestId: session.requestId, sessionId: session.id, cleanupRequired: session.launchReceipt?.attempt?.nativeCleanup === "pending" };
+  }
+
+  readApprovedShellCancellation(requestId: string): { requestId: string; sessionId: string | null; cleanupRequired: boolean } | null {
+    const index = this.readRequestIndex(requestId);
+    if (index && !("sessionId" in index)) return { requestId, sessionId: null, cleanupRequired: false };
+    const session = this.recordedLaunch(requestId, undefined, index);
+    return session?.provider === "shell" && session.hasEnv && session.state === "failed" && session.launchReceipt?.nativeCancelledBeforeStart ? this.sessionCancellation(session) : null;
   }
 
   private async deliverNative(

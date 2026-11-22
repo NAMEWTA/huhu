@@ -272,6 +272,7 @@ function nativeLaunchFixture(before?: (stage: "connect" | "hello" | "broker") =>
     space,
     spaces,
     sessionsDir,
+    interactive,
     expiry,
     cancel,
     lifetime,
@@ -313,6 +314,47 @@ function nativeGate() {
     },
   };
 }
+
+test.skipIf(linuxNativeOnly)("原生 helper 预检取消封存原请求，不创建会话或重放", async () => {
+  const f = nativeLaunchFixture();
+  const gate = nativeGate();
+  const pin = f.interactive.pinHelper.bind(f.interactive);
+  const pinHelper = vi.spyOn(f.interactive, "pinHelper").mockImplementationOnce(async () => {
+    await gate.pause();
+    return pin();
+  });
+  const launch = f.launch();
+  void launch.catch(() => undefined);
+  await gate.entered;
+  const proof = { requestId: f.input.requestId, sessionId: null, cleanupRequired: false };
+  const cancellation = { details: { reason: "native_cancelled_before_start", ...proof } };
+  f.cancel.abort();
+  try {
+    await expect(launch).rejects.toMatchObject(cancellation);
+    const reopened = f.reopen();
+    expect(reopened.readApprovedShellCancellation(f.input.requestId)).toEqual(proof);
+    expect(reopened.readApprovedShellCancellation("unrelated-request")).toBeNull();
+    await expect(reopened.launchApprovedShell(f.input)).rejects.toMatchObject(cancellation);
+    const command = "printf different";
+    const approvedShell: typeof f.input.approvedShell = { ...f.input.approvedShell, argv: [f.input.approvedShell.executable.path, "-c", command] };
+    await expect(reopened.launchApprovedShell({ ...f.input, command, approvedShell })).rejects.toMatchObject({ code: "IDEMPOTENCY_MISMATCH" });
+    expect(reopened.list()).toEqual([]);
+    expect(reopened.hasLaunchAttempt(f.input.requestId)).toBe(false);
+    expect(f.calls).toEqual([]);
+    expect(pinHelper).toHaveBeenCalledTimes(1);
+  } finally {
+    gate.release();
+  }
+});
+
+test.skipIf(linuxNativeOnly)("原生 helper 的普通 AbortError 不产生未交付取消凭证", async () => {
+  const f = nativeLaunchFixture();
+  const error = new DOMException("synthetic helper read error", "AbortError");
+  vi.spyOn(f.interactive, "pinHelper").mockRejectedValueOnce(error);
+  await expect(f.launch()).rejects.toBe(error);
+  expect(f.reopen().readApprovedShellCancellation(f.input.requestId)).toBeNull();
+  expect(f.calls).toEqual([]);
+});
 
 test.skipIf(linuxNativeOnly).each(["connect", "hello", "broker"] as const)("原生前台取消在 %s 等待时结算原会话且释放 Space", async (stage) => {
   const gate = nativeGate();

@@ -731,6 +731,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   );
   api.provide("agentCli", { spaces, detector, core });
   api.provide("agentProtectedTerminal", {
+    readApprovedShellCancellation: (requestId: string) => sessions.readApprovedShellCancellation(requestId),
     get launchApprovedShell() {
       if (!interactiveEnvironment.helperAvailable) return undefined;
       return async (input: Parameters<SessionsService["launchApprovedShell"]>[0], signal?: AbortSignal) => {
