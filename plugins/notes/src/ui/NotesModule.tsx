@@ -1,4 +1,5 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
+import type { EventPayload } from "@huhu/contracts";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
@@ -66,7 +67,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const [error, setError] = useState<string | null>(null);
   useEngineEvents((event) => {
     if (event.type !== "vault.fileChanged") return;
-    const { path, change, from } = event.payload as { path: string; change: string; from?: string };
+    const { path, change, from, writeId } = event.payload as EventPayload<"vault.fileChanged">;
     const removed = change === "deleted" ? path : change === "renamed" ? from : undefined;
     if (removed) {
       const session = documentSessions.get(vaultId, removed);
@@ -75,7 +76,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         if (selected === removed) setError(`文件已移走或删除：${removed}`);
       }
     }
-    if (change !== "deleted") documentSessions.get(vaultId, path)?.notifyExternalChange(change);
+    if (change !== "deleted") documentSessions.get(vaultId, path)?.notifyExternalChange(change, writeId);
   });
   const locale = useKnowledgeLocale();
   const parkedDocument = useRef<{ session: DocumentSession; locale: typeof locale; checkpoint: Promise<boolean> } | null>(null);

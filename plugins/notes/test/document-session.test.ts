@@ -10,6 +10,7 @@ class FakeEngine implements SessionEngine {
   files = new Map<string, { text: string; version: number }>();
   drafts = new Map<string, SessionDraft>();
   calls: string[] = [];
+  saveWriteIds: (string | undefined)[] = [];
   failSave: Error | null = null;
   failDraft: Error | null = null;
   failDraftDiscard: Error | null = null;
@@ -30,7 +31,7 @@ class FakeEngine implements SessionEngine {
   }
   async call<T>(cap: string, input: unknown): Promise<T> {
     this.calls.push(cap);
-    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown"; withVersion?: boolean };
+    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown"; withVersion?: boolean; writeId?: string };
     if (cap === "notes.read") {
       if (this.failRead) throw this.failRead;
       const f = this.files.get(i.path)!;
@@ -38,6 +39,7 @@ class FakeEngine implements SessionEngine {
       return { path: i.path, text: f.text, version: String(f.version) } as T;
     }
     if (cap === "notes.save") {
+      this.saveWriteIds.push(i.writeId);
       if (this.saveGate) await this.saveGate;
       if (this.failSave) throw this.failSave;
       const f = this.files.get(i.path)!;
@@ -135,7 +137,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     const firstSave = session.flush();
     try {
       await vi.advanceTimersByTimeAsync(0);
-      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1", writeId: expect.any(String) }]);
       expect(session.getSnapshot().state).toBe("saving");
       session.setText("A+B");
     } finally {
@@ -150,8 +152,8 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(await session.flush()).toBe(true);
     expect(eng.disk(path)).toBe("A+B");
     expect(saves()).toEqual([
-      { path, text: "A", expectedVersion: "1" },
-      { path, text: "A+B", expectedVersion: "2" },
+      { path, text: "A", expectedVersion: "1", writeId: expect.any(String) },
+      { path, text: "A+B", expectedVersion: "2", writeId: expect.any(String) },
     ]);
     expect(session.getSnapshot()).toMatchObject({ state: "saved", text: "A+B", hasUnsaved: false });
   });
@@ -175,7 +177,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       session.setText("A+B");
       const secondSave = session.flush();
       await vi.advanceTimersByTimeAsync(0);
-      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1", writeId: expect.any(String) }]);
       session.setText("A+B+C");
 
       eng.saveGate = secondReceipt.promise;
@@ -184,8 +186,8 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(eng.disk(path)).toBe("A");
       expect(saves()).toEqual([
-        { path, text: "A", expectedVersion: "1" },
-        { path, text: "A+B", expectedVersion: "2" },
+        { path, text: "A", expectedVersion: "1", writeId: expect.any(String) },
+        { path, text: "A+B", expectedVersion: "2", writeId: expect.any(String) },
       ]);
 
       secondReceipt.resolve();
@@ -305,8 +307,8 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(await Promise.all([first, fields, second])).toEqual([true, true, true]);
     const saved = calls.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input);
     expect(saved).toEqual([
-      { path, text: body("A"), expectedVersion: "1" },
-      { path, text: body("A+B", "新"), expectedVersion: "3" },
+      { path, text: body("A"), expectedVersion: "1", writeId: expect.any(String) },
+      { path, text: body("A+B", "新"), expectedVersion: "3", writeId: expect.any(String) },
     ]);
     expect(eng.disk(path)).toBe(body("A+B", "新"));
     expect(session.getSnapshot()).toMatchObject({ baseVersion: "4", text: body("A+B+C", "新"), state: "dirty", hasUnsaved: true });
@@ -673,15 +675,15 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       const stateBeforeSecondSave = session.getSnapshot().state;
       const second = session.flush();
       await vi.advanceTimersByTimeAsync(0);
-      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1", writeId: expect.any(String) }]);
       expect(eng.disk(path)).toBe("A");
 
       eng.saveReceiptGate = null;
       receipt.resolve();
       expect(await Promise.all([first, second])).toEqual([true, true]);
       expect(saves()).toEqual([
-        { path, text: "A", expectedVersion: "1" },
-        { path, text: "X", expectedVersion: "2" },
+        { path, text: "A", expectedVersion: "1", writeId: expect.any(String) },
+        { path, text: "X", expectedVersion: "2", writeId: expect.any(String) },
       ]);
       expect(eng.disk(path)).toBe("X");
       expect(session.getSnapshot()).toMatchObject({ text: "X", state: "saved", baseVersion: "3", hasUnsaved: false });
@@ -808,7 +810,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     const saving = session.flush();
     try {
       await vi.advanceTimersByTimeAsync(0);
-      expect(call).toHaveBeenCalledWith("notes.save", { path, text: "A", expectedVersion: "1" }, { write: true });
+      expect(call).toHaveBeenCalledWith("notes.save", { path, text: "A", expectedVersion: "1", writeId: expect.any(String) }, { write: true });
       expect(eng.disk(path)).toBe("X");
 
       session.setText("X");
@@ -861,14 +863,99 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       expect(await Promise.all([oldSave, saving])).toEqual([false, true]);
       expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
       expect(call.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input)).toEqual([
-        { path, text: "A", expectedVersion: "1" },
-        { path, text: "新基线编辑", expectedVersion: "3" },
+        { path, text: "A", expectedVersion: "1", writeId: expect.any(String) },
+        { path, text: "新基线编辑", expectedVersion: "3", writeId: expect.any(String) },
       ]);
       expect(onSaved).toHaveBeenCalledTimes(1);
       expect(eng.disk(path)).toBe("新基线编辑");
       expect(session.getSnapshot()).toMatchObject({ text: "新基线编辑", baseVersion: "4", state: "saved", hasUnsaved: false });
     } finally {
       receipt.resolve();
+    }
+  });
+
+  test("跨重载对账完成后，旧自身通知不会卡住进行中的下一笔保存或退出", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始" });
+    const session = mk(eng, path);
+    await session.load();
+    const oldReceipt = Promise.withResolvers<void>();
+    const currentReceipt = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<void>();
+    eng.saveReceiptGate = oldReceipt.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    let saving: Promise<boolean> | undefined;
+    let exit: ReturnType<DocumentSession["flushForExit"]> | undefined;
+    try {
+      expect(eng.disk(path)).toBe("A");
+      expect(await session.load()).toBe(true);
+      oldReceipt.resolve();
+      expect(await oldSave).toBe(false);
+      expect(session.getSnapshot()).toMatchObject({ text: "A", baseVersion: "2", state: "saved" });
+      const reads = () => eng.calls.filter((capability) => capability === "notes.read").length;
+      expect(reads()).toBe(3);
+
+      eng.saveReceiptGate = currentReceipt.promise;
+      session.setText("B");
+      saving = session.save();
+      expect(eng.disk(path)).toBe("B");
+      expect(eng.saveWriteIds).toEqual([expect.any(String), expect.any(String)]);
+      expect(eng.saveWriteIds[0]).not.toBe(eng.saveWriteIds[1]);
+      session.notifyExternalChange("modified", eng.saveWriteIds[1]);
+      session.notifyExternalChange("modified", eng.saveWriteIds[0]);
+      eng.readGate = read.promise;
+      exit = session.flushForExit();
+      const settled = vi.fn();
+      void Promise.all([saving, exit]).then(settled);
+      currentReceipt.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect.soft(settled).toHaveBeenCalledExactlyOnceWith([true, "file"]);
+      expect.soft(reads()).toBe(3);
+      expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "3", state: "saved", hasUnsaved: false, flushError: null });
+    } finally {
+      oldReceipt.resolve();
+      currentReceipt.resolve();
+      read.resolve();
+      await Promise.all([oldSave, saving, exit]);
+    }
+  });
+
+  test("跨重载对账完成后，干净视图忽略旧自身通知并刷新其他来源通知", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    try {
+      expect(eng.disk(path)).toBe("A");
+      expect(await session.load()).toBe(true);
+      receipt.resolve();
+      expect(await saving).toBe(false);
+      const reads = () => eng.calls.filter((capability) => capability === "notes.read").length;
+      expect(reads()).toBe(3);
+      expect(eng.saveWriteIds).toEqual([expect.any(String)]);
+
+      eng.failRead = new Error("暂时不可读");
+      session.notifyExternalChange("modified", eng.saveWriteIds[0]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect.soft(reads()).toBe(3);
+      expect.soft(session.getSnapshot()).toMatchObject({ text: "A", baseVersion: "2", state: "saved", hasUnsaved: false, flushError: null });
+
+      eng.failRead = null;
+      eng.externalWrite(path, "其他来源的新正文");
+      const readsBeforeExternal = reads();
+      session.notifyExternalChange("modified", "another-workbench");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads()).toBe(readsBeforeExternal + 1);
+      expect(session.getSnapshot()).toMatchObject({ text: "其他来源的新正文", baseVersion: "3", state: "saved", hasUnsaved: false, flushError: null });
+    } finally {
+      receipt.resolve();
+      await saving;
     }
   });
 
@@ -965,6 +1052,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
 
       eng.readGate = null;
+      session.notifyExternalChange("modified", eng.saveWriteIds[0]);
       session.notifyExternalChange("modified");
       await vi.advanceTimersByTimeAsync(0);
       const textDuringReconciliation = session.currentText();
@@ -1019,7 +1107,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     releaseFailure.resolve();
     expect(await saving).toBe(false);
     expect(disk.text).toBe("X");
-    expect(saves).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+    expect(saves).toEqual([{ path, text: "A", expectedVersion: "1", writeId: expect.any(String) }]);
 
     if (unknown) {
       expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
@@ -1033,7 +1121,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       session.setText("下一次明确保存");
       expect(await session.save()).toBe(true);
       expect(disk.text).toBe("下一次明确保存");
-      expect(saves[1]).toEqual({ path, text: disk.text, expectedVersion: "1" });
+      expect(saves[1]).toEqual({ path, text: disk.text, expectedVersion: "1", writeId: expect.any(String) });
     }
   });
 
@@ -1155,7 +1243,175 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     s.setText("v2-mine");
     eng.externalWrite("a.md", "v3");
     s.notifyExternalChange();
-    expect(s.getSnapshot().state).toBe("conflict");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.getSnapshot()).toMatchObject({ text: "v2-mine", state: "conflict", hasUnsaved: true });
+  });
+
+  test("自身保存回执后才收到文件通知，下一笔编辑仍可保存", async () => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("A");
+    expect(await session.save()).toBe(true);
+    session.setText("B");
+
+    session.notifyExternalChange("modified");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(eng.disk("a.md")).toBe("A");
+    expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "2", state: "dirty", hasUnsaved: true });
+    expect(await session.save()).toBe(true);
+    expect(eng.disk("a.md")).toBe("B");
+  });
+
+  test("自身保存通知早于回执时，额外读盘不会阻塞保存队列与退出", async () => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const session = mk(eng);
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const first = session.save();
+    eng.saveReceiptGate = null;
+    session.notifyExternalChange("modified", eng.saveWriteIds[0] ?? "own-save-fixture");
+    eng.readGate = read.promise;
+    session.setText("B");
+    const second = session.save();
+    const exit = session.flushForExit();
+    const settled = vi.fn();
+    void Promise.all([first, second, exit]).then(settled);
+    try {
+      receipt.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toHaveBeenCalledExactlyOnceWith([true, true, "file"]);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(1);
+      expect(eng.saveWriteIds).toEqual([expect.any(String), expect.any(String)]);
+      expect(eng.saveWriteIds[0]).not.toBe(eng.saveWriteIds[1]);
+      expect(eng.disk("a.md")).toBe("B");
+      expect(session.getSnapshot()).toMatchObject({ text: "B", state: "saved", hasUnsaved: false, flushError: null });
+    } finally {
+      read.resolve();
+      await Promise.all([first, second, exit]);
+    }
+  });
+
+  test("自身保存通知晚于回执时，读盘失败不会显示为保存失败", async () => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("A");
+    expect(await session.save()).toBe(true);
+    session.setText("B");
+
+    eng.failRead = new Error("复读暂时失败");
+    session.notifyExternalChange("modified", eng.saveWriteIds[0] ?? "own-save-fixture");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "2", state: "dirty", flushError: null });
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(1);
+    eng.failRead = null;
+    session.notifyExternalChange("modified", "other-write");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2); // 另一会话即使提交相同正文也会复读
+    expect(session.getSnapshot()).toMatchObject({ text: "B", state: "dirty", flushError: null });
+    expect(await session.save()).toBe(true);
+    expect(eng.disk("a.md")).toBe("B");
+  });
+
+  test("自身通知与无标识 watcher 通知交错，保留真实的外部冲突", async () => {
+    const eng = new FakeEngine({ "a.md": "初始" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    try {
+      session.setText("B");
+      eng.externalWrite("a.md", "C");
+      session.notifyExternalChange("modified");
+      session.notifyExternalChange("modified", eng.saveWriteIds[0] ?? "own-save-fixture");
+      receipt.resolve();
+      expect(await saving).toBe(true);
+      expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "2", state: "conflict", hasUnsaved: true });
+      expect(await session.save()).toBe(false);
+      expect(eng.disk("a.md")).toBe("C");
+    } finally {
+      receipt.resolve();
+    }
+  });
+
+  test("另一会话的通知会复读，暂时读不到磁盘时保留缓冲及保存状态", async () => {
+    const eng = new FakeEngine({ "a.md": "A" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("B");
+    eng.failRead = new Error("暂时不可读");
+    session.notifyExternalChange("modified", "other-write");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.getSnapshot()).toMatchObject({ text: "B", state: "dirty", flushError: null });
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+
+    eng.failRead = null;
+    eng.externalWrite("a.md", "C");
+    session.notifyExternalChange("modified", "other-write-next");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.getSnapshot()).toMatchObject({ text: "B", state: "conflict", flushError: null });
+    expect(await session.save()).toBe(false);
+    expect(eng.disk("a.md")).toBe("C");
+  });
+
+  test.each(["保存", "重载"] as const)("外部通知的迟到读数在%s接纳新基线后不能误报冲突", async (action) => {
+    const eng = new FakeEngine({ "a.md": "A" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("B");
+    const read = Promise.withResolvers<void>();
+    eng.readGate = read.promise;
+    session.notifyExternalChange("modified");
+    eng.readGate = null;
+    try {
+      if (action === "保存") {
+        expect(await session.save()).toBe(true);
+      } else {
+        eng.externalWrite("a.md", "C");
+        expect(await session.load()).toBe(true);
+      }
+      session.setText("下一笔输入");
+      read.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(session.lastSavedText()).toBe(action === "保存" ? "B" : "C");
+      expect(session.getSnapshot()).toMatchObject({ text: "下一笔输入", baseVersion: "2", state: "dirty", hasUnsaved: true });
+    } finally {
+      read.resolve();
+    }
+  });
+
+  test("较早的通知读到的外部改动已撤销，迟到读数不能覆盖较新的检查", async () => {
+    const eng = new FakeEngine({ "a.md": "A" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("B");
+    const baseline = eng.files.get("a.md")!;
+    const read = Promise.withResolvers<void>();
+    eng.externalWrite("a.md", "C");
+    eng.readGate = read.promise;
+    session.notifyExternalChange("modified");
+    eng.readGate = null;
+    try {
+      // 引擎的内容版本在文件恢复为同一字节串后也可恢复为同一值。
+      eng.files.set("a.md", baseline);
+      session.notifyExternalChange("modified");
+      await vi.advanceTimersByTimeAsync(0);
+      read.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "1", state: "dirty", hasUnsaved: true });
+    } finally {
+      read.resolve();
+    }
   });
 
   test("兜底轮询：dirty 且磁盘版本变化 → 冲突", async () => {
@@ -1296,6 +1552,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     session.setText("B");
     eng.externalWrite(path, "C");
     session.notifyExternalChange("modified");
+    await vi.advanceTimersByTimeAsync(0);
     expect(session.getSnapshot().state).toBe("conflict");
 
     expect(await session.discardEditsAndReload()).toBe(true);

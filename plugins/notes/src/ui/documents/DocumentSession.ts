@@ -1,4 +1,5 @@
 import type { DocumentKind, SaveState, SetTextOrigin } from "@huhu/contracts";
+import { createRequestId } from "@huhu/workbench";
 import { diff3Merge } from "node-diff3";
 
 /**
@@ -8,6 +9,7 @@ import { diff3Merge } from "node-diff3";
  */
 
 export const AUTOSAVE_MS = 800;
+const MAX_PENDING_SAVE_NOTICES = 1000;
 
 export interface SessionEngine {
   call<T>(capability: string, input: unknown, opts?: { write?: boolean }): Promise<T>;
@@ -96,6 +98,8 @@ interface LateWriteConflict {
 }
 
 interface ActiveFileWrite {
+  writeId?: string;
+  ownNoticeReceived?: boolean;
   reconciliation?: Promise<void>;
   externalChange?: { generation: number; loadSeq: number };
 }
@@ -153,8 +157,10 @@ export class DocumentSession {
   private poll: ReturnType<typeof setInterval> | null = null;
   private inflight: Promise<boolean> | null = null;
   private activeFileWrite: ActiveFileWrite | null = null;
+  private readonly pendingSaveNotices = new Set<string>();
   private readonly queuedSaves = new Set<SaveSnapshot>();
   private loadSeq = 0;
+  private externalCheckSeq = 0;
   private readonly listeners = new Set<Listener>();
   private readonly drainers = new Set<() => void | Promise<void>>();
   private snap: SessionSnapshot;
@@ -399,11 +405,11 @@ export class DocumentSession {
     let file: NoteFile;
     try {
       file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
-    } catch (error) {
-      if (canCheck()) this.flushError = error instanceof Error ? error.message : String(error);
+    } catch {
+      // 文件通知是尽力核对。正文保存和未确认写入分别由原回执及对账处理。
       return;
     }
-    if (!canCheck() || (file.version === this.savedVersion && file.text === this.savedText)) return;
+    if (!canCheck() || this.matchesSavedFile(file)) return;
     this.diskRevision++;
     if (!this.hasUnsavedText() || this.text === file.text) {
       this.adoptLoadedFile(file);
@@ -437,15 +443,24 @@ export class DocumentSession {
       }
       return true;
     }
-    const write: ActiveFileWrite = {};
+    const writeId = createRequestId();
+    const write: ActiveFileWrite = { writeId };
     let outcome: "unsubmitted" | "unknown" | "acknowledged" | "rejected" = "unsubmitted";
     let writeUnconfirmed = false;
     try {
       this.beginFileWrite(write);
       if (!this.isBaselineCurrent(baselineGeneration)) return false;
       outcome = "unknown";
-      const r = await this.engine.call<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version }, { write: true });
+      const r = await this.engine.call<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version, writeId }, { write: true });
       outcome = "acknowledged";
+      // 旧基线收到成功回执时，迟到的自身通知仍需要认领。
+      if (!write.ownNoticeReceived) {
+        this.pendingSaveNotices.add(writeId);
+        if (this.pendingSaveNotices.size > MAX_PENDING_SAVE_NOTICES) {
+          const oldest = this.pendingSaveNotices.values().next();
+          if (!oldest.done) this.pendingSaveNotices.delete(oldest.value);
+        }
+      }
       if (!this.isBaselineCurrent(baselineGeneration)) return false;
       this.version = r.version;
       this.savedVersion = r.version;
@@ -513,7 +528,7 @@ export class DocumentSession {
       }
       if (!canReconcile()) continue;
 
-      const changed = file.version !== this.savedVersion || file.text !== this.savedText;
+      const changed = !this.matchesSavedFile(file);
       if (changed || writeUnconfirmed) this.acceptReconciledDisk(changed ? file : null, writeUnconfirmed, this.flushError);
       return;
     }
@@ -765,8 +780,12 @@ export class DocumentSession {
   }
 
   // ---- 外部变更 / 冲突 ----
-  /** 磁盘上的文件被外部改了：无未保存编辑就直接载入；有则进入冲突（保存中不打断）。 */
-  notifyExternalChange(change?: string): void {
+  private matchesSavedFile(file: NoteFile): boolean {
+    return file.version === this.savedVersion && file.text === this.savedText;
+  }
+
+  /** 收到磁盘变更通知后刷新干净缓冲，或先复读磁盘确认冲突。 */
+  notifyExternalChange(change?: string, writeId?: string): void {
     if (this.disposed) return;
     if (change === "deleted") {
       this.loadSeq++;
@@ -776,6 +795,13 @@ export class DocumentSession {
         if (this.isBaselineCurrent(generation)) this.fail(error);
       });
       return;
+    }
+    if (writeId !== undefined) {
+      if (this.activeFileWrite?.writeId === writeId) {
+        this.activeFileWrite.ownNoticeReceived = true;
+        return;
+      }
+      if (this.pendingSaveNotices.delete(writeId)) return;
     }
     if (this.lateWriteConflict) return;
     if (this.activeFileWrite) {
@@ -791,10 +817,33 @@ export class DocumentSession {
         if (this.isBaselineCurrent(generation) && this.loadSeq === seq && canReload()) this.fail(error);
       });
     } else {
-      this.state = "conflict";
-      this.emit();
+      void this.checkDirtyExternalChange();
     }
   }
+
+  private async checkDirtyExternalChange(): Promise<void> {
+    const generation = this.baselineGeneration;
+    const loadSeq = this.loadSeq;
+    const diskRevision = this.diskRevision;
+    const checkSeq = ++this.externalCheckSeq;
+    const canCheck = () => this.isBaselineCurrent(generation) && loadSeq === this.loadSeq && diskRevision === this.diskRevision && checkSeq === this.externalCheckSeq && !this.activeFileWrite && !this.lateWriteConflict;
+    let file: NoteFile;
+    try {
+      file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+    } catch {
+      // 后续通知或脏缓冲轮询仍会核对磁盘，保留原保存状态和错误。
+      return;
+    }
+    // 保存回执可能比对应的文件变更通知更早到达。
+    if (!canCheck() || this.matchesSavedFile(file)) return;
+    if (!this.hasUnsavedText()) {
+      this.notifyExternalChange();
+      return;
+    }
+    this.state = "conflict";
+    this.emit();
+  }
+
   private syncPoll(): void {
     const want = this.state === "dirty" && !this.activeFileWrite && this.pollMs > 0 && !this.disposed;
     if (want && !this.poll) {

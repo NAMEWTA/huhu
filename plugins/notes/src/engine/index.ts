@@ -135,7 +135,7 @@ const noteTools = {
     description: "保存笔记。",
     ...publicTool,
     scope: "write",
-    input: Path.extend({ text: z.string(), expectedVersion: z.string() }),
+    input: Path.extend({ text: z.string(), expectedVersion: z.string(), writeId: z.string().min(1).max(64).optional() }),
     output: z.object({ version: z.string() }),
   }),
   rename: descriptor({
@@ -564,6 +564,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       const r = await svc.save(i.path, i.text, i.expectedVersion);
       const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
       await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
+      // Watcher 会过滤本 Engine 的写入回声；其他工作台仍需接收已提交正文的路径通知。
+      api.events.publish("vault.fileChanged", { path: normalizeRelPath(i.path), change: "modified", ...(workbench(c) && i.writeId && { writeId: i.writeId }) });
       changed(svc.noteId(i.path), "updated");
       return { version: r.version };
     }),
