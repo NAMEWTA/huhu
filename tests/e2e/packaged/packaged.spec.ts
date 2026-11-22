@@ -168,7 +168,9 @@ test("打包后：自动化发生、运行抽屉与任务详情使用同一笔�
   try {
     const spaces = await call("agent.spaces.list");
     expect(spaces.ok).toBe(true);
-    const [{ id: spaceId }] = spaces.data as { id: string }[];
+    const [space] = spaces.data as { id: string }[];
+    expect(space).toBeDefined();
+    const spaceId = space!.id;
     const created = await call("tasks.create", {
       title: "打包后的原任务",
       type: "agent",
@@ -185,7 +187,8 @@ test("打包后：自动化发生、运行抽屉与任务详情使用同一笔�
     await page.getByTestId("rule-row").filter({ hasText: "打包后的规则" }).click();
     await page.getByRole("button", { name: "立即运行" }).click();
     await expect.poll(async () => (await call("tasks.dispatch.list", { taskId })).data, { timeout: 25_000 }).toMatchObject([{ dispatchId: expect.stringMatching(/^scan-/), state: "blocked" }]);
-    const [{ runId }] = (await call("tasks.dispatch.list", { taskId })).data as { runId: string }[];
+    const [dispatch] = (await call("tasks.dispatch.list", { taskId })).data as { runId: string }[];
+    const runId = dispatch!.runId;
     await page.getByRole("button", { name: "运行", exact: true }).click();
     await page.getByRole("button", { name: "打包后的原任务", exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "打包后的原任务" });

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "@huhu/contracts";
+import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
 import { HerdrCore } from "../../../packages/herdr-client/src/herdr-core.js";
 import { machineId } from "../../../packages/vault/src/vault.js";
 import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
@@ -12,7 +12,6 @@ import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixt
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import type { DispatchReceipt, TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
-import type { z } from "zod";
 import { candidatePackage, candidateEnvironment, confirmCandidate } from "../helpers/candidate-package.js";
 import { openApp, rmTree } from "../helpers/launch.js";
 
@@ -218,7 +217,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const runtime = path.join(sandbox, "runtime");
   const gate = path.join(sandbox, "receipt-gate");
   const responses = await startCodexResponsesFixture({ seedReply: "READY", result: "TASK-JOURNEY-RESULT You chose Circle." });
-  const env: NodeJS.ProcessEnv = {
+  const env: Record<string, string> = {
     ...candidateEnvironment(),
     HUHU_VAULT: vault,
     HOME: home,
@@ -280,7 +279,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const rule = await call<Rule>("automations.setEnabled", { id: draft.id, enabled: true, expectedVersion: draft.version });
       expect(await listDispatches(call, task.id)).toEqual([]);
       const detail = await openTask(page, task.title);
-      const questions = () => call<z.infer<typeof TaskQuestionView>[]>("tasks.questions.list", { taskId: task.id });
+      const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
       await expect.poll(questions, { timeout: 65_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting", sessionId: session.id }]);
       const [question] = await questions();
       const [run] = await listDispatches(call, task.id);
@@ -406,7 +405,7 @@ test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费
   const gate = path.join(sandbox, "ack-gate");
   const runtime = path.join(sandbox, "runtime");
   const responses = await startCodexResponsesFixture();
-  const env: NodeJS.ProcessEnv = {
+  const env: Record<string, string> = {
     ...candidateEnvironment(),
     HUHU_VAULT: vault,
     HOME: fixtureHome,
@@ -512,7 +511,7 @@ esac
     const run = (await listDispatches(call, task.id))[0]!;
     const { dispatchId } = run;
     await writeFile(path.join(gate, "dispatch-id"), dispatchId);
-    const questions = () => call<z.infer<typeof TaskQuestionView>[]>("tasks.questions.list", { taskId: task.id });
+    const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
     await expect.poll(questions, { timeout: 40_000 }).toMatchObject([{ runId: run.runId, status: "awaiting", mode: "native_deferred", options: ["Circle", "Square"] }]);
     const [question] = await questions();
     const session = (await sessions(homeSpace!.id)).find(({ id }) => id === question!.sessionId)!;

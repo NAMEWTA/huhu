@@ -49,13 +49,13 @@ export async function confirmCandidate(app: ElectronApplication, page: Page) {
   const running = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, executable: process.execPath, resources: process.resourcesPath, platform: process.platform, arch: process.arch, version: app.getVersion() }));
   expect(running).toEqual({ packaged: true, executable: expected.executablePath, resources: expected.resources, platform: "linux", arch: "x64", version: expected.version });
   expect(page.url()).toMatch(/^huhu-app:\/\/workbench(?:\/|$)/u);
-  expect((await page.evaluate(() => window.huhuHost.appInfo())).commit).toBe(expected.commit.slice(0, 12));
+  expect(await page.evaluate(() => window.huhuHost.appInfo())).toMatchObject({ commit: expected.commit.slice(0, 12) });
   return { ...expected, running };
 }
 
 /** Only display, tooling and the caller's isolated Secret Service cross into a fixture. */
-export function candidateEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
+export function candidateEnvironment(): Record<string, string> {
+  const env: Record<string, string> = {};
   for (const key of ["PATH", "DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "LANG", "LC_ALL", "TZ", "HUHU_CODEX_DISPATCH_BIN"]) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }

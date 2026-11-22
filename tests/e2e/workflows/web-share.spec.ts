@@ -149,7 +149,7 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     expect(b).not.toBe(a);
     await expect(rows).toHaveCount(2);
 
-    browser = await chromium.launch({ executablePath: browserBinary, headless: true });
+    browser = await chromium.launch({ executablePath: browserBinary!, headless: true });
     const browsers = await Promise.all(
       [a, a, b].map(async (link) => {
         const context = await browser!.newContext();

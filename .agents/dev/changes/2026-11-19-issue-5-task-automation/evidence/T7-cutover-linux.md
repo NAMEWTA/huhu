@@ -43,3 +43,12 @@ Node 24.21.0、pnpm 12.10.1，测试使用临时 Vault 和独立 `XDG_RUNTIME_DI
 `2ece5866` 为候选包用例准备独立 HOME、Vault、Core 套接字和回环模型响应。T7.2 先创建原生会话，定时任务接续同一会话，期望一个可核对的提问、一次用户回答和一条最终结果。回环服务返回合成内容，真实 Codex 负责原生问答和会话处理。E2E 仍需要同一 W8.3 安装包和匹配的 SHA，模型响应由测试自带。
 
 Linux x64 的 Codex ELF 通过仓库指纹 `880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971` 核验，版本为 0.170.0，Herdr Core 0.1.19。定向执行 `pnpm exec vitest run plugins/agent-cli/test/codex-native.live.test.ts`，新会话和原会话两项通过。Playwright 能枚举 T7.2 和 W8.2/W8.3 两条安装包用例。日志为 `temp/issue-evidence/huhu-2026-11-22/t72-original-session-preflight.log`。定时、安装包、真实工作台和最终联验仍待运行。
+
+
+## 2026-11-22 候选身份与回执中断顺序
+
+源码提交 `2b438bc7` 补充接收前中断、停用／启用 Tasks、仅丢一次消费 ACK 的验收夹具和包用例。单文件定向回归 `pnpm exec vitest run plugins/tasks/test/persistence-http.test.ts -t "包验收先阻止接收|持久验收原回执"` 实际 2 项通过、36 项过滤。日志 `temp/issue-evidence/huhu-2026-11-22/task-ordered-receipt-regress.log`。它证明持久收件、原评论和重交行为，尚未证明最终安装包旅程。
+
+`candidate-package.ts` 从 `HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT` 指向的 AppImage 计算摘要，对照 `HUHU_TASK_JOURNEY_PACKAGE_SHA`，自行解包并推导程序位置。需提供完整 `HUHU_CANDIDATE_GIT_SHA`。每次启动检查 packaged 状态、实际路径、Linux x64、正式页面来源与构建提交。记录 ASAR、可执行文件、随包 Core、CLI 和派遣 helper 摘要。W8.2、T7.2 仍分别执行并使用同一份制品。
+
+Lead 对四个相关 E2E 文件进行了单独 TypeScript 检查，包含桌面宿主类型和 ES2024.Promise 夹具库，复查退出 0，记录于 `temp/issue-evidence/huhu-2026-11-22/acceptance-types-recheck.log`。测试列表枚举成功不计为 E2E 通过。跨日测试时钟和原报告其它缺口继续保留，最终候选包尚未构建。
