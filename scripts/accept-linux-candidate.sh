@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Run one final candidate acceptance in a fresh display and Secret Service session.
 set -euo pipefail
-mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
+mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
 artifact=$(realpath -e "${2:?AppImage required}")
 artifact_sha=${3:?SHA-256 required}
 candidate_commit=${4:?full Git SHA required}
 provider=$(realpath -e "${5:?pinned Codex required}")
-case "$mode" in tasks|workspace|credentials|native) ;; *) exit 64 ;; esac
+case "$mode" in tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package) ;; *) exit 64 ;; esac
 [[ $(uname -sm) == 'Linux x86_64' ]]
 [[ $(git rev-parse HEAD) == "$candidate_commit" ]]
 [[ -z $(git status --porcelain) ]]
@@ -19,23 +19,27 @@ if [[ "$mode" == native ]]; then
   sha256sum "$native_probe"
   expected_tests=2
 fi
+browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}
+if [[ "$mode" == package ]]; then expected_tests=5; fi
+if [[ "$mode" == web-terminal ]]; then expected_tests=3; fi
 node_binary=$(node -p 'process.execPath')
 playwright_cli=$(realpath -e node_modules/@playwright/test/cli.js)
 for command in dbus-run-session gnome-keyring-daemon xvfb-run; do command -v "$command" >/dev/null; done
 mkdir -p temp/candidate-acceptance
 report_directory=$(mktemp -d "$PWD/temp/candidate-acceptance/$mode.XXXXXX")
 report_file="$report_directory/result.json"
-acceptance_root=$(mktemp -d /tmp/huhu-candidate-session.XXXXXX)
+acceptance_root=$(mktemp -d /tmp/hc-a.XXXXXX)
 trap 'rm -rf -- "$acceptance_root"' EXIT
 mkdir -m 700 "$acceptance_root"/{home,data,config,state,cache,runtime,tmp}
 exec 9>/tmp/huhu-heavy.lock
 flock 9
 # The child receives no developer renderer, alternate Engine, Core address or login history.
-env -i PATH="$(dirname "$node_binary"):$PATH" LANG=C.UTF-8 \
+env -i PATH="$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-8 \
   HOME="$acceptance_root/home" USERPROFILE="$acceptance_root/home" \
   XDG_DATA_HOME="$acceptance_root/data" XDG_CONFIG_HOME="$acceptance_root/config" \
   XDG_STATE_HOME="$acceptance_root/state" XDG_CACHE_HOME="$acceptance_root/cache" \
   XDG_RUNTIME_DIR="$acceptance_root/runtime" TMPDIR="$acceptance_root/tmp" \
+  PLAYWRIGHT_BROWSERS_PATH="$browser_cache" \
   PLAYWRIGHT_JSON_OUTPUT_FILE="$report_file" \
   HUHU_AGENT_LINUX_PROBE="$native_probe" \
   HUHU_ACCEPTANCE_NODE="$node_binary" HUHU_ACCEPTANCE_PLAYWRIGHT="$playwright_cli" \
@@ -55,6 +59,24 @@ env -i PATH="$(dirname "$node_binary"):$PATH" LANG=C.UTF-8 \
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/task-journey.spec.ts -g "W8.2/W8.3 候选安装包" ;;
       native)
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/agents/linux-environment.spec.ts ;;
+      web)
+        export HUHU_WEB_SHARE_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/web-share.spec.ts ;;
+      tools-web)
+        export HUHU_EXTERNAL_TASK_WEB_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/external-task-web.spec.ts ;;
+      git)
+        export HUHU_GIT_PACKAGE_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/git-credentials-package.spec.ts ;;
+      web-terminal)
+        export HUHU_WEB_TERMINAL_WIDGET_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/web-terminal-widgets.spec.ts ;;
+      rule)
+        export HUHU_RULE_PACKAGE_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/automation-linux-environment.spec.ts ;;
+      package)
+        export HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json -c playwright.packaged.config.ts ;;
       credentials)
         export HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE=1
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json -c playwright.packaged.config.ts -g "CLI 与 HTTP MCP" ;;

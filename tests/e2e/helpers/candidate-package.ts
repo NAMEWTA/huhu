@@ -53,6 +53,7 @@ async function extractCandidate() {
     path.join(resources, "herdr/linux-x64/herdr-core"),
     path.join(resources, "agent-pty/huhu-agent-pty"),
     path.join(resources, "codex-dispatch/helper.cjs"),
+    path.join(resources, "protected-launch/helper.cjs"),
     path.join(resources, "bin/huhu"),
     path.join(resources, "cli/cli.mjs"),
   ];
