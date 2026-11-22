@@ -25,7 +25,7 @@ export const RemoteArchiveRequest = ArchiveRequest.omit({ localFileSessionId: tr
 });
 
 const quote = (arg: string) => "'" + arg.replaceAll("'", "'\\''") + "'";
-const python = (script: string) => `exec python3 -I -c ${quote(script)}`;
+const python = (script: string) => `exec python3 -I -B -c ${quote(script)}`;
 export const remoteArchiveProbe = python(
   'import ctypes, json, os, resource, shutil, tarfile, zipfile; tar = bool(shutil.which("tar")); print(json.dumps((["tar"] if tar else []) + (["tar.gz"] if tar and shutil.which("gzip") else []) + (["zip"] if shutil.which("zip") else []) if hasattr(os, "O_NOFOLLOW") and hasattr(ctypes.CDLL(None), "renameat2") else []))',
 );

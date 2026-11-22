@@ -7,7 +7,7 @@ import type { FakeSshOptions } from "./fake-server.js";
 export function ownedArchiveFixture(root: string, onCommand?: (phase: "probe" | "run") => void): Pick<FakeSshOptions, "onInteractiveExec" | "onStat"> {
   return {
     onInteractiveExec: (command, channel) => {
-      if (!command.startsWith("exec python3 -I -c ")) return false;
+      if (!command.startsWith("exec python3 -I -B -c ")) return false;
       onCommand?.(command === remoteArchiveProbe ? "probe" : "run");
       const child = spawn("sh", ["-c", command], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
       child.stdout.pipe(channel, { end: false });
