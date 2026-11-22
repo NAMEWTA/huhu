@@ -1079,6 +1079,62 @@ test.each(["cli", "mcp"] as const)("%s connects for verification and controls on
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s previews inline SSH import bytes against only authorized routes and binds the preview to its subject", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const preview = "ssh.hosts.import.preview";
+  const confirm = "ssh.hosts.import.confirm";
+  try {
+    const jump = await f.host("import jump");
+    const selected = await f.host("import selected", [jump.hostId]);
+    const hidden = await f.host("import hidden");
+    const invoke = await externalTool(f, entry);
+    const holder = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "independent import preview" });
+    const source = {
+      format: "openssh",
+      filename: "/synthetic/import/config",
+      contentBase64: Buffer.from(
+        `Host fixture-selected\n HostName 127.0.0.1\n Port ${selected.server.port}\n User fixture-login\n IdentityFile /fixture-private-key-path\nHost fixture-hidden\n HostName 127.0.0.1\n Port ${hidden.server.port}\n User fixture-login\n`,
+      ).toString("base64"),
+    };
+    expect(await invoke(preview, source)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.allow(preview);
+    await f.chooseHosts([selected.hostId]);
+    const parse = (value: unknown) =>
+      z
+        .object({ token: z.string(), rows: z.array(z.object({ state: z.string() })) })
+        .passthrough()
+        .parse(value);
+    const incomplete = parse(data(await invoke(preview, source)));
+    expect(incomplete.rows.map(({ state }) => state)).toEqual(["ready", "ready"]);
+    await f.chooseHosts([selected.hostId, jump.hostId]);
+    const checks = [vi.spyOn(ModuleCredentials.prototype, "list"), vi.spyOn(ModuleCredentials.prototype, "use")];
+    try {
+      const exposed = data(await invoke(preview, source));
+      expect(exposed).toMatchObject({
+        filename: "config",
+        token: expect.stringMatching(/^[a-f0-9]{64}$/),
+        rows: [{ state: "conflict", conflicts: [{ kind: "existing", hostId: selected.hostId, field: "endpoint" }], issues: [{ code: "credential-reconfigure" }] }, { state: "ready" }],
+      });
+      const { token } = parse(exposed);
+      expect(JSON.stringify(exposed)).not.toContain("fixture-private-key-path");
+      expect(token).not.toBe(incomplete.token);
+      expect(data(await invoke(preview, source))).toEqual(exposed);
+      expect(parse(data(await f.call(holder.token, preview, source))).token).not.toBe(token);
+      expect(await invoke(confirm, { source, token, selected: [{ index: 2 }] })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+      for (const check of checks) expect(check).not.toHaveBeenCalled();
+    } finally {
+      for (const check of checks) check.mockRestore();
+    }
+    expect(jump.server.conns).toHaveLength(0);
+    expect(selected.server.conns).toHaveLength(0);
+    expect(hidden.server.conns).toHaveLength(0);
+    await f.allow(preview, false);
+    expect(await invoke(preview, source)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  } finally {
+    await f.close();
+  }
+});
+
 test("changed SSH keys stay blocked for an external subject with trust decision enabled", { timeout: 30_000 }, async () => {
   const f = await fixture();
   const auth: string[] = [];

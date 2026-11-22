@@ -96,7 +96,7 @@ export function readResourceRoute(files: Files, hostId: string) {
   return { chain, view: resourceView(chain) };
 }
 
-type VisibleSshRoute = ResourceHost & { targetIdentity: string; connectionIdentity: string };
+type VisibleSshRoute = ResourceHost & { user: string; targetIdentity: string; connectionIdentity: string };
 
 export function boundSshRoutes(files: Files, context: CapabilityContext, bindings: readonly z.infer<typeof RouteBinding>[]) {
   const visible = visibleSshRoutes(files, context);
@@ -119,7 +119,7 @@ export function visibleSshRoutes(files: Files, context: CapabilityContext): Read
     try {
       const chain = routeForHost(hosts, id);
       const targetIdentity = workspaceTarget(chain);
-      routes.set(id, { ...resourceView(chain, targetIdentity), targetIdentity, connectionIdentity: connectionIdentity(chain) });
+      routes.set(id, { ...resourceView(chain, targetIdentity), user: chain.at(-1)!.user, targetIdentity, connectionIdentity: connectionIdentity(chain) });
     } catch (error) {
       // Deleted, ungranted or invalid hops make the whole route unavailable.
       if (!(error instanceof HuhuError) || (error.code !== "NOT_FOUND" && error.code !== "INVALID_INPUT")) throw error;

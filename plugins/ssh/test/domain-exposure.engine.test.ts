@@ -115,6 +115,7 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.hosts.configure",
         "ssh.hosts.copy",
         "ssh.hosts.directory",
+        "ssh.hosts.import.preview",
         "ssh.hosts.list",
         "ssh.hosts.organize",
         "ssh.hosts.remove",
