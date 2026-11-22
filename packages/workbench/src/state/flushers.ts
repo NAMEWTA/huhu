@@ -1,12 +1,13 @@
 /** 退出前需要落盘的东西（编辑器里防抖中的内容等）：模块注册，Main 请求时统一执行。 */
-const flushers = new Set<() => Promise<void>>();
+type Flusher = () => Promise<"file" | "draft" | void>;
+const flushers = new Set<Flusher>();
 
-export function registerFlusher(fn: () => Promise<void>): () => void {
+export function registerFlusher(fn: Flusher): () => void {
   flushers.add(fn);
   return () => flushers.delete(fn);
 }
 
-export async function runFlushers(): Promise<void> {
+export async function runFlushers(): Promise<{ files: number; drafts: number }> {
   const results = await Promise.allSettled([...flushers].map(async (flush) => flush()));
   const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
   if (failures.length) {
@@ -15,6 +16,10 @@ export async function runFlushers(): Promise<void> {
     console.error(error);
     throw error;
   }
+  return {
+    files: results.filter((result) => result.status === "fulfilled" && result.value === "file").length,
+    drafts: results.filter((result) => result.status === "fulfilled" && result.value === "draft").length,
+  };
 }
 
 /** 有未保存修改的文档（切换 / 关闭 Vault 前列给用户选择：保存，或保留为草稿）。 */

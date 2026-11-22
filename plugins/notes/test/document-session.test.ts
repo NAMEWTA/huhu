@@ -339,8 +339,9 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     const eng = new FakeEngine({ "a.md": "1" });
     const s = mk(eng);
     await s.load();
+    await expect(s.flushForExit()).resolves.toBeUndefined();
     s.setText("2");
-    await s.flushForExit();
+    await expect(s.flushForExit()).resolves.toBe("file");
     expect(eng.disk("a.md")).toBe("2");
     s.setText("3");
     await s.keepDraft();
@@ -382,7 +383,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     await reopening;
     expect(s.currentText()).toBe("第一笔和后来输入");
     expect(eng.disk("a.md")).toBe("原文");
-    await s.flushForExit();
+    await expect(s.flushForExit()).resolves.toBe("draft");
     expect(eng.drafts.get("a.md")?.text).toBe("第一笔和后来输入");
   });
 

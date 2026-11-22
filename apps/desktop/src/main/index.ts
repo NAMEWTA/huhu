@@ -5,11 +5,12 @@ import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import iconPath from "../../../../assets/brand/huhu-icon-512.png?asset";
-import type { ExitPhase } from "../exit-ipc.js";
+import { isExitSaveSummary, type ExitPhase, type ExitSaveSummary } from "../exit-ipc.js";
 import { installAppMenu } from "./app-menu.js";
 import { cliInstall, cliStatus, cliUninstall, type CliDeps } from "./cli-install.js";
 import { confirmExternalLink, externalHttpUrl } from "./external-link.js";
 import { EngineSupervisor } from "./engine-supervisor.js";
+import { showExitSaveFeedback, takeExitSaveFeedback } from "./exit-feedback.js";
 import { registerMailAttachmentPicker } from "./mail-attachment-picker.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
@@ -58,12 +59,13 @@ function assertTrusted(url: string | undefined): void {
   if (!isTrustedUrl(url)) throw new Error("untrusted sender");
 }
 
-type FlushResult = "saved" | "failed" | "timeout" | "stay" | "unavailable";
+type FlushResult = ExitSaveSummary | "failed" | "timeout" | "stay" | "unavailable";
 let flushRequestId = 0;
 
 interface WindowExit {
   decision: Promise<boolean>;
   signal: AbortSignal;
+  readonly saved: ExitSaveSummary | undefined;
   release(): void;
 }
 
@@ -100,7 +102,7 @@ function requestWindowExit(win: BrowserWindow) {
       if (!matches(event, replyId)) return;
       if (reply === "stay") finish("stay");
       if (reply === false) finish(phase === "flushing" ? "failed" : "stay");
-      if (reply === true && phase === "flushing") finish("saved");
+      if (phase === "flushing" && isExitSaveSummary(reply)) finish(reply);
     };
     const onNavigation = ({ isMainFrame, isSameDocument }: Electron.WebContentsDidStartNavigationEventParams) => {
       if (isMainFrame && !isSameDocument) release();
@@ -163,6 +165,7 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
   const pending = exitDecisions.get(win);
   if (pending) return pending;
   const request = requestWindowExit(win);
+  let saved: ExitSaveSummary | undefined;
   const decision = (async () => {
     const result = await request.result;
     if (result === "unavailable") {
@@ -170,13 +173,17 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
     }
     if (request.signal.aborted || result === "stay") return false;
     if (result === "timeout") console.warn("退出前保存未在 3 秒内回执");
-    if (result === "saved") return true;
+    if (typeof result === "object") {
+      saved = result;
+      return true;
+    }
+    const unconfirmed = result === "timeout";
     const answer = await dialog.showMessageBox(win, {
       type: "warning",
-      title: "退出前保存失败",
-      message: "仍有未保存内容",
-      detail: "可以保留窗口并重试保存，或放弃未保存内容并退出。",
-      buttons: ["保留窗口", "放弃并退出"],
+      title: unconfirmed ? "无法确认退出前的保存结果" : "退出前保存失败",
+      message: unconfirmed ? "保存请求没有回执" : "仍有未保存内容",
+      detail: unconfirmed ? "可以保留窗口，核对文档后重试保存。" : "可以保留窗口并重试保存，或放弃未保存内容并退出。",
+      buttons: ["保留窗口", unconfirmed ? "未确认保存，仍退出" : "放弃并退出"],
       defaultId: 0,
       cancelId: 0,
       signal: request.signal,
@@ -189,6 +196,9 @@ function canCloseWindow(win: BrowserWindow): WindowExit {
   const exit: WindowExit = {
     decision,
     signal: request.signal,
+    get saved() {
+      return saved;
+    },
     release: () => {
       if (exitDecisions.get(win) === exit) exitDecisions.delete(win);
       request.release();
@@ -226,12 +236,16 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
     event.preventDefault();
     if (closing || quitting) return;
     closing = true;
+    const engine = supervisor;
     const exit = canCloseWindow(win);
     void exit.decision.then((allowed) => {
       closing = false;
       // 应用退出已接管本窗口的在途检查；其余窗口取消时也保留此窗。
       if (quitting || flushedForQuit) return;
-      if (allowed && !exit.signal.aborted && !win.isDestroyed()) win.destroy();
+      if (allowed && !exit.signal.aborted && !win.isDestroyed()) {
+        if (exit.saved && engine && engine === supervisor) showExitSaveFeedback(engine.vaultRoot, exit.saved);
+        win.destroy();
+      }
       exit.release();
     });
   });
@@ -369,6 +383,11 @@ if (!gotLock) {
       assertTrusted(event.senderFrame?.url);
       await startup; // 命令行 / 测试指定的 Vault 先打开完，界面再判断是否显示启动页
       return { path: current?.path ?? null, readOnly: current?.readOnly ?? false, recent, ...(startupError ? { error: startupError } : {}) };
+    });
+    ipcMain.handle("huhu:vault:take-exit-save", (event, expectedPath: unknown): ExitSaveSummary | null => {
+      assertTrusted(event.senderFrame?.url);
+      if (!current || event.senderFrame !== event.sender.mainFrame || current.path !== expectedPath) return null;
+      return takeExitSaveFeedback(current.path);
     });
     // kind: open 打开已有文件夹（目录必须存在；非 Vault 的文件夹会被初始化为 Vault）；new 新建空白（必须空目录）
     ipcMain.handle("huhu:vault:open", async (event, target: unknown, opts: unknown): Promise<OpenResult> => {
@@ -617,6 +636,15 @@ if (!gotLock) {
         return;
       }
       for (const exit of exits) exit.signal.removeEventListener("abort", cancel);
+      if (engine) {
+        const summary = { files: 0, drafts: 0 };
+        for (const exit of exits) {
+          if (!exit.saved) continue;
+          summary.files += exit.saved.files;
+          summary.drafts += exit.saved.drafts;
+        }
+        showExitSaveFeedback(engine.vaultRoot, summary);
+      }
       flushedForQuit = true;
       app.quit();
     });

@@ -110,6 +110,7 @@ export class DocumentSession {
   private format: TextFormat = { bom: false, eol: "none", finalNewline: false };
   private loaded = false;
   private disposed = false;
+  private fileWrites = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
   private inflight: Promise<boolean> | null = null;
@@ -247,6 +248,7 @@ export class DocumentSession {
       const r = await this.engine.call<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version }, { write: true });
       this.version = r.version;
       this.savedText = body;
+      this.fileWrites++;
       if (this.text === body) this.equivalentMarkdown = undefined;
       // 回执只清除它所对应的 dirtyRevision：期间又有新输入则仍为 dirty（C06）
       this.state = this.revision === rev && this.text === body ? "saved" : "dirty";
@@ -327,12 +329,11 @@ export class DocumentSession {
     });
   }
 
-  private async preserveDraft(): Promise<void> {
+  private preserveDraft(): Promise<boolean> {
     // 文件与草稿共用写入队列。离开界面与退出重叠时，也按顺序取快照。
-    await this.serializeWrite(async () => {
-      if (this.savedText !== null && this.text !== this.savedText) {
-        await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
-      }
+    return this.serializeWrite(async () => {
+      if (this.savedText === null || this.text === this.savedText) return false;
+      await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version }, { write: true });
       return true;
     });
   }
@@ -373,12 +374,14 @@ export class DocumentSession {
   }
 
   /** 退出时自动保存，关闭自动保存或保存失败时保留草稿。 */
-  async flushForExit(): Promise<void> {
+  async flushForExit(): Promise<"file" | "draft" | undefined> {
+    const initialWrites = this.fileWrites;
     await this.drainForWrite();
     await this.inflight;
-    if (this.savedText === null || this.text === this.savedText) return;
-    if (this.autosave() && (await this.flush())) return;
-    await this.preserveDraft();
+    if (this.savedText !== null && this.text !== this.savedText && (!this.autosave() || !(await this.flush()))) {
+      if (await this.preserveDraft()) return "draft";
+    }
+    return this.fileWrites !== initialWrites ? "file" : undefined;
   }
 
   /** 切换 Vault 前“保留草稿”。 */

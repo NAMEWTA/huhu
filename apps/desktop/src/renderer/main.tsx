@@ -1,6 +1,6 @@
 import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
-import { APPEARANCE_CHANGED, appearanceController, Button, EmptyState } from "@huhu/ui";
+import { APPEARANCE_CHANGED, appearanceController, Button, EmptyState, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
@@ -44,7 +44,7 @@ import {
 import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
+import { exitSaveMessage, isExitSaveSummary, type PrepareExit, type ReleaseExit } from "../exit-ipc.js";
 import { browserEndpoint, browserLocation, joinBrowserWorkbench, type BrowserEndpoint } from "./web-host.js";
 
 // 首帧：用 localStorage 里缓存的最近一次外观（没有就是默认主题 + 跟随系统），打开 Vault 后再以 Vault 的设置为准
@@ -366,14 +366,33 @@ function connectWindowExit(): () => void {
       if (!wasInert && previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
     };
     report("flushing");
-    await runFlushers();
-    return signal.aborted ? "stay" : true;
+    const summary = await runFlushers();
+    return signal.aborted ? "stay" : summary;
   };
   const unsubscribe = window.huhuHost.onExit(prepare, release);
   return () => {
     unsubscribe();
     if (active) release(active.id);
   };
+}
+
+function ExitSaveFeedback({ vaultPath }: { vaultPath: string }) {
+  const feedback = useWorkbenchFeedback("exit-save");
+  useEffect(() => {
+    let active = true;
+    void window.huhuHost
+      .takeExitSave(vaultPath)
+      .then((summary) => {
+        if (!active || !isExitSaveSummary(summary)) return;
+        const message = exitSaveMessage(summary);
+        if (message) feedback(message, "info", { duration: 7000 });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [feedback, vaultPath]);
+  return <WorkbenchToaster scope="exit-save" />;
 }
 
 /** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
@@ -393,7 +412,12 @@ function DesktopRoot() {
     );
   }
   if (vault.path === null) return <LaunchPage state={vault} onOpened={() => window.location.reload()} />;
-  return <DesktopApp />;
+  return (
+    <>
+      <DesktopApp />
+      <ExitSaveFeedback vaultPath={vault.path} />
+    </>
+  );
 }
 
 type BrowserState = { status: "loading" | "expired" | "unavailable" } | { status: "ready"; endpoint: BrowserEndpoint };

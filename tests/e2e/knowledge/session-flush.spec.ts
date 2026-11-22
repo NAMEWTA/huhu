@@ -499,11 +499,15 @@ for (const autosave of [true, false]) {
       if (!autosave) await manualSave(page);
       await openNote(page);
       await inputWithPendingBridge(page);
+      await app.evaluate(({ Notification }) => {
+        Notification.isSupported = () => false;
+      });
       await app.close();
       const disk = readFileSync(file, "utf8");
       expect(disk).toBe(autosave ? written : original);
       const reopened = await openApp({ HUHU_VAULT: vault });
       try {
+        await expect(reopened.page.getByText(autosave ? "已写入 1 份文档。" : "已保留 1 份可恢复草稿。", { exact: true })).toBeVisible();
         await engineReady(reopened.page);
         expect(await reopened.page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
         if (!autosave) expect((await call<{ text: string }>(reopened.page, "notes.draft.get", { path: name })).text).toBe(written);
@@ -924,7 +928,7 @@ test("TB-15 参与者失败或超时保留窗口，旧许可不能结束当前�
             }
             if (previous !== undefined) {
               ipcMain.emit("huhu:exit-progress", frame, previous, "flushing");
-              ipcMain.emit("huhu:flushed", frame, previous, true);
+              ipcMain.emit("huhu:flushed", frame, previous, { files: 1, drafts: 0 });
             }
             ipcMain.emit("huhu:exit-progress", frame, id, "checking");
             if (mode !== "timeout") ipcMain.emit("huhu:flushed", frame, id, mode === "stay" ? "stay" : false);

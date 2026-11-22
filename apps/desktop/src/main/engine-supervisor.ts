@@ -76,6 +76,10 @@ export class EngineSupervisor {
     return this.state;
   }
 
+  get vaultRoot(): string {
+    return this.vaultPath;
+  }
+
   mailAttachmentEndpoint(vaultId: string): EngineEndpoint | null {
     return this.state === "ready" && !this.stopping && !this.flags.readOnly && this.endpoint?.vaultId === vaultId ? this.endpoint : null;
   }
