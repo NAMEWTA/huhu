@@ -4,7 +4,15 @@
 
 八份 Issue 快照保留原报告和历史引用。复用调查以当前 Huhu 和本轮克隆的上游默认分支为准。每个实际采用的文件、提交、修改和许可继续记入项目上游台账。 [本地源码清单](sources.md) · [项目上游台账](../../../../docs/upstream/ledger.md)
 
-## 2026-11-23 当前收尾位置
+## 2026-11-23 04:33 联验返工
+
+远端候选最后核对为 `feature/issue-fix=c0870297c816f9205d264f00d209399a8c5f54e8`，`main=4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。旧 05a 候选在 agent-linux 工作树和 AppImage 中保持固定。后续修复位于 integration 的 `impl/huhu-acceptance-followup`；索引、Agent/Gateway 和验收夹具三笔提交已推送，Notes 保存事件修复已完成最后独审并提交，进入固定组合构建。
+
+旧包联验已定位并修正测试夹具的 Engine 身份观察、关闭后的 PID 读取、模板用例的 Codex 检测配置及 CLI/MCP 意图参数。T7.2 完整任务旅程、D09 同任务桌面/Web 联验分别诊断通过。真实 Web 保存后桌面不刷新是产品缺陷：路径事件缺失与迟到自身通知误报已修复并通过定向回归，Agent 删除未知审查意见恢复、索引大小写改名及暂扣创建/轮询交叉已通过独审，索引与监听 30 项回归通过。Notes 跨重载自身通知返工 93 项通过，独立反例关闭核对通过；实际新构建待验。此前失败或未执行的定向场景继续串行验证；不重复已运行的全量套件。
+
+以上旧包诊断、未提交源码回归和最终组合验收分别记录。最终提交、共同包、逐 Issue 签收及 main 落地尚未完成；SSH 仍暂停。详见 [Linux 收尾记录](evidence/linux-final-acceptance.md)。
+
+## 2026-11-23 首轮收尾位置（历史）
 
 当前源码候选固定于 `80db95d0`，包含 Mail `25f5866b`、Notes保存对账 `ce3a3b7b` 和草稿记录身份修复。此前远端已核对 `feature/issue-fix=9252eeeab04a59402d8c1129a35cd84e587d4c6b`、`main=4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`；本轮后续推送以实际 ls-remote 输出为准。
 

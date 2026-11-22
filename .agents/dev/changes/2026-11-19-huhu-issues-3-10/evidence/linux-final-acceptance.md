@@ -230,3 +230,44 @@ Notes候选 `ce3a3b7b82410ea1e25cb2955df4140fa2b934bc` 已推送 `feature/issue-
 t13b/task12 实际修前会话2失败、Engine2失败，修后会话83/83、Engine定向4/4。Lead t15f Notes及差异E2E类型通过，格式失败两处；格式修正后t15g四文件格式/lint通过，完整domain-exposure.engine 11/11通过，包含CLI/MCP默认关、授权、撤销、重启与旧外部版本行为。日志 `save-draft-identity-session-{red,green}.log`、`save-draft-identity-engine-{red,green}.log`、`notes-draft-identity-types.log`、`notes-draft-identity-recheck.log`。
 
 独审 `t152-report04.md` 确认两项关闭和直接兼容通过。代码保存为 `80db95d0`；没有追加新功能。后续使用包含本记录的固定HEAD运行串行门禁、构建和定向真实入口验证。未重跑全量Vitest或全量E2E。
+
+## 2026-11-23 03:51 后续缺陷复核（尚未提交）
+
+固定05a748b6候选包经修订的测试身份检查进入Web业务流程后，浏览器保存正文已落盘，但桌面已有编辑会话仍显示旧正文。Engine的notes.save仅发布实体通知，本进程写入又被watcher过滤，NotesModule订阅的vault.fileChanged因此缺失。integration/impl/huhu-acceptance-followup补发规范化路径通知；新增真实Engine两会话回归先2失败、后2通过。规范化路径及现有会话回归合跑85/85通过（t165，temp/final-audit/document-events-normalized.log）。未重新构建或运行修复后的Web界面，不能记为端到端通过。
+
+候选身份检查原读取/proc/PID/environ的两项路径在实际Utility进程不成立；Main实际profile/runtime正确且其metrics登记同一EnginePID。改为联合核对Main、metrics创建时间、Vault端点和既有包哈希，独审t15w/task02无阻断发现。诊断沿用05a包和未提交测试helper，不能计为新源码最终包验收。
+
+增量索引t163/task01返工在同一工作树完成，19项单文件测试通过；24文件夹具记录0次目录枚举、24次目标lstat，尚待复审及实际性能/退出路径复测。终端吞吐测试修复searchbox定位与按键开始时刻纳样，等待窗口内慢样本完成；原至少10样本和100ms阈值保留，独审t15y/task02进行中。
+
+模板派遣空数组现象正在t164用原05a包抓取脱敏的检测、受理summary和发生原因；尚无结果。SSH保持暂停。本批未提交，远端候选仍为05a748b6，main最后核对4ae7e7e4。
+
+03:55模板诊断收尾：t164明确runNow summary processed=0/skipped=1，detector installed=false，发生issue=cli-missing。测试夹具配置常规Codex command为同一哈希锁定ELF、刷新检测并断言路径后，t166在原05a包上T7.2完整1项通过（1.8分钟）。保留原意图重交、唯一派遣、原生问题与回执及新模板唯一结果断言。日志template-pinned-check-05a.log；报告temp/candidate-acceptance/tasks.0fILPQ/result.json；附件template-pinned-artifacts-05a。属于测试夹具修正后的旧包诊断通过，最终组合还需对应新提交。
+
+独审t15y/task02发现Notes回执后自身通知会把后续输入误判冲突，已分配t169/task01修复并补时序回归。终端测试另加覆盖断言：次数或时间上限先于洪流结束时直接失败，不允许只用前半段样本通过。
+
+04:02 D09 tools-web复核：t16b/t16c越过身份校验后暴露夹具无差别传通用intent-key，tasks.read与按版本更新的tasks.update不支持该字段。只向tasks.create传该键后，t16d全部业务断言通过，但清理失败。helper在Electron关闭后再次调用app.process()，Playwright客户端已销毁实现映射；改为启动时保留Main PID，仍核对真实进程退出和描述删除。t16h整例通过，包含CLI创建、MCP修改、桌面与Web同任务同版本刷新、重开、撤权及退出清理。日志tools-web-cleanup-check-05a.log，附件tools-web-cleanup-artifacts-05a。t16f Agent定向类型通过，t16j七个受影响E2E及preload声明类型通过。所有结果仍为05a包+未提交测试修订的诊断。
+
+增量索引独审t168/task01发现大小写不敏感卷的仅改大小写旧路径清理回归，交t15t/task02修复；t168/task02转审Agent控制权接线及候选测试修订。t169/task01正在修复Notes迟到自身通知，Lead执行真实Engine红灯t16g失败符合预期。当前未进入重构建、推送或main落地。
+
+### 2026-11-23 04:14 旧组合包诊断与审查返工
+
+仍以 05a748b6 / AppImage 44eb01b894a4b81a17c27132b8aab29c98894f52340c5129036c1d5ae90c49d1 配合未提交的修订验收用例运行，不能替代下一组合版本的最终验收。
+
+- t16m：native 2、rule 1、git 1 通过；Web terminal 原 2 通过、1 失败，失败点是后台尺寸采样尚未生成 baseline，协议探针未开始。日志及每组产物见 `temp/final-audit/diagnostic-{native,rule,git,web-terminal}-05a.log` 与对应 artifacts。
+- 本机真实 bash PTY 最小复现证明后台 stty 采样被 SIGTTOU 作业控制暂停；仅在采样子 shell 忽略该信号后正常返回。保留交互 shell、实际尺寸连续 20 次采样、原始观察者输入与 resize 拒绝、原会话接管和刷新断言。t16p 修订夹具后 **3 通过**；日志 `temp/final-audit/diagnostic-sampler-web-terminal-05a.log`，产物 `diagnostic-sampler-web-terminal-artifacts-05a`，原始 JSON `temp/candidate-acceptance/web-terminal.4wf77g/result.json`。
+- t16k Notes 延迟自身通知实际 Engine 集成 **2 通过**；t169 会话文件 **87 通过**。t16n 独审仍发现自身通知额外读盘拖住成功保存及读盘错误误报保存失败，已交 t15t/task03；未宣布该修改最终通过。
+- t15t/task02 大小写改名修复单文件 21 通过，t168/task03 独审中。t168/task02 发现删除最后未知审查意见后的只读恢复缺口，同交 t15t/task03。新源码尚未构建、打包或最终真实 UI 复验。
+
+### 2026-11-23 04:19 索引轮询复核
+
+t168/task03 发现旧名在后续轮询编辑时重新出现。Lead 将 VaultWatcher.poll 已枚举的精确快照交给 flush，避免以旧拼写重新查到同一文件；原生事件仍按目标读取。两个大小写改名用例扩展到真实 watcher 多次轮询与后续编辑，先得到 2 失败/19 通过，再运行索引与 watcher 两文件 **29 通过**（t16r/t16s）。Vault 定向类型 **通过**（t16t）；Web terminal 修订用例定向类型 **通过**（t16q）。日志位于 `temp/final-audit/index-polling-case-{red,check}.log`、`vault-polling-types.log`、`web-sampler-types.log`。大小写不敏感查找仍为 Linux 定向模拟，未代替 Windows/macOS 原生卷实测。t168/task04 独审中。
+
+### 2026-11-23 04:29 已审候选保存
+
+t168/task05 已独立关闭 Vault 暂扣创建与轮询交叉的旧名复活、Agent 删除最后未知意见后只读恢复两项 P2。新增 watcher 夹具使用真实订阅根的规范路径，`TMPDIR` 符号链接定向回归 t16z 通过。对应已提交 `d1432fd3`（索引及监听）、`383a385e`（审查输入及忙碌网关）、`c0870297`（候选身份/旅程测试）。t170 推送并实际核对远端 `feature/issue-fix=c0870297c816f9205d264f00d209399a8c5f54e8`，`main=4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。
+
+Notes 每次 writeId 的首轮 91 项、Engine2项、contracts/Notes/Agent定向类型通过（t16v/t16w）；独审 t16n/task02 又发现跨重载旧成功回执登记 writeId 晚于基线守卫，可能让旧自身通知拖住下一保存，t15t/task04 正修此明确缺口。Notes 代码未进入上述提交，仍保留工作区。新组合构建与最终 UI/包联验未完成。
+
+### 2026-11-23 04:33 本轮返工关闭
+
+t15t/task04 跨重载反例 2 红灯后最小调整成功标识登记顺序，会话 **93 项通过**。t16n/task03 用相同阻塞读盘和错误读盘探针独立核对，两个跨重载反例关闭，真实其他来源更新仍读取并接纳。t171 Vault/Notes 定向类型通过，之前 t16w contracts/Notes/Agent 定向类型通过。两份最终独审报告为 `temp/final-audit/t168-report05.md` 与 `t16n-report03.md`。本轮源码冻结后进入串行构建和受影响 UI 复验；这些源码证据尚不能代替新组合包验收。
