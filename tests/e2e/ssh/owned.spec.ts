@@ -22,7 +22,9 @@ const write = "ssh.shells.write";
 const filesOpen = "ssh.fileSessions.open";
 const upload = "ssh.sftp.upload";
 const download = "ssh.sftp.download";
-const actions = [connect, get, trust, open, list, read, write, filesOpen, upload, download];
+const queue = "ssh.transfers.list";
+const startCopy = "ssh.transfers.start";
+const actions = [connect, get, trust, open, list, read, write, filesOpen, upload, download, queue, startCopy];
 
 function accepted<T>(reply: CapabilityResult<unknown>): T {
   if (!reply.ok) throw new Error(reply.error.code);
@@ -35,31 +37,37 @@ for (const entry of ["CLI", "HTTP MCP"]) {
     const input: string[] = [];
     let closed = 0;
     const server = await startFakeSsh({ password, onShellInput: (value) => input.push(value), onShellClose: () => closed++ });
+    const target = await startFakeSsh({ password });
     const app = await openApp();
     const { page, vault } = app;
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
-      const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
-        name: "外部终端回环夹具",
-        host: "127.0.0.1",
-        port: server.port,
-        user: "fixture",
-        authKind: "password",
-        expectedRevision: null,
-        credentials: [{ purpose: "password", action: "replace", value: password }],
-      });
+      const saveHost = (name: string, port: number) =>
+        desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+          name,
+          host: "127.0.0.1",
+          port,
+          user: "fixture",
+          authKind: "password",
+          expectedRevision: null,
+          credentials: [{ purpose: "password", action: "replace", value: password }],
+        });
+      const { hostId } = await saveHost("外部终端回环夹具", server.port);
+      const { hostId: targetHostId } = await saveHost("外部传输目标夹具", target.port);
       const { routeRevision } = await desktopCall<{ routeRevision: string }>(page, "ssh.resources.host.get", { hostId });
       const binding = { hostId, routeRevision };
       await desktopCall(page, "gateway.mcp.update", { enabled: true, transport: "http" });
       const { token } = await desktopCall<{ token: string }>(page, "gateway.tokens.create", { name: "外部终端验收" });
       const endpoint = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");
       expect(new URL(endpoint).hostname).toBe("127.0.0.1");
-      const mcp = (session: string) => async (capability: string, input: unknown = {}): Promise<CapabilityResult<unknown>> => {
-        const response = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input }), session);
-        expect(response.status).toBe(200);
-        const { result } = await response.json();
-        return result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, data: result.structuredContent.data };
-      };
+      const mcp =
+        (session: string) =>
+        async (capability: string, input: unknown = {}): Promise<CapabilityResult<unknown>> => {
+          const response = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input }), session);
+          expect(response.status).toBe(200);
+          const { result } = await response.json();
+          return result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, data: result.structuredContent.data };
+        };
       const cli = async (capability: string, input: unknown = {}): Promise<CapabilityResult<unknown>> => {
         const script = path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs");
         const { stdout } = await run(process.execPath, [script, "call", capability, "--vault", vault, "--json", "--input-json", JSON.stringify(input)]).catch((error: { stdout?: string }) => {
@@ -77,16 +85,22 @@ for (const entry of ["CLI", "HTTP MCP"]) {
         await desktopCall(page, "gateway.policy.update", { resources, changes, expectedRevision: revision, catalogRevision });
       };
       const connectIntent = { ...binding, intentKey: randomUUID() };
-      await policy([hostId]);
+      const hosts = [hostId, targetHostId];
+      await policy(hosts);
       expect(await invoke(connect, connectIntent)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
-      await policy([hostId], true);
-      const { attemptId } = accepted<{ attemptId: string }>(await invoke(connect, connectIntent));
-      const status = (async () => accepted<z.infer<typeof PublicProbeStatus>>(await invoke(get, { hostId, attemptId })));
-      await expect.poll(async () => (await status()).state).toBe("waiting");
-      const pending = await status();
-      if (pending.state !== "waiting") throw new Error("未找到回环夹具主机指纹");
-      accepted(await invoke(trust, { ...binding, attemptId, ...pending.prompt, accept: true }));
-      await expect.poll(async () => (await status()).state).toBe("connected");
+      await policy(hosts, true);
+      const dial = async (intent: typeof connectIntent) => {
+        const { attemptId } = accepted<{ attemptId: string }>(await invoke(connect, intent));
+        const status = async () => accepted<z.infer<typeof PublicProbeStatus>>(await invoke(get, { hostId: intent.hostId, attemptId }));
+        await expect.poll(async () => (await status()).state).toBe("waiting");
+        const pending = await status();
+        if (pending.state !== "waiting") throw new Error("未找到回环夹具主机指纹");
+        const { intentKey: _, ...route } = intent;
+        accepted(await invoke(trust, { ...route, attemptId, ...pending.prompt, accept: true }));
+        await expect.poll(async () => (await status()).state).toBe("connected");
+        return attemptId;
+      };
+      const attemptId = await dial(connectIntent);
       const openIntent = { ...binding, attemptId, intentKey: randomUUID() };
       const opened = await invoke(open, openIntent);
       expect(await invoke(open, openIntent)).toEqual(opened);
@@ -118,17 +132,32 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await peer(download, { ...remote, transferId: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       expect(await invoke(upload, bytes)).toEqual({ ok: true, data: { size: 2 } });
       expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject({ ok: true, data: { dataBase64: "AP8=", eof: true } });
-      await policy([]);
+      const targetRoute = await desktopCall<{ routeRevision: string }>(page, "ssh.resources.host.get", { hostId: targetHostId });
+      const targetAttempt = await dial({ hostId: targetHostId, routeRevision: targetRoute.routeRevision, intentKey: randomUUID() });
+      const { fileSessionId: targetFileId } = accepted<{ fileSessionId: string }>(await invoke(filesOpen, { routeRevision: targetRoute.routeRevision, hostId: targetHostId, attemptId: targetAttempt, intentKey: randomUUID() }));
+      const request = {
+        source: { kind: "remote", fileSessionId, path: remotePath },
+        target: { kind: "remote", fileSessionId: targetFileId, path: remotePath },
+        intentKey: randomUUID(),
+      };
+      const copied = accepted<{ transferId: string }>(await invoke(startCopy, request));
+      expect(await invoke(startCopy, request)).toMatchObject({ ok: true, data: { transferId: copied.transferId } });
+      expect(accepted(await peer(queue))).toMatchObject({ jobs: [] });
+      await expect.poll(async () => accepted(await invoke(queue))).toMatchObject({ jobs: [{ transferId: copied.transferId, state: "completed" }] });
+      expect(target.fs.files.get(remotePath)).toEqual(Buffer.from([0, 255]));
+      await policy([targetHostId]);
       await expect.poll(() => closed).toBe(2);
       const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
       expect(await invoke(write, send)).toMatchObject(denied);
       expect(await invoke(read, fresh)).toMatchObject(denied);
       expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject(denied);
-      await policy([hostId], false);
+      expect(accepted(await invoke(queue))).toMatchObject({ jobs: [] });
+      await policy(hosts, false);
       expect(await invoke(open, openIntent)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     } finally {
       await app.close();
       await server.close();
+      await target.close();
     }
   });
 }

@@ -57,16 +57,17 @@ export class Transfers {
     private readonly manager: SshManager,
     private readonly changed: (id: string) => void,
     private readonly maxParallel: () => number = () => defaultVaultPreferences.transfer.parallel,
+    private readonly owned = false,
   ) {}
 
   preferencesChanged() {
     this.pump();
   }
 
-  list(): TransferQueue {
-    for (const rec of this.records.values()) {
+  list(refresh = true): TransferQueue {
+    for (const rec of refresh ? this.records.values() : []) {
       if (terminal.has(rec.job.state) || rec.job.state === "uncertain" || this.active.has(rec)) continue;
-      const lost = [rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && this.manager.fileOrigin(origin.session.hostId)?.connectionId !== origin.session.connectionId);
+      const lost = [rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && !this.sessions.hasOriginalConnection(origin.session));
       if (lost) this.finish(rec, "failed", "文件会话的原连接已断开", "SSH_DISCONNECTED");
     }
     return {
@@ -76,6 +77,25 @@ export class Transfers {
       parallel: this.maxParallel(),
       canQueue: this.liveCount() < LIVE_LIMIT,
     };
+  }
+
+  find(transferId: string): TransferJob | undefined {
+    const job = this.records.get(transferId)?.job;
+    return job && { ...job };
+  }
+
+  findBatch(batchId: string): TransferBatch | undefined {
+    const batch = this.batches.get(batchId);
+    return batch && this.batchView(batch);
+  }
+
+  releaseFileSession(id: string): void {
+    for (const rec of this.records.values()) {
+      if (terminal.has(rec.job.state) || rec.job.state === "uncertain") continue;
+      if (![rec.job.source, rec.job.target].some((origin) => origin.kind === "remote" && origin.fileSessionId === id)) continue;
+      if (rec.job.state === "committing") rec.controller?.abort();
+      else this.cancel(rec.job.transferId);
+    }
   }
 
   start(request: TransferRequest): TransferJob {
@@ -210,7 +230,7 @@ export class Transfers {
     if (rec.job.state !== "failed" || rec.job.errorCode === "VERSION_CONFLICT") throw errors.invalidInput("当前任务需要重新发起并核对目标");
     if (this.liveCount() >= LIVE_LIMIT) throw errors.invalidInput("传输队列已满");
     for (const origin of [rec.job.source, rec.job.target]) {
-      if (origin.kind === "remote" && this.manager.fileOrigin(origin.session.hostId)?.connectionId !== origin.session.connectionId) {
+      if (origin.kind === "remote" && !this.sessions.hasOriginalConnection(origin.session)) {
         throw new HuhuError("SSH_DISCONNECTED", "原连接已断开，请从新文件会话重新发起");
       }
     }
@@ -243,18 +263,19 @@ export class Transfers {
     const { source, target } = this.lookup(id).job;
     const remote = source.kind === "remote" ? source : target;
     if (remote.kind !== "remote") throw errors.notFound("任务没有源文件会话");
-    return { ...this.sessions.restoreTransferOrigin(remote.session), transferPath: remote.path };
+    const session = remote.session.source === "external" ? this.sessions.get(remote.fileSessionId) : this.sessions.restoreTransferOrigin(remote.session);
+    return { ...session, transferPath: remote.path };
   }
 
-  clear(): { removed: number } {
+  clear(allow: (record: TransferJob | TransferBatch) => boolean = () => true): { removed: number } {
     let removed = 0;
     for (const [id, { job }] of this.records)
-      if (!job.batchId && terminal.has(job.state)) {
+      if (!job.batchId && terminal.has(job.state) && allow(job)) {
         this.records.delete(id);
         removed++;
       }
     for (const [id, batch] of this.batches)
-      if (this.batchView(batch).state !== "active") {
+      if (this.batchView(batch).state !== "active" && allow(this.batchView(batch))) {
         for (const child of batch.children) if (this.records.delete(child)) removed++;
         this.batches.delete(id);
       }
@@ -285,6 +306,7 @@ export class Transfers {
   }
 
   private update(rec: Record, patch: Partial<TransferJob>) {
+    if (this.owned && patch.state === "waiting") rec.job.conflictRevision = randomUUID();
     Object.assign(rec.job, patch);
     if (!this.disposed) this.changed(rec.job.transferId);
   }
@@ -347,7 +369,11 @@ export class Transfers {
 
   private withTree<T>(origin: TransferOrigin, signal: AbortSignal, use: (tree: TransferTree, active: AbortSignal) => Promise<T>): Promise<T> {
     if (origin.kind === "local") return use(localTree(origin.path), signal);
-    return this.manager.withSftp({ ...origin.session, signal }, "transfer.directory", origin.path, (channel, active) => use(remoteTree(channel, origin.path), active), { signal });
+    return this.manager.withSftp(this.source(origin, signal), "transfer.directory", origin.path, (channel, active) => use(remoteTree(channel, origin.path), active), { signal });
+  }
+
+  private source(origin: Extract<TransferOrigin, { kind: "remote" }>, signal: AbortSignal) {
+    return origin.session.source === "external" ? this.sessions.source(origin) : { ...origin.session, signal };
   }
 
   private async runDirectory(rec: Record, signal: AbortSignal) {
@@ -378,7 +404,7 @@ export class Transfers {
 
   private withFile<T>(origin: TransferOrigin, signal: AbortSignal, use: (file: TransferFile, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (origin.kind === "local") return use(localTransferFile(origin.path), signal);
-    return this.manager.withSftp({ ...origin.session, signal }, "transfer", origin.path, (channel, active) => use(remoteTransferFile(channel, origin.path), active), {
+    return this.manager.withSftp(this.source(origin, signal), "transfer", origin.path, (channel, active) => use(remoteTransferFile(channel, origin.path), active), {
       signal,
       timeoutMs: 30 * 60_000,
     });

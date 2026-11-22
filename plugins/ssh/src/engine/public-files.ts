@@ -100,6 +100,10 @@ export class PublicFileSessions {
     });
   }
 
+  authorize(context: CapabilityContext, fileSessionId: string) {
+    return this.require(context, fileSessionId).hostIds;
+  }
+
   close(context: CapabilityContext, request: z.infer<typeof FileSessionId> & { intentKey?: string | undefined }) {
     return this.mutate(context, "ssh.fileSessions.close", request, {}, Ok, async () => {
       this.closeWorkbench(request.fileSessionId);

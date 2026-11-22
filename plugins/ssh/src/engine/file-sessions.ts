@@ -36,6 +36,12 @@ export class FileSessions {
     return { ...session, state: ready ? "ready" : "disconnected" };
   }
 
+  hasOriginalConnection(session: FileSession): boolean {
+    if (session.source !== "external") return this.manager.fileOrigin(session.hostId)?.connectionId === session.connectionId;
+    const owned = this.bindings.get(session.fileSessionId)?.owned;
+    return owned?.origin.connectionId === session.connectionId && !owned.signal.aborted;
+  }
+
   openOwned(owned: OwnedOrigin): FileSession {
     if (this.disposed) throw errors.notFound("文件会话所属的 Vault 已关闭");
     owned.signal.throwIfAborted();

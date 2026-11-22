@@ -21,6 +21,7 @@ import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
 import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
 import type { WorkspaceTemplate } from "../src/shared/workspace.js";
+import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 const hostGet = "ssh.resources.host.get";
@@ -1263,6 +1264,85 @@ test.each(["cli", "mcp"] as const)("%s binds byte transfers to owned SFTP sessio
     expect(await invoke(upload, uploadIntent)).toMatchObject(notExposed);
   } finally {
     releaseRead.resolve();
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s owns the remote transfer queue and consumes only the original conflict decision", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  try {
+    const source = await f.host("transfer source fixture");
+    const target = await f.host("transfer target fixture");
+    const sourcePath = "/home/test/source.txt";
+    const targetPath = "/home/test/target.txt";
+    const content = "fixture source bytes";
+    source.server.fs.files.set(sourcePath, Buffer.from(content));
+    target.server.fs.files.set(targetPath, Buffer.from("original destination"));
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const start = "ssh.transfers.start";
+    const list = "ssh.transfers.list";
+    const decide = "ssh.transfers.decide";
+    const cancel = "ssh.transfers.cancel";
+    const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    expect(await invoke(start, {})).toMatchObject(disabled);
+    for (const cap of ["ssh.connect", probeGet, trustDecide, "ssh.fileSessions.open", start, list, decide, cancel]) await f.allow(cap);
+    async function openFiles(hostId: string) {
+      const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+      const binding = { hostId, routeRevision };
+      const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", { ...binding, intentKey: randomUUID() })));
+      const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+      const pending = await vi.waitFor(async () => {
+        const result = await status();
+        if (result.state !== "waiting") throw new Error("Waiting for loopback trust");
+        return result;
+      });
+      expect(await invoke(trustDecide, decision(pending))).toMatchObject({ ok: true });
+      await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+      return z.object({ fileSessionId: z.uuid() }).parse(data(await invoke("ssh.fileSessions.open", { ...binding, attemptId, intentKey: randomUUID() }))).fileSessionId;
+    }
+    const [sourceId, targetId] = await Promise.all([openFiles(source.hostId), openFiles(target.hostId)]);
+    const request = {
+      source: { kind: "remote", fileSessionId: sourceId, path: sourcePath },
+      target: { kind: "remote", fileSessionId: targetId, path: targetPath },
+      intentKey: randomUUID(),
+    };
+    expect(await invoke(start, { ...request, source: { kind: "local", path: "/fixture/engine" } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await peer(start, request)).toMatchObject(missing);
+    const job = data(await invoke(start, request)) as TransferJob;
+    expect(data(await invoke(start, request))).toMatchObject({ transferId: job.transferId });
+    const waitForState = (transferId: string, state: TransferJob["state"]) =>
+      vi.waitFor(async () => {
+        const queue = data(await invoke(list, {})) as TransferQueue;
+        const found = queue.jobs.find((entry) => entry.transferId === transferId);
+        expect(found).toMatchObject({ transferId, state });
+        return found!;
+      }, { timeout: 5000 });
+    const waiting = await waitForState(job.transferId, "waiting");
+    expect(waiting.conflictRevision).toBeTruthy();
+    expect(data(await peer(list, {}))).toMatchObject({ jobs: [], batches: [] });
+    expect(await peer(cancel, { transferId: job.transferId, intentKey: randomUUID() })).toMatchObject(missing);
+    expect(await f.desktop(list)).toMatchObject({ jobs: [{ transferId: job.transferId, source: { session: { source: "external" } } }] });
+    const accept = { transferId: job.transferId, choice: "replace", conflictRevision: waiting.conflictRevision, intentKey: randomUUID() };
+    expect(await peer(decide, accept)).toMatchObject(missing);
+    expect(await invoke(decide, { ...accept, conflictRevision: randomUUID(), intentKey: randomUUID() })).toMatchObject(missing);
+    expect(await invoke(decide, accept)).toMatchObject({ ok: true });
+    await waitForState(job.transferId, "completed");
+    expect(await invoke(decide, accept)).toMatchObject({ ok: true, data: { transferId: job.transferId, state: "completed" } });
+    expect(target.server.fs.files.get(targetPath)?.toString()).toBe(content);
+
+    const second = data(await invoke(start, { ...request, intentKey: randomUUID() })) as TransferJob;
+    await waitForState(second.transferId, "waiting");
+    await f.chooseHosts([target.hostId]);
+    expect(data(await invoke(list, {}))).toMatchObject({ jobs: [], batches: [] });
+    expect(await invoke(cancel, { transferId: second.transferId, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await vi.waitFor(async () => expect(await f.desktop(list)).toMatchObject({ jobs: expect.arrayContaining([expect.objectContaining({ transferId: second.transferId, state: "cancelled" })]) }));
+    expect(target.server.fs.files.get(targetPath)?.toString()).toBe(content);
+    expect(await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8")).not.toContain(content);
+    await f.allow(start, false);
+    expect(await invoke(start, request)).toMatchObject(disabled);
+  } finally {
     await f.close();
   }
 });

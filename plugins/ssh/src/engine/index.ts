@@ -29,6 +29,7 @@ import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probe
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
 import { PublicShells } from "./public-shells.js";
+import { PublicTransfers } from "./public-transfers.js";
 import * as sftp from "./sftp.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
@@ -89,7 +90,11 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations, (id) => api.events.publish("entity.changed", { kind: "ssh-external-connection", id, op: "updated" }));
   const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity) : undefined;
   const publicShells = new PublicShells(publicProbes, hostIntents, credentialHost, (id) => api.events.publish("entity.changed", { kind: "ssh-external-shell", id, op: "updated" }));
-  const publicFiles = new PublicFileSessions(manager, publicProbes, hostIntents, credentialHost, (id) => api.events.publish("entity.changed", { kind: "ssh-external-file-session", id, op: "updated" }));
+  const publicFiles = new PublicFileSessions(manager, publicProbes, hostIntents, credentialHost, (id) => {
+    publicTransfers.releaseFileSession(id);
+    api.events.publish("entity.changed", { kind: "ssh-external-file-session", id, op: "updated" });
+  });
+  const publicTransfers = new PublicTransfers(publicFiles, manager, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -112,6 +117,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publicJobs?.dispose();
     publicProbes.dispose();
     publicShells.dispose();
+    publicTransfers.dispose();
     publicFiles.dispose();
     monitors.dispose();
     forwarding.dispose();
@@ -501,7 +507,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return manager.start(hostId);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, (context) => (isWorkbenchCaller(context.caller) ? [...manager.connectionStatuses(), ...publicProbes.workbenchConnections()] : publicProbes.currentStatuses(context))));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.connectionStatuses, (context) => (isWorkbenchCaller(context.caller) ? [...manager.connectionStatuses(), ...publicProbes.workbenchConnections()] : publicProbes.currentStatuses(context))),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.disconnect, (context, { hostId, attemptId, routeRevision }) => {
       if (isWorkbenchCaller(context.caller)) {
@@ -570,18 +578,33 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveSupport, ({ signal }, i) => archives.support(i.fileSessionId, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveRun, ({ signal }, i) => archives.run(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStart, (_c, i) => transfers.start(i)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStartBatch, ({ signal }, i) => transfers.startBatch(i, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferList, () => transfers.list()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferDecide, (_c, i) => transfers.decide(i.transferId, i.choice)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferCancel, (_c, i) => transfers.cancel(i.transferId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferPause, (_c, i) => transfers.pause(i.transferId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferResume, (_c, i) => transfers.resume(i.transferId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRetry, (_c, i) => transfers.retry(i.transferId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRecheck, ({ signal }, i) => transfers.recheck(i.transferId, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferOrigin, (_c, i) => transfers.openOrigin(i.transferId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferClear, () => transfers.clear()));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsList, (context) => isWorkbenchCaller(context.caller) ? [...files.list(), ...publicFiles.files.list()] : publicFiles.list(context)));
+  const desktopTransfers = ({ caller }: CapabilityContext) => {
+    if (isWorkbenchCaller(caller) && caller !== "desktop") throw errors.permissionDenied("SSH 传输工作台");
+    return caller === "desktop";
+  };
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStart, (context, input) => (desktopTransfers(context) ? transfers.start(input) : publicTransfers.start(context, input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferStartBatch, (context, input) => (desktopTransfers(context) ? transfers.startBatch(input, context.signal) : publicTransfers.startBatch(context, input))));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.transferList, (context) => {
+      if (!desktopTransfers(context)) return publicTransfers.list(context);
+      const local = transfers.list();
+      const external = publicTransfers.workbenchList();
+      return { ...local, jobs: [...local.jobs, ...external.flatMap((queue) => queue.jobs)], batches: [...local.batches, ...external.flatMap((queue) => queue.batches)] };
+    }),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferDecide, (context, input) => (desktopTransfers(context) ? transfers.decide(input.transferId, input.choice) : publicTransfers.control(context, "decide", input))));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.transferCancel, (context, input) =>
+      desktopTransfers(context) ? (publicTransfers.workbenchCancel(input.transferId) ?? transfers.cancel(input.transferId)) : publicTransfers.control(context, "cancel", input),
+    ),
+  );
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferPause, (context, input) => (desktopTransfers(context) ? transfers.pause(input.transferId) : publicTransfers.control(context, "pause", input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferResume, (context, input) => (desktopTransfers(context) ? transfers.resume(input.transferId) : publicTransfers.control(context, "resume", input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRetry, (context, input) => (desktopTransfers(context) ? transfers.retry(input.transferId) : publicTransfers.control(context, "retry", input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferRecheck, (context, input) => (desktopTransfers(context) ? transfers.recheck(input.transferId, context.signal) : publicTransfers.control(context, "recheck", input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferOrigin, (context, input) => (desktopTransfers(context) ? transfers.openOrigin(input.transferId) : publicTransfers.origin(context, input))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.transferClear, (context, input) => (desktopTransfers(context) ? transfers.clear() : publicTransfers.clear(context, input.intentKey))));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsList, (context) => (isWorkbenchCaller(context.caller) ? [...files.list(), ...publicFiles.files.list()] : publicFiles.list(context))));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.fileSessionsClose, (context, input) => {
       if (!isWorkbenchCaller(context.caller)) {
@@ -595,15 +618,19 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsLocalList, (_c, i) => files.localList(i.fileSessionId, i.parts, i.root)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsSearch, ({ signal }, i) => files.search(i.fileSessionId, i.path, i.query, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (_c, i) => ({ cancelled: files.cancelSearch(i.fileSessionId) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, (context, i) => {
-    if (isWorkbenchCaller(context.caller)) return files.readDocument(i.fileSessionId, i.path, context.signal);
-    return publicFiles.use(context, i.fileSessionId, (owned) => owned.readDocument(i.fileSessionId, i.path, context.signal));
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, (context, i) => {
+      if (isWorkbenchCaller(context.caller)) return files.readDocument(i.fileSessionId, i.path, context.signal);
+      return publicFiles.use(context, i.fileSessionId, (owned) => owned.readDocument(i.fileSessionId, i.path, context.signal));
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, ({ signal }, i) => files.writeDocument(i.fileSessionId, i.path, i.text, i.expectedVersion, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsProperties, (context, i) => {
-    if (isWorkbenchCaller(context.caller)) return files.properties(i.fileSessionId, i.path, context.signal);
-    return publicFiles.use(context, i.fileSessionId, (owned) => owned.properties(i.fileSessionId, i.path, context.signal));
-  }));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsProperties, (context, i) => {
+      if (isWorkbenchCaller(context.caller)) return files.properties(i.fileSessionId, i.path, context.signal);
+      return publicFiles.use(context, i.fileSessionId, (owned) => owned.properties(i.fileSessionId, i.path, context.signal));
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDirectory, (_, i) => files.directoryState(i.fileSessionId)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsPrepareDirectory, ({ signal }, i) => files.prepareDirectory(i.fileSessionId, i.path, i.revision, signal)));
   api.defineCapability(
@@ -619,81 +646,99 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     if (!fileSessionId) throw errors.invalidInput("外部 SFTP 操作需要本主体的文件会话");
     return fileSessionId;
   };
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpList, (context, input) => {
-    if (isWorkbenchCaller(context.caller)) return manager.sftpList(files.source(input), input.path, context.signal);
-    return publicFiles.withSftp(context, ownedFileId(input), (channel) => sftp.list(channel, input.path));
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRead, (context, input) => {
-    if (isWorkbenchCaller(context.caller)) return manager.sftpRead(files.source(input), input.path);
-    return publicFiles.withSftp(context, ownedFileId(input), (channel, signal) => sftp.readText(channel, input.path, signal));
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpWrite, (context, input) => {
-    if (isWorkbenchCaller(context.caller)) return manager.sftpWrite(files.source(input), input.path, input.text, input.overwrite);
-    return publicFiles.write(context, "ssh.sftp.write", { ...input, fileSessionId: ownedFileId(input) }, input.path, Buffer.from(input.text, "utf8"));
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpUpload, (context, input) => {
-    if ("localPath" in input) {
-      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 上传不能访问 Engine 本机路径");
-      return manager.sftpUpload(files.source(input), input.localPath, input.remotePath, input.overwrite, context.signal);
-    }
-    return publicFiles.write(context, "ssh.sftp.upload", input, input.remotePath, Buffer.from(input.dataBase64, "base64"));
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDownload, (context, input) => {
-    if ("localPath" in input) {
-      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 下载不能访问 Engine 本机路径");
-      return manager.sftpDownload(files.source(input), input.remotePath, input.localPath, input.overwrite, context.signal);
-    }
-    return publicFiles.download(context, input);
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpCancel, (context, input) => {
-    if ("transferId" in input) return publicFiles.cancelTransfer(context, input);
-    if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 取消需要原传输 ID");
-    return { cancelled: manager.sftpCancel(files.source(input)) };
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpMkdir, async (context, input) => {
-    if (!isWorkbenchCaller(context.caller)) {
-      const fileSessionId = ownedFileId(input);
-      return publicFiles.mutate(context, "ssh.sftp.mkdir", { ...input, fileSessionId }, { path: input.path }, sshCapabilityDescriptors.sftpMkdir.output, async (assertCurrent) => {
-        await publicFiles.withSftp(context, fileSessionId, (channel) => sftp.mkdir(channel, input.path, assertCurrent));
-        return { ok: true as const };
-      });
-    }
-    await manager.sftpMkdir(files.source(input), input.path);
-    return { ok: true as const };
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpRename, async (context, input) => {
-    if (!isWorkbenchCaller(context.caller)) {
-      const fileSessionId = ownedFileId(input);
-      const { from, to, overwrite, expectedRevision, expectedDestinationRevision } = input;
-      if (!expectedRevision || (overwrite && !expectedDestinationRevision)) throw errors.invalidInput("外部重命名需要原文件修订，覆盖时还需提供目标修订");
-      return publicFiles.mutate(context, "ssh.sftp.rename", { ...input, fileSessionId }, { from, to, overwrite, expectedRevision, expectedDestinationRevision }, sshCapabilityDescriptors.sftpRename.output, async (assertCurrent) => {
-        await publicFiles.withSftp(context, fileSessionId, async (channel) => {
-          await assertEntryRevision(channel, from, expectedRevision);
-          if (expectedDestinationRevision) await assertEntryRevision(channel, to, expectedDestinationRevision);
-          await sftp.rename(channel, from, to, overwrite, assertCurrent);
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpList, (context, input) => {
+      if (isWorkbenchCaller(context.caller)) return manager.sftpList(files.source(input), input.path, context.signal);
+      return publicFiles.withSftp(context, ownedFileId(input), (channel) => sftp.list(channel, input.path));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpRead, (context, input) => {
+      if (isWorkbenchCaller(context.caller)) return manager.sftpRead(files.source(input), input.path);
+      return publicFiles.withSftp(context, ownedFileId(input), (channel, signal) => sftp.readText(channel, input.path, signal));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpWrite, (context, input) => {
+      if (isWorkbenchCaller(context.caller)) return manager.sftpWrite(files.source(input), input.path, input.text, input.overwrite);
+      return publicFiles.write(context, "ssh.sftp.write", { ...input, fileSessionId: ownedFileId(input) }, input.path, Buffer.from(input.text, "utf8"));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpUpload, (context, input) => {
+      if ("localPath" in input) {
+        if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 上传不能访问 Engine 本机路径");
+        return manager.sftpUpload(files.source(input), input.localPath, input.remotePath, input.overwrite, context.signal);
+      }
+      return publicFiles.write(context, "ssh.sftp.upload", input, input.remotePath, Buffer.from(input.dataBase64, "base64"));
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpDownload, (context, input) => {
+      if ("localPath" in input) {
+        if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 下载不能访问 Engine 本机路径");
+        return manager.sftpDownload(files.source(input), input.remotePath, input.localPath, input.overwrite, context.signal);
+      }
+      return publicFiles.download(context, input);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpCancel, (context, input) => {
+      if ("transferId" in input) return publicFiles.cancelTransfer(context, input);
+      if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SFTP 取消需要原传输 ID");
+      return { cancelled: manager.sftpCancel(files.source(input)) };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpMkdir, async (context, input) => {
+      if (!isWorkbenchCaller(context.caller)) {
+        const fileSessionId = ownedFileId(input);
+        return publicFiles.mutate(context, "ssh.sftp.mkdir", { ...input, fileSessionId }, { path: input.path }, sshCapabilityDescriptors.sftpMkdir.output, async (assertCurrent) => {
+          await publicFiles.withSftp(context, fileSessionId, (channel) => sftp.mkdir(channel, input.path, assertCurrent));
+          return { ok: true as const };
         });
-        return { ok: true as const };
-      });
-    }
-    await manager.sftpRename(files.source(input), input.from, input.to, input.overwrite);
-    return { ok: true as const };
-  }));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.sftpDelete, async (context, input) => {
-    if (!isWorkbenchCaller(context.caller)) {
-      const fileSessionId = ownedFileId(input);
-      const { path, expectedRevision } = input;
-      if (!expectedRevision) throw errors.invalidInput("外部删除需要原文件修订");
-      return publicFiles.mutate(context, "ssh.sftp.delete", { ...input, fileSessionId }, { path, expectedRevision }, sshCapabilityDescriptors.sftpDelete.output, async (assertCurrent) => {
-        await publicFiles.withSftp(context, fileSessionId, async (channel) => {
-          await assertEntryRevision(channel, path, expectedRevision);
-          await sftp.remove(channel, path, assertCurrent);
+      }
+      await manager.sftpMkdir(files.source(input), input.path);
+      return { ok: true as const };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpRename, async (context, input) => {
+      if (!isWorkbenchCaller(context.caller)) {
+        const fileSessionId = ownedFileId(input);
+        const { from, to, overwrite, expectedRevision, expectedDestinationRevision } = input;
+        if (!expectedRevision || (overwrite && !expectedDestinationRevision)) throw errors.invalidInput("外部重命名需要原文件修订，覆盖时还需提供目标修订");
+        return publicFiles.mutate(context, "ssh.sftp.rename", { ...input, fileSessionId }, { from, to, overwrite, expectedRevision, expectedDestinationRevision }, sshCapabilityDescriptors.sftpRename.output, async (assertCurrent) => {
+          await publicFiles.withSftp(context, fileSessionId, async (channel) => {
+            await assertEntryRevision(channel, from, expectedRevision);
+            if (expectedDestinationRevision) await assertEntryRevision(channel, to, expectedDestinationRevision);
+            await sftp.rename(channel, from, to, overwrite, assertCurrent);
+          });
+          return { ok: true as const };
         });
-        return { ok: true as const };
-      });
-    }
-    await manager.sftpDelete(files.source(input), input.path);
-    return { ok: true as const };
-  }));
+      }
+      await manager.sftpRename(files.source(input), input.from, input.to, input.overwrite);
+      return { ok: true as const };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.sftpDelete, async (context, input) => {
+      if (!isWorkbenchCaller(context.caller)) {
+        const fileSessionId = ownedFileId(input);
+        const { path, expectedRevision } = input;
+        if (!expectedRevision) throw errors.invalidInput("外部删除需要原文件修订");
+        return publicFiles.mutate(context, "ssh.sftp.delete", { ...input, fileSessionId }, { path, expectedRevision }, sshCapabilityDescriptors.sftpDelete.output, async (assertCurrent) => {
+          await publicFiles.withSftp(context, fileSessionId, async (channel) => {
+            await assertEntryRevision(channel, path, expectedRevision);
+            await sftp.remove(channel, path, assertCurrent);
+          });
+          return { ok: true as const };
+        });
+      }
+      await manager.sftpDelete(files.source(input), input.path);
+      return { ok: true as const };
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.shellsOpen, (context, input) => {
       if (isWorkbenchCaller(context.caller)) return manager.openShell(input.hostId, { cols: input.cols, rows: input.rows });
@@ -701,7 +746,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return publicShells.open(context, input);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.shellsList, (context, { hostId }) => isWorkbenchCaller(context.caller) ? [...manager.listShells(hostId), ...publicShells.workbenchList(hostId)] : publicShells.list(context, hostId)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.shellsList, (context, { hostId }) => (isWorkbenchCaller(context.caller) ? [...manager.listShells(hostId), ...publicShells.workbenchList(hostId)] : publicShells.list(context, hostId))),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.shellsClose, (context, input) => {
       if (isWorkbenchCaller(context.caller)) {

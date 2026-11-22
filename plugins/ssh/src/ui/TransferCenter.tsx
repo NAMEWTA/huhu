@@ -93,77 +93,81 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
         );
       })}
       <ul className="ssh-transfer-list">
-        {queue.data?.jobs.map((job) => (
-          <li key={job.transferId} id={`transfer-${job.transferId}`} tabIndex={-1} data-testid="ssh-transfer-row" data-transfer-id={job.transferId} data-batch-id={job.batchId} data-state={job.state}>
-            <strong>
-              {job.directory ? "目录 · " : ""}
-              {leaf(job.source)} → {leaf(job.target)}
-            </strong>
-            <p>
-              {describe(job.source)} <code>{job.source.path}</code> → {describe(job.target)} <code>{job.target.path}</code>
-            </p>
-            <span role="status">{labels[job.state]}</span>
-            {job.message && <p>{job.message}</p>}
-            {job.recovery && (
-              <ul>
-                <li>
-                  暂存位置 <code>{job.recovery.stagingPath}</code>
-                </li>
-                {job.recovery.backupPath && (
+        {queue.data?.jobs.map((job) => {
+          const external = job.source.kind === "remote" && job.source.session.source === "external";
+          return (
+            <li key={job.transferId} id={`transfer-${job.transferId}`} tabIndex={-1} data-testid="ssh-transfer-row" data-transfer-id={job.transferId} data-batch-id={job.batchId} data-state={job.state}>
+              <strong>
+                {job.directory ? "目录 · " : ""}
+                {external ? "外部工具 · " : ""}
+                {leaf(job.source)} → {leaf(job.target)}
+              </strong>
+              <p>
+                {describe(job.source)} <code>{job.source.path}</code> → {describe(job.target)} <code>{job.target.path}</code>
+              </p>
+              <span role="status">{labels[job.state]}</span>
+              {job.message && <p>{job.message}</p>}
+              {job.recovery && (
+                <ul>
                   <li>
-                    备份位置 <code>{job.recovery.backupPath}</code>
+                    暂存位置 <code>{job.recovery.stagingPath}</code>
                   </li>
+                  {job.recovery.backupPath && (
+                    <li>
+                      备份位置 <code>{job.recovery.backupPath}</code>
+                    </li>
+                  )}
+                </ul>
+              )}
+              {job.total !== null && (
+                <div>
+                  <progress aria-label={`${leaf(job.source)} 的传输进度`} max={job.total || 1} value={job.total === 0 && job.state === "completed" ? 1 : job.bytes} />
+                  <p>
+                    {job.bytes} / {job.total} B{job.state === "running" ? ` · ${Math.round(job.bytesPerSecond)} B/s` : ""}
+                  </p>
+                </div>
+              )}
+              <div className="ssh-workspace-controls">
+                {!external && job.state === "waiting" && (
+                  <Button
+                    onClick={() => {
+                      select(job);
+                      setError("");
+                    }}
+                  >
+                    处理冲突
+                  </Button>
                 )}
-              </ul>
-            )}
-            {job.total !== null && (
-              <div>
-                <progress aria-label={`${leaf(job.source)} 的传输进度`} max={job.total || 1} value={job.total === 0 && job.state === "completed" ? 1 : job.bytes} />
-                <p>
-                  {job.bytes} / {job.total} B{job.state === "running" ? ` · ${Math.round(job.bytesPerSecond)} B/s` : ""}
-                </p>
+                {!external && (job.state === "queued" || job.state === "running") && (
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.pause", { transferId: job.transferId })}>
+                    暂停
+                  </Button>
+                )}
+                {!external && job.state === "paused" && (
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.resume", { transferId: job.transferId })}>
+                    继续
+                  </Button>
+                )}
+                {!external && job.state === "failed" && job.errorCode !== "VERSION_CONFLICT" && job.errorCode !== "SSH_DISCONNECTED" && (
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.retry", { transferId: job.transferId })}>
+                    重试原任务
+                  </Button>
+                )}
+                {!external && job.state === "uncertain" && (
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.recheck", { transferId: job.transferId })}>
+                    重查提交结果
+                  </Button>
+                )}
+                {["queued", "checking", "waiting", "running", "paused"].includes(job.state) && (
+                  <Button disabled={saving} onClick={() => void action("ssh.transfers.cancel", { transferId: job.transferId })}>
+                    取消传输
+                  </Button>
+                )}
+                {!external && <Button onClick={() => void returnOrigin(job.transferId)}>返回原文件会话</Button>}
               </div>
-            )}
-            <div className="ssh-workspace-controls">
-              {job.state === "waiting" && (
-                <Button
-                  onClick={() => {
-                    select(job);
-                    setError("");
-                  }}
-                >
-                  处理冲突
-                </Button>
-              )}
-              {(job.state === "queued" || job.state === "running") && (
-                <Button disabled={saving} onClick={() => void action("ssh.transfers.pause", { transferId: job.transferId })}>
-                  暂停
-                </Button>
-              )}
-              {job.state === "paused" && (
-                <Button disabled={saving} onClick={() => void action("ssh.transfers.resume", { transferId: job.transferId })}>
-                  继续
-                </Button>
-              )}
-              {job.state === "failed" && job.errorCode !== "VERSION_CONFLICT" && job.errorCode !== "SSH_DISCONNECTED" && (
-                <Button disabled={saving} onClick={() => void action("ssh.transfers.retry", { transferId: job.transferId })}>
-                  重试原任务
-                </Button>
-              )}
-              {job.state === "uncertain" && (
-                <Button disabled={saving} onClick={() => void action("ssh.transfers.recheck", { transferId: job.transferId })}>
-                  重查提交结果
-                </Button>
-              )}
-              {["queued", "checking", "waiting", "running", "paused"].includes(job.state) && (
-                <Button disabled={saving} onClick={() => void action("ssh.transfers.cancel", { transferId: job.transferId })}>
-                  取消传输
-                </Button>
-              )}
-              <Button onClick={() => void returnOrigin(job.transferId)}>返回原文件会话</Button>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
       {selection && (
         <Dialog
