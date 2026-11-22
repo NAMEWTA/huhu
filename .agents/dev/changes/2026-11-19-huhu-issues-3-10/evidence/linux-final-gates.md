@@ -19,3 +19,9 @@
 第 3、4 项属于用户暂停的 #7，保留失败，不恢复开发、不更改断言或跳过规则。SSH 保存分支仍为 `45b9fae3e13cab49ad3dd0d62c51a52133bfcc56`，change 保留。未启用 OpenSSH 夹具的可选用例属跳过，不能作为通过。
 
 定向日志：`cli-lifecycle-reproduce.log`、`final-targeted-recheck.log`，位于同一 `temp/issue-evidence/huhu-2026-11-22/`。最终包、main 落地、全量 E2E 与逐 Issue 验收仍待完成。
+
+## 后续构建与组合复核
+
+`dc88d854e7fc07e2c084c829927926573359010d`：HC `t104` 完成 Engine 定向类型检查、全仓串行 build、产物 CSS 冲突检查，均通过；构建后工作树干净。日志目录 `temp/issue-evidence/huhu-2026-11-22/build-dc88d854e7fc07e2c084c829927926573359010d/`。这是源码构建，不是安装包或 GUI 验收。
+
+HC `t105` 同时覆盖 Engine 与 CLI 两个相关文件，68/68 通过（29.25 秒），日志 `engine-cli-combined-recheck.log`。CLI 原失败用例现有单独、完整文件及两文件组合三次复跑通过，未修改业务逻辑或放宽断言；原全量 ECONNRESET 仍保留，原因未定。
