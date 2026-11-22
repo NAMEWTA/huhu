@@ -20,6 +20,11 @@ export interface SessionDraft {
   outcome?: "unknown";
 }
 
+interface DraftRecord {
+  content: SessionDraft;
+  version: string | undefined;
+}
+
 export interface TextFormat {
   bom: boolean;
   eol: "lf" | "crlf" | "cr" | "mixed" | "none";
@@ -136,8 +141,8 @@ export class DocumentSession {
   private revision = 0;
   private baselineGeneration = 0;
   private flushError: string | null = null;
-  private draft: SessionDraft | null = null;
-  private hasDraftForBuffer = false;
+  private draft: DraftRecord | null = null;
+  private draftVersionForBuffer: string | undefined;
   private format: TextFormat = { bom: false, eol: "none", finalNewline: false };
   private loaded = false;
   private disposed = false;
@@ -184,7 +189,7 @@ export class DocumentSession {
       baseVersion: this.version,
       dirtyRevision: this.revision,
       flushError: this.flushError,
-      draft: this.draft,
+      draft: this.draft?.content ?? null,
       format: this.format,
       hasUnsaved: this.activeFileWrite !== null || this.hasUnsavedText(),
     };
@@ -222,7 +227,7 @@ export class DocumentSession {
     this.format = detectTextFormat(file.text);
     this.state = "saved";
     this.loaded = true;
-    this.hasDraftForBuffer = false;
+    this.draftVersionForBuffer = undefined;
     this.revision++;
   }
 
@@ -236,16 +241,16 @@ export class DocumentSession {
     const revision = this.revision;
     const canLoad = () => this.isBaselineCurrent(generation) && seq === this.loadSeq && isCurrent();
     const canAdopt = () => canLoad() && revision === this.revision;
-    let discardBufferDraft = discardEdits && this.hasDraftForBuffer;
+    const discardVersion = discardEdits ? this.draftVersionForBuffer : undefined;
     while (canLoad()) {
       const diskRevision = this.diskRevision;
       let file: NoteFile;
-      let draft: SessionDraft | null;
+      let draft: (SessionDraft & { version?: string }) | null;
       try {
         [file, draft] = await Promise.all([
           this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
-          this.engine.call<SessionDraft | null>("notes.draft.get", { path: this.id.path }).catch((error: unknown) => {
-            if (expectedRevision !== undefined || discardBufferDraft) throw error;
+          this.engine.call<(SessionDraft & { version?: string }) | null>("notes.draft.get", { path: this.id.path, withVersion: true }).catch((error: unknown) => {
+            if (expectedRevision !== undefined || discardEdits) throw error;
             return null;
           }),
         ]);
@@ -262,7 +267,7 @@ export class DocumentSession {
           continue;
         }
         if ((this.lateWriteConflict || discardEdits) && expectedRevision === undefined) {
-          this.fail(error);
+          if (canAdopt()) this.fail(error);
           return false;
         }
         throw error;
@@ -273,11 +278,11 @@ export class DocumentSession {
         continue;
       }
 
-      if (discardBufferDraft && draft) {
+      if (discardVersion !== undefined && draft?.version === discardVersion) {
         try {
           const discarded = await this.serializeWrite(async () => {
             if (!canAdopt() || diskRevision !== this.diskRevision) return false;
-            await this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true });
+            await this.discardDraftVersion(discardVersion);
             // 让删除前已取样的草稿读数失效。
             this.diskRevision++;
             return true;
@@ -285,17 +290,26 @@ export class DocumentSession {
           if (!canAdopt()) return false;
           if (!discarded) continue;
         } catch (error) {
-          if (canAdopt()) this.fail(error);
+          if (!canAdopt()) return false;
+          // 草稿可能在读取与删除之间被替换，重读时仍只允许删除原来的版本。
+          if ((error as { code?: string })?.code === "VERSION_CONFLICT") continue;
+          this.fail(error);
           return false;
         }
-        discardBufferDraft = false;
         if (diskRevision + 1 !== this.diskRevision) continue;
         draft = null;
       }
 
       this.adoptLoadedFile(file);
-      this.draft = draft && (draft.outcome === "unknown" || draft.text !== file.text) ? draft : null;
-      if (draft && !this.draft) void this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true }).catch(() => undefined);
+      this.draft = null;
+      if (draft) {
+        const { version, ...content } = draft;
+        if (discardEdits || content.outcome === "unknown" || content.text !== file.text) {
+          this.draft = { content, version };
+        } else if (version !== undefined) {
+          void this.discardDraftVersion(version).catch(() => undefined);
+        }
+      }
       this.emit();
       return true;
     }
@@ -442,10 +456,11 @@ export class DocumentSession {
       // 撤销可能回到该笔正文。保留编辑 revision，按实际落盘内容判断是否仍有修改。
       this.state = this.text === body ? "saved" : "dirty";
       this.flushError = null;
-      if (this.text === body && this.draft?.outcome !== "unknown" && (this.draft || this.hasDraftForBuffer)) {
+      if (this.text === body && this.draft?.content.outcome !== "unknown") {
+        const draftVersion = this.draftVersionForBuffer ?? this.draft?.version;
         this.draft = null;
-        this.hasDraftForBuffer = false;
-        void this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true }).catch(() => undefined);
+        this.draftVersionForBuffer = undefined;
+        if (draftVersion !== undefined) void this.discardDraftVersion(draftVersion).catch(() => undefined);
       }
       if (this.isBaselineCurrent(baselineGeneration)) this.onSaved?.();
       return true;
@@ -647,9 +662,19 @@ export class DocumentSession {
       if (!this.isBaselineCurrent(generation)) return false;
       if (!this.hasUnsavedText()) return false;
       try {
-        await this.engine.call("notes.draft.save", { path: this.id.path, text: this.text, baseVersion: this.version, ...(this.lateWriteConflict?.unknown ? { outcome: "unknown" } : {}) }, { write: true });
+        const saved = await this.engine.call<{ version?: string }>(
+          "notes.draft.save",
+          {
+            path: this.id.path,
+            text: this.text,
+            baseVersion: this.version,
+            withVersion: true,
+            ...(this.lateWriteConflict?.unknown ? { outcome: "unknown" } : {}),
+          },
+          { write: true },
+        );
         if (!this.isBaselineCurrent(generation)) return false;
-        this.hasDraftForBuffer = true;
+        this.draftVersionForBuffer = saved?.version;
         return true;
       } catch (error) {
         if (!this.isBaselineCurrent(generation)) return false;
@@ -865,8 +890,8 @@ export class DocumentSession {
 
   /** 恢复草稿：沿用草稿的基线版本，磁盘之后被外部改过则保存时走冲突流程，而不是静默覆盖。 */
   restoreDraft(): void {
-    const d = this.draft;
-    if (!d) return;
+    if (!this.draft) return;
+    const { content: d, version } = this.draft;
     this.baselineGeneration++;
     this.text = d.text;
     this.equivalentMarkdown = undefined;
@@ -879,15 +904,20 @@ export class DocumentSession {
     this.revision++;
     this.state = this.lateWriteConflict ? "conflict" : "dirty";
     this.draft = null;
-    this.hasDraftForBuffer = true;
+    this.draftVersionForBuffer = version;
     if (!this.lateWriteConflict) this.armAutosave();
     this.emit();
   }
   discardDraft(): void {
+    const version = this.draft?.version;
     this.draft = null;
-    this.hasDraftForBuffer = false;
-    void this.engine.call("notes.draft.discard", { path: this.id.path }, { write: true }).catch(() => undefined);
+    this.draftVersionForBuffer = undefined;
+    if (version !== undefined) void this.discardDraftVersion(version).catch(() => undefined);
     this.emit();
+  }
+
+  private discardDraftVersion(expectedVersion: string): Promise<unknown> {
+    return this.engine.call("notes.draft.discard", { path: this.id.path, expectedVersion }, { write: true });
   }
 
   /** 最后一次落盘的内容（冲突横幅判断“是否有我的修改”用）。 */

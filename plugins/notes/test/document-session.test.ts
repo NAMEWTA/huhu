@@ -13,6 +13,7 @@ class FakeEngine implements SessionEngine {
   failSave: Error | null = null;
   failDraft: Error | null = null;
   failDraftDiscard: Error | null = null;
+  draftDiscardGate: Promise<void> | null = null;
   failRead: Error | null = null;
   saveGate: Promise<void> | null = null;
   saveReceiptGate: Promise<void> | null = null;
@@ -29,7 +30,7 @@ class FakeEngine implements SessionEngine {
   }
   async call<T>(cap: string, input: unknown): Promise<T> {
     this.calls.push(cap);
-    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown" };
+    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown"; withVersion?: boolean };
     if (cap === "notes.read") {
       if (this.failRead) throw this.failRead;
       const f = this.files.get(i.path)!;
@@ -45,14 +46,20 @@ class FakeEngine implements SessionEngine {
       if (this.saveReceiptGate) await this.saveReceiptGate;
       return { version: String(f.version + 1) } as T;
     }
-    if (cap === "notes.draft.get") return (this.drafts.get(i.path) ?? null) as T;
+    if (cap === "notes.draft.get") {
+      const draft = this.drafts.get(i.path);
+      return (draft && i.withVersion ? { ...draft, version: JSON.stringify(draft) } : (draft ?? null)) as T;
+    }
     if (cap === "notes.draft.save") {
       if (this.failDraft) throw this.failDraft;
-      this.drafts.set(i.path, { text: i.text!, baseVersion: i.baseVersion!, savedAt: "2026-11-15T08:00:00", ...(i.outcome ? { outcome: i.outcome } : {}) });
-      return undefined as T;
+      const draft = { text: i.text!, baseVersion: i.baseVersion!, savedAt: "2026-11-15T08:00:00", ...(i.outcome ? { outcome: i.outcome } : {}) };
+      this.drafts.set(i.path, draft);
+      return (i.withVersion ? { ok: true, version: JSON.stringify(draft) } : undefined) as T;
     }
     if (cap === "notes.draft.discard") {
+      if (this.draftDiscardGate) await this.draftDiscardGate;
       if (this.failDraftDiscard) throw this.failDraftDiscard;
+      if (i.expectedVersion !== undefined && i.expectedVersion !== JSON.stringify(this.drafts.get(i.path))) throw Object.assign(new Error("草稿版本冲突"), { code: "VERSION_CONFLICT" });
       this.drafts.delete(i.path);
       return undefined as T;
     }
@@ -1295,6 +1302,38 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(session.getSnapshot()).toMatchObject({ text: "C", state: "saved", hasUnsaved: false, draft });
     expect(eng.drafts.get(path)).toEqual(draft);
     expect(eng.calls).not.toContain("notes.draft.discard");
+  });
+
+  test.each(["确认前", "确认已读草稿后"] as const)("确认放弃只处理当前缓冲的草稿，保留另一会话%s写下的新稿", async (timing) => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    eng.drafts.set(path, { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" });
+    const old = mk(eng, path, { autosave: () => false });
+    const other = mk(eng, path, { autosave: () => false });
+    await old.load();
+    await other.load();
+    old.restoreDraft();
+    other.restoreDraft();
+    other.setText("Y");
+
+    if (timing === "确认前") await other.keepDraft();
+    const releaseDiscard = Promise.withResolvers<void>();
+    eng.draftDiscardGate = releaseDiscard.promise;
+    const reloading = old.discardEditsAndReload();
+    try {
+      if (timing === "确认已读草稿后") {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(eng.calls).toContain("notes.draft.discard");
+        await other.keepDraft();
+      }
+      releaseDiscard.resolve();
+      expect(await reloading).toBe(true);
+      expect(eng.disk(path)).toBe("A");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "Y", outcome: "unknown" });
+      expect(old.getSnapshot()).toMatchObject({ text: "A", state: "saved", hasUnsaved: false, draft: { text: "Y", outcome: "unknown" } });
+    } finally {
+      releaseDiscard.resolve();
+    }
   });
 
   test("dispose：自动保存模式落盘；落盘失败改存草稿；手动模式留草稿", async () => {

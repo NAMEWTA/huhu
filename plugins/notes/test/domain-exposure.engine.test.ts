@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
@@ -9,6 +9,7 @@ import { run } from "../../../apps/cli/src/main.js";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
+import { DocumentSession } from "../src/ui/documents/DocumentSession.js";
 
 const work = new Map<string, RunningEngine>();
 const GUIDE = ".agents/skills/huhu/SKILL.md";
@@ -736,6 +737,66 @@ test("desktop draft capabilities preserve an unknown outcome across Engine resta
   expect(readOrdinary).not.toHaveProperty("outcome");
   expect(f.get(unknownPath)).toBe("X");
   expect(f.get(ordinaryPath)).toBe("普通正文");
+});
+
+test("Workbench conditional draft discard preserves a replacement written after sampling", async () => {
+  const f = await fixture("cli");
+  const rel = "记录身份.txt";
+  f.put(rel, "A");
+  const input = { path: rel, baseVersion: f.version(rel), outcome: "unknown" };
+  const original = await f.callDesktop("notes.draft.save", { ...input, text: "X", withVersion: true });
+  const [filename] = readdirSync(path.join(f.root, ".huhu/drafts"));
+  const expectedVersion = f.version(`.huhu/drafts/${filename}`);
+  expect(expectedVersion).toEqual(expect.any(String));
+  expect(original).toEqual({ ok: true, version: expectedVersion });
+  expect(await f.callDesktop("notes.draft.get", { path: rel, withVersion: true })).toMatchObject({ text: "X", version: expectedVersion });
+  const replacement = await f.callDesktop("notes.draft.save", { ...input, text: "Y", withVersion: true });
+
+  await expect(f.callDesktop("notes.draft.discard", { path: rel, expectedVersion })).rejects.toThrow(/VERSION_CONFLICT/);
+  const { version } = z.object({ version: z.string() }).parse(replacement);
+  expect(await f.callDesktop("notes.draft.get", { path: rel, withVersion: true })).toMatchObject({ text: "Y", outcome: "unknown", version });
+  expect(await f.callDesktop("notes.draft.discard", { path: rel, expectedVersion: version })).toEqual({ ok: true });
+  expect(await f.callDesktop("notes.draft.get", { path: rel })).toBeNull();
+  expect(f.get(rel)).toBe("A");
+});
+
+test("Workbench reports real draft read errors during confirmed reload", async () => {
+  const f = await fixture("cli");
+  const rel = "草稿读取失败.txt";
+  f.put(rel, "A");
+  await f.callDesktop("notes.draft.save", { path: rel, text: "X", baseVersion: f.version(rel), outcome: "unknown" });
+  const session = new DocumentSession({
+    id: { vaultId: "v", path: rel, epoch: 1 },
+    engine: { call: async <T>(capability: string, input: unknown) => (await f.callDesktop(capability, input)) as T },
+    autosave: () => false,
+    pollMs: 0,
+  });
+  expect(await session.load()).toBe(true);
+  session.restoreDraft();
+  const dir = path.join(f.root, ".huhu/drafts");
+  const [filename] = readdirSync(dir);
+  const entry = path.join(dir, filename!);
+  const backup = `${entry}.held`;
+  renameSync(entry, backup);
+  mkdirSync(entry);
+  try {
+    expect(await session.discardEditsAndReload()).toBe(false);
+    expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true, flushError: expect.stringContaining("notes.draft.get: INTERNAL") });
+    expect(f.get(rel)).toBe("A");
+  } finally {
+    rmSync(entry, { recursive: true });
+    renameSync(backup, entry);
+  }
+  expect(await session.discardEditsAndReload()).toBe(true);
+  expect(await f.callDesktop("notes.draft.get", { path: rel })).toBeNull();
+  expect(session.getSnapshot()).toMatchObject({ text: "A", state: "saved", hasUnsaved: false });
+
+  session.setText("Z");
+  await session.keepDraft();
+  expect(await f.callDesktop("notes.draft.get", { path: rel })).toMatchObject({ text: "Z" });
+  await f.callDesktop("notes.draft.discard", { path: rel });
+  expect(await session.discardEditsAndReload()).toBe(true);
+  expect(session.getSnapshot()).toMatchObject({ text: "A", state: "saved", hasUnsaved: false, draft: null });
 });
 
 function mismatch(id: string): object {

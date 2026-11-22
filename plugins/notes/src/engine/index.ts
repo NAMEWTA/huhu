@@ -4,7 +4,7 @@ import type { Context } from "@huhu/cordis";
 import type { CapabilityContext, HuhuApi } from "@huhu/kernel";
 import { bindCapability, defineCapabilityDescriptor as descriptor, durableExternal } from "@huhu/kernel";
 import { normalizeRelPath, OperationLog, protectedKindOf, resolveReadableAsset, versionOf } from "@huhu/vault";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -23,6 +23,7 @@ const publicTool = { plugin: "notes", risk: "normal", exposable: true, defaultEx
 const Path = z.object({ path: z.string().min(1) });
 const DraftOutcome = z.literal("unknown").optional();
 const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string(), outcome: DraftOutcome });
+const StoredDraft = Draft.extend({ recordId: z.string().optional() });
 const VersionedPath = Path.extend({ expectedVersion: z.string().optional() });
 const DraftView = Draft.extend({ version: z.string().optional() });
 const HiddenPreferences = z.object({ hiddenPaths: z.array(z.string()), version: z.string().optional() });
@@ -370,7 +371,7 @@ const noteTools = {
     ...publicTool,
     scope: "read",
     risk: "high",
-    input: Path,
+    input: Path.extend({ withVersion: z.boolean().optional() }),
     output: DraftView.nullable(),
   }),
   draftSave: descriptor({
@@ -380,8 +381,14 @@ const noteTools = {
     ...publicTool,
     scope: "write",
     ...durableExternal,
-    input: Path.extend({ text: z.string().max(8 * 1024 * 1024), baseVersion: z.string(), expectedDraftVersion: z.string().nullable().optional(), outcome: DraftOutcome }),
-    output: z.object({ ok: z.literal(true) }),
+    input: Path.extend({
+      text: z.string().max(8 * 1024 * 1024),
+      baseVersion: z.string(),
+      expectedDraftVersion: z.string().nullable().optional(),
+      outcome: DraftOutcome,
+      withVersion: z.boolean().optional(),
+    }),
+    output: z.object({ ok: z.literal(true), version: z.string().optional() }),
   }),
   draftDiscard: descriptor({
     name: "notes.draft.discard",
@@ -458,15 +465,16 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       .digest("hex")}.json`;
   };
   const readDraft = (rel: string, name = draftName(rel), relocated = false) => {
-    const f = draftFile(name);
-    if (!existsSync(f)) return null;
+    let bytes: Buffer;
     try {
-      const bytes = readFileSync(f);
-      const draft = Draft.parse(JSON.parse(bytes.toString("utf8")));
-      return draft.path === rel || relocated ? { draft: { ...draft, path: rel }, version: versionOf(bytes) } : null;
-    } catch {
-      return null;
+      bytes = readFileSync(draftFile(name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
     }
+    const draft = StoredDraft.parse(JSON.parse(bytes.toString("utf8")));
+    if (draft.path !== rel && !relocated) throw new Error("草稿路径与记录不一致");
+    return { draft: { ...draft, path: rel }, version: versionOf(bytes) };
   };
   const svc = new NotesService({
     files: api.vault.files,
@@ -477,7 +485,12 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     now: opts.now ?? (() => new Date()),
     zone: opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone),
     draftMoveSteps: (from, to) => {
-      const draft = readDraft(from)?.draft;
+      let draft: z.infer<typeof StoredDraft> | undefined;
+      try {
+        draft = readDraft(from)?.draft;
+      } catch {
+        return [];
+      }
       if (!draft) return [];
       if (existsSync(draftFile(draftName(to)))) throw errors.nameConflict(`目标路径已有草稿：${to}`);
       return [
@@ -708,7 +721,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         assertUnlinkedPath(files, `.huhu/drafts/${name}`);
       }
       const saved = readDraft(rel, name, !workbench(c));
-      return saved && (workbench(c) ? saved.draft : { ...saved.draft, version: saved.version });
+      if (!saved) return null;
+      const { recordId: _recordId, ...draft } = saved.draft;
+      return workbench(c) && !i.withVersion ? draft : { ...draft, version: saved.version };
     }),
   );
   api.defineCapability(
@@ -716,7 +731,17 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       files.assertWritable();
       const rel = writePath(c, i.path);
       const name = draftFor(c, rel);
-      const data = Buffer.from(JSON.stringify({ path: rel, text: i.text, baseVersion: i.baseVersion, savedAt: now().toISOString(), outcome: i.outcome }));
+      const data = Buffer.from(
+        JSON.stringify({
+          path: rel,
+          text: i.text,
+          baseVersion: i.baseVersion,
+          savedAt: now().toISOString(),
+          outcome: i.outcome,
+          // 同一毫秒内内容也相同的两次保存仍是不同的恢复记录。
+          ...(workbench(c) ? { recordId: randomUUID() } : {}),
+        }),
+      );
       if (workbench(c)) {
         const f = draftFile(name);
         mkdirSync(path.dirname(f), { recursive: true });
@@ -729,7 +754,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         checkVersion(c, i.expectedDraftVersion, version);
         await files.write(destination, data, { expectedVersion: version });
       }
-      return { ok: true as const };
+      return { ok: true as const, ...(i.withVersion ? { version: versionOf(data) } : {}) };
     }),
   );
   api.defineCapability(
@@ -740,7 +765,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         files.assertWritable();
         noteVersion(rel);
         assertUnlinkedPath(files, `.huhu/drafts/${name}`);
-        checkVersion(c, i.expectedVersion, readDraft(rel, name, true)?.version ?? null);
+      }
+      if (!workbench(c) || i.expectedVersion !== undefined) {
+        checkVersion(c, i.expectedVersion, readDraft(rel, name, !workbench(c))?.version ?? null);
       }
       rmSync(draftFile(name), { force: true });
       return { ok: true as const };
