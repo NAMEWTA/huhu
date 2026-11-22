@@ -101,6 +101,5 @@ export function installWindowChrome(rendererAddress: string) {
       return attached.get(win) ?? colorsForSystem();
     },
     trustedDocument,
-    senderWindow,
   };
 }

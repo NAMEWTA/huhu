@@ -7,14 +7,6 @@ import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
 
-export interface TerminalConnection {
-  signal: AbortSignal;
-  send(message: object): boolean;
-  subscribe(onMessage: (message: unknown) => void): () => void;
-  dimensions(): { cols: number; rows: number };
-  focus(): void;
-}
-
 export interface TerminalViewProps {
   /** 工作台所在的 Engine 基址；桌面附带回环令牌，浏览器自动携带同源 cookie。 */
   baseUrl: string;
@@ -27,8 +19,6 @@ export interface TerminalViewProps {
   onExit?(reason: string): void;
   /** 桥接器授予输入控制后发布，离开此连接时撤回。 */
   onTerminalInput?(input: TerminalInput | undefined): void;
-  /** SSH 窗口交接使用同一个已附着的连接发送控制消息。 */
-  onTerminalConnection?(connection: TerminalConnection | undefined): void;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -43,11 +33,11 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit, onTerminalInput, onTerminalConnection }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit, onTerminalInput }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
-  const [observation, setObservation] = useState(observe);
+  const [demoted, setDemoted] = useState(false); // 另一个视图正在输入：本视图被服务端降级为观察者
   const exit = useRef(onExit);
   exit.current = onExit;
 
@@ -75,24 +65,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     ws.binaryType = "arraybuffer";
     let ended = false;
     let disposed = false; // 本次连接已被清理（切换会话 / 卸载 / 重连）：旧 socket 的回调不再改状态
-    let observing = observe || !!onTerminalConnection;
+    let observing = observe;
     let inputGranted = false;
     const enc = new TextEncoder();
-    const lifetime = new AbortController();
-    const subscribers = new Set<(message: unknown) => void>();
-    const connected = () => !disposed && !ended && ws.readyState === WebSocket.OPEN;
     const canSend = () => !disposed && !ended && !observing && ws.readyState === WebSocket.OPEN;
-    const send = (message: object) => {
-      if (!connected()) return false;
-      ws.send(JSON.stringify(message));
-      return true;
-    };
-    const closeControl = () => {
-      if (lifetime.signal.aborted) return;
-      lifetime.abort();
-      subscribers.clear();
-      onTerminalConnection?.(undefined);
-    };
     const revokeInput = () => {
       if (!inputGranted) return;
       inputGranted = false;
@@ -106,31 +82,18 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       if (enter) ws.send(enc.encode("\r"));
       return "sent";
     };
-    setObservation(observe);
+    setDemoted(false);
     ws.onopen = () => {
-      if (disposed) return;
-      setState("open");
-      onTerminalConnection?.({
-        signal: lifetime.signal,
-        send,
-        subscribe(listener) {
-          subscribers.add(listener);
-          return () => subscribers.delete(listener);
-        },
-        dimensions: () => ({ cols: term.cols, rows: term.rows }),
-        focus: () => {
-          if (connected()) term.focus();
-        },
-      });
+      if (!disposed) setState("open");
     };
     ws.onmessage = (m) => {
       if (disposed) return;
       if (typeof m.data === "string") {
         try {
           const msg = JSON.parse(m.data) as { type?: string; mode?: string; reason?: { reason?: string; exit_code?: number | null } | null };
-          if (msg.type === "mode" && msg.mode === "control" && (!observe || onTerminalConnection)) {
+          if (msg.type === "mode" && msg.mode === "control" && !observe) {
             observing = false;
-            setObservation(false);
+            setDemoted(false);
             if (onTerminalInput && !inputGranted && canSend()) {
               inputGranted = true;
               onTerminalInput(sendInput);
@@ -138,19 +101,17 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
           } else if (msg.type === "mode" && msg.mode === "observe") {
             observing = true;
             revokeInput();
-            setObservation(true);
-          } else if (msg.type === "mode" && msg.mode === "control-free" && !observe) {
+            setDemoted(true);
+          } else if (msg.type === "mode" && msg.mode === "control-free") {
             observing = true;
             revokeInput();
             setAttempt((a) => a + 1); // 另一个视图离开了：重新连接，成为控制者
           } else if (msg.type === "closed") {
             ended = true;
             revokeInput();
-            closeControl();
             setState("ended");
             exit.current?.(msg.reason?.reason ?? "exited");
           }
-          for (const subscriber of subscribers) subscriber(msg);
         } catch {
           /* 非 JSON 文本忽略 */
         }
@@ -158,7 +119,6 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     };
     ws.onclose = () => {
       revokeInput();
-      closeControl();
       if (!ended && !disposed) {
         setState("lost");
         exit.current?.("lost");
@@ -168,7 +128,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       if (canSend()) ws.send(enc.encode(d));
     });
     const resizeSub = term.onResize(({ cols, rows }) => {
-      if (canSend() || onTerminalConnection) send({ type: "resize", cols, rows });
+      if (canSend()) ws.send(JSON.stringify({ type: "resize", cols, rows }));
     });
     const ro = new ResizeObserver(() => {
       try {
@@ -181,7 +141,6 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     return () => {
       disposed = true;
       revokeInput();
-      closeControl();
       window.removeEventListener(APPEARANCE_CHANGED, restyle);
       ro.disconnect();
       inputSub.dispose();
@@ -189,12 +148,12 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, onTerminalConnection]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput]);
 
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>
       <div ref={host} className="hu-terminal" role="application" aria-label={ariaLabel} />
-      {observation ? (
+      {observe || demoted ? (
         <div className="hu-terminal-overlay" data-testid="terminal-observer" style={{ inset: "auto 8px 8px auto", padding: "2px 8px", pointerEvents: "none" }}>
           观察模式 · 不能输入
         </div>

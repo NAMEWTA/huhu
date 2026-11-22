@@ -916,14 +916,11 @@ describe("Engine 启动与关闭", () => {
     },
     60_000,
   );
-  test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：桌面交接控制、Web 保持观察、关闭视图可重挂", async () => {
+  test("SSH shell 经同一条 /ws/terminal/ssh-<id> 路由：输入回显；关闭视图后 shell 仍在，可重新打开；ssh- 路由对未知 shell 返回 4404", async () => {
     const { startFakeSsh } = await import("../../../plugins/ssh/test/fake-server.js");
-    const input: string[] = [];
-    const srv = await startFakeSsh({ password: "pw-shell-1", onShellInput: (text) => input.push(text) });
+    const srv = await startFakeSsh({ password: "pw-shell-1" });
     const desktopUserData = tmp();
-    const webAssetsDir = tmp();
-    writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>Shell fixture</title>");
-    const e = await boot({ vaultPath: tmp(), desktopUserData, webAssetsDir, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
+    const e = await boot({ vaultPath: tmp(), desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create: true });
     engines.push(e);
     type R = { ok: boolean; data: unknown; error?: { code: string } };
     const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
@@ -951,63 +948,26 @@ describe("Engine 启动与关闭", () => {
       expect((await connecting).ok).toBe(true);
       const shell = (await call("ssh.shells.open", { hostId, cols: 100, rows: 30 })).data as { id: string };
       // 回放在连接建立时立即发出，所以收集器必须在 open 之前就挂好
-      type Stream = InstanceType<typeof WebSocket> & { text: string; control: { type: string; ticket?: string }[] };
-      const open = (id: string, options?: { origin: string; cookie: string } | { observe: true }) =>
-        new Promise<Stream>((resolve, reject) => {
-          const web = options && "origin" in options ? options : undefined;
-          const base = web?.origin.replace(/^http/, "ws") ?? `ws://127.0.0.1:${e.port}`;
-          const address = `${base}/ws/terminal/${id}?cols=100&rows=30${options ? "&mode=observe" : ""}${web ? "&desktopHandoff=true" : ""}`;
-          const ws = new WebSocket(address, web ? [] : [`bearer.${e.rendererToken}`], web ? { headers: web } : undefined) as Stream;
+      const open = (id: string) =>
+        new Promise<InstanceType<typeof WebSocket> & { text: string }>((resolve, reject) => {
+          const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/${id}?cols=100&rows=30`, [`bearer.${e.rendererToken}`]) as InstanceType<typeof WebSocket> & { text: string };
           ws.text = "";
-          ws.control = [];
           ws.on("message", (d, bin) => {
             if (bin) ws.text += d.toString();
-            else ws.control.push(JSON.parse(d.toString()) as Stream["control"][number]);
           });
           ws.on("open", () => resolve(ws));
           ws.on("error", reject);
         });
       const ws = await open(shell.id);
       ws.send(Buffer.from("ping\n"));
-      await vi.waitFor(() => expect(ws.text).toContain("ECHO:ping"));
-      const summary = await call("web.share.start", { mode: "local" });
-      expect(summary.ok).toBe(true);
-      const origin = (summary.data as { addresses: { url: string }[] }).addresses[0]!.url;
-      const invite = (await call("web.invitations.create", {})).data as { links: string[] };
-      const inviteToken = new URLSearchParams(new URL(invite.links[0]!).hash.slice(1)).get("invite");
-      const joined = await fetch(`${origin}/api/v1/session`, { method: "POST", headers: { origin, authorization: `Bearer ${inviteToken}` } });
-      expect(joined.status).toBe(204);
-      const cookie = joined.headers.get("set-cookie")!.split(";")[0]!;
-
-      const web = await open(shell.id, { origin, cookie });
-      ws.send(JSON.stringify({ type: "handoff.prepare", operationId: "desktop-operation" }));
-      await vi.waitFor(() => expect(ws.control).toContainEqual(expect.objectContaining({ type: "handoff.prepared", targetMode: "control" })));
-      const ticket = ws.control.find((event) => event.type === "handoff.prepared")!.ticket!;
-      web.send(JSON.stringify({ type: "handoff.claim", ticket }));
-      await vi.waitFor(() => expect(web.control).toContainEqual(expect.objectContaining({ type: "handoff.failed", reason: "not-allowed" })));
-      const target = await open(shell.id, { observe: true });
-      target.send(JSON.stringify({ type: "handoff.claim", ticket, cols: 110, rows: 34 }));
-      await vi.waitFor(() => expect(target.control).toContainEqual(expect.objectContaining({ type: "handoff.claimed", ticket })));
-      expect(target.text).toContain("ECHO:ping");
-      ws.send(JSON.stringify({ type: "handoff.commit", ticket }));
-      await vi.waitFor(() => expect(target.control).toContainEqual(expect.objectContaining({ type: "handoff.committed", targetMode: "control" })));
-      ws.send(Buffer.from("not-from-source"));
-      target.send(Buffer.from("from-target"));
-      await vi.waitFor(() => expect(target.text).toContain("ECHO:from-target"));
-      expect(input.join("")).toBe("ping\nfrom-target");
-      expect(srv.conns).toHaveLength(1);
-      await Promise.all(
-        [web, ws, target].map(
-          (stream) =>
-            new Promise<void>((resolve) => {
-              stream.once("close", () => resolve());
-              stream.close();
-            }),
-        ),
-      );
+      for (let i = 0; i < 100 && !ws.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
+      expect(ws.text).toContain("ECHO:ping");
+      ws.close();
+      await new Promise((r) => setTimeout(r, 200));
       expect(((await call("ssh.shells.list", { hostId })).data as { state: string }[])[0]?.state).toBe("running");
       const again = await open(shell.id);
-      await vi.waitFor(() => expect(again.text).toContain("ECHO:from-target"));
+      for (let i = 0; i < 100 && !again.text.includes("ECHO:ping"); i++) await new Promise((r) => setTimeout(r, 30));
+      expect(again.text).toContain("ECHO:ping"); // 回放最近输出
       again.close();
       const code = await open("ssh-unknown").then((w) => new Promise<number>((r) => w.on("close", (c) => r(c))));
       expect(code).toBe(4404);

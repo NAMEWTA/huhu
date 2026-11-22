@@ -1,6 +1,6 @@
-import { Button, type TerminalConnection, type TerminalInput } from "@huhu/ui";
-import { host, queryKey, useEngine, useQueryClient, type SshWorkspacePaneAddress } from "@huhu/workbench";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Button, type TerminalInput } from "@huhu/ui";
+import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
+import { useState } from "react";
 import { splitTree, type ChangeWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
 import { WorkspaceCanvas } from "./WorkspaceCanvas.js";
@@ -14,7 +14,6 @@ import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type Devic
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
-import { moveWorkspacePane, sameWorkspacePane } from "./workspace-window.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -53,99 +52,12 @@ export function WorkspaceRunView({
   const [locked, setLocked] = useState<Record<string, boolean>>({});
   const [inputs, setInputs] = useState<Record<string, TerminalInput>>({});
   const [inputCallbacks] = useState(() => new Map<string, (input: TerminalInput | undefined) => void>());
-  const windows = run.source === "external" ? undefined : host()?.workspaceWindow;
-  const [windowPanes, setWindowPanes] = useState<SshWorkspacePaneAddress[] | null>(windows ? null : []);
-  const [windowStatus, setWindowStatus] = useState("");
-  const [moving, setMoving] = useState<{ paneId: string; committing: boolean }>();
-  const activeMove = useRef<AbortController | undefined>(undefined);
-  const lastMoveTrigger = useRef<{ element: HTMLButtonElement; paneId: string } | undefined>(undefined);
-  const section = useRef<HTMLElement>(null);
-  const terminalConnections = useRef(new Map<string, TerminalConnection>());
-  const [connectionCallbacks] = useState(() => new Map<string, (connection: TerminalConnection | undefined) => void>());
   const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
   const [dock, setDock] = useState<"left" | "right">("right");
   const activePane = run.panes.find(({ paneId }) => paneId === active) ?? run.panes[0];
   const activeIndex = run.panes.indexOf(activePane!);
   const query = queryKey(engine.vaultId, "ssh.workspace.runs.list", {});
-
-  useEffect(() => {
-    if (!windows) return;
-    let revision = 0;
-    let active = true;
-    const refresh = () => {
-      const request = ++revision;
-      void windows.moved().then(
-        (entries) => {
-          if (active && request === revision) setWindowPanes(entries);
-        },
-        () => {
-          if (active && request === revision) setWindowStatus("无法读取分栏的窗口位置。请重新打开工作区。");
-        },
-      );
-    };
-    const stop = windows.onChange(refresh);
-    refresh();
-    return () => {
-      active = false;
-      stop();
-    };
-  }, [windows]);
-
-  useLayoutEffect(() => {
-    const trigger = lastMoveTrigger.current;
-    if (!shown || !trigger || trigger.element.isConnected) return;
-    lastMoveTrigger.current = undefined;
-    if (document.hasFocus() && document.activeElement === document.body) {
-      section.current?.querySelector<HTMLElement>(`[data-workspace-spot="${CSS.escape(trigger.paneId)}"]:not([hidden])`)?.focus();
-    }
-  }, [windowPanes, shown]);
-
-  function address(pane: WorkspaceRunPane): SshWorkspacePaneAddress | undefined {
-    if (pane.sessionId) return { vaultId: engine.vaultId, runId: run.id, generation: run.generation, paneId: pane.paneId, sessionId: pane.sessionId };
-  }
-
-  function inAnotherWindow(pane: WorkspaceRunPane) {
-    const target = address(pane);
-    return !!target && windowPanes?.some((entry) => sameWorkspacePane(entry, target)) === true;
-  }
-
-  function connectionCallback(sessionId: string) {
-    let callback = connectionCallbacks.get(sessionId);
-    if (!callback) {
-      callback = (connection) => {
-        if (connection) terminalConnections.current.set(sessionId, connection);
-        else terminalConnections.current.delete(sessionId);
-      };
-      connectionCallbacks.set(sessionId, callback);
-    }
-    return callback;
-  }
-
-  async function movePane(pane: WorkspaceRunPane, element: HTMLButtonElement) {
-    if (!windows || activeMove.current) return;
-    const target = address(pane);
-    const connection = target && terminalConnections.current.get(target.sessionId);
-    if (!target || !connection) {
-      setWindowStatus("请等终端附着后再换窗。");
-      return;
-    }
-    const cancellation = new AbortController();
-    activeMove.current = cancellation;
-    lastMoveTrigger.current = { element, paneId: pane.paneId };
-    setMoving({ paneId: pane.paneId, committing: false });
-    setWindowStatus("");
-    try {
-      await moveWorkspacePane(windows, target, connection, cancellation.signal, () => setMoving({ paneId: pane.paneId, committing: true }));
-    } catch (error) {
-      lastMoveTrigger.current = undefined;
-      setWindowStatus(cancellation.signal.aborted ? "已取消换窗。" : error instanceof Error ? error.message : "无法移动分栏，请重试。");
-      if (element.isConnected && document.hasFocus() && document.activeElement === document.body) element.focus();
-    } finally {
-      activeMove.current = undefined;
-      setMoving(undefined);
-    }
-  }
   function setDeviceLayout(patch: Partial<DevicePreferences>, message = "已保存本机布局。") {
     try {
       saveDevicePreferences(patch);
@@ -182,7 +94,7 @@ export function WorkspaceRunView({
     relayout(run.layout, ids);
   }
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
-  const visiblePanes = shown && windowPanes ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId && !inAnotherWindow(pane)) : [];
+  const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
   const targetInputs = visiblePanes.map((pane) => ({ id: pane.paneId, label: pane.label, sessionId: pane.sessionId!, send: locked[pane.paneId] ? undefined : inputs[pane.sessionId!] }));
   function inputCallback(sessionId: string) {
     let send = inputCallbacks.get(sessionId);
@@ -200,7 +112,7 @@ export function WorkspaceRunView({
     return send;
   }
   return (
-    <section ref={section} data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏" inert={!shown}>
+    <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏" inert={!shown}>
       <p>连接代次 {run.generation}</p>
       <div className="ssh-workspace-controls">
         <label className="row">
@@ -292,7 +204,6 @@ export function WorkspaceRunView({
         </div>
       </details>
       <div role="status">{deviceNotice}</div>
-      <div role="status">{windowStatus}</div>
       {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} />}
       <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
@@ -307,7 +218,6 @@ export function WorkspaceRunView({
             onActive={setActive}
             onSwap={swap}
             render={(pane, visible) => {
-              const moved = inAnotherWindow(pane);
               const prompt = pane.prompt;
               const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
               async function decide(accept: boolean) {
@@ -324,30 +234,13 @@ export function WorkspaceRunView({
                   <header className="ssh-workspace-controls">
                     <strong>{pane.label}</strong>
                     <span role="status">{PHASES[pane.phase]}</span>
-                    {pane.phase === "ready" && !moved && (
+                    {pane.phase === "ready" && (
                       <Button aria-pressed={Boolean(locked[pane.paneId])} onClick={() => setLocked((current) => ({ ...current, [pane.paneId]: !current[pane.paneId] }))}>
                         {locked[pane.paneId] ? "解除输入锁定" : "锁定输入"}
                       </Button>
                     )}
-                    {pane.phase === "ready" && pane.sessionId && !moved && <RecordTerminal shellId={pane.sessionId} />}
-                    {windows && windowPanes && visible && pane.phase === "ready" && pane.sessionId && !moved && (
-                      <>
-                        <Button type="button" aria-label={`将${pane.label}移至新窗口`} aria-disabled={!!moving} onClick={(event) => void movePane(pane, event.currentTarget)}>
-                          移至新窗口
-                        </Button>
-                        {moving?.paneId === pane.paneId && !moving.committing && (
-                          <Button type="button" onClick={() => activeMove.current?.abort()}>
-                            取消换窗
-                          </Button>
-                        )}
-                      </>
-                    )}
+                    {pane.phase === "ready" && pane.sessionId && <RecordTerminal shellId={pane.sessionId} />}
                   </header>
-                  {moved && (
-                    <p role="status" data-testid="ssh-workspace-pane-moved">
-                      已移至另一窗口
-                    </p>
-                  )}
                   {pane.error && <p role="alert">{pane.error.message}</p>}
                   {prompt && (
                     <div className="ssh-workspace-trust">
@@ -371,7 +264,7 @@ export function WorkspaceRunView({
                   {shown && pane.authPrompt && authentication === pane.authPrompt.promptId && (
                     <AuthenticationDialog key={authentication} prompt={pane.authPrompt} onClose={() => setAuthentication(undefined)} onAnswered={() => setAuthentication(undefined)} />
                   )}
-                  {pane.phase === "ready" && !moved && windowPanes && (
+                  {pane.phase === "ready" && (
                     <WorkspacePaneTools
                       paneId={pane.paneId}
                       label={pane.label}
@@ -400,7 +293,6 @@ export function WorkspaceRunView({
                             sessionId={pane.sessionId}
                             observe={Boolean(locked[pane.paneId])}
                             onTerminalInput={inputCallback(pane.sessionId)}
-                            {...(windows ? { onTerminalConnection: connectionCallback(pane.sessionId) } : {})}
                           />
                         </div>
                       )}

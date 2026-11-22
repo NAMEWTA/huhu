@@ -1,5 +1,4 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
-import { WorkspaceRun } from "@huhu/plugin-ssh/shared";
 import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -18,10 +17,8 @@ import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandler
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 import { installWindowChrome, nativeTitleOptions } from "./window-chrome.js";
 import { windowErrorPage } from "./window-error-page.js";
-import { installWorkspaceWindowHost } from "./workspace-window.js";
 
 let supervisor: EngineSupervisor | null = null;
-let workspaceWindows: ReturnType<typeof installWorkspaceWindowHost> | undefined;
 
 /** 启动时的 Vault：只有 HUHU_VAULT（自动化测试 / 命令行启动）会跳过启动页；正常使用由用户在启动页选择。 */
 const startupVault = (): string | null => {
@@ -215,14 +212,13 @@ let flushedForQuit = false;
 let quitting = false;
 let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
-function createWindow(chrome: ReturnType<typeof installWindowChrome>, beforeLoad?: (win: BrowserWindow) => void): BrowserWindow {
+function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
     title: "HUHU",
-    show: beforeLoad === undefined,
     ...nativeTitleOptions(),
     icon: iconPath,
     webPreferences: {
@@ -281,7 +277,6 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>, beforeLoad
   win.webContents.on("render-process-gone", (_event, { reason }) => {
     if (reason !== "clean-exit" && workbenchDocument) setImmediate(() => showRecovery(`工作台进程已退出（${reason}）`));
   });
-  beforeLoad?.(win);
   void win.loadURL(rendererAddress()).catch(() => undefined);
   return win;
 }
@@ -301,21 +296,6 @@ if (!gotLock) {
   void app.whenReady().then(() => {
     const chrome = installWindowChrome(rendererAddress());
     attachAppMenu = installAppMenu(isTrustedUrl, readBuildInfo);
-    workspaceWindows = installWorkspaceWindowHost({
-      senderWindow: chrome.senderWindow,
-      createHidden: (beforeLoad) => createWindow(chrome, beforeLoad),
-      current: (vaultId) => (quitting ? null : (supervisor?.currentEndpoint(vaultId) ?? null)),
-      async validTarget(target) {
-        const rows = await supervisor?.callDesktop("ssh.workspace.runs.list");
-        if (!Array.isArray(rows)) return false;
-        return rows.some((row: unknown) => {
-          const parsed = WorkspaceRun.safeParse(row);
-          if (!parsed.success) return false;
-          const run = parsed.data;
-          return run.source !== "external" && run.id === target.runId && run.generation === target.generation && run.panes.some((pane) => pane.paneId === target.paneId && pane.sessionId === target.sessionId && pane.phase === "ready");
-        });
-      },
-    });
     // macOS 开发模式没有 .app 包，Dock 图标需要手动设置；打包后由 icns 提供
     if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(iconPath);
     const root = path.join(import.meta.dirname, "../renderer");
@@ -332,7 +312,6 @@ if (!gotLock) {
       return net.fetch(pathToFileURL(file).toString());
     });
     const broadcast = (state: string) => {
-      if (state === "stopped" || state === "crashed") workspaceWindows?.reset();
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
@@ -348,7 +327,6 @@ if (!gotLock) {
       return run;
     };
     const openVaultNow = async (target: string, flags: { create: boolean; readOnly: boolean }): Promise<OpenResult> => {
-      workspaceWindows?.reset();
       preview?.revokeAll(); // 旧 Vault 的预览授权立即失效
       if (supervisor) await supervisor.stop();
       supervisor = null;
@@ -634,7 +612,6 @@ if (!gotLock) {
     }
     e.preventDefault();
     quitting = true;
-    workspaceWindows?.cancelPending();
     const exits = BrowserWindow.getAllWindows().map(canCloseWindow);
     const cancel = () => {
       for (const exit of exits) exit.signal.removeEventListener("abort", cancel);

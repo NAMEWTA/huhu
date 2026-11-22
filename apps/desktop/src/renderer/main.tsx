@@ -8,7 +8,7 @@ import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
-import { createSshContributions } from "@huhu/plugin-ssh/ui";
+import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
 import {
@@ -40,7 +40,6 @@ import {
   createUiStore,
   WindowTitleBar,
   type EngineEndpoint,
-  type SshWorkspacePaneAddress,
 } from "@huhu/workbench";
 import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -82,7 +81,7 @@ function PluginFilter({ registry }: { registry: ContributionRegistry }) {
   return null;
 }
 
-function DesktopApp({ pane }: { pane?: SshWorkspacePaneAddress | undefined }) {
+function DesktopApp() {
   const [endpoint, setEndpointRaw] = useState<EngineEndpoint | null>(null);
   // 同一端点重复到达时保持引用不变，避免重建连接
   const setEndpoint = (e: EngineEndpoint | null) => setEndpointRaw((cur) => (cur && e && cur.baseUrl === e.baseUrl && cur.token === e.token && cur.vaultId === e.vaultId ? cur : e));
@@ -112,7 +111,7 @@ function DesktopApp({ pane }: { pane?: SshWorkspacePaneAddress | undefined }) {
     return off;
   }, []);
 
-  return <App endpoint={endpoint} state={state} version={version} pane={pane} onRestartEngine={() => void window.huhuHost.restartEngine()} />;
+  return <App endpoint={endpoint} state={state} version={version} onRestartEngine={() => void window.huhuHost.restartEngine()} />;
 }
 
 interface AppProps {
@@ -122,15 +121,14 @@ interface AppProps {
   onRestartEngine?(): void;
   onConnection?(state: "connected" | "reconnecting"): void;
   browser?: boolean;
-  pane?: SshWorkspacePaneAddress | undefined;
 }
 
-function App({ endpoint, state, version, onRestartEngine, onConnection, browser = false, pane }: AppProps) {
+function App({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
   const [vaultName, setVaultName] = useState("HUHU");
   const ui = useMemo(() => {
-    const active = pane ? "ssh" : (browser && browserLocation(location.pathname)?.module) || "home";
+    const active = (browser && browserLocation(location.pathname)?.module) || "home";
     return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
-  }, [browser, pane]);
+  }, [browser]);
   const openNotification = useCallback<OpenNotification>(
     ({ id, module }, source) => {
       const open = () => {
@@ -152,7 +150,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
     r.register(safeUi);
     r.register(agentCliUi);
     r.register(automationsUi);
-    r.register(createSshContributions(pane));
+    r.register(sshUi);
     r.register(versioningUi);
     r.register(agentGuideUi);
     r.register({ settingsPages: systemSettingsPages() });
@@ -247,7 +245,7 @@ function App({ endpoint, state, version, onRestartEngine, onConnection, browser 
       ],
     });
     return r;
-  }, [openNotification, ui, pane]);
+  }, [openNotification, ui]);
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {
@@ -403,28 +401,24 @@ function ExitSaveFeedback({ vaultPath }: { vaultPath: string }) {
 
 /** 根：先问 Main 当前有没有打开的 Vault；没有就显示启动页，打开成功后重新载入界面（旧 Vault 的缓存与事件随页面一起丢弃）。 */
 function DesktopRoot() {
-  const [boot, setBoot] = useState<{ vault: VaultHostState; pane?: SshWorkspacePaneAddress | undefined } | "loading" | "failed">("loading");
+  const [vault, setVault] = useState<VaultHostState | "loading" | "failed">("loading");
   useEffect(connectWindowExit, []);
   useEffect(subscribeWindowChromeColors, []);
   useEffect(() => {
-    void Promise.all([window.huhuHost.vault.state(), window.huhuHost.workspaceWindow?.view().catch(() => null)]).then(
-      ([vault, view]) => setBoot({ vault, pane: view?.target }),
-      () => setBoot("failed"),
-    );
+    void window.huhuHost.vault.state().then(setVault, () => setVault("failed"));
   }, []);
-  if (typeof boot === "string") {
+  if (typeof vault === "string") {
     return (
       <div className="shell-vault-launch">
         <WindowTitleBar />
-        <EmptyState title={boot === "loading" ? "正在读取 Vault…" : "无法读取 Vault 状态"} action={boot === "failed" ? <Button onClick={() => location.reload()}>重新加载工作台</Button> : undefined} />
+        <EmptyState title={vault === "loading" ? "正在读取 Vault…" : "无法读取 Vault 状态"} action={vault === "failed" ? <Button onClick={() => location.reload()}>重新加载工作台</Button> : undefined} />
       </div>
     );
   }
-  const { vault, pane } = boot;
   if (vault.path === null) return <LaunchPage state={vault} onOpened={() => window.location.reload()} />;
   return (
     <>
-      <DesktopApp pane={pane} />
+      <DesktopApp />
       <ExitSaveFeedback vaultPath={vault.path} />
     </>
   );
