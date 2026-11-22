@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { HuhuError } from "@huhu/contracts";
 import type { WebSocket } from "ws";
 import { expect, test, vi } from "vitest";
 import { makeSshTerminalBridge } from "../src/engine/terminal-bridge.js";
@@ -93,6 +94,7 @@ test("Herdr 本地 PTY 保留 argv 并在停止时只回收自身终端", async 
   const calls: { method: string; params: object }[] = [];
   const core = {
     endpoint: "fixture",
+    peek: async () => null,
     ensure: async () => ({
       async call<T>(method: string, params: object): Promise<T> {
         calls.push({ method, params });
@@ -128,4 +130,65 @@ test("Herdr 本地 PTY 保留 argv 并在停止时只回收自身终端", async 
   expect(write).toHaveBeenCalledWith(Buffer.from("text"));
   expect(resize).toHaveBeenCalledWith(91, 28);
   expect(end).toHaveBeenCalledTimes(1);
+});
+
+test("本地 PTY 创建回包丢失时从可达 Core 按原启动标签回收", async () => {
+  const { createHerdrLocalPty } = await import("../src/engine/local-pty-herdr.js");
+  const transportLost = new HuhuError("HERDR_UNAVAILABLE", "fixture lost launch reply");
+  const calls: { method: string; params: object }[] = [];
+  let launchLabels: Record<string, string> | undefined;
+  const core = {
+    endpoint: "fixture",
+    ensure: async () => ({
+      async call<T>(method: string, params: object): Promise<T> {
+        if (method === "terminal.run") launchLabels = (params as { labels: Record<string, string> }).labels;
+        throw transportLost;
+      },
+    }),
+    peek: async () => ({
+      async call<T>(method: string, params: object): Promise<T> {
+        calls.push({ method, params });
+        if (method !== "terminal.list") return {} as T;
+        return {
+          terminals: [
+            { address: "t-own", state: "live", labels: launchLabels },
+            { address: "t-other", state: "live", labels: { "huhu.ssh-local": "other" } },
+            { address: "elsewhere/t-peer", state: "live", labels: launchLabels },
+          ],
+        } as T;
+      },
+    }),
+  };
+  const attach = vi.fn();
+  const launch = createHerdrLocalPty(core, attach);
+  const signal = new AbortController().signal;
+  await expect(launch({ argv: ["/bin/sh"], cwd: "/fixture", signal }, { data: vi.fn(), end: vi.fn() })).rejects.toBe(transportLost);
+  expect(attach).not.toHaveBeenCalled();
+  expect(calls).toEqual([
+    { method: "terminal.list", params: { all: true, labels: launchLabels } },
+    { method: "terminal.kill", params: { terminal: "t-own" } },
+    { method: "terminal.rm", params: { terminal: "t-own" } },
+  ]);
+});
+
+test("本地 PTY 创建回包丢失且无法对账时报告结果待核对", async () => {
+  const { createHerdrLocalPty } = await import("../src/engine/local-pty-herdr.js");
+  const core = {
+    endpoint: "fixture",
+    ensure: async () => ({
+      async call<T>(): Promise<T> {
+        throw new HuhuError("HERDR_UNAVAILABLE", "fixture lost launch reply");
+      },
+    }),
+    peek: async () => null,
+  };
+  const attach = vi.fn();
+  const launch = createHerdrLocalPty(core, attach);
+  const signal = new AbortController().signal;
+  await expect(launch({ argv: ["/bin/sh"], cwd: "/fixture", signal }, { data: vi.fn(), end: vi.fn() })).rejects.toMatchObject({
+    code: "HERDR_UNAVAILABLE",
+    retryable: false,
+    details: { outcome: "unknown" },
+  });
+  expect(attach).not.toHaveBeenCalled();
 });
