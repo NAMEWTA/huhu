@@ -125,9 +125,12 @@ async function probeRawObserver({ desktop, terminal, web, url, pid, controllerTr
   const sizePattern = /^[1-9]\d* [1-9]\d*$/u;
   // A background job reads the same PTY while the interactive shell stays ready for input.
   // Start before attaching the probe, and keep sampling for a full second after both sends.
+  // GNU stty touches terminal attributes even for a size query; keep this sampler
+  // from being suspended by background-job control without changing the interactive shell.
   writeFileSync(
     script,
     `set -eu
+trap '' TTOU
 cd "$(dirname "$0")"
 size=$(stty size </dev/tty)
 printf '%s\\n' "$size" > before-signal

@@ -103,16 +103,16 @@ export async function openCandidateDesktop(options: { identityAttachment: string
     HUHU_VAULT: vault,
   };
   let app: ElectronApplication | undefined;
+  let desktopPid: number | undefined;
   let candidate: Awaited<ReturnType<typeof candidatePackage>> | undefined;
-  let engine: ReturnType<typeof readEngine> | undefined;
+  let engine: Awaited<ReturnType<typeof readEngine>> | undefined;
   let core: Awaited<ReturnType<typeof readCoreIdentity>> | undefined;
   const corePids = new Set<number>();
   let stopped: boolean | undefined;
   let opened = false;
 
-  function readEngine() {
-    const desktopPid = app?.process().pid;
-    if (!desktopPid || !candidate) throw new Error("未取得候选桌面进程");
+  async function readEngine() {
+    if (!app || !desktopPid || !candidate) throw new Error("未取得候选桌面进程");
     let data: { pid: number; port: number; vaultId: string; rootBinding: string; startedAt: string };
     try {
       data = JSON.parse(readFileSync(descriptor, "utf8"));
@@ -123,10 +123,31 @@ export async function openCandidateDesktop(options: { identityAttachment: string
     if (rootBinding !== endpointRootBinding(vault) || !/^vault-[a-z0-9]{8,}$/u.test(vaultId) || !Number.isSafeInteger(port) || port < 1 || port > 65_535 || typeof startedAt !== "string") throw new Error("Engine 描述与本 Vault 不符");
     const executablePath = processExecutable(pid);
     expect(executablePath).toBe(candidate.executablePath);
-    const processEnv = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
-    expect(pid !== desktopPid && processEnv.includes(`HUHU_DESKTOP_USER_DATA=${userData}`) && processEnv.includes(`XDG_RUNTIME_DIR=${runtime}`), "Engine 必须属于当前桌面 profile").toBe(true);
+    // Chromium can rewrite its original argv/environment memory; procfs is not a runtime environment API.
+    const owner = await withFixtureDeadline(5_000, () =>
+      app!.evaluate(
+        ({ app }, enginePid) => ({
+          pid: process.pid,
+          userData: app.getPath("userData"),
+          runtime: process.env["XDG_RUNTIME_DIR"],
+          processes: app
+            .getAppMetrics()
+            .filter(({ pid }) => pid === enginePid)
+            .map(({ pid, type, name, creationTime }) => ({ pid, type, name, creationTime })),
+        }),
+        pid,
+      ),
+    );
+    expect(owner.pid).toBe(desktopPid);
+    expect(owner.userData).toBe(userData);
+    expect(owner.runtime).toBe(runtime);
+    expect(pid).not.toBe(desktopPid);
+    expect(owner.processes).toHaveLength(1);
+    const owned = owner.processes[0]!;
+    expect(owned).toMatchObject({ pid, type: "Utility", name: "huhu-engine" });
+    expect(Number.isFinite(owned.creationTime) && owned.creationTime > 0).toBe(true);
     const startHash = createHash("sha256").update(startedAt).digest("hex");
-    return { pid, desktopPid, startHash, endpoint: `http://127.0.0.1:${port}`, vaultId, executablePath, descriptor };
+    return { pid, desktopPid, creationTime: owned.creationTime, startHash, endpoint: `http://127.0.0.1:${port}`, vaultId, executablePath, descriptor };
   }
 
   const coreEndpoint = () => engine && path.join(runtime, `huhu-${engine.vaultId.slice(6, 14)}-${machine.slice(0, 4)}.sock`);
@@ -159,9 +180,9 @@ export async function openCandidateDesktop(options: { identityAttachment: string
     await withFixtureCleanup(async () => {}, [
       [
         "核对关闭前的 Engine 描述",
-        () => {
+        async () => {
           if (!app || (engine && (!fixtureProcessRunning(engine.desktopPid) || !existsSync(descriptor)))) return;
-          const current = readEngine();
+          const current = await readEngine();
           if (engine) expect(current).toEqual(engine);
           else engine = current;
         },
@@ -192,7 +213,7 @@ export async function openCandidateDesktop(options: { identityAttachment: string
       [
         "核对桌面与 Engine 退出",
         async () => {
-          const pids = [app?.process().pid, engine?.pid].filter((pid): pid is number => pid !== undefined);
+          const pids = [desktopPid, engine?.pid].filter((pid): pid is number => pid !== undefined);
           await expect.poll(() => pids.filter(fixtureProcessRunning), { timeout: 10_000 }).toEqual([]);
         },
       ],
@@ -242,7 +263,7 @@ export async function openCandidateDesktop(options: { identityAttachment: string
                 engine,
                 core,
                 stopped,
-                desktopPid: app?.process().pid,
+                desktopPid,
                 liveEnginePids: engine && fixtureProcessRunning(engine.pid) ? [engine.pid] : [],
                 liveCorePids: pids,
                 sockets,
@@ -271,15 +292,16 @@ export async function openCandidateDesktop(options: { identityAttachment: string
     }
     candidate = await candidatePackage();
     app = await electron.launch({ executablePath: candidate.executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env });
+    desktopPid = app.process().pid;
     const page = await app.firstWindow();
     await engineReady(page);
-    engine = readEngine();
+    engine = await readEngine();
     if (disabledProviders.length > 0) {
       const catalog = await withFixtureDeadline(5_000, () => call<{ id: string; installed: boolean; skipped?: boolean }[]>(page, "agent.catalog.detect", {}));
       expect(catalog.map(({ id, installed, skipped }) => ({ id, installed, skipped }))).toEqual(disabledProviders.map((id) => ({ id, installed: false, skipped: true })));
     }
     const confirmEngine = async () => {
-      const current = readEngine();
+      const current = await readEngine();
       expect(current).toEqual(engine);
       const endpoint = await page.evaluate(async () => {
         const { baseUrl, vaultId } = await window.huhuHost.engine();

@@ -2475,6 +2475,7 @@ test("Agent CLI 变更审查（ACC-AG-10）：显示工作树差异，在行上�
     await page.getByTestId("review-comment-input").fill("E2EREVIEW 第二行请补充来源");
     await page.getByTestId("review-comment-save").click();
     await expect(page.getByTestId("review-comment")).toContainText("待发送");
+    await expect(page.getByTestId("review-send")).toBeEnabled(); // 由当前终端视图的控制握手授权
     await page.getByTestId("review-send").click();
     await expect(page.getByTestId("review-confirm")).toBeVisible(); // 先预览，确认后才发送
     await expect(page.getByTestId("review-shell-warning")).toBeVisible(); // shell 会话会把文字当命令执行
@@ -2774,6 +2775,23 @@ test("自动化运行：Agent 规则经 Tasks 派遣，运行页显示已完成�
       defaultAgent: "codex",
       agents: { codex: { command: provider }, claude: { enabled: false }, pi: { enabled: false } },
     });
+    const observed: unknown[] = [];
+    page.on("response", async (response) => {
+      if (!response.url().endsWith("/api/v1/call") || response.request().method() !== "POST") return;
+      const capability = response.request().postDataJSON()?.capability;
+      if (capability !== "tasks.dispatch.recent" && capability !== "tasks.read") return;
+      const at = performance.now();
+      const reply = (await response.json().catch(() => undefined)) as CapabilityResult<RecentTaskRun[] | TaskDto> | undefined;
+      const data = reply?.ok ? reply.data : undefined;
+      observed.push({
+        at,
+        capability,
+        status: response.status(),
+        ...(Array.isArray(data)
+          ? { runs: data.filter((run) => run.title === title).map(({ dispatch, run }) => ({ taskId: dispatch.taskId, runId: dispatch.runId, delivery: run?.result?.delivery })) }
+          : { taskId: data?.id, resultRuns: data?.comments.filter(({ event }) => event === "result").map(({ run }) => run) }),
+      });
+    });
 
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByTestId("rule-new").click();
@@ -2792,7 +2810,16 @@ test("自动化运行：Agent 规则经 Tasks 派遣，运行页显示已完成�
     await row.getByRole("button", { name: title, exact: true }).click();
     const detail = page.getByTestId("run-detail");
     await expect(detail.getByTestId("run-state")).toHaveText("已完成");
-    await expect(detail.getByTestId("managed-run-result")).toContainText(result);
+    const resultView = detail.getByTestId("managed-run-result");
+    try {
+      await expect(resultView).toContainText(result);
+    } catch (error) {
+      await testInfo.attach("自动化运行结果读取", {
+        contentType: "application/json",
+        body: JSON.stringify({ observed, resultViews: await resultView.count(), readers: await resultView.locator(".ok-root, [data-ok-editor]").count() }),
+      });
+      throw error;
+    }
 
     const runs = (await call<RecentTaskRun[]>("tasks.dispatch.recent")).filter((run) => run.title === title);
     expect(runs).toHaveLength(1);

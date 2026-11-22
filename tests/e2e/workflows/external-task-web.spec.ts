@@ -32,7 +32,8 @@ test("D09 同包 CLI 创建与 MCP 修改的同一任务刷新到桌面和 Web",
     const cli = async <T>(capability: string, input: unknown): Promise<CapabilityResult<T>> => {
       const file = testInfo.outputPath(`external-task-${randomUUID()}.json`);
       await writeFile(file, JSON.stringify(input), { mode: 0o600, flag: "wx" });
-      const args = ["call", capability, "--vault", vault, "--json", "--input-file", file, "--intent-key", randomUUID()];
+      const args = ["call", capability, "--vault", vault, "--json", "--input-file", file];
+      if (capability === "tasks.create") args.push("--intent-key", randomUUID());
       const result = await promisify(execFile)(path.join(candidate.resources, "bin", "huhu"), args, { env: candidate.env, timeout: 20_000 }).catch((error: unknown) => {
         if (error && typeof error === "object" && "code" in error && error.code === 1 && "stdout" in error && typeof error.stdout === "string") return { stdout: error.stdout };
         throw error;
@@ -50,7 +51,12 @@ test("D09 同包 CLI 创建与 MCP 修改的同一任务刷新到桌面和 Web",
     const url = `${endpoint.baseUrl}/mcp`;
     const session = await openMcpSession(url, token.token);
     const mcp = async (capability: string, input: unknown) => {
-      const response = await mcpRequest(url, token.token, mcpRpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input, _meta: { "huhu.dev/intent-key": randomUUID() } }), session);
+      const response = await mcpRequest(
+        url,
+        token.token,
+        mcpRpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input, ...(capability === "tasks.create" ? { _meta: { "huhu.dev/intent-key": randomUUID() } } : {}) }),
+        session,
+      );
       expect(response.status).toBe(200);
       return (await response.json()).result as { isError?: boolean; structuredContent?: { data: TaskDto }; content: { text: string }[] };
     };
@@ -90,7 +96,7 @@ test("D09 同包 CLI 创建与 MCP 修改的同一任务刷新到桌面和 Web",
     const editedTitle = "MCP 已修改的同一任务";
     const editedBody = "MCP 更新后桌面与浏览器读取同一版本";
     const updated = await mcp("tasks.update", { id: created.id, expectedVersion: created.version, patch: { title: editedTitle, body: editedBody } });
-    expect(updated.isError).not.toBe(true);
+    expect(updated.isError, JSON.stringify(updated.content)).not.toBe(true);
     expect(updated.structuredContent?.data).toMatchObject({ id: created.id, title: editedTitle, body: editedBody });
     for (const surface of [page, web]) {
       await expect(row(surface)).toHaveCount(1);

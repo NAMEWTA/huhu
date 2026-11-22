@@ -28,10 +28,18 @@ async function caller(page: Page): Promise<Call> {
 
 async function hideCapability(page: Page, unavailable: string) {
   const endpoint = await page.evaluate(() => window.huhuHost.engine());
-  const response = await fetch(`${endpoint.baseUrl}/api/v1/capabilities`, { headers: { authorization: `Bearer ${endpoint.token}` } });
-  expect(response.ok).toBe(true);
-  const capabilities = (await response.json()) as { name: string }[];
-  await page.route("**/api/v1/capabilities", (route) => route.fulfill({ headers: { "access-control-allow-origin": "*" }, json: capabilities.filter(({ name }) => name !== unavailable) }));
+  await page.route(`${endpoint.baseUrl}/api/v1/capabilities`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    expect(response.ok()).toBe(true);
+    const capabilities = (await response.json()) as { name: string }[];
+    expect(capabilities.some(({ name }) => name === unavailable)).toBe(true);
+    const headers = response.headers();
+    delete headers["content-length"];
+    delete headers["content-encoding"];
+    delete headers["transfer-encoding"];
+    await route.fulfill({ response, headers, json: capabilities.filter(({ name }) => name !== unavailable) });
+  });
 }
 
 test("ACC-WB-05 首页“我的任务”勾选：待推进任务数减少，任务进入已完成", async () => {
@@ -105,22 +113,20 @@ test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后
     await expect(today.getByText("西侧日期任务", { exact: true })).toHaveCount(0);
 
     const endpoint = await page.evaluate(() => window.huhuHost.engine());
-    let replaceVersion = true;
     await page.route("**/api/v1/call", async (route) => {
-      if (replaceVersion && route.request().postDataJSON()?.capability === "tasks.setStatus") {
-        replaceVersion = false;
-        const response = await route.fetch({
-          headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
-          postData: { capability: "tasks.setStatus", input: { id: eastTask.id, expectedVersion: eastTask.version, status: "in_progress" }, requestId: "task-concurrent-edit", idempotencyKey: "task-concurrent-edit" },
-        });
-        expect(await response.json()).toMatchObject({ ok: true });
-      }
+      if (route.request().postDataJSON()?.capability !== "tasks.setStatus") return route.continue();
+      const response = await route.fetch({
+        headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
+        postData: { capability: "tasks.setStatus", input: { id: eastTask.id, expectedVersion: eastTask.version, status: "in_progress" }, requestId: "task-concurrent-edit", idempotencyKey: "task-concurrent-edit" },
+      });
+      expect(await response.json()).toMatchObject({ ok: true });
       await route.continue();
     });
     const complete = today.getByRole("button", { name: "完成任务 东侧日期任务" });
     await complete.click();
     await expect(today.getByRole("alert")).toContainText("任务已被修改");
     await expect(all.getByRole("alert")).toHaveCount(0);
+    await page.unroute("**/api/v1/call");
     await complete.click();
     await expect(today.getByText("今天没有待办任务")).toBeVisible();
     await expect(all.getByText("西侧日期任务", { exact: true })).toBeVisible();
@@ -138,6 +144,7 @@ test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后
 
     await hideCapability(page, "tasks.setStatus");
     await page.reload();
+    await expect(all.getByRole("button", { name: "打开任务 西侧日期任务" })).toBeEnabled();
     await expect(all.getByRole("button", { name: "完成任务 西侧日期任务" })).toBeDisabled();
   } finally {
     await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -1507,9 +1514,14 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
   test.skip(process.platform === "win32", "假 Claude 是 POSIX shell 脚本");
   const fs = await import("node:fs");
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
-  writeFileSync(path.join(bin, "claude"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.0 (Claude Code)"; exit 0; fi\nsleep 30\n');
-  fs.chmodSync(path.join(bin, "claude"), 0o755);
-  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` });
+  const claude = path.join(bin, "claude");
+  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version} (Claude Code)"; exit 0; fi\nsleep 30\n`, { mode: 0o755 });
+  writeVersion("2.1.0");
+  const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}` }, (vault) => {
+    const directory = path.join(vault, ".huhu/agent-cli");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, "agents.json"), JSON.stringify({ schema: 1, revision: 0, defaultAgent: null, agents: { codex: { enabled: false }, pi: { enabled: false } } }));
+  });
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
@@ -1528,8 +1540,9 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
     await row.getByLabel("Claude Code 模型").selectOption("opus");
     await expect.poll(() => (fs.existsSync(`${vault}/.huhu/agent-cli/agents.json`) ? fs.readFileSync(`${vault}/.huhu/agent-cli/agents.json`, "utf8") : "")).toContain("opus");
     await expect(row.getByTestId("agent-command-preview")).toContainText("--model opus");
+    writeVersion("2.1.1");
     await settingsPage.getByTestId("agent-redetect").click();
-    await expect(row).toContainText("2.1.0");
+    await expect(row).toContainText("2.1.1");
     await settingsPage.getByTestId("agent-core-restart").click();
     await expect(settingsPage.getByTestId("agent-core-restart-yes")).toBeVisible(); // 先确认，不会直接重启
     await settingsPage.getByRole("button", { name: "取消" }).click();

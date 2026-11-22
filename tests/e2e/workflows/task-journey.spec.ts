@@ -7,6 +7,7 @@ import path from "node:path";
 import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
 import { HerdrCore } from "../../../packages/herdr-client/src/herdr-core.js";
 import { machineId } from "../../../packages/vault/src/vault.js";
+import type { AgentSettingsFile } from "../../../plugins/agent-cli/src/shared/settings.js";
 import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
@@ -410,6 +411,15 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       const templateResponses = await startCodexResponsesFixture({ seedReply: "TEMPLATE-JOURNEY-RESULT" });
       try {
         await writeFile(path.join(providerHome, "config.toml"), templateResponses.config, { mode: 0o600 });
+        const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
+        await call("agent.settings.update", {
+          expectedRevision: settings.revision,
+          defaultAgent: settings.defaultAgent,
+          ...(settings.waitingTasks === undefined ? {} : { waitingTasks: settings.waitingTasks }),
+          agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider!, enabled: true } },
+        });
+        const available = await call<{ id: string; installed: boolean; headless: boolean; path?: string }[]>("agent.catalog.refresh");
+        expect(available.find(({ id }) => id === "codex")).toMatchObject({ installed: true, headless: true, path: provider });
         const template = await call<Rule>("automations.create", {
           title: "候选包新模板",
           body: "只回复 TEMPLATE-JOURNEY-RESULT",
@@ -420,6 +430,24 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
         const invocation = await call<{ activationId: string }>("automations.runNow", intent);
         expect(await call("automations.runNow", intent)).toEqual(invocation);
         const linked = await call<{ dispatches: { taskId: string; runId: string }[] }>("automations.activations.dispatches", { ruleId: template.id, activationId: invocation.activationId });
+        if (linked.dispatches.length !== 1) {
+          const catalog = await call<{ id: string; installed: boolean; headless: boolean; path?: string }[]>("agent.catalog.detect");
+          const detected = catalog.find(({ id }) => id === "codex");
+          const occurrence = JSON.parse(await readFile(path.join(vault, ".huhu", "automations", "task-scan-occurrences", `${invocation.activationId}.json`), "utf8")) as {
+            id: string;
+            ruleId: string;
+            finishedAt?: string;
+            template?: { issue?: string };
+            items: { state: string; reason?: string }[];
+          };
+          const evidence = {
+            invocation,
+            detector: detected && { installed: detected.installed, headless: detected.headless, pinnedPath: detected.path === provider },
+            occurrence: { id: occurrence.id, ruleId: occurrence.ruleId, finishedAt: occurrence.finishedAt, issue: occurrence.template?.issue, items: occurrence.items.map(({ state, reason }) => ({ state, reason })) },
+          };
+          await testInfo.attach("模板派遣未受理原因", { contentType: "application/json", body: JSON.stringify(evidence) });
+          console.log("template-admission", JSON.stringify(evidence));
+        }
         expect(linked.dispatches).toHaveLength(1);
         const created = linked.dispatches[0]!;
         expect(created.taskId).not.toBe(task.id);

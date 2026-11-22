@@ -255,35 +255,58 @@ test("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 100 ms", asyn
     await page.getByTestId("launch-shell").click();
     await expect(page.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
     await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
+    const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
+    await expect(search).toBeVisible();
     await page.locator(".xterm-helper-textarea").focus();
-    await page.keyboard.type("yes 0123456789abcdef | head -c 10485760; echo FLOOD-DONE-$((6*7))");
-    // 命令文本已输入完：从这里开始只统计洪流期间的按键，并记下洪流结束时已有多少样本
+    await page.keyboard.type("count=$(yes 0123456789abcdef | head -c 10485760 | tee /dev/tty | wc -c); echo FLOOD-DONE-$((6*7))-$count");
+    // 按键开始于实际输出窗口才入样；窗口结束后仍等待这些按键的两帧回调，保留慢样本。
     await page.evaluate(() => {
-      const w = window as unknown as { __lat: number[]; __doneAt?: number };
-      w.__lat = [];
-      delete w.__doneAt;
+      const probe = { started: false, done: false, samples: [] as { latency?: number }[] };
+      const w = window as unknown as { __flood: typeof probe };
+      w.__flood = probe;
+      const rows = document.querySelector(".xterm-rows")!;
+      const observeOutput = () => {
+        const text = rows.textContent ?? "";
+        if ((text.match(/0123456789abcdef/gu)?.length ?? 0) >= 3) probe.started = true;
+        if (text.includes("FLOOD-DONE-42-10485760")) probe.done = true;
+      };
+      const observer = new MutationObserver(observeOutput);
+      observer.observe(rows, { subtree: true, childList: true, characterData: true });
       document.addEventListener(
         "keydown",
-        () => {
-          const t0 = performance.now();
-          requestAnimationFrame(() => requestAnimationFrame(() => w.__lat.push(performance.now() - t0)));
+        (event) => {
+          observeOutput();
+          if (!(event.target instanceof HTMLInputElement) || event.target.type !== "search" || event.target.getAttribute("aria-label") !== "搜索会话历史") return;
+          if (!probe.started || probe.done) return;
+          const sample: { latency?: number } = {};
+          probe.samples.push(sample);
+          const start = performance.now();
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              sample.latency = performance.now() - start;
+            }),
+          );
         },
         true,
       );
-      setInterval(() => {
-        if (w.__doneAt === undefined && document.querySelector(".xterm-rows")?.textContent?.includes("FLOOD-DONE-42")) w.__doneAt = w.__lat.length;
-      }, 15);
     });
     await page.keyboard.press("Enter");
-    const search = page.getByLabel("搜索当前 Space 历史");
     const t0 = Date.now();
     for (let i = 0; i < 400 && Date.now() - t0 < 20_000; i++) {
-      const done = await page.evaluate(() => (window as unknown as { __doneAt?: number }).__doneAt !== undefined);
-      if (done && i > 20) break;
-      await search.pressSequentially("a", { delay: 10 });
+      if (await page.evaluate(() => (window as unknown as { __flood: { done: boolean } }).__flood.done)) break;
+      await search.press(i % 2 === 0 ? "a" : "Backspace");
     }
-    await expect(page.locator(".xterm-rows")).toContainText("FLOOD-DONE-42", { timeout: 60_000 });
-    const lat = await page.evaluate(() => (window as unknown as { __lat: number[] }).__lat);
+    expect(await page.evaluate(() => (window as unknown as { __flood: { done: boolean } }).__flood.done), "输入探测必须覆盖到洪流结束；达到次数或时间上限不能算通过").toBe(true);
+    await expect(page.locator(".xterm-rows")).toContainText("FLOOD-DONE-42-10485760");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const probe = (window as unknown as { __flood: { started: boolean; done: boolean; samples: { latency?: number }[] } }).__flood;
+          return probe.started && probe.done && probe.samples.every(({ latency }) => latency !== undefined);
+        }),
+      )
+      .toBe(true);
+    const lat = await page.evaluate(() => (window as unknown as { __flood: { samples: { latency: number }[] } }).__flood.samples.map(({ latency }) => latency));
     const v = p95(lat);
     note("终端 10 MiB 输出期间输入响应", `p95 ${v.toFixed(1)} ms，最大 ${Math.max(...lat).toFixed(1)} ms，样本 ${lat.length}（目标 ≤ 100）`);
     expect(lat.length, "洪流期间的按键样本太少（洪流过快结束或没有输出）").toBeGreaterThanOrEqual(10);

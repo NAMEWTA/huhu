@@ -187,7 +187,7 @@ async function openGraphWorkbench() {
     await page.goto(links[0]!);
     await page.getByRole("button", { name: "邮件", exact: true }).first().click();
     await page.getByRole("button", { name: firstLabel, exact: true }).click();
-    await page.getByLabel("时间", { exact: true }).selectOption("all");
+    await page.getByRole("combobox", { name: "时间", exact: true }).selectOption("all");
     await expect(page.getByRole("complementary", { name: "联系人对话" })).toContainText("Graph message 1");
     return {
       page,
