@@ -31,3 +31,9 @@ Node 24.21.0、pnpm 12.10.1，测试使用临时 Vault 和独立 `XDG_RUNTIME_DI
 4. **T7.2 候选安装包：停用 Tasks、丢失一次消费 ACK 和原生进程恢复**。显式跳过。随包当前缺少可截断内部 Tasks ACK 的验收夹具。已有隔离 Core 的 `plugins/agent-cli/test/native-receipts.live.test.ts` 提供协议层入口。Windows 原生恢复、随包焦点和窄窗验收仍需实际运行。
 
 安装包干净环境的权限默认值、撤销 Web 邀请、Vault 包恢复和损坏包验收留在同一集成候选的 W8.3/T7 门禁。
+
+## 集成版本复查
+
+2026-11-22 在 `690e9097` 核对 `d2601f83`、`7cfed9bf` 和 `1c2f8089` 均为祖先。运行抽屉从 `tasks.dispatch.recent` 读取任务运行，任务详情用 `tasks.dispatch.list`，终端规则列表保留独立终端记录。定时和手动规则通过 `TaskScanOccurrences` 交给 Tasks。
+
+在隔离 Vault 串行运行 `pnpm exec vitest run apps/engine/test/engine.test.ts -t "Agent 任务自动化的预览和立即运行|恢复 Engine 时只查询新任务派遣"`。两项通过，48 项由筛选排除。重交保留一个发生与派遣，旧监督文件原字节保留，四个旧能力返回不存在。日志在本机 `temp/issue-evidence/huhu-2026-11-22/t71-cutover-690e9097.log`。安装版 W8.3 与 W8.2、T7.2 的独立签收仍待共同候选。
