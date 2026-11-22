@@ -68,7 +68,7 @@ function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId
   return parts.join(" / ");
 }
 
-export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
+export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNavigate" | "active">) {
   const engine = useEngine();
   const qc = useQueryClient();
   const desktop = Boolean(desktopHost());
@@ -244,7 +244,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
       <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
     </>
   );
-  if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={active && !fileView} connections={connections.data ?? []} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
   if (keyLibrary)
     return (
       <KeyLibraryPanel

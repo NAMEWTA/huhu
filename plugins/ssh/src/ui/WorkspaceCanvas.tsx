@@ -1,6 +1,8 @@
 import { Button } from "@huhu/ui";
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import type { ConnectionStatus } from "../shared/trust.js";
 import type { SplitTree, WorkspaceLayout, WorkspaceRunPane } from "../shared/workspace.js";
+import { groupWorkspaceTabs } from "./workspace-tab-groups.js";
 
 type Cell = { x: number; y: number; w: number; h: number };
 const canvas = { x: 0, y: 0, w: 1, h: 1 };
@@ -68,6 +70,8 @@ export function WorkspaceCanvas({
   active,
   maximized,
   tabs,
+  groupVerticalTabs,
+  connections,
   onActive,
   onSwap,
   render,
@@ -77,6 +81,8 @@ export function WorkspaceCanvas({
   active: string | undefined;
   maximized: boolean;
   tabs: "top" | "left";
+  groupVerticalTabs: boolean;
+  connections: readonly ConnectionStatus[];
   onActive(id: string): void;
   onSwap(from: string, to: string): void;
   render(pane: WorkspaceRunPane, visible: boolean): ReactNode;
@@ -84,7 +90,14 @@ export function WorkspaceCanvas({
   const parent = useRef<HTMLDivElement>(null);
   const dragging = useRef<string | undefined>(undefined);
   const refocus = useRef<{ id: string; order: string } | undefined>(undefined);
+  const focusedTab = useRef<HTMLButtonElement | undefined>(undefined);
+  const tabPrefix = useId();
   const order = panes.map((pane) => pane.paneId).join(",");
+  const tabGroups = tabs === "left" && groupVerticalTabs ? groupWorkspaceTabs(panes, connections) : panes.map((pane) => ({ key: pane.paneId, label: undefined, panes: [pane] }));
+  const tabOrder = tabGroups.flatMap((group) => group.panes.map(({ paneId }) => paneId)).join(",");
+  useLayoutEffect(() => {
+    if (focusedTab.current?.isConnected && document.activeElement === document.body) focusedTab.current.focus({ preventScroll: true });
+  }, [tabOrder, tabs]);
   useLayoutEffect(() => {
     const pending = refocus.current;
     if (!pending || pending.order === order) return;
@@ -118,12 +131,32 @@ export function WorkspaceCanvas({
       )}
       <div className={layout.kind === "tabs" && !maximized ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
         {layout.kind === "tabs" && !maximized && (
-          <div className="ssh-workspace-tabstrip" aria-label="内部标签">
-            {panes.map((pane) => (
-              <button type="button" key={pane.paneId} aria-pressed={pane.paneId === active} onClick={() => onActive(pane.paneId)}>
-                {pane.label}
-              </button>
-            ))}
+          <div
+            className="ssh-workspace-tabstrip"
+            role="group"
+            aria-label="内部标签"
+            onFocusCapture={(event) => {
+              if (event.target instanceof HTMLButtonElement) focusedTab.current = event.target;
+            }}
+            onBlurCapture={(event) => {
+              if (event.relatedTarget) focusedTab.current = undefined;
+            }}
+          >
+            {tabGroups.flatMap((group) => {
+              const heading = group.label && group.panes.length > 1 ? `${tabPrefix}-${group.panes[0]!.paneId}` : undefined;
+              return [
+                heading && (
+                  <span key={group.key} id={heading} className="ssh-workspace-tab-group" data-testid="ssh-workspace-tab-group">
+                    {group.label}
+                  </span>
+                ),
+                ...group.panes.map((pane) => (
+                  <button type="button" key={pane.paneId} aria-pressed={pane.paneId === active} aria-describedby={heading} data-grouped={Boolean(heading)} onClick={() => onActive(pane.paneId)}>
+                    {pane.label}
+                  </button>
+                )),
+              ];
+            })}
           </div>
         )}
         <div ref={parent} className="ssh-workspace-grid" style={{ gridTemplateColumns: tracks(x, "column"), gridTemplateRows: tracks(y, "row") }}>
@@ -140,7 +173,9 @@ export function WorkspaceCanvas({
                 style={style}
                 hidden={!visible}
                 tabIndex={-1}
-                onFocusCapture={() => onActive(pane.paneId)}
+                onFocusCapture={(event) => {
+                  if (!(event.target instanceof HTMLElement) || !event.target.closest("[data-pane-layout-control]")) onActive(pane.paneId);
+                }}
                 onDragOver={(event) => {
                   if (dragging.current && dragging.current !== pane.paneId) {
                     event.preventDefault();

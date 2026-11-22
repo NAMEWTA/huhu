@@ -5,6 +5,7 @@ import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTre
 import { LAYOUT_LABELS, WorkspaceLayout } from "./WorkspaceLayout.js";
 import { WorkspaceRunView } from "./WorkspaceRunView.js";
 import type { FileSession } from "../shared/files.js";
+import type { ConnectionStatus } from "../shared/trust.js";
 import { lastWorkspace, rememberWorkspace, useDevicePreferences } from "./device-preferences.js";
 
 export interface WorkspaceHost {
@@ -73,7 +74,7 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
   );
 }
 
-export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => void; onFiles: (session?: FileSession) => void; shown: boolean }) {
+export function WorkspaceLibrary({ onHosts, onFiles, shown, connections }: { onHosts: () => void; onFiles: (session?: FileSession) => void; shown: boolean; connections: readonly ConnectionStatus[] }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
@@ -322,7 +323,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown }: { onHosts: () => v
                   ))}
                 </ul>
               ) : (
-                <WorkspaceRunView key={run.id} run={run} shown={shown} onTrust={trust} onOpenFiles={onFiles} />
+                <WorkspaceRunView key={run.id} run={run} shown={shown} connections={connections} onTrust={trust} onOpenFiles={onFiles} />
               )}
             </>
           )}

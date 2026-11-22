@@ -4,6 +4,9 @@ import { z } from "zod";
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
   paneTools: z.enum(["top", "bottom", "hidden"]),
+  paneToolSize: z.enum(["small", "medium", "large"]),
+  paneToolOrder: z.enum(["files-first", "monitor-first"]),
+  groupVerticalTabs: z.boolean(),
   restoreWorkspace: z.boolean(),
   fontSize: z.number().int().min(9).max(28),
   font: z.enum(["theme", "jetbrains", "system"]),
@@ -18,6 +21,9 @@ export type DevicePreferences = z.infer<typeof schema>;
 export const deviceDefaults: DevicePreferences = {
   tabs: "top",
   paneTools: "top",
+  paneToolSize: "small",
+  paneToolOrder: "files-first",
+  groupVerticalTabs: false,
   restoreWorkspace: false,
   fontSize: 13,
   font: "theme",

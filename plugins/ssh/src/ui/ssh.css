@@ -974,6 +974,16 @@
     font-weight: 700;
   }
 
+  .ssh-workspace-tab-group {
+    padding-block-start: 6px;
+    font-size: var(--fs-meta);
+    color: var(--muted);
+  }
+
+  .ssh-workspace-tabstrip [data-grouped="true"] {
+    margin-inline-start: 8px;
+  }
+
   .ssh-workspace-run-pane {
     min-inline-size: 0;
     border: 1px solid var(--line);
@@ -998,6 +1008,48 @@
 
   .ssh-pane-drag {
     cursor: grab;
+  }
+
+  .ssh-pane-toolbar {
+    align-items: center;
+    margin-block: 4px;
+  }
+
+  .ssh-pane-toolbar[data-size="medium"] button {
+    min-block-size: 36px;
+    min-inline-size: 36px;
+  }
+
+  .ssh-pane-toolbar[data-size="large"] button {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+
+  .ssh-pane-toolbar-handle {
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .ssh-pane-toolbar-handle:active {
+    cursor: grabbing;
+  }
+
+  .ssh-pane-toolbar-drop {
+    min-block-size: 36px;
+    display: grid;
+    place-items: center;
+    margin-block: 4px;
+    padding: 4px;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+  }
+
+  .ssh-pane-toolbar-drop[data-over="true"] {
+    border-color: var(--accent);
+    background: var(--muted-bg);
+    color: var(--text);
   }
 
   .ssh-recording-text {

@@ -370,3 +370,138 @@ test("H3.2 路由页批量关联、覆盖与启停，旧 Shell 保留原连接�
     await jump.close();
   }
 });
+
+test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分组", async () => {
+  const password = randomUUID();
+  const inputs: string[] = [];
+  const target = await startFakeSsh({ password, onShellInput: (chunk) => inputs.push(chunk) });
+  const other = await startFakeSsh({ password, onShellInput: (chunk) => inputs.push(chunk) });
+  const fixture = await openApp();
+  const { page } = fixture;
+  const attachments: string[] = [];
+  page.on("websocket", (socket) => {
+    if (new URL(socket.url()).pathname.includes("/ws/terminal/")) attachments.push(socket.url());
+  });
+  try {
+    await fixture.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 1000));
+    await openSsh(page);
+    const first = await saveHost(page, "目标甲", target.port, password);
+    const different = await saveHost(page, "另一目标", other.port, password);
+    const alias = await saveHost(page, "目标甲别名", target.port, password);
+    const start = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "本机布局夹具", layout: { kind: "tabs" }, panes: [first, different, alias] });
+    await approve(page, first.hostId);
+    await approve(page, different.hostId);
+    const aliasState = async () => (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find(({ hostId }) => hostId === alias.hostId)?.state;
+    await expect.poll(aliasState).toMatch(/^(waiting|connected)$/);
+    if ((await aliasState()) === "waiting") await approve(page, alias.hostId);
+
+    async function showRun() {
+      await page.getByRole("button", { name: "工作区", exact: true }).click();
+      await page.getByRole("button", { name: /本机布局夹具/ }).click();
+    }
+    await showRun();
+    const run = page.getByTestId("ssh-workspace-run");
+    const panes = run.getByTestId("ssh-workspace-run-pane");
+    for (const pane of await panes.all()) await expect(pane).toHaveAttribute("data-phase", "ready");
+    const original = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === start.id)!;
+    const originalPanes = original.panes.map(({ paneId, sessionId }) => ({ paneId, sessionId }));
+    const firstPane = panes.first();
+    const firstToolbar = firstPane.getByTestId("ssh-pane-tools");
+    const activeSpot = run.locator('[data-workspace-spot][data-active="true"]');
+    await expect.poll(() => attachments.length).toBeGreaterThanOrEqual(3);
+    const attachmentCount = attachments.length;
+
+    await firstToolbar.getByRole("button", { name: "移至分栏下方" }).press("Enter");
+    await expect(firstToolbar).toHaveAttribute("data-position", "bottom");
+    await expect(firstToolbar.getByRole("button", { name: "移至分栏上方" })).toBeFocused();
+    await expect(activeSpot).toHaveAttribute("data-workspace-spot", originalPanes[0]!.paneId);
+
+    async function beginDrag() {
+      const handle = firstToolbar.getByRole("button", { name: "移至分栏上方" });
+      await handle.scrollIntoViewIfNeeded();
+      const box = (await handle.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 18, y, { steps: 5 });
+      await expect(firstPane.locator('[data-toolbar-drop="top"]')).toBeVisible();
+    }
+
+    await beginDrag();
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await expect(firstPane.locator("[data-toolbar-drop]")).toHaveCount(0);
+    await expect(firstToolbar).toHaveAttribute("data-position", "bottom");
+
+    await beginDrag();
+    const invalid = (await firstPane.getByRole("application").boundingBox())!;
+    await page.mouse.move(invalid.x + invalid.width / 2, invalid.y + invalid.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(firstPane.locator("[data-toolbar-drop]")).toHaveCount(0);
+    await expect(firstToolbar).toHaveAttribute("data-position", "bottom");
+
+    await beginDrag();
+    const zone = firstPane.locator('[data-toolbar-drop="top"]');
+    await zone.scrollIntoViewIfNeeded();
+    const drop = (await zone.boundingBox())!;
+    await page.mouse.move(drop.x + drop.width / 2, drop.y + drop.height / 2, { steps: 8 });
+    await page.mouse.move(drop.x + drop.width / 2 + 1, drop.y + drop.height / 2);
+    await page.mouse.up();
+    await expect(firstToolbar).toHaveAttribute("data-position", "top");
+
+    const tabs = run.getByRole("group", { name: "内部标签" });
+    await tabs.getByRole("button", { name: "目标甲别名", exact: true }).click();
+    await run.getByText("本机布局偏好", { exact: true }).click();
+    await run.getByLabel("工作区标签方向").selectOption("left");
+    await run.getByRole("checkbox", { name: "纵向标签按同目标分组" }).check();
+    await expect(tabs.getByTestId("ssh-workspace-tab-group")).toHaveText(`fixture@127.0.0.1:${target.port}`);
+    await expect(tabs.getByRole("button")).toHaveText(["目标甲", "目标甲别名", "另一目标"]);
+    await expect(activeSpot).toHaveAttribute("data-workspace-spot", originalPanes[2]!.paneId);
+    const aliasToolbar = panes.last().getByTestId("ssh-pane-tools");
+    await run.getByLabel("工具栏顺序").selectOption("monitor-first");
+    await run.getByLabel("工具栏尺寸").selectOption("large");
+    await expect(aliasToolbar.getByRole("group").getByRole("button")).toHaveText(["分栏监控", "分栏文件"]);
+    await expect(aliasToolbar).toHaveAttribute("data-size", "large");
+    await run.getByLabel("分栏工具栏位置").selectOption("hidden");
+    await expect(run.getByTestId("ssh-pane-tools")).toHaveCount(0);
+    expect(attachments).toHaveLength(attachmentCount);
+    expect([target.conns.length, other.conns.length]).toEqual([2, 1]);
+    const current = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === start.id)!;
+    expect(current.layoutRevision).toBe(original.layoutRevision);
+    expect(current.panes.map(({ paneId, sessionId }) => ({ paneId, sessionId }))).toEqual(originalPanes);
+
+    await page.reload();
+    await openSsh(page);
+    await showRun();
+    await run.getByText("本机布局偏好", { exact: true }).click();
+    await expect(run.getByLabel("分栏工具栏位置")).toHaveValue("hidden");
+    await expect(run.getByLabel("工具栏顺序")).toHaveValue("monitor-first");
+    await expect(run.getByLabel("工具栏尺寸")).toHaveValue("large");
+    await expect(run.getByLabel("工作区标签方向")).toHaveValue("left");
+    await expect(run.getByRole("checkbox", { name: "纵向标签按同目标分组" })).toBeChecked();
+    await run.getByRole("button", { name: "恢复工具栏默认布局" }).click();
+    await expect(firstToolbar).toHaveAttribute("data-position", "top");
+    await expect(firstToolbar).toHaveAttribute("data-size", "small");
+    await expect(firstToolbar.getByRole("group").getByRole("button")).toHaveText(["分栏文件", "分栏监控"]);
+
+    await run.getByText("快捷文本与广播", { exact: true }).click();
+    await firstPane.getByRole("button", { name: "锁定输入" }).click();
+    await expect(run.getByRole("checkbox", { name: /目标甲.*无输入控制/ })).toBeDisabled();
+    await firstPane.getByRole("button", { name: "解除输入锁定" }).click();
+    await firstPane.getByRole("button", { name: "分栏文件" }).click();
+    await run.getByRole("button", { name: "打开独立双栏" }).click();
+    await expect(run).toBeHidden();
+    await expect(run).toHaveAttribute("inert", "");
+    const priorInput = inputs.join("");
+    await page.keyboard.type("hidden-workspace-fixture");
+    expect(inputs.join("")).toBe(priorInput);
+    await page.getByRole("button", { name: "返回 SSH" }).click();
+    await expect(run).toBeVisible();
+    await expect(firstPane).toHaveAttribute("data-session-id", originalPanes[0]!.sessionId!);
+  } finally {
+    await fixture.close();
+    await other.close();
+    await target.close();
+  }
+});

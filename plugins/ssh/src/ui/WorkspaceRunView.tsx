@@ -4,11 +4,13 @@ import { useState } from "react";
 import { splitTree, type ChangeWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
 import { WorkspaceCanvas } from "./WorkspaceCanvas.js";
+import { WorkspacePaneTools } from "./WorkspacePaneTools.js";
 import { AttachedFiles } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
+import type { ConnectionStatus } from "../shared/trust.js";
 import { MonitorSidebar } from "./MonitorSidebar.js";
 import { SshTerminal } from "./SshTerminal.js";
-import { useDevicePreferences } from "./device-preferences.js";
+import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
@@ -26,24 +28,27 @@ const PHASES: Record<WorkspaceRunPane["phase"], string> = {
 export function WorkspaceRunView({
   run,
   shown,
+  connections,
   onTrust,
   onOpenFiles,
 }: {
   run: WorkspaceRun;
   shown: boolean;
+  connections: readonly ConnectionStatus[];
   onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>;
   onOpenFiles: (session: FileSession) => void;
 }) {
   const engine = useEngine();
   const { endpoint } = engine;
   const qc = useQueryClient();
-  const { paneTools, showPaneFiles, tabs } = useDevicePreferences();
+  const { paneTools, paneToolSize, paneToolOrder, groupVerticalTabs, showPaneFiles, tabs } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [authentication, setAuthentication] = useState<string>();
   const [active, setActive] = useState(run.panes[0]?.paneId);
   const [maximized, setMaximized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [layoutError, setLayoutError] = useState("");
+  const [deviceNotice, setDeviceNotice] = useState("");
   const [locked, setLocked] = useState<Record<string, boolean>>({});
   const [inputs, setInputs] = useState<Record<string, TerminalInput>>({});
   const [inputCallbacks] = useState(() => new Map<string, (input: TerminalInput | undefined) => void>());
@@ -53,6 +58,16 @@ export function WorkspaceRunView({
   const activePane = run.panes.find(({ paneId }) => paneId === active) ?? run.panes[0];
   const activeIndex = run.panes.indexOf(activePane!);
   const query = queryKey(engine.vaultId, "ssh.workspace.runs.list", {});
+  function setDeviceLayout(patch: Partial<DevicePreferences>, message = "已保存本机布局。") {
+    try {
+      saveDevicePreferences(patch);
+      setDeviceNotice(message);
+      return true;
+    } catch {
+      setDeviceNotice("无法保存本机布局，请检查设备存储。");
+      return false;
+    }
+  }
   async function apply(change: ChangeWorkspaceRun["change"]) {
     if (saving) return;
     setSaving(true);
@@ -97,7 +112,7 @@ export function WorkspaceRunView({
     return send;
   }
   return (
-    <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏">
+    <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏" inert={!shown}>
       <p>连接代次 {run.generation}</p>
       <div className="ssh-workspace-controls">
         <label className="row">
@@ -146,6 +161,49 @@ export function WorkspaceRunView({
         )}
       </div>
       {layoutError && <p role="alert">{layoutError}</p>}
+      <details className="hu-card-alt hu-stack">
+        <summary>本机布局偏好</summary>
+        <div className="ssh-workspace-controls">
+          <label className="hu-field">
+            分栏工具栏位置
+            <select value={paneTools} onChange={(event) => setDeviceLayout({ paneTools: event.currentTarget.value as DevicePreferences["paneTools"] })}>
+              <option value="top">上方</option>
+              <option value="bottom">下方</option>
+              <option value="hidden">隐藏</option>
+            </select>
+          </label>
+          <label className="hu-field">
+            工具栏顺序
+            <select value={paneToolOrder} onChange={(event) => setDeviceLayout({ paneToolOrder: event.currentTarget.value as DevicePreferences["paneToolOrder"] })}>
+              <option value="files-first">文件、监控</option>
+              <option value="monitor-first">监控、文件</option>
+            </select>
+          </label>
+          <label className="hu-field">
+            工具栏尺寸
+            <select value={paneToolSize} onChange={(event) => setDeviceLayout({ paneToolSize: event.currentTarget.value as DevicePreferences["paneToolSize"] })}>
+              <option value="small">小</option>
+              <option value="medium">中</option>
+              <option value="large">大</option>
+            </select>
+          </label>
+          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
+        </div>
+        <div className="ssh-workspace-controls">
+          <label className="hu-field">
+            工作区标签方向
+            <select value={tabs} onChange={(event) => setDeviceLayout({ tabs: event.currentTarget.value === "left" ? "left" : "top" })}>
+              <option value="top">上方</option>
+              <option value="left">左侧</option>
+            </select>
+          </label>
+          <label className="row">
+            <input type="checkbox" checked={groupVerticalTabs} disabled={tabs !== "left"} onChange={(event) => setDeviceLayout({ groupVerticalTabs: event.currentTarget.checked })} />
+            纵向标签按同目标分组
+          </label>
+        </div>
+      </details>
+      <div role="status">{deviceNotice}</div>
       {shown && <TerminalActions targets={targetInputs} />}
       <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
@@ -155,9 +213,11 @@ export function WorkspaceRunView({
             active={activePane?.paneId}
             maximized={maximized}
             tabs={tabs}
+            groupVerticalTabs={groupVerticalTabs}
+            connections={connections}
             onActive={setActive}
             onSwap={swap}
-            render={(pane) => {
+            render={(pane, visible) => {
               const prompt = pane.prompt;
               const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
               async function decide(accept: boolean) {
@@ -169,26 +229,6 @@ export function WorkspaceRunView({
                   setDeciding((state) => ({ ...state, [decidingKey]: false }));
                 }
               }
-              const toolbar = pane.phase === "ready" && (
-                <div className="ssh-workspace-controls" data-testid="ssh-pane-tools" data-position={paneTools}>
-                  <Button
-                    onClick={() => {
-                      setActive(pane.paneId);
-                      setShowFiles(true);
-                    }}
-                  >
-                    分栏文件
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setActive(pane.paneId);
-                      setShowMonitor(true);
-                    }}
-                  >
-                    分栏监控
-                  </Button>
-                </div>
-              );
               return (
                 <article className="ssh-workspace-run-pane" data-testid="ssh-workspace-run-pane" data-pane-id={pane.paneId} data-session-id={pane.sessionId} data-phase={pane.phase} key={pane.paneId} aria-label={pane.label}>
                   <header className="ssh-workspace-controls">
@@ -200,7 +240,6 @@ export function WorkspaceRunView({
                       </Button>
                     )}
                     {pane.phase === "ready" && pane.sessionId && <RecordTerminal shellId={pane.sessionId} />}
-                    {paneTools === "top" && toolbar}
                   </header>
                   {pane.error && <p role="alert">{pane.error.message}</p>}
                   {prompt && (
@@ -225,20 +264,40 @@ export function WorkspaceRunView({
                   {shown && pane.authPrompt && authentication === pane.authPrompt.promptId && (
                     <AuthenticationDialog key={authentication} prompt={pane.authPrompt} onClose={() => setAuthentication(undefined)} onAnswered={() => setAuthentication(undefined)} />
                   )}
-                  {pane.phase === "ready" && pane.sessionId && (
-                    <div className="ssh-workspace-terminal">
-                      <SshTerminal
-                        key={pane.sessionId}
-                        ariaLabel={`${pane.label} 终端`}
-                        baseUrl={endpoint.baseUrl}
-                        token={endpoint.token}
-                        sessionId={pane.sessionId}
-                        observe={Boolean(locked[pane.paneId])}
-                        onTerminalInput={inputCallback(pane.sessionId)}
-                      />
-                    </div>
+                  {pane.phase === "ready" && (
+                    <WorkspacePaneTools
+                      paneId={pane.paneId}
+                      label={pane.label}
+                      visible={shown && visible}
+                      position={paneTools}
+                      size={paneToolSize}
+                      order={paneToolOrder}
+                      onMove={(dock) => setDeviceLayout({ paneTools: dock }, `已将工具栏移至分栏${dock === "top" ? "上方" : "下方"}。`)}
+                      onStatus={setDeviceNotice}
+                      onFiles={() => {
+                        setActive(pane.paneId);
+                        setShowFiles(true);
+                      }}
+                      onMonitor={() => {
+                        setActive(pane.paneId);
+                        setShowMonitor(true);
+                      }}
+                    >
+                      {pane.sessionId && (
+                        <div key="terminal" className="ssh-workspace-terminal">
+                          <SshTerminal
+                            key={pane.sessionId}
+                            ariaLabel={`${pane.label} 终端`}
+                            baseUrl={endpoint.baseUrl}
+                            token={endpoint.token}
+                            sessionId={pane.sessionId}
+                            observe={Boolean(locked[pane.paneId])}
+                            onTerminalInput={inputCallback(pane.sessionId)}
+                          />
+                        </div>
+                      )}
+                    </WorkspacePaneTools>
                   )}
-                  {paneTools === "bottom" && toolbar}
                 </article>
               );
             }}

@@ -22,12 +22,12 @@ const fields = {
   showPaneFiles: "进入工作区时展开分栏文件",
   followShellDirectory: "文件面板跟随 Shell",
   followFileDirectory: "Shell 跟随文件面板",
-} satisfies Record<keyof DevicePreferences, string>;
+} satisfies Partial<Record<keyof DevicePreferences, string>>;
 const keys = {
   layout: ["tabs", "paneTools", "restoreWorkspace"],
   terminal: ["fontSize", "font"],
   files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
-} as const satisfies Record<DeviceCategory, readonly (keyof DevicePreferences)[]>;
+} as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时 保活间隔 保活最大次数 已知主机" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
@@ -36,7 +36,7 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
   const [draft, setDraft] = useState(saved);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const shown = (field: keyof DevicePreferences) => keys[category].some((key) => key === field) && (!filter || labels[category].includes(filter) || fields[field].includes(filter));
+  const shown = (field: keyof typeof fields) => keys[category].some((key) => key === field) && (!filter || labels[category].includes(filter) || fields[field].includes(filter));
   const changed = keys[category].some((key) => draft[key] !== base[key]);
   function set<Key extends keyof DevicePreferences>(key: Key, value: DevicePreferences[Key]) {
     setNotice("");
