@@ -240,7 +240,28 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     await access.set(capability("run"), false);
     await expect(execute()).rejects.toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
     await access.set(capability("run"), true);
-    await invoke("approval.revoke", { ...id, expectedApprovalId: approvalId });
+    await access.set("automations.terminal.approval.review", true);
+    const resolvePath = realpathSync.native;
+    const unavailableImage = vi.spyOn(realpathSync, "native").mockImplementation((file, options) => {
+      if (file === "/bin/sh") throw new Error("simulated system sh image unavailable");
+      return resolvePath(file, options);
+    });
+    try {
+      const pending = await review();
+      expect(pending).toMatchObject({ approvalId, target: null, shell: "sh", command, unavailableReason: expect.stringContaining("无法核对 Linux 系统 sh") });
+      expect(pending).not.toHaveProperty("executable");
+      await expect(invoke("approval.review", id, "cli")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      await expect(invoke("external.status", id, "cli")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      await expect(execute({ ...intent, intentId: randomUUID() }, "mcp")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      await expect(invoke("approval.approve", { ...id, target: before.target, expectedRuleVersion: before.ruleVersion, expectedApprovalId: approvalId, names: [variable] })).rejects.toMatchObject({
+        code: "PERMISSION_DENIED",
+      });
+      expect(await invoke("approval.revoke", { ...id, expectedApprovalId: pending.approvalId })).toEqual({ revoked: true });
+      expect(await review()).toMatchObject({ approvalId: null, target: null });
+    } finally {
+      unavailableImage.mockRestore();
+    }
+    expect(await review()).toMatchObject({ approvalId: null, target: before.target });
     await expect(execute({ ...intent, intentId: randomUUID() }, "mcp")).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await approve();
     spaceRevision++;

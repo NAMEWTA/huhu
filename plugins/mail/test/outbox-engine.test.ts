@@ -388,7 +388,10 @@ engineTest(
       expect(independent).toMatchObject({ accountId: second, state: "restored" });
       expect(independent!.existing.accountId).not.toBe(conflict);
       expect(independent!.existing.accountId).not.toBe(second);
-      expect(await accounts()).toMatchObject({ ok: true, data: { accounts: expect.arrayContaining([...oldRows, expect.objectContaining({ accountId: independent!.existing.accountId, authState: { "account-password": "unconfigured" } })]) } });
+      expect(await accounts()).toMatchObject({
+        ok: true,
+        data: { accounts: expect.arrayContaining([...oldRows, expect.objectContaining({ accountId: independent!.existing.accountId, authState: { "account-password": "unconfigured" } })]) },
+      });
       const retry = await preflight();
       assert(retry.ok);
       expect(await submit((retry.data as { previewId: string }).previewId, [second])).toEqual(copied);
@@ -398,13 +401,148 @@ engineTest(
   90_000,
 );
 
-engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可重开重试", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-test-"));
+async function openSubsetFixture(directory: string, discover = vi.fn().mockRejectedValue(new Error("restore must not start a connection"))) {
   const vaultPath = path.join(directory, "vault");
   const localRoot = path.join(directory, "local");
   const protectionRoot = path.join(directory, "keys");
-  for (const dir of [vaultPath, localRoot, protectionRoot]) mkdirSync(dir);
+  for (const dir of [vaultPath, localRoot, protectionRoot]) mkdirSync(dir, { recursive: true });
   const protection = new TestProtection(protectionRoot);
+  const signal = new AbortController().signal;
+  const vault = await Vault.open(vaultPath, { create: true });
+  try {
+    const owner = { vault, localRoot, localVaultInstanceId: "subset-test-instance", protection };
+    const removals = new AccountRemovals(vault.files);
+    const accounts = openMailAccounts(owner, discover, removals);
+    const bindings = new Map<string, CapabilityDefinition>();
+    const events = { publish: vi.fn() };
+    const api = { vault: { files: vault.files }, events, defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry) } as unknown as HuhuApi;
+    const stop = await registerMailSubset(api, accounts, owner, removals, signal, mailIntents(undefined));
+    const call = async (name: string, input: unknown) => {
+      const entry = bindings.get(`mail.subset.${name}`)!;
+      return entry.output.parse(await entry.handler({ caller: "desktop", subject: "subset-test", signal, requestId: randomUUID() }, entry.input.parse(input)));
+    };
+    const credentials = new ModuleCredentials({ ...owner, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings }) => accountTargets(settings) });
+    const close = async () => {
+      await stop();
+      await vault.close();
+    };
+    return { vault, accounts, credentials, call, events, close };
+  } catch (error) {
+    await vault.close();
+    throw error;
+  }
+}
+
+const subsetAccountDefinition = mailAccountDefinitionSchema.parse({
+  format: 1,
+  settings: { provider: "custom_imap", email: sender, label: "原始邮箱", auth: "password", imap: { host: "127.0.0.1", port: 1143, security: "none" }, smtpEnabled: false, smtp: { host: "", port: 1025, security: "none" } },
+  folders: [{ path: "INBOX", name: "INBOX", delimiter: "/", specialUse: null, flags: [] }],
+});
+
+engineTest("Mail 备份内的同地址账号可按各自 ID 恢复到空 Vault", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-"));
+  const opened: Awaited<ReturnType<typeof openSubsetFixture>>[] = [];
+  async function open(name: string) {
+    const fixture = await openSubsetFixture(path.join(directory, name));
+    opened.push(fixture);
+    return fixture;
+  }
+  try {
+    const source = await open("source");
+    const empty = await open("empty");
+    const occupied = await open("occupied");
+    const definition = subsetAccountDefinition;
+    const accountIds = [randomUUID(), randomUUID()];
+    for (const [index, entityId] of accountIds.entries()) {
+      await source.credentials.save({
+        entityId,
+        expectedRevision: null,
+        definition: { ...definition, settings: { ...definition.settings, label: `邮箱 ${index + 1}` } },
+        actions: [{ purpose: accountPasswordPurpose, action: "clear" }],
+      });
+    }
+    const { content } = (await source.call("create", { accountIds })) as { content: string };
+    const preview = async (target: typeof source) => (await target.call("preview", { content })) as MailSubsetPreview;
+    const ready = await preview(empty);
+    expect(ready.accounts).toMatchObject(accountIds.map((accountId) => ({ accountId, state: "ready" })));
+    const result = await empty.call("restore", { previewId: ready.previewId, accountIds, confirm: true });
+    expect(result).toMatchObject({ accounts: accountIds.map((accountId) => ({ accountId, state: "restored", existing: { accountId } })) });
+    const retry = await preview(empty);
+    expect(await empty.call("restore", { previewId: retry.previewId, accountIds, confirm: true })).toEqual(result);
+    expect(await empty.accounts.list()).toHaveLength(2);
+
+    const existingId = randomUUID();
+    await occupied.credentials.save({ entityId: existingId, expectedRevision: null, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "existing password" }] });
+    const previous = (await occupied.accounts.list())[0];
+    const conflict = await preview(occupied);
+    expect(conflict.accounts).toMatchObject(accountIds.map((accountId) => ({ accountId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } })));
+    await expect(occupied.call("restore", { previewId: conflict.previewId, accountIds, confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const chosen = [accountIds[1]!];
+    const independent = (await occupied.call("restore", { previewId: conflict.previewId, accountIds: chosen, keepSeparateAccountIds: chosen, confirm: true })) as Pick<MailSubsetPreview, "accounts">;
+    expect(independent.accounts).toMatchObject([{ accountId: chosen[0], state: "restored" }]);
+    const newId = independent.accounts[0]!.existing!.accountId;
+    expect([existingId, ...accountIds]).not.toContain(newId);
+    const accounts = await occupied.accounts.list();
+    expect(accounts.map(({ accountId }) => accountId).sort()).toEqual([existingId, newId].sort());
+    expect(accounts.find(({ accountId }) => accountId === existingId)).toEqual(previous);
+  } finally {
+    await Promise.all(opened.map(({ close }) => close()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+engineTest.each([1, 2])("Mail 子集从 v%i 恢复后更换定位版本仍识别同一独立账号", async (firstVersion) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-"));
+  let target: Awaited<ReturnType<typeof openSubsetFixture>> | undefined;
+  try {
+    target = await openSubsetFixture(directory);
+    const existingId = randomUUID();
+    const accountId = randomUUID();
+    const definition = subsetAccountDefinition;
+    await target.credentials.save({ entityId: existingId, expectedRevision: null, definition, actions: [{ purpose: accountPasswordPurpose, action: "clear" }] });
+    const mark = createHash("sha256")
+      .update(JSON.stringify([accountId, "INBOX", "42", 7]))
+      .digest("hex");
+    const row = { accountId, definition, drafts: {}, deliveries: [], readOverrides: [mark] };
+    const location = { transport: "imap", folder: "INBOX", uidValidity: "42", uid: 7 };
+    const v1 = { format: "huhu-mail-subset", version: 1, accounts: [row], attachments: {} };
+    const v2 = { ...v1, version: 2, accounts: [{ ...row, messageLocations: [location] }] };
+    const signal = new AbortController().signal;
+    const preview = async ({ vault, call }: NonNullable<typeof target>, packet: unknown) =>
+      (await call("preview", { content: (await createMailArchive(vault.files.read(".huhu/vault.json")!.bytes, packet, signal)).toString("base64") })) as MailSubsetPreview;
+    const first = await preview(target, firstVersion === 1 ? v1 : v2);
+    const result = (await target.call("restore", { previewId: first.previewId, accountIds: [accountId], keepSeparateAccountIds: [accountId], confirm: true })) as Pick<MailSubsetPreview, "accounts">;
+    const restoredId = result.accounts[0]!.existing!.accountId;
+    expect([existingId, accountId]).not.toContain(restoredId);
+
+    await target.close();
+    target = await openSubsetFixture(directory);
+    const second = await preview(target, firstVersion === 1 ? v2 : v1);
+    const restored = { accountId, state: "restored", existing: { accountId: restoredId } };
+    expect(second.accounts).toMatchObject([restored]);
+    expect(second.accounts[0]?.unmappedReadOverrides).toBe(firstVersion === 1 ? 1 : undefined);
+    expect(await target.call("restore", { previewId: second.previewId, accountIds: [accountId], confirm: true })).toMatchObject({ accounts: [restored] });
+    expect(await target.accounts.list()).toHaveLength(2);
+    expect(target.events.publish).not.toHaveBeenCalled();
+
+    const changed = await preview(target, { ...v1, accounts: [{ ...row, readOverrides: [mark, "a".repeat(64)] }] });
+    expect(changed.accounts).toMatchObject([{ accountId, state: "conflict", canKeepSeparate: true }]);
+    await expect(target.call("restore", { previewId: changed.previewId, accountIds: [accountId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const mismatched = await preview(target, {
+      ...v1,
+      accounts: [{ ...row, accountId: existingId, definition: { ...definition, settings: { ...definition.settings, email: "another@example.invalid" } } }],
+    });
+    expect(mismatched.accounts).toMatchObject([{ accountId: existingId, state: "conflict" }]);
+    expect(mismatched.accounts[0]?.canKeepSeparate).toBeUndefined();
+    await expect(target.call("restore", { previewId: mismatched.previewId, accountIds: [existingId], keepSeparateAccountIds: [existingId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  } finally {
+    await target?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可重开重试", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-test-"));
   const discover = vi.fn().mockRejectedValue(new Error("restore must not start a connection"));
   const signal = new AbortController().signal;
   const accountId = randomUUID();
@@ -413,42 +551,67 @@ engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可�
   const deliveryDraftId = randomUUID();
   const revision = randomUUID();
   const operationId = createHash("sha256").update(["mail-submit", deliveryDraftId, revision].join("\0")).digest("hex");
-  const config = { provider: "custom_imap", email: sender, label: "备份邮箱", auth: "password", imap: { host: "127.0.0.1", port: 1143, security: "none" }, smtpEnabled: true, smtp: { host: "127.0.0.1", port: 1025, security: "none" } } as const;
+  const config = {
+    provider: "custom_imap",
+    email: sender,
+    label: "备份邮箱",
+    auth: "password",
+    imap: { host: "127.0.0.1", port: 1143, security: "none" },
+    smtpEnabled: true,
+    smtp: { host: "127.0.0.1", port: 1025, security: "none" },
+  } as const;
   const definition = mailAccountDefinitionSchema.parse({ format: 1, settings: config, folders: [{ path: "INBOX", name: "INBOX", delimiter: "/", specialUse: null, flags: [] }] });
-  const localId = (id: string) => createHash("sha256").update(JSON.stringify([id, "INBOX", "42", 7])).digest("hex");
+  const localId = (id: string) =>
+    createHash("sha256")
+      .update(JSON.stringify([id, "INBOX", "42", 7]))
+      .digest("hex");
   const bytes = Buffer.from("composed attachment");
   const digest = createHash("sha256").update(bytes).digest("hex");
   const timestamp = "2026-01-01T00:00:00.000Z";
   const reply = { accountId, localMessageId: localId(accountId), folder: "INBOX", mode: "reply", subject: "local delivery fact", inReplyTo: "<thread@example.invalid>", references: ["<thread@example.invalid>"] };
   const draft = { ...content, accountId, reply, attachments: [{ digest, name: "fixture.txt", size: bytes.length }] };
-  const delivery = { format: 1, operationId, draftId: deliveryDraftId, revision, messageId: `<${randomUUID()}@huhu.local>`, claimedAt: timestamp, from: sender, auth: "password", smtp: config.smtp, draft, text: "local delivery fact", result: null };
+  const delivery = {
+    format: 1,
+    operationId,
+    draftId: deliveryDraftId,
+    revision,
+    messageId: `<${randomUUID()}@huhu.local>`,
+    claimedAt: timestamp,
+    from: sender,
+    auth: "password",
+    smtp: config.smtp,
+    draft,
+    text: "local delivery fact",
+    result: null,
+  };
   let close: (() => Promise<void>) | undefined;
-  async function open() {
-    const vault = await Vault.open(vaultPath, { create: true });
-    close = () => vault.close();
-    const owner = { vault, localRoot, localVaultInstanceId: "subset-test-instance", protection };
-    const removals = new AccountRemovals(vault.files);
-    const accounts = openMailAccounts(owner, discover, removals);
-    const bindings = new Map<string, CapabilityDefinition>();
-    const events = { publish: vi.fn() };
-    const api = { vault: { files: vault.files }, events, defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry) } as unknown as HuhuApi;
-    const stop = await registerMailSubset(api, accounts, owner, removals, signal, mailIntents(undefined));
-    close = async () => { await stop(); await vault.close(); };
-    const call = async (name: string, input: unknown) => {
-      const entry = bindings.get(`mail.subset.${name}`)!;
-      return entry.output.parse(await entry.handler({ caller: "desktop", subject: "subset-test", signal, requestId: randomUUID() }, entry.input.parse(input)));
-    };
-    const credentials = new ModuleCredentials({ ...owner, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings }) => accountTargets(settings) });
-    return { vault, accounts, credentials, call, events };
-  }
   try {
-    let target = await open();
-    const old = await target.credentials.save({ entityId: accountId, expectedRevision: null, definition: { ...definition, settings: { ...config, label: "本机邮箱" } }, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "local password" }] });
+    let target = await openSubsetFixture(directory, discover);
+    close = target.close;
+    const old = await target.credentials.save({
+      entityId: accountId,
+      expectedRevision: null,
+      definition: { ...definition, settings: { ...config, label: "本机邮箱" } },
+      actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "local password" }],
+    });
     const previous = await target.accounts.list();
-    const archive = { format: "huhu-mail-subset", version: 2, accounts: [{ accountId, definition, drafts: { [draftId]: { revision, updatedAt: timestamp, draft } }, deliveries: [delivery], readOverrides: [localId(accountId), "a".repeat(64)], messageLocations: [{ transport: "imap", folder: "INBOX", uidValidity: "42", uid: 7 }] }], attachments: { [digest]: bytes.toString("base64") } };
+    const archive = {
+      format: "huhu-mail-subset",
+      version: 2,
+      accounts: [
+        {
+          accountId,
+          definition,
+          drafts: { [draftId]: { revision, updatedAt: timestamp, draft } },
+          deliveries: [delivery],
+          readOverrides: [localId(accountId), "a".repeat(64)],
+          messageLocations: [{ transport: "imap", folder: "INBOX", uidValidity: "42", uid: 7 }],
+        },
+      ],
+      attachments: { [digest]: bytes.toString("base64") },
+    };
     const source = target.vault.files.read(".huhu/vault.json")!.bytes;
-    const preview = async (packet: unknown = archive) =>
-      await target.call("preview", { content: (await createMailArchive(source, packet, signal)).toString("base64") }) as MailSubsetPreview;
+    const preview = async (packet: unknown = archive) => (await target.call("preview", { content: (await createMailArchive(source, packet, signal)).toString("base64") })) as MailSubsetPreview;
     const restore = (previewId: string, ids?: string[]) => target.call("restore", { previewId, accountIds: [accountId], confirm: true, ...(ids && { keepSeparateAccountIds: ids }) });
     const cancelled = await preview();
     expect(cancelled.accounts).toMatchObject([{ accountId, state: "conflict", canKeepSeparate: true, unmappedReadOverrides: 1, existing: { accountId, label: "本机邮箱" } }]);
@@ -479,7 +642,7 @@ engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可�
       if (args[0].includes("/mail-subset-confirmed/")) throw new Error("synthetic receipt write failure");
       return write(...args);
     });
-    const outcome = await restore(confirm.previewId, [accountId]).finally(() => failedReceipt.mockRestore()) as Pick<MailSubsetPreview, "accounts">;
+    const outcome = (await restore(confirm.previewId, [accountId]).finally(() => failedReceipt.mockRestore())) as Pick<MailSubsetPreview, "accounts">;
     expect(outcome.accounts).toMatchObject([{ accountId, state: "restored", unmappedReadOverrides: 1 }]);
     const newId = outcome.accounts[0]!.existing!.accountId;
     expect(newId).not.toBe(accountId);
@@ -491,28 +654,21 @@ engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可�
     const remappedDraft = { ...draft, accountId: newId, reply: { ...reply, accountId: newId, localMessageId: localId(newId) } };
     expect(JSON.parse(read(".huhu/mail/drafts.json")!.toString()).drafts[draftId]).toEqual({ revision, updatedAt: timestamp, draft: remappedDraft });
     expect(JSON.parse(read(`.huhu/mail/outbox/${operationId}.json`)!.toString())).toEqual({ ...delivery, draft: remappedDraft });
-    expect(JSON.parse(read(`.huhu/mail/read-overrides/${newId}.json`)!.toString())).toEqual({ format: 1, messages: [localId(newId)] });
+    expect(JSON.parse(read(`.huhu/mail/read-overrides/${newId}.json`)!.toString())).toMatchObject({ format: 1, messages: [localId(newId)] });
     expect(read(`.huhu/mail/read-overrides/${accountId}.json`)).toBeUndefined();
     expect(read(`.huhu/mail/attachments/${digest}`)).toEqual(bytes);
 
     await close?.();
-    target = await open();
+    target = await openSubsetFixture(directory, discover);
+    close = target.close;
     expect(readdirSync(path.join(target.vault.runtimeDir, "mail-subset-confirmed"))).toHaveLength(1);
     const reopened = await preview();
     expect(await restore(reopened.previewId)).toEqual(outcome);
     expect(await target.accounts.list()).toHaveLength(2);
     expect(target.events.publish).not.toHaveBeenCalled();
     expect(discover).not.toHaveBeenCalled();
-    const cacheKey = createHash("sha256").update(JSON.stringify([newId, "INBOX"])).digest("hex");
-    await target.vault.files.write(`.huhu/cache/mail/${cacheKey}.json`, Buffer.from(JSON.stringify({
-      format: 1,
-      uidValidity: "42",
-      message: {
-        summary: { accountId: newId, folder: "INBOX", uidValidity: "42", uid: 7, localMessageId: localId(newId), subject: "fixture", transport: "imap", readState: "local" },
-        source: Buffer.from("Subject: fixture\r\n\r\nprivate cached body").toString("base64"),
-      },
-    })));
-    const exported = await target.call("create", { accountIds: [newId] }) as { content: string };
+    // Re-export directly from durable data after reopening, before any mailbox sync.
+    const exported = (await target.call("create", { accountIds: [newId] })) as { content: string };
     expect(readMailArchive(Buffer.from(exported.content, "base64"))).toMatchObject({
       version: 2,
       accounts: [{ accountId: newId, readOverrides: [localId(newId)], messageLocations: [{ transport: "imap", folder: "INBOX", uidValidity: "42", uid: 7 }] }],

@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 
 interface Review {
   ruleVersion: string;
-  target: string;
+  target: string | null;
   command: string;
   shell: "powershell" | "sh";
   executable?: string;
@@ -30,6 +30,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
     .map((line) => line.trim())
     .filter(Boolean);
   const valid = names.length > 0 && names.length <= 64 && new Set(names).size === names.length && names.every((name) => /^HUHU_RULE_SECRET_[A-Z0-9_]{1,80}$/.test(name));
+  const canApprove = !!review?.target && !review.unavailableReason;
   const shellLabel = review?.shell === "sh" ? "sh 命令" : "PowerShell 命令";
 
   async function inspect() {
@@ -51,7 +52,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
 
   async function save(action: "approve" | "revoke") {
     if (!review || busy) return;
-    if (action === "approve" && review.unavailableReason) return;
+    if (action === "approve" && !canApprove) return;
     setBusy(true);
     setError("");
     try {
@@ -89,7 +90,7 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
             <Button disabled={busy} onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button type="submit" form={form} disabled={!review || !valid || busy || !!review.unavailableReason} aria-describedby={review?.unavailableReason ? unavailableHint : undefined}>
+            <Button type="submit" form={form} disabled={!canApprove || !valid || busy} aria-describedby={review?.unavailableReason ? unavailableHint : undefined}>
               批准这条规则
             </Button>
           </>
@@ -105,7 +106,11 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
             }}
           >
             <p>开放相应工具后，CLI 和 MCP 可以运行这条已批准的命令，并替换或清除下列变量的保护值。请核对命令如何使用这些值。</p>
-            {review.unavailableReason ? <p id={unavailableHint} role="status">{review.unavailableReason}</p> : null}
+            {review.unavailableReason ? (
+              <p id={unavailableHint} role="status">
+                {review.unavailableReason}
+              </p>
+            ) : null}
             <dl>
               <dt>{shellLabel}</dt>
               <dd>
@@ -116,7 +121,9 @@ export function TerminalApproval({ ruleId }: { ruleId: string }) {
               {review.executable ? (
                 <div>
                   <dt>解释器</dt>
-                  <dd><code>{review.executable}</code></dd>
+                  <dd>
+                    <code>{review.executable}</code>
+                  </dd>
                 </div>
               ) : null}
               <dt>工作目录</dt>

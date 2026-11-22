@@ -165,10 +165,12 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       }
     },
     // The subset transaction holds the source ID's removal lock, and a separate copy uses a fresh ID.
-    async restoreDefinition(accountId: string, definition: MailAccountDefinition, signal: AbortSignal, keepSeparate = false) {
+    async restoreDefinition(accountId: string, definition: MailAccountDefinition, signal: AbortSignal, keepSeparate: boolean, restoredInBatch: ReadonlySet<string>) {
       return removals.serializeAddress(definition.settings.email, async () => {
         removals.assertActive(accountId);
-        const existing = (await credentials.list()).find(({ entityId, definition: row }) => entityId === accountId || (!keepSeparate && row.settings.email.toLowerCase() === definition.settings.email.toLowerCase()));
+        const existing = (await credentials.list()).find(
+          ({ entityId, definition: row }) => entityId === accountId || (!keepSeparate && !restoredInBatch.has(entityId) && row.settings.email.toLowerCase() === definition.settings.email.toLowerCase()),
+        );
         if (existing) throw errors.versionConflict(existing.revision);
         return credentials.save({ entityId: accountId, expectedRevision: null, definition, actions: [{ purpose: accountPasswordPurpose, action: "clear" }], signal });
       });

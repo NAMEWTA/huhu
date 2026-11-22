@@ -6,7 +6,7 @@ import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureSt
 import { filesystemIdentity, VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
-import { inspectLinuxShell, type ApprovedLinuxShell } from "./approved-linux-shell.js";
+import { inspectLinuxShell, unavailableLinuxImage, type ApprovedLinuxShell } from "./approved-linux-shell.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { hasLegacyTerminalEnvironment, sameDir, type AutomationsService, type TerminalRuleLaunch } from "./service.js";
 
@@ -28,7 +28,7 @@ const approval = z.strictObject({ id: z.uuidv4(), target: digest, names: approve
 const approvalFile = z.strictObject({ format: z.literal(1), approval: approval.nullable(), suspended: z.literal(true).optional() });
 const review = z.strictObject({
   ruleVersion,
-  target: digest,
+  target: digest.nullable(),
   command: z.string(),
   shell: z.enum(["powershell", "sh"]),
   executable: z.string().optional(),
@@ -233,7 +233,7 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   const requireApprovedShell = (shell: ApprovedLinuxShell | undefined) => {
     if (shell && !canLaunchApprovedShell()) throw errors.permissionDenied(unavailableLinuxLaunch);
   };
-  const describeTarget = (ruleId: string) => {
+  const describeRule = (ruleId: string) => {
     const rule = rules.rule(ruleId);
     const { action } = rule.data;
     if (action.kind !== "terminal" || hasLegacyTerminalEnvironment(action)) {
@@ -243,21 +243,30 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
     if (!(process.platform === "linux" && shell === "sh") && !(process.platform === "win32" && shell === "powershell")) {
       throw errors.permissionDenied("外部批准支持 Linux 的显式 sh 和 Windows 的 PowerShell");
     }
-    const approvedShell = shell === "sh" ? inspectLinuxShell(action.command) : undefined;
     const space = resolveSpace(action);
     if (!space) throw errors.permissionDenied("规则 Space 当前不可用");
     const root = realpathSync.native(space.root);
+    const display = { ruleVersion: rule.version, command: action.command, shell, space: { id: space.id, root, revision: space.revision } };
+    return { rule, action, originalRoot: space.root, display };
+  };
+  const identifyTarget = (ruleId: string, { rule, action, originalRoot, display }: ReturnType<typeof describeRule>, approvedShell: ApprovedLinuxShell | undefined) => {
+    const { root, id, revision } = display.space;
     const spaceStat = statSync(root, { bigint: true });
     const ruleStat = statSync(api.vault.files.abs(rule.path), { bigint: true });
     const spaceIdentity = filesystemIdentity(spaceStat);
     const ruleIdentity = filesystemIdentity(ruleStat);
     if (!spaceStat.isDirectory() || !spaceIdentity || !ruleIdentity) throw errors.permissionDenied("规则目标的本机身份不可核对");
-    const environmentTarget = targetOf(ruleId, action, space.id, space.revision);
+    const environmentTarget = targetOf(ruleId, action, id, revision);
     const directory: ProtectedDirectory = { path: root, identity: spaceIdentity, birthtimeNs: String(spaceStat.birthtimeNs) };
-    const originalTarget = [environmentTarget, space.root, directory.path, directory.identity, directory.birthtimeNs, rule.version, ruleIdentity, String(ruleStat.mtimeNs)];
+    const originalTarget = [environmentTarget, originalRoot, directory.path, directory.identity, directory.birthtimeNs, rule.version, ruleIdentity, String(ruleStat.mtimeNs)];
     // Keep the existing Windows target digest and bind the Linux approval to a concrete image and argv.
     const target = hash(approvedShell ? ["linux-sh", host?.localVaultInstanceId, originalTarget, approvedShell] : originalTarget);
-    return { ruleVersion: rule.version, target, environmentTarget, directory, approvedShell, command: action.command, shell, space: { id: space.id, root, revision: space.revision } };
+    return { ...display, target, environmentTarget, directory, approvedShell };
+  };
+  const inspectTargetShell = ({ shell, command }: ReturnType<typeof describeRule>["display"]) => (shell === "sh" ? inspectLinuxShell(command) : undefined);
+  const describeTarget = (ruleId: string) => {
+    const current = describeRule(ruleId);
+    return identifyTarget(ruleId, current, inspectTargetShell(current.display));
   };
   const requireDesktop = (caller: string) => {
     if (caller !== "desktop") throw errors.permissionDenied("管理本机规则批准");
@@ -397,14 +406,23 @@ export function registerTerminalEnvironments(api: HuhuApi, rules: Pick<Automatio
   api.defineCapability(
     bindCapability(terminalEnvironmentDescriptors.review, (c, { ruleId }) => {
       if (c.caller !== "desktop") assertExternal(c, terminalEnvironmentDescriptors.review.name);
-      const { environmentTarget: _, directory: _directory, approvedShell, ...current } = describeTarget(ruleId);
+      const current = describeRule(ruleId);
+      let approvedShell: ApprovedLinuxShell | undefined;
+      let unavailableReason: string | undefined;
+      try {
+        approvedShell = inspectTargetShell(current.display);
+      } catch (error) {
+        if (c.caller !== "desktop" || !(error instanceof HuhuError) || error.code !== "PERMISSION_DENIED") throw error;
+        unavailableReason = unavailableLinuxImage;
+      }
+      const target = unavailableReason ? null : identifyTarget(ruleId, current, approvedShell).target;
+      if (approvedShell && !canLaunchApprovedShell()) unavailableReason = unavailableLinuxLaunch;
       const grant = readApproval(ruleId).approval;
       return {
-        ...current,
-        ...(approvedShell && {
-          executable: approvedShell.executable.path,
-          ...(!canLaunchApprovedShell() && { unavailableReason: unavailableLinuxLaunch }),
-        }),
+        ...current.display,
+        target,
+        ...(approvedShell && { executable: approvedShell.executable.path }),
+        ...(unavailableReason && { unavailableReason }),
         names: portable(ruleId)?.definition.names ?? grant?.names ?? [],
         approvalId: grant?.id ?? null,
       };

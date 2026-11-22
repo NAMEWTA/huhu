@@ -8,6 +8,8 @@ export type ApprovedLinuxShell = {
   argv: [executable: string, flag: "-c", command: string];
 };
 
+export const unavailableLinuxImage = "无法核对 Linux 系统 sh 的可执行文件";
+
 /** External sh approval is for the system shell; ambient PATH has no role in selecting it. */
 export function inspectLinuxShell(command: string): ApprovedLinuxShell {
   try {
@@ -23,8 +25,7 @@ export function inspectLinuxShell(command: string): ApprovedLinuxShell {
       if (!identity || !before.isFile() || appOwnsFile || (before.mode & 0o022n) !== 0n || (before.mode & 0o111n) === 0n) throw new Error("Untrusted image");
       const bytes = readFileSync(fd);
       const after = fstatSync(fd, { bigint: true });
-      if (bytes.readUInt32BE(0) !== 0x7f454c46 || before.ctimeNs !== after.ctimeNs || before.mtimeNs !== after.mtimeNs || before.size !== after.size)
-        throw new Error("Shell image changed or is not ELF");
+      if (bytes.readUInt32BE(0) !== 0x7f454c46 || before.ctimeNs !== after.ctimeNs || before.mtimeNs !== after.mtimeNs || before.size !== after.size) throw new Error("Shell image changed or is not ELF");
       const executable = {
         path,
         identity,
@@ -39,6 +40,6 @@ export function inspectLinuxShell(command: string): ApprovedLinuxShell {
       closeSync(fd);
     }
   } catch {
-    throw errors.permissionDenied("无法核对 Linux 系统 sh 的可执行文件");
+    throw errors.permissionDenied(unavailableLinuxImage);
   }
 }

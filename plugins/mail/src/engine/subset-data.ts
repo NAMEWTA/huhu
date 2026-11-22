@@ -12,9 +12,9 @@ import type { MailAccountOwner, openMailAccounts } from "./accounts.js";
 import { attachmentDigest, attachmentObjectPath, MAX_DRAFT_ATTACHMENT_BYTES } from "./draft-attachments.js";
 import { uuid, type StoredDraftContent } from "./draft-content.js";
 import { draftsPath, readDraftSnapshot, storedDraft, withMailSnapshot } from "./drafts.js";
-import { cachedMessageLocations, portableLocalMessageId, portableMessageLocation } from "./message-cache.js";
+import { cachedMessageLocations, portableLocalMessageId } from "./message-cache.js";
 import { outboxRecordPath, outboxRecordSchema, OutboxStorage, parseOutboxRecord } from "./outbox-storage.js";
-import { readOverrideFile, readOverrideId, readOverridePath, readOverrides } from "./read-overrides.js";
+import { portableMessageLocation, readOverrideFile, readOverrideId, readOverridePath, readOverrides, type PortableMessageLocation } from "./read-overrides.js";
 import { createMailArchive, readMailArchive } from "./subset-archive.js";
 
 import { mailUnknown, type MailIntents } from "./tool-intents.js";
@@ -65,7 +65,8 @@ type Plan = { packet: Packet; rows: PlanRow[]; actor: string; expires: number; r
 const ownerOf = (context: CapabilityContext) => mailActor(context, "mail.subset");
 const json = (value: unknown) => Buffer.from(JSON.stringify(value) + "\n");
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-const fingerprint = (row: Data) => hash(json(row));
+// Locations help rebind references, but do not change the source account or its durable content.
+const fingerprint = ({ messageLocations: _locations, ...row }: Data) => hash(json(row));
 const emailOf = (row: Data) => row.definition.settings.email.toLowerCase();
 const invalid = (message: string) => new HuhuError("INVALID_INPUT", message, { details: { reason: "mail-subset" } });
 const expireMs = 5 * 60_000;
@@ -75,7 +76,11 @@ function draftContents(row: Data) {
 }
 
 function attachmentRefs(row: Data) {
-  return new Map(draftContents(row).flatMap((draft) => draft.attachments ?? []).map((ref) => [ref.digest, ref]));
+  return new Map(
+    draftContents(row)
+      .flatMap((draft) => draft.attachments ?? [])
+      .map((ref) => [ref.digest, ref]),
+  );
 }
 
 function sourceReferences(row: Data) {
@@ -84,14 +89,24 @@ function sourceReferences(row: Data) {
     .flatMap((source) => (source?.accountId === row.accountId ? [source] : []));
 }
 
-function messageIds(row: Data, targetId: string) {
+function messageIds(row: Data, targetId: string, locations = row.messageLocations ?? []) {
   const ids = new Map<string, string>();
-  for (const location of row.messageLocations ?? []) {
+  for (const location of locations) {
     const oldId = portableLocalMessageId(row.accountId, location, row.definition);
     const newId = portableLocalMessageId(targetId, location, row.definition);
     if (oldId && newId) ids.set(oldId, newId);
   }
   return ids;
+}
+
+function countUnmappedReadOverrides(files: Files, row: Data, restoredId: string | undefined) {
+  const saved = restoredId ? readOverrides(files, restoredId) : undefined;
+  const locations = [...(row.messageLocations ?? []), ...(saved?.messageLocations ?? [])];
+  const ids = messageIds(row, restoredId ?? row.accountId, locations);
+  return [...new Set(row.readOverrides)].filter((id) => {
+    const mapped = ids.get(id);
+    return !mapped || (saved && !saved.ids.has(mapped));
+  }).length;
 }
 
 function validate(input: unknown): Packet {
@@ -122,8 +137,7 @@ function validate(input: unknown): Packet {
         const ids = messageIds(row, row.accountId);
         const referenced = new Set([...row.readOverrides, ...sourceReferences(row).map(({ localMessageId }) => localMessageId)]);
         const folders = new Set(row.definition.folders.map(({ path }) => path));
-        if (ids.size !== row.messageLocations.length || [...ids.keys()].some((id) => !referenced.has(id)) || row.messageLocations.some(({ folder }) => !folders.has(folder)))
-          throw invalid("包内邮件定位与引用不一致。");
+        if (ids.size !== row.messageLocations.length || [...ids.keys()].some((id) => !referenced.has(id)) || row.messageLocations.some(({ folder }) => !folders.has(folder))) throw invalid("包内邮件定位与引用不一致。");
       }
     }
     let total = 0;
@@ -159,11 +173,17 @@ async function assemble(files: Files, accounts: Accounts, ids: string[], signal:
     const sending = recorded.filter((item) => !("deleted" in item) && item.draft.accountId === accountId);
     const draftIds = new Set([...Object.keys(drafts), ...sending.map((item) => item.draftId)]);
     const deliveries = [...sending, ...recorded.filter((item) => "deleted" in item && draftIds.has(item.draftId))];
-    const marked = readOverrides(files, accountId).ids;
+    const { ids: marked, messageLocations } = readOverrides(files, accountId);
     const row: Data = { accountId, definition, drafts, deliveries, readOverrides: [] };
     const referenced = new Set(sourceReferences(row).map(({ localMessageId }) => localMessageId));
-    const locations = new Map<string, z.infer<typeof portableMessageLocation>>();
-    for (const { path: folder } of definition.folders) {
+    const folders = new Set(definition.folders.map(({ path }) => path));
+    const locations = new Map<string, PortableMessageLocation>();
+    for (const location of messageLocations ?? []) {
+      if (!folders.has(location.folder)) continue;
+      const id = portableLocalMessageId(accountId, location, definition);
+      if (id && marked.has(id)) locations.set(id, location);
+    }
+    for (const folder of folders) {
       for (const { localMessageId, localRead, location } of cachedMessageLocations(files, { accountId, folder })) {
         if (localRead) marked.add(localMessageId);
         if ((marked.has(localMessageId) || referenced.has(localMessageId)) && portableLocalMessageId(accountId, location, definition) === localMessageId) locations.set(localMessageId, location);
@@ -193,26 +213,24 @@ async function inspect(files: Files, accounts: Accounts, removals: AccountRemova
   const { snapshot } = readDraftSnapshot(files);
   return data.accounts.map((row) => {
     const key = fingerprint(row);
-    const { messageLocations, ...legacy } = row;
-    const legacyKey = messageLocations ? fingerprint(legacy) : key;
-    const confirmedTargetId = confirmed.get(key) ?? confirmed.get(legacyKey);
+    const previousKey = row.messageLocations ? hash(json(row)) : key;
+    const confirmedTargetId = confirmed.get(key) ?? confirmed.get(previousKey);
     const restored = current.find(({ accountId, definition }) => {
       if (confirmedTargetId && accountId !== confirmedTargetId) return false;
-      return definition.restoredFrom === key || (accountId === row.accountId && definition.restoredFrom === legacyKey);
+      return definition.restoredFrom === key || definition.restoredFrom === previousKey;
     });
     const sameId = current.find(({ accountId }) => accountId === row.accountId);
     const sameAddress = current.find(({ definition }) => definition.settings.email.toLowerCase() === emailOf(row));
     const blocked =
       !!confirmedTargetId ||
       !!removals.read(row.accountId) ||
-      data.accounts.some((other) => other !== row && emailOf(other) === emailOf(row)) ||
       Object.keys(row.drafts).some((id) => snapshot.drafts[id]) ||
       row.deliveries.some(({ operationId }) => files.exists(outboxRecordPath(operationId))) ||
       [...attachmentRefs(row).values()].some(({ digest, size }) => files.exists(attachmentObjectPath(digest)) && !bytesAt(files, digest, size));
     const canKeepSeparate = !restored && !blocked && !!sameAddress;
     const same = restored ?? sameAddress ?? sameId;
-    const messageMap = canKeepSeparate || (restored && restored.accountId !== row.accountId) ? messageIds(row, row.accountId) : undefined;
-    const unmappedReadOverrides = messageMap ? [...new Set(row.readOverrides)].filter((id) => !messageMap.has(id)).length : 0;
+    const remappedId = restored && restored.accountId !== row.accountId ? restored.accountId : undefined;
+    const unmappedReadOverrides = canKeepSeparate || remappedId ? countUnmappedReadOverrides(files, row, remappedId) : 0;
     const { email, label } = row.definition.settings;
     return {
       accountId: row.accountId,
@@ -262,10 +280,15 @@ function prepare(files: Files, row: Data, data: Packet, targetId: string): OpSte
   }
   const messages = remapped ? [...new Set(row.readOverrides.flatMap((id) => remapped.get(id) ?? []))].sort() : row.readOverrides;
   if (messages.length) {
+    const readIds = new Set(row.readOverrides);
+    const messageLocations = row.messageLocations?.filter((location) => {
+      const id = portableLocalMessageId(row.accountId, location, row.definition);
+      return id !== undefined && readIds.has(id);
+    });
     const file = readOverridePath(targetId);
     const version = files.currentVersion(file);
     if (version) throw errors.versionConflict(version);
-    steps.push({ action: "write", path: file, bytes: json(readOverrideFile.parse({ format: 1, messages })) });
+    steps.push({ action: "write", path: file, bytes: json(readOverrideFile.parse({ format: 1, messages, ...(messageLocations?.length && { messageLocations }) })) });
   }
   return steps;
 }
@@ -455,6 +478,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                 return state === "conflict";
               });
               if (rows.length !== chosen.size || incompatible) throw invalid("所选邮箱存在冲突，请重新预检并选择可恢复项。");
+              const restoredInBatch = new Set<string>();
               for (const row of data.accounts) {
                 if (!chosen.has(row.accountId) || rows.find(({ accountId }) => accountId === row.accountId)?.state === "restored") continue;
                 signal.throwIfAborted();
@@ -467,7 +491,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                 try {
                   await journal.run(id, `mail-subset:${targetId}:${key}`, changes, { afterStep: () => signal.throwIfAborted() });
                   signal.throwIfAborted();
-                  await ownerAccounts.restoreDefinition(targetId, { ...row.definition, restoredFrom: key }, signal, keepSeparate);
+                  await ownerAccounts.restoreDefinition(targetId, { ...row.definition, restoredFrom: key }, signal, keepSeparate, restoredInBatch);
                 } catch (error) {
                   if (ownerAccounts.readDefinition(targetId)?.definition.restoredFrom !== key) {
                     try {
@@ -479,6 +503,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                     throw error;
                   }
                 }
+                restoredInBatch.add(targetId);
                 confirmed.set(key, targetId);
                 await files.write(done(id), json({ format: 1 }), { expectedVersion: null }).catch(() => undefined);
                 if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: targetId, op: "created" });

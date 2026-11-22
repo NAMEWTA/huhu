@@ -17,29 +17,24 @@ import { messageBody, parseMessageBody } from "./message-body.js";
 import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
 import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply.js";
 import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
-import { preserveReadOverrides, readOverridePath, readOverrides } from "./read-overrides.js";
+import { gmailMessageLocation, imapMessageLocation, preserveReadOverrides, readOverridePath, readOverrides, type PortableMessageLocation } from "./read-overrides.js";
 import { loadRemoteImages, maxRemoteImages, remoteImageTypes } from "./remote-images.js";
 import { sourceMessage } from "./reply-context.js";
 import { searchableHtml, type makeMailSearchText } from "./search-text.js";
 
 const mailbox = sourceMessage.omit({ localMessageId: true });
-const uidValidity = z.string().regex(/^[1-9][0-9]*$/);
+const { uidValidity, uid } = imapMessageLocation.shape;
 const readState = z.enum(["unread", "local", "synced"]);
 const messageSummary = mailbox.extend({
   localMessageId: sourceMessage.shape.localMessageId,
   subject: z.string(),
   readState: readState.optional(),
 });
-export const imapSummary = messageSummary.extend({ transport: z.literal("imap"), uidValidity, uid: z.int().positive() });
-export const gmailSummary = messageSummary.extend({ transport: z.literal("gmail"), nativeId: gmailNativeId });
+export const imapSummary = messageSummary.extend(imapMessageLocation.shape);
+export const gmailSummary = messageSummary.extend(gmailMessageLocation.shape);
 export const cachedSummary = z.discriminatedUnion("transport", [imapSummary, gmailSummary]);
-export const portableMessageLocation = z.discriminatedUnion("transport", [
-  imapSummary.pick({ transport: true, folder: true, uidValidity: true, uid: true }),
-  gmailSummary.pick({ transport: true, folder: true, nativeId: true }),
-]);
-type PortableMessageLocation = z.infer<typeof portableMessageLocation>;
 const messageTarget = sourceMessage.extend({ source: z.literal("gmail"), nativeId: gmailNativeId });
-const imapTarget = sourceMessage.extend({ source: z.literal("imap"), uidValidity, uid: z.int().positive() });
+const imapTarget = sourceMessage.extend({ source: z.literal("imap"), uidValidity, uid });
 export const receivedTarget = z.discriminatedUnion("source", [imapTarget, messageTarget]);
 export function receivedLocation(item: z.infer<typeof cachedSummary>): z.infer<typeof receivedTarget> {
   const { accountId, folder, localMessageId } = item;
@@ -219,16 +214,17 @@ function localReadIds(record: CacheRecord) {
 export function cachedMessageLocations(files: Files, input: Mailbox) {
   const { record } = readSnapshot(files, input);
   const snapshots = !record ? [] : record.format === 1 ? [record] : [record.imap, record.gmail];
-  return snapshots.flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null)).map(({ summary, localRead }) => {
-    const { localMessageId, transport, folder } = summary;
-    const location: PortableMessageLocation =
-      transport === "imap" ? { transport, folder, uidValidity: summary.uidValidity, uid: summary.uid } : { transport, folder, nativeId: summary.nativeId };
-    return {
-      localMessageId,
-      localRead: localRead || summary.readState === "local",
-      location,
-    };
-  });
+  return snapshots
+    .flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null))
+    .map(({ summary, localRead }) => {
+      const { localMessageId, transport, folder } = summary;
+      const location: PortableMessageLocation = transport === "imap" ? { transport, folder, uidValidity: summary.uidValidity, uid: summary.uid } : { transport, folder, nativeId: summary.nativeId };
+      return {
+        localMessageId,
+        localRead: localRead || summary.readState === "local",
+        location,
+      };
+    });
 }
 
 function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
