@@ -8,7 +8,7 @@ const browserBinary = [chromium.executablePath(), edge].find((file) => file && e
 
 test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板保存重开", async () => {
   test.skip(!browserBinary, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
-  const { page, vault, close } = await openApp();
+  const { app, page, vault, close } = await openApp();
   let browser: Browser | undefined;
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -16,9 +16,28 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await page.getByRole("tab", { name: "服务端" }).click();
     const share = page.getByTestId("web-share-panel");
     await expect(share.getByText("已停止", { exact: true })).toBeVisible();
-    await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("local");
+    const scope = share.getByRole("combobox", { name: "分享范围" });
+    await expect(scope).toHaveValue("lan");
+    await scope.selectOption("local");
     await share.getByRole("button", { name: "启动分享" }).click();
     await expect(share.getByText("运行中", { exact: true })).toBeVisible();
+    const addresses = share.getByRole("list", { name: "访问地址" });
+    const localAddress = addresses.getByRole("link", { name: /^http:\/\/127\.0\.0\.1:/u });
+    await expect(localAddress).toBeVisible();
+    const url = (await localAddress.getAttribute("href"))!;
+    await addresses.getByRole("button", { name: `复制访问地址 ${url}` }).click();
+    await expect(share.getByRole("status")).toContainText("已复制访问地址。");
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(url);
+    await app.evaluate(({ dialog, shell }) => {
+      const opened: string[] = [];
+      Object.assign(globalThis, { webShareOpened: opened });
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+      shell.openExternal = async (link) => {
+        opened.push(link);
+      };
+    });
+    await localAddress.click();
+    await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "webShareOpened"))).toEqual([new URL(url).href]);
 
     const links = page.getByRole("dialog", { name: "Web 邀请链接" });
     const readLink = async () => {

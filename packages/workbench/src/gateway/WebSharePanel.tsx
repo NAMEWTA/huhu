@@ -1,4 +1,4 @@
-import { Badge, Button, Dialog, Field } from "@huhu/ui";
+import { Badge, Button, Dialog, Field, IconButton } from "@huhu/ui";
 import { Copy, Globe } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useCapability, useEngine } from "../engine-client/react.js";
@@ -23,7 +23,7 @@ export function WebSharePanel() {
   const engine = useEngine();
   const status = useCapability<ShareStatus>("web.share.status");
   const invitations = useCapability<Invitation[]>("web.invitations.list");
-  const [mode, setMode] = useState<ShareConfig["mode"]>("local");
+  const [mode, setMode] = useState<ShareConfig["mode"]>("lan");
   const [portInput, setPortInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [links, setLinks] = useState<(InvitationLinks & { generation: string }) | null>(null);
@@ -96,15 +96,16 @@ export function WebSharePanel() {
     setNotice(result.revoked ? "已撤销选中的邀请及其浏览器会话。" : "这份邀请已失效。");
   }
 
-  async function copy(link: string) {
-    setCopyStatus("");
+  async function copy(text: string, kind: "访问地址" | "邀请链接") {
+    const feedback = kind === "邀请链接" ? setCopyStatus : setNotice;
+    feedback("");
     try {
       const desktop = host();
-      if (desktop?.copyText) await desktop.copyText(link);
-      else await navigator.clipboard.writeText(link);
-      setCopyStatus("已复制邀请链接。");
+      if (desktop?.copyText) await desktop.copyText(text);
+      else await navigator.clipboard.writeText(text);
+      feedback(`已复制${kind}。`);
     } catch {
-      setCopyStatus("剪贴板不可用，可以从链接栏手动复制。");
+      feedback(`剪贴板不可用，可手动复制${kind}。`);
     }
   }
 
@@ -131,11 +132,26 @@ export function WebSharePanel() {
           </div>
           <ul aria-label="访问地址">
             {active.addresses.map(({ url, interfaceName }) => (
-              <li key={url}>
-                <code>{url}</code> · {interfaceName ?? "本机"}
+              <li key={url} className="row">
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(event) => {
+                    const open = host()?.openExternal;
+                    if (!open) return;
+                    event.preventDefault();
+                    void open(url).catch(() => setNotice("无法打开访问地址，可复制到浏览器。"));
+                  }}
+                >
+                  <code>{url}</code>
+                </a>
+                <span>{interfaceName ?? "本机"}</span>
+                <IconButton type="button" icon={Copy} label={`复制访问地址 ${url}`} onClick={() => void copy(url, "访问地址")} />
               </li>
             ))}
           </ul>
+          {active.config.mode === "lan" && active.addresses.every(({ interfaceName }) => interfaceName === null) ? <p className="hu-hint-text">未发现可用的局域网地址，当前只能从本机打开。</p> : null}
           <h3>有效邀请</h3>
           {sessionRows.length ? (
             <ul aria-label="有效邀请">
@@ -207,7 +223,7 @@ export function WebSharePanel() {
             <Field label={new URL(link).host} key={link}>
               <div className="row">
                 <input aria-label={`邀请链接 ${new URL(link).host}`} className="hu-flex-fill" value={link} readOnly onFocus={(event) => event.target.select()} />
-                <Button icon={Copy} onClick={() => void copy(link)}>
+                <Button type="button" icon={Copy} onClick={() => void copy(link, "邀请链接")}>
                   复制链接
                 </Button>
               </div>
