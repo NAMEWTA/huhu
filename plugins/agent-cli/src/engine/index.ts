@@ -725,7 +725,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       if (!i.dryRun) writable();
       const selected = checkedSession(c, i.sessionId, i, i.dryRun ? "version" : "binding");
       if (selected && (!i.commentIds?.length || launchHash(selected) !== i.expectedRevision)) throw errors.invalidInput("请选择原会话版本和要发送的意见");
-      const { text, sent } = await sessions.sendComments(i.sessionId, i.commentIds, i.dryRun, selected && i.generation);
+      const { text, sent } = await sessions.sendComments(i.sessionId, i.commentIds, i.dryRun, selected && i.generation, isWorkbenchCaller(c.caller) ? i.controlId : undefined);
       return selected || c.parentOperationId || !i.dryRun ? { sent } : { sent, text };
     }),
   );

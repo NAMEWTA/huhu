@@ -1,4 +1,5 @@
 import { attachTerminal } from "@huhu/herdr-client";
+import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { HerdrCore } from "./herdr-core.js";
 import type { SessionsService } from "./sessions.js";
@@ -22,9 +23,15 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     if (!s?.terminalId) return false;
     const holder = controllers.get(sessionId);
     const taken = holder !== undefined && holder.readyState === holder.OPEN;
-    const release = !s.controlled && !requested.observe && !taken ? d.ownership?.take(sessionId, "manual") : undefined;
-    const opts = { ...requested, observe: !!s.controlled || requested.observe || taken || (d.ownership !== undefined && !release) };
-    if (!opts.observe) controllers.set(sessionId, ws);
+    const controlId = !s.controlled && !requested.observe && !taken ? randomUUID() : undefined;
+    const recoveryOnly = controlId !== undefined && d.ownership !== undefined && d.sessions.reviewInputPending(sessionId);
+    const reconnect = () => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "mode", mode: "control-free" }));
+    };
+    const release = controlId ? d.ownership?.take(sessionId, "manual", controlId, recoveryOnly ? { onReviewRecovered: reconnect } : undefined) : undefined;
+    const controlsView = controlId !== undefined && (d.ownership === undefined || release !== undefined);
+    const opts = { ...requested, observe: !controlsView || recoveryOnly };
+    if (controlsView) controllers.set(sessionId, ws);
     else if (!requested.observe && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: "mode", mode: "observe" })); // 告诉客户端它被降级为观察者
       demoted.set(sessionId, [...(demoted.get(sessionId) ?? []), ws]);
@@ -36,9 +43,12 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       );
       if (controllers.get(sessionId) !== ws) return;
       controllers.delete(sessionId);
-      release?.();
-      const next = (demoted.get(sessionId) ?? []).find((x) => x.readyState === x.OPEN);
-      if (next) next.send(JSON.stringify({ type: "mode", mode: "control-free" })); // 客户端据此重新连接，成为控制者
+      const promoteNext = () => {
+        const next = (demoted.get(sessionId) ?? []).find((x) => x.readyState === x.OPEN);
+        if (next) next.send(JSON.stringify({ type: "mode", mode: "control-free" }));
+      };
+      if (release) release(promoteNext);
+      else promoteNext();
     };
     ws.on("close", releaseControl);
     // attach 是异步的：客户端可能在连上后立刻发送输入，先收进队列，attach 完成后再按序写入
@@ -99,6 +109,7 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       }
     });
     term = t;
+    if (release && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "mode", mode: opts.observe ? "observe" : "control", controlId }));
     for (const m of queue.splice(0)) handle(m.data, m.isBinary);
     return true;
   };

@@ -56,6 +56,7 @@ export const t = {
     send: (n: number) => `发送审查意见（${n}）`,
     sent: (n: number) => `已把 ${n} 条意见发送到会话`,
     notRunning: "会话没有在运行：恢复会话后再发送",
+    noInputControl: "请从拥有输入控制权的终端视图发送。",
     confirmTitle: "确认发送审查意见",
     confirmBody: "下面这段文字会写进会话的输入，并且自动回车提交。",
     confirmSend: "确认发送",

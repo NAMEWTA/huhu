@@ -1,4 +1,4 @@
-import { Button, EmptyState, IconButton, TerminalView } from "@huhu/ui";
+import { Button, EmptyState, IconButton, TerminalView, type TerminalControl } from "@huhu/ui";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Maximize, Minimize, Move, Plus, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { leaves, type Pane, type PaneLeaf, type SplitDirection } from "../shared/workspace-layout.js";
@@ -90,6 +90,7 @@ interface CanvasProps {
   onZoom(id: string): void;
   onResize(id: string, ratio: number): void;
   onReview(id: string): void;
+  onTerminalControl(leafId: string, control: TerminalControl | undefined): void;
   onInterrupt(id: string): void;
   status(session: WorkspaceSession): ReactNode;
 }
@@ -113,6 +114,7 @@ export function WorkspaceCanvas({
   onZoom,
   onResize,
   onReview,
+  onTerminalControl,
   onInterrupt,
   status,
 }: CanvasProps) {
@@ -235,7 +237,14 @@ export function WorkspaceCanvas({
               </div>
               <div className="agent-workspace-pane-body">
                 {session?.state === "running" ? (
-                  <TerminalView key={session.id} baseUrl={endpoint.baseUrl} token={endpoint.token} sessionId={session.id} ariaLabel={paneCount === 1 ? t.terminalLabel : `${t.terminalLabel} ${session.name}`} />
+                  <TerminalView
+                    key={session.id}
+                    baseUrl={endpoint.baseUrl}
+                    token={endpoint.token}
+                    sessionId={session.id}
+                    ariaLabel={paneCount === 1 ? t.terminalLabel : `${t.terminalLabel} ${session.name}`}
+                    onTerminalControl={(control) => onTerminalControl(leaf.id, control)}
+                  />
                 ) : leaf.sessionId ? (
                   <EmptyState title={session?.state === "exited" ? t.exitedTitle(session.exitCode ?? null) : (session?.error ?? "原会话当前不可用")} />
                 ) : (

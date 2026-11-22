@@ -143,7 +143,7 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
         </p>
       ) : null}
       <section className="hu-card-alt" aria-label="工具开放策略">
-        <fieldset className="hu-stack" disabled={!policyReady}>
+        <fieldset className="hu-stack" disabled={!policyReady || busy}>
           <legend>批量开放策略</legend>
           <div className="row">
             <label className="row">
@@ -210,7 +210,7 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
             <Button onClick={showBatch}>预览批量操作</Button>
           </div>
         </fieldset>
-        <p role="status">{notice}</p>
+        <p role="status">{busy && !draft ? "正在更新工具选择…" : notice}</p>
         {error && !draft ? (
           <p role="alert" className="hu-field-error">
             {error.message}
@@ -240,7 +240,7 @@ export function ToolPolicyCatalog({ entries, filter, policy }: { entries: Capabi
               width: 110,
               cell: (c) =>
                 c.exposable ? (
-                  <ChoiceSwitch disabled={!policyReady} checked={c.selected === true} label={`暴露 ${c.name}`} onChange={(exposed) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }])} />
+                  <ChoiceSwitch disabled={!policyReady || busy} checked={c.selected === true} label={`暴露 ${c.name}`} onChange={(exposed) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }])} />
                 ) : (
                   <span className="small muted">{g.never}</span>
                 ),

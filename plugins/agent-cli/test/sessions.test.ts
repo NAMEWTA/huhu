@@ -6,6 +6,7 @@ import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { filesystemIdentity } from "@huhu/vault";
 import { HerdrCore } from "../src/engine/herdr-core.js";
 import { AgentDetector } from "../src/engine/detect.js";
+import { InputOwnership } from "../src/engine/input-ownership.js";
 import { resolveAgentLaunch } from "../src/engine/launch.js";
 import { emptyAgentSettings } from "../src/shared/index.js";
 import { SessionsService } from "../src/engine/sessions.js";
@@ -34,6 +35,7 @@ function fakeClient(
     coreId?: () => string;
     output?: string;
     beforeHello?: () => Promise<void>;
+    beforeSend?: () => Promise<void>;
   } = {},
 ) {
   const terminals: { address: string; labels: Record<string, string>; argv?: string[]; cwd: string; pid: number; created_ms: number; state?: string; exit_code?: number | null; finished_ms?: number | null }[] = [];
@@ -49,6 +51,7 @@ function fakeClient(
         return { core: { id: opts.coreId?.() ?? "fake-core" }, generation: 1 };
       }
       if (method === "terminal.send") {
+        await opts.beforeSend?.();
         if (opts.failSend) throw new HerdrError({ code: -32000, message: opts.failSend, data: { kind: "not_found" } });
         if (opts.failSendTransport) throw new Error("timeout");
         sends.push({ terminal: params.terminal as string, text: params.text as string });
@@ -694,6 +697,141 @@ describe("会话对账（终端是否已结束）", () => {
 });
 
 describe("变更审查意见", () => {
+  test("仅当前控制视图可借用输入权发送审查，任务独占及观察权限继续有效", async () => {
+    const f = fakeClient();
+    let taskOwner: string | undefined;
+    const ownership = new InputOwnership(
+      () => taskOwner,
+      () => false,
+    );
+    const { svc, space } = setup(f.client, { inputOwnership: ownership });
+    const s = await svc.launch(req(space));
+    const comment = svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "控制视图审查" });
+    const detach = ownership.take(s.id, "manual", "controlling-view");
+    expect(detach).toBeDefined();
+
+    await expect(svc.sendComments(s.id, undefined, false, undefined, "other-view")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(svc.sendComments(s.id)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(ownership.availableForTask(s.id)).toBe(false);
+    expect(f.sends).toHaveLength(0);
+
+    expect(await svc.sendComments(s.id, undefined, false, undefined, "controlling-view")).toMatchObject({ sent: 1 });
+    expect(svc.comments(s.id)).toMatchObject([{ id: comment.id, sentAt: expect.any(String) }]);
+    expect(f.sends).toHaveLength(1);
+    expect(ownership.availableForTask(s.id)).toBe(false);
+
+    detach?.();
+    svc.addComment(s.id, { path: "a.md", side: "new", line: 2, text: "再次发送" });
+    await expect(svc.sendComments(s.id, undefined, false, undefined, "controlling-view")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    taskOwner = "task-run";
+    expect(ownership.take(s.id, "manual", "new-view")).toBeUndefined();
+    await expect(svc.sendComments(s.id)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(f.sends).toHaveLength(1);
+  });
+  test("控制视图发送中断开时，等原发送结束再通知下一视图接管", async () => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let finishSend!: () => void;
+    const send = new Promise<void>((resolve) => {
+      finishSend = resolve;
+    });
+    const f = fakeClient({
+      beforeSend: () => {
+        started();
+        return send;
+      },
+    });
+    const ownership = new InputOwnership(
+      () => undefined,
+      () => false,
+    );
+    const { svc, space } = setup(f.client, { inputOwnership: ownership });
+    const s = await svc.launch(req(space));
+    svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "断开前确认的审查" });
+    const detach = ownership.take(s.id, "manual", "first-view");
+    expect(detach).toBeDefined();
+    const sending = svc.sendComments(s.id, undefined, false, undefined, "first-view");
+    await Promise.race([ready, sending]);
+    const released = vi.fn();
+    detach?.(released);
+    expect(released).not.toHaveBeenCalled();
+    expect(ownership.take(s.id, "manual", "next-view")).toBeUndefined();
+    expect(ownership.availableForTask(s.id)).toBe(false);
+
+    finishSend();
+    expect(await sending).toMatchObject({ sent: 1 });
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(ownership.take(s.id, "manual", "next-view")).toBeDefined();
+  });
+  test("恢复视图只能明确重交状态未知的意见，核实后才恢复键盘控制", async () => {
+    const f = fakeClient();
+    const ownership = new InputOwnership(
+      () => undefined,
+      (id): boolean => svc.reviewInputPending(id),
+    );
+    const { svc, space } = setup(f.client, { inputOwnership: ownership });
+    const s = await svc.launch(req(space));
+    const unknown = svc.addComment(s.id, { path: "a.md", side: "new", line: 1, text: "状态未知" });
+    const pending = svc.addComment(s.id, { path: "a.md", side: "new", line: 2, text: "待发送" });
+    (svc as unknown as { save(r: unknown): void }).save({ ...svc.get(s.id), reviewComments: [{ ...unknown, sending: true }, pending] });
+    expect(ownership.take(s.id, "manual")).toBeUndefined();
+
+    const recovered = vi.fn();
+    expect(ownership.take(s.id, "manual", "recovery-view", { onReviewRecovered: recovered })).toBeDefined();
+    await expect(svc.sendComments(s.id, undefined, false, undefined, "recovery-view")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(svc.sendComments(s.id, [unknown.id], false, undefined, "other-view")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(recovered).not.toHaveBeenCalled();
+    expect(f.sends).toHaveLength(0);
+
+    expect(await svc.sendComments(s.id, [unknown.id], false, undefined, "recovery-view")).toMatchObject({ sent: 1 });
+    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(svc.comments(s.id)).toMatchObject([
+      { id: unknown.id, sentAt: expect.any(String) },
+      { id: pending.id, sentAt: null },
+    ]);
+    expect(f.sends).toHaveLength(1);
+  });
+  test("恢复视图删除最后一条状态未知的意见后通知重新接管", async () => {
+    let loseReply = true;
+    const f = fakeClient({
+      beforeSend: async () => {
+        if (loseReply) throw new Error("收据未返回");
+      },
+    });
+    const ownership = new InputOwnership(
+      () => undefined,
+      (id): boolean => svc.reviewInputPending(id),
+    );
+    const { svc, space } = setup(f.client, { inputOwnership: ownership });
+    const session = await svc.launch(req(space));
+    const first = svc.addComment(session.id, { path: "a.md", side: "new", line: 1, text: "旧意见一" });
+    const second = svc.addComment(session.id, { path: "a.md", side: "new", line: 2, text: "旧意见二" });
+    await expect(svc.sendComments(session.id)).rejects.toThrow("发送结果未知");
+    expect(svc.comments(session.id)).toMatchObject([
+      { id: first.id, sending: true },
+      { id: second.id, sending: true },
+    ]);
+
+    const reconnect = vi.fn();
+    const detach = ownership.take(session.id, "manual", "recovery-view", { onReviewRecovered: reconnect });
+    expect(detach).toBeDefined();
+    svc.deleteComment(session.id, first.id);
+    expect(reconnect).not.toHaveBeenCalled();
+    svc.deleteComment(session.id, second.id);
+    expect(svc.comments(session.id)).toEqual([]);
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(f.sends).toHaveLength(0);
+
+    const pending = svc.addComment(session.id, { path: "a.md", side: "new", line: 3, text: "重新接管后的意见" });
+    await expect(svc.sendComments(session.id, undefined, false, undefined, "recovery-view")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    detach?.();
+    expect(ownership.take(session.id, "manual", "reconnected-view")).toBeDefined();
+    loseReply = false;
+    expect(await svc.sendComments(session.id, undefined, false, undefined, "reconnected-view")).toMatchObject({ sent: 1 });
+    expect(svc.comments(session.id)).toMatchObject([{ id: pending.id, sentAt: expect.any(String) }]);
+  });
   test("添加/删除/校验；发送：格式为“文件:新|旧行 — 意见”，成功后才标记已发送，只发未发送的", async () => {
     const f = fakeClient();
     const { svc, space } = setup(f.client);

@@ -1607,14 +1607,16 @@ export class SessionsService {
   deleteComment(id: string, commentId: string): void {
     const s = this.get(id);
     const list = s.reviewComments ?? [];
-    if (!list.some((x) => x.id === commentId)) throw errors.notFound("意见不存在");
+    const comment = list.find((x) => x.id === commentId);
+    if (!comment) throw errors.notFound("意见不存在");
     this.save({ ...s, reviewComments: list.filter((x) => x.id !== commentId) });
+    if (comment.sending) this.d.inputOwnership?.notifyReviewRecovered(id);
   }
 
   private sending = new Set<string>();
 
   /** 把意见整理成一段文本写入会话输入（terminal.send，会自动回车提交）；dryRun 只返回将要发送的文本。成功后才标记已发送。 */
-  async sendComments(id: string, ids?: string[], dryRun = false, generation?: string): Promise<{ sent: number; text: string }> {
+  async sendComments(id: string, ids?: string[], dryRun = false, generation?: string, controlId?: string): Promise<{ sent: number; text: string }> {
     const s = this.get(id);
     if (!dryRun && s.controlled) throw errors.invalidInput("受控 Codex 会话只支持任务原生输入");
     if (!dryRun && (s.state !== "running" || !s.terminalId)) throw errors.invalidInput("会话没有在运行：恢复会话后再发送");
@@ -1626,7 +1628,7 @@ export class SessionsService {
     if (chosen.length === 0) throw errors.invalidInput("没有待发送的意见");
     const text = ["请根据以下审查意见继续工作：", ...chosen.map((c) => `${safePath(c.path)}:${c.side === "new" ? "新" : "旧"}${c.line} — ${c.text}`)].join("\n");
     if (dryRun) return { sent: 0, text };
-    const release = this.d.inputOwnership?.take(id, "review");
+    const release = this.d.inputOwnership?.take(id, "review", controlId, { recovering: chosen.every((comment) => comment.sending) });
     if (this.d.inputOwnership && !release) throw errors.invalidInput("该会话的输入权当前已被占用");
     this.sending.add(id);
     try {

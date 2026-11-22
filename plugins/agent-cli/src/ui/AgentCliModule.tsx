@@ -1,5 +1,5 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
-import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView } from "@huhu/ui";
+import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView, type TerminalControl } from "@huhu/ui";
 import { ArrowLeft, ArrowRight, ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
 import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
@@ -78,6 +78,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [showFiles, setShowFiles] = useState(false);
   const [filesDestination, setFilesDestination] = useState<Space | null>(null);
   const [showReview, setShowReview] = useState(false);
+  const [terminalControls, setTerminalControls] = useState(() => new Map<string, TerminalControl>());
   const [error, setError] = useState<string | null>(null);
   const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
   const boundSpace = spaceCanLaunch(space);
@@ -345,6 +346,17 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const currentSession = active ?? currentLeaf?.sessionId;
   const cur = list.find((s) => s.id === currentSession) ?? null;
   const preview = cur && (!view || !sessionPlacement(view.layout, cur.id)) ? cur : null;
+  const reviewControl = preview ? terminalControls.get(`preview:${preview.id}`) : currentLeaf?.sessionId === currentSession && currentLeaf ? terminalControls.get(currentLeaf.id) : undefined;
+
+  function updateTerminalControl(viewId: string, control: TerminalControl | undefined) {
+    setTerminalControls((previous) => {
+      const next = new Map(previous);
+      if (control) next.set(viewId, control);
+      else next.delete(viewId);
+      return next;
+    });
+  }
+
   const stateBadge = (s: Session) => (
     <Badge tone={s.state === "running" ? "success" : s.state === "exited" ? "neutral" : s.state === "failed" ? "danger" : "warning"}>
       {s.state === "running" ? t.running : s.state === "exited" ? t.exited : s.state === "failed" ? t.failed : "待核实"}
@@ -700,7 +712,14 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             </div>
             {preview.state === "running" ? (
               <div className="agent-workspace-pane-body">
-                <TerminalView key={preview.id} baseUrl={engine.endpoint.baseUrl} token={engine.endpoint.token} sessionId={preview.id} ariaLabel={t.terminalLabel} />
+                <TerminalView
+                  key={preview.id}
+                  baseUrl={engine.endpoint.baseUrl}
+                  token={engine.endpoint.token}
+                  sessionId={preview.id}
+                  ariaLabel={t.terminalLabel}
+                  onTerminalControl={(control) => updateTerminalControl(`preview:${preview.id}`, control)}
+                />
               </div>
             ) : (
               <EmptyState icon={FolderOpen} title={preview.state === "exited" ? t.exitedTitle(preview.exitCode ?? null) : (preview.error ?? t.failed)} />
@@ -763,6 +782,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               setShowReview(active !== sessionId || !showReview);
               setActive(sessionId);
             }}
+            onTerminalControl={updateTerminalControl}
             onInterrupt={(id) => void act("agent.sessions.interrupt", id)}
           />
         ) : !space || view ? (
@@ -772,7 +792,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             正在读取工作区…
           </p>
         ) : null}
-        {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} /> : null}
+        {showReview && cur && space ? <ReviewPanel key={cur.id} spaceId={space.id} sessionId={cur.id} running={cur.state === "running"} provider={cur.provider} control={reviewControl} /> : null}
         <footer className="agent-main-footer">
           <span>{space ? `${list.length} 个会话 · 当前 Space` : "尚无 Space"}</span>
           <span>关闭标签只分离视图 · 会话记录保留</span>

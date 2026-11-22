@@ -489,7 +489,7 @@ export const mainAgentDescriptors = {
     description: "向原会话提交已选的审查意见。",
     ...durableExternal,
     timeoutMs: 90_000,
-    input: SessionId.extend({ commentIds: z.array(z.string()).optional(), dryRun: z.boolean().default(false) }),
+    input: SessionId.extend({ commentIds: z.array(z.string()).optional(), dryRun: z.boolean().default(false), controlId: z.uuid().optional() }),
     output: z.object({ sent: z.number(), text: z.string().optional() }),
   }),
 };

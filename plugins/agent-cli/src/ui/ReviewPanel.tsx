@@ -1,4 +1,4 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
+import { Badge, Button, EmptyState, type TerminalControl } from "@huhu/ui";
 import { useEngine } from "@huhu/workbench";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { t } from "./i18n.js";
@@ -41,7 +41,7 @@ interface Comment {
 }
 
 /** 变更审查：工作树相对 HEAD 的差异（含未跟踪文件）；在行上加意见；把未发送的意见写回会话终端。 */
-export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId: string; sessionId: string; running: boolean; provider: string }) {
+export function ReviewPanel({ spaceId, sessionId, running, provider, control }: { spaceId: string; sessionId: string; running: boolean; provider: string; control: TerminalControl | undefined }) {
   const engine = useEngine();
   const [diff, setDiff] = useState<Diff | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -120,7 +120,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
         <Button onClick={() => void load()}>{c.refresh}</Button>
         <Button
           variant="primary"
-          disabled={busy || pending.length === 0 || !running}
+          disabled={busy || pending.length === 0 || !running || !control?.canInput}
           data-testid="review-send"
           onClick={() =>
             void act(async () => {
@@ -131,7 +131,7 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
         >
           {c.send(pending.length)}
         </Button>
-        {!running ? <span>{c.notRunning}</span> : null}
+        {!running ? <span>{c.notRunning}</span> : pending.length > 0 && !control?.canInput ? <span>{c.noInputControl}</span> : null}
       </div>
       {preview !== null ? (
         <div role="alertdialog" aria-label={c.confirmTitle} data-testid="review-confirm">
@@ -146,15 +146,16 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
           </pre>
           <Button
             variant="primary"
-            disabled={busy}
+            disabled={busy || !running || !control?.canInput}
             data-testid="review-confirm-yes"
-            onClick={() =>
+            onClick={() => {
+              if (!control?.canInput) return;
               void act(async () => {
-                const r = await engine.call<{ sent: number }>("agent.review.send", { sessionId }, { write: true });
+                const r = await engine.call<{ sent: number }>("agent.review.send", { sessionId, controlId: control.id }, { write: true });
                 setPreview(null);
                 setNote(c.sent(r.sent));
-              })
-            }
+              });
+            }}
           >
             {c.confirmSend}
           </Button>
@@ -165,12 +166,13 @@ export function ReviewPanel({ spaceId, sessionId, running, provider }: { spaceId
         <p className="hu-overdue" role="status" data-testid="review-unknown">
           {c.unknown(unknown.length)}{" "}
           <Button
-            disabled={busy || !running}
-            onClick={() =>
+            disabled={busy || !running || !control}
+            onClick={() => {
+              if (!control) return;
               void act(async () => {
-                await engine.call("agent.review.send", { sessionId, commentIds: unknown.map((x) => x.id) }, { write: true });
-              })
-            }
+                await engine.call("agent.review.send", { sessionId, controlId: control.id, commentIds: unknown.map((x) => x.id) }, { write: true });
+              });
+            }}
           >
             {c.resend}
           </Button>
