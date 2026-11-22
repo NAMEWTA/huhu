@@ -57,6 +57,10 @@ import * as inbox from "@huhu/plugin-inbox/engine";
 import * as mail from "@huhu/plugin-mail/engine";
 import * as notes from "@huhu/plugin-notes/engine";
 import * as ssh from "@huhu/plugin-ssh/engine";
+import { tasksHomeWidget } from "@huhu/plugin-tasks/home-widget";
+import { recentNotesHomeWidget } from "@huhu/plugin-notes/shared";
+import { inboxHomeWidget } from "@huhu/plugin-inbox/shared";
+import { agentEntryHomeWidget } from "@huhu/plugin-agent-cli/shared";
 import { sshHostsWidget } from "@huhu/plugin-ssh/shared";
 import { automationSummaryWidget } from "@huhu/plugin-automations/shared";
 import { gitHomeWidget } from "@huhu/plugin-versioning/shared";
@@ -412,7 +416,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     registry,
     new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }),
     vault,
-    [sshHostsWidget, gitHomeWidget, automationSummaryWidget],
+    [sshHostsWidget, gitHomeWidget, automationSummaryWidget, tasksHomeWidget, recentNotesHomeWidget, inboxHomeWidget, agentEntryHomeWidget],
     () => {
       events.publish("entity.changed", { kind: "home-dashboard", id: "home", op: "updated" });
     },

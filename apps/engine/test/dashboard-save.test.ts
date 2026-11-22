@@ -36,7 +36,7 @@ test("W02-03/04 断开前后的整板重读、原意图回放和已提交备份"
   try {
     const e = await boot({ vaultPath: root, create: true });
     engine = e;
-    const widgetType = "widget:kernel:tasks";
+    const widgetType = "widget:tasks:tasks";
     const get = async () => DashboardViewSchema.parse((await call(e.port, e.rendererToken, "home.dashboard.get", {})).data);
     const backup = () => call(e.port, e.rendererToken, "home.dashboard.backup", {});
     const update = (draft: DashboardUpdate, key: string, port = e.port) => call(port, e.rendererToken, "home.dashboard.update", draft, key);

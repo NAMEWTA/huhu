@@ -57,6 +57,11 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     const otherBoard = other!.getByTestId("home-dashboard");
     const focus = otherBoard.locator('[data-instance-id="default-focus"]');
     await expect(focus).toBeVisible();
+    const task = otherBoard.getByTestId("card-tasks");
+    await expect(task.getByRole("tab", { name: "全部" })).toBeVisible();
+    await task.getByRole("tab", { name: "今天" }).click();
+    await expect(task.getByText("今天没有待办任务")).toBeVisible();
+    await expect(otherBoard.getByTestId("card-recent").getByRole("button", { name: "全部笔记" })).toBeVisible();
     await other!.getByTestId("home-customize").click();
     await focus.getByRole("checkbox", { name: "隐藏" }).check();
     await otherBoard.getByTestId("home-dashboard-save").click();

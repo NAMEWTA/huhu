@@ -138,6 +138,33 @@ test("在空 Vault 恢复真实 Engine 返回的当前格式备份并重开", as
   checkUnrelated();
 });
 
+test("原 v1 业务卡备份保留实例 ID、布局与配置，恢复为插件类型", async () => {
+  const engine = await open();
+  const migrated = [
+    ["tasks", "widget:tasks:tasks", { filter: "today" }],
+    ["notes", "widget:notes:recent", {}],
+    ["inbox", "widget:inbox:inbox", {}],
+    ["agent", "widget:agent-cli:entry", {}],
+  ] as const;
+  const legacy = {
+    ...backup,
+    instances: migrated.map(([id, , config], index) => ({ instanceId: `original-${id}`, widgetType: `widget:kernel:${id}`, title: id, config, hidden: index === 3 })),
+    layout: migrated.map(([id], index) => ({ instanceId: `original-${id}`, x: 0, y: index * 3, w: 3, h: 3 })),
+  };
+  const original = JSON.stringify(legacy);
+  const file = writeBoard(engine, original);
+  const expectedInstances = legacy.instances.map((instance, index) => ({ ...instance, widgetType: migrated[index]![1] }));
+  expect(await post(engine, "home.dashboard.backup")).toMatchObject({ ok: true, data: { ...legacy, instances: expectedInstances } });
+  const api = recovery(engine);
+  const intent = { action: "restore", backup: legacy };
+  const preview = await api.prepare(intent);
+  expect(preview.board).toEqual({ ...legacy, instances: expectedInstances });
+  expect(readFileSync(file, "utf8")).toBe(original);
+  const result = await api.commit(intent, preview.confirmation);
+  expect(result).toMatchObject({ ok: true, data: { view: { board: { schemaVersion: 1, instances: expectedInstances, layout: legacy.layout } } } });
+  expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ schemaVersion: 1, instances: expectedInstances, layout: legacy.layout });
+});
+
 test("连续预览零写入，确认后保全原字节并且只提交一份修复", async () => {
   const engine = await open();
   const api = recovery(engine);
