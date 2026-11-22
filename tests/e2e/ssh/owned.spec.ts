@@ -24,7 +24,10 @@ const upload = "ssh.sftp.upload";
 const download = "ssh.sftp.download";
 const queue = "ssh.transfers.list";
 const startCopy = "ssh.transfers.start";
-const actions = [connect, get, trust, open, list, read, write, filesOpen, upload, download, queue, startCopy];
+const forward = "ssh.forwarding.runs.start";
+const forwards = "ssh.forwarding.runs.list";
+const stopForward = "ssh.forwarding.runs.stop";
+const actions = [connect, get, trust, open, list, read, write, filesOpen, upload, download, queue, startCopy, forward, forwards, stopForward];
 
 function accepted<T>(reply: CapabilityResult<unknown>): T {
   if (!reply.ok) throw new Error(reply.error.code);
@@ -145,6 +148,19 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(accepted(await peer(queue))).toMatchObject({ jobs: [] });
       await expect.poll(async () => accepted(await invoke(queue))).toMatchObject({ jobs: [{ transferId: copied.transferId, state: "completed" }] });
       expect(target.fs.files.get(remotePath)).toEqual(Buffer.from([0, 255]));
+      const rule = await desktopCall<{ id: string; revision: string }>(page, "ssh.forwarding.rules.save", {
+        name: "外部回环转发",
+        mode: "local",
+        hostId,
+        listenPort: target.port,
+        resume: false,
+        target: { host: "127.0.0.1", port: target.port },
+      });
+      const requested = { ...binding, attemptId, id: rule.id, expectedRevision: rule.revision, intentKey: randomUUID() };
+      const forwarded = accepted<{ id: string; listener: unknown }>(await invoke(forward, requested));
+      expect(forwarded.listener).toMatchObject({ device: "local", host: "127.0.0.1", port: expect.any(Number) });
+      expect(accepted(await peer(forwards))).toEqual([]);
+      expect(await peer(stopForward, { id: rule.id, expectedRevision: rule.revision, runId: forwarded.id, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       await policy([targetHostId]);
       await expect.poll(() => closed).toBe(2);
       const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
@@ -152,6 +168,8 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await invoke(read, fresh)).toMatchObject(denied);
       expect(await invoke(download, { ...remote, transferId: randomUUID() })).toMatchObject(denied);
       expect(accepted(await invoke(queue))).toMatchObject({ jobs: [] });
+      expect(accepted(await invoke(forwards))).toEqual([]);
+      await expect.poll(() => desktopCall(page, forwards)).toMatchObject([{ id: forwarded.id, state: "stopped", source: "external" }]);
       await policy(hosts, false);
       expect(await invoke(open, openIntent)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     } finally {

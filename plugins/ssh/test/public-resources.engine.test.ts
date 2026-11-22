@@ -2,7 +2,7 @@ import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recovery
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
@@ -949,25 +949,11 @@ test.each(["cli", "mcp"] as const)("%s scopes forwarding reads and dormant confi
       expect(data(await invoke(runs, {}))).toEqual([]);
       await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop, promptId: prompt.promptId, accept: true, remember: false });
     }
-    const listeningRun = await vi.waitFor(async () => {
+    await vi.waitFor(async () => {
       const [run] = await f.desktop<ForwardRun[]>(runs);
       expect(run?.state).toBe("running");
-      return run!;
     });
-    expect(data(await invoke(runs, {}))).toEqual([
-      {
-        id: listeningRun.id,
-        ruleId: rule.id,
-        revision: rule.revision,
-        state: "running",
-        listener: { device: "local", host: "127.0.0.1", port: address.port },
-        connectionKind: "dedicated",
-        active: 0,
-        accepted: 0,
-        uploaded: 0,
-        downloaded: 0,
-      },
-    ]);
+    expect(data(await invoke(runs, {}))).toEqual([]);
     expect(await invoke(save, { ...stopped, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     expect(await invoke(remove, { ...revision, bindings: stopped.bindings, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised forwarding jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
@@ -980,6 +966,93 @@ test.each(["cli", "mcp"] as const)("%s scopes forwarding reads and dormant confi
     await f.desktop(remove, revision);
   } finally {
     await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward and closes it on host revocation", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const echo = createServer((sock) => sock.pipe(sock));
+  try {
+    echo.listen(0, "127.0.0.1");
+    await once(echo, "listening");
+    const address = echo.address();
+    if (!address || typeof address === "string") throw new Error("Missing loopback fixture address");
+    const { hostId } = await f.host("owned forwarding fixture");
+    const spare = await f.host("other forwarding resource");
+    const save = "ssh.forwarding.rules.save";
+    const start = "ssh.forwarding.runs.start";
+    const list = "ssh.forwarding.runs.list";
+    const stop = "ssh.forwarding.runs.stop";
+    const draft = { name: "fixed loopback", hostId, mode: "local", listenPort: address.port, target: { host: "127.0.0.1", port: address.port }, resume: false };
+    const rule = await f.desktop<ForwardRule>(save, draft);
+    const proxy = await f.desktop<ForwardRule>(save, { name: "dynamic proxy fixture", hostId, mode: "socks5", listenPort: address.port, resume: false });
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+    expect(await invoke(start, {})).toMatchObject(disabled);
+    for (const tool of ["ssh.connect", probeGet, trustDecide, start, list, stop, save]) await f.allow(tool);
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+    const binding = { hostId, routeRevision };
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", { ...binding, intentKey: randomUUID() })));
+    const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+    const pending = await vi.waitFor(async () => {
+      const current = await status();
+      if (current.state !== "waiting") throw new Error("Waiting for loopback trust");
+      return current;
+    });
+    expect(await invoke(trustDecide, decision(pending))).toMatchObject({ ok: true });
+    await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+    const revision = { id: rule.id, expectedRevision: rule.revision };
+    const begin = { ...revision, ...binding, attemptId, intentKey: randomUUID() };
+    expect(await peer(start, begin)).toMatchObject(missing);
+    expect(await invoke(start, { ...begin, id: proxy.id, expectedRevision: proxy.revision, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const created = data(await invoke(start, begin)) as ForwardRun;
+    expect(data(await invoke(start, begin))).toEqual(created);
+    const listener = created.listener;
+    expect(listener).toMatchObject({ device: "local", host: "127.0.0.1", port: expect.any(Number) });
+    if (listener?.device !== "local") throw new Error("Expected a loopback listener");
+    expect(listener.port).not.toBe(address.port);
+    const socket = createConnection(listener.port, listener.host);
+    try {
+      await once(socket, "connect");
+      const returned = once(socket, "data");
+      socket.write("loopback fixture");
+      expect((await returned)[0]).toEqual(Buffer.from("loopback fixture"));
+    } finally {
+      socket.destroy();
+    }
+    expect(data(await peer(list, {}))).toEqual([]);
+    const end = { ...revision, runId: created.id, intentKey: randomUUID() };
+    expect(await peer(stop, end)).toMatchObject(missing);
+    expect(await f.desktop(list)).toMatchObject([{ id: created.id, source: "external" }]);
+    expect(await invoke(save, { ...draft, name: "rename running rule", previous: revision, bindings: [binding], intentKey: randomUUID() })).toMatchObject(denied);
+    await f.chooseHosts([spare.hostId]);
+    expect(data(await invoke(list, {}))).toEqual([]);
+    expect(await invoke(stop, end)).toMatchObject(denied);
+    await vi.waitFor(async () => expect(await f.desktop(list)).toMatchObject([{ id: created.id, state: "stopped" }]));
+    const after = createConnection(listener.port, listener.host);
+    try {
+      const [error] = await once(after, "error", { signal: AbortSignal.timeout(1000) });
+      expect(error).toMatchObject({ code: "ECONNREFUSED" });
+    } finally {
+      after.destroy();
+    }
+    await f.allow(start, false);
+    expect(await invoke(start, begin)).toMatchObject(disabled);
+  } finally {
+    try {
+      for (const { id, revision } of await f.desktop<ForwardRule[]>("ssh.forwarding.rules.list")) {
+        await f.desktop("ssh.forwarding.rules.delete", { id, expectedRevision: revision });
+      }
+    } finally {
+      try {
+        await f.close();
+      } finally {
+        if (echo.listening) await new Promise<void>((resolve, reject) => echo.close((error) => error ? reject(error) : resolve()));
+      }
+    }
   }
 });
 

@@ -171,10 +171,12 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reviewId, setReviewId] = useState("");
+  const localRuns = runs.data?.filter(({ source }) => source !== "external");
+  const externalRuns = runs.data?.filter(({ source }) => source === "external") ?? [];
   const selected = runs.data?.find(({ id }) => id === reviewId);
   const watching = runs.data?.some(({ state }) => state === "running");
   const refreshRuns = runs.refetch;
-  const active = (id: string) => runs.data?.some((run) => run.ruleId === id && ["running", "starting", "waiting", "stopping", "stop-failed"].includes(run.state)) ?? false;
+  const active = (id: string) => localRuns?.some((run) => run.ruleId === id && ["running", "starting", "waiting", "stopping", "stop-failed"].includes(run.state)) ?? false;
 
   useEngineEvents((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
@@ -224,7 +226,7 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
       {rules.data?.length === 0 && <EmptyState title="尚未保存转发规则" />}
       <ul className="ssh-transfer-list">
         {rules.data?.map((rule) => {
-          const run = runs.data?.find(({ ruleId, revision }) => ruleId === rule.id && revision === rule.revision);
+          const run = localRuns?.find(({ ruleId, revision }) => ruleId === rule.id && revision === rule.revision);
           const running = active(rule.id);
           const action = running ? "stop" : run?.state === "interrupted" ? "resume" : "start";
           const label = action === "stop" ? (run?.state === "stop-failed" ? "重查释放" : "停止") : action === "resume" ? "恢复" : run?.state === "failed" ? "重试" : "启动";
@@ -268,6 +270,24 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
           );
         })}
       </ul>
+      {externalRuns.length > 0 && (
+        <section>
+          <h2>外部工具转发</h2>
+          <ul className="ssh-transfer-list">
+            {externalRuns.map((run) => (
+              <li key={run.id}>
+                <strong>{rules.data?.find(({ id }) => id === run.ruleId)?.name ?? run.ruleId}</strong>
+                <RunningState run={run} />
+                {["starting", "running", "interrupted"].includes(run.state) && (
+                  <Button disabled={busy} aria-label={`停止外部转发 ${run.id}`} onClick={() => void change("ssh.forwarding.runs.stop", { runId: run.id })}>
+                    停止外部转发
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {editor && (
         <RuleEditor
           {...(editor !== "new" && { previous: editor })}

@@ -28,6 +28,7 @@ import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostVi
 import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
+import { PublicForwarding } from "./public-forwarding.js";
 import { PublicShells } from "./public-shells.js";
 import { PublicTransfers } from "./public-transfers.js";
 import * as sftp from "./sftp.js";
@@ -104,14 +105,17 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     () => preferences.runtime().transfer.parallel,
   );
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
+  const publicForwarding = new PublicForwarding(api.vault.files, forwardRules, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const monitors = new Monitors(monitorPanels, manager);
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
     if (event.payload.kind === "tool-access") {
       publicJobs?.revokeUnauthorized();
+      publicForwarding.revokeUnauthorized();
       publicProbes.revokeUnauthorized();
     }
     if (event.payload.kind === "ssh-host") publicProbes.revalidateConnections();
+    if (event.payload.kind === "ssh-forward") publicForwarding.revalidateRules();
   });
   ctx.effect(() => () => {
     publicJobs?.dispose();
@@ -120,6 +124,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publicTransfers.dispose();
     publicFiles.dispose();
     monitors.dispose();
+    publicForwarding.dispose();
     forwarding.dispose();
     transfers.dispose();
     files.dispose();
@@ -235,8 +240,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, (context) => (isWorkbenchCaller(context.caller) ? forwardRules.list() : visibleForwardRules(context).map(({ rule }) => rule))));
   const forwardRuleScope = (context: CapabilityContext, bindings: Parameters<typeof boundSshRoutes>[2]) => {
     const routes = configurationRoutes(context, bindings);
-    const scope: ForwardRuleScope = ({ hostId, boundTarget }) => {
+    const scope: ForwardRuleScope = ({ id, hostId, boundTarget }) => {
       if (routes.require([hostId]).get(hostId)?.targetIdentity !== boundTarget) throw errors.notFound("当前授权内的 SSH 转发规则");
+      publicForwarding.assertInactive(id);
     };
     return { scope, authorize: routes.authorize };
   };
@@ -288,16 +294,32 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       });
     }),
   );
+  const desktopForwarding = ({ caller }: CapabilityContext) => {
+    if (isWorkbenchCaller(caller) && caller !== "desktop") throw errors.permissionDenied("SSH 转发工作台");
+    return caller === "desktop";
+  };
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsList, (context) => (desktopForwarding(context) ? [...forwarding.list(), ...publicForwarding.workbenchList()] : publicForwarding.list(context))));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.forwardRunsList, (context) => {
-      if (isWorkbenchCaller(context.caller)) return forwarding.list();
-      const rules = new Map(visibleForwardRules(context).map(({ rule, route }) => [rule.id, { revision: rule.revision, connectionIdentity: route.connectionIdentity }]));
-      return forwarding.visibleRuns(rules);
+    bindCapability(sshCapabilityDescriptors.forwardRunsStart, (context, input) => {
+      if (desktopForwarding(context)) return forwarding.start(input, context.signal);
+      if (!("attemptId" in input)) throw errors.invalidInput("外部 SSH 转发需要本主体连接和意图");
+      return publicForwarding.start(context, input);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStart, ({ signal }, input) => forwarding.start(input, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsResume, ({ signal }, input) => forwarding.start(input, signal, true)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRunsStop, ({ signal }, input) => forwarding.stop(input, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRunsResume, (context, input) => {
+      if (desktopForwarding(context)) return forwarding.start(input, context.signal, true);
+      if (!("attemptId" in input)) throw errors.invalidInput("恢复外部 SSH 转发需要原运行、新连接和意图");
+      return publicForwarding.start(context, input, true);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.forwardRunsStop, (context, input) => {
+      if (desktopForwarding(context)) return "runId" in input ? publicForwarding.stopWorkbench(input.runId) : forwarding.stop(input, context.signal);
+      if (!("intentKey" in input)) throw errors.invalidInput("停止外部 SSH 转发需要原运行、规则修订和意图");
+      return publicForwarding.stop(context, input);
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.workspaceTemplatesList, (context) => {
       if (isWorkbenchCaller(context.caller)) return templates.list();

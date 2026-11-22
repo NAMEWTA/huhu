@@ -117,3 +117,9 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.transfers.start/startBatch/list/decide/cancel/pause/resume/retry/recheck/origin/clearHistory` 转为默认关闭的可选工具。外部启动仅接受同一本主体的两个远端文件会话，按两端的完整 SSH 路由核对当前授权。
 - 重交原意图重取原作业或批次，不重新复制。冲突决定另绑定当前待答修订；工作台可看到外部来源并取消，外部列表不包含工作台及其他主体任务。会话或主机授权撤销后，原任务被取消或停止底层提交并按既有队列语义报告结果。
 - Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 2 项 CLI / MCP 队列用例、`transfer-publication.test.ts` 4 项通过。E2E 增加 CLI / MCP 转移、跨主体不可见、同意图及撤权后的列表回读，未运行。
+
+## Task05 第四批 · 自有回环转发
+
+- `ssh.forwarding.runs.start/resume/stop` 以 execute/high 默认关闭；列表限原主体和当前获准路由。工作台可按 ID 查看来源及关闭具体外部监听。
+- 固定目标采用工作台保存的规则与修订，外部新监听由 Engine 在 127.0.0.1 分配端口。动态代理规则和无法确认远侧实际回环地址的远端监听未开放。主机撤权关闭监听及已有流；编辑旧规则会失效相应运行。
+- Node 24.21.0 下 SSH 单包类型检查通过，`public-resources.engine.test.ts` 转发定向 4 项通过。CLI 与 HTTP MCP 分别验证回环数据往返、另一主体不可见且不能停止、撤权后旧端口拒绝连接。E2E spec 增加同类断言，留给 Lead。

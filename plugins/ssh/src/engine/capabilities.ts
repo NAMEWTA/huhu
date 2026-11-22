@@ -28,6 +28,7 @@ import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, StartPublicProbeIn
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { ChangeOwnedShell, OpenOwnedShell, ReadOwnedShell, ResizeOwnedShell, Shell, ShellCloseReceipt, ShellOutputPage, ShellResizeReceipt, ShellSize, ShellWriteReceipt, WriteOwnedShell } from "./public-shells.js";
 import { DownloadBytes, DownloadPage, FileIntentFields, OpenOwnedFiles, TargetRevision, TransferHandle, UploadBytes } from "./public-files.js";
+import { ResumeOwnedForward, RunId as ForwardRunId, StartOwnedForward, StopOwnedForward } from "./public-forwarding.js";
 import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardDestination, ForwardMode, ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
@@ -53,7 +54,6 @@ const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
 const externalMonitor = { ...monitor, ...resource } as const;
 const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
-const PublicForwardRun = ForwardRun.omit({ connection: true, prompt: true, message: true, lastError: true }).extend({ connectionKind: ForwardRun.shape.connection.unwrap().shape.kind.optional() }).strict();
 const ForwardSaveRequest = SaveForward.options[0].extend({ mode: ForwardMode, target: ForwardDestination.optional(), ...RouteIntentFields });
 export const ForwardRuleReceipt = z.strictObject({ id: ForwardRevision.shape.id, revision: ForwardRevision.shape.expectedRevision });
 export const WorkspaceTemplateReceipt = z.strictObject({ id: WorkspaceTemplate.shape.id, revision: WorkspaceTemplate.shape.revision });
@@ -297,46 +297,45 @@ export const sshCapabilityDescriptors = {
   }),
   forwardRunsList: defineCapabilityDescriptor({
     ...resource,
-    desktopOnly: true,
     name: "ssh.forwarding.runs.list",
     title: "查看 SSH 转发运行状态",
-    description: "读取监听、连接类型和流量计数。外部结果限于当前规则及原连接均在授权范围内的运行。",
+    description: "读取监听及流量计数。外部工具只看到本主体当前获准的运行。",
     scope: "read",
     risk: "normal",
     input: z.strictObject({}),
-    output: z.union([z.array(PublicForwardRun), z.array(ForwardRun)]),
+    output: z.array(ForwardRun),
   }),
   forwardRunsStart: defineCapabilityDescriptor({
-    ...ssh,
-    desktopOnly: true,
+    ...resource,
     name: "ssh.forwarding.runs.start",
     title: "启动 SSH 回环转发",
-    description: "按当前规则版本显式启动回环 TCP 转发。",
+    description: "按当前规则修订启动回环转发。外部工具使用本主体的连接与固定目标规则，监听端口由 Engine 分配。",
     scope: "execute",
     risk: "high",
-    input: ForwardRevision,
+    idempotency: "handler",
+    input: z.union([StartOwnedForward, ForwardRevision]),
     output: ForwardRun,
   }),
   forwardRunsResume: defineCapabilityDescriptor({
-    ...ssh,
-    desktopOnly: true,
+    ...resource,
     name: "ssh.forwarding.runs.resume",
     title: "恢复 SSH 回环转发",
     description: "显式恢复被断线中断且允许恢复的规则。",
     scope: "execute",
     risk: "high",
-    input: ForwardRevision,
+    idempotency: "handler",
+    input: z.union([ResumeOwnedForward, ForwardRevision]),
     output: ForwardRun,
   }),
   forwardRunsStop: defineCapabilityDescriptor({
-    ...ssh,
-    desktopOnly: true,
+    ...resource,
     name: "ssh.forwarding.runs.stop",
     title: "停止 SSH 回环转发",
     description: "释放指定转发实例的监听及连接持有权。",
     scope: "execute",
-    risk: "normal",
-    input: ForwardRevision,
+    risk: "high",
+    idempotency: "handler",
+    input: z.union([StopOwnedForward, ForwardRunId, ForwardRevision]),
     output: ForwardRun.nullable(),
   }),
   archiveSupport: defineCapabilityDescriptor({

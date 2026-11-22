@@ -7,6 +7,7 @@ import { KnownHostKey, type ConnectionStatus, type HostKeyPrompt } from "../shar
 import type { SshManager } from "./manager.js";
 import type { RetainActivity } from "./public-jobs.js";
 import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, ResourceHost, ResourceHostId, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { workspaceTarget } from "./workspace-target.js";
 
 const attemptId = z.string().min(1).max(128);
 export const StartPublicProbe = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
@@ -230,13 +231,14 @@ export class PublicSshProbes {
   connection(context: CapabilityContext, input: z.infer<typeof OwnedConnection>) {
     const record = this.get(context, input, "connection");
     if (record.status.routeRevision !== input.routeRevision) throw errors.notFound("原 SSH 连接");
-    const target = readBoundRoute(this.files, context, input).at(-1)!;
+    const route = readBoundRoute(this.files, context, input);
     if (!record.client || record.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
-    const { name, host, user, port } = target;
+    const { name, host, user, port } = route.at(-1)!;
     return {
       client: record.client,
       signal: record.abort.signal,
       hostIds: record.hostIds,
+      targetIdentity: workspaceTarget(route),
       origin: { connectionId: input.attemptId, hostId: input.hostId, name, host, user, port },
     };
   }
