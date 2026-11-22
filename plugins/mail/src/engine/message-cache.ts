@@ -5,6 +5,7 @@ import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
+import type { MailAccountDefinition } from "./account-definition.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
@@ -32,6 +33,11 @@ const messageSummary = mailbox.extend({
 export const imapSummary = messageSummary.extend({ transport: z.literal("imap"), uidValidity, uid: z.int().positive() });
 export const gmailSummary = messageSummary.extend({ transport: z.literal("gmail"), nativeId: gmailNativeId });
 export const cachedSummary = z.discriminatedUnion("transport", [imapSummary, gmailSummary]);
+export const portableMessageLocation = z.discriminatedUnion("transport", [
+  imapSummary.pick({ transport: true, folder: true, uidValidity: true, uid: true }),
+  gmailSummary.pick({ transport: true, folder: true, nativeId: true }),
+]);
+type PortableMessageLocation = z.infer<typeof portableMessageLocation>;
 const messageTarget = sourceMessage.extend({ source: z.literal("gmail"), nativeId: gmailNativeId });
 const imapTarget = sourceMessage.extend({ source: z.literal("imap"), uidValidity, uid: z.int().positive() });
 export const receivedTarget = z.discriminatedUnion("source", [imapTarget, messageTarget]);
@@ -152,6 +158,13 @@ function mailCacheFiles(files: Files) {
 }
 const messageId = ({ accountId, folder }: Mailbox, validity: string, uid: number) => digest([accountId, folder, validity, uid]);
 const gmailMessageId = ({ accountId, folder }: Mailbox, binding: string, id: string) => digest([accountId, folder, "gmail", binding, id]);
+const gmailBindingId = ({ clientId, subject }: { clientId: string; subject: string }, email: string) => digest([clientId, subject, email.toLowerCase()]);
+
+export function portableLocalMessageId(accountId: string, location: PortableMessageLocation, { settings, oauth }: MailAccountDefinition) {
+  const mailbox = { accountId, folder: location.folder };
+  if (location.transport === "imap") return messageId(mailbox, location.uidValidity, location.uid);
+  if (oauth && settings.provider === "gmail" && location.folder === "INBOX") return gmailMessageId(mailbox, gmailBindingId(oauth, settings.email), location.nativeId);
+}
 
 function activeSnapshot(record: CacheRecord): Snapshot {
   if (record.format === 1) return record;
@@ -203,9 +216,19 @@ function localReadIds(record: CacheRecord) {
   return snapshots.flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null)).flatMap((item) => (item.localRead || item.summary.readState === "local" ? [item.summary.localMessageId] : []));
 }
 
-export function cachedReadOverrides(files: Files, input: Mailbox) {
+export function cachedMessageLocations(files: Files, input: Mailbox) {
   const { record } = readSnapshot(files, input);
-  return record ? localReadIds(record) : [];
+  const snapshots = !record ? [] : record.format === 1 ? [record] : [record.imap, record.gmail];
+  return snapshots.flatMap((snapshot) => cachedEntries<CacheEntry>(snapshot ?? null)).map(({ summary, localRead }) => {
+    const { localMessageId, transport, folder } = summary;
+    const location: PortableMessageLocation =
+      transport === "imap" ? { transport, folder, uidValidity: summary.uidValidity, uid: summary.uid } : { transport, folder, nativeId: summary.nativeId };
+    return {
+      localMessageId,
+      localRead: localRead || summary.readState === "local",
+      location,
+    };
+  });
 }
 
 function findCachedMessage(snapshot: Snapshot | null, localMessageId: string) {
@@ -458,7 +481,7 @@ export function registerMessageCache(
     let fallback: z.infer<typeof gmailFallback> | undefined;
     const identity = generation.definition.oauth;
     if (identity && generation.definition.settings.provider === "gmail") {
-      const binding = digest([identity.clientId, identity.subject, generation.definition.settings.email.toLowerCase()]);
+      const binding = gmailBindingId(identity, generation.definition.settings.email);
       const previous = cachedGmail?.binding === binding ? cachedGmail : undefined;
       const cached = new Set(cachedEntries(previous ?? null).map(({ summary }) => summary.nativeId));
       const fetch = accounts!.fetchGmailHistory(input.accountId, input.folder, previous && { cursor: previous.cursor, cached }, signal);

@@ -74,9 +74,15 @@ export function MailSubsetSettings({ readOnly, canRestore, accounts }: { readOnl
         const result = await engine.call<MailSubsetPreview>("mail.subset.preview", { content }, { signal, write: true });
         if (!signal.aborted) setPreview(result);
       } else if (preview) {
-        const result = await engine.call<{ accounts: MailSubsetPreview["accounts"] }>("mail.subset.restore", { previewId: preview.previewId, accountIds: selected, confirm: true }, { write: true, signal });
+        const keepSeparateAccountIds = preview.accounts.filter((row) => row.canKeepSeparate && selected.includes(row.accountId)).map(({ accountId }) => accountId);
+        const result = await engine.call<{ accounts: MailSubsetPreview["accounts"] }>(
+          "mail.subset.restore",
+          { previewId: preview.previewId, accountIds: selected, confirm: true, ...(keepSeparateAccountIds.length && { keepSeparateAccountIds }) },
+          { write: true, signal },
+        );
         if (signal.aborted) return;
-        setNotice(`已恢复 ${result.accounts.length} 个邮箱。请配置本机认证后同步。`);
+        const unmapped = result.accounts.reduce((total, row) => total + (row.unmappedReadOverrides ?? 0), 0);
+        setNotice(`已恢复 ${result.accounts.length} 个邮箱。请配置本机认证后同步。${unmapped ? `有 ${unmapped} 条本地已读标记缺少定位，未恢复。` : ""}`);
         finished = true;
       }
     } catch (cause) {
@@ -169,22 +175,30 @@ export function MailSubsetSettings({ readOnly, canRestore, accounts }: { readOnl
                   预检结果
                 </h3>
                 <fieldset disabled={busy || readOnly}>
-                  <legend>选择要恢复的无冲突邮箱</legend>
+                  <legend>选择要恢复的邮箱</legend>
                   {preview.accounts.map((row) => (
                     <div key={row.accountId}>
                       <input
                         type="checkbox"
                         name="account"
                         id={`${id}-${row.accountId}`}
-                        disabled={row.state !== "ready"}
+                        disabled={row.state !== "ready" && !row.canKeepSeparate}
+                        aria-describedby={row.state === "conflict" ? `${id}-conflict-${row.accountId}` : undefined}
                         checked={selected.includes(row.accountId)}
                         onChange={(event) => toggle(row.accountId, event.currentTarget.checked)}
                       />
                       <label htmlFor={`${id}-${row.accountId}`}>
+                        {row.canKeepSeparate && "保留为独立账号 · "}
                         {row.label ? `${row.label} · ` : ""}
                         {row.email} · {row.drafts} 份草稿 · {row.deliveries} 条投递
                       </label>
-                      {row.state === "conflict" && <p>{row.existing ? `与当前邮箱 ${row.existing.label || row.existing.email}（${row.existing.email}）冲突` : "邮箱或邮件记录标识冲突"}</p>}
+                      {row.state === "conflict" && (
+                        <p id={`${id}-conflict-${row.accountId}`}>
+                          {row.existing ? `当前邮箱 ${row.existing.label || row.existing.email}（${row.existing.email}）。` : ""}
+                          {row.canKeepSeparate ? "地址相同。默认跳过。勾选后保留当前邮箱的认证和设置，并创建独立账号。" : "邮箱、邮件记录或附件存在冲突，无法恢复。"}
+                          {row.unmappedReadOverrides && `有 ${row.unmappedReadOverrides} 条本地已读标记缺少定位，无法恢复。`}
+                        </p>
+                      )}
                       {row.state === "restored" && <p>已恢复</p>}
                       {row.missingAttachments !== 0 && <p>{row.missingAttachments} 个附件缺少字节，恢复后需重新选择文件。</p>}
                     </div>
