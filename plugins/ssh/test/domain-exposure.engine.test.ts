@@ -120,6 +120,8 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.jobs.prepare",
         "ssh.jobs.start",
         "ssh.knownHosts.list",
+        "ssh.monitor.panels.list",
+        "ssh.monitor.panels.run",
         "ssh.resources.connection.get",
         "ssh.resources.connection.list",
         "ssh.resources.connection.start",

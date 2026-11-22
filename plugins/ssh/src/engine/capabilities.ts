@@ -30,6 +30,7 @@ import { RunId, SaveRunTemplate, StartWorkspace } from "./workspace-runs.js";
 import { SaveTemplate, TemplateRevision } from "./workspace-templates.js";
 import { ForwardRevision, ForwardRule, ForwardRun, SaveForward } from "../shared/forwarding.js";
 import {
+  MonitorHost,
   MonitorPanel,
   MonitorPanelChange,
   MonitorPanelRevision,
@@ -48,6 +49,8 @@ const ssh = { plugin: "ssh", exposable: false, defaultExposed: false } as const;
 const external = { ...ssh, exposable: true } as const;
 const resource = { ...external, resourceGuarded: "ssh.hosts" } as const;
 const monitor = { ...ssh, desktopOnly: true, risk: "normal" } as const;
+const externalMonitor = { ...monitor, ...resource } as const;
+const CachedMonitorPanel = MonitorPanelRun.extend({ hosts: z.array(MonitorHost.pick({ hostId: true, state: true, platform: true, latest: true, history: true })) });
 const desktopHost = { ...ssh, desktopOnly: true, scope: "admin", risk: "high" } as const;
 const hostBinding = HostMutationBinding.partial().shape;
 const LegacySftpHost = z.object({ hostId: z.string(), fileSessionId: z.never().optional() });
@@ -204,7 +207,7 @@ export const sshCapabilityDescriptors = {
     output: MonitorSession.nullable(),
   }),
   monitorPanelsList: defineCapabilityDescriptor({
-    ...monitor,
+    ...externalMonitor,
     name: "ssh.monitor.panels.list",
     title: "列出多主机监控面板",
     description: "查看已保存的主机顺序、采样周期和历史保留范围。",
@@ -215,13 +218,13 @@ export const sshCapabilityDescriptors = {
   monitorPanelsSave: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.save", title: "保存多主机监控面板", description: "按版本保存面板配置。", scope: "write", input: SaveMonitorPanel, output: MonitorPanel }),
   monitorPanelsDelete: defineCapabilityDescriptor({ ...monitor, name: "ssh.monitor.panels.delete", title: "删除多主机监控面板", description: "按版本删除面板并释放订阅。", scope: "write", input: MonitorPanelRevision, output: Ok }),
   monitorPanelsRun: defineCapabilityDescriptor({
-    ...monitor,
+    ...externalMonitor,
     name: "ssh.monitor.panels.run",
     title: "查看多主机监控样本",
-    description: "按源连接读取当前运行和有界历史。",
+    description: "按源连接读取当前运行和有界历史。外部调用使用面板修订读取当前路由上的缓存样本。",
     scope: "read",
-    input: MonitorSessionId,
-    output: MonitorPanelRun.nullable(),
+    input: MonitorSessionId.extend({ expectedRevision: MonitorPanelRevision.shape.expectedRevision.optional() }),
+    output: z.union([MonitorPanelRun, CachedMonitorPanel]).nullable(),
   }),
   monitorPanelsChange: defineCapabilityDescriptor({
     ...monitor,

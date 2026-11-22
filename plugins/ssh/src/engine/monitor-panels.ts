@@ -35,6 +35,10 @@ export class MonitorPanels {
     return [...this.read().panels];
   }
 
+  get(id: string) {
+    return this.list().find((panel) => panel.id === id);
+  }
+
   require(input: Revision) {
     return this.match(this.list(), input);
   }

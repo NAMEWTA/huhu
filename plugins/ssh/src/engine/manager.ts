@@ -9,7 +9,7 @@ import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../shared/tr
 import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256 } from "./known-hosts.js";
 import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
-import { routeForHost, workspaceTarget } from "./workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { ShellDirectory, shellDirectoryProbe, type IntegratedShell } from "./shell-directory.js";
 import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
@@ -75,16 +75,13 @@ type ForwardDial = {
 export type ForwardLease = {
   id: string;
   client: Client;
+  routeIdentity: string;
   kind: "borrowed" | "dedicated";
   holders(): number;
   validate(): Promise<void>;
   release(): void;
 };
-export type MonitorConnection = Pick<ForwardLease, "id" | "client" | "release"> & { onClose(notify: () => void): () => void };
-
-function connectionIdentity(chain: readonly ManagedHost[]): string {
-  return JSON.stringify(chain.map(({ id, revision }) => [id, revision]));
-}
+export type MonitorConnection = Pick<ForwardLease, "id" | "client" | "release" | "routeIdentity"> & { onClose(notify: () => void): () => void };
 
 interface ExecRun {
   channel: ClientChannel;
@@ -402,6 +399,7 @@ export class SshManager {
     return {
       id: lease.id,
       client: lease.client,
+      routeIdentity: lease.routeIdentity,
       release: lease.release,
       onClose: (closed) => {
         lease.client.once("close", closed);
@@ -417,6 +415,7 @@ export class SshManager {
     return {
       id: this.fileOrigins.get(conn)!.connectionId,
       client: conn.target,
+      routeIdentity: conn.routeIdentity,
       release: () => undefined,
       onClose: (closed) => {
         shell.closers.add(closed);
@@ -437,13 +436,14 @@ export class SshManager {
     signal.throwIfAborted();
     const borrowed = this.conns.get(hostId);
     if (borrowed?.routeIdentity === identity) {
-      if (scope === "monitor") return { id: this.fileOrigins.get(borrowed)!.connectionId, client: borrowed.target, kind: "borrowed", holders: () => 0, validate, release: () => undefined };
+      if (scope === "monitor") return { id: this.fileOrigins.get(borrowed)!.connectionId, client: borrowed.target, routeIdentity: identity, kind: "borrowed", holders: () => 0, validate, release: () => undefined };
       const owners = this.borrowedForwards.get(borrowed) ?? new Set<ForwardOwner>();
       owners.add(notify);
       this.borrowedForwards.set(borrowed, owners);
       return {
         id: this.fileOrigins.get(borrowed)!.connectionId,
         client: borrowed.target,
+        routeIdentity: identity,
         kind: "borrowed",
         holders: () => owners.size,
         validate,
@@ -470,7 +470,7 @@ export class SshManager {
       const client = await Promise.race([dial.ready, cancelled]);
       await validate();
       if (dial.abort.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 专用连接已结束");
-      return { id: dial.id, client, kind: "dedicated", holders: () => dial.owners.size, validate, release };
+      return { id: dial.id, client, routeIdentity: identity, kind: "dedicated", holders: () => dial.owners.size, validate, release };
     } catch (error) {
       release();
       throw error;

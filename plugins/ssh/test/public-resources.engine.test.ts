@@ -12,9 +12,11 @@ import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import type { ExecJobStatus, ExecOutputPage } from "../src/engine/public-jobs.js";
+import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../src/engine/monitor-sample.js";
 import { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
+import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
 const hostGet = "ssh.resources.host.get";
@@ -747,6 +749,95 @@ test.each(["cli", "mcp"] as const)("%s reads current SSH connection, known host 
       expect(await invoke(tool), tool).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     }
     expect((await discover()).filter((name) => names.includes(name))).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s reads authorized monitor configurations and cached samples without starting a sampler", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const list = "ssh.monitor.panels.list";
+  const cached = "ssh.monitor.panels.run";
+  const save = "ssh.monitor.panels.save";
+  const change = "ssh.monitor.panels.change";
+  let samples = 0;
+  try {
+    const jump = await f.host("monitor jump");
+    const target = await f.host("monitored host", [jump.hostId], {
+      onExec(command) {
+        if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+        if (command === LINUX_SAMPLE) {
+          samples++;
+          return { stdout: "memory 8192 4096\nuptime 3600\n" };
+        }
+        return undefined;
+      },
+    });
+    const draft = { name: "fixture monitor", note: "", hostIds: [target.hostId], interval: 2, retention: 15 };
+    const panel = await f.desktop<MonitorPanel>(save, draft);
+    const binding = { id: panel.id, expectedRevision: panel.revision };
+    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "monitor fixture" });
+    const session = entry === "mcp" ? await openMcpSession(f.mcpEndpoint(), token) : undefined;
+    const invoke = async (id: string, args: object = {}) => {
+      if (entry === "cli") return f.cli(id, args);
+      const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: args }, session);
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
+    };
+    for (const tool of [list, cached]) {
+      expect(await invoke(tool)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+      await f.allow(tool);
+    }
+    await f.chooseHosts([target.hostId]);
+    expect(data(await invoke(list))).toEqual([]);
+    expect(await invoke(cached, binding)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    await f.chooseHosts([target.hostId, jump.hostId]);
+    expect(data(await invoke(list))).toEqual([panel]);
+    expect(await invoke(cached, { ...binding, expectedRevision: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(data(await invoke(cached, binding))).toBeNull();
+    expect(jump.server.conns).toHaveLength(0);
+    expect(target.server.conns).toHaveLength(0);
+
+    await f.desktop(change, { ...binding, action: "start" });
+    for (const hop of [0, 1]) {
+      const prompt = await vi.waitFor(async () => {
+        const active = await f.desktop<MonitorPanelRun>(cached, { id: panel.id });
+        const key = active.hosts[0]?.prompt;
+        if (key?.hop !== hop) throw new Error("Waiting for monitor route trust");
+        return key;
+      });
+      expect(data(await invoke(cached, binding))).toEqual({ id: panel.id, revision: panel.revision, state: "running", hosts: [] });
+      await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop, promptId: prompt.promptId, accept: true, remember: false });
+    }
+    await vi.waitFor(async () => {
+      const result = await f.desktop<MonitorPanelRun>(cached, { id: panel.id });
+      expect(result.hosts[0]?.latest?.sample?.memory).toEqual({ total: 8192, available: 4096 });
+    });
+    await f.desktop(change, { ...binding, action: "pause" });
+    const before = samples;
+    const result = data(await invoke(cached, binding));
+    expect(result).toEqual({
+      id: panel.id,
+      revision: panel.revision,
+      state: "paused",
+      hosts: [
+        {
+          hostId: target.hostId,
+          state: "paused",
+          platform: "linux",
+          latest: { at: expect.any(Number), sample: expect.objectContaining({ memory: { total: 8192, available: 4096 } }) },
+          history: expect.any(Array),
+        },
+      ],
+    });
+    await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised monitor jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
+    expect(data(await invoke(cached, binding))).toMatchObject({ hosts: [] });
+    expect(samples).toBe(before);
+    expect(jump.server.conns).toHaveLength(1);
+    expect(target.server.conns).toHaveLength(1);
+    await f.allow(cached, false);
+    expect(await invoke(cached, binding)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.desktop("ssh.monitor.panels.delete", binding);
   } finally {
     await f.close();
   }

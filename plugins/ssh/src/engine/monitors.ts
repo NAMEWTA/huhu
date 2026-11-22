@@ -23,6 +23,7 @@ type Source = {
 };
 type Binding = {
   host: MonitorHost;
+  routeIdentity?: string;
   interval: number;
   retention: number;
   enabled: boolean;
@@ -32,6 +33,19 @@ type Binding = {
 };
 type Pane = { id: string; binding: Binding; interval: z.infer<typeof SessionInterval>; expiry?: ReturnType<typeof setTimeout> };
 type Dashboard = { panel: MonitorPanel; state: MonitorPanelRun["state"]; bindings: Binding[] };
+
+function reduceHistory(history: readonly MonitorPoint[]): MonitorPoint[] {
+  const stride = Math.max(1, Math.ceil(history.length / 90));
+  const reduced: MonitorPoint[] = [];
+  for (let i = 0; i < history.length; i += stride) {
+    const bucket = history.slice(i, i + stride);
+    const gap = bucket.find(({ sample }) => sample === null);
+    const last = bucket.at(-1)!;
+    if (gap && gap !== last) reduced.push(gap);
+    reduced.push(last);
+  }
+  return reduced;
+}
 
 export class Monitors {
   private readonly sources = new Map<string, Source>();
@@ -84,6 +98,18 @@ export class Monitors {
   dashboard(id: string): MonitorPanelRun | null {
     const entry = this.dashboards.get(id);
     return entry ? { id, revision: entry.panel.revision, state: entry.state, hosts: entry.bindings.map((binding) => this.view(binding)) } : null;
+  }
+
+  cachedDashboard(panel: MonitorPanel, routes: ReadonlyMap<string, string>) {
+    const entry = this.dashboards.get(panel.id);
+    if (!entry || entry.panel.revision !== panel.revision) return null;
+    const hosts = entry.bindings.flatMap((binding) => {
+      const { hostId, state, platform, latest, history } = binding.host;
+      if (!binding.routeIdentity || routes.get(hostId) !== binding.routeIdentity) return [];
+      const cutoff = this.cutoff(binding);
+      return [{ hostId, state, platform, latest: latest && latest.at >= cutoff ? latest : undefined, history: reduceHistory(history.slice(this.historyStart(history, cutoff))) }];
+    });
+    return { id: panel.id, revision: panel.revision, state: entry.state, hosts };
   }
 
   save(input: SaveMonitorPanel, signal: AbortSignal) {
@@ -187,17 +213,7 @@ export class Monitors {
   private view(binding: Binding): MonitorHost {
     const { host, source } = binding;
     this.trim(binding);
-    const history = host.history;
-    const stride = Math.max(1, Math.ceil(history.length / 90));
-    const reduced: MonitorPoint[] = [];
-    for (let i = 0; i < history.length; i += stride) {
-      const bucket = history.slice(i, i + stride);
-      const gap = bucket.find(({ sample }) => sample === null);
-      const last = bucket.at(-1)!;
-      if (gap && gap !== last) reduced.push(gap);
-      reduced.push(last);
-    }
-    return { ...host, history: reduced, interval: source ? this.period(source) : undefined, subscribers: source?.users.size ?? 0 };
+    return { ...host, history: reduceHistory(host.history), interval: source ? this.period(source) : undefined, subscribers: source?.users.size ?? 0 };
   }
 
   private dial(binding: Binding) {
@@ -241,6 +257,7 @@ export class Monitors {
     this.sources.set(source.id, source);
     source.users.add(binding);
     binding.source = source;
+    binding.routeIdentity = connection.routeIdentity;
     const off = connection.onClose(() => this.disconnect(binding, "disconnected"));
     binding.release = () => {
       off();
@@ -318,11 +335,20 @@ export class Monitors {
     this.trim(binding);
   }
 
-  private trim(binding: Binding) {
-    const { history } = binding.host;
-    const cutoff = Date.now() - binding.retention * 60_000;
+  private cutoff(binding: Binding) {
+    return Date.now() - binding.retention * 60_000;
+  }
+
+  private historyStart(history: readonly MonitorPoint[], cutoff: number) {
     let remove = Math.max(0, history.length - MAX_POINTS);
     while (remove < history.length && history[remove]!.at < cutoff) remove++;
+    return remove;
+  }
+
+  private trim(binding: Binding) {
+    const { history } = binding.host;
+    const cutoff = this.cutoff(binding);
+    const remove = this.historyStart(history, cutoff);
     if (remove) history.splice(0, remove);
     if (binding.host.latest && binding.host.latest.at < cutoff) delete binding.host.latest;
   }

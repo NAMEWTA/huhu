@@ -25,6 +25,7 @@ import { SshPreferences } from "./preferences.js";
 import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
+import { connectionIdentity } from "./workspace-target.js";
 
 export { sshCapabilityDescriptors } from "./capabilities.js";
 export { HostStore } from "./hosts.js";
@@ -118,7 +119,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionGet, (_c, i) => monitors.get(i.id)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionChange, (_c, i) => monitors.session(i)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsList, () => monitorPanels.list()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return monitorPanels.list();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      return monitorPanels.list().filter(({ hostIds }) => hostIds.every((id) => routes.has(id)));
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.monitorPanelsSave, async ({ signal }, i) => {
       const saved = await monitors.save(i, signal);
@@ -133,7 +140,18 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return result;
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsRun, (_c, i) => monitors.dashboard(i.id)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.monitorPanelsRun, (context, { id, expectedRevision }) => {
+      if (isWorkbenchCaller(context.caller)) return monitors.dashboard(id);
+      if (!expectedRevision) throw errors.invalidInput("读取外部监控样本需要面板修订");
+      const routes = visibleSshRoutes(api.vault.files, context);
+      const panel = monitorPanels.get(id);
+      if (!panel || panel.hostIds.some((hostId) => !routes.has(hostId))) throw errors.notFound("监控面板");
+      if (panel.revision !== expectedRevision) throw errors.versionConflict(panel.revision);
+      const identities = new Map(panel.hostIds.map((hostId) => [hostId, connectionIdentity(routes.get(hostId)!.route.map((hop) => ({ id: hop.hostId, revision: hop.revision })))]));
+      return monitors.cachedDashboard(panel, identities);
+    }),
+  );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorPanelsChange, ({ signal }, i) => monitors.change(i, signal)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.forwardRulesList, () => forwardRules.list()));
   api.defineCapability(
