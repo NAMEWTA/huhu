@@ -1,7 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +13,7 @@ import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cl
 import type { DispatchReceipt, TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import type { z } from "zod";
+import { candidatePackage, candidateEnvironment, confirmCandidate } from "../helpers/candidate-package.js";
 import { openApp, rmTree } from "../helpers/launch.js";
 
 type Rule = { id: string; version: string; data: { enabled: boolean; trigger: { preset: string; cron: string; zone: string } } };
@@ -83,7 +83,8 @@ async function stopFixtureCore(coreBin: string, runtime: string, env: NodeJS.Pro
   }
 }
 
-test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目标不可用时可人工关闭", async ({}, testInfo) => {
+test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目标不可用时可人工关闭", async ({ browserName }, testInfo) => {
+  void browserName; // Electron tests still require Playwright’s fixture parameter.
   const { page, close, vault } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -201,17 +202,14 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
   }
 });
 
-test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次结果与人工完成", async ({}, testInfo) => {
+test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次结果与人工完成", async ({ browserName }, testInfo) => {
+  void browserName; // Electron tests still require Playwright’s fixture parameter.
   test.setTimeout(180_000);
-  const executablePath = process.env["HUHU_PACKAGED_EXE"];
   const packageArtifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
-  test.skip(process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1" || !executablePath || !packageArtifact || !expectedSha || !provider, "需 W8.3 候选包及 SHA、受控派遣白名单中的真实 Codex 构建，并显式设置 HUHU_TASK_JOURNEY_ACCEPTANCE=1。");
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(packageArtifact!)) hash.update(chunk);
-  const sha = hash.digest("hex");
-  expect(sha).toBe(expectedSha);
+  test.skip(process.env["HUHU_TASK_JOURNEY_ACCEPTANCE"] !== "1" || !packageArtifact || !expectedSha || !provider, "需 W8.3 候选包及 SHA、受控派遣白名单中的真实 Codex 构建，并显式设置 HUHU_TASK_JOURNEY_ACCEPTANCE=1。");
+  const { executablePath, sha } = await candidatePackage();
   const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-task-journey-"));
   const vault = path.join(sandbox, "vault");
   const userData = path.join(sandbox, "desktop");
@@ -220,7 +218,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   const runtime = path.join(sandbox, "runtime");
   const responses = await startCodexResponsesFixture({ seedReply: "READY", result: "TASK-JOURNEY-RESULT You chose Circle." });
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...candidateEnvironment(),
     HUHU_VAULT: vault,
     HOME: home,
     USERPROFILE: home,
@@ -228,6 +226,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
     XDG_CONFIG_HOME: path.join(home, ".config"),
     XDG_STATE_HOME: path.join(home, ".state"),
     XDG_DATA_HOME: path.join(home, ".local", "share"),
+    XDG_CACHE_HOME: path.join(home, ".cache"),
     CODEX_HOME: path.join(home, ".codex"),
     CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
     PI_CODING_AGENT_DIR: path.join(home, ".pi"),
@@ -245,6 +244,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
       coreBin = path.join(await app.evaluate(() => process.resourcesPath), "herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
       const page = await app.firstWindow();
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 25_000 });
+      const candidateIdentity = await confirmCandidate(app, page);
       const call = caller(page);
       ({ id: vaultId } = await call<{ id: string }>("vault.info"));
       await pauseRules(call);
@@ -335,6 +335,7 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
         contentType: "application/json",
         body: JSON.stringify({
           sha,
+          candidateIdentity,
           occurrenceId: occurrence!.activationId,
           taskId: task.id,
           runId: run!.runId,
@@ -358,20 +359,17 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
   }
 });
 
-test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费 ACK 重交与历史恢复", async ({}, testInfo) => {
+test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费 ACK 重交与历史恢复", async ({ browserName }, testInfo) => {
+  void browserName; // Electron tests still require Playwright’s fixture parameter.
   test.setTimeout(240_000);
-  const executablePath = process.env["HUHU_PACKAGED_EXE"];
   const artifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
   test.skip(
-    process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1" || process.platform !== "linux" || process.arch !== "x64" || !executablePath || !artifact || !expectedSha || !provider,
+    process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1" || process.platform !== "linux" || process.arch !== "x64" || !artifact || !expectedSha || !provider,
     "需 Linux x64、W8.3 候选包和 SHA、受控的 Codex ELF，并显式设置 HUHU_AGENT_WORKSPACE_ACCEPTANCE=1。Windows 实机走独立的原生 Pi 用例。",
   );
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(artifact!)) hash.update(chunk);
-  const sha = hash.digest("hex");
-  expect(sha).toBe(expectedSha);
+  const { executablePath, sha } = await candidatePackage();
 
   const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-w8-workspace-"));
   const vault = path.join(sandbox, "vault");
@@ -384,9 +382,14 @@ test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费
   const runtime = path.join(sandbox, "runtime");
   const responses = await startCodexResponsesFixture();
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...candidateEnvironment(),
     HUHU_VAULT: vault,
     HOME: fixtureHome,
+    USERPROFILE: fixtureHome,
+    XDG_CONFIG_HOME: path.join(fixtureHome, ".config"),
+    XDG_DATA_HOME: path.join(fixtureHome, ".local/share"),
+    XDG_STATE_HOME: path.join(fixtureHome, ".state"),
+    XDG_CACHE_HOME: path.join(fixtureHome, ".cache"),
     XDG_RUNTIME_DIR: runtime,
     CODEX_HOME: path.join(fixtureHome, ".codex"),
     CLAUDE_CONFIG_DIR: path.join(fixtureHome, ".claude"),
@@ -406,6 +409,7 @@ test("W8.2/W8.3 候选安装包：跨 Space 分栏、原生会话重连、消费
     coreBin = path.join(await app.evaluate(() => process.resourcesPath), "herdr", "linux-x64", "herdr-core");
     const page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 25_000 });
+    await confirmCandidate(app, page);
     await page.setViewportSize({ width: 1600, height: 1050 });
     return { page, call: caller(page) };
   };
@@ -591,7 +595,19 @@ esac
     const codexVersion = execFileSync(provider!, ["--version"], { env, encoding: "utf8" }).trim();
     await testInfo.attach("W8 原生会话与两段 ACK", {
       contentType: "application/json",
-      body: JSON.stringify({ sha, platform: process.platform, arch: process.arch, coreVersion: core.version, codexVersion, dispatchId, runId: run.runId, session, receipt: held.receipt, messageId: durable!.consumption.delivery.messageId }),
+      body: JSON.stringify({
+        candidateIdentity: await confirmCandidate(app!, page),
+        sha,
+        platform: process.platform,
+        arch: process.arch,
+        coreVersion: core.version,
+        codexVersion,
+        dispatchId,
+        runId: run.runId,
+        session,
+        receipt: held.receipt,
+        messageId: durable!.consumption.delivery.messageId,
+      }),
     });
   } finally {
     try {

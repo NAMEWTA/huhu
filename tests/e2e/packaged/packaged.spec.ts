@@ -1,9 +1,13 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
 import { USER_DATA_ARG } from "../helpers/launch.js";
 
 /**
@@ -14,8 +18,7 @@ import { USER_DATA_ARG } from "../helpers/launch.js";
 const EXE = process.env["HUHU_PACKAGED_EXE"];
 test.skip(!EXE, "需要 HUHU_PACKAGED_EXE 指向打包后的可执行文件");
 
-async function start(): Promise<{ app: ElectronApplication; page: Page; vault: string; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
-  const vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"));
+async function start(vault = mkdtempSync(path.join(tmpdir(), "huhu-pk-"))): Promise<{ app: ElectronApplication; page: Page; vault: string; call(cap: string, input?: unknown): Promise<any>; stop(): Promise<void> }> {
   // 不传 HUHU_HERDR_BIN：必须用随包的 Herdr Core，而不是源码树里的那份
   const env = { ...process.env, HUHU_VAULT: vault } as Record<string, string>;
   delete env["HUHU_HERDR_BIN"];
@@ -195,5 +198,129 @@ test("打包后：自动化发生、运行抽屉与任务详情使用同一笔�
     expect(existsSync(path.join(vault, "Task Runs"))).toBe(false);
   } finally {
     await stop();
+  }
+});
+
+test("打包后：CLI 与 HTTP MCP 逐项授权，Safe 锁定期间读取邮件并恢复新格式备份", async () => {
+  test.skip(process.platform !== "linux" || process.env["HUHU_PACKAGED_CREDENTIAL_ACCEPTANCE"] !== "1", "需隔离的 Linux Secret Service 会话和候选安装包");
+  test.setTimeout(120_000);
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-pk-credentials-"));
+  const password = randomUUID();
+  const imap = await openImapFixture({
+    acceptPassword: (candidate) => candidate === password,
+    message: { uidValidity: 41, uid: 2, subject: "Backup fixture", source: "From: sender@example.invalid\r\nSubject: Backup fixture\r\n\r\nReadable body" },
+  });
+  const desktop = async (app: Awaited<ReturnType<typeof start>>, capability: string, input?: unknown) => {
+    const result = await app.call(capability, input);
+    expect(result, capability).toMatchObject({ ok: true });
+    return result.data;
+  };
+  let app: Awaited<ReturnType<typeof start>> | undefined;
+  try {
+    const source = (app = await start(mkdtempSync(path.join(fixture, "vault-"))));
+    const bin = path.join(path.dirname(EXE!), "resources", "bin", "huhu");
+    const run = promisify(execFile);
+    const cli = async (...args: string[]) => {
+      const output = await run(bin, [...args, "--vault", source.vault, "--json"], { encoding: "utf8", timeout: 30_000 }).catch((failure: unknown) => {
+        if (failure && typeof failure === "object" && "stdout" in failure && typeof failure.stdout === "string" && failure.stdout.trim()) return { stdout: failure.stdout };
+        throw failure;
+      });
+      return JSON.parse(output.stdout);
+    };
+    const cliCall = (capability: string, input: unknown = {}, intent?: string) => cli("call", capability, "--input-json", JSON.stringify(input), ...(intent ? ["--intent-key", intent] : []));
+    const cliTools = async () => (await cli("capabilities", "list")).data.map(({ name }: { name: string }) => name);
+
+    const ep = await source.page.evaluate(() => window.huhuHost.engine());
+    const url = `${ep.baseUrl}/mcp`;
+    const { token } = await desktop(source, "gateway.tokens.create", { name: "候选包本机夹具" });
+    expect((await mcpRequest(url, token, mcpRpc("tools/list"))).status).toBe(404);
+    await desktop(source, "gateway.mcp.update", { enabled: true, transport: "http" });
+    const session = await openMcpSession(url, token);
+    const rpc = async (method: string, input: unknown = {}) => {
+      const response = await mcpRequest(url, token, mcpRpc(method, input), session);
+      expect(response.status).toBe(200);
+      return (await response.json()).result;
+    };
+    const mcpTools = async () => (await rpc("tools/list")).tools.map(({ name }: { name: string }) => name.replaceAll("_", "."));
+    const mcpCall = async (capability: string, input: unknown) => {
+      const value = await rpc("tools/call", { name: capability.replaceAll(".", "_"), arguments: input });
+      return value.isError ? { ok: false, error: JSON.parse(value.content[0].text) } : { ok: true, data: value.structuredContent.data };
+    };
+    expect(await cliTools()).toEqual([]);
+    expect(await mcpTools()).toEqual([]);
+
+    const changeAccess = (capability: string, exposed: boolean) => desktop(source, "gateway.update", { capability, exposed });
+    const { setupId } = await desktop(source, "mail.accounts.testConnection", {
+      requestId: randomUUID(),
+      password,
+      settings: {
+        provider: "custom_imap",
+        email: "backup-fixture@example.invalid",
+        label: "候选包邮箱",
+        auth: "password",
+        imap: { host: "127.0.0.1", port: imap.port, security: "none" },
+        smtp: { host: "", port: 587, security: "starttls" },
+        smtpEnabled: false,
+      },
+    });
+    const { accountId } = await desktop(source, "mail.accounts.save", { setupId, folders: ["INBOX"] });
+    const { accounts: mailAccounts } = await desktop(source, "mail.accounts.list");
+    const { revision } = mailAccounts.find((entry: { accountId: string }) => entry.accountId === accountId);
+    const safePassword = randomUUID();
+    const accounts = Array.from({ length: 3 }, (_, n) => ({ account: `备份账号 ${n + 1}`, password: randomUUID() }));
+    await desktop(source, "safe.setup", { password: safePassword });
+    const safeSession = await desktop(source, "safe.status");
+    const { tagId } = await desktop(source, "safe.tags.create", { session: safeSession, expectedRevision: 0, name: "候选包标签", color: "purple" });
+    const { entryId, accountIds } = await desktop(source, "safe.entries.create", { session: safeSession, expectedRevision: 1, name: "候选包恢复", accounts, tagIds: [tagId] });
+    await desktop(source, "safe.lock");
+    expect(await desktop(source, "safe.status")).toMatchObject({ locked: true });
+
+    const refresh = "mail.sync.refresh";
+    const request = () => ({ accountId, folder: "INBOX", expectedRevision: revision, requestId: randomUUID() });
+    const logins = () => imap.commands.filter((command) => command === "LOGIN").length;
+    const closed = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    expect(await cliCall(refresh, request())).toMatchObject(closed);
+    await changeAccess(refresh, true);
+    expect(await cliTools()).toEqual([refresh]);
+    expect(await mcpTools()).toEqual([refresh]);
+    for (const invoke of [cliCall, mcpCall]) {
+      const before = logins();
+      expect(await invoke(refresh, request())).toMatchObject({ ok: true, data: { message: { localMessageId: expect.any(String) } } });
+      expect(logins()).toBeGreaterThan(before);
+    }
+    await changeAccess(refresh, false);
+    expect(await cliCall(refresh, request())).toMatchObject(closed);
+    expect(await mcpCall(refresh, request())).toMatchObject(closed);
+    expect(await desktop(source, "safe.status")).toMatchObject({ locked: true });
+
+    await changeAccess("vault.exportPackage", true);
+    await changeAccess("vault.importPackage", true);
+    const packageId = randomUUID();
+    const exported = await cliCall("vault.exportPackage", { packageId }, randomUUID());
+    expect(exported).toMatchObject({ ok: true, data: { sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) } });
+    const archive = exported.data;
+    expect(archive.sha256).toBe(createHash("sha256").update(readFileSync(archive.path)).digest("hex"));
+    const imported = await cliCall("vault.importPackage", { packageId, restoreId: randomUUID(), expectedSha256: archive.sha256 }, randomUUID());
+    expect(imported).toMatchObject({ ok: true, data: { vaultId: expect.any(String), targetDir: expect.any(String) } });
+    expect(imported.data.vaultId).not.toBe(ep.vaultId);
+    expect(path.relative(fixture, imported.data.targetDir)).not.toMatch(/^(?:\.\.|\/)/u);
+    await source.stop();
+    app = undefined;
+
+    const restored = (app = await start(imported.data.targetDir));
+    expect(await desktop(restored, "mail.accounts.list")).toMatchObject({ accounts: [{ accountId, authState: { "account-password": "needs-reconfiguration" } }] });
+    await desktop(restored, "safe.unlock", { password: safePassword });
+    const restoredSession = await desktop(restored, "safe.status");
+    expect(await desktop(restored, "safe.entries.get", { session: restoredSession, entryId })).toMatchObject({ tagIds: [tagId], accounts: accounts.map(({ account }) => ({ account })) });
+    for (const [index, id] of (accountIds as string[]).entries()) {
+      expect(await desktop(restored, "safe.accounts.reveal", { session: restoredSession, entryId, accountId: id })).toMatchObject({ password: accounts[index]?.password });
+    }
+  } finally {
+    try {
+      await app?.stop();
+    } finally {
+      await imap.close();
+      rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+    }
   }
 });

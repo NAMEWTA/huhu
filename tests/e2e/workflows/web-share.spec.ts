@@ -42,17 +42,14 @@ async function saveFromAppMenu(app: ElectronApplication, page: Page) {
     await page.getByTestId("app-menu-button").click();
   }
   const activate = (click: boolean) =>
-    app.evaluate(
-      ({ BrowserWindow, Menu }, shouldClick) => {
-        const win = BrowserWindow.getAllWindows()[0]!;
-        const menu = process.platform === "darwin" ? Menu.getApplicationMenu() : (Reflect.get(win, "__huhuTestMenu") as ReturnType<typeof Menu.getApplicationMenu>);
-        const item = menu?.items.find(({ label }) => label === "文件")?.submenu?.getMenuItemById("huhu-document-save");
-        if (!item || item.label !== "保存当前文档" || !item.enabled) return false;
-        if (shouldClick) item.click({}, win, win.webContents);
-        return true;
-      },
-      click,
-    );
+    app.evaluate(({ BrowserWindow, Menu }, shouldClick) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      const menu = process.platform === "darwin" ? Menu.getApplicationMenu() : (Reflect.get(win, "__huhuTestMenu") as ReturnType<typeof Menu.getApplicationMenu>);
+      const item = menu?.items.find(({ label }) => label === "文件")?.submenu?.getMenuItemById("huhu-document-save");
+      if (!item || item.label !== "保存当前文档" || !item.enabled) return false;
+      if (shouldClick) item.click({}, win, win.webContents);
+      return true;
+    }, click);
   await expect.poll(() => activate(false)).toBe(true);
   expect(await activate(true)).toBe(true);
 }
@@ -241,12 +238,7 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
       ]);
       const bytes = readFileSync(layoutFile, "utf8");
       expect(bytes).not.toBe(saved);
-      expect(JSON.parse(bytes).instances).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ instanceId: "default-focus", hidden: true }),
-          expect.objectContaining({ instanceId: "default-notes", hidden: true }),
-        ]),
-      );
+      expect(JSON.parse(bytes).instances).toEqual(expect.arrayContaining([expect.objectContaining({ instanceId: "default-focus", hidden: true }), expect.objectContaining({ instanceId: "default-notes", hidden: true })]));
       return bytes;
     });
 

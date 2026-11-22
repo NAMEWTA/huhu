@@ -4,6 +4,12 @@
 
 八份 Issue 快照保留原报告和历史引用。复用调查以当前 Huhu 和本轮克隆的上游默认分支为准。每个实际采用的文件、提交、修改和许可继续记入项目上游台账。 [本地源码清单](sources.md) · [项目上游台账](../../../../docs/upstream/ledger.md)
 
+## 2026-11-22 当前范围
+
+用户已明确暂缓 #7 SSH，继续 #3–#6、#8–#10。SSH 已有实现与未提交局部处理保存为独立分支 `impl/huhu-issues-3-10-ssh-deferred`，快照 `45b9fae3e13cab49ad3dd0d62c51a52133bfcc56`，保留完整 change 和暂停说明。旧 SSH 证据仅描述当时已测范围，不代表暂停候选已验收。恢复工作已完成，不再重复执行。
+
+当前源码组合在 `f310e541` 的 Agent／Tasks 五项联验通过；Web 邀请一项、Mail／Safe 新格式恢复两项和真实系统钥匙串一项通过。日志位于 `temp/issue-evidence/huhu-2026-11-22/agent-tasks-combined-linux.log` 与 `web-mail-safe-combined-linux.log`。最终共同包仍待构建与实际验收。独立审查发现候选制品与运行程序绑定不足、T7.2 收件前停用及一次 ACK 丢失顺序缺证、Mail 同地址子集恢复缺显式独立账号选项，正在补齐。三项均不得以现有绿灯代签。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
