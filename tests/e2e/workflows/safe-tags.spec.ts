@@ -176,6 +176,88 @@ test("保险箱标签：复用、随条目保存、改名变色、冲突和解�
   }
 });
 
+test("保险箱只复制所选第三个账号，剪贴板拒绝有反馈且锁定拦截迟到复制", async () => {
+  const { app, page, close } = await openApp();
+  const value = "synthetic-third-clipboard-value";
+  try {
+    await setup(page);
+    const call = await desktopCall(page);
+    const { instanceId, generation } = await call<{ instanceId: string; generation: number }>("safe.status");
+    const session = { instanceId, generation };
+    await call("safe.entries.create", {
+      session,
+      expectedRevision: 0,
+      name: "复制测试条目",
+      accounts: [
+        { account: "第一账号", password: "synthetic-first-clipboard-value" },
+        { account: "第二账号", password: "synthetic-second-clipboard-value" },
+        { account: "第三账号", password: value },
+      ],
+    });
+    await page.getByTestId("safe-item").filter({ hasText: "复制测试条目" }).click();
+    await page.getByRole("combobox", { name: "账号", exact: true }).selectOption({ index: 2 });
+    const copy = page.getByRole("button", { name: "复制密码", exact: true });
+    const masked = page.getByTestId("secret-value");
+    await expect(masked).toHaveText("••••••••");
+    await copy.click();
+    await expect(page.getByText("已复制密码。", { exact: true })).toBeVisible();
+    await expect(masked).toHaveText("••••••••");
+    await page.evaluate(() => {
+      const input = document.createElement("input");
+      input.setAttribute("aria-label", "隔离粘贴检查");
+      document.body.prepend(input);
+    });
+    const paste = page.getByRole("textbox", { name: "隔离粘贴检查" });
+    await paste.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+    await expect(paste).toHaveValue(value);
+    await paste.evaluate((input) => input.remove());
+    await app.evaluate(({ clipboard }) => clipboard.clear());
+
+    await app.evaluate(({ clipboard }) => {
+      const write = clipboard.writeText;
+      clipboard.writeText = (...args) => {
+        clipboard.writeText = write;
+        throw new Error(`Synthetic clipboard refused ${args.length} arguments`);
+      };
+    });
+    await copy.click();
+    await expect(page.getByText("无法复制密码。可重试，或选择「显示密码」后手动复制。")).toBeVisible();
+    await expect(masked).toHaveText("••••••••");
+    const ready = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    await page.route("**/api/v1/call", async (route) => {
+      if (route.request().postDataJSON()?.capability !== "safe.accounts.reveal") return route.continue();
+      const response = await route.fetch();
+      ready.resolve();
+      try {
+        await release.promise;
+        await route.fulfill({ response }).catch(() => undefined);
+      } finally {
+        await response.dispose();
+        finished.resolve();
+      }
+    });
+    try {
+      await copy.click();
+      await ready.promise;
+      await call("safe.lock", { session });
+      await expect(page.getByTestId("safe-locked")).toBeVisible();
+    } finally {
+      release.resolve();
+    }
+    await finished.promise;
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe("");
+  } finally {
+    await app
+      .evaluate(({ clipboard }, expected) => {
+        if (clipboard.readText() === expected) clipboard.clear();
+      }, value)
+      .catch(() => undefined);
+    await close();
+  }
+});
+
 test("保险箱标签：多标签交集、账号命中、无标签及锁定清除", async () => {
   const { page, close } = await openApp();
   try {

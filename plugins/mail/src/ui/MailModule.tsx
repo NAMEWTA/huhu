@@ -889,7 +889,7 @@ function Mailbox({
         </aside>
         {ordinaryMessage ? (
           <MailReader
-            key={ordinaryMessage.localMessageId}
+            key={JSON.stringify([ordinaryMessage.accountId, ordinaryMessage.folder, ordinaryMessage.localMessageId])}
             view="mailbox"
             message={ordinaryMessage}
             readOnly={readOnly}
@@ -983,12 +983,16 @@ function ConversationTimeline({
   const [offset, setOffset] = useState(location?.messageOffset ?? 0);
   const [copyStatus, setCopyStatus] = useState("");
   const [highlighted, setHighlighted] = useState(false);
+  const [atEnd, setAtEnd] = useState(true);
+  const timeline = useRef<HTMLDivElement>(null);
+  const timelineEnd = useRef<HTMLDivElement>(null);
   const targetReader = useRef<HTMLDivElement>(null);
   const hasFocused = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), ...(time && { time }), conversationId: conversation.conversationId, offset, limit: conversationPageSize });
   const current = opened && conversationMessageKey(opened);
   const reader = current ? page.data?.messages.find((message) => conversationMessageKey(message) === current) : null;
+  const latest = conversationMessageKey(conversation.latest);
   const isTarget = !!reader && !!location && current === conversationMessageKey(location.message);
 
   useEffect(() => {
@@ -1009,6 +1013,25 @@ function ConversationTimeline({
       clearTimeout(timer);
     };
   }, [isTarget]);
+
+  useLayoutEffect(() => {
+    if (!page.isSuccess || !timeline.current) return;
+    if (location) {
+      const target = Array.from(timeline.current.querySelectorAll<HTMLButtonElement>("[data-mail-timeline-message]")).find((button) => button.dataset["mailTimelineMessage"] === conversationMessageKey(location.message));
+      if (target) {
+        timeline.current.scrollTop += target.getBoundingClientRect().top - timeline.current.getBoundingClientRect().top;
+        return;
+      }
+    }
+    timeline.current.scrollTop = timeline.current.scrollHeight;
+  }, [location, offset, page.isSuccess]);
+
+  useEffect(() => {
+    if (!page.isSuccess || !timelineEnd.current || !timeline.current) return;
+    const observer = new IntersectionObserver(([entry]) => setAtEnd(entry?.isIntersecting === true), { root: timeline.current });
+    observer.observe(timelineEnd.current);
+    return () => observer.disconnect();
+  }, [page.isSuccess]);
 
   async function copy(address: string) {
     try {
@@ -1049,20 +1072,40 @@ function ConversationTimeline({
             无法读取此对话。
           </Banner>
         )}
-        {page.data?.messages.map((message) => {
-          const key = conversationMessageKey(message);
-          const selected = key === current;
-          return (
-            <div className="hu-mail-row" key={key}>
-              <Button data-mail-timeline-message={key} aria-expanded={selected} onClick={(event) => onOpen(selected ? null : message, event.currentTarget)}>
-                {message.subject || "无主题"}
-              </Button>
-              {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
-              <span className="hu-mail-help">{message.source === "sent" ? "本机已发" : `${message.folder} · ${message.source === "gmail" ? "Gmail API" : "IMAP"}`}</span>
-              {message.source !== "sent" && message.readState === "unread" && <span>未读</span>}
-            </div>
-          );
-        })}
+        {page.data && (
+          <div ref={timeline} className="hu-mail-timeline" role="region" aria-label="往来邮件" tabIndex={0}>
+            {[...page.data.messages].reverse().map((message) => {
+              const key = conversationMessageKey(message);
+              const selected = key === current;
+              return (
+                <div className="hu-mail-row" key={key}>
+                  <Button data-mail-timeline-message={key} aria-expanded={selected} onClick={(event) => onOpen(selected ? null : message, event.currentTarget)}>
+                    {message.subject || "无主题"}
+                  </Button>
+                  {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
+                  <span className="hu-mail-help">{message.source === "sent" ? "本机已发" : `${message.folder} · ${message.source === "gmail" ? "Gmail API" : "IMAP"}`}</span>
+                  {message.source !== "sent" && message.readState === "unread" && <span>未读</span>}
+                </div>
+              );
+            })}
+            <div ref={timelineEnd} aria-hidden="true" />
+          </div>
+        )}
+        {page.data && (offset > 0 || !atEnd || (current && current !== latest)) && (
+          <Button
+            type="button"
+            onClick={(event) => {
+              setOffset(0);
+              if (timeline.current) {
+                timeline.current.scrollTop = timeline.current.scrollHeight;
+                timeline.current.focus({ preventScroll: true });
+              }
+              onOpen(conversation.latest, event.currentTarget);
+            }}
+          >
+            返回最新
+          </Button>
+        )}
         {page.data && (offset > 0 || page.data.nextOffset !== null) && (
           <nav className="hu-mail-row" aria-label="往来分页">
             <Button disabled={!offset} onClick={(event) => movePage(Math.max(0, offset - conversationPageSize), event.currentTarget)}>
@@ -1079,7 +1122,7 @@ function ConversationTimeline({
           {isTarget && reader.source !== "sent" && <h3>{reader.subject || "无主题"}</h3>}
           {reader.source !== "sent" ? (
             <MailReader
-              key={reader.localMessageId}
+              key={current}
               view="conversation"
               message={reader}
               onRevoked={onRevoked}

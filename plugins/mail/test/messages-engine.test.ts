@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -88,6 +88,12 @@ engineTest("两个邮箱的相同 UID 保持独立，重开及 UIDVALIDITY 换�
     const key = (message: typeof first.message) => ({ accountId: message.accountId, folder: message.folder, localMessageId: message.localMessageId });
     const mark = (running: RunningEngine, message: typeof first.message) => call(running, "mail.messages.markRead", key(message));
     expect(await call(engine, "mail.messages.loadBody", key(first.message))).toMatchObject({ ok: true, data: { state: "ready", body: { text: "first account 邮件\r\n", untrustedHtml: null, attachments: [] } } });
+    const remoteImageCapability = "mail.messages.loadRemoteImages";
+    const approved = { ...key(first.message), sourceDigest: createHash("sha256").update(synthA.source).digest("hex"), view: "mailbox" };
+    expect(await call(engine, remoteImageCapability, approved)).toEqual({ ok: true, data: { images: [], failed: 0 } });
+    expect(await call(engine, remoteImageCapability, { ...approved, url: "https://synthetic.example.invalid/image" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await call(engine, remoteImageCapability, { ...approved, sourceDigest: "0".repeat(64) })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await call(engine, remoteImageCapability, { ...approved, accountId: b.accountId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(synthA.seen).toBe(false);
     expect(await call(engine, mailMessageSourceDescriptor.name, { ...a, localMessageId: other.message.localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
     const manifest = await exportPackage(vaultPath, path.join(root, "mail.zip"));
@@ -137,6 +143,7 @@ engineTest("两个邮箱的相同 UID 保持独立，重开及 UIDVALIDITY 换�
     expect(changed.message.localMessageId).not.toBe(first.message.localMessageId);
     expect(await call(engine, mailMessageSourceDescriptor.name, { ...a, localMessageId: first.message.localMessageId })).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
     expect(await call(engine, "mail.messages.loadBody", key(first.message))).toMatchObject({ ok: true, data: { state: "needs-refresh" } });
+    expect(await call(engine, remoteImageCapability, approved)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     await checkSource(engine, changed.message, synthA.source);
     await checkSource(engine, other.message, synthB.source);
     expect(imapB.fetchRequests).toHaveLength(receivedB);

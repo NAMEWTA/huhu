@@ -261,8 +261,11 @@ engineTest(
     const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-oauth-"));
     const vaultPath = path.join(root, "vault");
     const desktopUserData = path.join(root, "app");
+    const webAssetsDir = path.join(root, "web");
     mkdirSync(vaultPath);
     mkdirSync(desktopUserData);
+    mkdirSync(webAssetsDir);
+    writeFileSync(path.join(webAssetsDir, "index.html"), "<!doctype html><title>OAuth loopback fixture</title>");
     let engine: RunningEngine | undefined;
     let now = Date.now();
     let exchangeCount = 0;
@@ -438,9 +441,37 @@ engineTest(
       expect(await request("mail.oauth.begin", { provider: "gmail", email: google }, "cli")).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       await engine.shutdown();
       injection.runtime = runtime;
-      engine = await boot({ vaultPath, desktopUserData });
+      engine = await boot({ vaultPath, desktopUserData, webAssetsDir });
 
-      const googleSession = await begin("gmail", google);
+      const { addresses } = await call<{ addresses: { url: string }[] }>("web.share.start", { mode: "local" });
+      const origin = addresses[0]!.url;
+      const { links } = await call<{ links: string[] }>("web.invitations.create");
+      const invite = new URLSearchParams(new URL(links[0]!).hash.slice(1)).get("invite");
+      assert(invite);
+      async function join() {
+        const response = await fetch(`${origin}/api/v1/session`, { method: "POST", headers: { origin, authorization: `Bearer ${invite}` } });
+        expect(response.status).toBe(204);
+        const cookie = response.headers.get("set-cookie")?.split(";")[0];
+        assert(cookie);
+        return async (capability: string, input: unknown = {}) => {
+          const result = await fetch(`${origin}/api/v1/call`, {
+            method: "POST",
+            headers: { origin, cookie, "content-type": "application/json" },
+            body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+          });
+          return CapabilityResultSchema.parse(await result.json());
+        };
+      }
+      const web = await join();
+      const stranger = await join();
+      const first = await web("mail.oauth.begin", { provider: "gmail", email: google });
+      assert(first.ok);
+      const googleSession = { slot: first.data as Status, url: opened.at(-1)! };
+      expect(googleSession.slot).toMatchObject({ host: "Fixture Engine", phase: "waiting" });
+      expect(googleSession.url.origin).toBe(base);
+      expect(googleSession.url.searchParams.get("code_challenge_method")).toBe("S256");
+      expect(googleSession.url.searchParams.get("login_hint")).toBe(google);
+      expect(await stranger("mail.oauth.cancel", { sessionId: googleSession.slot.sessionId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       const googleCode = ticketFor(googleSession, "gmail", google);
       expect((await callback(googleSession.url, { state: "bad", code: googleCode })).status).toBe(400);
       expect(exchangeCount).toBe(0);
@@ -449,6 +480,7 @@ engineTest(
       await expect.poll(async () => (await status(googleSession.slot)).phase).not.toMatch(/^(waiting|finishing)$/);
       const configured = await status(googleSession.slot);
       expect(configured, JSON.stringify(configured)).toMatchObject({ phase: "configured", route: "imap", smtp: true });
+      expect(await web("mail.oauth.status", { sessionId: googleSession.slot.sessionId })).toMatchObject({ ok: true, data: { phase: "configured", accountId: configured.accountId } });
       expect(
         await callback(googleSession.url, { code: googleCode }).then(
           (reply) => reply.status,
@@ -458,6 +490,9 @@ engineTest(
       expect(exchangeCount).toBe(1);
       const googleAccount = (await list()).accounts[0]!;
       const mbox = { accountId: googleAccount.accountId, folder: "INBOX" };
+      await call("safe.setup", { password: "fixture-only-mail-safe" });
+      await call("safe.lock");
+      expect(await call("safe.status")).toMatchObject({ initialized: true, locked: true });
       expect(await call("mail.sync.refresh", mbox)).toMatchObject({ message: { subject: "OAuth fixture" } });
       expect(imap.commands).toContain("AUTHENTICATE");
       expect(imap.commands).not.toContain("LOGIN");

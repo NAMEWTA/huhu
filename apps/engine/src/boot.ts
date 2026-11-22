@@ -47,7 +47,7 @@ import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "jso
 import automationsManifest from "@huhu/plugin-automations/manifest" with { type: "json" };
 import versioningManifest from "@huhu/plugin-versioning/manifest" with { type: "json" };
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
-import { HuhuError, PluginManifestSchema } from "@huhu/contracts";
+import { errors, HuhuError, PluginManifestSchema } from "@huhu/contracts";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 import { directoryInstance, endpointRootBinding, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
@@ -546,7 +546,11 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
     return bridge ? bridge(id, ws, options) : false;
   };
-  const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, terminal);
+  const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, terminal, async (...input) => {
+    const upload = plugins.isEnabled("mail") && getService<mail.MailWebAttachmentUpload>(mail.MAIL_WEB_ATTACHMENTS_SERVICE);
+    if (!upload || vault.readOnly) throw errors.permissionDenied("上传邮件附件");
+    return upload(...input);
+  });
   registerWebShareCapabilities(registry, webShare);
   // 所有插件启用、Web 分享能力登记之后再补写 / 升级指南：能力表取决于完整的注册表
   await guideRef.current?.maintain().catch(() => undefined);

@@ -1,10 +1,11 @@
 import { Banner, Button, Dialog } from "@huhu/ui";
+import type { CapabilityResult } from "@huhu/contracts";
 import { CapabilityError, createRequestId, host, registerExitParticipant, useEngine, type ModuleProps } from "@huhu/workbench";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { z } from "zod";
-import type { DesktopDraftAttachmentHost, DraftAttachmentError, DraftAttachmentState } from "../desktop-attachments.js";
+import { MAX_DRAFT_ATTACHMENT_BYTES, type DesktopDraftAttachmentHost, type DraftAttachmentError, type DraftAttachmentState, type SelectDraftAttachmentResult } from "../desktop-attachments.js";
 import type { DraftContent } from "../engine/draft-content.js";
 import { missingForwardAttachments } from "../engine/forward-context.js";
 import { MailField } from "./MailAccountDialog.js";
@@ -24,7 +25,7 @@ const attachmentError: Record<DraftAttachmentError, string> = {
   "source-missing": "所选文件已不存在，请重新选择。",
   interrupted: "附件导入中断，请重新选择。",
   conflict: "草稿已在别处更新，请重新打开后再处理附件。",
-  unavailable: "当前桌面或 Vault 无法导入附件。",
+  unavailable: "当前工作台或 Vault 无法导入附件。",
   failed: "无法导入附件，请重试。",
 };
 const attachmentStatus = { ready: "已保存", missing: "字节缺失", corrupt: "字节已损坏", unreadable: "无法读取" };
@@ -83,6 +84,7 @@ export function MailComposer({
   const recipientControl = useRef<HTMLInputElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const attachmentsGroup = useRef<HTMLElement>(null);
+  const attachmentInput = useRef<HTMLInputElement>(null);
   const restoreAttachmentFocus = useRef(false);
   const selection = useRef<AbortController | null>(null);
   const initial = draft ?? seed;
@@ -142,7 +144,14 @@ export function MailComposer({
   useEffect(() => {
     if (reply && !readOnly) editor?.commands.focus("start");
   }, [editor, readOnly, reply]);
-  useLayoutEffect(() => () => selection.current?.abort(), []);
+  useLayoutEffect(
+    () => () => {
+      const controller = selection.current;
+      selection.current = null;
+      controller?.abort();
+    },
+    [],
+  );
   useLayoutEffect(() => {
     if (busy !== null || !restoreAttachmentFocus.current) return;
     restoreAttachmentFocus.current = false;
@@ -153,6 +162,7 @@ export function MailComposer({
 
   const desktop = !!engine.endpoint.token;
   const picker = desktop ? (host() as { mailDraftAttachments?: DesktopDraftAttachmentHost } | undefined)?.mailDraftAttachments : undefined;
+  const attachmentEnabled = !readOnly && (!desktop || !!picker);
   function acceptDraftState(saved: DraftAttachmentState) {
     revisionRef.current = saved.revision;
     setRevision(saved.revision);
@@ -192,12 +202,16 @@ export function MailComposer({
     return saved.revision;
   }
 
-  async function addAttachment() {
-    if (!picker || readOnly || busyRef.current) return;
+  async function addAttachment(file?: File) {
+    if (!attachmentEnabled || busyRef.current || (!picker && !file)) return;
+    if (file && file.size > MAX_DRAFT_ATTACHMENT_BYTES) {
+      setError(attachmentError["too-large"]);
+      return;
+    }
     const operationId = createRequestId();
     const controller = new AbortController();
     const { signal } = controller;
-    const cancel = () => void picker.cancel(operationId).catch(() => undefined);
+    const cancel = () => void picker?.cancel(operationId).catch(() => undefined);
     selection.current = controller;
     busyRef.current = true;
     setBusy("prepare-attachment");
@@ -209,7 +223,7 @@ export function MailComposer({
       onChanged("");
       setBusy("attach");
       signal.addEventListener("abort", cancel, { once: true });
-      const result = await picker.selectAndAdd({ operationId, vaultId: engine.vaultId, draftId, expectedRevision });
+      const result = picker ? await picker.selectAndAdd({ operationId, vaultId: engine.vaultId, draftId, expectedRevision }) : await uploadAttachment(file!, expectedRevision, signal);
       if (signal.aborted || result.status === "cancelled") return;
       if (result.status === "failed") setError(attachmentError[result.reason]);
       else if (result.draft.draftId !== draftId) setError(attachmentError.failed);
@@ -222,8 +236,9 @@ export function MailComposer({
       if (!signal.aborted) setError(draftError(err));
     } finally {
       signal.removeEventListener("abort", cancel);
-      selection.current = null;
-      if (!signal.aborted) {
+      if (selection.current === controller) {
+        selection.current = null;
+        if (signal.aborted) setAttachmentNotice("附件上传已取消。");
         busyRef.current = false;
         restoreAttachmentFocus.current = true;
         setBusy(null);
@@ -231,8 +246,29 @@ export function MailComposer({
     }
   }
 
+  async function uploadAttachment(file: File, expectedRevision: string, signal: AbortSignal): Promise<SelectDraftAttachmentResult> {
+    const { handle } = await engine.call<{ handle: string }>("mail.drafts.beginAttachmentUpload", { draftId, expectedRevision, name: file.name, size: file.size }, { write: true });
+    let completed = false;
+    try {
+      signal.throwIfAborted();
+      const response = await fetch(new URL(`/api/v1/mail/attachments/${encodeURIComponent(handle)}`, engine.endpoint.baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body: file,
+        signal,
+      });
+      if (response.status === 401) return { status: "failed", reason: "unavailable" };
+      const result = (await response.json()) as CapabilityResult<SelectDraftAttachmentResult>;
+      if (!result.ok) throw new CapabilityError(result.error?.code ?? "INTERNAL", result.error?.message ?? attachmentError.failed, result.error?.details);
+      completed = true;
+      return result.data;
+    } finally {
+      if (!completed) await engine.call("mail.drafts.cancelAttachmentUpload", { handle }, { write: true, signal: AbortSignal.timeout(5_000) }).catch(() => undefined);
+    }
+  }
+
   async function removeAttachment(digest: string) {
-    if (!desktop || readOnly || busyRef.current || !revisionRef.current) return;
+    if (readOnly || busyRef.current || !revisionRef.current) return;
     busyRef.current = true;
     setBusy("remove");
     setError(null);
@@ -478,13 +514,30 @@ export function MailComposer({
           )}
           {editorError && <Banner>此草稿的正文格式无法在当前编辑器中修改，原正文仍保留。</Banner>}
           <EditorContent className="hu-mail-editor" editor={editor} />
-          {(attachments.length > 0 || originalAttachments.length > 0 || (desktop && !readOnly)) && (
+          {(attachments.length > 0 || originalAttachments.length > 0 || !readOnly) && (
             <section className="hu-mail-attachments" aria-labelledby={attachmentsId} tabIndex={-1} ref={attachmentsGroup}>
               <div className="hu-mail-row">
                 <h3 id={attachmentsId}>附件</h3>
-                {picker && !readOnly && (
-                  <Button type="button" loading={busy === "prepare-attachment" || busy === "attach"} onClick={() => void addAttachment()}>
+                {attachmentEnabled && (
+                  <Button type="button" loading={busy === "prepare-attachment" || busy === "attach"} onClick={() => (picker ? void addAttachment() : attachmentInput.current?.click())}>
                     添加附件
+                  </Button>
+                )}
+                {attachmentEnabled && !desktop && (
+                  <input
+                    ref={attachmentInput}
+                    type="file"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      event.currentTarget.value = "";
+                      if (file) void addAttachment(file);
+                    }}
+                  />
+                )}
+                {!desktop && busy === "attach" && (
+                  <Button type="button" onClick={() => selection.current?.abort()}>
+                    取消上传
                   </Button>
                 )}
                 <span className="hu-mail-help" role="status">
@@ -499,7 +552,7 @@ export function MailComposer({
                       <span>
                         {name} · {size.toLocaleString()} 字节 · {attachmentStatus[state]}
                       </span>
-                      {desktop && !readOnly && (
+                      {!readOnly && (
                         <Button type="button" variant="ghost" aria-label={`移除附件 ${name}`} onClick={() => void removeAttachment(digest)}>
                           移除
                         </Button>

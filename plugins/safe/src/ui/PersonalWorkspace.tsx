@@ -1,7 +1,7 @@
 import { EVENT_PAYLOADS } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, SearchBox } from "@huhu/ui";
-import { CapabilityError, useEngine, useEngineEvents, type EngineClient } from "@huhu/workbench";
-import { ArrowLeft, ChevronRight, Eye, EyeOff, KeyRound, Plus } from "lucide-react";
+import { CapabilityError, host, useEngine, useEngineEvents, type EngineClient } from "@huhu/workbench";
+import { ArrowLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, Plus } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { EntryDetail, EntryIndex, SafeSession, Tag, TagList } from "../engine/personal.js";
@@ -451,35 +451,66 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
 
 function PasswordValue({ hasPassword, request, getSessionSignal, onSessionEnded }: { hasPassword: boolean; request(signal: AbortSignal): Promise<{ password: string }>; getSessionSignal(): AbortSignal | undefined; onSessionEnded(): void }) {
   const [password, setPassword] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState(false);
+  const [pending, setPending] = useState<"reveal" | "copy" | null>(null);
+  const [feedback, setFeedback] = useState("");
   const active = useRef<AbortController | null>(null);
   useLayoutEffect(() => () => active.current?.abort(), []);
 
-  async function toggle() {
-    if (password !== null) {
+  async function act(action: "reveal" | "copy") {
+    if (active.current) return;
+    if (action === "reveal" && password !== null) {
       setPassword(null);
       return;
     }
     const sessionSignal = getSessionSignal();
-    if (active.current || !sessionSignal || sessionSignal.aborted) return;
+    if (!sessionSignal || sessionSignal.aborted) return;
+    const desktop = action === "copy" ? host() : undefined;
+    const clipboard = action === "copy" && !desktop ? navigator.clipboard : undefined;
+    if (action === "copy" && !desktop && typeof clipboard?.writeText !== "function") {
+      setFeedback("当前页面无法访问剪贴板。可选择「显示密码」后手动复制。");
+      return;
+    }
     const controller = new AbortController();
-    const cancel = () => controller.abort();
-    sessionSignal.addEventListener("abort", cancel, { once: true });
+    const signal = AbortSignal.any([sessionSignal, controller.signal]);
     active.current = controller;
-    setError(false);
-    setPending(true);
+    setFeedback("");
+    setPending(action);
+    async function readPassword() {
+      const result = await request(signal);
+      signal.throwIfAborted();
+      return result.password;
+    }
     try {
-      const result = await request(controller.signal);
-      if (!controller.signal.aborted) setPassword(result.password);
+      if (action === "reveal") {
+        const value = await readPassword();
+        signal.throwIfAborted();
+        setPassword(value);
+        return;
+      }
+      if (desktop) {
+        const value = await readPassword();
+        signal.throwIfAborted();
+        await desktop.copyText(value, { clearAfterMs: 30_000 });
+      } else if (clipboard && typeof clipboard.write === "function" && typeof ClipboardItem === "function") {
+        // Some browsers require the write to start within the click, before the Engine replies.
+        const data = readPassword().then((value) => new Blob([value], { type: "text/plain" }));
+        await Promise.all([data, clipboard.write([new ClipboardItem({ "text/plain": data })])]);
+      } else {
+        const value = await readPassword();
+        signal.throwIfAborted();
+        await clipboard!.writeText(value);
+      }
+      if (!signal.aborted) setFeedback("已复制密码。");
     } catch (cause) {
-      if (controller.signal.aborted) return;
+      if (signal.aborted) return;
       if (sessionEnded(cause)) onSessionEnded();
-      else setError(true);
+      else if (action === "reveal") setFeedback("无法显示当前账号的密码，请重试。");
+      else if (cause instanceof DOMException && cause.name === "NotAllowedError") setFeedback("剪贴板访问被拒绝。可选择「显示密码」后手动复制。");
+      else setFeedback("无法复制密码。可重试，或选择「显示密码」后手动复制。");
     } finally {
-      sessionSignal.removeEventListener("abort", cancel);
+      if (!signal.aborted) setPending(null);
+      controller.abort();
       active.current = null;
-      if (!controller.signal.aborted) setPending(false);
     }
   }
 
@@ -487,15 +518,14 @@ function PasswordValue({ hasPassword, request, getSessionSignal, onSessionEnded 
     <>
       <div className="hu-secret-value">
         <code data-testid="secret-value">{hasPassword ? (password === null ? "••••••••" : password || "未设置") : "未设置"}</code>
-        <Button icon={password === null ? Eye : EyeOff} disabled={!hasPassword} loading={pending} onClick={() => void toggle()}>
-          {pending ? "正在读取" : password === null ? "显示密码" : "隐藏密码"}
+        <Button type="button" icon={password === null ? Eye : EyeOff} disabled={!hasPassword || pending === "copy"} loading={pending === "reveal"} onClick={() => void act("reveal")}>
+          {pending === "reveal" ? "正在读取" : password === null ? "显示密码" : "隐藏密码"}
+        </Button>
+        <Button type="button" icon={Copy} disabled={!hasPassword || pending === "reveal"} loading={pending === "copy"} onClick={() => void act("copy")}>
+          复制密码
         </Button>
       </div>
-      {error ? (
-        <p role="alert" className="hu-field-error">
-          无法显示当前账号的密码，请重试。
-        </p>
-      ) : null}
+      <div role="status">{feedback}</div>
     </>
   );
 }

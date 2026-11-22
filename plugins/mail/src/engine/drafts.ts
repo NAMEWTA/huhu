@@ -13,6 +13,7 @@ import { MAIL_OUTBOX_SERVICE, MailOutbox, outboxReceipt, outboxRetryInput, outbo
 import { isOutboxRecordPath, OutboxStorage } from "./outbox-storage.js";
 import { forwardSource, sourceDigest } from "./prepare-forward.js";
 import type { MailSmtpTransport } from "./smtp.js";
+import { MAIL_WEB_ATTACHMENTS_SERVICE, registerWebAttachmentUploads } from "./web-attachments.js";
 
 import { mailUnknown, type MailIntents } from "./tool-intents.js";
 
@@ -244,8 +245,28 @@ export class MailDrafts {
   }
 
   async addAttachment(input: z.infer<typeof discardInput>, source: MailAttachmentSource, requestSignal?: AbortSignal): Promise<{ draft: Draft; deduped: boolean }> {
-    const { draftId, expectedRevision } = discardInput.parse(input);
     const signal = requestSignal ? AbortSignal.any([requestSignal, this.lifetime]) : this.lifetime;
+    return this.commitAttachment(input, () => readAttachmentSource(source, signal), signal);
+  }
+
+  async addUploadedAttachment(input: z.infer<typeof discardInput>, source: MailAttachmentSource, signal: AbortSignal, sweep: (digest: string) => Promise<unknown>) {
+    // A slow browser must finish reading its file before taking the draft writer.
+    const staged = await readAttachmentSource(source, signal);
+    try {
+      return await this.commitAttachment(input, () => staged, signal, true);
+    } catch (error) {
+      await sweep(staged.ref.digest).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async commitAttachment(
+    input: z.infer<typeof discardInput>,
+    load: () => Awaited<ReturnType<typeof readAttachmentSource>> | ReturnType<typeof readAttachmentSource>,
+    signal: AbortSignal,
+    guardCommit = false,
+  ): Promise<{ draft: Draft; deduped: boolean }> {
+    const { draftId, expectedRevision } = discardInput.parse(input);
     let deduped = false;
     const record = await this.change(
       draftId,
@@ -253,7 +274,7 @@ export class MailDrafts {
       () => assertImportActive(signal),
       async (previous) => {
         const draft = this.requireDraft(previous);
-        const { ref, bytes } = await readAttachmentSource(source, signal);
+        const { ref, bytes } = await load();
         const refs = draft.attachments ?? [];
         deduped = refs.some((existing) => existing.digest === ref.digest);
         if (!deduped) assertAttachmentCapacity(refs, ref);
@@ -261,6 +282,7 @@ export class MailDrafts {
         await this.objects.publish(ref, bytes);
         return deduped ? draft : { ...draft, attachments: [...refs, ref] };
       },
+      guardCommit,
     );
     return { draft: this.details(draftId, record), deduped };
   }
@@ -354,7 +376,13 @@ export class MailDrafts {
     };
   }
 
-  private change(draftId: string, expectedRevision: string | null, assertActive: () => void, edit: (previous: StoredDraftContent | undefined) => StoredDraftContent | null | Promise<StoredDraftContent | null>): Promise<StoredDraft> {
+  private change(
+    draftId: string,
+    expectedRevision: string | null,
+    assertActive: () => void,
+    edit: (previous: StoredDraftContent | undefined) => StoredDraftContent | null | Promise<StoredDraftContent | null>,
+    guardCommit = false,
+  ): Promise<StoredDraft> {
     this.files.assertWritable();
     // Keep business CAS and replacement together. VaultFiles also checks the snapshot bytes at the atomic write.
     return this.serialize(async () => {
@@ -378,7 +406,7 @@ export class MailDrafts {
       // An explicit discard removes all content and retains identity so a delayed creation cannot resurrect it.
       snapshot.drafts[draftId] = next;
       try {
-        await this.files.write(draftsPath, Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion: version });
+        await this.files.write(draftsPath, Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion: version, ...(guardCommit && { beforeCommit: assertActive }) });
       } catch (error) {
         if (error instanceof HuhuError) {
           if (error.code !== "VERSION_CONFLICT" && error.code !== "NAME_CONFLICT" && error.code !== "NOT_FOUND") throw error;
@@ -485,7 +513,6 @@ export const draftDescriptors = {
     title: "移除草稿附件",
     description: "按草稿版本清除指定附件引用。",
     risk: "high",
-    desktopOnly: true,
     scope: "write",
     idempotency: "handler",
     input: removeInput,
@@ -496,6 +523,10 @@ export const draftDescriptors = {
 export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined, lifetime: AbortSignal, transport: MailSmtpTransport | undefined, removals: AccountRemovals, once: MailIntents) {
   const drafts = new MailDrafts(api.vault.files, accounts, lifetime, removals);
   const outbox = new MailOutbox(api.vault.files, drafts, accounts, transport, lifetime);
+  api.provide(
+    MAIL_WEB_ATTACHMENTS_SERVICE,
+    registerWebAttachmentUploads(api, drafts, lifetime, (digest) => drafts.sweepUnreferenced(() => outbox.attachmentDigests(), undefined, new Set([digest]))),
+  );
   api.provide(MAIL_DRAFT_ATTACHMENTS_SERVICE, {
     addAttachment: drafts.addAttachment.bind(drafts),
     removeAttachment: drafts.removeAttachment.bind(drafts),
@@ -593,7 +624,7 @@ export function registerDrafts(api: HuhuApi, accounts: MailAccounts | undefined,
   api.defineCapability(
     bindCapability(draftDescriptors.draftsRemoveAttachment, (context, input) => {
       const name = draftDescriptors.draftsRemoveAttachment.name;
-      requireMailCaller(context.caller, name, true);
+      if (!isWorkbenchCaller(context.caller)) requireMailCaller(context.caller, name, true);
       return once(
         context,
         name,

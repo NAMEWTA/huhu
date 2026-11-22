@@ -426,12 +426,10 @@ engineTest(
       ]);
       const revision = (beforeClose.data as { revision: string }).revision;
       const removeInput = { draftId: first.draftId, expectedRevision: revision, digest };
-      for (const caller of ["web:fixture", "cli"] as const) {
-        expect(await engine.dispatcher.call(caller, { capability: "mail.drafts.removeAttachment", input: removeInput, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
-          ok: false,
-          error: { code: caller === "cli" ? "CAPABILITY_NOT_EXPOSED" : "PERMISSION_DENIED" },
-        });
-      }
+      expect(await engine.dispatcher.call("cli", { capability: "mail.drafts.removeAttachment", input: removeInput, requestId: randomUUID(), idempotencyKey: randomUUID() })).toMatchObject({
+        ok: false,
+        error: { code: "CAPABILITY_NOT_EXPOSED" },
+      });
       expect(await call(engine, "mail.drafts.removeAttachment", { ...removeInput, path: firstFile })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
       const removing = call(engine, "mail.drafts.removeAttachment", removeInput);
       const sweeping = managed.sweepUnreferenced();
