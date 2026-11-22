@@ -344,7 +344,7 @@ export const subsetDescriptors = {
     scope: "write",
     idempotency: "handler",
     input: z
-      .strictObject({ previewId: uuid, accountIds: selection, confirm: z.literal(true), keepSeparateAccountIds: selection.optional() })
+      .strictObject({ previewId: uuid, accountIds: selection, confirm: z.literal(true), keepSeparateAccountIds: selection.optional(), resumeOriginalBatch: z.literal(true).optional() })
       .refine(({ accountIds, keepSeparateAccountIds }) => keepSeparateAccountIds?.every((id) => accountIds.includes(id)) ?? true),
     output: z.strictObject({ accounts: z.array(planRow) }),
   }),
@@ -457,7 +457,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
     }),
   );
   api.defineCapability(
-    bindCapability(subsetDescriptors.subsetRestore, (context, { previewId, accountIds, keepSeparateAccountIds }) => {
+    bindCapability(subsetDescriptors.subsetRestore, (context, { previewId, accountIds, keepSeparateAccountIds, resumeOriginalBatch }) => {
       const name = subsetDescriptors.subsetRestore.name;
       const ownerAccounts = access(context, name);
       files.assertWritable();
@@ -470,7 +470,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
         context,
         name,
         previewId,
-        separate.size ? { accountIds: selectedIds, keepSeparateAccountIds: separateIds } : selectedIds,
+        separate.size || resumeOriginalBatch ? { accountIds: selectedIds, keepSeparateAccountIds: separateIds, ...(resumeOriginalBatch && { resumeOriginalBatch }) } : selectedIds,
         async () => {
           const plan = planOf(context, previewId);
           const previewed = new Map(plan.rows.map((row) => [row.accountId, row]));
@@ -487,6 +487,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
               const chosen = new Set(accountIds);
               const inspection = await inspect(files, ownerAccounts, removals, confirmed, data, batch);
               const { restoredInBatch } = inspection;
+              if (resumeOriginalBatch && !restoredInBatch.size) throw invalid("无法核对原批次。请选择同一 ZIP，并勾选原批次的全部邮箱和独立账号选项。");
               const rows = inspection.rows.filter(({ accountId }) => chosen.has(accountId));
               const incompatible = rows.some(({ accountId, state, canKeepSeparate, existing }) => {
                 if (state === "restored") return false;

@@ -514,6 +514,7 @@ engineTest.each([true, false])("Mail 子集只恢复 A 后，另选同地址 B �
       { accountId: firstId, state: "restored" },
       { accountId: secondId, state: "conflict", canKeepSeparate: true, existing: { accountId: firstId } },
     ]);
+    await expect(target.call("restore", { previewId: preview.previewId, accountIds: [firstId, secondId], keepSeparateAccountIds: [secondId], confirm: true, resumeOriginalBatch: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect((await target.accounts.list()).map(({ accountId }) => accountId)).toEqual([firstId]);
     const result = (await target.call("restore", { previewId: preview.previewId, accountIds: [secondId], keepSeparateAccountIds: [secondId], confirm: true })) as Pick<MailSubsetPreview, "accounts">;
     expect(result.accounts[0]).toMatchObject({ accountId: secondId, state: "restored" });
@@ -542,7 +543,8 @@ engineTest("Mail 子集显式独立恢复第二账号失败后可使用原双选
     const packet = { format: "huhu-mail-subset", version: 1, accounts: rows, attachments: {} };
     const archive = await createMailArchive(target.vault.files.read(".huhu/vault.json")!.bytes, packet, new AbortController().signal);
     const preview = async (fixture: NonNullable<typeof target>) => (await fixture.call("preview", { content: archive.toString("base64") })) as MailSubsetPreview;
-    const restore = (fixture: NonNullable<typeof target>, previewId: string, ids = [firstId, secondId]) => fixture.call("restore", { previewId, accountIds: ids, keepSeparateAccountIds: ids, confirm: true });
+    const restore = (fixture: NonNullable<typeof target>, previewId: string, ids = [firstId, secondId], resume = false) =>
+      fixture.call("restore", { previewId, accountIds: ids, keepSeparateAccountIds: ids, confirm: true, ...(resume && { resumeOriginalBatch: true }) });
     const initial = await preview(target);
     expect(initial.accounts).toMatchObject(rows.map(({ accountId }) => ({ accountId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } })));
     const files = target.vault.files;
@@ -568,7 +570,8 @@ engineTest("Mail 子集显式独立恢复第二账号失败后可使用原双选
       { accountId: secondId, state: "conflict", canKeepSeparate: true },
     ]);
     await expect(target.call("restore", { previewId: reopened.previewId, accountIds: [firstId, secondId], keepSeparateAccountIds: [firstId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    const result = (await restore(target, reopened.previewId, [secondId, firstId])) as Pick<MailSubsetPreview, "accounts">;
+    await expect(target.call("restore", { previewId: reopened.previewId, accountIds: [firstId, secondId], keepSeparateAccountIds: [secondId], confirm: true, resumeOriginalBatch: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const result = (await restore(target, reopened.previewId, [secondId, firstId], true)) as Pick<MailSubsetPreview, "accounts">;
     expect(result.accounts).toMatchObject([
       { accountId: firstId, state: "restored", existing: { accountId: firstTarget } },
       { accountId: secondId, state: "restored" },
@@ -637,7 +640,7 @@ engineTest.each([
     target = await openSubsetFixture(directory, discover);
     const archive = (await createMailArchive(target.vault.files.read(".huhu/vault.json")!.bytes, packet, signal)).toString("base64");
     const preview = async (fixture: NonNullable<typeof target>) => (await fixture.call("preview", { content: archive })) as MailSubsetPreview;
-    const restore = (fixture: NonNullable<typeof target>, previewId: string) => fixture.call("restore", { previewId, accountIds, confirm: true });
+    const restore = (fixture: NonNullable<typeof target>, previewId: string, resume = false) => fixture.call("restore", { previewId, accountIds, confirm: true, ...(resume && { resumeOriginalBatch: true }) });
     const ready = await preview(target);
     expect(ready.accounts).toMatchObject(accountIds.map((accountId) => ({ accountId, state: "ready" })));
     const files = target.vault.files;
@@ -680,6 +683,7 @@ engineTest.each([
         { accountId: secondId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } },
       ]);
       await expect(restore(target, conflict.previewId)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(restore(target, conflict.previewId, true)).rejects.toMatchObject({ code: "INVALID_INPUT" });
       expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([firstId, existingId].sort());
       expect(await target.credentials.use(existingId, [accountPasswordPurpose], (_definition, values, revision) => Promise.resolve([values.get(accountPasswordPurpose), revision]))).toEqual(["other local password", existing.revision]);
       expect(target.events.publish).not.toHaveBeenCalled();
@@ -694,10 +698,13 @@ engineTest.each([
       const different = (await target.call("preview", { content: otherArchive.toString("base64") })) as MailSubsetPreview;
       expect(different.accounts[0]).toMatchObject({ accountId: firstId, state: "restored" });
       await expect(restore(target, different.previewId)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(target.call("restore", { previewId: different.previewId, accountIds, keepSeparateAccountIds: [secondId], confirm: true, resumeOriginalBatch: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
       const other = (await target.call("preview", { content: archive }, "different-subject")) as MailSubsetPreview;
       await expect(target.call("restore", { previewId: reopened.previewId, accountIds, confirm: true }, "different-subject")).rejects.toMatchObject({ code: "NOT_FOUND" });
       await expect(target.call("restore", { previewId: other.previewId, accountIds, confirm: true }, "different-subject")).rejects.toMatchObject({ code: "INVALID_INPUT" });
-      const result = await restore(target, reopened.previewId);
+      await expect(target.call("restore", { previewId: other.previewId, accountIds, keepSeparateAccountIds: [secondId], confirm: true, resumeOriginalBatch: true }, "different-subject")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(target.call("restore", { previewId: reopened.previewId, accountIds: [firstId], confirm: true, resumeOriginalBatch: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      const result = await restore(target, reopened.previewId, true);
       expect(result).toMatchObject({ accounts: accountIds.map((accountId) => ({ accountId, state: "restored", existing: { accountId } })) });
       expect(await restore(target, reopened.previewId)).toEqual(result);
       expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([...accountIds].sort());

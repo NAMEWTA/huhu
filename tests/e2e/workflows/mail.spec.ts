@@ -1,8 +1,9 @@
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createMailArchive } from "../../../plugins/mail/src/engine/subset-archive.js";
 import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
 import { openApp } from "../helpers/launch.js";
 
@@ -19,6 +20,87 @@ async function desktopMailCalls(page: Page) {
     return result.data as T;
   };
 }
+
+test("工作台重开后续跑同地址 Mail 原批次并保留未完成邮箱的已读标记", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    const call = await desktopMailCalls(page);
+    const [firstId, secondId] = [randomUUID(), randomUUID()];
+    const marker = createHash("sha256").update(secondId).digest("hex");
+    const accounts = [firstId, secondId].map((accountId, index) => ({
+      accountId,
+      definition: {
+        format: 1,
+        settings: {
+          provider: "custom_imap",
+          email: "restore-fixture@example.test",
+          label: index === 0 ? "原批次 A" : "原批次 B",
+          auth: "password",
+          imap: { host: "127.0.0.1", port: 1143, security: "none" },
+          smtpEnabled: false,
+          smtp: { host: "", port: 1025, security: "none" },
+        },
+        folders: [{ path: "INBOX", name: "INBOX", delimiter: "/", specialUse: null, flags: [] }],
+      },
+      drafts: {},
+      deliveries: [],
+      readOverrides: index === 0 ? [] : [marker],
+    }));
+    const buffer = await createMailArchive(readFileSync(path.join(vault, ".huhu/vault.json")), { format: "huhu-mail-subset", version: 1, accounts, attachments: {} }, AbortSignal.timeout(10_000));
+    const overridePath = path.join(vault, ".huhu/mail/read-overrides", `${secondId}.json`);
+    const list = () => call<{ accounts: { accountId: string; revision: string }[] }>("mail.accounts.list");
+    const preflight = async () => {
+      await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+      await page.getByText("邮件备份和恢复", { exact: true }).click();
+      await page.getByRole("button", { name: "预检并恢复" }).click();
+      const dialog = page.getByRole("dialog", { name: "预检邮件备份" });
+      await dialog.getByLabel("Huhu Mail 子集 ZIP（必填）").setInputFiles({ name: "original.zip", mimeType: "application/zip", buffer });
+      await dialog.getByRole("button", { name: "运行预检" }).click();
+      await expect(dialog.getByRole("heading", { name: "预检结果" })).toBeFocused();
+      return dialog;
+    };
+
+    const initial = await preflight();
+    await initial.getByRole("checkbox", { name: /^原批次 A ·/ }).check();
+    await initial.getByRole("checkbox", { name: /^原批次 B ·/ }).check();
+    // The second account refuses to overwrite this file after the first account commits.
+    mkdirSync(path.dirname(overridePath), { recursive: true });
+    writeFileSync(overridePath, JSON.stringify({ format: 1, messages: ["f".repeat(64)] }));
+    await initial.getByRole("button", { name: "恢复选中邮箱" }).click();
+    await expect.poll(async () => (await list()).accounts.map(({ accountId }) => accountId)).toEqual([firstId]);
+    await expect(initial.getByRole("button", { name: "取消" })).toBeEnabled();
+    const first = (await list()).accounts[0]!;
+    rmSync(overridePath);
+
+    await page.reload();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const reopened = await preflight();
+    const firstRow = reopened.getByRole("checkbox", { name: /^原批次 A ·/ });
+    await expect(firstRow).toBeDisabled();
+    const resume = reopened.getByRole("checkbox", { name: "按原批次续跑" });
+    await expect(resume).not.toBeChecked();
+    await resume.press("Space");
+    await firstRow.check();
+    await reopened.getByRole("checkbox", { name: /^原批次 B ·/ }).check();
+    const separate = reopened.getByRole("checkbox", { name: /沿用独立账号选项/ });
+    await expect(separate).toHaveCount(2);
+    const independent = reopened.getByRole("checkbox", { name: "沿用独立账号选项 · 原批次 B" });
+    await expect(independent).not.toBeChecked();
+    await independent.check();
+    await reopened.getByRole("button", { name: "续跑原批次" }).click();
+    await expect(reopened.getByText(/无法核对原批次/)).toBeVisible();
+    expect((await list()).accounts).toEqual([first]);
+    await independent.uncheck();
+    await reopened.getByRole("button", { name: "续跑原批次" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "原批次的 2 个邮箱已恢复" })).toBeVisible();
+    const restored = (await list()).accounts;
+    expect(restored.map(({ accountId }) => accountId).sort()).toEqual([firstId, secondId].sort());
+    expect(restored.find(({ accountId }) => accountId === firstId)).toEqual(first);
+    expect(JSON.parse(readFileSync(overridePath, "utf8"))).toEqual({ format: 1, messages: [marker] });
+  } finally {
+    await close();
+  }
+});
 
 test("桌面邮箱授权经主进程浏览器入口，取消后释放原回调", async () => {
   const { app, page, close } = await openApp({
