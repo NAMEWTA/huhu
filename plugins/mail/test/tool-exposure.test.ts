@@ -137,7 +137,7 @@ test("Mail 静态目录完整，默认关闭且秘密编辑和工作台批准不
       .filter(({ exposable }) => !exposable)
       .map(({ name }) => name)
       .sort(),
-  ).toEqual(["mail.ai.approvals.approve", "mail.ai.approvals.cancel", "mail.ai.approvals.review", "mail.ai.saveSettings", "mail.ai.verifyConnection"]);
+  ).toEqual(["mail.ai.approvals.approve", "mail.ai.approvals.cancel", "mail.ai.approvals.review", "mail.ai.saveSettings", "mail.ai.verifyConnection", "mail.drafts.beginAttachmentUpload", "mail.drafts.cancelAttachmentUpload"]);
 });
 
 test.each(entries)(
@@ -324,6 +324,9 @@ test.each(entries)(
       });
       const { sourceDigest, body: loadedBody } = await exercise<{ sourceDigest: string; body: { text: string } }>("mail.messages.loadBody", key);
       expect(loadedBody.text).toContain(privateText);
+      await exercise("mail.messages.loadRemoteImages", { ...key, sourceDigest, view: "mailbox" }, (data) => {
+        expect(data).toEqual({ images: [], failed: 0 });
+      });
       await exercise("mail.conversations.loadBody", key, (data) => {
         expect(data).toMatchObject({ state: "ready" });
       });

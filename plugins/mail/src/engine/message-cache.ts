@@ -303,7 +303,7 @@ export const messageCacheDescriptors = {
   conversationsLoadBody: defineCapabilityDescriptor({ ...mailTool, name: "mail.conversations.loadBody", title: "读取邮件正文", description: "读取指定来源的已缓存正文。", risk: "high", scope: "read", input: messageKey, output: bodyOutput }),
   remoteImages: defineCapabilityDescriptor({
     plugin: "mail",
-    exposable: false,
+    exposable: true,
     defaultExposed: false,
     name: "mail.messages.loadRemoteImages",
     title: "加载单封邮件的外部图片",
@@ -823,8 +823,7 @@ export function registerMessageCache(
     );
   }
   api.defineCapability(
-    bindCapability(messageCacheDescriptors.remoteImages, async ({ caller, signal }, { sourceDigest: approved, view, ...input }) => {
-      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(messageCacheDescriptors.remoteImages.name);
+    bindCapability(messageCacheDescriptors.remoteImages, async ({ signal }, { sourceDigest: approved, view, ...input }) => {
       const publicOnly = view === "conversation";
       const current = () => configured(input, publicOnly) && findCachedMessage(readSnapshot(files, input).snapshot, input.localMessageId);
       const message = current();
