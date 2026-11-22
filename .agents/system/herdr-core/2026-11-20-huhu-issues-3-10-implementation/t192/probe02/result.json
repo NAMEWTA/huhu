@@ -1,0 +1,164 @@
+{
+  "windows": "10.0.26300",
+  "arch": "x64",
+  "node": "v24.21.0",
+  "coreSHA256": "8c5c088eda5c441502fa58714277a250e38103c66180376ef00d63d6cab03f8d",
+  "fixtureSHA256": "ae9a0b81d782624d9ddd1f5ef127a91c66197a125b2f1afcff23d0986efcac27",
+  "cases": [
+    {
+      "scenario": "ok",
+      "coreExit": 0,
+      "brokerExit": 0,
+      "bindingsCheckedBeforeDelivery": true,
+      "brokerIssued": true,
+      "brokerDenied": false,
+      "outerDenied": false,
+      "innerDenied": false,
+      "innerSawNoValue": false,
+      "ttyAll": true,
+      "promptBeforeInput": true,
+      "outerSecondOpenDenied": true,
+      "innerSecondOpenDenied": true,
+      "pongOnAttach": true,
+      "redactedOnAttach": true,
+      "redactedOnScreen": true,
+      "oneMatch": true,
+      "markerInRawAttach": false,
+      "markerInScreen": false,
+      "randomHalvesInPublicOutput": false,
+      "markerInCoreFiles": false,
+      "scannedFiles": 5,
+      "lockedFiles": [
+        "state\\herdr-core\\huhu\\core.lock"
+      ],
+      "markerInArgvOrCoreView": false,
+      "markerInIssuerDiagnostics": false,
+      "restartEnvKeys": []
+    },
+    {
+      "scenario": "outer-birth",
+      "coreExit": 23,
+      "brokerExit": 0,
+      "bindingsCheckedBeforeDelivery": true,
+      "brokerIssued": false,
+      "brokerDenied": true,
+      "outerDenied": true,
+      "innerDenied": false,
+      "innerSawNoValue": false,
+      "ttyAll": false,
+      "promptBeforeInput": false,
+      "outerSecondOpenDenied": false,
+      "innerSecondOpenDenied": false,
+      "pongOnAttach": false,
+      "redactedOnAttach": false,
+      "redactedOnScreen": false,
+      "oneMatch": false,
+      "markerInRawAttach": false,
+      "markerInScreen": false,
+      "randomHalvesInPublicOutput": false,
+      "markerInCoreFiles": false,
+      "scannedFiles": 6,
+      "lockedFiles": [
+        "state\\herdr-core\\huhu\\core.lock"
+      ],
+      "markerInArgvOrCoreView": false,
+      "markerInIssuerDiagnostics": false,
+      "restartEnvKeys": []
+    },
+    {
+      "scenario": "inner-pid",
+      "coreExit": 0,
+      "brokerExit": 0,
+      "bindingsCheckedBeforeDelivery": true,
+      "brokerIssued": true,
+      "brokerDenied": false,
+      "outerDenied": false,
+      "innerDenied": true,
+      "innerSawNoValue": true,
+      "ttyAll": false,
+      "promptBeforeInput": false,
+      "outerSecondOpenDenied": true,
+      "innerSecondOpenDenied": false,
+      "pongOnAttach": false,
+      "redactedOnAttach": false,
+      "redactedOnScreen": false,
+      "oneMatch": false,
+      "markerInRawAttach": false,
+      "markerInScreen": false,
+      "randomHalvesInPublicOutput": false,
+      "markerInCoreFiles": false,
+      "scannedFiles": 7,
+      "lockedFiles": [
+        "state\\herdr-core\\huhu\\core.lock"
+      ],
+      "markerInArgvOrCoreView": false,
+      "markerInIssuerDiagnostics": false,
+      "restartEnvKeys": []
+    },
+    {
+      "scenario": "inner-birth",
+      "coreExit": 0,
+      "brokerExit": 0,
+      "bindingsCheckedBeforeDelivery": true,
+      "brokerIssued": true,
+      "brokerDenied": false,
+      "outerDenied": false,
+      "innerDenied": true,
+      "innerSawNoValue": true,
+      "ttyAll": false,
+      "promptBeforeInput": false,
+      "outerSecondOpenDenied": true,
+      "innerSecondOpenDenied": false,
+      "pongOnAttach": false,
+      "redactedOnAttach": false,
+      "redactedOnScreen": false,
+      "oneMatch": false,
+      "markerInRawAttach": false,
+      "markerInScreen": false,
+      "randomHalvesInPublicOutput": false,
+      "markerInCoreFiles": false,
+      "scannedFiles": 8,
+      "lockedFiles": [
+        "state\\herdr-core\\huhu\\core.lock"
+      ],
+      "markerInArgvOrCoreView": false,
+      "markerInIssuerDiagnostics": false,
+      "restartEnvKeys": []
+    }
+  ],
+  "core": "0.1.19",
+  "passed": true,
+  "remainingPanes": 0,
+  "coreStopped": true,
+  "lockedFilesAfterStop": [
+    [
+      {
+        "rel": "state\\herdr-core\\huhu\\core.lock",
+        "size": 27,
+        "markerFound": false
+      }
+    ],
+    [
+      {
+        "rel": "state\\herdr-core\\huhu\\core.lock",
+        "size": 27,
+        "markerFound": false
+      }
+    ],
+    [
+      {
+        "rel": "state\\herdr-core\\huhu\\core.lock",
+        "size": 27,
+        "markerFound": false
+      }
+    ],
+    [
+      {
+        "rel": "state\\herdr-core\\huhu\\core.lock",
+        "size": 27,
+        "markerFound": false
+      }
+    ]
+  ],
+  "tmpRemoved": true
+}

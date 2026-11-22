@@ -1,0 +1,4 @@
+﻿auth_elicitation                         stable             true
+credential_masking                       under development  false
+default_mode_request_user_input          under development  false
+tool_call_mcp_elicitation                stable             true

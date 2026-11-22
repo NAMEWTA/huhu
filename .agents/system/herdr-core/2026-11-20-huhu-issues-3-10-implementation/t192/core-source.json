@@ -1,0 +1,30 @@
+﻿{
+    "tag":  "v0.1.19",
+    "commit":  "06793ede1bedb1fed8d22d3cae476d3eb239edf0",
+    "files":  [
+                  {
+                      "file":  "crates/herdr-core/Cargo.toml",
+                      "gitBlob":  "0c80a73fc770388ad930b8eafbc793186d5e6c80"
+                  },
+                  {
+                      "file":  "crates/herdr-core/src/api/run.rs",
+                      "gitBlob":  "f9cda2e559a4253519485e82942419a0219dc170"
+                  },
+                  {
+                      "file":  "crates/herdr-core/src/terminals.rs",
+                      "gitBlob":  "6e8d38f6d74b90186c8982570de74f1ce76645ff"
+                  },
+                  {
+                      "file":  "crates/herdr-core/src/holder.rs",
+                      "gitBlob":  "5c6a221d892b07f8a2dddfa2c4dadd3bd57c23ac"
+                  },
+                  {
+                      "file":  "crates/herdr-core/src/platform/windows.rs",
+                      "gitBlob":  "4c7c3b40ad1eee27911412a49c01ba2f8ead2c96"
+                  },
+                  {
+                      "file":  "crates/herdr-core/src/kept.rs",
+                      "gitBlob":  "1830359c19db0d0cb4c21b29aa792e5b40a01434"
+                  }
+              ]
+}

@@ -1,0 +1,3 @@
+﻿# #8 S1b.3 同一草稿版本的持久投递受理
+
+终端 t162，任务 task02.md，报告 report02.md。沿用 Mail 草稿分支的冻结父 `5ab72a2ba812130cbf83a7694232582abf7f762f`，开发 `.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.3-submit-draft.md` 的后端。复用 Mail 的草稿 CAS、附件快照、账号凭据、现有 Windows 纯本地 SMTP 探针和参考。先持久认领同 Vault/draftId/revision 与稳定 operationId／Message-ID，再从不可变快照向明确配置的传输发送，保存已接受、明确未投递与未知。丢 DATA 确认后重开只保留待核实，不重新发送。该受信入口与查询先保持私有。真实 Windows Engine + 本机回环合成 SMTP 验证同版本两个 caller 一次 DATA、过期或缺字节零发、端点明确拒绝的保留及重开。优先采用 S0.2 已核对的 Nodemailer 10.6.0，测试可复用原工作区 temp/issue-baseline/mail-protocol 的本机已安装包。若生产需引入依赖，报告确切范围、版本、许可证和闭包供 Lead 装配，当前不改根锁或共享装配。账户真实服务、用户历史、界面、生成原型、其他 worktree 和外部网络都不属于本次。不得新增注册 worktree。保留提交、测试原日志、清理验证窗格。

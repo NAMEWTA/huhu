@@ -1,0 +1,528 @@
+diff --git a/plugins/agent-cli/src/engine/herdr-core.ts b/plugins/agent-cli/src/engine/herdr-core.ts
+--- a/plugins/agent-cli/src/engine/herdr-core.ts
++++ b/plugins/agent-cli/src/engine/herdr-core.ts
+@@ -12,6 +12,7 @@
+   machineId: string;
+   /** `<Vault>/.huhu/runtime/<machineId>/herdr`。 */
+   runtimeDir: string;
++  signal?: AbortSignal;
+ }
+ 
+ /** 实例隔离的 Herdr Core（interfaces.md §7）：独立 session、状态与配置目录、短路径 socket。 */
+@@ -37,6 +38,7 @@
+ 
+   /** 确保 Core 在运行并返回已连接的客户端；二进制缺失或启动失败 → HERDR_UNAVAILABLE。 */
+   async ensure(): Promise<HerdrClient> {
++    this.o.signal?.throwIfAborted();
+     if (this.client) return this.client;
+     // 并发的 ensure（打开终端与健康诊断同时发生）共用同一次启动，不各自 spawn `server start`
+     this.starting ??= this.start().finally(() => {
+@@ -65,6 +67,11 @@
+         else reject(new HuhuError("HERDR_UNAVAILABLE", `Herdr Core 启动退出码 ${code}`));
+       });
+     });
++    return this.connect();
++  }
++
++  private async connect(): Promise<HerdrClient> {
++    this.o.signal?.throwIfAborted();
+     const c: HerdrClient = new HerdrClient({
+       endpoint: this.endpoint,
+       onClose: () => {
+@@ -72,6 +79,10 @@
+       },
+     });
+     await c.connect();
++    if (this.o.signal?.aborted) {
++      c.close();
++      this.o.signal.throwIfAborted();
++    }
+     if (this.client) {
+       c.close();
+       return this.client;
+@@ -85,22 +96,11 @@
+    * "absent" = 确认没有 Core 在监听（套接字不存在 / 拒绝连接）；null = 暂时判断不了（其他连接错误）。
+    */
+   async peek(): Promise<HerdrClient | "absent" | null> {
++    if (this.o.signal?.aborted) return null;
+     if (this.client) return this.client;
+     if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
+     try {
+-      const c: HerdrClient = new HerdrClient({
+-        endpoint: this.endpoint,
+-        onClose: () => {
+-          if (this.client === c) this.client = null;
+-        },
+-      }); // 只清掉自己：被丢弃的重复连接关闭时不能把保留的那个也清掉
+-      await c.connect();
+-      if (this.client) {
+-        c.close();
+-        return this.client;
+-      } // 与 ensure() 并发时只保留先建好的那一个
+-      this.client = c;
+-      return c;
++      return await this.connect();
+     } catch (e) {
+       // HerdrClient.connect 把底层错误包装成 HuhuError，errno 只留在消息里；套接字文件残留但没有进程监听 = ECONNREFUSED
+       const text = `${(e as { code?: string }).code ?? ""} ${e instanceof Error ? e.message : String(e)}`;
+@@ -125,6 +125,7 @@
+ 
+   /** 结束 Core（测试与"重启 Core"使用）。 */
+   async stop(): Promise<void> {
++    this.o.signal?.throwIfAborted();
+     this.dispose();
+     await new Promise<void>((resolve) => {
+       const p = spawn(this.o.bin, ["server", "stop"], { env: this.env(), stdio: "ignore" });
+diff --git a/plugins/agent-cli/src/engine/index.ts b/plugins/agent-cli/src/engine/index.ts
+--- a/plugins/agent-cli/src/engine/index.ts
++++ b/plugins/agent-cli/src/engine/index.ts
+@@ -1,6 +1,6 @@
+ import type { Context } from "@huhu/cordis";
+ import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
+-import { errors } from "@huhu/contracts";
++import { errors, HuhuError } from "@huhu/contracts";
+ import { machineId } from "@huhu/vault";
+ import path from "node:path";
+ import { z } from "zod";
+@@ -51,8 +51,20 @@
+     return resolveAgentLaunch({ settings, locatedCommand }, input);
+   };
+   const mid = machineId();
+-  const core = new HerdrCore({ bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core", vaultId: api.vault.vaultId, machineId: mid, runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr") });
+-  ctx.effect(() => () => core.dispose()); // 停用只断开连接，不结束 Core
++  const vaultId = api.vault.vaultId;
++  const lifetime = new AbortController();
++  const core = new HerdrCore({
++    bin: opts.herdrBin ?? process.env["HUHU_HERDR_BIN"] ?? "herdr-core",
++    vaultId,
++    machineId: mid,
++    runtimeDir: path.join(api.vault.stateDir, "runtime", mid, "herdr"),
++    signal: lifetime.signal,
++  });
++  ctx.effect(() => () => {
++    const { code, message, details, recovery } = errors.pluginDisabled("agent-cli");
++    lifetime.abort(new HuhuError(code, message, { ...(details && { details }), ...(recovery && { recovery }), retryable: true }));
++    core.dispose();
++  });
+   const sessions = new SessionsService({
+     dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
+     vaultId: api.vault.vaultId,
+@@ -61,6 +73,7 @@
+     peekCore: () => core.peek(),
+     resolve,
+     now: () => new Date(),
++    signal: lifetime.signal,
+   });
+ 
+   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
+@@ -70,6 +83,7 @@
+     sessions,
+     ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
+     onBlocked: async (sess) => {
++      lifetime.signal.throwIfAborted();
+       const w = sess.waiting;
+       if (!w) return;
+       const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
+@@ -84,6 +98,7 @@
+             { idempotencyKey: `session-task-${sess.id}` },
+           )) as { id: string });
+       if (!w.taskId) sessions.setWaitingTask(sess.id, created.id);
++      lifetime.signal.throwIfAborted();
+       const commentId = `session-${sess.id}-w-${w.n}`;
+       await api.call("tasks.comments.add", { taskId: created.id, id: commentId, source: "agent", author: sess.name, session: sess.id, event: "waiting", body: `${what}${w.msg ? `：${w.msg}` : ""}` }, { idempotencyKey: commentId });
+     },
+@@ -268,7 +283,7 @@
+             for (const [k, ref] of Object.entries(i.envRefs)) env[k] = su.resolve(ref, { plugin: c.caller.slice("plugin:".length), purpose: "terminal" });
+           }
+         }
+-        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) });
++        const s = await sessions.launch({ ...i, ...(env ? { env } : {}) }, c.signal);
+         waiting.poke(); // Core 可能刚被这次启动拉起：立刻订阅，不等退避
+         return publicSession(s);
+       },
+@@ -462,7 +477,7 @@
+         if (resuming.has(key) || sessions.list(sp.id).some((x) => (x.state === "running" || x.state === "launching") && x.provider === i.provider && x.nativeSessionId === i.nativeSessionId)) throw errors.invalidInput("这个会话已经在运行");
+         resuming.add(key);
+         return sessions
+-          .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd })
++          .launch({ spaceId: sp.id, spaceRevision: i.spaceRevision, provider: i.provider, requestId: i.requestId, resumeSessionId: hit.nativeSessionId, cwd: hit.cwd }, _c.signal)
+           .then(publicSession)
+           .finally(() => resuming.delete(key));
+       },
+diff --git a/plugins/agent-cli/src/engine/sessions.ts b/plugins/agent-cli/src/engine/sessions.ts
+--- a/plugins/agent-cli/src/engine/sessions.ts
++++ b/plugins/agent-cli/src/engine/sessions.ts
+@@ -134,6 +134,7 @@
+   /** 合成启动命令（agent-cli 的 resolveAgentLaunch，已绑定当前 Vault 的设置与检测结果）。 */
+   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
+   now(): Date;
++  signal?: AbortSignal;
+ }
+ 
+ /** 交互会话：先持久化记录，再 terminal.run；响应丢失时按 huhu.launch 标签找回，绝不重复 run。 */
+@@ -144,6 +145,7 @@
+     return path.join(this.d.dir, `${id}.json`);
+   }
+   private save(s: SessionRecord): void {
++    this.d.signal?.throwIfAborted();
+     mkdirSync(this.d.dir, { recursive: true });
+     const tmp = `${this.file(s.id)}.${process.pid}.tmp`;
+     writeFileSync(tmp, JSON.stringify(s, null, 2), { flush: true });
+@@ -265,7 +267,7 @@
+     return s;
+   }
+ 
+-  private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; result: Promise<SessionRecord> }>();
++  private readonly inflight = new Map<string, { intent: LaunchIntent; executionHash: string | undefined; signal: AbortSignal | undefined; result: Promise<SessionRecord> }>();
+ 
+   private launchIntent({ requestId: _requestId, env: _env, cwd, ...intent }: LaunchInput, preparedCwd?: string): LaunchIntent {
+     const literal = cwd && path.isAbsolute(cwd) ? localDrivePath(path.normalize(cwd)) : cwd;
+@@ -281,7 +283,9 @@
+     return { literalHash, resolvedHash: literalHash };
+   }
+ 
+-  async launch(input: LaunchInput): Promise<SessionRecord> {
++  async launch(input: LaunchInput, callerSignal?: AbortSignal): Promise<SessionRecord> {
++    const signal = callerSignal && this.d.signal ? AbortSignal.any([callerSignal, this.d.signal]) : (callerSignal ?? this.d.signal);
++    signal?.throwIfAborted();
+     const intent = this.launchIntent(input);
+     const previous = this.recordedLaunch(input.requestId);
+     if (previous) this.verifyIntent(previous, intent);
+@@ -293,6 +297,7 @@
+       // A sent operation remains queryable even when its old directory or executable is gone.
+       if (!previous?.launchReceipt?.attempt) throw error;
+     }
++    signal?.throwIfAborted();
+     if (prepared && input.cwd !== undefined && this.launchIntent(input, prepared.cwd).resolvedHash !== intent.resolvedHash) {
+       throw new HuhuError("VERSION_CONFLICT", "预检期间工作目录发生变化，请重新选择");
+     }
+@@ -308,10 +313,12 @@
+     if (running) {
+       const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
+       if (!sameIntent || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
+-      return running.result;
+-    }
+-    const result = this.doLaunch(input, intent, executionHash, prepared).finally(() => this.inflight.delete(input.requestId));
+-    this.inflight.set(input.requestId, { intent, executionHash, result });
++      if (!running.signal?.aborted) return running.result;
++    }
++    const result = this.doLaunch(input, intent, executionHash, prepared, signal).finally(() => {
++      if (this.inflight.get(input.requestId)?.result === result) this.inflight.delete(input.requestId);
++    });
++    this.inflight.set(input.requestId, { intent, executionHash, result, signal });
+     return result;
+   }
+ 
+@@ -374,13 +381,13 @@
+     return receipt;
+   }
+ 
+-  private async doLaunch(input: LaunchInput, intent: LaunchIntent, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined): Promise<SessionRecord> {
++  private async doLaunch(input: LaunchInput, intent: LaunchIntent, executionHash: string | undefined, prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>> | undefined, signal: AbortSignal | undefined): Promise<SessionRecord> {
+     const previous = this.recordedLaunch(input.requestId);
+     const priorReceipt = previous && this.verifyIntent(previous, intent, executionHash);
+     if (previous && priorReceipt?.attempt) {
+       this.recordLaunchRequest(previous, priorReceipt);
+       if (previous.state === "exited") return previous;
+-      return this.findLaunch(previous);
++      return this.findLaunch(previous, signal);
+     }
+     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
+ 
+@@ -415,23 +422,38 @@
+     let core: Awaited<ReturnType<typeof identifyCore>>;
+     try {
+       client = await this.d.core();
++      signal?.throwIfAborted();
+       core = await identifyCore(client);
+     } catch {
+-      throw this.confirmNotCreated(session, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
+-    }
++      signal?.throwIfAborted();
++      const current = this.currentLaunch(session, intent, executionHash);
++      if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
++      throw this.confirmNotCreated(current, receipt, "connect", "连接 Herdr Core 失败，启动请求尚未发送");
++    }
++    signal?.throwIfAborted();
++    // The Vault writer makes this read, claim and synchronous RPC submission a single turn.
++    // Another service may have claimed the same request while this connection was opening.
++    const current = this.currentLaunch(session, intent, executionHash);
++    if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
+     const attempt = { id: randomUUID(), core };
+-    const pending: SessionRecord = { ...session, state: "launching", launchReceipt: { ...receipt, attempt } };
++    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, attempt } };
+     delete pending.error;
+     this.save(pending);
+     if (env) this.secrets.set(session.id, Object.values(env));
+     let terminal: Terminal | undefined;
++    let rejectedBeforeCreation = false;
+     try {
+       terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(env ? { env } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
+     } catch (error) {
+       // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
+-      if (error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params") {
+-        throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
+-      }
++      rejectedBeforeCreation = error instanceof HerdrError && error.rpc.code === -32602 && error.kind === "invalid_params";
++    }
++    if (signal?.aborted) throw this.unknown(pending, "launch_scope_ended");
++    pending = this.currentLaunch(pending, intent, executionHash);
++    if (pending.launchReceipt?.attempt?.id !== attempt.id) throw this.unknown(pending, "attempt_changed");
++    if (pending.launchReceipt.attempt.binding && (pending.state === "running" || pending.state === "exited")) return pending;
++    if (rejectedBeforeCreation) {
++      throw this.confirmNotCreated(pending, receipt, "run", "Herdr Core 拒绝了启动参数，未创建终端");
+     }
+     const binding = terminal && this.verifyTerminal(pending, terminal);
+     if (terminal && binding) return this.bind(pending, terminal, binding);
+@@ -440,12 +462,29 @@
+       this.save(pending);
+     }
+ 
+-    return this.findLaunch(pending);
+-  }
+-
+-  private async findLaunch(session: SessionRecord): Promise<SessionRecord> {
++    return this.findLaunch(pending, signal);
++  }
++
++  private currentLaunch(session: SessionRecord, intent: LaunchIntent, executionHash: string | undefined): SessionRecord {
++    const current = this.recordedLaunch(session.requestId);
++    if (current?.id !== session.id) throw this.unknown(session, "launch_receipt_unavailable");
++    this.verifyIntent(current, intent, executionHash);
++    return current;
++  }
++
++  private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
++    if (session.state === "exited") return session;
+     const snapshot = await this.snapshot();
+-    const updated = this.applySnapshot(session, snapshot);
++    if (signal?.aborted) throw this.unknown(session, "launch_scope_ended");
++    const current = this.recordedLaunch(session.requestId);
++    const attempt = session.launchReceipt?.attempt;
++    if (current?.id !== session.id || current.launchReceipt?.attempt?.id !== attempt?.id) throw this.unknown(session, "attempt_changed");
++    if (current.state === "exited") return current;
++    if (launchHash(current.launchReceipt?.attempt) !== launchHash(attempt)) {
++      if (current.state === "running" && current.launchReceipt?.attempt?.binding) return current;
++      throw this.unknown(current, current.launchReceipt?.attempt?.issue ?? "attempt_changed");
++    }
++    const updated = this.applySnapshot(current, snapshot);
+     if (snapshot.kind === "unavailable") throw this.unknown(updated, "snapshot_unavailable");
+     if (updated.state === "running" || updated.state === "exited") return updated;
+     throw this.unknown(updated, updated.launchReceipt?.attempt?.issue ?? "snapshot_unavailable");
+@@ -498,10 +537,12 @@
+   }
+ 
+   private async snapshot(): Promise<TerminalSnapshot> {
++    if (this.d.signal?.aborted) return { kind: "unavailable" };
+     try {
+       const client = this.d.peekCore ? await this.d.peekCore() : await this.d.core();
+       if (client === "absent") return { kind: "absent" };
+       if (!client) return { kind: "unavailable" };
++      this.d.signal?.throwIfAborted();
+       const core = await identifyCore(client);
+       const { terminals } = await client.call<{ terminals: Terminal[] }>("terminal.list", { all: true, labels: { "huhu.vault": this.d.vaultId } });
+       return Array.isArray(terminals) ? { kind: "available", client, core, terminals } : { kind: "unavailable" };
+@@ -547,6 +588,7 @@
+       const binding = this.verifyTerminal(session, terminal);
+       if (!binding || !sameProcess(attempt.binding, binding)) throw this.unknown(session, "binding_lost");
+     }
++    this.d.signal?.throwIfAborted();
+     return snapshot.client;
+   }
+ 
+diff --git a/plugins/agent-cli/test/launch-reconcile.test.ts b/plugins/agent-cli/test/launch-reconcile.test.ts
+--- a/plugins/agent-cli/test/launch-reconcile.test.ts
++++ b/plugins/agent-cli/test/launch-reconcile.test.ts
+@@ -96,6 +96,44 @@
+   expect(fake.tries).toBe(1);
+ });
+ 
++test("services sharing one Vault writer can claim a durable launch only once", async () => {
++  const { fake, target, reopen, terminals } = fixture();
++  let connected!: () => void;
++  let resume!: () => void;
++  const entered = new Promise<void>((resolve) => {
++    connected = resolve;
++  });
++  const blocked = new Promise<void>((resolve) => {
++    resume = resolve;
++  });
++  const old = reopen({
++    core: async () => {
++      connected();
++      await blocked;
++      throw new Error("first connection failed after the replacement was bound");
++    },
++  }).launch(target);
++  await entered;
++  let current;
++  try {
++    current = await reopen().launch(target);
++  } finally {
++    resume();
++  }
++  expect(await old).toEqual(current);
++  expect(await reopen().launch(target)).toEqual(current);
++  expect(fake.tries).toBe(1);
++  expect(terminals).toHaveLength(1);
++});
++
++test("concurrent active services sharing one request do not each submit a Core run", async () => {
++  const { fake, target, reopen, terminals } = fixture();
++  const [first, second] = await Promise.all([reopen().launch(target), reopen().launch(target)]);
++  expect(first).toEqual(second);
++  expect(fake.tries).toBe(1);
++  expect(terminals).toHaveLength(1);
++});
++
+ test("a candidate needs an explicit lifecycle compatible with its exit fields", async () => {
+   const { fake, target, terminals, reopen } = fixture();
+   fake.fail = "lost";
+diff --git a/plugins/agent-cli/test/launch.live.test.ts b/plugins/agent-cli/test/launch.live.test.ts
+--- a/plugins/agent-cli/test/launch.live.test.ts
++++ b/plugins/agent-cli/test/launch.live.test.ts
+@@ -2,8 +2,9 @@
+ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import path from "node:path";
++import { PluginManifestSchema } from "@huhu/contracts";
+ import { HerdrClient } from "@huhu/herdr-client";
+-import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, createHuhuContext, type VaultServices } from "@huhu/kernel";
++import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, PluginManager, createHuhuContext, type VaultServices } from "@huhu/kernel";
+ import { Vault, machineId } from "@huhu/vault";
+ import { expect, test, vi } from "vitest";
+ import { apply } from "../src/engine/index.js";
+@@ -60,30 +61,36 @@
+       emptyEndpoint = true;
+ 
+       let dispatcher: Dispatcher;
++      let manager!: PluginManager;
+       async function openEngine() {
+         const registry = new CapabilityRegistry();
++        const events = new EventBus(() => vault.id);
+         dispatcher = new Dispatcher({
+           registry,
+           audit: new GatewayAudit(),
+           idempotency: new IdempotencyStore(),
+-          isPluginEnabled: () => true,
++          isPluginEnabled: (id) => manager.isEnabled(id),
+           exposureOverride: () => undefined,
+           grantedPermissions: () => [],
+           pluginOrigin: () => "builtin",
+         });
+         const { root, facade } = createHuhuContext({
+           registry,
+-          events: new EventBus(() => vault.id),
++          events,
+           vault: { files: vault.files, stateDir: vault.stateDir, vaultId: vault.id } as VaultServices,
+           call: async () => {
+             throw new Error("The launch probe does not call other plugins");
+           },
+         });
+-        const running = root.plugin((ctx) => {
+-          apply(ctx, facade("agent-cli", ctx), { herdrBin: bin! });
+-        });
+-        dispose = () => running.dispose();
+-        await running.await?.();
++        manager = new PluginManager(root, facade, events);
++        manager.register({
++          manifest: PluginManifestSchema.parse({ id: "agent-cli", title: "Agent CLI", description: "", version: "1.0.0", origin: "builtin" }),
++          apply: (ctx, api) => {
++            apply(ctx, api, { herdrBin: bin!, history: { home: sandbox, env: {} } });
++          },
++        });
++        dispose = () => manager.disposeAll();
++        expect(await manager.enable("agent-cli")).toBe("active");
+       }
+       await openEngine();
+       const request = (capability: string, input: unknown, idempotencyKey = crypto.randomUUID()) => {
+@@ -297,6 +304,78 @@
+       await call("agent.sessions.kill", { id: junctionLaunch.id });
+       console.info(JSON.stringify({ scenario: "junction", kept: junctionLaunch.terminalId, retargeted: "IDEMPOTENCY_MISMATCH" }));
+       console.info(JSON.stringify({ isolatedId, launchId, sessionId, attemptId, address: original.address, pid: original.pid, createdMs: original.created_ms }));
++
++      for (const phase of ["before_run", "late_run_reply"] as const) {
++        const input = { ...launch, requestId: crypto.randomUUID() };
++        let enter!: () => void;
++        let resume!: () => void;
++        const entered = new Promise<void>((resolve) => {
++          enter = resolve;
++        });
++        const blocked = new Promise<void>((resolve) => {
++          resume = resolve;
++        });
++        let first = true;
++        const ensure = HerdrCore.prototype.ensure;
++        const delayed =
++          phase === "before_run"
++            ? vi.spyOn(HerdrCore.prototype, "ensure").mockImplementation(async function (this: HerdrCore) {
++                if (first && this.endpoint === expectedCore.endpoint) {
++                  first = false;
++                  enter();
++                  await blocked;
++                }
++                return ensure.call(this);
++              })
++            : vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown): Promise<T> {
++                const result = (await realCall.call(this, method, params)) as T;
++                if (method === "terminal.run" && (params as { labels?: Record<string, string> }).labels?.["huhu.launch"] === input.requestId) {
++                  enter();
++                  await blocked;
++                }
++                return result;
++              });
++        const pending = request("agent.sessions.launch", input);
++        let replacement;
++        try {
++          expect(await Promise.race([entered.then(() => "paused"), pending.then(() => "finished")])).toBe("paused");
++          await manager.disable("agent-cli");
++          expect(await request("agent.sessions.launch", input)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
++          expect(await manager.enable("agent-cli")).toBe("active");
++          replacement = await request("agent.sessions.launch", input);
++        } finally {
++          resume();
++          delayed.mockRestore();
++        }
++        const old = await pending;
++        const truth = new HerdrClient({ endpoint: expectedCore.endpoint });
++        await truth.connect();
++        const matches = await truth
++          .call<{ terminals: Terminal[] }>("terminal.list", { all: true })
++          .then(({ terminals }) => terminals.filter((terminal) => terminal.labels?.["huhu.launch"] === input.requestId))
++          .finally(() => truth.close());
++        expect(matches).toHaveLength(1);
++        const match = matches[0]!;
++        const file = path.join(vault.stateDir, "agent-cli", "sessions", match.labels["huhu.session"] + ".json");
++        const recorded = JSON.parse(readFileSync(file, "utf8"));
++        const retry = await request("agent.sessions.launch", input);
++        console.info(
++          JSON.stringify({
++            phase,
++            old: old.ok ? "ok" : old.error.code,
++            replacement,
++            retry,
++            recorded: { terminalId: recorded.terminalId, attempt: recorded.launchReceipt?.attempt?.id },
++            core: matches.map(({ address, pid, labels }) => ({ address, pid, attempt: labels["huhu.launch.generation"] })),
++          }),
++        );
++        expect(replacement).toMatchObject({ ok: true, data: { terminalId: match.address } });
++        expect(retry).toMatchObject({ ok: true, data: { terminalId: match.address } });
++        expect(recorded).toMatchObject({ terminalId: match.address, launchReceipt: { attempt: { id: match.labels["huhu.launch.generation"], binding: { pid: match.pid } } } });
++        expect(old).toMatchObject({ ok: false, error: { code: phase === "before_run" ? "PLUGIN_DISABLED" : "RUN_UNKNOWN" } });
++        await call("agent.sessions.kill", { id: recorded.id });
++        expect(JSON.parse(cli("wait", match.address, "--timeout", "10", "--json").stdout)).toMatchObject({ ended: true });
++      }
+     } finally {
+       await closeEngine();
+       try {
+@@ -308,7 +387,9 @@
+             expect(current).not.toBe("346bd5608735e3fcb27f9d01f5c8008e");
+             if (isolatedId) expect(current).toBe(isolatedId);
+             expect(cli("server", "stop").status).toBe(0);
+-            expect(cli("server", "status").status).toBe(5);
++            const stopped = cli("server", "status").status;
++            console.info(JSON.stringify({ endpoint: expectedCore.endpoint, stopped }));
++            expect(stopped).toBe(5);
+           }
+         }
+       } finally {

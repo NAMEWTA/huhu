@@ -1,0 +1,3 @@
+# #4 Windows Agent 一代切换与输入归属独立复核
+
+终端 t4z。任务 task11.md，报告 report11.md。冻结 `ec581b3276541a7660a69bb2f50a551545ec0689`，包含 `ba5f348`。请基于 `../t12d/report01.md` 检查 report08 的两个日常插件停用／重启回归是否都通过，独立重跑现有 Windows Core 合成用例及相关持久状态断言。验证只用本机合成 Vault 和既有 Core/夹具，使用独立 Git 归档，不增 Git worktree、不调整真实进程或系统设置。不要更改任何源码、锁、工作树或远端，只在自己证据目录写结果。需要环境复用时读 `../t12d/evidence-task01/frozen.ps1`。按上线阻断项与证据边界报告，不需要扩大探索范围；生产 provider ACK 与后续任务集成由 Lead 接续。归档并关闭本次临时验证终端，结束。

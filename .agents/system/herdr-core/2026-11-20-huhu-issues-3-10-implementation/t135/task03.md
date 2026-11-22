@@ -1,0 +1,3 @@
+# #4 W6.3 原生 Codex 回执落盘及两段 ACK 重交
+
+终端 t135，任务 task03.md，报告 report03.md。继续既有 task-executor 工作树，父 `9b34df699ecfdd6f46b210f2d95b362cccdad56d` 已冻结供独立审查。按 W6.3、W6.0 与 `../t13g/report01.md` 实施 Agent 生产侧的最小持久回执流。复用已绑定的 Core 代次、Codex 原生 thread/turn 和 `ExecutionReceipt{,Ack}` 合同。helper 先保存有明确原生归属的问题／结果，Agent 校验期望执行、按 receiptId 持久保全并回读后才返回原 `agent_received`。Agent 从持久待交重发相同回执，接收端验证 `tasks_consumed` 与原摘要才结束重交。接收端能力名定为 `tasks.receipts.consume`，仅供可信 Agent 调用；本轮可用保存可重建消费记录的合成接收器，Lead 在集成工作树负责 Tasks 业务端。没有已装配接收器时继续保全，不把未知视作完成，不自动重复 Codex 输入或作答。用固定 Windows Core 和真实 Engine 合成夹具覆盖两次丢首 ACK、重开、先到通知、不同绑定、原回执指纹和实际执行一次。未经验证的托管能力保持现有门槛。只写 Agent CLI、必要插件自身权限说明和本切片夹具，公共 Engine/Tasks 装配由 Lead 独占。不开发 UX，不接触真实会话、真实凭据、超出范围的外部任务，不改远端或新增 worktree。交付提交与可复查日志，清理本次验证窗格后结束。

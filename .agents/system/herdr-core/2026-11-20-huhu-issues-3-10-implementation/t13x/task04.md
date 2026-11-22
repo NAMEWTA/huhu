@@ -1,0 +1,3 @@
+# #4 W6.1 Windows Codex 受控新会话独立复核
+
+终端 t13x，任务 task04.md，报告 report04.md。冻结候选 `9b34df699ecfdd6f46b210f2d95b362cccdad56d`。只读 `../t135/report02.md`、现有实际 Core/Engine 夹具和 W6.1 规格。复验普通明确新目标、单次真实原生 ACK、同一 Core 现场与输入身份、等待期间停用和 ACK 丢失保持 unknown。复跑候选实际 Windows 本地合成测试，可复跑真实 Windows Codex 0.171.0、合成回环 Responses 服务与临时专用配置的已留脚本，禁止云调用或访问真实历史/账号。核对生产 helper 路径、受控程序选择与独立临时数据。只跑已有正常测试，不探索攻击，不改业务、锁、其他工作树和远端，使用隔离 Git 归档。整包 PDF 依赖障碍按范围记录，由 Lead 接续。报告独立结果，完成时关闭本次验证 pane 并结束。

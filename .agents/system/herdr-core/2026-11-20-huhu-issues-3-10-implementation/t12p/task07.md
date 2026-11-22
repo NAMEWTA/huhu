@@ -1,0 +1,3 @@
+﻿# #8 S1b.1 · 离线草稿的 Engine 合同
+
+终端 t12p，任务 task07.md，报告 report07.md。已将现有 safe-personal worktree 切至独立 `impl/huhu-issues-3-10-mail-drafts`，起点 `8dc4a5f29f0923abb54d2e3ca7a8728f96329acb`。按 `.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.1-compose-draft.md` 和 Mail `spec.md`/`design.md` 的数据章节实现后端草稿持久化。先核对已有 Mail 账号版本合同、Vault 原子写、项目富文本数据模型及 one-mail 参考，使用确定的草稿 ID 和 CAS revision。支持离线保存/重开、To/Cc/Bcc 去重规则、可发账号选择、主题、富文本及链接的原数据；读写受信工作台，只有草稿业务接口，无发送、自动舍弃或网络。真实 Windows Engine 合成夹具测失败前原草稿、并发过期保存、只读与两个账号的重开、ZIP 新格式保留草稿但无凭据。界面仍待确认，本项不改 renderer、原型、根依赖或锁，也不添加外部发信/公网行为。Scope 限 plugins/mail 后端和对应任务文档，任何共享接口在报告说明由 Lead 统一整合。保留提交、实际报告与相关日志，无新注册 worktree；临时验证窗格退出后清理。

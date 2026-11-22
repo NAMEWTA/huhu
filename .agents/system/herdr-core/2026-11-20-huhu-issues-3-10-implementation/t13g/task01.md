@@ -1,0 +1,3 @@
+# #4 Codex 结构化原生收件、问题和结果接线分析
+
+终端 t13g，任务 task01.md，报告 report01.md。只读业务工作树 `3bd2e24`。Lead 已用本机原生 Codex 0.171.0 过了临时线程的实际结构化问题与结果，证据 `D:/Document/code/huhu/temp/issue-baseline/core-finished/t13b.log`，探针及本机生成的协议 schema 在 `temp/issue-baseline/provider-probe/`。核对 #4 W6.1、W6.3、W8.2，#5 T2.1/T3/T7.1 和已有 Core 会话、ExecutionReceipt、旧 automation 发派、`temp/sources`。给 Lead 最小可实施的 Codex 原生 adapter 分割，明确 App Server 原生 thread/turn/问题归属与 Core 的同一可定位会话如何组合、持久化丢首个 ACK 后如何查证、clientUserMessageId 是否有证据做去重、什么时候必须保持 unknown、怎样在 Windows 上保持现有人工 TUI 和恢复不受影响。现有 ephemeral 结果不得推断持久结果或客户端开关默认启用。只查本机已生成源码/协议和官方文档，不跑更多外部模型调用，不触碰真实会话/凭据，不改业务文件、不新增 git worktree。报告给具体落点、候选方案利弊、可复查证据与一段交付先后关系。结束时退出本轮。
