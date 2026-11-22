@@ -395,3 +395,18 @@ t18t同一9350应用两臂实际Chrome152.0.7977.167/Electron44.9.1、其余enab
 日志 `temp/final-audit/chromium152-formal-flood.log`、`chromium152-perf-regression.log`。原始结果在证据根 `followup-flood-e5693dbf95bc61958fcf764995ae27c7d7d4144a.DE1syA/result.json` 和 `followup-perf-e5693dbf95bc61958fcf764995ae27c7d7d4144a.ezGIAq/result.json`，另复制至 integration 的 `temp/final-audit/chromium152-formal-{flood,perf}-e5693dbf`。
 
 t17c/task15 独审确认默认路径和正式证据，指出显式 feature 分组后缀及空白解析遗漏；交 t176/task18 定向修复。上述通过结果属于默认配置，不能替代该显式配置回归。剩余源码失败选择缩至3项（H05撤销为空、Agent变更审查、能力网关）；已通过性能和名称目录直接调用方不重复运行。笔记和邮件文件及最终同包联验仍待执行，main尚未更新。
+
+
+### b8f6c427 定向与同包验收
+
+显式feature参数修复经t17c/task16复审关闭，单文件14项通过；t18y新构建成功，t190核对远端feature/issue-fix=b8f6c4275c2fb13da32ae2907f9ce6223120d103，main仍4ae7e7e4。t18z在该构建执行剩余失败3项、笔记32项、邮件13项，全48项通过，无跳过、flaky或测试外错误。原始报告：
+
+- failed：`/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/followup-failed-b8f6c4275c2fb13da32ae2907f9ce6223120d103.erFCDl/result.json`
+- notes：`/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/followup-notes-b8f6c4275c2fb13da32ae2907f9ce6223120d103.frnrBm/result.json`
+- mail：`/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/followup-mail-b8f6c4275c2fb13da32ae2907f9ce6223120d103.rBXA85/result.json`
+
+同候选t191生成AppImage SHA-256 `b864940a627cf8054523b4f45f224578fe2202aa12b12a1c5b6ce729047d4907`，deb `c7c0752ee694241fe8ebb1fafc05a175eab821dc55575304bb132c408b0b5ae0`。t192串行九组同包验收，八组通过，共15项：tasks(1)、workspace(1)、tools-web(1)、web-terminal(3)、native(2)、rule(1)、git(1)、package(5)。对应每组runner均复核预期数量和零跳过/失败/flaky/测试外错误。日志 `temp/final-audit/final-package-<mode>-b8f6c427.log`，结果汇总 `final-package-results.json`；每组现有test-results已另存 `final-package-<mode>-artifacts-b8f6c427`；Web失败目录仅有error-context与.last-run.json，没有trace文件。
+
+web组1项失败：web-share.spec.ts:226，浏览器写入新正文已通过磁盘断言，桌面openNote后ProseMirror仍显示旧正文，5s超时。失败日志和页面error-context已保全，未产出trace；退出包装还报告隔离runtime/gvfs挂载忙和doc目录残留，未将清理记成功。t176/task19只读定位文档事件与恢复路径。不能将八组通过写为全部联验通过，当前main尚未落地；SSH仍暂停。
+
+Web失败后的隔离目录 `/tmp/hc-a.0Zsknp` 经Lead核对所属HOME/runtime进程0、挂载0后已清理；记录 `temp/final-audit/web-b8f6c427-late-cleanup.json`。此事后清理不改变原测试失败和包装清理失败记录。
