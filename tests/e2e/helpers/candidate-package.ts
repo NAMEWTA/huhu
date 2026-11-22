@@ -2,7 +2,7 @@ import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, mkdtemp, realpath, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,13 @@ async function digest(file: string) {
 async function extractCandidate() {
   expect(process.platform).toBe("linux");
   expect(process.arch).toBe("x64");
+  const profile = process.env["HUHU_ACCEPTANCE_PROFILE_ROOT"];
+  expect(profile, "use scripts/accept-linux-candidate.sh for a private bus and profile").toBeTruthy();
+  const profileStat = await stat(profile!);
+  expect(profileStat.isDirectory()).toBe(true);
+  expect(profileStat.mode & 0o077).toBe(0);
+  expect(process.env["DBUS_SESSION_BUS_ADDRESS"]).toBeTruthy();
+  expect(process.env["HUHU_ACCEPTANCE_DBUS_ADDRESS"]).toBe(process.env["DBUS_SESSION_BUS_ADDRESS"]);
   const artifact = await realpath(process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"]!);
 
   const commit = process.env["HUHU_CANDIDATE_GIT_SHA"];
