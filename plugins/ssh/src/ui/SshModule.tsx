@@ -212,7 +212,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   );
   if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={!fileView} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
   if (keyLibrary) return <KeyLibraryPanel onBack={() => { setKeyLibrary(false); void refresh(); }} />;
-  if (routes) return <RoutePanel hosts={hosts.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
+  if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
   if (monitoring)
     return withFileWorkspace(
       <MonitorDashboard

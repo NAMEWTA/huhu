@@ -3,7 +3,7 @@ import { badFile, fieldIssues, intValue, line, MAX_RECORDS, type ImportIssue, ty
 type HostBlock = { patterns: string[]; settings: Map<string, string> };
 const directives = new Set(["hostname", "user", "port", "connecttimeout", "serveraliveinterval", "serveralivecountmax", "proxycommand", "proxyjump"]);
 
-function argumentsOf(text: string): string[] {
+export function argumentsOf(text: string): string[] {
   const tokens: string[] = [];
   let token = "";
   let quote: string | undefined;
@@ -57,7 +57,7 @@ function matches(alias: string, pattern: string): boolean {
   return p === pattern.length;
 }
 
-function matchesBlock(alias: string, patterns: string[]): boolean {
+export function matchesBlock(alias: string, patterns: string[]): boolean {
   let included = false;
   for (const pattern of patterns) {
     if (pattern.startsWith("!")) {

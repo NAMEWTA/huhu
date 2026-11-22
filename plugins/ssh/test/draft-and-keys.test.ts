@@ -140,3 +140,75 @@ test("停用路由只影响下次拨号，现有连接保留实际跳点", async
   expect(manager.connectionStatuses()[0]?.route?.map(({ id }) => id)).toEqual([host.hostId]);
   expect(manager.connectionStatuses()[0]?.connectionId).not.toBe(active.connectionId);
 });
+
+test("OpenSSH 同步保留两侧冲突，按版本写回并保留无关命令文本", async () => {
+  const { SshConfigSync } = await import("../src/engine/config-sync.js");
+  const { writeFileSync } = await import("node:fs");
+  const { root, vault, hosts } = await setup();
+  const signal = new AbortController().signal;
+  const jump = await hosts.configure({ ...configuration(2201), name: "jump", authKind: "agent" }, signal);
+  const saved = await hosts.configure({ ...configuration(2202), name: "target", authKind: "agent" }, signal);
+  const file = path.join(root, "config");
+  const unrelated = "Host unrelated\n    ProxyCommand fixture-do-not-execute %h %p\n";
+  writeFileSync(file, "Host target\n    ProxyJump jump\n    ServerAliveInterval 30\n" + unrelated, { mode: 0o600 });
+  const sync = new SshConfigSync(hosts, vault.files);
+  const source = { path: file, hostId: saved.hostId, alias: "target" };
+  const apply = (preview: Awaited<ReturnType<typeof sync.preview>>, field: "ProxyJump" | "ServerAliveInterval", direction: "file-to-huhu" | "huhu-to-file") => {
+    const { fingerprint, comparison, stateRevision, hostRevision } = preview;
+    return sync.apply({ ...source, field, direction, fingerprint, comparison, stateRevision, hostRevision }, signal);
+  };
+  const first = await sync.preview(source);
+  expect(first.rows).toContainEqual({ field: "ProxyJump", file: "jump", huhu: null, change: "unbound" });
+  const next = await apply(first, "ProxyJump", "file-to-huhu");
+  await expect(apply(first, "ServerAliveInterval", "file-to-huhu")).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  const baseline = await apply(next, "ServerAliveInterval", "file-to-huhu");
+  expect((await hosts.list()).find(({ id }) => id === saved.hostId)).toMatchObject({ jumpHostIds: [jump.hostId], keepaliveIntervalSec: 30 });
+  const fileChange = "Host target\n    ProxyJump jump\n    ServerAliveInterval 40\n" + unrelated;
+  writeFileSync(file, fileChange);
+  await hosts.configure({ ...configuration(2202), name: "target", authKind: "agent", hostId: saved.hostId, expectedRevision: baseline.hostRevision, jumpHostIds: [jump.hostId], keepaliveIntervalSec: 60 }, signal);
+  const conflict = await sync.preview(source);
+  expect(conflict.rows).toContainEqual({ field: "ServerAliveInterval", file: "40", huhu: "60", change: "conflict" });
+  expect(readFileSync(file, "utf8")).toBe(fileChange);
+  const resolved = await apply(conflict, "ServerAliveInterval", "huhu-to-file");
+  expect(resolved.rows).toContainEqual({ field: "ServerAliveInterval", file: "60", huhu: "60", change: "same" });
+  expect(readFileSync(file, "utf8")).toBe(fileChange.replace("Interval 40", "Interval 60"));
+  writeFileSync(file, "Host target\n    IdentityFile \"unterminated\n");
+  await expect(sync.preview(source)).rejects.toThrow(/第 2 行/);
+});
+
+test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", async () => {
+  const { SshProxyShare, privateRemoteListeners } = await import("../src/engine/proxy-share.js");
+  const { hosts, manager, remember } = await setup();
+  const signal = new AbortController().signal;
+  const proxy = net.createServer((socket) => {
+    socket.on("error", () => undefined);
+    socket.once("data", (data) => {
+      expect(data.toString()).toMatch(/^CONNECT example\.com:443 HTTP/);
+      socket.end("HTTP/1.1 200 Connection established\r\n\r\n");
+    });
+  });
+  await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => { proxy.close(); });
+  const localPort = (proxy.address() as net.AddressInfo).port;
+  const spare = net.createServer();
+  await new Promise<void>((resolve) => spare.listen(0, "127.0.0.1", resolve));
+  const remotePort = (spare.address() as net.AddressInfo).port;
+  await new Promise<void>((resolve) => spare.close(() => resolve()));
+  const hostKey = genHostKey();
+  const bindOutput = `LISTEN 0 128 127.0.0.1:${remotePort} 0.0.0.0:*\n`;
+  expect(privateRemoteListeners(bindOutput + `LISTEN 0 128 [::]:${remotePort} [::]:*\n`, remotePort)).toBe(false);
+  const server = await startFakeSsh({ hostKey, remoteForwarding: true, onExec: (command) => command.startsWith("ss ") ? { stdout: bindOutput } : undefined });
+  cleanups.push(server.close);
+  await remember(server.port, hostKey);
+  const { hostId } = await hosts.configure({ ...configuration(server.port), credentials: [{ purpose: "password", action: "replace", value: "pw" }] }, signal);
+  await manager.connect(hostId, signal);
+  const connectionId = manager.connectionStatuses()[0]!.connectionId!;
+  const share = new SshProxyShare(manager);
+  cleanups.push(() => share.dispose());
+  const config = { hostId, connectionId, localPort, remotePort };
+  await expect(share.start(config, signal)).resolves.toEqual({ state: "running", config });
+  await expect(share.test(signal)).resolves.toEqual({ state: "running", config, tested: "accepted" });
+  await expect(share.stop(signal)).resolves.toEqual({ state: "stopped" });
+  await expect(share.test(signal)).rejects.toThrow("没有可测试");
+  expect(manager.isConnected(hostId)).toBe(true);
+});

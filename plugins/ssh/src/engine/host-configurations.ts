@@ -236,6 +236,17 @@ export class HostConfigurations {
     });
   }
 
+  async syncIdentityFile(host: ManagedHost): Promise<string | null> {
+    if (host.auth.kind !== "identity-file" || host.authState.identityFile === "unconfigured") return null;
+    if (host.authState.identityFile !== "configured") throw authError("identity-file-unavailable");
+    const result = await this.credentials().use(host.id, ["identityFile"], async (_definition, values, revision) => ({
+      revision,
+      path: values.get("identityFile")!,
+    })).catch(translate);
+    if (result.revision !== host.revision) throw errors.versionConflict(result.revision);
+    return result.path;
+  }
+
   /** Existing secrets are eligible only at their saved endpoint, even when omitted in the draft. */
   async withDraftAuthentication(input: ConfigureHost, saved: ManagedHost | undefined, connect: (auth: ConnectionAuth) => Promise<void>): Promise<void> {
     const sameTarget = saved?.revision === input.expectedRevision && saved.auth.kind === input.authKind && saved.host.toLowerCase() === input.host.toLowerCase() && saved.port === input.port && saved.user === input.user;

@@ -4,6 +4,9 @@ import { useState } from "react";
 import type { ConfigureHost } from "../engine/auth-profile.js";
 import { routeForHost } from "../shared/route.js";
 import { isManagedHost, type Host, type ManagedHost } from "./host-record.js";
+import { ConfigSyncPanel } from "./ConfigSyncPanel.js";
+import { ProxySharePanel } from "./ProxySharePanel.js";
+import type { ConnectionStatus } from "../shared/trust.js";
 
 function routeDescription(hosts: Map<string, ManagedHost>, host: ManagedHost): string {
   try {
@@ -13,9 +16,11 @@ function routeDescription(hosts: Map<string, ManagedHost>, host: ManagedHost): s
   }
 }
 
-export function RoutePanel({ hosts, onBack, onChanged }: { hosts: readonly Host[]; onBack(): void; onChanged(): Promise<unknown> }) {
+export function RoutePanel({ hosts, connections, onBack, onChanged }: { hosts: readonly Host[]; connections: ConnectionStatus[]; onBack(): void; onChanged(): Promise<unknown> }) {
   const engine = useEngine();
   const [query, setQuery] = useState("");
+  const [sync, setSync] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [groupByJump, setGroupByJump] = useState(false);
   const [saving, setSaving] = useState<string>();
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
@@ -48,10 +53,14 @@ export function RoutePanel({ hosts, onBack, onChanged }: { hosts: readonly Host[
     }
   }
 
+  if (sync) return <ConfigSyncPanel hosts={managed} onBack={() => setSync(false)} onChanged={onChanged} />;
+  if (sharing) return <ProxySharePanel hosts={managed} connections={connections} onBack={() => setSharing(false)} />;
   return (
     <section className="hu-view-content">
       <PageHead title="跳板路由" description="查看目标的完整跳板链，设置直接跳板。" actions={<Button onClick={onBack}>返回主机</Button>} />
       <div className="ssh-workspace-controls">
+        <Button onClick={() => setSync(true)}>OpenSSH 配置同步</Button>
+        <Button onClick={() => setSharing(true)}>辅助代理分享</Button>
         <SearchBox value={query} onChange={setQuery} placeholder="筛选目标主机…" />
         <label className="row"><input type="checkbox" checked={groupByJump} onChange={(event) => setGroupByJump(event.currentTarget.checked)} /> 按直接跳板分组</label>
       </div>

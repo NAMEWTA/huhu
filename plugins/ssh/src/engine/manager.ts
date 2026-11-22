@@ -491,6 +491,12 @@ export class SshManager {
     };
   }
 
+  proxyShareTransport(hostId: string, connectionId: string): Client {
+    const connection = this.conns.get(hostId);
+    if (!connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "请选择仍然在线的原 SSH 连接");
+    return connection.target;
+  }
+
   private async acquireTransport(scope: "forward" | "monitor", hostId: string, signal: AbortSignal, notify: ForwardOwner, boundTarget?: string): Promise<ForwardLease> {
     const chain = this.route(hostId, await this.d.hosts.list());
     const stale = () => new HuhuError("VERSION_CONFLICT", scope === "forward" ? "转发规则所绑定的主机、账户或跳板配置已变更" : "监控的主机、账户或跳板配置已变更");
