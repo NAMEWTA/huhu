@@ -1,1 +1,1 @@
-export { HerdrCore, type HerdrCoreOptions } from "@huhu/herdr-client";
+export { HerdrCore } from "@huhu/herdr-client";

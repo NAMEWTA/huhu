@@ -39,7 +39,8 @@
     "purgecss": "8.0.0",
     "stylelint": "^16.26.1",
     "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "zod": "^4.6.7"
   },
   "engines": {
     "node": ">=24"

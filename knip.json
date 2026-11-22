@@ -9,7 +9,6 @@
         "native/agent-pty/tests/*.cjs",
         "tests/e2e/*.spec.ts",
         "tests/e2e/workflows/*.spec.ts",
-        "tests/parity-ok/compare.spec.ts",
         "tests/parity-ok/playwright.config.ts",
         "tests/perf/*.bench.ts",
         "tests/perf/vitest.config.ts",
@@ -31,6 +30,9 @@
     },
     "plugins/agent-cli": {
       "entry": ["src/engine/codex-dispatch-helper.cjs", "src/engine/protected-launch-helper.cjs"]
+    },
+    "plugins/ssh": {
+      "ignoreBinaries": ["ssh-keygen"]
     },
     "plugins/tasks": {
       "ignoreDependencies": ["tsx"]
