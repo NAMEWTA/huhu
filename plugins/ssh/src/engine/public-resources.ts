@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { errors, isWorkbenchCaller } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { CredentialError, ModuleCredentials, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { HostDefinition, ManagedHostView, OwnedHostId, purposes, SshRouteRevision } from "./auth-profile.js";
@@ -88,11 +88,29 @@ export function readPortableHosts(files: Files, ids: ReadonlySet<string>): Manag
 
 export function readResourceRoute(files: Files, hostId: string) {
   const chain = routeForHost({ get: (id) => readPortableHost(files, id) }, hostId);
+  return { chain, view: resourceView(chain) };
+}
+
+export function visibleSshRoutes(files: Files, context: CapabilityContext): ReadonlyMap<string, ResourceHost> {
+  externalSshOwner(context);
+  const hosts = new Map(readPortableHosts(files, selectedSshHosts(context)).map((host) => [host.id, host]));
+  const routes = new Map<string, ResourceHost>();
+  for (const id of hosts.keys()) {
+    try {
+      routes.set(id, resourceView(routeForHost(hosts, id)));
+    } catch (error) {
+      // Deleted, ungranted or invalid hops make the whole route unavailable.
+      if (!(error instanceof HuhuError) || (error.code !== "NOT_FOUND" && error.code !== "INVALID_INPUT")) throw error;
+    }
+  }
+  return routes;
+}
+
+function resourceView(chain: readonly ManagedHost[]): ResourceHost {
   const resourceRoute = chain.map(({ id, revision, host, port }) => ({ hostId: id, revision, host, port }));
   const boundRevision = createHash("sha256")
     .update(JSON.stringify([workspaceTarget(chain), chain.map(({ revision, configId }) => [revision, configId])]))
     .digest("hex");
   const target = chain.at(-1)!;
-  const view: z.infer<typeof ResourceHost> = { ...resourceRoute.at(-1)!, name: target.name, authKind: target.auth.kind, routeRevision: boundRevision, route: resourceRoute };
-  return { chain, view };
+  return { ...resourceRoute.at(-1)!, name: target.name, authKind: target.auth.kind, routeRevision: boundRevision, route: resourceRoute };
 }

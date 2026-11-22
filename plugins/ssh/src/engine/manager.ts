@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { Readable } from "node:stream";
@@ -19,15 +20,22 @@ export interface AuditEntry {
   at: string;
   hostId: string;
   action: string;
-  result: "ok" | "failed" | "cancelled";
+  result: "ok" | "failed" | "cancelled" | "unknown";
   detail: string;
 }
+
+type ExternalAudit = AuditEntry & { owner: string; routeRevision: string };
+const auditOwner = (vaultInstance: string, owner: string) =>
+  createHash("sha256")
+    .update(JSON.stringify([vaultInstance, owner]))
+    .digest("hex");
 
 export interface SshDeps {
   hosts: { list(): HostRecord[] | Promise<HostRecord[]> };
   knownHostsFile: string;
   knownHostsFiles?: HuhuApi["vault"]["files"];
   auditDir: string;
+  externalAudit?: { directory: string; vaultInstance: string };
   withManagedAuth: (host: ManagedHost, connect: (auth: ConnectionAuth) => Promise<void>) => Promise<void>;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
@@ -129,19 +137,50 @@ export class SshManager {
   }
 
   // ---- 审计（不含凭据）----
-  private audit(e: Omit<AuditEntry, "at">): void {
-    mkdirSync(this.d.auditDir, { recursive: true });
-    appendFileSync(path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`), JSON.stringify({ at: this.d.now().toISOString(), ...e }) + "\n");
+  private audit(e: Omit<AuditEntry, "at"> | Omit<ExternalAudit, "at">, directory = this.d.auditDir): void {
+    const at = this.d.now().toISOString();
+    mkdirSync(directory, { recursive: true });
+    appendFileSync(path.join(directory, `${at.slice(0, 7)}.ndjson`), JSON.stringify({ at, ...e }) + "\n");
   }
+
+  recordExternalAudit(owner: string, binding: { hostId: string; routeRevision: string }, action: "connect" | "exec", result: AuditEntry["result"]): void {
+    const journal = this.d.externalAudit;
+    if (!journal) return;
+    try {
+      const { hostId, routeRevision } = binding;
+      this.audit({ hostId, action, result, detail: "", owner: auditOwner(journal.vaultInstance, owner), routeRevision }, journal.directory);
+    } catch {
+      // Failing to write audit metadata must not change the connection or job result.
+    }
+  }
+
   auditList(hostId?: string, limit = 200): AuditEntry[] {
-    if (!existsSync(this.d.auditDir)) return [];
-    const month = path.join(this.d.auditDir, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
+    return this.readAudit<AuditEntry>(this.d.auditDir, (entry) => !hostId || entry.hostId === hostId, limit);
+  }
+
+  externalAuditList(owner: string, routes: ReadonlyMap<string, { routeRevision: string }>, hostId: string | undefined, limit: number): AuditEntry[] {
+    const journal = this.d.externalAudit;
+    if (!journal) return [];
+    const ownerId = auditOwner(journal.vaultInstance, owner);
+    return this.readAudit<ExternalAudit>(
+      journal.directory,
+      (entry) => {
+        if ((hostId !== undefined && entry.hostId !== hostId) || entry.owner !== ownerId) return false;
+        const route = routes.get(entry.hostId);
+        return route !== undefined && route.routeRevision === entry.routeRevision;
+      },
+      limit,
+    ).map(({ at, action, result, hostId }) => ({ at, action, result, hostId, detail: "" }));
+  }
+
+  private readAudit<T extends AuditEntry>(directory: string, matches: (entry: T) => boolean, limit: number): T[] {
+    const month = path.join(directory, `${this.d.now().toISOString().slice(0, 7)}.ndjson`);
     if (!existsSync(month)) return []; // 目录在、当月文件还没有
     return readFileSync(month, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((l) => JSON.parse(l) as AuditEntry)
-      .filter((a) => !hostId || a.hostId === hostId)
+      .map((l) => JSON.parse(l) as T)
+      .filter(matches)
       .slice(-limit)
       .reverse();
   }

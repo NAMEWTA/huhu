@@ -4,7 +4,7 @@ import type { CapabilityContext, HuhuApi, OperationReceipts } from "@huhu/kernel
 import { z } from "zod";
 import { KnownHostKey, type ConnectionStatus, type HostKeyPrompt } from "../shared/trust.js";
 import type { SshManager } from "./manager.js";
-import { assertSshHosts, externalSshOwner, readBoundRoute, ResourceHost, ResourceHostId, selectedSshHosts } from "./public-resources.js";
+import { assertSshHosts, externalSshOwner, readBoundRoute, ResourceHost, ResourceHostId, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 
 const attemptId = z.string().min(1).max(128);
 export const StartPublicProbe = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
@@ -101,7 +101,14 @@ export class PublicSshProbes {
 
   private startProbe(context: CapabilityContext, owner: string, binding: Binding) {
     const connection = this.open(context, owner, binding, "probe");
-    void connection.ready.then(connection.close, connection.close);
+    const finish = (result: "ok" | "failed") => {
+      connection.close();
+      this.manager.recordExternalAudit(owner, binding, "connect", result);
+    };
+    void connection.ready.then(
+      () => finish("ok"),
+      () => finish("failed"),
+    );
     return { attemptId: connection.attemptId };
   }
 
@@ -165,6 +172,11 @@ export class PublicSshProbes {
     const selected = selectedSshHosts(context);
     const now = Date.now();
     return [...this.probes.values()].filter((probe) => probe.owner === owner && probe.expires > now && probe.hostIds.every((id) => selected.has(id))).map(({ status }) => status);
+  }
+
+  currentStatuses(context: CapabilityContext): Status[] {
+    const routes = visibleSshRoutes(this.files, context);
+    return this.list(context).filter(({ hostId, routeRevision }) => routes.get(hostId)?.routeRevision === routeRevision);
   }
 
   decide(context: CapabilityContext, input: z.infer<typeof DecidePublicProbe>) {

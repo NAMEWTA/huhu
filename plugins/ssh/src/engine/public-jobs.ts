@@ -5,6 +5,7 @@ import type { Client, ClientChannel } from "ssh2";
 import { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import { ExecOutput, unavailableOutput } from "./job-output.js";
+import type { SshManager } from "./manager.js";
 import { StartPublicProbe, type PublicSshProbes } from "./public-probes.js";
 import { assertSshHosts, externalSshOwner, readBoundRoute } from "./public-resources.js";
 
@@ -105,6 +106,7 @@ export class PublicExecJobs {
     private readonly probes: PublicSshProbes,
     private readonly receipts: OperationReceipts,
     private readonly vaultInstance: string,
+    private readonly manager: SshManager,
     private readonly retainActivity?: RetainActivity,
   ) {}
 
@@ -261,8 +263,12 @@ export class PublicExecJobs {
     return unavailableOutput(input.cursor, input.stream === "stdout" ? status.stdoutEnd : status.stderrEnd);
   }
 
-  cancel(context: CapabilityContext, jobId: string) {
-    const { job } = this.find(context, jobId);
+  cancel(context: CapabilityContext, jobId: string, binding?: z.infer<typeof StartPublicProbe>) {
+    const { job, status } = this.find(context, jobId);
+    if (binding) {
+      if (!("hostId" in status) || status.hostId !== binding.hostId || status.routeRevision !== binding.routeRevision) throw errors.notFound("原 SSH 作业与路由");
+      readBoundRoute(this.files, context, binding);
+    }
     context.signal.throwIfAborted();
     if (!job || job.endedAt !== undefined || job.status.stopRequested) return { requested: false };
     this.stop(job, "cancel");
@@ -320,6 +326,10 @@ export class PublicExecJobs {
       } catch {
         // Keep the live result. A restarted Engine sees the durable admission as unknown.
       }
+      let result: "ok" | "failed" | "cancelled" | "unknown" = "failed";
+      if (end.state === "cancelled" || end.state === "unknown") result = end.state;
+      if (end.state === "exited" && end.exitCode === 0) result = "ok";
+      this.manager.recordExternalAudit(job.owner, job.status, "exec", result);
       this.timer(job, outputLifetime, () => this.jobs.delete(job.status.jobId));
     } finally {
       job.releaseActivity?.();

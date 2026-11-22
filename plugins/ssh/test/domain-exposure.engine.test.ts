@@ -105,6 +105,9 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
       [
         get,
         update,
+        "ssh.audit.list",
+        "ssh.connections.status",
+        "ssh.exec.cancel",
         "ssh.hosts.configure",
         "ssh.hosts.copy",
         "ssh.hosts.directory",
@@ -116,6 +119,7 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.jobs.output.read",
         "ssh.jobs.prepare",
         "ssh.jobs.start",
+        "ssh.knownHosts.list",
         "ssh.resources.connection.get",
         "ssh.resources.connection.list",
         "ssh.resources.connection.start",

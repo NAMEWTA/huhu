@@ -22,7 +22,7 @@ import { MonitorPanels } from "./monitor-panels.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts } from "./public-resources.js";
+import { authorizedResourceRoute, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 
@@ -54,6 +54,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     knownHostsFile: path.join(root, "known_hosts"),
     ...(stateInVault && { knownHostsFiles: api.vault.files }),
     auditDir: path.join(root, "audit"),
+    ...(execJobs && { externalAudit: { directory: path.join(execJobs.runtimeDir, "ssh-audit"), vaultInstance: execJobs.vaultInstance } }),
     withManagedAuth: (host, connect) => hosts.withAuthentication(host, connect),
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
@@ -69,7 +70,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     return { target, ids: chain.map(({ id }) => id) };
   };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations);
-  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, operations.retainActivity) : undefined;
+  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity) : undefined;
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
   const transfers = new Transfers(
@@ -299,7 +300,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return manager.start(i.hostId);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, () => manager.connectionStatuses()));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.connectionStatuses, (context) => (isWorkbenchCaller(context.caller) ? manager.connectionStatuses() : publicProbes.currentStatuses(context))));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.disconnect, (_c, i) => (manager.disconnect(i.hostId), { ok: true as const })));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostKeyDecide, (_c, i) => {
@@ -307,7 +308,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return { applied: manager.decide(i.attemptId, i.hop, i.accept, i.promptId, i.remember) };
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.knownHostsList, () => manager.knownHosts()));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.knownHostsList, (context) => {
+      if (isWorkbenchCaller(context.caller)) return manager.knownHosts();
+      const routes = visibleSshRoutes(api.vault.files, context);
+      const addresses = new Set([...routes.values()].map(({ host, port }) => JSON.stringify([host, port])));
+      return manager.knownHosts().filter(({ host, port }) => addresses.has(JSON.stringify([host, port])));
+    }),
+  );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.knownHostsForget, async (_c, key) => {
       api.vault.files.assertWritable();
@@ -317,8 +325,26 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.execCancel, (_c, i) => ({ cancelled: manager.cancel(i.execId) })));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.auditList, (_c, i) => manager.auditList(i.hostId, i.limit)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.execCancel, (context, { execId, jobId, hostId, routeRevision }) => {
+      if (isWorkbenchCaller(context.caller)) {
+        if (execId === undefined) throw errors.invalidInput("缺少 SSH 命令 ID");
+        return { cancelled: manager.cancel(execId) };
+      }
+      if (execId !== undefined || !jobId || !hostId || !routeRevision) throw errors.invalidInput("取消外部 SSH 作业需要作业、主机和路由版本");
+      if (!publicJobs) throw errors.notFound("SSH 作业");
+      return { cancelled: publicJobs.cancel(context, jobId, { hostId, routeRevision }).requested };
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.auditList, (context, { hostId, limit }) => {
+      if (isWorkbenchCaller(context.caller)) return manager.auditList(hostId, limit);
+      const owner = externalSshOwner(context);
+      const routes = visibleSshRoutes(api.vault.files, context);
+      if (hostId !== undefined && !routes.has(hostId)) throw errors.permissionDenied("SSH 主机授权");
+      return manager.externalAuditList(owner, routes, hostId, limit);
+    }),
+  );
   // SFTP（仅桌面；复用已建立的连接）。覆盖需要 overwrite=true（界面先让用户确认）；上传先写临时文件再改名
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (_c, i) => files.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveSupport, ({ signal }, i) => archives.support(i.fileSessionId, signal)));

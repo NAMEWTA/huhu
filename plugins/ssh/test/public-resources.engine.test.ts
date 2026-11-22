@@ -12,7 +12,7 @@ import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { HerdrCore } from "../../agent-cli/src/engine/herdr-core.js";
 import type { ExecJobStatus, ExecOutputPage } from "../src/engine/public-jobs.js";
-import type { PublicProbeStatus } from "../src/engine/public-probes.js";
+import { PublicProbeStatus } from "../src/engine/public-probes.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
@@ -27,6 +27,7 @@ const jobStart = "ssh.jobs.start";
 const jobGet = "ssh.jobs.get";
 const jobOutput = "ssh.jobs.output.read";
 const jobCancel = "ssh.jobs.cancel";
+const execCancel = "ssh.exec.cancel";
 const jobCapabilities = [jobPrepare, jobStart, jobGet, jobOutput, jobCancel];
 type Probe = z.infer<typeof PublicProbeStatus>;
 type Waiting = Extract<Probe, { prompt: unknown }>;
@@ -648,6 +649,109 @@ test("a changed jump revision invalidates the original pending target before aut
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s reads current SSH connection, known host and audit metadata within the authorized route", { timeout: 45_000 }, async (entry) => {
+  const f = await fixture();
+  const statuses = "ssh.connections.status";
+  const keys = "ssh.knownHosts.list";
+  const audit = "ssh.audit.list";
+  const tools = [statuses, keys, audit];
+  const notGranted = { ok: false, error: { code: "PERMISSION_DENIED" } };
+  try {
+    const jump = await f.host("metadata jump");
+    const target = await f.host("metadata target", [jump.hostId]);
+    const { hostId } = target;
+    const { routeRevision } = await f.desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId });
+    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "metadata fixture" });
+    const session = await openMcpSession(f.mcpEndpoint(), token);
+    const otherSession = await openMcpSession(f.mcpEndpoint(), token);
+    const mcp = async (id: string, input: object, handle: string) => {
+      const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: input }, handle);
+      return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
+    };
+    const invoke = (id: string, input = {}) => (entry === "cli" ? f.cli(id, input) : mcp(id, input, session));
+    const names = tools.map((name) => (entry === "cli" ? name : name.replaceAll(".", "_")));
+    const discover = async () => (entry === "cli" ? await f.cliTools() : z.array(z.object({ name: z.string() })).parse((await f.mcp(token, "tools/list", {}, session)).tools)).map(({ name }) => name);
+
+    expect((await discover()).filter((name) => names.includes(name))).toEqual([]);
+    for (const tool of tools) {
+      expect(await invoke(tool), tool).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+      await f.allow(tool);
+    }
+    expect(await discover()).toEqual(expect.arrayContaining(names));
+    await f.chooseHosts([]);
+    for (const tool of tools) expect(await invoke(tool), tool).toMatchObject(notGranted);
+    await f.chooseHosts([hostId, jump.hostId]);
+
+    for (const tool of [probeStart, trustDecide]) await f.allow(tool);
+    const binding = { hostId, routeRevision };
+    const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke(probeStart, { ...binding, intentKey: randomUUID() })));
+    const waitForHop = (hop: number) =>
+      vi.waitFor(async () => {
+        const records = z.array(PublicProbeStatus).parse(data(await invoke(statuses)));
+        const record = records.find((value) => value.attemptId === attemptId);
+        if (record?.state !== "waiting" || record.prompt.hop !== hop) throw new Error("Waiting for SSH fingerprint");
+        return record;
+      });
+    const first = await waitForHop(0);
+    expect(first.prompt).toMatchObject({ serverHostId: jump.hostId, fingerprint: jump.server.fingerprint });
+    expect(data(await mcp(statuses, {}, otherSession))).toEqual([]);
+    expect(await f.desktop(statuses)).toEqual([]);
+    expect(data(await invoke(trustDecide, decision(first)))).toEqual({ applied: true });
+    const second = await waitForHop(1);
+    expect(second.prompt).toMatchObject({ serverHostId: hostId, fingerprint: target.server.fingerprint });
+    expect(data(await invoke(trustDecide, decision(second)))).toEqual({ applied: true });
+    const auditEntry = { hostId, at: expect.any(String), action: "connect", result: "ok", detail: "" };
+    await vi.waitFor(async () => expect(data(await invoke(audit, { hostId }))).toEqual([auditEntry]));
+    expect(data(await mcp(audit, { hostId }, otherSession))).toEqual([]);
+    expect(await f.desktop(audit, { hostId })).toEqual([]);
+
+    await f.desktop("ssh.connect", { hostId, background: true });
+    for (const hop of [0, 1]) {
+      const { prompt } = await vi.waitFor(async () => {
+        const records = await f.desktop<ConnectionStatus[]>(statuses);
+        const pending = records.find((value) => value.hostId === hostId);
+        if (pending?.state !== "waiting" || pending.prompt.hop !== hop) throw new Error("Waiting for desktop trust");
+        return pending;
+      });
+      const { attemptId, promptId } = prompt;
+      await f.desktop("ssh.hostKey.decide", { attemptId, hop, promptId, accept: true, remember: true });
+    }
+    await vi.waitFor(async () => expect(await f.desktop(statuses)).toMatchObject([{ state: "connected" }]));
+    const credentials = [vi.spyOn(ModuleCredentials.prototype, "list"), vi.spyOn(ModuleCredentials.prototype, "use")];
+    try {
+      const counts = [jump.server.conns.length, target.server.conns.length];
+      const knownHosts = data(await invoke(keys));
+      expect(knownHosts).toEqual(
+        expect.arrayContaining([expect.objectContaining({ port: jump.server.port, fingerprint: jump.server.fingerprint }), expect.objectContaining({ port: target.server.port, fingerprint: target.server.fingerprint })]),
+      );
+      expect(data(await invoke(statuses))).toEqual([{ ...binding, attemptId, state: "verified" }]);
+      expect(data(await invoke(audit))).toEqual([auditEntry]);
+      await f.chooseHosts([hostId]);
+      expect(data(await invoke(keys))).toEqual([]);
+      expect(data(await invoke(statuses))).toEqual([]);
+      expect(data(await invoke(audit))).toEqual([]);
+      expect(await invoke(audit, { hostId })).toMatchObject(notGranted);
+      expect([jump.server.conns.length, target.server.conns.length]).toEqual(counts);
+      for (const spy of credentials) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of credentials) spy.mockRestore();
+    }
+    await f.chooseHosts([hostId, jump.hostId]);
+    expect(data(await invoke(statuses))).toEqual([{ ...binding, attemptId, state: "verified" }]);
+    await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised metadata jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
+    expect(data(await invoke(statuses))).toEqual([]);
+    expect(data(await invoke(audit, { hostId }))).toEqual([]);
+    for (const tool of tools) {
+      await f.allow(tool, false);
+      expect(await invoke(tool), tool).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    }
+    expect((await discover()).filter((name) => names.includes(name))).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
 test("changed SSH keys stay blocked for an external subject with trust decision enabled", { timeout: 30_000 }, async () => {
   const f = await fixture();
   const auth: string[] = [];
@@ -815,7 +919,16 @@ test("CLI owns a separate SSH job, reads split UTF-8 with byte cursors and retai
     const ledger = path.join(f.engine.vault.runtimeDir, "ssh-exec-intents.ndjson");
     const receipts = await readFile(ledger, "utf8");
     for (const secret of [command, password, prepare.intentKey, "界界", "错误"]) expect(receipts).not.toContain(secret);
+    const audit = "ssh.audit.list";
+    await f.allow(audit);
+    const auditEntry = { at: expect.any(String), hostId, action: "exec", result: "failed", detail: "" };
+    expect(data(await f.cli(audit, { limit: 1 }))).toEqual([auditEntry]);
+    expect(await f.cli(execCancel, { jobId, hostId, routeRevision })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.allow(execCancel);
+    expect(await f.cli(execCancel, { execId: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await f.cli(execCancel, { jobId, hostId, routeRevision })).toEqual({ ok: true, data: { cancelled: false } });
     await f.restart();
+    expect(data(await f.cli(audit, { limit: 1 }))).toEqual([auditEntry]);
     expect(await f.cli(jobPrepare, prepare)).toEqual(created);
     expect(await f.cli(jobGet, { jobId })).toEqual({ ok: true, data: exited });
     expect(await read()).toEqual({ text: "", fromCursor: 75_011, nextCursor: 75_011, endCursor: 75_011, skippedBytes: 75_011, truncated: true });
@@ -850,6 +963,7 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
     await allowJobs(f);
     await f.allow(probeList);
+    await f.allow(execCancel);
     const a = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "jobs MCP A" });
     const b = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "independent MCP token" });
     const original = await openRecoverableMcpSession(f.mcpEndpoint(), a.token);
@@ -874,6 +988,7 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     expect(prepared).toMatchObject({ structuredContent: { data: { jobId: expect.any(String) } } });
     expect(await invokeA(jobPrepare, prepare)).toEqual(prepared);
     const { jobId } = prepared.structuredContent.data as { jobId: string };
+    const cancellation = { jobId, hostId, routeRevision };
     const status = (state: JobStatus["state"], targetJob = jobId) =>
       vi.waitFor(
         async () => {
@@ -904,6 +1019,7 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
       expect(await invoke(jobGet, { jobId })).toMatchObject(notFound);
       expect(await invoke(jobOutput, { jobId, stream: "stdout" })).toMatchObject(notFound);
       expect(await invoke(jobCancel, { jobId })).toMatchObject(notFound);
+      expect(await invoke(execCancel, cancellation)).toMatchObject(notFound);
     }
     expect((await mcpRequest(f.mcpEndpoint(), b.token, mcpRpc("tools/list"), sessionA)).status).toBe(404);
 
@@ -958,14 +1074,16 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     expect(await invokeA(jobGet, { jobId })).toMatchObject(resourceDenied);
     expect(await invokeA(jobPrepare, prepare)).toMatchObject(resourceDenied);
     expect(await invokeA(jobCancel, { jobId })).toMatchObject(resourceDenied);
+    expect(await invokeA(execCancel, cancellation)).toMatchObject(resourceDenied);
     expect(commands).toEqual([prepare.command]);
     await f.chooseHosts([hostId]);
     const beforeReconnect = await mcpRequest(f.mcpEndpoint(), a.token, undefined, sessionA, { method: "GET" });
     expect(beforeReconnect.status).toBe(200);
     await beforeReconnect.body!.cancel();
     expect((await read()).structuredContent).toEqual(page);
-    expect(await invokeA(jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: true } } });
-    expect(await invokeA(jobCancel, { jobId })).toMatchObject({ structuredContent: { data: { requested: false } } });
+    expect(await invokeA(execCancel, { ...cancellation, routeRevision: "0".repeat(64) })).toMatchObject(notFound);
+    expect(await invokeA(execCancel, cancellation)).toMatchObject({ structuredContent: { data: { cancelled: true } } });
+    expect(await invokeA(execCancel, cancellation)).toMatchObject({ structuredContent: { data: { cancelled: false } } });
     expect(await status("exited")).toMatchObject({ exitCode: 130, stopRequested: "cancel" });
     expect(await status("ready", heldId)).toMatchObject({ stopRequested: null });
     expect(await invokeA(jobCancel, { jobId: heldId })).toMatchObject({ structuredContent: { data: { requested: true } } });

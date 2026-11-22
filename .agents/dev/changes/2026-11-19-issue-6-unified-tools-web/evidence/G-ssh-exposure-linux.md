@@ -44,3 +44,18 @@ Q6-3 已定案从同一 Gateway 策略按已保存主机选择和撤销。目前
 领域回执以 Vault 实例、可信调用主体、能力名和意图键定位，保存原目标及跳板的稳定 ID。重试时重新读取授权。凭据值由现有本机凭据保护保存的 Vault 级 HMAC 密钥生成输入摘要，仅凭回执无法离线校验凭据猜测。回执只有摘要、原主机绑定及最小结果。已完成的 CLI 意图可以在重开 Vault 后查回原结果。恢复的 HTTP MCP 会话对写调用沿用 C05 的 unknown 响应，现有读取可核对最新状态。
 
 单文件 `plugins/ssh/test/public-resources.engine.test.ts` 的 14 项用例通过。主机管理矩阵分别走真实 CLI 与 HTTP MCP，检查发现、默认关闭、单项选择、同键并发、旧版本、未授予的跳板与分组、复制独立凭据、引用约束、撤权和重启。夹具只用回环、隔离凭据保护和合成输入。E2E 及共享门禁由 Lead 验证，见 `t2y/report03.md`。
+
+## 连接、信任与执行审计
+
+Task04 首批以集成提交 `adb5ff2d` 为父。下列四项可逐项授予，均默认关闭。外部入口复用现有网关身份、可移植主机定义、探测记录与作业控制。工作台使用原有查询和取消流程。
+
+| 能力 | scope / risk | 外部授权与结果 |
+| --- | --- | --- |
+| `ssh.connections.status` | read / normal | 仅返回本主体的未过期核验及作业连接记录，按当前目标和全部跳板授权、原路由修订过滤。 |
+| `ssh.knownHosts.list` | read / high | 只读取当前完整获准路由所对应地址与端口的密钥类型和指纹。 |
+| `ssh.exec.cancel` | execute / high | 用原 `jobId`、`hostId` 和 `routeRevision` 核对调用主体、作业及完整路由。已请求停止的作业重复取消不再次发送信号。 |
+| `ssh.audit.list` | read / high | 读取当前主体和路由的当月核验及作业结果。按本机 Vault 实例隔离历史，只返回时间、主机 ID、动作和结果。 |
+
+审计写入沿用 SSH 审计格式并存于本机 Vault runtime。只读入口无 SSH 拨号和凭据访问。审计摘要尽力写入，持久写入失败不改变原 SSH 操作结果。旧的全局主机断线、工作台 SSH 命令执行、持久信任变更和涉及 Engine 本机路径的 SFTP 操作保持关闭。
+
+定向 `plugins/ssh/test/public-resources.engine.test.ts` 16 项通过。CLI 和 HTTP MCP 矩阵覆盖默认关闭、逐项选择、主体隔离、跳板撤权、路由修订变化及零拨号和凭据访问。Exec 用例覆盖错误路由、重复停止、跨主体拒绝及审计重启读回。另更新 `tests/e2e/ssh/settings.spec.ts` 的工具发现、零拨号和撤权断言，E2E 待 Lead 验证。逐项结果见 Core 主题 `t2y/report04.md`。
