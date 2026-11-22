@@ -1,5 +1,5 @@
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
-import { randomUUID } from "node:crypto";
+import { initializeMcp, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { run as runCli } from "../../../apps/cli/src/main.js";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import type { DispatchInput, DispatchReceipt } from "../../tasks/src/engine/dispatch-store.js";
 import { CodexDispatch } from "../src/engine/codex-dispatch.js";
 import { putReceiptFile, TASKS_RECEIPTS_CONSUME } from "../src/engine/execution-receipts.js";
 import { launchHash } from "../src/engine/launch-binding.js";
@@ -61,6 +62,29 @@ function files(directory: string, pattern: RegExp): string[] {
   }
 }
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as unknown;
+
+async function expectUnknownTaskReconciliation(engine: RunningEngine, runId: string, replyId: string) {
+  // Install after the provider fence so an earlier inspection cannot satisfy this check.
+  const calls = vi.spyOn(engine.dispatcher, "call");
+  try {
+    const { value } = await vi.waitFor(
+      () => {
+        const index = calls.mock.calls.findIndex(([caller, { capability, input }]) => {
+          if (caller !== "plugin:tasks" || capability !== "agent.runs.answer.inspect") return false;
+          const answer = input as NativeAnswer;
+          return answer.replyId === replyId && answer.execution.runId === runId;
+        });
+        const result = calls.mock.results[index];
+        if (result?.type !== "return") throw new Error(`Waiting for answer reconciliation of ${replyId}`);
+        return result;
+      },
+      { timeout: 15_000 },
+    );
+    expect(await value).toEqual({ ok: true, data: { status: "unknown" } });
+  } finally {
+    calls.mockRestore();
+  }
+}
 
 test.skipIf(!bin)(
   "Engine recovers both lost ACKs for the same native receipt without another input",
@@ -339,7 +363,8 @@ test.skipIf(!bin)(
       await expect.poll(events, { timeout: 15_000 }).toContain("answered-original-question");
       await expect.poll(reply, { timeout: 15_000 }).toMatchObject({ status: "unknown" });
       writeFileSync(path.join(sandbox, "resolve-without-proof"), "");
-      await expect.poll(events).toContain("resolution-without-proof");
+      await expect.poll(events, { timeout: 8_000 }).toContain("resolution-without-proof-processed");
+      await expectUnknownTaskReconciliation(engine, runId, lookup.replyId);
       expect(await answer()).toMatchObject({ status: "unknown" });
       await engine.shutdown();
       writeFileSync(path.join(sandbox, "allow-answer-proof"), "");
@@ -441,6 +466,267 @@ test.skipIf(!bin)(
   },
   85_000,
 );
+
+test.skipIf(!bin).each(["CLI-only", "HTTP MCP-only"] as const)("%s creates, edits, dispatches, answers and reads one result in the original Core session", { timeout: 85_000 }, async (entry) => {
+  const tempRoot = realpathSync(tmpdir());
+  const sandbox = mkdtempSync(path.join(tempRoot, "huhu-external-task-"));
+  let restoreDetect: (() => void) | undefined;
+  let engine: RunningEngine | undefined;
+  let stopCore: (() => void) | undefined;
+  const signalFixture = (name: string) => writeFileSync(path.join(sandbox, name), "");
+  const events = () => files(sandbox, /^native-events\.log$/).flatMap((file) => readFileSync(file, "utf8").trim().split("\n"));
+  const acks = () => files(path.join(fixture.root, "agent-receipts"), /\.tasks-ack$/).map((file) => read(file) as ExecutionReceiptAck);
+
+  try {
+    fixture.directory = sandbox;
+    const makeDir = (name: string) => {
+      const dir = path.join(sandbox, name);
+      mkdirSync(dir);
+      return dir;
+    };
+    const vaultPath = makeDir("vault");
+    const desktopUserData = makeDir("desktop");
+    const home = makeDir("provider-home");
+    const protection = new TestProtection(desktopUserData);
+    vi.stubEnv("HUHU_HERDR_BIN", bin!);
+    vi.stubEnv("HUHU_NODE_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", home);
+    vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
+    const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+    restoreDetect = () => detect.mockRestore();
+    signalFixture("tasks-reply-fixture");
+    engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: protection, create: true });
+    const running = engine;
+    const mid = machineId();
+    const runtimeDir = path.join(running.vault.stateDir, "runtime", mid, "herdr");
+    const core = new HerdrCore({ bin: bin!, vaultId: running.vault.id, machineId: mid, runtimeDir });
+    const env: NodeJS.ProcessEnv = { ...process.env, HC_SESSION: "huhu", HC_SOCKET: core.endpoint, XDG_STATE_HOME: path.join(runtimeDir, "state"), XDG_CONFIG_HOME: path.join(runtimeDir, "config") };
+    for (const key of ["HC_TERMINAL_ID", "HC_TERMINAL_SOCKET", "HC_SCOPE"]) delete env[key];
+    const coreCli = fixtureCoreCli(bin!, env);
+    expect(coreCli("server", "status").status).toBe(5);
+    stopCore = () => {
+      core.dispose();
+      if (coreCli("server", "status").status === 0) expect(coreCli("server", "stop").status).toBe(0);
+      expect(coreCli("server", "status").status).toBe(5);
+    };
+
+    // Desktop prepares the Vault and grants tools. All task operations use only the selected external entry.
+    await call(running, "plugins.setEnabled", { id: "automations", enabled: false });
+    const [space] = await call<{ id: string }[]>(running, "agent.spaces.list", {});
+    if (!space) throw new Error("The fixture Vault has no Agent Space");
+    const grant = (capability: string) => call(running, "gateway.update", { capability, exposed: true });
+    const cliOnly = entry === "CLI-only";
+    const endpoint = `http://127.0.0.1:${running.port}/mcp`;
+    let session: string | undefined;
+    if (!cliOnly) {
+      expect((await mcpRequest(endpoint, running.mcpToken, initializeMcp)).status).toBe(404);
+      await call(running, "gateway.mcp.update", { enabled: true, transport: "http" });
+      session = await openMcpSession(endpoint, running.mcpToken);
+    }
+    const cliArgs = (capability: string, input: unknown, intentKey?: string) => ["call", capability, "--vault", vaultPath, "--json", "--input-json", JSON.stringify(input), ...(intentKey ? ["--intent-key", intentKey] : [])];
+    const sendMcpTool = (capability: string, input: unknown, intentKey?: string) =>
+      mcpRequest(
+        endpoint,
+        running.mcpToken,
+        mcpRpc("tools/call", {
+          name: capability.replaceAll(".", "_"),
+          arguments: input,
+          ...(intentKey && { _meta: { "huhu.dev/intent-key": intentKey } }),
+        }),
+        session,
+      );
+    const invoke = async <T>(capability: string, input: unknown, intentKey?: string): Promise<CapabilityResult<T>> => {
+      if (cliOnly) {
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+        const code = await runCli(cliArgs(capability, input, intentKey), { out: (line) => stdout.push(line), err: (line) => stderr.push(line) });
+        expect(stdout.length, stderr.join("\n")).toBeGreaterThan(0);
+        const result = JSON.parse(stdout.join("\n")) as CapabilityResult<T>;
+        expect(code).toBe(result.ok ? 0 : 1);
+        return result;
+      }
+      const response = await sendMcpTool(capability, input, intentKey);
+      expect(response.status).toBe(200);
+      const { result } = (await response.json()) as { result: { isError?: boolean; content: { text: string }[]; structuredContent?: { data: T; opId?: string } } };
+      if (result.isError) return { ok: false, error: JSON.parse(result.content[0]!.text) as Extract<CapabilityResult<T>, { ok: false }>["error"] };
+      const structured = result.structuredContent;
+      if (!structured) throw new Error(`${capability}: missing MCP structured result`);
+      return { ok: true, ...structured };
+    };
+    const tool = async <T>(capability: string, input: unknown): Promise<T> => {
+      const result = await invoke<T>(capability, input);
+      if (!result.ok) throw new Error(`${capability}: ${JSON.stringify(result.error)}`);
+      return result.data;
+    };
+
+    const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const mismatch = { ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } };
+    const intent = "external-agent-task-create";
+    const origin = { kind: "external", caller: cliOnly ? "cli" : "mcp" };
+    const draft = { title: `${entry} fixture task`, type: "agent", body: "Original fixture input.", execution: { spaceId: space.id, provider: "codex" } };
+    expect(await invoke("tasks.create", draft, intent)).toMatchObject(denied);
+    await grant("tasks.create");
+    expect(await invoke("tasks.create", draft)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await grant("tasks.agent.create");
+    const created = await invoke<TaskDto>("tasks.create", draft, intent);
+    if (!created.ok) throw new Error(`tasks.create: ${JSON.stringify(created.error)}`);
+    expect(created.opId).toEqual(expect.any(String));
+    const task = created.data;
+    expect(task).toMatchObject({ type: "agent", origin, title: draft.title, execution: draft.execution });
+    expect(await invoke("tasks.create", draft, intent)).toEqual(created);
+    expect(await invoke("tasks.create", { ...draft, body: "Conflicting fixture input." }, intent)).toMatchObject(mismatch);
+    await grant("tasks.list");
+    expect(await tool("tasks.list", { type: "agent" })).toMatchObject([{ id: task.id }]);
+
+    const patch = { title: `${draft.title} edited`, body: "Edited fixture input for the original turn." };
+    const edit = { id: task.id, expectedVersion: task.version, baseEditHash: task.editHash, patch };
+    expect(await invoke("tasks.update", edit)).toMatchObject(denied);
+    await grant("tasks.update");
+    const updated = await tool<TaskDto>("tasks.update", edit);
+    expect(updated).toMatchObject({ id: task.id, origin, title: patch.title, inputRevision: task.inputRevision + 1 });
+    expect(updated.version).not.toBe(task.version);
+    expect(updated.inputHash).not.toBe(task.inputHash);
+    await grant("tasks.read");
+    const readTask = () => tool<TaskDto>("tasks.read", { id: task.id });
+    expect(await readTask()).toMatchObject({ ...patch, id: task.id, version: updated.version, execution: draft.execution });
+
+    const dispatchLookup = { taskId: task.id, dispatchId: "external-agent-task-dispatch" };
+    const dispatch: DispatchInput = { ...dispatchLookup, expectedVersion: updated.version, inputRevision: updated.inputRevision, inputHash: updated.inputHash };
+    expect(await invoke("tasks.dispatch", dispatch)).toMatchObject(denied);
+    await grant("tasks.dispatch");
+    expect(await invoke("tasks.dispatch", { ...dispatch, expectedVersion: task.version, inputRevision: task.inputRevision, inputHash: task.inputHash })).toMatchObject({
+      ok: false,
+      error: { code: "VERSION_CONFLICT", details: { reason: "stale_input" } },
+    });
+    const sent = await tool<DispatchReceipt>("tasks.dispatch", dispatch);
+    expect(sent).toMatchObject({ ...dispatchLookup, state: "pending", attempt: 1 });
+    const run = { ...dispatchLookup, runId: sent.runId, eventId: sent.eventId, attempt: sent.attempt, acceptedAt: sent.acceptedAt };
+    expect(await tool("tasks.dispatch", dispatch)).toMatchObject(run);
+    await expect.poll(events, { timeout: 20_000 }).toContain("early-events");
+    signalFixture("allow-turn-ack");
+    await grant("tasks.dispatch.read");
+    const readDispatch = () => tool<DispatchReceipt>("tasks.dispatch.read", dispatchLookup);
+    await expect.poll(readDispatch, { timeout: 15_000 }).toMatchObject({ ...run, state: "running" });
+    await grant("tasks.questions.list");
+    const questions = () => tool<{ requestId: string; requestVersion: number; sessionId: string; runId: string }[]>("tasks.questions.list", { taskId: task.id });
+    await expect.poll(questions, { timeout: 15_000 }).toMatchObject([{ runId: sent.runId, mode: "native_deferred", status: "awaiting", text: "Choose a fixture shape", options: ["Circle", "Square"] }]);
+    const [question] = await questions();
+    expect(JSON.stringify(question)).not.toContain("nativeRequestId");
+    const { runId, requestId, requestVersion, sessionId } = question!;
+    await expect.poll(acks).toHaveLength(1);
+    const [questionAck] = acks();
+    const execution = questionAck!.receipt.execution;
+    expect(questionAck).toMatchObject({
+      stage: "tasks_consumed",
+      receipt: {
+        execution: {
+          ...dispatchLookup,
+          vaultId: running.vault.id,
+          runId,
+          attempt: sent.attempt,
+          sessionBinding: { sessionId, machineId: mid, provider: "codex" },
+        },
+      },
+    });
+    const providerAcceptances = files(fixture.root, /^[a-f0-9]{64}$/).flatMap((dir) => files(dir, /^run-[a-f0-9]{64}-receipt\.json$/));
+    expect(providerAcceptances.map(read)).toMatchObject([
+      {
+        data: { execution, inputSha256: createHash("sha256").update(patch.body).digest("hex"), nativeTurnId: expect.any(String) },
+      },
+    ]);
+    const client = await core.peek();
+    if (!client || client === "absent") throw new Error("The original fixture Core is unavailable");
+    const coreSession = async () => {
+      const { core: identity } = await client.call<{ core: { id: string } }>("server.status");
+      const { terminals } = await client.call<{ terminals: { address: string }[] }>("terminal.list", { all: true, labels: { "huhu.vault": running.vault.id } });
+      return { coreId: identity.id, address: terminals.find(({ address }) => address === execution.sessionBinding.coreAddress)?.address };
+    };
+    const originalSession = { coreId: execution.sessionBinding.coreId, address: execution.sessionBinding.coreAddress };
+    expect(await coreSession()).toEqual(originalSession);
+
+    const replyLookup = { taskId: task.id, runId, requestId, requestVersion, sessionId, replyId: "external-agent-task-reply" };
+    const reply = { ...replyLookup, answer: "Circle" };
+    expect(await invoke("tasks.reply", reply)).toMatchObject(denied);
+    await grant("tasks.reply");
+    await grant("tasks.reply.read");
+    // Lose the first response, then look up the original answer before retrying its business ID.
+    if (cliOnly) {
+      const stderr: string[] = [];
+      expect(await runCli(cliArgs("tasks.reply", reply), { out: () => {}, err: (line) => stderr.push(line) }), stderr.join("\n")).toBe(0);
+    } else {
+      const response = await sendMcpTool("tasks.reply", reply);
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
+    }
+    const readReply = () => tool<{ acceptedAt: string }>("tasks.reply.read", replyLookup);
+    await expect.poll(events, { timeout: 15_000 }).toContain("answered-original-question");
+    await expect.poll(readReply, { timeout: 15_000 }).toMatchObject({ ...replyLookup, status: "unknown" });
+    signalFixture("resolve-without-proof");
+    await expect.poll(events, { timeout: 8_000 }).toContain("resolution-without-proof-processed");
+    await expectUnknownTaskReconciliation(running, runId, replyLookup.replyId);
+    const unconfirmed = await readReply();
+    expect(unconfirmed).toMatchObject({ ...replyLookup, status: "unknown" });
+    expect(await tool("tasks.reply", reply)).toEqual(unconfirmed);
+    expect(await invoke("tasks.reply", { ...reply, answer: "Square" })).toMatchObject(mismatch);
+    signalFixture("allow-answer-proof");
+    await expect.poll(readReply, { timeout: 15_000 }).toMatchObject({ ...replyLookup, status: "accepted" });
+    const accepted = await readReply();
+    expect(accepted.acceptedAt).toBe(unconfirmed.acceptedAt);
+
+    // The original input is already running. Queue cancellation records intent without interrupting that turn.
+    await grant("tasks.dispatch.cancel");
+    const cancelled = await tool("tasks.dispatch.cancel", dispatchLookup);
+    expect(cancelled).toMatchObject({ ...run, state: "running", cancelRequested: true });
+    expect(await tool("tasks.dispatch.cancel", dispatchLookup)).toEqual(cancelled);
+
+    signalFixture("allow-turn-end");
+    const timeline = async () => (await readTask()).comments.filter(({ event }) => event === "answer" || event === "result");
+    await expect.poll(timeline, { timeout: 15_000 }).toMatchObject([
+      { event: "answer", run: runId, session: sessionId, ask: requestId, body: reply.answer },
+      { event: "result", run: runId, session: sessionId, body: "Synthetic result from the original turn." },
+    ]);
+    const originalTimeline = await timeline();
+    await expect.poll(questions).toMatchObject([{ runId, requestId, requestVersion, sessionId, status: "closed", reply: accepted }]);
+    await expect.poll(acks).toHaveLength(2);
+    const originalAcks = acks();
+    expect(originalAcks.map(({ stage, receipt }) => ({ stage, execution: receipt.execution }))).toEqual([
+      { stage: "tasks_consumed", execution },
+      { stage: "tasks_consumed", execution },
+    ]);
+
+    expect(await tool("tasks.reply", reply)).toEqual(accepted);
+    expect(await tool("tasks.dispatch", dispatch)).toMatchObject(run);
+    expect(await invoke("tasks.create", draft, intent)).toEqual(created);
+    await grant("tasks.dispatch.list");
+    expect(await tool("tasks.dispatch.list", { taskId: task.id })).toMatchObject([{ ...run, session: { id: sessionId, spaceId: space.id } }]);
+    await grant("tasks.runs");
+    expect(await tool("tasks.runs", { id: task.id })).toMatchObject([{ id: runId, state: "succeeded", result: { kind: "result", delivery: "delivered" } }]);
+    expect(await tool("tasks.list", { type: "agent" })).toMatchObject([{ id: task.id }]);
+    expect(await timeline()).toEqual(originalTimeline);
+    expect(acks()).toEqual(originalAcks);
+    expect(await coreSession()).toEqual(originalSession);
+    expect(events().filter((event) => event === "turn-input" || event.endsWith("-input"))).toEqual(["turn-input"]);
+    expect(events().filter((event) => event === "answered-original-question")).toEqual(["answered-original-question"]);
+    expect(
+      events()
+        .filter((event) => event.startsWith('{"nativeAnswer":'))
+        .map((event) => JSON.parse(event)),
+    ).toEqual([{ nativeAnswer: { id: 0, result: { answers: { choice: { answers: [reply.answer] } } } } }]);
+  } finally {
+    try {
+      await engine?.shutdown();
+    } finally {
+      try {
+        stopCore?.();
+      } finally {
+        restoreDetect?.();
+        vi.unstubAllEnvs();
+        if (path.dirname(sandbox) === tempRoot && path.basename(sandbox).startsWith("huhu-external-task-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      }
+    }
+  }
+});
 
 test.skipIf(!bin)(
   "Engine sends one answer to the original native request and reconciles only matching provider proof",
@@ -561,7 +847,7 @@ test.skipIf(!bin)(
       expect(await answer(chosen, false, "plugin:tasks", transportKeys[chosenIndex])).toEqual(status("unknown"));
 
       signalFixture("resolve-without-proof");
-      await expect.poll(events).toContain("resolution-without-proof");
+      await expect.poll(events, { timeout: 8_000 }).toContain("resolution-without-proof-processed");
       expect(await answer(chosen, true)).toEqual(status("unknown"));
       expect(acknowledgements()).toHaveLength(0);
       console.info(JSON.stringify({ phase: "answer-resolution-without-ack", concurrentStatuses: replies, nativeAnswers: nativeAnswers().length, confirmed: acknowledgements().length }));

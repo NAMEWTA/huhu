@@ -9,6 +9,7 @@ const log = (event) => appendFileSync(path.join(directory, "native-events.log"),
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + "\n");
 const threadId = "thread-" + process.pid;
 const turnId = "turn-" + process.pid;
+const noProofFenceId = "fixture-no-proof-" + process.pid;
 const taskReplyFixture = existsSync(path.join(directory, "tasks-reply-fixture"));
 const answerFixture = taskReplyFixture || existsSync(path.join(directory, "native-answer-fixture"));
 const stopFixture = existsSync(path.join(directory, "native-stop-fixture"));
@@ -111,6 +112,9 @@ if (process.argv.includes("--version")) {
         send({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } });
         log("turn-ended");
       });
+    } else if (message.id === noProofFenceId) {
+      if (message.error?.code !== -32601) throw new Error("Expected the helper to reject the fixture fence request");
+      log("resolution-without-proof-processed");
     } else if (message.result?.answers || message.id === 0) {
       if (message.id === 0) log("answered-original-question");
       if (!answerFixture) return;
@@ -128,7 +132,8 @@ if (process.argv.includes("--version")) {
         output("item/completed", threadId, turnId, { ...consumed, output: JSON.stringify({ answers: { choice: { answers: ["Wrong"] } } }) });
         output("rawResponseItem/completed", threadId, "foreign-turn", rawCall);
         output("rawResponseItem/completed", threadId, turnId, rawOutput);
-        log("resolution-without-proof");
+        // The helper replies after processing the preceding notifications on this stdout stream.
+        send({ id: noProofFenceId, method: "fixture/noProofFence" });
       });
       waitFor("allow-answer-proof", () => {
         output("rawResponseItem/completed", threadId, turnId, rawCall);
