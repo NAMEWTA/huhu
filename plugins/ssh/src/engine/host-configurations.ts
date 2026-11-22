@@ -7,6 +7,7 @@ import ssh2, { type ConnectConfig } from "ssh2";
 import type { z } from "zod";
 import { HostDefinition, OwnedHostId, purposes, type ConfigureHost, type CopyHost, type HostRevision, type ManagedHostView, type Purpose, type SshHostProfile } from "./auth-profile.js";
 import { validateHost, type HostStore, type LegacyHost } from "./hosts.js";
+import { readIdentityCertificate } from "./identity-certificate.js";
 import { KeyLibrary } from "./key-library.js";
 import { EditHostRoutes, type HostRouteEditResult } from "./route-edits.js";
 import type { AddSshKey, SshKeySummary } from "../shared/key-library.js";
@@ -15,7 +16,7 @@ import { routeForHost } from "../shared/route.js";
 export type SshCredentialHost = Pick<CredentialOwner<HostDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
 export type ManagedHost = z.infer<typeof ManagedHostView> & { configId: string };
 export type HostRecord = LegacyHost | ManagedHost;
-export type ConnectionAuth = Pick<ConnectConfig, "password" | "privateKey" | "passphrase" | "agent">;
+export type ConnectionAuth = Pick<ConnectConfig, "password" | "privateKey" | "passphrase" | "agent"> & { publicKeyCertificate?: string };
 
 type StoredHost = CredentialSummary & { definition: HostDefinition };
 type ImportRow = { index: number; hostId: string; profile: SshHostProfile; group: string[] };
@@ -52,20 +53,23 @@ function buildAuth(kind: HostDefinition["authKind"], values: ReadonlyMap<string,
   if (kind === "agent") return agentAuth();
   if (kind === "password") return { password: values.get("password")! };
   let key = values.get("privateKey");
+  const identity = kind === "identity-file" ? values.get("identityFile") : undefined;
   if (kind === "identity-file") {
     try {
-      const file = values.get("identityFile")!;
-      const stats = statSync(file);
+      const stats = statSync(identity!);
       if (!stats.isFile() || stats.size > 1024 * 1024) throw authError("identity-file-unavailable");
-      key = readFileSync(file, "utf8");
+      key = readFileSync(identity!, "utf8");
     } catch {
       throw authError("identity-file-unavailable");
     }
   }
   const passphrase = values.get("passphrase");
   const candidates = ssh2.utils.parseKey(key!, passphrase);
-  if (candidates instanceof Error || ![candidates].flat().some((candidate) => candidate.isPrivateKey())) throw authError("invalid-private-key-or-passphrase");
-  return { privateKey: key!, ...(passphrase !== undefined ? { passphrase } : {}) };
+  if (candidates instanceof Error) throw authError("invalid-private-key-or-passphrase");
+  const signer = Array.isArray(candidates) ? candidates[0] : candidates;
+  if (!signer?.isPrivateKey()) throw authError("invalid-private-key-or-passphrase");
+  const certificate = identity ? readIdentityCertificate(identity, signer.type, signer.getPublicSSH()) : undefined;
+  return { privateKey: key!, ...(passphrase !== undefined ? { passphrase } : {}), ...(certificate !== undefined ? { publicKeyCertificate: certificate } : {}) };
 }
 
 function summary({ entityId, revision, authState }: CredentialSummary, authKind: HostDefinition["authKind"]) {
