@@ -155,18 +155,26 @@ export class HostConfigurations {
     });
   }
 
-  importProfiles(prepare: (hosts: HostRecord[]) => ImportRow[], signal: AbortSignal): Promise<ImportRow[]> {
+  importProfiles(prepare: (hosts: HostRecord[]) => ImportRow[], signal: AbortSignal, assertCurrent?: () => void): Promise<ImportRow[]> {
     return this.mutate(async () => {
       const owner = this.credentials();
       const current = await this.list();
       const rows = prepare(current);
       const present = new Set(current.map(({ id }) => id));
-      for (const row of rows) {
-        signal.throwIfAborted();
-        if (present.has(row.hostId)) continue;
-        const profile = validateHost(row.profile, row.hostId, current);
-        const definition = { ...profile, configId: randomUUID(), format: 1 as const, authKind: "agent" as const };
-        await owner.save({ entityId: row.hostId, expectedRevision: null, definition, actions: [], signal });
+      let published = false;
+      try {
+        for (const row of rows) {
+          signal.throwIfAborted();
+          if (present.has(row.hostId)) continue;
+          const profile = validateHost(row.profile, row.hostId, current);
+          const definition = { ...profile, configId: randomUUID(), format: 1 as const, authKind: "agent" as const };
+          assertCurrent?.();
+          await owner.save({ entityId: row.hostId, expectedRevision: null, definition, actions: [], signal });
+          published = true;
+        }
+      } catch (error) {
+        if (assertCurrent && published) throw new HuhuError("INTERNAL", "SSH 主机导入结果待核实", { retryable: false, details: { outcome: "unknown" } });
+        throw error;
       }
       return rows;
     });

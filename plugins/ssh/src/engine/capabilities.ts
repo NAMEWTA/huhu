@@ -28,6 +28,7 @@ import { DecidePublicProbe, PublicProbeId, PublicProbeStatus, RespondPublicKeybo
 import { ExecJobId, ExecJobStatus, ExecOutputPage, PrepareExecJob, ReadExecOutput, StartExecJob } from "./public-jobs.js";
 import { ChangeOwnedShell, OpenOwnedShell, ReadOwnedShell, ResizeOwnedShell, Shell, ShellCloseReceipt, ShellOutputPage, ShellResizeReceipt, ShellSize, ShellWriteReceipt, WriteOwnedShell } from "./public-shells.js";
 import { DownloadBytes, DownloadPage, FileIntentFields, OpenOwnedFiles, TargetRevision, TransferHandle, UploadBytes } from "./public-files.js";
+import { RemoteArchiveRequest, RemoteArchiveSupport } from "./public-archives.js";
 import { ResumeOwnedForward, RunId as ForwardRunId, StartOwnedForward, StopOwnedForward } from "./public-forwarding.js";
 import { MonitorPanelRuntime, OpenOwnedMonitor, OwnedMonitorTool, PanelRuntimeFields } from "./public-monitors.js";
 import { OwnedRun, ReconnectOwnedRun, SaveOwnedTemplate, StartOwnedWorkspace } from "./public-workspaces.js";
@@ -374,7 +375,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.forwarding.runs.start",
     title: "启动 SSH 回环转发",
-    description: "按当前规则修订启动回环转发。外部工具使用本主体的连接与固定目标规则，监听端口由 Engine 分配。",
+    description: "按工作台保存的当前规则启动本机回环转发、SOCKS5、HTTP CONNECT 或远端监听。外部工具使用本主体的连接。本机监听端口由 Engine 分配，远端监听等待协议回执。",
     scope: "execute",
     risk: "high",
     idempotency: "handler",
@@ -404,26 +405,27 @@ export const sshCapabilityDescriptors = {
     output: ForwardRun.nullable(),
   }),
   archiveSupport: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.archives.support",
     title: "查看文件会话归档能力",
-    description: "探测本机原生 ZIP 后端及原绑定的 SFTP 通道，说明设备与格式。",
-    scope: "read",
-    risk: "normal",
+    description: "按文件会话报告归档格式。外部调用只探测原 SSH 主机上的工具，并缓存该连接的结果。",
+    scope: "execute",
+    risk: "high",
     input: FileSessionId,
-    output: ArchiveSupport,
+    output: z.union([RemoteArchiveSupport, ArchiveSupport]),
   }),
   archiveRun: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.archives.run",
-    title: "处理文件会话的 ZIP 归档",
-    description: "生成、读取或解压所选 ZIP，按目标目录安全暂存和发布。",
+    title: "处理文件会话的归档",
+    description: "生成、查看或解压归档。外部调用须提供原远端文件会话、来源修订、大小上限、意图键和必要的覆盖确认。",
     scope: "execute",
     risk: "high",
     timeoutMs: 120_000,
-    input: ArchiveRequest,
+    idempotency: "handler",
+    input: z.union([RemoteArchiveRequest, ArchiveRequest]),
     output: ArchiveResult,
   }),
   transferStart: defineCapabilityDescriptor({
@@ -872,7 +874,7 @@ export const sshCapabilityDescriptors = {
     output: z.object({ cancelled: z.boolean() }),
   }),
   fileSessionsDirectory: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.fileSessions.directory",
     title: "读取绑定分栏的目录跟随状态",
@@ -883,25 +885,26 @@ export const sshCapabilityDescriptors = {
     output: DirectoryFollowState,
   }),
   fileSessionsPrepareDirectory: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.fileSessions.prepareDirectory",
     title: "浏览目录并核对分栏跟随状态",
-    description: "通过原 SFTP 会话确认用户选择的目录和原 Shell 的提示符修订。",
+    description: "通过原 SFTP 会话确认目录和原 Shell 的提示符修订。外部文件会话须在打开时绑定本主体的 Shell。",
     scope: "execute",
     risk: "normal",
     input: FileSessionId.extend({ path: z.union([RemoteFilePath, z.literal("")]), revision: DirectoryFollowState.shape.revision }),
     output: PreparedFileDirectory,
   }),
   fileSessionsCommitDirectory: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     desktopOnly: true,
     name: "ssh.fileSessions.commitDirectory",
     title: "将已确认的目录应用到原 Shell",
-    description: "在原输入仍为空闲时使用一次性目录选择。",
+    description: "在原输入仍为空闲时使用五秒内有效的一次性目录选择。外部调用须提供稳定的意图键。",
     scope: "execute",
     risk: "high",
-    input: FileSessionId.extend({ follow: z.uuid() }),
+    idempotency: "handler",
+    input: FileSessionId.extend({ follow: z.uuid(), ...FileIntentFields }),
     output: z.object({ applied: z.boolean() }),
   }),
   fileSessionsDocumentOpen: defineCapabilityDescriptor({

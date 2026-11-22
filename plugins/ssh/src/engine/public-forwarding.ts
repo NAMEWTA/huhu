@@ -27,6 +27,7 @@ type Owned = {
   view: ForwardRun;
   listener: ForwardListener;
   opening: ReturnType<ForwardListener["open"]>;
+  transport: AbortSignal;
   detach(): void;
   closing?: Promise<void>;
 };
@@ -50,7 +51,6 @@ export class PublicForwarding {
       const connection = this.connections.connection(context, binding);
       const rule = this.rules.require({ id, expectedRevision });
       if (rule.hostId !== hostId || rule.boundTarget !== connection.targetIdentity) throw errors.notFound("当前授权内的原 SSH 转发规则");
-      if (rule.mode !== "local") throw errors.invalidInput("外部 SSH 转发需要固定目标的本机回环规则");
       return { connection, rule };
     };
     const { hostIds } = authorize().connection;
@@ -78,14 +78,25 @@ export class PublicForwarding {
           if (this.runs.size >= 64) throw errors.invalidInput("SSH 转发历史已满");
         }
         const { connection, rule } = authorize();
-        const listener = new ForwardListener({ ...rule, listenPort: 0 }, connection.client);
+        const listener = new ForwardListener(rule.mode === "remote" ? rule : { ...rule, listenPort: 0 }, connection.client);
         const view: ForwardRun = { id: randomUUID(), ruleId: id, revision: expectedRevision, source: "external", state: "starting", active: 0, accepted: 0, uploaded: 0, downloaded: 0 };
-        const opening = listener.open(connection.signal);
+        const opening = listener.open(AbortSignal.any([connection.signal, context.signal]));
         const lost = () => {
           if (!hasSshHosts(context, hostIds)) run.revoked = true;
           void this.close(run, run.revoked || !run.resume ? "stopped" : "interrupted").catch(() => undefined);
         };
-        const run: Owned = { owner, binding, hostIds, authorized: () => hasSshHosts(context, hostIds), view, resume: rule.resume, listener, opening, detach: () => connection.signal.removeEventListener("abort", lost) };
+        const run: Owned = {
+          owner,
+          binding,
+          hostIds,
+          authorized: () => hasSshHosts(context, hostIds),
+          view,
+          resume: rule.resume,
+          listener,
+          opening,
+          transport: connection.signal,
+          detach: () => connection.signal.removeEventListener("abort", lost),
+        };
         this.runs.set(view.id, run);
         connection.signal.addEventListener("abort", lost, { once: true });
         this.changed(view.id);
@@ -200,10 +211,19 @@ export class PublicForwarding {
     run.closing = run.opening
       .catch(() => undefined)
       .then(async () => {
-        await run.listener.close();
-        delete run.view.listener;
-        run.view.state = state;
-        this.changed(run.view.id);
+        try {
+          await run.listener.close(run.transport.aborted);
+        } catch (error) {
+          // Closing the owner’s transport releases any remote listener whose cancellation was not acknowledged.
+          if (!run.transport.aborted) this.connections.closeWorkbench(run.binding.attemptId, run.binding.hostId);
+          await run.listener.close(true);
+          if (state !== "stopped" || run.revoked) return;
+          throw error;
+        } finally {
+          delete run.view.listener;
+          run.view.state = state;
+          this.changed(run.view.id);
+        }
       });
     return run.closing;
   }

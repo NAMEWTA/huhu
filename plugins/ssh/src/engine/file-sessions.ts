@@ -9,7 +9,12 @@ import type { SshManager, SftpSource } from "./manager.js";
 import { changeProperties, createEntry, documentPath, list, moveEntry, openDocument, properties, saveDocument, searchNames } from "./sftp.js";
 
 type Navigation = { follow?: { id: string; path: string; revision: number; expires: number } };
-type OwnedOrigin = { client: Client; signal: AbortSignal; origin: z.infer<typeof FileOrigin> };
+type OwnedOrigin = {
+  client: Client;
+  signal: AbortSignal;
+  origin: z.infer<typeof FileOrigin> & { shellId?: string };
+  directory?: { state(): DirectoryFollowState; follow(revision: number, path: string): Promise<boolean> };
+};
 type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
 
 export class FileSessions {
@@ -76,6 +81,12 @@ export class FileSessions {
     return { ...session, signal: controller.signal };
   }
 
+  remoteClient(id: string, request: AbortSignal) {
+    const { controller, owned } = this.lookup(id);
+    if (!owned) throw errors.notFound("外部 SSH 文件会话");
+    return { client: owned.client, signal: AbortSignal.any([request, controller.signal, owned.signal]) };
+  }
+
   close(id: string, attached = false): void {
     const binding = this.bindings.get(id);
     if (attached && binding?.detached) return;
@@ -111,6 +122,7 @@ export class FileSessions {
 
   directoryState(id: string): DirectoryFollowState {
     const binding = this.lookup(id);
+    if (binding.owned?.directory) return binding.owned.directory.state();
     return binding.detached ? { state: "unsupported", revision: 0 } : this.manager.directoryState(binding.session);
   }
 
@@ -132,12 +144,14 @@ export class FileSessions {
     return { ...directory, follow, skipped: false };
   }
 
-  commitDirectory(id: string, token: string): boolean {
+  commitDirectory(id: string, token: string): boolean | Promise<boolean> {
     const binding = this.lookup(id);
     const follow = binding.navigation?.follow;
-    if (!follow || follow.id !== token || binding.detached) return false;
+    if (!follow || follow.id !== token) return false;
     delete binding.navigation;
-    return follow.expires >= performance.now() && this.manager.followDirectory(binding.session, follow.revision, follow.path);
+    if (follow.expires < performance.now()) return false;
+    if (binding.owned?.directory) return binding.owned.directory.follow(follow.revision, follow.path);
+    return !binding.detached && this.manager.followDirectory(binding.session, follow.revision, follow.path);
   }
 
   properties(id: string, path: string, signal: AbortSignal) {
