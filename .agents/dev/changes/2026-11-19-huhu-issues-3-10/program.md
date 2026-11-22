@@ -30,6 +30,10 @@ Mail 进一步以 `dbe58665` 将部分恢复豁免绑定到原主体、ZIP 和�
 
 真实 provider 与同终端返回 shell 候选 `6874c619` 已合入，Go 测试与 Linux helper 构建通过。`t9d` 的终端模式断言失败，`t9f` 的 Volta Codex、Volta Pi、直接 npm Pi、原生 Claude 均已输出真实版本，但返回 shell 交互证明失败，交 `t8k/task04.md` 诊断。不得将版本输出或合成解析测试记为真实交互通过。Mail 独立复核确认原两项后端批次问题关闭，但发现工作台重开后无法选回已恢复账号以续跑原批次，交 `t86/task06.md` 补足直接调用方。
 
+Provider 实程已在 `6a510e6f` 组合通过：`t9j` 五项真实 PTY；`t9n` 四种实际安装的 version/interactive/同 host 返回 shell。原 bwrap 环境拒绝 memfd 执行，最终独立 netns 降回普通用户验证通过，详情见 W7.3 证据。Mail 工作台原批次续跑保存 `66667d9f`，E2E 类型修正 `6dcffca2`；`t9p` Mail 模块类型通过但旧 E2E 可选值类型失败，修正后 `t9q` 定向 E2E types 和完整 Mail 20/20 通过。
+
+`t9b/report02.md` 确认交付前 Core 身份复核关闭；取消仍有 Agent 已落盘而 Automations 未落盘，以及 helper 核验时尚未创建会话两条缺口，由 `t86/task07.md` 先复现再修复。`t9b/task03.md` 正在定向复核 provider 和 Mail 工作台候选。未进入最终门禁与安装包验收。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
