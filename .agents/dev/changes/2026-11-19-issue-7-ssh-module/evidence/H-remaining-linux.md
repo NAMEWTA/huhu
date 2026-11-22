@@ -61,3 +61,7 @@ CLI 与 HTTP MCP 可用 `ssh.hosts.testDraft` 测试已授权的保存主机。�
 随包 Herdr Core 0.1.19 在权限 1777 的隔离目录中创建的 Unix socket 权限为 0775。SSH 本地 Core 现将 socket 放入只对当前用户开放的真实目录，拒绝不可信的目录。路径长度预留 holder 后缀。
 
 Engine 真 PTY 用例在公共运行目录中先因父目录存在组或其他用户权限而失败，修复后通过。它同时验证 shell 仍能打开并重挂，停用 SSH 后连同私有目录下的活动套接字一起释放。Engine 单包类型检查通过。本机日志为 `h7-private-socket-before.log` 与 `h7-private-socket-after.log`。异常启动取消、主动脱离 PTY 的子进程回收以及 Windows 命名管道仍有待验项。
+
+## 分栏审查返工
+
+三台回环夹具复现关闭自定义分栏时把比例从 70% 改成 50%，以及重连后仍能用旧布局版本关闭新会话。现在只折叠被关闭的叶子，重连生成新布局版本。定向回归验证其余分栏的比例、方向、身份和活动 Shell。SSH 单包类型检查与 `draft-and-keys.test.ts` 的 8 项通过，日志为 `h7-layout-before.log`、`h7-layout-revision-before.log` 和 `h7-layout-after.log`。工作台连接卡片改为统计工作台自己的活动终端，页面交互留待 Electron 验收。

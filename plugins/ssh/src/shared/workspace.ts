@@ -34,6 +34,17 @@ export function paneCount(tree: SplitTree): number {
   return tree.kind === "pane" ? 1 : paneCount(tree.first) + paneCount(tree.second);
 }
 
+export function removePaneAt(tree: SplitTree, index: number): SplitTree | undefined {
+  if (tree.kind === "pane") return undefined;
+  const firstCount = paneCount(tree.first);
+  if (index < firstCount) {
+    const first = removePaneAt(tree.first, index);
+    return first ? { ...tree, first } : tree.second;
+  }
+  const second = removePaneAt(tree.second, index - firstCount);
+  return second ? { ...tree, second } : tree.first;
+}
+
 export function layoutProblem(panes: readonly WorkspacePane[], layout: WorkspaceLayout): string | undefined {
   if (panes.length < 1 || panes.length > MAX_WORKSPACE_PANES) return "请选择 1 至 12 台主机";
   if (new Set(panes.map(({ hostId }) => hostId)).size !== panes.length) return "同一台主机只能选择一次";

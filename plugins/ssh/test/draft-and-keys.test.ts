@@ -234,25 +234,44 @@ test("工作区交换和关闭分栏保留原 Shell，拒绝过时或非法布�
   const signal = new AbortController().signal;
   const credentials = [{ action: "replace" as const, purpose: "password" as const, value: "pw" }];
   const hostIds: string[] = [];
-  for (const name of ["first", "second"]) {
+  for (const name of ["first", "second", "third"]) {
     const hostKey = genHostKey();
     const server = await startFakeSsh({ hostKey });
     cleanups.push(server.close);
     await remember(server.port, hostKey);
     hostIds.push((await hosts.configure({ ...configuration(server.port), name, credentials }, signal)).hostId);
   }
-  const runs = new WorkspaceRuns(vault.files, hosts, new WorkspaceTemplates(vault.files, hosts), manager, () => undefined);
+  const templates = new WorkspaceTemplates(vault.files, hosts);
+  const runs = new WorkspaceRuns(vault.files, hosts, templates, manager, () => undefined);
   cleanups.push(() => runs.dispose());
-  const opened = await runs.start({ name: "fixture", panes: hostIds.map((hostId) => ({ hostId })), layout: { kind: "two" } }, signal);
-  await expect.poll(() => runs.list()[0]?.panes.map(({ phase }) => phase)).toEqual(["ready", "ready"]);
-  const [a, b] = runs.list()[0]!.panes;
+  const opened = await runs.start({ name: "fixture", panes: hostIds.map((hostId) => ({ hostId })), layout: { kind: "three" } }, signal);
+  await expect.poll(() => runs.list()[0]?.panes.map(({ phase }) => phase)).toEqual(["ready", "ready", "ready"]);
+  const [a, b, c] = runs.list()[0]!.panes;
   const binding = { id: opened.id, expectedLayoutRevision: opened.id };
-  await expect(runs.changeLayout({ ...binding, change: { action: "layout", layout: { kind: "one" }, paneIds: [a!.paneId, a!.paneId] } }, signal)).rejects.toThrow("必须包含");
-  const changed = await runs.changeLayout({ ...binding, change: { action: "layout", layout: { kind: "tabs" }, paneIds: [b!.paneId, a!.paneId] } }, signal);
-  expect(changed.panes).toEqual([b, a]);
+  await expect(runs.changeLayout({ ...binding, change: { action: "layout", layout: { kind: "one" }, paneIds: [a!.paneId, a!.paneId, c!.paneId] } }, signal)).rejects.toThrow("必须包含");
+  const leaf = { kind: "pane" } as const;
+  const preserved = { kind: "custom", tree: { kind: "split", axis: "column", firstPercent: 70, first: leaf, second: leaf } } as const;
+  const layout = { ...preserved, tree: { ...preserved.tree, first: { kind: "split", axis: "row", firstPercent: 35, first: leaf, second: leaf } } } as const;
+  const changed = await runs.changeLayout({ ...binding, change: { action: "layout", layout, paneIds: [b!.paneId, a!.paneId, c!.paneId] } }, signal);
+  expect(changed.panes).toEqual([b, a, c]);
   await expect(runs.changeLayout({ ...binding, change: { action: "close", paneId: b!.paneId } }, signal)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   const remaining = await runs.changeLayout({ ...binding, expectedLayoutRevision: changed.layoutRevision!, change: { action: "close", paneId: b!.paneId } }, signal);
-  expect(remaining.panes).toEqual([a]);
+  expect(remaining.panes).toEqual([a, c]);
+  expect(remaining.layout).toEqual(preserved);
   expect(manager.shellInfo(b!.sessionId!)?.state).toBe("ended");
   expect(manager.shellInfo(a!.sessionId!)?.state).toBe("running");
+  expect(manager.shellInfo(c!.sessionId!)?.state).toBe("running");
+
+  runs.dispose();
+  const restored = new WorkspaceRuns(vault.files, hosts, templates, manager, () => undefined);
+  cleanups.push(() => restored.dispose());
+  expect((await restored.reconnect(opened.id, signal)).generation).toBe(opened.generation + 1);
+  await expect.poll(() => restored.list()[0]?.panes.map(({ phase }) => phase)).toEqual(["ready", "ready"]);
+  await expect(restored.changeLayout({ ...binding, expectedLayoutRevision: remaining.layoutRevision!, change: { action: "close", paneId: a!.paneId } }, signal)).rejects.toMatchObject({
+    code: "VERSION_CONFLICT",
+  });
+  expect(restored.list()[0]?.panes.map(({ paneId, phase }) => [paneId, phase])).toEqual([
+    [a!.paneId, "ready"],
+    [c!.paneId, "ready"],
+  ]);
 });

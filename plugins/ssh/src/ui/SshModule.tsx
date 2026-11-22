@@ -602,7 +602,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 <h3>实际连接路径</h3>
                 {connection?.connectionId && (
                   <p>
-                    连接 {connection.connectionId} · {shells.data?.filter((shell) => shell.state === "running").length ?? 0} 个活动终端
+                    连接 {connection.connectionId} · {ownShells.filter((shell) => shell.state === "running").length} 个活动终端
                   </p>
                 )}
                 <ol>

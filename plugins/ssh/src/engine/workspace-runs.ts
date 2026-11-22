@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, splitTree, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, removePaneAt, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import type { HostConfigurations } from "./host-configurations.js";
 import type { SshManager } from "./manager.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
@@ -79,7 +79,7 @@ export class WorkspaceRuns {
       const { runs, fileVersion } = this.read();
       const saved = this.find(runs, id);
       if (this.live.get(id)?.generation === saved.generation) return this.view(saved);
-      const run = { ...saved, generation: saved.generation + 1 };
+      const run = { ...saved, generation: saved.generation + 1, layoutRevision: randomUUID() };
       await this.write(
         runs.map((entry) => (entry.id === run.id ? run : entry)),
         fileVersion,
@@ -122,7 +122,10 @@ export class WorkspaceRuns {
         if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
         if (byId.size === 1) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
         panes = current.panes.filter(({ paneId }) => paneId !== change.paneId);
-        if (layout.kind === "custom") layout = { kind: "custom", tree: splitTree(panes.length) };
+        if (layout.kind === "custom") {
+          const index = current.panes.findIndex(({ paneId }) => paneId === change.paneId);
+          layout = { kind: "custom", tree: removePaneAt(layout.tree, index)! };
+        }
       }
       const problem = layoutProblem(panes, layout);
       if (problem) throw errors.invalidInput(problem);
