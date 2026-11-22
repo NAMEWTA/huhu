@@ -47,7 +47,15 @@ async function extractCandidate() {
   const { extractFile } = libraryRequire("@electron/asar") as { extractFile(file: string, entry: string): Buffer };
   const build = JSON.parse(extractFile(archive, "out/build-info.json").toString("utf8")) as { commit: string; version: string };
   expect(build.commit).toBe(commit);
-  const files = [executablePath, archive, path.join(resources, "herdr/linux-x64/herdr-core"), path.join(resources, "codex-dispatch/helper.cjs"), path.join(resources, "bin/huhu"), path.join(resources, "cli/cli.mjs")];
+  const files = [
+    executablePath,
+    archive,
+    path.join(resources, "herdr/linux-x64/herdr-core"),
+    path.join(resources, "agent-pty/huhu-agent-pty"),
+    path.join(resources, "codex-dispatch/helper.cjs"),
+    path.join(resources, "bin/huhu"),
+    path.join(resources, "cli/cli.mjs"),
+  ];
   for (const file of files) expect(await realpath(file)).toBe(file);
   const hashes = Object.fromEntries(await Promise.all([snapshot, ...files].map(async (file) => [path.relative(directory, file), await digest(file)])));
   return { directory, artifact, sha, commit: build.commit, version: build.version, executablePath, resources, hashes };

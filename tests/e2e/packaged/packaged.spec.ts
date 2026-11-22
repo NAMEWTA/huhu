@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
 import { candidateEnvironment, candidatePackage, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
 
@@ -47,6 +48,7 @@ async function start(
   const page = await app.firstWindow();
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
   if (candidateAcceptance) await confirmCandidate(app, page);
+  const resources = await app.evaluate(() => process.resourcesPath);
   const ep = await page.evaluate(() => window.huhuHost.engine());
   const call = (capability: string, input: unknown = {}) =>
     page.evaluate(
@@ -90,6 +92,14 @@ async function start(
         };
         while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
         expect(alive(), "Engine 进程在退出后 10 秒内仍存在").toBe(false);
+      }
+      if (process.platform === "linux") {
+        const core = path.join(resources, "herdr/linux-x64/herdr-core");
+        for (const file of readdirSync(env["XDG_RUNTIME_DIR"]!)) {
+          if (!/^huhu-[a-z0-9]{8}-[a-z0-9]{4}\.sock$/u.test(file)) continue;
+          const cli = fixtureCoreCli(core, { ...env, HC_SESSION: "huhu", HC_SOCKET: path.join(env["XDG_RUNTIME_DIR"]!, file) });
+          expect(cli("server", "stop").status).toBe(0);
+        }
       }
       // Windows 上 Herdr Core 等后台进程可能还占着 Vault 里的文件（EPERM）：重试，仍不行就留给系统清理
       try {

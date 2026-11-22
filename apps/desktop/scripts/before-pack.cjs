@@ -12,5 +12,9 @@ exports.default = async function beforePack(context) {
     const script = path.resolve(context.packager.projectDir, "../../native/agent-pty/build.ps1");
     execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", script], { windowsHide: true, stdio: "inherit" });
   }
+  if (target === "linux-x64") {
+    const script = path.resolve(context.packager.projectDir, "../../native/agent-pty/build.sh");
+    execFileSync("bash", [script], { stdio: "inherit" });
+  }
   if (!existsSync(bin)) throw new Error(`缺少 Herdr Core：${bin}。先运行 node scripts/fetch-herdr.mjs --target ${target}`);
 };

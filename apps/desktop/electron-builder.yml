@@ -57,6 +57,12 @@ mac:
   identity: null
   artifactName: HUHU-${version}-darwin-arm64.${ext}
 linux:
+  extraResources:
+    - from: ../../native/agent-pty/bin/huhu-agent-pty
+      to: agent-pty/huhu-agent-pty
+    - from: ../../native/agent-pty
+      to: agent-pty/licenses
+      filter: ["LICENSE-*.txt", "PATENTS-*.txt"]
   target: [{ target: AppImage, arch: x64 }, { target: deb, arch: x64 }]
   artifactName: HUHU-${version}-linux-x64.${ext}
   category: Office

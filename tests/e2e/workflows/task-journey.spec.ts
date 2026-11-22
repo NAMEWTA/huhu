@@ -10,7 +10,7 @@ import { machineId } from "../../../packages/vault/src/vault.js";
 import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
-import type { DispatchReceipt, TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
+import type { TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import { candidatePackage, candidateEnvironment, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
 import { openApp, rmTree } from "../helpers/launch.js";
@@ -215,7 +215,7 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
 
 test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次结果与人工完成", async ({ browserName }, testInfo) => {
   void browserName; // Electron tests still require Playwright’s fixture parameter.
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const packageArtifact = process.env["HUHU_TASK_JOURNEY_PACKAGE_ARTIFACT"];
   const expectedSha = process.env["HUHU_TASK_JOURNEY_PACKAGE_SHA"];
   const provider = process.env["HUHU_CODEX_DISPATCH_BIN"];
@@ -271,7 +271,10 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
         type: "agent",
         execution: { spaceId: space!.id, provider: "codex" },
       });
-      const initial = await call<DispatchReceipt>("tasks.dispatch", { taskId: seed.id, dispatchId: randomUUID(), expectedVersion: seed.version, inputRevision: seed.inputRevision, inputHash: seed.inputHash });
+      const seedDetail = await openTask(page, seed.title);
+      await seedDetail.getByRole("button", { name: "立即派遣", exact: true }).click();
+      await expect.poll(() => listDispatches(call, seed.id)).toHaveLength(1);
+      const initial = (await listDispatches(call, seed.id))[0]!;
       await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: seed.id })).comments.some(({ run, event }) => run === initial.runId && event === "result"), { timeout: 40_000 }).toBe(true);
       const [seedRun] = await listDispatches(call, seed.id);
       const session = seedRun!.session!;
@@ -404,6 +407,40 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
           messageId: result.id,
         }),
       });
+      const templateResponses = await startCodexResponsesFixture({ seedReply: "TEMPLATE-JOURNEY-RESULT" });
+      try {
+        await writeFile(path.join(providerHome, "config.toml"), templateResponses.config, { mode: 0o600 });
+        const template = await call<Rule>("automations.create", {
+          title: "候选包新模板",
+          body: "只回复 TEMPLATE-JOURNEY-RESULT",
+          trigger: { preset: "custom", cron: "0 0 0 * * *", zone: "UTC" },
+          action: { kind: "agent", input: { source: "prompt", provider: "codex", spaceId: space!.id } },
+        });
+        const intent = { id: template.id, expectedVersion: template.version, intentId: randomUUID() };
+        const invocation = await call<{ activationId: string }>("automations.runNow", intent);
+        expect(await call("automations.runNow", intent)).toEqual(invocation);
+        const linked = await call<{ dispatches: { taskId: string; runId: string }[] }>("automations.activations.dispatches", { ruleId: template.id, activationId: invocation.activationId });
+        expect(linked.dispatches).toHaveLength(1);
+        const created = linked.dispatches[0]!;
+        expect(created.taskId).not.toBe(task.id);
+        const templateTask = () => call<TaskDto>("tasks.read", { id: created.taskId });
+        await expect.poll(async () => (await templateTask()).comments.filter(({ event }) => event === "result"), { timeout: 45_000 }).toMatchObject([{ run: created.runId, body: "TEMPLATE-JOURNEY-RESULT" }]);
+        expect(await templateTask()).toMatchObject({ title: "候选包新模板", body: "只回复 TEMPLATE-JOURNEY-RESULT", origin: { kind: "automation", ruleId: template.id, activationId: invocation.activationId } });
+        expect(templateResponses.requests).toHaveLength(1);
+        const templateDetail = await openTask(page, "候选包新模板");
+        await expect(templateDetail.getByTestId("task-timeline")).toContainText("TEMPLATE-JOURNEY-RESULT");
+        await testInfo.attach("T7.2 人工立即派与新模板", {
+          contentType: "application/json",
+          body: JSON.stringify({
+            candidateIdentity,
+            manual: { taskId: seed.id, runId: initial.runId },
+            template: { ruleId: template.id, activationId: invocation.activationId, ...created },
+            nativeTemplateInputs: templateResponses.requests.length,
+          }),
+        });
+      } finally {
+        await templateResponses.close();
+      }
     } finally {
       await app.close();
     }
