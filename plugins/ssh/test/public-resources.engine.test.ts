@@ -35,6 +35,7 @@ const jobGet = "ssh.jobs.get";
 const jobOutput = "ssh.jobs.output.read";
 const jobCancel = "ssh.jobs.cancel";
 const execCancel = "ssh.exec.cancel";
+const execRun = "ssh.exec.run";
 const jobCapabilities = [jobPrepare, jobStart, jobGet, jobOutput, jobCancel];
 type Probe = z.infer<typeof PublicProbeStatus>;
 type Waiting = Extract<Probe, { prompt: unknown }>;
@@ -1506,6 +1507,43 @@ test("changed SSH keys stay blocked for an external subject with trust decision 
   }
 });
 
+test.each(["cli", "mcp"] as const)("%s removes only the exact saved SSH fingerprint on its authorized route", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  try {
+    const first = await f.host("trusted SSH fixture");
+    const unrelated = await f.host("independent SSH fixture");
+    for (const hostId of [first.hostId, unrelated.hostId]) {
+      await f.desktop("ssh.connect", { hostId, background: true });
+      const prompt = await vi.waitFor(async () => {
+        const status = (await f.desktop<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
+        if (status?.state !== "waiting") throw new Error("Waiting for loopback trust");
+        return status.prompt;
+      });
+      await f.desktop("ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true, remember: true });
+      await vi.waitFor(async () => expect(await f.desktop("ssh.knownHosts.list")).toEqual(expect.arrayContaining([expect.objectContaining({ port: prompt.server.port })])));
+    }
+    const invoke = await externalTool(f, entry);
+    const forget = "ssh.knownHosts.forget";
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId: first.hostId });
+    const keys = await f.desktop<{ port: number; fingerprint: string }[]>("ssh.knownHosts.list");
+    const current = keys.find(({ port }) => port === first.server.port)!;
+    const other = keys.find(({ port }) => port === unrelated.server.port)!;
+    const binding = { hostId: first.hostId, routeRevision };
+    const request = { ...current, ...binding, intentKey: randomUUID() };
+    expect(await invoke(forget, request)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.allow(forget);
+    expect(await invoke(forget, { ...other, ...binding, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await invoke(forget, { ...request, fingerprint: other.fingerprint, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await invoke(forget, request)).toEqual({ ok: true, data: { ok: true } });
+    expect(await invoke(forget, request)).toEqual({ ok: true, data: { ok: true } });
+    expect(await f.desktop("ssh.knownHosts.list")).toEqual([other]);
+    await f.chooseHosts([unrelated.hostId]);
+    expect(await invoke(forget, request)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  } finally {
+    await f.close();
+  }
+});
+
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 type JobBinding = { hostId: string; routeRevision: string; jobId: string; sessionId: string };
 
@@ -1615,7 +1653,10 @@ test("CLI owns a separate SSH job, reads split UTF-8 with byte cursors and retai
     expect(executed).toEqual([]);
     expect(await f.cli(jobStart, { ...start, sessionId: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
 
-    const starts = await Promise.all([f.cli(jobStart, start), f.cli(jobStart, start)]);
+    expect(await f.cli(execRun, start)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.allow(execRun);
+    expect(await f.cli(execRun, { hostId, command })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const starts = await Promise.all([f.cli(jobStart, start), f.cli(execRun, start)]);
     expect(starts).toEqual([created, created]);
     await waitForJob(f, cliToken, { jobId }, "running");
     const read = async (cursor = 0, limit = 4, stream = "stdout") => data(await f.cli(jobOutput, { jobId, stream, cursor, limit })) as OutputPage;
@@ -1688,6 +1729,8 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     await allowJobs(f);
     await f.allow(probeList);
     await f.allow(execCancel);
+    await f.allow(execRun);
+    await f.allow("ssh.jobs.list");
     const a = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "jobs MCP A" });
     const b = await f.desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "independent MCP token" });
     const original = await openRecoverableMcpSession(f.mcpEndpoint(), a.token);
@@ -1759,6 +1802,9 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     if (!("sessionId" in ready) || !ready.sessionId) throw new Error("SSH job has no connection");
     const start = { jobId, hostId, routeRevision, sessionId: ready.sessionId };
     expect(await invokeB(jobStart, start)).toMatchObject(notFound);
+    expect(await invokeB(execRun, start)).toMatchObject(notFound);
+    expect(await invokeB("ssh.jobs.list", { hostId })).toMatchObject({ structuredContent: { data: [] } });
+    expect(await f.desktop("ssh.jobs.list", { hostId })).toMatchObject([{ jobId, state: "ready" }]);
     const held = await invokeA(jobPrepare, { ...prepare, intentKey: randomUUID() });
     const heldId = held.structuredContent.data.jobId as string;
     const heldKey = await vi.waitFor(async () => {
@@ -1780,7 +1826,7 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     expect(await invokeA(jobStart, start)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") }] });
     expect(commands).toEqual([]);
     await f.allow(jobStart);
-    for (const reply of await Promise.all([invokeA(jobStart, start), invokeA(jobStart, start)])) {
+    for (const reply of await Promise.all([invokeA(jobStart, start), invokeA(execRun, start)])) {
       expect(reply).toMatchObject({ structuredContent: { data: { jobId } } });
     }
     await status("running");

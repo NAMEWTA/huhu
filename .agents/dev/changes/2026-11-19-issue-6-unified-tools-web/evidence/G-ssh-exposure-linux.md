@@ -123,3 +123,10 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.forwarding.runs.start/resume/stop` 以 execute/high 默认关闭；列表限原主体和当前获准路由。工作台可按 ID 查看来源及关闭具体外部监听。
 - 固定目标采用工作台保存的规则与修订，外部新监听由 Engine 在 127.0.0.1 分配端口。动态代理规则和无法确认远侧实际回环地址的远端监听未开放。主机撤权关闭监听及已有流；编辑旧规则会失效相应运行。
 - Node 24.21.0 下 SSH 单包类型检查通过，`public-resources.engine.test.ts` 转发定向 4 项通过。CLI 与 HTTP MCP 分别验证回环数据往返、另一主体不可见且不能停止、撤权后旧端口拒绝连接。E2E spec 增加同类断言，留给 Lead。
+
+## Task05 第五批 · Exec 提交别名和精确主机指纹管理
+
+- `ssh.exec.run` 转为默认关闭的 execute/high 能力，外部提交沿用 `ssh.jobs.start` 的原持有者、会话与连接代核对，同一作业的不同入口不会重复派发。
+- `ssh.jobs.list` 按主体和当前授权列出现存外部作业。工作台标记来源，可按 ID 取消。
+- `ssh.knownHosts.forget` 转为默认关闭的 admin/high 能力，校验当前路由和目标地址、端口、类型及精确指纹，发布本地修改前再次验权。相同意图可重取回执。
+- Node 24.21.0 下 SSH 单包类型检查通过；`public-resources.engine.test.ts` 中 CLI / HTTP MCP 的已知指纹与作业相关定向 4 项通过。E2E 设置页的闭合示例改为 Engine 本机目录能力，未运行。

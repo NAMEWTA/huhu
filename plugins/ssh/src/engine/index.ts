@@ -89,7 +89,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     };
   };
   const publicProbes = new PublicSshProbes(api.vault.files, manager, operations, (id) => api.events.publish("entity.changed", { kind: "ssh-external-connection", id, op: "updated" }));
-  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity) : undefined;
+  const publicJobs = operations ? new PublicExecJobs(api.vault.files, publicProbes, operations.receipts, operations.vaultInstance, manager, operations.retainActivity, (id) => api.events.publish("entity.changed", { kind: "ssh-exec-job", id, op: "updated" })) : undefined;
   const publicShells = new PublicShells(publicProbes, hostIntents, credentialHost, (id) => api.events.publish("entity.changed", { kind: "ssh-external-shell", id, op: "updated" }));
   const publicFiles = new PublicFileSessions(manager, publicProbes, hostIntents, credentialHost, (id) => {
     publicTransfers.releaseFileSession(id);
@@ -147,12 +147,16 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionGet, (context, input) => publicProbes.read(context, input)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesConnectionList, (context) => publicProbes.list(context)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.resourcesTrustDecide, (context, input) => publicProbes.decide(context, input)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsList, (context, { hostId }) => {
+    if (!publicJobs) return [];
+    return isWorkbenchCaller(context.caller) ? publicJobs.workbenchList(hostId) : publicJobs.list(context, hostId);
+  }));
   if (publicJobs) {
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsPrepare, (context, input) => publicJobs.prepare(context, input)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsStart, (context, input) => publicJobs.start(context, input)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsGet, (context, input) => publicJobs.get(context, input.jobId)));
     api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsOutputRead, (context, input) => publicJobs.read(context, input)));
-    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsCancel, (context, input) => publicJobs.cancel(context, input.jobId)));
+    api.defineCapability(bindCapability(sshCapabilityDescriptors.jobsCancel, (context, input) => isWorkbenchCaller(context.caller) ? publicJobs.cancelWorkbench(input.jobId) : publicJobs.cancel(context, input.jobId)));
   }
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorSessionOpen, (_c, i) => monitors.open(i)));
   api.defineCapability(bindCapability(sshCapabilityDescriptors.monitorToolsRead, ({ signal }, i) => readMonitorTool(manager, i, signal)));
@@ -563,14 +567,42 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.knownHostsForget, async (_c, key) => {
-      api.vault.files.assertWritable();
-      await manager.forgetHostKey(key);
-      api.events.publish("entity.changed", { kind: "ssh-known-hosts", id: key.fingerprint, op: "deleted" });
-      return { ok: true as const };
+    bindCapability(sshCapabilityDescriptors.knownHostsForget, (context, { hostId, routeRevision, intentKey, ...key }) => {
+      const forget = async (assertCurrent?: () => void) => {
+        api.vault.files.assertWritable();
+        await manager.forgetHostKey(key, assertCurrent);
+        api.events.publish("entity.changed", { kind: "ssh-known-hosts", id: key.fingerprint, op: "deleted" });
+        return { ok: true as const };
+      };
+      if (isWorkbenchCaller(context.caller)) {
+        if (context.caller !== "desktop") throw errors.permissionDenied("SSH 主机信任管理");
+        return forget();
+      }
+      if (!hostIntents || !hostId || !routeRevision || !intentKey) throw errors.invalidInput("外部移除指纹需要原主机、路由修订和意图键");
+      return hostIntents.run(context, sshCapabilityDescriptors.knownHostsForget.name, {
+        hosts: [hostId],
+        intentKey,
+        input: { hostId, routeRevision, ...key },
+        output: sshCapabilityDescriptors.knownHostsForget.output,
+        authorize: () => {
+          const chain = readBoundRoute(api.vault.files, context, { hostId, routeRevision });
+          const target = chain.at(-1)!;
+          if (key.host !== target.host || key.port !== target.port) throw errors.notFound("当前获准主机的原指纹");
+          return chain.map(({ id }) => id);
+        },
+        run: forget,
+      });
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (_c, i) => manager.exec(i.hostId, i.command, { ...(i.timeoutSec ? { timeoutSec: i.timeoutSec } : {}), ...(i.execId ? { execId: i.execId } : {}) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.execRun, (context, input) => {
+    if ("jobId" in input) {
+      if (!publicJobs) throw errors.notFound("SSH 作业");
+      return publicJobs.start(context, input);
+    }
+    if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("外部 SSH 执行需要已准备的自有作业和会话");
+    const { hostId, command, timeoutSec, execId } = input;
+    return manager.exec(hostId, command, { ...(timeoutSec && { timeoutSec }), ...(execId && { execId }) });
+  }));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.execCancel, (context, { execId, jobId, hostId, routeRevision }) => {
       if (isWorkbenchCaller(context.caller)) {

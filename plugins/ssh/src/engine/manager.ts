@@ -198,8 +198,8 @@ export class SshManager {
     return this.known.list();
   }
 
-  forgetHostKey(key: KnownHostKey): Promise<void> {
-    return this.known.forget(key);
+  forgetHostKey(key: KnownHostKey, assertCurrent?: () => void): Promise<void> {
+    return this.known.forget(key, assertCurrent);
   }
 
   private update(status: ConnectionStatus) {

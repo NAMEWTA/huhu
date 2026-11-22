@@ -85,6 +85,7 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const recoveredHostId = connections.data?.find((status) => status.state === "waiting" && !status.workspace)?.hostId;
   const host = (hosts.data ?? []).find((h) => h.id === (sel ?? recoveredHostId)) ?? hosts.data?.[0] ?? null;
   const shells = useCapability<Shell[]>("ssh.shells.list", host ? { hostId: host.id } : {});
+  const jobs = useCapability<{ jobId: string; state: string }[]>("ssh.jobs.list", host ? { hostId: host.id } : {});
   const ownShells = shells.data?.filter(({ source }) => source !== "external") ?? [];
   const externalShells = shells.data?.filter(({ source }) => source === "external") ?? [];
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && String(q.queryKey[1]).startsWith("ssh.") });
@@ -109,6 +110,9 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
     }
     if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-external-shell") {
       void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.shells.list"] });
+    }
+    if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-exec-job") {
+      void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.jobs.list"] });
     }
   });
 
@@ -153,6 +157,15 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
     try {
       await engine.call("ssh.shells.close", { id }, { write: true });
       await refresh();
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+  async function cancelJob(jobId: string) {
+    setError(null);
+    try {
+      await engine.call("ssh.jobs.cancel", { jobId }, { write: true });
+      await jobs.refetch();
     } catch (e) {
       setError(message(e));
     }
@@ -566,6 +579,28 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 {!isConn ? <p className="ssh-warning-text small">请先连接主机，才能使用 Exec。</p> : null}
               </form>
             </div>
+            {Boolean(jobs.data?.length) && (
+              <section className="hu-card-alt">
+                <div className="ssh-section-heading">
+                  <h3>外部工具作业</h3>
+                </div>
+                <ul>
+                  {jobs.data?.map(({ jobId, state }) => (
+                    <li key={jobId}>
+                      <div className="row">
+                        <code>{jobId}</code>
+                        <span className="hu-flex-fill">{state}</span>
+                        {["connecting", "ready", "dispatching", "running"].includes(state) && (
+                          <Button variant="danger" icon={X} aria-label={`取消外部作业 ${jobId}`} onClick={() => void cancelJob(jobId)}>
+                            取消外部作业
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {result ? (
               <div className="ssh-exec-result">
                 <div className="row">

@@ -7,7 +7,7 @@ import { interruptExecChannel } from "./exec-interrupt.js";
 import { ExecOutput, unavailableOutput } from "./job-output.js";
 import type { SshManager } from "./manager.js";
 import { StartPublicProbe, type PublicSshProbes } from "./public-probes.js";
-import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute } from "./public-resources.js";
+import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, visibleSshRoutes } from "./public-resources.js";
 
 export const PrepareExecJob = StartPublicProbe.extend({
   intentKey: CapabilityIntentKeySchema,
@@ -112,6 +112,7 @@ export class PublicExecJobs {
     private readonly vaultInstance: string,
     private readonly manager: SshManager,
     private readonly retainActivity?: RetainActivity,
+    private readonly changed?: (id: string) => void,
   ) {}
 
   private owners(context: CapabilityContext) {
@@ -169,6 +170,7 @@ export class PublicExecJobs {
       },
     };
     this.jobs.set(jobId, job);
+    this.changed?.(jobId);
     try {
       if (this.retainActivity) job.releaseActivity = this.retainActivity();
       const connection = this.probes.openForJob(context, owner, input);
@@ -180,6 +182,7 @@ export class PublicExecJobs {
           job.client = client;
           job.status.sessionId = randomUUID();
           job.status.state = "ready";
+          this.changed?.(jobId);
           client.once("close", () => {
             if (job.endedAt !== undefined) return;
             if (job.status.state === "ready") this.finish(job, { state: "failed", reason: "connection-failed" });
@@ -213,6 +216,7 @@ export class PublicExecJobs {
     const { client, command } = job;
     job.command = undefined;
     job.status.state = "dispatching";
+    this.changed?.(input.jobId);
     this.timer(job, dispatchTimeout, () => this.finish(job, this.uncertain(job, "dispatch-timeout")));
     try {
       client.exec(command, (error, channel) => {
@@ -255,12 +259,32 @@ export class PublicExecJobs {
     if (job.status.stopRequested) this.interrupt(job);
     else {
       job.status.state = "running";
+      this.changed?.(job.status.jobId);
       this.timer(job, job.timeoutSec * 1000, () => this.stop(job, "timeout"));
     }
   }
 
   get(context: CapabilityContext, jobId: string): z.infer<typeof ExecJobStatus> {
     return this.find(context, jobId).status;
+  }
+
+  list(context: CapabilityContext, hostId?: string) {
+    const owner = externalSshOwner(context);
+    const routes = visibleSshRoutes(this.files, context);
+    return [...this.jobs.values()]
+      .filter((job) => job.owner === owner && !job.revoked && (!hostId || job.status.hostId === hostId) && routes.get(job.status.hostId)?.routeRevision === job.status.routeRevision)
+      .map((job) => this.view(job));
+  }
+
+  workbenchList(hostId?: string) {
+    return [...this.jobs.values()].filter((job) => !hostId || job.status.hostId === hostId).map((job) => this.view(job));
+  }
+
+  cancelWorkbench(jobId: string) {
+    const job = this.jobs.get(jobId);
+    if (!job || job.endedAt !== undefined || job.status.stopRequested) return { requested: false };
+    this.stop(job, "cancel");
+    return { requested: true };
   }
 
   async read(context: CapabilityContext, input: z.infer<typeof ReadExecOutput>) {
@@ -295,6 +319,7 @@ export class PublicExecJobs {
       return;
     }
     job.status.state = "stopping";
+    this.changed?.(job.status.jobId);
     if (job.channel) this.interrupt(job);
   }
 
@@ -330,6 +355,7 @@ export class PublicExecJobs {
       job.streams.stdout.finish();
       job.streams.stderr.finish();
       job.status = { ...this.view(job), state: end.state, reason: end.reason, exitCode: end.exitCode ?? null, exitSignal: end.exitSignal ?? null };
+      this.changed?.(job.status.jobId);
       job.close?.();
       delete job.close;
       delete job.client;
