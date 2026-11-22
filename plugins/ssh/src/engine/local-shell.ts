@@ -205,7 +205,7 @@ export class SshLocalShells {
   }
 }
 
-const desktop = { plugin: "ssh", desktopOnly: true, exposable: true, defaultExposed: false, risk: "normal" } as const;
+const desktop = { plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false, risk: "normal" } as const;
 const empty = z.strictObject({});
 export const sshLocalShellDescriptors = {
   localEnvironments: defineCapabilityDescriptor({

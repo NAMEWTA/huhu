@@ -232,13 +232,13 @@ export class SshConfigSync {
   }
 }
 
-const descriptor = { plugin: "ssh", desktopOnly: true, exposable: true, defaultExposed: false, risk: "normal" } as const;
+const descriptor = { plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false, risk: "normal" } as const;
 export const sshConfigSyncDescriptors = {
   configSyncPreview: defineCapabilityDescriptor({
     ...descriptor,
     name: "ssh.configSync.preview",
     title: "预览 OpenSSH 配置同步",
-    description: "按主机 ID 比较所选配置文件中的 Host 块与 Huhu。",
+    description: "按主机 ID 比较桌面选取的本机配置文件中的 Host 块与 Huhu。",
     scope: "read",
     input: ConfigSyncSource,
     output: ConfigSyncPreview,

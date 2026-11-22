@@ -101,6 +101,14 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     expect(initialTools.filter(({ name }) => name.startsWith(entry === "mcp" ? "ssh_" : "ssh."))).toEqual([]);
     const closed = ssh.filter(({ exposable }) => !exposable);
     const available = ssh.filter(({ exposable }) => exposable);
+    for (const capability of ["ssh.authentication.answer", "ssh.configSync.apply", "ssh.configSync.preview", "ssh.local.close", "ssh.local.environments", "ssh.local.list", "ssh.local.open"]) {
+      expect(closed.find(({ name }) => name === capability)).toMatchObject({ availability: "active", exposable: false, selected: false });
+      expect(await desktop("gateway.update", { capability, exposed: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(await success("gateway.check", { capability })).toMatchObject({
+        found: true,
+        identities: [{ allowed: false }, { allowed: false }, { allowed: false }],
+      });
+    }
     expect(available.map(({ name }) => name).sort()).toEqual(
       [
         get,
@@ -109,9 +117,6 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.archives.support",
         "ssh.audit.list",
         "ssh.auth.keyboardInteractive.respond",
-        "ssh.authentication.answer",
-        "ssh.configSync.apply",
-        "ssh.configSync.preview",
         "ssh.connect",
         "ssh.connections.status",
         "ssh.disconnect",
@@ -158,10 +163,6 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
         "ssh.keys.add",
         "ssh.keys.list",
         "ssh.keys.remove",
-        "ssh.local.close",
-        "ssh.local.environments",
-        "ssh.local.list",
-        "ssh.local.open",
         "ssh.knownHosts.forget",
         "ssh.monitor.panels.delete",
         "ssh.monitor.panels.change",
