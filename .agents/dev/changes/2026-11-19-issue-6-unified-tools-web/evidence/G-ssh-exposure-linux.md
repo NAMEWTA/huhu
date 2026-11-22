@@ -130,3 +130,9 @@ CLI 与 HTTP MCP 覆盖同键并发改名、删除回执重取、新规则和出
 - `ssh.jobs.list` 按主体和当前授权列出现存外部作业。工作台标记来源，可按 ID 取消。
 - `ssh.knownHosts.forget` 转为默认关闭的 admin/high 能力，校验当前路由和目标地址、端口、类型及精确指纹，发布本地修改前再次验权。相同意图可重取回执。
 - Node 24.21.0 下 SSH 单包类型检查通过；`public-resources.engine.test.ts` 中 CLI / HTTP MCP 的已知指纹与作业相关定向 4 项通过。E2E 设置页的闭合示例改为 Engine 本机目录能力，未运行。
+
+## Task05 第六批 · 自有文件搜索与版本写入
+
+- `ssh.fileSessions.search/cancelSearch/document.save/changeProperties/createEntry/moveEntry` 默认关闭。搜索使用原会话和唯一搜索 ID；取消不会命中其他搜索代次或 SFTP 传输。持久写校验当前会话及版本，在远端写入前再次核对授权。
+- 文档保存使用保护存储 HMAC 绑定输入，回执仅保存所写版本与元数据。CLI / HTTP MCP 验证了版本冲突、主体隔离和重复提交。
+- Node 24.21.0 下 SSH 单包类型检查、`public-resources.engine.test.ts` 的 CLI / MCP 文件用例 2 项通过。

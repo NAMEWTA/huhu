@@ -37,7 +37,7 @@ type Owned = {
   owner: string;
   connection: z.infer<typeof OwnedConnection>;
   hostIds: readonly string[];
-  transferIds: Set<string>;
+  usedRequestIds: Set<string>;
   closed?: true;
   removeListener(): void;
   timer?: NodeJS.Timeout;
@@ -46,7 +46,7 @@ type Owned = {
 export class PublicFileSessions {
   readonly files: FileSessions;
   private readonly bindings = new Map<string, Owned>();
-  private readonly transfers = new Map<string, AbortController>();
+  private readonly activeRequests = new Map<string, AbortController>();
 
   constructor(
     private readonly manager: SshManager,
@@ -77,7 +77,7 @@ export class PublicFileSessions {
         const id = session.fileSessionId;
         const close = () => this.closeWorkbench(id);
         current.signal.addEventListener("abort", close, { once: true });
-        this.bindings.set(id, { owner, connection, hostIds, transferIds: new Set(), removeListener: () => current.signal.removeEventListener("abort", close) });
+        this.bindings.set(id, { owner, connection, hostIds, usedRequestIds: new Set(), removeListener: () => current.signal.removeEventListener("abort", close) });
         this.changed(id);
         return session;
       },
@@ -135,21 +135,22 @@ export class PublicFileSessions {
     }
   }
 
-  withSftp<T>(context: CapabilityContext, id: string, work: (channel: SFTPWrapper, signal: AbortSignal) => Promise<T>, transferId?: string) {
-    if (transferId) {
-      const key = JSON.stringify([id, transferId]);
+  withSftp<T>(context: CapabilityContext, id: string, work: (channel: SFTPWrapper, signal: AbortSignal) => Promise<T>, request?: { kind: "transfer" | "search"; id: string }) {
+    if (request) {
+      const generation = JSON.stringify([request.kind, request.id]);
+      const key = JSON.stringify([id, generation]);
       return this.use(context, id, async (files) => {
-        const { transferIds } = this.require(context, id);
-        if (transferIds.has(transferId)) throw errors.invalidInput("该 SSH 传输 ID 已使用");
-        if (transferIds.size >= 4096 || this.transfers.size >= 16) throw errors.invalidInput("SSH 传输数量已达上限");
-        transferIds.add(transferId);
+        const { usedRequestIds } = this.require(context, id);
+        if (usedRequestIds.has(generation)) throw errors.invalidInput("该 SSH 请求 ID 已使用");
+        if (usedRequestIds.size >= 4096 || this.activeRequests.size >= 16) throw errors.invalidInput("SSH 文件请求数量已达上限");
+        usedRequestIds.add(generation);
         const controller = new AbortController();
         const signal = AbortSignal.any([context.signal, controller.signal]);
-        this.transfers.set(key, controller);
+        this.activeRequests.set(key, controller);
         try {
           return await this.manager.withSftp(files.source({ fileSessionId: id }), "external", "", work, { signal, timeoutMs: 30_000 });
         } finally {
-          this.transfers.delete(key);
+          this.activeRequests.delete(key);
         }
       });
     }
@@ -159,17 +160,26 @@ export class PublicFileSessions {
   }
 
   download(context: CapabilityContext, { fileSessionId, remotePath, offset, limit, transferId }: z.infer<typeof DownloadBytes>) {
-    return this.withSftp(context, fileSessionId, (channel, signal) => sftp.downloadChunk(channel, remotePath, offset, limit, signal), transferId);
+    return this.withSftp(context, fileSessionId, (channel, signal) => sftp.downloadChunk(channel, remotePath, offset, limit, signal), { kind: "transfer", id: transferId });
   }
 
   cancelTransfer(context: CapabilityContext, { fileSessionId, transferId, intentKey }: z.infer<typeof TransferHandle> & { intentKey?: string | undefined }) {
-    const key = JSON.stringify([fileSessionId, transferId]);
-    return this.mutate(context, "ssh.sftp.cancel", { fileSessionId, intentKey }, { transferId }, z.strictObject({ cancelled: z.boolean() }), async () => {
-      const transfer = this.transfers.get(key);
-      if (!transfer || transfer.signal.aborted) return { cancelled: false };
-      transfer.abort();
+    return this.cancelRequest(context, "ssh.sftp.cancel", { fileSessionId, intentKey }, "transfer", transferId);
+  }
+
+  cancelRequest(context: CapabilityContext, capability: string, request: z.infer<typeof FileSessionId> & { intentKey?: string | undefined }, kind: "transfer" | "search", id: string) {
+    const key = JSON.stringify([request.fileSessionId, JSON.stringify([kind, id])]);
+    return this.mutate(context, capability, request, { id }, z.strictObject({ cancelled: z.boolean() }), async () => {
+      const pending = this.activeRequests.get(key);
+      if (!pending || pending.signal.aborted) return { cancelled: false };
+      pending.abort();
       return { cancelled: true };
     });
+  }
+
+  seal(context: CapabilityContext, id: string, capability: string, content: string) {
+    this.require(context, id);
+    return withIntentSeal(this.credentials, (seal) => seal([capability, content]));
   }
 
   async write(
@@ -180,9 +190,8 @@ export class PublicFileSessions {
     content: Buffer,
   ) {
     const request = { fileSessionId, intentKey };
-    this.require(context, request.fileSessionId);
     if (overwrite && !expectedRevision) throw errors.invalidInput("覆盖远端文件需要原文件修订");
-    const digest = await withIntentSeal(this.credentials, (seal) => seal([capability, content.toString("base64")]));
+    const digest = await this.seal(context, fileSessionId, capability, content.toString("base64"));
     return this.mutate(context, capability, request, { remotePath, digest, overwrite, expectedRevision, transferId }, Size, (assertCurrent) =>
       this.withSftp(context, fileSessionId, (channel, signal) => sftp.writeAtomic(channel, remotePath, Readable.from(content), {
         overwrite,
@@ -191,7 +200,7 @@ export class PublicFileSessions {
           if (expectedRevision) await assertEntryRevision(channel, remotePath, expectedRevision);
           assertCurrent();
         },
-      }), transferId),
+      }), transferId ? { kind: "transfer", id: transferId } : undefined),
     );
   }
 
@@ -233,7 +242,7 @@ export class PublicFileSessions {
       clearTimeout(binding.timer);
     }
     this.bindings.clear();
-    this.transfers.clear();
+    this.activeRequests.clear();
   }
 
   private require(context: CapabilityContext, id: string, closed = false): Owned {

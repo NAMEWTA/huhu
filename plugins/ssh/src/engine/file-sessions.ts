@@ -144,7 +144,7 @@ export class FileSessions {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "properties", path, (channel) => properties(channel, path), { signal });
   }
 
-  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal) {
+  changeProperties(id: string, path: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
       this.source({ fileSessionId: id }),
@@ -152,19 +152,19 @@ export class FileSessions {
       path,
       async (channel, active) => {
         const abs = await documentPath(channel, path);
-        return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active));
+        return this.writeEntry(session, abs, () => changeProperties(channel, path, revision, change, active, beforeWrite));
       },
       { signal },
     );
   }
 
-  async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
-    await this.manager.withSftp(this.source({ fileSessionId: id }), "create", path, (channel, active) => createEntry(channel, path, entry, active), { signal });
+  async createEntry(id: string, path: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal, beforeWrite?: () => void) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "create", path, (channel, active) => createEntry(channel, path, entry, active, beforeWrite), { signal });
     return { ok: true as const };
   }
 
-  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal) {
-    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active), { signal });
+  async moveEntry(id: string, path: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void) {
+    await this.manager.withSftp(this.source({ fileSessionId: id }), "move", path, (channel, active) => moveEntry(channel, path, revision, destination, active, beforeWrite), { signal });
     return { ok: true as const };
   }
 
@@ -172,7 +172,7 @@ export class FileSessions {
     return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal });
   }
 
-  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal) {
+  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
       this.source({ fileSessionId: id }),
@@ -182,7 +182,7 @@ export class FileSessions {
         const abs = await documentPath(channel, file);
         return this.writeEntry(session, abs, () => {
           active.throwIfAborted();
-          return saveDocument(channel, abs, text, version, active);
+          return saveDocument(channel, abs, text, version, active, beforeWrite);
         });
       },
       { signal },

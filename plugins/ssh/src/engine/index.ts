@@ -670,15 +670,31 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsLocalList, (_c, i) => files.localList(i.fileSessionId, i.parts, i.root)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsSearch, ({ signal }, i) => files.search(i.fileSessionId, i.path, i.query, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (_c, i) => ({ cancelled: files.cancelSearch(i.fileSessionId) })));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsSearch, (context, { fileSessionId, path, query, searchId }) => {
+    if (isWorkbenchCaller(context.caller)) return files.search(fileSessionId, path, query, context.signal);
+    if (!searchId) throw errors.invalidInput("外部 SSH 搜索需要本主体的搜索 ID");
+    return publicFiles.withSftp(context, fileSessionId, (channel, signal) => sftp.searchNames(channel, path, query, signal), { kind: "search", id: searchId });
+  }));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCancelSearch, (context, input) => {
+    if (isWorkbenchCaller(context.caller)) return { cancelled: files.cancelSearch(input.fileSessionId) };
+    if (!input.searchId) throw errors.invalidInput("取消外部 SSH 搜索需要原搜索 ID");
+    return publicFiles.cancelRequest(context, "ssh.fileSessions.cancelSearch", input, "search", input.searchId);
+  }));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.fileSessionsDocumentOpen, (context, i) => {
       if (isWorkbenchCaller(context.caller)) return files.readDocument(i.fileSessionId, i.path, context.signal);
       return publicFiles.use(context, i.fileSessionId, (owned) => owned.readDocument(i.fileSessionId, i.path, context.signal));
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, ({ signal }, i) => files.writeDocument(i.fileSessionId, i.path, i.text, i.expectedVersion, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDocumentSave, async (context, input) => {
+    const { fileSessionId, path, text, expectedVersion } = input;
+    if (isWorkbenchCaller(context.caller)) return files.writeDocument(fileSessionId, path, text, expectedVersion, context.signal);
+    const capability = sshCapabilityDescriptors.fileSessionsDocumentSave;
+    const digest = await publicFiles.seal(context, fileSessionId, capability.name, text);
+    return publicFiles.mutate(context, capability.name, input, { path, digest, expectedVersion }, capability.output, (check) =>
+      publicFiles.use(context, fileSessionId, (owned) => owned.writeDocument(fileSessionId, path, text, expectedVersion, context.signal, check)),
+    );
+  }));
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.fileSessionsProperties, (context, i) => {
       if (isWorkbenchCaller(context.caller)) return files.properties(i.fileSessionId, i.path, context.signal);
@@ -693,9 +709,30 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return { applied: files.commitDirectory(i.fileSessionId, i.follow) };
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, ({ signal }, i) => files.changeProperties(i.fileSessionId, i.path, i.expectedRevision, i.change, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, ({ signal }, i) => files.createEntry(i.fileSessionId, i.path, i.entry, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, ({ signal }, i) => files.moveEntry(i.fileSessionId, i.path, i.expectedRevision, i.destination, signal)));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsChangeProperties, (context, input) => {
+    const { fileSessionId, path, expectedRevision, change } = input;
+    if (isWorkbenchCaller(context.caller)) return files.changeProperties(fileSessionId, path, expectedRevision, change, context.signal);
+    const capability = sshCapabilityDescriptors.fileSessionsChangeProperties;
+    return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, change }, capability.output, (check) =>
+      publicFiles.use(context, fileSessionId, (owned) => owned.changeProperties(fileSessionId, path, expectedRevision, change, context.signal, check)),
+    );
+  }));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsCreateEntry, (context, input) => {
+    const { fileSessionId, path, entry } = input;
+    if (isWorkbenchCaller(context.caller)) return files.createEntry(fileSessionId, path, entry, context.signal);
+    const capability = sshCapabilityDescriptors.fileSessionsCreateEntry;
+    return publicFiles.mutate(context, capability.name, input, { path, entry }, capability.output, (check) =>
+      publicFiles.use(context, fileSessionId, (owned) => owned.createEntry(fileSessionId, path, entry, context.signal, check)),
+    );
+  }));
+  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsMoveEntry, (context, input) => {
+    const { fileSessionId, path, expectedRevision, destination } = input;
+    if (isWorkbenchCaller(context.caller)) return files.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal);
+    const capability = sshCapabilityDescriptors.fileSessionsMoveEntry;
+    return publicFiles.mutate(context, capability.name, input, { path, expectedRevision, destination }, capability.output, (check) =>
+      publicFiles.use(context, fileSessionId, (owned) => owned.moveEntry(fileSessionId, path, expectedRevision, destination, context.signal, check)),
+    );
+  }));
   const ownedFileId = ({ fileSessionId }: { fileSessionId?: string | undefined }) => {
     if (!fileSessionId) throw errors.invalidInput("外部 SFTP 操作需要本主体的文件会话");
     return fileSessionId;

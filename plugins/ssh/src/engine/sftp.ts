@@ -85,7 +85,7 @@ export async function properties(s: SFTPWrapper, input: string): Promise<FilePro
   return attributesView(abs, st, target);
 }
 
-export async function changeProperties(s: SFTPWrapper, input: string, revision: string, change: FileAttributes, signal: AbortSignal): Promise<FileProperties> {
+export async function changeProperties(s: SFTPWrapper, input: string, revision: string, change: FileAttributes, signal: AbortSignal, beforeWrite?: () => void): Promise<FileProperties> {
   const selected = await properties(s, input);
   if (selected.revision !== revision) throw errors.versionConflict(selected.revision);
   if (selected.type !== "file" && selected.type !== "dir") throw errors.invalidInput("仅能修改普通文件或真实目录的权限和属主");
@@ -99,6 +99,7 @@ export async function changeProperties(s: SFTPWrapper, input: string, revision: 
     if (current.revision !== revision || fromHandle.revision !== revision) throw errors.versionConflict(current.revision);
     const attrs: InputAttributes = "owner" in change ? change.owner : { mode: (st.mode & 0o7000) | Number.parseInt(change.mode, 8) };
     signal.throwIfAborted();
+    beforeWrite?.();
     await callv((cb) => s.fsetstat(handle, attrs, cb));
     return attributesView(selected.path, await call<Stats>((cb) => s.fstat(handle, cb)), null);
   } finally {
@@ -106,10 +107,11 @@ export async function changeProperties(s: SFTPWrapper, input: string, revision: 
   }
 }
 
-export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal) {
+export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: "file" } | { kind: "link"; target: string }, signal: AbortSignal, beforeWrite?: () => void) {
   const abs = await canonicalEntry(s, input);
   if (await statOrNull(s, abs)) throw errors.nameConflict(abs);
   signal.throwIfAborted();
+  beforeWrite?.();
   if (entry.kind === "link") {
     const { target } = entry;
     if (!target || target.includes("\0")) throw errors.invalidInput("请输入有效的链接目标");
@@ -120,12 +122,13 @@ export async function createEntry(s: SFTPWrapper, input: string, entry: { kind: 
   }
 }
 
-export async function moveEntry(s: SFTPWrapper, input: string, revision: string, destination: string, signal: AbortSignal) {
+export async function moveEntry(s: SFTPWrapper, input: string, revision: string, destination: string, signal: AbortSignal, beforeWrite?: () => void) {
   const to = await canonicalEntry(s, destination);
   if (await statOrNull(s, to)) throw errors.nameConflict(to);
   const from = await properties(s, input);
   if (from.revision !== revision) throw errors.versionConflict(from.revision);
   signal.throwIfAborted();
+  beforeWrite?.();
   await callv((cb) => s.rename(from.path, to, cb));
 }
 
@@ -284,7 +287,7 @@ export async function openDocument(s: SFTPWrapper, input: string, signal: AbortS
   }
 }
 
-export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal): Promise<Omit<FileDocument, "text">> {
+export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void): Promise<Omit<FileDocument, "text">> {
   if (text.includes("\0") || Buffer.from(text, "utf8").toString("utf8") !== text) throw errors.invalidInput("需要不含空字符的 UTF-8 文本");
   async function verify() {
     try {
@@ -301,7 +304,7 @@ export async function saveDocument(s: SFTPWrapper, abs: string, text: string, ve
   const body = original.includes("\r\n") && !original.replaceAll("\r\n", "").includes("\n") ? text.replace(/\r\n|\n/g, "\r\n") : text;
   const bytes = Buffer.from((bom ? "\uFEFF" : "") + body, "utf8");
   if (bytes.length > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
-  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify } });
+  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify }, ...(beforeWrite && { verifyTarget: async () => beforeWrite() }) });
   return { path: abs, version: documentVersion(abs, mode, bytes), mode: mode.toString(8).padStart(3, "0") };
 }
 
