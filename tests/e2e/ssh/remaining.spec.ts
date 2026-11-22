@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+import type { RecordingContent, RecordingSummary } from "../../../plugins/ssh/src/shared/recordings.js";
 import type { ConnectionStatus } from "../../../plugins/ssh/src/shared/trust.js";
 import type { WorkspaceRun } from "../../../plugins/ssh/src/shared/workspace.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
@@ -133,6 +135,128 @@ test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", 
     await expect(run.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-session-id", original.panes[1]!.sessionId!);
     expect([left.conns.length, right.conns.length]).toEqual([1, 1]);
   } finally {
+    await app.close();
+    await left.close();
+    await right.close();
+  }
+});
+
+test("H5.3 回放已停止的录制，可暂停并按时间定位，切换 Shell 保持隔离", async () => {
+  const password = randomUUID();
+  const leftInput: string[] = [];
+  const rightInput: string[] = [];
+  const left = await startFakeSsh({ password, onShellInput: (text) => leftInput.push(text) });
+  const right = await startFakeSsh({ password, onShellInput: (text) => rightInput.push(text) });
+  const app = await openApp();
+  const { page } = app;
+  let clockInstalled = false;
+  try {
+    await openSsh(page);
+    const a = await saveHost(page, "录制甲", left.port, password);
+    const b = await saveHost(page, "录制乙", right.port, password);
+    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "会话录制夹具", layout: { kind: "two" }, panes: [a, b] });
+    await approve(page, a.hostId);
+    await approve(page, b.hostId);
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /会话录制夹具/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const panes = run.getByTestId("ssh-workspace-run-pane");
+    await expect(panes.first()).toHaveAttribute("data-phase", "ready");
+    await expect(panes.last()).toHaveAttribute("data-phase", "ready");
+    const leftShell = (await panes.first().getAttribute("data-session-id"))!;
+    const rightShell = (await panes.last().getAttribute("data-session-id"))!;
+    const recordings = (shellId: string) => desktopCall<RecordingSummary[]>(page, "ssh.recordings.list", { shellId });
+    const read = (id: string) => desktopCall<RecordingContent>(page, "ssh.recordings.read", { id });
+    await run.getByText("快捷文本与广播", { exact: true }).click();
+    const send = async (target: string, text: string) => {
+      const destinations = run.getByRole("checkbox", { name: /录制[甲乙]/ });
+      for (const destination of await destinations.all()) await destination.uncheck();
+      await run.getByRole("checkbox", { name: new RegExp(target) }).check();
+      await run.getByRole("textbox", { name: "快捷文本" }).fill(text);
+      await run.getByRole("button", { name: "预览", exact: true }).click();
+      await run.getByRole("button", { name: "发送并回车", exact: true }).click();
+    };
+
+    await send("录制甲", "录制前");
+    await expect.poll(() => leftInput.join("")).toContain("录制前");
+    expect(await recordings(leftShell)).toEqual([]);
+    await panes.first().getByRole("button", { name: "开始录制", exact: true }).click();
+    await expect(panes.first().getByRole("button", { name: "停止录制", exact: true })).toBeVisible();
+    const leftRecording = (await recordings(leftShell))[0]?.id;
+    if (!leftRecording) throw new Error("录制甲未启动");
+    await send("录制甲", "第一段🙂");
+    await expect.poll(async () => (await read(leftRecording)).text).toContain("第一段🙂");
+    // Separate the output times by more than one renderer timer tick.
+    await delay(200);
+    await send("录制甲", "第二段<b>文本</b> https://example.invalid/fixture");
+    await expect.poll(async () => (await read(leftRecording)).text).toContain("https://example.invalid/fixture");
+    await panes.first().getByRole("button", { name: "停止录制", exact: true }).click();
+    await expect.poll(async () => (await read(leftRecording)).summary.reason).toBe("stopped");
+    await send("录制甲", "停止之后");
+    await expect.poll(() => leftInput.join("")).toContain("停止之后");
+
+    await panes.last().getByRole("button", { name: "开始录制", exact: true }).click();
+    await expect(panes.last().getByRole("button", { name: "停止录制", exact: true })).toBeVisible();
+    const rightRecording = (await recordings(rightShell))[0]?.id;
+    if (!rightRecording) throw new Error("录制乙未启动");
+    await send("录制乙", "乙侧独立输出");
+    await expect.poll(async () => (await read(rightRecording)).text).toContain("乙侧独立输出");
+    await panes.last().getByRole("button", { name: "停止录制", exact: true }).click();
+    await expect.poll(async () => (await read(rightRecording)).summary.reason).toBe("stopped");
+    const leftContent = await read(leftRecording);
+    const firstAt = leftContent.timeline?.checkpoints.find(({ end }) => leftContent.text.slice(0, end).includes("第一段🙂"))?.atMs;
+    if (firstAt === undefined || !leftContent.timeline) throw new Error("录制甲缺少完整的时间轴");
+    const inputsBeforePlayback = [leftInput.join(""), rightInput.join("")];
+
+    await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
+    await page.getByRole("button", { name: "会话日志", exact: true }).click();
+    const sessions = page.getByRole("combobox", { name: "Shell 会话" });
+    await sessions.selectOption(leftShell);
+    await page.getByRole("button", { name: /已停止/ }).click();
+    const output = page.locator(".ssh-recording-text");
+    await expect(output).toContainText("第二段<b>文本</b>");
+    await expect(output.locator("b")).toHaveCount(0);
+    await expect(output).not.toContainText(/录制前|停止之后|乙侧独立输出/);
+    await expect(page.getByRole("link", { name: "https://example.invalid/fixture" })).toBeVisible();
+    await page.getByRole("textbox", { name: "在此录制内查找…" }).fill("第二段");
+    await expect(output.locator("mark")).toHaveText("第二段");
+
+    const slider = page.getByRole("slider", { name: "回放进度" });
+    const play = page.getByRole("button", { name: "播放录制", exact: true });
+    const pause = page.getByRole("button", { name: "暂停回放", exact: true });
+    await slider.press("Home");
+    await expect(output).toBeEmpty();
+    const clockStart = new Date();
+    await page.clock.install({ time: clockStart });
+    clockInstalled = true;
+    await page.clock.pauseAt(new Date(clockStart.getTime() + 10_000));
+    await play.click();
+    await page.clock.runFor(Math.ceil(firstAt / 50) * 50);
+    await expect(output).toContainText("第一段🙂");
+    await expect(output).not.toContainText("第二段");
+    await pause.click();
+    const pausedAt = await slider.inputValue();
+    await page.clock.runFor(leftContent.timeline.durationMs);
+    await expect(slider).toHaveValue(pausedAt);
+    await play.click();
+    await page.clock.runFor(leftContent.timeline.durationMs + 50);
+    await expect(slider).toHaveValue(String(leftContent.timeline.durationMs));
+    await expect(output).toContainText("第二段");
+    await slider.press("Home");
+    await expect(output).toBeEmpty();
+    await slider.press("End");
+    await expect(output).toContainText("第二段");
+
+    await play.click();
+    await sessions.selectOption(rightShell);
+    await page.getByRole("button", { name: /已停止/ }).click();
+    await page.clock.runFor(leftContent.timeline.durationMs + 50);
+    await expect(output).toContainText("乙侧独立输出");
+    await expect(output).not.toContainText("第一段🙂");
+    await expect(page.getByRole("link", { name: "https://example.invalid/fixture" })).toHaveCount(0);
+    expect([leftInput.join(""), rightInput.join("")]).toEqual(inputsBeforePlayback);
+  } finally {
+    if (clockInstalled && !page.isClosed()) await page.clock.resume();
     await app.close();
     await left.close();
     await right.close();

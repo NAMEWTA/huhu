@@ -2,12 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { utils } from "ssh2";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { HuhuError } from "@huhu/contracts";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
 import { SshManager } from "../src/engine/manager.js";
+import { TerminalRecordings } from "../src/engine/terminal-recordings.js";
 import { workspaceTarget } from "../src/engine/workspace-target.js";
+import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
 
@@ -431,35 +433,130 @@ test("交互认证按当前尝试、跳点和轮次消费，多问 OTP 不写审
   expect(JSON.stringify(mgr.auditList())).not.toMatch(/only-for-this-round|042913/);
 });
 
-test("录制从明确开始处捕获 UTF-8 输出，停止后可按会话重新读取", async () => {
-  const { TerminalRecordings } = await import("../src/engine/terminal-recordings.js");
-  const dir = tmp();
-  const wire: { current?: (b: Buffer) => void } = {};
+function recordingFixture() {
+  vi.useFakeTimers({ toFake: ["performance", "Date"] });
+  closers.push(() => {
+    vi.useRealTimers();
+  });
+  const directory = path.join(tmp(), "recordings");
+  const wires = new Map<string, (bytes: Buffer) => void>();
   const manager = {
     shellInfo(id: string) {
       return { id, state: "running" as const, hostId: "fixture", name: "shell", createdAt: new Date().toISOString() };
     },
-    attachShell(_id: string, view: { onData(data: Buffer): void; onEnd(): void }, replay = true) {
-      wire.current = view.onData;
+    attachShell(id: string, view: { onData(data: Buffer): void; onEnd(): void }, replay = true) {
+      wires.set(id, view.onData);
       if (replay) view.onData(Buffer.from("输出在录制开始前"));
       return {
         detach: () => {
-          delete wire.current;
+          wires.delete(id);
         },
         write: () => undefined,
         resize: () => undefined,
       };
     },
   };
-  const records = new TerminalRecordings(manager, path.join(dir, "recordings"));
-  const id = records.start("ssh-record-a").id;
-  const encoded = Buffer.from("\u001b[31m中文字\u001b[0m");
-  wire.current?.(encoded.subarray(0, 7));
-  wire.current?.(encoded.subarray(7));
+  const reopen = () => new TerminalRecordings(manager, directory);
+  const records = reopen();
+  function start(shellId: string) {
+    const { id } = records.start(shellId);
+    const emit = wires.get(shellId)!;
+    return { id, emit, file: path.join(directory, id + ".json") };
+  }
+  return { records, reopen, start, wires };
+}
+
+test("录制从明确开始处按时间捕获 UTF-8 输出，停止后隔离各会话", () => {
+  const { records, reopen, start, wires } = recordingFixture();
+  const a = start("ssh-record-a");
+  const b = start("ssh-record-b");
+  const encoded = Buffer.from("\x1b[31m中🙂\x1b]0;title-");
+  vi.advanceTimersByTime(100);
+  a.emit(encoded.subarray(0, 7));
+  b.emit(Buffer.from("独立会话"));
+  vi.advanceTimersByTime(40);
+  a.emit(encoded.subarray(7));
+  const opening = "中🙂";
+  expect(records.read(a.id)).toMatchObject({ text: opening, summary: { endedAt: null } });
+  expect(records.read(a.id).timeline).toBeUndefined();
+
+  vi.advanceTimersByTime(160);
+  const closing = "\n<b>原样</b> https://example.invalid/record";
+  a.emit(Buffer.from("ignored\x07\x1b[0m" + closing));
+  vi.advanceTimersByTime(200);
   records.stop("ssh-record-a");
-  wire.current?.(Buffer.from("录制已停止"));
-  const reopened = new TerminalRecordings(manager, path.join(dir, "recordings"));
-  expect(reopened.list("ssh-record-b")).toEqual([]);
-  expect(reopened.list("ssh-record-a")).toHaveLength(1);
-  expect(reopened.read(id)).toMatchObject({ text: "中文字", summary: { reason: "stopped", truncated: false } });
+  expect(wires.has("ssh-record-a")).toBe(false);
+  a.emit(Buffer.from("录制已停止"));
+
+  vi.advanceTimersByTime(100);
+  b.emit(Buffer.from("继续"));
+  records.stop("ssh-record-b");
+  const reopened = reopen();
+  expect(reopened.list("ssh-record-a").map(({ id }) => id)).toEqual([a.id]);
+  expect(reopened.list("ssh-record-b").map(({ id }) => id)).toEqual([b.id]);
+  expect(reopened.read(a.id)).toMatchObject({
+    text: opening + closing,
+    summary: { reason: "stopped", truncated: false },
+    timeline: {
+      durationMs: 500,
+      checkpoints: [
+        { atMs: 140, end: opening.length },
+        { atMs: 300, end: (opening + closing).length },
+      ],
+    },
+  });
+  expect(reopened.read(b.id)).toMatchObject({
+    text: "独立会话继续",
+    timeline: {
+      durationMs: 600,
+      checkpoints: [
+        { atMs: 100, end: 4 },
+        { atMs: 600, end: 6 },
+      ],
+    },
+  });
+});
+
+test("录制读取保留旧文本和时间轴损坏时的文本", () => {
+  const { records, reopen, start } = recordingFixture();
+  const { id, file } = start("ssh-record-legacy");
+  vi.advanceTimersByTime(100);
+  const summary = records.stop("ssh-record-legacy");
+  const text = "旧🙂日志\nhttps://example.invalid/legacy";
+  writeFileSync(file, JSON.stringify({ summary, text }));
+  expect(reopen().read(id)).toEqual({ summary, text });
+
+  // This index points into the middle of the emoji's surrogate pair.
+  const timeline = {
+    durationMs: 100,
+    checkpoints: [
+      { atMs: 50, end: 2 },
+      { atMs: 80, end: text.length },
+    ],
+  };
+  writeFileSync(file, JSON.stringify({ summary, text, timeline }));
+  expect(reopen().read(id)).toEqual({ summary, text });
+});
+
+test("密集录制的时间轴受限，截断保留字节上限和完整字符", () => {
+  const { records, reopen, start } = recordingFixture();
+  const { id, emit, file } = start("ssh-record-dense");
+  const count = maxRecordingCheckpoints + 10;
+  const byte = Buffer.from("\n");
+  for (let i = 0; i < count; ++i) {
+    vi.advanceTimersByTime(1);
+    emit(byte);
+  }
+  vi.advanceTimersByTime(10);
+  const maxBytes = 256 * 1024;
+  emit(Buffer.from("\n".repeat(maxBytes - count - 2) + "中"));
+  vi.advanceTimersByTime(10);
+  records.stop("ssh-record-dense");
+  const content = reopen().read(id);
+  expect(content.summary.truncated).toBe(true);
+  expect(content.text).toBe("\n".repeat(maxBytes - 2));
+  expect(content.timeline?.durationMs).toBe(count + 20);
+  expect(content.timeline?.checkpoints.length).toBeLessThanOrEqual(maxRecordingCheckpoints);
+  expect(content.timeline?.checkpoints.at(-1)).toEqual({ atMs: count + 10, end: maxBytes - 2 });
+  expect(readFileSync(file).length).toBeLessThan(7 * maxBytes);
 });

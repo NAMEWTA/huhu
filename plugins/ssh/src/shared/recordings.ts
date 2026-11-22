@@ -11,5 +11,20 @@ export const RecordingSummary = z.strictObject({
   reason: z.enum(["stopped", "shell-ended", "vault-closed"]).nullable(),
 });
 export type RecordingSummary = z.infer<typeof RecordingSummary>;
-export const RecordingContent = z.strictObject({ summary: RecordingSummary, text: z.string() });
+
+export const maxRecordingCheckpoints = 2048;
+const PlaybackCheckpoint = z.strictObject({ atMs: z.int().positive(), end: z.int().positive() });
+export type PlaybackCheckpoint = z.infer<typeof PlaybackCheckpoint>;
+
+export const RecordingTimeline = z.strictObject({
+  durationMs: z.int().nonnegative(),
+  checkpoints: z.array(PlaybackCheckpoint).max(maxRecordingCheckpoints),
+});
+export type RecordingTimeline = z.infer<typeof RecordingTimeline>;
+
+export const RecordingContent = z.strictObject({
+  summary: RecordingSummary,
+  text: z.string(),
+  timeline: RecordingTimeline.optional(),
+});
 export type RecordingContent = z.infer<typeof RecordingContent>;

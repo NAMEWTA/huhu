@@ -1005,6 +1005,17 @@
     overflow-wrap: anywhere;
   }
 
+  .ssh-recording-playback {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+  }
+
+  .ssh-recording-playback label {
+    flex: 1 1 12rem;
+  }
+
   .ssh-workspace-trust {
     overflow-wrap: anywhere;
   }
