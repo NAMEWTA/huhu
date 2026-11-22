@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, type BigIntStats } from "node:fs";
 import path from "node:path";
 import { splitDocument, parseFrontmatter } from "../semantic/frontmatter.js";
 import { isIgnored, takeSnapshot } from "../watch/snapshot.js";
@@ -7,6 +7,28 @@ import { parseTags, parseWikiLinks, type WikiLink } from "./links.js";
 import { SearchIndex, type SearchHit } from "./search.js";
 
 const MAX_INDEX_BYTES = 10 * 1024 * 1024;
+
+/** null 表示超限，undefined 表示文件已变化，等下一次刷新。 */
+function readIndexText(abs: string): string | null | undefined {
+  const fd = openSync(abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return undefined;
+    if (stat.size > MAX_INDEX_BYTES) return null;
+
+    // 多读一个字节识别打开后的增长，避免把截断的正文写入索引。
+    const bytes = Buffer.allocUnsafe(stat.size + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const count = readSync(fd, bytes, length, bytes.length - length, null);
+      if (count === 0) return bytes.toString("utf8", 0, length);
+      length += count;
+    }
+    return length > MAX_INDEX_BYTES || fstatSync(fd).size > MAX_INDEX_BYTES ? null : undefined;
+  } finally {
+    closeSync(fd);
+  }
+}
 
 export interface TreeEntry {
   path: string;
@@ -128,15 +150,17 @@ export class VaultIndex {
       search.upsert({ path: rel, kind: "file", title: base, body: "", tags: "" });
       return;
     }
-    if ((entry?.size ?? 0) > MAX_INDEX_BYTES) {
-      search.upsert({ path: rel, kind: "note", title: base, body: "", tags: "" });
-      return;
-    }
-    let text = "";
+    let text: ReturnType<typeof readIndexText>;
     try {
-      text = readFileSync(path.join(this.root, rel), "utf8");
+      text = (entry?.size ?? 0) > MAX_INDEX_BYTES ? null : readIndexText(path.join(this.root, rel));
     } catch {
       return; // 读取时文件已消失：下一批监听事件会处理
+    }
+    if (text === undefined) return;
+    if (text === null) {
+      notes.delete(rel);
+      search.upsert({ path: rel, kind: "note", title: base, body: "", tags: "" });
+      return;
     }
     const fm = parseFrontmatter(text);
     const body = splitDocument(text).body;
@@ -179,37 +203,89 @@ export class VaultIndex {
       if (isIgnored(c.path)) continue;
       if (c.change === "deleted" || c.change === "renamed") {
         const gone = c.change === "deleted" ? c.path : (c.from as string);
-        this.tree.delete(gone);
-        this.notes.delete(gone);
-        this.search.removePath(gone);
+        this.removePath(gone);
       }
       if (c.change !== "deleted") {
-        const snap = takeSnapshot(path.join(this.root, path.dirname(c.path) === "." ? "" : path.dirname(c.path)), false);
-        const info = snap.get(path.basename(c.path));
-        if (info) {
-          this.tree.set(c.path, { path: c.path, type: "file", size: info.size, mtimeMs: info.mtimeMs });
-          const parts = c.path.split("/");
-          for (let i = 1; i < parts.length; i++) {
-            const d = parts.slice(0, i).join("/");
-            if (!this.tree.has(d)) this.tree.set(d, { path: d, type: "dir", size: 0, mtimeMs: 0 });
-          }
-          this.indexFile(c.path, this.notes, this.search);
+        const stat = this.statPath(c.path);
+        if (stat?.isFile()) this.updatePath(c.path, stat);
+      }
+    }
+  }
+
+  private statPath(rel: string): BigIntStats | undefined {
+    // lstat 一次取得普通文件的元数据，也保留快照排除文件符号链接的行为。
+    try {
+      return lstatSync(path.join(this.root, rel), { bigint: true, throwIfNoEntry: false });
+    } catch {
+      return undefined;
+    }
+  }
+
+  private updatePath(rel: string, stat: BigIntStats): void {
+    this.tree.set(rel, { path: rel, type: "file", size: Number(stat.size), mtimeMs: Number(stat.mtimeMs) });
+    const parts = rel.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join("/");
+      if (!this.tree.has(dir)) this.tree.set(dir, { path: dir, type: "dir", size: 0, mtimeMs: 0 });
+    }
+    this.indexFile(rel, this.notes, this.search);
+  }
+
+  private removePath(rel: string): void {
+    this.tree.delete(rel);
+    this.notes.delete(rel);
+    this.search.removePath(rel);
+  }
+
+  /** 自写操作后按磁盘现状刷新指定路径（监听器会过滤自写回声，索引需要主动更新）。 */
+  refreshPaths(paths: string[]): void {
+    const directoryNames = new Map<string, Set<string> | null>();
+    const removedDirs = new Set<string>();
+    for (const p of paths) {
+      if (this._indexing) this.dirty.add(p);
+      if (isIgnored(p)) continue;
+      const stat = this.statPath(p);
+      if (stat && !stat.isFile() && !stat.isDirectory()) {
+        this.removePath(p);
+        continue;
+      }
+      const missing = this.firstMissingPrefix(p, directoryNames);
+      if (missing && this.tree.get(missing)?.type === "dir") removedDirs.add(missing);
+      if (missing === undefined && stat?.isFile()) this.updatePath(p, stat);
+      else this.removePath(p);
+    }
+
+    if (removedDirs.size) {
+      for (const rel of this.tree.keys()) {
+        for (let prefix = rel; prefix !== "."; prefix = path.posix.dirname(prefix)) {
+          if (!removedDirs.has(prefix)) continue;
+          if (this._indexing) this.dirty.add(rel);
+          this.removePath(rel);
+          break;
         }
       }
     }
   }
 
-  /** 自写操作后按磁盘现状刷新指定路径（监听器会过滤自写回声，索引需要主动更新）。 */
-  refreshPaths(paths: string[]): void {
-    for (const p of paths) {
-      let exists = false;
-      try {
-        exists = takeSnapshot(path.join(this.root, path.dirname(p) === "." ? "" : path.dirname(p)), false).has(path.basename(p));
-      } catch {
-        // 父目录已不存在（例如文件夹被整体移走）：按已删除处理
+  /** 大小写不敏感的路径查找可以命中别名。逐层核对实际目录项，批内每个目录只读一次。 */
+  private firstMissingPrefix(rel: string, directoryNames: Map<string, Set<string> | null>): string | null | undefined {
+    let dir = "";
+    for (const name of rel.split("/")) {
+      let names = directoryNames.get(dir);
+      if (names === undefined) {
+        try {
+          names = new Set(readdirSync(path.join(this.root, dir)));
+        } catch {
+          names = null;
+        }
+        directoryNames.set(dir, names);
       }
-      this.applyChanges([{ path: p, change: exists ? "modified" : "deleted" }]);
+      // 目录读失败时只能清理这条刷新路径，无法确认整个子树已消失。
+      if (names === null) return null;
+      dir = dir ? `${dir}/${name}` : name;
+      if (!names.has(name)) return dir;
     }
+    return undefined;
   }
 
   entries(prefix = ""): TreeEntry[] {

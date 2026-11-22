@@ -115,7 +115,7 @@ export class VaultWatcher {
       const b = next.get(p);
       if (!a !== !b || (a && b && (a.mtimeMs !== b.mtimeMs || a.size !== b.size))) this.pending.add(p);
     }
-    this.flush(true);
+    this.flush(true, next);
   }
 
   private schedule(): void {
@@ -126,7 +126,7 @@ export class VaultWatcher {
     }, this.o.batchMs ?? 250);
   }
 
-  private flush(immediate = false): void {
+  private flush(immediate = false, polled?: ReadonlyMap<string, FileInfo>): void {
     if ((this.pending.size === 0 && this.heldCreated.length === 0) || this.closed) return;
     const paths = new Set(this.pending);
     this.pending.clear();
@@ -143,7 +143,9 @@ export class VaultWatcher {
       if (this.o.receipts.isTemporaryFile(p)) continue;
       const absolute = path.join(this.o.root, p);
       const before = this.snapshot.get(p);
-      const after = infoOf(absolute, true);
+      // The poll already enumerated exact directory names. Looking up an absent
+      // old spelling again can resolve to its renamed file on case-insensitive volumes.
+      const after = polled ? (polled.get(p) ?? null) : infoOf(absolute, true);
       if (!after && !before) {
         // 不是已跟踪的文件：目录被创建 / 删除 / 改名，或已不存在的未跟踪项（保守地都通知，只会多刷新一次列表）
         try {
@@ -187,7 +189,7 @@ export class VaultWatcher {
     const window = this.o.renameWindowMs ?? 2000;
     const hold = this.o.batchMs ?? 250;
     this.recentlyDeleted = this.recentlyDeleted.filter((d) => now - d.at < window);
-    const createdPool = [...this.heldCreated.map((h) => ({ path: h.path, info: h.info, at: h.at })), ...created.map((c) => ({ ...c, at: now }))];
+    const createdPool = [...this.heldCreated.filter((h) => !polled || polled.has(h.path)).map((h) => ({ path: h.path, info: h.info, at: h.at })), ...created.map((c) => ({ ...c, at: now }))];
     this.heldCreated = [];
     const pool = [...this.recentlyDeleted.map((d) => ({ path: d.path, info: d.info })), ...deleted];
     const takenDeleted = new Set<string>();

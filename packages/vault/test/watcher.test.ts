@@ -71,6 +71,28 @@ describe("目录变化（A05）", () => {
 });
 
 describe("原生监听", () => {
+  test("暂扣创建后轮询发现改名时，只用仍存在的新名配对删除记录", async () => {
+    const backend = vi.spyOn(parcelWatcher, "subscribe").mockResolvedValue({ unsubscribe: async () => {} });
+    vi.useFakeTimers();
+    try {
+      const { root, seen, w } = await setup();
+      const original = path.join(root, "readme.md");
+      writeFileSync(original, "正文");
+      backend.mock.calls[0]![1](null, [{ path: realpathSync(original), type: "create" }]);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(seen).toEqual([]);
+      renameSync(original, path.join(root, "README.md"));
+      w.poll();
+      expect(seen).toEqual([{ path: "README.md", change: "renamed", from: "readme.md" }]);
+      await vi.advanceTimersByTimeAsync(100);
+      w.poll();
+      expect(seen).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+      backend.mockRestore();
+    }
+  });
+
   test.skipIf(process.platform !== "linux")("移入完整目录后继续监听所有子目录里的文件", async () => {
     const { root, seen } = await setup();
     const staging = mkdtempSync(path.join(tmpdir(), "huhu-wt-stage-"));

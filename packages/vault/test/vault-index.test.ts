@@ -1,11 +1,35 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync, type PathLike } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
-import { VaultIndex } from "../src/index.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { ReceiptLog, VaultIndex, VaultWatcher } from "../src/index.js";
 
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    fstatSync: vi.fn(actual.fstatSync),
+    lstatSync: vi.fn(actual.lstatSync),
+    openSync: vi.fn(actual.openSync),
+    readdirSync: vi.fn(actual.readdirSync),
+    readFileSync: vi.fn(actual.readFileSync),
+    readSync: vi.fn(actual.readSync),
+    statSync: vi.fn(actual.statSync),
+  };
+});
+
+const OVERSIZED = 10 * 1024 * 1024 + 1;
 const dirs: string[] = [];
-afterEach(() => {
+const watchers: VaultWatcher[] = [];
+afterEach(async () => {
+  for (const watcher of watchers.splice(0)) await watcher.close();
+  vi.clearAllMocks();
+  vi.mocked(lstatSync).mockReset();
+  vi.mocked(openSync).mockReset();
+  vi.mocked(readdirSync).mockReset();
+  vi.mocked(readSync).mockReset();
+  vi.mocked(readFileSync).mockReset();
+  vi.mocked(statSync).mockReset();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function vault(files: Record<string, string>) {
@@ -17,6 +41,300 @@ function vault(files: Record<string, string>) {
   }
   return root;
 }
+
+describe("VaultIndex.refreshPaths", () => {
+  test.each([
+    { from: "notes/readme.md", to: "notes/README.md", children: [""], dirsRead: ["", "notes"] },
+    { from: "docs", to: "DOCS", children: ["/deep/first.md", "/deep/second.md"], dirsRead: ["", "DOCS", "DOCS/deep"] },
+  ])("大小写不敏感查找下将 $from 改名为 $to 后只保留新路径", async ({ from, to, children, dirsRead }) => {
+    const oldPaths = children.map((child) => `${from}${child}`);
+    const newPaths = children.map((child) => `${to}${child}`);
+    const root = vault(Object.fromEntries(oldPaths.map((p) => [p, "改名正文词 #移转 [[去向]]"])));
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const watcher = new VaultWatcher({ root, receipts: new ReceiptLog(), forcePolling: true, pollMs: 100_000, onChanges: (changes) => ix.applyChanges(changes) });
+    watchers.push(watcher);
+    await watcher.start();
+    const original = path.join(root, from);
+    const renamed = path.join(root, to);
+    const staging = path.join(root, "staging-case-rename");
+    renameSync(original, staging);
+    renameSync(staging, renamed);
+
+    // 保留真实磁盘目录枚举。只有经旧拼写查找文件或其目录时，模拟卷解析到新拼写。
+    const alias = (p: PathLike): PathLike => {
+      if (typeof p !== "string") return p;
+      return p === original || p.startsWith(`${original}${path.sep}`) ? renamed + p.slice(original.length) : p;
+    };
+    const { lstatSync: diskLstat, openSync: diskOpen, readdirSync: diskReaddir, statSync: diskStat, readFileSync: diskRead } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(lstatSync).mockImplementation((file, ...args) => diskLstat(alias(file), ...args));
+    vi.mocked(openSync).mockImplementation((file, ...args) => diskOpen(alias(file), ...args));
+    vi.mocked(readdirSync).mockImplementation((dir, ...args) => diskReaddir(alias(dir), ...args));
+    vi.mocked(statSync).mockImplementation((file, ...args) => diskStat(alias(file), ...args));
+    vi.mocked(readFileSync).mockImplementation((file, ...args) => diskRead(typeof file === "number" ? file : alias(file), ...args));
+    for (const p of oldPaths) expect(lstatSync(path.join(root, p)).isFile()).toBe(true);
+    vi.clearAllMocks();
+
+    ix.refreshPaths([...oldPaths, ...newPaths]);
+
+    expect(ix.entries(from)).toEqual([]);
+    expect(
+      ix
+        .entries()
+        .filter(({ type }) => type === "file")
+        .map(({ path: p }) => p),
+    ).toEqual(newPaths);
+    expect(
+      ix
+        .query("改名正文词")
+        .hits.map((hit) => hit.path)
+        .sort(),
+    ).toEqual(newPaths);
+    expect(
+      ix
+        .backlinks("去向.md")
+        .map((hit) => hit.path)
+        .sort(),
+    ).toEqual(newPaths);
+    expect(ix.allTags()).toEqual([{ tag: "移转", count: newPaths.length }]);
+    expect(vi.mocked(openSync).mock.calls.map(([file]) => file)).toEqual(newPaths.map((p) => path.join(root, p)));
+    expect(vi.mocked(readdirSync).mock.calls.map(([dir]) => dir)).toEqual(dirsRead.map((p) => path.join(root, p)));
+    expect(statSync).not.toHaveBeenCalled();
+    watcher.poll();
+    for (const p of newPaths) writeFileSync(path.join(root, p), "后续编辑正文词 #移转 [[去向]]");
+    watcher.poll();
+    watcher.poll();
+    expect(ix.entries(from)).toEqual([]);
+    expect(
+      ix
+        .query("后续编辑正文词")
+        .hits.map((hit) => hit.path)
+        .sort(),
+    ).toEqual(newPaths);
+    expect(
+      ix
+        .backlinks("去向.md")
+        .map((hit) => hit.path)
+        .sort(),
+    ).toEqual(newPaths);
+    expect(ix.allTags()).toEqual([{ tag: "移转", count: newPaths.length }]);
+  });
+});
+
+describe("VaultIndex.applyChanges", () => {
+  test("同目录批量创建任务只读取变更文件", async () => {
+    const root = vault({
+      "Tasks/existing.md": "既有笔记",
+      "Tasks/other.md": "其他笔记",
+      "Tasks/sub/nested.md": "子目录笔记",
+      "Tasks/.huhu/ignored.md": "内部文件",
+    });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const paths = Array.from({ length: 24 }, (_, i) => `Tasks/task-${i}.md`);
+    for (const [i, p] of paths.entries()) {
+      writeFileSync(path.join(root, p), `---\nhuhu: {kind: task, id: task-${i}, schema: 1}\n---\n批量创建任务\n`);
+    }
+
+    vi.clearAllMocks();
+    ix.applyChanges(paths.map((p) => ({ path: p, change: "created" })));
+
+    expect(
+      ix
+        .query("批量创建任务", { kind: "task" })
+        .hits.map((h) => h.path)
+        .sort(),
+    ).toEqual([...paths].sort());
+    expect(ix.counts()).toEqual({ files: 27, notes: 3 });
+    expect(readdirSync).not.toHaveBeenCalled();
+    expect(statSync).not.toHaveBeenCalled();
+    expect(vi.mocked(lstatSync).mock.calls.map(([file]) => file)).toEqual(paths.map((p) => path.join(root, p)));
+    expect(vi.mocked(openSync).mock.calls.map(([file]) => file)).toEqual(paths.map((p) => path.join(root, p)));
+    expect(fstatSync).toHaveBeenCalledTimes(paths.length);
+  });
+
+  test("多层目录的同批变更只读取事件路径，路径树补全对应祖先", async () => {
+    const root = vault({ "Tasks/untouched/deep/x.md": "保留原笔记" });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const paths = ["root.md", "Tasks/top.md", "Tasks/new/deeper/leaf.md", "Other/new/leaf.txt"];
+    for (const p of paths) {
+      const abs = path.join(root, p);
+      mkdirSync(path.dirname(abs), { recursive: true });
+      writeFileSync(abs, "跨层新增索引");
+    }
+
+    vi.clearAllMocks();
+    ix.applyChanges(paths.map((p) => ({ path: p, change: "created" })));
+
+    expect(readdirSync).not.toHaveBeenCalled();
+    expect(statSync).not.toHaveBeenCalled();
+    expect(vi.mocked(lstatSync).mock.calls.map(([file]) => file)).toEqual(paths.map((p) => path.join(root, p)));
+    expect(
+      ix
+        .query("跨层新增索引")
+        .hits.map((h) => h.path)
+        .sort(),
+    ).toEqual([...paths].sort());
+    expect(ix.query("保留原笔记").hits.map((h) => h.path)).toEqual(["Tasks/untouched/deep/x.md"]);
+    expect(
+      ix
+        .entries()
+        .filter((e) => e.type === "dir")
+        .map((e) => e.path),
+    ).toEqual(["Other", "Other/new", "Tasks", "Tasks/new", "Tasks/new/deeper", "Tasks/untouched", "Tasks/untouched/deep"]);
+  });
+
+  test("批次之间跨越 10 MiB 时刷新文件大小、正文、标签和反链", async () => {
+    const rel = "Tasks/limit.md";
+    const root = vault({ [rel]: "限额前的正文 #旧标签 [[去向]]" });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const abs = path.join(root, rel);
+    truncateSync(abs, OVERSIZED);
+    vi.clearAllMocks();
+
+    ix.applyChanges([{ path: rel, change: "modified" }]);
+
+    expect(openSync).not.toHaveBeenCalled();
+    expect(ix.entries(rel)[0]?.size).toBe(OVERSIZED);
+    expect(ix.query("limit", { kind: "note" }).hits.map((h) => h.path)).toEqual([rel]);
+    expect(ix.query("限额前的正文").hits).toEqual([]);
+    expect(ix.tagsOf(rel)).toEqual([]);
+    expect(ix.backlinks("去向.md")).toEqual([]);
+    expect(ix.counts()).toEqual({ files: 1, notes: 0 });
+
+    const rewritten = "缩小后的正文 #新标签 [[新去向]]";
+    writeFileSync(abs, rewritten);
+    ix.applyChanges([{ path: rel, change: "modified" }]);
+    expect(ix.entries(rel)[0]?.size).toBe(Buffer.byteLength(rewritten));
+    expect(ix.query("缩小后的正文").hits.map((h) => h.path)).toEqual([rel]);
+    expect(ix.tagsOf(rel)).toEqual(["新标签"]);
+    expect(ix.backlinks("新去向.md").map((h) => h.path)).toEqual([rel]);
+  });
+
+  test("同批首个文件处理时第二个文件增长超限，后续事件读到最新大小", async () => {
+    const first = "Tasks/first.md";
+    const later = "Tasks/later.md";
+    const root = vault({ [first]: "批内首个正文", [later]: "第二个文件的正文" });
+    const ix = new VaultIndex(root);
+    const firstAbs = path.join(root, first);
+    const laterAbs = path.join(root, later);
+    const { openSync: diskOpen } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(openSync).mockImplementationOnce((...args) => {
+      truncateSync(laterAbs, OVERSIZED);
+      return diskOpen(...args);
+    });
+
+    ix.applyChanges([
+      { path: first, change: "created" },
+      { path: later, change: "created" },
+    ]);
+
+    expect(vi.mocked(openSync).mock.calls.map(([file]) => file)).toEqual([firstAbs]);
+    expect(ix.entries(later)[0]?.size).toBe(OVERSIZED);
+    expect(ix.query("批内首个正文").hits.map((h) => h.path)).toEqual([first]);
+    expect(ix.query("第二个文件的正文").hits).toEqual([]);
+    expect(ix.query("later", { kind: "note" }).hits.map((h) => h.path)).toEqual([later]);
+  });
+
+  test("正文读取开始时文件增长超限，读取有界且不索引截断内容", async () => {
+    const rel = "growing.txt";
+    const body = "增长前的正文";
+    const root = vault({ [rel]: body });
+    const ix = new VaultIndex(root);
+    const { readSync: diskRead } = await vi.importActual<typeof import("node:fs")>("node:fs");
+    vi.mocked(readSync).mockImplementationOnce((...args) => {
+      truncateSync(path.join(root, rel), OVERSIZED);
+      return diskRead(...args);
+    });
+
+    ix.applyChanges([{ path: rel, change: "created" }]);
+
+    expect(readSync).toHaveBeenCalledTimes(1);
+    expect(readSync).toHaveBeenCalledWith(expect.any(Number), expect.any(Buffer), 0, Buffer.byteLength(body) + 1, null);
+    expect(ix.query(body).hits).toEqual([]);
+    expect(ix.query("growing", { kind: "note" }).hits.map((h) => h.path)).toEqual([rel]);
+  });
+
+  test("增量事件忽略文件符号链接，自写刷新清理已替换为链接的文件", async ({ skip }) => {
+    const root = vault({ "Tasks/old.md": "替换前的正文" });
+    const target = path.join(vault({ "target.md": "链接目标正文" }), "target.md");
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const old = path.join(root, "Tasks/old.md");
+    rmSync(old);
+    try {
+      symlinkSync(target, old, "file");
+      symlinkSync(target, path.join(root, "Tasks/alias.md"), "file");
+      symlinkSync(path.join(root, "missing.md"), path.join(root, "Tasks/broken.md"), "file");
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOSYS"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        skip("缺少创建文件符号链接的权限");
+        return;
+      }
+      throw error;
+    }
+
+    vi.clearAllMocks();
+    ix.applyChanges([
+      { path: "Tasks/alias.md", change: "created" },
+      { path: "Tasks/broken.md", change: "created" },
+    ]);
+    ix.refreshPaths(["Tasks/old.md"]);
+
+    expect(readdirSync).not.toHaveBeenCalled();
+    expect(openSync).not.toHaveBeenCalled();
+    expect(ix.entries().map((e) => e.path)).toEqual(["Tasks"]);
+    expect(ix.query("链接目标正文").hits).toEqual([]);
+    expect(ix.query("替换前的正文").hits).toEqual([]);
+  });
+
+  test("混合增量更新保留树、检索、反链和忽略规则，并在下批重读文件信息", async () => {
+    const root = vault({ "Tasks/edit.md": "原来的内容 #旧标签", "Tasks/move.md": "待移动的笔记 #移动", "Tasks/delete.md": "待删除的笔记" });
+    const ix = new VaultIndex(root);
+    await ix.build();
+    const edited = "全新的内容 [[Tasks/deep/moved]] #新标签";
+    writeFileSync(path.join(root, "Tasks/edit.md"), edited);
+    mkdirSync(path.join(root, "Tasks/deep/.huhu"), { recursive: true });
+    renameSync(path.join(root, "Tasks/move.md"), path.join(root, "Tasks/deep/moved.md"));
+    rmSync(path.join(root, "Tasks/delete.md"));
+    writeFileSync(path.join(root, "Tasks/deep/.draft.md"), "隐藏草稿");
+    writeFileSync(path.join(root, "Tasks/deep/.huhu/ignored.md"), "内部文件");
+    writeFileSync(path.join(root, "Tasks/deep/.DS_Store"), "系统文件");
+
+    ix.applyChanges([
+      { path: "Tasks/edit.md", change: "modified" },
+      { path: "Tasks/deep/moved.md", change: "renamed", from: "Tasks/move.md" },
+      { path: "Tasks/delete.md", change: "deleted" },
+      { path: "Tasks/deep/.draft.md", change: "created" },
+      { path: "Tasks/deep/.huhu/ignored.md", change: "created" },
+      { path: "Tasks/deep/.DS_Store", change: "created" },
+    ]);
+
+    expect(ix.entries().map((e) => [e.path, e.type])).toEqual([
+      ["Tasks", "dir"],
+      ["Tasks/deep", "dir"],
+      ["Tasks/deep/.draft.md", "file"],
+      ["Tasks/deep/moved.md", "file"],
+      ["Tasks/edit.md", "file"],
+    ]);
+    expect(ix.query("原来的内容").hits).toEqual([]);
+    expect(ix.query("待删除的笔记").hits).toEqual([]);
+    expect(ix.query("待移动的笔记").hits.map((h) => h.path)).toEqual(["Tasks/deep/moved.md"]);
+    expect(ix.query("隐藏草稿").hits.map((h) => h.path)).toEqual(["Tasks/deep/.draft.md"]);
+    expect(ix.tagsOf("Tasks/edit.md")).toEqual(["新标签"]);
+    expect(ix.tagsOf("Tasks/move.md")).toEqual([]);
+    expect(ix.backlinks("Tasks/deep/moved.md").map((b) => b.path)).toEqual(["Tasks/edit.md"]);
+    expect(ix.entries("Tasks/edit.md")[0]?.size).toBe(Buffer.byteLength(edited));
+
+    const rewritten = "随后在下一批写入的笔记内容";
+    writeFileSync(path.join(root, "Tasks/edit.md"), rewritten);
+    ix.applyChanges([{ path: "Tasks/edit.md", change: "modified" }]);
+    expect(ix.entries("Tasks/edit.md")[0]?.size).toBe(Buffer.byteLength(rewritten));
+    expect(ix.query("下一批写入").hits.map((h) => h.path)).toEqual(["Tasks/edit.md"]);
+  });
+});
 
 describe("VaultIndex.reconcile", () => {
   test("建立索引之后、监听器启动之前的写入（新建 / 修改 / 删除）由对账补上", async () => {
