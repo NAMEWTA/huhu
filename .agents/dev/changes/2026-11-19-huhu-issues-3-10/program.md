@@ -10,6 +10,10 @@
 
 当前源码组合在 `f310e541` 的 Agent／Tasks 五项联验通过；Web 邀请一项、Mail／Safe 新格式恢复两项和真实系统钥匙串一项通过。日志位于 `temp/issue-evidence/huhu-2026-11-22/agent-tasks-combined-linux.log` 与 `web-mail-safe-combined-linux.log`。最终共同包仍待构建与实际验收。独立审查发现候选制品与运行程序绑定不足、T7.2 收件前停用及一次 ACK 丢失顺序缺证、Mail 同地址子集恢复缺显式独立账号选项，正在补齐。三项均不得以现有绿灯代签。
 
+后续候选 `f19affac` 已补 Mail 同地址独立恢复，`outbox-engine.test.ts` 的 12 项实测通过，Mail 定向类型检查通过；日志为 `temp/issue-evidence/huhu-2026-11-22/mail-separate-restore-check.log`。包身份与回执读数复审修复在 `4e767f2e`，四个 E2E 文件的定向类型检查及两项收件回归通过。实际 UI 与最终包仍待验。
+
+原规格核对确认 #4 Linux Agent 环境与 #5 Linux 已批准终端规则外部执行缺正向路径，并无用户批准的 Windows 专用豁免。分别由 HC `t86/task01.md` 和 `t4x/task13.md` 实施。T7.2 跨日还需真实 Engine 与在线 scheduler 共用的测试时钟或隔离客机；仅将任务设为 18 秒后不满足跨日验收。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
