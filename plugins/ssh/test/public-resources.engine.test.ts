@@ -1555,9 +1555,14 @@ test.each(["cli", "mcp"] as const)("%s changes only the owned SSH workspace layo
     const remaining = WorkspaceRun.parse(data(await invoke(change, close)));
     expect(remaining.panes).toEqual([a]);
     await vi.waitFor(() => expect(closedRight).toBe(1));
+    expect(await invoke(change, input)).toEqual(result);
+    expect(data(await invoke(change, close))).toEqual(remaining);
+    expect(data(await invoke(list, {}))).toEqual([remaining]);
+    expect([closedLeft, closedRight]).toEqual([0, 1]);
     await f.chooseHosts([left.hostId]);
     expect(data(await invoke(list, {}))).toEqual([remaining]);
     expect(closedLeft).toBe(0);
+    expect(await invoke(change, input)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     expect(await invoke(change, close)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.allow(change, false);
     expect(await invoke(change, close)).toMatchObject(disabled);

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CapabilityIntentKeySchema, errors, HuhuError } from "@huhu/contracts";
 import type { CapabilityContext, HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { ChangeWorkspaceRun, layoutProblem, MAX_WORKSPACE_PANES, WorkspaceLayout, WorkspaceName, type WorkspaceRun } from "../shared/workspace.js";
+import { ChangeWorkspaceRun, layoutProblem, MAX_WORKSPACE_PANES, WorkspaceLayout, WorkspaceName, WorkspaceRun } from "../shared/workspace.js";
 import type { HostIntents } from "./host-intents.js";
 import { OwnedConnection, type PublicSshProbes } from "./public-probes.js";
 import { assertSshHosts, externalSshOwner, hasSshHosts, readBoundRoute, selectedSshHosts } from "./public-resources.js";
@@ -18,7 +18,14 @@ export const ReconnectOwnedRun = OwnedRun.extend({ connections: runtime.connecti
 export const ChangeOwnedWorkspaceLayout = OwnedRun.extend(ChangeWorkspaceRun.omit({ id: true }).shape);
 export const SaveOwnedTemplate = OwnedRun.extend({ name: WorkspaceName });
 const RunReceipt = OwnedRun.pick({ id: true, generation: true });
-const LayoutReceipt = RunReceipt.extend({ layoutRevision: z.uuid() });
+const LayoutRevisionReceipt = RunReceipt.extend({ layoutRevision: z.uuid() });
+const LayoutReceipt = z.union([
+  WorkspaceRun.extend({
+    layoutRevision: z.uuid(),
+    panes: z.array(WorkspaceRun.shape.panes.element.omit({ prompt: true, authPrompt: true, error: true })).min(1).max(MAX_WORKSPACE_PANES),
+  }),
+  LayoutRevisionReceipt,
+]);
 const TemplateReceipt = z.strictObject({ id: z.uuid(), revision: z.uuid() });
 type Address = z.infer<typeof OwnedConnection>;
 type Owned = { owner: string; bindings: Address[]; hostIds: readonly string[]; view: WorkspaceRun; detach(paneId?: string): void; authorized(): boolean; revoked?: true };
@@ -137,10 +144,11 @@ export class PublicWorkspaces {
           if (closed.sessionId) this.shells.closeWorkbench(closed.sessionId);
         }
         this.changed(id);
-        return { id, generation, layoutRevision };
+        return { ...this.snapshot(run), layoutRevision };
       },
     });
-    const current = this.resolve(context, id, result.generation);
+    const current = this.resolve(context, result.id, result.generation);
+    if ("panes" in result) return result;
     if (current.layoutRevision !== result.layoutRevision) throw errors.versionConflict(current.layoutRevision ?? id);
     return current;
   }
