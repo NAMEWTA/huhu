@@ -418,9 +418,9 @@ async function openSubsetFixture(directory: string, discover = vi.fn().mockRejec
     const events = { publish: vi.fn() };
     const api = { vault: { files: vault.files }, events, defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry) } as unknown as HuhuApi;
     const stop = await registerMailSubset(api, accounts, owner, removals, signal, mailIntents(undefined));
-    const call = async (name: string, input: unknown) => {
+    const call = async (name: string, input: unknown, subject = "subset-test") => {
       const entry = bindings.get(`mail.subset.${name}`)!;
-      return entry.output.parse(await entry.handler({ caller: "desktop", subject: "subset-test", signal, requestId: randomUUID() }, entry.input.parse(input)));
+      return entry.output.parse(await entry.handler({ caller: "desktop", subject, signal, requestId: randomUUID() }, entry.input.parse(input)));
     };
     const credentials = new ModuleCredentials({ ...owner, pluginId: "mail", definition: mailAccountDefinitionSchema, targets: ({ settings }) => accountTargets(settings) });
     const close = async () => {
@@ -492,6 +492,106 @@ engineTest("Mail 备份内的同地址账号可按各自 ID 恢复到空 Vault",
   }
 });
 
+engineTest.each([true, false])("Mail 子集只恢复 A 后，另选同地址 B 仍须确认（同一 ZIP=%s）", async (sameArchive) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-"));
+  let target: Awaited<ReturnType<typeof openSubsetFixture>> | undefined;
+  try {
+    target = await openSubsetFixture(directory);
+    const [firstId, secondId] = [randomUUID(), randomUUID()];
+    const rows = [firstId, secondId].map((accountId) => ({ accountId, definition: subsetAccountDefinition, drafts: {}, deliveries: [], readOverrides: [] }));
+    const source = target.vault.files.read(".huhu/vault.json")!.bytes;
+    const signal = new AbortController().signal;
+    const backup = async (accounts: typeof rows) => (await createMailArchive(source, { format: "huhu-mail-subset", version: 1, accounts, attachments: {} }, signal)).toString("base64");
+    const combined = await backup(rows);
+    const initial = (await target.call("preview", { content: sameArchive ? combined : await backup(rows.slice(0, 1)) })) as MailSubsetPreview;
+    await target.call("restore", { previewId: initial.previewId, accountIds: [firstId], confirm: true });
+    await target.close();
+    target = await openSubsetFixture(directory);
+
+    const preview = (await target.call("preview", { content: combined })) as MailSubsetPreview;
+    await expect(target.call("restore", { previewId: preview.previewId, accountIds: [secondId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(preview.accounts).toMatchObject([
+      { accountId: firstId, state: "restored" },
+      { accountId: secondId, state: "conflict", canKeepSeparate: true, existing: { accountId: firstId } },
+    ]);
+    expect((await target.accounts.list()).map(({ accountId }) => accountId)).toEqual([firstId]);
+    const result = (await target.call("restore", { previewId: preview.previewId, accountIds: [secondId], keepSeparateAccountIds: [secondId], confirm: true })) as Pick<MailSubsetPreview, "accounts">;
+    expect(result.accounts[0]).toMatchObject({ accountId: secondId, state: "restored" });
+    expect([firstId, secondId]).not.toContain(result.accounts[0]!.existing!.accountId);
+  } finally {
+    await target?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+engineTest("Mail 子集显式独立恢复第二账号失败后可使用原双选参数重开续跑", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "huhu-mail-subset-"));
+  const discover = vi.fn().mockRejectedValue(new Error("restore must not start a connection"));
+  let target: Awaited<ReturnType<typeof openSubsetFixture>> | undefined;
+  try {
+    target = await openSubsetFixture(directory, discover);
+    const [existingId, firstId, secondId] = [randomUUID(), randomUUID(), randomUUID()];
+    const existing = await target.credentials.save({ entityId: existingId, expectedRevision: null, definition: subsetAccountDefinition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "existing password" }] });
+    const draftId = randomUUID();
+    const revision = randomUUID();
+    const operationId = operationIdFor(draftId, revision);
+    const smtp = { host: "127.0.0.1", port: 1025, security: "none" } as const;
+    const draft = { ...content, accountId: secondId };
+    const delivery = { format: 1, operationId, draftId, revision, messageId: `<${randomUUID()}@huhu.local>`, claimedAt: "2026-01-01T00:00:00.000Z", from: sender, auth: "password", smtp, draft, text: "fixture", result: null };
+    const rows = [firstId, secondId].map((accountId) => ({ accountId, definition: subsetAccountDefinition, drafts: {}, deliveries: accountId === secondId ? [delivery] : [], readOverrides: [] }));
+    const packet = { format: "huhu-mail-subset", version: 1, accounts: rows, attachments: {} };
+    const archive = await createMailArchive(target.vault.files.read(".huhu/vault.json")!.bytes, packet, new AbortController().signal);
+    const preview = async (fixture: NonNullable<typeof target>) => (await fixture.call("preview", { content: archive.toString("base64") })) as MailSubsetPreview;
+    const restore = (fixture: NonNullable<typeof target>, previewId: string, ids = [firstId, secondId]) => fixture.call("restore", { previewId, accountIds: ids, keepSeparateAccountIds: ids, confirm: true });
+    const initial = await preview(target);
+    expect(initial.accounts).toMatchObject(rows.map(({ accountId }) => ({ accountId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } })));
+    const files = target.vault.files;
+    const deliveryPath = `${outboxDir}/${operationId}.json`;
+    const write = files.write.bind(files);
+    const fail = vi.spyOn(files, "write").mockImplementation(async (...args) => {
+      if (args[0] === deliveryPath) throw new Error("synthetic second-account delivery write failure");
+      return write(...args);
+    });
+    await expect(restore(target, initial.previewId).finally(() => fail.mockRestore())).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
+    expect(files.exists(deliveryPath)).toBe(false);
+    const started = await target.accounts.list();
+    expect(started).toHaveLength(2);
+    const firstTarget = started.find(({ accountId }) => accountId !== existingId)!.accountId;
+    const first = target.accounts.readDefinition(firstTarget)!;
+    const saved = await target.credentials.save({ entityId: firstTarget, expectedRevision: first.revision, definition: first.definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: "recovered password" }] });
+    await target.close();
+    target = await openSubsetFixture(directory, discover);
+
+    const reopened = await preview(target);
+    expect(reopened.accounts).toMatchObject([
+      { accountId: firstId, state: "restored", existing: { accountId: firstTarget } },
+      { accountId: secondId, state: "conflict", canKeepSeparate: true },
+    ]);
+    await expect(target.call("restore", { previewId: reopened.previewId, accountIds: [firstId, secondId], keepSeparateAccountIds: [firstId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    const result = (await restore(target, reopened.previewId, [secondId, firstId])) as Pick<MailSubsetPreview, "accounts">;
+    expect(result.accounts).toMatchObject([
+      { accountId: firstId, state: "restored", existing: { accountId: firstTarget } },
+      { accountId: secondId, state: "restored" },
+    ]);
+    const secondTarget = result.accounts[1]!.existing!.accountId;
+    expect([existingId, firstTarget, firstId, secondId]).not.toContain(secondTarget);
+    expect(await restore(target, (await preview(target)).previewId)).toEqual(result);
+    expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([existingId, firstTarget, secondTarget].sort());
+    for (const [id, value, expectedRevision] of [
+      [existingId, "existing password", existing.revision],
+      [firstTarget, "recovered password", saved.revision],
+    ] as const) {
+      expect(await target.credentials.use(id, [accountPasswordPurpose], async (_definition, values, revision) => [values.get(accountPasswordPurpose), revision])).toEqual([value, expectedRevision]);
+    }
+    expect(JSON.parse(target.vault.files.read(deliveryPath)!.bytes.toString())).toEqual({ ...delivery, draft: { ...draft, accountId: secondTarget } });
+    expect(target.events.publish).toHaveBeenCalledExactlyOnceWith("entity.changed", { kind: "mail-account", id: secondTarget, op: "created" });
+    expect(discover).not.toHaveBeenCalled();
+  } finally {
+    await target?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 engineTest.each([
   { scenario: "按原选择继续", occupied: false },
   { scenario: "仍拦截后来出现的同地址账号", occupied: true },
@@ -544,6 +644,7 @@ engineTest.each([
     const write = files.write.bind(files);
     const failedSecond = vi.spyOn(files, "write").mockImplementation(async (...args) => {
       if (args[0] === `.huhu/mail/read-overrides/${secondId}.json`) throw new Error("synthetic second-account write failure");
+      if (!occupied && args[0].includes("/mail-subset-confirmed/")) throw new Error("synthetic first-account confirmation write failure");
       return write(...args);
     });
     try {
@@ -584,11 +685,19 @@ engineTest.each([
       expect(target.events.publish).not.toHaveBeenCalled();
     } else {
       const reopened = await preview(target);
-      const result = await restore(target, reopened.previewId);
       expect(reopened.accounts).toMatchObject([
         { accountId: firstId, state: "restored" },
-        { accountId: secondId, state: "ready" },
+        { accountId: secondId, state: "conflict", canKeepSeparate: true, existing: { accountId: firstId } },
       ]);
+      await expect(target.call("restore", { previewId: reopened.previewId, accountIds: [secondId], confirm: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      const otherArchive = await createMailArchive(target.vault.files.read(".huhu/vault.json")!.bytes, { ...packet, version: 2 }, signal);
+      const different = (await target.call("preview", { content: otherArchive.toString("base64") })) as MailSubsetPreview;
+      expect(different.accounts[0]).toMatchObject({ accountId: firstId, state: "restored" });
+      await expect(restore(target, different.previewId)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      const other = (await target.call("preview", { content: archive }, "different-subject")) as MailSubsetPreview;
+      await expect(target.call("restore", { previewId: reopened.previewId, accountIds, confirm: true }, "different-subject")).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(target.call("restore", { previewId: other.previewId, accountIds, confirm: true }, "different-subject")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      const result = await restore(target, reopened.previewId);
       expect(result).toMatchObject({ accounts: accountIds.map((accountId) => ({ accountId, state: "restored", existing: { accountId } })) });
       expect(await restore(target, reopened.previewId)).toEqual(result);
       expect((await target.accounts.list()).map(({ accountId }) => accountId).sort()).toEqual([...accountIds].sort());

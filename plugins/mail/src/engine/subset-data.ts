@@ -61,7 +61,8 @@ const planRow = z.strictObject({
 });
 type PlanRow = z.infer<typeof planRow>;
 export type MailSubsetPreview = { previewId: string; accounts: PlanRow[] };
-type Plan = { packet: Packet; rows: PlanRow[]; actor: string; expires: number; restoring: boolean };
+type Plan = { packet: Packet; archiveHash: string; rows: PlanRow[]; actor: string; expires: number; restoring: boolean };
+type ConfirmedRestore = { targetId: string; batch: string | undefined };
 const ownerOf = (context: CapabilityContext) => mailActor(context, "mail.subset");
 const json = (value: unknown) => Buffer.from(JSON.stringify(value) + "\n");
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -208,26 +209,28 @@ function missingFor(files: Files, row: Data, data: Packet) {
   return [...attachmentRefs(row).values()].filter(({ digest, size }) => data.attachments[digest] === undefined && !bytesAt(files, digest, size)).length;
 }
 
-async function inspect(files: Files, accounts: Accounts, removals: AccountRemovals, confirmed: ReadonlyMap<string, string>, data: Packet) {
+async function inspect(files: Files, accounts: Accounts, removals: AccountRemovals, confirmed: ReadonlyMap<string, ConfirmedRestore>, data: Packet, batch?: string) {
   const current = await accounts.list();
   const { snapshot } = readDraftSnapshot(files);
   const matches = data.accounts.map((row) => {
     const key = fingerprint(row);
     const previousKey = row.messageLocations ? hash(json(row)) : key;
-    const confirmedTargetId = confirmed.get(key) ?? confirmed.get(previousKey);
+    const confirmation = confirmed.get(key) ?? confirmed.get(previousKey);
     const restored = current.find(({ accountId, definition }) => {
-      if (confirmedTargetId && accountId !== confirmedTargetId) return false;
+      if (confirmation && accountId !== confirmation.targetId) return false;
       return definition.restoredFrom === key || definition.restoredFrom === previousKey;
     });
-    return { row, confirmedTargetId, restored };
+    return { row, confirmation, restored };
   });
-  // Retrying the original IDs can reuse the same-address accounts confirmed by this Vault's journal.
-  const restoredInBatch = new Set(matches.flatMap(({ row, confirmedTargetId, restored }) => (restored?.accountId === row.accountId && confirmedTargetId === row.accountId ? [row.accountId] : [])));
-  const rows = matches.map(({ row, confirmedTargetId, restored }): PlanRow => {
+  // A restored row can exempt a sibling only in the same actor's original submission.
+  const restoredInBatch = new Set(matches.flatMap(({ confirmation, restored }) => (batch && confirmation?.batch === batch && restored ? [restored.accountId] : [])));
+  const restoredTargets = new Set(matches.flatMap(({ restored }) => (restored ? [restored.accountId] : [])));
+  const rows = matches.map(({ row, confirmation, restored }): PlanRow => {
     const sameId = current.find(({ accountId }) => accountId === row.accountId);
-    const sameAddress = current.find(({ accountId, definition }) => !restoredInBatch.has(accountId) && definition.settings.email.toLowerCase() === emailOf(row));
+    const sameAddressAccounts = current.filter(({ accountId, definition }) => !restoredInBatch.has(accountId) && definition.settings.email.toLowerCase() === emailOf(row));
+    const sameAddress = sameAddressAccounts.find(({ accountId }) => !restoredTargets.has(accountId)) ?? sameAddressAccounts[0];
     const blocked =
-      !!confirmedTargetId ||
+      !!confirmation ||
       !!removals.read(row.accountId) ||
       Object.keys(row.drafts).some((id) => snapshot.drafts[id]) ||
       row.deliveries.some(({ operationId }) => files.exists(outboxRecordPath(operationId))) ||
@@ -352,22 +355,23 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
   const runtime = owner && path.relative(files.root, owner.vault.runtimeDir).split(path.sep).join("/");
   const journal = runtime && !files.readOnly ? new OperationLog(files, files.abs(`${runtime}/mail-subset-journal`)) : undefined;
   const done = (id: string) => `${runtime}/mail-subset-confirmed/${id}.json`;
-  // The journal records the destination ID. The definition stores the source fingerprint.
-  const confirmed = new Map<string, string>();
+  // The journal records the destination and batch. The definition stores the source fingerprint.
+  const confirmed = new Map<string, ConfirmedRestore>();
   let blocked = false;
   if (journal && accounts) {
     try {
       for (const operation of journal.list()) {
-        const match = /^mail-subset:([0-9a-f-]+):([0-9a-f]{64})$/.exec(operation.kind);
+        const match = /^mail-subset:([0-9a-f-]+):([0-9a-f]{64})(?::([0-9a-f]{64}))?$/.exec(operation.kind);
         if (!match || operation.state === "rolled_back") continue;
-        const [, accountId, expected] = match;
+        const [, accountId, expected, batch] = match;
+        const confirmation = { targetId: accountId!, batch };
         if (files.exists(done(operation.opId))) {
-          if (operation.state === "committed") confirmed.set(expected!, accountId!);
+          if (operation.state === "committed") confirmed.set(expected!, confirmation);
           continue;
         }
         if (operation.state === "committed" && (accounts.readDefinition(accountId!)?.definition.restoredFrom === expected || removals.read(accountId!))) {
           await files.write(done(operation.opId), json({ format: 1 }), { expectedVersion: null });
-          confirmed.set(expected!, accountId!);
+          confirmed.set(expected!, confirmation);
         } else if (journal.rollback(operation).state !== "rolled_back") blocked = true;
       }
       if (!blocked) journal.recover();
@@ -411,7 +415,8 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
         content,
         async () => {
           signal.throwIfAborted();
-          const parsed = validate(readMailArchive(Buffer.from(content, "base64")));
+          const archive = Buffer.from(content, "base64");
+          const parsed = validate(readMailArchive(archive));
           const { rows } = await withMailSnapshot(files, () => inspect(files, ownerAccounts, removals, confirmed, parsed));
           signal.throwIfAborted();
           const now = Date.now();
@@ -424,7 +429,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
           }
           if (plans.size >= 4) throw invalid("本机邮件恢复预检已满，请稍后重试。");
           const previewId = randomUUID();
-          plans.set(previewId, { packet: parsed, rows, actor, expires: now + expireMs, restoring: false });
+          plans.set(previewId, { packet: parsed, archiveHash: hash(archive), rows, actor, expires: now + expireMs, restoring: false });
           return { previewId, accounts: rows };
         },
         ({ previewId }) => previewId,
@@ -459,17 +464,20 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
       const signal = AbortSignal.any([context.signal, lifetime]);
       if (!journal || blocked) throw invalid("本机 Mail 恢复记录需要检查。");
       const separate = new Set(keepSeparateAccountIds);
+      const selectedIds = accountIds.toSorted();
+      const separateIds = [...separate].sort();
       return once(
         context,
         name,
         previewId,
-        separate.size ? { accountIds: accountIds.toSorted(), keepSeparateAccountIds: [...separate].sort() } : accountIds.toSorted(),
+        separate.size ? { accountIds: selectedIds, keepSeparateAccountIds: separateIds } : selectedIds,
         async () => {
           const plan = planOf(context, previewId);
           const previewed = new Map(plan.rows.map((row) => [row.accountId, row]));
-          if ([...separate].some((id) => !previewed.get(id)?.canKeepSeparate)) throw invalid("仅可将通过预检的同地址邮箱保留为独立账号。");
-          if (!isWorkbenchCaller(context.caller) && accountIds.some((id) => !previewed.has(id) || (previewed.get(id)?.state === "conflict" && !separate.has(id)))) throw invalid("所选邮箱须通过原预检。");
+          if (selectedIds.some((id) => !previewed.has(id))) throw invalid("所选邮箱须通过原预检。");
+          if (separateIds.some((id) => previewed.get(id)?.state !== "restored" && !previewed.get(id)?.canKeepSeparate)) throw invalid("仅可将通过预检的同地址邮箱保留为独立账号。");
           if (plan.restoring) throw invalid("已开始提交，请等待恢复结果。");
+          const batch = hash(json([plan.actor, plan.archiveHash, selectedIds, separateIds]));
           plan.restoring = true;
           const commit = () =>
             withMailSnapshot(files, async () => {
@@ -477,13 +485,16 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
               if (blocked) throw invalid("本机 Mail 恢复记录需要检查。");
               const data = plan.packet;
               const chosen = new Set(accountIds);
-              const inspection = await inspect(files, ownerAccounts, removals, confirmed, data);
+              const inspection = await inspect(files, ownerAccounts, removals, confirmed, data, batch);
               const { restoredInBatch } = inspection;
               const rows = inspection.rows.filter(({ accountId }) => chosen.has(accountId));
               const incompatible = rows.some(({ accountId, state, canKeepSeparate, existing }) => {
                 if (state === "restored") return false;
-                if (separate.has(accountId)) return !canKeepSeparate || existing?.accountId !== previewed.get(accountId)?.existing?.accountId;
-                return state === "conflict";
+                const preview = previewed.get(accountId)!;
+                if (separate.has(accountId)) return !canKeepSeparate || !preview.canKeepSeparate || existing?.accountId !== preview.existing?.accountId;
+                if (state === "conflict") return true;
+                if (isWorkbenchCaller(context.caller) || preview.state !== "conflict") return false;
+                return !preview.canKeepSeparate || !preview.existing || !restoredInBatch.has(preview.existing.accountId);
               });
               if (rows.length !== chosen.size || incompatible) throw invalid("所选邮箱存在冲突，请重新预检并选择可恢复项。");
               for (const row of data.accounts) {
@@ -496,7 +507,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                 const targetId = keepSeparate ? randomUUID() : row.accountId;
                 const changes = prepare(files, row, data, targetId);
                 try {
-                  await journal.run(id, `mail-subset:${targetId}:${key}`, changes, { afterStep: () => signal.throwIfAborted() });
+                  await journal.run(id, `mail-subset:${targetId}:${key}:${batch}`, changes, { afterStep: () => signal.throwIfAborted() });
                   signal.throwIfAborted();
                   await ownerAccounts.restoreDefinition(targetId, { ...row.definition, restoredFrom: key }, signal, keepSeparate, restoredInBatch);
                 } catch (error) {
@@ -511,7 +522,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
                   }
                 }
                 restoredInBatch.add(targetId);
-                confirmed.set(key, targetId);
+                confirmed.set(key, { targetId, batch });
                 await files.write(done(id), json({ format: 1 }), { expectedVersion: null }).catch(() => undefined);
                 if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: targetId, op: "created" });
               }
@@ -519,7 +530,7 @@ export async function registerMailSubset(api: HuhuApi, accounts: Accounts | unde
               return { accounts: result.filter(({ accountId }) => chosen.has(accountId)) };
             });
           // Account removal also takes its account lock before entering the snapshot writer.
-          const run = [...accountIds].sort().reduceRight((next, id) => () => removals.serialize(id, next), commit);
+          const run = selectedIds.reduceRight((next, id) => () => removals.serialize(id, next), commit);
           const restore = run();
           pending.add(restore);
           try {
