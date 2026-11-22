@@ -10,7 +10,7 @@ import { isInbox } from "./account-definition.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
-import { cachedMailboxMessages, gmailSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
+import { cachedMailboxMessages, gmailSummary, graphSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
 import { operationIdSchema, OutboxStorage, type OutboxIntent, type OutboxRecord } from "./outbox-storage.js";
 import { readPublicMail } from "./public-mail.js";
 import { makeMailSearchText, searchWords } from "./search-text.js";
@@ -29,8 +29,9 @@ const pageInput = z.strictObject({ accountId: accountId.optional(), time: dateWi
 const pageOutput = z.strictObject({ total: z.int().nonnegative(), nextOffset: z.int().nonnegative().nullable() });
 const imapRow = imapSummary.extend({ source: z.literal("imap"), date: z.iso.datetime().nullable() });
 const gmailRow = gmailSummary.extend({ source: z.literal("gmail"), date: z.iso.datetime().nullable() });
+const graphRow = graphSummary.extend({ source: z.literal("graph"), date: z.iso.datetime().nullable() });
 const sentRow = z.strictObject({ source: z.literal("sent"), accountId, operationId: operationIdSchema, subject: z.string(), date: z.iso.datetime() });
-const conversationMessage = z.discriminatedUnion("source", [imapRow, gmailRow, sentRow]);
+const conversationMessage = z.discriminatedUnion("source", [imapRow, gmailRow, graphRow, sentRow]);
 const conversationSummary = z.strictObject({ conversationId, accountId, participants: z.array(draftRecipient).min(1), count: z.int().positive(), unread: z.int().nonnegative(), latest: conversationMessage });
 const listOutput = pageOutput.extend({ conversations: z.array(conversationSummary) });
 const messagesOutput = pageOutput.extend({ messages: z.array(conversationMessage) });
@@ -131,7 +132,7 @@ function sameTarget(message: ConversationMessage, target: MailLocationTarget) {
   if (message.accountId !== target.accountId) return false;
   if (target.source === "sent") return message.source === "sent" && message.operationId === target.operationId;
   if (message.source === "sent" || message.localMessageId !== target.localMessageId || message.folder !== target.folder) return false;
-  if (target.source === "gmail") return message.source === "gmail" && message.nativeId === target.nativeId;
+  if (target.source !== "imap") return message.source === target.source && message.nativeId === target.nativeId;
   return message.source === "imap" && message.uidValidity === target.uidValidity && message.uid === target.uid;
 }
 
@@ -210,7 +211,8 @@ export function registerConversations(
           const info = existing && (!text || existing.senderNames) ? existing : ((await readPublicMail(Buffer.from(entry.source, "base64")).catch(() => undefined)) ?? existing);
           if (!info) continue;
           const date = entry.receivedAt ?? info.date ?? entry.cachedAt ?? null;
-          const message: ConversationMessage = entry.summary.transport === "gmail" ? { ...entry.summary, source: "gmail", date } : { ...entry.summary, source: "imap", date };
+          const summary = entry.summary;
+          const message: ConversationMessage = summary.transport === "imap" ? { ...summary, source: "imap", date } : summary.transport === "gmail" ? { ...summary, source: "gmail", date } : { ...summary, source: "graph", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
           signal.throwIfAborted();
           const body = text ? bodyMatch(await searchText.read(entry.source, signal, remember), text) : undefined;

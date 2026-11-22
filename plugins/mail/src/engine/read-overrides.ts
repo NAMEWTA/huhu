@@ -1,13 +1,15 @@
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { gmailNativeId } from "./gmail-history.js";
+import { graphNativeId } from "./graph-mail.js";
 import { sourceMessage } from "./reply-context.js";
 
 export const readOverrideId = z.hash("sha256", { enc: "hex" });
 const { folder } = sourceMessage.shape;
 export const imapMessageLocation = z.strictObject({ transport: z.literal("imap"), folder, uidValidity: z.string().regex(/^[1-9][0-9]*$/), uid: z.int().positive() });
 export const gmailMessageLocation = z.strictObject({ transport: z.literal("gmail"), folder, nativeId: gmailNativeId });
-export const portableMessageLocation = z.discriminatedUnion("transport", [imapMessageLocation, gmailMessageLocation]);
+export const graphMessageLocation = z.strictObject({ transport: z.literal("graph"), folder, nativeId: graphNativeId });
+export const portableMessageLocation = z.discriminatedUnion("transport", [imapMessageLocation, gmailMessageLocation, graphMessageLocation]);
 export type PortableMessageLocation = z.infer<typeof portableMessageLocation>;
 export const readOverrideFile = z.strictObject({ format: z.literal(1), messages: z.array(readOverrideId), messageLocations: z.array(portableMessageLocation).optional() });
 export const readOverridePath = (accountId: string) => `.huhu/mail/read-overrides/${accountId}.json`;

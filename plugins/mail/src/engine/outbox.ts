@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { MailAccountDefinition } from "./account-definition.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftPlainText, draftRecipient, uuid, type StoredDraftContent } from "./draft-content.js";
+import { sendGraphMail } from "./graph-send.js";
+import { MailOAuthError } from "./oauth-provider.js";
 import {
   deleteDetails,
   hasSameRecipients,
@@ -91,7 +93,7 @@ function evidenceView({ operationId, messageId, draftId, revision, evidence }: D
   if (!evidence) return null;
   const { claimedAt, outcome } = evidence;
   const summary = { operationId, messageId, draftId, revision, claimedAt, subject: "", retained: true as const, retryableRecipients: [] };
-  if ("reason" in outcome) return { ...summary, ...outcome, state: "unknown" };
+  if (!("finishedAt" in outcome)) return { ...summary, ...outcome, state: "unknown" };
   return { ...summary, ...outcome, state: outcomeState(outcome.recipients) };
 }
 
@@ -287,9 +289,18 @@ export class MailOutbox {
     if (!recipientsOf(draft).length) throw unavailable("recipient-required", "请添加至少一个收件人");
     const { accounts, transport } = this;
     const sender = draft.accountId && (await accounts?.list())?.find(({ accountId }) => accountId === draft.accountId);
-    if (!accounts || !sender || !sender.definition.settings.smtpEnabled) throw unavailable("sender-not-available", "请选择已启用 SMTP 的发件账号");
-    if (!transport) throw unavailable("smtp-transport-unavailable", "SMTP 传输尚未装配");
+    if (!accounts || !sender) throw unavailable("sender-not-available", "请选择已启用发送的邮箱账号");
+    const identity = sender.definition.oauth;
+    const graph = identity?.route === "graph" ? { clientId: identity.clientId, subject: identity.subject } : undefined;
     const settings = sender.definition.settings;
+    if (!settings.smtpEnabled) {
+      if (identity?.route === "graph") {
+        if (identity.graphSend === false) throw unavailable("graph-send-permission", "Microsoft Graph 未授予当前凭据 Mail.Send 权限。");
+        throw unavailable("sender-not-available", "此 Microsoft Graph 账号未启用发送。");
+      }
+      throw unavailable("sender-not-available", "请选择已启用 SMTP 的发件账号");
+    }
+    if (!graph && !transport) throw unavailable("smtp-transport-unavailable", "SMTP 传输尚未装配");
     const intent: OutboxIntent = {
       format: 1,
       operationId,
@@ -300,6 +311,7 @@ export class MailOutbox {
       claimedAt: new Date().toISOString(),
       from: settings.email,
       auth: settings.auth,
+      ...(graph && { graph }),
       smtp: settings.smtp,
       draft,
       text: draftPlainText(draft.body),
@@ -315,41 +327,51 @@ export class MailOutbox {
     return receipt(intent);
   }
 
-  private async deliver(intent: OutboxIntent, version: string, accountId: string, attachments: MailSmtpMessage["attachments"], accounts: MailAccounts, transport: MailSmtpTransport, signal: AbortSignal): Promise<void> {
+  private async deliver(intent: OutboxIntent, version: string, accountId: string, attachments: MailSmtpMessage["attachments"], accounts: MailAccounts, transport: MailSmtpTransport | undefined, signal: AbortSignal): Promise<void> {
     const addresses = recipientsOf(intent.draft);
+    const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
+    const message: MailSmtpMessage = {
+      from: intent.from,
+      to: [...to],
+      cc: [...cc],
+      bcc: [...bcc],
+      subject,
+      text: intent.text,
+      messageId: intent.messageId,
+      date: intent.claimedAt,
+      attachments,
+      ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
+      ...(replyContext?.references.length && { references: [...replyContext.references] }),
+    };
     let outcome: MailSmtpResult;
     try {
-      outcome = await accounts.withSmtpCredentials(
-        accountId,
-        async (settings, password) => {
-          if (!sameSender(intent, settings) || signal.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
-          const { to, cc, bcc, subject, reply: replyContext } = intent.draft;
-          try {
-            const message = {
-              from: intent.from,
-              to: [...to],
-              cc: [...cc],
-              bcc: [...bcc],
-              subject,
-              text: intent.text,
-              messageId: intent.messageId,
-              date: intent.claimedAt,
-              attachments,
-              ...(replyContext?.inReplyTo && { inReplyTo: replyContext.inReplyTo }),
-              ...(replyContext?.references.length && { references: [...replyContext.references] }),
-            };
-            const reply = await transport({ ...intent.smtp }, password, message, signal, intent.auth === "oauth2" ? "oauth2" : undefined);
-            const checked = smtpResultSchema.parse(reply);
-            if (hasSameRecipients(checked, addresses)) return checked;
-          } catch {
-            // The transport may already have sent DATA.
-          }
-          return uniformOutcome(addresses, "data", "unknown");
-        },
-        signal,
-      );
-    } catch {
+      outcome = intent.graph
+        ? await accounts.withGraphSendCredentials(
+            accountId,
+            async ({ settings, oauth }, endpoint, token, assertCurrent) => {
+              if (signal.aborted || settings.email !== intent.from || oauth?.clientId !== intent.graph?.clientId || oauth?.subject !== intent.graph?.subject) return uniformOutcome(addresses, "credential", "not-delivered");
+              return sendGraphMail(endpoint, token, message, signal, assertCurrent);
+            },
+            signal,
+          )
+        : await accounts.withSmtpCredentials(
+            accountId,
+            async (settings, password) => {
+              if (!transport || !sameSender(intent, settings) || signal.aborted) return uniformOutcome(addresses, "credential", "not-delivered");
+              try {
+                const reply = await transport({ ...intent.smtp }, password, message, signal, intent.auth === "oauth2" ? "oauth2" : undefined);
+                const checked = smtpResultSchema.parse(reply);
+                if (hasSameRecipients(checked, addresses)) return checked;
+              } catch {
+                // The transport may already have sent DATA.
+              }
+              return uniformOutcome(addresses, "data", "unknown");
+            },
+            signal,
+          );
+    } catch (error) {
       outcome = uniformOutcome(addresses, "credential", "not-delivered");
+      if (intent.graph && error instanceof MailOAuthError && error.reason === "permission-missing") outcome.reason = "graph-send-permission";
     }
     try {
       await this.drafts.serialize(async () => this.storage.write({ ...intent, result: { ...outcome, finishedAt: new Date().toISOString() } }, version));

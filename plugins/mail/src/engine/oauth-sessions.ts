@@ -20,7 +20,7 @@ const beginInput = z.strictObject({
   repair: z.strictObject({ accountId: id, expectedRevision: id }).optional(),
 });
 const phase = z.enum(["waiting", "finishing", "configured", "failed", "cancelled", "expired", "unknown"]);
-const sessionOutput = z.strictObject({ sessionId: id, host: z.string(), phase, reason: z.string().optional(), accountId: id.optional(), route: z.literal("imap").optional(), smtp: z.boolean().optional() });
+const sessionOutput = z.strictObject({ sessionId: id, host: z.string(), phase, reason: z.string().optional(), accountId: id.optional(), route: z.enum(["imap", "graph"]).optional(), smtp: z.boolean().optional() });
 const storedStatus = sessionOutput.omit({ host: true });
 const sessionIndex = z.strictObject({ actor: z.hash("sha256", { enc: "hex" }), accountId: id });
 export const mailOAuthCapabilityDescriptors = {
@@ -107,8 +107,8 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
     }
   }
 
-  function end(session: Session, state: Status["phase"], reason?: OAuthIssue, configured?: { accountId: string; smtp: boolean }) {
-    session.status = { sessionId: session.status.sessionId, host, phase: state, ...(reason && { reason }), ...(configured && { ...configured, route: "imap" as const }) };
+  function end(session: Session, state: Status["phase"], reason?: OAuthIssue, configured?: { accountId: string; smtp: boolean; route: "imap" | "graph" }) {
+    session.status = { sessionId: session.status.sessionId, host, phase: state, ...(reason && { reason }), ...configured };
     session.close();
     persist(session.receipt, session.status);
   }
@@ -171,14 +171,18 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
     if (!ledger?.lookup(indexOwner, { capability: "mail.oauth.exchange", intentKey: sessionId })) return ledger?.available ? { sessionId, host, phase: "expired", reason: "expired" } : unknown;
     const proof = await accounts?.confirmOAuthCommit(metadata.accountId, sessionId);
     if (!proof) return unknown;
-    const configured = { sessionId, host, phase: "configured", accountId: metadata.accountId, route: "imap", smtp: proof.smtp } as const;
+    const configured = { sessionId, host, phase: "configured", accountId: metadata.accountId, route: proof.route ?? "imap", smtp: proof.smtp } as const;
     persist(receipt, configured);
     if (active) active.status = configured;
     return configured;
   }
 
   api.defineCapability(
-    bindCapability(mailOAuthCapabilityDescriptors.availability, () => ({ host: runtime?.hostLabel ?? "当前 Engine 主机", gmail: Boolean(accounts && runtime?.issuers.gmail), outlook: Boolean(accounts && runtime?.issuers.outlook) })),
+    bindCapability(mailOAuthCapabilityDescriptors.availability, () => ({
+      host: runtime?.hostLabel ?? "当前 Engine 主机",
+      gmail: Boolean(accounts && runtime?.issuers.gmail),
+      outlook: Boolean(accounts && runtime?.issuers.outlook),
+    })),
   );
   api.defineCapability(
     bindCapability(mailOAuthCapabilityDescriptors.begin, async (context, input) => {
@@ -227,6 +231,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
       let redirect: URL | undefined;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let closed = false;
+      const scopes = input.smtp || input.provider !== "outlook" ? issuer.scopes : issuer.scopes.filter((scope) => !/\/SMTP\.Send$/i.test(scope));
       const server = createServer((request, response) => {
         response.setHeader("Content-Type", "text/plain; charset=utf-8");
         response.setHeader("Cache-Control", "no-store");
@@ -263,7 +268,19 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
         const redirectUri = redirect.href;
         const work = (async () => {
           try {
-            const { bundle, idToken } = await requestOAuthToken(issuer, input.provider, { grant_type: "authorization_code", code, redirect_uri: redirectUri, code_verifier: verifier }, active, now());
+            const { bundle, idToken } = await requestOAuthToken(
+              issuer,
+              input.provider,
+              {
+                grant_type: "authorization_code",
+                code,
+                redirect_uri: redirectUri,
+                code_verifier: verifier,
+                ...(input.provider === "outlook" && { scope: scopes.join(" ") }),
+              },
+              active,
+              now(),
+            );
             const identity = await verifyOAuthIdentity(issuer, input.provider, idToken, nonce, input.email, active, now());
             active.throwIfAborted();
             const saved = await accounts.saveOAuth(
@@ -272,7 +289,7 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
               bundle,
               active,
             );
-            end(session, "configured", undefined, { accountId: saved.accountId, smtp: saved.definition.settings.smtpEnabled });
+            end(session, "configured", undefined, { accountId: saved.accountId, smtp: saved.definition.settings.smtpEnabled, route: saved.definition.oauth!.route });
             if (!lifetime.aborted) api.events.publish("entity.changed", { kind: "mail-account", id: saved.accountId, op: input.repair ? "updated" : "created" });
           } catch (error) {
             if (session.status.phase === "configured") return;
@@ -313,7 +330,6 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
         timer = setTimeout(() => stop(session, "expired"), runtime.ttlMs ?? 5 * 60_000);
         timer.unref();
         const auth = new URL(issuer.authorize);
-        const scopes = input.smtp || input.provider !== "outlook" ? issuer.scopes : issuer.scopes.filter((scope) => !scope.endsWith("/SMTP.Send"));
         const parameters = new URLSearchParams({
           client_id: issuer.clientId,
           redirect_uri: redirect.href,
@@ -328,7 +344,9 @@ export function registerMailOAuth(api: HuhuApi, accounts: ReturnType<typeof open
         if (input.provider === "gmail") {
           parameters.set("access_type", "offline");
           parameters.set("prompt", "consent");
-        } else parameters.set("response_mode", "query");
+        } else {
+          parameters.set("response_mode", "query");
+        }
         auth.search = parameters.toString();
         // After launch the listener belongs to the session, even if the RPC response is lost.
         void runtime.openBrowser(auth.href).catch(() => {

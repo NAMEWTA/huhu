@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { OAuthProvider } from "../engine/oauth-provider.js";
 
 type Availability = { host: string; gmail: boolean; outlook: boolean };
-type Status = { sessionId: string; host: string; phase: "waiting" | "finishing" | "configured" | "failed" | "cancelled" | "expired" | "unknown"; reason?: string; accountId?: string; route?: "imap"; smtp?: boolean };
+type Status = { sessionId: string; host: string; phase: "waiting" | "finishing" | "configured" | "failed" | "cancelled" | "expired" | "unknown"; reason?: string; accountId?: string };
 const reasons: Record<string, string> = {
   "not-configured": "此主机尚未配置该服务的授权客户端。",
   "browser-unavailable": "无法在 Engine 主机上打开系统浏览器。",
@@ -13,9 +13,12 @@ const reasons: Record<string, string> = {
   denied: "邮箱服务拒绝了授权。",
   "identity-invalid": "无法核验邮箱服务的账号响应。",
   "address-mismatch": "浏览器中登录的邮箱与填写的地址不一致。",
-  "permission-missing": "服务未提供 IMAP 所需的权限。",
-  "graph-metadata-only": "Microsoft Graph 仅返回邮件基本权限，无法读取正文或附件，也不能用于 IMAP。",
-  "wrong-resource": "Microsoft Graph 授权无法用于 Outlook IMAP 或 SMTP。",
+  "permission-missing": "服务未提供读取邮件所需的权限。",
+  "graph-metadata-only": "Microsoft Graph 仅返回邮件基本权限，无法读取正文或附件。",
+  "wrong-resource": "授权凭据的受众与邮箱访问方式不匹配。",
+  "graph-api-auth": "Microsoft Graph 未接受当前授权。",
+  "graph-api-permission": "Microsoft Graph 拒绝访问收件箱，请核对邮件读取权限。",
+  "graph-api-unavailable": "暂时无法通过 Microsoft Graph 连接收件箱。",
   "protocol-unavailable": "服务已授权，但无法连接 IMAP 或读取所选目录，请检查服务端的协议设置。",
   reauthorize: "服务未提供可长期使用的凭据，请重新授权。",
   "account-changed": "邮箱已变化，请重新打开账号再授权。",
@@ -111,11 +114,11 @@ export function MailOAuthControls({
 
   const host = status?.host ?? availability.data?.host;
   const ready = availability.data?.[input.provider];
-  const text = active ? (status.phase === "waiting" ? `请在 ${host} 的系统浏览器中完成授权。` : "正在核验邮箱身份和 IMAP 访问。") : status?.reason ? (reasons[status.reason] ?? failure) : "";
+  const text = active ? (status.phase === "waiting" ? `请在 ${host} 的系统浏览器中查看授权。` : "正在核验邮箱身份和访问权限。") : status?.reason ? (reasons[status.reason] ?? failure) : "";
   return (
     <div>
       {availability.isError ? <p>暂时无法读取主机的授权配置。</p> : ready === false ? <p>{host} 尚未配置此授权客户端。</p> : null}
-      {input.provider === "outlook" && <p>此授权用于 Outlook IMAP 和 SMTP。Microsoft Graph 权限需要独立授权。</p>}
+      {input.provider === "outlook" && <p>浏览器授权用于 Outlook IMAP 和 SMTP。已有的 Microsoft Graph 邮件权限可自动用于收件箱。</p>}
       <Button type="button" disabled={!ready || active} loading={starting} onClick={() => void begin()}>
         {input.repair ? "在系统浏览器重新授权" : "在系统浏览器授权"}
       </Button>

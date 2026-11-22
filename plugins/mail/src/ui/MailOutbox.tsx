@@ -1,7 +1,7 @@
 import { Banner, Button, Dialog } from "@huhu/ui";
 import { CapabilityError, useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useState } from "react";
-import type { Delivery, DeliverySummary, Draft } from "./mail-types.js";
+import type { Delivery, DeliverySummary, Draft, MailAccount } from "./mail-types.js";
 
 export const deliveryLabels = {
   sending: "正在投递",
@@ -11,7 +11,23 @@ export const deliveryLabels = {
   "partially-accepted": "部分接受",
 } satisfies Record<DeliverySummary["state"], string>;
 
-export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDeleted }: { operationId: string; readOnly: boolean; onChanged(message: string): void; onRetry(operationId: string): void; onDeleted(): void }) {
+const missingDraftMessage = "源草稿已丢弃，无法从这条记录创建重试。";
+
+export function MailOutbox({
+  operationId,
+  accounts,
+  readOnly,
+  onChanged,
+  onRetry,
+  onDeleted,
+}: {
+  operationId: string;
+  accounts: MailAccount[];
+  readOnly: boolean;
+  onChanged(message: string): void;
+  onRetry(operationId: string): void;
+  onDeleted(): void;
+}) {
   const engine = useEngine();
   const status = useCapability<Delivery | null>("mail.outbox.status", { operationId });
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -20,6 +36,8 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
   const [recheck, setRecheck] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const row = status.data;
+  const draftId = row?.retryableRecipients.length ? row.draftId : undefined;
+  const draft = useCapability<{ draft: Draft | null }>("mail.drafts.get", { draftId }, { enabled: !!draftId });
   const refresh = status.refetch;
 
   useEffect(() => {
@@ -41,9 +59,13 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
     );
 
   const delivery = row;
-  const retryable = row.retryableRecipients;
+  const sender = accounts.find(({ accountId }) => accountId === draft.data?.draft?.accountId);
+  const canRetry = sender?.definition.settings.smtpEnabled && sender.authState["account-password"] === "configured";
+  const retryable = canRetry ? row.retryableRecipients : [];
   const recipients = "recipients" in row ? row.recipients : [];
   const destinations = retryable.filter((address) => selected.has(address));
+  const sourceDraftMissing = draftId !== undefined && draft.isSuccess && draft.data.draft === null;
+  const detailError = sourceDraftMissing ? missingDraftMessage : error;
 
   async function retry() {
     if (!destinations.length || busy || readOnly) return;
@@ -52,7 +74,7 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
     try {
       const { draft } = await engine.call<{ draft: Draft | null }>("mail.drafts.get", { draftId: delivery.draftId });
       if (!draft) {
-        setError("源草稿已丢弃，无法从这条记录创建重试。");
+        setError(missingDraftMessage);
         return;
       }
       const { operationId: retryId } = await engine.call<{ operationId: string }>("mail.outbox.retry", { parentOperationId: operationId, expectedRevision: draft.revision, recipients: destinations }, { write: true });
@@ -81,7 +103,7 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
   }
 
   return (
-    <article className="hu-mail-detail">
+    <article className="hu-mail-detail" aria-busy={draftId ? draft.isPending || draft.isFetching : undefined}>
       <h2>{row.retained ? "保留的投递记录" : row.subject || "未填写主题"}</h2>
       <p role="status">{deliveryLabels[row.state]}</p>
       {row.retained && <p className="hu-mail-help">来源邮箱已移除。可用下方记录核对投递。</p>}
@@ -90,7 +112,14 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
           重试自 <code>{row.retry.parentMessageId}</code>
         </p>
       )}
-      {row.state === "unknown" && <Banner>SMTP 接受情况尚未确认。可用 Message-ID 向邮件服务商核对这次投递。</Banner>}
+      {row.state === "unknown" && <Banner>服务端接受情况尚未确认。可用 Message-ID 向邮件服务商核对这次投递。</Banner>}
+      {"graphStatus" in row && row.graphStatus && (
+        <p>
+          {row.graphStatus === 403 ? "Microsoft Graph 拒绝发送（HTTP 403）" : `Microsoft Graph HTTP ${row.graphStatus}`}
+          {row.graphErrorCode && ` · ${row.graphErrorCode}`}
+        </p>
+      )}
+      {"reason" in row && row.reason === "graph-send-permission" && !("graphStatus" in row && row.graphStatus) && <Banner>该次投递时，Microsoft Graph 凭据缺少 Mail.Send 权限。</Banner>}
       <p className="hu-mail-help">
         Message-ID <code>{row.messageId}</code>
       </p>
@@ -131,7 +160,7 @@ export function MailOutbox({ operationId, readOnly, onChanged, onRetry, onDelete
           </Button>
         </fieldset>
       )}
-      {error && <Banner tone="danger">{error}</Banner>}
+      {detailError && <Banner tone="danger">{detailError}</Banner>}
       <div className="hu-mail-row">
         {row.state === "unknown" && (
           <Button

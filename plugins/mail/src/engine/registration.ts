@@ -70,7 +70,11 @@ export async function apply(
   const lifetime = new AbortController();
   const once = mailIntents(owner && !owner.vault.readOnly ? new OperationReceipts(path.join(owner.vault.runtimeDir, "mail-tool-intents.ndjson")) : undefined);
   const removals = new AccountRemovals(api.vault.files);
-  const accounts = owner ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal) : undefined;
+  const accounts = owner
+    ? openMailAccounts(owner, undefined, removals, oauthRuntime, lifetime.signal, (id) => {
+        api.events.publish("entity.changed", { kind: "mail-account", id, op: "updated" });
+      })
+    : undefined;
   if (accounts && owner && !owner.vault.readOnly) await accounts.recover();
   const drainSubset = await registerMailSubset(api, accounts, owner, removals, lifetime.signal, once);
   api.defineCapability(

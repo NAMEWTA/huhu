@@ -17,9 +17,22 @@ import {
 import { AccountRemovals } from "./account-removals.js";
 import { MailAccountError, type MailFolderDiscovery } from "./discovery.js";
 import { GmailHistoryError, readGmailHistory, type GmailHistoryInput } from "./gmail-history.js";
+import { GraphMailError, graphMailEndpoint, probeGraphInbox, readGraphDelta, type GraphSyncInput } from "./graph-mail.js";
 import { discoverImapFolders } from "./imap-discovery.js";
 import { fetchImapMessages, markImapMessageRead, waitForImapActivity, type ImapSyncCursor } from "./imap-message.js";
-import { MailOAuthError, mailPermission, oauthMailEndpoints, oauthProvider, requestOAuthToken, sealedOAuthToken, type MailOAuthRuntime, type OAuthProvider, type SealedOAuthToken } from "./oauth-provider.js";
+import {
+  MailOAuthError,
+  mailPermission,
+  oauthMailEndpoints,
+  oauthProvider,
+  requestOAuthToken,
+  sealedOAuthToken,
+  tokenResource,
+  type MailOAuthIssuer,
+  type MailOAuthRuntime,
+  type OAuthProvider,
+  type SealedOAuthToken,
+} from "./oauth-provider.js";
 import type { MailEndpoint } from "./presets.js";
 
 export type MailAccountOwner = Pick<CredentialOwner<MailAccountDefinition>, "vault" | "localRoot" | "localVaultInstanceId" | "protection">;
@@ -45,7 +58,14 @@ function mailAccount({ entityId, revision, authState }: CredentialSummary, defin
 }
 
 /** The Engine supplies the trusted Vault owner. Keep this service in-process. */
-export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDiscovery = discoverImapFolders, removals = new AccountRemovals(owner.vault.files), oauth?: MailOAuthRuntime, lifetime = new AbortController().signal) {
+export function openMailAccounts(
+  owner: MailAccountOwner,
+  discover: MailFolderDiscovery = discoverImapFolders,
+  removals = new AccountRemovals(owner.vault.files),
+  oauth?: MailOAuthRuntime,
+  lifetime = new AbortController().signal,
+  permissionsChanged?: (accountId: string) => void,
+) {
   const credentials = new ModuleCredentials({
     ...owner,
     pluginId: accountsModule,
@@ -72,8 +92,39 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     if (!provider.success || !issuer || definition.oauth?.clientId !== issuer.clientId) throw new MailAccountError("oauth-not-configured");
     const { imap, smtp } = providerEndpoints(provider.data, definition.settings.email, definition.oauth?.personal === true);
     const same = (a: MailEndpoint, b: MailEndpoint) => a.host === b.host && a.port === b.port && a.security === b.security;
-    if (!same(imap, definition.settings.imap) || !same(smtp, definition.settings.smtp)) throw new MailAccountError("oauth-reauthorize");
+    if (definition.oauth?.route !== "graph" && (!same(imap, definition.settings.imap) || !same(smtp, definition.settings.smtp))) throw new MailAccountError("oauth-reauthorize");
     return { provider: provider.data, issuer };
+  }
+  const graphReadScopes = (scopes: readonly string[]) => scopes.filter((scope) => !/\/Mail\.Send$/i.test(scope));
+  function refreshGraphGrant(issuer: MailOAuthIssuer, token: SealedOAuthToken, requested: readonly string[], signal: AbortSignal) {
+    const readOnly = graphReadScopes(requested);
+    const redeem = (scopes: readonly string[]) => requestOAuthToken(issuer, "outlook", { grant_type: "refresh_token", refresh_token: token.refresh }, signal, now(), token, scopes);
+    return redeem(requested).catch((error: unknown) => {
+      signal.throwIfAborted();
+      if (!readOnly.length || requested.length === readOnly.length || !(error instanceof MailOAuthError) || error.reason !== "reauthorize") throw error;
+      return redeem(readOnly);
+    });
+  }
+  async function tryGraph(issuer: MailOAuthIssuer, exchange: SealedOAuthToken, send: boolean, signal: AbortSignal) {
+    const configured = issuer.preauthorizedGraphScopes;
+    if (!configured) return;
+    const readOnly = graphReadScopes(configured);
+    if (!readOnly.length) return;
+    const requested = send ? configured : readOnly;
+    try {
+      const { bundle } = await refreshGraphGrant(issuer, exchange, requested, signal);
+      const graphInbox = await probeGraphInbox(issuer.graphApi ?? graphMailEndpoint, bundle.access, signal);
+      return { token: { ...bundle, graphInbox } };
+    } catch (error) {
+      signal.throwIfAborted();
+      // The verified Exchange exchange remains available if no usable Graph grant exists.
+      if (error instanceof GraphMailError) return { fallback: error.reason };
+      if (error instanceof MailOAuthError) {
+        if (error.reason === "graph-metadata-only" || error.reason === "wrong-resource") return { fallback: error.reason };
+        if (error.reason === "reauthorize" || error.reason === "permission-missing") return { fallback: "grant-unavailable" as const };
+      }
+      return { fallback: "graph-api-unavailable" as const };
+    }
   }
   async function renew(accountId: string) {
     const signal = AbortSignal.any([lifetime, removals.signal(accountId)]);
@@ -83,14 +134,30 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       token: sealedOAuthToken.parse(JSON.parse(values.get(accountPasswordPurpose)!)),
     }));
     const { issuer, provider } = transportIssuer(definition);
+    if ((definition.oauth?.route === "graph") !== (tokenResource(token) === "graph")) throw new MailAccountError("oauth-reauthorize");
     if (rejectedRevisions.get(accountId) === revision) throw new MailAccountError("oauth-reauthorize");
     if (token.until > now() + 60_000) return;
     try {
-      const { bundle } = await requestOAuthToken(issuer, provider, { grant_type: "refresh_token", refresh_token: token.refresh }, signal, now(), token);
+      const graph = mailPermission(provider, token.scopes, tokenResource(token)).graph;
+      const { bundle } = graph ? await refreshGraphGrant(issuer, token, graph.scopes, signal) : await requestOAuthToken(issuer, provider, { grant_type: "refresh_token", refresh_token: token.refresh }, signal, now(), token);
+      const permission = mailPermission(provider, bundle.scopes, tokenResource(bundle));
+      if ((definition.oauth?.route === "graph") !== Boolean(permission.graph)) throw new MailOAuthError("wrong-resource");
       signal.throwIfAborted();
       await removals.serialize(accountId, async () => {
         removals.assertActive(accountId);
-        await credentials.save({ entityId: accountId, expectedRevision: revision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(bundle) }], signal });
+        const identity = definition.oauth;
+        const graphSend = permission.graph?.send;
+        const lostGraphSend = graphSend === false && definition.settings.smtpEnabled;
+        const changed = identity?.route === "graph" && (lostGraphSend || (identity.graphSend !== undefined && identity.graphSend !== graphSend));
+        const next: MailAccountDefinition = changed && identity ? { ...definition, oauth: { ...identity, graphSend }, settings: { ...definition.settings, smtpEnabled: definition.settings.smtpEnabled && graphSend === true } } : definition;
+        await credentials.save({
+          entityId: accountId,
+          expectedRevision: revision,
+          definition: next,
+          actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(bundle), ...(lostGraphSend && { reconfigure: true }) }],
+          signal,
+        });
+        if (changed && !lifetime.aborted) permissionsChanged?.(accountId);
       });
     } catch (error) {
       if (error instanceof MailOAuthError) {
@@ -114,18 +181,18 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     await pending;
     signal.throwIfAborted();
   }
-  async function useTransport<R>(accountId: string, signal: AbortSignal, operation: (definition: MailAccountDefinition, material: string, smtp: boolean, scopes?: string) => Promise<R>) {
+  async function useTransport<R>(accountId: string, signal: AbortSignal, operation: (definition: MailAccountDefinition, material: string, credential: SealedOAuthToken | undefined, revision: string) => Promise<R>) {
     await ensureOAuthAccess(accountId, signal);
-    const result = await credentials.use(accountId, [accountPasswordPurpose], async (definition, values) => {
+    const result = await credentials.use(accountId, [accountPasswordPurpose], async (definition, values, revision) => {
       try {
         signal.throwIfAborted();
         removals.assertActive(accountId);
         const value = values.get(accountPasswordPurpose)!;
-        if (definition.settings.auth !== "oauth2") return { data: await operation(definition, value, true) } as const;
+        if (definition.settings.auth !== "oauth2") return { data: await operation(definition, value, undefined, revision) } as const;
         transportIssuer(definition);
         const token = sealedOAuthToken.parse(JSON.parse(value));
-        if (token.until <= now()) throw new MailAccountError("oauth-reauthorize");
-        return { data: await operation(definition, token.access, token.smtp, token.scopes) } as const;
+        if (token.until <= now() || (definition.oauth?.route === "graph") !== (tokenResource(token) === "graph")) throw new MailAccountError("oauth-reauthorize");
+        return { data: await operation(definition, token.access, token, revision) } as const;
       } catch (error) {
         return { error } as const;
       }
@@ -178,7 +245,7 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     async saveOAuth(
       target: { sessionId: string; accountId: string; expectedRevision: string | null; provider: OAuthProvider; email: string; label: string; smtp: boolean },
       identity: { subject: string; personal: boolean },
-      token: SealedOAuthToken,
+      exchangeOrGmail: SealedOAuthToken,
       signal: AbortSignal,
     ) {
       const { accountId, provider, email, label, expectedRevision } = target;
@@ -188,25 +255,44 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       if (repair && (repair.definition.settings.provider !== provider || repair.definition.settings.email.toLowerCase() !== email.toLowerCase() || repair.definition.oauth?.subject !== identity.subject))
         throw new MailOAuthError("account-changed");
       const { imap, smtp } = providerEndpoints(provider, email, identity.personal);
-      const settings = { provider, email, label, auth: "oauth2" as const, imap, smtp, smtpEnabled: target.smtp && token.smtp };
-      const found = await discover({ endpoint: imap, email, password: token.access, oauth: true, signal }).catch(() => {
-        throw new MailOAuthError("protocol-unavailable");
-      });
-      const paths = repair?.definition.folders.map(({ path }) => path) ?? ["INBOX"];
+      // An Inbox-only Graph grant cannot replace a user's other selected Exchange folders.
+      const graph = provider === "outlook" && !repair?.definition.folders.some(({ path }) => !isInbox(path)) ? await tryGraph(issuer, exchangeOrGmail, target.smtp, signal) : undefined;
+      const token = graph?.token ?? exchangeOrGmail;
+      const permission = mailPermission(provider, token.scopes, tokenResource(token));
+      if (!permission.imap && !permission.graph) throw new MailOAuthError(permission.problem ?? "permission-missing");
+      const route = permission.graph ? "graph" : "imap";
+      // smtpEnabled is the existing account-level send toggle. The protected token controls the actual route and grant.
+      const settings = { provider, email, label, auth: "oauth2" as const, imap, smtp, smtpEnabled: target.smtp && (permission.graph?.send ?? token.smtp) };
+      let found: readonly MailFolder[];
+      if (route === "graph") {
+        found = [{ path: "INBOX", name: "INBOX", delimiter: null, specialUse: "\\Inbox", flags: [] }];
+      } else {
+        found = await discover({ endpoint: imap, email, password: token.access, oauth: true, signal }).catch(() => {
+          throw new MailOAuthError("protocol-unavailable");
+        });
+      }
+      const paths = route === "graph" ? ["INBOX"] : (repair?.definition.folders.map(({ path }) => path) ?? ["INBOX"]);
       const folders = paths.map((path) => found.find((row) => row.path === path && isSelectable(row)));
       if (!folders.every((row) => row !== undefined)) throw new MailOAuthError("protocol-unavailable");
       const definition = mailAccountDefinitionSchema.parse({
         format: 1,
         settings,
         folders,
-        oauth: { clientId: issuer.clientId, subject: identity.subject, route: "imap", ...(identity.personal && { personal: true }) },
+        oauth: {
+          clientId: issuer.clientId,
+          subject: identity.subject,
+          route,
+          ...(identity.personal && { personal: true }),
+          ...(permission.graph && target.smtp && { graphSend: permission.graph.send }),
+          ...(graph?.fallback && { graphFallback: graph.fallback }),
+        },
         ...(repair?.definition.restoredFrom && { restoredFrom: repair.definition.restoredFrom }),
       });
       return removals.serialize(accountId, async () => {
         signal.throwIfAborted();
         removals.assertActive(accountId);
         // The witness belongs to the very same protected generation as the new token.
-        const value = JSON.stringify({ ...token, commit: { sessionId: target.sessionId, smtp: settings.smtpEnabled } });
+        const value = JSON.stringify({ ...token, commit: { sessionId: target.sessionId, smtp: settings.smtpEnabled, ...(route === "graph" && { route }) } });
         const save = () => credentials.save({ entityId: accountId, expectedRevision, definition, actions: [{ purpose: accountPasswordPurpose, action: "replace", value, reconfigure: true }], signal });
         const saved = repair
           ? await save()
@@ -248,9 +334,37 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
     },
     withSmtpCredentials<R>(accountId: string, send: (settings: MailAccountDefinition["settings"], password: string) => Promise<R>, signal = lifetime) {
       removals.assertActive(accountId);
-      return useTransport(accountId, signal, ({ settings }, password, smtp) => {
-        if (!smtp) throw new MailAccountError("oauth-reauthorize");
+      return useTransport(accountId, signal, ({ settings, oauth: identity }, password, credential) => {
+        if (identity?.route === "graph" || (credential && (!credential.smtp || (settings.provider === "outlook" && !mailPermission("outlook", credential.scopes).smtp)))) throw new MailAccountError("oauth-reauthorize");
         return send(settings, password);
+      });
+    },
+    withGraphSendCredentials<R>(accountId: string, send: (definition: MailAccountDefinition, endpoint: string, token: string, assertCurrent: () => void) => Promise<R>, signal: AbortSignal) {
+      return useTransport(accountId, signal, (definition, token, credential, revision) => {
+        if (definition.oauth?.route !== "graph" || !credential) throw new MailAccountError("invalid-selection");
+        if (!mailPermission("outlook", credential.scopes, tokenResource(credential)).graph?.send) throw new MailOAuthError("permission-missing");
+        if (!definition.settings.smtpEnabled) throw new MailAccountError("invalid-selection");
+        const assertCurrent = () => {
+          signal.throwIfAborted();
+          removals.assertActive(accountId);
+          const current = readDefinition(accountId);
+          const sender = current?.definition;
+          if (sender?.oauth?.route === "graph" && (!sender.settings.smtpEnabled || sender.oauth.graphSend === false)) throw new MailOAuthError("permission-missing");
+          // The revision identifies both the send setting and the grant checked above.
+          if (current?.revision !== revision || rejectedRevisions.get(accountId) === revision || credential.until <= now()) throw new MailAccountError("oauth-reauthorize");
+        };
+        return send(definition, oauth?.issuers.outlook?.graphApi ?? graphMailEndpoint, token, assertCurrent);
+      });
+    },
+    fetchGraphDelta(accountId: string, folder: string, previous: GraphSyncInput | undefined, signal: AbortSignal) {
+      return useTransport(accountId, signal, async ({ oauth: identity, folders }, token, credential) => {
+        if (identity?.route !== "graph" || !isInbox(folder) || !folders.some(({ path }) => path === folder)) throw new MailAccountError("invalid-selection");
+        if (!credential || !mailPermission("outlook", credential.scopes, tokenResource(credential)).graph) {
+          throw new HuhuError("INVALID_INPUT", "Microsoft Graph 读取正文和附件需要 Mail.Read 或 Mail.ReadWrite 权限。", { details: { reason: "graph-read-permission" } });
+        }
+        const endpoint = oauth?.issuers.outlook?.graphApi ?? graphMailEndpoint;
+        const inbox = credential.graphInbox ?? (await probeGraphInbox(endpoint, token, signal));
+        return readGraphDelta(endpoint, token, inbox, previous, signal);
       });
     },
     fetchGmailHistory(accountId: string, folder: string, previous: GmailHistoryInput | undefined, signal: AbortSignal) {
@@ -258,15 +372,16 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       if (!endpoint || !isInbox(folder)) return;
       const current = readDefinition(accountId)?.definition;
       if (current?.settings.provider !== "gmail" || !current.oauth) return;
-      return useTransport(accountId, signal, async ({ settings, oauth: binding, folders }, token, _smtp, scopes) => {
+      return useTransport(accountId, signal, async ({ settings, oauth: binding, folders }, token, credential) => {
         if (settings.provider !== "gmail" || !binding || !folders.some(({ path }) => path === folder)) throw new MailAccountError("invalid-selection");
-        if (!scopes || !mailPermission("gmail", scopes).imap) throw new GmailHistoryError("gmail-api-permission");
+        if (!credential || !mailPermission("gmail", credential.scopes).imap) throw new GmailHistoryError("gmail-api-permission");
         return readGmailHistory(endpoint, token, settings.email, previous, signal);
       });
     },
     async fetchMessages(accountId: string, folder: string, cursor: ImapSyncCursor | undefined, reset: (validity: string) => Promise<void>, signal: AbortSignal) {
-      const result = await useTransport(accountId, signal, async ({ settings, folders }, password) => {
+      const result = await useTransport(accountId, signal, async ({ settings, folders, oauth: identity }, password, credential) => {
         if (!folders.some(({ path }) => path === folder)) return { error: new MailAccountError("invalid-selection") };
+        if (identity?.route === "graph" || (settings.provider === "outlook" && credential && !mailPermission("outlook", credential.scopes).imap)) return { error: new MailAccountError("oauth-reauthorize") };
         try {
           return { data: await fetchImapMessages({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, cursor, reset) };
         } catch (error) {
@@ -277,8 +392,9 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       return result.data;
     },
     async markRead(accountId: string, folder: string, validity: string, uid: number, signal: AbortSignal) {
-      return useTransport(accountId, signal, async ({ settings, folders }, password) => {
+      return useTransport(accountId, signal, async ({ settings, folders, oauth: identity }, password, credential) => {
         if (!folders.some(({ path }) => path === folder)) return "needs-refresh" as const;
+        if (identity?.route === "graph" || (settings.provider === "outlook" && credential && !mailPermission("outlook", credential.scopes).imap)) return "local" as const;
         try {
           return await markImapMessageRead({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, validity, uid);
         } catch (error) {
@@ -288,8 +404,9 @@ export function openMailAccounts(owner: MailAccountOwner, discover: MailFolderDi
       });
     },
     async waitForInbox(accountId: string, folder: string, cursor: { uidValidity: string; through: number }, wake: () => void, signal: AbortSignal) {
-      await useTransport(accountId, signal, async ({ settings, folders }, password) => {
+      await useTransport(accountId, signal, async ({ settings, folders, oauth: identity }, password, credential) => {
         if (signal.aborted || !folders.some(({ path }) => path === folder)) return;
+        if (identity?.route === "graph" || (settings.provider === "outlook" && credential && !mailPermission("outlook", credential.scopes).imap)) return;
         await waitForImapActivity({ endpoint: settings.imap, email: settings.email, password, signal, ...(settings.auth === "oauth2" && { oauth: true }) }, folder, cursor, wake);
       });
     },

@@ -297,7 +297,7 @@ export function MailAccountDialog({ repair, onClose, onSaved }: { repair?: MailA
             <>
               <label className="hu-mail-check">
                 <input type="checkbox" checked={form.smtpEnabled} onChange={(event) => change({ ...form, smtpEnabled: event.currentTarget.checked })} />
-                授权包含发送权限时启用 SMTP
+                授权包含发送权限时启用发送
               </label>
               <MailOAuthControls
                 key={JSON.stringify([form.provider, form.email, form.label, form.smtpEnabled, repair?.revision])}

@@ -18,6 +18,7 @@ const intentSchema = identity.extend({
   claimedAt: z.iso.datetime(),
   from: z.email(),
   auth: z.enum(["password", "app-password", "oauth2"]),
+  graph: z.strictObject({ clientId: z.string().min(1), subject: z.string().min(1) }).optional(),
   smtp: z.strictObject({ host: z.string().min(1), port: z.number().int().min(1).max(65_535), security: z.enum(["tls", "starttls", "none"]) }),
   draft: storedDraftContent,
   text: z.string().max(2 * 1024 * 1024),

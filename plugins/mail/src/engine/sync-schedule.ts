@@ -124,6 +124,7 @@ export function registerMailSyncSchedule(
     for (const account of rows) {
       if (signal.aborted || !read().minutes) return;
       const { accountId, definition, authState } = account;
+      let folders = definition.folders;
       if (authState["account-password"] !== "configured") continue;
       const failure = failures.get(accountId);
       if (failure && failure.next > now()) continue;
@@ -135,12 +136,13 @@ export function registerMailSyncSchedule(
         if (definition.oauth) {
           await accounts!.ensureOAuthAccess(accountId, signal);
           const current = accounts!.readDefinition(accountId);
-          if (!current || JSON.stringify(current.definition) !== JSON.stringify(definition)) continue;
+          if (!current) continue;
           revision = current.revision;
+          folders = current.definition.folders;
         }
         let more = false;
         let idle: Awaited<ReturnType<typeof messages.refresh>>["idle"];
-        for (const folder of definition.folders) {
+        for (const folder of folders) {
           signal.throwIfAborted();
           if (accounts!.readDefinition(accountId)?.revision !== revision) break;
           const result = await messages.refresh({ accountId, folder: folder.path }, signal);

@@ -1,11 +1,18 @@
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
+import { ModuleCredentials } from "../../../packages/kernel/src/credentials/module-credentials.js";
+import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
+import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../../../plugins/mail/src/engine/account-definition.js";
+import { createMailOAuth, oauthMailEndpoints, type SealedOAuthToken } from "../../../plugins/mail/src/engine/oauth-provider.js";
 import { createMailArchive } from "../../../plugins/mail/src/engine/subset-archive.js";
+import { graphFixture, graphScopes } from "../../../plugins/mail/test/fixtures/graph.js";
 import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
-import { openApp } from "../helpers/launch.js";
+import { openApp, root as desktopRoot } from "../helpers/launch.js";
 
 async function desktopMailCalls(page: Page) {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -20,6 +27,343 @@ async function desktopMailCalls(page: Page) {
     return result.data as T;
   };
 }
+
+async function openGraphWorkbench() {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-e2e-graph-"));
+  const clientId = "graph-workbench-fixture";
+  const email = "graph-workbench@example.test";
+  const firstLabel = "Graph 同步邮箱";
+  const secondLabel = "Graph 另一邮箱";
+  const scopesToRead = graphScopes.split(" ")[0]!;
+  const originalAccess = "graph-workbench-original";
+  const refreshedAccess = "graph-workbench-renewed";
+  let now = Date.now();
+  const renewals: string[] = [];
+  const graph = graphFixture(() => [originalAccess, refreshedAccess]);
+  const initial = graph.add("initial-message", email, 1);
+  initial.isRead = true;
+  graph.pages.set("initial", { value: [initial], cursor: "before-manual-refresh" });
+  const incoming = graph.add("new-message", email, 2);
+  incoming.isRead = true;
+  graph.pages.set("before-manual-refresh", { value: [incoming], cursor: "after-manual-refresh" });
+
+  function deltaGate() {
+    return { arrived: false, cancelled: false, authorization: "", release: Promise.withResolvers<void>() };
+  }
+  let held: ReturnType<typeof deltaGate> | undefined;
+  const issuer = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/token" && req.method === "POST") {
+      req.setEncoding("utf8");
+      let body = "";
+      req.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        const fields = new URLSearchParams(body);
+        const scope = fields.get("scope") ?? "";
+        renewals.push(scope);
+        if (fields.get("client_id") !== clientId || fields.get("grant_type") !== "refresh_token" || fields.get("refresh_token") !== "graph-workbench-refresh") {
+          res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "invalid_grant" }));
+        } else if (scope.split(" ").includes("https://graph.microsoft.com/Mail.Send")) {
+          res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "invalid_scope" }));
+        } else {
+          res.writeHead(200, { "Content-Type": "application/json" }).end(
+            JSON.stringify({
+              access_token: refreshedAccess,
+              token_type: "Bearer",
+              expires_in: 120,
+              scope: scopesToRead,
+            }),
+          );
+        }
+      });
+      return;
+    }
+    if (held && !held.arrived && url.searchParams.get("$deltatoken") === "before-manual-refresh") {
+      const gate = held;
+      gate.arrived = true;
+      gate.authorization = req.headers.authorization ?? "";
+      res.once("close", () => {
+        gate.cancelled = !res.writableEnded;
+      });
+      void gate.release.promise.then(() => {
+        if (!res.destroyed) graph.handle(req, res);
+      });
+      return;
+    }
+    if (!graph.handle(req, res)) res.writeHead(404).end();
+  });
+  let engine: RunningEngine | undefined;
+  let browser: Browser | undefined;
+  const close = async () => {
+    held?.release.resolve();
+    try {
+      await browser?.close();
+    } finally {
+      issuer.closeAllConnections();
+      await new Promise<void>((resolve) => issuer.close(() => resolve()));
+      await engine?.shutdown();
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      issuer.once("error", reject);
+      issuer.listen(0, "127.0.0.1", resolve);
+    });
+    const address = issuer.address();
+    if (!address || typeof address === "string") throw new Error("Graph fixture has no loopback port");
+    const base = `http://127.0.0.1:${address.port}`;
+    const runtime = createMailOAuth({ microsoft: { clientId } }, { hostLabel: "Graph workbench fixture", openBrowser: async () => undefined });
+    runtime.issuers.outlook = {
+      ...runtime.issuers.outlook!,
+      authorize: `${base}/authorize`,
+      token: `${base}/token`,
+      jwks: `${base}/keys`,
+      issuer: base,
+      graphApi: `${base}${graph.endpoint}`,
+    };
+    runtime.now = () => now;
+    const vaultPath = path.join(root, "vault");
+    const appData = path.join(root, "app");
+    const protection = path.join(root, "protection");
+    for (const dir of [vaultPath, appData, protection]) mkdirSync(dir);
+    const running = await boot({
+      vaultPath,
+      desktopUserData: appData,
+      create: true,
+      webAssetsDir: path.join(desktopRoot, "out", "renderer"),
+      moduleCredentialProtection: new TestProtection(protection),
+      mailOAuth: runtime,
+    });
+    engine = running;
+    if (!running.moduleCredentialHost) throw new Error("Fixture requires local credential protection");
+    const store = new ModuleCredentials({
+      ...running.moduleCredentialHost,
+      vault: running.vault,
+      pluginId: "mail",
+      definition: mailAccountDefinitionSchema,
+      targets: ({ settings, oauth }) => accountTargets(settings, oauth),
+    });
+    const seedAccount = async (address: string, label: string, send: boolean, replacement?: { accountId: string; revision: string }) => {
+      const id = replacement?.accountId ?? randomUUID();
+      const credential: SealedOAuthToken = {
+        access: originalAccess,
+        refresh: "graph-workbench-refresh",
+        until: now + 120_000,
+        scopes: send ? graphScopes : scopesToRead,
+        smtp: false,
+        resource: "graph",
+        graphInbox: initial.parentFolderId,
+      };
+      await store.save({
+        entityId: id,
+        expectedRevision: replacement?.revision ?? null,
+        definition: {
+          format: 1,
+          settings: { provider: "outlook", auth: "oauth2", email: address, label, smtpEnabled: send, ...oauthMailEndpoints("outlook", address, false) },
+          oauth: { clientId, subject: id, route: "graph", graphSend: send },
+          folders: [{ path: "INBOX", name: "INBOX", delimiter: null, specialUse: null, flags: [] }],
+        },
+        actions: [{ purpose: accountPasswordPurpose, action: "replace", value: JSON.stringify(credential), ...(replacement && { reconfigure: true as const }) }],
+      });
+      return id;
+    };
+    const accountId = await seedAccount(email, firstLabel, true);
+    await seedAccount("other-graph@example.test", secondLabel, false);
+    const mailbox = { accountId, folder: "INBOX" };
+    const call = async <T>(capability: string, input: unknown = {}) => {
+      const result = await running.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+      if (!result.ok) throw new Error(`${capability} failed: ${JSON.stringify(result.error)}`);
+      return result.data as T;
+    };
+    await call("mail.sync.refresh", mailbox);
+    expect(await call("mail.messages.latest", mailbox)).toMatchObject({ message: { nativeId: initial.id } });
+    expect(await call("web.share.start", { mode: "local" })).toMatchObject({ state: "running" });
+    const { links } = await call<{ links: string[] }>("web.invitations.create");
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await page.goto(links[0]!);
+    await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+    await page.getByRole("button", { name: firstLabel, exact: true }).click();
+    await page.getByLabel("时间", { exact: true }).selectOption("all");
+    await expect(page.getByRole("complementary", { name: "联系人对话" })).toContainText("Graph message 1");
+    return {
+      page,
+      close,
+      email,
+      accountId,
+      call,
+      secondLabel,
+      renewals,
+      sentMail: graph.sent,
+      expectedRenewal: [graphScopes, scopesToRead],
+      refreshedAccess,
+      expireSoon: () => {
+        now += 100_000;
+      },
+      holdDelta: () => (held = deltaGate()),
+      expectCached: (nativeId: string) => expect.poll(() => call("mail.messages.latest", mailbox)).toMatchObject({ message: { nativeId } }),
+      restoreSending: async () => {
+        const account = ModuleCredentials.readPortableDefinition(running.vault.files, "mail", mailAccountDefinitionSchema, accountId);
+        if (!account) throw new Error("Graph fixture account is missing");
+        await seedAccount(email, firstLabel, true, { accountId, revision: account.revision });
+        running.events.publish("entity.changed", { kind: "mail-account", id: accountId, op: "updated" });
+      },
+    };
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
+test("工作台手动同步触发 Graph 降权后继续读取并停用该邮箱的发信入口", async () => {
+  const workbench = await openGraphWorkbench();
+  const { page } = workbench;
+  try {
+    const compose = page.getByRole("button", { name: "写信", exact: true });
+    const composer = page.getByRole("form", { name: "写信" });
+    const sender = composer.getByLabel("发件人");
+    await compose.click();
+    await expect(sender.locator("option").filter({ hasText: workbench.email })).toBeEnabled();
+    await composer.getByRole("button", { name: "关闭写信" }).click();
+
+    const delta = workbench.holdDelta();
+    workbench.expireSoon();
+    const refresh = page.getByRole("button", { name: "同步目录", exact: true });
+    let refreshes = 0;
+    page.on("request", (request) => {
+      if (request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "mail.sync.refresh") refreshes++;
+    });
+    await refresh.click();
+    await expect.poll(() => delta.arrived).toBe(true);
+    expect(workbench.renewals).toEqual(workbench.expectedRenewal);
+    expect(delta.authorization).toBe(`Bearer ${workbench.refreshedAccess}`);
+    await expect(page.getByText(`${workbench.email} · OAuth · 只接收`, { exact: true })).toBeVisible();
+    await expect.soft(refresh).toHaveAttribute("aria-busy", "true");
+    await compose.click();
+    await expect(sender.locator("option").filter({ hasText: workbench.email })).toHaveCount(0);
+    await expect(composer.getByRole("button", { name: "发送邮件", exact: true })).toBeDisabled();
+    await composer.getByRole("button", { name: "关闭写信" }).click();
+
+    const contacts = page.getByRole("complementary", { name: "联系人对话" });
+    await expect(contacts).not.toContainText("Graph message 2");
+    expect.soft(delta.cancelled).toBe(false);
+    delta.release.resolve();
+    await expect(contacts).toContainText("Graph message 2");
+    await expect(refresh).toBeEnabled();
+    await workbench.expectCached("new-message");
+    expect(refreshes).toBe(1);
+  } finally {
+    await workbench.close();
+  }
+});
+
+for (const action of ["切换账号", "关闭邮件标签"] as const) {
+  test(`工作台${action}时取消正在等待 Graph 的手动同步`, async () => {
+    const workbench = await openGraphWorkbench();
+    const { page } = workbench;
+    try {
+      const delta = workbench.holdDelta();
+      await page.getByRole("button", { name: "同步目录", exact: true }).click();
+      await expect.poll(() => delta.arrived).toBe(true);
+      if (action === "切换账号") {
+        await page.getByRole("button", { name: workbench.secondLabel, exact: true }).click();
+        await expect(page.getByRole("heading", { name: workbench.secondLabel, exact: true })).toBeVisible();
+      } else {
+        const tabClose = page.getByRole("button", { name: "关闭邮件标签", exact: true });
+        await tabClose.click();
+        await expect(tabClose).toHaveCount(0);
+      }
+      await expect.poll(() => delta.cancelled).toBe(true);
+      delta.release.resolve();
+      await workbench.expectCached("initial-message");
+    } finally {
+      await workbench.close();
+    }
+  });
+}
+
+test("Graph 发件箱在只接收期间停用重试，恢复发信后可重试原收件人", async () => {
+  const workbench = await openGraphWorkbench();
+  const { page, accountId, call } = workbench;
+  try {
+    const recipient = "graph-retry@example.test";
+    const otherRecipient = "graph-retry-later@example.test";
+    const draftId = randomUUID();
+    const subject = "Graph 发信权限变更";
+    const permissionHistory = "该次投递时，Microsoft Graph 凭据缺少 Mail.Send 权限。";
+    const { revision } = await call<{ revision: string }>("mail.drafts.save", {
+      draftId,
+      expectedRevision: null,
+      draft: { accountId, to: [recipient, otherRecipient], cc: [], bcc: [], subject, body: { type: "doc", content: [{ type: "paragraph" }] } },
+    });
+    // The claim still sees sending enabled. Credential renewal during delivery returns a read-only grant.
+    workbench.expireSoon();
+    const { operationId, messageId } = await call<{ operationId: string; messageId: string }>("mail.outbox.submit", { draftId, expectedRevision: revision });
+    await expect
+      .poll(() => call("mail.outbox.status", { operationId }))
+      .toMatchObject({
+        state: "not-delivered",
+        reason: "graph-send-permission",
+        recipients: [
+          { address: recipient, state: "not-delivered" },
+          { address: otherRecipient, state: "not-delivered" },
+        ],
+      });
+
+    await expect(page.getByText(`${workbench.email} · OAuth · 只接收`, { exact: true })).toBeVisible();
+    // The parent operation was created outside this page. Reload its delivery list from the Engine.
+    await page.reload();
+    await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+    const original = page.getByRole("button", { name: `${subject} · 明确未投递`, exact: true });
+    const [sourceDraft] = await Promise.all([
+      page.waitForResponse((response) => {
+        const request = response.request();
+        if (request.method() !== "POST" || !request.url().endsWith("/api/v1/call")) return false;
+        const input = request.postDataJSON();
+        return input?.capability === "mail.drafts.get" && input.input?.draftId === draftId;
+      }),
+      (async () => {
+        await page.getByRole("button", { name: "发件箱", exact: true }).click();
+        await original.click();
+      })(),
+    ]);
+    expect(await sourceDraft.json()).toMatchObject({ ok: true, data: { draft: { draftId, accountId } } });
+    const detail = page.getByRole("article").filter({ has: page.getByRole("heading", { name: subject, exact: true }) });
+    const hint = detail.getByText(permissionHistory, { exact: true });
+    const recipients = detail.getByRole("list", { name: "收件人投递结果" }).getByRole("listitem");
+    const choice = detail.getByRole("checkbox", { name: recipient, exact: true });
+    const retry = detail.getByRole("button", { name: "重试所选收件人", exact: true });
+    await expect(detail).toHaveAttribute("aria-busy", "false");
+    await expect(hint).toBeVisible();
+    await expect(recipients).toHaveText([`${recipient} · 明确未投递`, `${otherRecipient} · 明确未投递`]);
+    await expect(retry).toHaveCount(0);
+    expect(workbench.sentMail).toHaveLength(0);
+
+    await workbench.restoreSending();
+    await expect(choice).toBeEnabled();
+    await expect(hint).toBeVisible();
+    await choice.check();
+    await retry.click();
+    await expect(detail.getByText(`重试自 ${messageId}`, { exact: true })).toBeVisible();
+    await expect(recipients).toHaveText([`${recipient} · 服务端已接受`]);
+    expect(workbench.sentMail).toHaveLength(1);
+    const destination = workbench.sentMail[0]?.match(/^To: (.+)$/m)?.[1]?.trim();
+    expect(destination).toBe(recipient);
+
+    await original.click();
+    await expect(detail.getByRole("checkbox", { name: otherRecipient, exact: true })).toBeEnabled();
+    await call("mail.drafts.discard", { draftId, expectedRevision: revision });
+    await detail.getByRole("button", { name: "刷新投递状态", exact: true }).click();
+    await expect(detail.getByText("源草稿已丢弃，无法从这条记录创建重试。", { exact: true })).toBeVisible();
+    await expect(retry).toHaveCount(0);
+    await expect(hint).toBeVisible();
+  } finally {
+    await workbench.close();
+  }
+});
 
 test("工作台重开后续跑同地址 Mail 原批次并保留未完成邮箱的已读标记", async () => {
   const { page, vault, close } = await openApp();

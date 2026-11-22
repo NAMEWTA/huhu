@@ -422,7 +422,17 @@ export function MailComposer({
         {forward && <p className="hu-mail-help">转发原邮件「{forward.subject || "无主题"}」</p>}
         {readOnly && <Banner>当前 Vault 为只读，草稿可查看。</Banner>}
         {previousDelivery && <Banner>这份草稿已有投递记录。请在发件箱核对或重试明确未投递的收件人。</Banner>}
-        {sender && !canSend && <Banner>{sender.definition.settings.smtpEnabled ? "发件邮箱需要重新配置凭据。" : reply ? "原邮箱只接收邮件，回复可以保存为草稿。" : "该账号只接收邮件。请选择可发送的发件人。"}</Banner>}
+        {sender && !canSend && (
+          <Banner>
+            {sender.definition.settings.smtpEnabled
+              ? "发件邮箱需要重新配置凭据。"
+              : sender.definition.oauth?.route === "graph" && sender.definition.oauth.graphSend === false
+                ? "Microsoft Graph 未授予当前凭据 Mail.Send 权限。"
+                : reply
+                  ? "原邮箱只接收邮件，回复可以保存为草稿。"
+                  : "该账号只接收邮件。请选择可发送的发件人。"}
+          </Banner>
+        )}
         {reply && !sender && <Banner>此回复的来源邮箱当前不可用。</Banner>}
         {error && <Banner tone="danger">{error}</Banner>}
         <fieldset className="hu-mail-fields" disabled={readOnly || busy !== null}>

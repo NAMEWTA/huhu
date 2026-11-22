@@ -41,15 +41,25 @@ export type MailFolder = z.infer<typeof mailFolderSchema>;
 
 export const isInbox = (path: string) => path.toUpperCase() === "INBOX";
 
+const graphFallback = z.enum(["grant-unavailable", "graph-metadata-only", "wrong-resource", "graph-api-auth", "graph-api-permission", "graph-api-unavailable"]);
 export const mailAccountDefinitionSchema = z
   .strictObject({
     format: z.literal(1),
     settings: accountSettingsSchema,
     folders: z.array(mailFolderSchema).refine((folders) => folders.every(isSelectable) && folders.some(({ path }) => path === "INBOX") && new Set(folders.map(({ path }) => (isInbox(path) ? "INBOX" : path))).size === folders.length),
-    oauth: z.strictObject({ clientId: z.string().min(1), subject: z.string().min(1), route: z.literal("imap"), personal: z.literal(true).optional() }).optional(),
+    oauth: z
+      .strictObject({
+        clientId: z.string().min(1),
+        subject: z.string().min(1),
+        route: z.enum(["imap", "graph"]),
+        personal: z.literal(true).optional(),
+        graphSend: z.boolean().optional(),
+        graphFallback: graphFallback.optional(),
+      })
+      .optional(),
     restoredFrom: z.hash("sha256", { enc: "hex" }).optional(),
   })
-  .refine(({ settings, oauth }) => (settings.auth === "oauth2") === Boolean(oauth));
+  .refine(({ settings, oauth }) => (settings.auth === "oauth2") === Boolean(oauth) && (oauth?.route !== "graph" || settings.provider === "outlook"));
 export type MailAccountDefinition = z.infer<typeof mailAccountDefinitionSchema>;
 
 export const accountPasswordPurpose = "account-password";
@@ -60,7 +70,9 @@ export function imapTarget({ email, auth, imap }: MailAccountSettings) {
 
 export function accountTargets(settings: MailAccountDefinition["settings"], oauth?: MailAccountDefinition["oauth"]) {
   const { smtpEnabled, smtp } = settings;
-  return { [accountPasswordPurpose]: JSON.stringify([imapTarget(settings), smtpEnabled ? [smtp.host, smtp.port, smtp.security] : null, ...(oauth ? [oauth.clientId, oauth.subject] : [])]) };
+  return {
+    [accountPasswordPurpose]: JSON.stringify([imapTarget(settings), smtpEnabled ? [smtp.host, smtp.port, smtp.security] : null, ...(oauth ? [oauth.clientId, oauth.subject] : []), ...(oauth?.route === "graph" ? [oauth.route] : [])]),
+  };
 }
 
 export function parseAccountSettings(input: MailAccountSettings) {

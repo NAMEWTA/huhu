@@ -164,6 +164,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 | R-84 | Motty v0.4.12 `102228261703d8f22c5eb98b1c500e2a24889dee`（Apache-2.0） | `internal/workbench/{snippets,snippet_groups,snippet_picker,snippet_send}.go` | `plugins/ssh/src/{engine/shortcuts.ts,ui/ShortcutPanel.tsx,ui/TerminalActions.tsx}` | 参考可搜索的分组与排序、预览及明确的目标和回车选择。Huhu 用 Vault 版本写入、同一 SSH 输入控制和安全粘贴。 |
 | R-85 | ssh2 v1.17.0 `844f1edfc41589737671f96a4f4e76afdf46abd4`；Go x/crypto `729f1e841bcca28c2cd9f4034d6f7672604dbeda`（BSD-3-Clause）；OpenSSH 10.0p1 协议参考 | ssh2 `lib/protocol/{constants,kex}.js`、Go `ssh/certs.go`、OpenSSH `PROTOCOL.certkeys` | `patches/ssh2@1.17.0.patch` 与 `plugins/ssh/src/engine/{host-certificate,known-hosts,known-host-rules,ssh-wire}.ts` | 固定 ssh2 在显式证书策略下协商 Ed25519 主机证书，完整 K_S 进入交换哈希，由叶钥验签。Huhu 独立核对批准 CA、principal、时间、撤销及旧指纹。Go 与 OpenSSH 用于格式和行为核对。 |
 
+| R-87 | one-mail `d1be24d5bb83c2da7123b167f119d5abd169b0af`（README 声明 AGPL-3.0-only，固定根树无独立 LICENSE）；Nodemailer 10.6.0（MIT-0） | `src-tauri/src/mail/sync/graph_api.rs`；Nodemailer `lib/mail-composer` 发布接口 | `plugins/mail/src/engine/{graph-mail,graph-send,message-cache}.ts` | 只参考 Graph 分页、原生 ID 与最终 delta 游标提交的行为，没有复制或翻译 one-mail 源码。同步与缓存复用 Huhu Gmail/IMAP 设施；MIME 发信复用已锁定 MailComposer，Outbox 保留原认领和未知结果。当前为待验候选。 |
+
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
 ## 安装包依赖

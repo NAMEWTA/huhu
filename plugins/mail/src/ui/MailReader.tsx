@@ -6,7 +6,7 @@ import type { ForwardSeed, NewTopicSeed } from "../engine/prepare-forward.js";
 import { MailAiAssistant } from "./MailAiAssistant.js";
 import { prepareMailHtml } from "./mail-html.js";
 
-export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; transport?: "imap" | "gmail"; readState?: "unread" | "local" | "synced" | undefined };
+export type MessageSummary = { accountId: string; folder: string; localMessageId: string; subject: string; transport?: "imap" | "gmail" | "graph"; readState?: "unread" | "local" | "synced" | undefined };
 export type RelatedDraft = { kind: "reply"; seed: ReplySeed; suggestion?: string } | { kind: "forward"; seed: ForwardSeed } | { kind: "new-topic"; seed: NewTopicSeed };
 const composeActions = [
   { id: "reply", title: "引用回复" },
@@ -310,10 +310,11 @@ export function MailReader({
       if (!signal.aborted) setPreparing(null);
     }
   }
+  const localMarks = message.transport === "gmail" || message.transport === "graph";
   let status = readLabels[state ?? "unknown"];
   if (changed) status = readLabels["needs-refresh"];
-  else if (marking) status = message.transport === "gmail" ? "正在记录本机已读状态…" : "正在同步已读状态…";
-  else if (state === "local" && message.transport === "gmail") status = "仅在本机标为已读";
+  else if (marking) status = localMarks ? "正在记录本机已读状态…" : "正在同步已读状态…";
+  else if (state === "local" && localMarks) status = "仅在本机标为已读";
   else if (readOnly && state !== "local" && state !== "synced") status = "只读 · 不更新已读状态";
 
   return (
@@ -329,7 +330,7 @@ export function MailReader({
     >
       <div className="hu-mail-row">
         <p role="status">{status}</p>
-        {!readOnly && !changed && state !== "synced" && ((state === "local" && message.transport !== "gmail") || markError) && (
+        {!readOnly && !changed && state !== "synced" && ((state === "local" && !localMarks) || markError) && (
           <Button loading={marking} onClick={() => void markRead()}>
             重试同步已读
           </Button>

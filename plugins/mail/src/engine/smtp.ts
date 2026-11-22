@@ -9,9 +9,15 @@ export const smtpResultSchema = z
   .strictObject({
     stage: z.enum(["prepare", "credential", "connect", "auth", "envelope", "data"]),
     smtpCode: smtpCode.optional(),
+    graphStatus: z.int().min(200).max(599).optional(),
+    graphErrorCode: z
+      .string()
+      .regex(/^[A-Za-z0-9_.-]{1,120}$/)
+      .optional(),
+    reason: z.literal("graph-send-permission").optional(),
     recipients: z.array(recipientResult).min(1).max(3_000),
   })
-  .refine(({ stage, smtpCode, recipients }) => !recipients.some(({ state }) => state === "accepted") || (stage === "data" && smtpCode !== undefined && smtpCode < 300));
+  .refine(({ stage, smtpCode, graphStatus, recipients }) => !recipients.some(({ state }) => state === "accepted") || (stage === "data" && ((smtpCode !== undefined && smtpCode < 300) || graphStatus === 202)));
 export type MailSmtpResult = z.infer<typeof smtpResultSchema>;
 
 type MessageAttachment = { filename: string; content: Buffer };

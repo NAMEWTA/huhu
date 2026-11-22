@@ -35,6 +35,16 @@ const refreshErrors: Record<string, string> = {
   "oauth-not-configured": "当前 Engine 主机没有此邮箱的授权客户端配置。",
   "gmail-api-account": "Gmail 返回的账号与当前邮箱不一致。",
   "gmail-api-unavailable": "Gmail API 暂时不可用，已同步邮件仍可查看，请稍后重试。",
+  "graph-api-auth": "Microsoft Graph 未接受当前授权，请重新授权。",
+  "graph-api-unavailable": "Microsoft Graph 暂时不可用，已同步邮件仍可查看，请稍后重试。",
+};
+const graphFallbackLabels = {
+  "grant-unavailable": "当前账号没有可用的 Graph 授权",
+  "graph-metadata-only": "Graph 权限仅覆盖邮件基本信息",
+  "wrong-resource": "Graph 授权返回了其他资源的凭据",
+  "graph-api-auth": "Graph 未接受当前授权",
+  "graph-api-permission": "Graph 拒绝访问收件箱",
+  "graph-api-unavailable": "Graph 暂时无法连接",
 };
 
 function syncLabel(sync: MailFolderSyncStatus | null | undefined, exchange: boolean) {
@@ -43,6 +53,7 @@ function syncLabel(sync: MailFolderSyncStatus | null | undefined, exchange: bool
     const recovery = sync.recovery === "history-expired" ? " · 历史游标失效，已重新扫描" : sync.recovery === "history-window" ? " · 待同步变更较多，已重新扫描" : "";
     return `Gmail API · 收件箱 · 最近最多 ${sync.limit} 封${recovery}`;
   }
+  if (sync.transport === "graph") return `Microsoft Graph · 收件箱 · 最近最多 ${sync.limit} 封${sync.recovery === "delta-expired" ? " · 增量游标失效，已重新扫描" : ""}`;
   const fallback = sync.fallback === "gmail-api-permission" ? " · Gmail API 权限不足或未启用" : sync.fallback === "gmail-api-auth" ? " · Gmail API 未接受当前授权" : "";
   return `${exchange ? "Exchange IMAP" : "IMAP"} · 所选目录 · 最近最多 ${sync.limit} 封${fallback}`;
 }
@@ -524,6 +535,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               <MailOutbox
                 key={activeOperationId}
                 operationId={activeOperationId}
+                accounts={rows}
                 readOnly={readOnly}
                 onChanged={changed}
                 onRetry={showDelivery}
@@ -701,6 +713,7 @@ function Mailbox({
     return () => onReading(null);
   }, [onReading, activeMessage, ordinaryMessage]);
 
+  // A refresh can renew this account's credentials and change its revision while the same mailbox stays open.
   useEffect(() => {
     setError("");
     setRefreshing(false);
@@ -708,7 +721,7 @@ function Mailbox({
       request.current?.abort();
       request.current = null;
     };
-  }, [engine, account?.revision]);
+  }, [engine, account?.accountId, folder]);
 
   async function refresh(sourceFolder = folder, sourceAccount = account?.accountId) {
     if (request.current || !sourceAccount) return;
@@ -823,7 +836,10 @@ function Mailbox({
                 }}
               />
             </div>
-            <p role="status">{sync.isError ? "无法读取目录同步状态" : syncLabel(sync.data, account.definition.settings.provider === "outlook" && !!account.definition.oauth)}</p>
+            <p role="status">
+              {sync.isError ? "无法读取目录同步状态" : syncLabel(sync.data, account.definition.settings.provider === "outlook" && !!account.definition.oauth)}
+              {account.definition.oauth?.graphFallback && ` · ${graphFallbackLabels[account.definition.oauth.graphFallback]}`}
+            </p>
             {account.authState["account-password"] !== "configured" && <p>本机邮箱凭据当前不可用，已有缓存仍可查看。</p>}
           </>
         )}
@@ -1083,7 +1099,7 @@ function ConversationTimeline({
                     {message.subject || "无主题"}
                   </Button>
                   {!accountId && <span className="hu-mail-help">{accounts.find((account) => account.accountId === message.accountId)?.definition.settings.email}</span>}
-                  <span className="hu-mail-help">{message.source === "sent" ? "本机已发" : `${message.folder} · ${message.source === "gmail" ? "Gmail API" : "IMAP"}`}</span>
+                  <span className="hu-mail-help">{message.source === "sent" ? "本机已发" : `${message.folder} · ${{ gmail: "Gmail API", graph: "Microsoft Graph", imap: "IMAP" }[message.source]}`}</span>
                   {message.source !== "sent" && message.readState === "unread" && <span>未读</span>}
                 </div>
               );

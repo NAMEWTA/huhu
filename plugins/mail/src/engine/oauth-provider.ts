@@ -1,5 +1,6 @@
 import { createPublicKey, verify, type JsonWebKey } from "node:crypto";
 import { z } from "zod";
+import { graphMailEndpoint, graphNativeId } from "./graph-mail.js";
 import { mailPreset, type MailEndpoint } from "./presets.js";
 
 export const oauthProvider = z.enum(["gmail", "outlook"]);
@@ -15,6 +16,9 @@ export type OAuthIssue =
   | "address-mismatch"
   | "permission-missing"
   | "graph-metadata-only"
+  | "graph-api-auth"
+  | "graph-api-permission"
+  | "graph-api-unavailable"
   | "wrong-resource"
   | "protocol-unavailable"
   | "commit-unconfirmed"
@@ -37,6 +41,8 @@ export type MailOAuthIssuer = Client & {
   callbackHost: "127.0.0.1" | "localhost";
   scopes: readonly string[];
   gmailApi?: string;
+  graphApi?: string;
+  preauthorizedGraphScopes?: readonly string[];
   /** Trusted, in-process protocol endpoints for an isolated issuer fixture. */
   protocol?: { imap: MailEndpoint; smtp: MailEndpoint };
 };
@@ -51,6 +57,11 @@ export type MailOAuthRuntime = {
 
 const googleMail = "https://mail.google.com/";
 const exchange = "https://outlook.office.com/";
+const exchangeImapScope = `${exchange}IMAP.AccessAsUser.All`;
+const exchangeSmtpScope = `${exchange}SMTP.Send`;
+const graph = "https://graph.microsoft.com/";
+const graphMailScopes = new Map(Object.entries({ "mail.readbasic": "Mail.ReadBasic", "mail.read": "Mail.Read", "mail.readwrite": "Mail.ReadWrite", "mail.send": "Mail.Send" }));
+const graphScope = (scope: string) => scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, "");
 const personalMicrosoftTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
 export function oauthMailEndpoints(provider: OAuthProvider, email: string, personal: boolean) {
   const { imap, smtp } = mailPreset(provider, email);
@@ -69,7 +80,12 @@ export function createMailOAuth(clients: MailOAuthClients, host: Pick<MailOAuthR
       scopes: ["openid", "email", googleMail],
       gmailApi: "https://gmail.googleapis.com/gmail/v1/users/me",
     };
-  if (clients.microsoft?.clientId.trim())
+  if (clients.microsoft?.clientId.trim()) {
+    // Non-secret deployment setting for a client with an existing delegated Graph grant.
+    const configured = process.env["HUHU_MAIL_MICROSOFT_PREAUTHORIZED_GRAPH_SCOPES"]?.trim();
+    const graphScopes = configured?.split(/\s+/);
+    const preauthorizedGraph =
+      graphScopes !== undefined && graphScopes.every((scope) => scope.startsWith(graph) && graphMailScopes.has(graphScope(scope))) && graphScopes.some((scope) => ["mail.read", "mail.readwrite"].includes(graphScope(scope)));
     issuers.outlook = {
       clientId: clients.microsoft.clientId,
       authorize: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
@@ -77,8 +93,11 @@ export function createMailOAuth(clients: MailOAuthClients, host: Pick<MailOAuthR
       jwks: "https://login.microsoftonline.com/common/discovery/v2.0/keys",
       issuer: "https://login.microsoftonline.com/{tenantid}/v2.0",
       callbackHost: "localhost",
-      scopes: ["openid", "email", "profile", "offline_access", `${exchange}IMAP.AccessAsUser.All`, `${exchange}SMTP.Send`],
+      scopes: ["openid", "email", "profile", "offline_access", exchangeImapScope, exchangeSmtpScope],
+      graphApi: graphMailEndpoint,
+      ...(preauthorizedGraph && graphScopes && { preauthorizedGraphScopes: graphScopes }),
     };
+  }
   return { ...host, issuers };
 }
 
@@ -101,21 +120,33 @@ export const sealedOAuthToken = z.strictObject({
   until: z.int().positive(),
   scopes: z.string().max(8192),
   smtp: z.boolean(),
-  commit: z.strictObject({ sessionId: z.uuidv4(), smtp: z.boolean() }).optional(),
+  resource: z.literal("graph").optional(),
+  graphInbox: graphNativeId.optional(),
+  commit: z.strictObject({ sessionId: z.uuidv4(), smtp: z.boolean(), route: z.literal("graph").optional() }).optional(),
 });
 export type SealedOAuthToken = z.infer<typeof sealedOAuthToken>;
 
-/** Scope receipt from the provider's token endpoint. Exchange tokens may be opaque. */
-export function mailPermission(provider: OAuthProvider, receipt: string): { imap: boolean; smtp: boolean; problem?: OAuthIssue } {
+export function tokenResource(token: SealedOAuthToken) {
+  // Earlier Graph generations already carried a protected witness from a successful Graph probe.
+  return token.resource ?? token.commit?.route;
+}
+
+/** Interpret the token endpoint's scope receipt in the context of the requested resource. */
+export function mailPermission(provider: OAuthProvider, receipt: string, resource?: "graph"): { imap: boolean; smtp: boolean; graph?: { send: boolean; scopes: string[] }; problem?: OAuthIssue } {
   const scopes = new Set(receipt.toLowerCase().split(/\s+/));
   if (provider === "gmail") return scopes.has(googleMail) ? { imap: true, smtp: true } : { imap: false, smtp: false, problem: "permission-missing" };
-  const graph = [...scopes].filter((scope) => scope.startsWith("https://graph.microsoft.com/") || /^mail\.(read|send)/.test(scope));
-  if (graph.length) {
-    const basic = graph.some((scope) => scope.endsWith("mail.readbasic")) && !graph.some((scope) => /mail\.(read|readwrite)$/.test(scope));
-    return { imap: false, smtp: false, problem: basic ? "graph-metadata-only" : "wrong-resource" };
-  }
+  const graphReceipt = [...new Set([...scopes].map(graphScope))].filter((scope) => graphMailScopes.has(scope));
   const imap = scopes.has(`${exchange}imap.accessasuser.all`) || scopes.has("imap.accessasuser.all");
   const smtp = scopes.has(`${exchange}smtp.send`) || scopes.has("smtp.send");
+  if (resource === "graph") {
+    if (imap || smtp || [...scopes].some((scope) => scope.startsWith(exchange))) return { imap: false, smtp: false, problem: "wrong-resource" };
+    const granted = graphReceipt;
+    if (granted.includes("mail.read") || granted.includes("mail.readwrite")) {
+      return { imap: false, smtp: false, graph: { send: granted.includes("mail.send"), scopes: granted.map((scope) => `${graph}${graphMailScopes.get(scope)!}`) } };
+    }
+    return { imap: false, smtp: false, problem: granted.includes("mail.readbasic") ? "graph-metadata-only" : "permission-missing" };
+  }
+  if (graphReceipt.length || [...scopes].some((scope) => scope.startsWith(graph))) return { imap: false, smtp: false, problem: "wrong-resource" };
   return { imap, smtp, ...(!imap && { problem: "permission-missing" as const }) };
 }
 
@@ -137,27 +168,55 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function requestOAuthToken(issuer: MailOAuthIssuer, provider: OAuthProvider, grant: Record<string, string>, signal: AbortSignal, now: number, previous?: SealedOAuthToken) {
+export async function requestOAuthToken(issuer: MailOAuthIssuer, provider: OAuthProvider, grant: Record<string, string>, signal: AbortSignal, now: number, previous?: SealedOAuthToken, graphUpgrade?: readonly string[]) {
   const body = new URLSearchParams({ client_id: issuer.clientId, ...grant });
   if (issuer.clientSecret) body.set("client_secret", issuer.clientSecret);
-  if (previous && provider === "outlook") body.set("scope", issuer.scopes.filter((scope) => scope.startsWith(exchange) && (previous.smtp || !scope.endsWith("/SMTP.Send"))).join(" "));
+  const resource = graphUpgrade ? "graph" : previous && tokenResource(previous);
+  const previousPermission = previous && mailPermission(provider, previous.scopes, tokenResource(previous));
+  let graphRequested = graphUpgrade;
+  if (previous && provider === "outlook") {
+    if (!previousPermission?.imap && !previousPermission?.graph) throw new MailOAuthError(previousPermission?.problem ?? "permission-missing");
+    graphRequested ??= previousPermission.graph?.scopes;
+    const requested = graphRequested ?? [exchangeImapScope, ...(previous.smtp && previousPermission.smtp ? [exchangeSmtpScope] : [])];
+    body.set("scope", requested.join(" "));
+  }
   const response = await fetch(issuer.token, { method: "POST", body, redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) }).catch(() => {
     throw new MailOAuthError("exchange-failed");
   });
   const json = await responseJson(response).catch(() => {
     throw new MailOAuthError("exchange-failed");
   });
-  if (!response.ok) throw new MailOAuthError(previous && z.object({ error: z.literal("invalid_grant") }).safeParse(json).success ? "reauthorize" : "exchange-failed");
+  if (!response.ok) {
+    const failure = z.object({ error: z.string() }).safeParse(json);
+    if (previous && failure.success && (resource !== "graph" || [400, 401, 403].includes(response.status))) {
+      const { error } = failure.data;
+      if (["invalid_grant", "interaction_required", "consent_required", "login_required"].includes(error) || (resource === "graph" && error === "invalid_scope")) throw new MailOAuthError("reauthorize");
+    }
+    throw new MailOAuthError("exchange-failed");
+  }
   const parsed = tokenReply.safeParse(json);
   if (!parsed.success) throw new MailOAuthError("exchange-failed");
   const { access_token, refresh_token, expires_in, scope, id_token } = parsed.data;
   if (provider === "outlook" && !scope && !previous) throw new MailOAuthError("permission-missing");
-  const scopes = scope ?? previous?.scopes ?? issuer.scopes.join(" ");
-  const permission = mailPermission(provider, scopes);
-  if (!permission.imap) throw new MailOAuthError(permission.problem ?? "permission-missing");
+  // An omitted scope receipt means the explicitly requested scopes were granted.
+  const scopes = scope ?? graphRequested?.join(" ") ?? previous?.scopes ?? issuer.scopes.join(" ");
+  const reported = mailPermission(provider, scopes, resource);
+  if (!reported.imap && !reported.graph) throw new MailOAuthError(reported.problem ?? "permission-missing");
+  const permission = reported.graph && graphRequested ? mailPermission(provider, reported.graph.scopes.filter((scope) => graphRequested.some((requested) => graphScope(requested) === graphScope(scope))).join(" "), resource) : reported;
+  if (!permission.imap && !permission.graph) throw new MailOAuthError(permission.problem ?? "permission-missing");
   const refresh = refresh_token ?? previous?.refresh;
   if (!refresh) throw new MailOAuthError("reauthorize");
-  return { bundle: { access: access_token, refresh, until: now + expires_in * 1000, scopes, smtp: permission.smtp, ...(previous?.commit && { commit: previous.commit }) }, idToken: id_token };
+  const bundle: SealedOAuthToken = {
+    access: access_token,
+    refresh,
+    until: now + expires_in * 1000,
+    scopes: permission.graph ? permission.graph.scopes.join(" ") : scopes,
+    smtp: permission.smtp,
+    ...(resource && { resource }),
+    ...(previous?.graphInbox && { graphInbox: previous.graphInbox }),
+    ...(previous?.commit && { commit: previous.commit }),
+  };
+  return { bundle, idToken: id_token };
 }
 
 const headerSchema = z.object({ alg: z.literal("RS256"), kid: z.string().min(1).max(512) });
