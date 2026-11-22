@@ -1,6 +1,6 @@
 import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EVENT_PAYLOADS } from "@huhu/contracts";
@@ -213,7 +213,8 @@ engineTest(
     expect(await reopened.client.call("ssh.hosts.list")).toContainEqual(expect.objectContaining({ id: saved.hostId, revision: saved.revision, keepaliveIntervalSec: 0 }));
     expect((await reopened.client.call<Directory>("ssh.hosts.directory")).hosts).toContainEqual(expect.objectContaining({ hostId: saved.hostId, groupId }));
     expect(await connect(reopened.client, reopened.engine, saved.hostId)).toBe("OK");
-    expect(readFileSync(path.join(reopened.engine.vault.runtimeDir, "idempotency.ndjson"), "utf8").includes("ssh.hosts.configure")).toBe(false);
+    const receipts = path.join(reopened.engine.vault.runtimeDir, "idempotency.ndjson");
+    expect(existsSync(receipts) && readFileSync(receipts, "utf8").includes("ssh.hosts.configure")).toBe(false);
     expect(hasMarker(live.vaultPath, [secret])).toBe(false);
     expect(hasMarker(live.userData, [secret])).toBe(false);
   },
