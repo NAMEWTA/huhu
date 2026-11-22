@@ -44,7 +44,7 @@ async function setup() {
 const configuration = (port: number) => ConfigureHost.parse({ name: "loopback fixture", host: "127.0.0.1", port, user: "fixture", expectedRevision: null, authKind: "password" });
 
 test("密钥库只列公开摘要，引用的加密 Ed25519 密钥可认证且禁止删除", async () => {
-  const { hosts, vault, run, remember } = await setup();
+  const { hosts, vault, manager, run, remember } = await setup();
   const signal = new AbortController().signal;
   const passphrase = "synthetic test passphrase";
   const key = await hosts.addKey({ action: "generate", name: "loopback key", passphrase }, signal);
@@ -58,6 +58,9 @@ test("密钥库只列公开摘要，引用的加密 Ed25519 密钥可认证且�
   expect(await hosts.listKeys()).toEqual([{ ...key, referenced: true }]);
   await expect(hosts.removeKey(key.id, key.revision, signal)).rejects.toThrow("引用");
   await expect(run({ ...configuration(server.port), authKind: "key", hostId, expectedRevision: revision })).resolves.toEqual({ state: "authenticated" });
+  await manager.connect(hostId, signal);
+  expect(manager.connectionStatuses()).toMatchObject([{ hostId, state: "connected", route: [{ auth: "key-library" }] }]);
+  manager.disconnect(hostId);
   const portable = path.join(vault.root, ".huhu", "module-credentials");
   const serialized = readdirSync(portable)
     .map((name) => readFileSync(path.join(portable, name), "utf8"))

@@ -37,10 +37,12 @@ export const SshAuthenticationPrompt = z.strictObject({
 });
 export type SshAuthenticationPrompt = z.infer<typeof SshAuthenticationPrompt>;
 
+const HopStage = z.enum(["dialing", "trust", "authenticating", "answering", "forwarding", "connected", "failed"]);
 export const ConnectionHop = ConnectionHost.extend({
   user: z.string(),
   auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
-  stage: z.enum(["dialing", "trust", "authenticating", "answering", "forwarding", "connected", "failed"]),
+  stage: HopStage,
+  timeline: z.array(z.strictObject({ stage: HopStage, at: z.iso.datetime() })),
 });
 export type ConnectionHop = z.infer<typeof ConnectionHop>;
 

@@ -558,7 +558,8 @@ export function SshModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 <ol>
                   {connection?.route?.map((hop, index) => (
                     <li key={`${hop.id}:${index}`}>
-                      {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} · {routeStages[hop.stage]}
+                      {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
+                      {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
                     </li>
                   ))}
                 </ol>

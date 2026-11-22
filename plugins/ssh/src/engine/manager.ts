@@ -221,7 +221,9 @@ export class SshManager {
   private trace(attempt: Attempt, hop: number, stage: ConnectionHop["stage"], auth?: ConnectionHop["auth"]) {
     const step = attempt.route?.[hop];
     if (!step || !attempt.route) return;
-    attempt.route[hop] = { ...step, stage, ...(auth && { auth }) };
+    const last = step.timeline.at(-1);
+    const timeline = last?.stage === stage ? step.timeline : [...step.timeline.slice(-63), { stage, at: this.d.now().toISOString() }];
+    attempt.route[hop] = { ...step, stage, timeline, ...(auth && { auth }) };
     if (this.statuses.get(attempt.hostId)?.attemptId === attempt.id) this.update({ hostId: attempt.hostId, attemptId: attempt.id, state: "connecting" });
   }
 
@@ -401,7 +403,7 @@ export class SshManager {
       attempt.publicProbe?.validate();
       onHop?.(hop, host);
       if (attempt.route) {
-        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing" });
+        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [] });
         this.trace(attempt, hop, "dialing");
       }
       const client = new Client();

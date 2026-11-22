@@ -1,5 +1,5 @@
 import { Button } from "@huhu/ui";
-import { useRef, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SplitTree, WorkspaceLayout, WorkspaceRunPane } from "../shared/workspace.js";
 
 type Cell = { x: number; y: number; w: number; h: number };
@@ -83,6 +83,15 @@ export function WorkspaceCanvas({
 }) {
   const parent = useRef<HTMLDivElement>(null);
   const dragging = useRef<string | undefined>(undefined);
+  const refocus = useRef<{ id: string; order: string } | undefined>(undefined);
+  const order = panes.map((pane) => pane.paneId).join(",");
+  useLayoutEffect(() => {
+    const pending = refocus.current;
+    if (!pending || pending.order === order) return;
+    refocus.current = undefined;
+    const slots = Array.from(parent.current?.querySelectorAll<HTMLElement>("[data-workspace-spot]") ?? []);
+    slots.find((slot) => !slot.hidden && slot.dataset.workspaceSpot === pending.id)?.focus({ preventScroll: true });
+  }, [order]);
   const rects = maximized ? panes.map(() => canvas) : cellsFor(layout, panes.length);
   const x = boundaries(rects, "x", "w");
   const y = boundaries(rects, "y", "h");
@@ -143,6 +152,7 @@ export function WorkspaceCanvas({
                   if (!from || from === pane.paneId || !event.dataTransfer.types.includes("application/x-huhu-ssh-pane")) return;
                   event.preventDefault();
                   dragging.current = undefined;
+                  refocus.current = { id: from, order };
                   onActive(from);
                   onSwap(from, pane.paneId);
                 }}

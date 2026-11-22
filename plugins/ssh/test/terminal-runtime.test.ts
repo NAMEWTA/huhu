@@ -87,3 +87,45 @@ test("本机终端重连沿用原环境，环境移除后不启动回退进程",
   await expect(service.open({ action: "restart", sessionId: next.id }, signal)).rejects.toThrow(/fixture-bash.*不可用/);
   expect(launch.mock.calls).toHaveLength(2);
 });
+
+test("Herdr 本地 PTY 保留 argv 并在停止时只回收自身终端", async () => {
+  const { createHerdrLocalPty } = await import("../src/engine/local-pty-herdr.js");
+  const calls: { method: string; params: object }[] = [];
+  const core = {
+    endpoint: "fixture",
+    ensure: async () => ({
+      async call<T>(method: string, params: object): Promise<T> {
+        calls.push({ method, params });
+        return (method === "terminal.run" ? { address: "t-test", state: "live" } : {}) as T;
+      },
+    }),
+  };
+  const wire: { close?: () => void } = {};
+  const write = vi.fn();
+  const resize = vi.fn();
+  const end = vi.fn();
+  const attach = vi.fn(async () => ({
+    write,
+    resize,
+    onData: () => {},
+    onClose: (fn: () => void) => {
+      wire.close = fn;
+    },
+    close: () => wire.close?.(),
+  }));
+  const argv = ["C:/test/wsl.exe", "--distribution", "fixture distro"];
+  const signal = new AbortController().signal;
+  const pty = await createHerdrLocalPty(core, attach)({ argv, cwd: "/fixture", signal }, { data: () => {}, end });
+  expect(calls[0]).toMatchObject({ method: "terminal.run", params: { argv, cwd: "/fixture", keep: false, no_parent: true } });
+  expect(attach).toHaveBeenCalledWith("fixture", { terminal: "t-test", cols: 80, rows: 24 });
+  pty.write(Buffer.from("text"));
+  pty.resize(91, 28);
+  await Promise.all([pty.stop(), pty.stop()]);
+  expect(calls.slice(1)).toEqual([
+    { method: "terminal.kill", params: { terminal: "t-test" } },
+    { method: "terminal.rm", params: { terminal: "t-test" } },
+  ]);
+  expect(write).toHaveBeenCalledWith(Buffer.from("text"));
+  expect(resize).toHaveBeenCalledWith(91, 28);
+  expect(end).toHaveBeenCalledTimes(1);
+});
