@@ -657,6 +657,44 @@ async function beginProbe(f: Awaited<ReturnType<typeof fixture>>, token: string,
   return { ...input, attemptId };
 }
 
+test.each(["cli", "mcp"] as const)("%s can test a draft only at its authorized SSH route", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  const capability = "ssh.hosts.testDraft";
+  const denied = { ok: false, error: { code: "PERMISSION_DENIED" } };
+  const authentication: string[] = [];
+  try {
+    const host = await f.host("authorized fixture", [], { onAuth: (_user, method) => authentication.push(method) });
+    const other = await f.host("unrelated fixture");
+    const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId: host.hostId });
+    const input = { ...host.profile, hostId: host.hostId, expectedRevision: host.revision, routeRevision };
+    const invoke = await externalTool(f, entry);
+
+    expect(await invoke(capability, input)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+    await f.allow(capability);
+    await f.chooseHosts([other.hostId]);
+    expect(await invoke(capability, input)).toMatchObject(denied);
+    await f.chooseHosts([host.hostId]);
+    expect(await invoke(capability, { ...input, routeRevision: "0".repeat(64) })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(await invoke(capability, { ...input, port: other.profile.port })).toMatchObject(denied);
+    expect(await invoke(capability, { ...input, user: "other-user" })).toMatchObject(denied);
+    expect(await invoke(capability, { ...input, authKind: "identity-file", credentials: [{ action: "replace", purpose: "identityFile", value: "/fixture/key" }] })).toMatchObject(denied);
+    expect(host.server.conns).toHaveLength(0);
+    expect(other.server.conns).toHaveLength(0);
+
+    expect(await invoke(capability, input)).toMatchObject({ ok: true, data: { state: "reachable", hop: 0, reason: "host-key" } });
+    expect(host.server.conns).toHaveLength(1);
+    expect(other.server.conns).toHaveLength(0);
+    expect(authentication).toEqual([]);
+    expect(await f.desktop("ssh.connections.status")).toEqual([]);
+    expect(await f.desktop("ssh.knownHosts.list")).toEqual([]);
+
+    await f.allow(capability, false);
+    expect(await invoke(capability, input)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  } finally {
+    await f.close();
+  }
+});
+
 async function awaitPrompt(f: Awaited<ReturnType<typeof fixture>>, token: string, binding: { hostId: string; attemptId: string }, state: "waiting" | "key-changed" = "waiting", hop?: number) {
   return vi.waitFor(
     async () => {

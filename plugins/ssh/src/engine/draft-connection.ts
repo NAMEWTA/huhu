@@ -2,27 +2,29 @@ import { randomUUID } from "node:crypto";
 import { errors } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { DraftConnectionResult } from "../shared/draft-connection.js";
-import { ConfigureHost } from "./auth-profile.js";
+import { ConfigureHost, SshRouteRevision } from "./auth-profile.js";
 import type { HostConfigurations, ManagedHost } from "./host-configurations.js";
 import { validateHost } from "./hosts.js";
 import type { SshManager } from "./manager.js";
-import { routeForHost } from "./workspace-target.js";
+import { externalSshOwner, readBoundRoute } from "./public-resources.js";
+import { routeForHost, workspaceTarget } from "./workspace-target.js";
 
 export const sshDraftDescriptor = defineCapabilityDescriptor({
   plugin: "ssh",
   name: "ssh.hosts.testDraft",
   title: "测试 SSH 主机草稿",
-  description: "使用当前未保存的主机资料做一次连接测试。",
+  description: "测试未保存的主机资料，外部工具须提供已授权主机及路由版本。",
   scope: "execute",
   risk: "normal",
   desktopOnly: true,
   exposable: true,
   defaultExposed: false,
-  input: ConfigureHost,
+  resourceGuarded: "ssh.hosts",
+  input: ConfigureHost.extend({ routeRevision: SshRouteRevision.optional() }),
   output: DraftConnectionResult,
 });
 
-export async function testSshDraft(hosts: HostConfigurations, manager: SshManager, input: ConfigureHost, signal: AbortSignal): Promise<DraftConnectionResult> {
+export async function testSshDraft(hosts: HostConfigurations, manager: SshManager, input: ConfigureHost, signal: AbortSignal, boundRoute?: () => ManagedHost[]): Promise<DraftConnectionResult> {
   const { hostId, expectedRevision, authKind, credentials: _credentials, keyId: _keyId, routeDisabled, ...profile } = input;
   if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
   const existing = await hosts.list();
@@ -46,14 +48,34 @@ export async function testSshDraft(hosts: HostConfigurations, manager: SshManage
   byId.set(id, draft);
   const chain = routeForHost(byId, id);
   if (chain.some((host) => !("revision" in host))) throw errors.invalidInput("请先重新配置旧式跳板主机");
-  return manager.testDraft(chain as ManagedHost[], (connect) => hosts.withDraftAuthentication({ ...input, ...normalized }, saved, connect), signal);
+  const validate =
+    boundRoute &&
+    (() => {
+      if (workspaceTarget(boundRoute()) !== workspaceTarget(chain)) throw errors.permissionDenied("SSH 草稿必须使用已授权的主机与路由");
+    });
+  validate?.();
+  return manager.testDraft(chain as ManagedHost[], (connect) => hosts.withDraftAuthentication({ ...input, ...normalized }, saved, connect), signal, validate);
 }
 
 export function registerSshDraft(api: HuhuApi, hosts: HostConfigurations, manager: SshManager): void {
   api.defineCapability(
-    bindCapability(sshDraftDescriptor, ({ caller, signal }, input) => {
-      if (caller !== "desktop") throw errors.permissionDenied(sshDraftDescriptor.name);
-      return testSshDraft(hosts, manager, input, signal);
+    bindCapability(sshDraftDescriptor, (context, { routeRevision, ...input }) => {
+      if (context.caller === "desktop") return testSshDraft(hosts, manager, input, context.signal);
+      externalSshOwner(context);
+      const { hostId, expectedRevision, authKind, keyId, credentials } = input;
+      if (!hostId || !expectedRevision || !routeRevision) throw errors.invalidInput("外部 SSH 草稿需要已授权主机、主机版本和路由版本");
+      const boundRoute = () => {
+        context.signal.throwIfAborted();
+        const chain = readBoundRoute(api.vault.files, context, { hostId, routeRevision });
+        const target = chain.at(-1)!;
+        if (target.revision !== expectedRevision) throw errors.versionConflict(target.revision);
+        return chain;
+      };
+      const target = boundRoute().at(-1)!;
+      if (keyId !== undefined || ((authKind === "agent" || authKind === "identity-file") && authKind !== target.auth.kind) || credentials.some(({ purpose }) => purpose === "identityFile")) {
+        throw errors.permissionDenied("SSH 本机身份选择");
+      }
+      return testSshDraft(hosts, manager, input, context.signal, boundRoute);
     }),
   );
 }

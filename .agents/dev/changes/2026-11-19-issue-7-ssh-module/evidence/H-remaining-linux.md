@@ -49,3 +49,9 @@ Node 24.21.0，pnpm 12.10.1。单独运行四个 Vitest 文件，均使用 `--ma
 | PTY 复查 | Engine 单包类型、`terminal-runtime.test.ts` 的 3 项及 `attach.live.test.ts` 的 1 项通过。分栏 E2E 文件语法检查通过。桌面实际 Chromium 为 152.0.7977.167。 | `h7-wiring-recheck.log` |
 
 待验项目包括 `tests/e2e/ssh/remaining.spec.ts` 的密钥和草稿流程及分栏内快捷文本，`tests/e2e/ssh/entry-parity.spec.ts` 的 CLI 和 HTTP MCP 两条串联记录，以及 Electron 实际窗口、Windows WSL 和 macOS。新增动作的默认关闭已复核。授权后的外部调用需逐项对应外部对象与业务处理，部分候选处理仍仅接受工作台身份。OpenSSH CA、批量路由、出站代理与跨窗口仍需按切片实现或复核。#7 的 Issue 验收仍在进行。
+
+## 外部草稿试连
+
+CLI 与 HTTP MCP 可用 `ssh.hosts.testDraft` 测试已授权的保存主机。外部调用提交主机和路由版本，草稿只能使用同一主机地址、账户与路由。外部工具不能通过草稿任意选择设备上的身份文件或密钥。首次遇到未知指纹时返回可达，不保存信任、不注册连接，也未发送认证。正式外部连接仍通过外部主体的原信任应答。
+
+使用隔离 Vault 和两个回环主机运行 `pnpm exec vitest run plugins/ssh/test/public-resources.engine.test.ts -t "can test a draft only at its authorized SSH route"`。修复前两项拒绝新的路由字段，修复后两项通过，46 项由筛选排除。验证了工具默认关闭、按主机开放、过期路由版本、改写端口或账户、选择本机身份、首次可达、撤权与目录状态。SSH 单包类型检查和草稿及密钥文件的 8 项回归通过。本机日志为 `h7-public-draft-before.log` 与 `h7-public-draft-after.log`。

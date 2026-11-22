@@ -63,6 +63,7 @@ type Attempt = {
   publicProbe?: { validate(): void; keyboard(prompt: KeyboardPrompt): void };
   draft?: {
     authenticate(connect: (auth: ConnectionAuth) => Promise<void>): Promise<void>;
+    validate?: (() => void) | undefined;
     reachable?: Extract<DraftConnectionResult, { state: "reachable" }>;
   };
   pending?: { prompt: HostKeyPrompt; answer(accept: boolean, remember: boolean): void } | undefined;
@@ -409,10 +410,11 @@ export class SshManager {
   private async dialChain(chain: ManagedHost[], attempt: Attempt, opened: Client[], onHop?: (hop: number, host: ManagedHost) => void): Promise<Client> {
     const target = chain[chain.length - 1]!;
     const defaults = this.d.connectionPreferences?.() ?? defaultVaultPreferences.connection;
+    const validate = attempt.publicProbe?.validate ?? attempt.draft?.validate;
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
-      attempt.publicProbe?.validate();
+      validate?.();
       onHop?.(hop, host);
       if (attempt.route) {
         attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [] });
@@ -421,7 +423,7 @@ export class SshManager {
       const client = new Client();
       opened.push(client);
       const authenticate = (auth: ConnectionAuth) => {
-        attempt.publicProbe?.validate();
+        validate?.();
         return this.connectHop(client, host, target, hop, attempt, auth, socket, {
           connectTimeoutSec: host.connectTimeoutSec ?? defaults.connectTimeoutSec,
           keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
@@ -433,6 +435,7 @@ export class SshManager {
       client.setNoDelay(true);
       const next = chain[hop + 1];
       if (next) {
+        validate?.();
         this.trace(attempt, hop, "forwarding");
         socket = await new Promise((resolve, reject) =>
           client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
@@ -444,11 +447,11 @@ export class SshManager {
   }
 
   /** A draft probe owns its transports and never registers them as Workbench connections. */
-  async testDraft(chain: ManagedHost[], authenticate: NonNullable<Attempt["draft"]>["authenticate"], callerSignal: AbortSignal): Promise<DraftConnectionResult> {
+  async testDraft(chain: ManagedHost[], authenticate: NonNullable<Attempt["draft"]>["authenticate"], callerSignal: AbortSignal, validate?: () => void): Promise<DraftConnectionResult> {
     const lifetime = new AbortController();
     this.drafts.add(lifetime);
     const signal = AbortSignal.any([callerSignal, lifetime.signal, AbortSignal.timeout(30_000)]);
-    const draft: NonNullable<Attempt["draft"]> = { authenticate };
+    const draft: NonNullable<Attempt["draft"]> = { authenticate, validate };
     const attempt: Attempt = { id: newId("cap"), hostId: chain.at(-1)!.id, signal, requirePromptId: true, draft };
     const opened: Client[] = [];
     let hop: number | undefined;
@@ -461,9 +464,11 @@ export class SshManager {
         hop = index;
       });
       signal.throwIfAborted();
+      validate?.();
       return { state: "authenticated" };
     } catch (error) {
       if (callerSignal.aborted || lifetime.signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "测试连接已取消");
+      validate?.();
       if (draft.reachable) return draft.reachable;
       return { state: "failed", ...(hop !== undefined && { hop }), message: signal.aborted ? "测试连接超时" : error instanceof HuhuError ? error.message : "测试连接失败" };
     } finally {
@@ -639,7 +644,8 @@ export class SshManager {
       };
       const currentTarget = () => {
         try {
-          attempt.publicProbe?.validate();
+          const validate = attempt.publicProbe?.validate ?? attempt.draft?.validate;
+          validate?.();
           return true;
         } catch (error) {
           finish(error instanceof HuhuError ? error : errors.invalidInput("无法核对 SSH 路由"));
