@@ -1111,6 +1111,11 @@
     position: relative;
   }
 
+  .ssh-workspace-window-terminal {
+    block-size: 65dvh;
+    min-block-size: 240px;
+  }
+
   .ssh-terminal-preferences {
     position: relative;
     flex: 1;

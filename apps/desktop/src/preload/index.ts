@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopDraftAttachmentHost } from "@huhu/plugin-mail/desktop-attachments";
-import type { AppMenuAction, AppMenuHost, WindowChromeHost, WindowChromeState } from "@huhu/workbench";
+import type { AppMenuAction, AppMenuHost, WindowChromeHost, WindowChromeState, WorkspaceWindowHost } from "@huhu/workbench";
 import type { PrepareExit, ReleaseExit } from "../exit-ipc.js";
 import { WINDOW_CHROME_CHANGED, WINDOW_CHROME_COLORS, WINDOW_CHROME_HEIGHT, WINDOW_CHROME_STATE, windowChromeFallback } from "../window-chrome-ipc.js";
+import { workspaceWindowChannel as workspaceWindow } from "../workspace-window-ipc.js";
 
 export interface AppInfo {
   name: string;
@@ -31,6 +32,19 @@ contextBridge.exposeInMainWorld("huhuHost", {
             return () => ipcRenderer.off(WINDOW_CHROME_CHANGED, listener);
           },
         } satisfies WindowChromeHost,
+        workspaceWindow: {
+          open: (target, ticket) => ipcRenderer.invoke(workspaceWindow.open, target, ticket),
+          view: () => ipcRenderer.invoke(workspaceWindow.view),
+          attached: (ticket) => ipcRenderer.invoke(workspaceWindow.attached, ticket),
+          complete: (ticket, mode) => ipcRenderer.invoke(workspaceWindow.complete, ticket, mode),
+          cancel: (ticket) => ipcRenderer.invoke(workspaceWindow.cancel, ticket),
+          moved: () => ipcRenderer.invoke(workspaceWindow.moved),
+          onChange(callback) {
+            const listener = () => callback();
+            ipcRenderer.on(workspaceWindow.changed, listener);
+            return () => ipcRenderer.off(workspaceWindow.changed, listener);
+          },
+        } satisfies WorkspaceWindowHost,
       }
     : {}),
   appMenu: {

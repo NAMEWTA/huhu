@@ -566,11 +566,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
   const mcpToken = tokens.issue("mcp");
-  const terminal: NonNullable<Parameters<typeof startEngineServer>[0]["terminal"]> = (id, ws, options) => {
-    const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
-    return bridge ? bridge(id, ws, options) : false;
-  };
-  const webTerminal: typeof terminal = (id, ws, options) => !id.startsWith("ssh-local-") && terminal(id, ws, options);
+  type Terminal = NonNullable<Parameters<typeof startEngineServer>[0]["terminal"]>;
+  type TerminalView = Parameters<Terminal>[2] & { desktopHandoff?: boolean };
+  const terminal: Terminal = (id, ws, options) => attachWorkbenchTerminal(id, ws, { ...options, desktopHandoff: true });
+  const webTerminal: Terminal = (id, ws, options) => !id.startsWith("ssh-local-") && attachWorkbenchTerminal(id, ws, options);
+  function attachWorkbenchTerminal(id: string, ws: Parameters<Terminal>[1], options: TerminalView) {
+    const service = id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent";
+    return getService<(id: string, socket: typeof ws, view: TerminalView) => ReturnType<Terminal>>(service)?.(id, ws, options) ?? false;
+  }
   const webShare = new WebShareService(vault.id, opts.webAssetsDir, real, events, webTerminal, async (...input) => {
     const upload = plugins.isEnabled("mail") && getService<mail.MailWebAttachmentUpload>(mail.MAIL_WEB_ATTACHMENTS_SERVICE);
     if (!upload || vault.readOnly) throw errors.permissionDenied("上传邮件附件");

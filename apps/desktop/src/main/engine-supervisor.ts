@@ -81,7 +81,11 @@ export class EngineSupervisor {
   }
 
   mailAttachmentEndpoint(vaultId: string): EngineEndpoint | null {
-    return this.state === "ready" && !this.stopping && !this.flags.readOnly && this.endpoint?.vaultId === vaultId ? this.endpoint : null;
+    return this.flags.readOnly ? null : this.currentEndpoint(vaultId);
+  }
+
+  currentEndpoint(vaultId: string): EngineEndpoint | null {
+    return this.state === "ready" && !this.stopping && this.endpoint?.vaultId === vaultId ? this.endpoint : null;
   }
 
   addMailDraftAttachment(request: PrivateMailAttachmentRequest, signal: AbortSignal): Promise<SelectDraftAttachmentResult> {
@@ -226,15 +230,20 @@ export class EngineSupervisor {
   private readonly listeners = new Set<(s: EngineState) => void>();
 
   /** 以桌面身份调用 Engine 能力（Main 自己的需要，如系统锁屏 / 休眠时锁定保险箱）；Engine 不可用时静默忽略。 */
-  async callDesktop(capability: string, input: unknown = {}): Promise<void> {
+  async callDesktop(capability: string, input: unknown = {}): Promise<unknown> {
     const ep = this.endpoint;
     if (!ep) return;
     try {
-      await fetch(`${ep.baseUrl}/api/v1/call`, {
+      const response = await fetch(`${ep.baseUrl}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: `main-${Date.now().toString(36)}`, idempotencyKey: `main-${capability}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}` }),
+        signal: AbortSignal.timeout(5000),
       });
+      if (response.ok) {
+        const body: unknown = await response.json();
+        if (body && typeof body === "object" && "ok" in body && body.ok === true && "data" in body) return body.data;
+      }
     } catch {
       // Engine 正在退出
     }

@@ -25,8 +25,10 @@ export interface FakeSshOptions {
   /** 记录收到的认证尝试（用于断言"主机密钥不符时没有发送凭据"）。 */
   onAuth?: (user: string, method: string) => void;
   keyboardResponse?: string;
+  onShellOpen?: () => void;
   onShellInput?: (text: string) => void;
   onShellClose?: () => void;
+  onShellResize?: (size: { cols: number; rows: number }) => void;
   holdReadDirectory?: (dir: string) => boolean;
   waitReadDirectory?: (dir: string) => Promise<void> | undefined;
   onWriteFile?: (file: string) => void;
@@ -167,9 +169,13 @@ export async function startFakeSsh(o: FakeSshOptions = {}): Promise<{ port: numb
       client.on("session", (accept) => {
         const session = accept();
         session.on("pty", (acceptPty) => acceptPty?.());
-        session.on("window-change", (acceptWc) => acceptWc?.());
+        session.on("window-change", (acceptWc, _rejectWc, { cols, rows }) => {
+          o.onShellResize?.({ cols, rows });
+          acceptWc?.();
+        });
         session.on("shell", (acceptShell) => {
           const ch = acceptShell();
+          o.onShellOpen?.();
           if (o.onShellClose) ch.once("close", o.onShellClose);
           ch.write("welcome\n");
           ch.on("data", (d: Buffer) => {
