@@ -8,6 +8,7 @@ const now = () => performance.timeOrigin + performance.now();
 
 type RequestSample = {
   capability: string;
+  namesOnly: boolean;
   requestId: string | null;
   method: "GET" | "POST";
   queuedAt: number;
@@ -54,6 +55,7 @@ export function observePluginPerformance(page: Page, info: TestInfo) {
 
     const sample: RequestSample = {
       capability,
+      namesOnly: method === "GET" && url.searchParams.get("view") === "names",
       requestId,
       method,
       queuedAt: now(),

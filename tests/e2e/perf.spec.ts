@@ -10,7 +10,7 @@ import { fixtureProcessRunning } from "../../plugins/agent-cli/test/fixtures/cor
 import { createScaleVault } from "../perf/scale-vault.js";
 import { withFixtureCleanup, withFixtureDeadline } from "./helpers/candidate-desktop.js";
 import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
-import { observeTaskPerformance, observeTaskQuit, observeTerminalFlood, readTerminalFloodTail } from "./helpers/perf-diagnostics.js";
+import { observeTaskPerformance, observeTaskQuit, observeTerminalFlood, observeTerminalFloodBridge, readTerminalFloodTail } from "./helpers/perf-diagnostics.js";
 import { observePluginPerformance } from "./helpers/plugin-perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
 
@@ -344,6 +344,7 @@ type TerminalPerfFixture = {
   vault: string;
   signal: AbortSignal;
   coreStarted: boolean;
+  bridge?: ReturnType<typeof observeTerminalFloodBridge>;
   launch(): Promise<ElectronApplication>;
 };
 
@@ -373,6 +374,7 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
           });
           const app = await launch;
           teardown.signal.throwIfAborted();
+          if (process.env["HUHU_PERF_DIAGNOSTICS"] === "1") fixture.bridge = observeTerminalFloodBridge(app);
           return app;
         },
       };
@@ -420,6 +422,16 @@ const terminalPerfTest = test.extend<{ terminalPerf: TerminalPerfFixture }>({
               }),
             ),
         ],
+        [
+          "记录关停前后的终端桥统计",
+          async () => {
+            const bridge = fixture.bridge?.finish();
+            if (!bridge) return;
+            await withFixtureDeadline(2_000, () => info.attach("terminal-flood-bridge.json", { body: JSON.stringify(bridge), contentType: "application/json" })).catch(() =>
+              console.error("[perf-diagnostics] terminal bridge attachment incomplete"),
+            );
+          },
+        ],
       ]);
     },
     // Allow the 12 s close, 8 s Core RPC, 8 s poll, and cleanup evidence after the test times out.
@@ -452,6 +464,7 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   signal.throwIfAborted();
   await expect(page.getByTestId("core-status")).toContainText("已连接", { timeout: 20_000 });
   const sessionId = diagnostics ? await terminal.evaluate((view) => view.closest("[data-session-id]")?.getAttribute("data-session-id") ?? null).catch(() => null) : null;
+  terminalPerf.bridge?.select(sessionId);
   signal.throwIfAborted();
   const search = page.getByRole("searchbox", { name: "搜索会话历史", exact: true });
   await expect(search).toBeVisible();
@@ -557,6 +570,7 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
   const releasedAt = Date.now();
   const deadline = releasedAt + 20_000;
   if (sessionId) traffic?.start(sessionId, deadline);
+  terminalPerf.bridge?.start(releasedAt, deadline);
   writeFileSync(gate, "");
   let dispatched = 0;
   for (; signaledAt === undefined && Date.now() < deadline; dispatched++) {
@@ -582,7 +596,7 @@ terminalPerfTest("终端吞吐：10 MiB 输出期间界面输入响应 p95 ≤ 1
     const coreReadFinishedAt = Date.now();
     await withFixtureDeadline(2_000, () =>
       test.info().attach("terminal-flood-stages.json", {
-        body: JSON.stringify({ sessionId, releasedAt, deadline, webSocketSnapshotAt, sockets, dom: probe.rows, coreReadStartedAt, coreReadFinishedAt, core }),
+        body: JSON.stringify({ sessionId, releasedAt, deadline, webSocketSnapshotAt, sockets, dom: probe.rows, coreReadStartedAt, coreReadFinishedAt, core, bridge: terminalPerf.bridge?.snapshot() }),
         contentType: "application/json",
       }),
     ).catch(() => console.error("[perf-diagnostics] terminal stage attachment incomplete"));

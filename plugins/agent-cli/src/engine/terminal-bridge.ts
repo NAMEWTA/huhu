@@ -7,6 +7,100 @@ import type { InputOwnership } from "./input-ownership.js";
 
 export type TerminalBridge = (sessionId: string, ws: WebSocket, opts: { cols: number; rows: number; observe: boolean }) => Promise<boolean>;
 
+function floodStage() {
+  const marker = Buffer.from("FLOOD-DONE-42-10485760");
+  const overlap = marker.length - 1;
+  let suffix = Buffer.alloc(0);
+  const stats = { frames: 0, bytes: 0, firstAt: null as number | null, lastAt: null as number | null, tailAt: null as number | null };
+  return {
+    stats,
+    record(payload: Buffer, at: number): number | undefined {
+      const offset = stats.bytes;
+      stats.frames++;
+      stats.bytes += payload.length;
+      stats.firstAt ??= at;
+      stats.lastAt = at;
+      if (stats.tailAt !== null) return;
+      const boundary = Buffer.concat([suffix, payload.subarray(0, overlap)]);
+      const across = boundary.indexOf(marker);
+      const within = payload.indexOf(marker);
+      const start = across >= 0 ? offset - suffix.length + across : within >= 0 ? offset + within : undefined;
+      suffix = Buffer.from((payload.length >= overlap ? payload : boundary).subarray(-overlap));
+      if (start !== undefined) stats.tailAt = at;
+      return start;
+    },
+  };
+}
+
+function observeFloodBridge(sessionId: string) {
+  const connectionId = randomUUID();
+  const core = floodStage();
+  const sent = floodStage();
+  const completed = { frames: 0, bytes: 0, lastAt: null as number | null, tailAt: null as number | null, errors: 0 };
+  const credit = { blocked: 0, maxBufferedAmount: 0 };
+  let lastLogAt = 0;
+  let failedThrough = 0;
+  let closed = false;
+  const emit = (event: string, at = Date.now()) => {
+    lastLogAt = at;
+    process.stderr.write(`\n[huhu-terminal-flood-bridge] ${JSON.stringify({ sessionId, connectionId, event, at, core: core.stats, credit, sent: sent.stats, completed })}\n`);
+  };
+  const checkpoint = (at: number) => {
+    if (at - lastLogAt >= 1_000) emit("progress", at);
+  };
+  return {
+    received(payload: Buffer) {
+      const at = Date.now();
+      if (core.record(payload, at) !== undefined) emit("core-tail", at);
+      else checkpoint(at);
+    },
+    checkedCredit(bufferedAmount: number, allowed: boolean) {
+      credit.maxBufferedAmount = Math.max(bufferedAmount, credit.maxBufferedAmount);
+      if (!allowed) credit.blocked++;
+      checkpoint(Date.now());
+    },
+    send(ws: WebSocket, payload: Buffer) {
+      const at = Date.now();
+      const tailStart = sent.record(payload, at);
+      const length = payload.length;
+      const end = sent.stats.bytes;
+      const finish = (failed: boolean) => {
+        const completedAt = Date.now();
+        let tailCompleted = false;
+        if (failed) {
+          completed.errors++;
+          failedThrough = Math.max(failedThrough, end);
+        } else {
+          completed.frames++;
+          completed.bytes += length;
+          completed.lastAt = completedAt;
+          if (tailStart !== undefined && failedThrough <= tailStart) {
+            completed.tailAt = completedAt;
+            tailCompleted = true;
+          }
+        }
+        if (closed && completed.frames + completed.errors === sent.stats.frames) emit("send-drained", completedAt);
+        else if (tailCompleted) emit("send-tail-completed", completedAt);
+        else checkpoint(completedAt);
+      };
+      try {
+        ws.send(payload, { binary: true }, (error) => finish(Boolean(error)));
+      } catch (error) {
+        finish(true);
+        throw error;
+      }
+      if (tailStart !== undefined) emit("send-tail", at);
+    },
+    abort() {
+      emit("abort");
+    },
+    close() {
+      closed = true;
+      emit("close");
+    },
+  };
+}
+
 /**
  * Engine 里的终端桥：WebSocket ↔ Herdr attach。
  * 服务端 → 客户端：二进制 = 终端输出；文本 JSON `{type:"closed",reason}` = 程序结束。
@@ -21,6 +115,7 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
     if (d.signal?.aborted) return false;
     const s = d.sessions.list().find((x) => x.id === sessionId);
     if (!s?.terminalId) return false;
+    const diagnostic = process.env["HUHU_PERF_DIAGNOSTICS"] === "1" ? observeFloodBridge(sessionId) : undefined;
     const holder = controllers.get(sessionId);
     const taken = holder !== undefined && holder.readyState === holder.OPEN;
     const controlId = !s.controlled && !requested.observe && !taken ? randomUUID() : undefined;
@@ -76,19 +171,32 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       queue.length = 0;
       term?.close();
       if (ws.readyState === ws.OPEN) ws.close(1001, "agent-cli disabled");
+      diagnostic?.abort();
     };
     d.signal?.addEventListener("abort", onScopeEnd, { once: true });
     ws.on("close", () => {
       d.signal?.removeEventListener("abort", onScopeEnd);
       wsClosed = true;
       term?.close();
+      diagnostic?.close();
     });
     // 发送缓冲超过 4 MiB 时暂停回报 CREDIT（interfaces.md §7）
     let t: Awaited<ReturnType<typeof attachTerminal>>;
     try {
       await d.core.ensure();
       if (wsClosed) return true;
-      t = await attachTerminal(d.core.endpoint, { terminal: s.terminalId, cols: opts.cols, rows: opts.rows, observe: opts.observe, canSend: () => ws.bufferedAmount < 4 * 1024 * 1024 });
+      t = await attachTerminal(d.core.endpoint, {
+        terminal: s.terminalId,
+        cols: opts.cols,
+        rows: opts.rows,
+        observe: opts.observe,
+        canSend: () => {
+          const bufferedAmount = ws.bufferedAmount;
+          const allowed = bufferedAmount < 4 * 1024 * 1024;
+          diagnostic?.checkedCredit(bufferedAmount, allowed);
+          return allowed;
+        },
+      });
     } catch (error) {
       d.signal?.removeEventListener("abort", onScopeEnd);
       releaseControl();
@@ -100,7 +208,10 @@ export function createTerminalBridge(d: { sessions: SessionsService; core: Herdr
       return true;
     }
     t.onData((b) => {
-      if (ws.readyState === ws.OPEN) ws.send(b, { binary: true });
+      diagnostic?.received(b);
+      if (ws.readyState !== ws.OPEN) return;
+      if (diagnostic) diagnostic.send(ws, b);
+      else ws.send(b, { binary: true });
     });
     t.onClose((reason) => {
       if (ws.readyState === ws.OPEN) {

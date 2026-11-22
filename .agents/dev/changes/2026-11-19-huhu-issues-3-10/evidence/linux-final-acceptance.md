@@ -343,3 +343,9 @@ t181同构建任务结果完整旅程1项通过13.1s：自动化Agent规则经Ta
 固定应用 da645ee844f98f99dd2175b31b1e54f6714490e3，新增测试观测不改变阈值。t182 终端仍失败：20秒截止前 WebSocket 847308 字节，约21秒累计978380字节/161帧，无尾标；DOM原节点没有替换。截止后独立 Core terminal.read 已有完整尾标和 shell 提示，不能据此推断其在截止前何时完成。隔离 Core 与目录清理均成功。证据 `temp/final-audit/flood-stages-artifacts-da645ee8`，继续定位 attach/bridge。
 
 t183 冷启动/插件/内存单项通过：1845ms，停用38ms/启用279ms，RSS341MiB。前次472ms失败仍保留。网络观测：能力目录响应14184843字节；停用后目录首字节约232ms，随后的启用请求 requestStart约220ms、responseStart约237ms。时间线表明请求发送前等待，但尚未单独证明目录生成或解析各自成本。证据 `temp/final-audit/plugin-network-artifacts-da645ee8`；未用一次通过代替波动分析。
+
+### 直连 attach 与名称目录定向回归
+
+t188 在同一锁定Core二进制（d408197a6b85af97b2fe93a10e6f4bee18d3a654307db94df2b35aea277c466f）上，用私有HOME/XDG/socket和/bin/sh执行原满速10MiB命令：首DATA15.6ms，完整尾标300.4ms，5658帧/11102595B，CAN重绘标记0。独立Core读取303ms有尾标。正常server.stop回执、Core退出0，forcedPids/remaining/sockets均空。日志 `temp/final-audit/direct-attach-lead-probe.log`。这是直连协议路径证据，不替代浏览器终端验收。t187未启动测试（固定PATH找不到pnpm），改绝对pnpm路径后执行t188。
+
+t189 名称目录源码定向3/3通过：同身份names/full等价、插件启停、Web的desktop-only排除及邀请撤销、MCP完整字段。日志 `temp/final-audit/names-catalog-check.log`。候选源码尚待独审与新构建真实性能验证，旧da645应用数字不算新实现效果。

@@ -54,6 +54,52 @@ export function observeTerminalFlood(page: Page, tail: string) {
   };
 }
 
+export function observeTerminalFloodBridge(app: ElectronApplication) {
+  const prefix = "[huhu-terminal-flood-bridge] ";
+  const stderr = app.process()?.stderr;
+  const records: { sessionId: string; connectionId: string; event: string; at: number }[] = [];
+  let remainder = "";
+  let sessionId: string | null = null;
+  let window: { releasedAt: number; deadline: number } | undefined;
+  let dropped = 0;
+  const onData = (chunk: Buffer | string) => {
+    const lines = (remainder + chunk.toString()).split("\n");
+    remainder = (lines.pop() ?? "").slice(-4_096);
+    for (const raw of lines) {
+      // The desktop supervisor prefixes each stderr chunk, including split lines.
+      const line = raw.replaceAll("[engine] ", "");
+      if (!line.startsWith(prefix)) continue;
+      try {
+        const record = JSON.parse(line.slice(prefix.length)) as (typeof records)[number];
+        if (typeof record.sessionId !== "string" || typeof record.connectionId !== "string" || typeof record.event !== "string" || typeof record.at !== "number") continue;
+        if (sessionId !== null && record.sessionId !== sessionId) continue;
+        records.push(record);
+        if (records.length > 64) {
+          records.shift();
+          dropped++;
+        }
+      } catch {
+        // A partial stderr record is not evidence for any stage.
+      }
+    }
+  };
+  stderr?.on("data", onData);
+  const snapshot = () => ({ collectedAt: Date.now(), stderrAvailable: Boolean(stderr), sessionId, ...window, dropped, records: records.filter((record) => sessionId === null || record.sessionId === sessionId) });
+  return {
+    select(id: string | null) {
+      sessionId = id;
+    },
+    start(releasedAt: number, deadline: number) {
+      window = { releasedAt, deadline };
+    },
+    snapshot,
+    finish() {
+      stderr?.off("data", onData);
+      return snapshot();
+    },
+  };
+}
+
 export function readTerminalFloodTail(page: Page, sessionId: string, tail: string) {
   return page.evaluate(
     async ({ sessionId, tail }) => {
