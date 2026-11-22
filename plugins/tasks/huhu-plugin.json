@@ -27,6 +27,7 @@
       "tasks.dispatch",
       "tasks.dispatch.read",
       "tasks.dispatch.list",
+      "tasks.dispatch.retry",
       "tasks.dispatch.recent",
       "tasks.dispatch.targets",
       "tasks.dispatch.cancel",

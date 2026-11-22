@@ -4,8 +4,9 @@ import { normalizeTag, type TaskDto } from "@huhu/contracts";
 import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
 import { createRequestId, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { draftFromTask, draftToWritable, emptyDraft, validateDraft, type TaskDraft } from "../shared/draft.js";
+import { followUpInstants, followUpWallTime } from "../shared/follow-up-time.js";
 import { t } from "./i18n.js";
 import { TaskMarkdownInput } from "./compact.js";
 import { useReferenceIndex } from "./references.js";
@@ -78,6 +79,23 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const [bodyPort, setBodyPort] = useState<RichEditorPort | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [discard, setDiscard] = useState(false);
+  const zone = useCapability<{ dateTime: { zone: string } }>("settings.get", {}).data?.dateTime.zone;
+  const availableField = useId();
+  const [wallOverride, setWallOverride] = useState<string | null>(null);
+  const [instantChoice, setInstantChoice] = useState("");
+  const [availableError, setAvailableError] = useState("");
+  const scheduleZone = useMemo(() => {
+    if (!zone) return null;
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: zone });
+      return zone;
+    } catch {
+      return null;
+    }
+  }, [zone]);
+  const wall = wallOverride ?? (draft.availableAt && scheduleZone ? followUpWallTime(draft.availableAt, scheduleZone) : "");
+  const instants = useMemo(() => (wallOverride && scheduleZone ? followUpInstants(wallOverride, scheduleZone) : []), [wallOverride, scheduleZone]);
+  const selectedInstant = instants.length === 1 ? instants[0] : instants.find((instant) => instant === instantChoice);
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const usable = useMemo(() => (providers.data ?? []).filter((p) => p.headless && p.installed), [providers.data]);
   const models = agentById(draft.provider ?? "")?.options.models ?? [];
@@ -91,7 +109,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const requestClose = async () => {
     if (savingRef.current) return;
     try {
-      if (JSON.stringify(await readDraft()) !== original) setDiscard(true);
+      if (wallOverride !== null || JSON.stringify(await readDraft()) !== original) setDiscard(true);
       else onClose();
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e));
@@ -130,8 +148,12 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
       const current = await readDraft();
       const bad = validateDraft(current);
       setProblems(bad);
-      if (bad.length > 0) return;
-      const w = draftToWritable(current);
+      const missingInstant = Boolean(wallOverride && !selectedInstant);
+      if (missingInstant) {
+        setAvailableError(!scheduleZone ? "工作台时区不可用。" : instants.length ? "请选择回拨时段的 UTC 偏移。" : "此时区没有这个时间，请另选时间。");
+      }
+      if (bad.length > 0 || missingInstant) return;
+      const w = draftToWritable({ ...current, availableAt: wallOverride === null ? current.availableAt : (selectedInstant ?? null) });
       const saved = start
         ? await engine.call<TaskDto>("tasks.update", { id: start.id, expectedVersion: start.version, baseEditHash: start.editHash, patch: w }, { write: true })
         : await engine.call<TaskDto>("tasks.create", w, { write: true });
@@ -214,6 +236,56 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                   testId="task-project"
                 />
               </Field>
+            </div>
+            <div className="hu-field">
+              <label className="hu-field-label" htmlFor={availableField}>
+                最早派遣时间
+              </label>
+              <input
+                id={availableField}
+                name="availableAt"
+                type="datetime-local"
+                value={wall}
+                disabled={!scheduleZone}
+                data-testid="task-available-at"
+                aria-invalid={Boolean(availableError) || undefined}
+                aria-describedby={`${availableField}-hint${availableError ? ` ${availableField}-error` : ""}`}
+                onChange={(event) => {
+                  setWallOverride(event.target.value);
+                  setInstantChoice("");
+                  setAvailableError("");
+                }}
+              />
+              <p id={`${availableField}-hint`} className="tasks-hint">
+                {scheduleZone ? `工作台时区 ${scheduleZone}` : "工作台时区不可用。"} · 可留空
+              </p>
+              {instants.length > 1 && scheduleZone ? (
+                <fieldset>
+                  <legend>回拨时间的 UTC 偏移</legend>
+                  {instants.map((instant) => {
+                    const offset = new Intl.DateTimeFormat("en", { timeZone: scheduleZone, timeZoneName: "longOffset" }).formatToParts(new Date(instant)).find(({ type }) => type === "timeZoneName")?.value;
+                    return (
+                      <label key={instant} className="row">
+                        <input
+                          type="radio"
+                          name={`${availableField}-offset`}
+                          checked={instantChoice === instant}
+                          onChange={() => {
+                            setInstantChoice(instant);
+                            setAvailableError("");
+                          }}
+                        />
+                        {offset} · <time dateTime={instant}>{instant}</time>
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              ) : null}
+              {availableError ? (
+                <p id={`${availableField}-error`} className="hu-field-error" role="alert">
+                  {availableError}
+                </p>
+              ) : null}
             </div>
           </div>
           <aside className="automations-editor-aside">

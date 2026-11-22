@@ -7,7 +7,7 @@ import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
 import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsService, type TaskScanRule } from "./service.js";
 
 const dir = "automations/task-scan-occurrences";
-export const TaskScanOccurrenceId = z.string().regex(/^(occ-[a-f0-9]{64}|inv-[a-f0-9-]{36}|inv-ext-[a-f0-9]{64})$/);
+export const TaskScanOccurrenceId = z.string().regex(/^(occ-[a-f0-9]{64}|inv-[a-f0-9-]{36}|inv-(?:ext|wb)-[a-f0-9]{64})$/);
 const DispatchId = z.string().regex(/^scan-[a-f0-9]{64}$/);
 const Instant = z.iso.datetime();
 const Item = z
@@ -97,12 +97,28 @@ export class TaskScanOccurrences {
   }
 
   async invokeExternal(input: ManualIntent, principal: { caller: string; subject: string }, authorize: () => void): Promise<Occurrence> {
+    return this.invokeIntent(input, principal, "ext", authorize);
+  }
+
+  async invokeWorkbench(input: ManualIntent, principal: { caller: string; subject: string }, signal: AbortSignal): Promise<Occurrence> {
+    return this.invokeIntent(input, principal, "wb", () => signal.throwIfAborted());
+  }
+
+  hasWorkbenchIntent(intentId: string, principal: { caller: string; subject: string }): boolean {
+    return this.owner !== null && this.load(this.intentId(intentId, principal, "wb", this.owner)) !== null;
+  }
+
+  private intentId(intentId: string, principal: { caller: string; subject: string }, kind: "ext" | "wb", owner: string): string {
+    return `inv-${kind}-${digest([owner, this.vaultId, principal.caller, principal.subject, intentId])}`;
+  }
+
+  private async invokeIntent(input: ManualIntent, principal: { caller: string; subject: string }, kind: "ext" | "wb", authorize: () => void): Promise<Occurrence> {
     authorize();
     const signal = this.shutdown.signal;
     signal.throwIfAborted();
     const owner = this.owner;
     if (owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
-    const id = `inv-ext-${digest([owner, this.vaultId, principal.caller, principal.subject, input.intentId])}`;
+    const id = this.intentId(input.intentId, principal, kind, owner);
     const checkReceipt = ({ occurrence }: Stored) => {
       if (!this.owns(occurrence)) throw errors.notFound("扫描发生");
       if (occurrence.ruleId !== input.ruleId || occurrence.ruleVersion !== input.expectedVersion) throw errors.idempotencyMismatch();
@@ -112,14 +128,16 @@ export class TaskScanOccurrences {
       checkReceipt(prior);
     } else {
       this.files.assertWritable();
-      this.externalRule(input);
+      this.intentRule(input, kind);
       await this.rules.refreshTaskScanTargets();
       await this.rules.withRuleConfiguration(async () => {
         authorize();
         signal.throwIfAborted();
         const existing = this.load(id);
         if (existing) return checkReceipt(existing);
-        const row = this.freeze(id, this.externalRule(input), null, this.now(), owner);
+        const rule = this.intentRule(input, kind);
+        const now = this.now();
+        const row = isTaskScanRule(rule) ? this.freeze(id, rule, null, now, owner) : this.freezeTemplate(id, rule, null, now, owner);
         await this.persist(row, null, () => {
           signal.throwIfAborted();
           authorize();
@@ -134,11 +152,12 @@ export class TaskScanOccurrences {
     return occurrence;
   }
 
-  private externalRule({ ruleId, expectedVersion }: ManualIntent): TaskScanRule {
+  private intentRule({ ruleId, expectedVersion }: ManualIntent, kind: "ext" | "wb") {
     const rule = this.rules.rule(ruleId);
-    if (!isTaskScanRule(rule)) throw errors.permissionDenied("仅可执行已有任务扫描规则");
+    if (kind === "ext" && !isTaskScanRule(rule)) throw errors.permissionDenied("仅可执行已有任务扫描规则");
+    if (rule.data.action.kind !== "agent") throw errors.invalidInput("该规则没有 Agent 任务输入");
     if (rule.version !== expectedVersion) throw errors.versionConflict(rule.version);
-    if (!rule.data.enabled) throw errors.invalidInput("请先启用任务扫描规则");
+    if (kind === "ext" && !rule.data.enabled) throw errors.invalidInput("请先启用任务扫描规则");
     return rule;
   }
 

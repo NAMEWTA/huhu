@@ -743,6 +743,59 @@ test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async (
   expect(fixture.dispatch).not.toHaveBeenCalled();
 });
 
+test("工作台立即运行绑定规则版本，编辑及重开后重传仍投影原发生与派遣", async () => {
+  const first = await start();
+  const { engine } = first;
+  const rule = await createRule(engine, "工作台可重查的扫描");
+  const task = await createTask(engine, "工作台派遣");
+  const run = { id: rule.id, expectedVersion: rule.version, intentId: randomUUID() };
+  const cap = "automations.runNow";
+  expect(await call(engine, cap, { ...run, expectedVersion: "stale" })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(first.scans.list()).toEqual([]);
+  const [accepted, replay] = await Promise.all([call(engine, cap, run), call(engine, cap, run)]);
+  expect(accepted).toMatchObject({ ok: true, data: { activationId: expect.stringMatching(/^inv-wb-/), summary: { processed: 1 } } });
+  expect(replay).toEqual(accepted);
+  const [occurrence] = first.scans.list();
+  expect(occurrence).toMatchObject({ ruleVersion: rule.version, scheduledForUTC: null, items: [{ taskId: task.id, state: "accepted" }] });
+
+  const edited = await invoke<Rule>(engine, "automations.update", { id: rule.id, expectedVersion: rule.version, patch: { trigger: { preset: "custom", cron: "0 9 * * *", zone: "Asia/Taipei" } }, body: "改期后的指令" });
+  expect(edited.data.enabled).toBe(true);
+  expect(await invoke(engine, "automations.preview", { id: rule.id, expectedVersion: edited.version })).toMatchObject({ ruleVersion: edited.version, next: expect.arrayContaining([expect.stringMatching(/T01:00:00.000Z$/)]) });
+  expect(await call(engine, "automations.update", { id: rule.id, expectedVersion: rule.version, patch: { title: "过期编辑" } })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(first.scans.list()).toEqual([occurrence]);
+  const root = engine.vault.root;
+  await stop(engine);
+  const reopened = await start(root);
+  expect(await call(reopened.engine, cap, run)).toEqual(accepted);
+  expect(await invoke(reopened.engine, "automations.activations", {})).toEqual([expect.objectContaining({ activationId: occurrence!.id, ruleId: rule.id })]);
+  expect(await invoke(reopened.engine, "automations.activations.dispatches", { ruleId: rule.id, activationId: occurrence!.id })).toMatchObject({
+    dispatches: [{ taskId: task.id, dispatchId: occurrence!.items[0]!.dispatchId, state: "accepted" }],
+  });
+  expect(dispatchRecords(reopened.engine)).toHaveLength(1);
+});
+
+test("工作台模板规则以原意图重查一次真实任务和一次派遣", async () => {
+  const { engine, scans } = await start();
+  const [space] = await invoke<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const rule = await invoke<Rule>(engine, "automations.create", {
+    title: "模板旅程",
+    body: "模板的原始要求",
+    trigger,
+    action: { kind: "agent", input: { source: "prompt", provider: "codex", spaceId: space!.id } },
+  });
+  const intent = { id: rule.id, expectedVersion: rule.version, intentId: randomUUID() };
+  const first = await invoke<{ activationId: string }>(engine, "automations.runNow", intent);
+  expect(await invoke(engine, "automations.runNow", intent)).toEqual(first);
+  const row = scans.read(first.activationId);
+  expect(row).toMatchObject({ ruleVersion: rule.version, items: [{ state: "accepted" }] });
+  expect(await invoke(engine, "tasks.read", { id: row!.template!.taskId })).toMatchObject({
+    title: "模板旅程",
+    body: "模板的原始要求",
+    origin: { kind: "automation", ruleId: rule.id, activationId: first.activationId },
+  });
+  expect(dispatchRecords(engine)).toHaveLength(1);
+});
+
 test("刷新未完成时保留扫描资格，冻结完成后重交不再刷新", async () => {
   const { engine, scans } = await start();
   const rule = await createRule(engine, "等待 CLI 探测");

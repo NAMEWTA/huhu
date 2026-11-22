@@ -473,15 +473,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   });
   defineRuleTool(taskScanToolDescriptors.preview, (_c, i) => svc.preview(i.id, i.expectedVersion));
   api.defineCapability(
-    bindCapability(automationToolDescriptors.runNow, async ({ caller, signal }, { id, expectedVersion, intentId }) => {
+    bindCapability(automationToolDescriptors.runNow, async ({ caller, subject, signal }, { id, expectedVersion, intentId }) => {
       signal.throwIfAborted();
       let a: ActivationRecord | null;
       if (isWorkbenchCaller(caller) && intentId === undefined && expectedVersion === undefined) {
         a = await activate(id, null);
       } else {
         if (!intentId || !expectedVersion) throw errors.invalidInput("运行提醒须提供规则版本和固定的执行意图");
-        if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
-        a = await reminders.activateManual(id, expectedVersion, caller, intentId);
+        const principal = { caller, subject: subject ?? caller };
+        if (isWorkbenchCaller(caller) && (scans.hasWorkbenchIntent(intentId, principal) || svc.rule(id).data.action.kind === "agent")) {
+          const occurrence = await scans.invokeWorkbench({ ruleId: id, expectedVersion, intentId }, principal, signal);
+          a = scans.activation(occurrence);
+        } else {
+          if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
+          a = await reminders.activateManual(id, expectedVersion, caller, intentId);
+        }
       }
       if (!a) throw errors.notFound("规则未产生发生记录");
       return { activationId: a.activationId, summary: a.summary };

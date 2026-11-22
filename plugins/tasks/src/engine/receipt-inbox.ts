@@ -109,8 +109,14 @@ export class TaskReceiptInbox {
     };
   }
 
+  confirmedFailure(execution: ExecutionBinding): boolean {
+    return this.currentHistory(execution.taskId, (candidate) => fingerprint(candidate) === fingerprint(execution)).outcomes.get(execution.dispatchId)?.state === "failed";
+  }
+
   question(taskId: string, runId: string, requestId: string, bound: (execution: ExecutionBinding) => boolean): StoredQuestion | undefined {
-    return this.currentHistory(taskId, bound).questions.find(({ view }) => view.runId === runId && view.requestId === requestId);
+    return this.currentHistory(taskId, bound)
+      .questions.filter(({ view }) => view.runId === runId && view.requestId === requestId)
+      .sort((a, b) => b.receipt.execution.attempt - a.receipt.execution.attempt)[0];
   }
 
   private currentHistory(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void) {
@@ -126,17 +132,17 @@ export class TaskReceiptInbox {
         if (receipt.kind !== "question") {
           if (receipt.kind !== "progress") {
             const payloadHash = fingerprint([receipt.kind, receipt.payload]);
-            const previous = terminal.get(execution.runId);
+            const previous = terminal.get(execution.dispatchId);
             if (previous && previous.payloadHash !== payloadHash) {
-              terminal.set(execution.runId, { payloadHash: "", outcome: { state: "unknown", finishedAt: null } });
+              terminal.set(execution.dispatchId, { payloadHash: "", outcome: { state: "unknown", finishedAt: null } });
             } else if (!previous || (previous.outcome.finishedAt && at < previous.outcome.finishedAt)) {
-              terminal.set(execution.runId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } } });
+              terminal.set(execution.dispatchId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } } });
             }
           }
           continue;
         }
         const { requestId, requestVersion, mode, text, options } = receipt.payload;
-        const key = fingerprint([execution.runId, requestId]);
+        const key = fingerprint([execution.dispatchId, requestId]);
         const previous = questions.get(key);
         const view: QuestionView = { runId: execution.runId, sessionId: execution.sessionBinding.sessionId, requestId, requestVersion, mode, text, options, at, status: "awaiting" };
         const payloadHash = fingerprint(receipt.payload);
@@ -155,7 +161,7 @@ export class TaskReceiptInbox {
       outcomes,
       questions: [...questions.values()].map((question): StoredQuestion => {
         const { view } = question;
-        if (view.mode === "native_deferred" && outcomes.has(view.runId)) return { ...question, view: { ...view, status: "closed" } };
+        if (view.mode === "native_deferred" && outcomes.has(question.receipt.execution.dispatchId)) return { ...question, view: { ...view, status: "closed" } };
         return question;
       }),
     };

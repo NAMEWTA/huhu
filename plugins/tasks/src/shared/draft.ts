@@ -16,6 +16,7 @@ export interface TaskDraft {
   type: TaskType;
   tags: string[];
   due: string | null;
+  availableAt: string | null;
   project: string;
   spaceId: string | null;
   provider: string | null;
@@ -32,6 +33,7 @@ export const emptyDraft = (over: Partial<TaskDraft> = {}): TaskDraft => ({
   type: "human",
   tags: [],
   due: null,
+  availableAt: null,
   project: "",
   spaceId: null,
   provider: null,
@@ -50,6 +52,7 @@ export function draftFromTask(t: TaskDto): TaskDraft {
     type: t.type,
     tags: t.tags,
     due: t.due,
+    availableAt: t.availableAt ?? null,
     project: t.project ?? "",
     spaceId: t.execution?.spaceId ?? null,
     provider: t.execution?.provider ?? null,
@@ -84,6 +87,7 @@ export function draftToWritable(d: TaskDraft) {
     body: d.body,
     tags: normalizeTags(d.tags),
     due: d.due,
+    availableAt: d.availableAt,
     project: d.project.trim() || null,
     execution: hasExecution ? { spaceId: d.spaceId, provider: d.provider, model: d.model, effort: d.effort, fast: d.fast, ...(d.target && { target: d.target }) } : null,
     reminders: d.reminders.filter((r): r is DraftReminder & { at: string } => r.at !== null).map((r) => ({ id: r.id, channel: "in_app" as const, at: r.at, enabled: r.enabled, deliveredAt: r.deliveredAt })),
