@@ -11,6 +11,15 @@
 - 并发由根目录 `vitest.config.ts` 限制为 `maxWorkers: 3`，不要用命令行参数调高。
 - 起因：多个 worktree 并行跑测试曾耗尽内存，被 systemd-oomd 整体杀掉 hc 的所有智能体。
 
+## 实施者（worker）职责边界
+
+起因：2026-11-22 07:39 systemd-oomd 因 typecheck、e2e、打包叠加（峰值 27.4G）杀掉整个 hc-hold，第四次中断全部智能体。实施者只负责写代码和对应的 E2E 用例，重型验证全部由 Lead 收尾统一执行。
+
+- **只做**：编写业务代码；编写与本次改动对应的单元测试和 E2E 用例（Playwright spec）；只跑自己改动涉及的单个 vitest 文件（`pnpm exec vitest run <路径>`）。
+- **E2E 只写不跑**：新增或修改的 E2E spec 保证能通过 `tsc` 类型检查且在代码层面自洽即可，不在 worker 里启动 Electron/Playwright。需要真跑的 E2E 在报告中列出文件与用例名，由 Lead 串行执行。
+- **禁止**：`pnpm build`、electron-builder/打包、安装包检查、全量 `pnpm test`、`pnpm typecheck`（全仓）、`pnpm knip`、`pnpm lint` 全仓、视觉截图取证。
+- 报告须单列“未运行的验证”（E2E、打包、全仓类型检查等），不记为通过。
+
 ## 获取项目 Issue
 
 需要获取 Huhu 项目的 Issue 时，按 [Issue 读取方法](.agents/dev/project/issue-automation/README.md) 使用已配置的 GitHub Issues 来源。用户只提供 Issue 编号时，也在该来源中查找。
