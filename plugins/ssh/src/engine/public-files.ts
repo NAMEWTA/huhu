@@ -10,9 +10,16 @@ import { type HostIntents, withIntentSeal } from "./host-intents.js";
 import type { SshManager } from "./manager.js";
 import { OwnedConnection, type PublicSshProbes } from "./public-probes.js";
 import { externalSshOwner, selectedSshHosts } from "./public-resources.js";
+import type { PublicShells } from "./public-shells.js";
 import * as sftp from "./sftp.js";
 
-export const OpenOwnedFiles = OwnedConnection.extend({ intentKey: CapabilityIntentKeySchema });
+export const OpenOwnedFiles = OwnedConnection.extend({
+  shellId: z
+    .string()
+    .regex(/^ssh-external-[0-9a-f-]{36}$/)
+    .optional(),
+  intentKey: CapabilityIntentKeySchema,
+});
 export const FileIntentFields = { intentKey: CapabilityIntentKeySchema.optional() };
 export const TargetRevision = FileProperties.shape.revision;
 export const TransferHandle = FileSessionId.extend({ transferId: z.uuid() });
@@ -51,6 +58,7 @@ export class PublicFileSessions {
   constructor(
     private readonly manager: SshManager,
     private readonly connections: PublicSshProbes,
+    private readonly shells: PublicShells,
     private readonly intents: HostIntents | undefined,
     private readonly credentials: SshCredentialHost | undefined,
     private readonly changed: (id: string) => void,
@@ -58,14 +66,14 @@ export class PublicFileSessions {
     this.files = new FileSessions(manager);
   }
 
-  open(context: CapabilityContext, { intentKey, ...connection }: z.infer<typeof OpenOwnedFiles>) {
+  open(context: CapabilityContext, { intentKey, shellId, ...connection }: z.infer<typeof OpenOwnedFiles>) {
     const active = () => this.connections.connection(context, connection);
     const owner = externalSshOwner(context);
     const { hostIds } = active();
     return this.intentStore().run(context, "ssh.fileSessions.open", {
       hosts: hostIds,
       intentKey,
-      input: connection,
+      input: { ...connection, ...(shellId && { shellId }) },
       output: FileSession,
       authorize: () => active().hostIds,
       run: async () => {
@@ -73,7 +81,7 @@ export class PublicFileSessions {
         if (this.bindings.size >= 64 || [...this.bindings.values()].filter((binding) => binding.owner === owner && !binding.closed).length >= 8) {
           throw errors.invalidInput("SSH 文件会话数量已达上限");
         }
-        const session = this.files.openOwned(current);
+        const session = this.files.openOwned(shellId ? { ...current, origin: { ...current.origin, shellId }, directory: this.shells.bindDirectory(context, shellId, connection) } : current);
         const id = session.fileSessionId;
         const close = () => this.closeWorkbench(id);
         current.signal.addEventListener("abort", close, { once: true });

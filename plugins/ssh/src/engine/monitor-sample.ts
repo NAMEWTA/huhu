@@ -1,5 +1,6 @@
 import { HuhuError } from "@huhu/contracts";
-import type { Client, ClientChannel } from "ssh2";
+import type { Client } from "ssh2";
+import { captureSshCommand, RemoteCommandError } from "./ssh-exec.js";
 import { MonitorSample, type MonitorSample as Sample } from "../shared/monitoring.js";
 
 export const PLATFORM_COMMAND = "uname -s";
@@ -60,56 +61,24 @@ export class SampleError extends Error {
   }
 }
 
-export function monitorExec(client: Client, command: string, signal: AbortSignal): Promise<{ stdout: string; stderr: string; code: number | undefined }> {
-  return new Promise((resolve, reject) => {
-    let channel: ClientChannel | undefined;
-    let finished = false;
-    let code: number | undefined;
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let bytes = 0;
-    const clear = () => {
-      finished = true;
-      signal.removeEventListener("abort", cancel);
-      client.off("close", lost);
-    };
-    const fail = (error: Error) => {
-      if (finished) return;
-      clear();
-      channel?.close();
-      reject(error);
-    };
-    const cancel = () => fail(new SampleError("failed", "监控查询已取消或超时"));
-    const lost = () => fail(new HuhuError("SSH_DISCONNECTED", "监控的原连接已关闭"));
-    const collect = (target: Buffer[], chunk: Buffer) => {
-      bytes += chunk.length;
-      if (bytes > 32 * 1024) fail(new SampleError("failed", "监控输出超过上限"));
-      else if (!finished) target.push(chunk);
-    };
-    if (signal.aborted) return cancel();
-    signal.addEventListener("abort", cancel, { once: true });
-    client.once("close", lost);
-    try {
-      client.exec(command, (error, stream) => {
-        if (finished) return stream?.close();
-        if (error) return fail(new SampleError("denied", "SSH 服务端拒绝监控查询"));
-        channel = stream;
-        stream.on("error", () => fail(new SampleError("failed", "SSH 监控通道中断")));
-        stream.on("data", (chunk: Buffer) => collect(stdout, chunk));
-        stream.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
-        stream.on("exit", (status: number | undefined) => {
-          code = status;
-        });
-        stream.once("close", () => {
-          if (finished) return;
-          clear();
-          resolve({ stdout: Buffer.concat(stdout).toString("utf8").trim(), stderr: Buffer.concat(stderr).toString("utf8").trim(), code });
-        });
-      });
-    } catch {
-      lost();
+export async function monitorExec(client: Client, command: string, signal: AbortSignal) {
+  try {
+    return await captureSshCommand(client, command, signal, 32 * 1024);
+  } catch (error) {
+    if (!(error instanceof RemoteCommandError)) throw error;
+    switch (error.reason) {
+      case "disconnected":
+        throw new HuhuError("SSH_DISCONNECTED", "监控的原连接已关闭");
+      case "denied":
+        throw new SampleError("denied", "SSH 服务端拒绝监控查询");
+      case "cancelled":
+        throw new SampleError("failed", "监控查询已取消或超时");
+      case "output-limit":
+        throw new SampleError("failed", "监控输出超过上限");
+      case "interrupted":
+        throw new SampleError("failed", "SSH 监控通道中断");
     }
-  });
+  }
 }
 
 const denied = /permission denied|access (?:is )?denied|not permitted/i;

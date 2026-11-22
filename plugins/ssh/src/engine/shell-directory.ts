@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
+import type { Client, ClientChannel, PseudoTtyOptions } from "ssh2";
 import type { DirectoryFollowState } from "../shared/files.js";
 
 const marker = "\x1b]633;Huhu;";
@@ -12,6 +13,71 @@ const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 export const shellDirectoryProbe = 'case "${SHELL##*/}" in bash|zsh) printf "%s\\n" "${SHELL##*/}";; esac';
 export type IntegratedShell = "bash" | "zsh";
+
+const integratedShells = new WeakMap<Client, Promise<IntegratedShell | undefined>>();
+
+function detectShell(client: Client): Promise<IntegratedShell | undefined> {
+  const cached = integratedShells.get(client);
+  if (cached) return cached;
+  const probe = new Promise<IntegratedShell | undefined>((resolve) => {
+    let timedOut = false;
+    let channel: ClientChannel | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      channel?.close();
+      resolve(undefined);
+    }, 1500);
+    client.exec(shellDirectoryProbe, (error, stream) => {
+      if (error) {
+        clearTimeout(timer);
+        return resolve(undefined);
+      }
+      if (timedOut) return stream.close();
+      channel = stream;
+      let stdout = "";
+      stream.on("data", (chunk: Buffer) => {
+        if (stdout.length <= 16) stdout += chunk.subarray(0, 17).toString();
+      });
+      stream.on("error", () => resolve(undefined));
+      stream.once("close", (code: number | undefined) => {
+        clearTimeout(timer);
+        const detected = stdout.trim();
+        resolve(code === 0 && (detected === "bash" || detected === "zsh") ? detected : undefined);
+      });
+    });
+  }).catch(() => undefined);
+  integratedShells.set(client, probe);
+  return probe;
+}
+
+export async function openIntegratedShell(client: Client, pty: PseudoTtyOptions, signal?: AbortSignal): Promise<{ channel: ClientChannel; directory: ShellDirectory } | undefined> {
+  const detected = await detectShell(client);
+  signal?.throwIfAborted();
+  if (!detected) return undefined;
+  const directory = new ShellDirectory();
+  return new Promise((resolve) => {
+    let expired = false;
+    const cancel = () => {
+      expired = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+      resolve(undefined);
+    };
+    const timer = setTimeout(cancel, 1500);
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      client.exec(directory.launch(detected), { pty }, (error, channel) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", cancel);
+        if (error) return resolve(undefined);
+        if (expired) return channel.close();
+        resolve({ channel, directory });
+      });
+    } catch {
+      cancel();
+    }
+  });
+}
 
 export class ShellDirectory {
   private readonly token = randomBytes(24).toString("hex");

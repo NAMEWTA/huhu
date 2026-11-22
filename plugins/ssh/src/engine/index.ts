@@ -11,13 +11,14 @@ import { PublicDirectoryMutation } from "./directory-schema.js";
 import { HostStore } from "./hosts.js";
 import { HostConfigurations, type SshCredentialHost } from "./host-configurations.js";
 import { HostIntents, sealCredentialPatches } from "./host-intents.js";
-import { hostImportConfirm, hostImportPreview } from "./import/capability.js";
+import { hostImportCapabilities } from "./import/capability.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
 import { Archives } from "./archives.js";
+import { PublicArchives } from "./public-archives.js";
 import { ForwardRules, type ForwardRuleScope } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
@@ -96,13 +97,14 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     : undefined;
   const publicShells = new PublicShells(publicProbes, hostIntents, credentialHost, (id) => api.events.publish("entity.changed", { kind: "ssh-external-shell", id, op: "updated" }));
   const publicWorkspaces = new PublicWorkspaces(api.vault.files, publicProbes, publicShells, templates, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-workspace-run", id, op: "updated" }));
-  const publicFiles = new PublicFileSessions(manager, publicProbes, hostIntents, credentialHost, (id) => {
+  const publicFiles = new PublicFileSessions(manager, publicProbes, publicShells, hostIntents, credentialHost, (id) => {
     publicTransfers.releaseFileSession(id);
     api.events.publish("entity.changed", { kind: "ssh-external-file-session", id, op: "updated" });
   });
   const publicTransfers = new PublicTransfers(publicFiles, manager, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const files = new FileSessions(manager);
   const archives = new Archives(files, manager);
+  const publicArchives = new PublicArchives(publicFiles);
   const transfers = new Transfers(
     files,
     manager,
@@ -472,8 +474,9 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return runs.saveTemplate(input.id, input.name, context.signal);
     }),
   );
-  api.defineCapability(hostImportPreview(hosts, api.vault.files));
-  api.defineCapability(hostImportConfirm(hosts, directory, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" })));
+  const [importPreview, importConfirm] = hostImportCapabilities(hosts, directory, api.vault.files, hostIntents, credentialHost, (kind, id) => api.events.publish("entity.changed", { kind, id, op: "updated" }));
+  api.defineCapability(importPreview);
+  api.defineCapability(importConfirm);
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.hostsOrganize, async (context, request) => {
       const update = async (scope?: Parameters<HostDirectory["organize"]>[1]) => {
@@ -715,8 +718,16 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return files.open(input);
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveSupport, ({ signal }, i) => archives.support(i.fileSessionId, signal)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.archiveRun, ({ signal }, i) => archives.run(i, signal)));
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.archiveSupport, (context, { fileSessionId }) => (isWorkbenchCaller(context.caller) ? archives.support(fileSessionId, context.signal) : publicArchives.support(context, fileSessionId))),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.archiveRun, (context, input) => {
+      if (isWorkbenchCaller(context.caller)) return archives.run(input, context.signal);
+      if (!("intentKey" in input)) throw errors.invalidInput("外部归档需要自有远端会话、原修订、大小上限和意图键");
+      return publicArchives.run(context, input);
+    }),
+  );
   const desktopTransfers = ({ caller }: CapabilityContext) => {
     if (isWorkbenchCaller(caller) && caller !== "desktop") throw errors.permissionDenied("SSH 传输工作台");
     return caller === "desktop";
@@ -792,12 +803,25 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       return publicFiles.use(context, i.fileSessionId, (owned) => owned.properties(i.fileSessionId, i.path, context.signal));
     }),
   );
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsDirectory, (_, i) => files.directoryState(i.fileSessionId)));
-  api.defineCapability(bindCapability(sshCapabilityDescriptors.fileSessionsPrepareDirectory, ({ signal }, i) => files.prepareDirectory(i.fileSessionId, i.path, i.revision, signal)));
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.fileSessionsCommitDirectory, ({ signal }, i) => {
-      signal.throwIfAborted();
-      return { applied: files.commitDirectory(i.fileSessionId, i.follow) };
+    bindCapability(sshCapabilityDescriptors.fileSessionsDirectory, (context, { fileSessionId }) =>
+      isWorkbenchCaller(context.caller) ? files.directoryState(fileSessionId) : publicFiles.use(context, fileSessionId, (owned) => owned.directoryState(fileSessionId)),
+    ),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsPrepareDirectory, (context, { fileSessionId, path, revision }) => {
+      const prepare = (sessions: FileSessions) => sessions.prepareDirectory(fileSessionId, path, revision, context.signal);
+      return isWorkbenchCaller(context.caller) ? prepare(files) : publicFiles.use(context, fileSessionId, prepare);
+    }),
+  );
+  api.defineCapability(
+    bindCapability(sshCapabilityDescriptors.fileSessionsCommitDirectory, async (context, input) => {
+      const { fileSessionId, follow } = input;
+      context.signal.throwIfAborted();
+      const commit = async (sessions: FileSessions) => ({ applied: await sessions.commitDirectory(fileSessionId, follow) });
+      if (isWorkbenchCaller(context.caller)) return commit(files);
+      const { name, output } = sshCapabilityDescriptors.fileSessionsCommitDirectory;
+      return publicFiles.mutate(context, name, input, { follow }, output, () => publicFiles.use(context, fileSessionId, commit));
     }),
   );
   api.defineCapability(

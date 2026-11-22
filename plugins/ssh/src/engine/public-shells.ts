@@ -9,6 +9,8 @@ import { ExecOutput } from "./job-output.js";
 import { ReadOutputFields, ExecOutputPage } from "./public-jobs.js";
 import { OwnedConnection, type PublicSshProbes } from "./public-probes.js";
 import { externalSshOwner, selectedSshHosts } from "./public-resources.js";
+import { openIntegratedShell, type ShellDirectory } from "./shell-directory.js";
+import type { DirectoryFollowState } from "../shared/files.js";
 
 export const ShellSize = { cols: z.int().min(1).max(500).default(80), rows: z.int().min(1).max(500).default(24) };
 export const Shell = z.object({
@@ -40,6 +42,7 @@ type Owned = {
   binding: z.infer<typeof OwnedConnection>;
   hostIds: readonly string[];
   output: ExecOutput;
+  directory?: ShellDirectory;
   channel?: ClientChannel;
   close?: () => void;
   timer?: NodeJS.Timeout;
@@ -77,12 +80,15 @@ export class PublicShells {
         this.pending.set(owner, opening + 1);
         const lifetime = AbortSignal.any([signal, context.signal]);
         try {
+          const pty = { term: "xterm-256color", cols, rows };
+          const integrated = await openIntegratedShell(client, pty, lifetime);
+          if (lifetime.aborted) integrated?.channel.close();
           return await new Promise<z.infer<typeof Shell>>((resolve, reject) => {
             const cancelled = () => reject(lifetime.reason);
             lifetime.throwIfAborted();
             lifetime.addEventListener("abort", cancelled, { once: true });
             try {
-              client.shell({ term: "xterm-256color", cols, rows }, (error, channel) => {
+              const opened = (error: Error | undefined, channel: ClientChannel) => {
                 lifetime.removeEventListener("abort", cancelled);
                 try {
                   lifetime.throwIfAborted();
@@ -90,7 +96,7 @@ export class PublicShells {
                   if (error) throw new HuhuError("SSH_DISCONNECTED", "无法打开 SSH 终端");
                   const id = `ssh-external-${randomUUID()}`;
                   const view = { id, shellId: id, hostId: binding.hostId, name: "SSH 终端", state: "running", source: "external", createdAt: new Date().toISOString() } as const;
-                  const shell: Owned = { view, owner, binding, hostIds: initial.hostIds, channel, output: new ExecOutput() };
+                  const shell: Owned = { view, owner, binding, hostIds: initial.hostIds, channel, output: new ExecOutput(), ...(integrated && { directory: integrated.directory }) };
                   const close = () => {
                     if (!shell.channel) return;
                     delete shell.channel;
@@ -105,7 +111,9 @@ export class PublicShells {
                   };
                   shell.close = close;
                   channel.on("data", (data: Buffer) => {
-                    if (shell.channel) shell.output.append(data);
+                    if (!shell.channel) return;
+                    shell.directory?.output(data);
+                    shell.output.append(data);
                   });
                   channel.stderr.on("data", (data: Buffer) => {
                     if (shell.channel) shell.output.append(data);
@@ -120,7 +128,9 @@ export class PublicShells {
                   channel?.close();
                   reject(cause);
                 }
-              });
+              };
+              if (integrated) opened(undefined, integrated.channel);
+              else client.shell(pty, opened);
             } catch (error) {
               lifetime.removeEventListener("abort", cancelled);
               reject(error);
@@ -158,6 +168,25 @@ export class PublicShells {
     return this.shells.get(id)?.view.state;
   }
 
+  bindDirectory(context: CapabilityContext, shellId: string, binding: z.infer<typeof OwnedConnection>) {
+    const shell = this.get(context, shellId);
+    if (shell.binding.attemptId !== binding.attemptId || shell.binding.hostId !== binding.hostId || shell.binding.routeRevision !== binding.routeRevision) throw errors.notFound("原 SSH 终端");
+    this.liveChannel(shell);
+    return {
+      state: (): DirectoryFollowState => {
+        if (!shell.channel) return { state: "ended", revision: 0 };
+        return shell.directory?.state() ?? { state: "unsupported", revision: 0 };
+      },
+      follow: async (revision: number, directory: string): Promise<boolean> => {
+        if (!shell.channel?.writable || shell.channel.destroyed || shell.channel.writableLength >= 64 * 1024) return false;
+        const command = shell.directory?.command(revision, directory);
+        if (!command) return false;
+        await this.send(shell.channel, command);
+        return true;
+      },
+    };
+  }
+
   closeWorkbench(id: string): boolean {
     const close = this.shells.get(id)?.close;
     if (!close) return false;
@@ -179,12 +208,8 @@ export class PublicShells {
       const channel = this.liveChannel(shell);
       if (channel.writableLength >= 64 * 1024) throw errors.invalidInput("SSH 终端输入缓冲区已满");
       const data = Buffer.from(dataBase64, "base64");
-      await new Promise<void>((resolve, reject) => {
-        channel.write(data, (error) => {
-          if (error) reject(new HuhuError("INTERNAL", "SSH 终端输入状态待核实", { retryable: false, details: { outcome: "unknown" } }));
-          else resolve();
-        });
-      });
+      shell.directory?.input(data);
+      await this.send(channel, data);
       this.get(context, request.shellId);
       return { bytes: data.length };
     });
@@ -221,19 +246,21 @@ export class PublicShells {
     return shell.channel;
   }
 
+  private send(channel: ClientChannel, data: Buffer): Promise<void> {
+    return new Promise((resolve, reject) => {
+      channel.write(data, (error) => {
+        if (error) reject(new HuhuError("INTERNAL", "SSH 终端输入状态待核实", { retryable: false, details: { outcome: "unknown" } }));
+        else resolve();
+      });
+    });
+  }
+
   private intentStore(): HostIntents {
     if (!this.intents) throw errors.invalidInput("此 Vault 无法保存 SSH 终端意图");
     return this.intents;
   }
 
-  private mutate<T>(
-    context: CapabilityContext,
-    capability: string,
-    { shellId, intentKey }: z.infer<typeof ChangeOwnedShell>,
-    input: Record<string, unknown>,
-    output: z.ZodType<T>,
-    run: (shell: Owned) => Promise<T>,
-  ) {
+  private mutate<T>(context: CapabilityContext, capability: string, { shellId, intentKey }: z.infer<typeof ChangeOwnedShell>, input: Record<string, unknown>, output: z.ZodType<T>, run: (shell: Owned) => Promise<T>) {
     const shell = this.get(context, shellId);
     return this.intentStore().run(context, capability, {
       hosts: shell.hostIds,

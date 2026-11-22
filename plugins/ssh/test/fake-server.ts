@@ -41,6 +41,7 @@ export interface FakeSshOptions {
   denyDirectTcp?: () => boolean;
   onExec?: (command: string) => { stdout?: string; stderr?: string; code?: number } | undefined;
   onInteractiveExec?: (command: string, channel: ServerChannel, session: Session) => boolean;
+  onStat?: (path: string) => import("ssh2").Attributes | undefined;
   onExecRequest?: (command: string) => "reject" | "hold" | undefined;
   hostKey?: string;
   /** 关闭旧服务后，在同一回环端口启动新指纹的服务。 */
@@ -283,7 +284,7 @@ function serveSftp(
   sftp: import("ssh2").SFTPWrapper,
   fs: FakeFs,
   onWrite: (file: string) => boolean,
-  { holdReadDirectory, waitReadDirectory, waitWriteFile, failRename, waitReadFile, dropRenameReply, denySetAttributes }: FakeSshOptions,
+  { holdReadDirectory, waitReadDirectory, waitWriteFile, failRename, waitReadFile, dropRenameReply, denySetAttributes, onStat }: FakeSshOptions,
 ): void {
   type H = { kind: "file"; path: string; flags: number } | { kind: "dir"; path: string; sent: boolean };
   const handles = new Map<number, H>();
@@ -320,6 +321,8 @@ function serveSftp(
   });
   const stat = (id: number, p: string) => {
     const n = norm(p);
+    const attrs = onStat?.(n);
+    if (attrs) return sftp.attrs(id, attrs);
     if (!exists(n)) return st(id, STATUS_CODE.NO_SUCH_FILE);
     sftp.attrs(id, attrsOf(n) as never);
   };

@@ -1,7 +1,7 @@
 import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,7 @@ import type { ExecJobStatus, ExecOutputPage } from "../src/engine/public-jobs.js
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../src/engine/monitor-sample.js";
 import { PROCESS_LIST } from "../src/engine/monitor-tools.js";
 import { PublicProbeStatus } from "../src/engine/public-probes.js";
+import { shellDirectoryProbe } from "../src/engine/shell-directory.js";
 import type { ResourceHost } from "../src/engine/public-resources.js";
 import type { ConnectionStatus } from "../src/shared/trust.js";
 import type { MonitorPanel, MonitorPanelRun } from "../src/shared/monitoring.js";
@@ -24,6 +25,7 @@ import type { ForwardRule, ForwardRun } from "../src/shared/forwarding.js";
 import type { WorkspaceTemplate } from "../src/shared/workspace.js";
 import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
+import { ownedArchiveFixture } from "./owned-archive-fixture.js";
 
 const hostGet = "ssh.resources.host.get";
 const probeStart = "ssh.resources.connection.start";
@@ -239,6 +241,21 @@ async function externalTool(f: Awaited<ReturnType<typeof fixture>>, entry: "cli"
     const result = await f.mcp(token, "tools/call", { name: id.replaceAll(".", "_"), arguments: args }, session);
     return CapabilityResultSchema.parse(result.isError ? { ok: false, error: JSON.parse(result.content[0].text) } : { ok: true, ...result.structuredContent });
   };
+}
+
+async function connectOwned(f: Awaited<ReturnType<typeof fixture>>, invoke: Awaited<ReturnType<typeof externalTool>>, hostId: string) {
+  for (const tool of ["ssh.connect", probeGet, trustDecide]) await f.allow(tool);
+  const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+  const { attemptId } = z.object({ attemptId: z.string() }).parse(data(await invoke("ssh.connect", { hostId, routeRevision, intentKey: randomUUID() })));
+  const status = async () => PublicProbeStatus.parse(data(await invoke(probeGet, { hostId, attemptId })));
+  const pending = await vi.waitFor(async () => {
+    const current = await status();
+    if (current.state !== "waiting") throw new Error("Waiting for loopback trust");
+    return current;
+  });
+  expect(await invoke(trustDecide, decision(pending))).toMatchObject({ ok: true });
+  await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+  return { hostId, routeRevision, attemptId };
 }
 
 test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all public entry points", { timeout: 45_000 }, async (entry) => {
@@ -1035,7 +1052,7 @@ test.each(["cli", "mcp"] as const)("%s scopes forwarding reads and dormant confi
   }
 });
 
-test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward and closes it on host revocation", { timeout: 35_000 }, async (entry) => {
+test.each(["cli", "mcp"] as const)("%s owns fixed, dynamic and acknowledged remote forwards until host revocation", { timeout: 45_000 }, async (entry) => {
   const f = await fixture();
   const echo = createServer((sock) => sock.pipe(sock));
   try {
@@ -1043,7 +1060,11 @@ test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward
     await once(echo, "listening");
     const address = echo.address();
     if (!address || typeof address === "string") throw new Error("Missing loopback fixture address");
-    const { hostId } = await f.host("owned forwarding fixture");
+    let acknowledgeRemote!: () => void;
+    const remoteBind = new Promise<void>((resolve) => {
+      acknowledgeRemote = resolve;
+    });
+    const { hostId } = await f.host("owned forwarding fixture", [], { remoteForwarding: true, waitRemoteBind: () => remoteBind });
     const spare = await f.host("other forwarding resource");
     const save = "ssh.forwarding.rules.save";
     const start = "ssh.forwarding.runs.start";
@@ -1052,6 +1073,16 @@ test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward
     const draft = { name: "fixed loopback", hostId, mode: "local", listenPort: address.port, target: { host: "127.0.0.1", port: address.port }, resume: false };
     const rule = await f.desktop<ForwardRule>(save, draft);
     const proxy = await f.desktop<ForwardRule>(save, { name: "dynamic proxy fixture", hostId, mode: "socks5", listenPort: address.port, resume: false });
+    const http = await f.desktop<ForwardRule>(save, { name: "CONNECT proxy fixture", hostId, mode: "http-connect", listenPort: address.port, resume: false });
+    const occupied = await f.desktop<ForwardRule>(save, { ...draft, name: "occupied remote fixture", mode: "remote" });
+    const reserve = createServer();
+    reserve.listen(0, "127.0.0.1");
+    await once(reserve, "listening");
+    const remotePort = (reserve.address() as { port: number }).port;
+    const released = once(reserve, "close");
+    reserve.close();
+    await released;
+    const reverse = await f.desktop<ForwardRule>(save, { ...draft, name: "remote fixture", mode: "remote", listenPort: remotePort });
     const invoke = await externalTool(f, entry);
     const peer = await externalTool(f, "mcp");
     const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
@@ -1073,7 +1104,7 @@ test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward
     const revision = { id: rule.id, expectedRevision: rule.revision };
     const begin = { ...revision, ...binding, attemptId, intentKey: randomUUID() };
     expect(await peer(start, begin)).toMatchObject(missing);
-    expect(await invoke(start, { ...begin, id: proxy.id, expectedRevision: proxy.revision, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    const startRule = ({ id, revision }: ForwardRule) => invoke(start, { ...begin, id, expectedRevision: revision, intentKey: randomUUID() });
     const created = data(await invoke(start, begin)) as ForwardRun;
     expect(data(await invoke(start, begin))).toEqual(created);
     const listener = created.listener;
@@ -1089,21 +1120,74 @@ test.each(["cli", "mcp"] as const)("%s owns a fixed-destination loopback forward
     } finally {
       socket.destroy();
     }
+    const started = [created.id];
+    const listeners = [listener.port, remotePort];
+    for (const dynamic of [proxy, http]) {
+      const run = data(await startRule(dynamic)) as ForwardRun;
+      started.push(run.id);
+      const addr = run.listener;
+      if (addr?.device !== "local") throw new Error("Expected a proxy on Engine loopback");
+      expect(addr.host).toBe("127.0.0.1");
+      expect(addr.port).not.toBe(dynamic.listenPort);
+      listeners.push(addr.port);
+      const proxySocket = createConnection(addr.port, addr.host);
+      try {
+        await once(proxySocket, "connect");
+        if (dynamic.mode === "socks5") {
+          const hello = once(proxySocket, "data");
+          proxySocket.write(Buffer.from([5, 1, 0]));
+          expect((await hello)[0]).toEqual(Buffer.from([5, 0]));
+          const response = once(proxySocket, "data");
+          proxySocket.write(Buffer.from([5, 1, 0, 1, 127, 0, 0, 1, address.port >>> 8, address.port & 255]));
+          expect((await response)[0].subarray(0, 2)).toEqual(Buffer.from([5, 0]));
+        } else {
+          const response = once(proxySocket, "data");
+          proxySocket.write(`CONNECT 127.0.0.1:${address.port} HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\n\r\n`);
+          expect((await response)[0].toString()).toContain("200 Connection Established");
+        }
+        const response = once(proxySocket, "data");
+        proxySocket.write("owned proxy");
+        expect((await response)[0]).toEqual(Buffer.from("owned proxy"));
+      } finally {
+        proxySocket.destroy();
+      }
+    }
+    expect(await startRule(occupied)).toMatchObject({ ok: false, error: { code: "NAME_CONFLICT" } });
+    const starting = startRule(reverse);
+    try {
+      await vi.waitFor(async () => expect((await f.desktop<ForwardRun[]>(list)).find(({ ruleId }) => ruleId === reverse.id)).toMatchObject({ state: "starting" }));
+    } finally {
+      acknowledgeRemote();
+    }
+    const reversed = data(await starting) as ForwardRun;
+    expect(reversed.listener).toEqual({ device: "remote", requestedHost: "127.0.0.1", requestedPort: remotePort, binding: "server-policy-unknown" });
+    started.push(reversed.id);
+    const reverseSocket = createConnection(remotePort, "127.0.0.1");
+    try {
+      await once(reverseSocket, "connect");
+      const response = once(reverseSocket, "data");
+      reverseSocket.write("remote listener");
+      expect((await response)[0]).toEqual(Buffer.from("remote listener"));
+    } finally {
+      reverseSocket.destroy();
+    }
     expect(data(await peer(list, {}))).toEqual([]);
     const end = { ...revision, runId: created.id, intentKey: randomUUID() };
     expect(await peer(stop, end)).toMatchObject(missing);
-    expect(await f.desktop(list)).toMatchObject([{ id: created.id, source: "external" }]);
+    expect(await f.desktop(list)).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.id, source: "external" })]));
     expect(await invoke(save, { ...draft, name: "rename running rule", previous: revision, bindings: [binding], intentKey: randomUUID() })).toMatchObject(denied);
     await f.chooseHosts([spare.hostId]);
     expect(data(await invoke(list, {}))).toEqual([]);
     expect(await invoke(stop, end)).toMatchObject(denied);
-    await vi.waitFor(async () => expect(await f.desktop(list)).toMatchObject([{ id: created.id, state: "stopped" }]));
-    const after = createConnection(listener.port, listener.host);
-    try {
-      const [error] = await once(after, "error", { signal: AbortSignal.timeout(1000) });
-      expect(error).toMatchObject({ code: "ECONNREFUSED" });
-    } finally {
-      after.destroy();
+    await vi.waitFor(async () => expect((await f.desktop<ForwardRun[]>(list)).filter(({ id }) => started.includes(id)).map(({ state }) => state)).toEqual(started.map(() => "stopped")));
+    for (const port of listeners) {
+      const after = createConnection(port, "127.0.0.1");
+      try {
+        const [error] = await once(after, "error", { signal: AbortSignal.timeout(1000) });
+        expect(error).toMatchObject({ code: "ECONNREFUSED" });
+      } finally {
+        after.destroy();
+      }
     }
     await f.allow(start, false);
     expect(await invoke(start, begin)).toMatchObject(disabled);
@@ -2209,6 +2293,226 @@ test("an admission left by an interrupted Engine remains unknown and cannot dial
     expect(await f.cli(jobOutput, { ...job, stream: "stdout" })).toMatchObject({ ok: false, error: { details: { outcome: "unknown" } } });
     expect(server.conns).toHaveLength(1);
     expect(executed).toEqual(["sleep 25"]);
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s binds directory commits to a single owned shell, prompt revision and file session", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const input: string[] = [];
+  const fileOpen = "ssh.fileSessions.open";
+  const directory = "ssh.fileSessions.directory";
+  const prepare = "ssh.fileSessions.prepareDirectory";
+  const commit = "ssh.fileSessions.commitDirectory";
+  try {
+    const { hostId, server } = await f.host("directory follow fixture", [], {
+      onExec: (command) => (command === shellDirectoryProbe ? { stdout: "bash\n" } : undefined),
+      onInteractiveExec: (command, channel) => {
+        const token = command.match(/;([a-f0-9]{48});B/)?.[1];
+        if (!token) return false;
+        const prompt = (cwd: string) => channel.write(`\x1b]633;Huhu;${token};P;${Buffer.from(cwd + "\n").toString("base64")}\x07`);
+        channel.on("data", (data: Buffer) => {
+          input.push(data.toString());
+          channel.write(`\x1b]633;Huhu;${token};B\x07`);
+          prompt("/home/test/nested");
+        });
+        prompt("/home/test");
+        return true;
+      },
+    });
+    server.fs.dirs.add("/home/test/nested");
+    server.fs.dirs.add("/home/test/other");
+    const spare = await f.host("directory spare");
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const missing = { ok: false, error: { code: "NOT_FOUND" } };
+    for (const tool of [directory, prepare, commit]) {
+      expect(await invoke(tool, {})).toMatchObject(disabled);
+      await f.allow(tool);
+    }
+    for (const tool of ["ssh.shells.open", "ssh.shells.write", fileOpen]) await f.allow(tool);
+    const binding = await connectOwned(f, invoke, hostId);
+    const another = await connectOwned(f, invoke, spare.hostId);
+    const { shellId } = z.object({ shellId: z.string() }).parse(data(await invoke("ssh.shells.open", { ...binding, intentKey: randomUUID() })));
+    expect(await invoke(fileOpen, { ...another, shellId, intentKey: randomUUID() })).toMatchObject(missing);
+    const opened = await invoke(fileOpen, { ...binding, shellId, intentKey: randomUUID() });
+    const { fileSessionId } = z.object({ fileSessionId: z.uuid() }).parse(data(opened));
+    expect(data(opened)).toMatchObject({ shellId, source: "external" });
+    const file = { fileSessionId };
+    const promptState = async () => z.object({ state: z.string(), cwd: z.string().optional(), revision: z.number() }).parse(data(await invoke(directory, file)));
+    const { revision } = await vi.waitFor(async () => {
+      const state = await promptState();
+      expect(state).toMatchObject({ state: "ready", cwd: "/home/test" });
+      return state;
+    });
+    const request = { ...file, path: "/home/test/nested", revision };
+    expect(await peer(directory, file)).toMatchObject(missing);
+    expect(await peer(prepare, request)).toMatchObject(missing);
+    const { follow } = z.object({ follow: z.uuid() }).parse(data(await invoke(prepare, request)));
+    const change = { ...file, follow, intentKey: randomUUID() };
+    expect(await peer(commit, change)).toMatchObject(missing);
+    expect(data(await invoke(commit, change))).toEqual({ applied: true });
+    expect(data(await invoke(commit, change))).toEqual({ applied: true });
+    expect(data(await invoke(commit, { ...change, intentKey: randomUUID() }))).toEqual({ applied: false });
+    await vi.waitFor(async () => expect(await promptState()).toMatchObject({ state: "ready", cwd: "/home/test/nested" }));
+    expect(input).toEqual([" builtin cd -- '/home/test/nested'\r"]);
+    const navigation = { ...file, path: "/home/test/other", revision: (await promptState()).revision };
+    const expiring = z.object({ follow: z.uuid() }).parse(data(await invoke(prepare, navigation)));
+    const elapsed = vi.spyOn(performance, "now").mockReturnValue(performance.now() + 6000);
+    try {
+      expect(data(await invoke(commit, { ...file, ...expiring, intentKey: randomUUID() }))).toEqual({ applied: false });
+    } finally {
+      elapsed.mockRestore();
+    }
+    const stale = z.object({ follow: z.uuid() }).parse(data(await invoke(prepare, navigation)));
+    expect(await invoke("ssh.shells.write", { shellId, dataBase64: Buffer.from("pwd\r").toString("base64"), intentKey: randomUUID() })).toMatchObject({ ok: true });
+    expect(data(await invoke(commit, { ...file, ...stale, intentKey: randomUUID() }))).toEqual({ applied: false });
+    expect(input).toEqual([" builtin cd -- '/home/test/nested'\r", "pwd\r"]);
+    await f.chooseHosts([spare.hostId]);
+    expect(await invoke(directory, file)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await invoke(commit, change)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  } finally {
+    await f.close();
+  }
+});
+
+test.skipIf(process.platform !== "linux").each(["cli", "mcp"] as const)("%s runs archives in an owned remote directory with bounds, revision checks and intent receipts", { timeout: 45_000 }, async (entry) => {
+  const f = await fixture();
+  const root = await mkdtemp(path.join(tmpdir(), "huhu-remote-archive-"));
+  const support = "ssh.archives.support";
+  const archive = "ssh.archives.run";
+  const content = "archive-fixture-content";
+  let probes = 0;
+  let commands = 0;
+  try {
+    const { hostId } = await f.host(
+      "archive fixture",
+      [],
+      ownedArchiveFixture(root, (phase) => {
+        if (phase === "probe") probes++;
+        else commands++;
+      }),
+    );
+    const spare = await f.host("archive spare");
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    for (const tool of [support, archive]) {
+      expect(await invoke(tool, {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+      await f.allow(tool);
+    }
+    await f.allow("ssh.fileSessions.open");
+    await f.allow("ssh.fileSessions.properties");
+    const binding = await connectOwned(f, invoke, hostId);
+    const { fileSessionId } = z.object({ fileSessionId: z.uuid() }).parse(data(await invoke("ssh.fileSessions.open", { ...binding, intentKey: randomUUID() })));
+    expect(await peer(support, { fileSessionId })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const provided = data(await invoke(support, { fileSessionId }));
+    expect(provided).toMatchObject({ local: { zip: false }, remote: { zip: true }, formats: ["tar", "tar.gz", "zip"] });
+    expect(data(await invoke(support, { fileSessionId }))).toEqual(provided);
+    expect(probes).toBe(1);
+    const name = "source's data.txt";
+    await writeFile(path.join(root, name), content);
+    const revision = async (name: string) => z.object({ revision: z.string() }).parse(data(await invoke("ssh.fileSessions.properties", { fileSessionId, path: path.join(root, name) }))).revision;
+    const dir = { kind: "remote", fileSessionId, path: root };
+    const request = { directory: dir, operation: "compress", name, output: "fixture.tgz", sourceRevision: await revision(name), maxBytes: 64 * 1024, intentKey: randomUUID() };
+    expect(await peer(archive, request)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    expect(await invoke(archive, { ...request, directory: { kind: "local", path: root } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await invoke(archive, { ...request, maxBytes: 3, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await invoke(archive, { ...request, sourceRevision: "0".repeat(64), intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const created = await invoke(archive, request);
+    expect(created).toMatchObject({ ok: true, data: { archivePath: path.join(root, "fixture.tgz"), archiveSha256: expect.stringMatching(/^[0-9a-f]{64}$/), entries: [{ name, size: content.length }] } });
+    const afterCreate = commands;
+    expect(await invoke(archive, request)).toEqual(created);
+    expect(commands).toBe(afterCreate);
+    expect(await invoke(archive, { ...request, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "NAME_CONFLICT" } });
+    expect(await invoke(archive, { ...request, overwrite: true, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await invoke(archive, { ...request, overwrite: true, targetRevision: "0".repeat(64), intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    expect(await invoke(archive, { ...request, overwrite: true, targetRevision: await revision("fixture.tgz"), intentKey: randomUUID() })).toMatchObject({ ok: true });
+    const file = { directory: dir, name: "fixture.tgz", sourceRevision: await revision("fixture.tgz"), maxBytes: 64 * 1024 };
+    expect(await invoke(archive, { ...file, operation: "list", intentKey: randomUUID() })).toMatchObject({ ok: true, data: { entries: [{ name }] } });
+    expect(await invoke(archive, { ...file, operation: "extract", output: "restored", intentKey: randomUUID() })).toMatchObject({ ok: true, data: { extractedPath: path.join(root, "restored") } });
+    expect(await readFile(path.join(root, "restored", name), "utf8")).toBe(content);
+    for (const output of ["fixture.tar", "fixture.zip"]) {
+      expect(await invoke(archive, { ...request, output, intentKey: randomUUID() })).toMatchObject({ ok: true, data: { entries: [{ name, size: content.length }] } });
+    }
+    expect((await readdir(root)).sort()).toEqual(["fixture.tar", "fixture.tgz", "fixture.zip", "restored", name].sort());
+    await f.chooseHosts([spare.hostId]);
+    expect(await invoke(archive, request)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8")).not.toContain(content);
+  } finally {
+    await f.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s imports new hosts into visible groups without granting their use", { timeout: 35_000 }, async (entry) => {
+  const f = await fixture();
+  const preview = "ssh.hosts.import.preview";
+  const confirm = "ssh.hosts.import.confirm";
+  const directory = "ssh.hosts.directory";
+  const organize = "ssh.hosts.organize";
+  const shape = z.object({
+    version: z.string(),
+    groups: z.array(z.object({ groupId: z.string(), name: z.string() })),
+    hosts: z.array(z.object({ hostId: z.string(), groupId: z.string().nullable() })),
+  });
+  try {
+    const visible = await f.host("authorized catalogue fixture");
+    const hidden = await f.host("hidden catalogue fixture");
+    await f.chooseHosts([visible.hostId]);
+    const desktopDirectory = async () => shape.parse(await f.desktop(directory));
+    const group = async (name: string, hostId: string) => {
+      const made = shape.parse(await f.desktop(organize, { expectedVersion: (await desktopDirectory()).version, operation: { type: "group.create", name, parentId: null } }));
+      const groupId = made.groups.find((group) => group.name === name)!.groupId;
+      await f.desktop(organize, { expectedVersion: made.version, operation: { type: "hosts.move", groupId, hostIds: [hostId] } });
+      return groupId;
+    };
+    const visibleGroup = await group("Visible", visible.hostId);
+    await group("Hidden", hidden.hostId);
+    const invoke = await externalTool(f, entry);
+    const peer = await externalTool(f, "mcp");
+    const disabled = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const stale = { ok: false, error: { code: "INVALID_INPUT" } };
+    expect(await invoke(confirm, {})).toMatchObject(disabled);
+    for (const tool of [preview, confirm, hostGet, directory]) await f.allow(tool);
+    const file = (names: string[]) => ({
+      format: "windterm",
+      filename: "user.sessions",
+      contentBase64: Buffer.from(
+        JSON.stringify(
+          names.map((group, index) => ({
+            "session.label": `New import ${index}`,
+            "session.group": group,
+            "session.target": "fixture-login@127.0.0.1",
+            "session.port": index + 65530,
+            "session.protocol": "SSH",
+            "session.password": "fixture-secret-omitted",
+          })),
+        ),
+      ).toString("base64"),
+    });
+    const source = file(["Visible", "Hidden", "Missing"]);
+    const tokenFor = async () => z.object({ token: z.string() }).parse(data(await invoke(preview, source))).token;
+    const token = await tokenFor();
+    const choice = { source, token, selected: [{ index: 1 }, { index: 2 }, { index: 3 }], intentKey: randomUUID() };
+    expect(await peer(confirm, choice)).toMatchObject(stale);
+    expect(await invoke(confirm, { ...choice, source: file(["Missing"]) })).toMatchObject(stale);
+    await f.desktop(organize, { expectedVersion: (await desktopDirectory()).version, operation: { type: "sort.set", sort: "name-desc" } });
+    expect(await invoke(confirm, { ...choice, intentKey: randomUUID() })).toMatchObject(stale);
+    const fresh = { ...choice, token: await tokenFor(), intentKey: randomUUID() };
+    const published = await invoke(confirm, fresh);
+    const { imported } = z.object({ imported: z.array(z.object({ hostId: z.string() })) }).parse(data(published));
+    expect(imported).toHaveLength(3);
+    expect(await invoke(confirm, fresh)).toEqual(published);
+    const current = await desktopDirectory();
+    expect(current.groups.map(({ name }) => name)).toEqual(["Hidden", "Visible"]);
+    expect(imported.map(({ hostId }) => current.hosts.find((host) => host.hostId === hostId)?.groupId)).toEqual([visibleGroup, null, null]);
+    expect(data(await invoke(directory, {}))).toMatchObject({ groups: [{ groupId: visibleGroup }], hosts: [{ hostId: visible.hostId }] });
+    for (const { hostId } of imported) expect(await invoke(hostGet, { hostId })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await readFile(path.join(f.engine.vault.runtimeDir, "ssh-host-intents.ndjson"), "utf8")).not.toContain("fixture-secret-omitted");
+    await f.allow(confirm, false);
+    expect(await invoke(confirm, fresh)).toMatchObject(disabled);
   } finally {
     await f.close();
   }
