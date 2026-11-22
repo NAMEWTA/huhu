@@ -21,7 +21,6 @@ export class HerdrError extends Error {
 interface Pending {
   resolve(v: unknown): void;
   reject(e: unknown): void;
-  timer: ReturnType<typeof setTimeout>;
 }
 
 export interface HerdrClientOptions {
@@ -49,27 +48,39 @@ export class HerdrClient {
 
   constructor(private readonly o: HerdrClientOptions) {}
 
-  connect(): Promise<void> {
+  connect(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     return new Promise((resolve, reject) => {
       const s = net.createConnection(this.o.endpoint);
-      const onErr = (e: Error) => reject(new HuhuError("HERDR_UNAVAILABLE", `无法连接 Herdr Core：${e.message}`));
-      s.once("error", onErr);
-      s.once("connect", () => {
+      const clean = () => {
+        signal?.removeEventListener("abort", onAbort);
+        s.off("connect", onConnect);
+      };
+      const onErr = (error: Error) => {
+        clean();
+        reject(new HuhuError("HERDR_UNAVAILABLE", `无法连接 Herdr Core：${error.message}`));
+      };
+      const onAbort = () => {
+        clean();
+        s.destroy();
+        reject(signal?.reason);
+      };
+      const onConnect = () => {
+        clean();
         s.off("error", onErr);
         this.socket = s;
         s.on("data", (d) => this.onData(d));
         s.on("error", () => undefined); // 连接建立后的错误（ECONNRESET 等）由 close 事件处理，不能变成未捕获异常
         s.on("close", () => {
-          for (const [, p] of this.pending) {
-            clearTimeout(p.timer);
-            p.reject(new HuhuError("HERDR_UNAVAILABLE", "与 Herdr Core 的连接已断开"));
-          }
-          this.pending.clear();
+          for (const p of this.pending.values()) p.reject(new HuhuError("HERDR_UNAVAILABLE", "与 Herdr Core 的连接已断开"));
           this.socket = null;
           this.o.onClose?.();
         });
         resolve();
-      });
+      };
+      s.once("error", onErr);
+      s.once("connect", onConnect);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -123,27 +134,44 @@ export class HerdrClient {
     if (msg.id !== undefined) {
       const p = this.pending.get(msg.id);
       if (!p) return;
-      this.pending.delete(msg.id);
-      clearTimeout(p.timer);
       if (msg.error) p.reject(new HerdrError(msg.error));
       else p.resolve(msg.result);
     } else if (msg.method === "event" && msg.params) this.o.onEvent?.(msg.params);
     else if (msg.method) this.o.onNotify?.(msg.method, msg.params);
   }
 
-  call<T = unknown>(method: string, params: unknown = {}): Promise<T> {
+  call<T = unknown>(method: string, params: unknown = {}, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const s = this.socket;
     if (!s) return Promise.reject(new HuhuError("HERDR_UNAVAILABLE", "尚未连接 Herdr Core"));
     const id = this.nextId++;
     const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cleanup = () => {
+        clearTimeout(timer);
         this.pending.delete(id);
-        reject(new HuhuError("HERDR_UNAVAILABLE", `Herdr 调用超时：${method}`));
-      }, this.o.timeoutMs ?? 10_000);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      if (this.framed) s.write(encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(text) }));
-      else s.write(text + "\n");
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const fail = (error: unknown) => {
+        cleanup();
+        reject(error);
+      };
+      const onAbort = () => fail(signal?.reason);
+      const timer = setTimeout(() => fail(new HuhuError("HERDR_UNAVAILABLE", `Herdr 调用超时：${method}`)), this.o.timeoutMs ?? 10_000);
+      this.pending.set(id, {
+        resolve: (value) => {
+          cleanup();
+          resolve(value as T);
+        },
+        reject: fail,
+      });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        if (this.framed) s.write(encodeFrame({ channel: 0, kind: FrameKind.DATA, payload: Buffer.from(text) }));
+        else s.write(text + "\n");
+      } catch (error) {
+        fail(error);
+      }
     });
   }
 

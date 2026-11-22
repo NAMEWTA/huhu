@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { HuhuError } from "@huhu/contracts";
 import { HerdrClient } from "./client.js";
 import { findOnPath, runnable } from "./executable.js";
@@ -26,6 +27,7 @@ export interface HerdrCoreOptions {
 export class HerdrCore {
   private client: HerdrClient | null = null;
   private startedWith: string | undefined;
+  private stopping: Promise<void> | undefined;
 
   constructor(private readonly o: HerdrCoreOptions) {}
 
@@ -119,7 +121,7 @@ export class HerdrCore {
     return this.connect();
   }
 
-  private async connect(): Promise<HerdrClient> {
+  private async connect(signal?: AbortSignal): Promise<HerdrClient> {
     this.o.signal?.throwIfAborted();
     const c: HerdrClient = new HerdrClient({
       endpoint: this.endpoint,
@@ -127,7 +129,8 @@ export class HerdrCore {
         if (this.client === c) this.client = null;
       },
     });
-    await c.connect();
+    const lifetime = this.o.signal;
+    await c.connect(signal && lifetime ? AbortSignal.any([signal, lifetime]) : (signal ?? lifetime));
     if (this.o.signal?.aborted) {
       c.close();
       this.o.signal.throwIfAborted();
@@ -144,14 +147,16 @@ export class HerdrCore {
    * 只在 Core 已经在运行时返回客户端，不会去启动它：用于“对账”这类只读检查。
    * "absent" = 确认没有 Core 在监听（套接字不存在 / 拒绝连接）；null = 暂时判断不了（其他连接错误）。
    */
-  async peek(): Promise<HerdrClient | "absent" | null> {
+  async peek(signal?: AbortSignal): Promise<HerdrClient | "absent" | null> {
+    signal?.throwIfAborted();
     if (this.o.signal?.aborted) return null;
     this.checkSocketDirectory(false);
     if (this.client) return this.client;
     if (process.platform !== "win32" && !existsSync(this.endpoint)) return "absent"; // Unix 套接字文件都不存在：确定没有 Core
     try {
-      return await this.connect();
+      return await this.connect(signal);
     } catch (e) {
+      signal?.throwIfAborted();
       // HerdrClient.connect 把底层错误包装成 HuhuError，errno 只留在消息里；套接字文件残留但没有进程监听 = ECONNREFUSED
       const text = `${(e as { code?: string }).code ?? ""} ${e instanceof Error ? e.message : String(e)}`;
       return /ENOENT|ECONNREFUSED/.test(text) ? "absent" : null;
@@ -230,21 +235,47 @@ export class HerdrCore {
   async stop({ requireConfirmation = false }: { requireConfirmation?: boolean } = {}): Promise<void> {
     this.o.signal?.throwIfAborted();
     if (requireConfirmation) {
-      await this.starting?.catch(() => undefined);
-      if ((await this.peek()) === "absent") return;
+      this.stopping ??= this.stopPrivate().finally(() => {
+        this.stopping = undefined;
+      });
+      return this.stopping;
     }
     this.dispose();
     const bin = this.startedWith ?? this.resolveBinary() ?? this.o.bin;
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       const p = spawn(bin, ["server", "stop"], { env: this.env(), stdio: "ignore", windowsHide: true });
-      p.once("exit", (code) => {
-        if (!requireConfirmation || code === 0) resolve();
-        else reject(new HuhuError("HERDR_UNAVAILABLE", `停止 Herdr Core 失败（退出码 ${code ?? "未知"}）`));
-      });
-      p.once("error", (error) => {
-        if (!requireConfirmation) resolve();
-        else reject(new HuhuError("HERDR_UNAVAILABLE", `停止 Herdr Core 失败：${error.message}`));
-      });
+      p.once("exit", () => resolve());
+      p.once("error", () => resolve());
     });
+  }
+
+  private async stopPrivate(): Promise<void> {
+    await this.starting?.catch(() => undefined);
+    const deadline = AbortSignal.timeout(8_000);
+    const unconfirmed = () => new HuhuError("HERDR_UNAVAILABLE", "无法确认私有 Herdr Core 与终端持有进程已停止", { retryable: false, details: { outcome: "unknown" } });
+    try {
+      const client = await this.peek(deadline);
+      if (client === "absent" && !this.hasHolderEndpoint()) return;
+      if (!client || client === "absent") throw unconfirmed();
+      const reply = await client.call<{ stopped: boolean }>("server.stop", {}, deadline);
+      if (reply?.stopped !== true) throw unconfirmed();
+      this.dispose();
+      while ((await this.peek(deadline)) !== "absent" || this.hasHolderEndpoint()) {
+        this.dispose();
+        await delay(50, undefined, { signal: deadline });
+      }
+    } catch {
+      throw unconfirmed();
+    } finally {
+      this.dispose();
+    }
+  }
+
+  private hasHolderEndpoint(): boolean {
+    if (process.platform === "win32") return false;
+    const directory = path.dirname(this.endpoint);
+    if (!existsSync(directory)) return false;
+    const base = path.basename(this.endpoint, ".sock") + ".holder";
+    return readdirSync(directory).some((name) => name === base + ".sock" || (name.startsWith(base + ".") && name.endsWith(".sock")));
   }
 }
