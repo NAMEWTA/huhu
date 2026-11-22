@@ -16,6 +16,8 @@
 
 Linux 终端批准候选已于 `fc38dc86` 合入集成，绑定系统 sh 的规范映像与参数。Lead 在集成复跑 Automations 单文件 34 项通过，日志 `temp/issue-evidence/huhu-2026-11-22/linux-approval-check.log`。实际 Agent/native 接线仍在实施，独审由 HC `t8g/task01.md` 执行；此处不记为 Linux 实程验收通过。
 
+独审 `t8g/report01.md` 复现四项待修：同地址双账号包在空库恢复失败、恢复后立即再导出丢失已读定位、定位字段差异造成独立恢复重复建账号，以及系统 sh 暂不可核对时桌面无法撤销已有批准。已派 `t8k/task01.md` 修复，未进入最终门禁。Lead 另在隔离运行目录复跑 Agent `sessions.test.ts`，31 项通过，日志 `temp/issue-evidence/huhu-2026-11-22/linux-session-check.log`；Linux 原生 helper 仍待报告及实程验证。
+
 ## 成员
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
