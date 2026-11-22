@@ -1,12 +1,12 @@
 import { replaceBody, splitDocument } from "@huhu/vault/markdown";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import type { ArchiveDetailDto, ArchiveDto, ArchiveFieldDef, ArchiveTypeDto } from "@huhu/contracts";
-import { Badge, Button, DataTable, Dialog, EmptyState, Field, IconButton, SearchBox, type DataTableColumn } from "@huhu/ui";
+import { Badge, Banner, Button, DataTable, Dialog, EmptyState, Field, IconButton, SearchBox, type DataTableColumn } from "@huhu/ui";
 import { useCapability, useEngine, useQueryClient, useReferenceIndex } from "@huhu/workbench";
 import { ArrowUpRight, FilePlus2, FileText, Folder, MoreHorizontal, Paperclip, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { DocumentSession, SessionSnapshot } from "../documents/DocumentSession.js";
-import { t } from "../i18n.js";
+import { n, t } from "../i18n.js";
 import { EncodingConversion } from "../viewers/EncodingConversion.js";
 import { archiveIcon } from "./icons.js";
 import { a } from "./i18n.js";
@@ -325,7 +325,7 @@ export function ArchiveView({
   const engine = useEngine();
   const rawCall = useArchiveCall();
   const call = async <T,>(capability: string, input: unknown): Promise<T> => {
-    if (!(await session.flush())) throw new Error(a.flushFailed);
+    if (!(await session.flush({ untilClean: true }))) throw new Error(a.flushFailed);
     return rawCall<T>(capability, input);
   };
   const detail = useCapability<ArchiveDetailDto>("archives.read", { path });
@@ -335,6 +335,7 @@ export function ArchiveView({
   const type = d ? ((types.data ?? []).find((t) => t.path === d.type) ?? null) : null;
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | "rename" | "move" | "delete" | "note">(null);
+  const [confirmReload, setConfirmReload] = useState(false);
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [menu, setMenu] = useState(false);
@@ -366,8 +367,7 @@ export function ArchiveView({
         <EncodingConversion
           path={d.encodingIssue.path}
           onConverted={() => {
-            if (snapshot.hasUnsaved) session.notifyExternalChange();
-            else void session.load().catch((error: unknown) => session.setError(message(error)));
+            session.notifyExternalChange();
             void detail.refetch();
           }}
         />
@@ -377,7 +377,7 @@ export function ArchiveView({
   const save = async (patch: { fields?: Record<string, unknown>; removeKeys?: string[] }) => {
     try {
       setError(null);
-      return await session.writeFields(async (version) => {
+      return await session.writeFields(async (version, submit) => {
         const expectedVersion = version || d.version;
         if (d.version && expectedVersion !== d.version) {
           // 正文保存可以推进版本。若正在编辑的字段也被改动，仍交给用户处理冲突。
@@ -386,7 +386,7 @@ export function ArchiveView({
             throw new Error("档案字段已被修改，请重新确认后保存");
           }
         }
-        await rawCall("archives.update", { path: d.path, ...(expectedVersion ? { expectedVersion } : {}), ...patch });
+        await submit(() => rawCall("archives.update", { path: d.path, ...(expectedVersion ? { expectedVersion } : {}), ...patch }));
       });
     } catch (e) {
       setError(message(e));
@@ -394,7 +394,19 @@ export function ArchiveView({
       return false;
     }
   };
+  const resolveBodyConflict = async (action: "reload" | "discard" | "keepMine") => {
+    setError(null);
+    setConfirmReload(false);
+    try {
+      if (action === "keepMine") await session.keepMine();
+      else if (!(await (action === "discard" ? session.discardEditsAndReload() : session.load()))) return;
+      await detail.refetch();
+    } catch (e) {
+      session.setError(message(e));
+    }
+  };
   const defs = type?.fields ?? [];
+  const draft = snapshot.draft;
   return (
     <section className="notes-document-area notes-archive-view" data-testid="archive-view">
       <header className="notes-archive-head">
@@ -421,6 +433,43 @@ export function ArchiveView({
           ) : null}
         </div>
       </header>
+      {snapshot.state === "conflict" ? (
+        <Banner
+          tone="danger"
+          action={
+            confirmReload ? (
+              <>
+                <Button variant="danger" onClick={() => void resolveBodyConflict("discard")}>
+                  {n.discardReload}
+                </Button>
+                <Button onClick={() => setConfirmReload(false)}>{n.keepEditing}</Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={() => void resolveBodyConflict("keepMine")}>{n.keepMine}</Button>
+                <Button onClick={() => (snapshot.hasUnsaved ? setConfirmReload(true) : void resolveBodyConflict("reload"))}>{t.reload}</Button>
+              </>
+            )
+          }
+        >
+          {confirmReload ? n.discardReloadHint : t.conflict}
+        </Banner>
+      ) : null}
+      {draft ? (
+        <Banner
+          tone="blue"
+          action={
+            <>
+              <Button variant="primary" data-testid="note-draft-restore" onClick={() => session.restoreDraft()}>
+                {n.restoreDraft}
+              </Button>
+              <Button onClick={() => session.discardDraft()}>{n.discardDraft}</Button>
+            </>
+          }
+        >
+          {n.draftFound(draft.savedAt.replace("T", " ").slice(0, 16))}
+        </Banner>
+      ) : null}
       {error || snapshot.flushError ? (
         <div role="alert" className="hu-field-error">
           {error ?? snapshot.flushError}

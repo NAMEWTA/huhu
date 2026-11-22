@@ -55,7 +55,7 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
         (s) => {
           // 退出前落盘 / 切换 Vault 前的未保存文档：每个会话只注册一次，随会话销毁注销
           const offFlush = registerFlusher(() => s.flushForExit());
-          const offDirty = registerDirtyDoc({ label: path, drain: () => s.drainEditors(), isDirty: () => s.getSnapshot().hasUnsaved, save: () => s.flush(), keepDraft: () => s.keepDraft() });
+          const offDirty = registerDirtyDoc({ label: path, drain: () => s.drainEditors(), isDirty: () => s.getSnapshot().hasUnsaved, save: () => s.flush({ untilClean: true }), keepDraft: () => s.keepDraft() });
           return () => (offFlush(), offDirty());
         },
       )

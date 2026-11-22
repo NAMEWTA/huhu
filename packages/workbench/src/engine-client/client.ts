@@ -66,7 +66,7 @@ export class EngineClient {
     try {
       json = (await res.json()) as CapabilityResult<T>;
     } catch {
-      throw new CapabilityError("INTERNAL", `引擎返回了无法解析的响应（HTTP ${res.status}）`);
+      throw new CapabilityError("INTERNAL", `引擎返回了无法解析的响应（HTTP ${res.status}）`, opts.write ? { outcome: "unknown" } : undefined);
     }
     if (!json.ok) throw new CapabilityError(json.error.code, json.error.message, json.error.details);
     return json.data;

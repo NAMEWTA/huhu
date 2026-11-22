@@ -98,14 +98,14 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
           action={
             confirmReload ? (
               <>
-                <Button variant="danger" onClick={() => (setConfirmReload(false), void session.load())}>
+                <Button variant="danger" onClick={() => (setConfirmReload(false), void session.discardEditsAndReload())}>
                   {v.reload}
                 </Button>
                 <Button onClick={() => setConfirmReload(false)}>取消</Button>
               </>
             ) : (
               <>
-                {session.currentText() !== session.lastSavedText() ? (
+                {snap.hasUnsaved ? (
                   <>
                     <Button variant="primary" data-testid="note-merge" onClick={() => void session.merge()}>
                       {v.merge}
@@ -118,7 +118,7 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
                     </Button>
                   </>
                 ) : null}
-                <Button onClick={() => (session.currentText() === session.lastSavedText() ? void session.load() : setConfirmReload(true))}>{v.reload}</Button>
+                <Button onClick={() => (snap.hasUnsaved ? setConfirmReload(true) : void session.load())}>{v.reload}</Button>
               </>
             )
           }

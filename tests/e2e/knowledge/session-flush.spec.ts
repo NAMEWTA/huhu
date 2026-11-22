@@ -45,6 +45,263 @@ async function setAutosave(page: Page, enabled: boolean): Promise<void> {
 
 const manualSave = (page: Page) => setAutosave(page, false);
 
+async function checkManualSaveReceipt(saveWhileFirstInFlight: boolean): Promise<void> {
+  const { page, vault, close } = await openApp();
+  const file = path.join(vault, name);
+  const firstWrite = original.replace("初始正文", `初始正文${first}`);
+  const later = "保存期间的输入";
+  const secondWrite = original.replace("初始正文", `初始正文${first}${later}`);
+  const latest = "第二次保存后的输入";
+  const thirdWrite = secondWrite.replace(later, later + latest);
+  try {
+    writeFileSync(file, original);
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    const gate = await page.evaluateHandle((notePath) => {
+      const fetch = window.fetch;
+      const release = Promise.withResolvers<void>();
+      const writes: string[] = [];
+      let held = false;
+      let receiptsRead = 0;
+      window.fetch = async (input, init) => {
+        if (typeof input !== "string" || !input.endsWith("/api/v1/call") || typeof init?.body !== "string") return fetch.call(window, input, init);
+        const request = JSON.parse(init.body) as { capability: string; input?: { path?: string; text?: string } };
+        if (request.capability !== "notes.save" || request.input?.path !== notePath || typeof request.input.text !== "string") return fetch.call(window, input, init);
+        writes.push(request.input.text);
+        const firstRequest = writes.length === 1;
+        const response = await fetch.call(window, input, init);
+        const readJson = response.json.bind(response);
+        response.json = async () => {
+          const body: unknown = await readJson();
+          // 让当前渲染器任务先处理真实回执及随后的保存微任务。
+          requestAnimationFrame(() => {
+            receiptsRead++;
+          });
+          return body;
+        };
+        if (firstRequest) {
+          held = true;
+          await release.promise;
+        }
+        return response;
+      };
+      return {
+        snapshot: () => ({ held, receiptsRead, writes }),
+        release: release.resolve,
+        restore: () => {
+          window.fetch = fetch;
+          release.resolve();
+        },
+      };
+    }, name);
+    try {
+      const editor = prose(page);
+      const save = page.getByTestId("note-save");
+      const state = page.getByTestId("save-state");
+      const currentSave = () => gate.evaluate((gate) => gate.snapshot());
+      await editor.getByText("初始正文", { exact: true }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.insertText(first);
+      await save.click();
+      await expect.poll(currentSave).toEqual({ held: true, receiptsRead: 0, writes: [firstWrite] });
+      await expect(state).toHaveText("保存中…");
+      expect(readFileSync(file, "utf8")).toBe(firstWrite);
+
+      await editor.getByText(`初始正文${first}`, { exact: true }).click();
+      await page.keyboard.press("End");
+      await page.keyboard.insertText(later);
+      await expect(editor).toContainText(`初始正文${first}${later}`);
+      await expect(state).toHaveText("未保存修改");
+      if (saveWhileFirstInFlight) {
+        await save.click();
+        await editor.getByText(`初始正文${first}${later}`, { exact: true }).click();
+        await page.keyboard.press("End");
+        await page.keyboard.insertText(latest);
+        // 状态栏按会话正文计数，等第三段输入从编辑器交给会话。
+        await expect(page.getByText(`${thirdWrite.replace(/\s/g, "").length} 字`, { exact: true })).toBeVisible();
+        expect((await currentSave()).writes).toEqual([firstWrite]);
+      }
+      await gate.evaluate((gate) => gate.release());
+      await expect.poll(async () => (await currentSave()).receiptsRead).toBe(saveWhileFirstInFlight ? 2 : 1);
+      const acknowledgedWrites = saveWhileFirstInFlight ? [firstWrite, secondWrite] : [firstWrite];
+      expect((await currentSave()).writes).toEqual(acknowledgedWrites);
+      await expect(state).toHaveText("未保存修改");
+      expect(readFileSync(file, "utf8")).toBe(acknowledgedWrites.at(-1));
+
+      await save.click();
+      await expect(state).toHaveText("已保存");
+      const finalWrite = saveWhileFirstInFlight ? thirdWrite : secondWrite;
+      expect((await currentSave()).writes).toEqual([...acknowledgedWrites, finalWrite]);
+      expect(readFileSync(file, "utf8")).toBe(finalWrite);
+    } finally {
+      await gate.evaluate((gate) => gate.restore());
+      await gate.dispose();
+    }
+  } finally {
+    await close();
+  }
+}
+
+test("C06 手动保存回执在途时继续输入，下一次点击才写入新内容", () => checkManualSaveReceipt(false));
+test("C06 两次手动保存重叠时，各自只写入触发时的正文", () => checkManualSaveReceipt(true));
+
+test("C06 对账无法读取且缓冲等于原文时，笔记仍可保留修改并确认重载", async () => {
+  const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
+  const file = path.join(vault, name);
+  const diskAfterSave = original.replace("初始正文", `初始正文${first}`);
+  const releaseSave = Promise.withResolvers<void>();
+  let held = false;
+  let rejectRead = false;
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (request.input?.path !== name) return route.continue();
+      if (request.capability === "notes.save" && !held) {
+        await route.fetch();
+        held = true;
+        await releaseSave.promise;
+        return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：写入后响应失败" } } });
+      }
+      if (request.capability === "notes.read" && rejectRead) {
+        return route.fulfill({ json: { ok: false, error: { code: "INTERNAL", message: "测试：对账暂时无法读取" } } });
+      }
+      await route.continue();
+    });
+
+    const editor = prose(page);
+    const save = page.getByTestId("note-save");
+    const state = page.getByTestId("save-state");
+    await editor.getByText("初始正文", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(first);
+    await save.click();
+    await expect.poll(() => held).toBe(true);
+    expect(readFileSync(file, "utf8")).toBe(diskAfterSave);
+
+    await editor.getByText(`初始正文${first}`, { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await expect(editor.getByText("初始正文", { exact: true })).toBeVisible();
+    await expect(page.getByText(`${original.replace(/\s/g, "").length} 字`, { exact: true })).toBeVisible();
+    await expect(state).toHaveText("未保存修改");
+    rejectRead = true;
+    releaseSave.resolve();
+    await expect.poll(() => readFileSync(file, "utf8")).toBe(diskAfterSave);
+    await expect(state).toHaveText("文件已被外部修改");
+    await expect(page.getByText("保存失败：测试：对账暂时无法读取", { exact: true })).toBeVisible();
+    await expect(editor.getByText("初始正文", { exact: true })).toBeVisible();
+
+    rejectRead = false;
+    const keepMine = page.getByTestId("note-keep-mine");
+    await expect.soft(keepMine).toBeVisible();
+    await page.getByRole("button", { name: "载入最新版本", exact: true }).click();
+    await expect(page.getByRole("button", { name: "放弃我的修改并载入", exact: true })).toBeVisible();
+    await expect(editor.getByText("初始正文", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await keepMine.click();
+    await expect(state).toHaveText("未保存修改");
+    expect(readFileSync(file, "utf8")).toBe(diskAfterSave);
+    await save.click();
+    await expect(state).toHaveText("已保存");
+    expect(readFileSync(file, "utf8")).toBe(original);
+  } finally {
+    rejectRead = false;
+    releaseSave.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+    await close();
+  }
+});
+
+test("C06 保存新笔记正文保留未知草稿，恢复后确认放弃才删除", async () => {
+  const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
+  const file = path.join(vault, name);
+  const recoveredText = original.replace("初始正文", "旧草稿恢复内容");
+  const savedText = original.replace("初始正文", `初始正文${first}`);
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    const { version } = await call<{ version: string }>(page, "notes.read", { path: name });
+    await call(page, "notes.draft.save", { path: name, text: recoveredText, baseVersion: version, outcome: "unknown" });
+    await openNote(page);
+    const editor = prose(page);
+    const restore = page.getByTestId("note-draft-restore");
+    await expect(restore).toBeVisible();
+    await editor.getByText("初始正文", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(first);
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    expect(readFileSync(file, "utf8")).toBe(savedText);
+    await expect(restore).toBeVisible();
+    expect(await call(page, "notes.draft.get", { path: name })).toMatchObject({ text: recoveredText, outcome: "unknown" });
+
+    await restore.click();
+    await expect(editor).toContainText("旧草稿恢复内容");
+    await page.getByRole("button", { name: "载入最新版本", exact: true }).click();
+    const discardAndReload = page.getByRole("button", { name: "放弃我的修改并载入", exact: true });
+    await expect(discardAndReload).toBeVisible();
+    expect(await call(page, "notes.draft.get", { path: name })).toMatchObject({ text: recoveredText });
+    await discardAndReload.click();
+    await expect(editor).toContainText(`初始正文${first}`);
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    await expect(restore).toHaveCount(0);
+    expect(await call(page, "notes.draft.get", { path: name })).toBeNull();
+    expect(readFileSync(file, "utf8")).toBe(savedText);
+  } finally {
+    await close();
+  }
+});
+
+test("C06 档案记录页可以恢复未知草稿，也可以直接丢弃", async () => {
+  const { page, vault, close } = await openApp();
+  const type = "草稿类型";
+  const toRestore = "待恢复记录";
+  const toDiscard = "待丢弃记录";
+  const originalBody = "磁盘档案正文";
+  const draftBody = "草稿中的档案正文";
+  const archiveFile = (record: string) => `Archives/${type}/${record}/index.md`;
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    await call(page, "archives.types.save", { name: type, fields: [] });
+    for (const record of [toRestore, toDiscard]) {
+      await call(page, "archives.create", { type, name: record, body: `${originalBody}\n` });
+      const path = archiveFile(record);
+      const file = await call<{ text: string; version: string }>(page, "notes.read", { path });
+      await call(page, "notes.draft.save", { path, text: file.text.replace(originalBody, draftBody), baseVersion: file.version, outcome: "unknown" });
+    }
+
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await page.getByTestId("notes-open-archives").click();
+    await page.getByTestId("archive-category-card").filter({ hasText: type }).click();
+    await page.getByTestId("archive-row").filter({ hasText: toRestore }).click();
+    const archive = page.getByTestId("archive-view");
+    const editor = archive.getByTestId("archive-body").locator(".ProseMirror");
+    await expect(editor).toContainText(originalBody);
+    await archive.getByTestId("note-draft-restore").click();
+    await expect(editor).toContainText(draftBody);
+    expect(readFileSync(path.join(vault, archiveFile(toRestore)), "utf8")).toContain(originalBody);
+    await archive.getByRole("button", { name: "载入最新版本", exact: true }).click();
+    await archive.getByRole("button", { name: "放弃我的修改并载入", exact: true }).click();
+    await expect(editor).toContainText(originalBody);
+    expect(await call(page, "notes.draft.get", { path: archiveFile(toRestore) })).toBeNull();
+
+    await archive.getByTestId("archive-category-link").click();
+    await page.getByTestId("archive-row").filter({ hasText: toDiscard }).click();
+    await expect(editor).toContainText(originalBody);
+    await archive.getByRole("button", { name: "丢弃草稿", exact: true }).click();
+    await expect(archive.getByTestId("note-draft-restore")).toHaveCount(0);
+    await expect.poll(() => call(page, "notes.draft.get", { path: archiveFile(toDiscard) })).toBeNull();
+    expect(readFileSync(path.join(vault, archiveFile(toDiscard)), "utf8")).toContain(originalBody);
+  } finally {
+    await close();
+  }
+});
+
 test("应用菜单保存当前文档，关窗先处理看板草稿再结算文档", async () => {
   test.skip(process.platform === "darwin", "此路径覆盖 Windows 与 Linux 的菜单按钮和 F10。macOS 使用系统菜单栏。");
   const { app, page, vault, close } = await openApp();
@@ -595,6 +852,117 @@ test("C06 切 Vault 前从尚未报告 dirty 的编辑器收集修改", async ()
     await page.getByTestId("note-draft-restore").click();
     await expect(prose(page)).toContainText(last);
   } finally {
+    await close();
+    rmTree(otherVault);
+  }
+});
+
+test("C06 两篇笔记切 Vault 时，回执待定且已撤销的笔记也保留草稿", async () => {
+  const ordinaryNote = "另一篇脏稿.md";
+  const ordinaryOriginal = "另一篇正文\n";
+  const ordinaryEdited = `另一篇正文${last}\n`;
+  const { app, page, vault, close } = await openApp({}, (vault) => {
+    writeFileSync(path.join(vault, name), original);
+    writeFileSync(path.join(vault, ordinaryNote), ordinaryOriginal);
+  });
+  const otherVault = mkdtempSync(path.join(tmpdir(), "huhu-c06-receipt-other-"));
+  const file = path.join(vault, name);
+  const diskAfterSave = original.replace("初始正文", `初始正文${first}`);
+  const releaseParkedDraft = Promise.withResolvers<void>();
+  const releaseParkedRead = Promise.withResolvers<void>();
+  const releaseSwitchDraft = Promise.withResolvers<void>();
+  const releaseSaveReceipt = Promise.withResolvers<void>();
+  let ordinaryDrafts = 0;
+  let saveReceiptHeld = false;
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input?: { path?: string } };
+      if (request.input?.path === ordinaryNote) {
+        if (request.capability === "notes.draft.save") {
+          ordinaryDrafts++;
+          await (ordinaryDrafts === 1 ? releaseParkedDraft.promise : releaseSwitchDraft.promise);
+        }
+        if (request.capability === "notes.read" && ordinaryDrafts > 0) await releaseParkedRead.promise;
+      }
+      if (request.input?.path === name && request.capability === "notes.save" && !saveReceiptHeld) {
+        const response = await route.fetch();
+        saveReceiptHeld = true;
+        await releaseSaveReceipt.promise;
+        return route.fulfill({ response });
+      }
+      await route.continue();
+    });
+
+    await treeItem(page, ordinaryNote).click();
+    const editor = prose(page);
+    await editor.getByText("另一篇正文", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(last);
+    await expect(page.getByTestId("save-state")).toHaveText("未保存修改");
+    await treeItem(page, name).click();
+    // 停放时的草稿写入尚未结算，普通脏稿仍在切 Vault 的参与者列表中。
+    await expect.poll(() => ordinaryDrafts).toBe(1);
+    await editor.getByText("初始正文", { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.insertText(first);
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => saveReceiptHeld).toBe(true);
+    expect(readFileSync(file, "utf8")).toBe(diskAfterSave);
+
+    await editor.getByText(`初始正文${first}`, { exact: true }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await expect(editor.getByText("初始正文", { exact: true })).toBeVisible();
+    await expect(page.getByText(`${original.replace(/\s/g, "").length} 字`, { exact: true })).toBeVisible();
+
+    await app.evaluate(({ dialog }, target) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
+    }, otherVault);
+    await page.getByRole("button", { name: "切换 Vault", exact: true }).click();
+    await page.getByTestId("vault-open-other").click();
+    const dirtyList = page.getByTestId("svault-dirty-list");
+    await expect(dirtyList).toContainText(ordinaryNote);
+    await expect.soft(dirtyList).toContainText(name);
+    await Promise.all([
+      page.waitForEvent("load"),
+      (async () => {
+        await page.getByTestId("svault-switch-draft").click();
+        releaseParkedDraft.resolve();
+        // 第二篇的切换留稿请求已发出，说明本轮参与者筛选已经完成。
+        await expect.poll(() => ordinaryDrafts).toBeGreaterThanOrEqual(2);
+        releaseSaveReceipt.resolve();
+        releaseParkedRead.resolve();
+        releaseSwitchDraft.resolve();
+      })(),
+    ]);
+    await page.unrouteAll({ behavior: "wait" });
+    await engineReady(page);
+    expect(await page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(otherVault);
+    expect(readFileSync(file, "utf8")).toBe(diskAfterSave);
+
+    await page.getByRole("button", { name: "切换 Vault", exact: true }).click();
+    await page
+      .getByTestId("vault-recent-item")
+      .filter({ hasText: path.basename(vault) })
+      .click();
+    await Promise.all([page.waitForEvent("load"), page.getByTestId("svault-switch-confirm").click()]);
+    await engineReady(page);
+    expect(await page.evaluate(async () => (await window.huhuHost.vault?.state())?.path)).toBe(vault);
+    expect(await call(page, "notes.draft.get", { path: ordinaryNote })).toMatchObject({ text: ordinaryEdited });
+    expect(await call(page, "notes.draft.get", { path: name })).toMatchObject({ text: original });
+    await openNote(page);
+    await expect(editor.getByText(`初始正文${first}`, { exact: true })).toBeVisible();
+    await page.getByTestId("note-draft-restore").click();
+    await expect(editor.getByText("初始正文", { exact: true })).toBeVisible();
+    expect(readFileSync(file, "utf8")).toBe(diskAfterSave);
+  } finally {
+    releaseParkedDraft.resolve();
+    releaseParkedRead.resolve();
+    releaseSwitchDraft.resolve();
+    releaseSaveReceipt.resolve();
     await close();
     rmTree(otherVault);
   }

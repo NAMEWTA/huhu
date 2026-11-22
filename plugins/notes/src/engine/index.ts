@@ -21,7 +21,8 @@ export { CommentsService } from "./comments/service.js";
 
 const publicTool = { plugin: "notes", risk: "normal", exposable: true, defaultExposed: false } as const;
 const Path = z.object({ path: z.string().min(1) });
-const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string() });
+const DraftOutcome = z.literal("unknown").optional();
+const Draft = z.object({ path: z.string(), text: z.string(), baseVersion: z.string(), savedAt: z.string(), outcome: DraftOutcome });
 const VersionedPath = Path.extend({ expectedVersion: z.string().optional() });
 const DraftView = Draft.extend({ version: z.string().optional() });
 const HiddenPreferences = z.object({ hiddenPaths: z.array(z.string()), version: z.string().optional() });
@@ -379,7 +380,7 @@ const noteTools = {
     ...publicTool,
     scope: "write",
     ...durableExternal,
-    input: Path.extend({ text: z.string().max(8 * 1024 * 1024), baseVersion: z.string(), expectedDraftVersion: z.string().nullable().optional() }),
+    input: Path.extend({ text: z.string().max(8 * 1024 * 1024), baseVersion: z.string(), expectedDraftVersion: z.string().nullable().optional(), outcome: DraftOutcome }),
     output: z.object({ ok: z.literal(true) }),
   }),
   draftDiscard: descriptor({
@@ -715,7 +716,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       files.assertWritable();
       const rel = writePath(c, i.path);
       const name = draftFor(c, rel);
-      const data = Buffer.from(JSON.stringify({ path: rel, text: i.text, baseVersion: i.baseVersion, savedAt: now().toISOString() }));
+      const data = Buffer.from(JSON.stringify({ path: rel, text: i.text, baseVersion: i.baseVersion, savedAt: now().toISOString(), outcome: i.outcome }));
       if (workbench(c)) {
         const f = draftFile(name);
         mkdirSync(path.dirname(f), { recursive: true });

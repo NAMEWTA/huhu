@@ -717,6 +717,27 @@ test("external drafts track the original stable note identity through rename and
   expect(await f.invoke("notes.draft.get", { path: "Moved source.md" })).toMatchObject({ ok: true, data: { path: "Moved source.md", text: BODY } });
 });
 
+test("desktop draft capabilities preserve an unknown outcome across Engine restart", async () => {
+  const f = await fixture("cli");
+  const unknownPath = "未知写入.txt";
+  const ordinaryPath = "普通草稿.txt";
+  f.put(unknownPath, "X");
+  f.put(ordinaryPath, "普通正文");
+  const marked = { path: unknownPath, text: "X", baseVersion: f.version(unknownPath), outcome: "unknown" };
+  const ordinary = { path: ordinaryPath, text: "普通正文", baseVersion: f.version(ordinaryPath) };
+  expect(await f.callDesktop("notes.draft.save", marked)).toEqual({ ok: true });
+  expect(await f.callDesktop("notes.draft.save", ordinary)).toEqual({ ok: true });
+
+  await f.restart();
+
+  expect(await f.callDesktop("notes.draft.get", { path: unknownPath })).toEqual({ ...marked, savedAt: expect.any(String) });
+  const readOrdinary = await f.callDesktop("notes.draft.get", { path: ordinaryPath });
+  expect(readOrdinary).toEqual({ ...ordinary, savedAt: expect.any(String) });
+  expect(readOrdinary).not.toHaveProperty("outcome");
+  expect(f.get(unknownPath)).toBe("X");
+  expect(f.get(ordinaryPath)).toBe("普通正文");
+});
+
 function mismatch(id: string): object {
   switch (id) {
     case "archives.types.save":

@@ -62,16 +62,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   const flushError = snap.flushError;
   const encodingUnsupported = flushError === unsupportedEncoding;
   const readOnly = vaultReadOnly || encodingUnsupported;
-  const encodingNotice = encodingUnsupported ? (
-    <EncodingConversion
-      path={path}
-      onConverted={() => {
-        if (!session) return;
-        if (snap.hasUnsaved) session.notifyExternalChange();
-        else void session.load().catch((error: unknown) => session.setError(error instanceof Error ? error.message : String(error)));
-      }}
-    />
-  ) : null;
+  const encodingNotice = encodingUnsupported ? <EncodingConversion path={path} onConverted={() => session?.notifyExternalChange()} /> : null;
   const deferredText = useDeferredValue(text);
   // 字数 / 行数：对延后的文本单遍统计（5,000 行文档每次按键都做正则 + split 会占掉输入延迟预算）
   const stats = useMemo(() => {
@@ -125,11 +116,12 @@ export function NoteDocument(props: NoteDocumentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pushText 只用 ref 与稳定的 onText
   }, [session, snap.loaded, snap.text, setMode]);
 
-  const flush = useCallback((): Promise<boolean> => session?.flush() ?? Promise.resolve(true), [session]);
+  const save = useCallback((): Promise<boolean> => session?.flush() ?? Promise.resolve(true), [session]);
+  const flushForComments = useCallback((): Promise<boolean> => session?.flush({ untilClean: true }) ?? Promise.resolve(true), [session]);
   useEffect(() => {
-    registerFlush(flush);
+    registerFlush(flushForComments);
     return () => registerFlush(null);
-  }, [flush, registerFlush]);
+  }, [flushForComments, registerFlush]);
   const onPort = useCallback(
     (port: RichEditorPort | null) => {
       detachDrainer.current?.();
@@ -140,7 +132,6 @@ export function NoteDocument(props: NoteDocumentProps) {
     [registerEditor, session],
   );
   useEffect(() => () => registerEditor(null), [registerEditor]);
-  const save = flush;
   const [menuDocument] = useState(createRequestId);
   const closeDocument = useRef(props.onClose);
   closeDocument.current = props.onClose;
@@ -260,14 +251,14 @@ export function NoteDocument(props: NoteDocumentProps) {
           action={
             confirmReload ? (
               <>
-                <Button variant="danger" onClick={() => (setConfirmReload(false), void load())}>
+                <Button variant="danger" onClick={() => (setConfirmReload(false), void session?.discardEditsAndReload())}>
                   {n.discardReload}
                 </Button>
                 <Button onClick={() => setConfirmReload(false)}>{n.keepEditing}</Button>
               </>
             ) : (
               <>
-                {session!.currentText() !== session!.lastSavedText() ? (
+                {snap.hasUnsaved ? (
                   <>
                     <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
                       {n.merge}
@@ -280,7 +271,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                     </Button>
                   </>
                 ) : null}
-                <Button onClick={() => (session!.currentText() === session!.lastSavedText() ? void load() : setConfirmReload(true))}>{t.reload}</Button>
+                <Button onClick={() => (snap.hasUnsaved ? setConfirmReload(true) : void load())}>{t.reload}</Button>
               </>
             )
           }
@@ -341,7 +332,7 @@ export function NoteDocument(props: NoteDocumentProps) {
                 readOnly={readOnly}
                 retainSession={retainSession}
                 notes={all.data ?? []}
-                flush={flush}
+                flush={flushForComments}
                 onOpen={props.onOpen}
                 onPort={onPort}
                 linkPreviewsEnabled={ed?.linkPreviews === true}

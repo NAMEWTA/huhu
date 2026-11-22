@@ -25,6 +25,18 @@ describe("EngineClient", () => {
     await expect(c.call("x")).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
   });
 
+  test("响应体截断时只有写入报告结果未知", async () => {
+    const c = new EngineClient(endpoint, async () => new Response('{"ok":'));
+    const error = { code: "INTERNAL", message: "引擎返回了无法解析的响应（HTTP 200）" };
+    await expect(c.call("x.write", {}, { write: true })).rejects.toMatchObject({ ...error, details: { outcome: "unknown" } });
+    await expect(c.call("x.read")).rejects.toMatchObject({ ...error, details: undefined });
+  });
+
+  test.each([{ correlationId: "failed-write" }, { correlationId: "pending-write", outcome: "unknown" }])("已解码的写失败保留 Engine details %j", async (details) => {
+    const c = new EngineClient(endpoint, async () => Response.json({ ok: false, error: { code: "INTERNAL", message: "写入失败", details } }));
+    await expect(c.call("x.write", {}, { write: true })).rejects.toMatchObject({ code: "INTERNAL", message: "写入失败", details });
+  });
+
   test("普通 HTTP 生成请求 ID，重试同一次写入可带回原键", async () => {
     const source = crypto;
     const calls: { requestId: string; idempotencyKey?: string }[] = [];

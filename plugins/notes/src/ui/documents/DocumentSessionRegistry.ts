@@ -109,7 +109,7 @@ export class DocumentSessionRegistry {
       targets.map(async ([key, entry]) => {
         await entry.settling?.catch(() => undefined);
         if (this.map.get(key) !== entry) return true;
-        if (!(await entry.session.flush())) return false;
+        if (!(await entry.session.flush({ untilClean: true }))) return false;
         if (entry.refs === 0) await (entry.settling ?? this.settle(key, entry));
         return true;
       }),

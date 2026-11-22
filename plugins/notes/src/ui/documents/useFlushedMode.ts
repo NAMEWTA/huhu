@@ -20,7 +20,7 @@ export function useFlushedMode<Mode>(initial: Mode, session: DocumentSession | n
         setMode(next);
         return;
       }
-      void session.flush().then((saved) => {
+      void session.flush({ untilClean: true }).then((saved) => {
         if (!saved || request.current !== id) return;
         prepare?.(next);
         setMode(next);

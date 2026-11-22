@@ -1,15 +1,21 @@
+import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, defineCapability } from "@huhu/kernel";
+import { EngineClient } from "@huhu/workbench";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { DocumentSession, detectTextFormat, documentKindOf, type SessionEngine } from "../src/ui/documents/DocumentSession.js";
+import { z } from "zod";
+import { DocumentSession, detectTextFormat, documentKindOf, type SessionDraft, type SessionEngine } from "../src/ui/documents/DocumentSession.js";
 import { DocumentSessionRegistry } from "../src/ui/documents/DocumentSessionRegistry.js";
 
 /** 内存里的“磁盘 + 引擎”：notes.read / save / draft.*，版本冲突与失败可注入。 */
 class FakeEngine implements SessionEngine {
   files = new Map<string, { text: string; version: number }>();
-  drafts = new Map<string, { text: string; baseVersion: string; savedAt: string }>();
+  drafts = new Map<string, SessionDraft>();
   calls: string[] = [];
   failSave: Error | null = null;
   failDraft: Error | null = null;
+  failDraftDiscard: Error | null = null;
+  failRead: Error | null = null;
   saveGate: Promise<void> | null = null;
+  saveReceiptGate: Promise<void> | null = null;
   readGate: Promise<void> | null = null;
   constructor(init: Record<string, string> = {}) {
     for (const [p, t] of Object.entries(init)) this.files.set(p, { text: t, version: 1 });
@@ -23,8 +29,9 @@ class FakeEngine implements SessionEngine {
   }
   async call<T>(cap: string, input: unknown): Promise<T> {
     this.calls.push(cap);
-    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string };
+    const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown" };
     if (cap === "notes.read") {
+      if (this.failRead) throw this.failRead;
       const f = this.files.get(i.path)!;
       if (this.readGate) await this.readGate;
       return { path: i.path, text: f.text, version: String(f.version) } as T;
@@ -35,15 +42,17 @@ class FakeEngine implements SessionEngine {
       const f = this.files.get(i.path)!;
       if (String(f.version) !== i.expectedVersion) throw Object.assign(new Error("版本冲突"), { code: "VERSION_CONFLICT" });
       this.files.set(i.path, { text: i.text!, version: f.version + 1 });
+      if (this.saveReceiptGate) await this.saveReceiptGate;
       return { version: String(f.version + 1) } as T;
     }
     if (cap === "notes.draft.get") return (this.drafts.get(i.path) ?? null) as T;
     if (cap === "notes.draft.save") {
       if (this.failDraft) throw this.failDraft;
-      this.drafts.set(i.path, { text: i.text!, baseVersion: i.baseVersion!, savedAt: "2026-11-15T08:00:00" });
+      this.drafts.set(i.path, { text: i.text!, baseVersion: i.baseVersion!, savedAt: "2026-11-15T08:00:00", ...(i.outcome ? { outcome: i.outcome } : {}) });
       return undefined as T;
     }
     if (cap === "notes.draft.discard") {
+      if (this.failDraftDiscard) throw this.failDraftDiscard;
       this.drafts.delete(i.path);
       return undefined as T;
     }
@@ -104,6 +113,82 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(eng.disk("a.md")).toBe("x");
     expect(await s.flush()).toBe(true);
     expect(eng.disk("a.md")).toBe("xy");
+  });
+
+  test("关闭自动保存：手动保存期间的新输入留给下一次手动保存", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始正文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const call = vi.spyOn(eng, "call");
+    const saves = () => call.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input);
+    const release = Promise.withResolvers<void>();
+    eng.saveGate = release.promise;
+    session.setText("A");
+    const firstSave = session.flush();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      expect(session.getSnapshot().state).toBe("saving");
+      session.setText("A+B");
+    } finally {
+      release.resolve();
+    }
+
+    expect(await firstSave).toBe(true);
+    expect(eng.disk(path)).toBe("A");
+    expect(saves()).toHaveLength(1);
+    expect(session.getSnapshot()).toMatchObject({ state: "dirty", text: "A+B", hasUnsaved: true });
+
+    expect(await session.flush()).toBe(true);
+    expect(eng.disk(path)).toBe("A+B");
+    expect(saves()).toEqual([
+      { path, text: "A", expectedVersion: "1" },
+      { path, text: "A+B", expectedVersion: "2" },
+    ]);
+    expect(session.getSnapshot()).toMatchObject({ state: "saved", text: "A+B", hasUnsaved: false });
+  });
+
+  test("关闭自动保存：并发手动保存按各次触发时的正文和前一回执版本写入", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始正文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const call = vi.spyOn(eng, "call");
+    const saves = () => call.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input);
+    const firstReceipt = Promise.withResolvers<void>();
+    const secondReceipt = Promise.withResolvers<void>();
+    eng.saveGate = firstReceipt.promise;
+
+    try {
+      session.setText("A");
+      const firstSave = session.flush();
+      await vi.advanceTimersByTimeAsync(0);
+
+      session.setText("A+B");
+      const secondSave = session.flush();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      session.setText("A+B+C");
+
+      eng.saveGate = secondReceipt.promise;
+      firstReceipt.resolve();
+      expect(await firstSave).toBe(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe("A");
+      expect(saves()).toEqual([
+        { path, text: "A", expectedVersion: "1" },
+        { path, text: "A+B", expectedVersion: "2" },
+      ]);
+
+      secondReceipt.resolve();
+      expect(await secondSave).toBe(true);
+      expect(eng.disk(path)).toBe("A+B");
+      expect(session.getSnapshot()).toMatchObject({ state: "dirty", text: "A+B+C", baseVersion: "3", hasUnsaved: true });
+    } finally {
+      firstReceipt.resolve();
+      secondReceipt.resolve();
+    }
   });
 
   test("flush 先排空“编辑 → 会话”的防抖，磁盘含最后一个字符（输入后立刻关闭）", async () => {
@@ -168,19 +253,350 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     s.setText("---\n编号: 旧\n---\n\n正文首字\n");
     const started = Promise.withResolvers<string>();
     const release = Promise.withResolvers<void>();
-    const fields = s.writeFields(async (version) => {
-      started.resolve(version);
-      await release.promise;
-      eng.externalWrite(path, eng.disk(path).replace("编号: 旧", "编号: 新"));
-    });
+    const fields = s.writeFields((version, submit) =>
+      submit(async () => {
+        started.resolve(version);
+        await release.promise;
+        eng.externalWrite(path, eng.disk(path).replace("编号: 旧", "编号: 新"));
+      }),
+    );
     expect(await started.promise).toBe("2");
     s.setText("---\n编号: 旧\n---\n\n正文首字末字\n");
-    const exit = s.flush();
+    const saving = s.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    s.setText("---\n编号: 旧\n---\n\n正文首字末字再编辑\n");
     release.resolve();
     expect(await fields).toBe(true);
-    expect(await exit).toBe(true);
+    expect(await saving).toBe(true);
     expect(s.getSnapshot().baseVersion).toBe("4");
     expect(eng.disk(path)).toBe("---\n编号: 新\n---\n\n正文首字末字\n");
+    expect(s.getSnapshot()).toMatchObject({ state: "dirty", text: "---\n编号: 新\n---\n\n正文首字末字再编辑\n" });
+  });
+
+  test("排队的档案字段操作不能抢先保存触发后的正文", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const body = (text: string, field = "旧") => `---\n编号: ${field}\n---\n\n${text}\n`;
+    const eng = new FakeEngine({ [path]: body("原文") });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const calls = vi.spyOn(eng, "call");
+    const gate = Promise.withResolvers<void>();
+    eng.saveGate = gate.promise;
+    session.setText(body("A"));
+    const first = session.save();
+    const fields = session.writeFields((version, submit) =>
+      submit(async () => {
+        expect(version).toBe("2");
+        eng.externalWrite(path, eng.disk(path).replace("编号: 旧", "编号: 新"));
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    session.setText(body("A+B"));
+    const second = session.save();
+    session.setText(body("A+B+C"));
+    gate.resolve();
+    expect(await Promise.all([first, fields, second])).toEqual([true, true, true]);
+    const saved = calls.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input);
+    expect(saved).toEqual([
+      { path, text: body("A"), expectedVersion: "1" },
+      { path, text: body("A+B", "新"), expectedVersion: "3" },
+    ]);
+    expect(eng.disk(path)).toBe(body("A+B", "新"));
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "4", text: body("A+B+C", "新"), state: "dirty", hasUnsaved: true });
+  });
+
+  test("相邻的档案字段操作各自保留冻结的正文并吸收前一笔字段差异", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const body = (text: string, first = "旧", second = "旧") => `---\n编号: ${first}\n\n地点: ${second}\n---\n\n${text}\n`;
+    const eng = new FakeEngine({ [path]: body("原文") });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const firstStarted = Promise.withResolvers<string>();
+    const releaseFirst = Promise.withResolvers<void>();
+    const first = session.writeFields((version, submit) =>
+      submit(async () => {
+        firstStarted.resolve(version);
+        await releaseFirst.promise;
+        eng.externalWrite(path, body("原文", "新"));
+      }),
+    );
+    expect(await firstStarted.promise).toBe("1");
+    session.setText(body("A"));
+    const updateSecond = vi.fn(async (version: string) => {
+      expect(version).toBe("3");
+      expect(eng.disk(path)).toBe(body("A", "新"));
+      eng.externalWrite(path, body("A", "新", "新"));
+    });
+    const second = session.writeFields((version, submit) => submit(() => updateSecond(version)));
+    await vi.advanceTimersByTimeAsync(0);
+    session.setText(body("A+B"));
+    releaseFirst.resolve();
+
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(updateSecond).toHaveBeenCalledTimes(1);
+    expect(eng.disk(path)).toBe(body("A", "新", "新"));
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "4", text: body("A+B", "新", "新"), hasUnsaved: true, state: "dirty" });
+  });
+
+  test("重载期间停在档案预检的旧字段操作不能提交，也不能启动排队的字段操作", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const eng = new FakeEngine({ [path]: "原文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const preflight = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const update = vi.fn(async (_version: string) => undefined);
+    const fields = session.writeFields(async (version, submit) => {
+      preflight.resolve();
+      await release.promise;
+      await submit(() => update(version));
+    });
+    await preflight.promise;
+    const queuedUpdate = vi.fn(async () => undefined);
+    const queuedFields = session.writeFields(queuedUpdate);
+    await vi.advanceTimersByTimeAsync(0);
+    eng.externalWrite(path, "重载后的正文");
+    expect(await session.load()).toBe(true);
+    release.resolve();
+
+    expect(await Promise.all([fields, queuedFields])).toEqual([false, false]);
+    expect(update).not.toHaveBeenCalled();
+    expect(queuedUpdate).not.toHaveBeenCalled();
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "2", text: "重载后的正文", state: "saved", flushError: null });
+  });
+
+  test("迟到的档案回读不能重基重载后的新保存", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const eng = new FakeEngine({ [path]: "编号: 旧\n\n正文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const releaseRead = Promise.withResolvers<void>();
+    eng.readGate = releaseRead.promise;
+    const fields = session.writeFields((_version, submit) =>
+      submit(async () => {
+        eng.externalWrite(path, "编号: 字段写入\n\n正文");
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+    eng.readGate = null;
+    eng.externalWrite(path, "编号: 外部\n\n正文");
+    session.notifyExternalChange("modified");
+    expect(await session.load()).toBe(true);
+    session.setText("编号: 外部\n\n正文和新输入");
+    const saving = session.save();
+    releaseRead.resolve();
+
+    expect(await Promise.all([fields, saving])).toEqual([false, true]);
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(4);
+    expect(eng.disk(path)).toBe("编号: 外部\n\n正文和新输入");
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "4", text: eng.disk(path), state: "saved", hasUnsaved: false, flushError: null });
+  });
+
+  test("档案预检仍可自动刷新，提交后至字段回读接纳前保护缓冲", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const original = "编号: 旧\n\n正文";
+    const updated = "编号: 新\n\n正文";
+    const eng = new FakeEngine({ [path]: original });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const revision = session.getSnapshot().dirtyRevision;
+    const preflight = Promise.withResolvers<void>();
+    const submitted = Promise.withResolvers<void>();
+    const releasePreflight = Promise.withResolvers<void>();
+    const releaseAutoRead = Promise.withResolvers<void>();
+    const releaseUpdate = Promise.withResolvers<void>();
+    const releaseFieldRead = Promise.withResolvers<void>();
+    const fields = session.writeFields(async (_version, submit) => {
+      preflight.resolve();
+      await releasePreflight.promise;
+      await submit(async () => {
+        submitted.resolve();
+        await releaseUpdate.promise;
+        eng.externalWrite(path, updated);
+      });
+    });
+    try {
+      await preflight.promise;
+      expect(session.getSnapshot().hasUnsaved).toBe(false);
+      const reads = () => eng.calls.filter((capability) => capability === "notes.read").length;
+      eng.readGate = releaseAutoRead.promise;
+      session.notifyExternalChange("modified");
+      expect(reads()).toBe(2);
+      eng.readGate = null;
+
+      releasePreflight.resolve();
+      await submitted.promise;
+      expect(session.getSnapshot()).toMatchObject({ text: original, hasUnsaved: true });
+      releaseAutoRead.resolve();
+      session.notifyExternalChange("modified");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads()).toBe(2);
+      expect(session.getSnapshot().dirtyRevision).toBe(revision);
+
+      eng.readGate = releaseFieldRead.promise;
+      releaseUpdate.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe(updated);
+      expect(reads()).toBe(3);
+      expect(session.getSnapshot()).toMatchObject({ text: original, hasUnsaved: true });
+      session.notifyExternalChange("modified");
+      expect(reads()).toBe(3);
+      releaseFieldRead.resolve();
+
+      expect(await fields).toBe(true);
+      expect(session.getSnapshot()).toMatchObject({ text: updated, baseVersion: "2", state: "saved", hasUnsaved: false });
+    } finally {
+      releasePreflight.resolve();
+      releaseAutoRead.resolve();
+      releaseUpdate.resolve();
+      releaseFieldRead.resolve();
+    }
+  });
+
+  test.each([
+    { label: "干净缓冲", localEdit: false },
+    { label: "本地仍在编辑", localEdit: true },
+  ])("档案字段回读取样后的外部通知仍须处理：$label", async ({ localEdit }) => {
+    const path = "Archives/类型/记录/index.md";
+    const original = "---\n编号: 旧\n---\n\n正文\n";
+    const fieldsOnDisk = original.replace("编号: 旧", "编号: 新");
+    const external = fieldsOnDisk.replace("正文", "外部正文");
+    const local = original.replace("正文", "本地正文");
+    const eng = new FakeEngine({ [path]: original });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const releaseFieldRead = Promise.withResolvers<void>();
+    eng.readGate = releaseFieldRead.promise;
+    const writing = session.writeFields((_version, submit) =>
+      submit(async () => {
+        eng.externalWrite(path, fieldsOnDisk);
+      }),
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe(fieldsOnDisk);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+      expect(session.getSnapshot()).toMatchObject({ text: original, hasUnsaved: true });
+
+      eng.readGate = null;
+      if (localEdit) session.setText(local);
+      eng.externalWrite(path, external);
+      session.notifyExternalChange("modified");
+      expect(session.currentText()).toBe(localEdit ? local : original);
+      releaseFieldRead.resolve();
+      await writing;
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(eng.disk(path)).toBe(external);
+      expect(eng.calls).not.toContain("notes.save");
+      if (localEdit) {
+        expect(session.getSnapshot()).toMatchObject({ text: fieldsOnDisk.replace("正文", "本地正文"), state: "conflict", hasUnsaved: true });
+      } else {
+        expect(session.getSnapshot()).toMatchObject({ text: external, baseVersion: "3", state: "saved", hasUnsaved: false });
+      }
+    } finally {
+      releaseFieldRead.resolve();
+    }
+  });
+
+  test.each(["成功回执", "写入后失败"] as const)("已发字段更新跨重载（%s），复读实际磁盘并淘汰旧队列", async (outcome) => {
+    const path = "Archives/类型/记录/index.md";
+    const original = "编号: 旧\n\n正文";
+    const written = "编号: 新\n\n正文";
+    const local = "编号: 旧\n\n保留本地正文";
+    const eng = new FakeEngine({ [path]: original });
+    const session = mk(eng, path);
+    await session.load();
+    const started = Promise.withResolvers<string>();
+    const releaseUpdate = Promise.withResolvers<void>();
+    const update = vi.fn(async (version: string) => {
+      started.resolve(version);
+      await releaseUpdate.promise;
+      eng.externalWrite(path, written);
+      if (outcome === "写入后失败") throw Object.assign(new Error("字段已写入，保存身份记录时冲突"), { code: "VERSION_CONFLICT" });
+    });
+    const fields = session.writeFields((version, submit) => submit(() => update(version)));
+    try {
+      expect(await started.promise).toBe("1");
+      expect(await session.load()).toBe(true);
+      session.setText(local);
+      const saving = session.save();
+      const queuedUpdate = vi.fn(async () => undefined);
+      const queuedFields = session.writeFields((_version, submit) => submit(queuedUpdate));
+      await vi.advanceTimersByTimeAsync(0);
+      releaseUpdate.resolve();
+
+      expect(await Promise.all([fields, saving, queuedFields])).toEqual([false, false, false]);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(queuedUpdate).not.toHaveBeenCalled();
+      expect(eng.calls).not.toContain("notes.save");
+      expect(eng.disk(path)).toBe(written);
+      expect(session.lastSavedText()).toBe(written);
+      expect(session.getSnapshot()).toMatchObject({ text: local, baseVersion: "2", state: "conflict", hasUnsaved: true });
+      const edited = `${local}及后续输入`;
+      session.setText(edited);
+      await vi.advanceTimersByTimeAsync(900);
+      expect(eng.calls).not.toContain("notes.save");
+      expect(session.getSnapshot().state).toBe("conflict");
+      expect(await session.flush({ untilClean: true })).toBe(false);
+      expect(await session.flushForExit()).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: edited, baseVersion: "2" });
+    } finally {
+      releaseUpdate.resolve();
+    }
+  });
+
+  test("跨重载的字段响应丢失时，相同磁盘读数不解除保护", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const eng = new FakeEngine({ [path]: "原文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const started = Promise.withResolvers<void>();
+    const releaseUpdate = Promise.withResolvers<void>();
+    const fields = session.writeFields((_version, submit) =>
+      submit(async () => {
+        started.resolve();
+        await releaseUpdate.promise;
+        throw new TypeError("写入请求的连接断开");
+      }),
+    );
+    try {
+      await started.promise;
+      expect(await session.load()).toBe(true);
+      releaseUpdate.resolve();
+      expect(await fields).toBe(false);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+      expect(eng.disk(path)).toBe("原文");
+      expect(session.getSnapshot()).toMatchObject({ text: "原文", baseVersion: "1", state: "conflict", hasUnsaved: true });
+      expect(await session.save()).toBe(false);
+      expect(await session.flush({ untilClean: true })).toBe(false);
+      expect(await session.flushForExit()).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "原文", baseVersion: "1" });
+    } finally {
+      releaseUpdate.resolve();
+    }
+  });
+
+  test("同基线的字段响应丢失时，复读未变也不能结算为干净", async () => {
+    const path = "Archives/类型/记录/index.md";
+    const eng = new FakeEngine({ [path]: "原文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const fields = session.writeFields((_version, submit) =>
+      submit(async () => {
+        throw new TypeError("字段请求连接丢失");
+      }),
+    );
+
+    expect(await fields).toBe(false);
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+    expect(eng.disk(path)).toBe("原文");
+    expect(session.getSnapshot()).toMatchObject({ text: "原文", baseVersion: "1", state: "conflict", hasUnsaved: true });
+    expect(await session.flush({ untilClean: true })).toBe(false);
+    expect(await session.flushForExit()).toBe("draft");
+    expect(eng.drafts.get(path)).toMatchObject({ text: "原文", baseVersion: "1" });
   });
 
   test("C06：保存在途时又有新输入，旧回执不清除新的 dirtyRevision", async () => {
@@ -202,6 +618,70 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     await vi.advanceTimersByTimeAsync(900);
     expect(eng.disk("a.md")).toBe("123");
     expect(s.getSnapshot().state).toBe("saved");
+  });
+
+  test.each(["A", "X"])("保存期间撤销到 %s 后按实际落盘正文显示状态", async (undoText) => {
+    const eng = new FakeEngine({ "a.md": "X" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    const gate = Promise.withResolvers<void>();
+    eng.saveGate = gate.promise;
+    session.setText("A");
+    const saving = session.save();
+    session.setText("A+B");
+    session.setText(undoText);
+    gate.resolve();
+    expect(await saving).toBe(true);
+    expect(eng.disk("a.md")).toBe("A");
+    expect(session.getSnapshot()).toMatchObject({ state: undoText === "A" ? "saved" : "dirty", hasUnsaved: undoText !== "A" });
+  });
+
+  test("手动模式撤销回已落盘正文时立即显示已保存", async () => {
+    const eng = new FakeEngine({ "a.md": "原文" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    session.setText("已编辑");
+    session.setText("原文");
+    expect(session.getSnapshot()).toMatchObject({ state: "saved", hasUnsaved: false });
+    expect(eng.calls).not.toContain("notes.save");
+  });
+
+  test("手动保存已落盘但回执未到时，撤销仍可排队第二次明确保存", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const call = vi.spyOn(eng, "call");
+    const saves = () => call.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input);
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const first = session.flush();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe("A");
+      expect(session.getSnapshot().baseVersion).toBe("1");
+
+      session.setText("X");
+      const stateBeforeSecondSave = session.getSnapshot().state;
+      const second = session.flush();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(saves()).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+      expect(eng.disk(path)).toBe("A");
+
+      eng.saveReceiptGate = null;
+      receipt.resolve();
+      expect(await Promise.all([first, second])).toEqual([true, true]);
+      expect(saves()).toEqual([
+        { path, text: "A", expectedVersion: "1" },
+        { path, text: "X", expectedVersion: "2" },
+      ]);
+      expect(eng.disk(path)).toBe("X");
+      expect(session.getSnapshot()).toMatchObject({ text: "X", state: "saved", baseVersion: "3", hasUnsaved: false });
+      expect(stateBeforeSecondSave).toBe("dirty"); // 手动保存按钮只在 dirty 时可用。
+    } finally {
+      receipt.resolve();
+    }
   });
 
   test("保存串行：在途自动保存完成后，后续保存用新版本号，不产生假冲突", async () => {
@@ -244,6 +724,407 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(s.getSnapshot().state).toBe("dirty");
     expect(await s.save()).toBe(true);
     expect(eng.disk("a.md")).toBe("l1\nmine\nl3\nl4\ntheirs");
+  });
+
+  test.each(["load", "merge", "keepMine"] as const)("冲突解决 %s 后旧排队保存不能借新版本覆盖磁盘", async (action) => {
+    const base = "a\nmiddle\nz";
+    const external = "a\nmiddle\nz2";
+    const mine = "a2\nmiddle\nz";
+    const eng = new FakeEngine({ "a.md": base });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    const gate = Promise.withResolvers<void>();
+    eng.saveGate = gate.promise;
+    session.setText("a1\nmiddle\nz");
+    const first = session.save();
+    session.setText(mine);
+    const second = session.save();
+    eng.externalWrite("a.md", external);
+    if (action === "load") expect(await session.load()).toBe(true);
+    else if (action === "merge") expect(await session.merge()).toBe(0);
+    else await session.keepMine();
+    gate.resolve();
+    expect(await Promise.all([first, second])).toEqual([false, false]);
+    expect(eng.disk("a.md")).toBe(external);
+    expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+    expect(session.getSnapshot()).toMatchObject({
+      text: { load: external, merge: "a2\nmiddle\nz2", keepMine: mine }[action],
+      state: action === "load" ? "saved" : "dirty",
+      baseVersion: "2",
+    });
+    if (action === "keepMine") {
+      expect(await session.save()).toBe(true);
+      expect(eng.disk("a.md")).toBe(mine);
+      expect(session.getSnapshot()).toMatchObject({ baseVersion: "3", state: "saved" });
+    }
+  });
+
+  test("保留我的修改后迟到的成功回执不能回退基线或清掉草稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始" });
+    const draft = { text: "已有草稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" };
+    eng.drafts.set(path, draft);
+    const onSaved = vi.fn();
+    const session = mk(eng, path, { autosave: () => false, onSaved });
+    await session.load();
+    const releaseReceipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = releaseReceipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    expect(eng.disk(path)).toBe("A");
+    session.setText("A+B");
+    const queued = session.save();
+    session.setText("A");
+    eng.externalWrite(path, "外部改动");
+    await session.keepMine();
+    releaseReceipt.resolve();
+
+    expect(await Promise.all([saving, queued])).toEqual([false, false]);
+    expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+    expect(eng.calls).not.toContain("notes.draft.discard");
+    expect(eng.drafts.get(path)).toEqual(draft);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(eng.disk(path)).toBe("外部改动");
+    expect(session.lastSavedText()).toBe("外部改动");
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "3", text: "A", state: "dirty", hasUnsaved: true, flushError: null, draft });
+  });
+
+  test("同版本重载后旧请求才落盘时，重新核对磁盘并在退出时保留撤销正文", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const call = vi.spyOn(eng, "call");
+    const allowedToWrite = Promise.withResolvers<void>();
+    eng.saveGate = allowedToWrite.promise;
+    session.setText("A");
+    const saving = session.flush();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(call).toHaveBeenCalledWith("notes.save", { path, text: "A", expectedVersion: "1" }, { write: true });
+      expect(eng.disk(path)).toBe("X");
+
+      session.setText("X");
+      expect(await session.load()).toBe(true);
+      expect(session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "1" });
+      const reads = () => eng.calls.filter((capability) => capability === "notes.read").length;
+      const readsBeforeWrite = reads();
+      allowedToWrite.resolve();
+      await saving;
+      expect(eng.disk(path)).toBe("A");
+
+      const flushed = await session.flush({ untilClean: true });
+      const afterFlush = session.getSnapshot();
+      const exited = await session.flushForExit();
+      const savesOfA = call.mock.calls.filter(([capability, input]) => capability === "notes.save" && (input as { text: string }).text === "A");
+      expect(savesOfA).toHaveLength(1);
+      expect(eng.disk(path)).toBe("A");
+      expect(afterFlush.text).toBe("X");
+      expect.soft(reads()).toBeGreaterThan(readsBeforeWrite);
+      expect.soft(afterFlush.state).not.toBe("saved");
+      expect.soft(afterFlush.hasUnsaved).toBe(true);
+      expect.soft(flushed).toBe(false);
+      expect.soft(exited).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "2" });
+    } finally {
+      allowedToWrite.resolve();
+    }
+  });
+
+  test("旧成功回执复读未发现变化时，新基线排队的保存继续执行", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const onSaved = vi.fn();
+    const session = mk(eng, path, { autosave: () => false, onSaved });
+    await session.load();
+    const call = vi.spyOn(eng, "call");
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      expect(eng.disk(path)).toBe("A");
+      eng.externalWrite(path, "外部版本");
+      expect(await session.load()).toBe(true);
+      session.setText("新基线编辑");
+      const saving = session.save();
+      eng.saveReceiptGate = null;
+      receipt.resolve();
+
+      expect(await Promise.all([oldSave, saving])).toEqual([false, true]);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+      expect(call.mock.calls.filter(([capability]) => capability === "notes.save").map(([, input]) => input)).toEqual([
+        { path, text: "A", expectedVersion: "1" },
+        { path, text: "新基线编辑", expectedVersion: "3" },
+      ]);
+      expect(onSaved).toHaveBeenCalledTimes(1);
+      expect(eng.disk(path)).toBe("新基线编辑");
+      expect(session.getSnapshot()).toMatchObject({ text: "新基线编辑", baseVersion: "4", state: "saved", hasUnsaved: false });
+    } finally {
+      receipt.resolve();
+    }
+  });
+
+  test("对账读数返回前再次重载时，按最新基线重新核对", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    const releaseStaleRead = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      session.setText("X");
+      expect(await session.load()).toBe(true);
+      eng.readGate = releaseStaleRead.promise;
+      allowWrite.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe("A");
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+
+      eng.readGate = null;
+      eng.externalWrite(path, "再次重载");
+      expect(await session.load()).toBe(true);
+      session.setText("再次重载后的编辑");
+      const saving = session.save();
+      expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+      releaseStaleRead.resolve();
+
+      expect(await Promise.all([oldSave, saving])).toEqual([false, true]);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(5);
+      expect(eng.disk(path)).toBe("再次重载后的编辑");
+      expect(session.getSnapshot()).toMatchObject({ text: eng.disk(path), baseVersion: "4", state: "saved", hasUnsaved: false });
+    } finally {
+      allowWrite.resolve();
+      releaseStaleRead.resolve();
+    }
+  });
+
+  test("对账已经发现磁盘偏离时，仍在等待的重载读数不能替换缓冲", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    const releaseReconciliation = Promise.withResolvers<void>();
+    const releaseReload = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      session.setText("X");
+      expect(await session.load()).toBe(true);
+      eng.readGate = releaseReconciliation.promise;
+      allowWrite.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+
+      eng.readGate = releaseReload.promise;
+      const reloading = session.load();
+      eng.readGate = null;
+      releaseReconciliation.resolve();
+      expect(await oldSave).toBe(false);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(5);
+      releaseReload.resolve();
+
+      expect(await reloading).toBe(false);
+      expect(eng.disk(path)).toBe("A");
+      expect(session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "2", state: "conflict", hasUnsaved: true });
+    } finally {
+      allowWrite.resolve();
+      releaseReconciliation.resolve();
+      releaseReload.resolve();
+    }
+  });
+
+  test("保存落盘后对账尚未返回，外部通知不能自动重载覆盖撤销正文", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    const releaseReconciliation = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    try {
+      expect(eng.disk(path)).toBe("A");
+      session.setText("X");
+      eng.readGate = releaseReconciliation.promise;
+      receipt.reject(Object.assign(new Error("正文已落盘，刷新索引失败"), { code: "INTERNAL" }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+
+      eng.readGate = null;
+      session.notifyExternalChange("modified");
+      await vi.advanceTimersByTimeAsync(0);
+      const textDuringReconciliation = session.currentText();
+      releaseReconciliation.resolve();
+      expect(await saving).toBe(false);
+
+      const exit = await session.flushForExit();
+      expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+      expect(eng.disk(path)).toBe("A");
+      expect.soft(textDuringReconciliation).toBe("X");
+      expect.soft(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+      expect.soft(exit).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "2" });
+    } finally {
+      receipt.resolve();
+      releaseReconciliation.resolve();
+    }
+  });
+
+  test.each([
+    { label: "截断的 HTTP 200 响应", response: () => new Response('{"ok":'), unknown: true },
+    { label: "Engine 标记未知", response: () => Response.json({ ok: false, error: { code: "INTERNAL", message: "结果未知", details: { outcome: "unknown" } } }), unknown: true },
+    { label: "同盘普通 INTERNAL", response: () => Response.json({ ok: false, error: { code: "INTERNAL", message: "正文保存失败", details: { correlationId: "save-1" } } }), unknown: false },
+  ])("真实 EngineClient 的保存边界：$label", async ({ response, unknown }) => {
+    const path = "a.md";
+    const releaseFailure = Promise.withResolvers<void>();
+    const saves: { text?: string; expectedVersion?: string }[] = [];
+    let disk = { path, text: "X", version: "1" };
+    let draft: unknown = null;
+    const engine = new EngineClient({ baseUrl: "http://127.0.0.1:1", vaultId: "v" }, async (_url, init) => {
+      const { capability, input } = JSON.parse(String(init?.body)) as { capability: string; input: { text?: string; expectedVersion?: string } };
+      if (capability === "notes.save") {
+        saves.push(input);
+        if (saves.length === 1) {
+          await releaseFailure.promise;
+          return response();
+        }
+        disk = { path, text: input.text!, version: "2" };
+        return Response.json({ ok: true, data: { version: disk.version } });
+      }
+      if (capability === "notes.read") return Response.json({ ok: true, data: disk });
+      if (capability === "notes.draft.get") return Response.json({ ok: true, data: draft });
+      if (capability === "notes.draft.save") draft = input;
+      if (capability === "notes.draft.save" || capability === "notes.draft.discard") return Response.json({ ok: true, data: null });
+      throw new Error(`未模拟：${capability}`);
+    });
+    const session = new DocumentSession({ id: { vaultId: "v", path, epoch: 1 }, engine, autosave: () => false, pollMs: 0 });
+    await session.load();
+    session.setText("A");
+    const saving = session.save();
+    session.setText("X");
+    releaseFailure.resolve();
+    expect(await saving).toBe(false);
+    expect(disk.text).toBe("X");
+    expect(saves).toEqual([{ path, text: "A", expectedVersion: "1" }]);
+
+    if (unknown) {
+      expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+      expect(await session.flush({ untilClean: true })).toBe(false);
+      expect(await session.flushForExit()).toBe("draft");
+      expect(draft).toMatchObject({ path, text: "X", baseVersion: "1" });
+      expect(saves).toHaveLength(1);
+    } else {
+      expect(session.getSnapshot()).toMatchObject({ text: "X", flushError: "正文保存失败", hasUnsaved: false });
+      expect(await session.flush({ untilClean: true })).toBe(true);
+      session.setText("下一次明确保存");
+      expect(await session.save()).toBe(true);
+      expect(disk.text).toBe("下一次明确保存");
+      expect(saves[1]).toEqual({ path, text: disk.text, expectedVersion: "1" });
+    }
+  });
+
+  test("迟到写入复读失败时阻止干净结算，退出草稿和明确重载可重试", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      session.setText("X");
+      expect(await session.load()).toBe(true);
+      eng.failRead = new Error("无法核对正文");
+      allowWrite.resolve();
+
+      expect(await oldSave).toBe(false);
+      expect(eng.disk(path)).toBe("A");
+      expect(session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "1", state: "conflict", hasUnsaved: true, flushError: "无法核对正文" });
+      expect(await session.flush({ untilClean: true })).toBe(false);
+      expect(await session.load()).toBe(false);
+      eng.failDraft = new Error("草稿暂时不可写");
+      await expect(session.flushForExit()).rejects.toThrow("草稿暂时不可写");
+      eng.failDraft = null;
+      expect(await session.flushForExit()).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "1" });
+
+      eng.failRead = null;
+      expect(await session.load()).toBe(true);
+      expect(await session.flush({ untilClean: true })).toBe(true);
+      expect(session.getSnapshot()).toMatchObject({ text: "A", baseVersion: "2", state: "saved", hasUnsaved: false });
+    } finally {
+      allowWrite.resolve();
+    }
+  });
+
+  test.each(["keepMine", "merge"] as const)("迟到写入对账后可用 %s 解决冲突，再明确保存", async (action) => {
+    const path = "a.md";
+    const base = "首行\n\n正文\n\n末行";
+    const written = base.replace("末行", "写入末行");
+    const mine = base.replace("首行", "本地首行");
+    const eng = new FakeEngine({ [path]: base });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    session.setText(written);
+    const oldSave = session.save();
+    try {
+      session.setText(base);
+      expect(await session.load()).toBe(true);
+      session.setText(mine);
+      allowWrite.resolve();
+      expect(await oldSave).toBe(false);
+      expect(session.getSnapshot()).toMatchObject({ text: mine, baseVersion: "2", state: "conflict" });
+      expect(await session.save()).toBe(false);
+
+      if (action === "keepMine") await session.keepMine();
+      else expect(await session.merge()).toBe(0);
+      const expected = action === "merge" ? mine.replace("末行", "写入末行") : mine;
+      expect(session.getSnapshot()).toMatchObject({ text: expected, state: "dirty", hasUnsaved: true });
+      expect(eng.disk(path)).toBe(written);
+      expect(await session.save()).toBe(true);
+      expect(eng.disk(path)).toBe(expected);
+      expect(session.getSnapshot()).toMatchObject({ text: expected, baseVersion: "3", state: "saved", hasUnsaved: false });
+    } finally {
+      allowWrite.resolve();
+    }
+  });
+
+  test("恢复草稿后复读磁盘未变时，保留草稿的条件写版本", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const draft = { text: "旧稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" };
+    eng.drafts.set(path, draft);
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      expect(eng.disk(path)).toBe("A");
+      expect(await session.load()).toBe(true);
+      session.restoreDraft();
+      receipt.resolve();
+
+      expect(await oldSave).toBe(false);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+      expect(session.getSnapshot()).toMatchObject({ text: "旧稿", baseVersion: "1", state: "dirty", hasUnsaved: true });
+      expect(await session.save()).toBe(false);
+      expect(session.getSnapshot().state).toBe("conflict");
+      expect(eng.disk(path)).toBe("A");
+    } finally {
+      receipt.resolve();
+    }
   });
 
   test("merge：同一行冲突写入标记并报告块数", async () => {
@@ -309,6 +1190,113 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(eng.drafts.size).toBe(0);
   });
 
+  test.each([false, true])("保存无关正文仍保留尚未处理的未知草稿（自动保存 %s）", async (autosave) => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    const draft = { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" } as const;
+    eng.drafts.set(path, draft);
+    const session = mk(eng, path, { autosave: () => autosave });
+    await session.load();
+    session.setText("B");
+    if (autosave) await vi.advanceTimersByTimeAsync(900);
+    else expect(await session.save()).toBe(true);
+
+    expect(eng.disk(path)).toBe("B");
+    expect(session.getSnapshot()).toMatchObject({ text: "B", state: "saved", hasUnsaved: false, draft });
+    expect(eng.drafts.get(path)).toEqual(draft);
+    expect(eng.calls).not.toContain("notes.draft.discard");
+  });
+
+  test("保存无关正文仍保留尚未处理的未知草稿（草稿尚未载入）", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const draft = { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" } as const;
+    eng.drafts.set(path, draft);
+    session.setText("B");
+
+    expect(await session.save()).toBe(true);
+    expect(eng.disk(path)).toBe("B");
+    expect(eng.drafts.get(path)).toEqual(draft);
+    expect(eng.calls).not.toContain("notes.draft.discard");
+  });
+
+  test("同一缓冲的普通草稿在正文保存后清除", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    session.setText("B");
+    await session.keepDraft();
+    expect(eng.drafts.get(path)?.text).toBe("B");
+
+    expect(await session.save()).toBe(true);
+    expect(eng.disk(path)).toBe("B");
+    expect(eng.drafts.has(path)).toBe(false);
+  });
+
+  test("确认放弃并重载会丢弃已恢复的未知草稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const draft = { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" } as const;
+    eng.drafts.set(path, draft);
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    session.restoreDraft();
+    expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+
+    expect(await session.load()).toBe(true);
+    expect(session.getSnapshot().draft).toEqual(draft);
+    expect(eng.drafts.get(path)).toEqual(draft);
+    session.restoreDraft();
+
+    expect(await session.discardEditsAndReload()).toBe(true);
+    expect(session.getSnapshot()).toMatchObject({ text: "X", state: "saved", hasUnsaved: false, draft: null });
+    expect(eng.drafts.has(path)).toBe(false);
+    expect(eng.calls).not.toContain("notes.save");
+    const reopened = mk(eng, path);
+    await reopened.load();
+    expect(reopened.getSnapshot().draft).toBeNull();
+  });
+
+  test("确认放弃并重载若草稿删除失败，仍保留已恢复的未知正文", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    const draft = { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" } as const;
+    eng.drafts.set(path, draft);
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    session.restoreDraft();
+    eng.failDraftDiscard = new Error("草稿暂时不能删除");
+
+    expect(await session.discardEditsAndReload()).toBe(false);
+    expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true, flushError: "草稿暂时不能删除" });
+    expect(eng.drafts.get(path)).toEqual(draft);
+    eng.failDraftDiscard = null;
+    expect(await session.discardEditsAndReload()).toBe(true);
+    expect(eng.drafts.has(path)).toBe(false);
+    expect(session.getSnapshot()).toMatchObject({ text: "A", state: "saved", hasUnsaved: false, draft: null });
+  });
+
+  test("确认放弃并重载普通编辑时保留尚未恢复的未知草稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "A" });
+    const draft = { text: "X", baseVersion: "1", savedAt: "2026-11-15T08:00:00", outcome: "unknown" } as const;
+    eng.drafts.set(path, draft);
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    session.setText("B");
+    eng.externalWrite(path, "C");
+    session.notifyExternalChange("modified");
+    expect(session.getSnapshot().state).toBe("conflict");
+
+    expect(await session.discardEditsAndReload()).toBe(true);
+    expect(session.getSnapshot()).toMatchObject({ text: "C", state: "saved", hasUnsaved: false, draft });
+    expect(eng.drafts.get(path)).toEqual(draft);
+    expect(eng.calls).not.toContain("notes.draft.discard");
+  });
+
   test("dispose：自动保存模式落盘；落盘失败改存草稿；手动模式留草稿", async () => {
     const eng = new FakeEngine({ "a.md": "1" });
     const s = mk(eng);
@@ -349,6 +1337,101 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(eng.disk("a.md")).toBe("2");
   });
 
+  test("切 Vault 的留稿跨对账切代时仍写入当前正文，写失败会拒绝切换", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    session.setText("A");
+    const oldSave = session.save();
+    try {
+      session.setText("X");
+      expect(await session.load()).toBe(true);
+      session.setText("B");
+      const draftError = new Error("草稿写入失败，不能切换 Vault");
+      eng.failDraft = draftError;
+      const outcome = Promise.allSettled([session.keepDraft()]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls).not.toContain("notes.draft.save");
+      expect(eng.disk(path)).toBe("X");
+
+      allowWrite.resolve();
+      expect(await oldSave).toBe(false);
+      expect(await outcome).toEqual([{ status: "rejected", reason: draftError }]);
+      expect(eng.calls.filter((capability) => capability === "notes.draft.save")).toHaveLength(1);
+      expect(eng.drafts.has(path)).toBe(false);
+      expect(session.getSnapshot()).toMatchObject({ text: "B", baseVersion: "2", state: "conflict", hasUnsaved: true });
+
+      eng.failDraft = null;
+      await expect(session.keepDraft()).resolves.toBeUndefined();
+      expect(eng.drafts.get(path)).toMatchObject({ text: "B", baseVersion: "2" });
+      expect(eng.disk(path)).toBe("A");
+    } finally {
+      allowWrite.resolve();
+    }
+  });
+
+  test("撤销回旧磁盘正文后，回执或对账待定期间都参加切 Vault 留稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    const releaseReconciliation = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    try {
+      expect(eng.disk(path)).toBe("A");
+      session.setText("X");
+      const beforeReceipt = session.getSnapshot();
+      eng.readGate = releaseReconciliation.promise;
+      receipt.reject(Object.assign(new Error("正文已落盘，刷新索引失败"), { code: "INTERNAL" }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(2);
+      const duringReconciliation = session.getSnapshot();
+      eng.readGate = null;
+
+      const keeping = session.keepDraft();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls).not.toContain("notes.draft.save");
+      releaseReconciliation.resolve();
+      expect(await saving).toBe(false);
+      await keeping;
+
+      expect(eng.disk(path)).toBe("A");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "2" });
+      expect.soft(beforeReceipt).toMatchObject({ text: "X", hasUnsaved: true });
+      expect(duringReconciliation).toMatchObject({ text: "X", hasUnsaved: true });
+    } finally {
+      receipt.resolve();
+      releaseReconciliation.resolve();
+    }
+  });
+
+  test("手动保存回执在途时退出：以该回执的版本保留后续输入的草稿", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "初始正文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const release = Promise.withResolvers<void>();
+    eng.saveGate = release.promise;
+    session.setText("A");
+    const saving = session.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(session.getSnapshot().state).toBe("saving");
+    session.setText("A+B");
+    const exiting = session.flushForExit();
+    release.resolve();
+
+    await expect(saving).resolves.toBe(true);
+    await expect(exiting).resolves.toBe("draft");
+    expect(eng.disk(path)).toBe("A");
+    expect(eng.drafts.get(path)).toMatchObject({ text: "A+B", baseVersion: "2" });
+  });
+
   test("迟到的载入结果被丢弃", async () => {
     const eng = new FakeEngine({ "a.md": "one" });
     const s = mk(eng);
@@ -357,6 +1440,82 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     const second = s.load();
     await Promise.all([first, second]);
     expect(s.currentText()).toBe("two");
+  });
+
+  test("重载等待磁盘读取期间同基线保存成功，重载重新读取磁盘", async () => {
+    const eng = new FakeEngine({ "a.md": "旧正文" });
+    const session = mk(eng, "a.md", { autosave: () => false });
+    await session.load();
+    const allowSave = Promise.withResolvers<void>();
+    const releaseOldRead = Promise.withResolvers<void>();
+    eng.saveGate = allowSave.promise;
+    session.setText("已保存正文");
+    const saving = session.save();
+    eng.readGate = releaseOldRead.promise;
+    const loading = session.load();
+    eng.readGate = null;
+    allowSave.resolve();
+    expect(await saving).toBe(true);
+    releaseOldRead.resolve();
+
+    expect(await loading).toBe(true);
+    expect(eng.calls.filter((capability) => capability === "notes.read")).toHaveLength(3);
+    expect(session.getSnapshot()).toMatchObject({ baseVersion: "2", text: "已保存正文", state: "saved", hasUnsaved: false });
+  });
+
+  test("同基线保存落盘后回执失败，尚未接纳的重载读数不能造成假干净", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "X" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const allowWrite = Promise.withResolvers<void>();
+    const receipt = Promise.withResolvers<void>();
+    const releaseReload = Promise.withResolvers<void>();
+    const releaseReconciliation = Promise.withResolvers<void>();
+    eng.saveGate = allowWrite.promise;
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("A");
+    const saving = session.save();
+    try {
+      session.setText("X");
+      eng.readGate = releaseReload.promise;
+      const loading = session.load();
+      eng.readGate = null;
+      const reads = () => eng.calls.filter((capability) => capability === "notes.read").length;
+      expect(reads()).toBe(2);
+      expect(eng.disk(path)).toBe("X");
+
+      allowWrite.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.disk(path)).toBe("A");
+      eng.readGate = releaseReconciliation.promise;
+      receipt.reject(new TypeError("正文已写入，响应连接断开"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect.soft(reads()).toBe(3);
+      eng.readGate = null;
+      releaseReload.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect.soft(reads()).toBe(3); // 旧取样释放后仍须等待写入对账，不能抢先重载。
+      releaseReconciliation.resolve();
+      expect(await saving).toBe(false);
+      await loading;
+
+      const flushed = await session.flush({ untilClean: true });
+      const snapshot = session.getSnapshot();
+      const exit = await session.flushForExit();
+      expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+      expect(eng.disk(path)).toBe("A");
+      expect.soft(reads()).toBeGreaterThan(2);
+      expect.soft(snapshot).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+      expect.soft(flushed).toBe(false);
+      expect.soft(exit).toBe("draft");
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "2" });
+    } finally {
+      allowWrite.resolve();
+      receipt.resolve();
+      releaseReload.resolve();
+      releaseReconciliation.resolve();
+    }
   });
 
   test("重开草稿读取期间的待结算输入保留在当前编辑器", async () => {
@@ -490,6 +1649,98 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(b.session).not.toBe(a.session);
     await b.session.load();
     expect(b.session.currentText()).toBe("12");
+  });
+
+  test("未知写入超时后，同文草稿跨两次重开仍可恢复撤销正文", async () => {
+    const path = "a.txt";
+    const timeoutMs = 10;
+    const eng = new FakeEngine({ [path]: "X" });
+    const releaseWrite = Promise.withResolvers<void>();
+    const committed = Promise.withResolvers<void>();
+    eng.saveGate = releaseWrite.promise;
+    const capabilities = new CapabilityRegistry();
+    capabilities.register(
+      defineCapability({
+        name: "notes.save",
+        plugin: "notes",
+        scope: "write",
+        input: z.object({ path: z.string(), text: z.string(), expectedVersion: z.string() }),
+        output: z.object({ version: z.string() }),
+        exposable: true,
+        defaultExposed: true,
+        timeoutMs,
+        handler: async (_context, input) => {
+          const result = await eng.call<{ version: string }>("notes.save", input);
+          committed.resolve();
+          return result;
+        },
+      }),
+    );
+    const dispatcher = new Dispatcher({
+      registry: capabilities,
+      audit: new GatewayAudit(),
+      idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      grantedPermissions: () => [],
+      pluginOrigin: () => "builtin",
+    });
+    let saveReply: unknown;
+    const engine = new EngineClient({ baseUrl: "http://127.0.0.1:1", vaultId: "v" }, async (_url, init) => {
+      const request = JSON.parse(String(init?.body)) as Parameters<Dispatcher["call"]>[1];
+      if (request.capability === "notes.save") {
+        saveReply = await dispatcher.call("desktop", request);
+        return Response.json(saveReply);
+      }
+      return Response.json({ ok: true, data: await eng.call(request.capability, request.input) });
+    });
+    const sessions = new DocumentSessionRegistry();
+    const open = (autosave = false) => sessions.acquire("v", path, (id) => new DocumentSession({ id, engine, autosave: () => autosave, pollMs: 0 }));
+    try {
+      const first = await open();
+      expect(await first.session.load()).toBe(true);
+      first.session.setText("A", "plain");
+      const saving = first.session.save();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls).toContain("notes.save");
+      first.session.setText("X", "plain");
+      await vi.advanceTimersByTimeAsync(timeoutMs);
+      expect(await saving).toBe(false);
+      expect(saveReply).toMatchObject({ ok: false, error: { retryable: false, details: { outcome: "unknown" } } });
+      expect(first.session.getSnapshot()).toMatchObject({ text: "X", hasUnsaved: true, state: "conflict" });
+      expect(eng.disk(path)).toBe("X");
+      await first.release();
+      expect(eng.drafts.get(path)).toMatchObject({ text: "X", baseVersion: "1", outcome: "unknown" });
+
+      const beforeCommit = await open(true);
+      expect(beforeCommit.session).not.toBe(first.session);
+      expect(await beforeCommit.session.load()).toBe(true);
+      expect(eng.disk(path)).toBe("X");
+      expect.soft(beforeCommit.session.getSnapshot().draft).toMatchObject({ text: "X", baseVersion: "1", outcome: "unknown" });
+      expect.soft(eng.calls).not.toContain("notes.draft.discard");
+      beforeCommit.session.restoreDraft();
+      expect(beforeCommit.session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+      expect(await beforeCommit.session.flush({ untilClean: true })).toBe(false);
+      await vi.advanceTimersByTimeAsync(900);
+      expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+      await beforeCommit.release();
+
+      releaseWrite.resolve();
+      await committed.promise;
+      expect(eng.disk(path)).toBe("A");
+      const afterCommit = await open(true);
+      expect(afterCommit.session).not.toBe(beforeCommit.session);
+      expect(await afterCommit.session.load()).toBe(true);
+      expect(afterCommit.session.getSnapshot().draft).toMatchObject({ text: "X", baseVersion: "1", outcome: "unknown" });
+      afterCommit.session.restoreDraft();
+      expect(afterCommit.session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "1", state: "conflict", hasUnsaved: true });
+      await vi.advanceTimersByTimeAsync(900);
+      expect(eng.disk(path)).toBe("A");
+      expect(eng.calls.filter((capability) => capability === "notes.save")).toHaveLength(1);
+      await afterCommit.release();
+    } finally {
+      releaseWrite.resolve();
+    }
   });
 
   test("正文和草稿都写失败时保留同一会话；重开并成功保存后才清理", async () => {

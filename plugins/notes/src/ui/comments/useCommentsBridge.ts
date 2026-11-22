@@ -29,7 +29,7 @@ export function useCommentsBridge(opts: { paths: readonly string[]; flush(): Pro
         if (loaded) return { ...session.id, revision: dirtyRevision, sourceVersion: baseVersion };
       },
       flush: async (_docName, path) => {
-        const saved = await (path ? documentSessions.get(engine.vaultId, path)?.flush() : flushRef.current());
+        const saved = await (path ? documentSessions.get(engine.vaultId, path)?.flush({ untilClean: true }) : flushRef.current());
         if (!saved) throw new Error("文档还没有保存成功（可能有冲突），先处理后再添加批注");
       },
     });
