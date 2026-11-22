@@ -4,8 +4,8 @@ import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import type { KnownHostAuthorities, KnownHostAuthority, KnownHostKey } from "../shared/trust.js";
-import { OPENSSH_ED25519_CERT, parseEd25519Authority, verifyHostCertificate, type HostCertificateFailure } from "./host-certificate.js";
-import { knownHostRule, matchesKnownHostScope, type KnownHostRule } from "./known-host-rules.js";
+import { isHostKeyRevoked, OPENSSH_ED25519_CERT, parseEd25519Authority, verifyHostCertificate, type HostCertificateFailure } from "./host-certificate.js";
+import { knownHostRule, knownHostToken, literalKnownHostToken, matchesKnownHostScope, matchingKnownHostPin, type KnownHostRule } from "./known-host-rules.js";
 
 export type TrustBlock = HostCertificateFailure | "certificate-required" | "invalid-host-policy";
 type TrustDecision = { state: "trusted"; key: Buffer; authority?: Buffer } | { state: "unknown" } | { state: "mismatch"; key: Buffer; recorded: string[] } | { state: "blocked"; reason: TrustBlock };
@@ -14,7 +14,6 @@ export function fingerprintSha256(key: Buffer): string {
   return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
 }
 
-const hostToken = (host: string, port: number) => (port === 22 ? host : `[${host}]:${port}`);
 type Entry = { host: string; type: string; key: string };
 type Snapshot = { text: string; version: string | null };
 
@@ -45,11 +44,29 @@ function fingerprintVerdict(text: string, token: string, keyType: string, key: B
   return { state: "mismatch", key, recorded: [...new Set(mine.map((entry) => identity(entry).fingerprint))] };
 }
 
+function certificatePinConflict(text: string, token: string, leaf: Buffer): TrustDecision | undefined {
+  const pins = text
+    .split("\n")
+    .map((line) => matchingKnownHostPin(line, token))
+    .filter((pin) => pin !== undefined);
+  if (!pins.length || pins.some((pin) => pin.keyType === "ssh-ed25519" && pin.key?.equals(leaf))) return;
+  const recorded = new Set<string>();
+  for (const pin of pins) {
+    if (!pin.key) return { state: "blocked", reason: "invalid-host-policy" };
+    recorded.add(fingerprintSha256(pin.key));
+  }
+  return { state: "mismatch", key: leaf, recorded: [...recorded] };
+}
+
 function rules(text: string, token: string): KnownHostRule[] {
   return text.split("\n").flatMap((line) => {
     const rule = knownHostRule(line);
     return rule && matchesKnownHostScope(rule.scope, token) ? [rule] : [];
   });
+}
+
+function invalidPolicy(policy: readonly KnownHostRule[], host: string, port: number): boolean {
+  return policy.length > 0 && (!literalKnownHostToken(host, port) || policy.some(({ key, keyType }) => !key || !keyType));
 }
 
 function authorityKey(rule: KnownHostRule): Buffer | undefined {
@@ -62,19 +79,17 @@ function authorityKey(rule: KnownHostRule): Buffer | undefined {
 }
 
 function verdict(text: string, host: string, port: number, keyType: string, key: Buffer, now: Date): TrustDecision {
-  const token = hostToken(host, port);
+  const token = knownHostToken(host, port);
   const policy = rules(text, token);
-  if (policy.some(({ key, keyType }) => !key || !keyType)) return { state: "blocked", reason: "invalid-host-policy" };
+  if (invalidPolicy(policy, host, port)) return { state: "blocked", reason: "invalid-host-policy" };
   const revoked = policy.flatMap(({ marker, key }) => (marker === "@revoked" && key ? [key] : []));
-  if (revoked.some((revokedKey) => revokedKey.equals(key))) return { state: "blocked", reason: "revoked" };
   if (keyType === OPENSSH_ED25519_CERT) {
     const trusted = policy.map(authorityKey).filter((key) => key !== undefined);
     const certificate = verifyHostCertificate(key, host, now, trusted, revoked);
     if (!certificate.ok) return { state: "blocked", reason: certificate.reason };
-    const pinned = fingerprintVerdict(text, token, "ssh-ed25519", certificate.leafKey);
-    if (pinned.state === "mismatch") return pinned;
-    return { state: "trusted", key: certificate.leafKey, authority: certificate.authorityKey };
+    return certificatePinConflict(text, token, certificate.leafKey) ?? { state: "trusted", key: certificate.leafKey, authority: certificate.authorityKey };
   }
+  if (isHostKeyRevoked(key, revoked)) return { state: "blocked", reason: "revoked" };
   if (policy.some(({ marker }) => marker === "@cert-authority")) return { state: "blocked", reason: "certificate-required" };
   return fingerprintVerdict(text, token, keyType, key);
 }
@@ -125,8 +140,8 @@ export class KnownHosts {
   }
 
   certificateRequired(host: string, port: number): boolean {
-    const policy = rules(this.read().text, hostToken(host, port));
-    if (policy.some(({ key, keyType }) => !key || !keyType)) throw new HuhuError("SSH_HOST_KEY_MISMATCH", "已知主机信任规则无效", { details: { reason: "invalid-host-policy" } });
+    const policy = rules(this.read().text, knownHostToken(host, port));
+    if (invalidPolicy(policy, host, port)) throw new HuhuError("SSH_HOST_KEY_MISMATCH", "已知主机信任规则无效", { details: { reason: "invalid-host-policy" } });
     const required = policy.some(({ marker }) => marker === "@cert-authority");
     if (required && !policy.some(authorityKey)) throw new HuhuError("SSH_HOST_KEY_MISMATCH", "该主机的证书 CA 需要受支持的 Ed25519 公钥", { details: { reason: "unsupported-authority" } });
     return required;
@@ -151,8 +166,8 @@ export class KnownHosts {
       signal.throwIfAborted();
       const { text, version } = this.read();
       if (version !== revision) throw errors.versionConflict(version ?? "");
-      const scope = hostToken(host.toLowerCase(), port);
-      if (/[\s,*!?|]/u.test(scope)) throw errors.invalidInput("只能向已保存的确切 SSH 主机和端口添加 CA");
+      const scope = literalKnownHostToken(host, port);
+      if (!scope) throw errors.invalidInput("只能向已保存的确切 SSH 主机和端口添加 CA");
       const existing = rules(text, scope).some((rule) => rule.marker === "@cert-authority" && rule.scope.toLowerCase() === scope && rule.key?.equals(blob));
       if (!existing) {
         const prefix = text && !text.endsWith("\n") ? `${text}\n` : text;
@@ -186,7 +201,7 @@ export class KnownHosts {
       const check = verdict(text, host, port, keyType, key, new Date());
       if (remember && check.state === "unknown") {
         const prefix = text && !text.endsWith("\n") ? `${text}\n` : text;
-        await this.write(`${prefix}${hostToken(host, port)} ${keyType} ${key.toString("base64")}\n`, version, () => signal.throwIfAborted());
+        await this.write(`${prefix}${knownHostToken(host, port)} ${keyType} ${key.toString("base64")}\n`, version, () => signal.throwIfAborted());
       }
       return check;
     });
@@ -207,7 +222,7 @@ export class KnownHosts {
     return this.mutate(async () => {
       assertCurrent?.();
       const { text, version } = this.read();
-      const token = hostToken(key.host, key.port);
+      const token = knownHostToken(key.host, key.port);
       const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
       const retained = lines.filter((line) => {
         const entry = entryOf(line);

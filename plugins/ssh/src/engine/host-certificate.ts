@@ -60,6 +60,56 @@ function invalidCertificate(): never {
   return reject("invalid-certificate");
 }
 
+function readLeaf(reader: SshFields): Buffer {
+  if (reader.string().toString("latin1") !== OPENSSH_ED25519_CERT) reject("unsupported-certificate");
+  reader.string(); // Nonce
+  const subject = reader.string();
+  if (subject.length !== ed25519KeyBytes) invalidCertificate();
+  return Buffer.concat([bareKeyPrefix, subject]);
+}
+
+function readSignedFields(reader: SshFields) {
+  reader.uint64(); // Serial
+  const type = reader.uint32();
+  const identifier = reader.string();
+  const principals = reader.string();
+  const validAfter = reader.uint64();
+  const validBefore = reader.uint64();
+  const critical = reader.string();
+  const extensions = reader.string();
+  reader.string(); // Reserved
+  const authorityKey = reader.string();
+  return { type, identifier, principals, validAfter, validBefore, critical, extensions, authorityKey };
+}
+
+function readSignature(reader: SshFields, invalid: () => never) {
+  const fields = new SshFields(reader.string(), invalid);
+  const algorithm = fields.string();
+  const signature = fields.string();
+  if (!reader.done || !fields.done || !algorithm.length || !signature.length) invalid();
+  return { algorithm, signature };
+}
+
+function revokedCertificateLeaf(blob: Buffer): Buffer | undefined {
+  if (blob.length > maxCertificateBytes) return;
+  try {
+    const reader = new SshFields(blob, invalidCertificate);
+    const leaf = readLeaf(reader);
+    const { type, authorityKey } = readSignedFields(reader);
+    if ((type !== 1 && type !== hostCertificate) || !authorityKey.length) return;
+    readSignature(reader, invalidCertificate);
+    // A local revocation names the public key independent of the old certificate's validity or issuer.
+    return leaf;
+  } catch (error) {
+    if (!(error instanceof CertificateRejection)) throw error;
+  }
+}
+
+export function isHostKeyRevoked(key: Buffer, revoked: readonly Buffer[]): boolean {
+  const bareEd25519 = key.length === bareKeyBytes && key.subarray(0, bareKeyPrefix.length).equals(bareKeyPrefix);
+  return revoked.some((entry) => entry.equals(key) || (bareEd25519 && revokedCertificateLeaf(entry)?.equals(key)));
+}
+
 function checkPrincipals(bytes: Buffer, host: string) {
   if (!bytes.length) reject("no-principals");
   const invalid = () => reject("invalid-principals");
@@ -96,28 +146,14 @@ function checkExtensions(bytes: Buffer) {
 export function verifyHostCertificate(blob: Buffer, host: string, now: Date, trustedAuthorities: readonly Buffer[], revoked: readonly Buffer[]): HostCertificateResult {
   try {
     if (blob.length > maxCertificateBytes) reject("certificate-too-large");
-    if (revoked.some((key) => key.equals(blob))) reject("revoked");
+    if (isHostKeyRevoked(blob, revoked)) reject("revoked");
 
     const reader = new SshFields(blob, invalidCertificate);
-    if (reader.string().toString("latin1") !== OPENSSH_ED25519_CERT) reject("unsupported-certificate");
-    reader.string(); // Nonce
-    const subject = reader.string();
-    if (subject.length !== ed25519KeyBytes) invalidCertificate();
-    const leafKey = Buffer.concat([bareKeyPrefix, subject]);
-    if (revoked.some((key) => key.equals(leafKey))) reject("revoked");
-
-    reader.uint64(); // Serial
-    const type = reader.uint32();
-    const identifier = reader.string();
-    const principals = reader.string();
-    const validAfter = reader.uint64();
-    const validBefore = reader.uint64();
-    const critical = reader.string();
-    const extensions = reader.string();
-    reader.string(); // Reserved
-    const authorityKey = reader.string();
+    const leafKey = readLeaf(reader);
+    if (isHostKeyRevoked(leafKey, revoked)) reject("revoked");
+    const { type, identifier, principals, validAfter, validBefore, critical, extensions, authorityKey } = readSignedFields(reader);
     const signedBytes = blob.subarray(0, reader.position);
-    if (revoked.some((key) => key.equals(authorityKey))) reject("revoked");
+    if (isHostKeyRevoked(authorityKey, revoked)) reject("revoked");
 
     if (type !== hostCertificate) reject("wrong-type");
     if (identifier.includes(0)) invalidCertificate();
@@ -138,10 +174,8 @@ export function verifyHostCertificate(blob: Buffer, host: string, now: Date, tru
 
     const invalidSignature = () => reject("invalid-signature");
     const remainder = new SshFields(blob.subarray(reader.position), invalidSignature);
-    const signatureFields = new SshFields(remainder.string(), invalidSignature);
-    const signatureAlgorithm = signatureFields.string();
-    const signature = signatureFields.string();
-    if (!remainder.done || !signatureFields.done || !signatureAlgorithm.equals(ed25519) || signature.length !== ed25519SignatureBytes) invalidSignature();
+    const { algorithm, signature } = readSignature(remainder, invalidSignature);
+    if (!algorithm.equals(ed25519) || signature.length !== ed25519SignatureBytes) invalidSignature();
     let signatureValid: boolean;
     try {
       const publicKey = createPublicKey({ format: "jwk", key: { kty: "OKP", crv: "Ed25519", x: authorityBytes.toString("base64url") } });

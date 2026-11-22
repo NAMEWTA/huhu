@@ -1,8 +1,22 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
+import { z } from "zod";
 
-export type KnownHostRule = { marker: "@cert-authority" | "@revoked"; scope: string; keyType: string; key: Buffer | undefined };
+type KnownHostKeyFields = { scope: string; keyType: string; key: Buffer | undefined };
+export type KnownHostRule = KnownHostKeyFields & { marker: "@cert-authority" | "@revoked" };
 
 const maxKeyText = 64 * 1024;
+const DnsHostname = z.hostname();
+
+export function knownHostToken(host: string, port: number): string {
+  return port === 22 ? host : `[${host}]:${port}`;
+}
+
+/** Encode an already selected SSH endpoint without interpreting a host pattern or a user-supplied port. */
+export function literalKnownHostToken(host: string, port: number): string | undefined {
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || host.includes("%") || (!isIP(host) && !DnsHostname.safeParse(host).success)) return;
+  return knownHostToken(host.toLowerCase(), port);
+}
 
 function decode(text: string | undefined): Buffer | undefined {
   if (!text || text.length > maxKeyText || !/^[A-Za-z0-9+/]+={0,2}$/u.test(text)) return;
@@ -14,6 +28,13 @@ export function knownHostRule(line: string): KnownHostRule | undefined {
   const [marker, scope, keyType, keyText] = line.trim().split(/\s+/, 4);
   if ((marker !== "@cert-authority" && marker !== "@revoked") || !scope) return;
   return { marker, scope, keyType: keyType ?? "", key: decode(keyText) };
+}
+
+export function matchingKnownHostPin(line: string, token: string): KnownHostKeyFields | undefined {
+  const [scope, keyType, keyText] = line.trim().split(/\s+/, 3);
+  if (!scope || !keyType || !keyText || scope.startsWith("#") || scope.startsWith("@")) return;
+  if (!matchesKnownHostScope(scope, token)) return;
+  return { scope, keyType, key: decode(keyText) };
 }
 
 function wildcard(pattern: string, text: string): boolean {

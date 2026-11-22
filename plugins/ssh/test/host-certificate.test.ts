@@ -7,6 +7,7 @@ import { expect, test, type TestContext } from "vitest";
 import { OPENSSH_ED25519_CERT, parseEd25519Authority, verifyHostCertificate } from "../src/engine/host-certificate.js";
 import { readIdentityCertificate } from "../src/engine/identity-certificate.js";
 import { knownHostRule, matchesKnownHostScope } from "../src/engine/known-host-rules.js";
+import { fingerprintSha256, KnownHosts } from "../src/engine/known-hosts.js";
 
 function uint32(value: number) {
   const bytes = Buffer.alloc(4);
@@ -36,6 +37,8 @@ const expiresAt = issuedAt + 30n;
 const time = (seconds: bigint, milliseconds = 0) => new Date(Number(seconds) * 1000 + milliseconds);
 const leaf = rawEd25519(generateKeyPairSync("ed25519").publicKey);
 const leafKey = Buffer.concat([sshString(algorithm), sshString(leaf)]);
+const otherLeaf = rawEd25519(generateKeyPairSync("ed25519").publicKey);
+const otherLeafKey = Buffer.concat([sshString(algorithm), sshString(otherLeaf)]);
 const authority = generateKeyPairSync("ed25519");
 
 test("matches OpenSSH authority scopes against the logical host and port", () => {
@@ -58,6 +61,8 @@ const otherAuthorityKey = Buffer.concat([sshString(algorithm), sshString(rawEd25
 
 type IssueOptions = {
   certificateAlgorithm?: string;
+  subject?: Buffer;
+  serial?: bigint;
   kind?: number;
   principals?: Buffer;
   validAfter?: bigint;
@@ -77,8 +82,8 @@ function issue(options: IssueOptions = {}) {
   const data = Buffer.concat([
     type,
     nonce,
-    sshString(leaf),
-    uint64(0xfedcba9876543210n),
+    sshString(options.subject ?? leaf),
+    uint64(options.serial ?? 0xfedcba9876543210n),
     uint32(options.kind ?? 2),
     sshString("certificate-fixture"),
     sshString(options.principals ?? sshString(host)),
@@ -98,6 +103,104 @@ function tempDir(context: TestContext) {
   context.onTestFinished(() => rmSync(dir, { force: true, recursive: true }));
   return dir;
 }
+
+function withKnownHosts(context: TestContext, ...lines: string[]) {
+  const file = path.join(tempDir(context), "known_hosts");
+  if (lines.length) writeFileSync(file, lines.join("\n") + "\n");
+  return new KnownHosts(file);
+}
+
+function knownHostLine(scope: string, key = authorityKey, keyType = algorithm) {
+  return `${scope} ${keyType} ${key.toString("base64")}`;
+}
+
+function hashedScope(hostToken: string) {
+  const salt = Buffer.alloc(20, 19);
+  return `|1|${salt.toString("base64")}|${createHmac("sha1", salt).update(hostToken).digest("base64")}`;
+}
+
+test("revokes renewed certificates and bare keys with the same leaf within the recorded scope", (context) => {
+  const prior = issue({ serial: 10n, validBefore: issuedAt });
+  const renewed = issue({ serial: 11n, ca: otherAuthorityKey, signer: otherAuthority.privateKey });
+  const different = issue({ subject: otherLeaf });
+  const revoke = knownHostLine(`@revoked [${host}]:2200`, prior, OPENSSH_ED25519_CERT);
+  const certPolicy = withKnownHosts(context, revoke, knownHostLine(`@cert-authority [${host}]:2200`), knownHostLine(`@cert-authority [${host}]:2200`, otherAuthorityKey), knownHostLine(`@cert-authority [${host}]:2201`, otherAuthorityKey));
+  const now = time(issuedAt);
+  for (const cert of [prior, renewed]) {
+    expect(certPolicy.check(host, 2200, OPENSSH_ED25519_CERT, cert, now)).toEqual({ state: "blocked", reason: "revoked" });
+  }
+  expect(certPolicy.check(host, 2200, OPENSSH_ED25519_CERT, different, now)).toMatchObject({ state: "trusted", key: otherLeafKey });
+  expect(certPolicy.check(host, 2201, OPENSSH_ED25519_CERT, renewed, now)).toMatchObject({ state: "trusted", key: leafKey });
+  expect(verifyHostCertificate(renewed, host, now, [otherAuthorityKey], [prior])).toEqual({ ok: false, reason: "revoked" });
+  const barePolicy = withKnownHosts(context, revoke, knownHostLine(`[${host}]:2200`, leafKey), knownHostLine(`[${host}]:2201`, leafKey), knownHostLine(`[${host}]:2200`, otherLeafKey));
+  expect(barePolicy.check(host, 2200, algorithm, leafKey, now)).toEqual({ state: "blocked", reason: "revoked" });
+  expect(barePolicy.check(host, 2200, algorithm, otherLeafKey, now)).toEqual({ state: "trusted", key: otherLeafKey });
+  expect(barePolicy.check(host, 2201, algorithm, leafKey, now)).toEqual({ state: "trusted", key: leafKey });
+});
+
+for (const { pattern, port } of [
+  { pattern: host, port: 22 },
+  { pattern: hashedScope(host), port: 22 },
+  { pattern: "*.fixture.invalid,!spare.fixture.invalid", port: 22 },
+  { pattern: "[*.fixture.invalid]:2222", port: 2222 },
+  { pattern: hashedScope(`[${host}]:2222`), port: 2222 },
+]) {
+  test(`applies ordinary ${pattern} pins to the certified leaf at port ${port}`, (context) => {
+    const token = port === 22 ? host : `[${host}]:${port}`;
+    const store = withKnownHosts(context, knownHostLine(`@cert-authority ${token}`), knownHostLine(pattern, otherLeafKey), knownHostLine(`[${host}]:2201`, leafKey));
+    expect(store.check(host, port, OPENSSH_ED25519_CERT, issue(), time(issuedAt))).toEqual({ state: "mismatch", key: leafKey, recorded: [fingerprintSha256(otherLeafKey)] });
+    expect(store.check(host, port, OPENSSH_ED25519_CERT, issue({ subject: otherLeaf }), time(issuedAt))).toMatchObject({ state: "trusted", key: otherLeafKey });
+  });
+}
+
+test("accepts any matching pin, honors exclusions and keeps unmodified bare-key lookup", (context) => {
+  const spare = "spare.fixture.invalid";
+  const now = time(issuedAt);
+  const store = withKnownHosts(context, knownHostLine("@cert-authority *.fixture.invalid"), knownHostLine(`*.fixture.invalid,!${spare}`, otherLeafKey), knownHostLine(hashedScope(host), leafKey));
+  expect(store.check(host, 22, OPENSSH_ED25519_CERT, issue(), now)).toMatchObject({ state: "trusted", key: leafKey });
+  expect(store.check(spare, 22, OPENSSH_ED25519_CERT, issue({ principals: sshString(spare) }), now)).toMatchObject({ state: "trusted", key: leafKey });
+  const bare = withKnownHosts(context, knownHostLine(hashedScope(host), otherLeafKey), knownHostLine("*.fixture.invalid", otherLeafKey));
+  expect(bare.check(host, 22, algorithm, leafKey, now)).toEqual({ state: "unknown" });
+  expect(bare.list()).toEqual([{ host: "*.fixture.invalid", port: 22, keyType: algorithm, fingerprint: fingerprintSha256(otherLeafKey) }]);
+});
+
+test("CA approvals preserve the chosen literal DNS/IP address and actual port", async (context) => {
+  const store = withKnownHosts(context);
+  const key = `${algorithm} ${authorityKey.toString("base64")}`;
+  const approved = await store.addAuthority(host.toUpperCase(), 2222, key, null, context.signal);
+  const cases = [
+    [`[${host}]:2222`, 22],
+    [`${host}:2222`, 22],
+    ["[2001:db8::20]", 2222],
+    ["2001:db8::not-ip", 2222],
+    ["almost..fixture.invalid", 22],
+    ["a".repeat(64) + ".fixture.invalid", 22],
+    ["*.fixture.invalid", 22],
+    [host, 0],
+    [host, 65536],
+  ] as const;
+  for (const [name, port] of cases) {
+    await expect(store.addAuthority(name, port, key, approved.revision, context.signal)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(store.authorities()).toEqual(approved);
+  }
+  expect(approved.authorities.map(({ scope }) => scope)).toEqual([`[${host}]:2222`]);
+  expect(store.certificateRequired(host, 2222)).toBe(true);
+  expect(store.certificateRequired(host, 22)).toBe(false);
+  expect(() => store.certificateRequired(`[${host}]:2222`, 22)).toThrow(expect.objectContaining({ code: "SSH_HOST_KEY_MISMATCH" }));
+
+  for (const [name, port, expectedScope] of [
+    ["192.0.2.10", 22, "192.0.2.10"],
+    ["2001:DB8::20", 22, "2001:db8::20"],
+    ["2001:DB8::20", 2222, "[2001:db8::20]:2222"],
+    ["dns.fixture.invalid.", 65535, "[dns.fixture.invalid.]:65535"],
+  ] as const) {
+    const literal = withKnownHosts(context);
+    const saved = await literal.addAuthority(name, port, key, null, context.signal);
+    expect(saved.authorities.map(({ scope }) => scope)).toEqual([expectedScope]);
+    expect(literal.certificateRequired(name, port)).toBe(true);
+    expect(literal.certificateRequired(name, port === 22 ? 2222 : 22)).toBe(false);
+  }
+});
 
 test("parses a canonical bare Ed25519 authority line with an optional comment", () => {
   const encoded = authorityKey.toString("base64");
@@ -202,6 +305,13 @@ test("checks revocation by full certificate, canonical leaf key or CA before oth
     expect(verifyHostCertificate(certificate, "wrong.fixture.invalid", time(expiresAt), [], [revoked])).toEqual({ ok: false, reason: "revoked" });
   }
   expect(verifyHostCertificate(issue(), host, time(issuedAt), [authorityKey], [otherAuthorityKey])).toMatchObject({ ok: true });
+});
+
+test("recognizes a CA by its revoked certificate leaf and requires complete revocation wire fields", () => {
+  const revokedAuthority = issue({ subject: rawEd25519(authority.publicKey), ca: otherAuthorityKey, signer: otherAuthority.privateKey });
+  expect(verifyHostCertificate(issue(), host, time(issuedAt), [authorityKey], [revokedAuthority])).toEqual({ ok: false, reason: "revoked" });
+  const truncated = issue({ serial: 1n }).subarray(0, -1);
+  expect(verifyHostCertificate(issue(), host, time(issuedAt), [authorityKey], [truncated])).toMatchObject({ ok: true });
 });
 
 test("shared wire reader preserves user certificate pairing and error categories", (context) => {
