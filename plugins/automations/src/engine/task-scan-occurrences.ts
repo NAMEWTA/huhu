@@ -137,7 +137,7 @@ export class TaskScanOccurrences {
         if (existing) return checkReceipt(existing);
         const rule = this.intentRule(input, kind);
         const now = this.now();
-        const row = isTaskScanRule(rule) ? this.freeze(id, rule, null, now, owner) : this.freezeTemplate(id, rule, null, now, owner);
+        const row = isTaskScanRule(rule) ? await this.freeze(id, rule, null, now, owner, signal) : this.freezeTemplate(id, rule, null, now, owner);
         await this.persist(row, null, () => {
           signal.throwIfAborted();
           authorize();
@@ -284,15 +284,15 @@ export class TaskScanOccurrences {
     if (!stored && trigger) {
       this.files.assertWritable();
       await this.rules.refreshTaskScanTargets();
-      stored = await this.rules.withRuleConfiguration(() => {
+      stored = await this.rules.withRuleConfiguration(async () => {
         signal.throwIfAborted();
         const rule = this.rules.rule(trigger.ruleId);
         const now = this.now();
         if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
         if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
         if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
-        const occurrence = isTaskScanRule(rule) ? this.freeze(id, rule, trigger.at, now, this.owner) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
-        return this.persist(occurrence, null);
+        const occurrence = isTaskScanRule(rule) ? await this.freeze(id, rule, trigger.at, now, this.owner, signal) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);
+        return this.persist(occurrence, null, () => signal.throwIfAborted());
       });
       if (!stored) return null;
       this.onChanged?.(this.activation(stored.occurrence));
@@ -321,9 +321,9 @@ export class TaskScanOccurrences {
     return completed;
   }
 
-  private freeze(id: string, rule: TaskScanRule, at: string | null, now: Date, owner: string): Occurrence {
+  private async freeze(id: string, rule: TaskScanRule, at: string | null, now: Date, owner: string, signal: AbortSignal): Promise<Occurrence> {
     if (rule.body.length > TASK_SCAN_INSTRUCTIONS_LIMIT) throw errors.invalidInput("扫描补充指令不能超过 20000 字符");
-    const { tasksDisabled, candidates, skipped } = this.rules.classifyTaskScan(rule, now);
+    const { tasksDisabled, candidates, skipped } = await this.rules.classifyTaskScan(rule, now, signal);
     const identity = (task: (typeof candidates)[number]["task"]) => ({
       taskId: task.id,
       title: task.title,

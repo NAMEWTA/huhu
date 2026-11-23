@@ -10,7 +10,7 @@
 - 同一物理存储重开沿用原凭据。已发送但任务 Markdown 尚未联动时，只在原 Vault 补写同一 run 的状态和系统评论。待核实记录仍按原快照对账，保留现有的确认后重发约束。
 - ZIP 恢复保全任务、快照、收据与 run 投影。不同 ID 的历史取消请求返回 `INVALID_INPUT/foreign_vault`。同 ID 但存储凭据不可验证，以及旧版无所有者字段的收据，返回 `INVALID_INPUT/unverified_owner`。这些历史仍可查询，相同载荷重交返回原收据，异载荷仍为 `IDEMPOTENCY_MISMATCH`。活动的历史继续占用原任务，新 dispatchId 返回 `INVALID_INPUT/task_occupied`。终态取消沿用幂等返回。历史占用保留，后续显式绑定／处置由 T7.1 切换处理。
 - 截断或完整性失效的记录直接查询和重交返回 `WRITE_PARTIAL`。恢复扫描逐条处理损坏，其他已受理记录仍可独立推进。新受理、占用和全量汇总仍沿用严格扫描，无法确认损坏记录的关联任务时保守返回错误。
-- 范围为 Tasks Engine 和 HTTP 回归，共四个文件。CLI 与 MCP 继续按现有网关授权，三个派遣入口仍只供桌面与相应的内部调用流程。 [独立复核](../t54/report03.md) · [T1.1](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [T1.2](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.2-accept.md) · [T7.1](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
+- 范围为 Tasks Engine 和 HTTP 回归，共四个文件。CLI 与 MCP 继续按现有网关授权，三个派遣入口仍只供桌面与相应的内部调用流程。 [独立复核](../t54/report03.md) · [T1.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [T1.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.2-accept.md) · [T7.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
 
 ## 运行证据
 

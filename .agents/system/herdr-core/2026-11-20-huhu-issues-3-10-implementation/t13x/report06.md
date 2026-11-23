@@ -12,7 +12,7 @@
 | 第二阶段 ACK 丢失 | 将 helper 副本移出待交目录后，Agent 仍可从自己的持久原件投递。接收器已保存并回读 1 份原回执与可重建的消费记录，首次 `tasks_consumed` 被丢弃，Agent 的消费确认文件仍为 0。重开后逐字核对重投原件，错误摘要保持待交，只有匹配 ACK 才写出消费确认。 |
 | 重交与原轮 | 同一个问题回执一共投递 3 次，结果回执来自同一原执行。最终消费 2 份唯一回执，继续重开后没有新增投递。合成 App Server 记录 1 次原生输入、0 次问题回答。 |
 
-本段验证真实 Engine 和固定 Core，原生 App Server 与下游 Tasks 接收器为已有合成夹具。实际业务消费端与真实 provider 能力属于各自验收范围。 [W6.3 规格](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.3-durable-receipt.md) · [实施报告](../t135/report03.md)
+本段验证真实 Engine 和固定 Core，原生 App Server 与下游 Tasks 接收器为已有合成夹具。实际业务消费端与真实 provider 能力属于各自验收范围。 [W6.3 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.3-durable-receipt.md) · [实施报告](../t135/report03.md)
 
 归档、Vault 与私有凭据目录均在一次性 Windows 系统临时目录内。归档锁与已安装依赖匹配，102 个工作区链接指向归档，297 个第三方链接指向现有包。夹具确认隔离 Core 停止，剩余夹具根计数 0。验证窗格 `t153` 和归档已清理。此小节在启动 P4.1 验证前写入。
 

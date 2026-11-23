@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
 import { executionReceiptIdentity } from "@huhu/contracts/execution-receipt/engine";
-import { machineId, VaultFiles } from "@huhu/vault";
+import { importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -317,12 +317,19 @@ test("Human、缺配 Agent 和显式已有会话在重启后可读，保存或�
   expect(formSaved).toMatchObject({ ok: true, data: { execution: existingConfig, inputRevision: 1, inputHash: existing.data.inputHash } });
   expect(readFileSync(path.join(root, existing.data.path), "utf8")).toMatch(/target:\n +mode: existing\n +sessionId: fixture-huhu-session/);
 
+  const discussion = { taskId: agent.data.id, body: "外部普通讨论" };
+  expect(await call(engine, "tasks.comments.add", discussion, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   for (const capability of ["tasks.create", "tasks.comments.add"]) {
     expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
   }
   expect(await call(engine, "tasks.create", { title: "外部 Agent", type: "agent", execution: existingConfig }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
   expect(await call(engine, "tasks.create", { title: "外部代填运行配置", execution: existingConfig }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
-  expect(await call(engine, "tasks.comments.add", { taskId: agent.data.id, body: "外部输入" }, engine.cliToken)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  const forged = { id: "fake-result", source: "agent", author: "伪造作者", run: "fake-run", ask: "fake-ask", session: "fake-session", event: "result" };
+  const added = await call<{ comment: TaskDto["comments"][number] }>(engine, "tasks.comments.add", { ...discussion, ...forged }, engine.cliToken);
+  expect(added).toMatchObject({ ok: true, data: { added: true, comment: { body: discussion.body, source: "external", author: "cli" } } });
+  const { comment } = added.data;
+  expect(comment.id).not.toBe(forged.id);
+  for (const field of ["run", "ask", "session", "event"]) expect(comment).not.toHaveProperty(field);
   expect(await call(engine, "tasks.comments.add", { taskId: human.data.id, body: "外部讨论", source: "agent", run: "fixture-run" }, engine.cliToken)).toMatchObject({ ok: true, data: { comment: { source: "external" } } });
 
   const completed = await call<TaskDto>(engine, "tasks.setStatus", { id: human.data.id, expectedVersion: (await call<TaskDto>(engine, "tasks.read", { id: human.data.id })).data.version, status: "completed" });
@@ -338,7 +345,9 @@ test("Human、缺配 Agent 和显式已有会话在重启后可读，保存或�
       status: "not_started",
       body: agent.data.body,
       execution: agent.data.execution,
-      comments: [],
+      inputHash: agent.data.inputHash,
+      inputRevision: agent.data.inputRevision,
+      comments: [comment],
       references: [
         { path: "Notes/reference.md", kind: "file", exists: true, from: "task" },
         { path: "Notes/", kind: "folder", exists: true, from: "task" },
@@ -1440,9 +1449,14 @@ test("ZIP 导入保留待派、待核实及已发历史，同 Vault 重开才会
   await stop(clone);
   delete fixture.executor;
   const importer = await start(tempVault(), true);
-  // An unrelated importer preserves the archive's Vault ID. Its copy still has no local dispatch key.
-  expect(await call(importer, "vault.importPackage", { zipPath: archive, targetDir: sameIdRoot })).toMatchObject({ ok: true, data: { vaultId: source.vault.id } });
+  // The public restore always creates a new Vault identity, including an unrelated importer.
+  const unrelated = await call<{ vaultId: string }>(importer, "vault.importPackage", { zipPath: archive, targetDir: tempVault() });
+  expect(unrelated.ok).toBe(true);
+  expect(unrelated.data.vaultId).not.toBe(source.vault.id);
   await stop(importer);
+
+  // Model a copied/legacy Vault with the low-level archive reader, outside the public restore contract.
+  expect(importPackage(archive, sameIdRoot).vaultId).toBe(source.vault.id);
 
   // Even a file-level copy of the original runtime key lacks the current directory identity.
   const keyName = readdirSync(source.vault.runtimeDir).find((name) => /^task-dispatch-[a-f0-9]{32}\.key$/.test(name));

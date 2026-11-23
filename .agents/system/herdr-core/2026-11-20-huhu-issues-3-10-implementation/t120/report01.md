@@ -7,11 +7,11 @@
 
 ## 本地合入建议
 
-**建议将候选作为 T1.2 后端增量本地合入。** 此前发现的两项失效均有对应的复测证据。损坏 run 身份会被拒绝，保留或更换 Vault ID 的 ZIP 副本均将旧派遣作为历史保存，旧事件调用和任务联动次数均为零。生产 provider 输入接收与 ACK、T7.1 显式历史处置及旧 Automations 执行所有权切换仍需组合验收。 [t54 原复核](../t54/report03.md) · [t110 实现报告](../t110/report01.md) · [T1.2](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.2-accept.md) · [T7.1](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
+**建议将候选作为 T1.2 后端增量本地合入。** 此前发现的两项失效均有对应的复测证据。损坏 run 身份会被拒绝，保留或更换 Vault ID 的 ZIP 副本均将旧派遣作为历史保存，旧事件调用和任务联动次数均为零。生产 provider 输入接收与 ACK、T7.1 显式历史处置及旧 Automations 执行所有权切换仍需组合验收。 [t54 原复核](../t54/report03.md) · [t110 实现报告](../t110/report01.md) · [T1.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.2-accept.md) · [T7.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
 
 ## 规格轴
 
-冻结候选的 Engine HTTP 原生回归 **19 项通过**。使用桌面调用验证人工和规则竞争、同键超过 24 小时重交、原始快照和轮次、中断后对账、Windows 只读选项、CLI/MCP 拒绝及旧版历史占用。#5 来源使用项目现存的 Issue 快照。 [冻结回归](../../../../../temp/issue-baseline/t120-task-recovery/regression.log) · [Issue #5 快照](../../../../dev/changes/2026-11-19-issue-5-task-automation/source.md)
+冻结候选的 Engine HTTP 原生回归 **19 项通过**。使用桌面调用验证人工和规则竞争、同键超过 24 小时重交、原始快照和轮次、中断后对账、Windows 只读选项、CLI/MCP 拒绝及旧版历史占用。#5 来源使用项目现存的 Issue 快照。 [冻结回归](../../../../../temp/issue-baseline/t120-task-recovery/regression.log) · [Issue #5 快照](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/source.md)
 
 | 场景 | 观察 |
 | --- | --- |
@@ -29,7 +29,7 @@
 - **写者锁和条件写。** 复用 Vault 的 `proper-lockfile` 写者锁、PID 归属及只读模式。冻结版本的 `VaultFiles` 在同一目的路径内把版本检查和原子替换排在一条队列内。并发首次建密钥使用 `expectedVersion: null`，竞争者遇到 `NAME_CONFLICT` 会重读已落盘的密钥。派遣记录仍按 taskId/dispatchId 串行或做字节版本条件写。 [Vault 写锁](../../../../../temp/issue-baseline/t120-task-recovery/tree/packages/vault/src/vault.ts#L196) · [条件写](../../../../../temp/issue-baseline/t120-task-recovery/tree/packages/vault/src/write.ts#L52) · [密钥创建](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch-store.ts#L192)
 - **完整性与可重试。** schema 2 校验 event/task/run/attempt、输入、快照和 claim 一致性，使用 `vaultId`、`storageId` 对应的本机密钥校验规范化记录的 HMAC-SHA-256。密钥文件名取自实际 `.huhu` 存储目录的 `dev/ino/birthtimeNs`。领取、发送、对账及 Markdown 联动各自核对当前记录。发送中断或结果不明时以同一个 event/run/attempt/hash 对账，明确 `not_sent` 才回到可发送状态，`unknown` 持有任务占用。HMAC 校验当前记录内容及归属，整盘回滚需另外验收时序保证。 [归属与校验](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch-store.ts#L100) · [发送与对账](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch.ts#L211) · [ZIP 排除规则](../../../../../temp/issue-baseline/t120-task-recovery/tree/packages/vault/src/package/package.ts#L24)
 - **生产诊断。** 单条记录格式或签名故障在查询和严格扫描中返回 `WRITE_PARTIAL`。自动恢复扫描把这类故障交给可选的 `onError` 并继续下一个记录。生产 Engine 目前只传通知和时区，启动时跳过的故障还缺少可见诊断。组合验收时应核对用户能否定位待处置的记录。 [恢复扫描](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch.ts#L161) · [生产装配](../../../../../temp/issue-baseline/t120-task-recovery/tree/apps/engine/src/boot.ts#L154)
-- **ACK 和历史处置。** 生产 Engine 尚未装配 `dispatchExecutor`。日志中的 `accepted` 是夹具结果，生产接收确认与 Tasks 持久消费 ACK 需分别按 W6.0/T3.3 验证。无归属、跨 Vault 和旧版活跃记录保留占用。当前只提供查询、同键幂等重交和有归属的取消，历史的显式绑定或解除由后续切换决定。桌面原型体验、生产 ACK、真实规则切换、整盘回滚和非 NTFS 存储超出本轮证据。 [执行合同](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch.ts#L29) · [W6.0](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md) · [T3.3](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T3.3-deliver.md)
+- **ACK 和历史处置。** 生产 Engine 尚未装配 `dispatchExecutor`。日志中的 `accepted` 是夹具结果，生产接收确认与 Tasks 持久消费 ACK 需分别按 W6.0/T3.3 验证。无归属、跨 Vault 和旧版活跃记录保留占用。当前只提供查询、同键幂等重交和有归属的取消，历史的显式绑定或解除由后续切换决定。桌面原型体验、生产 ACK、真实规则切换、整盘回滚和非 NTFS 存储超出本轮证据。 [执行合同](../../../../../temp/issue-baseline/t120-task-recovery/tree/plugins/tasks/src/engine/dispatch.ts#L29) · [W6.0](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md) · [T3.3](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T3.3-deliver.md)
 
 ## 命令与日志
 

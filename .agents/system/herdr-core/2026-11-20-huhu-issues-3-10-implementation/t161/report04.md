@@ -15,7 +15,7 @@
 
 - 直接父提交为 `5ab72a2ba812130cbf83a7694232582abf7f762f`。9 个变更文件均在 Mail 插件内，两提交的锁文件 blob 均为 `03c864cafb3cc7a0d3b096f55d12bc98f4cf203b`，`git diff --check` 退出 0。原 Mail 与 Vault 联跑 142 项通过、1 项跳过。原 Mail 类型日志中的共享任务日期 `TS2379` 对应源文件与父提交相同，本次取证聚焦运行夹具。 [静态证据](evidence-task04/static.log) · [原联合测试](../t162/evidence-task02/mail-vault-tests.log) · [原类型日志](../t162/evidence-task02/mail-types.log)
 - `plugins/mail/src/engine/outbox.ts:72` 使用既有草稿串行队列检查和冻结原修订。按 Vault 目录内的 draftId／revision 决定 operationId，条件创建持久记录时写入 Message-ID、发送设置、内容、收件人和附件引用。落盘后才经 `ModuleCredentials.use` 取已绑定凭据、复核 SMTP 设置并调用传输。同版本再次提交从磁盘返回原操作，数据包恢复时即使重新生成 Vault ID，也能查回同一操作。附件回收同时计入出箱与草稿持久引用。
-- `smtp.ts:60` 把 Bcc 放在 SMTP 信封。记录按明确的 DATA 2xx、明确拒绝和连接中断区分结果。无持久回执的认领仍留在磁盘，活跃投递结束或 Engine 重开后显示 `unknown` 与 `result-not-recorded`。未知操作的人工对账和逐收件人补投留在 S1b.4。 [S1b.3 规格](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.3-submit-draft.md)
+- `smtp.ts:60` 把 Bcc 放在 SMTP 信封。记录按明确的 DATA 2xx、明确拒绝和连接中断区分结果。无持久回执的认领仍留在磁盘，活跃投递结束或 Engine 重开后显示 `unknown` 与 `result-not-recorded`。未知操作的人工对账和逐收件人补投留在 S1b.4。 [S1b.3 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1b.3-submit-draft.md)
 
 ## Windows 独立复跑
 

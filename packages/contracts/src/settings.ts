@@ -5,6 +5,12 @@ export const THEME_IDS = ["claude", "apple", "notion", "vercel"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export const DEFAULT_THEME: ThemeId = "claude";
 
+export const MAIL_PANE_WIDTHS = {
+  accountWidth: { min: 220, max: 440, default: 260 },
+  contactWidth: { min: 160, max: 360, default: 208 },
+} as const;
+const mailDefaults = { accountWidth: MAIL_PANE_WIDTHS.accountWidth.default, contactWidth: MAIL_PANE_WIDTHS.contactWidth.default };
+
 /** `.huhu/settings.json`（data-model.md §6）。读取时缺省补全，非法值回退默认。 */
 export const SettingsSchema = z.object({
   appearance: z
@@ -47,6 +53,12 @@ export const SettingsSchema = z.object({
     .catch({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, weekStartsOn: 1 }),
   shortcuts: z.record(z.string(), z.string()).catch({}),
   storage: z.object({ promptBackupBeforeClose: z.boolean().catch(false) }).catch({ promptBackupBeforeClose: false }),
+  mail: z
+    .object({
+      accountWidth: z.int().min(MAIL_PANE_WIDTHS.accountWidth.min).max(MAIL_PANE_WIDTHS.accountWidth.max).catch(mailDefaults.accountWidth),
+      contactWidth: z.int().min(MAIL_PANE_WIDTHS.contactWidth.min).max(MAIL_PANE_WIDTHS.contactWidth.max).catch(mailDefaults.contactWidth),
+    })
+    .catch(mailDefaults),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 

@@ -1,6 +1,7 @@
+import type { Settings } from "@huhu/contracts";
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, host, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { CapabilityError, host, registerExitParticipant, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
 import type { MailFolderSyncStatus } from "../engine/message-cache.js";
@@ -10,25 +11,28 @@ import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import { MailAccountDialog } from "./MailAccountDialog.js";
 import { MailAccountNameDialog } from "./MailAccountNameDialog.js";
 import { MailAccountRemovalDialog, type RemovalTarget } from "./MailAccountRemovalDialog.js";
+import { MailAccountRow, type MailAccountAction, type MailAccountStatus } from "./MailAccountRow.js";
 import { MailCacheSettings } from "./MailCacheSettings.js";
 import { MailAiApprovals } from "./MailAiApprovals.js";
 import { MailAiSettings } from "./MailAiSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
 import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
+import { MailPaneSeparator, useMailColumn } from "./MailPaneSeparator.js";
 import { MailSearch } from "./MailSearch.js";
-import { MailSyncSettings } from "./MailSyncSettings.js";
+import { MailSyncSettings, type SyncState } from "./MailSyncSettings.js";
 import { MailSubsetSettings } from "./MailSubsetSettings.js";
 import { onMailNotificationRequest } from "./mail-notification-command.js";
 import { onMailSearchRequest } from "./mail-search-command.js";
-import type { DeliverySummary, Draft, DraftSummary, MailAccount } from "./mail-types.js";
+import type { DeliverySummary, Draft, DraftSummary, MailAccount, MailAccountRowData } from "./mail-types.js";
+import { useMailPaneWidths } from "./useMailPaneWidths.js";
 
 const tabs = [
   { id: "mail", label: "邮箱" },
   { id: "drafts", label: "草稿" },
   { id: "outbox", label: "发件箱" },
 ] as const;
-const emptyAccounts: MailAccount[] = [];
+const emptyAccounts: MailAccountRowData[] = [];
 const isMailboxQuery = (name: unknown) => name === "mail.messages.latest" || name === "mail.sync.status" || String(name).startsWith("mail.conversations.");
 const refreshErrors: Record<string, string> = {
   "oauth-reauthorize": "服务已拒绝当前授权，请重新授权。",
@@ -58,6 +62,18 @@ function syncLabel(sync: MailFolderSyncStatus | null | undefined, exchange: bool
   return `${exchange ? "Exchange IMAP" : "IMAP"} · 所选目录 · 最近最多 ${sync.limit} 封${fallback}`;
 }
 const accountTitle = ({ definition: { settings } }: MailAccount) => settings.label || settings.email;
+const canRefreshAccount = (account: MailAccount) => account.authState["account-password"] === "configured" && account.definition.folders.length > 0;
+const refreshErrorMessage = (err: unknown) => (err instanceof CapabilityError ? (refreshErrors[String(err.details?.reason)] ?? err.message) : "无法刷新此目录。");
+
+function accountStatus(row: MailAccountRowData, busy: boolean, failure: string | undefined, scheduled: SyncState["accounts"][number] | undefined, summaryError: boolean): MailAccountStatus {
+  if (busy) return { text: "同步中…" };
+  if (row.authState["account-password"] !== "configured") return { text: row.definition.oauth ? "需要检查授权" : "凭据待检查", warning: true };
+  if (failure) return { text: failure, warning: true };
+  if (scheduled?.phase === "retrying") return { text: "同步异常，等待重试", warning: true };
+  if (summaryError || row.mailbox === null) return { text: "无法读取同步状态", warning: true };
+  return { text: row.mailbox?.synced ? "已同步" : "等待首次同步" };
+}
+
 type AccountDialog = { kind: "add" } | { kind: "repair" | "rename"; account: MailAccount } | { kind: "remove"; target: RemovalTarget };
 type ConversationSelection = { id: string; offset: number };
 type MailTimeWindow = ReturnType<typeof mailDayWindow>;
@@ -86,10 +102,11 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const engine = useEngine();
   const query = useQueryClient();
   const access = useCapability<{ readOnly: boolean }>("vault.info");
-  const accounts = useCapability<{ available: boolean; accounts: MailAccount[]; pendingRemovals?: RemovalTarget[] }>("mail.accounts.list");
+  const accounts = useCapability<{ available: boolean; accounts: MailAccountRowData[]; pendingRemovals?: RemovalTarget[] }>("mail.accounts.list", { includeMailboxSummary: true });
+  const syncSettings = useCapability<SyncState>("mail.sync.settings");
   const drafts = useCapability<{ drafts: DraftSummary[] }>("mail.drafts.list");
   const deliveries = useCapability<{ operations: DeliverySummary[] }>("mail.outbox.list");
-  const settings = useCapability<{ dateTime: { zone: string } }>("settings.get");
+  const settings = useCapability<Settings>("settings.get");
   const zone = settings.data?.dateTime.zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const [clock, setClock] = useState(() => new Date());
   const [period, setPeriod] = useState<MailPeriod>("today");
@@ -103,6 +120,11 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [operationId, setOperationId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<AccountDialog | null>(null);
   const [accountView, setAccountView] = useState<"accounts" | "mailbox">("accounts");
+  const { accountWidth, contactWidth, resize: resizePane, failed: paneSaveFailed, retry: retryPaneSaves, drain: drainPaneSaves } = useMailPaneWidths(settings.data, access);
+  const accountColumn = useMailColumn("accountWidth", accountWidth);
+  const accountPaneId = useId();
+  const rowRequests = useRef(new Map<string, AbortController>());
+  const [rowSync, setRowSync] = useState<ReadonlyMap<string, { busy: boolean; failure?: string; failedAt?: number }>>(() => new Map());
   const [collapsed, setCollapsed] = useState<Set<MailProvider>>(() => new Set());
   const [composer, setComposer] = useState<{ draft: Draft | null; seed?: DraftContent } | null>(null);
   const [readingMessage, setReadingMessage] = useState<string | null>(null);
@@ -111,6 +133,32 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const composerSender = useRef<string | null>(null);
   const feedbackScope = `mail-${engine.vaultId}`;
   const feedback = useWorkbenchFeedback(feedbackScope);
+  // The workbench stores one navigation guard per module, so Mail checks both kinds of saves here.
+  const composerGuard = useRef<ExitParticipant | null>(null);
+  const registerComposerGuard = useCallback((guard: ExitParticipant) => {
+    composerGuard.current = guard;
+    return () => {
+      if (composerGuard.current === guard) composerGuard.current = null;
+    };
+  }, []);
+  const checkLeave = useCallback<ExitParticipant>(
+    async (request) => {
+      if ((await composerGuard.current?.(request)) === false) return false;
+      return drainPaneSaves();
+    },
+    [drainPaneSaves],
+  );
+  useLayoutEffect(() => registerLeaveGuard?.(checkLeave), [registerLeaveGuard, checkLeave]);
+  useLayoutEffect(() => {
+    const offExit = registerExitParticipant(checkLeave);
+    const offFlush = registerFlusher(async () => {
+      if (!(await drainPaneSaves())) throw new Error("无法保存邮件分栏宽度。");
+    });
+    return () => {
+      offFlush();
+      offExit();
+    };
+  }, [checkLeave, drainPaneSaves]);
   const [error, setError] = useState("");
   const composeTrigger = useRef<HTMLElement | null>(null);
   const accountActionTrigger = useRef<HTMLButtonElement | null>(null);
@@ -126,7 +174,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const conversationScope = account?.accountId ?? "";
   const selectionKey = JSON.stringify([conversationScope, time]);
   const location = navigation.location?.message.accountId === accountId && period === "all" ? navigation.location : null;
-  const groups = new Map<MailProvider, MailAccount[]>();
+  const groups = new Map<MailProvider, MailAccountRowData[]>();
   for (const row of rows) {
     const { provider } = row.definition.settings;
     const members = groups.get(provider);
@@ -138,10 +186,23 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const activeOperationId = operationId ?? operation?.operationId;
   const readOnly = access.data?.readOnly !== false;
   const desktop = !!engine.endpoint.token;
+  const scheduledSync = new Map(syncSettings.data?.accounts.map((state) => [state.accountId, state]));
+  const isSyncing = (id: string) => rowSync.get(id)?.busy || scheduledSync.get(id)?.phase === "refreshing";
+  const canRefreshAll = !readOnly && rows.some((row) => canRefreshAccount(row) && !isSyncing(row.accountId));
 
   const refetchAccounts = accounts.refetch;
   useEngineEvents((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;
+    if (event.payload.kind === "mail-sync") {
+      const { id } = event.payload;
+      void syncSettings.refetch().then(({ data }) => {
+        if (id !== "schedule" || !data) return;
+        setRowSync((current) => {
+          const recovered = data.accounts.filter(({ accountId, phase, at }) => phase === "ready" && Date.parse(at) > (current.get(accountId)?.failedAt ?? Infinity));
+          return recovered.length ? new Map([...current].filter(([accountId]) => !recovered.some((entry) => entry.accountId === accountId))) : current;
+        });
+      });
+    }
     if (event.payload.kind === "mail-account") {
       noticeNavigation.current?.abort();
       setAccountEpoch((epoch) => epoch + 1);
@@ -159,11 +220,21 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       const predicate = (entry: { queryKey: readonly unknown[] }) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]);
       void query.cancelQueries({ predicate });
       void query.resetQueries({ predicate });
+      void refetchAccounts();
     }
     if (event.payload.kind === "mail-message" || event.payload.kind === "mail-mailbox") {
       void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]) });
+      void refetchAccounts();
     }
   });
+  useEffect(() => {
+    const requests = rowRequests.current;
+    setRowSync(new Map());
+    return () => {
+      for (const request of requests.values()) request.abort();
+      requests.clear();
+    };
+  }, [engine]);
   useEffect(() => {
     if (!readingMessage && !searchOpen) return;
     const timer = setInterval(() => void refetchAccounts(), 1500);
@@ -196,6 +267,47 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   function closeAccountDialog() {
     if (dialog?.kind !== "add") void accounts.refetch();
     setDialog(null);
+  }
+
+  function manageAccount(row: MailAccount, kind: MailAccountAction, trigger: HTMLButtonElement) {
+    accountActionTrigger.current = trigger;
+    if (kind === "remove") setDialog({ kind, target: { accountId: row.accountId, expectedRevision: row.revision, label: accountTitle(row) } });
+    else setDialog({ kind, account: row });
+  }
+
+  const setSync = useCallback((id: string, state: { busy: boolean; failure?: string }) => {
+    setRowSync((current) => {
+      const next = new Map(current);
+      if (state.busy || state.failure) next.set(id, { ...state, ...(state.failure && { failedAt: Date.now() }) });
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  async function refreshAccount(row: MailAccount) {
+    const { accountId: id } = row;
+    if (readOnly || !canRefreshAccount(row) || isSyncing(id) || rowRequests.current.has(id)) return;
+    const controller = new AbortController();
+    rowRequests.current.set(id, controller);
+    setSync(id, { busy: true });
+    let failure: string | undefined;
+    try {
+      for (const { path: folder } of row.definition.folders) {
+        if (controller.signal.aborted) return;
+        try {
+          await engine.call("mail.sync.refresh", { accountId: id, folder }, { write: true, signal: controller.signal });
+        } catch (err) {
+          failure ??= refreshErrorMessage(err);
+        }
+      }
+    } finally {
+      if (rowRequests.current.get(id) === controller) rowRequests.current.delete(id);
+      if (!controller.signal.aborted) {
+        setSync(id, { busy: false, ...(failure && { failure }) });
+        void query.invalidateQueries({ predicate: (entry) => entry.queryKey[0] === engine.vaultId && isMailboxQuery(entry.queryKey[1]) });
+        void refetchAccounts();
+      }
+    }
   }
 
   useLayoutEffect(() => {
@@ -314,6 +426,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   return (
     <div
       className="hu-mail-workspace"
+      style={{ "--mail-account-width": `${accountColumn.width}px` } as CSSProperties}
       onKeyDown={(event) => {
         if (searchOpen && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") event.preventDefault();
       }}
@@ -342,7 +455,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </>
         }
       />
-      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
+      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} settings={syncSettings} />
       <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
       <MailCacheSettings readOnly={readOnly} />
       <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
@@ -378,6 +491,11 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       />
       <WorkbenchToaster scope={feedbackScope} />
       {error && <Banner tone="danger">{error}</Banner>}
+      {paneSaveFailed && (
+        <Banner tone="danger" action={<Button onClick={retryPaneSaves}>重试保存分栏</Button>}>
+          无法保存邮件分栏宽度。
+        </Banner>
+      )}
       {currentQuery.isError && (
         <Banner tone="danger" action={<Button onClick={() => void currentQuery.refetch()}>重试</Button>}>
           无法读取邮件工作区。
@@ -390,12 +508,15 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       )}
       {currentQuery.isPending && <p>正在读取邮件工作区…</p>}
       {tab === "mail" && !currentQuery.isPending && (
-        <div className="hu-mail-columns hu-mail-account-columns" data-account-view={rows.length ? accountView : "accounts"}>
-          <aside ref={accountList} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
-            <Button
-              data-mail-all-accounts=""
-              aria-pressed={!account}
-              onClick={() => {
+        <div ref={accountColumn.attachGrid} className="hu-mail-columns hu-mail-account-columns" data-account-view={rows.length ? accountView : "accounts"}>
+          <aside ref={accountList} id={accountPaneId} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
+            <MailAccountRow
+              title="全部账号"
+              selected={!account}
+              unread={accounts.data && rows.every((row) => row.mailbox) ? rows.reduce((count, row) => count + (row.mailbox?.unread ?? 0), 0) : undefined}
+              busy={rows.some((row) => !!isSyncing(row.accountId))}
+              {...(canRefreshAll && { onRefresh: () => rows.forEach((row) => void refreshAccount(row)) })}
+              onSelect={() => {
                 setAccountId(null);
                 clearLocation();
                 if (rows.length) {
@@ -405,9 +526,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                   });
                 }
               }}
-            >
-              全部账号
-            </Button>
+            />
             {[...groups].map(([provider, members]) => (
               <div key={provider} className="hu-mail-provider">
                 <Button
@@ -419,18 +538,22 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 </Button>
                 <div className="hu-mail-provider-accounts" hidden={collapsed.has(provider)}>
                   {members.map((row) => (
-                    <Button
+                    <MailAccountRow
                       key={row.accountId}
-                      data-mail-account={row.accountId}
-                      aria-pressed={row.accountId === account?.accountId}
-                      onClick={() => {
+                      accountId={row.accountId}
+                      title={accountTitle(row)}
+                      selected={row.accountId === account?.accountId}
+                      unread={row.mailbox?.unread}
+                      busy={!!isSyncing(row.accountId)}
+                      oauth={!!row.definition.oauth}
+                      status={accountStatus(row, !!isSyncing(row.accountId), rowSync.get(row.accountId)?.failure, scheduledSync.get(row.accountId), accounts.isError)}
+                      {...(!readOnly && canRefreshAccount(row) && { onRefresh: () => void refreshAccount(row) })}
+                      {...(accountSetupAvailable && { onManage: (kind: MailAccountAction, trigger: HTMLButtonElement) => manageAccount(row, kind, trigger) })}
+                      onSelect={() => {
                         if (row.accountId !== accountId) clearLocation();
                         chooseAccount(row);
                       }}
-                    >
-                      {accountTitle(row)}
-                      {row.authState["account-password"] !== "configured" && <span className="hu-mail-help"> · 凭据待检查</span>}
-                    </Button>
+                    />
                   ))}
                 </div>
               </div>
@@ -448,6 +571,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 </Button>
               ))}
           </aside>
+          <MailPaneSeparator label="调整账号栏宽度" controls={accountPaneId} column={accountColumn} onResize={(width) => resizePane("accountWidth", width)} />
           {rows.length ? (
             <Mailbox
               key={`${selectionKey}:${navigation.revision}`}
@@ -464,6 +588,10 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 requestAnimationFrame(() => periodControl.current?.focus());
               }}
               readOnly={readOnly}
+              contactWidth={contactWidth}
+              onContactWidth={(width) => resizePane("contactWidth", width)}
+              externalSyncing={account ? !!isSyncing(account.accountId) : false}
+              onFolderSync={setSync}
               onCompose={composeFromMessage}
               onReading={setReadingMessage}
               remembered={rememberedConversations.current.get(selectionKey)}
@@ -472,11 +600,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               onBack={returnToAccounts}
               {...(account &&
                 accountSetupAvailable && {
-                  onAccountAction: (kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement) => {
-                    accountActionTrigger.current = trigger;
-                    if (kind === "remove") setDialog({ kind, target: { accountId: account.accountId, expectedRevision: account.revision, label: accountTitle(account) } });
-                    else setDialog({ kind, account });
-                  },
+                  onAccountAction: (kind: MailAccountAction, trigger: HTMLButtonElement) => manageAccount(account, kind, trigger),
                 })}
             />
           ) : (
@@ -566,6 +690,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           repair={dialog.account}
           onClose={closeAccountDialog}
           onSaved={() => {
+            setSync(dialog.account.accountId, { busy: false });
             closeAccountDialog();
             changed("邮箱认证已更新。");
           }}
@@ -589,6 +714,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           onClose={closeAccountDialog}
           onProgress={(state) => {
             if (state) {
+              setSync(dialog.target.accountId, { busy: false });
               if (composerSender.current === dialog.target.accountId) {
                 composing.current = false;
                 composerSender.current = null;
@@ -616,7 +742,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           initialAccountId={account?.definition.settings.smtpEnabled ? account.accountId : null}
           readOnly={readOnly}
           previousDelivery={!!composer.draft && !!deliveries.data?.operations.some((record) => record.draftId === composer.draft?.draftId)}
-          {...(registerLeaveGuard && { registerLeaveGuard })}
+          registerLeaveGuard={registerComposerGuard}
           onChanged={changed}
           onSenderChange={(sender) => {
             composerSender.current = sender;
@@ -651,6 +777,10 @@ function Mailbox({
   onConversation,
   onCompose,
   onAccountAction,
+  contactWidth,
+  onContactWidth,
+  externalSyncing,
+  onFolderSync,
 }: {
   account: MailAccount | undefined;
   accounts: MailAccount[];
@@ -667,18 +797,24 @@ function Mailbox({
   remembered?: ConversationSelection | undefined;
   onConversation(selection: ConversationSelection): void;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
-  onAccountAction?(kind: "repair" | "rename" | "remove", trigger: HTMLButtonElement): void;
+  onAccountAction?(kind: MailAccountAction, trigger: HTMLButtonElement): void;
+  contactWidth: number;
+  onContactWidth(width: number): void;
+  externalSyncing: boolean;
+  onFolderSync(accountId: string, state: { busy: boolean; failure?: string }): void;
 }) {
   const engine = useEngine();
   const query = useQueryClient();
   const [selected, setSelected] = useState(location && location.message.source !== "sent" ? location.message.folder : "INBOX");
+  const contactColumn = useMailColumn("contactWidth", contactWidth);
+  const contactPaneId = useId();
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<ConversationMessage | null>(location?.message ?? null);
   const [ordinary, setOrdinary] = useState<MessageSummary | null>(null);
   const [offset, setOffset] = useState(location?.contactOffset ?? remembered?.offset ?? 0);
   const [conversationId, setConversationId] = useState(location?.conversationId ?? remembered?.id ?? "");
-  const request = useRef<AbortController | null>(null);
+  const request = useRef<{ controller: AbortController; accountId: string } | null>(null);
   const messageTrigger = useRef<HTMLButtonElement | null>(null);
   const backMessages = useRef<HTMLButtonElement>(null);
   const contactsHeading = useRef<HTMLHeadingElement>(null);
@@ -718,17 +854,29 @@ function Mailbox({
     setError("");
     setRefreshing(false);
     return () => {
-      request.current?.abort();
+      if (request.current) {
+        request.current.controller.abort();
+        onFolderSync(request.current.accountId, { busy: false });
+      }
       request.current = null;
     };
-  }, [engine, account?.accountId, folder]);
+  }, [engine, account?.accountId, folder, onFolderSync]);
+
+  useEngineEvents((event) => {
+    if (event.type !== "entity.changed" || !("kind" in event.payload) || event.payload.kind !== "mail-mailbox") return;
+    const { id } = event.payload;
+    setOpened((current) => (current && current.accountId === id && current.source !== "sent" ? null : current));
+    setOrdinary((current) => (current?.accountId === id ? null : current));
+  });
 
   async function refresh(sourceFolder = folder, sourceAccount = account?.accountId) {
-    if (request.current || !sourceAccount) return;
+    if (request.current || !sourceAccount || externalSyncing) return;
     const controller = new AbortController();
-    request.current = controller;
+    request.current = { controller, accountId: sourceAccount };
     setRefreshing(true);
+    onFolderSync(sourceAccount, { busy: true });
     setError("");
+    let failure: string | undefined;
     try {
       const result = await engine.call<{ mailboxChanged: boolean }>("mail.sync.refresh", { accountId: sourceAccount, folder: sourceFolder }, { write: true, signal: controller.signal });
       if (controller.signal.aborted) return;
@@ -738,10 +886,16 @@ function Mailbox({
         setOrdinary((current) => (current?.accountId === sourceAccount && current.folder === sourceFolder ? null : current));
       }
     } catch (err) {
-      if (!controller.signal.aborted) setError(err instanceof CapabilityError ? (refreshErrors[String(err.details?.reason)] ?? err.message) : "无法刷新此目录。");
+      if (!controller.signal.aborted) {
+        failure = refreshErrorMessage(err);
+        setError(failure);
+      }
     } finally {
-      if (request.current === controller) request.current = null;
-      if (!controller.signal.aborted) setRefreshing(false);
+      if (request.current?.controller === controller) request.current = null;
+      if (!controller.signal.aborted) {
+        setRefreshing(false);
+        onFolderSync(sourceAccount, { busy: false, ...(failure && { failure }) });
+      }
     }
   }
 
@@ -820,7 +974,7 @@ function Mailbox({
                   ))}
                 </select>
               </label>
-              <Button loading={refreshing} disabled={readOnly || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
+              <Button loading={refreshing} disabled={readOnly || externalSyncing || account.authState["account-password"] !== "configured"} onClick={() => void refresh()}>
                 同步目录
               </Button>
               <FolderLatestButton
@@ -861,8 +1015,8 @@ function Mailbox({
           </Banner>
         )}
       </div>
-      <div className="hu-mail-contact-columns">
-        <aside className="hu-mail-list hu-mail-mailbox-nav" aria-label="联系人对话">
+      <div ref={contactColumn.attachGrid} className="hu-mail-contact-columns" style={{ "--mail-contact-width": `${contactColumn.width}px` } as CSSProperties}>
+        <aside id={contactPaneId} className="hu-mail-list hu-mail-mailbox-nav" aria-label="联系人对话">
           <h3 ref={contactsHeading} tabIndex={-1}>
             联系人
           </h3>
@@ -903,6 +1057,7 @@ function Mailbox({
             </nav>
           )}
         </aside>
+        <MailPaneSeparator label="调整联系人栏宽度" controls={contactPaneId} column={contactColumn} onResize={onContactWidth} />
         {ordinaryMessage ? (
           <MailReader
             key={JSON.stringify([ordinaryMessage.accountId, ordinaryMessage.folder, ordinaryMessage.localMessageId])}

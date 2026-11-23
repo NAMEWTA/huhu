@@ -18,7 +18,7 @@
 
 完成 task15 的原目标：交付一条单独授权、默认关闭、可实证的 SSH Exec 作业链，返回稳定 jobId、明确生命周期、有界 UTF-8 字节输出与 cursor 跳过标记、真正的退出理由，以及按原 job 取消。先完整审阅 `c23a8258` 的 WIP（`git show c23a8258`），保留其中正确的部分，修复或补齐缺陷，不要从头重写。
 
-必读：task15 全文；`.agents/dev/changes/2026-11-19-issue-7-ssh-module/` 的 `spec.md`（§12、A13、A16）、`design.md`、`plan.md`、`tasks/H11.1*`、`tasks/H11.2*`、`tasks/H11.3*`、`evidence/H11.1-public-resources-windows.md`；#6 的 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/` 中 G5c 相关任务和设计。复用 H11.1 的主体/路由/指纹、实际 SSH 会话、现有 Exec 通道和资源所有者（`plugins/ssh/src/engine/`）。
+必读：task15 全文；`.agents/dev/changes/2026-11-19-issue-7-ssh-module/` 的 `spec.md`（§12、A13、A16）、`design.md`、`plan.md`、`tasks/H11.1*`、`tasks/H11.2*`、`tasks/H11.3*`、`evidence/H11.1-public-resources-windows.md`；#6 的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/` 中 G5c 相关任务和设计。复用 H11.1 的主体/路由/指纹、实际 SSH 会话、现有 Exec 通道和资源所有者（`plugins/ssh/src/engine/`）。
 
 task15 的不变量照旧适用：host / attempt / session / job 独立标识并保留原路由身份；新启动要求当前启用的授权，并核对主机、路由版本和真实连接，不借用短命信任探针；拒绝跨主体、错 Vault、过期版本或任意 Workbench 运行 ID；同意图重交按真实 task 的重试语义，本机底层接收超时标为待核实，绝不自动重复执行；关闭观察不取消作业；只读目录与读取不拨号、不经状态夹带凭据；输出保留量有界；退出后回收连接。未完成的 Shell/SFTP 部分列入报告。
 

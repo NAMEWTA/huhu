@@ -15,7 +15,7 @@
 
 - 候选提交 — `a98b3079543c612a3abea69b22575bd8ab1c3897`，父 `e3aa1cd4e55f676c9a76048acba96d21c25f278b`。
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-g6-notes`。通过临时索引生成候选，源码与测试同候选精确一致。工作树 HEAD 仍为父提交。
-- 证据已追加到候选的 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-session-identity-linux.md`「跨 Engine 重启恢复」。工作树的 `.agents` 挂载只读，通过临时索引写入同一路径。
+- 证据已追加到候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-session-identity-linux.md`「跨 Engine 重启恢复」。工作树的 `.agents` 挂载只读，通过临时索引写入同一路径。
 - `mcp-http.ts` 使用 initialize 的 `_meta["huhu.dev/session-recovery"]` 接收及签发恢复凭据。Gateway 客户端在没有旧 transport 头的新 initialize 中提供原 Bearer 和上次恢复凭据，再使用响应轮换后的凭据及 `Mcp-Session-Id`。旧凭据及相同主体的在用会话均不能再次恢复。默认期限从首次签发起为 24 小时，由 `recoveryAgeMs` 调整，轮换沿用原截止。Gateway 令牌当前有效至撤销，每次恢复均先验证父凭据。共享 bootstrap 的 stdio 仅有进程内对账。
 - `McpSessionPrincipal.recovered` 将恢复状态传给 Dispatcher。先检查现行授权，再匹配原主体、能力、意图键和输入。已完成的通用回执可回放，缺失、accepted、paused 保持 unknown。恢复态可调用已授权的读接口，例如 SSH 作业回读。普通 CLI 沿用原主体和持久意图合同。
 - 额外的最小共享层接线是 `server/http-app.ts` 为两条路径提供统一的 Gateway HTTP 会话，以及 `gateway-tokens.ts` 在同一次原子文件更新中保存服务配置和持久代次。关闭后再启用仍拒绝旧恢复凭据。另格式化了基线中未通过 oxfmt 的 `server/capability-http.ts` 发现函数，行为保持原样。

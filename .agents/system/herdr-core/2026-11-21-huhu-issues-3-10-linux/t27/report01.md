@@ -15,7 +15,7 @@
 
 - 候选提交 — `d85d21b59228f27858a2f5884fedf6585428dacf`。
 - 验收基线已包含 C05，父为 `a98b3079543c612a3abea69b22575bd8ab1c3897`。分支 `impl/huhu-issues-3-10-g6-notes`，工作树 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`。
-- 证据写入候选树的 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-notes-inbox-guide-exposure-linux.md`。工作树 `.agents` 挂载只读，业务代码和测试通过临时索引核对到候选。
+- 证据写入候选树的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-notes-inbox-guide-exposure-linux.md`。工作树 `.agents` 挂载只读，业务代码和测试通过临时索引核对到候选。
 - Notes 与 Archives 共享一个 Vault 写队列。Inbox 按源 id 串行化状态修改及转换，目标创建复用原领域接口。源文件在目标已受理后出现冲突时保留待核实结果。Guide 多文件覆盖通过现有 OperationLog 成组发布，覆盖前备份原始字节。
 - Lead 后续授权的 Engine 测试接线单列。`engine.test.ts` AR-15 验证档案类型默认拒绝而可选开放，`external-plugins.test.ts` 将冻结描述符的两处 spy 移到 InboxService.capture 与 NotesService.save，保留原上下文与持久步骤断言。
 - Lead 后续授权的 Tasks 投影单列。`tasks.create` 对受信、非扩展委托的 `plugin:inbox` 返回任务 ID，工作台和直接外部结果仍为完整 Task DTO。转换测试用真实 Tasks、Archive 和 Note 目标验证原文及回执。

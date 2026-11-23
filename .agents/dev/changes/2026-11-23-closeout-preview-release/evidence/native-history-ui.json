@@ -1,0 +1,14 @@
+{
+  "source": "Uncommitted source build based on cc551778; Codex real persistent sources, desktop Tasks UI; not final release artifact. Interactive TUI source creation not separately exercised.",
+  "stats": {
+    "startTime": "2026-11-23T05:23:28.424Z",
+    "duration": 24041.831000000002,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "report": "temp/closeout-release/native-history-ui/result.json",
+  "sha256": "e97877c3843a5c9d7498e2d8f41c6c383e343cdb24d92909957c5be56ea454a8",
+  "providerSha256": "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971"
+}

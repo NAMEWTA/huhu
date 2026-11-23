@@ -1,0 +1,35 @@
+{
+  "baseCommit": "cc551778c8d7130e8cd7cbb6bb95c6a4d1fc1ea2",
+  "fullSuite": {
+    "files": 189,
+    "passedFiles": 178,
+    "failedFiles": 4,
+    "skippedFiles": 7,
+    "tests": 2254,
+    "passed": 2217,
+    "failed": 7,
+    "skipped": 30
+  },
+  "targetedAfterCorrection": {
+    "cliAndAgent": 30,
+    "tasksPersistence": 40
+  },
+  "remainingFailure": "SSH public-resources.engine.test.ts:1009 VERSION_CONFLICT versus NOT_FOUND; paused excluded scope",
+  "boundary": "Full suite run once; no second full run. Relevant fixture files rerun completely after corrections. Logs retain original failures.",
+  "sha256": {
+    "temp/closeout-release/final-lint-recheck.log": "b98156cdff1e24017c3ad9839dc7471abdf5fe843f4d8546c4a507bd3cfa97b1",
+    "temp/closeout-release/final-knip-recheck.log": "dcea8abfcbd1ecd821b9e83ea75a8193fe352657bff6c062d2254c63b3c36092",
+    "temp/closeout-release/final-format-recheck.log": "26b4ca27ac58402b8257cb35863d1d17a41298f110a0185b957e21173590aed0",
+    "temp/closeout-release/final-types.log": "92fd45e486c3491a9de8c8fd62eb47d02880dbdf53b979ae7a61db8ee62b1f6b",
+    "temp/closeout-release/final-engine-types-recheck.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "temp/closeout-release/final-desktop-types.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "temp/closeout-release/final-e2e-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "temp/closeout-release/final-inode-types.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "temp/closeout-release/final-full-tests.log": "320f9c9d3bed849862b98b5dc011ecd44a82c88a6f360239276d591409824358",
+    "temp/closeout-release/stale-fixtures-check.log": "74bd94d118897bc46bc49c189070079d66e787addcf989ff2e217b3c1f106f24",
+    "temp/closeout-release/restore-fixture-check.log": "f9f12ee6a0b419cd7ad5e59e7c0a9c24ba21aa88d33c14f1201218b109b16769",
+    "temp/closeout-release/final-fixture-types.log": "5aa3143810af3321930d8daa4715329a3dfcfa672d56285b564399bcfbffd034",
+    "temp/closeout-release/final-fixture-lint.log": "7f567a68aaa908b3bfb484a668e0f98535d9475fddbc69a9c83ae526eb32cf36",
+    "temp/closeout-release/archive-grid-hashes.log": "a1e8f6463c208053f191ead61f7bca71afd1db9a83864bfb48e01d0250197a8b"
+  }
+}

@@ -26,6 +26,7 @@ export interface ScanOptions {
   home?: string;
   env?: NodeJS.ProcessEnv;
   limit?: number;
+  providers?: HistoryEntry["provider"][];
 }
 
 export interface ScanResult {
@@ -380,7 +381,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
 
   // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
   const cRoot = claudeRoot(env, home);
-  if (existsSync(cRoot)) {
+  if ((!o.providers || o.providers.includes("claude")) && existsSync(cRoot)) {
     const store = real(cRoot);
     const prefixes = [...new Set([...o.roots, ...roots].map(encodeClaudeBucket))];
     const cFiles: { file: string; id: string; mtime: Date }[] = [];
@@ -415,6 +416,7 @@ export function scanHistory(o: ScanOptions): ScanResult {
     { provider: "pi" as const, root: real(piRoot(env, home)), accepts: () => true, depth: 1 },
   ];
   for (const store of nativeStores) {
+    if (o.providers && !o.providers.includes(store.provider)) continue;
     const files: { file: string; mtime: Date }[] = [];
     for (const file of walkHistory(store.root, store.accepts, store.depth)) {
       try {

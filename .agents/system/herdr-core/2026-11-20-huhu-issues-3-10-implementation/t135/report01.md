@@ -25,7 +25,7 @@
 | B05、D09 | Automations 停用后人工仍可派遣，重开保持停用，原 run 重传无额外输入。两规则与人工竞争和活动占用由 T1.2 HTTP 回归覆盖。另在 provider 就绪期间停用 Tasks，观察到 Agent 收到 Abort，原轮当时零输入。恢复后同一 run 对账，仅收到一次。 | [真实 Engine 与适配器验收](evidence-task01/final-runtime.log) · [宽回归](evidence-task01/regression-concurrent.log) |
 | 私有权限与快照 | 真实 Engine 允许受权 Tasks 枚举，拒绝 desktop、旧 Automations、CLI、MCP 直接调用 Agent 私有入口。适配器测试核对稳定身份、模型选项、CRLF 提交、冻结补充指令及错误摘要的 ACK。W6.1 回归使用同传输幂等键观察新的派遣结果。 | [真实 Engine 与适配器验收](evidence-task01/final-runtime.log) · [宽回归](evidence-task01/regression-concurrent.log) |
 
-条款来源见 [T2.1 验收](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T2.1-dispatch-cli.md)、[Issue #5 验收矩阵](../../../../dev/changes/2026-11-19-issue-5-task-automation/source.md) 和 [W6.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)。
+条款来源见 [T2.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T2.1-dispatch-cli.md)、[Issue #5 验收矩阵](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/source.md) 和 [W6.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)。
 
 ## 运行记录与清理
 

@@ -1,20 +1,16 @@
 import { Button } from "@huhu/ui";
-import { useCapability, useEngine, useEngineEvents } from "@huhu/workbench";
+import { type useCapability, useEngine } from "@huhu/workbench";
 import { useState } from "react";
 
-type SyncState = { minutes: number; accounts: { accountId: string; phase: "refreshing" | "ready" | "retrying"; at: string; retryAt?: string }[] };
+export type SyncState = { minutes: number; accounts: { accountId: string; phase: "refreshing" | "ready" | "retrying"; at: string; retryAt?: string }[] };
 const phases = { refreshing: "正在刷新", ready: "刷新完成", retrying: "暂时无法刷新，稍后重试" };
 
-export function MailSyncSettings({ readOnly, accountNames }: { readOnly: boolean; accountNames: ReadonlyMap<string, string> }) {
+export function MailSyncSettings({ readOnly, accountNames, settings }: { readOnly: boolean; accountNames: ReadonlyMap<string, string>; settings: ReturnType<typeof useCapability<SyncState>> }) {
   const engine = useEngine();
-  const settings = useCapability<SyncState>("mail.sync.settings");
   const [draft, setDraft] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const value = draft ?? String(settings.data?.minutes ?? "");
-  useEngineEvents((event) => {
-    if (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "mail-sync") void settings.refetch();
-  });
   async function save() {
     setBusy(true);
     setFeedback("");

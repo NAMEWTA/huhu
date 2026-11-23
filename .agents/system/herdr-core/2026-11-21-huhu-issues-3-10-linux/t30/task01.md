@@ -12,7 +12,7 @@
 
 ## 目标与输入
 
-按 `.agents/dev/changes/2026-11-19-issue-10-widget-dashboard/` 的 `spec.md`、`design.md`、`plan.md` 与 `tasks/W05-01-tasks-widget.md`、`W05-02-recent-notes.md`、`W05-03-capture-widget.md`、`W05-10-agent-entry.md`、`W06-01-home-cutover.md`，完成：
+按 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/` 的 `spec.md`、`design.md`、`plan.md` 与 `tasks/W05-01-tasks-widget.md`、`W05-02-recent-notes.md`、`W05-03-capture-widget.md`、`W05-10-agent-entry.md`、`W06-01-home-cutover.md`，完成：
 
 1. W05-01/02/03/10：把任务、最近笔记、待处理捕获、Agent 入口四张卡的定义与取数从 `widget:kernel:*`（`packages/workbench/src/home/HomeModule.tsx`、`packages/contracts/src/home.ts`）迁到各自业务插件的 Widget 贡献，沿用 SSH（`plugins/ssh/src/ui/HomeWidget.tsx`）、Git（`plugins/versioning/src/ui/HomeWidget.tsx`）、Automations（`plugins/automations/src/shared/home-widget.ts`）已有的可信贡献模式，不新建贡献机制。插件停用时卡不挂载、不查询；重新启用恢复；已存看板中的旧实例 ID 迁移不丢配置（备份格式按 W02-04/05 现有合同）。两张任务卡各自筛选、跨时区独立计数、行内完成；最近笔记卡失效路径与另一卡可用；捕获卡核对待处理数量、选择、停用与重新启用；Agent 入口按启用/授权呈现，无活动会话时不造状态。
 2. W06-01：按单一首页要求收口旧入口（`apps/desktop/src/renderer/main.tsx` 的 today/activity 与 `HomeModule.tsx` 的独立 ActivityFeed），保留 #2 已交付行为与 #3 关窗/看板草稿离场联动（`FocusPauseOnClose`、看板草稿离场规则见 #10 design 与 #3 S1a）。
@@ -23,7 +23,7 @@
 - 可写业务范围 — `packages/workbench/src/home/**`、`packages/contracts/src/home.ts`（Widget 贡献合同的最小改动，报告单列）、`plugins/{tasks,notes,inbox,agent-cli}/src/ui/**` 与各自 `shared/` 中的 Widget 贡献、对应 manifest 的 contributes、`apps/desktop/src/renderer/main.tsx` 中首页入口、相关单测与 e2e（`tests/e2e/**`）、#10 证据目录。
 - 涉及 HTML/CSS/客户端 TS：先按 AGENTS.md 读取并执行 `.agents/skills/zh-modern-web-guidance/SKILL.md` 的 search 与 retrieve；桌面经 `window.huhuHost`，Web 按 Baseline Widely available；共享前端两端验证。
 - 禁止改动 — Engine 装配 `apps/engine/src/boot.ts`（需要时写清接线交 Lead；可在候选里改最少行并单列）、Kernel dispatcher/server/MCP、插件 engine 业务、Vault 包收集器、根锁文件。不 push，不启动子 agent，不碰真实 Vault。
-- 预期产物 — 候选提交（临时索引方式，父 `fc044713`）、证据 `.agents/dev/changes/2026-11-19-issue-10-widget-dashboard/evidence/W05-W06-linux.md`、报告。
+- 预期产物 — 候选提交（临时索引方式，父 `fc044713`）、证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W05-W06-linux.md`、报告。
 
 ## 验收与验证
 

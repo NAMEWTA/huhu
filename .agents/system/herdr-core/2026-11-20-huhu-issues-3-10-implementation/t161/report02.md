@@ -32,7 +32,7 @@
 ## Lead 装配边界
 
 1. **整 ZIP 与 Mail 子集。** 冻结候选的 `packages/kernel/src/capabilities/package.ts:69` 仍直接调用 `exportPackage`。生产接线要在读取草稿及枚举文件前取得同一 Vault 写入实例的 `withSnapshot`，保持到最后一次源文件读取，并向导出器传入包装器给出的取消信号。队列属于创建服务的 Mail 实例，另一个只读 Engine 的队列无法协调仍活跃的写者。启用 `sweepUnreferenced` 前，所有可能与它并发的导出须进入同一边界。未来发件箱等区域复用对象库时，回收要纳入它们的持久引用。
-2. **ZIP 范围。** 现有整库收集器把 `.huhu/` 文件纳入受管内容。夹具以 `includeAttachments: false` 仍确认 Mail 引用和字节共同出包并恢复。S6a.1 的子集筛选、缺件校验和其他 Mail 持久区域的一致性需单独接入，夹具验证的是草稿队列与既有 ZIP 库的协调。 [S6a.1 验收范围](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/S6a.1-snapshot-export.md)
+2. **ZIP 范围。** 现有整库收集器把 `.huhu/` 文件纳入受管内容。夹具以 `includeAttachments: false` 仍确认 Mail 引用和字节共同出包并恢复。S6a.1 的子集筛选、缺件校验和其他 Mail 持久区域的一致性需单独接入，夹具验证的是草稿队列与既有 ZIP 库的协调。 [S6a.1 验收范围](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S6a.1-snapshot-export.md)
 3. **可信文件源。** `MailAttachmentSource` 接受显示名称、确切长度和 `read(signal)`，由可信宿主对用户选中的文件或受限句柄构造。同一来源的大小与读取应对应同一已校验对象。取消选择直接结束。当前桌面 `pickOpenPath("file")` 提供选取结果，尚需把可信选取结果接到进程内服务。旧 revision、超限和预取消可能在调用 `read` 前结束，因此源应在 `read` 中延迟开启，或由宿主负责释放预先打开的句柄。读取须响应取消并及时释放，Engine 卸载会等待队列。普通草稿 RPC 的正文架构及现有受管目录权限检查按夹具通过。
 
 ## 清理与交回

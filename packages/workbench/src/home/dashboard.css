@@ -1,22 +1,17 @@
+@import "react-grid-layout/css/styles.css" layer(vendor);
+
 @layer shell {
   .hu-dashboard {
     container-type: inline-size;
   }
 
   .hu-dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    grid-auto-rows: 100px;
-    gap: 12px;
+    min-inline-size: 0;
   }
 
-  .hu-dashboard-feedback,
+  .hu-dashboard-feedback:not(:empty),
   .hu-dashboard-toolbar {
     margin-block-end: 12px;
-  }
-
-  .hu-dashboard-feedback:empty {
-    display: none;
   }
 
   .hu-dashboard-feedback {
@@ -55,20 +50,44 @@
   .hu-dashboard-drag {
     cursor: grab;
     touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
-  .hu-dashboard-size-handle {
-    cursor: nwse-resize;
+  .hu-dashboard-grid .react-grid-item > .react-resizable-handle {
     touch-action: none;
+    opacity: 1;
   }
 
-  .hu-dashboard-tile[data-placement-preview="true"] {
+  .hu-dashboard-grid .react-grid-item > .react-resizable-handle::after {
+    border-color: var(--muted);
+  }
+
+  .hu-dashboard-canvas {
+    position: relative;
+  }
+
+  .hu-dashboard-grid .react-grid-placeholder,
+  .hu-dashboard-drop-preview {
+    background: var(--panel);
     outline: 2px solid var(--accent);
     outline-offset: -2px;
+    opacity: 1;
+    pointer-events: none;
+    z-index: 0;
   }
 
-  .hu-dashboard-card-controls .hu-dashboard-order {
+  .hu-dashboard-drop-preview {
+    inset: 0 auto auto 0;
+  }
+
+  .hu-dashboard-canvas[data-dashboard-drop-preview] .react-grid-placeholder {
     display: none;
+  }
+
+  .hu-dashboard-tile img {
+    pointer-events: auto;
+    user-select: auto;
   }
 
   .hu-dashboard-compare {
@@ -77,20 +96,13 @@
     gap: 16px;
   }
 
-  @container (width <= 620px) {
-    .hu-dashboard-grid {
-      display: flex;
-      flex-direction: column;
-    }
+  .hu-dashboard-canvas[data-dashboard-narrow] .hu-dashboard-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
 
-    .hu-dashboard-card-controls .hu-dashboard-coordinate,
-    .hu-dashboard-card-controls .hu-dashboard-drag,
-    .hu-dashboard-card-controls .hu-dashboard-size-handle {
-      display: none;
-    }
-
-    .hu-dashboard-card-controls .hu-dashboard-order {
-      display: flex;
-    }
+  .hu-dashboard-canvas[data-dashboard-narrow] .react-grid-placeholder {
+    display: none;
   }
 }

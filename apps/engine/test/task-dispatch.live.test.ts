@@ -1,6 +1,6 @@
 import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, TaskDto, TaskExecution } from "@huhu/contracts";
@@ -94,17 +94,31 @@ test("Tasks production dispatch keeps providers without acceptance evidence unsu
       for (const token of [engine.cliToken, engine.mcpToken]) {
         expect(await post(engine, "agent.targets.list", scope, token, token === engine.mcpToken ? session : undefined)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
       }
-      for (const target of [{ mode: "new" }, { mode: "resume", nativeSessionId: "synthetic-native-session" }] as const) {
-        const task = await create(engine, target.mode, space!.id, target);
-        if (target.mode === "resume") expect(task.dispatchBlockers).toContain("原生恢复需要 Agent CLI 支持绑定派遣");
-        const input = intent(task, target.mode);
-        const receipt = await call<DispatchReceipt>(engine, "tasks.dispatch", input);
-        await pollReceipt(engine, receipt, { state: "blocked", reason: "target_unsupported" });
-        expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ status: "not_started", comments: [] });
-        expect(await call(engine, "agent.sessions.list", {})).toEqual([]);
-        expect(readFixtureJson(path.join(engine.vault.stateDir, "agent-cli", "dispatches", createHash("sha256").update(JSON.stringify(target.mode)).digest("hex") + ".json"))).toBeNull();
-        console.info(JSON.stringify({ mode: target.mode, status: "target_unsupported", taskStatus: "not_started", launches: 0 }));
-      }
+      const task = await create(engine, "new", space!.id, { mode: "new" });
+      const receipt = await call<DispatchReceipt>(engine, "tasks.dispatch", intent(task, "new"));
+      await pollReceipt(engine, receipt, { state: "blocked", reason: "target_unsupported" });
+      expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ status: "not_started", comments: [] });
+      expect(await call(engine, "agent.sessions.list", {})).toEqual([]);
+      expect(readFixtureJson(path.join(engine.vault.stateDir, "agent-cli", "dispatches", createHash("sha256").update(JSON.stringify("new")).digest("hex") + ".json"))).toBeNull();
+      await expect(create(engine, "resume", space!.id, { mode: "resume", nativeSessionId: "old-history" })).rejects.toThrow("INVALID_INPUT");
+      const legacy = await call<TaskDto>(engine, "tasks.create", {
+        title: "Legacy source",
+        body: "Old saved task",
+        type: "agent",
+        execution: { spaceId: space!.id, provider: "codex", target: { mode: "new" } },
+      });
+      const file = path.join(root, legacy.path);
+      const previous = readFileSync(file, "utf8");
+      const old = previous.replace(/\n([ \t]*)mode: new\b/, "\n$1mode: resume\n$1nativeSessionId: old-history");
+      expect(old).not.toBe(previous);
+      writeFileSync(file, old);
+      await expect
+        .poll(() => call(engine, "tasks.read", { id: legacy.id }))
+        .toMatchObject({
+          execution: { target: { mode: "resume", nativeSessionId: "old-history" } },
+          dispatchBlockers: ["请重新选择原生历史会话"],
+        });
+      expect(await call(engine, "agent.sessions.list", {})).toEqual([]);
     } finally {
       await engine.shutdown();
     }

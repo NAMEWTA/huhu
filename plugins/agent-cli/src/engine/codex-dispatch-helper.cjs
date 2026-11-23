@@ -73,6 +73,14 @@ function main(file) {
   const userConfig = path.join(config.home, "config.toml");
   if ((statSync(userConfig, { throwIfNoEntry: false }) ? stamp(userConfig) : null) !== config.configStamp) throw new Error("Provider configuration changed");
   const nativeChoiceBridge = config.nativeChoiceBridge === true;
+  const resume = config.resume;
+  function resumeStamp() {
+    const stat = statSync(resume.file, { bigint: true });
+    const physical = [stat.dev, stat.ino, stat.birthtimeNs].join(":");
+    if (!stat.isFile() || realpathSync(resume.file) !== resume.file || physical !== resume.physical || path.relative(realpathSync(process.cwd()), resume.cwd) !== "") throw new Error("Resume source changed");
+    return createHash("sha256").update([physical, stat.size, stat.mtimeNs, stat.ctimeNs].join(":")).digest("hex");
+  }
+  if (resume && resumeStamp() !== resume.revision) throw new Error("Resume selection changed");
   const linuxNative = process.platform === "linux" && config.args.length === 0;
   const expectedDigest = process.platform === "win32" ? "cefea4ffee1fff04983a99c0dda99944d8b380e891e740a28b32f4b815a6e0b7" : "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971";
   if ((nativeChoiceBridge || linuxNative) && (executableSha256(config.command) !== expectedDigest || stamp(config.command) !== config.binaryStamp)) {
@@ -113,6 +121,7 @@ function main(file) {
   const sockets = new Set();
   let server;
   let threadId;
+  let resumedStamp;
   let defaultChoices = false;
   let turnId;
   let executionBinding;
@@ -335,6 +344,10 @@ function main(file) {
       typeof execution?.runId !== "string"
     )
       return;
+    if (resume && observedTurns.size === 0) {
+      if (execution.dispatchId !== resume.dispatchId) return;
+      if (resumeStamp() !== resumedStamp) return stop("resume source changed before the first turn");
+    }
     const intent = runFile(execution, "intent");
     if (statSync(path.join(directory, intent + ".json"), { throwIfNoEntry: false })) return;
     submitted = true;
@@ -420,13 +433,16 @@ function main(file) {
       if (typeof method === "string") {
         if (rpcId !== undefined) {
           if (method !== "item/tool/requestUserInput" || !boundQuestion(rpcId, params)) send({ id: rpcId, error: { code: -32601, message: "This client cannot handle the request" } });
-        } else nativeNotice(method, params);
+        } else {
+          if (resume && !executionBinding && method === "turn/started" && params?.threadId === resume.threadId) return stop("resume produced an unrequested turn");
+          nativeNotice(method, params);
+        }
         return;
       }
       const accept = pending.get(rpcId);
       if (!accept) return;
       pending.delete(rpcId);
-      accept(error === undefined ? result : undefined);
+      accept(error === undefined ? result : undefined, error);
     } catch {
       stop("App Server protocol interrupted");
     }
@@ -447,7 +463,8 @@ function main(file) {
     server.once("error", () => stop("control channel unavailable"));
     server.listen(socket ?? "\\\\.\\pipe\\huhu-codex-" + sign("socket", 1), () => {
       try {
-        save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2, ...(socket && { socket }) });
+        const history = resume && { historyId: resume.historyId, revision: resume.revision, source: resume.source };
+        save("thread", { attempt: config.attempt, threadId, address, pid: process.pid, protocol: 2, ...(socket && { socket }), ...(history && { history }) });
         clearTimeout(startup);
         log("native thread ready");
       } catch {
@@ -471,25 +488,45 @@ function main(file) {
   request("initialize", { clientInfo: { name: "huhu", version: "1" }, capabilities: { experimentalApi: true } }, (result) => {
     if (!result) return stop("App Server handshake rejected");
     send({ method: "initialized", params: {} });
-    request(
-      "thread/start",
-      {
-        cwd: process.cwd(),
-        ephemeral: true,
-        sandbox: "read-only",
-        approvalPolicy: "never",
-        ...(nativeChoiceBridge && { experimentalRawEvents: true }),
-        ...(config.model ? { model: config.model } : {}),
-        ...(config.fast ? { serviceTier: "priority" } : {}),
-        ...(config.effort ? { config: { model_reasoning_effort: config.effort } } : {}),
-      },
-      (started) => {
-        if (typeof started?.thread?.id !== "string" || !id.test(started.thread.id)) return stop("thread startup is unconfirmed");
-        threadId = started.thread.id;
-        if (nativeChoiceBridge) prepareDefaultChoices(undefined, 4);
-        else listenForControl();
-      },
-    );
+    const settings = {
+      cwd: process.cwd(),
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      ...(nativeChoiceBridge && { experimentalRawEvents: true }),
+      ...(config.model ? { model: config.model } : {}),
+      ...(config.fast ? { serviceTier: "priority" } : {}),
+      ...(config.effort ? { config: { model_reasoning_effort: config.effort } } : {}),
+    };
+    const ready = (started) => {
+      if (!validId(started?.thread?.id)) return stop("thread startup is unconfirmed");
+      threadId = started.thread.id;
+      if (nativeChoiceBridge) prepareDefaultChoices(undefined, 4);
+      else listenForControl();
+    };
+    if (!resume) return request("thread/start", { ...settings, ephemeral: true }, ready);
+    const sameSource = (thread) =>
+      thread?.id === resume.threadId && typeof thread.path === "string" && realpathSync(thread.path) === resume.file && typeof thread.cwd === "string" && path.relative(realpathSync(thread.cwd), resume.cwd) === "";
+    request("thread/read", { threadId: resume.threadId, includeTurns: false }, (read) => {
+      if (!sameSource(read?.thread) || resumeStamp() !== resume.revision) return stop("resume source is unconfirmed");
+      request("thread/resume", { ...settings, threadId: resume.threadId, path: resume.file, excludeTurns: true, deferGoalContinuation: true }, (restored, error) => {
+        if (error?.code === -32600 && error.message === `thread ${resume.threadId} already has an active writer`) {
+          save("resume-refusal", { attempt: config.attempt, source: resume.source, address, pid: process.pid, reason: "history_writer_busy" });
+          return stop("the selected thread has an active writer");
+        }
+        if (
+          !sameSource(restored?.thread) ||
+          restored.thread.status?.type !== "idle" ||
+          restored.approvalPolicy !== settings.approvalPolicy ||
+          restored.sandbox?.type !== "readOnly" ||
+          restored.sandbox.networkAccess !== false ||
+          (config.model && restored.model !== config.model) ||
+          (config.effort && restored.reasoningEffort !== config.effort)
+        )
+          return stop("resume identity, availability or configuration is unconfirmed");
+        resumedStamp = resumeStamp();
+        ready(restored);
+      });
+    });
   });
 }
 

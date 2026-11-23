@@ -33,6 +33,6 @@
 node node_modules/vitest/vitest.mjs run plugins/agent-cli/test/native-receipts.live.test.ts -t 'Windows Engine sends one answer to the original native request' --no-file-parallelism --maxWorkers=1 --reporter=verbose
 ```
 
-依据 [W6.2 规格](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.2-takeover-stop.md)、[T3.2 规格](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T3.2-reply.md) 和 [实施报告](../t135/report04.md)。
+依据 [W6.2 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.2-takeover-stop.md)、[T3.2 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T3.2-reply.md) 和 [实施报告](../t135/report04.md)。
 
 ## Lead 验收

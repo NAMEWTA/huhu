@@ -64,10 +64,10 @@
       "288ec99d8c0d6ed298a9420a137d5e45ae1dbe6e"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-located-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-results-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.2-search-locate.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-located-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-results-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.2-search-locate.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/conversations.ts",
       "plugins/mail/src/engine/index.ts",
@@ -120,9 +120,9 @@
       "0e3d6a5e09d24999f96d7895b964eff528481b5e"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-public-sent-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.1-public-reader.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-public-sent-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.1-public-reader.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/account-definition.ts",
       "plugins/mail/src/engine/account-removals.ts",
@@ -150,7 +150,7 @@
       "d667d1acaee81c854cd0ef56f9132c26caad6c7a"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-5-task-automation/evidence/T6.3b-protected-terminal.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T6.3b-protected-terminal.md",
       "apps/engine/test/engine.test.ts",
       "apps/engine/test/module-credential-host.test.ts",
       "packages/contracts/src/kinds/automation.ts",
@@ -188,10 +188,10 @@
       "ca6e6e31623627e82bf5d4b622997ae09ad1767e"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-repair-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1a.3-account-repair.md",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.3-manage-accounts.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-repair-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1a.3-account-repair.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1a.3-manage-accounts.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/account-setup.ts",
       "plugins/mail/src/engine/accounts.ts",
@@ -223,10 +223,10 @@
       "2ea0bda8cb7f779cd73962e83915e46d7c8353b8"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-attachments-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1b.2-desktop-attachments.md",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.2-managed-attachments.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-attachments-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1b.2-desktop-attachments.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1b.2-managed-attachments.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/package.json",
       "plugins/mail/src/desktop-attachments.ts",
@@ -261,10 +261,10 @@
       "b854b7bc69d0c559568092a834dabeed2c7fabf7"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-reply-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.5-replies.md",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S2.5-reply-forward.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-reply-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.5-replies.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S2.5-reply-forward.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/package.json",
       "plugins/mail/src/engine/draft-content.ts",
@@ -288,8 +288,8 @@
       "04bd14e41e04449975a656f91010cac7b0e62a2b"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S6b.1-subset-restore.md",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S7.3-cache-settings.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S6b.1-subset-restore.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S7.3-cache-settings.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/account-definition.ts",
       "plugins/mail/src/engine/account-removals.ts",
@@ -516,9 +516,9 @@
       "46a770ed6f0224b5d9c2f273432620449fb04dc2"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-forward-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.6-forward.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-forward-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.6-forward.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/draft-attachments.ts",
       "plugins/mail/src/engine/draft-content.ts",
@@ -646,9 +646,9 @@
       "e5de8840f750d8667487151975bf4c6e5e852e00"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-contacts-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.1-contacts.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-contacts-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.1-contacts.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/conversations.ts",
       "plugins/mail/src/engine/imap-message.ts",
@@ -716,10 +716,10 @@
       "7fd88b74503a48a2cbd754ff0b43ddce695766d7"
     ],
     "files": [
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-remove-preview-390.png",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1a.4-remove-account.md",
-      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.4-remove-account.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-remove-preview-390.png",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S1a.4-remove-account.md",
+      ".agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1a.4-remove-account.md",
       "plugins/mail/huhu-plugin.json",
       "plugins/mail/src/engine/account-removals.ts",
       "plugins/mail/src/engine/account-setup.ts",

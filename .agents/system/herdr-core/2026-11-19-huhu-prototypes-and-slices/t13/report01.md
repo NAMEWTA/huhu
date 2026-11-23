@@ -20,7 +20,7 @@
 
 | Change | 入口及记录 | 原型目录 SHA-256 |
 | --- | --- | --- |
-| #6 工具目录与 Web 工作台 | [原型](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/prototype/index.html) · [走查](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/prototype-review.md) | `ff01f773cb0a8c0ffc52a986ef6d6ac66f5e7e606a1c59ce5ed53a34813d6135` |
+| #6 工具目录与 Web 工作台 | [原型](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/prototype/index.html) · [走查](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/prototype-review.md) | `ff01f773cb0a8c0ffc52a986ef6d6ac66f5e7e606a1c59ce5ed53a34813d6135` |
 | #7 SSH 客户端与工作区 | [原型](../../../../dev/changes/2026-11-19-issue-7-ssh-module/prototype/index.html) · [走查](../../../../dev/changes/2026-11-19-issue-7-ssh-module/prototype-review.md) | `c80f18ecc8e942f86d486a478cca44545ed6f35846381b01219f9e4bd2ab343e` |
 
 两个目录各含 HTML、两份 CSS、两份脚本和一份 Huhu 标志。使用 Huhu `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10` 的工作台外壳、主题和模块组件作设计基线。#7 对照源码清单中的 Motty `main@2daa9db582e16edf60a60b7ada26f47f808f973c`，核对 Viva `main@a5da67aa63440ee836c37a5aa1c70e3eb317401c` 可读。对照 Motty 的工作区结构、启动回滚、传输状态、转发和监控规则，自行以 Huhu 界面表达。改动位于以上两个原型目录及确认记录和本报告。
@@ -31,8 +31,8 @@ Microsoft Edge 157.0.4341.60，Playwright Core 1.65.1。通过 `file:` 打开实
 
 | 验收 | 操作及结果 | 证据 |
 | --- | --- | --- |
-| #6 工具策略与实际可用性 | Escape 取消时焦点还原，开放数仍为 0。逐项启用反映到 CLI 和 MCP，停止 MCP 后 CLI 发现仍有效。批量写失败维持原选择，重试整批成功，版本冲突退回。 | [#6 走查](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/prototype-review.md) |
-| #6 Web 监听、邀请与业务 | 端口占用后重试，可取消启动。A/B 同用 D-001，C 使用 D-002。撤销 D-001 后 A/B 断开、旧链接拒绝，C 仍能操作。浏览器任务出现在桌面同步区，笔记冲突保留输入后可重存，附件添加入列表。停止／切 Vault 失效，复位回零。窄屏检索、开启工具、仅本机进入工作台可操作。 | [#6 走查](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/prototype-review.md) |
+| #6 工具策略与实际可用性 | Escape 取消时焦点还原，开放数仍为 0。逐项启用反映到 CLI 和 MCP，停止 MCP 后 CLI 发现仍有效。批量写失败维持原选择，重试整批成功，版本冲突退回。 | [#6 走查](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/prototype-review.md) |
+| #6 Web 监听、邀请与业务 | 端口占用后重试，可取消启动。A/B 同用 D-001，C 使用 D-002。撤销 D-001 后 A/B 断开、旧链接拒绝，C 仍能操作。浏览器任务出现在桌面同步区，笔记冲突保留输入后可重存，附件添加入列表。停止／切 Vault 失效，复位回零。窄屏检索、开启工具、仅本机进入工作台可操作。 | [#6 走查](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/prototype-review.md) |
 | #7 配置、路由与工作区 | 测试未保存主机，修改使测试失效后保存。路由拒绝自指，修正后保存。双分栏单独失败，另一个会话工作。认证取消后重连。模拟指纹变化要求独立核对，确认新指纹后恢复。窄屏首次信任、取消认证、重连及打开附属文件可用。 | [#7 走查](../../../../dev/changes/2026-11-19-issue-7-ssh-module/prototype-review.md) |
 | #7 SFTP、转发与监控 | 独立文件视图固定于源分栏，附属面板随活动分栏。目标冲突取消、续传前缀不符、传输故障均保留旧目标，确认重试后完成。暂停、继续及取消改变任务状态。转发占用端口后重试、采样和停止。监控故障后可重试、取样及暂停，原型可复位。 | [#7 走查](../../../../dev/changes/2026-11-19-issue-7-ssh-module/prototype-review.md) |
 

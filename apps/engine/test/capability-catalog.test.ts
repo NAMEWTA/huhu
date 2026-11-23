@@ -28,14 +28,14 @@ async function directory(engine: RunningEngine, includeInactive: boolean, token 
   return z.array(CapabilityCatalogEntrySchema).parse(result.data);
 }
 
-async function discover(url: string, headers: HeadersInit) {
+async function discover(url: string, headers: NonNullable<ConstructorParameters<typeof Headers>[0]>) {
   const reply = await fetch(url, { headers });
   expect(reply.ok).toBe(true);
   expect(reply.headers.get("cache-control")).toBe("no-store");
   return (await reply.json()) as unknown;
 }
 
-async function discoveredNames(origin: string, headers: HeadersInit) {
+async function discoveredNames(origin: string, headers: NonNullable<ConstructorParameters<typeof Headers>[0]>) {
   const names = z.array(z.strictObject({ name: z.string() })).safeParse(await discover(`${origin}${namesPath}`, headers));
   expect(names.success).toBe(true);
   return names.data!.map(({ name }) => name);

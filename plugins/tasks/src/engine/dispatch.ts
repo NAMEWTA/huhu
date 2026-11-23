@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto, type TaskExecution } from "@huhu/contracts";
 import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import {
   DispatchInput,
@@ -139,6 +139,8 @@ function selectedInput(task: TaskDto, text: string | undefined, messageIds: read
 export interface TaskDispatchExecutor {
   /** 只读目标/资源预检。实际输入所有权仍须由执行者在派遣时核验。 */
   ready(work: TaskDispatchWork, signal: AbortSignal): Promise<TaskDispatchReadiness>;
+  resumeEligibility?(execution: TaskExecution, body: string, instructions: string | undefined, signal: AbortSignal): Promise<{ state: "ready" | "busy" | "unavailable" | "unsupported"; reason?: string }>;
+  prepareResume?(work: TaskDispatchWork, signal: AbortSignal): Promise<"ready" | "busy" | "unavailable" | "unsupported">;
   /** accepted 表示目标实例已接收本轮输入；仅保存启动意图仍须对账。 */
   dispatch(work: TaskDispatchWork, signal: AbortSignal): Promise<TaskDispatchResult>;
   /** not_sent 必须是可证明未送达；空列表或离线只能返回 unknown。 */
@@ -362,7 +364,7 @@ export class TaskDispatch {
       cancelRequested: false,
       parentRunId: parent.receipt.runId,
     };
-    const spaceRevision = parent.agentTarget?.mode === "resume" ? undefined : parent.agentTarget?.spaceRevision;
+    const spaceRevision = parent.agentTarget?.spaceRevision;
     return this.store.create({
       receipt,
       requestHash: fingerprint({ input: intent, source }),
@@ -731,6 +733,13 @@ export class TaskDispatch {
     return record.receipt;
   }
 
+  resumeAbandoned(key: { taskId: string; runId: string; attempt: number; dispatchId: string }): boolean {
+    const record = this.store.read(eventIdOf(key.dispatchId))?.record;
+    if (!record || !this.store.owns(record) || record.claim?.machineId !== this.machineId || record.agentTarget?.mode !== "resume" || record.boundExecution) return false;
+    const { receipt } = record;
+    return receipt.taskId === key.taskId && receipt.runId === key.runId && receipt.attempt === key.attempt && receipt.dispatchId === key.dispatchId && !holdsTask(receipt);
+  }
+
   async cancel(input: DispatchLookup, toolOwner?: string): Promise<DispatchReceipt> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       this.abort.signal.throwIfAborted();
@@ -935,9 +944,13 @@ export class TaskDispatch {
       }
       const ready = await executor.ready(work, signal);
       if (!(await this.prepare(record, ready))) return;
+      const prepared = !work.agentTarget && typeof ready === "object" ? { ...work, agentTarget: ready.target } : work;
+      if (prepared.agentTarget?.mode === "resume" && executor.prepareResume) {
+        const nativeReady = await executor.prepareResume(prepared, signal);
+        if (!(await this.prepare(record, nativeReady))) return;
+      }
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。
       if (!(await this.beginSending(record))) return;
-      const prepared = !work.agentTarget && typeof ready === "object" ? { ...work, agentTarget: ready.target } : work;
       await this.finishSending(record, () => executor.dispatch(prepared, signal));
       return;
     }

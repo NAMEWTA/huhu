@@ -20,7 +20,7 @@
 ## 产物与改动
 
 - 候选提交 `680704910ca4291f035fe3c56995419bff449f42`，父提交 `369efcfd`。工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-t5-tasks` 仍指向基准。临时索引比对业务文件一致，普通索引保留原状态。未推送。
-- 证据 `.agents/dev/changes/2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md`。工作树的 `.agents/` 为只读，证据通过 Git 对象加入候选树。
+- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md`。工作树的 `.agents/` 为只读，证据通过 Git 对象加入候选树。
 - Tasks 复用持久派遣、回执和任务写队列，为显式重做建立关联到原事件的新尝试。Automations 复用既有意图落盘、定时发生、模板和执行槽。任务时间输入复用跟进时区算法。
 - Engine 装配单列。仅在 `apps/engine/src/boot.ts` 的 Automations 装配中按当前 Agent CLI 服务查询 Space 和 CLI 可用性，避免持续使用插件启停前捕获的服务对象。实际发送仍经 Tasks 与 Agent CLI 的预检。
 

@@ -30,9 +30,9 @@
 
 ## 读写范围与产物
 
-- 可写业务范围 — `plugins/mail/**`（engine、ui、测试）；#6 与 #8 证据目录（`.agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/`）。
+- 可写业务范围 — `plugins/mail/**`（engine、ui、测试）；#6 与 #8 证据目录（`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/`）。
 - 禁止改动 — `apps/engine/src/boot.ts`（除上述最少行）、其他插件、Kernel dispatcher/server/MCP/contracts、`packages/kernel/src/capabilities/**`（Kernel 组在改）、`packages/kernel/src/plugins/**`（扩展组在改）、Vault 包收集器、根锁文件。不 push，不启动子 agent，不碰真实 Vault、凭据或原生 Agent 历史。
-- 预期产物 — 候选提交（临时索引方式，父 `eaa5545a`）、证据 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-mail-exposure-linux.md`、报告（逐 ID 表：最终 exposable/defaultExposed、scope/risk、意图、校验、测试名）。
+- 预期产物 — 候选提交（临时索引方式，父 `eaa5545a`）、证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-mail-exposure-linux.md`、报告（逐 ID 表：最终 exposable/defaultExposed、scope/risk、意图、校验、测试名）。
 
 ## 验收与验证
 

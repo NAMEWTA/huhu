@@ -9,13 +9,13 @@
 | Issue | 本轮产物与状态 | 下一交付点 |
 | --- | --- | --- |
 | #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`a4681d7` 增加页面离场参与者，14 项[两窗退出、自动保存与草稿恢复](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)通过。 | `t4x` 独立核对；故障反馈选项、真实看板与菜单联验。 |
-| #4 | W6.0 经三轮独立审查合入 `1b3b385`，回执合同及 Markdown 回归 55 项通过。[Windows Core](../2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)实测子进程、握手 generation 与 doc/CAS。W1.1 `ce5289d` 已用锁定 Core 和合成 `.cmd` 实跑。 | `t54` 独立核对 W1.1，再接 W1.2 的持久启动对账。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
-| #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md)实得 Codex 和 Pi 原生结果。T1.1 `6cc99ed` 修复正文身份，T1.2 `6b43fce` 用合成执行器验证持久受理、占用、重开及迟到结果。集成 `e940403` 修复同文件跨句柄的条件写竞争，Vault 定向 26 项通过。 | `t6n` 核对并发编辑及非法 UTF-8 输入，`t54` 独立复核持久受理。真实执行器和问答仍待接线。 |
-| #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 复核回滚反例、99 项定向及 11 项授权回归。[G1.2/G2.1](../2026-11-19-issue-6-unified-tools-web/evidence/G2.1-windows-integrated-access.md) 合入后八文件 80 项通过。[G6.1 监听生命周期](../2026-11-19-issue-6-unified-tools-web/evidence/G6.1-windows-listener.md)通过。Edge 实测[G6.2 普通 HTTP 意图键](../2026-11-19-issue-6-unified-tools-web/evidence/G6.2-windows-http-intent.md)。 | G6.1 接入 Engine 和桌面，继续打包 Web、邀请和撤销。 |
+| #4 | W6.0 经三轮独立审查合入 `1b3b385`，回执合同及 Markdown 回归 55 项通过。[Windows Core](../../archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)实测子进程、握手 generation 与 doc/CAS。W1.1 `ce5289d` 已用锁定 Core 和合成 `.cmd` 实跑。 | `t54` 独立核对 W1.1，再接 W1.2 的持久启动对账。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
+| #5 | [T0.1](../../archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md)实得 Codex 和 Pi 原生结果。T1.1 `6cc99ed` 修复正文身份，T1.2 `6b43fce` 用合成执行器验证持久受理、占用、重开及迟到结果。集成 `e940403` 修复同文件跨句柄的条件写竞争，Vault 定向 26 项通过。 | `t6n` 核对并发编辑及非法 UTF-8 输入，`t54` 独立复核持久受理。真实执行器和问答仍待接线。 |
+| #6 | `ca8290d` 合入 [G1.1 能力盘点](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 复核回滚反例、99 项定向及 11 项授权回归。[G1.2/G2.1](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G2.1-windows-integrated-access.md) 合入后八文件 80 项通过。[G6.1 监听生命周期](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6.1-windows-listener.md)通过。Edge 实测[G6.2 普通 HTTP 意图键](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6.2-windows-http-intent.md)。 | G6.1 接入 Engine 和桌面，继续打包 Web、邀请和撤销。 |
 | #7 | [H1.1 来源](../2026-11-19-issue-7-ssh-module/evidence/H1.1-upstream-map.md)与 [H1.2 Windows 构建](../2026-11-19-issue-7-ssh-module/evidence/H1.2-windows-executor-reference.md)有证据。Motty 参考二进制验证同级 Viva 和三项回环权限用例。 | 核对单一执行端接入、分发错误与实际授权 SSH 主机。 |
-| #8 | [S0.1 来源](../2026-11-19-issue-8-mail-module/evidence/S0.1-source-baseline.md)与 [S0.2 TS/Rust 对照](../2026-11-19-issue-8-mail-module/evidence/S0.2-transport-probe.md)已实测同一 IMAP/API 和 SMTP 确认中断，分别关闭连接并在新进程读回投递身份。已选 TS Engine 路径。 | S1a.1 等 #9 模块凭据合同和生产接入。应用认证、真实邮箱和包内 Mail 待实测。 |
+| #8 | [S0.1 来源](../../archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S0.1-source-baseline.md)与 [S0.2 TS/Rust 对照](../../archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S0.2-transport-probe.md)已实测同一 IMAP/API 和 SMTP 确认中断，分别关闭连接并在新进程读回投递身份。已选 TS Engine 路径。 | S1a.1 等 #9 模块凭据合同和生产接入。应用认证、真实邮箱和包内 Mail 待实测。 |
 | #9 | `t1b` 实跑 Windows 本机保护。`86f810e` 修复复制库回收和只读取用竞态，`t4z` 独立重放两项通过。 | `t4z` 新增探针发现首次本机回收记录被中断后无法重新初始化。先补齐恢复，再接正式驱动和 P10.2。 |
-| #10 | [W02-02 整板写](../2026-11-19-issue-10-widget-dashboard/evidence/W02-02-atomic-board.md)通过测试装配的 Engine 提交并重启读回。`t4z` 复跑 `15403bd` 的 Edge 与 Electron 静态 SSH Widget 投影。 | 修复注册描述与嵌套 Schema 可漂移。生产整板写者按 W06 切换，W04-07 等 #3 的退出契约。 |
+| #10 | [W02-02 整板写](../../archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W02-02-atomic-board.md)通过测试装配的 Engine 提交并重启读回。`t4z` 复跑 `15403bd` 的 Edge 与 Electron 静态 SSH Widget 投影。 | 修复注册描述与嵌套 Schema 可漂移。生产整板写者按 W06 切换，W04-07 等 #3 的退出契约。 |
 
 ## 平台与运行证据
 
@@ -36,7 +36,7 @@
 
 ## Windows 阶段复验
 
-- `2ceec67` 的 [真实 Edge 共享工作台与 Electron 回归](../2026-11-19-issue-6-unified-tools-web/evidence/G6-windows-shared-workbench.md)通过，含两份邀请、三个浏览器上下文、笔记与任务深链、落盘、文件传输、依邀请撤销，以及同一构建的 16 项桌面回归。桌面分享管理页面、第二台设备及看板退出联动继续按各自验收条件推进。
+- `2ceec67` 的 [真实 Edge 共享工作台与 Electron 回归](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6-windows-shared-workbench.md)通过，含两份邀请、三个浏览器上下文、笔记与任务深链、落盘、文件传输、依邀请撤销，以及同一构建的 16 项桌面回归。桌面分享管理页面、第二台设备及看板退出联动继续按各自验收条件推进。
 - `f49df4a` 的停止代次经 `t4x/report06.md` 独立重放，旧 Vault 的迟到退出不能重启旧 Engine。相邻关窗和换库场景通过。W1.1 两个 Windows 启动增量合入 `9d36640` 与 `30da8fe`。`t4z/report08.md` 独立重放 W1.2 的记录破损修复和 W6.1 的合成 provider。新反例发现插件重启会让旧启动处理覆盖新绑定，停用后仍可能发送正文。两项需在签收前修复。Claude、Codex 与 Pi 的产品收件证据尚待实测。
 - #5 `3c79467` 经真正 Engine HTTP 和 Vault ZIP 注入回放，用有归属的本机记录防止复制库自动派遣。记录复核在 `t110/report01.md`，独立审查后再合入。#7 主机目录 `7edd015` 已合入，`efea64a` 修复目录路径被非普通文件占用时的错误语义并复跑共享目录。#8 私有账号候选通过合成 IMAP 和持久凭据回放，独立复核发现 NAMESPACE 及取消重入问题，返工中。
 - #9 `47f854b` 的首次本机范围恢复已复核；`2ceec67` 以候选数据键摘要核对删除归属，确认已有系统键不受失败事务回收影响，18 项合成保护回归通过。真实 Windows 保护驱动接入与包内核验待完成。
@@ -45,14 +45,14 @@
 
 ## Windows 组合构建与独立复核
 
-- #4 的 W1.2 启动身份对账和 W6.1 输入归属修复合入 `6c2cc92` 至 `3bd2e24`。独立冻结复跑 91 通过、6 条件跳过。真实 Windows Core 在停用重开后保留原 attempt、地址和 PID。发送前停用保持零输入，发送后丢回包保持原归属，合成 provider 对账确认一份正文。已独立实测 [Codex 原生问答](../2026-11-19-issue-4-agent-cli/evidence/W6-windows-codex-native-turn.md)。Huhu 的实际 Tasks 调用、持久回执和恢复仍需组合验收。
+- #4 的 W1.2 启动身份对账和 W6.1 输入归属修复合入 `6c2cc92` 至 `3bd2e24`。独立冻结复跑 91 通过、6 条件跳过。真实 Windows Core 在停用重开后保留原 attempt、地址和 PID。发送前停用保持零输入，发送后丢回包保持原归属，合成 provider 对账确认一份正文。已独立实测 [Codex 原生问答](../../archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W6-windows-codex-native-turn.md)。Huhu 的实际 Tasks 调用、持久回执和恢复仍需组合验收。
 - #5 的本机 Vault 归属与原派遣恢复合入 `9761f2a`。与 #6 共用默认关闭策略后，录入测试先验证 MCP 空目录，再显式授权任务列表。Tasks、Mail、Web 邀请、能力目录与工具授权共六文件 59 项通过。记录为 `core-finished/t132.log`。
 - #8 的账号发现与取消复核合入 `9704003`、`3461045`。Windows 原生 Engine 注册在 `b5b3c61`，在同一临时 Vault 中从真实回环 IMAP 发现 INBOX，以 Windows Credential Manager 写入账号凭据，锁定 Safe 后重开仍可独立取用。ZIP 恢复保留邮箱定义并要求重新配置。相关四文件 25 项通过。保存通过受信 Mail 账号服务，账号列表通过真实 Engine HTTP。生产添加界面、首封邮件与实际提供商尚待。
 - #9 的 `6478854` 原生 Keyring 宿主通过独立复跑，包括系统键精确清理、恢复到同路径的新物理目录与实际 Electron userData 转发。当前 Safe 的会话代和原子密钥环合并为 `a7c51d9`，独立定向 19 项通过、57 项按名称过滤。个人多账号加密提交进入独立复验，Renderer 仍待即时清理接线。
 - #10 的 `f8fb9f5` 合入私有恢复与当前格式修复。独立复跑有效备份跨 Vault 恢复和显式确认两个场景。重开保留实例与几何，原件保全一次，并发确认仅一次成功且旧请求冲突。生产写入、确认界面、离场与 Vault 包接线仍归 W06。
 - [Windows 阶段安装包](windows-stage-combined-3bd2e24.md)新增同包证据。该构建通过三项包内冒烟、真实 Electron UtilityProcess 的 23 项凭据检查，以及实际 Edge 中两份邀请和三个会话。
 - `c839daf` 完成 Windows 全仓类型检查。#5 的问题投影、回执持久化和 #8 的首封原文缓存通过独立复跑。#4 真实 Windows Codex 的受控新会话保持同一 Core 绑定，借助本机合成模型端只发布一次原任务正文。原生接收两阶段回放合入 `79b495a`，固定 Core 与合成 App Server 在生产 Tasks 收件箱内观察到同一会话、一次输入、两份持久 ACK 及一条结果评论，重开后结果和 ACK 身份不变。
-- #5 [原生问题回答](../2026-11-19-issue-5-task-automation/tasks/T3.2-reply.md)合入 Tasks 侧持久受理。Windows Engine 测试验证写评论前中断后的一次补写、并发回答只保存一条，以及接受确认丢失后查询原回复。现场 Codex 对同一原生请求的作答另验。
+- #5 [原生问题回答](../../archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T3.2-reply.md)合入 Tasks 侧持久受理。Windows Engine 测试验证写评论前中断后的一次补写、并发回答只保存一条，以及接受确认丢失后查询原回复。现场 Codex 对同一原生请求的作答另验。
 - [组合阶段候选 3290af1](windows-stage-combined-3290af1.md)保全安装包及七个关键文件的逐字节证据。实际包内以真实 Windows Codex、固定 Core 和本机合成模型完成一次派遣及结果，Edge 两份邀请与三会话和两种外部工具网关授权回归通过。此提交已快进到本地 `feature/issue-fix`。
 
 ## Windows Safe 与 IMAP 增量

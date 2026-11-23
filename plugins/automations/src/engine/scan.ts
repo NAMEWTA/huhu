@@ -7,7 +7,7 @@ export interface SnapshotTask {
   status: "not_started" | "in_progress" | "completed";
   tags: string[];
   availableAt?: string | null;
-  execution: { spaceId: string | null; provider: string | null } | null;
+  execution: { spaceId: string | null; provider: string | null; target?: "resume" | undefined } | null;
   usesExistingSession?: boolean;
   inputRevision: number;
   inputHash: string;
@@ -15,7 +15,21 @@ export interface SnapshotTask {
   dispatchBlockers: string[];
 }
 
-export type SkipReason = "not-open" | "not-agent" | "tag-mismatch" | "not-due" | "outside-window" | "unscheduled" | "task-blocked" | "missing-space" | "space-inaccessible" | "cli-missing" | "held-after-restore";
+export type SkipReason =
+  | "not-open"
+  | "not-agent"
+  | "tag-mismatch"
+  | "not-due"
+  | "outside-window"
+  | "unscheduled"
+  | "task-blocked"
+  | "missing-space"
+  | "space-inaccessible"
+  | "cli-missing"
+  | "held-after-restore"
+  | "history-busy"
+  | "history-unavailable"
+  | "history-unsupported";
 
 export interface ScanEnv {
   holds(taskId: string, inputHash: string): boolean;
@@ -98,7 +112,7 @@ export function classify<T extends SnapshotTask>(tasks: T[], env: ScanEnv, filte
       skip(sp === "missing" ? "missing-space" : "space-inaccessible");
       continue;
     }
-    if (!task.usesExistingSession && (!task.execution?.provider || !env.cliAvailable(task.execution.provider))) {
+    if (!task.usesExistingSession && task.execution?.target !== "resume" && (!task.execution?.provider || !env.cliAvailable(task.execution.provider))) {
       skip("cli-missing");
       continue;
     }

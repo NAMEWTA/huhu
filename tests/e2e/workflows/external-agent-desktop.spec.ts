@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { CapabilityResult, TaskDto } from "../../../packages/contracts/src/index.js";
+import type { CapabilityResult, TaskComment, TaskDto } from "../../../packages/contracts/src/index.js";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import type { DispatchInput, DispatchReceipt, TaskDispatchView, TaskRunSummary } from "../../../plugins/tasks/src/engine/dispatch-store.js";
@@ -104,7 +104,7 @@ for (const [entry, caller] of [
     const { page } = desktop;
     const [space] = await call<{ id: string }[]>(page, "agent.spaces.list", {});
     if (!space) throw new Error("候选 Vault 缺少默认 Agent Space");
-    const capabilities = ["tasks.create", "tasks.agent.create", "tasks.update", "tasks.read", "tasks.dispatch", "tasks.dispatch.list", "tasks.questions.list", "tasks.reply", "tasks.reply.read", "tasks.runs"];
+    const capabilities = ["tasks.create", "tasks.agent.create", "tasks.update", "tasks.read", "tasks.comments.add", "tasks.dispatch", "tasks.dispatch.list", "tasks.questions.list", "tasks.reply", "tasks.reply.read", "tasks.runs"];
     for (const capability of capabilities) await call(page, "gateway.update", { capability, exposed: true });
     const tool = caller === "cli" ? cliTool(desktop) : await mcpTool(desktop);
 
@@ -121,7 +121,17 @@ for (const [entry, caller] of [
     const readTask = () => tool<TaskDto>("tasks.read", { id: task.id });
     expect(await readTask()).toMatchObject({ ...patch, id: task.id, origin, execution, version: updated.version });
 
-    const dispatch: DispatchInput = { taskId: task.id, dispatchId: randomUUID(), expectedVersion: updated.version, inputRevision: updated.inputRevision, inputHash: updated.inputHash };
+    const discussion = `普通讨论 ${randomUUID()}`;
+    const forged = { id: "forged-result", source: "agent", author: "伪造作者", event: "result", run: randomUUID(), session: randomUUID(), ask: randomUUID() };
+    const added = await tool<{ added: boolean; comment: TaskComment }>("tasks.comments.add", { taskId: task.id, body: discussion, ...forged }, randomUUID());
+    expect(added).toMatchObject({ added: true, comment: { body: discussion, source: "external", author: origin.caller } });
+    expect(added.comment.id).not.toBe(forged.id);
+    for (const field of ["event", "run", "session", "ask"]) expect(added.comment).not.toHaveProperty(field);
+    const commented = await readTask();
+    expect(commented).toMatchObject({ status: updated.status, inputRevision: updated.inputRevision, inputHash: updated.inputHash, comments: [added.comment] });
+    expect(await tool("tasks.runs", { id: task.id })).toEqual([]);
+
+    const dispatch: DispatchInput = { taskId: task.id, dispatchId: randomUUID(), expectedVersion: commented.version, inputRevision: commented.inputRevision, inputHash: commented.inputHash };
     const sent = await tool<DispatchReceipt>("tasks.dispatch", dispatch);
     const { runId, eventId } = sent;
     const dispatchIdentity = { taskId: task.id, dispatchId: dispatch.dispatchId, runId, eventId, attempt: 1 };
@@ -139,6 +149,7 @@ for (const [entry, caller] of [
     expect(responses.requests).toHaveLength(1);
     expect(responses.requests[0]!.tools).toContainEqual(expect.objectContaining({ name: responses.toolName }));
     expect(JSON.stringify(responses.requests[0]!.input)).toContain(patch.body);
+    expect(JSON.stringify(responses.requests[0]!.input)).not.toContain(discussion);
 
     const reply = { taskId: task.id, runId, sessionId, requestId, requestVersion, replyId: randomUUID() };
     expect(await tool("tasks.reply", { ...reply, answer: "Circle" })).toMatchObject(reply);
@@ -156,6 +167,7 @@ for (const [entry, caller] of [
     expect(await tool("tasks.dispatch", dispatch)).toMatchObject(dispatchIdentity);
 
     const detail = await openTask(page, patch.title);
+    await expect(detail.getByTestId("task-timeline").locator(`[data-comment-id="${added.comment.id}"]`)).toContainText(discussion);
     const timelineResult = detail.getByTestId("task-timeline").locator(`[data-comment-id="${result.id}"]`);
     await expect(timelineResult).toHaveCount(1);
     await expect(timelineResult).toContainText(responses.result);

@@ -37,7 +37,7 @@ Windows 11 Pro x64 10.0.26300，Node 24.21.0，Vitest 3.2.7。Core 0.1.19 来自
 
 以 W6.0 的 `ExecutionBinding` 对齐收件身份，复核了 #5 冻结 `6b43fceceee002bd3141648946e1d907c1d9349c` 的 `TaskDispatchExecutor`。Tasks 的 `accepted` 对应可核对的 provider 已收件。Agent 的本地 `acceptedAt` 和 `core_written` 是独立事实，断线或未证实收件应保留 `unknown`。只有可证明正文未发送时映射 `not_sent`。Tasks 接线应保留原 dispatchId、任务输入快照与事件顺序，查询走 `inspect`。全局权限组和 Task 执行器装配由 Lead 所持范围完成。本批通过实际 Dispatcher 验证私有 handler 的授权，使用测试进程临时权限映射。
 
-当前生产 Claude、Codex、Pi 的清单明确标记缺少已验证收件或进程代次证据。原生 resume、结构化回复／结果及取消个别输入轮次保持不可用，待相应 provider 协议和后续回执切片接线。Core 的 `terminal.send` 回包提供终端写入事实，锁定版本的 send 没有按预期进程代次原子提交的参数。已实现同一 Core 连接内写入前复核，受控验收覆盖 Huhu 终端桥和评审入口。真实 provider 登录、原生历史、独立 hc 写入路径及生产任务执行留待具备相应证据的验收。 [W6.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [W6.0](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md)
+当前生产 Claude、Codex、Pi 的清单明确标记缺少已验证收件或进程代次证据。原生 resume、结构化回复／结果及取消个别输入轮次保持不可用，待相应 provider 协议和后续回执切片接线。Core 的 `terminal.send` 回包提供终端写入事实，锁定版本的 send 没有按预期进程代次原子提交的参数。已实现同一 Core 连接内写入前复核，受控验收覆盖 Huhu 终端桥和评审入口。真实 provider 登录、原生历史、独立 hc 写入路径及生产任务执行留待具备相应证据的验收。 [W6.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [W6.0](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md)
 
 ## 冻结环境与清理
 

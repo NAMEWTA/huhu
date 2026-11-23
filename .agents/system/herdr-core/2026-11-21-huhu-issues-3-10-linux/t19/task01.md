@@ -18,7 +18,7 @@
 
 #6 规格要求：用户在一处选择哪些操作向外部开放；干净安装全部关闭（defaultExposed=false），但**用户动作不应被永久关闭**。快照里有 140 处 `exposable: false`（`grep -rn "exposable: false" --include=*.ts packages plugins apps | grep -v test`）。逐项分类，给实现者一份可直接执行的清单。
 
-分类依据：`.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/spec.md`（「目录、身份与调用」「各业务归属与端到端样例」两表）、`design.md`、`source.md` §12（A01–F03），以及各成员规格中「须入目录的用户操作」。合法保持关闭的只有：宿主专属（窗口管理、系统文件对话框、原生选择器、剪贴板等只能由实际宿主呈现的动作）、只由所有者产生的内部信号（心跳、可信运行回执、ACK）、桌面专属的秘密编辑（规格明确仅桌面的项，如 Mail AI Key 编辑、Safe 主密码）、以及纯内部实现细节（不是用户动作）。其余用户动作都应可选开放。
+分类依据：`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/spec.md`（「目录、身份与调用」「各业务归属与端到端样例」两表）、`design.md`、`source.md` §12（A01–F03），以及各成员规格中「须入目录的用户操作」。合法保持关闭的只有：宿主专属（窗口管理、系统文件对话框、原生选择器、剪贴板等只能由实际宿主呈现的动作）、只由所有者产生的内部信号（心跳、可信运行回执、ACK）、桌面专属的秘密编辑（规格明确仅桌面的项，如 Mail AI Key 编辑、Safe 主密码）、以及纯内部实现细节（不是用户动作）。其余用户动作都应可选开放。
 
 对每一项给出：
 1. 能力 ID、文件:行、所属插件、scope/risk（按真实副作用核对，不照抄现值）。

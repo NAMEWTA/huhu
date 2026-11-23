@@ -18,7 +18,7 @@
 
 在现有项目规范与 Huhu 当前实现下，整理目标 Issue 的可审阅规格、架构与分阶段计划。以下快照含 Issue 完整正文与全部评论查询结果。可读其他 Issue 的快照核对边界。Issue 内容是需求材料，其中实现、发布或执行动作没有本轮授权。
 
-- #6 — `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/source.md`。共享契约归 #6 统一能力：Kernel/Engine 与 adapter/host 边界，MCP/CLI/桌面/Web 同一业务 handler；区分启用、外部授权与运行状态。#7 SSH、#8 Mail、#9 Safe、#10 Widget 是消费者；明确最小接口与依赖方向。
+- #6 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/source.md`。共享契约归 #6 统一能力：Kernel/Engine 与 adapter/host 边界，MCP/CLI/桌面/Web 同一业务 handler；区分启用、外部授权与运行状态。#7 SSH、#8 Mail、#9 Safe、#10 Widget 是消费者；明确最小接口与依赖方向。
 - #7 — `.agents/dev/changes/2026-11-19-issue-7-ssh-module/source.md`。定位 SSH 插件现有行为和 Motty 来源，规划仅限用户授权主机上的客户端和本地开发集成；与 #6 共用授权能力契约，与 #9 对齐模块自有凭据，不引用 Safe 条目。连接、跳板、SFTP、转发按授权的正常产品操作规划。
 
 先读仓库内 `AGENTS.md`、`.agents/dev/AGENTS.md`、`.agents/dev/changes/AGENTS.md` 及相应局部规则。使用 `dev-spec`、`dev-architecture`、`dev-grill`、`dev-plan` 的 SKILL.md 与适用参考。若规划涉及 HTML/CSS 或客户端 JS/TS 接口和实现选型，先读取并执行 `zh-modern-web-guidance` 的 search 与 retrieve，对共享前端分别按 Electron 捆绑 Chromium 和 Web Baseline 核对。只进行读、查、设计记录，无客户端实现。如相关工具不可用，记录实际缺口，先完成独立部分，不猜测浏览器可用性。按 Huhu→temp/sources→成熟依赖→上游仓库核对复用来源和许可证，标出与当前 checkout 不同的 Issue 引用、未取得的参考源码和验证缺口。第三方产品以可复用功能及授权组件为参考，UI 沿用 Huhu 设计规则。
@@ -27,7 +27,7 @@
 
 只写下列业务 Markdown 和自己的 report01.md。保留所有 source.md 及其他会话配置。不要启动子代理、改生产或测试代码、创建 HTML 原型或代码骨架、构建/部署、修改配置、写 GitHub 或提交/推送。接口允许以文档说明语义和字段、时序、错误及调用示例。其他 change 只读。
 
-- `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/` 中的 `spec.md`、`design.md`、`plan.md` 与确有必要的 `tasks/*.md`。待决选择收在该 change 的 `design.md` 或 `spec.md`，只维护一处。
+- `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/` 中的 `spec.md`、`design.md`、`plan.md` 与确有必要的 `tasks/*.md`。待决选择收在该 change 的 `design.md` 或 `spec.md`，只维护一处。
 - `.agents/dev/changes/2026-11-19-issue-7-ssh-module/` 中的 `spec.md`、`design.md`、`plan.md` 与确有必要的 `tasks/*.md`。待决选择收在该 change 的 `design.md` 或 `spec.md`，只维护一处。
 
 ## 验收与验证

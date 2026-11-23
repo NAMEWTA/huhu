@@ -10,7 +10,9 @@ import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { run as runCli } from "../../../apps/cli/src/main.js";
+import { AgentDispatch } from "../../agent-cli/src/engine/dispatch.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
+import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
 import { externalEntries, externalToolEntry, type ExternalEntry } from "../../tasks/test/external-tool-entry.js";
@@ -91,7 +93,12 @@ vi.mock("../../tasks/src/engine/index.js", async (original) => {
           ...opts,
           now: fixtureNow,
           dispatchCheckMs: 50,
-          dispatchExecutor: { ready: fixture.ready, dispatch: fixture.dispatch, inspect: async () => "unknown" },
+          dispatchExecutor: {
+            ready: fixture.ready,
+            resumeEligibility: createAgentDispatchExecutor(api, machineId()).resumeEligibility!,
+            dispatch: fixture.dispatch,
+            inspect: async () => "unknown",
+          },
         },
       )) satisfies typeof tasks.apply,
   };
@@ -708,38 +715,61 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   }
 });
 
-test("已有会话和原生恢复交由 Tasks 对各自目标做预检", async () => {
+test("扫描预览与发生共同使用 Tasks 的原生历史资格", async () => {
   const { engine, scans } = await start();
   const rule = await createRule(engine, "扫描绑定目标");
-  const [space] = await invoke<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const [space] = await invoke<{ id: string; revision: number }[]>(engine, "agent.spaces.list", {});
+  const existingTarget = { mode: "existing", sessionId: "synthetic-session" } as const;
+  const history = { machineId: machineId(), spaceId: space!.id, spaceRevision: space!.revision, historyId: "b".repeat(64), historyRevision: "c".repeat(64) };
+  const resumeTarget = { mode: "resume", nativeSessionId: randomUUID(), history } as const;
+  const targetInfo = {
+    ...resumeTarget,
+    provider: "codex",
+    spaceId: space!.id,
+    spaceRevision: space!.revision,
+    binding: null,
+    configurationId: "d".repeat(64),
+    available: true,
+    reason: null,
+    structuredReply: false,
+    structuredResult: false,
+    cancel: false,
+  };
+  const targets = vi.spyOn(AgentDispatch.prototype, "targets").mockResolvedValue([targetInfo]);
   const create = (title: string, execution: Omit<NonNullable<TaskDto["execution"]>, "spaceId" | "model" | "effort" | "fast">) =>
     invoke<TaskDto>(engine, "tasks.create", { title, body: title, type: "agent", tags: ["match"], execution: { spaceId: space!.id, ...execution } });
-  const existingTarget = { mode: "existing", sessionId: "synthetic-session" } as const;
-  const resumeTarget = { mode: "resume", nativeSessionId: "synthetic-thread" } as const;
   const existing = await create("已有会话", { provider: null, target: existingTarget });
   const resume = await create("原生恢复", { provider: "codex", target: resumeTarget });
   await invoke(engine, "gateway.update", { capability: "automations.preview", exposed: true });
-  const preview = await call<{ ruleVersion: string; candidates: { taskId: string }[] }>(engine, "automations.preview", { id: rule.id, expectedVersion: rule.version }, true);
-  expect(preview).toMatchObject({ ok: true, data: { ruleVersion: rule.version } });
-  expect(await call(engine, "automations.preview", { id: rule.id, expectedVersion: "stale" }, true)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  const input = { id: rule.id, expectedVersion: rule.version };
+  type Preview = { ruleVersion: string; candidates: { taskId: string }[]; skipped: { taskId: string; reason: string; detail?: string }[] };
+
+  targets.mockResolvedValue([{ ...targetInfo, available: false, reason: "input_owned" }]);
+  const busy = await call<Preview>(engine, "automations.preview", input, true);
+  expect(busy.data).toMatchObject({
+    ruleVersion: rule.version,
+    candidates: [{ taskId: existing.id }],
+    skipped: [{ taskId: resume.id, reason: "history-busy", detail: "input_owned" }],
+  });
+  expect(await call(engine, "automations.preview", { ...input, expectedVersion: "stale" }, true)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
   expect(fixture.refresh).not.toHaveBeenCalled();
-  expect(preview.data.candidates.map(({ taskId }) => taskId).sort()).toEqual([existing.id, resume.id].sort());
   expect(scans.list()).toEqual([]);
   expect(dispatchRecords(engine)).toEqual([]);
+
+  // A changed rollout between preview and activation is rechecked while freezing the occurrence.
+  targets.mockResolvedValue([{ ...targetInfo, history: { ...history, historyRevision: "e".repeat(64) } }]);
+  const stale = await call<Preview>(engine, "automations.preview", input, true);
+  const skipped = { taskId: resume.id, reason: "history-unavailable", detail: "history_selection_changed" };
+  expect(stale.data?.skipped).toEqual([expect.objectContaining(skipped)]);
   const row = await scans.invoke(rule.id);
-  expect(row.items).toHaveLength(2);
-  expect(row.items).toEqual(expect.arrayContaining([expect.objectContaining({ taskId: existing.id, state: "accepted" }), expect.objectContaining({ taskId: resume.id, state: "accepted" })]));
-  await vi.waitFor(() =>
-    expect(dispatchRecords(engine)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          receipt: expect.objectContaining({ taskId: existing.id, state: "pending", reason: "waiting_resource" }),
-          snapshot: expect.objectContaining({ execution: expect.objectContaining({ target: existingTarget }) }),
-        }),
-        expect.objectContaining({ receipt: expect.objectContaining({ taskId: resume.id, state: "pending", reason: "waiting_resource" }), snapshot: expect.objectContaining({ execution: expect.objectContaining({ target: resumeTarget }) }) }),
-      ]),
-    ),
-  );
+  expect(row.items).toEqual([expect.objectContaining({ taskId: existing.id, state: "accepted" }), expect.objectContaining({ ...skipped, state: "skipped" })]);
+  expect(dispatchRecords(engine).map(({ receipt }) => receipt.taskId)).toEqual([existing.id]);
+
+  targets.mockResolvedValue([targetInfo]);
+  const ready = await call<Preview>(engine, "automations.preview", input, true);
+  expect(ready.data?.candidates.map(({ taskId }) => taskId)).toContain(resume.id);
+  const next = await scans.invoke(rule.id);
+  expect(next.items).toContainEqual(expect.objectContaining({ taskId: resume.id, state: "accepted" }));
   expect(fixture.dispatch).not.toHaveBeenCalled();
 });
 

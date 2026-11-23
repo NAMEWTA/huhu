@@ -15,7 +15,7 @@
 
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-w05-widgets`。
 - 候选 `e197f9abe421f4b4ffc38292420b23aa16e8967a`，父提交 `fc044713`。临时索引生成，分支 HEAD 仍在基准。已核对工作树业务文件与候选一致。工作树内 `.agents/` 为只读，证据通过 Git 对象加入候选。
-- 证据 `.agents/dev/changes/2026-11-19-issue-10-widget-dashboard/evidence/W05-W06-linux.md`。
+- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W05-W06-linux.md`。
 - 合同改动位于 `packages/contracts/src/home.ts`，旧类型读回统一映射至插件类型，备份版本保持 v1。
 - Engine 只在 `apps/engine/src/boot.ts` 加四个定义 import 和注册清单接线。任务插件的 `package.json` 新增独立定义导出，避免 Engine 包通过共享入口加载 Workbench 资源。
 - 复核由实施者完成。任务要求由 Lead 接续验收。

@@ -16,7 +16,7 @@
 
 | 范围 | 交付与覆盖 | 产物 |
 | --- | --- | --- |
-| #8 Mail | 33 份，覆盖 S0 至 S9 及 M-01 至 M-08。拆开预设/收件/账号维护、草稿/附件/投递/对账、联系人/搜索/阅读/标读/回复/转发、Gmail/Outlook、同步、通知、备份/恢复、设置/AI 和工具接入。S6b 交付 Huhu 新格式邮件子集恢复，原 one-mail 旧格式迁入仅在历史来源保留。 | [计划及覆盖表](../../../../dev/changes/2026-11-19-issue-8-mail-module/plan.md) · [任务目录](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/) · [规格](../../../../dev/changes/2026-11-19-issue-8-mail-module/spec.md) · [设计](../../../../dev/changes/2026-11-19-issue-8-mail-module/design.md) |
+| #8 Mail | 33 份，覆盖 S0 至 S9 及 M-01 至 M-08。拆开预设/收件/账号维护、草稿/附件/投递/对账、联系人/搜索/阅读/标读/回复/转发、Gmail/Outlook、同步、通知、备份/恢复、设置/AI 和工具接入。S6b 交付 Huhu 新格式邮件子集恢复，原 one-mail 旧格式迁入仅在历史来源保留。 | [计划及覆盖表](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/plan.md) · [任务目录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks) · [规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/spec.md) · [设计](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/design.md) |
 | #9 Safe | 25 份，覆盖 P0 至 P10 与 A01–D05。个人条目、多账号、标签、锁定、改密、保存、显隐和复制分开验收。SSH/Git/Agent CLI/Automations/Mail 各有认证责任。P9 采用清洁安装，P8 保留新格式备份、恢复与 Git 验证。 | [计划及覆盖表](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) · [任务目录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks) · [规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) · [设计](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md) |
 
 ## 已执行验证
@@ -27,7 +27,7 @@
 | 开发基线 | 读取本机 Huhu 和上游源码，对四个参考项目比较 git rev-parse HEAD 与 git ls-remote --symref origin HEAD；one-mail main d1be24d5bb83、Motty main 2daa9db582e1、ORCA main 8bc232f5ed8b、herdr-core master c7517808d64f 与批次记录一致。 | [批次源码清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)；两个 design 的复用和调用链章节 |
 | 编号、索引、规格覆盖 | 从磁盘逐份解析 64 份规划，33 + 25 份任务名称和 H1 对齐，每项均在计划的索引及规格覆盖表中。核对任务内规格、设计、源码、具体原型区域、确认记录及两条以上可判定的验收。 | 两份 plan 的“规格覆盖”，各自 tasks 目录。 |
 | 本地链接与依赖 | 已解析 885 个已存在的本地链接及 180 个显式锚点，待发布的确认记录目标 2 个。58 个任务、93 条显式任务链接构成无环依赖图。再将阶段区间与整合验收展开复查，58 个节点、177 条边仍无环。 | 从两份 plan 的“切片索引与依赖”到任务“前置产物”；Python pathlib 解析相对路径，graphlib.TopologicalSorter 对依赖及整合区间排序。 |
-| 场景定位与实现环境 | 对照两份 index.html 的真实静态区域 ID 和故障选择，以及模拟脚本的工作台、设置、读写流程。每份任务含 HTML 区域、需走查的状态和确认记录指针。规划指明 Electron 44.9.1、宿主接口和 Web Baseline 条件；检索并读取 forms、validate-input-after-interaction、sanitize-untrusted-html、security 指南。 | [Mail 入口](../../../../dev/changes/2026-11-19-issue-8-mail-module/prototype/index.html) · [Safe 入口](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype/index.html)。原型与浏览器运行证据归 t14。 |
+| 场景定位与实现环境 | 对照两份 index.html 的真实静态区域 ID 和故障选择，以及模拟脚本的工作台、设置、读写流程。每份任务含 HTML 区域、需走查的状态和确认记录指针。规划指明 Electron 44.9.1、宿主接口和 Web Baseline 条件；检索并读取 forms、validate-input-after-interaction、sanitize-untrusted-html、security 指南。 | [Mail 入口](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/prototype/index.html) · [Safe 入口](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype/index.html)。原型与浏览器运行证据归 t14。 |
 | 数据边界 | 反查活动 spec、design、plan、tasks，旧格式仅作为历史差异或拒绝输入；#9 无旧库盘点、转存或清理任务。新格式分别有数据包范围、校验、重授权及失败保全。全部规划验证使用合成标记或隔离测试资料。 | #8 S6a.1、S6a.2、S6b.1；#9 P8.1–P8.3、P9.1。两份 source.md 原文保留。 |
 
 ## 待决与接续

@@ -13,7 +13,7 @@
 | W1.2 `a20128b` | 原 P1 的会话记录截断重复启动已修复。会话删除、缺 state、junction 消失的重查通过。新发现同一 Vault 内插件停用并重新启用可让旧 handler 覆盖新一轮真实绑定。 | 私有索引和意图对账的归属合理。实例内并发控制覆盖不到插件重新启用。**将 W1.2 单独返工、复跑并签收，当前冻结提交暂缓独立合入。** W6.1 的生产受理取证无需成为 W1.2 的前置。 |
 | W6.1 私有底层 `4fe9790` | 真实 Core 与 Dispatcher 的合成 new/existing、三类事实分离、去重及输入仲裁通过。独立实测发现停用后，旧请求仍可能向 provider 提交正文。 | 私有能力、写前意图及所有权边界成立。**先补停用收尾，再签收私有发送切片。** 生产 provider 受理、原生 resume 与生产 Tasks 装配继续待核实。 |
 
-复核依据为冻结 W1.2/W6.1 规格、t54 原复核和 t80 交付。两项新增问题均在隔离夹具中触发，业务提交和工作树只读。 [W1.2 规格](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md) · [W6.1 规格](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [t54 原复核](../t54/report04.md) · [t80 交付](../t80/report02.md)
+复核依据为冻结 W1.2/W6.1 规格、t54 原复核和 t80 交付。两项新增问题均在隔离夹具中触发，业务提交和工作树只读。 [W1.2 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md) · [W6.1 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [t54 原复核](../t54/report04.md) · [t80 交付](../t80/report02.md)
 
 ## W1.2 规格轴
 

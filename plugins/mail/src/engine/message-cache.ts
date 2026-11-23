@@ -1,23 +1,24 @@
 import { mailRequestId, mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, unlinkSync } from "node:fs";
+import { lstatSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import type { MailAccountDefinition } from "./account-definition.js";
 import type { AccountRemovals } from "./account-removals.js";
-import type { openMailAccounts } from "./accounts.js";
+import type { MailAccount, openMailAccounts } from "./accounts.js";
 import { MailAccountError } from "./discovery.js";
 import type { MailDrafts } from "./drafts.js";
 import { forwardContext } from "./forward-context.js";
 import { gmailFallback, gmailHistoryId, GmailHistoryError, gmailNativeId, gmailRecovery, type GmailPage } from "./gmail-history.js";
 import { graphDeltaLink, GraphMailError, graphNativeId, graphPending, graphProgress, graphRecovery, type GraphPage } from "./graph-mail.js";
 import { IMAP_WINDOW, MAX_IMAP_SOURCE_BYTES } from "./imap-message.js";
+import { compareMailCopies, mailCopyIdentity, mailFolderRank, receivedMailDate, type MailCopyOrder } from "./mail-copies.js";
 import { messageBody, parseMessageBody } from "./message-body.js";
 import { forwardSeed, forwardSource, newTopicRecipients, newTopicSeed, sourceDigest } from "./prepare-forward.js";
 import { prepareReply, replyMode, replySeed, rootHeaders } from "./prepare-reply.js";
-import { publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
+import { cachedPublicMail, publicMail, publicMailHeaders, readPublicMail } from "./public-mail.js";
 import { gmailMessageLocation, graphMessageLocation, imapMessageLocation, preserveReadOverrides, readOverridePath, readOverrides, type PortableMessageLocation } from "./read-overrides.js";
 import { loadRemoteImages, maxRemoteImages, remoteImageTypes } from "./remote-images.js";
 import { sourceMessage } from "./reply-context.js";
@@ -237,8 +238,90 @@ function cachedEntries<T>(snapshot: { message: T | null; history?: T[] | undefin
   return [...(snapshot.message ? [snapshot.message] : []), ...(snapshot.history ?? [])];
 }
 
+function visibleMailboxEntries(snapshot: Snapshot | null) {
+  return cachedEntries<CacheEntry>(snapshot).filter(({ deleted }) => !deleted);
+}
+
 export function cachedMailboxMessages(files: Files, input: Mailbox) {
-  return cachedEntries<CacheEntry>(readSnapshot(files, input).snapshot).filter(({ deleted }) => !deleted);
+  return visibleMailboxEntries(readSnapshot(files, input).snapshot);
+}
+
+export function accountMailboxSummaries(files: Files) {
+  type Copy = { message: MailCopyOrder; internetId?: string; unread: boolean };
+  type FolderSummary = { stamp: string; messages: Copy[] | null };
+  let cached = new Map<string, FolderSummary>();
+
+  async function readFolder(input: Mailbox, stamp: string): Promise<FolderSummary> {
+    const { snapshot } = readSnapshot(files, input);
+    if (!snapshot) return { stamp, messages: null };
+    const messages: Copy[] = [];
+    for (const entry of visibleMailboxEntries(snapshot)) {
+      const info = await cachedPublicMail(entry);
+      if (!info) continue;
+      const { summary } = entry;
+      const order = { accountId: summary.accountId, localMessageId: summary.localMessageId, date: receivedMailDate(entry, info) };
+      const message: MailCopyOrder = summary.transport === "imap" ? { ...order, source: summary.transport, uid: summary.uid } : { ...order, source: summary.transport };
+      messages.push({ message, unread: summary.readState === "unread", ...(info.internetId && { internetId: info.internetId }) });
+    }
+    return { stamp, messages };
+  }
+
+  return async (accounts: MailAccount[]) => {
+    type RankedCopy = Copy & { rank: number };
+    type Summary = { unread: number; synced: boolean };
+    const active = new Map<string, FolderSummary>();
+    const previous = cached;
+
+    async function summarize(account: MailAccount): Promise<Summary | null> {
+      const chosen = new Map<string, RankedCopy>();
+      let synced = false;
+      let failed = false;
+      for (const folder of account.definition.folders.filter(isPublicMailFolder)) {
+        const input = { accountId: account.accountId, folder: folder.path };
+        const relative = cachePath(input);
+        let summary: FolderSummary;
+        try {
+          const stat = statSync(files.abs(relative), { bigint: true, throwIfNoEntry: false });
+          if (!stat) continue;
+          if (!stat.isFile()) {
+            failed = true;
+            continue;
+          }
+          const stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+          const prior = previous.get(relative);
+          summary = prior?.stamp === stamp ? prior : await readFolder(input, stamp);
+          active.set(relative, summary);
+        } catch {
+          // The cache is rebuildable. Its failure must not block account settings or authentication.
+          failed = true;
+          continue;
+        }
+        if (!summary.messages) {
+          failed = true;
+          continue;
+        }
+        synced = true;
+        const rank = mailFolderRank(folder);
+        for (const item of summary.messages) {
+          const candidate = { ...item, rank };
+          const id = mailCopyIdentity(candidate);
+          const current = chosen.get(id);
+          if (!current || compareMailCopies(candidate, current) < 0) chosen.set(id, candidate);
+        }
+      }
+      if (failed) return null;
+      let unread = 0;
+      for (const item of chosen.values()) {
+        if (item.unread) unread++;
+      }
+      return { unread, synced };
+    }
+
+    const rows: (MailAccount & { mailbox: Summary | null })[] = [];
+    for (const account of accounts) rows.push({ ...account, mailbox: await summarize(account) });
+    cached = active;
+    return rows;
+  };
 }
 
 function localReadIds(record: CacheRecord) {
@@ -1070,6 +1153,7 @@ export function registerMessageCache(
               message.summary.readState = "local";
               message.localRead = true;
               expectedVersion = (await write(input, record, version, cancelled)).version;
+              api.events.publish("entity.changed", { kind: "mail-message", id: input.accountId, op: "updated" });
             }
             cancelled.throwIfAborted();
             let state: "local" | "synced" | "needs-refresh" = "local";

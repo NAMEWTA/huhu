@@ -38,6 +38,6 @@ node node_modules/vitest/vitest.mjs run apps/engine/test/task-dispatch.live.test
 
 复核覆盖上述既有 Engine 和适配器夹具，正向 provider 为合成进程。具备真实 provider 收件证据的原生 resume、Renderer 详情定位与焦点走查属于各自后续验收范围。
 
-依据 [T2.1 验收](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T2.1-dispatch-cli.md)、[W6.1 验收](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) 和 [T2.1 实施报告](../t135/report01.md)。
+依据 [T2.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T2.1-dispatch-cli.md)、[W6.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) 和 [T2.1 实施报告](../t135/report01.md)。
 
 ## Lead 验收

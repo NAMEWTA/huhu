@@ -1,0 +1,30 @@
+{
+  "scope": "Mail width persistence lifecycle and draft leave guard",
+  "baseCommit": "cc551778c8d7130e8cd7cbb6bb95c6a4d1fc1ea2",
+  "boundary": "Uncommitted combined source build; not final release package evidence",
+  "stats": {
+    "startTime": "2026-11-23T05:33:09.054Z",
+    "duration": 13629.311000000002,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "checks": {
+    "mailTypecheck": "t1fj exit 0",
+    "desktopAndUiTypesBuild": "t1fm exit 0",
+    "electronE2E": "t1fn exit 0, 3 passed, zero skipped"
+  },
+  "sha256": {
+    "temp/closeout-release/mail-lifecycle-ui/result.json": "60ad0460936785757e3f9f51f0eca0db75f6fe2bf436dad8b9987fb5f2873ecd",
+    "temp/closeout-release/mail-lifecycle-ui.log": "108c4e9cd48e0717f3ccdc910080ba51b3ab8891f35e93bacae375a90297a9c2",
+    "temp/closeout-release/rgl-mail-types.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "temp/closeout-release/rgl-mail-ui-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "temp/closeout-release/rgl-mail-build.log": "35ad807d9593650203b20d07998f973199b267f8af26f3c63c169e6ecdb5698e",
+    "plugins/mail/src/ui/useMailPaneWidths.ts": "3f73325efd36ff8d4470dc9e105b29878d4782c2ce66d547ccefc0a4b36cbdd0",
+    "plugins/mail/src/ui/MailModule.tsx": "5f82387e6f8015ba410cff4964b84081d6977e62ca4103bad421b7d2290c1700",
+    "plugins/mail/src/ui/MailComposer.tsx": "489e0ba1cad2319c661da3b925ec32ca3415d2c75b58ccddafb928affefa555e",
+    "plugins/mail/test/pane-save.test.tsx": "8f2810b6fcd4612e6adfeafc3dd7e5b7f53929158b32240397c014927662ebdc",
+    "tests/e2e/workflows/mail.spec.ts": "28a3d6810c4fb9cebb029c3035c011186e424d9f1afc91ca2d32caf06d98c600"
+  }
+}

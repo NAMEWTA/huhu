@@ -45,6 +45,7 @@ export interface TaskQuery {
   listDispatchable(): import("@huhu/contracts").TaskDto[];
   snapshot(taskId: string): import("@huhu/contracts").TaskDto;
   agentDispatchBlocker: typeof agentDispatchBlocker;
+  resumeEligibility(task: TaskDto, instructions: string, signal: AbortSignal): ReturnType<NonNullable<TaskDispatchExecutor["resumeEligibility"]>>;
 }
 
 const Id = z.object({ id: z.string() });
@@ -184,7 +185,7 @@ export const taskToolDescriptors = {
     exposable: true,
     defaultExposed: false,
     input: z.strictObject({ spaceId: z.string().min(1) }),
-    output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, available: true, reason: true })),
+    output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, nativeSessionId: true, history: true, historyTitle: true, available: true, reason: true })),
     title: "查看派遣目标",
     description: "查看指定 Space 可选的 Agent 与会话目标。",
     risk: "normal",
@@ -440,9 +441,40 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     const { spaceId, target, provider, model, effort } = execution;
     const spaces = api.service<{ spaces: { list(): { id: string }[] } }>("agentCli")?.spaces;
     if (!spaceId || !spaces?.list().some(({ id }) => id === spaceId)) throw errors.invalidInput("请选择当前 Vault 已配置的工作区");
-    if (target?.mode === "resume") throw errors.invalidInput("此工具需要新会话或明确选中的现有会话");
     if (target?.mode !== "existing" && (!provider || !agentById(provider))) throw errors.invalidInput("请选择已知的 Agent");
     if (model?.startsWith("-") || effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
+  };
+  const validateHistorySelection = async (c: CapabilityContext, execution: TaskExecution | null | undefined, previous?: TaskExecution | null) => {
+    const target = execution?.target;
+    if (!execution || target?.mode !== "resume") return;
+    if (execution.provider !== "codex" || target.history?.machineId !== machine || !execution.spaceId || target.history.spaceId !== execution.spaceId || execution.model || execution.effort || execution.fast) {
+      throw errors.invalidInput("请重新选择受控 Codex 历史会话");
+    }
+    if (previous?.target?.mode === "resume" && previous.spaceId === execution.spaceId && previous.provider === execution.provider && JSON.stringify(previous.target) === JSON.stringify(target)) return;
+    const targets = z.array(AgentDispatchTargetInfoSchema).parse(
+      await api.call(
+        "agent.targets.list",
+        {
+          vaultId: api.vault.vaultId,
+          machineId: machine,
+          spaceId: execution.spaceId,
+        },
+        { signal: c.signal },
+      ),
+    );
+    const selected = targets.filter(
+      (row) =>
+        row.mode === "resume" &&
+        row.provider === execution.provider &&
+        row.spaceId === execution.spaceId &&
+        row.nativeSessionId === target.nativeSessionId &&
+        row.history?.historyId === target.history?.historyId &&
+        row.history?.historyRevision === target.history?.historyRevision &&
+        row.history?.spaceRevision === target.history?.spaceRevision &&
+        row.history?.machineId === target.history?.machineId &&
+        row.history?.spaceId === target.history?.spaceId,
+    );
+    if (selected.length !== 1 || (!selected[0]?.available && selected[0]?.reason !== "input_owned" && selected[0]?.reason !== "history_writer_busy")) throw errors.invalidInput("原生历史来源已变化或不可派遣，请重新选择");
   };
   const assertStillExposed = (c: CapabilityContext, capability: string) => {
     c.signal.throwIfAborted();
@@ -527,7 +559,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         throw error;
       });
       const targets = z.array(AgentDispatchTargetInfoSchema).parse(response);
-      return targets.map(({ mode, provider, sessionId, available, reason }) => ({ mode, provider, sessionId, available, reason }));
+      return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason }));
     }),
   );
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
@@ -562,6 +594,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return receipt;
     },
   } satisfies TaskRuleDispatch);
+  api.provide("taskResumeClaims", { abandoned: (key: Parameters<TaskDispatch["resumeAbandoned"]>[0]) => dispatch.resumeAbandoned(key) });
   api.provide("taskFollowUpDispatch", {
     acceptFollowUp: async (input) => {
       const receipt = await dispatch.acceptFollowUp(input);
@@ -592,6 +625,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         if (i.type !== "agent") throw errors.permissionDenied("人工任务不能设置 Agent 执行目标");
         validateAgentTarget(i.execution);
       }
+      if (i.type === "agent") await validateHistorySelection(c, i.execution);
       const task = await svc.create(i, originOf(c.caller));
       // 受信 Inbox 转换只需要任务 ID：不让下游幂等账本持久化任务正文
       if (c.caller === "plugin:inbox" && !c.delegatedBy) return { id: task.id };
@@ -599,31 +633,38 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.agentCreate, async ({ caller }, input) => {
+    bindCapability(taskToolDescriptors.agentCreate, async (c, input) => {
+      const { caller } = c;
       if (!isTaskToolCaller(caller)) throw errors.permissionDenied("创建 Agent 任务");
       validateAgentTarget(input.execution);
+      await validateHistorySelection(c, input.execution);
       return agentWriteResult(caller, await svc.create(input, originOf(caller)));
     }),
   );
   api.defineCapability(
     bindCapability(taskToolDescriptors.update, async (c, i) => {
       let includesAgentInput = false;
-      const task = await svc.update(i.id, i.expectedVersion, i.patch, i.baseInputHash, i.baseEditHash, (current, type, execution) => {
-        if (isWorkbenchCaller(c.caller) || (current.type !== "agent" && type !== "agent" && !execution)) return;
-        authorizeAgentEdit(c);
-        if (current.version !== i.expectedVersion) throw errors.versionConflict(current.version);
-        if (type === "agent") validateAgentTarget(execution);
-        includesAgentInput = true;
+      const task = await svc.update(i.id, i.expectedVersion, i.patch, i.baseInputHash, i.baseEditHash, async (current, type, execution) => {
+        if (!isWorkbenchCaller(c.caller) && (current.type === "agent" || type === "agent" || execution)) {
+          authorizeAgentEdit(c);
+          if (current.version !== i.expectedVersion) throw errors.versionConflict(current.version);
+          if (type === "agent") validateAgentTarget(execution);
+          includesAgentInput = true;
+        }
+        if (type === "agent" && (i.patch.execution !== undefined || current.type !== type)) await validateHistorySelection(c, execution, current.type === "agent" ? current.execution : undefined);
       });
       return agentWriteResult(c.caller, task, includesAgentInput);
     }),
   );
   api.defineCapability(
     bindCapability(taskToolDescriptors.duplicate, async (c, i) => {
-      const task = await svc.duplicate(i.id, originOf(c.caller), (current) => {
-        if (current.type !== "agent" || isWorkbenchCaller(c.caller)) return;
-        authorizeAgentEdit(c);
-        validateAgentTarget(current.execution);
+      const task = await svc.duplicate(i.id, originOf(c.caller), async (current) => {
+        if (current.type !== "agent") return;
+        if (!isWorkbenchCaller(c.caller)) {
+          authorizeAgentEdit(c);
+          validateAgentTarget(current.execution);
+        }
+        await validateHistorySelection(c, current.execution);
       });
       return agentWriteResult(c.caller, task);
     }),
@@ -632,11 +673,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(bindCapability(taskToolDescriptors.setStatus, (_c, i) => svc.setStatus(i.id, i.status, i.expectedVersion)));
   api.defineCapability(
     bindCapability(taskToolDescriptors.commentsAdd, (c, i) => {
-      const task = svc.read(i.taskId);
       const internal = c.caller.startsWith("plugin:");
-      // 外部入口只能给 human 任务写评论：agent 任务的输入（含评论）不能被外部注入（spec §8.3）
       const user = isWorkbenchCaller(c.caller);
-      if (!internal && !user && task.type === "agent") throw errors.permissionDenied("给 Agent 任务写评论（仅工作台可用）");
       const source = user ? "human" : internal ? (i.source ?? "system") : "external";
       const at = (opts.now?.() ?? new Date()).toISOString().replace(/\.\d{3}Z$/, "Z");
       return svc.addComment(i.taskId, {
@@ -665,6 +703,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     listDispatchable: () => svc.list({ type: "agent", status: ["not_started"] }),
     snapshot: (taskId: string) => svc.read(taskId),
     agentDispatchBlocker,
+    async resumeEligibility(task, instructions, signal) {
+      if (!task.execution || !executor?.resumeEligibility) return { state: "unsupported", reason: "native_resume_evidence_unavailable" };
+      return executor.resumeEligibility(task.execution, task.body, instructions, signal);
+    },
   } satisfies TaskQuery);
 
   // 提醒：启动时与每 30 秒检查；应用关闭期间到点的在下次启动补发一次

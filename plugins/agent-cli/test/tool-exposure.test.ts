@@ -571,7 +571,7 @@ test.each(entries)("%s Agent 可用性只读取脱敏缓存，只有工作台刷
   const win = process.platform === "win32";
   const command = path.join(fixture, win ? "fixture-claude.cmd" : "fixture-claude");
   const probe = path.join(fixture, "version-probe.log");
-  writeFileSync(command, win ? `@echo off\r\necho hit>>"${probe}"\r\necho fixture-version\r\n` : `#!/bin/sh\nprintf 'hit\\n' >> "${probe}"\nprintf 'fixture-version\\n'\n`, { mode: 0o755 });
+  writeFileSync(command, win ? `@echo off\r\necho %~1>>"${probe}"\r\necho fixture-version\r\n` : `#!/bin/sh\nprintf '%s\\n' "$1" >> "${probe}"\nprintf 'fixture-version\\n'\n`, { mode: 0o755 });
   unwrap(await manage("agent.settings.update", { expectedRevision: 0, defaultAgent: "claude", agents: { claude: { command }, codex: { enabled: false }, pi: { enabled: false } } }));
   const capability = "agent.catalog.detect";
   const view = { id: "claude", installed: true };
@@ -590,7 +590,7 @@ test.each(entries)("%s Agent 可用性只读取脱敏缓存，只有工作台刷
     expect(unwrap(await read())).toEqual(refreshed);
     const external = unwrap(await tool.call(capability, {}));
     expect(JSON.stringify(external)).not.toMatch(/fixture-version|fixture-claude|override/);
-    expect(readFileSync(probe, "utf8").trim()).toBe("hit");
+    expect(readFileSync(probe, "utf8").trim().split(/\r?\n/)).toEqual(["--version", "--help"]);
     expect(ensure).not.toHaveBeenCalled();
   });
 });
@@ -627,7 +627,7 @@ test.each(entries)("%s Pi 历史绑定指定 Space 和来源版本，重开按�
   const query = { spaceId: space.id, provider: "pi" };
   unwrap(await manage("agent.catalog.refresh"));
   expect(unwrap(await manage("agent.history.list", query))).toMatchObject({
-    entries: expect.arrayContaining([expect.objectContaining({ canResume: true, canFork: false, forkBlocked: "当前 Pi CLI 不支持 --fork 和 --session-id" })]),
+    entries: expect.arrayContaining([expect.objectContaining({ canResume: true, canFork: false, forkBlocked: "当前 Pi CLI 未报告支持原生历史分支" })]),
   });
   const histories = await withTool("agent.history.list", query, async () => {
     const peek = core.peek.mock.calls.length;

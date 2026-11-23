@@ -15,7 +15,7 @@
 
 ## 产物与改动
 
-- 分支 `impl/huhu-issues-3-10-g6-ssh` 仍指向任务父提交。候选由临时索引生成。业务和测试文件与工作树一致。工作树的 `.agents` 只读，追加证据从候选中的 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md` 读取。
+- 分支 `impl/huhu-issues-3-10-g6-ssh` 仍指向任务父提交。候选由临时索引生成。业务和测试文件与工作树一致。工作树的 `.agents` 只读，追加证据从候选中的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md` 读取。
 - 复用现有的 `sshCapabilityDescriptors` 声明和 `ssh.apply` 绑定。四个既有名称继续由原 manifest 提供。
 - 领域意图键为 JSON 输入字段 `intentKey`。作用域为 Vault 实例、可信外部调用主体和能力。受理后保存目标与跳板 ID。复用 `OperationReceipts`，并在排队结束、落实前和返回回执前核对授权。配置回执只有 ID 与修订，目录回执只有版本，删除回执只有结果。内联凭据去除明文后使用本机机密保护里的 Vault 专用 HMAC 密钥封存输入摘要。
 - 主机配置允许修改已授权记录的显示信息与连接默认值，以及同一认证类型的凭据保留、清除和适用的内联替换。工作台负责首次创建、变更地址、登录身份、路由、认证类型和本机身份文件路径。目录外部操作限于可授权的主机和可见现有分组，工作台继续承担全库分组和排序管理。

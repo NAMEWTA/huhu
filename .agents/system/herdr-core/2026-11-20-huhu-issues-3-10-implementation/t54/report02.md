@@ -15,7 +15,7 @@
 
 ## 审查范围
 
-父提交 `a5d82cb704cdd44fbae387518f7d1c4246908fb1`，候选 `6cc99edd0feefe75e601e8aded0e4329fa927f56`，树 `445dd878f5033e13321b0f97912c07a045444a87`。候选是指定父提交的直接子提交。差异仅为 `plugins/tasks/src/engine/service.ts` 和 `plugins/tasks/test/persistence-http.test.ts`。Windows x64，Node 24.21.0，Vitest 3.2.7。两份源码直接取自 Git 归档，临时副本复用已安装的锁定依赖。每组命令使用隔离的配置目录和合成 Vault。 [T1.1](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [本次返工记录](../t6n/report01.md) · [原独立审查](report01.md)
+父提交 `a5d82cb704cdd44fbae387518f7d1c4246908fb1`，候选 `6cc99edd0feefe75e601e8aded0e4329fa927f56`，树 `445dd878f5033e13321b0f97912c07a045444a87`。候选是指定父提交的直接子提交。差异仅为 `plugins/tasks/src/engine/service.ts` 和 `plugins/tasks/test/persistence-http.test.ts`。Windows x64，Node 24.21.0，Vitest 3.2.7。两份源码直接取自 Git 归档，临时副本复用已安装的锁定依赖。每组命令使用隔离的配置目录和合成 Vault。 [T1.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [本次返工记录](../t6n/report01.md) · [原独立审查](report01.md)
 
 ## 规格轴
 
@@ -25,7 +25,7 @@
 
 另四次并行提交正文更新和评论，交替启动请求顺序。两个请求每次都返回成功，但最终文件两次只保留新正文（revision 2），另两次只保留评论和旧正文（revision 1）。父提交的两组试验各四次，结果相同。短时间内的两条写入都能通过同一个旧版本检查。后续原子替换依次写入各自基于旧文件生成的完整内容，`withRetry` 收不到冲突。
 
-修复后，同一旧快照编辑两个不同正文应只有一个成功，编辑与独立评论应合并保留。版本读取、校验和提交需要覆盖同文件临界区。影响包含 Tasks 保存、评论与基于 revision/hash 的加工身份。定位 `packages/vault/src/write.ts:50–70`、`packages/vault/src/semantic/repository.ts:129–153`、`plugins/tasks/src/engine/service.ts:142–149,208–237`。 [Issue 的临界区要求](../../../../dev/changes/2026-11-19-issue-5-task-automation/source.md)
+修复后，同一旧快照编辑两个不同正文应只有一个成功，编辑与独立评论应合并保留。版本读取、校验和提交需要覆盖同文件临界区。影响包含 Tasks 保存、评论与基于 revision/hash 的加工身份。定位 `packages/vault/src/write.ts:50–70`、`packages/vault/src/semantic/repository.ts:129–153`、`plugins/tasks/src/engine/service.ts:142–149,208–237`。 [Issue 的临界区要求](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/source.md)
 
 ### P2 · 孤立代理项使 HTTP 返回的输入身份与磁盘不一致
 
@@ -46,7 +46,7 @@ HTTP 拒绝孤立代理项，或在计算身份、生成写响应之前统一为
 ## 规范轴
 
 - 候选在 `TasksService.update` 中先调用 `replaceTaskSection`，再用与读 DTO 相同的 `parseTaskBody(...).task ?? ""` 比较身份，空补丁沿用读回正文。随后把同一份区段写入原仓储，无新接口、存储格式、依赖或客户端改动。有效输入的序列化和读取行为保持一致。
-- Issue 已明确单 Vault 写锁不足以串行同任务异步写入。本轮通过 HTTP 验证了共享 Vault 条件写的既有缺口。修复时仍应复用既有仓储条件写和冲突语义，并覆盖同一任务的正文、评论及其他写入口。 [行为规格](../../../../dev/changes/2026-11-19-issue-5-task-automation/spec.md)
+- Issue 已明确单 Vault 写锁不足以串行同任务异步写入。本轮通过 HTTP 验证了共享 Vault 条件写的既有缺口。修复时仍应复用既有仓储条件写和冲突语义，并覆盖同一任务的正文、评论及其他写入口。 [行为规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/spec.md)
 
 ## 执行记录
 
@@ -73,7 +73,7 @@ git diff --check a5d82cb704cdd44fbae387518f7d1c4246908fb1 6cc99edd0feefe75e601e8
 
 ## 本地合入范围与接续
 
-可单独保留 `6cc99ed` 的有效正文规范化修补及其回归测试。完整 T1.1 持久写验收需要关闭并发丢写，并统一 HTTP 接受值、响应和磁盘正文身份。两项需复跑真实 HTTP 和磁盘核对。桌面缺配保存和 existing 选择仍待确认原型版本后的实现及走查，实际 existing 绑定仍由 W6.1 提供。本轮未重新运行 Electron，界面依据沿用原报告与冻结差异。 [原型确认记录](../../../../dev/changes/2026-11-19-issue-5-task-automation/prototype-review.md) · [W6.1 执行合同](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)
+可单独保留 `6cc99ed` 的有效正文规范化修补及其回归测试。完整 T1.1 持久写验收需要关闭并发丢写，并统一 HTTP 接受值、响应和磁盘正文身份。两项需复跑真实 HTTP 和磁盘核对。桌面缺配保存和 existing 选择仍待确认原型版本后的实现及走查，实际 existing 绑定仍由 W6.1 提供。本轮未重新运行 Electron，界面依据沿用原报告与冻结差异。 [原型确认记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/prototype-review.md) · [W6.1 执行合同](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)
 
 ## Lead 验收
 

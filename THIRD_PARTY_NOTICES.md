@@ -182,6 +182,33 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | Go `1.26.7`、`golang.org/x/sys v0.50.0` | BSD-3-Clause。Go 提交 `e3336a22ad3f0a90bd252c95d8b5544e02674205`，x/sys 提交 `00227f1d192842e243cba7763c1f9a1fcb1c4344`。 [Go 标签](https://go.googlesource.com/go/+/refs/tags/go1.26.7) · [x/sys 标签](https://go.googlesource.com/sys/+/refs/tags/v0.50.0) | 使用 `windows/{syscall_windows,zsyscall_windows,types_windows}.go` 的 Win32 调用构建 Windows 受保护 PTY。Huhu 实现身份核验和授权协议，`native/agent-pty/go.sum` 固定依赖摘要，应用随 Windows 安装资源交付两份许可和专利文件。 |
 | `github.com/creack/pty v1.1.24` | MIT，提交 `edfbf75025b0ba4ee17c19f52d9b600fad80a787`，Go 模块缓存发布元数据与 `go.sum` 固定。 [固定来源](https://github.com/creack/pty/tree/edfbf75025b0ba4ee17c19f52d9b600fad80a787) | Linux Agent helper 调用 `pty.Open` 建立真实 PTY。未改上游模块，Huhu 的 `console_linux.go` 负责进程监督、输入转发、尺寸与生命周期。许可 `native/agent-pty/LICENSE-creack-pty.txt` 随包交付。 |
 | `golang.org/x/term v0.46.0` | BSD-3-Clause，提交 `6226200ed12cba417a9d9e799c2a7179d3fc0e27`。 [固定来源](https://go.googlesource.com/term/+/6226200ed12cba417a9d9e799c2a7179d3fc0e27) | Linux Agent helper 复用 `IsTerminal`、`MakeRaw`、`Restore`，未改上游模块；`LICENSE-x-term.txt` 与 `PATENTS-x-term.txt` 随包交付。Linux 构建另复用已锁定的 x/sys Unix 接口，实际 Go 工具链由构建日志及 `go version -m` 记录，本轮为 Go 1.27.1，许可和专利文件已与本机工具链逐字节比对一致。 |
+| `react-grid-layout@2.3.0` | Samuel Reed，MIT。npm gitHead `9b01a614bcdd13e7e921cf3f4b1c7e77942421c1`，本地审查 pin `ec4ab79c97448947b04601c2237b2861d94a0fcb`，实际安装摘要由根锁文件固定。 [发布包](https://registry.npmjs.org/react-grid-layout/-/react-grid-layout-2.3.0.tgz) | Desktop 与独立 Web 的看板直接使用原包装配 `GridLayout`、容器测量、格点约束及样式。Huhu 负责草稿、空位和碰撞策略，不复制 RGL 源码。 |
+
+### react-grid-layout 2.3.0 许可证
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2016 Samuel Reed
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## 黄金往返测试夹具
 
@@ -908,6 +935,7 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | extend | 3.0.2 | MIT |  |
 | fast-check | 4.10.2 | MIT | https://fast-check.dev/ |
 | fast-deep-equal | 3.1.3 | MIT | https://github.com/epoberezkin/fast-deep-equal#readme |
+| fast-equals | 4.0.3 | MIT | https://github.com/planttheidea/fast-equals#readme |
 | fast-equals | 5.4.5 | MIT | https://github.com/planttheidea/fast-equals#readme |
 | fast-glob | 3.3.3 | MIT |  |
 | fast-uri | 3.1.9 | BSD-3-Clause | https://github.com/fastify/fast-uri |
@@ -1363,8 +1391,10 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | react | 19.3.1 | MIT | https://react.dev/ |
 | react-day-picker | 9.14.0 | MIT | https://daypicker.dev |
 | react-dom | 19.3.1 | MIT | https://react.dev/ |
+| react-draggable | 4.7.2 | MIT | https://github.com/react-grid-layout/react-draggable |
 | react-error-boundary | 6.1.2 | MIT | https://react-error-boundary-lib.vercel.app/ |
 | react-force-graph-2d | 1.29.1 | MIT | https://github.com/vasturiano/react-force-graph |
+| react-grid-layout | 2.3.0 | MIT | https://github.com/react-grid-layout/react-grid-layout |
 | react-is | 16.13.1 | MIT | https://reactjs.org/ |
 | react-is | 17.0.2 | MIT | https://reactjs.org/ |
 | react-is | 18.3.1 | MIT | https://reactjs.org/ |
@@ -1373,6 +1403,7 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | react-medium-image-zoom | 5.4.3 | BSD-3-Clause | https://github.com/rpearce/react-medium-image-zoom |
 | react-remove-scroll | 2.7.2 | MIT |  |
 | react-remove-scroll-bar | 2.3.8 | MIT |  |
+| react-resizable | 3.2.0 | MIT | https://github.com/react-grid-layout/react-resizable |
 | react-style-singleton | 2.2.3 | MIT | https://github.com/theKashey/react-style-singleton#readme |
 | read-binary-file-arch | 1.0.6 | MIT | https://github.com/samuelmaddock/read-binary-file-arch#readme |
 | readable-stream | 2.3.8 | MIT |  |
@@ -1395,6 +1426,7 @@ Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [
 | require-directory | 2.1.1 | MIT | https://github.com/troygoode/node-require-directory/ |
 | require-from-string | 2.0.2 | MIT |  |
 | resedit | 1.7.2 | MIT | https://github.com/jet2jet/resedit-js |
+| resize-observer-polyfill | 1.5.1 | MIT | https://github.com/que-etc/resize-observer-polyfill |
 | resolve-alpn | 1.2.1 | MIT | https://github.com/szmarczak/resolve-alpn#readme |
 | resolve-from | 4.0.0 | MIT |  |
 | resolve-from | 5.0.0 | MIT |  |

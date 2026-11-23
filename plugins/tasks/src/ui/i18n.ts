@@ -130,7 +130,7 @@ export const t = {
     discardTitle: "放弃未保存的修改？",
     discardDo: "放弃修改",
     discardKeep: "继续编辑",
-    errors: { title: "请填写任务名称", space: "Agent 执行需要选择 Space", provider: "Agent 执行需要选择 CLI", reminder: "有提醒还没有选择时间" } as Record<string, string>,
+    errors: { title: "请填写任务名称", space: "Agent 执行需要选择 Space", provider: "Agent 执行需要选择 CLI", target: "请重新选择原生历史会话", reminder: "有提醒还没有选择时间" } as Record<string, string>,
     saveFailed: "保存失败",
     preview: "预览",
     edit: "编辑",

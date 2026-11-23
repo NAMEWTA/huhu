@@ -18,7 +18,7 @@
 | `stale` | 执行绑定已失效、当前输入归属已变化、另一 stopId 已认领该执行，或原轮已有未关联本停止意图的中断终态。 |
 | `unsupported` | 非受控新 Codex、绑定的 adapter 已变更，或只读 Vault 收到执行请求。 |
 
-Agent 复用原派发记录、W6.1 的输入摘要、原 Core／PID／代次验证和当前输入仲裁。它在最靠近写入处重复核验所有权，先将停止意图原子写入 Vault。helper 复用同一认证通道，保存该 stopId 对应的签名发送记录，随后只发送一次 `turn/interrupt {threadId, turnId}`。该 JSON-RPC 方法的空结果只反映调用返回。重复停止或检查只读原事实，已确认终态时用现有派发对账更新本地输入占用。 [W6.2 任务](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.2-takeover-stop.md) · [固定协议 schema 投影](evidence-task06/pinned-schema.json)
+Agent 复用原派发记录、W6.1 的输入摘要、原 Core／PID／代次验证和当前输入仲裁。它在最靠近写入处重复核验所有权，先将停止意图原子写入 Vault。helper 复用同一认证通道，保存该 stopId 对应的签名发送记录，随后只发送一次 `turn/interrupt {threadId, turnId}`。该 JSON-RPC 方法的空结果只反映调用返回。重复停止或检查只读原事实，已确认终态时用现有派发对账更新本地输入占用。 [W6.2 任务](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.2-takeover-stop.md) · [固定协议 schema 投影](evidence-task06/pinned-schema.json)
 
 ## Windows 验收
 

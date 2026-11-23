@@ -29,6 +29,7 @@ export interface TaskQueryLike {
   listDispatchable(): TaskDto[];
   snapshot(taskId: string): TaskDto;
   agentDispatchBlocker?(task: TaskDto): string | undefined;
+  resumeEligibility?(task: TaskDto, instructions: string, signal: AbortSignal): Promise<{ state: "ready" | "busy" | "unavailable" | "unsupported"; reason?: string }>;
 }
 
 export interface AutomationsDeps {
@@ -290,13 +291,13 @@ export class AutomationsService {
 
   // ---- 扫描 ----
   /** 只读预览：候选、跳过原因、接下来三次激活时间；不写任何文件。 */
-  preview(ruleId: string, expectedVersion?: string) {
+  async preview(ruleId: string, expectedVersion?: string, signal?: AbortSignal) {
     const r = this.rule(ruleId);
     if (expectedVersion !== undefined && expectedVersion !== r.version) throw errors.versionConflict(r.version);
     const now = this.d.now();
     const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
     if (!isTaskScanRule(r)) return { ruleVersion: r.version, next, tasksDisabled: false, candidates: [], skipped: [] };
-    const { tasksDisabled, candidates, skipped } = this.classifyTaskScan(r, now);
+    const { tasksDisabled, candidates, skipped } = await this.classifyTaskScan(r, now, signal);
     return {
       ruleVersion: r.version,
       next,
@@ -306,10 +307,32 @@ export class AutomationsService {
     };
   }
 
-  classifyTaskScan(rule: TaskScanRule, now: Date) {
+  async classifyTaskScan(rule: TaskScanRule, now: Date, callerSignal?: AbortSignal) {
     const query = this.d.taskQuery();
+    const signal = callerSignal ? AbortSignal.any([this.abort.signal, callerSignal]) : this.abort.signal;
+    signal.throwIfAborted();
     const targets = { holds: this.d.holds, spaceAccessible: (id: string) => this.d.spaceState(id).state, cliAvailable: this.d.cliAvailable };
-    return { tasksDisabled: !query, ...classify(this.allTasks(query), targets, taskScanFilter(rule.data.action.input, rule.data.trigger.zone, now)) };
+    const snapshots = query?.listAll() ?? [];
+    const byId = new Map(snapshots.map((task) => [task.id, task]));
+    const { candidates, skipped } = classify(
+      snapshots.map((task) => this.scanSnapshot(task, query)),
+      targets,
+      taskScanFilter(rule.data.action.input, rule.data.trigger.zone, now),
+    );
+    const eligible: typeof candidates = [];
+    for (const candidate of candidates) {
+      signal.throwIfAborted();
+      if (candidate.task.execution?.target !== "resume") {
+        eligible.push(candidate);
+        continue;
+      }
+      const task = byId.get(candidate.task.id)!;
+      const result = (await query?.resumeEligibility?.(task, rule.body, signal)) ?? { state: "unsupported" as const };
+      signal.throwIfAborted();
+      if (result.state === "ready") eligible.push(candidate);
+      else skipped.push({ task: candidate.task, reason: `history-${result.state}`, ...(result.reason && { detail: result.reason }) });
+    }
+    return { tasksDisabled: !query, candidates: eligible, skipped };
   }
 
   async refreshTaskScanTargets(): Promise<void> {
@@ -325,7 +348,8 @@ export class AutomationsService {
     return undefined;
   }
 
-  private snapshotOf(t: TaskDto): SnapshotTask & { version: string } {
+  private scanSnapshot(t: TaskDto, query: TaskQueryLike | undefined): SnapshotTask & { version: string } {
+    const blocker = query?.agentDispatchBlocker?.(t);
     return {
       id: t.id,
       version: t.version,
@@ -334,20 +358,12 @@ export class AutomationsService {
       status: t.status,
       tags: t.tags,
       availableAt: t.availableAt ?? null,
-      execution: t.execution ? { spaceId: t.execution.spaceId, provider: t.execution.provider } : null,
+      execution: t.execution ? { spaceId: t.execution.spaceId, provider: t.execution.provider, ...(t.execution.target?.mode === "resume" && { target: "resume" as const }) } : null,
       inputRevision: t.inputRevision,
       inputHash: t.inputHash,
-      dispatchBlockers: t.dispatchBlockers,
+      dispatchBlockers: query?.agentDispatchBlocker ? (blocker ? [blocker] : []) : t.dispatchBlockers,
+      usesExistingSession: t.execution?.target?.mode === "existing",
     };
-  }
-
-  private allTasks(query: TaskQueryLike | undefined) {
-    return (query?.listAll() ?? []).map((task) => {
-      const snapshot = this.snapshotOf(task);
-      if (!query?.agentDispatchBlocker) return snapshot;
-      const blocker = query.agentDispatchBlocker(task);
-      return { ...snapshot, dispatchBlockers: blocker ? [blocker] : [], usesExistingSession: task.execution?.target?.mode === "existing" };
-    });
   }
 
   // ---- 激活 ----

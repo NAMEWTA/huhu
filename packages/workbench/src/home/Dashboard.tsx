@@ -1,9 +1,11 @@
 import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetConfigSchema, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, MoveDiagonal2, Plus, RotateCcw, X } from "lucide-react";
-import { Component, useId, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, Plus, RotateCcw, X } from "lucide-react";
+import { Component, useId, useState, type ReactNode } from "react";
+import { useContainerWidth } from "react-grid-layout";
 import { createRequestId } from "../engine-client/client.js";
-import { appendPlacement, movePlacement, orderPlacements, packPlacements, reorderPlacement, type Placement } from "./dashboard-layout.js";
+import { DashboardGrid, DASHBOARD_NARROW_WIDTH } from "./DashboardGrid.js";
+import { appendPlacement, movePlacement, orderPlacements, packPlacements, placementAnnouncement, reorderPlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
 import "./dashboard.css";
 
@@ -57,18 +59,6 @@ const repairReasons: Record<DashboardRepairChange["reasons"][number], string> = 
   collision: "避开其他卡片",
 };
 
-interface Gesture {
-  pointerId: number;
-  placement: Placement;
-  kind: "move" | "resize";
-  originX: number;
-  originY: number;
-  column: number;
-  row: number;
-  min: { w: number; h: number };
-  max: { w: number; h: number };
-}
-
 interface DashboardProps {
   state: Controller;
   definitions: ReadonlyMap<string, HomeWidgetDefinition>;
@@ -87,9 +77,8 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
-  const [preview, setPreview] = useState<{ id: string; layout: Placement[] }>();
-  const gesture = useRef<Gesture | undefined>(undefined);
-  const grid = useRef<HTMLDivElement>(null);
+  const { width, mounted: gridReady, containerRef } = useContainerWidth({ measureBeforeMount: true });
+  const narrow = width <= DASHBOARD_NARROW_WIDTH;
   const view = state.snapshot.data;
   const editing = state.draft !== undefined;
   const locked = state.busy || state.notice?.action === "verify";
@@ -97,14 +86,17 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   const restoring = state.recovery?.intent.action === "restore";
   const byId = new Map(board?.instances.map((item) => [item.instanceId, item]));
   const layout = orderPlacements(board?.layout ?? []);
-  const items = (preview?.layout ?? layout).filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
+  const items = layout.filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
   const label = (instance: Instance) => instance.title || definitions.get(instance.widgetType)?.title || instance.widgetType;
-  const changeLayout = (next: Placement[] | undefined) => {
-    if (!board || !next) {
+  const changeLayout = (next: Placement[] | undefined, id: string) => {
+    if (!board || !editing || locked) return;
+    if (!next) {
       setFeedback("该位置超出看板的边界。");
       return;
     }
-    setFeedback("");
+    const placed = next.find(({ instanceId }) => instanceId === id);
+    const instance = byId.get(id);
+    if (placed && instance) setFeedback(placementAnnouncement(label(instance), placed));
     state.update({ ...board, layout: next });
   };
   const changeInstance = (id: string, patch: Partial<Instance>) => {
@@ -142,69 +134,6 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
     setFeedback("草稿已恢复为默认布局。");
     setResetOpen(false);
   }
-  function beginGesture(event: PointerEvent<HTMLButtonElement>, placement: Placement, kind: Gesture["kind"], definition?: HomeWidgetDefinition) {
-    const target = grid.current;
-    if (!target || gesture.current || locked || event.button !== 0 || (kind === "resize" && !definition)) return;
-    const style = getComputedStyle(target);
-    if (style.display !== "grid") return;
-    const bounds = target.getBoundingClientRect();
-    event.preventDefault();
-    event.currentTarget.focus({ preventScroll: true });
-    target.setPointerCapture(event.pointerId);
-    gesture.current = {
-      pointerId: event.pointerId,
-      placement,
-      kind,
-      originX: event.clientX - bounds.left,
-      originY: event.clientY - bounds.top,
-      column: (bounds.width + Number.parseFloat(style.columnGap)) / DASHBOARD_COLUMNS,
-      row: Number.parseFloat(style.gridAutoRows) + Number.parseFloat(style.rowGap),
-      min: definition?.minSize ?? placement,
-      max: definition?.maxSize ?? placement,
-    };
-  }
-
-  function gesturePlacement(event: PointerEvent<HTMLDivElement>, current: Gesture): Placement {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const dx = Math.round((event.clientX - bounds.left - current.originX) / current.column);
-    const dy = Math.round((event.clientY - bounds.top - current.originY) / current.row);
-    const p = current.placement;
-    if (current.kind === "move") return { ...p, x: p.x + dx, y: p.y + dy };
-    return {
-      ...p,
-      w: Math.max(current.min.w, Math.min(current.max.w, DASHBOARD_COLUMNS - p.x, p.w + dx)),
-      h: Math.max(current.min.h, Math.min(current.max.h, p.h + dy)),
-    };
-  }
-
-  function moveGesture(event: PointerEvent<HTMLDivElement>) {
-    const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId || !board) return;
-    const candidate = gesturePlacement(event, current);
-    const displayed = preview?.layout.find((item) => item.instanceId === candidate.instanceId) ?? current.placement;
-    if (candidate.x === displayed.x && candidate.y === displayed.y && candidate.w === displayed.w && candidate.h === displayed.h) return;
-    const next = movePlacement(board.layout, candidate);
-    setPreview(next ? { id: candidate.instanceId, layout: next } : undefined);
-  }
-
-  function endGesture() {
-    gesture.current = undefined;
-    setPreview(undefined);
-  }
-
-  function commitGesture(event: PointerEvent<HTMLDivElement>) {
-    const current = gesture.current;
-    if (!current || current.pointerId !== event.pointerId || !board) return;
-    endGesture();
-    if (locked || getComputedStyle(event.currentTarget).display !== "grid") return;
-    const candidate = gesturePlacement(event, current);
-    const p = current.placement;
-    if (candidate.x !== p.x || candidate.y !== p.y || candidate.w !== p.w || candidate.h !== p.h) {
-      const next = movePlacement(board.layout, candidate);
-      changeLayout(next);
-      if (next) setFeedback(`第 ${candidate.x + 1} 列，第 ${candidate.y + 1} 行，${candidate.w} × ${candidate.h}。`);
-    }
-  }
   const list = (current: DashboardBoard) => {
     const instances = new Map(current.instances.map((item) => [item.instanceId, item]));
     return (
@@ -219,7 +148,7 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   };
 
   return (
-    <div className="hu-dashboard" data-testid="home-dashboard">
+    <div ref={containerRef} className="hu-dashboard" data-testid="home-dashboard">
       <div className="hu-dashboard-feedback" role="status">
         {state.notice?.text ?? feedback}
         {state.notice?.action ? (
@@ -280,122 +209,113 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
           </Button>
         </div>
       ) : null}
-      <div
-        ref={grid}
-        className="hu-dashboard-grid"
-        onPointerMove={moveGesture}
-        onPointerUp={commitGesture}
-        onLostPointerCapture={endGesture}
-        onPointerCancel={endGesture}
-        onKeyDown={(event) => {
-          if (event.key !== "Escape" || !gesture.current) return;
-          event.preventDefault();
-          if (event.currentTarget.hasPointerCapture(gesture.current.pointerId)) event.currentTarget.releasePointerCapture(gesture.current.pointerId);
-          endGesture();
-        }}
-      >
-        {board
-          ? items.map((p) => {
-              const instance = byId.get(p.instanceId)!;
-              const definition = definitions.get(instance.widgetType);
-              const name = label(instance);
-              const move = (x: number, y: number) => changeLayout(movePlacement(board.layout, { ...p, x: p.x + x, y: p.y + y }));
-              const resize = (dimension: "w" | "h", value: number) => {
-                const candidate = { ...p, [dimension]: value };
-                const narrow = (grid.current?.getBoundingClientRect().width ?? Infinity) <= 620;
-                changeLayout(narrow ? packPlacements(layout.map((item) => (item.instanceId === candidate.instanceId ? candidate : item))) : movePlacement(board.layout, candidate));
-              };
-              const controls = editing ? (
-                <div className="hu-dashboard-card-controls">
-                  <div className="row">
-                    <button type="button" className="hu-dashboard-drag hu-btn" disabled={locked} aria-label={`移动 ${name}`} onPointerDown={(event) => beginGesture(event, p, "move")}>
+      {gridReady && board && (
+        <DashboardGrid
+          width={width}
+          narrow={narrow}
+          items={items}
+          editable={editing && !locked}
+          definitionFor={(id) => {
+            const instance = byId.get(id);
+            return instance ? definitions.get(instance.widgetType) : undefined;
+          }}
+          onChange={changeLayout}
+          onCancel={() => setFeedback("已取消卡片调整。")}
+        >
+          {items.map((p) => {
+            const instance = byId.get(p.instanceId)!;
+            const definition = definitions.get(instance.widgetType);
+            const name = label(instance);
+            const move = (x: number, y: number) => changeLayout(movePlacement(board.layout, { ...p, x: p.x + x, y: p.y + y }), p.instanceId);
+            const resize = (dimension: "w" | "h", value: number) => {
+              const candidate = { ...p, [dimension]: value };
+              changeLayout(narrow ? packPlacements(layout.map((item) => (item.instanceId === candidate.instanceId ? candidate : item))) : movePlacement(board.layout, candidate), p.instanceId);
+            };
+            const controls = editing ? (
+              <div className="hu-dashboard-card-controls">
+                <div className="row">
+                  {!narrow && (
+                    <button type="button" className="hu-dashboard-drag hu-btn" disabled={locked} aria-label={`移动 ${name}`}>
                       <Grip size={16} aria-hidden />
                     </button>
-                    <strong>{name}</strong>
-                    <label className="row">
-                      <input type="checkbox" checked={instance.hidden} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { hidden: event.target.checked })} />
-                      隐藏
-                    </label>
-                    <IconButton
-                      icon={X}
-                      disabled={locked}
-                      label={`移除 ${name}`}
-                      onClick={() => state.update({ ...board, instances: board.instances.filter((item) => item.instanceId !== p.instanceId), layout: board.layout.filter((item) => item.instanceId !== p.instanceId) })}
-                    />
-                  </div>
+                  )}
+                  <strong>{name}</strong>
                   <label className="row">
-                    标题
-                    <input aria-label={`${name}标题`} placeholder={definition?.title ?? "卡片标题"} value={instance.title ?? ""} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { title: event.target.value })} />
+                    <input type="checkbox" checked={instance.hidden} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { hidden: event.target.checked })} />
+                    隐藏
                   </label>
-                  <div className="row">
-                    {definition ? (
-                      <button type="button" className="hu-dashboard-size-handle hu-btn" disabled={locked} aria-label={`拖动调整 ${name} 尺寸`} onPointerDown={(event) => beginGesture(event, p, "resize", definition)}>
-                        <MoveDiagonal2 size={16} aria-hidden />
-                      </button>
-                    ) : null}
-                    <div className="row hu-dashboard-coordinate">
+                  <IconButton
+                    icon={X}
+                    disabled={locked}
+                    label={`移除 ${name}`}
+                    onClick={() => state.update({ ...board, instances: board.instances.filter((item) => item.instanceId !== p.instanceId), layout: board.layout.filter((item) => item.instanceId !== p.instanceId) })}
+                  />
+                </div>
+                <label className="row">
+                  标题
+                  <input aria-label={`${name}标题`} placeholder={definition?.title ?? "卡片标题"} value={instance.title ?? ""} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { title: event.target.value })} />
+                </label>
+                <div className="row">
+                  {narrow ? (
+                    <div className="row">
+                      <IconButton icon={ArrowUp} disabled={locked || layout[0]?.instanceId === p.instanceId} label={`前移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, -1), p.instanceId)} />
+                      <IconButton icon={ArrowDown} disabled={locked || layout.at(-1)?.instanceId === p.instanceId} label={`后移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, 1), p.instanceId)} />
+                    </div>
+                  ) : (
+                    <div className="row">
                       <IconButton icon={ArrowLeft} disabled={locked || p.x === 0} label={`向左移动 ${name}`} onClick={() => move(-1, 0)} />
                       <IconButton icon={ArrowRight} disabled={locked || p.x + p.w === DASHBOARD_COLUMNS} label={`向右移动 ${name}`} onClick={() => move(1, 0)} />
                       <IconButton icon={ArrowUp} disabled={locked || p.y === 0} label={`向上移动 ${name}`} onClick={() => move(0, -1)} />
                       <IconButton icon={ArrowDown} disabled={locked} label={`向下移动 ${name}`} onClick={() => move(0, 1)} />
                     </div>
-                    <div className="row hu-dashboard-order">
-                      <IconButton icon={ArrowUp} disabled={locked || layout[0]?.instanceId === p.instanceId} label={`前移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, -1))} />
-                      <IconButton icon={ArrowDown} disabled={locked || layout.at(-1)?.instanceId === p.instanceId} label={`后移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, 1))} />
-                    </div>
-                    {definition
-                      ? (["w", "h"] as const).map((dimension) => {
-                          const title = dimension === "w" ? "宽度" : "高度";
-                          const min = definition.minSize[dimension];
-                          const max = definition.maxSize[dimension];
-                          return (
-                            <label key={dimension} className="row">
-                              {title}
-                              <select aria-label={`${name} ${title}`} disabled={locked} value={p[dimension]} onChange={(event) => resize(dimension, Number(event.target.value))}>
-                                {Array.from({ length: max - min + 1 }, (_, index) => (
-                                  <option key={index + min}>{index + min}</option>
-                                ))}
-                              </select>
-                            </label>
-                          );
-                        })
-                      : null}
-                    {definition ? (
-                      <IconButton
-                        icon={RotateCcw}
-                        disabled={locked}
-                        label={`恢复 ${name} 推荐尺寸`}
-                        onClick={() => changeLayout(movePlacement(board.layout, { ...p, ...definition.defaultSize, x: Math.min(p.x, DASHBOARD_COLUMNS - definition.defaultSize.w) }))}
-                      />
-                    ) : null}
-                    {definition?.maxInstances === null && allowed(instance.widgetType) ? (
-                      <IconButton icon={Copy} disabled={locked} label={`复制 ${name}`} onClick={() => insert({ ...instance, instanceId: createRequestId(), config: structuredClone(instance.config) }, p)} />
-                    ) : null}
-                  </div>
-                  {configureWidget?.(instance, (config) => changeInstance(p.instanceId, { config }), locked)}
-                </div>
-              ) : null;
-              return (
-                <div
-                  key={p.instanceId}
-                  className="hu-dashboard-tile"
-                  data-instance-id={p.instanceId}
-                  data-placement-preview={preview?.id === p.instanceId ? "true" : undefined}
-                  style={{ gridColumn: `${p.x + 1} / span ${p.w}`, gridRow: `${p.y + 1} / span ${p.h}` } satisfies CSSProperties}
-                >
-                  {controls}
-                  {!instance.hidden ? (
-                    <div className="hu-dashboard-widget" inert={editing}>
-                      <WidgetBoundary key={instance.widgetType} name={name}>
-                        <WidgetContent instance={instance} name={name} definition={definition} renderWidget={renderWidget} unavailableReason={unavailableReason} />
-                      </WidgetBoundary>
-                    </div>
+                  )}
+                  {definition
+                    ? (["w", "h"] as const).map((dimension) => {
+                        const title = dimension === "w" ? "宽度" : "高度";
+                        const min = definition.minSize[dimension];
+                        const max = definition.maxSize[dimension];
+                        return (
+                          <label key={dimension} className="row">
+                            {title}
+                            <select aria-label={`${name} ${title}`} disabled={locked} value={p[dimension]} onChange={(event) => resize(dimension, Number(event.target.value))}>
+                              {Array.from({ length: max - min + 1 }, (_, index) => (
+                                <option key={index + min}>{index + min}</option>
+                              ))}
+                            </select>
+                          </label>
+                        );
+                      })
+                    : null}
+                  {definition ? (
+                    <IconButton
+                      icon={RotateCcw}
+                      disabled={locked}
+                      label={`恢复 ${name} 推荐尺寸`}
+                      onClick={() => changeLayout(movePlacement(board.layout, { ...p, ...definition.defaultSize, x: Math.min(p.x, DASHBOARD_COLUMNS - definition.defaultSize.w) }), p.instanceId)}
+                    />
+                  ) : null}
+                  {definition?.maxInstances === null && allowed(instance.widgetType) ? (
+                    <IconButton icon={Copy} disabled={locked} label={`复制 ${name}`} onClick={() => insert({ ...instance, instanceId: createRequestId(), config: structuredClone(instance.config) }, p)} />
                   ) : null}
                 </div>
-              );
-            })
-          : null}
-      </div>
+                {configureWidget?.(instance, (config) => changeInstance(p.instanceId, { config }), locked)}
+              </div>
+            ) : null;
+            return (
+              <div key={p.instanceId} className="hu-dashboard-tile" data-instance-id={p.instanceId}>
+                {controls}
+                {!instance.hidden ? (
+                  <div className="hu-dashboard-widget" inert={editing}>
+                    <WidgetBoundary key={instance.widgetType} name={name}>
+                      <WidgetContent instance={instance} name={name} definition={definition} renderWidget={renderWidget} unavailableReason={unavailableReason} />
+                    </WidgetBoundary>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </DashboardGrid>
+      )}
       {view && items.length === 0 ? (
         <div className="row">
           <p className="hu-hint-text">首页尚未显示任何卡片。</p>

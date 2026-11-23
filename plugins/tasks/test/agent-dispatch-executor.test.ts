@@ -96,3 +96,52 @@ test("an ended bound session is unavailable while an unverified binding remains 
   expect(await executor.ready(work, signal)).toBe("unavailable");
   expect(call.mock.calls.map(([capability]) => capability)).toEqual(["agent.targets.list", "agent.targets.list"]);
 });
+
+test("native resume freezes only the exact selected source and reuses it after the directory changes", async () => {
+  const call = vi.fn<HuhuApi["call"]>();
+  const machineId = "machine-fixture";
+  const spaceId = "original-space";
+  const executor = createAgentDispatchExecutor({ vault: { vaultId: "vault-fixture" }, call }, machineId);
+  const history = { machineId, spaceId, spaceRevision: 3, historyId: "b".repeat(64), historyRevision: "c".repeat(64) };
+  const preference = { mode: "resume" as const, nativeSessionId: "thread-b", history };
+  const snapshot: TaskDispatchWork["snapshot"] = {
+    taskId: "task-fixture",
+    expectedVersion: "before",
+    taskVersion: "before",
+    inputRevision: 1,
+    inputHash: "a".repeat(16),
+    body: "Continue only B",
+    references: [],
+    source: { kind: "desktop" },
+    execution: { spaceId, provider: "codex", model: null, effort: null, fast: false, target: preference },
+  };
+  const work = { eventId: "event-fixture", dispatchId: "dispatch-fixture", runId: "run-fixture", attempt: 1, snapshot, snapshotHash: fingerprint(snapshot) };
+  const target = { ...preference, provider: "codex" as const, spaceId, spaceRevision: 3, configurationId: "d".repeat(64) };
+  const row = { ...target, binding: null, available: true, reason: null, structuredReply: false, structuredResult: false, cancel: false };
+  const earlier = { ...row, nativeSessionId: "thread-a", history: { ...history, historyId: "a".repeat(64) } };
+  const changed = { ...row, history: { ...history, historyRevision: "e".repeat(64) } };
+  const signal = new AbortController().signal;
+  for (const listing of [
+    [earlier, row],
+    [row, earlier],
+  ]) {
+    call.mockResolvedValueOnce(listing);
+    expect(await executor.ready(work, signal)).toEqual({ state: "ready", target });
+  }
+  for (const listing of [
+    [earlier, changed],
+    [row, row],
+  ]) {
+    call.mockResolvedValueOnce(listing);
+    expect(await executor.ready(work, signal)).toBe("unavailable");
+  }
+  const frozen = { ...work, agentTarget: target };
+  call.mockClear();
+  expect(await executor.ready(frozen, signal)).toEqual({ state: "ready", target });
+  expect(call).not.toHaveBeenCalled();
+  call.mockResolvedValueOnce({ status: "not_sent", reason: "resume_ready", acceptedAt: null, execution: null, ownerActive: false, coreWrite: "not_sent", nativeWrite: "not_sent", providerAcceptance: null });
+  expect(await executor.prepareResume?.(frozen, signal)).toBe("ready");
+  expect(call).toHaveBeenCalledExactlyOnceWith("agent.runs.dispatch", expect.objectContaining({ target, inputSha256: createHash("sha256").update(snapshot.body).digest("hex") }), { idempotencyKey: work.dispatchId, signal });
+  expect(call.mock.calls[0]?.[1]).not.toHaveProperty("input");
+  expect(await executor.ready({ ...work, snapshot: { ...snapshot, execution: { ...snapshot.execution, target: { mode: "resume", nativeSessionId: preference.nativeSessionId } } } }, signal)).toBe("unsupported");
+});

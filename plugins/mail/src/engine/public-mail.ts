@@ -9,6 +9,12 @@ export async function readPublicMail(source: Buffer) {
   return publicMailHeaders(await rootHeaders(source));
 }
 
+export async function cachedPublicMail(entry: { publicMail?: z.infer<typeof publicMail> | undefined; source: string }, includeSenderNames = false) {
+  const cached = entry.publicMail;
+  if (cached && (!includeSenderNames || cached.senderNames)) return cached;
+  return (await readPublicMail(Buffer.from(entry.source, "base64")).catch(() => undefined)) ?? cached;
+}
+
 export function publicMailHeaders(headers: Awaited<ReturnType<typeof rootHeaders>>) {
   const from = mailboxes(headers, "From");
   const participants = [...new Set([...from.map(({ address }) => address), ...addresses(headers, "To"), ...addresses(headers, "Cc")])];

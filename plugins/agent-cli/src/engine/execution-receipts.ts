@@ -115,6 +115,7 @@ export function pollExecutionReceipts(
   signal: AbortSignal,
   interval: number,
   reconcile: (execution: ExecutionBinding) => void,
+  releaseAbandoned?: () => Promise<void>,
 ): () => void {
   let running = false;
   async function drain() {
@@ -147,6 +148,7 @@ export function pollExecutionReceipts(
           // An unavailable consumer or a lost ACK leaves the original receipt pending.
         }
       }
+      await releaseAbandoned?.();
     } catch {
       // A plugin stop or an unavailable local directory can be reconciled on the next start or poll.
     } finally {

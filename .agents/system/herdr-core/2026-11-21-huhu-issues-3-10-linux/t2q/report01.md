@@ -16,7 +16,7 @@
 
 - 工作树 — `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`。分支 `impl/huhu-issues-3-10-g6-versioning` 保持在 `9aedbdf5017916915d0514ece25a393445cd6457`。
 - 候选 — `96f9272d71c84724f992c4ff2bcb68cef6aff3ef`。以临时索引生成，父提交为 `9aedbdf5`。候选代码与工作树逐字核对一致。
-- 证据 — `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-versioning-safe-exposure-linux.md`。工作树的 `.agents` 挂载只读，证据通过临时索引加入候选树，可用 `git show <候选>:<证据路径>` 读取。
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-versioning-safe-exposure-linux.md`。工作树的 `.agents` 挂载只读，证据通过临时索引加入候选树，可用 `git show <候选>:<证据路径>` 读取。
 
 ## 逐项交付
 

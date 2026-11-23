@@ -42,10 +42,10 @@
 | H9 | [H9.3 查看固定主机的进程和容器工具窗口](tasks/H9.3-server-tools.md) | [H3.1](tasks/H3.1-trust-and-prompts.md) |
 | H10 | [H10.1 预览布局与终端设置的实际作用域](tasks/H10.1-layout-terminal-settings.md) | [H5.2](tasks/H5.2-terminal-actions.md)、[H5.3](tasks/H5.3-terminal-history.md)、[H5.4](tasks/H5.4-local-shell.md) |
 | H10 | [H10.2 分开显示即刻生效与下次连接的设置](tasks/H10.2-connection-file-settings.md) | [H3.3](tasks/H3.3-route-attempt.md)、[H6.1](tasks/H6.1-file-session.md)、[H7.1](tasks/H7.1-transfer-queue.md) |
-| H10 | [H10.3 从 SSH 设置查看公共工具选择](tasks/H10.3-shared-tool-settings.md) | [#6](../2026-11-19-issue-6-unified-tools-web/plan.md) |
-| H11 | [H11.1 从每个 SSH 用户动作查到同一资源](tasks/H11.1-resource-catalog.md) | [#6](../2026-11-19-issue-6-unified-tools-web/plan.md) |
+| H10 | [H10.3 从 SSH 设置查看公共工具选择](tasks/H10.3-shared-tool-settings.md) | [#6](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/plan.md) |
+| H11 | [H11.1 从每个 SSH 用户动作查到同一资源](tasks/H11.1-resource-catalog.md) | [#6](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/plan.md) |
 | H11 | [H11.2 查询已授权作业和输出游标](tasks/H11.2-session-jobs.md) | [H3.1](tasks/H3.1-trust-and-prompts.md)、[H5.1](tasks/H5.1-shell-view.md)、[H11.1](tasks/H11.1-resource-catalog.md) |
-| H11 | [H11.3 分别演练 MCP 和 CLI 的同一操作流程](tasks/H11.3-entry-parity.md) | [H11.1](tasks/H11.1-resource-catalog.md)、[H11.2](tasks/H11.2-session-jobs.md)、[H7.2](tasks/H7.2-transfer-conflicts.md)、[#6](../2026-11-19-issue-6-unified-tools-web/plan.md) |
+| H11 | [H11.3 分别演练 MCP 和 CLI 的同一操作流程](tasks/H11.3-entry-parity.md) | [H11.1](tasks/H11.1-resource-catalog.md)、[H11.2](tasks/H11.2-session-jobs.md)、[H7.2](tasks/H7.2-transfer-conflicts.md)、[#6](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/plan.md) |
 | H12 | [H12.1 核查切 Vault 与停插件后的资源归属](tasks/H12.1-lifecycle-cutover.md) | [H4.2](tasks/H4.2-workspace-launch.md)、[H7.2](tasks/H7.2-transfer-conflicts.md)、[H8.2](tasks/H8.2-forward-runtime.md)、[H9.2](tasks/H9.2-monitor-panels.md)、[H11.2](tasks/H11.2-session-jobs.md) |
 | H12 | [H12.2 按平台交接单一执行层及功能证据](tasks/H12.2-platform-evidence.md) | [H1.2](tasks/H1.2-executor-boundary.md)、[H2.3](tasks/H2.3-host-references.md)、[H2.5](tasks/H2.5-key-library.md)、[H2.6](tasks/H2.6-draft-test.md)、[H3.4](tasks/H3.4-config-sync.md)、[H3.5](tasks/H3.5-proxy-sharing.md)、[H6.2](tasks/H6.2-file-changes.md)、[H6.3](tasks/H6.3-text-edit.md)、[H6.4](tasks/H6.4-directory-follow.md)、[H7.3](tasks/H7.3-archive-transfer.md)、[H9.1](tasks/H9.1-session-monitor.md)、[H9.3](tasks/H9.3-server-tools.md)、[H10.1](tasks/H10.1-layout-terminal-settings.md)、[H10.2](tasks/H10.2-connection-file-settings.md)、[H10.3](tasks/H10.3-shared-tool-settings.md)、[H12.1](tasks/H12.1-lifecycle-cutover.md)、[H11.3](tasks/H11.3-entry-parity.md) |
 

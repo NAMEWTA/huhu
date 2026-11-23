@@ -1,7 +1,8 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
@@ -15,6 +16,7 @@ import type { TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatc
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import { candidatePackage, candidateEnvironment, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
 import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
+import { createPersistentCodexSource, readCodexSource } from "../helpers/codex-persistent-source.js";
 import { openApp, rmTree } from "../helpers/launch.js";
 
 test.afterAll(disposeCandidate);
@@ -143,6 +145,128 @@ test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目�
     await testInfo.attach("dispatch-identities", { body: JSON.stringify({ occurrenceId: scheduled.activationId, taskId: task.id, dispatch }), contentType: "application/json" });
   } finally {
     await close();
+  }
+});
+
+test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答", async ({ browserName }, testInfo) => {
+  void browserName;
+  test.setTimeout(180_000);
+  const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  test.skip(process.platform !== "linux" || !binary, "需要 Linux 上受控派遣白名单中的固定 Codex 二进制。");
+  const provider = await realpath(binary!);
+  const fingerprint = createHash("sha256");
+  for await (const chunk of createReadStream(provider)) fingerprint.update(chunk);
+  expect(fingerprint.digest("hex")).toBe("880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971");
+  const privateHome = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-task-history-")));
+  const responses = await startCodexResponsesFixture({ seedReplies: ["SOURCE-A-RESULT", "SOURCE-B-RESULT"], result: "RESUME-B-RESULT" });
+  const titleA = "OLDER-HISTORY-A";
+  const titleB = "SELECTED-HISTORY-B";
+  const taskMarker = "RESUME-B-INPUT";
+  const fileIdentity = async (file: string) => {
+    const stat = await lstat(file, { bigint: true });
+    expect(stat.isFile()).toBe(true);
+    return { device: String(stat.dev), inode: String(stat.ino), birthTime: String(stat.birthtimeNs) };
+  };
+  let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  try {
+    await writeFile(path.join(privateHome, "config.toml"), responses.config, { mode: 0o600 });
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider });
+    const { page } = desktop;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = caller(page);
+    await pauseRules(call);
+    const [space] = await call<{ id: string; root: string }[]>("agent.spaces.list");
+    const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
+    await call("agent.settings.update", {
+      ...settings,
+      expectedRevision: settings.revision,
+      agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: privateHome } } },
+    });
+    const cwd = path.join(space!.root, "original-workdir");
+    await mkdir(cwd);
+    const profile = { binary: provider, home: privateHome, cwd };
+    // These calls resolve only after each real provider process has exited.
+    const a = await createPersistentCodexSource(profile, titleA);
+    const b = await createPersistentCodexSource(profile, titleB);
+    expect(a.id).not.toBe(b.id);
+    expect(a.file).not.toBe(b.file);
+    const oldA = await readFile(a.file, "utf8");
+    const oldB = await readFile(b.file, "utf8");
+    const identityB = await fileIdentity(b.file);
+    expect(oldA).toContain("SOURCE-A-RESULT");
+    expect(oldB).toContain("SOURCE-B-RESULT");
+    const sourceRequests = responses.requests.slice();
+    expect(sourceRequests).toHaveLength(2);
+    expect(sourceRequests.map(({ input }) => [titleA, titleB].filter((marker) => JSON.stringify(input).includes(marker)))).toEqual([[titleA], [titleB]]);
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByTestId("task-new").click();
+    const editor = page.getByTestId("task-editor");
+    const title = "从运行历史 B 派遣";
+    await editor.getByLabel("任务名称").fill(title);
+    await editor.getByTestId("task-body").locator(".ProseMirror").fill(`Ask the fixture question for ${taskMarker} and report the result.`);
+    await editor.getByTestId("task-type").selectOption("agent");
+    await editor.getByRole("combobox", { name: "工作目录（Space）" }).selectOption(space!.id);
+    const select = editor.getByRole("combobox", { name: "会话目标" });
+    const selected = select.getByRole("option", { name: /SELECTED-HISTORY-B/ });
+    await expect(select.getByRole("option", { name: /OLDER-HISTORY-A/ })).toBeEnabled();
+    await expect(selected).toBeEnabled();
+    await select.selectOption((await selected.getAttribute("value")) ?? "");
+    await editor.getByTestId("task-save").click();
+    await expect(editor).toBeHidden();
+    const tasks = await call<TaskDto[]>("tasks.list", { category: "all" });
+    const task = tasks.find((row) => row.title === title)!;
+    expect(task.execution).toMatchObject({ provider: "codex", spaceId: space!.id, target: { mode: "resume", nativeSessionId: b.id, history: { spaceId: space!.id } } });
+    expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
+    expect(responses.requests).toHaveLength(sourceRequests.length);
+    const detail = await openTask(page, title);
+    await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
+    await expect.poll(questions, { timeout: 45_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting" }]);
+    const [run] = await listDispatches(call, task.id);
+    const sessions = await call<{ id: string; nativeSessionId: string; cwd: string }[]>("agent.sessions.list", { spaceId: space!.id });
+    expect(sessions).toHaveLength(1);
+    const [session] = sessions;
+    expect(session).toMatchObject({ id: run!.session!.id, nativeSessionId: b.id, cwd });
+    expect(await questions()).toMatchObject([{ runId: run!.runId, sessionId: session!.id, status: "awaiting" }]);
+    const managed = detail.getByTestId("managed-task-run");
+    await managed.getByRole("button", { name: "展开结果" }).click();
+    await managed.getByRole("radio", { name: "Circle" }).check();
+    await managed.getByRole("button", { name: "发送回答" }).click();
+    await expect
+      .poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result"), { timeout: 45_000 })
+      .toMatchObject([{ run: run!.runId, session: session!.id, body: responses.result }]);
+    const taskRequests = responses.requests.slice(sourceRequests.length);
+    expect(taskRequests).toHaveLength(2);
+    expect(JSON.stringify(taskRequests[0]!.input)).toContain(taskMarker);
+    expect(JSON.stringify(taskRequests[0]!.input)).toContain(titleB);
+    expect(JSON.stringify(taskRequests.map(({ input }) => input))).not.toContain(titleA);
+    const answers = taskRequests.flatMap(({ input }) => input.filter(({ type, call_id }) => type === "function_call_output" && call_id === responses.callId));
+    expect(answers).toHaveLength(1);
+    expect(JSON.stringify(answers[0]!.output)).toContain("Circle");
+    expect(await readFile(a.file, "utf8")).toBe(oldA);
+    expect(await fileIdentity(b.file)).toEqual(identityB);
+    const appended = await readFile(b.file, "utf8");
+    expect(appended.startsWith(oldB)).toBe(true);
+    expect(appended.slice(oldB.length)).toContain(taskMarker);
+    const after = await readCodexSource(profile, b.id);
+    expect(after).toMatchObject({ id: b.id, cwd });
+    expect(after.path).toBeTruthy();
+    expect(await realpath(after.path!)).toBe(b.file);
+    expect(after.turns).toHaveLength(2);
+    expect(after.turns[0]).toMatchObject({ id: b.turnId, status: "completed" });
+    expect(after.turns[1]).toMatchObject({ status: "completed" });
+    expect(after.turns[1]!.id).not.toBe(b.turnId);
+    expect(responses.requests).toHaveLength(4);
+    await testInfo.attach("original-rollout-binding", {
+      body: JSON.stringify({ taskId: task.id, runId: run!.runId, sessionId: session!.id, cwd, sources: { a, b }, identityB, resumedTurn: after.turns[1]!.id, sourceRequests: sourceRequests.length, taskRequests: taskRequests.length }),
+      contentType: "application/json",
+    });
+  } finally {
+    await withFixtureCleanup(async () => {}, [
+      ["关闭桌面", () => desktop?.close()],
+      ["停止本地模型夹具", () => responses.close()],
+      ["清理受控资料目录", () => rmTree(privateHome)],
+    ]);
   }
 });
 

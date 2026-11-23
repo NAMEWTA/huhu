@@ -30,6 +30,6 @@ node node_modules/vitest/vitest.mjs run plugins/mail/test/messages-engine.test.t
 
 复核范围为指定 Engine 数据夹具。Tasks 的实际 Agent 回执生产、原生回答传输、界面和真实进程中断由相应切片验收。Mail 的阅读页、MIME 正文、联系人聚合和多页同步也属于后续范围。本轮只使用合成输入与回环服务。
 
-依据 [T3.1 问题投影](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T3.1-questions.md)、[T3.3 回执投递](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T3.3-deliver.md) 和 [S1a.2 首封 IMAP 原文](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.2-first-message.md)。
+依据 [T3.1 问题投影](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T3.1-questions.md)、[T3.3 回执投递](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T3.3-deliver.md) 和 [S1a.2 首封 IMAP 原文](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1a.2-first-message.md)。
 
 ## Lead 验收

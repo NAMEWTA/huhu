@@ -1,6 +1,6 @@
 import { Banner, Button, Dialog } from "@huhu/ui";
 import type { CapabilityResult } from "@huhu/contracts";
-import { CapabilityError, createRequestId, host, registerExitParticipant, useEngine, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, useEngine, type ModuleProps } from "@huhu/workbench";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -70,7 +70,7 @@ export function MailComposer({
   initialAccountId: string | null;
   readOnly: boolean;
   previousDelivery: boolean;
-  registerLeaveGuard?: ModuleProps["registerLeaveGuard"];
+  registerLeaveGuard: NonNullable<ModuleProps["registerLeaveGuard"]>;
   onChanged(message: string): void;
   onSenderChange(accountId: string | null): void;
   onClose(): void;
@@ -328,12 +328,7 @@ export function MailComposer({
       if (!dirtyRef.current) return true;
       return run("save");
     };
-    const exit = registerExitParticipant(check);
-    const leave = registerLeaveGuard?.(check);
-    return () => {
-      leave?.();
-      exit();
-    };
+    return registerLeaveGuard(check);
   });
 
   function close() {

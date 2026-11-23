@@ -15,7 +15,7 @@
 ## 产物与改动
 
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-g6-ssh`，HEAD 仍为 `314c0bed`。候选使用临时索引生成。三个 SSH 代码／测试文件与候选逐字匹配。
-- 证据 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md` 已写入候选树。worktree 的 `.agents` 为只读挂载，该文件从候选提交读取。
+- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md` 已写入候选树。worktree 的 `.agents` 为只读挂载，该文件从候选提交读取。
 - 两个设置描述符来自 `ssh.sshCapabilityDescriptors` 的 `settingsGet`、`settingsUpdate`。继续沿用 `apps/engine/src/boot.ts:149` 的 `registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors))` 和 `ssh.apply` 中对应的 `bindCapability`。本批所需的声明和绑定已齐。
 - t19 将设置写入归为领域意图。现有设置写入只有 `expectedRevision`，没有独立领域操作标识。候选复用 `durableExternal` 对账并保留修订校验，结果只存库级设置和新修订。外部更新传输默认值后，由现有调度时机使用新值。桌面及插件内部调整保留即时调度行为。
 

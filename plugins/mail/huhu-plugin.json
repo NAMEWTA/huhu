@@ -2,7 +2,7 @@
   "id": "mail",
   "title": "邮件",
   "description": "邮箱账号、草稿与本机投递记录",
-  "version": "0.0.1-rc.4",
+  "version": "0.0.2-rc.1",
   "origin": "builtin",
   "activation": "vault-open",
   "contributes": {

@@ -64,7 +64,7 @@ export function draftFromTask(t: TaskDto): TaskDraft {
   };
 }
 
-export type DraftProblem = "title" | "space" | "provider" | "reminder";
+export type DraftProblem = "title" | "space" | "provider" | "target" | "reminder";
 
 /** 保存前校验；返回有问题的字段（空数组 = 可以保存）。 */
 export function validateDraft(d: TaskDraft): DraftProblem[] {
@@ -73,6 +73,7 @@ export function validateDraft(d: TaskDraft): DraftProblem[] {
   if (d.type === "agent") {
     if (!d.spaceId) p.push("space");
     if (d.target?.mode !== "existing" && !d.provider) p.push("provider");
+    if (d.target?.mode === "resume" && (!d.target.history || d.target.history.spaceId !== d.spaceId)) p.push("target");
   }
   if (d.reminders.some((r) => !r.at)) p.push("reminder");
   return p;

@@ -24,13 +24,13 @@
 - 在 `ce5289d` 复现同一长目录错误。用三个 95 字符子目录构造真实存在的 390 代码单元扩展路径。合成 `.cmd` 预览成功，实际启动返回 `HERDR_UNAVAILABLE`、Windows 267，隔离 Core 仍可用。
 - `5cda841` 冻结夹具对真实存在的 259 和 300 代码单元目录验证普通盘符及扩展拼写。两入口均返回 `INVALID_INPUT / stage=cwd / reason=windows_cwd_too_long / maxLength=258`，Core 未启动且会话列表为空。附加实机探针在 `db0a562` 启动了 258 代码单元目录中的合成 `.cmd`，退出 0，进程自读 cwd/argv 与预览相等。
 - 三树夹具均在普通中文含空格目录启动 PowerShell 与合成 `.cmd`，机器、目录和参数相符，argv 内的 `two words` 和 `带 空格的提示` 各为一个元素。两根进程退出 0。短盘符扩展路径被转换为可执行的普通路径。
-- C01 的返回 shell 采用 t80 的既有见证。直接跑合成 Agent 退出 7 时，Core 将终端标为 finished，keep 开关结果相同。PowerShell `-NoExit` 包装能继续接受人工输入，Core 根进程仍在运行，Agent 子进程退出码 7 只能由包装层读取。候选目前采用直接启动。真正 UNC、安装包 GUI PATH、真实登录及交互 Agent 返回 shell 仍属完整 W1.1 验收。 [W1.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W1.1-launch.md)
+- C01 的返回 shell 采用 t80 的既有见证。直接跑合成 Agent 退出 7 时，Core 将终端标为 finished，keep 开关结果相同。PowerShell `-NoExit` 包装能继续接受人工输入，Core 根进程仍在运行，Agent 子进程退出码 7 只能由包装层读取。候选目前采用直接启动。真正 UNC、安装包 GUI PATH、真实登录及交互 Agent 返回 shell 仍属完整 W1.1 验收。 [W1.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W1.1-launch.md)
 
 ### W1.2 · P1 受理记录不可读时会绕过原 launch 去重
 
 在真实 Core 0.1.19 上先丢弃合成 `.cmd` 成功创建的回包。经过第一次 Vault 重开，候选已在原 session 上找回原进程。保持原进程运行，关闭插件与 Vault，将唯一对应的会话 JSON 截断为 `{"id":`，再重开同一 Vault。提交完全相同的 launch 参数及网关键。实际返回成功，并创建另一个 session、attempt、terminal address 和 PID。锁定 Core 的独立客户端确认两个进程同时 live，共用同一个 `huhu.launch`。两个终端随后在隔离 Core 中清理。
 
-根因是展示列表对不可读 JSON 作跳过处理，启动去重也直接用该列表按 requestId 查询。原记录损坏时，查不到记录即判为新请求。即使原进程仍带完整标签，该分支也未查 Core。应把损坏/无法定位的持久请求留为待核实，或者维护按 requestId 可验证的索引，并用故障注入证明同请求永远只启动一次。定位 `plugins/agent-cli/src/engine/sessions.ts:151–164,188–192,275–308`。 [W1.2](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md)
+根因是展示列表对不可读 JSON 作跳过处理，启动去重也直接用该列表按 requestId 查询。原记录损坏时，查不到记录即判为新请求。即使原进程仍带完整标签，该分支也未查 Core。应把损坏/无法定位的持久请求留为待核实，或者维护按 requestId 可验证的索引，并用故障注入证明同请求永远只启动一次。定位 `plugins/agent-cli/src/engine/sessions.ts:151–164,188–192,275–308`。 [W1.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md)
 
 ### W1.2 · P2 缺生命周期状态的候选会被确认为 running
 
@@ -51,7 +51,7 @@
 
 - W1.1 共用 `prepareLaunch`，保留现有参数和设置入口。长度常量对应本次锁定的 Windows Core。W1.2 复用私有会话文件、原子替换、规范化 hash 及 Core RPC。新字段保持在私有记录，输出 schema 继续沿用原入口。冻结差异检查、Cosmokit/Cordis 声明构建及 Agent CLI 类型检查通过。本轮未重跑 t80 的全量 Windows POSIX 可执行位与符号链接 EPERM 项。
 - 当前可作为 W6.1 **新建根进程证据**的是完整记录的稳定 request/session/attempt、Core ID 和协议代次，以及通过五标签、cwd/显式 argv、地址、PID 与 created_ms 匹配的初次绑定。该证明覆盖 Core 启动的根进程。协议 generation=1 与应用层 attempt ID 分别承担协议兼容和尝试识别。
-- **W6.1 new 的生产接入先解决 P1**，并补足异常候选校验。仍需实现授权的目标枚举、派遣/检查、provider 接受正文的证据、真实进程代次核验及人工/评审/任务输入所有权。冻结树没有 `agent.targets.list`、`agent.runs.dispatch`、`agent.runs.inspect`。existing/resume 另需验证 provider 原生会话资格、替代 shell/地址重用和安全的输入仲裁。不能以 `session.running` 代表 provider 收到正文，也不能把 Core hello 的协议代次当作 provider 进程代次。 [W6.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [跨 Issues 执行合同](../../../../dev/changes/2026-11-19-issue-4-agent-cli/design.md)
+- **W6.1 new 的生产接入先解决 P1**，并补足异常候选校验。仍需实现授权的目标枚举、派遣/检查、provider 接受正文的证据、真实进程代次核验及人工/评审/任务输入所有权。冻结树没有 `agent.targets.list`、`agent.runs.dispatch`、`agent.runs.inspect`。existing/resume 另需验证 provider 原生会话资格、替代 shell/地址重用和安全的输入仲裁。不能以 `session.running` 代表 provider 收到正文，也不能把 Core hello 的协议代次当作 provider 进程代次。 [W6.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) · [跨 Issues 执行合同](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/design.md)
 
 ## 实跑命令与日志
 

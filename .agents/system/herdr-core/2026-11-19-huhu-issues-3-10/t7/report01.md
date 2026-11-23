@@ -15,7 +15,7 @@
 
 | Change | 行为规格 | 架构、证据与待决选择 | 切片及验收反查 |
 | --- | --- | --- | --- |
-| #6 统一工具与 Web | [spec.md](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/spec.md) | [design.md](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/design.md) | [plan.md](../../../../dev/changes/2026-11-19-issue-6-unified-tools-web/plan.md) |
+| #6 统一工具与 Web | [spec.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/spec.md) | [design.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/design.md) | [plan.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/plan.md) |
 | #7 SSH 客户端与工作区 | [spec.md](../../../../dev/changes/2026-11-19-issue-7-ssh-module/spec.md) | [design.md](../../../../dev/changes/2026-11-19-issue-7-ssh-module/design.md) | [plan.md](../../../../dev/changes/2026-11-19-issue-7-ssh-module/plan.md) |
 
 工作目录为 D:/Document/code/huhu，分支 feature/issue-fix，HEAD 为 `9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。本 worker 在项目内新增上表六份 Markdown 和本报告。开始时两个业务目录均仅有 source.md，t7 仅有 task01.md；全局工作树当时已有 AGENTS.md 修改及其他 worker 的未跟踪目录。此次未构建、运行产品或测试、部署、提交或写入 GitHub。

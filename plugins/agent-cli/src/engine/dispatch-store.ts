@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskRunAttemptSchema } from "@huhu/contracts";
+import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskHistorySelectionSchema, TaskRunAttemptSchema } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { putReceiptFile } from "./execution-receipts.js";
@@ -27,7 +27,7 @@ export const LaunchOptions = z.strictObject({
 export const DispatchTarget = z.discriminatedUnion("mode", [
   LaunchOptions.extend({ mode: z.literal("new"), spaceId: Id, spaceRevision: z.number().int().positive(), provider, configurationId: Fingerprint }),
   z.strictObject({ mode: z.literal("existing"), spaceId: Id, spaceRevision: z.number().int().positive().optional(), binding: ExecutionSessionBindingSchema }),
-  z.strictObject({ mode: z.literal("resume"), spaceId: Id, provider, nativeSessionId: Id }),
+  z.strictObject({ mode: z.literal("resume"), spaceId: Id, provider, nativeSessionId: Id, history: TaskHistorySelectionSchema.optional(), spaceRevision: z.number().int().positive().optional(), configurationId: Fingerprint.optional() }),
 ]);
 
 function isInputText(text: string): boolean {
@@ -52,6 +52,8 @@ export const DispatchInput = DispatchLookup.extend({
 });
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
 export type DispatchInput = z.infer<typeof DispatchInput>;
+export const ResumePrepareInput = DispatchInput.omit({ input: true }).extend({ inputSha256: Fingerprint });
+export type ResumePrepareInput = z.infer<typeof ResumePrepareInput>;
 
 export const ProviderAcceptance = z.strictObject({
   id: Id,
@@ -73,6 +75,7 @@ const StoredDispatch = z
     ownerActive: z.boolean(),
     write: z.enum(["not_sent", "sending", "core_written", "unknown"]),
     providerAcceptance: ProviderAcceptance.nullable(),
+    resumeWriterRetry: z.strictObject({ count: z.int().positive(), after: z.int().positive() }).optional(),
   })
   .refine(({ key, execution, write, ownerActive, providerAcceptance, inputSha256, transport }) => {
     if (transport === "native" && write === "core_written") return false;

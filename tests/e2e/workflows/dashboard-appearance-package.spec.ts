@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
 import { disposeCandidate } from "../helpers/candidate-package.js";
@@ -19,6 +19,7 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
   test.setTimeout(180_000);
   const { app, page, vault, close } = await openCandidateDesktop({ identityAttachment: "dashboard-appearance-candidate", disableProviderDetection: true });
   const evidence: object[] = [];
+  const layoutFile = path.join(vault, ".huhu/home/widgets.json");
   await withFixtureCleanup(async () => {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1600, 1000));
     for (const theme of ["claude", "apple", "notion", "vercel"]) {
@@ -44,8 +45,9 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
         const moveTabs = await tabTo(page, move);
         await expect(move).toBeFocused();
         const before = await card.getAttribute("style");
-        const previousY = await card.evaluate((element) => Number(getComputedStyle(element).gridRowStart) - 1);
+        const previousY = existsSync(layoutFile) ? JSON.parse(readFileSync(layoutFile, "utf8")).layout.find((item: { instanceId: string }) => item.instanceId === "default-focus").y : 5;
         await page.keyboard.press("Enter");
+        await expect(page.getByTestId("home-dashboard").getByRole("status")).toHaveText(`专注，第 1 列，第 ${previousY + 2} 行，3 × 2。`);
         await expect(card).not.toHaveAttribute("style", before ?? "");
         const save = page.getByTestId("home-dashboard-save");
         const saveTabs = await tabTo(page, save, true);
@@ -53,8 +55,7 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
         await page.keyboard.press("Enter");
         await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("布局已保存");
         await expect(page.getByTestId("home-dashboard").getByRole("alert")).toHaveCount(0);
-        await expect.poll(() => card.evaluate((element) => Number(getComputedStyle(element).gridRowStart) - 1)).toBe(previousY + 1);
-        const board = JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8"));
+        const board = JSON.parse(readFileSync(layoutFile, "utf8"));
         expect(board.layout.find((item: { instanceId: string }) => item.instanceId === "default-focus").y).toBe(previousY + 1);
         const appearance = JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance;
         expect(appearance).toMatchObject({ theme, mode, motion: "reduced" });

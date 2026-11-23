@@ -471,7 +471,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     resync();
     return ruleWriteResult(c.caller, r);
   });
-  defineRuleTool(taskScanToolDescriptors.preview, (_c, i) => svc.preview(i.id, i.expectedVersion));
+  defineRuleTool(taskScanToolDescriptors.preview, (c, i) => svc.preview(i.id, i.expectedVersion, c.signal));
   api.defineCapability(
     bindCapability(automationToolDescriptors.runNow, async ({ caller, subject, signal }, { id, expectedVersion, intentId }) => {
       signal.throwIfAborted();

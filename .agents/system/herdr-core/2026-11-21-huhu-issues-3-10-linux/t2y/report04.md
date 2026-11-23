@@ -16,7 +16,7 @@
 ## 产物与决定
 
 - 工作目录为 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-ssh-actions`。任务定位和 topic 指定 `adb5ff2d`，任务产物段另列 `10ebb272`。候选采用实际集成 HEAD `adb5ff2d`，保留已集成的 task03 和此后变更。
-- 用临时索引生成候选，分支指针仍在父提交。业务文件及测试已与候选逐项核对。工作树 `.agents` 只读，证据追加在候选的 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md`。
+- 用临时索引生成候选，分支指针仍在父提交。业务文件及测试已与候选逐项核对。工作树 `.agents` 只读，证据追加在候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md`。
 - 连接查询复用核验和作业连接的状态投影。已知主机查询限于当前获准且完整的路由所对应的端点。三个读操作从便携定义获得授权所需数据，无凭据访问或拨号。
 - 作业取消使用原作业的持久 ID 和状态机。外部调用提交 `jobId`、`hostId` 和 `routeRevision`，原会话所属的主体、活动作业及路由均须匹配。重复调用返回 `cancelled: false`。
 - 审计查询读取本机 Vault runtime 中当月新增的外部核验与作业终态记录，按 Vault 实例、可信主体及原路由匹配。返回时间、主机 ID、动作和结果，`detail` 为空。审计采用尽力写入，写入失败时 SSH 操作仍可完成，该事件可能缺失。

@@ -1,6 +1,6 @@
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
-import { normalizeTag, type TaskDto } from "@huhu/contracts";
+import { normalizeTag, type TaskDto, type TaskHistorySelection } from "@huhu/contracts";
 import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
 import { createRequestId, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
@@ -25,40 +25,83 @@ interface Detected {
 
 const newId = (): string => `rem-${createRequestId()}`;
 
-type DispatchTarget = { mode: "new" | "existing" | "resume"; provider: string; sessionId?: string; available: boolean; reason: string | null };
+type DispatchTarget = { mode: "new" | "existing" | "resume"; provider: string; sessionId?: string; nativeSessionId?: string; history?: TaskHistorySelection; historyTitle?: string; available: boolean; reason: string | null };
 
-function DispatchTargetSelect({ spaceId, target, onChange }: { spaceId: string; target: TaskDraft["target"]; onChange(target: TaskDraft["target"]): void }) {
+function historyOption(nativeId: string, selection: TaskHistorySelection | undefined): string {
+  return JSON.stringify(["resume", nativeId, selection?.historyId, selection?.historyRevision, selection?.machineId, selection?.spaceId, selection?.spaceRevision]);
+}
+
+function DispatchTargetSelect({ spaceId, target, error, onChange }: { spaceId: string; target: TaskDraft["target"]; error: string | null; onChange(target: TaskDraft["target"], provider?: string): void }) {
+  const field = useId();
   const query = useCapability<DispatchTarget[]>("tasks.dispatch.targets", { spaceId });
-  const entries = (query.data ?? []).filter((entry) => entry.mode === "existing" && entry.sessionId);
+  const entries = (query.data ?? []).flatMap((entry) => {
+    if (entry.mode === "existing" && entry.sessionId) return [{ ...entry, value: `session:${entry.sessionId}`, label: entry.sessionId }];
+    if (entry.mode === "resume" && entry.nativeSessionId && entry.history)
+      return [{ ...entry, value: historyOption(entry.nativeSessionId, entry.history), label: `${entry.historyTitle ?? "原生历史"} · ${entry.nativeSessionId.slice(0, 8)}` }];
+    return [];
+  });
   const picked = target?.mode === "existing" ? target.sessionId : null;
-  const value = picked ? `session:${picked}` : target?.mode === "resume" ? "resume" : "new";
+  const savedHistory = target?.mode === "resume";
+  const value = picked ? `session:${picked}` : savedHistory ? historyOption(target.nativeSessionId, target.history) : "new";
+  const missing = value !== "new" && !entries.some((entry) => entry.value === value);
+  const message = error ?? (savedHistory && missing && query.isSuccess ? "原生历史已变化或不可用，请重新选择。" : null);
+  const renderOption = ({ value, label, provider, available, reason }: (typeof entries)[number]) => {
+    const waiting = reason === "input_owned" || reason === "binding_unverified" || reason === "history_writer_busy";
+    return (
+      <option key={value} value={value} disabled={!available && !waiting}>
+        {agentById(provider)?.displayName ?? provider} · {label} · {available ? "可用" : waiting ? "等待会话可用" : "当前不可用"}
+      </option>
+    );
+  };
+  const live = entries.filter((entry) => entry.mode === "existing");
+  const history = entries.filter((entry) => entry.mode === "resume");
+  const unsupported = (query.data ?? []).filter((entry) => entry.mode === "resume" && !entry.history);
   return (
-    <Field label="会话目标">
-      <select aria-label="会话目标" value={value} onChange={(e) => onChange(e.target.value === "new" ? { mode: "new" } : { mode: "existing", sessionId: e.target.value.slice("session:".length) })}>
+    <div className="hu-field">
+      <label className="hu-field-label" htmlFor={field}>
+        会话目标
+      </label>
+      <select
+        id={field}
+        name="executionTarget"
+        value={value}
+        aria-invalid={message ? true : undefined}
+        aria-describedby={`${field}-hint${message ? ` ${field}-error` : ""}`}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === "new") return onChange({ mode: "new" });
+          const selected = entries.find((entry) => entry.value === next);
+          if (selected?.mode === "existing" && selected.sessionId) onChange({ mode: "existing", sessionId: selected.sessionId });
+          if (selected?.mode === "resume" && selected.nativeSessionId && selected.history) onChange({ mode: "resume", nativeSessionId: selected.nativeSessionId, history: selected.history }, selected.provider);
+        }}
+      >
         <option value="new">新建会话</option>
-        {target?.mode === "resume" ? (
-          <option value="resume" disabled>
-            原生历史会话 · 当前无法派遣
+        {missing ? (
+          <option value={value} disabled>
+            {savedHistory ? `原生历史 · ${target.nativeSessionId.slice(0, 8)}` : "原会话"} · 当前不可用
           </option>
         ) : null}
-        {picked && !entries.some(({ sessionId }) => sessionId === picked) ? (
-          <option value={`session:${picked}`} disabled>
-            原会话 · 当前不可用
-          </option>
+        {live.length > 0 ? <optgroup label="现有会话">{live.map(renderOption)}</optgroup> : null}
+        {history.length > 0 || unsupported.length > 0 ? (
+          <optgroup label="原生历史">
+            {history.map(renderOption)}
+            {unsupported.map(({ provider }) => (
+              <option key={provider} value={`history-unavailable:${provider}`} disabled>
+                {agentById(provider)?.displayName ?? provider} · {provider === "codex" ? "没有符合条件的受控历史" : "暂不支持受控历史派遣"}
+              </option>
+            ))}
+          </optgroup>
         ) : null}
-        {entries.map(({ sessionId, provider, available, reason }) => {
-          const waiting = reason === "input_owned" || reason === "binding_unverified";
-          return (
-            <option key={sessionId} value={`session:${sessionId}`} disabled={!available && !waiting}>
-              {agentById(provider)?.displayName ?? provider} · {sessionId} · {available ? "可用" : waiting ? "等待会话可用" : "当前不可用"}
-            </option>
-          );
-        })}
       </select>
-      <p role="status" className="tasks-hint">
-        {query.isPending ? "正在读取工作区会话…" : query.error ? "暂时无法读取工作区会话，重连后可再选择。" : entries.length ? "" : "当前工作区没有可复用的受控会话。"}
+      {message ? (
+        <p id={`${field}-error`} className="hu-field-error">
+          {message}
+        </p>
+      ) : null}
+      <p id={`${field}-hint`} role="status" className="tasks-hint">
+        {query.isPending ? "正在读取工作区会话…" : query.error ? "暂时无法读取工作区会话，重连后可再选择。" : history.length ? "" : "当前工作区没有可派遣的受控 Codex 历史。"}
       </p>
-    </Field>
+    </div>
   );
 }
 
@@ -136,7 +179,11 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   }
 
   function chooseSpace(spaceId: string | null) {
-    setDraft((current) => ({ ...current, spaceId, target: current.spaceId === spaceId || current.target?.mode === "new" ? current.target : null }));
+    setDraft((current) => ({
+      ...current,
+      spaceId,
+      target: current.spaceId === spaceId || current.target?.mode === "new" ? current.target : current.target?.mode === "resume" ? { mode: "resume", nativeSessionId: current.target.nativeSessionId } : null,
+    }));
   }
 
   async function save() {
@@ -165,7 +212,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
       setSaving(false);
     }
   }
-  const err = (k: string) => (problems.includes(k) ? t.editor.errors[k] : null);
+  const err = (k: string): string | null => (problems.includes(k) ? (t.editor.errors[k] ?? null) : null);
 
   return (
     <Dialog open wide testId="task-editor" title={task ? t.editor.editTitle : t.editor.newTitle} description={t.editor.description} onClose={requestClose}>
@@ -317,8 +364,18 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                       </Button>
                     ) : null}
                   </Field>
-                  {draft.spaceId ? <DispatchTargetSelect spaceId={draft.spaceId} target={draft.target} onChange={(target) => set("target", target)} /> : null}
-                  {draft.target?.mode !== "existing" ? (
+                  {draft.spaceId ? (
+                    <DispatchTargetSelect
+                      spaceId={draft.spaceId}
+                      target={draft.target}
+                      error={err("target")}
+                      onChange={(target, provider) => {
+                        setProblems((current) => current.filter((problem) => problem !== "target"));
+                        setDraft((current) => (provider ? { ...current, target, provider, model: null, effort: null, fast: false } : { ...current, target }));
+                      }}
+                    />
+                  ) : null}
+                  {!draft.target || draft.target.mode === "new" ? (
                     <>
                       <Field label={t.editor.cli} error={err("provider")}>
                         {providers.data && usable.length === 0 ? (

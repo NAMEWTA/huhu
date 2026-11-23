@@ -15,8 +15,8 @@
 
 | Change | 规格 | 架构与待决项 | 切片与证据安排 |
 | --- | --- | --- | --- |
-| #4 Agent CLI | [工作区、终端与历史](../../../../dev/changes/2026-11-19-issue-4-agent-cli/spec.md) | [状态所有权与执行合同](../../../../dev/changes/2026-11-19-issue-4-agent-cli/design.md) | [W0–W8](../../../../dev/changes/2026-11-19-issue-4-agent-cli/plan.md) |
-| #5 任务与自动化 | [派遣、答复和收取结果](../../../../dev/changes/2026-11-19-issue-5-task-automation/spec.md) | [持久接受与恢复](../../../../dev/changes/2026-11-19-issue-5-task-automation/design.md) | [T0–T7](../../../../dev/changes/2026-11-19-issue-5-task-automation/plan.md) |
+| #4 Agent CLI | [工作区、终端与历史](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/spec.md) | [状态所有权与执行合同](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/design.md) | [W0–W8](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/plan.md) |
+| #5 任务与自动化 | [派遣、答复和收取结果](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/spec.md) | [持久接受与恢复](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/design.md) | [T0–T7](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/plan.md) |
 
 写入前两个 change 均只有 source.md。本 worker 新增上述六份 Markdown 和本报告。切片已在 plan.md 写明依赖、入口及验收，未另建 tasks 文件。当前分支 feature/issue-fix，HEAD 为 9f870c0fad0c1d0538b9783214d2f4a3a3278b10。本任务未提交、构建、部署、运行产品测试或写入 GitHub。
 
@@ -25,7 +25,7 @@
 | 验收要求 | 实际检查与结果 | 证据位置 |
 | --- | --- | --- |
 | 派工与身份 | 开始时 report01.md 不存在。HC_TERMINAL_ID=t6，cwd 与 task 相符；hc server status 显示 wta、Core ID 346bd5608735e3fcb27f9d01f5c8008e、0.1.21。topic 记录 t6 接续 t2；manifest 为 t6 / task01.md / active。发布前复核身份和指针。 | [任务](task01.md)、[topic](../topic.md)、[manifest](../manifest.tsv) |
-| 完整来源和基线 | #4 快照 725 行，#5 快照 661 行，均含完整正文、固定源码链接及“无评论”。读写前后 SHA-256 一致，分别为 4b7bb19eabb35c690e6046010ab2deebe3069e5523d1155a4b078c9f5bd063a8 与 ee4298f3076338612e2f866725c6b1c8d83462c89a56f5402c4c1c34dd6f4707。用 git diff --name-status 比对 Issue 的 9132640 与 HEAD，另查 #6/#9 的工具、宿主、秘密所有权。 | [#4 原始快照](../../../../dev/changes/2026-11-19-issue-4-agent-cli/source.md)、[#5 原始快照](../../../../dev/changes/2026-11-19-issue-5-task-automation/source.md) |
+| 完整来源和基线 | #4 快照 725 行，#5 快照 661 行，均含完整正文、固定源码链接及“无评论”。读写前后 SHA-256 一致，分别为 4b7bb19eabb35c690e6046010ab2deebe3069e5523d1155a4b078c9f5bd063a8 与 ee4298f3076338612e2f866725c6b1c8d83462c89a56f5402c4c1c34dd6f4707。用 git diff --name-status 比对 Issue 的 9132640 与 HEAD，另查 #6/#9 的工具、宿主、秘密所有权。 | [#4 原始快照](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/source.md)、[#5 原始快照](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/source.md) |
 | 核对当前实现 | 查到 AgentCliModule.launch→agent.sessions.launch→SessionsService→terminal.run、fillCells/固定 layout、hello/attach/WS→TerminalView、SpaceStore 和原生历史入口；查到 AutomationsService.activate/drive→processWorker/launchSupervised、TasksService.runs 的数量/TaskDetail 数组冲突、answerRun、completeTaskRun 和 claim/条件写恢复。针对同地址换进程、同时间多规则、回复双投及评论确认丢失分别写了判据。 | 两份 design.md 的现状首表、合同及故障窗口 |
 | 复用与环境 | 按 Huhu 现有实现、缺失的 temp/sources、项目依赖、固定上游逐项核对。raw 源码可取 herdr-app/Core（Apache-2.0）、agent-autoloop（MIT），抽查函数和 schema。ORCA 固定提交的 GitHub API、源码及 LICENSE 返回 404，R-42 只证明旧基线的参考。Huhu 项目锁 Core 0.1.19；派工 Core 版本不作产品证据。 | 两份 design.md 的固定 SHA、文件、许可证和缺口；仓库 scripts/herdr.lock.json、docs/upstream/ledger.md、THIRD_PARTY_NOTICES.md |
 | 共享前端 | 已执行 modern-web-guidance 的 search→retrieve，实际取回 tabs、css-layout、dialog、accessibility、forms、coordinate-global-events。已核 pnpm 锁与 Electron 44.9.1 对应 Chromium 152.0.7977.167；Web 按 Baseline Widely available，终端键盘有独立回退，规则时区不能从浏览设备的本地控件推定。未启动桌面或浏览器进行运行验收。 | 两份设计的平台依据与 Huhu 前端入口；[Electron 发布记录](https://releases.electronjs.org/release/v44.9.1) |

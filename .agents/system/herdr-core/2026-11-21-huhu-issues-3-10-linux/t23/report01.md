@@ -18,7 +18,7 @@
 - 工作目录 — `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`
 - 分支 — `impl/huhu-issues-3-10-g6-kernel`
 - 候选 — `9f4f72cab7cc55a8b93fbb39a011f06bbd3e49fd`，父 `6471329e`
-- 证据 — `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-kernel-exposure-linux.md`
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-kernel-exposure-linux.md`
 - 候选通过临时 Git 索引生成。工作树业务源与测试已和候选逐字节核对，主索引仍在原基线。证据目录为沙箱只读，已用临时索引把证据纳入候选树，用 `git show <候选>:<证据路径>` 可读。
 - 未改 Engine 装配、协议组、插件、Vault 包收集器或前端。验证使用隔离 Vault 和合成凭据。
 

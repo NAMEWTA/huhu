@@ -1,0 +1,132 @@
+body {
+  overflow: auto;
+  color: #e3ebf6;
+  background: #121b29;
+  margin: 0;
+  font:
+    1rem/1.35 system-ui,
+    sans-serif;
+}
+.fixture-shell {
+  width: min(calc(100% - 24px), 1240px);
+  margin: 12px auto;
+}
+.fixture-toolbar,
+.fixture-controls,
+.fixture-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  align-items: center;
+}
+.fixture-toolbar {
+  margin-block-end: 10px;
+}
+.fixture-status {
+  margin: 0;
+}
+.fixture-stage {
+  min-inline-size: 0;
+}
+.fixture-tile {
+  min-inline-size: 0;
+  box-sizing: border-box;
+  border-radius: 7px;
+}
+.fixture-body,
+.fixture-editor,
+.fixture-tile > .fixture-editor {
+  padding: 6px;
+}
+.fixture-body {
+  border: 1px solid #456184;
+  background: #1e2d42;
+  border-radius: 8px;
+}
+.fixture-body h2,
+.fixture-body p,
+.fixture-fields p {
+  margin: 0;
+}
+.fixture-body h2 {
+  font-size: 1rem;
+}
+.fixture-fields input {
+  max-inline-size: min(100%, 120px);
+}
+.fixture-tile,
+.hu-dashboard-widget {
+  container-type: inline-size;
+}
+.fixture-detail {
+  display: none;
+}
+@container (width >= 280px) {
+  .fixture-detail {
+    display: block;
+  }
+}
+.fixture-shell :where(button, select, input:not([type="checkbox"])) {
+  min-block-size: 24px;
+}
+.fixture-shell :focus-visible {
+  outline: 2px solid #a9ceff;
+  outline-offset: 2px;
+}
+.fixture-move,
+.hu-dashboard-drag {
+  cursor: grab;
+}
+.fixture-size,
+.hu-dashboard-size-handle {
+  cursor: nwse-resize;
+}
+.fixture-move,
+.fixture-size,
+.hu-dashboard-drag,
+.hu-dashboard-size-handle {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.grid-stack .fixture-move {
+  touch-action: manipulation;
+}
+.fixture-fields [data-selectable] {
+  user-select: text;
+  cursor: text;
+}
+.fixture-absolute {
+  position: relative;
+  transform-origin: top left;
+}
+.fixture-absolute .fixture-tile {
+  padding: 6px;
+  overflow: auto;
+}
+.react-grid-item.fixture-tile {
+  overflow: auto;
+}
+.fixture-narrow {
+  display: grid;
+  gap: 12px;
+}
+.fixture-narrow .fixture-tile {
+  min-inline-size: 0;
+}
+.fixture-tile[data-placement-preview="true"],
+.grid-stack-placeholder,
+.react-grid-placeholder {
+  outline: 2px solid #73b5ff;
+  outline-offset: -2px;
+}
+@media (pointer: coarse) {
+  .fixture-shell :where(button, select, input:not([type="checkbox"])) {
+    min-block-size: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fixture-shell :is(.grid-stack-item, .react-grid-item) {
+    transition: none !important;
+  }
+}

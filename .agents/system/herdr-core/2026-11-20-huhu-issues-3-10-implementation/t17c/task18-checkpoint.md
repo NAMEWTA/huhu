@@ -5,7 +5,7 @@
 ## 已完成与已验证
 
 - S7.3 已实现缓存文件统计、内存索引统计、确认清理、旧同步代中断、持久已读覆盖和设置界面。定向 Windows Engine 用例通过，真实回环 IMAP／SMTP 观察到迟到刷新未回写，重启保留草稿附件、已读覆盖、未知投递与凭据，同步重建后恢复搜索。
-- 原型确认见 `.agents/dev/changes/2026-11-19-issue-8-mail-module/prototype-review.md`。Modern Web Guidance 已检索并获取 `dialog`、`accessibility`，清理确认采用当前原生 Dialog，初始焦点在取消。
+- 原型确认见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/prototype-review.md`。Modern Web Guidance 已检索并获取 `dialog`、`accessibility`，清理确认采用当前原生 Dialog，初始焦点在取消。
 
 ## 恢复
 

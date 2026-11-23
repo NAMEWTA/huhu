@@ -30,7 +30,7 @@
 
 ## 读写范围与产物
 
-- 可写业务范围 — `packages/contracts/**`、`packages/kernel/src/{dispatcher,operation-receipts,capabilities/define,capabilities/exposure}*` 及共享 policy、`packages/kernel/src/server/**` 与 MCP 适配器、`apps/cli/**`、`plugins/ssh/src/engine/public-*` 与 owner 相关文件、上述各自测试、#6 证据目录 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/`。实际文件名以代码为准，超出此范围前在报告说明理由。
+- 可写业务范围 — `packages/contracts/**`、`packages/kernel/src/{dispatcher,operation-receipts,capabilities/define,capabilities/exposure}*` 及共享 policy、`packages/kernel/src/server/**` 与 MCP 适配器、`apps/cli/**`、`plugins/ssh/src/engine/public-*` 与 owner 相关文件、上述各自测试、#6 证据目录 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/`。实际文件名以代码为准，超出此范围前在报告说明理由。
 - 禁止改动 — 插件注册、Vault 包收集器、根 `package.json`/`pnpm-lock.yaml`、其他插件业务。不 push，不改其他分支，不启动子 agent。不碰真实 Vault、真实凭据。
 - 预期产物 — 候选提交（临时索引方式，父 `f7901b0a`）、证据 `evidence/G-session-identity-linux.md`、报告。
 

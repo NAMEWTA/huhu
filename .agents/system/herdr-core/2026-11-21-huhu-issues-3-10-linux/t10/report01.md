@@ -18,7 +18,7 @@ Linux x64 的受控 Codex 派遣、原生问答、结果回执和受保护规则
 - 候选提交 — `2a1700941bd947d7241233c9ce4c1b725af92a95`
 - 父提交 — `22e914329e16d1cc2a7dc6338cd78cc13787eade`
 - 工作区 — `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-agent-linux`。候选由临时索引生成，分支 HEAD 仍指向父提交。业务文件与候选树内容一致。工作区中的 `.agents` 是只读挂载，证据文件已通过 Git blob 纳入候选树。
-- 证据 — `.agents/dev/changes/2026-11-19-issue-4-agent-cli/evidence/W-linux-native-execution.md`。记录每个测试文件的计数、命令、运行环境、Windows 分支的保护目的与 Linux 对应证据。
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W-linux-native-execution.md`。记录每个测试文件的计数、命令、运行环境、Windows 分支的保护目的与 Linux 对应证据。
 - 改动范围 — Agent CLI 的受控派遣和受保护规则 helper、对应测试与夹具，以及点名的 Engine 和 CLI 测试。
 
 | 原 Windows 条件 | Linux 对应行为与证据 |

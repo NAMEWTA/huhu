@@ -10,7 +10,7 @@
 
 **规格轴通过。** 有 NAMESPACE 前缀的有效 INBOX 能发现并保存，真正缺失或不可选的 INBOX 仍阻止保存。同步取消监听器中的重入在网络调用前被拦截，晚到响应失效。独立三路回环测试核对了每次实际 LOGIN 使用的账号与合成密码。中间失败没有写入，最后一次成功发现以同一账号、端口、目录和密码快照发布一次。
 
-**规范轴通过私有领域范围。** 复用锁定的 ImapFlow、Vault 和 ModuleCredentials，当前分支的发布冻结安装仍因根锁缺 Mail importer 而失败。建议签收该私有增量，由 Lead 补根锁、Engine 与真实宿主保护接线，另验 Safe 锁下的实际组装和安装包。 [S1a.1 验收](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.1-account-discovery.md) · [t54 原复核](../t54/report05.md) · [t11x 返工报告](../t11x/report01.md)
+**规范轴通过私有领域范围。** 复用锁定的 ImapFlow、Vault 和 ModuleCredentials，当前分支的发布冻结安装仍因根锁缺 Mail importer 而失败。建议签收该私有增量，由 Lead 补根锁、Engine 与真实宿主保护接线，另验 Safe 锁下的实际组装和安装包。 [S1a.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1a.1-account-discovery.md) · [t54 原复核](../t54/report05.md) · [t11x 返工报告](../t11x/report01.md)
 
 ## 规格轴
 

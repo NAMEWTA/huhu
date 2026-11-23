@@ -26,7 +26,7 @@
 | W6.3、W6.0 | Agent 已落盘后丢第一阶段 ACK，重开才见原 `agent_received`。将 helper 的问题副本移出待交目录后，Agent 用自有副本继续。合成 Tasks 已保存可重建消费记录时丢第二阶段 ACK。重开后同一问题重交，错误摘要保持待交，随后匹配 ACK 才结束。 | [两次丢 ACK 与回读](evidence-task03/regressions.log) |
 | F02、C12 | Agent 存储拒绝同 ID 异载荷、错误 run、缺原生绑定和跨 Vault 读取。合成 Tasks 接收器拒绝桌面直接调用。回执流程完成后再次重开仍无重送。原生输入一次、问题回答零次，合成消费为两份唯一回执。 | [归属与指纹回归](evidence-task03/regressions.log) |
 
-规格见 [W6.3](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.3-durable-receipt.md)、[W6.0](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md) 和 [原生接线分析](../t13g/report01.md)。
+规格见 [W6.3](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.3-durable-receipt.md)、[W6.0](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.0-receipt-contract.md) 和 [原生接线分析](../t13g/report01.md)。
 
 ## 验证及清理
 

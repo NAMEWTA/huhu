@@ -1,0 +1,265 @@
+import "@huhu/ui/styles.css";
+import "@huhu/workbench/shell.css";
+import { appearanceController } from "@huhu/ui";
+import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
+import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
+import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
+import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
+import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
+import { contributions as notesUi } from "@huhu/plugin-notes/ui";
+import { contributions as safeUi } from "@huhu/plugin-safe/ui";
+import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
+import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
+import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
+import {
+  AppShell,
+  ContributionRegistry,
+  EngineProvider,
+  FocusPauseOnClose,
+  HealthModule,
+  HomeModule,
+  CommandPalette,
+  requestOpenPath,
+  requestOpenTask,
+  QuickCapture,
+  EngineClient,
+  GatewayModule,
+  NotificationBell,
+  type OpenNotification,
+  ReminderToasts,
+  ShellStatusBar,
+  ThemeToggle,
+  PluginCenterModule,
+  SettingsModule,
+  systemSettingsPages,
+  useCapability,
+  createUiStore,
+  type EngineEndpoint,
+} from "@huhu/workbench";
+import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { browserLocation } from "./web-host.js";
+
+export type EngineState = "starting" | "ready" | "stopped" | "crashed";
+
+/** 按插件启用状态过滤 rail / 标签 / 命令（启停无需刷新页面）。 */
+function PluginFilter({ registry }: { registry: ContributionRegistry }) {
+  const plugins = useCapability<{ id: string; state: string }[]>("plugins.list", {});
+  useEffect(() => {
+    if (plugins.data) registry.setEnabledPlugins(plugins.data.filter((p) => p.state === "active").map((p) => p.id));
+  }, [plugins.data, registry]);
+  return null;
+}
+
+interface AppProps {
+  endpoint: EngineEndpoint | null;
+  state: EngineState;
+  version?: string | undefined;
+  onRestartEngine?(): void;
+  onConnection?(state: "connected" | "reconnecting"): void;
+  browser?: boolean;
+}
+
+export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
+  const [vaultName, setVaultName] = useState("HUHU");
+  const ui = useMemo(() => {
+    const active = (browser && browserLocation(location.pathname)?.module) || "home";
+    return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
+  }, [browser]);
+  const openNotification = useCallback<OpenNotification>(
+    ({ id, module }, source) => {
+      const open = () => {
+        const state = ui.getState();
+        const destination = module || "home";
+        return state.activeModule === destination || state.openModule(destination);
+      };
+      if (module === "mail") void requestMailNotification({ id, vaultId: source.vaultId, endpoint: source.baseUrl }, open);
+      else open();
+    },
+    [ui],
+  );
+  const registry = useMemo(() => {
+    const r = new ContributionRegistry();
+    r.register(notesUi);
+    r.register(tasksUi);
+    r.register(inboxUi);
+    r.register(createMailContributions(() => ui.getState().openModule("mail")));
+    r.register(safeUi);
+    r.register(agentCliUi);
+    r.register(automationsUi);
+    r.register(sshUi);
+    r.register(versioningUi);
+    r.register(agentGuideUi);
+    r.register({ settingsPages: systemSettingsPages() });
+    r.register({
+      modules: [
+        {
+          id: "home",
+          plugin: "kernel",
+          title: "工作台",
+          group: "primary",
+          order: 0,
+          icon: <House size={18} aria-hidden />,
+          component: () => <HomeModule ui={ui} registry={r} />,
+        },
+      ],
+    });
+    r.register({
+      modules: [
+        {
+          id: "health",
+          plugin: "kernel",
+          title: "健康中心",
+          group: "system",
+          order: 50,
+          icon: <HeartPulse size={18} aria-hidden />,
+          nav: "shell",
+          description: "状态、诊断与问题恢复",
+          sections: [
+            { id: "all", label: "系统状态", icon: <HeartPulse size={16} aria-hidden /> },
+            { id: "logs", label: "事件日志", icon: <Activity size={16} aria-hidden /> },
+            { id: "notifications", label: "通知", icon: <Bell size={16} aria-hidden /> },
+          ],
+          component: (p) => <HealthModule {...p} ui={ui} onOpenNotification={openNotification} />,
+        },
+      ],
+    });
+    r.register({
+      modules: [
+        {
+          id: "gateway",
+          plugin: "kernel",
+          title: "能力网关",
+          group: "system",
+          order: 20,
+          nav: "tabs",
+          sections: [
+            { id: "mcp", label: "MCP", tabIcon: Plug },
+            { id: "cli", label: "CLI", tabIcon: SquareTerminal },
+            { id: "server", label: "服务端", tabIcon: Server },
+            { id: "desktop", label: "桌面宿主", tabIcon: Monitor },
+          ],
+          description: "一套能力，多个入口",
+          icon: <Plug size={18} aria-hidden />,
+          component: (p) => <GatewayModule {...p} ui={ui} />,
+        },
+      ],
+    });
+    r.register({
+      modules: [
+        {
+          id: "plugins",
+          plugin: "kernel",
+          title: "插件中心",
+          group: "system",
+          order: 10,
+          icon: <Blocks size={18} aria-hidden />,
+          nav: "tabs",
+          sections: [
+            { id: "installed", label: "已安装", tabIcon: Blocks },
+            { id: "discover", label: "发现插件", tabIcon: Search },
+            { id: "runtime", label: "运行时", tabIcon: Activity },
+            { id: "permissions", label: "权限与依赖", tabIcon: ShieldCheck },
+          ],
+          description: "每项能力都有清晰的生命周期",
+          component: PluginCenterModule,
+        },
+      ],
+    });
+    r.register({
+      modules: [
+        {
+          id: "settings",
+          plugin: "kernel",
+          title: "设置",
+          group: "system",
+          order: 90,
+          icon: <Settings size={18} aria-hidden />,
+          nav: "shell",
+          description: "你的工作方式，由你定义",
+          component: SettingsModule,
+        },
+      ],
+    });
+    return r;
+  }, [openNotification, ui]);
+  const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
+
+  useEffect(() => {
+    if (!browser) return;
+    const openLocation = () => {
+      const link = browserLocation(location.pathname);
+      if (link?.target) {
+        if (link.module === "tasks") requestOpenTask(link.target);
+        else requestOpenPath(link.target, true);
+      }
+      const active = link?.module ?? "home";
+      if (ui.getState().activeModule !== active) ui.getState().openModule(active);
+    };
+    openLocation();
+    window.addEventListener("popstate", openLocation);
+    return () => window.removeEventListener("popstate", openLocation);
+  }, [browser, ui]);
+
+  // 引擎就绪后应用该 Vault 保存的外观设置
+  useEffect(() => {
+    if (!client) return;
+    void client
+      .call<{ appearance: Record<string, unknown> }>("settings.get")
+      .then((settings) => appearanceController().set(settings.appearance))
+      .catch(() => undefined);
+    void client
+      .call<{ name: string }>("vault.info")
+      .then((vault) => setVaultName(vault.name))
+      .catch(() => undefined);
+  }, [client]);
+
+  const shellState: EngineState = endpoint ? state : state === "ready" ? "starting" : state;
+  const shell = (
+    <AppShell
+      registry={registry}
+      ui={ui}
+      engineState={shellState}
+      {...(onRestartEngine ? { onRestartEngine } : {})}
+      vaultName={vaultName}
+      statusSlot={
+        <>
+          <ThemeToggle />
+          <NotificationBell onOpenModule={(id) => ui.getState().openModule(id)} onOpenNotification={openNotification} />
+        </>
+      }
+      statusBar={<ShellStatusBar ui={ui} />}
+      {...(version ? { version } : {})}
+    />
+  );
+  const withFilter = (
+    <>
+      {shell}
+      {endpoint ? <PluginFilter registry={registry} /> : null}
+      {endpoint ? <QuickCapture /> : null}
+      {endpoint ? <FocusPauseOnClose /> : null}
+      {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
+      <CommandPalette
+        registry={registry}
+        ui={ui}
+        client={client}
+        onOpenResult={(r) => {
+          if (r.kind === "task") return ui.getState().openModule("tasks");
+          if (r.kind === "capture") return ui.getState().openModule("inbox");
+          requestOpenPath(r.path); // 笔记与档案（档案是 Archives/ 下的文件夹笔记）：笔记模块打开对应文件
+          ui.getState().openModule("notes");
+        }}
+      />
+    </>
+  );
+  return endpoint ? (
+    <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
+      {withFilter}
+    </EngineProvider>
+  ) : (
+    <>
+      {shell}
+      <CommandPalette registry={registry} ui={ui} />
+    </>
+  );
+}

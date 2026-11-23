@@ -19,7 +19,7 @@
 ## 产物与改动
 
 - 候选 `664996ad1cdaaf06f92938157bdf8614091e33c5`，父提交 `7cfed9bf6adafcb4843d3356c7dfbe3e85a40e8a`。工作树为 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-w4-agent` 仍指向父提交。业务工作树与候选逐文件一致，普通索引保持基线。未推送。
-- 候选含 `.agents/dev/changes/2026-11-19-issue-4-agent-cli/evidence/W5.2-W8-linux.md`。沙箱将工作树的 `.agents/` 置为只读，证据通过临时索引写入候选树。
+- 候选含 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W5.2-W8-linux.md`。沙箱将工作树的 `.agents/` 置为只读，证据通过临时索引写入候选树。
 - Tasks 消费路径单列。夹具位于 `plugins/tasks/src/engine/receipt-inbox.ts`。需本地进程显式设置 `HUHU_E2E_TASK_RECEIPT_ACK_GATE`、提供匹配的 `dispatch-id`，才在读取已提交的结果回执后暂扣 ACK。暂扣生成 `held.json`，移交回包由 `release` 恢复。
 - 本轮无 Engine 装配改动。T7.1 当前生产路径由 Tasks 现有执行器进入 Agent CLI 内部入口。依照原有 #6 身份和策略，其消费能力仍不对外开放。
 

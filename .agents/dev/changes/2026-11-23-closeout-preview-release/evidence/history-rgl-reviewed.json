@@ -1,0 +1,36 @@
+{
+  "baseCommit": "cc551778c8d7130e8cd7cbb6bb95c6a4d1fc1ea2",
+  "boundary": "working tree source build, not final release package",
+  "terminal": "t1fz",
+  "exit": 0,
+  "e2e": {
+    "dashboard-rgl-final/result.json": {
+      "startTime": "2026-11-23T05:56:52.817Z",
+      "duration": 8571.211,
+      "expected": 3,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "history-boundary-ui/result.json": {
+      "startTime": "2026-11-23T05:57:01.962Z",
+      "duration": 18687.025,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "sha256": {
+    "temp/closeout-release/history-rgl-types.log": "70685b4df7789c854b9e1ceab7d78a6d0f9a0831c11eb0010b7b5fdbe0e50c39",
+    "temp/closeout-release/history-rgl-e2e-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "temp/closeout-release/history-boundary-live.log": "e10e5895869b2694318e680cd6e3a39d4450a6db1340e644b1a465135eb5f34e",
+    "temp/closeout-release/history-scan-live.log": "7e4c20cf4bd041c8a252d32aadb364956f1a017815a08d8ca6057153e6f7275b",
+    "temp/closeout-release/history-provider-regress.log": "b69bae1e819f5fda67983ca3ed788b11965cbb1cd9f5ceccf7f7ca1caa6f7bdd",
+    "temp/closeout-release/history-rgl-final-build.log": "972f6951803214a3c861e393ecdc55be6001eda377b0251766f27a08ab1d44c5",
+    "temp/closeout-release/dashboard-rgl-final.log": "7ecfd12f640fd82800e4d7373acc0b777d1a64b982bba92e20638520cd16b075",
+    "temp/closeout-release/history-boundary-ui.log": "ba15e97ea94f3cfcb960e26c4f82b60decab75531e7397532b485cd572639a05",
+    "temp/closeout-release/dashboard-rgl-final/result.json": "2de4419530c53f76a7ab33c366bcac455a91a909b1b129d24a935e61df3b40d2",
+    "temp/closeout-release/history-boundary-ui/result.json": "89c3cb06791d32a90c7a73b82e15179467616e69feb43d4dfb221c094165fe55"
+  }
+}

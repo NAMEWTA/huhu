@@ -1,8 +1,8 @@
-import { errors, ExecutionBindingSchema, ExecutionSessionBindingSchema } from "@huhu/contracts";
+import { errors, ExecutionBindingSchema, ExecutionSessionBindingSchema, TaskHistorySelectionSchema } from "@huhu/contracts";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { AgentDispatch } from "./dispatch.js";
-import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance } from "./dispatch-store.js";
+import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance, ResumePrepareInput } from "./dispatch-store.js";
 import { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import { NativeStop, NativeStopStatus } from "./native-stop.js";
 
@@ -13,6 +13,9 @@ export const AgentDispatchTargetInfoSchema = z.object({
   spaceRevision: z.number().int(),
   configurationId: z.string().nullable(),
   sessionId: z.string().optional(),
+  nativeSessionId: z.string().optional(),
+  history: TaskHistorySelectionSchema.optional(),
+  historyTitle: z.string().optional(),
   binding: ExecutionSessionBindingSchema.nullable(),
   available: z.boolean(),
   reason: z.string().nullable(),
@@ -55,11 +58,11 @@ export function registerDispatch(api: HuhuApi, dispatch: AgentDispatch): void {
       name: "agent.runs.dispatch",
       scope: "execute",
       idempotency: "handler",
-      input: DispatchInput,
+      input: z.union([DispatchInput, ResumePrepareInput]),
       output: AgentDispatchResponseSchema,
       handler: ({ caller, signal }, input) => {
         trust(caller);
-        return dispatch.dispatch(input, signal);
+        return "inputSha256" in input ? dispatch.prepareResume(input, signal) : dispatch.dispatch(input, signal);
       },
     }),
   );

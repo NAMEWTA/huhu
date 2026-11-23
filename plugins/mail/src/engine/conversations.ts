@@ -5,14 +5,14 @@ import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { mailDayFormatter } from "../mail-calendar.js";
-import { isPublicMailFolder, mailFolderRole } from "../mail-folder-visibility.js";
-import { isInbox } from "./account-definition.js";
+import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
+import { compareMailCopies, compareMailMessages, mailCopyIdentity, mailFolderRank, receivedMailDate } from "./mail-copies.js";
 import { cachedMailboxMessages, gmailSummary, graphSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
 import { operationIdSchema, OutboxStorage, type OutboxIntent, type OutboxRecord } from "./outbox-storage.js";
-import { readPublicMail } from "./public-mail.js";
+import { cachedPublicMail } from "./public-mail.js";
 import { makeMailSearchText, searchWords } from "./search-text.js";
 
 const accountId = imapSummary.shape.accountId;
@@ -52,11 +52,6 @@ type SearchBody = { matches: boolean; excerpt: string };
 type Candidate = { message: ConversationMessage; addresses: string[]; senderNames?: string[]; internetId?: string; rank: number; body?: SearchBody };
 type VisibleMessage = Pick<Candidate, "message" | "body"> & { publicAddresses: Set<string>; senderNames: string[] };
 type ConversationGroups = Map<string, { participants: string[]; entries: VisibleMessage[] }>;
-const messageKey = (message: ConversationMessage) => (message.source === "sent" ? message.operationId : message.localMessageId);
-
-function compareMessages(a: ConversationMessage, b: ConversationMessage) {
-  return (b.date ?? "").localeCompare(a.date ?? "") || a.source.localeCompare(b.source) || (a.source === "imap" && b.source === "imap" ? b.uid - a.uid : 0) || messageKey(a).localeCompare(messageKey(b));
-}
 
 function isPublicSent(record: OutboxRecord): record is OutboxIntent {
   if ("deleted" in record || !record.result) return false;
@@ -76,10 +71,11 @@ function bodyMatch(content: string, text: string): SearchBody {
 }
 
 function groupCandidates(candidates: Candidate[], own: ReadonlySet<string>, scope: string | undefined, time?: z.infer<typeof dateWindow>) {
-  candidates.sort((a, b) => a.rank - b.rank || compareMessages(a.message, b.message));
+  candidates.sort(compareMailCopies);
   const unique = new Map<string, { entry: VisibleMessage; addresses: Set<string> }>();
-  for (const { message, addresses, internetId, body, senderNames } of candidates) {
-    const key = JSON.stringify(internetId ? [message.accountId, internetId] : [message.accountId, message.source, messageKey(message)]);
+  for (const candidate of candidates) {
+    const { message, addresses, body, senderNames } = candidate;
+    const key = mailCopyIdentity(candidate);
     let item = unique.get(key);
     if (!item) unique.set(key, (item = { entry: { message, publicAddresses: new Set(), senderNames: senderNames ?? [], ...(body && { body }) }, addresses: new Set() }));
     for (const address of addresses) {
@@ -103,7 +99,7 @@ function groupCandidates(candidates: Candidate[], own: ReadonlySet<string>, scop
     if (!group) groups.set(id, (group = { participants, entries: [] }));
     group.entries.push(entry);
   }
-  for (const { entries } of groups.values()) entries.sort((a, b) => compareMessages(a.message, b.message));
+  for (const { entries } of groups.values()) entries.sort((a, b) => compareMailMessages(a.message, b.message));
   return groups;
 }
 
@@ -120,7 +116,7 @@ function summarize(groups: ConversationGroups) {
         unread: entries.filter(({ message }) => message.source !== "sent" && message.readState === "unread").length,
       };
     })
-    .sort((a, b) => compareMessages(a.latest, b.latest) || a.conversationId.localeCompare(b.conversationId));
+    .sort((a, b) => compareMailMessages(a.latest, b.latest) || a.conversationId.localeCompare(b.conversationId));
 }
 
 function targetOf(message: ConversationMessage): MailLocationTarget {
@@ -205,12 +201,11 @@ export function registerConversations(
     for (const account of selected) {
       for (const folder of account.definition.folders.filter(isPublicMailFolder)) {
         signal.throwIfAborted();
-        const rank = isInbox(folder.path) ? 0 : mailFolderRole(folder.specialUse ?? "") === "sent" ? 1 : 2;
+        const rank = mailFolderRank(folder);
         for (const entry of cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path })) {
-          const existing = entry.publicMail;
-          const info = existing && (!text || existing.senderNames) ? existing : ((await readPublicMail(Buffer.from(entry.source, "base64")).catch(() => undefined)) ?? existing);
+          const info = await cachedPublicMail(entry, !!text);
           if (!info) continue;
-          const date = entry.receivedAt ?? info.date ?? entry.cachedAt ?? null;
+          const date = receivedMailDate(entry, info);
           const summary = entry.summary;
           const message: ConversationMessage = summary.transport === "imap" ? { ...summary, source: "imap", date } : summary.transport === "gmail" ? { ...summary, source: "gmail", date } : { ...summary, source: "graph", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
@@ -272,7 +267,7 @@ export function registerConversations(
       const text = searchWords(input.text);
       const groups = await readGroups(input, request, text, isWorkbenchCaller(caller));
       const entries = [...groups.values()].flatMap(({ participants, entries }) => entries.map((entry) => ({ ...entry, participants })));
-      entries.sort((a, b) => compareMessages(a.message, b.message));
+      entries.sort((a, b) => compareMailMessages(a.message, b.message));
       const hits: z.infer<typeof searchHit>[] = [];
       for (const { message, participants, publicAddresses, senderNames, body } of entries) {
         if (!body?.matches && ![message.subject, ...senderNames, ...publicAddresses].some((value) => searchWords(value).includes(text))) continue;

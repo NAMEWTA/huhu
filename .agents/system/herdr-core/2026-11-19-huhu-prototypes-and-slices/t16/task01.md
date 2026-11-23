@@ -21,8 +21,8 @@
 
 ## 唯一写入范围
 
-- #4 · `.agents/dev/changes/2026-11-19-issue-4-agent-cli/`。Space/Tab/Pane 四向分栏、新建目标、运行/断线与只读/等待、工作区切换、历史及恢复。
-- #5 · `.agents/dev/changes/2026-11-19-issue-5-task-automation/`。任务创建/派遣/答复/结果、调度规则、时间窗口和重试对账；后台用独立场景控制。
+- #4 · `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/`。Space/Tab/Pane 四向分栏、新建目标、运行/断线与只读/等待、工作区切换、历史及恢复。
+- #5 · `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/`。任务创建/派遣/答复/结果、调度规则、时间窗口和重试对账；后台用独立场景控制。
 
 读取 AGENTS.md、dev-plan SKILL 和完整切片方法/模板，结合 dev-spec、dev-architecture、dev-grill。按已有交付编号拆成 tasks/<编号>-<slug>.md，以可单独交接的规模为准。若已有一行包含多项独立可验收行为则继续细分并保留上级 ID。每份 task 写可见结果、规格和代码入口、真实依赖、边界、正常/失败与验证步骤、对应 prototype/index.html 场景和 prototype-review.md 待确认范围。plan.md 更新成索引与依赖，正文只维护一处。必要时按用户已确认的三个规则修订本组 spec/design/plan，尽量维持同一权威决定，明确开发版本与实际环境约束。不得修改 source.md、prototype 或 prototype-review.md。核对每个切片有链接及覆盖关系，每个界面切片有确认要求。
 

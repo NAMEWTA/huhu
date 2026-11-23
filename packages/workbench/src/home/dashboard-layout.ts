@@ -10,6 +10,14 @@ function overlaps(a: Placement, b: Placement): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
+export function samePlacement(a: Placement, b: Placement): boolean {
+  return a.instanceId === b.instanceId && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+export function placementAnnouncement(name: string, { x, y, w, h }: Placement): string {
+  return `${name}，第 ${x + 1} 列，第 ${y + 1} 行，${w} × ${h}。`;
+}
+
 export function movePlacement(layout: readonly Placement[], candidate: Placement): Placement[] | undefined {
   if (candidate.x < 0 || candidate.y < 0 || candidate.x + candidate.w > DASHBOARD_COLUMNS) return;
   const placed = [candidate];

@@ -1,6 +1,6 @@
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +12,7 @@ import { createMailOAuth, oauthMailEndpoints, type SealedOAuthToken } from "../.
 import { createMailArchive } from "../../../plugins/mail/src/engine/subset-archive.js";
 import { graphFixture, graphScopes } from "../../../plugins/mail/test/fixtures/graph.js";
 import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
-import { openApp, root as desktopRoot } from "../helpers/launch.js";
+import { openApp, root as desktopRoot, USER_DATA_ARG } from "../helpers/launch.js";
 
 async function desktopMailCalls(page: Page) {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -26,6 +26,15 @@ async function desktopMailCalls(page: Page) {
     expect(result, capability).toMatchObject({ ok: true });
     return result.data as T;
   };
+}
+
+async function createDesktopFixtureAccount(call: Awaited<ReturnType<typeof desktopMailCalls>>, name: string, label: string, port: number) {
+  const endpoint = { host: "127.0.0.1", port, security: "none" };
+  const { setupId } = await call<{ setupId: string }>("mail.accounts.testConnection", {
+    settings: { provider: "custom_imap", email: `${name}@example.test`, label, auth: "password", imap: endpoint, smtpEnabled: false, smtp: endpoint },
+    password: "synthetic-loopback-password",
+  });
+  return call<{ accountId: string }>("mail.accounts.save", { setupId, folders: ["INBOX"] });
 }
 
 async function openGraphWorkbench() {
@@ -133,7 +142,7 @@ async function openGraphWorkbench() {
       vaultPath,
       desktopUserData: appData,
       create: true,
-      webAssetsDir: path.join(desktopRoot, "out", "renderer"),
+      webAssetsDir: path.join(desktopRoot, "out", "web"),
       moduleCredentialProtection: new TestProtection(protection),
       mailOAuth: runtime,
     });
@@ -518,6 +527,383 @@ test("桌面邮箱授权的浏览器回执迟到仍保留原监听，明确拒�
     await expect.poll(() => call("mail.oauth.status", { sessionId: second.sessionId })).toMatchObject({ phase: "failed", reason: "browser-unavailable" });
   } finally {
     await close();
+  }
+});
+
+test("邮箱账号行独立刷新与管理两个账号，分栏可拖动且窄屏返回保留焦点", async () => {
+  const source = (name: string): FixtureImapMessage => ({
+    uid: 1,
+    uidValidity: 42,
+    subject: `${name} message`,
+    source: `From: Sender <sender@example.test>\r\nTo: ${name}@example.test\r\nSubject: ${name} message\r\nDate: ${new Date().toUTCString()}\r\n\r\n${name} body\r\n`,
+  });
+  const pending = Promise.withResolvers<void>();
+  const first = await openImapFixture({ message: source("first-account") });
+  const second = await openImapFixture({ message: source("second-account"), beforeSource: () => pending.promise });
+  try {
+    const { page, close } = await openApp();
+    try {
+      await page.setViewportSize({ width: 1500, height: 950 });
+      const call = await desktopMailCalls(page);
+      await call("mail.sync.setInterval", { minutes: 0 });
+      const a = await createDesktopFixtureAccount(call, "first-account", "第一个邮箱", first.port);
+      const b = await createDesktopFixtureAccount(call, "second-account", "第二个邮箱", second.port);
+      await call("mail.sync.refresh", { accountId: a.accountId, folder: "INBOX" });
+      await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+      const sidebar = page.getByRole("complementary", { name: "邮箱账号" });
+      const firstButton = sidebar.getByRole("button", { name: "第一个邮箱", exact: true });
+      const secondButton = sidebar.getByRole("button", { name: "第二个邮箱", exact: true });
+      const secondRow = sidebar.getByTestId("mail-account-row").filter({ has: page.getByRole("button", { name: "第二个邮箱", exact: true }) });
+      await expect(secondButton).toHaveAttribute("data-mail-account", b.accountId);
+      await expect(firstButton).toHaveAccessibleDescription(/1 封未读.*已同步/);
+      await expect(secondButton).toHaveAccessibleDescription(/0 封未读.*等待首次同步/);
+      await firstButton.click();
+
+      const firstFetches = first.fetchRequests.length;
+      const refresh = secondRow.getByRole("button", { name: "刷新 第二个邮箱" });
+      await secondRow.hover();
+      await expect(refresh).toHaveCSS("opacity", "1");
+      await secondButton.focus();
+      await page.keyboard.press("Tab");
+      await expect(refresh).toBeFocused();
+      await refresh.press("Enter");
+      await expect(secondButton).toHaveAccessibleDescription(/同步中/);
+      await expect.poll(() => second.fetchRequests.some((command) => /BODY\.PEEK/i.test(command))).toBe(true);
+      expect(first.fetchRequests).toHaveLength(firstFetches);
+      pending.resolve();
+      await expect(secondButton).toHaveAccessibleDescription(/1 封未读.*已同步/);
+      await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+
+      await secondButton.click({ button: "right" });
+      const menu = page.getByRole("menu", { name: "第二个邮箱的操作" });
+      await expect(menu.getByRole("menuitem", { name: "刷新" })).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(menu.getByRole("menuitem", { name: "修复认证" })).toBeFocused();
+      await page.keyboard.press("Enter");
+      const repair = page.getByRole("dialog", { name: "修复邮箱认证" });
+      await expect(repair).toContainText("second-account@example.test");
+      await repair.getByRole("button", { name: "取消" }).click();
+      await expect(secondButton).toBeFocused();
+
+      await secondButton.press("Shift+F10");
+      await menu.getByRole("menuitem", { name: "更改名称" }).click();
+      const rename = page.getByRole("dialog", { name: "更改邮箱名称" });
+      await expect(rename).toContainText("second-account@example.test");
+      await rename.getByLabel("显示名称").fill("已改名的邮箱");
+      await rename.getByRole("button", { name: "保存名称" }).click();
+      await expect(sidebar.getByRole("button", { name: "已改名的邮箱", exact: true })).toBeVisible();
+      await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+
+      await sidebar.getByRole("button", { name: "已改名的邮箱的操作" }).press("ArrowDown");
+      await page.keyboard.press("End");
+      await expect(page.getByRole("menuitem", { name: "删除邮箱" })).toBeFocused();
+      await page.keyboard.press("Enter");
+      const removal = page.getByRole("dialog", { name: "删除本地邮箱" });
+      await expect(removal).toContainText("second-account@example.test");
+      await removal.getByRole("button", { name: "删除此邮箱" }).click();
+      await expect(sidebar.getByRole("button", { name: "已改名的邮箱", exact: true })).toHaveCount(0);
+      const remaining = await call<{ accounts: { accountId: string }[] }>("mail.accounts.list");
+      expect(remaining.accounts.map(({ accountId }) => accountId)).toEqual([a.accountId]);
+      await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+
+      const contacts = page.getByRole("complementary", { name: "联系人对话" });
+      for (const [label, pane, minimum] of [
+        ["调整账号栏宽度", sidebar, 220],
+        ["调整联系人栏宽度", contacts, 160],
+      ] as const) {
+        const separator = page.getByRole("separator", { name: label });
+        const position = (await separator.boundingBox())!;
+        const before = (await pane.boundingBox())!.width;
+        const x = position.x + position.width / 2;
+        const y = position.y + 20;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 35, y, { steps: 4 });
+        await page.mouse.up();
+        await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before + 20);
+        await separator.press("Home");
+        await expect(separator).toHaveAttribute("aria-valuenow", String(minimum));
+        await separator.press("ArrowRight");
+        await expect(separator).toHaveAttribute("aria-valuenow", String(minimum + 12));
+      }
+
+      await page.setViewportSize({ width: 480, height: 900 });
+      await expect(page.getByRole("separator", { name: "调整账号栏宽度" })).toBeHidden();
+      await expect(page.getByRole("separator", { name: "调整联系人栏宽度" })).toBeHidden();
+      await expect(sidebar).toBeHidden();
+      const latest = page.getByRole("button", { name: "阅读目录最新邮件" });
+      await latest.click();
+      const backMessages = page.getByRole("button", { name: "返回邮件列表" });
+      await expect(backMessages).toBeFocused();
+      await backMessages.click();
+      await expect(latest).toBeFocused();
+      await page.getByRole("button", { name: "返回账号" }).click();
+      await expect(firstButton).toBeFocused();
+      await expect(firstButton).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      pending.resolve();
+      await close();
+    }
+  } finally {
+    pending.resolve();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("缓存越界时仍显示两个邮箱、健康邮箱可阅读、异常邮箱可修复认证", async () => {
+  const outside = mkdtempSync(path.join(tmpdir(), "huhu-e2e-mail-cache-outside-"));
+  const imap = await openImapFixture({
+    message: { uidValidity: 42, subject: "Healthy message", source: "From: sender@example.test\r\nTo: healthy@example.test\r\nSubject: Healthy message\r\n\r\nHealthy cached body\r\n" },
+  });
+  try {
+    const { page, vault, close } = await openApp();
+    try {
+      await page.setViewportSize({ width: 1500, height: 950 });
+      const call = await desktopMailCalls(page);
+      await call("mail.sync.setInterval", { minutes: 0 });
+      const bad = await createDesktopFixtureAccount(call, "bad-cache", "异常缓存邮箱", imap.port);
+      const good = await createDesktopFixtureAccount(call, "healthy", "健康缓存邮箱", imap.port);
+      await call("mail.sync.refresh", { accountId: good.accountId, folder: "INBOX" });
+      const digest = createHash("sha256")
+        .update(JSON.stringify([bad.accountId, "INBOX"]))
+        .digest("hex");
+      symlinkSync(outside, path.join(vault, ".huhu/cache/mail", `${digest}.json`), "junction");
+
+      await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+      const sidebar = page.getByRole("complementary", { name: "邮箱账号" });
+      const badRow = sidebar.getByRole("button", { name: "异常缓存邮箱", exact: true });
+      const goodRow = sidebar.getByRole("button", { name: "健康缓存邮箱", exact: true });
+      await expect(badRow).toHaveAccessibleDescription(/未读数未知.*无法读取同步状态/);
+      await expect(goodRow).toHaveAccessibleDescription(/1 封未读.*已同步/);
+      await expect(page.getByRole("button", { name: "添加邮箱" })).toBeEnabled();
+      await goodRow.click();
+      await page.getByRole("button", { name: "阅读目录最新邮件" }).click();
+      await expect(page.getByText("Healthy cached body", { exact: true })).toBeVisible();
+
+      await badRow.press("Shift+F10");
+      await page.getByRole("menu", { name: "异常缓存邮箱的操作" }).getByRole("menuitem", { name: "修复认证" }).click();
+      const repair = page.getByRole("dialog", { name: "修复邮箱认证" });
+      await expect(repair).toContainText("bad-cache@example.test");
+      await repair.getByRole("button", { name: "取消" }).click();
+      await expect(goodRow).toHaveAttribute("aria-pressed", "true");
+    } finally {
+      await close();
+    }
+  } finally {
+    await imap.close();
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("邮件两处分栏随 Vault 重开恢复，窄窗收缩不覆盖保存值", async () => {
+  const imap = await openImapFixture();
+  const wide = { width: 1500, height: 950 };
+  async function showMail(page: Page) {
+    await page.setViewportSize(wide);
+    await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+    await page.getByRole("button", { name: "分栏测试邮箱", exact: true }).click();
+    return {
+      account: page.getByRole("separator", { name: "调整账号栏宽度" }),
+      contact: page.getByRole("separator", { name: "调整联系人栏宽度" }),
+    };
+  }
+  async function prepare(page: Page) {
+    const call = await desktopMailCalls(page);
+    await call("mail.sync.setInterval", { minutes: 0 });
+    await createDesktopFixtureAccount(call, "mail-layout", "分栏测试邮箱", imap.port);
+    return call;
+  }
+
+  try {
+    const first = await openApp();
+    try {
+      const call = await prepare(first.page);
+      const { account, contact } = await showMail(first.page);
+      await expect(account).toHaveAttribute("aria-valuenow", "260");
+      await expect(contact).toHaveAttribute("aria-valuenow", "208");
+      await account.press("End");
+      await expect(account).toHaveAttribute("aria-valuenow", "440");
+
+      const position = (await contact.boundingBox())!;
+      const x = position.x + position.width / 2;
+      const y = position.y + 20;
+      await first.page.mouse.move(x, y);
+      await first.page.mouse.down();
+      await first.page.mouse.move(x + 200, y, { steps: 4 });
+      await expect(contact).toHaveAttribute("aria-valuenow", "360");
+      expect(await call("settings.get")).toMatchObject({ mail: { contactWidth: 208 } });
+      await first.page.mouse.up();
+      const saved = { mail: { accountWidth: 440, contactWidth: 360 } };
+      await expect.poll(() => call("settings.get")).toMatchObject(saved);
+
+      await first.page.setViewportSize({ width: 1120, height: 950 });
+      await expect(contact).toBeVisible();
+      await expect.poll(async () => Number(await contact.getAttribute("aria-valuenow"))).toBeLessThan(360);
+      await first.page.setViewportSize({ width: 480, height: 900 });
+      await expect(account).toBeHidden();
+      await expect(contact).toBeHidden();
+      expect(await call("settings.get")).toMatchObject(saved);
+      await first.app.close();
+
+      const second = await openApp();
+      try {
+        await prepare(second.page);
+        const other = await showMail(second.page);
+        await expect(other.account).toHaveAttribute("aria-valuenow", "260");
+        await expect(other.contact).toHaveAttribute("aria-valuenow", "208");
+      } finally {
+        await second.close();
+      }
+
+      const reopened = await electron.launch({ args: [desktopRoot, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: first.vault } });
+      try {
+        const page = await reopened.firstWindow();
+        await desktopMailCalls(page);
+        const restored = await showMail(page);
+        await expect(restored.account).toHaveAttribute("aria-valuenow", "440");
+        await expect(restored.contact).toHaveAttribute("aria-valuenow", "360");
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      await first.close();
+    }
+  } finally {
+    await imap.close();
+  }
+});
+
+test("邮件分栏等待写权限，离开模块等两笔保存且迟到设置读取不覆盖宽度", async () => {
+  const imap = await openImapFixture();
+  const releaseAccess = Promise.withResolvers<void>();
+  const releaseRead = Promise.withResolvers<void>();
+  const releaseWrite = Promise.withResolvers<void>();
+  try {
+    const { page, close } = await openApp();
+    try {
+      const call = await desktopMailCalls(page);
+      await call("mail.sync.setInterval", { minutes: 0 });
+      await createDesktopFixtureAccount(call, "pane-delayed", "分栏延迟测试邮箱", imap.port);
+      const oldSettings = await call("settings.get");
+      let reads = 0;
+      const writes: Array<{ accountWidth?: number; contactWidth?: number }> = [];
+      await page.route("**/api/v1/call", async (route) => {
+        const { capability, input } = route.request().postDataJSON() as { capability: string; input: { patch?: { mail?: (typeof writes)[number] } } };
+        if (capability === "vault.info") await releaseAccess.promise;
+        if (capability === "settings.get" && writes.length === 0) {
+          reads++;
+          await releaseRead.promise;
+          // The renderer may have canceled this request after receiving a successful write.
+          return route.fulfill({ status: 200, json: { ok: true, data: oldSettings } }).catch(() => undefined);
+        }
+        if (capability === "settings.update" && input.patch?.mail) {
+          writes.push(input.patch.mail);
+          if (writes.length === 1) {
+            const response = await route.fetch();
+            await releaseWrite.promise;
+            return route.fulfill({ response });
+          }
+        }
+        return route.continue();
+      });
+
+      await page.reload();
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      await page.setViewportSize({ width: 1500, height: 950 });
+      const mail = page.getByRole("button", { name: "邮件", exact: true }).first();
+      const tasks = page.getByRole("button", { name: "任务", exact: true }).first();
+      await mail.click();
+      await page.getByRole("button", { name: "分栏延迟测试邮箱", exact: true }).click();
+      const account = page.getByRole("separator", { name: "调整账号栏宽度" });
+      const contact = page.getByRole("separator", { name: "调整联系人栏宽度" });
+      await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+      await expect(page.getByRole("button", { name: "写信" })).toBeDisabled();
+      await account.press("End");
+      await contact.press("End");
+      await expect(account).toHaveAttribute("aria-valuenow", "440");
+      await expect(contact).toHaveAttribute("aria-valuenow", "360");
+      expect(writes).toEqual([]);
+
+      releaseAccess.resolve();
+      await expect.poll(() => writes).toEqual([{ accountWidth: 440 }]);
+      await tasks.click();
+      await expect(account).toBeVisible();
+      await expect(page.getByTestId("tasks-module")).toHaveCount(0);
+      releaseWrite.resolve();
+      await expect(page.getByTestId("tasks-module")).toBeVisible();
+      expect(writes).toEqual([{ accountWidth: 440 }, { contactWidth: 360 }]);
+
+      releaseRead.resolve();
+      await page.unrouteAll({ behavior: "wait" });
+      await mail.click();
+      await page.getByRole("button", { name: "分栏延迟测试邮箱", exact: true }).click();
+      await expect(account).toHaveAttribute("aria-valuenow", "440");
+      await expect(contact).toHaveAttribute("aria-valuenow", "360");
+    } finally {
+      releaseAccess.resolve();
+      releaseRead.resolve();
+      releaseWrite.resolve();
+      await close();
+    }
+  } finally {
+    await imap.close();
+  }
+});
+
+test("邮件分栏写入失败保留原值供重试，关闭 Vault 等重试和下一笔保存", async () => {
+  const imap = await openImapFixture();
+  const releaseRetry = Promise.withResolvers<void>();
+  try {
+    const { page, close, vault } = await openApp();
+    try {
+      const call = await desktopMailCalls(page);
+      await call("mail.sync.setInterval", { minutes: 0 });
+      await createDesktopFixtureAccount(call, "pane-retry", "分栏重试测试邮箱", imap.port);
+      await page.setViewportSize({ width: 1500, height: 950 });
+      await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+      await page.getByRole("button", { name: "分栏重试测试邮箱", exact: true }).click();
+      await expect(page.getByRole("button", { name: "写信" })).toBeEnabled();
+      const account = page.getByRole("separator", { name: "调整账号栏宽度" });
+      const contact = page.getByRole("separator", { name: "调整联系人栏宽度" });
+      const writes: Array<{ accountWidth?: number; contactWidth?: number }> = [];
+      await page.route("**/api/v1/call", async (route) => {
+        const { capability, input } = route.request().postDataJSON() as { capability: string; input: { patch?: { mail?: (typeof writes)[number] } } };
+        if (capability !== "settings.update" || !input.patch?.mail) return route.continue();
+        writes.push(input.patch.mail);
+        if (writes.length === 1) return route.fulfill({ status: 200, json: { ok: false, error: { code: "INTERNAL", message: "测试分栏写入失败", retryable: false } } });
+        if (writes.length === 2) await releaseRetry.promise;
+        return route.continue();
+      });
+
+      await account.press("End");
+      const retry = page.getByRole("button", { name: "重试保存分栏" });
+      await expect(retry).toBeVisible();
+      await expect(account).toHaveAttribute("aria-valuenow", "440");
+      const requestVaultClose = async () => {
+        await page.getByTestId("vault-name").click();
+        await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
+      };
+      const confirm = page.getByTestId("svault-switch-confirm");
+      await requestVaultClose();
+      await expect(confirm).toBeHidden();
+      await retry.click();
+      await expect.poll(() => writes).toEqual([{ accountWidth: 440 }, { accountWidth: 440 }]);
+      await contact.press("End");
+      await requestVaultClose();
+      await expect(confirm).toBeHidden();
+      expect(writes).toHaveLength(2);
+
+      releaseRetry.resolve();
+      await confirm.click();
+      await expect(page.getByTestId("vault-launch")).toBeVisible({ timeout: 20_000 });
+      expect(writes).toEqual([{ accountWidth: 440 }, { accountWidth: 440 }, { contactWidth: 360 }]);
+      expect(JSON.parse(readFileSync(path.join(vault, ".huhu", "settings.json"), "utf8"))).toMatchObject({ mail: { accountWidth: 440, contactWidth: 360 } });
+    } finally {
+      releaseRetry.resolve();
+      await close();
+    }
+  } finally {
+    await imap.close();
   }
 });
 

@@ -3,19 +3,21 @@ import { HuhuError, errors, type ExecutionBinding } from "@huhu/contracts";
 import { AGENT_CATALOG, type AgentId } from "../shared/catalog.js";
 import { spaceCanLaunch } from "../shared/space.js";
 import type { AgentDetector } from "./detect.js";
-import { ProviderAcceptance, type AgentDispatchStore, type DispatchInput, type DispatchLookup, type LaunchOptions, type StoredDispatch } from "./dispatch-store.js";
+import { ProviderAcceptance, type AgentDispatchStore, type DispatchInput, type DispatchLookup, type LaunchOptions, type ResumePrepareInput, type StoredDispatch } from "./dispatch-store.js";
 import type { InputOwnership } from "./input-ownership.js";
 import { launchHash } from "./launch-binding.js";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import type { NativeStop, NativeStopStatus } from "./native-stop.js";
 import type { SessionsService } from "./sessions.js";
 import type { SpaceStore } from "./spaces.js";
+import type { Space } from "../shared/space.js";
 import type { z } from "zod";
+import type { AgentDispatchTargetInfoSchema } from "./dispatch-capabilities.js";
 
 /** A trusted Engine adapter must obtain readiness and acceptance from the bound provider protocol. */
 type ProviderIdentity = {
   readonly id: string;
-  readonly modes: readonly ("new" | "existing")[];
+  readonly modes: readonly ("new" | "existing" | "resume")[];
 };
 export type DispatchProvider = ProviderIdentity &
   (
@@ -38,6 +40,8 @@ const receipt = (record: StoredDispatch | null, status: Status, reason: string |
   providerAcceptance: record?.providerAcceptance ?? null,
 });
 type DispatchResponse = ReturnType<typeof receipt>;
+export type ResumeTarget = Extract<DispatchInput["target"], { mode: "resume" }>;
+type ResumeInfo = Omit<z.infer<typeof AgentDispatchTargetInfoSchema>, "structuredReply" | "structuredResult" | "cancel">;
 
 export class AgentDispatch {
   private readonly inflight = new Map<string, { fingerprint: string; result: Promise<DispatchResponse> }>();
@@ -52,6 +56,9 @@ export class AgentDispatch {
       ownership: InputOwnership;
       store: AgentDispatchStore;
       providers: Partial<Record<AgentId, DispatchProvider>>;
+      resumeTargets?(space: Space, snapshot: boolean): Promise<ResumeInfo[]>;
+      launchResume?(target: ResumeTarget, requestId: string, dispatchId: string, prepare: boolean, signal: AbortSignal): Promise<string | null>;
+      resumeAbandoned?(dispatchId: string): boolean;
       signal: AbortSignal;
     },
   ) {}
@@ -94,13 +101,16 @@ export class AgentDispatch {
           const current = reason ? null : await this.d.sessions.executionSession(session.id);
           if (!reason && current?.finished) reason = "session_ended";
           if (!reason && !current) reason = "binding_unverified";
-          if (!reason && adapter?.transport === "native" && !current?.nativeExisting) reason = "provider_generation_unavailable";
+          if (!reason && adapter?.transport === "native" && (!current?.nativeExisting || this.abandonedResume(session.id))) reason = "provider_generation_unavailable";
           if (!reason && !this.d.ownership.availableForTask(session.id)) reason = "input_owned";
           return { mode: "existing" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId: null, sessionId: session.id, binding: current?.binding ?? null, available: reason === null, reason };
         }),
     );
     signal.throwIfAborted();
-    const resume = AGENT_CATALOG.map(({ id: provider }) => ({
+    const codex = this.d.providers.codex;
+    const history = codex?.transport === "native" && codex.modes.includes("resume") && this.d.resumeTargets ? await this.d.resumeTargets(space, snapshot) : [];
+    signal.throwIfAborted();
+    const resume = AGENT_CATALOG.filter(({ id }) => !history.some((item) => item.provider === id)).map(({ id: provider }) => ({
       mode: "resume" as const,
       provider,
       spaceId: space.id,
@@ -110,14 +120,32 @@ export class AgentDispatch {
       available: false,
       reason: "native_resume_evidence_unavailable",
     }));
-    return [...newTargets, ...existing, ...resume].map((target) => ({ ...target, structuredReply: false, structuredResult: false, cancel: false }));
+    return [...newTargets, ...existing, ...history, ...resume].map((target) => ({
+      ...target,
+      available: !unavailable && target.available,
+      reason: unavailable ?? target.reason,
+      structuredReply: false,
+      structuredResult: false,
+      cancel: false,
+    }));
   }
 
   async dispatch(input: DispatchInput, requestSignal: AbortSignal): Promise<DispatchResponse> {
+    return this.run(input, requestSignal);
+  }
+
+  async prepareResume(input: ResumePrepareInput, requestSignal: AbortSignal): Promise<DispatchResponse> {
+    if (input.target.mode !== "resume") throw errors.invalidInput("请选择原生历史目标");
+    return this.run(input, requestSignal);
+  }
+
+  private async run(input: DispatchInput | ResumePrepareInput, requestSignal: AbortSignal): Promise<DispatchResponse> {
     this.assertScope(input);
     const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
-    const fingerprint = launchHash(input);
+    const text = "input" in input ? input.input : undefined;
+    const inputSha256 = "inputSha256" in input ? input.inputSha256 : createHash("sha256").update(input.input).digest("hex");
+    const fingerprint = input.target.mode === "resume" ? launchHash({ ...input, input: undefined, inputSha256 }) : launchHash(input);
     const prior = this.lookup(input);
     if (prior && prior.fingerprint !== fingerprint) throw errors.idempotencyMismatch();
     const running = this.inflight.get(input.dispatchId);
@@ -125,7 +153,7 @@ export class AgentDispatch {
       if (running.fingerprint !== fingerprint) throw errors.idempotencyMismatch();
       return running.result;
     }
-    const result = this.advance(input, fingerprint, prior, signal).finally(() => this.inflight.delete(input.dispatchId));
+    const result = this.advance(input, fingerprint, prior, signal, inputSha256, text).finally(() => this.inflight.delete(input.dispatchId));
     this.inflight.set(input.dispatchId, { fingerprint, result });
     return result;
   }
@@ -201,21 +229,37 @@ export class AgentDispatch {
     return new HuhuError("RUN_UNKNOWN", "派遣的输入状态待核实，请用原派遣标识重查", { retryable: true, details: { dispatchId: record.key.dispatchId, reason } });
   }
 
-  private async advance(input: DispatchInput, fingerprint: string, prior: StoredDispatch | null, signal: AbortSignal): Promise<DispatchResponse> {
+  private abandonedResume(sessionId: string): boolean {
+    if (!this.d.resumeAbandoned) return false;
+    const owner = this.d.sessions.resumeOwner(sessionId);
+    return !!owner && this.d.resumeAbandoned(owner);
+  }
+
+  private async advance(input: DispatchInput | ResumePrepareInput, fingerprint: string, prior: StoredDispatch | null, signal: AbortSignal, inputSha256: string, text: string | undefined): Promise<DispatchResponse> {
     if (prior && prior.write !== "not_sent") return this.observe(prior, signal);
     if (this.d.readOnly) return receipt(prior, "unsupported", "read_only_vault");
     const { target } = input;
-    if (target.mode === "resume") return receipt(prior, "unsupported", "native_resume_evidence_unavailable");
-    const provider = (target.mode === "new" ? target.provider : target.binding.provider) as AgentId;
+    if (
+      target.mode === "resume" &&
+      (target.provider !== "codex" ||
+        !target.history ||
+        target.history.machineId !== input.machineId ||
+        target.history.spaceId !== target.spaceId ||
+        target.history.spaceRevision !== target.spaceRevision ||
+        !target.configurationId ||
+        !this.d.launchResume)
+    )
+      return receipt(prior, "unsupported", "native_resume_evidence_unavailable");
+    const provider = (target.mode === "existing" ? target.binding.provider : target.provider) as AgentId;
     const adapter = Object.hasOwn(this.d.providers, provider) ? this.d.providers[provider] : undefined;
-    if (!adapter?.modes.includes(target.mode)) return receipt(prior, "unsupported", "provider_acceptance_unavailable");
+    if (!adapter?.modes.includes(target.mode) || (target.mode === "resume" && adapter.transport !== "native")) return receipt(prior, "unsupported", "provider_acceptance_unavailable");
     if (prior && prior.adapterId !== adapter.id) return receipt(prior, "unknown", "provider_adapter_changed");
 
     const record: StoredDispatch = prior ?? {
       schema: 1,
       key: dispatchKey(input),
       fingerprint,
-      inputSha256: createHash("sha256").update(input.input).digest("hex"),
+      inputSha256,
       adapterId: adapter.id,
       ...(adapter.transport === "native" && { transport: "native" }),
       acceptedAt: new Date().toISOString(),
@@ -225,12 +269,38 @@ export class AgentDispatch {
       providerAcceptance: null,
     };
     if (!prior) this.d.store.save(record);
+    if (target.mode === "resume" && this.d.resumeAbandoned?.(input.dispatchId)) return receipt(record, "not_sent", "resume_abandoned");
     let id = record.execution?.sessionBinding.sessionId ?? (target.mode === "existing" ? target.binding.sessionId : null);
     if (!id && target.mode === "new") {
       try {
         id = await this.launchNew(target, record, signal);
       } catch (error) {
         if (error instanceof HuhuError && error.code === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", "provider_acceptance_unavailable");
+        throw error;
+      }
+    }
+    if (!id && target.mode === "resume") {
+      const retry = record.resumeWriterRetry;
+      if (retry && Date.now() < retry.after) return receipt(record, "busy", "history_writer_busy");
+      try {
+        const launchKey = retry ? [record.key, retry.count] : record.key;
+        id = await this.d.launchResume!(target, "dispatch-" + launchHash(launchKey), input.dispatchId, text === undefined, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!(error instanceof HuhuError)) throw error;
+        if (error.code === "RUN_UNKNOWN" && error.details?.["reason"] === "history_writer_busy") {
+          this.assertCurrent(record);
+          const count = (retry?.count ?? 0) + 1;
+          const after = Date.now() + Math.min(60_000, 1_000 * 2 ** Math.min(count, 6));
+          const updated = { ...record, resumeWriterRetry: { count, after } };
+          this.d.store.save(updated);
+          return receipt(updated, "busy", "history_writer_busy");
+        }
+        if (error.code === "RUN_UNKNOWN" && error.details?.["reason"] === "input_owned") return receipt(record, "busy", "input_owned");
+        if (error.code === "AGENT_DISABLED") return receipt(record, "unsupported", error.code);
+        if (error.code === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", "native_resume_evidence_unavailable");
+        if (error.code === "VERSION_CONFLICT" || error.code === "NOT_FOUND" || error.code === "SPACE_INVALID") return receipt(record, "unsupported", "history_selection_changed");
+        if (error.code === "RUN_UNKNOWN" || error.code === "HERDR_UNAVAILABLE") return receipt(record, "not_sent", "launch_unverified");
         throw error;
       }
     }
@@ -243,23 +313,32 @@ export class AgentDispatch {
     if (expectation && launchHash(expectation) !== launchHash(current.binding)) {
       throw new HuhuError("VERSION_CONFLICT", "Agent 进程绑定已变化", { details: { reason: "binding_changed" } });
     }
-    if (current.finished) return this.observe(record, signal);
-    if (target.mode === "existing" && adapter.transport === "native" && !current.nativeExisting) return receipt(record, "unsupported", "provider_generation_unavailable");
+    if (target.mode === "resume" && current.binding.nativeSessionId !== target.nativeSessionId) return receipt(record, "unsupported", "history_selection_changed");
+    if (current.finished) return target.mode === "resume" ? receipt(record, "unsupported", "session_ended") : this.observe(record, signal);
+    if (target.mode === "existing" && adapter.transport === "native" && (!current.nativeExisting || this.abandonedResume(id))) return receipt(record, "unsupported", "provider_generation_unavailable");
 
     if (!this.d.ownership.availableForTask(id, input.dispatchId)) return receipt(record, "busy", "input_owned");
     const ready = adapter.transport === "native" ? current.binding.nativeSessionId !== null : await adapter.ready(current.binding, signal).catch(() => false);
     signal.throwIfAborted();
     if (!ready) return receipt(record, "not_sent", "provider_not_ready");
+    if (text === undefined) return receipt(record, "not_sent", "resume_ready");
     const { machineId: _machineId, ...key } = record.key;
     const execution = { ...key, sessionBinding: current.binding };
     const sending: StoredDispatch = { ...record, execution, ownerActive: true, write: "sending" };
-    const write = await this.d.sessions.writeExecutionInput(execution, input.input, signal, () => {
-      this.assertCurrent(record);
-      if (target.spaceRevision !== undefined) this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
-      if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
-      this.d.store.save(sending);
-      return true;
-    });
+    const write = await this.d.sessions
+      .writeExecutionInput(execution, text, signal, () => {
+        this.assertCurrent(record);
+        if (target.spaceRevision !== undefined) this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
+        if (target.mode === "resume" && (this.d.resumeAbandoned?.(input.dispatchId) || this.d.sessions.resumeOwner(id) !== input.dispatchId)) return false;
+        if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
+        this.d.store.save(sending);
+        return true;
+      })
+      .catch((error: unknown) => {
+        if (target.mode === "resume" && error instanceof HuhuError && (error.code === "AGENT_DISABLED" || error.code === "HEADLESS_UNSUPPORTED")) return error.code;
+        throw error;
+      });
+    if (write === "AGENT_DISABLED" || write === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", write);
     if (write === "busy" || write === "not_sent") {
       signal.throwIfAborted();
       return write === "busy" ? receipt(record, "busy", "input_owned") : receipt(record, "not_sent", "binding_unverified");

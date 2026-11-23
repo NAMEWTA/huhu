@@ -13,6 +13,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema, ReadResourceResultSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
+import cliPackage from "../package.json" with { type: "json" };
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
@@ -228,7 +229,7 @@ describe("CLI", () => {
   test("--version / --help 不需要 Vault", async () => {
     const c = capture();
     expect(await run(["--version"], c.io)).toBe(0);
-    expect(c.out.join("")).toContain("0.0.1");
+    expect(c.out.join("").trim()).toBe(cliPackage.version);
     const h = capture();
     expect(await run(["--help"], h.io)).toBe(0);
     expect(h.out.join("")).toContain("call");

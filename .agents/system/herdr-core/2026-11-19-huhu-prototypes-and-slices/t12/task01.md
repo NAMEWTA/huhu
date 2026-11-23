@@ -21,7 +21,7 @@
 
 ## 唯一写入范围
 
-- #6 · `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/`。工具目录批量策略与真实可用性区分、桌面 Web 服务、可重复使用/撤销的邀请、浏览器工作台模拟。
+- #6 · `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/`。工具目录批量策略与真实可用性区分、桌面 Web 服务、可重复使用/撤销的邀请、浏览器工作台模拟。
 - #7 · `.agents/dev/changes/2026-11-19-issue-7-ssh-module/`。已授权测试主机的模块客户端 UI，主机配置、信任/连接、工作区 Shell 视图、SFTP 传输、路由/转发/监控/设置；一律纯模拟，禁止联网、执行命令和触及真实资料。
 
 读取 AGENTS.md、dev-plan SKILL 和完整切片方法/模板，结合 dev-spec、dev-architecture、dev-grill。按已有交付编号拆成 tasks/<编号>-<slug>.md，以可单独交接的规模为准。若已有一行包含多项独立可验收行为则继续细分并保留上级 ID。每份 task 写可见结果、规格和代码入口、真实依赖、边界、正常/失败与验证步骤、对应 prototype/index.html 场景和 prototype-review.md 待确认范围。plan.md 更新成索引与依赖，正文只维护一处。必要时按用户已确认的三个规则修订本组 spec/design/plan，尽量维持同一权威决定，明确开发版本与实际环境约束。不得修改 source.md、prototype 或 prototype-review.md。核对每个切片有链接及覆盖关系，每个界面切片有确认要求。

@@ -6,7 +6,7 @@ import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, typ
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
 import { createMcpServer } from "./mcp.js";
 
-export const VERSION = "0.0.1-rc.4";
+export const VERSION = "0.0.2-rc.1";
 
 /** 运行 CLI，返回退出码。 */
 export async function run(argv: string[], io: { out: (s: string) => void; err: (s: string) => void } = { out: (s) => process.stdout.write(s + "\n"), err: (s) => process.stderr.write(s + "\n") }): Promise<number> {

@@ -10,9 +10,11 @@ import { TestProtection } from "../../../packages/kernel/test/fixtures/credentia
 import { InteractiveEnvironment } from "../../agent-cli/src/engine/interactive-environment.js";
 import { publicSession, SessionsService } from "../../agent-cli/src/engine/sessions.js";
 import { SpaceStore } from "../../agent-cli/src/engine/spaces.js";
+import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import { AutomationsService } from "../src/engine/service.js";
+import { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
 import { registerTerminalEnvironments } from "../src/engine/terminal-environment.js";
 
 const dirs: string[] = [];
@@ -60,6 +62,8 @@ function setup(
   opts: {
     tasks?: TaskDto[];
     tasksEnabled?: boolean;
+    resumeEligibility?: NonNullable<import("../src/engine/service.js").TaskQueryLike["resumeEligibility"]>;
+    cliAvailable?: boolean;
     /** 假 agent-cli：按命令返回会话；output 为命令的“输出”。 */
     terminal?: { exitCode?: number | null; output?: string; stayRunning?: boolean; launchError?: string; lostReply?: Error; unavailable?: () => boolean; releaseUnavailable?: () => boolean; hasEnv?: boolean };
     spaceState?: "ok" | "missing";
@@ -83,10 +87,17 @@ function setup(
       repo,
       activationsDir: path.join(d, "act"),
       taskQuery: () =>
-        opts.tasksEnabled === false ? undefined : { listAll: () => tasks, listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"), snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto },
+        opts.tasksEnabled === false
+          ? undefined
+          : {
+              listAll: () => tasks,
+              listDispatchable: () => tasks.filter((t) => t.type === "agent" && t.status === "not_started"),
+              snapshot: (id) => tasks.find((t) => t.id === id) as TaskDto,
+              ...(opts.resumeEligibility && { resumeEligibility: opts.resumeEligibility }),
+            },
       terminalPollMs: 5,
       spaceState: () => ({ state: opts.spaceState ?? "ok", root: "/work" }),
-      cliAvailable: () => true,
+      cliAvailable: () => opts.cliAvailable ?? true,
       holds: () => false,
       vaultRoot: root,
       terminalOwner: owner,
@@ -673,7 +684,7 @@ describe("agent 动作：任务输入", () => {
     const { svc, d } = setup({ tasks: four() });
     const id = await scanRule(svc);
     const before = readdirSync(d).sort();
-    const p = svc.preview(id);
+    const p = await svc.preview(id);
     expect(p.candidates.map((c) => c.taskId)).toEqual(["a", "b"]);
     expect(p.skipped.map((s) => [s.taskId, s.reason])).toEqual([
       ["h", "not-agent"],
@@ -682,6 +693,43 @@ describe("agent 动作：任务输入", () => {
     expect(p.next).toHaveLength(3);
     expect(readdirSync(d).sort()).toEqual(before);
     expect(existsSync(path.join(d, "act"))).toBe(false);
+  });
+
+  test("以同一受控目录检查扫描预览和发生，记录占用和失效原因", async () => {
+    const machineId = "local-machine";
+    const history = { machineId, spaceId: "space-1", spaceRevision: 1, historyId: "a".repeat(64), historyRevision: "b".repeat(64) };
+    const target = { mode: "resume" as const, nativeSessionId: randomUUID(), history };
+    const saved = task("resume", { body: "继续原线程", inputHash: "a".repeat(16), execution: { ...exec(1), target } });
+    const row = { ...target, provider: "codex", spaceId: "space-1", spaceRevision: 1, configurationId: "c".repeat(64), binding: null, available: true, reason: null, structuredReply: false, structuredResult: false, cancel: false };
+    const call = vi.fn<HuhuApi["call"]>();
+    const executor = createAgentDispatchExecutor({ vault: { vaultId: "vault" }, call }, machineId);
+    const { root, svc } = setup({ tasks: [saved], cliAvailable: false, resumeEligibility: (task, instructions, signal) => executor.resumeEligibility!(task.execution!, task.body, instructions, signal) });
+    const id = await scanRule(svc);
+    const scans = new TaskScanOccurrences(
+      new VaultFiles(root),
+      "vault",
+      svc,
+      () => undefined,
+      () => terminalSlot,
+    );
+    try {
+      call.mockResolvedValue([row]);
+      expect((await svc.preview(id)).candidates).toEqual([expect.objectContaining({ taskId: saved.id })]);
+      for (const [rows, reason, detail] of [
+        [[{ ...row, available: false, reason: "input_owned" }], "history-busy", "input_owned"],
+        [[{ ...row, available: false, reason: "history_writer_busy" }], "history-busy", "history_writer_busy"],
+        [[{ ...row, available: false, reason: "AGENT_DISABLED", configurationId: null }], "history-unavailable", "AGENT_DISABLED"],
+        [[{ ...row, history: { ...history, historyRevision: "e".repeat(64) } }], "history-unavailable", "history_selection_changed"],
+      ] as const) {
+        call.mockResolvedValue(rows);
+        const skipped = { taskId: saved.id, reason, detail };
+        expect(await svc.preview(id)).toMatchObject({ candidates: [], skipped: [skipped] });
+        expect((await scans.invoke(id)).items).toEqual([expect.objectContaining({ ...skipped, state: "skipped" })]);
+      }
+      expect(call.mock.calls.every(([name]) => name === "agent.targets.list")).toBe(true);
+    } finally {
+      await scans.close();
+    }
   });
 
   test("台北规则按当地时区预览窗口和入选任务，未排期与逾期可独立调整", async () => {
@@ -699,18 +747,18 @@ describe("agent 动作：任务输入", () => {
       trigger,
       action: { kind: "agent", input: { ...coreInput, window: { kind: "today" }, includeOverdue: true, includeUnscheduled: false } },
     });
-    expect(svc.preview(stored.id).candidates.map(({ taskId }) => taskId)).toEqual(["yesterday", "today"]);
+    expect((await svc.preview(stored.id)).candidates.map(({ taskId }) => taskId)).toEqual(["yesterday", "today"]);
     const rule = await svc.update(stored.id, stored.version, { action: { kind: "agent", input: { ...coreInput, includeOverdue: false, includeUnscheduled: true } } });
     expect(rule.data.action).toMatchObject({ input: { window: { kind: "today" }, includeOverdue: false, includeUnscheduled: true } });
     const before = readdirSync(d).sort();
-    const preview = svc.preview(rule.id);
+    const preview = await svc.preview(rule.id);
     expect(readdirSync(d).sort()).toEqual(before);
     expect(preview.candidates.map(({ taskId }) => taskId)).toEqual(["today", "unscheduled"]);
     expect(preview.skipped).toMatchObject([
       { taskId: "yesterday", reason: "outside-window" },
       { taskId: "tomorrow", reason: "not-due" },
     ]);
-    expect(svc.preview(rule.id).next).toEqual(preview.next);
+    expect((await svc.preview(rule.id)).next).toEqual(preview.next);
     expect(svc.rule(rule.id).version).toBe(rule.version);
     expect(svc.lastActivatedFor(rule.id)).toBeNull();
   });
@@ -718,24 +766,24 @@ describe("agent 动作：任务输入", () => {
   test("标签筛选：只处理带全部标签的任务；其余带 tag-mismatch", async () => {
     const { svc } = setup({ tasks: [task("a", { tags: ["周报", "接口"] }), task("b", { execution: exec(2), tags: ["周报"] }), task("c", { execution: exec(3) })] });
     const id = await scanRule(svc, ["周报", "接口"]);
-    expect(svc.preview(id).skipped.map((s) => [s.taskId, s.reason])).toEqual([
+    expect((await svc.preview(id)).skipped.map((s) => [s.taskId, s.reason])).toEqual([
       ["b", "tag-mismatch"],
       ["c", "tag-mismatch"],
     ]);
-    expect(svc.preview(id).candidates.map(({ taskId }) => taskId)).toEqual(["a"]);
+    expect((await svc.preview(id)).candidates.map(({ taskId }) => taskId)).toEqual(["a"]);
   });
 
   test("任务自身有阻塞原因（引用越界、结构错误等）→ 不派发，预览显示原因", async () => {
     const { svc } = setup({ tasks: [task("a", { dispatchBlockers: ["引用越界：../x.md"] })] });
     const id = await scanRule(svc);
-    expect(svc.preview(id).skipped[0]).toMatchObject({ taskId: "a", reason: "task-blocked", detail: "引用越界：../x.md" });
-    expect(svc.preview(id).candidates).toEqual([]);
+    expect((await svc.preview(id)).skipped[0]).toMatchObject({ taskId: "a", reason: "task-blocked", detail: "引用越界：../x.md" });
+    expect((await svc.preview(id)).candidates).toEqual([]);
   });
 
   test("tasks 插件停用：扫描跳过（预览标注）；reminder 规则正常通知", async () => {
     const { svc, notes } = setup({ tasksEnabled: false });
     const scanId = await scanRule(svc);
-    expect(svc.preview(scanId).tasksDisabled).toBe(true);
+    expect((await svc.preview(scanId)).tasksDisabled).toBe(true);
     const n = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "该休息了", taskId: null } });
     await svc.setEnabled(n.id, true);
     expect((await svc.activateNonAgent(n.id, "schedule", new Date("2026-11-10T11:55:00Z"))).summary).toEqual({ state: "succeeded" });
@@ -745,7 +793,7 @@ describe("agent 动作：任务输入", () => {
   test("Space 缺失的候选被跳过", async () => {
     const { svc } = setup({ tasks: [task("a")], spaceState: "missing" });
     const id = await scanRule(svc);
-    expect(svc.preview(id).skipped[0]?.reason).toBe("missing-space");
+    expect((await svc.preview(id)).skipped[0]?.reason).toBe("missing-space");
   });
 
   test("激活记录：start+finish 合并为一条，lastActivatedFor 取最近计划时间", async () => {

@@ -12,9 +12,9 @@ const question = {
     { label: "Square", description: "Four corners" },
   ],
 };
-export async function startCodexResponsesFixture({ seedReply, result = "You chose Circle." }: { seedReply?: string; result?: string } = {}) {
+export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle." }: { seedReply?: string; seedReplies?: readonly string[]; result?: string } = {}) {
   const requests: { path: string | undefined; tools: { name?: string }[]; input: { type?: string; call_id?: string; output?: unknown }[] }[] = [];
-  const questionRequest = seedReply === undefined ? 1 : 2;
+  const questionRequest = seedReplies.length + 1;
   const server = createServer(async (req, res) => {
     try {
       const chunks = [];
@@ -26,7 +26,7 @@ export async function startCodexResponsesFixture({ seedReply, result = "You chos
         return;
       }
       const ask = requests.length === questionRequest;
-      const reply = requests.length < questionRequest ? seedReply! : result;
+      const reply = seedReplies[requests.length - 1] ?? result;
       const item = ask
         ? { id: "fc_fixture", type: "function_call", status: "completed", call_id: callId, name: toolName, arguments: JSON.stringify({ questions: [question] }) }
         : { id: "msg_fixture_" + requests.length, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };

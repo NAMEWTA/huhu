@@ -27,7 +27,7 @@ Windows 上显式配置的 Codex 0.171.0 可作为受控 `new` 目标。Core 在
 | W6.1 / F01、F02 | 在认证连接已建立、提交边界之前停用 Tasks，原生写入次数为零。重新启用后同一轮只写一次。显式 existing 和 resume 返回 `target_unsupported`，任务保持未开始。合成夹具的 Core PTY 输入次数为零，关闭夹具后无存活 PID。 | [回归与故障注入](evidence-task02/regressions.log) |
 | Windows Engine 构建 | 普通整包构建在未改动的 PDF 资源配置处无法解析 `pdfjs-dist`。本轮从仓库配置原样提取 main 段，使用同一 Electron Vite 构建成功生成 `out/main/engine.js`，并核对了 helper 的资源映射。Engine bundle SHA-256 为 `45ce6de0981fa39d4dc4f2c177ed8206a4831b0aa9c3a44e5f42326e5a41ce6a`。 | [整包构建日志](evidence-task02/electron-vite.log) · [main 构建证据](evidence-task02/build-main-pane.log) |
 
-对照 [W6.1 验收](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)、[Issue #4 验收矩阵](../../../../dev/changes/2026-11-19-issue-4-agent-cli/source.md)、[t13g 设计与取证报告](../t13g/report01.md) 和 [Codex App Server 文档](https://learn.chatgpt.com/docs/app-server)。
+对照 [W6.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)、[Issue #4 验收矩阵](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/source.md)、[t13g 设计与取证报告](../t13g/report01.md) 和 [Codex App Server 文档](https://learn.chatgpt.com/docs/app-server)。
 
 ## 范围与清理
 

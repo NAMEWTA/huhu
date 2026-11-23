@@ -135,6 +135,29 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     await expect(localAddress).toBeVisible();
     const url = (await localAddress.getAttribute("href"))!;
     const webOrigin = new URL(url).origin;
+    await test.step("分享服务从独立 Web 制品提供入口、深链和脚本", async () => {
+      const output = await app.evaluate(({ app }) => {
+        const fs = process.getBuiltinModule("node:fs") as typeof import("node:fs");
+        const out = `${app.getAppPath()}/out`;
+        return {
+          web: fs.readFileSync(`${out}/web/index.html`, "utf8"),
+          desktop: fs.readFileSync(`${out}/renderer/index.html`, "utf8"),
+        };
+      });
+      expect(output.web).not.toBe(output.desktop);
+      for (const route of ["/", "/notes/" + encodeURIComponent(noteName)]) {
+        const response = await fetch(new URL(route, webOrigin), { signal: AbortSignal.timeout(10_000) });
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toMatch(/^text\/html\b/u);
+        expect(await response.text()).toBe(output.web);
+      }
+      const entry = output.web.match(/<script\b[^>]*\bsrc="([^"]+)"/u)?.[1];
+      expect(entry).toMatch(/^\/assets\/.+\.js$/u);
+      const script = await fetch(new URL(entry!, webOrigin), { signal: AbortSignal.timeout(10_000) });
+      expect(script.status).toBe(200);
+      expect(script.headers.get("content-type")).toMatch(/javascript/u);
+      expect((await script.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    });
     if (desktop.confirmEngine !== undefined) {
       const engine = await desktop.confirmEngine();
       const status = await call(page, "web.share.status", {});
@@ -194,6 +217,7 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
         const tab = await context.newPage();
         await visitInvite(tab, link, webOrigin);
         await expect(tab.getByTestId("home-dashboard")).toBeVisible();
+        expect(await tab.evaluate(() => "huhuHost" in window)).toBe(false);
         const current = new URL(tab.url());
         expect(current.hash === "", "浏览器应移除邀请片段").toBe(true);
         expect(current.origin).toBe(webOrigin);

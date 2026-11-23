@@ -2,8 +2,8 @@ import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapability as def, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { isAgentTool, vaultWorkspaceDirectory, workspaceStamp } from "./tool-access.js";
 import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
-import { machineId, protectedKindOf } from "@huhu/vault";
-import { statSync } from "node:fs";
+import { filesystemIdentity, machineId, protectedKindOf } from "@huhu/vault";
+import { lstatSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { mainAgentDescriptors, type HistoryLaunchInput, type HistoryReference, type HistoryScope, type SessionSelection } from "./capabilities.js";
@@ -20,8 +20,8 @@ import { WaitingWatcher } from "./waiting.js";
 import { publicSession, sessionGeneration, SessionsService, type LaunchInput, type SessionRecord } from "./sessions.js";
 import { createTerminalBridge } from "./terminal-bridge.js";
 import { SpaceStore } from "./spaces.js";
-import { AgentDispatch, type DispatchProvider } from "./dispatch.js";
-import { AgentDispatchStore } from "./dispatch-store.js";
+import { AgentDispatch, type DispatchProvider, type ResumeTarget } from "./dispatch.js";
+import { AgentDispatchStore, type DispatchLookup } from "./dispatch-store.js";
 import { registerDispatch } from "./dispatch-capabilities.js";
 import { InputOwnership } from "./input-ownership.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
@@ -34,7 +34,7 @@ import { sessionPlacement, WORKSPACE_DOCUMENT } from "../shared/workspace-layout
 import { registerWorkspaceLayout } from "./workspace-layout.js";
 import { agentCoreOptions, readWorkspacePackage } from "./workspace-package.js";
 import { InteractiveEnvironment } from "./interactive-environment.js";
-import { spaceCanLaunch } from "../shared/space.js";
+import { spaceCanLaunch, type Space } from "../shared/space.js";
 import { registerWorkspaceFiles } from "./workspace-files.js";
 import { registerWorkspaceWorktrees } from "./workspace-worktrees.js";
 
@@ -112,8 +112,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   const lifetime = new AbortController();
   const protectedLaunch = new ProtectedLaunch(process.env["HUHU_NODE_BIN"] ?? process.execPath, process.env["HUHU_PROTECTED_LAUNCH_HELPER"] ?? path.join(import.meta.dirname, "protected-launch-helper.cjs"));
   const dispatchStore = new AgentDispatchStore(api.vault.stateDir, api.vault.files, { vaultId, machineId: mid });
+  const resumeAbandoned = (dispatchId: string) => {
+    const record = dispatchStore.read(dispatchId);
+    return record?.write === "not_sent" && api.service<{ abandoned(key: DispatchLookup): boolean }>("taskResumeClaims")?.abandoned(record.key) === true;
+  };
   const ownership = new InputOwnership(
-    (id) => dispatchStore.owner(id),
+    (id) => {
+      const active = dispatchStore.owner(id);
+      if (active) return active;
+      const pending = sessions.resumeOwner(id);
+      if (pending && (dispatchStore.read(pending)?.write ?? "not_sent") === "not_sent" && !resumeAbandoned(pending)) return pending;
+    },
     (id) => sessions.reviewInputPending(id),
   );
   const core = new HerdrCore({
@@ -143,13 +152,37 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     protectedLaunch,
     interactiveEnvironment,
   });
-  const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing"], transport: "native" };
+  const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing", "resume"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
-  const dispatch = new AgentDispatch({ vaultId, readOnly: api.vault.files.readOnly, spaces, sessions, detector, ownership, store: dispatchStore, providers, signal: lifetime.signal });
+  const dispatch = new AgentDispatch({
+    vaultId,
+    readOnly: api.vault.files.readOnly,
+    spaces,
+    sessions,
+    detector,
+    ownership,
+    store: dispatchStore,
+    providers,
+    resumeTargets,
+    launchResume: launchDispatchResume,
+    resumeAbandoned,
+    signal: lifetime.signal,
+  });
   registerDispatch(api, dispatch);
   if (opts.codexDispatch && !api.vault.files.readOnly) {
     const receipts = new ExecutionReceipts(path.join(opts.codexDispatch.root, "agent-receipts"), { vaultId, machineId: mid });
-    ctx.effect(() => pollExecutionReceipts(api, dispatchStore, sessions, receipts, lifetime.signal, opts.receiptCheckMs ?? 5_000, (execution) => dispatch.reconcileNative(execution)));
+    ctx.effect(() =>
+      pollExecutionReceipts(
+        api,
+        dispatchStore,
+        sessions,
+        receipts,
+        lifetime.signal,
+        opts.receiptCheckMs ?? 5_000,
+        (execution) => dispatch.reconcileNative(execution),
+        () => sessions.releaseAbandonedResumes(resumeAbandoned),
+      ),
+    );
   }
 
   // 会话里的程序经 OSC 7501 上报 blocked（等人工）：不用等进程退出，几秒内显示“需要你操作”
@@ -547,11 +580,22 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   }
   const scan = (roots: string[], env = historyScanEnvironment()) => scanHistory({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), env });
   const nativeKey = (e: Pick<HistoryEntry, "provider" | "nativeSessionId">) => `${e.provider}:${e.nativeSessionId}`;
+  const liveHistoryKey = (provider: SessionRecord["provider"], id: string) => `${provider}:${provider === "codex" ? id.toLowerCase() : id}`;
   const matchesHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && session.historyId === e.historyId;
-  const mayBeSameHistory = (session: SessionRecord, e: HistoryEntry) => {
-    if (session.provider !== e.provider || path.relative(session.cwd, e.cwd) !== "") return false;
-    if (session.nativeSessionId) return session.nativeSessionId === e.nativeSessionId;
-    return session.historyLaunch?.history.nativeId === e.nativeSessionId;
+  const mayBeSameHistory = (session: SessionRecord, e: HistoryEntry, fileIdentity: string | null) => {
+    if (session.provider !== e.provider) return false;
+    const source = session.historyLaunch?.history;
+    const id = session.nativeSessionId ?? source?.nativeId;
+    if (e.provider === "codex") {
+      if (id?.toLowerCase() !== e.nativeSessionId.toLowerCase()) return false;
+      if (source?.mode === "fork") return session.historyId === e.historyId;
+      return source?.file ? path.relative(source.file, e.file) === "" : !session.historyId || session.historyId === e.historyId;
+    }
+    if (id !== e.nativeSessionId) return false;
+    if (e.provider === "pi" && source?.mode === "resume" && source.file) {
+      return path.relative(source.file, e.file) === "" || (fileIdentity !== null && piFileIdentity(source.file) === fileIdentity);
+    }
+    return path.relative(session.cwd, e.cwd) === "";
   };
   const blocksHistoryLaunch = (session: SessionRecord) => session.state === "running" || session.state === "launching" || session.state === "unknown";
   function historySourceBlocked(entry: HistoryEntry, profile?: string, candidates?: ReadonlyMap<string, string | null>): string | null {
@@ -584,6 +628,151 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     const hash = launchHash([vaultId, mid, requestId]);
     const forkId = entry.provider === "pi" ? `huhu-${hash}` : entry.provider === "claude" ? `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}` : undefined;
     return { ...source, mode: "fork", ...(forkId && { forkId }) };
+  }
+  function dispatchHistory(space: Space, profile: string): HistoryEntry[] {
+    return scanHistory({ roots: [space.root], home: profile, env: { CODEX_HOME: profile }, providers: ["codex"] }).entries.filter((entry) => {
+      try {
+        return isUuidHistoryId(entry.nativeSessionId) && vaultWorkspaceDirectory(space.root, entry.cwd) === entry.cwd;
+      } catch {
+        return false;
+      }
+    });
+  }
+  function resumeLaunchInput(space: Space, profile: string, entry: HistoryEntry, dispatchId: string) {
+    return {
+      spaceId: space.id,
+      spaceRevision: space.revision,
+      provider: "codex" as const,
+      controlled: "codex" as const,
+      cwd: entry.cwd,
+      history: historyArgs(entry, "resume", "", profile),
+      resumeDispatchId: dispatchId,
+    };
+  }
+  async function resumeTargets(space: Space, snapshot: boolean) {
+    const profile = codex?.historyProfile;
+    if (!profile || !spaceCanLaunch(space)) return [];
+    const rows = dispatchHistory(space, profile);
+    if (rows.length === 0) return [];
+    const candidates = nativeHistoryCandidates("codex", profile) ?? new Map();
+    const local = sessions.list().filter((session) => session.provider === "codex" && (session.nativeSessionId || session.historyLaunch));
+    const records = snapshot || api.vault.files.readOnly ? local : await sessions.observeHistorySessions(local);
+    return Promise.all(
+      rows.map(async (entry) => {
+        let reason: string | null = historySourceBlocked(entry, profile, candidates) ? "history_selection_changed" : null;
+        let configurationId: string | null = null;
+        if (!reason && snapshot) reason = "binding_unverified";
+        if (!reason) {
+          try {
+            configurationId = await sessions.freezeLaunch(resumeLaunchInput(space, profile, entry, "catalog"), candidates);
+            if (historyBusy(entry, records)) reason = "input_owned";
+            else if (recentWriterConflict(entry, records)) reason = "history_writer_busy";
+          } catch (error) {
+            reason = error instanceof HuhuError && error.code !== "HEADLESS_UNSUPPORTED" ? error.code : "native_resume_evidence_unavailable";
+          }
+        }
+        return {
+          mode: "resume" as const,
+          provider: "codex" as const,
+          spaceId: space.id,
+          spaceRevision: space.revision,
+          history: { machineId: mid, spaceId: space.id, spaceRevision: space.revision, historyId: entry.historyId, historyRevision: entry.revision },
+          nativeSessionId: entry.nativeSessionId,
+          historyTitle: entry.title,
+          configurationId,
+          binding: null,
+          available: !reason,
+          reason,
+        };
+      }),
+    );
+  }
+  async function launchDispatchResume(target: ResumeTarget, requestId: string, dispatchId: string, prepare: boolean, signal: AbortSignal): Promise<string | null> {
+    const history = target.history;
+    const configurationId = target.configurationId;
+    if (!history || !configurationId || target.spaceRevision !== history.spaceRevision) throw errors.invalidInput("请重新选择原生历史");
+    const selection = launchHash(target);
+    const replay = sessions.historyLaunchReplay(requestId, selection);
+    if (replay) {
+      const original = await sessions.launch(replay, signal);
+      if (sessions.resumeWriterBusy(original)) throw new HuhuError("RUN_UNKNOWN", "原生历史已有活动写入者", { details: { reason: "history_writer_busy" } });
+      if (original.state === "exited" || original.state === "failed") throw errors.notFound("原受控恢复进程已退出");
+      return original.id;
+    }
+    if (!prepare) return null;
+    const sp = spaces.validateForLaunch(target.spaceId, history.spaceRevision);
+    const profile = codex?.historyProfile;
+    if (!profile) throw new HuhuError("HEADLESS_UNSUPPORTED", "当前没有受控 Codex 历史资料目录");
+    const entry = dispatchHistory(sp, profile).find((item) => item.nativeSessionId === target.nativeSessionId && item.historyId === history.historyId && item.revision === history.historyRevision);
+    if (!entry || historySourceBlocked(entry, profile)) throw errors.notFound("原生历史来源已变化，请重新选择");
+    await sessions.reconcile();
+    signal.throwIfAborted();
+    const id = await claimHistory<string | null>(
+      entry,
+      requestId,
+      null,
+      async () =>
+        (
+          await sessions.launch(
+            {
+              ...resumeLaunchInput(sp, profile, entry, dispatchId),
+              requestId,
+              historySelection: selection,
+              expectedConfigurationId: configurationId,
+            },
+            signal,
+          )
+        ).id,
+    );
+    if (!id) throw new HuhuError("RUN_UNKNOWN", "原生历史正在使用", { details: { reason: "input_owned" } });
+    return id;
+  }
+  function piFileIdentity(file: string): string | null {
+    try {
+      const stat = lstatSync(file, { bigint: true });
+      return stat.isFile() ? filesystemIdentity(stat) : null;
+    } catch {
+      return null;
+    }
+  }
+  function historyKeys({ provider, nativeSessionId, historyId, file }: HistoryEntry, fileIdentity: string | null): string[] {
+    const key = JSON.stringify([provider, provider === "codex" ? historyId : provider === "pi" ? file : nativeSessionId.toLowerCase()]);
+    // Keep the path claimed even when a later lookup cannot read the inode.
+    return fileIdentity === null ? [key] : [key, JSON.stringify([provider, "inode", fileIdentity])];
+  }
+  function recentWriterConflict(entry: HistoryEntry, records: SessionRecord[]): boolean {
+    const now = Date.now();
+    return records.some(({ state, historyLaunch }) => {
+      const dispatchId = historyLaunch?.dispatch?.id;
+      if (state !== "exited" || !dispatchId || historyLaunch.history.sourceId !== entry.historyId || historyLaunch.history.revision !== entry.revision) return false;
+      const record = dispatchStore.read(dispatchId);
+      return record?.write === "not_sent" && (record.resumeWriterRetry?.after ?? 0) > now && !resumeAbandoned(dispatchId);
+    });
+  }
+  function historyBusy(entry: HistoryEntry, records: SessionRecord[], requestId?: string, fileIdentity = entry.provider === "pi" && (resuming.size > 0 || records.length > 0) ? piFileIdentity(entry.file) : null): boolean {
+    return (
+      historyKeys(entry, fileIdentity).some((key) => {
+        const pending = resuming.get(key);
+        return pending !== undefined && pending.requestId !== requestId;
+      }) || records.some((s) => s.requestId !== requestId && blocksHistoryLaunch(s) && mayBeSameHistory(s, entry, fileIdentity))
+    );
+  }
+  async function claimHistory<T>(entry: HistoryEntry, requestId: string, busy: T, launch: () => Promise<T>): Promise<T> {
+    const fileIdentity = entry.provider === "pi" ? piFileIdentity(entry.file) : null;
+    if (historyBusy(entry, sessions.list(), requestId, fileIdentity)) return busy;
+    const claims = historyKeys(entry, fileIdentity).map((key) => {
+      const claim = resuming.get(key) ?? { requestId, count: 0 };
+      claim.count++;
+      resuming.set(key, claim);
+      return [key, claim] as const;
+    });
+    try {
+      return await launch();
+    } finally {
+      for (const [key, claim] of claims) {
+        if (--claim.count === 0) resuming.delete(key);
+      }
+    }
   }
   function historyActionBlocked(entry: HistoryEntry, action: HistoryLaunch["mode"], targetRoot: string, detected: DetectInfo | undefined, profile?: string): string | null {
     if ((action === "resume" || entry.provider !== "pi") && !isWithin(targetRoot, entry.cwd)) return "请在原 Space 中打开此历史会话";
@@ -630,18 +819,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (!isWithin(sp.root, cwd)) throw errors.invalidInput("原目录不在目标 Space 内，请选择原 Space");
     await sessions.reconcile();
     c.signal.throwIfAborted();
-    const key = JSON.stringify([hit.provider, hit.nativeSessionId, hit.cwd]);
-    const pending = resuming.get(key);
-    if ((pending && pending.requestId !== i.requestId) || sessions.list().some((s) => s.requestId !== i.requestId && blocksHistoryLaunch(s) && mayBeSameHistory(s, hit)))
-      throw errors.invalidInput("这个原生会话可能已在运行或正在打开，请从会话列表核对");
-    const claim = pending ?? { requestId: i.requestId, count: 0 };
-    claim.count++;
-    resuming.set(key, claim);
-    try {
-      return await launch(launchInput);
-    } finally {
-      if (--claim.count === 0) resuming.delete(key);
-    }
+    const result = await claimHistory<T | null>(hit, i.requestId, null, () => launch(launchInput));
+    if (result === null) throw errors.invalidInput("这个原生会话可能已在运行或正在打开，请从会话列表核对");
+    return result;
   }
   api.defineCapability(
     bindCapability(mainAgentDescriptors.historyList, async ({ caller }, i) => {
@@ -654,7 +834,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       for (const session of sessions.list()) {
         const id = session.nativeSessionId ?? session.historyLaunch?.history.nativeId;
         if (!blocksHistoryLaunch(session) || !id) continue;
-        const key = `${session.provider}:${id}`;
+        const key = liveHistoryKey(session.provider, id);
         const matches = live.get(key) ?? [];
         matches.push(session);
         live.set(key, matches);
@@ -677,9 +857,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         .map((entry) => {
           const { file: _file, legacyHistoryId, ...e } = entry;
           const key = nativeKey(e);
-          const candidates = live.get(key) ?? [];
+          const candidates = live.get(liveHistoryKey(e.provider, e.nativeSessionId)) ?? [];
           const active = !external && candidates.filter((session) => session.state === "running" && matchesHistory(session, entry)).length === 1;
-          const possiblyActive = !active && candidates.some((session) => mayBeSameHistory(session, entry));
+          const possiblyActive = !active && historyBusy(entry, candidates);
           const profile = e.provider === "pi" ? undefined : profiles[e.provider];
           const files = e.provider === "pi" ? undefined : historyFiles[e.provider];
           const detected = available.find(({ id }) => id === e.provider);

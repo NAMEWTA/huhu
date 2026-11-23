@@ -17,7 +17,7 @@
 
 ## #4 W1.1
 
-审查 `5daf048665ea46ae62e60dfbda9beed6459a8868` → `ce5289ddd1ae5713167f6987fe6db53c3beef51f` 的 6 个变更文件，含新增 `launch.live.test.ts`。范围和实际入口按 [W1.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W1.1-launch.md)、[Issue 验收矩阵](../../../../dev/changes/2026-11-19-issue-4-agent-cli/source.md) 和 [t19/report04.md](../t19/report04.md) 核对。
+审查 `5daf048665ea46ae62e60dfbda9beed6459a8868` → `ce5289ddd1ae5713167f6987fe6db53c3beef51f` 的 6 个变更文件，含新增 `launch.live.test.ts`。范围和实际入口按 [W1.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W1.1-launch.md)、[Issue 验收矩阵](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/source.md) 和 [t19/report04.md](../t19/report04.md) 核对。
 
 ### 规格轴
 
@@ -34,16 +34,16 @@
 
 - 复跑了冻结的 `launch.live.test.ts`。Node 24.21.0，Vitest 3.2.7，Windows x64。二进制为 `temp/issue-worktrees/integration/apps/desktop/resources/herdr/win32-x64/herdr-core.exe`，运行版本 0.1.19，SHA-256 为 `8c5c088eda5c441502fa58714277a250e38103c66180376ef00d63d6cab03f8d`，与 t19 一致。冻结的 `scripts/herdr.lock.json` 指定归档 SHA-256 `1cf7de14c862abc49b8eaeed32dc6a60d8146740edb2c244570d1a9f07cb813a`。
 - 独立附加探针使用同一夹具，在隔离 Core `36ba11f6733b227a383aff121b7d0963` 上取证超长 cwd 和停止入口。通过 `agent.sessions.kill` 停止一个活的合成 PowerShell，`wait` 确认结束。另复跑 Lead 的合成生命周期探针 `temp/issue-baseline/core-lifecycle/probe.ps1`，在隔离 Core `66d9aeffa1e2647bda556757499436ad` 上确认父自然退出 0 或 kill 后，默认子终端结束，`outlive_parent` 子终端保持原 PID 存活，随后清理。三套取证分别覆盖正常启动、Huhu 停止入口和 Core 父子策略。
-- W1.2 负责同键异意图、跨重启的启动对账、传输未知和四标签加代次的验证。此候选仍按 requestId 回原会话，丢回包分支仅按 launch 标签匹配，无法查询时可落为 failed。W6.1 的目标、绑定及输入所有权合同也待接线。这些行为和后续范围已分别定位。焦点 pane 的实时 cwd 继承、安装版 GUI PATH、真实 provider 登录、shim/shebang 和原生历史没有独立实测。 [W1.2](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md) · [W6.1](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)
+- W1.2 负责同键异意图、跨重启的启动对账、传输未知和四标签加代次的验证。此候选仍按 requestId 回原会话，丢回包分支仅按 launch 标签匹配，无法查询时可落为 failed。W6.1 的目标、绑定及输入所有权合同也待接线。这些行为和后续范围已分别定位。焦点 pane 的实时 cwd 继承、安装版 GUI PATH、真实 provider 登录、shim/shebang 和原生历史没有独立实测。 [W1.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W1.2-launch-reconcile.md) · [W6.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md)
 
 ## #5 T1.1
 
-审查 `1b3b385797eee2dbd9d9af42c57be44dd8ad2562` → `a5d82cb704cdd44fbae387518f7d1c4246908fb1` 的 7 个变更文件，含新增 `persistence-http.test.ts`。 [T1.1](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [行为规格](../../../../dev/changes/2026-11-19-issue-5-task-automation/spec.md) · [t44/report01.md](../t44/report01.md)
+审查 `1b3b385797eee2dbd9d9af42c57be44dd8ad2562` → `a5d82cb704cdd44fbae387518f7d1c4246908fb1` 的 7 个变更文件，含新增 `persistence-http.test.ts`。 [T1.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.1-create-task.md) · [行为规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/spec.md) · [t44/report01.md](../t44/report01.md)
 
 ### 规格轴
 
 1. **P2 · 既有输入版本误增。** 真 HTTP 将正文 `New input` 改为同一文字加首尾换行。读回仍是 `New input`，`inputHash` 仍为 `41704227570599c3`，候选的 revision 却从 2 增到 3，父提交相同探针从 1 增到 2。代码用原始 patch 正文计 hash，落盘后用去掉区段边界换行的读回正文重新计算。由于 processing key 含 revision，可能把同一正文当作新输入。后续应以持久化后的规范化内容判定输入变化。定位 `plugins/tasks/src/engine/service.ts:230–237`、`packages/vault/src/markdown/regions.ts:91–95`。
-2. **桌面仍限制缺配保存。** T1.1 全流程允许 Agent 先保存再配置。冻结提交的 `TaskEditor` 仍调用 `validateDraft` 拒绝缺 Space 或 CLI，且没有 existing 选择控件。HTTP 已支持两种持久状态，当前桌面表单只更换条件写字段。t44 的 Electron 44.9.1 / Chromium 152 烟测覆盖 Human 保存、并发评论、删除线和三列看板。两份原型六文件指纹均核对一致，确认记录仍为待确认，桌面这两个场景留给原型确认后的 UI 实施与验收。定位 `plugins/tasks/src/ui/TaskEditor.tsx:90–96`、`plugins/tasks/src/shared/draft.ts:64–75`。 [#5 原型确认记录](../../../../dev/changes/2026-11-19-issue-5-task-automation/prototype-review.md)
+2. **桌面仍限制缺配保存。** T1.1 全流程允许 Agent 先保存再配置。冻结提交的 `TaskEditor` 仍调用 `validateDraft` 拒绝缺 Space 或 CLI，且没有 existing 选择控件。HTTP 已支持两种持久状态，当前桌面表单只更换条件写字段。t44 的 Electron 44.9.1 / Chromium 152 烟测覆盖 Human 保存、并发评论、删除线和三列看板。两份原型六文件指纹均核对一致，确认记录仍为待确认，桌面这两个场景留给原型确认后的 UI 实施与验收。定位 `plugins/tasks/src/ui/TaskEditor.tsx:90–96`、`plugins/tasks/src/shared/draft.ts:64–75`。 [#5 原型确认记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/prototype-review.md)
 3. **部分更新与同一表单的并发保护通过。** HTTP 上只传 tags 保留 execution、提醒、hash 与 revision。旧表单形状只写无 target 的完整执行设置时，已有 existing sessionId 继续保留。外部改标题后，带旧 inputHash 的标题补丁和带过期 editHash 的标题补丁均返回 `VERSION_CONFLICT`，磁盘字节保持外部版本。只有评论、区段外 Markdown 或独立状态改变时，打开时 editHash 允许完整表单条件写。附加实测 `tasks.update` 直接写 status 返回 `INVALID_INPUT`，之后使用旧表单保存保留最新的完成状态、完成时间和系统评论，hash 与 revision 保持稳定。定位 `packages/contracts/src/dto/task.ts:65–92`、`plugins/tasks/src/engine/service.ts:208–237,258–298`。
 4. **旧请求与零启动通过。** 附加 HTTP 探针中，旧 `baseInputHash` 可重试只改正文或 execution 的请求。真实正文改变后旧正文哈希重试返回冲突。旧 Agent 文件缺省 target 与显式 new 共用 inputHash 及 revision。独立复跑的冻结 HTTP 夹具确认默认 Human，缺配 Agent 和显式 existing 重启后保留数据及路径引用。外部创建或代填配置、评论 Agent 均被拒绝。Human 的外部讨论强制 `external`，不采信调用者的 run/ask/session/event 归属。测试夹具记录零次子进程 spawn，`Task Runs` 未创建。缺配和 existing 的 DTO 均给出阻塞原因，旧 Automations 首次扫描按阻塞原因过滤。定位 `plugins/tasks/src/engine/index.ts:35–38,170–203`、`service.ts:55–69,90–100`、`plugins/automations/src/engine/scan.ts:62–79`。
 
@@ -55,7 +55,7 @@
 
 ### W6.1 契约差距
 
-`execution.target` 持久表达 new 或带 Huhu sessionId 的 existing 意图。现有代码尚无 `agent.targets.list`、`agent.runs.dispatch`、`agent.runs.inspect`，也未验证实际绑定、进程代次、输入归属与持久回执。现有 Automations 仍走自己的扫描、工作进程和整份 Markdown 快照。T2/T3/T7 接线需按合同冻结可执行目标及选中的输入消息，并处理 existing 的实际可用性。 [#4 执行合同](../../../../dev/changes/2026-11-19-issue-4-agent-cli/design.md#两个-issue-共用的执行合同拟议)
+`execution.target` 持久表达 new 或带 Huhu sessionId 的 existing 意图。现有代码尚无 `agent.targets.list`、`agent.runs.dispatch`、`agent.runs.inspect`，也未验证实际绑定、进程代次、输入归属与持久回执。现有 Automations 仍走自己的扫描、工作进程和整份 Markdown 快照。T2/T3/T7 接线需按合同冻结可执行目标及选中的输入消息，并处理 existing 的实际可用性。 [#4 执行合同](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/design.md#两个-issue-共用的执行合同拟议)
 
 ## 复核方式与交接
 

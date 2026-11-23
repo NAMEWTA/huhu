@@ -14,13 +14,13 @@ type UtilityState = { child: UtilityProcess; pid: number | undefined; ready?: Re
 export async function verifyCandidateMissingWebEntry({ app, resources, confirmEngine }: Candidate) {
   const desktopEngine = await confirmEngine();
   const root = await mkdtemp("/tmp/hc-wa-");
-  const assets = path.join(root, "renderer");
+  const assets = path.join(root, "web");
   const vault = path.join(root, "vault");
   const index = path.join(assets, "index.html");
   const held = path.join(root, "index.html.held");
   const archive = path.join(resources, "app.asar");
   const relativeEntry = "out/main/engine.js";
-  const relativeIndex = "out/renderer/index.html";
+  const relativeIndex = "out/web/index.html";
   const entry = path.join(archive, relativeEntry);
   const source = path.join(archive, relativeIndex);
   const env = {

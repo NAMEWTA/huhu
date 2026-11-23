@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { HerdrCore } from "@huhu/plugin-agent-cli/engine";
+import { AgentDetector, HerdrCore, SessionsService } from "@huhu/plugin-agent-cli/engine";
 import * as kernel from "@huhu/kernel";
 import { assert, expect, test, vi } from "vitest";
 import type { HerdrClient } from "../../../packages/herdr-client/src/index.js";
+import type { LaunchInput, SessionRecord } from "../../../plugins/agent-cli/src/engine/sessions.js";
+import { createFixtureGate } from "../../../plugins/agent-cli/test/fixtures/dispatch-provider.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 const claudeId = "79fc8333-8db7-463a-a6d6-02fbb2216496";
@@ -218,3 +220,177 @@ else if (args[0] === "app-server") {
   },
   20_000,
 );
+
+type HistoryRow = { nativeSessionId: string; historyId: string; revision: string; title: string };
+
+async function withHistoryFixture(run: (root: string, work: string, other: string, engine: RunningEngine) => Promise<void>) {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-history-claims-")));
+  const vault = path.join(root, "vault");
+  const work = path.join(vault, "work");
+  const other = path.join(vault, "other");
+  mkdirSync(work, { recursive: true });
+  mkdirSync(other, { recursive: true });
+  vi.stubEnv("CODEX_HOME", path.join(root, "codex"));
+  vi.stubEnv("PI_CODING_AGENT_SESSION_DIR", path.join(root, "pi"));
+  const listen = vi.spyOn(kernel, "startEngineServer").mockResolvedValue({ port: 0, close: async () => {} } as kernel.RunningServer);
+  const peek = vi.spyOn(HerdrCore.prototype, "peek").mockResolvedValue("absent");
+  const reconcile = vi.spyOn(SessionsService.prototype, "reconcile").mockResolvedValue(undefined);
+  const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([
+    { id: "codex", displayName: "Codex", installed: true, path: process.execPath, headless: false, detectedAt: "", history: { resume: true, fork: true } },
+    { id: "pi", displayName: "Pi", installed: true, path: process.execPath, headless: false, detectedAt: "", history: { resume: true, fork: true } },
+  ]);
+  let engine: RunningEngine | undefined;
+  try {
+    engine = await boot({ vaultPath: vault, create: true });
+    await run(root, work, other, engine);
+  } finally {
+    await engine?.shutdown();
+    detect.mockRestore();
+    reconcile.mockRestore();
+    peek.mockRestore();
+    listen.mockRestore();
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function historyCalls(engine: RunningEngine) {
+  const call = (capability: string, input: unknown) => engine.dispatcher.call("desktop", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+  const read = async <T>(capability: string, input: unknown): Promise<T> => {
+    const result = await call(capability, input);
+    assert(result.ok, JSON.stringify(result));
+    return result.data as T;
+  };
+  return { call, read };
+}
+
+function historySession(input: LaunchInput): SessionRecord {
+  return {
+    id: `sess-${input.requestId}`,
+    spaceId: input.spaceId,
+    provider: input.provider,
+    model: null,
+    state: "running",
+    requestId: input.requestId,
+    terminalId: "t1",
+    name: "history fixture",
+    cwd: input.cwd!,
+    createdAt: new Date().toISOString(),
+    ...(input.history && {
+      nativeSessionId: input.history.nativeId,
+      historyId: input.history.sourceId,
+      historyLaunch: { history: input.history, spaceRevision: input.spaceRevision, selection: "fixture", cwd: input.cwd! },
+    }),
+  };
+}
+
+test("历史列表与认领按 Codex rollout 区分同 UUID 的不同 profile", async () => {
+  await withHistoryFixture(async (root, work, other, engine) => {
+    const selectedDir = path.join(root, "codex", "sessions", "2026", "11", "21");
+    const privateDir = path.join(root, "private-codex", "sessions", "2026", "11", "21");
+    mkdirSync(selectedDir, { recursive: true });
+    mkdirSync(privateDir, { recursive: true });
+    const selectedFile = path.join(selectedDir, rollout(codexId));
+    const privateFile = path.join(privateDir, rollout(codexId));
+    writeFileSync(selectedFile, row({ type: "session_meta", payload: { id: codexId, cwd: work } }));
+    writeFileSync(privateFile, row({ type: "session_meta", payload: { id: codexId, cwd: other } }));
+    const { call, read } = historyCalls(engine);
+    const [space] = await read<{ id: string; revision: number }[]>("agent.spaces.list", {});
+    assert(space);
+    const scope = { spaceId: space.id, spaceRevision: space.revision, provider: "codex" as const };
+    const privateSession = historySession({ ...scope, cwd: other, requestId: randomUUID(), history: { mode: "resume", nativeId: codexId, sourceId: "private-history", file: privateFile } });
+    const records = vi.spyOn(SessionsService.prototype, "list").mockReturnValue([privateSession]);
+    const launch = vi.spyOn(SessionsService.prototype, "launch").mockImplementation(async (input) => historySession(input));
+    try {
+      const { entries } = await read<{ entries: HistoryRow[] }>("agent.history.list", scope);
+      expect(entries).toEqual([expect.objectContaining({ active: false, possiblyActive: false, canResume: true, canFork: true })]);
+      const [selected] = entries;
+      assert(selected);
+      expect(await read("agent.history.list", { ...scope, filter: "resumable" })).toMatchObject({ entries: [{ historyId: selected.historyId }] });
+      const input = { ...scope, action: "resume", nativeSessionId: codexId, historyId: selected.historyId, historyRevision: selected.revision };
+      expect(await call("agent.history.resume", { ...input, requestId: randomUUID() })).toMatchObject({ ok: true });
+      const [probe] = launch.mock.results;
+      const active = (await probe!.value) as SessionRecord;
+      records.mockReturnValue([privateSession, { ...active, state: "launching" }]);
+      expect(await read("agent.history.list", scope)).toMatchObject({ entries: [{ active: false, possiblyActive: true, canResume: false, canFork: false }] });
+      records.mockReturnValue([privateSession, active]);
+      expect(await read("agent.history.list", scope)).toMatchObject({ entries: [{ active: true, possiblyActive: false, canResume: false, canFork: false }] });
+      expect(await call("agent.history.resume", { ...input, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(launch).toHaveBeenCalledTimes(1);
+    } finally {
+      launch.mockRestore();
+      records.mockRestore();
+    }
+  });
+});
+
+test("历史列表与认领允许独立的 Pi 文件并发并拦截同源硬链接", async () => {
+  await withHistoryFixture(async (root, work, other, engine) => {
+    const pi = path.join(root, "pi");
+    mkdirSync(pi);
+    for (const [name, cwd] of [
+      ["first", work],
+      ["second", other],
+      ["third", work],
+    ] as const) {
+      writeFileSync(path.join(pi, `${name}.jsonl`), row({ type: "session", version: 3, id: "same-id", cwd }) + row({ type: "message", message: { role: "user", content: name } }));
+    }
+    const firstFile = path.join(pi, "first.jsonl");
+    const linkedFile = path.join(pi, "linked.jsonl");
+    linkSync(firstFile, linkedFile);
+    const { dev, ino } = statSync(firstFile, { bigint: true });
+    expect(statSync(linkedFile, { bigint: true })).toMatchObject({ dev, ino });
+    const { call, read } = historyCalls(engine);
+    const [space] = await read<{ id: string; revision: number }[]>("agent.spaces.list", {});
+    assert(space);
+    const scope = { spaceId: space.id, spaceRevision: space.revision, provider: "pi" };
+    const { entries } = await read<{ entries: HistoryRow[] }>("agent.history.list", scope);
+    const byTitle = (name: string) => {
+      const selected = entries.find(({ title }) => title === name);
+      assert(selected, `missing ${name}`);
+      return selected;
+    };
+    const [first, alias, extra] = entries.filter(({ title }) => title === "first");
+    assert(first && alias && !extra);
+    expect(first.historyId).not.toBe(alias.historyId);
+    const resume = (selected: HistoryRow) =>
+      call("agent.history.resume", { ...scope, action: "resume", requestId: randomUUID(), nativeSessionId: selected.nativeSessionId, historyId: selected.historyId, historyRevision: selected.revision });
+    const gate = createFixtureGate();
+    const records = vi.spyOn(SessionsService.prototype, "list").mockReturnValue([]);
+    let openingSession: SessionRecord | undefined;
+    const launch = vi.spyOn(SessionsService.prototype, "launch").mockImplementation(async (input) => {
+      const session = historySession(input);
+      if (input.history?.sourceId === first.historyId) {
+        openingSession = { ...session, state: "launching" };
+        await gate.wait();
+      }
+      return session;
+    });
+    const opening = resume(first);
+    try {
+      await gate.entered;
+      expect(await resume(first)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect.soft(await resume(alias), "硬链接共享未落盘的认领").toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      assert(openingSession);
+      records.mockReturnValue([openingSession]);
+      expect(await resume(byTitle("second"))).toMatchObject({ ok: true });
+      expect(await resume(byTitle("third"))).toMatchObject({ ok: true });
+      gate.resume();
+      expect(await opening).toMatchObject({ ok: true });
+      records.mockReturnValue([{ ...openingSession, state: "running" }]);
+      expect.soft(await read("agent.history.list", scope), "已登记的原会话占用硬链接").toMatchObject({
+        entries: expect.arrayContaining([
+          expect.objectContaining({ historyId: first.historyId, active: true, possiblyActive: false }),
+          expect.objectContaining({ historyId: alias.historyId, active: false, possiblyActive: true, canResume: false }),
+        ]),
+      });
+      expect.soft(await resume(alias), "已运行的原会话仍占用硬链接").toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+      expect(launch).toHaveBeenCalledTimes(3);
+    } finally {
+      gate.resume();
+      await opening;
+      launch.mockRestore();
+      records.mockRestore();
+    }
+  });
+});

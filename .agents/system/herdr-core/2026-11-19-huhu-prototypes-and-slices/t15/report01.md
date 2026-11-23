@@ -17,8 +17,8 @@
 
 | Change | 入口与确认记录 | 原型资源 SHA-256 |
 | --- | --- | --- |
-| #4 | [打开 Agent CLI](../../../../dev/changes/2026-11-19-issue-4-agent-cli/prototype/index.html) · [场景及确认记录](../../../../dev/changes/2026-11-19-issue-4-agent-cli/prototype-review.md) | `e498a46c7232db9b4423ce03576dbc999ada40e59ab25b358aac0ebf9711e5d7` |
-| #5 | [打开任务与自动化](../../../../dev/changes/2026-11-19-issue-5-task-automation/prototype/index.html) · [场景及确认记录](../../../../dev/changes/2026-11-19-issue-5-task-automation/prototype-review.md) | `5faf40fbb364cfe6f58f9a261401ba6b933435964d02cbcfeed7be45fe223165` |
+| #4 | [打开 Agent CLI](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/prototype/index.html) · [场景及确认记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/prototype-review.md) | `e498a46c7232db9b4423ce03576dbc999ada40e59ab25b358aac0ebf9711e5d7` |
+| #5 | [打开任务与自动化](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/prototype/index.html) · [场景及确认记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/prototype-review.md) | `5faf40fbb364cfe6f58f9a261401ba6b933435964d02cbcfeed7be45fe223165` |
 
 工作区为 `D:/Document/code/huhu`，Huhu 基线 `feature/issue-fix@9f870c0`。参考本批本地默认分支检出 herdr-app `317e673f1f15`、herdr-core `c7517808d64f`、ORCA `8bc232f5ed8b`、agent-autoloop `d1ec2d8e48de`。写入范围为两个原型包、两个确认记录和本报告，原型资源保存在工作树。[批次源码清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)
 

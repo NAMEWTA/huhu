@@ -16,6 +16,15 @@ export function isTaskAvailable(availableAt: string | null | undefined, now: Dat
   return availableAt == null || Date.parse(availableAt) <= now.getTime();
 }
 
+export const TaskHistorySelectionSchema = z.strictObject({
+  historyId: z.string().regex(/^[a-f0-9]{64}$/),
+  historyRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  machineId: z.string().trim().min(1).max(256),
+  spaceId: z.string().trim().min(1).max(256),
+  spaceRevision: z.number().int().positive(),
+});
+export type TaskHistorySelection = z.infer<typeof TaskHistorySelectionSchema>;
+
 /** agent 任务的执行配置；没有 `kind`，类型只看任务的 `type`。 */
 export const TaskExecutionSchema = z.object({
   spaceId: z.string().nullable().default(null),
@@ -28,7 +37,7 @@ export const TaskExecutionSchema = z.object({
     .discriminatedUnion("mode", [
       z.strictObject({ mode: z.literal("new") }),
       z.strictObject({ mode: z.literal("existing"), sessionId: z.string().trim().min(1) }),
-      z.strictObject({ mode: z.literal("resume"), nativeSessionId: z.string().trim().min(1).max(256) }),
+      z.strictObject({ mode: z.literal("resume"), nativeSessionId: z.string().trim().min(1).max(256), history: TaskHistorySelectionSchema.optional() }),
     ])
     .optional(),
 });

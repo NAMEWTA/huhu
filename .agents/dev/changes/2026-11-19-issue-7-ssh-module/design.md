@@ -1,6 +1,6 @@
 # #7 SSH 运行对象、凭据与移植边界
 
-本设计只针对用户已获授权的主机、账号及本地开发客户端。外部入口遵守 [#6 的调用与授权合同](../2026-11-19-issue-6-unified-tools-web/design.md)，SSH 独立认证与 [#9 模块存储合同](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)对齐。目标体验见[规格](spec.md)。
+本设计只针对用户已获授权的主机、账号及本地开发客户端。外部入口遵守 [#6 的调用与授权合同](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/design.md)，SSH 独立认证与 [#9 模块存储合同](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)对齐。目标体验见[规格](spec.md)。
 
 ## 已核对的实现与来源
 
@@ -54,7 +54,7 @@
 | 文件、转发与监控 | FileSession 固定连接；Transfer 的暂存、提交、取消和校验单独追踪。ForwardRule 与 ForwardRun 分离，同一活动实例/监听不可重复创建；多个规则可持有专用连接，最后一个释放才关闭。借用连接不延长所有者生命周期，断连仅在显式 Resume 下重建。MonitorSubscription 共享来源/计数，停止一个订阅不停止其他面板或终端。 |
 | 插件关闭或 Vault 切换 | 禁新建→终结待答项、释放订阅/流/会话/监听器→停私有进程→公布终态。崩溃时旧对象标失联/unknown，按代次与已保存定义对账；已明确停止的资源不得被恢复。取消与完成竞争时，以已提交的终态为准。视图卸载仅释放自己持有的绑定。 |
 
-外部授权每次使用 #6 的共同判定，资源 ID、调用主体及 Vault 代次须匹配。MCP 与 CLI 复用同一引擎和日志，重试使用同一意图 key，轮询/重复应答无新副作用。协议交互中的秘密输入和终端完整输出不进常规审计。Web 普通文件选择用来源明确的句柄；主题、DataTable、Dialog、TerminalView 及宿主能力来自 Huhu。桌面 Chromium 与 Web Baseline 的核对见 [#6 兼容性与宿主设计](../2026-11-19-issue-6-unified-tools-web/design.md)。
+外部授权每次使用 #6 的共同判定，资源 ID、调用主体及 Vault 代次须匹配。MCP 与 CLI 复用同一引擎和日志，重试使用同一意图 key，轮询/重复应答无新副作用。协议交互中的秘密输入和终端完整输出不进常规审计。Web 普通文件选择用来源明确的句柄；主题、DataTable、Dialog、TerminalView 及宿主能力来自 Huhu。桌面 Chromium 与 Web Baseline 的核对见 [#6 兼容性与宿主设计](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/design.md)。
 
 ## SSH 产品决定与待决范围
 
@@ -66,4 +66,4 @@
 | Q7-1 删除仍被工作区/路由/转发引用的主机时，如何解决依赖？ | 建议列出全部引用，要求先移除或改绑，再允许删除。备选是一次预览并事务性级联解除；后者批量清理更快，但要定义空模板、停用规则和活连接的处理。 | 已明确引用稳定 ID、可解释依赖；仅阻塞 H2 中“被引用主机删除”的 UI 和验收。 |
 | Q7-2 旧路由如何迁入（已结） | 未发布产品采用新路由模型，只保存目标→直接跳板。没有旧配置迁入、兼容解析或手工转存任务。八种第三方配置导入仍按用户主动导入的新配置处理。 | H2 验收外部导入，H3 验收新路由与双向同步；均只用合成数据。 |
 
-共享的主机范围选择由 [#6 Q6-3](../2026-11-19-issue-6-unified-tools-web/design.md)维护。新 SSH 记录及其认证由 SSH 管理，不读取旧 Safe。新格式备份恢复使用合成资料。选用哪种执行器属于能力、许可和打包实验证据问题，见[实施计划](plan.md) H1。
+共享的主机范围选择由 [#6 Q6-3](../../archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/design.md)维护。新 SSH 记录及其认证由 SSH 管理，不读取旧 Safe。新格式备份恢复使用合成资料。选用哪种执行器属于能力、许可和打包实验证据问题，见[实施计划](plan.md) H1。

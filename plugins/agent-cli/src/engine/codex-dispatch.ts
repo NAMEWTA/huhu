@@ -22,8 +22,24 @@ const LinuxVersion = "codex-cli 0.170.0";
 const LinuxNativeChoiceSha256 = "880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971";
 const Id = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/);
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
-const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional(), socket: z.string().max(103).optional() });
-const Launch = z.object({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id });
+const HistoryProof = z.strictObject({ historyId: Digest, revision: Digest, source: Digest });
+const Thread = z.strictObject({ attempt: Id, threadId: Id, address: Id, pid: z.number().int().positive(), protocol: z.literal(2).optional(), socket: z.string().max(103).optional(), history: HistoryProof.optional() });
+const Resume = HistoryProof.extend({ threadId: z.uuid(), file: z.string().min(1), cwd: z.string().min(1), physical: z.string().min(1), dispatchId: z.string().min(1) });
+const ResumeRefusal = z.strictObject({ attempt: Id, source: Digest, address: Id, pid: z.number().int().positive(), reason: z.literal("history_writer_busy") });
+const LaunchConfiguration = z.object({
+  node: z.string(),
+  helper: z.string(),
+  command: z.string(),
+  args: z.array(z.string()),
+  home: z.string(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  fast: z.boolean(),
+  binaryStamp: Digest,
+  helperStamp: Digest,
+  configStamp: Digest.nullable(),
+});
+const Launch = z.looseObject({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id, resume: Resume.optional() });
 const Completion = z.strictObject({ threadId: Id, turnId: Id, status: z.enum(["completed", "failed", "interrupted"]).optional() });
 const AnswerAck = z.strictObject({ fingerprint: Digest });
 const StopWrite = z.strictObject({ fingerprint: Digest, threadId: Id, turnId: Id });
@@ -57,9 +73,10 @@ type CodexPlan = {
   helperStamp: string;
   configStamp: string | null;
   nativeChoiceBridge: boolean;
+  resume?: z.infer<typeof Resume>;
 };
-type Identity = Omit<z.infer<typeof Launch>, "secret">;
-type Control = Identity & { secret: string; directory: string };
+type Identity = Pick<z.infer<typeof Launch>, "vaultId" | "machineId" | "sessionId" | "coreId" | "attempt">;
+type Control = z.infer<typeof Launch> & { directory: string };
 type BoundSession = { id: string; coreId: string; attempt: string; address: string; pid: number };
 type PendingReport = { receipt: ExecutionReceipt; acknowledge(ack: ExecutionReceiptAck): void };
 
@@ -108,25 +125,15 @@ export class CodexDispatch {
     return ["win32", "linux", "darwin"].includes(process.platform) && !!(binary && helper && home);
   }
 
-  async prepare(input: Pick<LaunchInput, "model" | "effort" | "fast">): Promise<CodexPlan> {
-    const settingsEntry = entryOf(this.settings(), "codex");
-    if (settingsEntry.enabled === false) throw new HuhuError("AGENT_DISABLED", "Codex 已停用");
-    if (!this.configured || settingsEntry.args?.length || Object.keys(settingsEntry.env ?? {}).length) throw unavailable();
-    const model = input.model ?? settingsEntry.model;
-    const effort = input.effort ?? settingsEntry.effort;
-    const fast = input.fast ?? settingsEntry.fast ?? false;
-    if ((model !== undefined && !Id.safeParse(model).success) || (effort !== undefined && !/^(none|minimal|low|medium|high|xhigh|ultra)$/.test(effort))) throw errors.invalidInput("Codex 模型或推理强度无效");
-    const { binary, helper: file, home: directory, fixtureArgs = [], nodeBin = process.execPath } = this.options;
+  get historyProfile(): string | undefined {
+    const directory = this.options.home;
+    if (!this.configured || !directory || !path.isAbsolute(directory)) return undefined;
     try {
-      if (![binary!, file!, directory!, nodeBin, this.options.root].every(path.isAbsolute)) throw unavailable();
-      const command = realpathSync(binary!);
-      const helper = realpathSync(file!);
-      const node = realpathSync(nodeBin);
-      const home = realpathSync(directory!);
-      const linuxNative = process.platform === "linux" && fixtureArgs.length === 0;
+      const home = realpathSync(directory);
+      const linuxNative = process.platform === "linux" && !this.options.fixtureArgs?.length;
       const defaultHome = path.join(homedir(), ".codex");
       const globalHome = process.env["CODEX_HOME"];
-      // Windows 与默认 macOS 卷不区分大小写，折叠后比较更保守；Linux 按原样比较，避免误拒只差大小写的私有目录。
+      // Windows and default macOS volumes are usually case-insensitive.
       const fold = (value: string) => (process.platform === "linux" ? value : value.toLowerCase());
       const canonical = (candidate: string) => fold(statSync(candidate, { throwIfNoEntry: false }) ? realpathSync(candidate) : path.resolve(candidate));
       const homeKey = fold(home);
@@ -139,7 +146,33 @@ export class CodexDispatch {
           return homeKey === globalKey || homeKey.startsWith(globalKey + path.sep) || globalKey.startsWith(homeKey + path.sep);
         })
       )
-        throw unavailable();
+        return undefined;
+      return home;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private configuration(input: Pick<LaunchInput, "model" | "effort" | "fast">): Omit<CodexPlan, "resume" | "nativeChoiceBridge"> {
+    const settingsEntry = entryOf(this.settings(), "codex");
+    if (settingsEntry.enabled === false) throw new HuhuError("AGENT_DISABLED", "Codex 已停用");
+    if (!this.configured || settingsEntry.args?.length) throw unavailable();
+    const model = input.model ?? settingsEntry.model;
+    const effort = input.effort ?? settingsEntry.effort;
+    const fast = input.fast ?? settingsEntry.fast ?? false;
+    if ((model !== undefined && !Id.safeParse(model).success) || (effort !== undefined && !/^(none|minimal|low|medium|high|xhigh|ultra)$/.test(effort))) throw errors.invalidInput("Codex 模型或推理强度无效");
+    const { binary, helper: file, fixtureArgs = [], nodeBin = process.execPath } = this.options;
+    try {
+      if (![binary!, file!, nodeBin, this.options.root].every(path.isAbsolute)) throw unavailable();
+      const command = realpathSync(binary!);
+      const helper = realpathSync(file!);
+      const node = realpathSync(nodeBin);
+      const home = this.historyProfile;
+      if (!home) throw unavailable();
+      // The interactive settings can point at this same isolated history profile. The helper still supplies its own environment.
+      for (const [key, value] of Object.entries(settingsEntry.env ?? {})) {
+        if (key !== "CODEX_HOME" || !path.isAbsolute(value) || path.relative(realpathSync(value), home) !== "") throw unavailable();
+      }
       if (process.platform === "win32") {
         if ([binary!, command].some((candidate) => path.extname(candidate).toLowerCase() !== ".exe")) throw unavailable();
       } else {
@@ -149,6 +182,17 @@ export class CodexDispatch {
       const helperStamp = stamp(helper);
       const config = path.join(home, "config.toml");
       const configStamp = statSync(config, { throwIfNoEntry: false }) ? stamp(config) : null;
+      return { node, helper, command, args: fixtureArgs, home, ...(model && { model }), ...(effort && { effort }), fast, binaryStamp, helperStamp, configStamp };
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  async prepare(input: Pick<LaunchInput, "model" | "effort" | "fast" | "history" | "resumeDispatchId">): Promise<CodexPlan> {
+    const configuration = this.configuration(input);
+    const { command, args: fixtureArgs, home, binaryStamp } = configuration;
+    const linuxNative = process.platform === "linux" && fixtureArgs.length === 0;
+    try {
       if (this.versionCheck?.stamp !== binaryStamp) {
         const env = process.platform === "win32" ? undefined : { HOME: home, CODEX_HOME: home, PATH: process.env["PATH"] };
         const result = (async () => {
@@ -168,7 +212,22 @@ export class CodexDispatch {
       }
       const version = await this.versionCheck.result;
       if (!version) throw unavailable();
-      return { node, helper, command, args: fixtureArgs, home, ...(model && { model }), ...(effort && { effort }), fast, binaryStamp, helperStamp, configStamp, nativeChoiceBridge: version.nativeChoiceBridge };
+      let resume: CodexPlan["resume"];
+      const history = input.history;
+      if (history) {
+        const verifiedResume = linuxNative && version.nativeChoiceBridge;
+        if ((!verifiedResume && !fixtureArgs.length) || history.mode !== "resume" || history.profile !== home || !history.file || !history.sourceCwd || !history.revision || !input.resumeDispatchId) throw unavailable();
+        const { file, sourceId: historyId, revision, sourceCwd: cwd, nativeId: threadId } = history;
+        accessSync(file, constants.R_OK | constants.W_OK);
+        accessSync(path.dirname(file), constants.W_OK);
+        const stat = statSync(file, { bigint: true });
+        if (!stat.isFile() || stat.ino === 0n || realpathSync(file) !== file) throw unavailable();
+        const physical = `${stat.dev}:${stat.ino}:${stat.birthtimeNs}`;
+        const actual = createHash("sha256").update([physical, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":")).digest("hex");
+        if (actual !== revision) throw unavailable();
+        resume = Resume.parse({ threadId, file, cwd, physical, historyId, revision, dispatchId: input.resumeDispatchId, source: launchHash([home, file, cwd, threadId, physical]) });
+      }
+      return { ...configuration, nativeChoiceBridge: version.nativeChoiceBridge, ...(resume && { resume }) };
     } catch {
       throw unavailable();
     }
@@ -203,11 +262,39 @@ export class CodexDispatch {
     if (!control) return null;
     const thread = signedFile(control, "thread", Thread);
     if (!thread || thread.attempt !== control.attempt || thread.pid !== session.pid || thread.address !== session.address) return null;
+    const resume = control.resume;
+    if (resume) {
+      if (thread.protocol !== 2 || thread.threadId !== resume.threadId || !thread.history || thread.history.historyId !== resume.historyId || thread.history.revision !== resume.revision || thread.history.source !== resume.source)
+        return null;
+    } else if (thread.history) return null;
     return { control, thread };
   }
 
   thread(vaultId: string, machineId: string, session: BoundSession) {
     return this.forSession(vaultId, machineId, session)?.thread ?? null;
+  }
+
+  assertResumeConfiguration(execution: ExecutionBinding, session: BoundSession): void {
+    const { sessionBinding } = execution;
+    const bound = this.forSession(execution.vaultId, sessionBinding.machineId, session);
+    if (!bound || bound.control.resume?.dispatchId !== execution.dispatchId || bound.thread.threadId !== sessionBinding.nativeSessionId) throw unavailable();
+    // Restore may have updated the rollout. The helper checks that file against its post-restore stamp.
+    let current: ReturnType<CodexDispatch["configuration"]>;
+    try {
+      current = this.configuration({});
+    } catch (error) {
+      if (error instanceof HuhuError && error.code === "INVALID_INPUT") throw unavailable();
+      throw error;
+    }
+    const saved = LaunchConfiguration.safeParse(bound.control);
+    if (!saved.success || launchHash(saved.data) !== launchHash(current)) throw unavailable();
+  }
+
+  resumeWriterBusy(vaultId: string, machineId: string, session: BoundSession): boolean {
+    const control = this.control({ vaultId, machineId, sessionId: session.id, coreId: session.coreId, attempt: session.attempt });
+    if (!control?.resume) return false;
+    const refusal = signedFile(control, "resume-refusal", ResumeRefusal);
+    return !!refusal && refusal.attempt === control.attempt && refusal.source === control.resume.source && refusal.pid === session.pid && refusal.address === session.address;
   }
 
   evidence(execution: ExecutionBinding, session: BoundSession) {

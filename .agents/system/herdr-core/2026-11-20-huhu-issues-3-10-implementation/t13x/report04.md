@@ -34,6 +34,6 @@ node node_modules/vitest/vitest.mjs run apps/engine/test/codex-dispatch.live.tes
 
 整包构建在实施日志中因 PDF 资源配置无法解析 `pdfjs-dist/package.json` 停止。此次验证覆盖生产 helper、Engine 和本机受控新会话，正式包安装后的资源路径运行及该 PDF 依赖由 Lead 接续。 [整包构建日志](../t135/evidence-task02/electron-vite.log)
 
-依据 [W6.1 验收](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) 和 [实施报告](../t135/report02.md)。
+依据 [W6.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W6.1-bound-input.md) 和 [实施报告](../t135/report02.md)。
 
 ## Lead 验收

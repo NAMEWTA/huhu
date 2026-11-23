@@ -26,7 +26,7 @@
 | 桌面 ZIP 与工作台边界 | `web:fixture` 调用 `vault.exportPackage` 得 `PERMISSION_DENIED`。桌面请求进入 Mail 快照队列，排队的附件移除和回收在导出后完成。桌面响应的 ZIP SHA-256 与实际文件一致。以 `includeAttachments: false` 导出仍保留 Vault 管理的 Mail 对象。恢复到独立 Vault 后，只读 Engine 读回导出时的草稿修订、同摘要引用和同一 Buffer。 |
 | 附件回归 | 同草稿和跨草稿去重、原源文件离开后重开、最后引用回收、缺失及损坏、复制中断和条件写均由现有 Mail 夹具断言通过。 |
 
-本轮验收范围是同一可写 Engine 的生产 HTTP 能力、工作台 Dispatcher 以及固定 Core 下的合成提供方。桌面界面实际操作、真实提供方与跨 Engine 并行导出未在本轮运行。快照队列属于创建该 Mail 服务的 Engine。 [T2.2 范围](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T2.2-inspect-stop.md) · [附件范围](../../../../dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.2-managed-attachments.md)
+本轮验收范围是同一可写 Engine 的生产 HTTP 能力、工作台 Dispatcher 以及固定 Core 下的合成提供方。桌面界面实际操作、真实提供方与跨 Engine 并行导出未在本轮运行。快照队列属于创建该 Mail 服务的 Engine。 [T2.2 范围](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T2.2-inspect-stop.md) · [附件范围](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S1b.2-managed-attachments.md)
 
 ## 取证与清理
 

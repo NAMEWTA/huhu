@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; img-src 'self'">
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="workbench.css">
+  <link rel="stylesheet" href="tasks.css">
+  <script src="tasks.js" defer></script>
+  <title>任务与自动化 · Huhu</title>
+</head>
+<body>
+  <header class="wb-top">
+    <div class="brand"><img class="brand-mark" src="huhu-mark-mono.svg" alt="" draggable="false">huhu<small>workbench</small></div>
+    <div class="vault ellipsis">▱ 产品与工程 Vault</div>
+    <button class="subtle" id="appearance" type="button" aria-label="切换深色外观">深色</button>
+  </header>
+  <div class="wb">
+    <nav class="rail" aria-label="功能图标栏">
+      <button data-act="page" data-value="tasks" type="button" aria-label="任务">任务</button>
+      <button data-act="page" data-value="rules" type="button" aria-label="自动化">自动</button>
+      <a class="button subtle" href="../../feature_2026-11-19-issue-4-agent-cli/prototype/index.html" aria-label="Agent CLI 原型">CLI</a>
+    </nav>
+    <aside class="sidebar" aria-label="模块导航">
+      <div class="group">工作管理</div>
+      <nav id="sections" class="narrow-row" aria-label="工作管理"></nav>
+      <div class="group">工作台时间</div>
+      <p class="nav-item mono" id="clock"></p>
+    </aside>
+    <main class="main">
+      <header class="module-head" id="module-head"></header>
+      <div id="task-workarea" class="workarea">
+        <section class="canvas stack" id="main-content" aria-label="工作列表"></section>
+        <aside class="inspector stack" id="detail" aria-label="详情"></aside>
+      </div>
+    </main>
+  </div>
+  <footer class="statusbar row between"><span id="status" role="status"></span><span>● 本机 Vault · 模拟状态</span></footer>
+  <details class="demo" id="simulation" open>
+    <summary>演示控制 · 模拟时钟与后台</summary>
+    <div class="row">
+      <label for="fault">下一次执行</label>
+      <select id="fault">
+        <option value="normal">正常</option><option value="busy">会话忙 · 保留待派</option>
+        <option value="unsent">明确未发送 · 可重试</option><option value="unknown">发送确认丢失 · 先核对</option>
+        <option value="readonly">只读 Vault · 拒绝保存派遣或答复</option>
+      </select>
+      <label for="event-mode">模拟后台</label>
+      <select id="event-mode">
+        <option value="question">普通业务问题</option><option value="deferred">原生暂停请求</option>
+        <option value="blocked">只能在现场处理</option><option value="progress">进度摘要</option>
+        <option value="result">最终结果</option><option value="delivery-fail">结果已存 · 评论写入失败</option>
+        <option value="replay">重交原结果回执</option><option value="exit">进程退出 · 无业务回执</option>
+      </select>
+      <button data-act="event" type="button">提交后台事件</button>
+      <button data-act="advance" type="button">前进 15 分钟</button>
+      <button data-act="tomorrow" type="button">跳到明天 09:00</button>
+      <button data-act="tick" type="button">触发到期规则</button>
+      <button data-act="restart" type="button">模拟重启</button>
+      <label for="theme">主题</label><select id="theme"><option value="claude">Claude</option><option value="apple">Apple</option><option value="notion">Notion</option><option value="vercel">Vercel</option></select><button data-act="reset" type="button">复位</button>
+    </div>
+  </details>
+  <dialog id="editor" aria-labelledby="editor-title">
+    <div class="dialog-head row between"><h2 id="editor-title"></h2><button data-act="dismiss" type="button" aria-label="关闭对话框">×</button></div>
+    <div id="editor-body"></div>
+  </dialog>
+</body>
+</html>

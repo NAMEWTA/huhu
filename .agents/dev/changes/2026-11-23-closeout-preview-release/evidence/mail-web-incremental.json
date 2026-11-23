@@ -1,0 +1,33 @@
+{
+  "baseCommit": "cc551778",
+  "scope": "uncommitted Mail M01 and separate Web entry; source desktop build, not release artifact",
+  "buildLog": "temp/closeout-release/mail-web-build-recheck.log",
+  "reports": {
+    "mail-ui": {
+      "path": "temp/closeout-release/mail-ui/result.json",
+      "sha256": "897436145c5a9fa383c4aab7fbb0b9fb8cf3a58bce380feb471597f1accd04a8",
+      "stats": {
+        "startTime": "2026-11-23T04:45:21.814Z",
+        "duration": 20077.769999999997,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "errors": []
+    },
+    "web-ui": {
+      "path": "temp/closeout-release/web-ui/result.json",
+      "sha256": "c2200159fbbda6866461344b6d48e8d03be4e40839baefd5e40458aba989dd27",
+      "stats": {
+        "startTime": "2026-11-23T04:46:15.159Z",
+        "duration": 17864.91,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "errors": []
+    }
+  }
+}

@@ -765,8 +765,15 @@ test("首页看板：宽屏拖动与缩放预览保持草稿，退出拖动恢�
     const board = page.getByTestId("home-dashboard");
     const focus = board.locator('[data-instance-id="default-focus"]');
     const move = focus.getByRole("button", { name: "移动 专注", exact: true });
-    const resize = focus.getByRole("button", { name: "拖动调整 专注 尺寸", exact: true });
-    const stride = await board.locator(".hu-dashboard-grid").evaluate((grid) => (grid.getBoundingClientRect().width + Number.parseFloat(getComputedStyle(grid).columnGap)) / 6);
+    const resize = focus.locator(".react-resizable-handle-se");
+    const grid = board.locator(".hu-dashboard-grid");
+    const placeholder = board.locator(".hu-dashboard-drop-preview, .hu-dashboard-grid .placeholder-resizing");
+    const stride = await grid.evaluate((element) => (element.getBoundingClientRect().width + 12) / 6);
+    const original = (await focus.boundingBox())!;
+    const tile = (await focus.elementHandle())!;
+    const expectGeometry = async (element: typeof focus, axis: "x" | "width", value: number) => {
+      await expect.poll(async () => Math.abs(((await element.boundingBox())?.[axis] ?? Infinity) - value)).toBeLessThanOrEqual(2);
+    };
     const begin = async (handle: typeof move) => {
       await handle.scrollIntoViewIfNeeded();
       const bounds = (await handle.boundingBox())!;
@@ -774,20 +781,27 @@ test("首页看板：宽屏拖动与缩放预览保持草稿，退出拖动恢�
       const y = bounds.y + bounds.height / 2;
       await page.mouse.move(x, y);
       await page.mouse.down();
+      await expect(focus).toHaveClass(handle === move ? /react-draggable-dragging/u : /\bresizing\b/u);
       await page.mouse.move(x + stride, y, { steps: 5 });
-      await expect(focus).toHaveAttribute("data-placement-preview", "true");
+      await expect(placeholder).toBeVisible();
     };
     await begin(move);
-    await expect(focus).toHaveCSS("grid-column-start", "2");
+    await expectGeometry(focus, "x", original.x + stride);
     await page.mouse.up();
+    await expect(board.getByRole("status")).toContainText("专注，第 2 列，第 6 行，3 × 2。");
     await begin(resize);
-    await expect(focus).toHaveCSS("grid-column-end", "span 4");
+    await expectGeometry(focus, "width", original.width + stride);
     await page.mouse.up();
+    await expect(board.getByRole("status")).toContainText("专注，第 2 列，第 6 行，4 × 2。");
     await begin(move);
-    await expect(focus).toHaveCSS("grid-column-start", "3");
+    await expectGeometry(focus, "x", original.x + stride * 2);
     await page.keyboard.press("Escape");
+    await expect(placeholder).toBeHidden();
+    await expectGeometry(focus, "x", original.x + stride);
     await page.mouse.up();
-    await expect(focus).toHaveCSS("grid-column-start", "2");
+    await expectGeometry(focus, "x", original.x + stride);
+    await expect(board.getByRole("status")).toContainText("已取消卡片调整。");
+    expect(await focus.evaluate((element, originalTile) => element === originalTile, tile)).toBe(true);
     const file = path.join(vault, ".huhu/home/widgets.json");
     expect(existsSync(file)).toBe(false);
     await board.getByTestId("home-dashboard-save").click();
@@ -799,6 +813,115 @@ test("首页看板：宽屏拖动与缩放预览保持草稿，退出拖动恢�
         .getByRole("button", { name: "取消编辑", exact: true })
         .click({ timeout: 500 })
         .catch(() => undefined);
+    await close();
+  }
+});
+
+test("首页看板：跨格停住时预览与松手落点一致", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await page.setViewportSize({ width: 1430, height: 1000 });
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await page.getByTestId("home-customize").click();
+    const board = page.getByTestId("home-dashboard");
+    const grid = board.locator(".hu-dashboard-grid");
+    const focus = board.locator('[data-instance-id="default-focus"]');
+    const move = focus.getByRole("button", { name: "移动 专注", exact: true });
+    const placeholder = board.locator(".hu-dashboard-drop-preview, .hu-dashboard-grid .react-grid-placeholder:visible");
+    await move.scrollIntoViewIfNeeded();
+    const origin = (await focus.boundingBox())!;
+    const handle = (await move.boundingBox())!;
+    const stride = await grid.evaluate((element) => (element.getBoundingClientRect().width + 12) / 6);
+    const x = handle.x + handle.width / 2;
+    const y = handle.y + handle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    try {
+      await expect(focus).toHaveClass(/react-draggable-dragging/u);
+      await page.mouse.move(x + stride * 0.6, y);
+      await expect(placeholder).toBeVisible();
+      await expect.poll(async () => Math.abs(((await placeholder.boundingBox())?.x ?? Infinity) - (origin.x + stride))).toBeLessThanOrEqual(2);
+    } finally {
+      await page.mouse.up();
+    }
+    await expect(placeholder).toBeHidden();
+    await expect.poll(async () => Math.abs(((await focus.boundingBox())?.x ?? Infinity) - (origin.x + stride))).toBeLessThanOrEqual(2);
+    await expect(board.getByRole("status")).toContainText("专注，第 2 列，第 6 行，3 × 2。");
+    expect(existsSync(path.join(vault, ".huhu/home/widgets.json"))).toBe(false);
+  } finally {
+    if (!page.isClosed()) {
+      const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+      if (await cancel.isVisible()) await cancel.click();
+    }
+    await close();
+  }
+});
+
+test("首页看板：触摸中断回滚，下一次拖动可保存并在重载后保留位置", async () => {
+  const { page, close, vault } = await openApp();
+  try {
+    await page.setViewportSize({ width: 1430, height: 1000 });
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const cdp = await page.context().newCDPSession(page);
+    try {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+      await page.reload();
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      await page.getByTestId("home-customize").click();
+      const board = page.getByTestId("home-dashboard");
+      const focus = board.locator('[data-instance-id="default-focus"]');
+      const move = focus.getByRole("button", { name: "移动 专注", exact: true });
+      const grid = board.locator(".hu-dashboard-grid");
+      const placeholder = board.locator(".hu-dashboard-drop-preview");
+      const save = board.getByTestId("home-dashboard-save");
+      const file = path.join(vault, ".huhu/home/widgets.json");
+      await move.scrollIntoViewIfNeeded();
+      const tile = (await focus.elementHandle())!;
+      const origin = (await focus.boundingBox())!.x;
+      const stride = await grid.evaluate((element) => (element.getBoundingClientRect().width + 12) / 6);
+      const expectX = (x: number) => expect.poll(async () => Math.abs(((await focus.boundingBox())?.x ?? Infinity) - x)).toBeLessThanOrEqual(2);
+      const drag = async (end: "touchCancel" | "touchEnd") => {
+        const handle = (await move.boundingBox())!;
+        const x = handle.x + handle.width / 2;
+        const y = handle.y + handle.height / 2;
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+        try {
+          for (let step = 1; step <= 8; step++) {
+            await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + (stride * step) / 8, y }] });
+          }
+          await expect(placeholder).toBeVisible();
+          await expectX(origin + stride);
+        } finally {
+          await cdp.send("Input.dispatchTouchEvent", { type: end, touchPoints: [] });
+        }
+      };
+      await drag("touchCancel");
+      await expect(placeholder).toBeHidden();
+      await expectX(origin);
+      await expect(board.getByRole("status")).toContainText("已取消卡片调整。");
+      expect(await focus.evaluate((element, originalTile) => element === originalTile, tile)).toBe(true);
+      await expect(save).toBeDisabled();
+      expect(existsSync(file)).toBe(false);
+      await drag("touchEnd");
+      await expect(board.getByRole("status")).toContainText("专注，第 2 列，第 6 行，3 × 2。");
+      await expectX(origin + stride);
+      expect(existsSync(file)).toBe(false);
+      await save.click();
+      await expect(board.getByRole("status")).toContainText("布局已保存");
+      const position = { instanceId: "default-focus", x: 1, y: 5, w: 3, h: 2 };
+      expect(JSON.parse(readFileSync(file, "utf8")).layout).toContainEqual(position);
+      await page.reload();
+      const call = await caller(page);
+      await expect.poll(async () => (await call("home.dashboard.get")).data?.board?.layout).toContainEqual(position);
+      await expect(board.locator('[data-instance-id="default-focus"]')).toBeVisible();
+    } finally {
+      await cdp.detach();
+    }
+  } finally {
+    if (!page.isClosed()) {
+      const cancel = page.getByRole("button", { name: "取消编辑", exact: true });
+      if (await cancel.isVisible()) await cancel.click();
+    }
     await close();
   }
 });
@@ -863,16 +986,24 @@ test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重�
     const order = () => board.locator("[data-instance-id]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-instance-id")));
     const expected = ["default-metrics", "default-notes", "default-tasks", "default-focus"];
     await expect.poll(order).toEqual(["default-metrics", "default-tasks", "default-notes", "default-focus"]);
+    const notes = board.locator('[data-instance-id="default-notes"]');
+    const notesTile = (await notes.elementHandle())!;
     const file = path.join(vault, ".huhu/home/widgets.json");
-    await page.setViewportSize({ width: 700, height: 768 });
+    await page.setViewportSize({ width: 600, height: 768 });
+    await expect(board.locator(".hu-dashboard-canvas")).toHaveAttribute("data-dashboard-narrow", "true");
     await page.getByTestId("home-customize").click();
-    await board.getByRole("button", { name: "前移 最近笔记" }).click();
+    const earlier = board.getByRole("button", { name: "前移 最近笔记" });
+    await expect(board.getByRole("button", { name: "移动 最近笔记", exact: true })).toBeHidden();
+    await earlier.press("Enter");
+    await expect(board.getByRole("status")).toContainText(/最近笔记，第 \d+ 列，第 \d+ 行/u);
     await expect.poll(order).toEqual(expected);
     expect(existsSync(file)).toBe(false);
     await board.getByTestId("home-dashboard-save").click();
     await expect(board.getByRole("status")).toContainText("布局已保存");
     const bytes = readFileSync(file, "utf8");
     await page.setViewportSize({ width: 1366, height: 768 });
+    await expect(board.locator(".hu-dashboard-canvas")).not.toHaveAttribute("data-dashboard-narrow");
+    expect(await notes.evaluate((element, originalTile) => element === originalTile, notesTile)).toBe(true);
     await page.reload();
     await expect.poll(order).toEqual(expected);
     expect(readFileSync(file, "utf8")).toBe(bytes);

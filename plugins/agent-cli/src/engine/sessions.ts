@@ -30,7 +30,7 @@ export interface SessionRecord {
   exitedAt?: string;
   requestId: string;
   launchReceipt?: LaunchReceipt;
-  historyLaunch?: { history: NonNullable<LaunchInput["history"]>; spaceRevision: number; selection: string; cwd: string; codex?: CodexHistoryReceipt };
+  historyLaunch?: { history: NonNullable<LaunchInput["history"]>; spaceRevision: number; selection: string; cwd: string; codex?: CodexHistoryReceipt; dispatch?: { id: string; configurationId: string } };
   controlled?: "codex";
   terminalId: string | null;
   name: string;
@@ -151,6 +151,7 @@ export interface LaunchInput {
   approvedShell?: ApprovedLinuxShell;
   expectedConfigurationId?: string;
   controlled?: "codex";
+  resumeDispatchId?: string;
   environment?: AgentEnvironmentApproval;
 }
 
@@ -484,7 +485,7 @@ export class SessionsService {
     throw errors.invalidInput("启动目录必须是 Space 内现有的绝对目录");
   }
 
-  private async prepareLaunch(input: Omit<LaunchInput, "requestId">, newPiId?: string) {
+  private async prepareLaunch(input: Omit<LaunchInput, "requestId">, newPiId?: string, historyCandidates?: ReadonlyMap<string, string | null>) {
     const space = this.d.spaces.validateForLaunch(input.spaceId, input.spaceRevision);
     // cmd.exe 把盘符的扩展路径当作 UNC。常规长度的本机路径可用普通盘符形式启动。
     const cwd = localDrivePath(this.launchDirectory(space.root, input.cwd));
@@ -502,10 +503,19 @@ export class SessionsService {
     let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
     let codexHistory: ReturnType<typeof prepareCodexHistory> | undefined;
     const history = input.history;
-    if (history && !this.currentHistorySource(input, cwd)) throw errors.notFound("原生会话来源已变化或标识不唯一，请重新选择");
+    if (history && !this.currentHistorySource(input, cwd, historyCandidates)) throw errors.notFound("原生会话来源已变化或标识不唯一，请重新选择");
     if (input.controlled) {
-      if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.history !== undefined || input.command !== undefined || input.env !== undefined)
-        throw errors.invalidInput("受控 Codex 仅支持新会话");
+      if (
+        !this.d.codex ||
+        input.provider !== "codex" ||
+        input.prompt !== undefined ||
+        input.resumeSessionId !== undefined ||
+        input.command !== undefined ||
+        input.env !== undefined ||
+        input.environment ||
+        (history && (!input.resumeDispatchId || history.mode !== "resume"))
+      )
+        throw errors.invalidInput("受控 Codex 启动来源无效");
       controlled = await this.d.codex.prepare(input);
     } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
@@ -528,7 +538,7 @@ export class SessionsService {
     return { space, cwd, argv, env, controlled, nativeSessionId, codexHistory };
   }
 
-  private currentHistorySource(input: Pick<LaunchInput, "provider" | "history">, cwd: string): boolean {
+  private currentHistorySource(input: Pick<LaunchInput, "provider" | "history">, cwd: string, candidates?: ReadonlyMap<string, string | null>): boolean {
     const { provider, history } = input;
     if (!history?.file || (provider !== "pi" && provider !== "claude" && provider !== "codex")) return false;
     if (provider !== "pi" && (!history.profile || !history.sourceCwd || localDrivePath(history.sourceCwd) !== cwd)) return false;
@@ -537,7 +547,7 @@ export class SessionsService {
       const candidates = nativeHistoryCandidates(provider, history.profile!);
       return !!candidates && !!history.forkId && !candidates.has(history.forkId.toLowerCase()) && nativeHistorySourceMatches(source, history.profile, candidates);
     }
-    return nativeHistorySourceMatches(source, history.profile);
+    return nativeHistorySourceMatches(source, history.profile, candidates);
   }
 
   private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">, intent: LaunchIntent, signal?: AbortSignal): Promise<NativeDelivery> {
@@ -616,8 +626,8 @@ export class SessionsService {
     return { machineId: space.machineId, cwd, command: command ?? null, argv: args };
   }
 
-  async freezeLaunch(input: Omit<LaunchInput, "requestId">): Promise<string> {
-    const prepared = await this.prepareLaunch(input);
+  async freezeLaunch(input: Omit<LaunchInput, "requestId">, historyCandidates?: ReadonlyMap<string, string | null>): Promise<string> {
+    const prepared = await this.prepareLaunch(input, undefined, historyCandidates);
     if (prepared.env) this.rejectDispatchEnvironment();
     return this.configurationId(prepared);
   }
@@ -627,11 +637,13 @@ export class SessionsService {
   }
 
   private configurationId(prepared: Awaited<ReturnType<SessionsService["prepareLaunch"]>>): string {
+    const controlled = prepared.controlled;
+    const { dispatchId: _dispatchId, ...source } = controlled?.resume ?? {};
     return launchHash({
       machineId: prepared.space.machineId,
       cwd: prepared.cwd,
       argv: prepared.argv,
-      controlled: prepared.controlled,
+      controlled: controlled?.resume ? { ...controlled, resume: source } : controlled,
       envNames: Object.keys(prepared.env ?? {}).sort(),
     });
   }
@@ -683,7 +695,7 @@ export class SessionsService {
     };
     const history = input.history;
     const nativeSessionId = history
-      ? history.mode === "resume" && input.provider !== "codex"
+      ? history.mode === "resume" && (input.provider !== "codex" || input.resumeDispatchId)
         ? history.nativeId
         : history.mode === "fork" && input.provider === "pi"
           ? history.forkId
@@ -785,6 +797,7 @@ export class SessionsService {
             selection: input.historySelection ?? "",
             cwd: input.cwd ?? cwd,
             ...(codexHistoryStage && { codex: codexHistoryStage.receipt }),
+            ...(input.resumeDispatchId && input.expectedConfigurationId && { dispatch: { id: input.resumeDispatchId, configurationId: input.expectedConfigurationId } }),
           }
         : undefined;
     let pending: SessionRecord = { ...current, state: "launching", ...(historyLaunch && { historyLaunch }), launchReceipt: { ...receipt, ...((controlled || ticket || codexHistoryStage) && { argvHash: launchHash(argv) }), attempt } };
@@ -1067,7 +1080,64 @@ export class SessionsService {
     const frozen = session?.historyLaunch;
     if (!session?.launchReceipt?.attempt || !frozen) return undefined;
     if (frozen.selection !== selection) throw errors.invalidInput("requestId 已用于另一条历史启动请求");
-    return { requestId, spaceId: session.spaceId, spaceRevision: frozen.spaceRevision, provider: session.provider, cwd: frozen.cwd, history: frozen.history, historySelection: selection };
+    return {
+      requestId,
+      spaceId: session.spaceId,
+      spaceRevision: frozen.spaceRevision,
+      provider: session.provider,
+      cwd: frozen.cwd,
+      history: frozen.history,
+      historySelection: selection,
+      ...(frozen.dispatch && { controlled: "codex", resumeDispatchId: frozen.dispatch.id, expectedConfigurationId: frozen.dispatch.configurationId }),
+    };
+  }
+
+  resumeOwner(sessionId: string): string | undefined {
+    try {
+      const session = this.readSessionFile(sessionId + ".json");
+      if (session.launchReceipt && this.localReceipt(session.launchReceipt)) return session.historyLaunch?.dispatch?.id;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  resumeWriterBusy(session: SessionRecord): boolean {
+    const owner = this.executionOwner(session);
+    return session.state === "exited" && !!session.historyLaunch?.dispatch && !!owner && this.d.codex?.resumeWriterBusy(this.d.vaultId, this.d.spaces.machineId, owner) === true;
+  }
+
+  async observeHistorySessions(records: SessionRecord[]): Promise<SessionRecord[]> {
+    if (!records.some((session) => session.state !== "exited" && session.launchReceipt?.attempt)) return records;
+    const snapshot = await this.snapshot();
+    if (snapshot.kind !== "available") return records;
+    return records.map((session) => {
+      const attempt = session.launchReceipt?.attempt;
+      if (!attempt || session.state === "exited" || !sameCore(attempt.core, snapshot.core)) return session;
+      const labels = launchLabels(this.d.vaultId, session);
+      const candidates = snapshot.terminals.filter((terminal) => hasLaunchLabels(terminal, labels));
+      const terminal = candidates.length === 1 ? candidates[0] : undefined;
+      if (terminal?.state !== "finished" || (attempt.addressHint && terminal.address !== attempt.addressHint)) return session;
+      const verified = this.verifyTerminal(session, terminal);
+      if (!verified || (attempt.binding && !sameProcess(attempt.binding, verified))) return session;
+      return { ...session, state: "exited" };
+    });
+  }
+
+  async releaseAbandonedResumes(abandoned: (dispatchId: string) => boolean): Promise<void> {
+    for (const session of this.list()) {
+      const dispatchId = session.historyLaunch?.dispatch?.id;
+      if (!dispatchId || !["launching", "running", "unknown"].includes(session.state)) continue;
+      try {
+        if (!abandoned(dispatchId)) continue;
+        const current = await this.findLaunch(session, this.d.signal);
+        if (current.state === "running" && current.historyLaunch?.dispatch?.id === dispatchId && abandoned(dispatchId)) {
+          const generation = sessionGeneration(current);
+          if (generation) await this.kill(current.id, generation);
+        }
+      } catch {
+        // The original Core generation must be verified on the next poll.
+      }
+    }
   }
 
   private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
@@ -1241,6 +1311,8 @@ export class SessionsService {
     const machineId = this.d.spaces.machineId;
     const thread = session.controlled ? this.d.codex?.thread(this.d.vaultId, machineId, owner) : null;
     if (session.controlled && !thread) return null;
+    const resumed = session.historyLaunch;
+    if (resumed?.dispatch && (!thread?.history || thread.history.historyId !== resumed.history.sourceId || thread.history.revision !== resumed.history.revision || thread.threadId !== resumed.history.nativeId)) return null;
     return {
       spaceId: session.spaceId,
       finished: verified.terminal.state === "finished" || verified.terminal.finished_ms != null,
@@ -1410,6 +1482,7 @@ export class SessionsService {
       const owner = this.executionOwner(session);
       if (!owner || !this.matchesExecution(owner, execution)) return "not_sent";
       // Claim and submit in one synchronous turn after verifying the original process.
+      if (session.historyLaunch?.dispatch?.id === execution.dispatchId) this.d.codex!.assertResumeConfiguration(execution, owner);
       if (!claim()) return "busy";
       try {
         if (channel) {

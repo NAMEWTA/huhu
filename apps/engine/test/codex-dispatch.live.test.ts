@@ -2,14 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityResult, TaskDto, TaskExecution } from "@huhu/contracts";
+import type { CapabilityResult, TaskDto, TaskExecution, TaskHistorySelection } from "@huhu/contracts";
 import { AgentDetector, HerdrCore } from "@huhu/plugin-agent-cli/engine";
 import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { CodexDispatch } from "../../../plugins/agent-cli/src/engine/codex-dispatch.js";
 import { createFixtureGate } from "../../../plugins/agent-cli/test/fixtures/dispatch-provider.js";
-import type { DispatchReceipt } from "../../../plugins/tasks/src/engine/dispatch-store.js";
+import type { DispatchReceipt, DispatchRecord } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { fixtureCoreCli, fixtureProcessRunning } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
@@ -47,7 +47,7 @@ async function call<T = unknown>(engine: RunningEngine, capability: string, inpu
   return reply.data as T;
 }
 
-type Event = { event: string; scenario?: string; threadId?: string; turnId?: string };
+type Event = { event: string; scenario?: string; threadId?: string; turnId?: string; pid?: number };
 
 test.skipIf(!bin)(
   "Engine dispatch uses one original Core helper and accepts only its correlated native Codex response",
@@ -98,7 +98,10 @@ test.skipIf(!bin)(
         const status = cli("server", "status");
         if (status.status === 0) {
           const { pid, holders } = JSON.parse(status.stdout) as { pid: number; holders: { pid: number }[] };
-          const providerPids = events().flatMap((event) => (event.event === "thread" && event.threadId ? [Number(event.threadId.slice("thread-".length))] : []));
+          const providerPids = events().flatMap((event) => {
+            if (event.event === "thread" && event.threadId) return [Number(event.threadId.slice("thread-".length))];
+            return event.event === "thread/resume" && event.pid ? [event.pid] : [];
+          });
           const live = () => [pid, ...holders.map((holder) => holder.pid), ...providerPids].filter(fixtureProcessRunning);
           expect(cli("server", "stop").status).toBe(0);
           await expect.poll(live, { timeout: 5_000 }).toEqual([]);
@@ -170,11 +173,7 @@ test.skipIf(!bin)(
       const waiting = await begin(existing, "fixture-existing");
       await expect.poll(() => call(engine, "tasks.dispatch.read", key(waiting))).toMatchObject({ state: "pending", reason: "waiting_resource" });
       expect(await call(engine, "tasks.dispatch.cancel", key(waiting))).toMatchObject({ state: "cancelled" });
-      const resume = await create("resume", { mode: "resume", nativeSessionId: turn!.threadId! });
-      const unsupported = await begin(resume, "fixture-resume");
-      await poll(unsupported, "blocked");
-      expect(await call(engine, "tasks.dispatch.read", key(unsupported))).toMatchObject({ reason: "target_unsupported" });
-      expect(await taskStatus(resume)).toMatchObject({ status: "not_started" });
+      await expect(create("resume", { mode: "resume", nativeSessionId: turn!.threadId! })).rejects.toThrow("INVALID_INPUT");
       expect(events().filter((e) => e.event === "thread")).toHaveLength(1);
       await enable("agent-cli", false);
       await engine.shutdown();
@@ -223,6 +222,132 @@ test.skipIf(!bin)(
       expect(turns("missing-native-response")).toHaveLength(1);
       expect(ptyInputs).toBe(0);
       expect(events().some((e) => e.event === "unsupported-server-request")).toBe(true);
+
+      const sessionsPath = path.join(home, "sessions", "2026", "11", "23");
+      mkdirSync(sessionsPath, { recursive: true });
+      const makeSource = (title: string, gates: { gate?: string; writerGate?: string } = {}) => {
+        const id = randomUUID();
+        const file = path.join(sessionsPath, `rollout-2026-11-23T12-00-00-${id}.jsonl`);
+        const cwd = space!.root;
+        writeFileSync(
+          file,
+          [
+            { type: "session_meta", payload: { id, cwd } },
+            { type: "event_msg", payload: { type: "user_message", message: title } },
+          ]
+            .map((row) => JSON.stringify(row))
+            .join("\n") + "\n",
+        );
+        return { id, path: file, cwd, ...gates };
+      };
+      const a = makeSource("A", { gate: "release-resume-a" });
+      const b = makeSource("B");
+      const c = makeSource("C");
+      const d = makeSource("D");
+      const e = makeSource("E", { writerGate: "release-writer-e" });
+      writeFileSync(path.join(sandbox, "resume-sources.json"), JSON.stringify(Object.fromEntries([a, b, c, d, e].map((source) => [source.id, source]))));
+      const setCodexEnabled = async (enabled: boolean) => {
+        const { settings } = await call<{ settings: { revision: number; defaultAgent: string | null; agents: Record<string, Record<string, unknown>> } }>(engine!, "agent.settings.get", {});
+        await call(engine!, "agent.settings.update", { expectedRevision: settings.revision, defaultAgent: settings.defaultAgent, agents: { ...settings.agents, codex: { ...settings.agents["codex"], enabled } } });
+      };
+      const listing = () => call<{ mode: string; nativeSessionId?: string; history?: TaskHistorySelection; available: boolean }[]>(engine, "tasks.dispatch.targets", { spaceId: space!.id });
+      const makeTask = async (source: { id: string }, scenario = source.id) => {
+        const row = (await listing()).find(({ nativeSessionId }) => nativeSessionId === source.id);
+        expect(row).toMatchObject({ mode: "resume", available: true, history: { spaceId: space!.id } });
+        return call<TaskDto>(engine, "tasks.create", {
+          title: source.id,
+          body: JSON.stringify({ scenario }),
+          type: "agent",
+          execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: source.id, history: row!.history } },
+        });
+      };
+      const bTask = await makeTask(b, "late-native-resume");
+      expect(await taskStatus(bTask)).toMatchObject({ execution: bTask.execution });
+      const [bRun, sameRun] = await Promise.all([begin(bTask, "resume-b"), begin(bTask, "resume-b")]);
+      expect(sameRun.runId).toBe(bRun.runId);
+      await poll(bRun, "unknown");
+      const frozen = JSON.parse(readFileSync(path.join(engine.vault.stateDir, "tasks", "dispatches", bRun.eventId + ".json"), "utf8")) as DispatchRecord;
+      const input = {
+        ...scope,
+        taskId: bTask.id,
+        runId: bRun.runId,
+        attempt: bRun.attempt,
+        dispatchId: bRun.dispatchId,
+        eventIds: [bRun.eventId],
+        inputSnapshotRef: bRun.eventId,
+        inputSnapshotHash: frozen.snapshotHash,
+        input: bTask.body,
+        target: frozen.agentTarget,
+      };
+      expect(await internal("agent.runs.dispatch", { ...input, input: "different payload" })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+      expect(await internal("agent.runs.dispatch", input)).toMatchObject({ ok: true, data: { status: "unknown" } });
+      await setCodexEnabled(false);
+      writeFileSync(path.join(sandbox, "release-resume-b"), "");
+      await poll(bRun, "running");
+      await setCodexEnabled(true);
+      const proof = await inspect(bRun);
+      expect(proof).toMatchObject({ ok: true, data: { status: "accepted", execution: { sessionBinding: { nativeSessionId: b.id } } } });
+      expect(
+        events()
+          .filter((event) => event.threadId === b.id)
+          .map(({ event }) => event),
+      ).toEqual(["thread/read", "thread/resume", "turn"]);
+      expect((await taskStatus(bTask)).comments.filter(({ run }) => run === bRun.runId)).toHaveLength(1);
+
+      const aTask = await makeTask(a);
+      const aRun = await begin(aTask, "resume-a-cancelled");
+      await expect.poll(() => events().filter(({ event, threadId }) => event === "thread/resume" && threadId === a.id)).toHaveLength(1);
+      const originalSession = async (nativeId: string) =>
+        (await call<{ id: string; state: string; nativeSessionId?: string }[]>(engine!, "agent.sessions.list", { spaceId: space!.id })).find(({ nativeSessionId }) => nativeSessionId === nativeId);
+      const aSession = await originalSession(a.id);
+      expect(aSession).toBeDefined();
+      await expect(call(engine, "agent.sessions.kill", { id: aSession!.id })).rejects.toThrow("INVALID_INPUT");
+      await expect(call(engine, "tasks.dispatch.cancel", key(aRun))).resolves.toMatchObject({ state: "cancelled" });
+      await call(engine, "agent.sessions.kill", { id: aSession!.id });
+      await expect.poll(() => originalSession(a.id), { timeout: 8_000 }).toMatchObject({ state: "exited" });
+      const aWriter = events().find(({ event, threadId }) => event === "thread/resume" && threadId === a.id)?.pid;
+      expect(aWriter).toEqual(expect.any(Number));
+      await expect.poll(() => fixtureProcessRunning(aWriter!), { timeout: 8_000 }).toBe(false);
+      await expect.poll(() => listing(), { timeout: 8_000 }).toContainEqual(expect.objectContaining({ mode: "resume", nativeSessionId: a.id, available: true }));
+      expect(events().filter(({ event, threadId }) => event === "turn" && threadId === a.id)).toHaveLength(0);
+
+      const dTask = await makeTask(d);
+      const submitGate = createFixtureGate();
+      const pauseResume = vi.spyOn(CodexDispatch.prototype, "connect").mockImplementationOnce(async function (this: CodexDispatch, ...args) {
+        const channel = await originalConnect.apply(this, args);
+        await submitGate.wait();
+        return channel;
+      });
+      const dRun = await begin(dTask, "resume-d-revoked");
+      try {
+        await submitGate.entered;
+        await setCodexEnabled(false);
+      } finally {
+        pauseResume.mockRestore();
+        submitGate.resume();
+      }
+      await poll(dRun, "blocked");
+      expect(await inspect(dRun)).toMatchObject({ ok: true, data: { nativeWrite: "not_sent", providerAcceptance: null } });
+      expect(events().filter(({ event, threadId }) => event === "turn" && threadId === d.id)).toHaveLength(0);
+      await expect.poll(() => originalSession(d.id), { timeout: 12_000 }).toMatchObject({ state: "exited" });
+      await setCodexEnabled(true);
+
+      const eTask = await makeTask(e);
+      const eRun = await begin(eTask, "resume-e-writer-busy");
+      await expect.poll(() => events().filter(({ event, threadId }) => event === "thread/resume" && threadId === e.id).length).toBeGreaterThan(0);
+      await expect.poll(() => call(engine!, "tasks.dispatch.read", key(eRun))).toMatchObject({ state: "claimed", reason: "waiting_resource" });
+      expect(events().filter(({ event, threadId }) => event === "turn" && threadId === e.id)).toHaveLength(0);
+      writeFileSync(path.join(sandbox, e.writerGate!), "");
+      await poll(eRun, "running");
+      expect(await inspect(eRun)).toMatchObject({ ok: true, data: { status: "accepted", execution: { sessionBinding: { nativeSessionId: e.id } } } });
+      expect(events().filter(({ event, threadId }) => event === "turn" && threadId === e.id)).toHaveLength(1);
+
+      const cTask = await makeTask(c);
+      writeFileSync(c.path, readFileSync(c.path, "utf8") + "\n");
+      const cRun = await begin(cTask, "resume-c-stale");
+      await poll(cRun, "blocked");
+      expect(events().filter(({ threadId }) => threadId === c.id)).toHaveLength(0);
+      expect(ptyInputs).toBe(0);
       const info = JSON.parse(cli("server", "status").stdout) as { version: string; core: { id: string } };
       expect(info.version).toBe("0.1.19");
       console.info(JSON.stringify({ probe: "missing-ack-and-revocation", core: info.core.id, version: info.version, noAckState: "unknown", disabledBeforeSubmission: 0, afterReenable: 1, ptyInputs }));

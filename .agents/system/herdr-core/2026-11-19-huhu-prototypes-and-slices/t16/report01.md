@@ -15,12 +15,12 @@
 
 | Change | 交付及覆盖关系 | 入口 |
 | --- | --- | --- |
-| #4 Agent CLI | W0–W8 共 26 个子项。覆盖目标冻结、三工作区切换、四向分栏、移动和缩放、真实启动/对账、断线或只读、历史查阅/定位/恢复、任务执行与回执、工作区工具、新格式恢复及整合。 | [计划](../../../../dev/changes/2026-11-19-issue-4-agent-cli/plan.md) · [任务目录](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/) · [规格](../../../../dev/changes/2026-11-19-issue-4-agent-cli/spec.md) · [设计](../../../../dev/changes/2026-11-19-issue-4-agent-cli/design.md) |
-| #5 任务与自动化 | T0–T7 共 25 个子项。覆盖创建、受理、取消、同快照重试、真实 CLI 与停止、问题/补充/结果、规则时区与窗口、模板、跟进、容量与恢复；提醒与终端规则各有验收。 | [计划](../../../../dev/changes/2026-11-19-issue-5-task-automation/plan.md) · [任务目录](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/) · [规格](../../../../dev/changes/2026-11-19-issue-5-task-automation/spec.md) · [设计](../../../../dev/changes/2026-11-19-issue-5-task-automation/design.md) |
+| #4 Agent CLI | W0–W8 共 26 个子项。覆盖目标冻结、三工作区切换、四向分栏、移动和缩放、真实启动/对账、断线或只读、历史查阅/定位/恢复、任务执行与回执、工作区工具、新格式恢复及整合。 | [计划](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/plan.md) · [任务目录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks) · [规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/spec.md) · [设计](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/design.md) |
+| #5 任务与自动化 | T0–T7 共 25 个子项。覆盖创建、受理、取消、同快照重试、真实 CLI 与停止、问题/补充/结果、规则时区与窗口、模板、跟进、容量与恢复；提醒与终端规则各有验收。 | [计划](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/plan.md) · [任务目录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks) · [规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/spec.md) · [设计](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/design.md) |
 
-#5 将停用/删除规则写成确定行为。只停止未来触发，已入队未发送的任务仍可领取，用户可在原任务单独取消。停用和删除分别验证，包含重启、竞争和取消其中一项后另一项仍可领取的用例。[规则操作](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T5.2-manage-rule.md) · [单项取消](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T1.3-cancel-pending.md)
+#5 将停用/删除规则写成确定行为。只停止未来触发，已入队未发送的任务仍可领取，用户可在原任务单独取消。停用和删除分别验证，包含重启、竞争和取消其中一项后另一项仍可领取的用例。[规则操作](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T5.2-manage-rule.md) · [单项取消](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.3-cancel-pending.md)
 
-联验采用 #6 的确定约定。干净安装 MCP/CLI 工具默认全关，逐项或明确批量开启。撤销 LAN 邀请时旧链接立即失效，经该邀请建立的浏览器会话断开，独立授权的会话和内部收取执行回执的能力按各自来源保留。#10 的布局与离场规则归该 change。新格式备份恢复在空白测试 Vault 取证。[共享终端观察](../../../../dev/changes/2026-11-19-issue-4-agent-cli/tasks/W4.3-viewer.md) · [工具与调用方切换](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md) · [派发后的用户决定](../topic.md)
+联验采用 #6 的确定约定。干净安装 MCP/CLI 工具默认全关，逐项或明确批量开启。撤销 LAN 邀请时旧链接立即失效，经该邀请建立的浏览器会话断开，独立授权的会话和内部收取执行回执的能力按各自来源保留。#10 的布局与离场规则归该 change。新格式备份恢复在空白测试 Vault 取证。[共享终端观察](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/tasks/W4.3-viewer.md) · [工具与调用方切换](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md) · [派发后的用户决定](../topic.md)
 
 ## 已执行验证
 

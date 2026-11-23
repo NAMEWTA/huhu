@@ -38,7 +38,7 @@
 ## 产物与改动
 
 - 工作目录 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-g6-tasks`，候选 `cd9016f517896ab1365c137153855287348bbaed`，父 `5307b88f56fc7919fdcfed8d07311764ec745cad`。候选由临时索引生成，真实索引与分支仍指向基线。
-- 证据 `.agents/dev/changes/2026-11-19-issue-6-unified-tools-web/evidence/G-tasks-automations-exposure-linux.md`。工作树的 `.agents` 为只读挂载，证据直接加入候选树，业务文件与候选相符。
+- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-tasks-automations-exposure-linux.md`。工作树的 `.agents` 为只读挂载，证据直接加入候选树，业务文件与候选相符。
 - Tasks 描述符从 `Object.values(tasks.taskToolDescriptors)` 声明并由 `tasks.apply` 绑定。内部 `tasks.receipts.consume` 由清单声明 owner、按原方式运行时注册，以兼容 live 故障夹具替换 handler。
 - Automations 描述符来自 `Object.values(automations.automationToolDescriptors)`、`Object.values(automations.terminalEnvironmentDescriptors)` 和 `Object.values(automations.taskScanToolDescriptors)`，由 `automations.apply` 及其中的同域注册函数绑定。清单补 `automations.followUps.{get,schedule,cancel}`。
 - 候选在 `apps/engine/src/boot.ts` 单加一条 `registry.declareDescriptors("automations", Object.values(automations.automationToolDescriptors))`，真实 Engine 测试依赖它。其它描述符使用现有声明位置和生命周期。无 Kernel、共享协议或 Agent 源码改动。

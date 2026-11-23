@@ -141,7 +141,7 @@ export class EngineSupervisor {
         ...inheritedEnv,
         ...(mailGoogleClientSecret && { HUHU_MAIL_GOOGLE_CLIENT_SECRET: mailGoogleClientSecret }),
         HUHU_EXAMPLES_DIR: examplesDir(),
-        HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../renderer"),
+        HUHU_WEB_ASSETS_DIR: path.join(import.meta.dirname, "../web"),
         HUHU_DESKTOP_USER_DATA: app.getPath("userData"),
         ...((process.platform === "win32" || process.platform === "linux") && process.arch === "x64" && existsSync(protectedPty) ? { HUHU_AGENT_PTY_HOST: protectedPty } : {}),
         HUHU_NODE_BIN: process.execPath /* 主程序可执行文件：Engine 里启动监督进程要用它（utilityProcess 的 execPath 在 macOS 可能是 Helper） */,

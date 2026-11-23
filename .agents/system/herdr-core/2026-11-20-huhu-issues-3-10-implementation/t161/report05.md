@@ -40,7 +40,7 @@
 2. **直接切换会固化旧目标预检。** Engine 在启动时异步填充无界面 CLI 的可用性缓存。旧 `service.ts:554` 等待 `refreshClis` 后扫描，新 `classifyTaskScan` 直接读缓存。缓存尚为空或过期时，`cli-missing` 可能被持久写成该次发生的跳过项，重交仍采用原名单。Tasks 的 `dispatchable` 可把 `existing`／`resume` 目标送到执行器判断，新发生仍继承 Tasks DTO 对这两类目标的旧 `dispatchBlockers`，`scan.ts:117` 因此在交给 Tasks 前将其跳过。目标可受理性与每次新扫描的可用性来源需对齐。
 3. **规则并发与预览语义缺接线。** 规则输入保留 `maxConcurrent`，旧 `service.ts:552` 用它限制 worker，新流程提交给 Tasks 的来源没有携带并发配额，Tasks 领取有任务和资源检查而缺规则槽判断。冻结版预览默认按旧 Space 忙／一次只选一个的筛选，新 `freeze` 允许同 Space 候选进入 Tasks 队列。切换时须统一预览与实际受理的语义，并在执行领取时兑现规则配额。
 
-以上生产边界由冻结源码确认。独立 Windows 复跑覆盖注册后的内部发生服务及现有授权回归。GUI、真实账号、生产 Cron 切换和备份恢复未在本轮运行。 [T5.3 规格](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T5.3-scan-occurrence.md) · [T7.1 切换](../../../../dev/changes/2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
+以上生产边界由冻结源码确认。独立 Windows 复跑覆盖注册后的内部发生服务及现有授权回归。GUI、真实账号、生产 Cron 切换和备份恢复未在本轮运行。 [T5.3 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T5.3-scan-occurrence.md) · [T7.1 切换](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md)
 
 ## 清理
 

@@ -10,8 +10,8 @@
 
 逐个对照切片文件与当前代码分类（已完成 / 部分 / 缺失），只补缺口，按顺序：
 
-1. `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S2.3-read-message.md`
-2. `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S8.2-remote-files-oauth.md`（含 Web 草稿附件；OAuth 只用回环夹具或测试服务，不连真实邮箱、不用真实凭据）
+1. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S2.3-read-message.md`
+2. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/tasks/S8.2-remote-files-oauth.md`（含 Web 草稿附件；OAuth 只用回环夹具或测试服务，不连真实邮箱、不用真实凭据）
 3. `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P3.4-copy-password.md`
 4. `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P10.1-external-safe.md` 核对，`/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P10.2-cutover-evidence.md`：逐个现行消费者（Git/Versioning、SSH、Agent 启动环境、Automations 运行环境、Mail）核对已切到所属模块凭据，Safe 锁定后各模块自有认证仍可用。SSH 插件由另一实施者在写，只读核对；发现 SSH 缺口写入报告交 Lead，不改 `plugins/ssh/**`。
 
@@ -27,5 +27,5 @@
 ## 产物
 
 - 候选提交（临时索引，父 `1c2f8089`，见 topic「决定与交接」第 2 条），工作树与候选一致。测试前设 `XDG_RUNTIME_DIR="$(mktemp -d /tmp/hc-xdg.XXXXXX)"`。可按切片链式提交多批，在报告中逐批记录，不必每批停下。
-- 证据：`/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.3-S8.2-linux.md`、`/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md`。
+- 证据：`/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.3-S8.2-linux.md`、`/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md`。
 - 报告按 `/home/wta/projects/huhu/.agents/skills/system-herdr-core/assets/report.md`：逐切片分类表、改动、已跑 vitest、单列「未运行的验证」（E2E 文件+用例名）。先写 `.tmp` 再 `ln` 发布，全部完成或上下文超过 80% 时发布并打印报告绝对路径后停下。

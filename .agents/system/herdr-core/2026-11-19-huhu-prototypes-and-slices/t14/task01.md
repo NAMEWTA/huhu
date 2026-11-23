@@ -21,7 +21,7 @@
 
 ## 唯一写入范围
 
-- #8 · `.agents/dev/changes/2026-11-19-issue-8-mail-module/`。多邮箱、联系人对话、搜索、阅读、写信/附件、草稿/发件箱、发送结果与备份/设置；只用模拟数据。
+- #8 · `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/`。多邮箱、联系人对话、搜索、阅读、写信/附件、草稿/发件箱、发送结果与备份/设置；只用模拟数据。
 - #9 · `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/`。个人条目、多账号、标签、锁定、保存、显式显示及复制；模块凭据独立设置，清洁安装，无旧库工作流。
 
 先读 AGENTS.md、dev-prototype SKILL、change-prototype 与确认模板，当前 Huhu UI、设计 tokens 和完整来源/规格/设计。先执行 zh-modern-web-guidance 的 search 与 retrieve，再确定实现。交付本组每个 change 的 prototype/index.html（可附同目录必要资源）及 prototype-review.md。用 Huhu 当前主题、真实工作台布局、语义 HTML，中文真实长度样例，桌面和窄屏可操作。关键路径包括成功、取消、失败、恢复和复位，按钮必须改变一致的模拟业务状态。可使用明确隔离的场景选择/故障按钮，不能访问外部系统、SSH/SMTP 或本机秘密，不能发送真实命令。把仍未知的产品造型标注为演示约定，不替用户确认；只用合理可逆的默认值，必要时呈现两种可演练结果。原型本身另开 HTML 即可使用，默认不用 CDN、网络或真实凭据。使用当前机器实在可用的浏览器，优先 Playwright/Chromium/Edge 本机自动化，至少分别走通各自核心成功与异常一条、窄窗一条，验证实际资源和状态，记录浏览器、具体动作、结果和没跑到的范围。用技能 fingerprint 脚本生成并记录版本，用户确认状态写待确认。如果浏览器缺依赖可用已安装 Edge 和可用 Playwright runner、只在系统 temp 安装工具或交给 Lead，不能把静态检查当运行。不得修改 spec/design/plan/tasks/source.md。

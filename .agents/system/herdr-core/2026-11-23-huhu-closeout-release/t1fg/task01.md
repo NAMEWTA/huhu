@@ -1,0 +1,5 @@
+# 原生历史派遣独立收尾审查
+身份 t1fg/task01.md；Lead t3p；共享根 /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-23-huhu-closeout-release；工作目录 /home/wta/projects/huhu；sol/xhigh。只读业务，不启动agent，不跑build/E2E/全量重型检查。可做必要低成本静态/Node探针。
+审查 #4W6.1/#5C01 新增原生持久历史直接Task派遣实现，读t1d7/report01分析、t1dd/report01-03交付、实际未提交diff（包括未跟踪helper）。范围 agent-cli engine history/dispatch/helper/sessions/index、Tasks协议/编辑器/executor/service/dispatch、automations、对应contracts/test。其他Mail/Grid/Web变化别改。
+Lead证据：真实固定Codex协议t1f1已过（same rollout/thread/cwd与activewriter拒绝）；Engine live t1f5 1/1；desktop types/build t1f6过；真实provider生成A/B source +桌面选B/派遣/原生问答/result E2E t1fd 1/1零跳过，日志native-history-ui.log/result.json。以准确证据范围审查，不声称TUI来源或跨平台实测。当前生产只支持固定Linux x64Codex0.170受控private home；普通profile/Claude/Pi仍不开放直接任务恢复。
+重点同意图身份/来源revision/写入占用、恢复自改revision区别、跨任务抢首轮、取消与迟到ack、livewriter和配置变更、目录可达/权限、UI旧目标/Space切换；核对实际用户可用范围是否符合已确认规格与需明确限制。报告只列真实问题及证据，区分实现缺陷与未验证，不泛化成补更多测试清单。写同目录report01.md，目录只读写temp/closeout-release/t1fg-report01.md；发送hc若锁只读不升级，Lead主动收取。

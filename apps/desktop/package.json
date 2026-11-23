@@ -1,6 +1,6 @@
 {
   "name": "@huhu/desktop",
-  "version": "0.0.1-rc.4",
+  "version": "0.0.2-rc.1",
   "private": true,
   "description": "HUHU Workbench",
   "homepage": "https://huhu.local",
@@ -9,8 +9,9 @@
   "main": "out/main/index.js",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dev": "electron-vite dev",
-    "build": "pnpm --filter @huhu/cli run build && electron-vite build && node ../../scripts/write-build-info.mjs",
+    "dev": "pnpm run build:web && electron-vite dev",
+    "build": "pnpm --filter @huhu/cli run build && electron-vite build && pnpm run build:web && node ../../scripts/write-build-info.mjs",
+    "build:web": "vite build",
     "dist": "electron-builder"
   },
   "dependencies": {
@@ -47,6 +48,7 @@
     "electron": "44.9.1",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "jsdom": "^31.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "vite": "^8.3.7"

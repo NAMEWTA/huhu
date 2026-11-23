@@ -68,8 +68,18 @@ export function agentDispatchBlocker(task: TaskDto): string | undefined {
   if (!task.body.trim()) return "任务内容为空";
   if (!task.execution?.spaceId) return "没有选择工作目录（Space）";
   if (task.execution.target?.mode !== "existing" && !task.execution.provider) return "没有选择 CLI";
+  const historyIssue = historyDispatchBlocker(task.execution);
+  if (historyIssue) return historyIssue;
   const invalid = task.references.find((ref) => ref.from === "task" && (ref.path.startsWith("/") || ref.path.split("/").includes("..") || /^[a-z]:/i.test(ref.path) || ref.path.includes("\\")));
   return invalid ? `引用越界：${invalid.path}` : undefined;
+}
+
+function historyDispatchBlocker(execution: NonNullable<TaskDto["execution"]>): string | undefined {
+  const target = execution.target;
+  if (target?.mode !== "resume") return;
+  if (execution.provider !== "codex") return "当前 CLI 不支持受控历史派遣";
+  if (!target.history || target.history.spaceId !== execution.spaceId) return "请重新选择原生历史会话";
+  if (execution.model || execution.effort || execution.fast) return "原生历史使用受控 Codex 配置，请重新选择原生历史会话";
 }
 
 function taskInputHash(body: string, execution: TaskDto["execution"]): string {
@@ -109,7 +119,8 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
     else {
       if (!d.execution.spaceId) dispatchBlockers.push("没有选择工作目录（Space）");
       if (d.execution.target?.mode !== "existing" && !d.execution.provider) dispatchBlockers.push("没有选择 CLI");
-      if (d.execution.target?.mode === "resume") dispatchBlockers.push("原生恢复需要 Agent CLI 支持绑定派遣");
+      const historyIssue = historyDispatchBlocker(d.execution);
+      if (historyIssue) dispatchBlockers.push(historyIssue);
     }
     if (!body.trim()) dispatchBlockers.push("任务内容为空");
     for (const ref of references.filter((x) => /(^|\/)\.\.(\/|$)/.test(x.path) || x.path.startsWith("/"))) dispatchBlockers.push(`引用越界：${ref.path}`);
@@ -268,7 +279,14 @@ export class TasksService {
    * 更新可写字段。`<task>` 内容只替换 `<task>` 区段，评论与区段外的字节保持不变。
    * 版本变化后，在编辑快照仍匹配时重新应用补丁（B09）。旧输入哈希仅覆盖正文与执行配置。
    */
-  async update(id: string, expectedVersion: string, patch: TaskPatch, baseInputHash?: string, baseEditHash?: string, authorize?: (current: TaskDto, type: TaskDto["type"], execution: TaskDto["execution"]) => void): Promise<TaskDto> {
+  async update(
+    id: string,
+    expectedVersion: string,
+    patch: TaskPatch,
+    baseInputHash?: string,
+    baseEditHash?: string,
+    authorize?: (current: TaskDto, type: TaskDto["type"], execution: TaskDto["execution"]) => void | Promise<void>,
+  ): Promise<TaskDto> {
     return this.withRetriedTaskWrite(id, async () => {
       const entity = this.d.repo.read("task", id);
       const cur = this.dto(entity);
@@ -291,7 +309,7 @@ export class TasksService {
         nextExec = executionWithDefault(patch.type ?? cur.type, requested && target ? { ...requested, target } : requested);
         changes["execution"] = nextExec;
       }
-      authorize?.(cur, patch.type ?? cur.type, nextExec);
+      await authorize?.(cur, patch.type ?? cur.type, nextExec);
       const body = patch.body !== undefined ? replaceTaskSection(entity.body, patch.body) : undefined;
       const nextBody = body === undefined ? cur.body : (parseTaskBody(body).task ?? "");
       const inputDidChange = taskInputHash(nextBody, nextExec) !== cur.inputHash;
@@ -386,9 +404,9 @@ export class TasksService {
     });
   }
 
-  async duplicate(id: string, origin: TaskOrigin, authorize?: (current: TaskDto) => void): Promise<TaskDto> {
+  async duplicate(id: string, origin: TaskOrigin, authorize?: (current: TaskDto) => void | Promise<void>): Promise<TaskDto> {
     const cur = this.read(id);
-    authorize?.(cur);
+    await authorize?.(cur);
     return this.create(
       {
         title: `${cur.title} 副本`.slice(0, 200),

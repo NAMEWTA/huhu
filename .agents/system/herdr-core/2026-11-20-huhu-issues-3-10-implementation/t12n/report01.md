@@ -20,4 +20,4 @@ Engine 首页布局读取定向组 **3 项通过**，另有 45 项经名称筛�
 ## 待验范围
 
 - 独立 Engine 复跑和独立边界样本未完成。仍待验证只有当前版本标记但来源不明的目标、备份源坏编码的一致性、复制包往返与同 ID 副本隔离、极限坐标和规模下的修复上界、恢复与普通保存交错，以及 Engine 重启后的同键回执与回执丢失路径。原有用例已覆盖成功重开回读和同一运行期间的同键重放。
-- W06 仍需登记生产恢复能力，并在 Windows 安装版通过真实入口核对 ACC-DASH-11/12、复制包和用户确认的恢复体验。原型确认范围以评审记录为准。[W06-01](../../../../dev/changes/2026-11-19-issue-10-widget-dashboard/tasks/W06-01-home-cutover.md) · [原型评审](../../../../dev/changes/2026-11-19-issue-10-widget-dashboard/prototype-review.md)
+- W06 仍需登记生产恢复能力，并在 Windows 安装版通过真实入口核对 ACC-DASH-11/12、复制包和用户确认的恢复体验。原型确认范围以评审记录为准。[W06-01](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/tasks/W06-01-home-cutover.md) · [原型评审](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/prototype-review.md)
