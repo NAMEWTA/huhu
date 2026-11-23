@@ -1,3 +1,5 @@
+> 2026-11-23 归档：本 change 已按当前实现及用户确认范围完成；独立复核见仓库 `.agents/system/herdr-core/2026-11-23-huhu-closeout-release/`。线上账号、跨设备及其他平台实机未验证，不记为通过。原路径 `.agents/dev/changes/2026-11-23-closeout-preview-release`；归档路径 `.agents/dev/archive/changes/implemented/feature_2026-11-23-closeout-preview-release`。Issue 关闭及预览发布结果见本记录和发布回执。
+
 # Issue 收尾与 0.0.2-rc.1 预览发布
 
 2026-11-23 用户要求按最新代码归档完成 change、更新必要的永久知识、关闭完成 Issue，并补齐真实缺口，最后发布预览版本 +0.0.1。#7、#11、#12 明确排除；SSH 现有代码与 change 保留。版本从 0.0.1-rc.4 增加 patch 为 0.0.2-rc.1。此次授权取代此前“只交付代码、不关闭 Issue、不发布”的阶段限制。
@@ -6,7 +8,7 @@
 
 待完成：独立 Issue 审查；归档及修链；永久知识核验；版本同步与发布验证；实际关闭 Issue；创建并核对 GitHub 预览 Release。
 
-本次只使用主工作树；其他历史 detached worktree 不参与执行，不新增 worktree。共享编排记录：[topic](../../../system/herdr-core/2026-11-23-huhu-closeout-release/topic.md)。
+本次只使用主工作树；其他历史 detached worktree 不参与执行，不新增 worktree。共享编排记录：[topic](../../../../../system/herdr-core/2026-11-23-huhu-closeout-release/topic.md)。
 
 ## 独立审查与分流
 
@@ -68,3 +70,5 @@ t1gb：Tasks 持久派遣完整单文件40/40通过，CLI/Agent/Tasks 定向类�
 实现已推送 main `e14bc4c790c0afb6f5e75a25bbbb740a2202be25`；#4/#5/#6/#8/#10 已附归档链接并按 completed 关闭，原 #1/#3/#9 已关闭，#7/#11/#12 未操作。Linux 0.0.2-rc.1 从该固定提交构建；同一 AppImage 的八组验收最终15项通过、零跳过，见 evidence/final-package-acceptance.json。外部 Agent 初轮2项失败是 E2E 错误向 comments.add 传通用意图键；仅删除测试调用的该参数，保留行为断言，在相同制品上2/2通过。原失败记录与一行补丁均保留，未改生产代码或伪称初轮全绿。
 
 GitHub CI 排队未完成；全量测试保留暂停范围内1项 SSH 已知失败，不宣称全仓全绿。线上账号、第二设备、Windows/macOS 实机等依用户决定留待后续自测。
+
+预览版已正式发布：[v0.0.2-rc.1](https://github.com/NAMEWTA/huhu/releases/tag/v0.0.2-rc.1)。GitHub 三个附件状态均 uploaded，大小和远端 SHA-256 与本地逐项一致；发布为 prerelease、非 draft。最终测试夹具及证据提交 `51b43a7a`，制品仍严格对应标签提交 `e14bc4c7`。

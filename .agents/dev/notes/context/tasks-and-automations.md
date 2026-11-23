@@ -14,7 +14,7 @@
 
 取消前须区分确知未发送与已经发送／结果未知。只有原 Tasks 终态与 Agent 未写入凭据一致时才释放准备好的 helper；首轮输入前同步复核配置、Space 与输入所有权。自动化预览和发生冻结共用 Tasks 的目标资格检查，保留失效或忙的原因。真实 writer 拒绝由原恢复进程返回并绑定签名，不以相同目录代替相同线程来源。[首轮输入](../../../../plugins/agent-cli/src/engine/dispatch.ts) · [扫描资格](../../../../plugins/automations/src/engine/service.ts)
 
-源码桌面 C01 已用真实 Codex App Server 生成的 A/B 持久历史验证选择 B、原生问答和一次结果，A 不改、B 保持原 thread、rollout 和 cwd。模型响应为本地夹具，未验证线上模型或交互 TUI 创建来源的步骤。[本轮原始证据](../../changes/2026-11-23-closeout-preview-release/evidence/history-rgl-reviewed.json)
+源码桌面 C01 已用真实 Codex App Server 生成的 A/B 持久历史验证选择 B、原生问答和一次结果，A 不改、B 保持原 thread、rollout 和 cwd。模型响应为本地夹具，未验证线上模型或交互 TUI 创建来源的步骤。[本轮原始证据](../../archive/changes/implemented/feature_2026-11-23-closeout-preview-release/evidence/history-rgl-reviewed.json)
 
 ## 自动化与等待人工
 
