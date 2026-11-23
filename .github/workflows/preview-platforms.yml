@@ -1,0 +1,276 @@
+name: Preview platform packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published preview tag to supplement
+        type: string
+        required: true
+        default: v0.0.2-rc.1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-platforms-v0.0.2-rc.1
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag }}
+  PREVIEW_TAG: v0.0.2-rc.1
+  SOURCE_COMMIT: e14bc4c790c0afb6f5e75a25bbbb740a2202be25
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            target: win32-x64
+            extension: exe
+            executable: apps/desktop/release/win-unpacked/HUHU.exe
+          - os: macos-15
+            target: darwin-arm64
+            extension: dmg
+            executable: apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      EXTENSION: ${{ matrix.extension }}
+      PACKAGED_EXE: ${{ matrix.executable }}
+    steps:
+      - name: Validate release tag input
+        run: |
+          if [[ "$RELEASE_TAG" != "$PREVIEW_TAG" ]]; then
+            echo "::error::This workflow only accepts $PREVIEW_TAG"
+            exit 1
+          fi
+          git check-ref-format "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - name: Verify tag and checkout resolve to the pinned commit
+        run: |
+          test "$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")" = "$SOURCE_COMMIT"
+          test "$(git rev-parse --verify HEAD)" = "$SOURCE_COMMIT"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Verify package version and runner architecture
+        run: |
+          test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
+          test "$(node -p '`${process.platform}-${process.arch}`')" = "$TARGET"
+          node scripts/sync-version.mjs --check
+      - uses: actions/setup-go@v5
+        if: runner.os == 'Windows'
+        with:
+          go-version: "1.26.7"
+          cache-dependency-path: native/agent-pty/go.sum
+      - run: go mod download
+        if: runner.os == 'Windows'
+        working-directory: native/agent-pty
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/fetch-herdr.mjs --target "$TARGET"
+      # The original CI workflow owns the full lint, typecheck and test checks.
+      - run: pnpm notices
+      - name: Build from the preview tag
+        # The workflow dispatch SHA describes the workflow revision. The app embeds the source SHA.
+        run: GITHUB_SHA="$SOURCE_COMMIT" pnpm build
+      - run: pnpm --filter @huhu/desktop exec electron-builder --publish never
+      - run: node scripts/checksums.mjs apps/desktop/release "$TARGET"
+      - name: Verify and record build metadata
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { copyFileSync, readFileSync } from 'node:fs';
+          const file = 'apps/desktop/out/build-info.json';
+          const info = JSON.parse(readFileSync(file, 'utf8'));
+          assert.equal(info.commit, process.env.SOURCE_COMMIT);
+          assert.equal(`v${info.version}`, process.env.RELEASE_TAG);
+          assert.ok(Number.isFinite(Date.parse(info.builtAt)));
+          console.log(info);
+          copyFileSync(file, 'apps/desktop/release/build-info.json');
+          NODE
+      - name: Test the packaged executable
+        run: |
+          test -f "$PACKAGED_EXE"
+          HUHU_PACKAGED_EXE="$GITHUB_WORKSPACE/$PACKAGED_EXE" PLAYWRIGHT_JSON_OUTPUT_FILE=packaged-results.json \
+            pnpm e2e:packaged --reporter=list,json
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const { stats } = JSON.parse(readFileSync('packaged-results.json', 'utf8'));
+          console.log(`Packaged E2E: ${stats.expected} passed, ${stats.skipped} skipped, ${stats.unexpected} failed, ${stats.flaky} flaky`);
+          assert.deepEqual([stats.expected, stats.skipped, stats.unexpected, stats.flaky], [4, 1, 0, 0]);
+          NODE
+      - name: Select the installer
+        id: installer
+        run: |
+          installer="HUHU-${RELEASE_TAG#v}-$TARGET.$EXTENSION"
+          test -s "apps/desktop/release/$installer"
+          printf 'filename=%s\n' "$installer" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HUHU-${{ matrix.target }}
+          overwrite: true
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/${{ steps.installer.outputs.filename }}
+            apps/desktop/release/SHA256SUMS-${{ matrix.target }}.txt
+            apps/desktop/release/build-info.json
+
+  publish:
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: HUHU-*
+          path: dist
+      - name: Verify artifacts and supplement the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          commit = os.environ['SOURCE_COMMIT']
+          repo = os.environ['GITHUB_REPOSITORY']
+          canonical = 'SHA256SUMS.txt'
+          pending = 'SHA256SUMS.pending.txt'
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          def gh(*args):
+              return subprocess.check_output(['gh', *args])
+
+          def api(path, *args):
+              return json.loads(gh('api', f'repos/{repo}/{path}', *args))
+
+          def verify_tag():
+              ref = f'refs/tags/{tag}'
+              response = api(f'git/ref/tags/{tag}')
+              require(response['ref'] == ref, f'Unexpected remote ref for {tag}')
+              obj = response['object']
+              while obj['type'] == 'tag':
+                  obj = api(f"git/tags/{obj['sha']}")['object']
+              require(obj['type'] == 'commit' and obj['sha'] == commit, f'{ref} no longer points to {commit}')
+
+          def read_sums(content):
+              sums = {}
+              for line in content.decode('ascii').splitlines():
+                  match = re.fullmatch(r'([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)', line)
+                  require(match, f'Invalid checksum entry {line!r}')
+                  digest, name = match.groups()
+                  require(name not in sums, f'Duplicate checksum entry for {name}')
+                  sums[name] = digest
+              return sums
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              with path.open('rb') as source:
+                  for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def verify_asset(assets, name, sha):
+              asset = assets.get(name, {})
+              require(asset.get('state') == 'uploaded' and asset.get('digest') == f'sha256:{sha}',
+                      f'Missing, incomplete or different release asset {name}')
+
+          require(tag == os.environ['PREVIEW_TAG'], 'Unsupported preview tag')
+          version = tag[1:]
+          installers = {}
+          for target, extension in [('win32-x64', 'exe'), ('darwin-arm64', 'dmg')]:
+              directory = Path('dist') / f'HUHU-{target}'
+              name = f'HUHU-{version}-{target}.{extension}'
+              path = directory / name
+              digest = file_sha256(path)
+              require(read_sums((directory / f'SHA256SUMS-{target}.txt').read_bytes()) == {name: digest},
+                      f'Artifact checksum mismatch for {name}')
+              info = json.loads((directory / 'build-info.json').read_bytes())
+              require(info['commit'] == commit and info['version'] == version, f'Build identity mismatch for {name}')
+              installers[name] = (path, digest)
+              print(f'Verified {name} {digest} from {commit}', flush=True)
+
+          verify_tag()
+          release_id = api(f'releases/tags/{tag}')['id']
+
+          def release_assets():
+              release = api(f'releases/{release_id}')
+              require(release['tag_name'] == tag and not release['draft'] and release['published_at'] and not release.get('immutable'),
+                      f'Expected a published, editable release for {tag}')
+              assets = {asset['name']: asset for asset in release['assets']}
+              require(len(assets) == len(release['assets']), 'Duplicate release asset names')
+              return assets
+
+          assets = release_assets()
+          base_name = canonical if canonical in assets else pending
+          require(base_name in assets, 'Missing the existing release checksum asset')
+          base = gh('release', 'download', tag, '--repo', repo, '--pattern', base_name, '--output', '-')
+          base_sha = hashlib.sha256(base).hexdigest()
+          verify_asset(assets, base_name, base_sha)
+          sums = read_sums(base)
+          for extension in ('AppImage', 'deb'):
+              name = f'HUHU-{version}-linux-x64.{extension}'
+              require(name in sums, f'Missing existing Linux checksum for {name}')
+          for name, digest in sums.items():
+              verify_asset(assets, name, digest)
+
+          # Check both names before uploading either installer. Equal assets are reused on retry.
+          for name, (path, digest) in installers.items():
+              if name in assets:
+                  verify_asset(assets, name, digest)
+              sums[name] = digest
+          merged = ''.join(f'{digest}  {name}\n' for name, digest in sums.items()).encode('ascii')
+          merged_sha = hashlib.sha256(merged).hexdigest()
+          if pending in assets:
+              verify_asset(assets, pending, merged_sha)
+
+          for name, (path, digest) in installers.items():
+              if name not in assets:
+                  gh('release', 'upload', tag, str(path), '--repo', repo)
+          assets = release_assets()
+          for name, digest in sums.items():
+              verify_asset(assets, name, digest)
+
+          if canonical not in assets or merged != base:
+              # Stage and verify the merged manifest before removing the old one. If promotion
+              # is interrupted, the verified pending manifest can seed a retry of this job.
+              if pending not in assets:
+                  staged = Path('dist') / pending
+                  staged.write_bytes(merged)
+                  gh('release', 'upload', tag, str(staged), '--repo', repo)
+              verify_tag()
+              assets = release_assets()
+              verify_asset(assets, pending, merged_sha)
+              if canonical in assets:
+                  require(base_name == canonical, 'The release checksum asset changed during publication')
+                  verify_asset(assets, canonical, base_sha)
+                  gh('api', '--method', 'DELETE', f"repos/{repo}/releases/assets/{assets[canonical]['id']}")
+              api(f"releases/assets/{assets[pending]['id']}", '--method', 'PATCH', '-f', f'name={canonical}')
+
+          assets = release_assets()
+          verify_asset(assets, canonical, merged_sha)
+          for name, digest in sums.items():
+              verify_asset(assets, name, digest)
+          print(f'Verified {canonical} and {len(sums)} installer checksums on the published release {tag}')
+          PY

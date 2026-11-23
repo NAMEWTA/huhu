@@ -1,0 +1,2 @@
+# 独立审查 task01
+Worker t1gp，Lead t3p，本地根 /home/wta/projects/huhu。只读审查新增 .github/workflows/preview-platforms.yml 和 t1gn/report01.md，目标同tag e14bc4c7在GitHub原生Windows/macOS构建+4过1skip包内E2E，然后补已有v0.0.2-rc.1 Release附件与合并Linux校验清单。不改原CI不宣称完整CI通过。检查GitHub workflow语义、构建身份、平台入口、依赖、权限、发布幂等/失败、真实运行阻断。无需全仓审查，不跑构建测试不发网络写。report写 temp/cross-platform-release/t1gp-report01.md；不调用hc send（worker socket权限不通），Lead主动收取。结论优先可阻断问题，没问题明示。

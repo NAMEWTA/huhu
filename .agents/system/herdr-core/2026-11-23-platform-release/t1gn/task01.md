@@ -1,0 +1,4 @@
+# task01
+身份 t1gn，Lead t3p，工作区 /home/wta/projects/huhu；报告同目录 report01.md。只允许写 .github/workflows/preview-platforms.yml，如必要的专用 scripts 脚本先报告。不得改业务代码/现有 release 或 CI 全量检查，不提交、不安装、不构建、不跑 E2E。
+实现手动 workflow_dispatch 补 Windows x64 + macOS arm64 附件到已发布 v0.0.2-rc.1（标签 commit e14bc4c790c0afb6f5e75a25bbbb740a2202be25）。复用 release.yml、before-pack、fetch-herdr 与 packaged E2E 配置。输入 release_tag（默认此tag），matrix Windows2022/macOS15，原macOS15job排队但旧rc4同label成功。检出标签而非workflow HEAD；严格验证合法tag、版本、实际commit；CI记录build-info。保留冻结依赖安装、Go Windows、Core锁定下载、完整构建、electron-builder、checksum、原平台 packaged E2E 可用部分（原3基础用例，两个Linux专用按原spec自然skip但不可把skip算pass）。全量 lint/typecheck/test 已有独立 CI；补包明确不把它替换为绿色，不改原测试门禁。
+artifact上传即使后续发布失败保全。最后独立发布job需先下载全部成功平台的工件、校验sha、确认现有release确实存在且tag对应构建源码，上传exe/dmg，合并现有SHA256SUMS.txt包含Linux记录，拒绝覆盖同名不同内容附件。使用gh，无token落文件。尽量单YAML且安全处理workflow输入到env，避免shell注入。不要修改Release正文（Lead会记录检查边界）。提供静态核对及未运行验证报告。收到后工作；任务完成hc send t3p报告路径。
