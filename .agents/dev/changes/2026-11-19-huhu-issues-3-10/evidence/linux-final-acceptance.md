@@ -446,3 +446,6 @@ HC Codex CLI 的账号用量上限中断了后续工作。两份测试独审报�
 所有组使用同一个 f91 AppImage（SHA-256 4152f8ea2b48bb1e7f60192b2aa4f9f77b4622a7b8245e5c53f54926b997a0cc）。应用构建后仅测试驱动和本文档变更：d9dcf3d1 修正外部来源/PID取值，40a47ad3 修正已退出桌面的清理；`git diff --name-only f91a5515 40a47ad3` 仅包含三个测试文件和本证据。未重新打包，未把驱动提交冒充应用版本。完整原始报告路径、报告 SHA-256 和统计见 [同包证据索引](linux-package-f91a5515.json)。
 
 [逐 Issue 交付范围](linux-delivery-scope-f91a5515.md) 列明本地已验证路径、平台/设备/账号缺证与 Graph 通知待决；七项非 SSH Issue 尚不能宣称完整关闭。部署和发布未执行。Notes 返工未完成的独立复审仍按账号额度限制披露，Lead 的相关检查、101项回归、组合输入和同包 Web 结果不冒充独审。#7 SSH 保持暂停，现有代码和 change 保留。
+
+
+`t19v` 实际快进 `origin/main` 和 `origin/feature/issue-fix` 至 `7c3a494b117b6996aae17bbd695e8d0e516e5cf8`，均已用 ls-remote 回读。落地包含七项非 SSH 有效改动与逐 Issue 缺证说明，SSH 状态保持暂停。此后仅追加落地文档，不改变同包应用或测试实现。

@@ -158,3 +158,7 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 - [同包证据索引](evidence/linux-package-f91a5515.json)
 - [逐 Issue 已验证及缺证范围](evidence/linux-delivery-scope-f91a5515.md)
 - [完整历史与失败/修复记录](evidence/linux-final-acceptance.md)
+
+## origin/main 实际落地
+
+2026-11-23，HC `t19v` 先 fetch 并核对 origin/main、origin/feature/issue-fix 均为候选祖先，再依次快进两分支。远端实际回读均为 `7c3a494b117b6996aae17bbd695e8d0e516e5cf8`，原 main `4ae7e7e4`。这证明有效改动已落地，不代表上表外部环境缺证已完成；未关闭 Issue、未部署或发布。随后只追加本落地回执，应用仍为已验收的 f91 字节。
