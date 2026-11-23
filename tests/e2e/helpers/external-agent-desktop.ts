@@ -47,6 +47,7 @@ export async function openExternalAgentDesktop(config: string) {
   const coreExecutable = path.join(candidate.resources, "herdr/linux-x64/herdr-core");
   const corePids = new Set<number>();
   let app: ElectronApplication | undefined;
+  let desktopPid: number | undefined;
   let core: { id: string; pid: number } | undefined;
   let coreSocket: string | undefined;
   let enginePid: number | undefined;
@@ -99,7 +100,7 @@ export async function openExternalAgentDesktop(config: string) {
       [
         "核对桌面、Engine、Core 与 holder 退出",
         async () => {
-          const pids = [app?.process().pid, enginePid, ...corePids].filter((pid): pid is number => pid !== undefined);
+          const pids = [desktopPid, enginePid, ...corePids].filter((pid): pid is number => pid !== undefined);
           const residue = async () => ({
             pids: pids.filter(fixtureProcessRunning),
             sockets: (
@@ -109,8 +110,12 @@ export async function openExternalAgentDesktop(config: string) {
               })
             ).filter((name) => /^huhu-.*\.sock$/u.test(name)),
           });
-          await expect.poll(residue, { timeout: 10_000 }).toEqual({ pids: [], sockets: [] });
-          await rm(directory, { recursive: true, force: true });
+          try {
+            await expect.poll(residue, { timeout: 10_000 }).toEqual({ pids: [], sockets: [] });
+          } finally {
+            await test.info().attach("external-agent-cleanup-residue", { contentType: "application/json", body: JSON.stringify(await residue()) });
+          }
+          await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
         },
       ],
     ]);
@@ -125,6 +130,7 @@ export async function openExternalAgentDesktop(config: string) {
     const settings = { ...emptyAgentSettings(), agents: { codex: { command: provider }, pi: { enabled: false }, claude: { enabled: false } } };
     await writeFile(path.join(agentsDir, "agents.json"), JSON.stringify(settings), { mode: 0o600, flag: "wx" });
     app = await electron.launch({ executablePath: candidate.executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env, timeout: 25_000 });
+    desktopPid = app.process().pid;
     const page = await app.firstWindow({ timeout: 25_000 });
     await engineReady(page);
     const { vaultId, baseUrl } = await page.evaluate(async () => {

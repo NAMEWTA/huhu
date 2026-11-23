@@ -423,3 +423,12 @@ Web失败后的隔离目录 `/tmp/hc-a.0Zsknp` 经Lead核对所属HOME/runtime�
 独审 `t194-report02.md` 指出 ASAR 重命名不能可靠制造资源缺失，测试已改为加载同一候选包内 Engine 的独立 utilityProcess，并将从该包提取的入口放在私有物理目录，验证同一 listener 的 200→503→200。此项是包内生产 Engine 的故障注入，不冒充未修改的桌面资源路径。关窗异常清理改用独立清理步骤。`t194-report03.md` 未发现阻止外部 Agent 用例实跑的静态缺陷；已补二进制回放字节断言，避免仅以 WebSocket 握手声称 Core 附着。
 
 HC Codex CLI 的账号用量上限中断了后续工作。两份测试独审报告已保存；Notes 返工后的独立复审尚未完成。Lead 继续核对和验证，不能将未完成复审记为通过。#7 SSH 仍暂停，change 与代码保留。
+
+
+### f91a5515 候选包与外部任务驱动修正
+
+`t19g` Linux 构建退出 0。固定应用提交 `f91a55158f5b4e56100685a306cc954db592841b`，AppImage SHA-256 `4152f8ea2b48bb1e7f60192b2aa4f9f77b4622a7b8245e5c53f54926b997a0cc`，deb `9ed1b0adbbfcbc5ec281f30e9daaa8d311bdfebf39ed48b0b65a962f5f49d4b8`。`t19f` 同提交源码构建的组合输入 E2E 1 项通过（`park-composition-f91a5515.log`），不代替实际 OS 输入法验收。
+
+`t19h` 同包 gateway 1 项、close 2 项通过；external-agent 2 项失败后停止，其后各组未运行。失败属于新驱动：HTTP MCP 的生产来源是 `http`，断言误写为 `mcp`；应用关闭后 Playwright 已移除 dispatcher，此时调用 `app.process()` 取 PID 会在其 `toImpl` 中解引用缺失对象。修正为启动后保存 PID，并附上退出残留检查。未改变业务代码或安装包。
+
+`t19k` 使用同一 f91 安装包及修正的两个测试文件，CLI-only 与 HTTP MCP-only 2/2 通过，包含实际原生问答、唯一结果、桌面原会话二进制回放及退出清理。两个 `external-agent-cleanup-residue` 附件均为 `{pids:[],sockets:[]}`；无跳过、flaky 或测试外错误。原始报告 `temp/candidate-acceptance/external-agent.bjEbVb/result.json`，日志 `temp/final-audit/external-agent-cleanup-recheck-f91.log`，驱动文件 SHA 单列 `external-agent-driver-f91.json`。此轮是已锁定包的驱动修正验证，不能将驱动变更说成包内代码；原失败证据保留。`t19m` 两文件定向类型检查通过，格式及 lint 检查通过。

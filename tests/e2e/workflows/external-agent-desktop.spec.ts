@@ -109,7 +109,7 @@ for (const [entry, caller] of [
     const tool = caller === "cli" ? cliTool(desktop) : await mcpTool(desktop);
 
     const execution = { spaceId: space.id, provider: "codex", target: { mode: "new" } };
-    const origin = { kind: "external", caller };
+    const origin = { kind: "external", caller: caller === "mcp" ? "http" : caller };
     const draft = { title: `${entry} 原任务`, body: "Original fixture input.", type: "agent", execution };
     const task = await tool<TaskDto>("tasks.create", draft, randomUUID());
     expect(task).toMatchObject({ title: draft.title, type: "agent", origin, execution });
