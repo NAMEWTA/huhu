@@ -1,0 +1,4 @@
+17043b03d90fdf5b4ea8cfe33a259ec6fface50cbaf06fd3acc839d1ea022bbd  HUHU-0.0.2-rc.1-linux-x64.AppImage
+e8c0d3b852727aba9e239f1a1014bfaddd16c8f7190e4efbf3737cb601045ebf  HUHU-0.0.2-rc.1-linux-x64.deb
+097108750d1bf51c0aba400b9eda1539ee7c9ff2290e24782118f83ebd2e7942  HUHU-0.0.2-rc.1-win32-x64.exe
+5939746f2a0db4a41f6e3565c062b59fbd1b280c8f593e53348d57f4a88ad78e  HUHU-0.0.2-rc.1-darwin-arm64.dmg
