@@ -432,3 +432,8 @@ HC Codex CLI 的账号用量上限中断了后续工作。两份测试独审报�
 `t19h` 同包 gateway 1 项、close 2 项通过；external-agent 2 项失败后停止，其后各组未运行。失败属于新驱动：HTTP MCP 的生产来源是 `http`，断言误写为 `mcp`；应用关闭后 Playwright 已移除 dispatcher，此时调用 `app.process()` 取 PID 会在其 `toImpl` 中解引用缺失对象。修正为启动后保存 PID，并附上退出残留检查。未改变业务代码或安装包。
 
 `t19k` 使用同一 f91 安装包及修正的两个测试文件，CLI-only 与 HTTP MCP-only 2/2 通过，包含实际原生问答、唯一结果、桌面原会话二进制回放及退出清理。两个 `external-agent-cleanup-residue` 附件均为 `{pids:[],sockets:[]}`；无跳过、flaky 或测试外错误。原始报告 `temp/candidate-acceptance/external-agent.bjEbVb/result.json`，日志 `temp/final-audit/external-agent-cleanup-recheck-f91.log`，驱动文件 SHA 单列 `external-agent-driver-f91.json`。此轮是已锁定包的驱动修正验证，不能将驱动变更说成包内代码；原失败证据保留。`t19m` 两文件定向类型检查通过，格式及 lint 检查通过。
+
+
+`t19n` 的 f91 Web 全流程已执行到重开回读，失败仅发生在最初桌面已经由用户关窗、最后夹具再调用 `app.process()` 的清理阶段。保留原失败及 `fixture-cleanup-errors` 的“关闭 Electron”附件。共享候选夹具现在先用启动时记录的 PID 检查进程是否已经退出，已退出则跳过 Playwright 关闭调用，仍执行 Engine 描述、Core/holder、socket 和目录清理检查。
+
+`t19q` 同一 f91 AppImage 原完整 Web 用例 1/1 通过（25.1s），报告 `temp/candidate-acceptance/web.ZE45VG/result.json`，日志 `temp/final-audit/web-close-recheck-f91.log`。包含菜单保存、Web 刷新、桌面双向编辑、两邀请三会话、单份撤销、看板继续编辑/保存退出及重开回读；退出包装成功。`t19r` 定向类型检查通过，单文件格式/lint通过。测试驱动的修正不改变 f91 应用字节。前两轮遗留目录经检查零所属进程、零挂载后清理，见 `f91-diagnostic-late-cleanup.json`，不追改历史失败。

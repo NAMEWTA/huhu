@@ -203,6 +203,7 @@ export async function openCandidateDesktop(options: { identityAttachment: string
       [
         "关闭 Electron",
         async () => {
+          if (desktopPid !== undefined && !fixtureProcessRunning(desktopPid)) return;
           const runningApp = app;
           const child = runningApp?.process();
           if (runningApp && child && child.exitCode === null && child.signalCode === null) {
