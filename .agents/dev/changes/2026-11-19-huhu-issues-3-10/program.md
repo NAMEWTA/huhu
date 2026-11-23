@@ -176,3 +176,11 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 独审原文已保存：[t194/task04](evidence/review-notes-dashboard-f55f0759.md)。共享任务目录不可写及HC发送权限弹窗通过取消非必要写入/发送、由Lead主动读取工作树报告解决，未更改沙箱或权限设置。
 
 返工候选已保存：Notes `8d56591f`（104项单文件通过），首页 `916a0508`（真实hook 5项通过），实施者定向类型/lint/format通过。t194/task05、task06正在独审，Lead尚未实跑新E2E，不能提前记为验收完成。
+
+## 2026-11-23 组合输入与首页复审返工
+
+`t1bf` 在 fda247614d291625d3011b03bc6cd07aaa88df25 源码构建上运行两条真实 Chromium 组合输入用例，2/2，无跳过、flaky 或测试外错误。原始 JSON：`temp/issue-evidence/huhu-2026-11-22/followup-ime-fda247614d291625d3011b03bc6cd07aaa88df25.FhqQMS/result.json`（相对项目根）。不是真实 OS 输入法或安装包测试。
+
+独审 [task05](evidence/review-followup-task05.md) 关闭首页同轮旧读 P3；[task06](evidence/review-followup-task06.md) 关闭 Notes 拼音误保存 P2，但发现组合期间后续读失败会丢失延期刷新。3cf40143 只接续同基线且相邻序号的后台读，单文件108/108通过，显式重载、删除、基线切换失效保护均有回归；task07正在独立复核。
+
+`t1bg` 已生成 fda24761 中间包，AppImage SHA-256 `7ccfe946896002dde5a14e27c2cc2089065dc759d986eff02f7d27cc76817014`，deb `6a7c9f88e7327d938657177f4f2eebd8fd26a0a16d6130916ff3bdcf9770f06a`。它不含3cf40143，不作为最终候选；尚未执行其安装包验收。最终包须重新固定当前应用提交。SSH继续暂停，外部环境缺证不变。
