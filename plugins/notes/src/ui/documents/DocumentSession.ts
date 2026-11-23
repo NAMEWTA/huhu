@@ -252,6 +252,9 @@ export class DocumentSession {
   private async loadFile(expectedRevision: number | undefined, isCurrent: () => boolean, reason: "load" | "discard" | "external"): Promise<boolean> {
     const seq = ++this.loadSeq;
     const generation = this.baselineGeneration;
+    const deferred = this.deferredExternalCheck;
+    // 同一基线的后续后台读可以接续待核对。显式重载或删除造成的序号间隔仍使它失效。
+    if (reason === "external" && deferred?.generation === generation && deferred.loadSeq === seq - 1) deferred.loadSeq = seq;
     const revision = this.revision;
     const canLoad = () => this.isBaselineCurrent(generation) && seq === this.loadSeq && isCurrent();
     const canAdopt = () => canLoad() && revision === this.revision;

@@ -2363,6 +2363,83 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     }
   });
 
+  test.each(["后台读取失败", "显式重载失败", "文件删除", "恢复草稿切换基线"] as const)("停放恢复的待复读在组合取消时检查后续操作：%s", async (later) => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    eng.drafts.set(path, { text: "恢复的本地稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" });
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", path, make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "外部正文");
+    eng.calls.length = 0;
+    const readCount = () => eng.calls.filter((call) => call === "notes.read").length;
+    const read = Promise.withResolvers<void>();
+    eng.readGate = read.promise;
+    const resumed = await reg.acquire("v", path, make(eng));
+    const session = resumed.session;
+    let composing = true;
+    let onSettled: (() => void) | undefined;
+    const drain = vi.fn();
+    const detach = session.attachDrainer(drain, {
+      isComposing: () => composing,
+      onCompositionSettled: (listener) => {
+        onSettled = listener;
+        return () => {
+          onSettled = undefined;
+        };
+      },
+    });
+    try {
+      expect(readCount()).toBe(1);
+      eng.readGate = null;
+      read.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(drain).not.toHaveBeenCalled();
+      expect(session.getSnapshot()).toMatchObject({ text: "原稿", baseVersion: "1", flushError: null });
+
+      if (later === "后台读取失败" || later === "显式重载失败") {
+        eng.failRead = new Error("暂时无法读取正文");
+        if (later === "显式重载失败") await expect(session.load()).rejects.toThrow("暂时无法读取正文");
+        session.notifyExternalChange("modified");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(session.getSnapshot()).toMatchObject({ text: "原稿", baseVersion: "1", flushError: "暂时无法读取正文" });
+        eng.failRead = null;
+      } else if (later === "文件删除") {
+        eng.files.delete(path);
+        session.notifyExternalChange("deleted");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(session.getSnapshot().flushError).toMatch(/已移走或删除/);
+        // 路径即使又可读，也须经新通知或重开才能刷新。
+        eng.files.set(path, { text: "同路径的新文件", version: 3 });
+      } else {
+        session.restoreDraft();
+        expect(session.getSnapshot()).toMatchObject({ text: "恢复的本地稿", state: "dirty" });
+      }
+
+      const readsBeforeCancel = readCount();
+      const beforeCancel = session.getSnapshot();
+      composing = false;
+      onSettled?.();
+      await vi.advanceTimersByTimeAsync(0);
+
+      if (later === "后台读取失败") {
+        expect(readCount()).toBe(readsBeforeCancel + 1);
+        expect(session.getSnapshot()).toMatchObject({ text: "外部正文", baseVersion: "2", state: "saved", flushError: null });
+      } else {
+        expect(readCount()).toBe(readsBeforeCancel);
+        expect(session.getSnapshot()).toEqual(beforeCancel);
+      }
+      expect(eng.calls).not.toContain("notes.save");
+    } finally {
+      read.resolve();
+      eng.failRead = null;
+      detach();
+      await Promise.all([resumed.release(), evict()]);
+    }
+  });
+
   test("C06：停放时文件已消失，草稿写成后最后引用仍可释放，恢复路径后可读取草稿", async () => {
     const eng = new FakeEngine({ "a.md": "原稿" });
     const reg = new DocumentSessionRegistry();
