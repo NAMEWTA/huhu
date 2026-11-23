@@ -126,6 +126,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     core.dispose();
     protectedLaunch.close();
   });
+  const publishSessionChanged = (id: string) => api.events.publish("entity.changed", { kind: "agent-session", id, op: "updated" });
   const sessions: SessionsService = new SessionsService({
     dir: path.join(api.vault.stateDir, "agent-cli", "sessions"),
     vaultId: api.vault.vaultId,
@@ -138,6 +139,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     inputOwnership: ownership,
     codex,
     codexHistoryRuntime,
+    onHistoryIdentityConfirmed: publishSessionChanged,
     protectedLaunch,
     interactiveEnvironment,
   });
@@ -156,7 +158,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     vaultId: api.vault.vaultId,
     sessions,
     ...(opts.waitingBackoffMs ? { backoffMs: opts.waitingBackoffMs } : {}),
-    onChanged: (id) => api.events.publish("entity.changed", { kind: "agent-session", id, op: "updated" }),
+    onChanged: publishSessionChanged,
     document: { name: WORKSPACE_DOCUMENT, changed: () => api.events.publish("entity.changed", { kind: "agent-workspace", id: WORKSPACE_DOCUMENT, op: "updated" }) },
     onBlocked: async (sess) => {
       lifetime.signal.throwIfAborted();

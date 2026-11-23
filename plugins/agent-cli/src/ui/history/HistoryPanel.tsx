@@ -33,11 +33,11 @@ interface Transcript {
   truncated: boolean;
 }
 
-function TranscriptDialog({ spaceId, allSpaces, entry, onClose, actions }: { spaceId: string; allSpaces: boolean; entry: Entry; onClose: () => void; actions: ReactNode }) {
+function TranscriptDialog({ spaceId, allSpaces, entry, forkBlocked, onClose, actions }: { spaceId: string; allSpaces: boolean; entry: Entry; forkBlocked: string | null; onClose: () => void; actions: ReactNode }) {
   const transcript = useCapability<Transcript>("agent.history.read", { spaceId, allSpaces, ...reference(entry) });
   return (
     <Dialog open title={entry.title} description="只读的对话记录（用户与助手的文字；不含工具调用）。" testId="history-transcript" onClose={onClose} actions={actions}>
-      {entry.forkBlocked ? <p id={`history-fork-reason-${entry.historyId}`}>{entry.forkBlocked}</p> : null}
+      {forkBlocked ? <p id={`history-fork-reason-${entry.historyId}`}>{forkBlocked}</p> : null}
       {transcript.isError ? (
         <div role="alert" className="hu-callout danger">
           <p>{transcript.error instanceof Error ? transcript.error.message : String(transcript.error)}</p>
@@ -138,6 +138,7 @@ export function HistoryPanel({
   }
 
   const entries = history.data?.entries ?? [];
+  const viewingStatus = viewing && (entries.find((entry) => entry.historyId === viewing.historyId) ?? viewing);
   const skipped = history.data?.skipped ?? 0;
   const FILTERS: ["all" | "active" | "resumable", string][] = [
     ["all", t.history.filterAll],
@@ -294,14 +295,20 @@ export function HistoryPanel({
         ) : null}
       </div>
       <div className="agent-history-footnote">{t.history.note}</div>
-      {viewing ? (
+      {viewing && viewingStatus ? (
         <TranscriptDialog
           spaceId={space.id}
           allSpaces={allSpaces}
           entry={viewing}
+          forkBlocked={viewingStatus.forkBlocked}
           onClose={() => setViewing(null)}
           actions={
-            <Button disabled={!canLaunch || !viewing.canFork} aria-describedby={viewing.forkBlocked ? `history-fork-reason-${viewing.historyId}` : undefined} data-testid="history-fork" onClick={() => selectLaunch(viewing, "fork")}>
+            <Button
+              disabled={!canLaunch || !viewingStatus.canFork}
+              aria-describedby={viewingStatus.forkBlocked ? `history-fork-reason-${viewing.historyId}` : undefined}
+              data-testid="history-fork"
+              onClick={() => selectLaunch(viewing, "fork")}
+            >
               创建分支
             </Button>
           }

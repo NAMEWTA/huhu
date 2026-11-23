@@ -144,23 +144,30 @@ describe("原生历史启动", () => {
     return { file, projects, profile, row, history: { nativeId, file, profile, sourceId: entry!.historyId, revision: entry!.revision, sourceCwd: entry!.cwd } };
   }
 
-  test("Claude 分支提交后重放原请求，原生子文件出现前不登记子 UUID", async () => {
+  test("Claude 分支异步确认只在登记子 UUID 后通知一次，仍能重放原请求", async () => {
     const core = fakeClient({ failRun: "throw-after-create" });
-    const { svc, reopen, space, work } = setup(core.client);
+    const onHistoryIdentityConfirmed = vi.fn((id: string): string | undefined => svc.get(id).nativeSessionId);
+    const { svc, reopen, space, work } = setup(core.client, { onHistoryIdentityConfirmed });
     const { file, projects, row, history } = source(realpathSync(work));
     const input = { ...req(space), provider: "claude" as const, cwd: realpathSync(work), history: { ...history, mode: "fork" as const, forkId }, historySelection: "frozen-request" };
     const launched = await svc.launch(input);
     expect(launched).toMatchObject({ state: "running" });
     expect(launched.nativeSessionId).toBeUndefined();
+    expect(onHistoryIdentityConfirmed).not.toHaveBeenCalled();
     expect(core.runs[0]?.argv?.slice(1)).toEqual(["--resume", nativeId, "--fork-session", "--session-id", forkId]);
-    rmSync(file);
     writeFileSync(path.join(projects, `${forkId}.jsonl`), row);
     const afterRestart = reopen();
+    await afterRestart.reconcile();
+    expect(afterRestart.get(launched.id)).toMatchObject({ nativeSessionId: forkId });
+    expect(onHistoryIdentityConfirmed).toHaveBeenCalledExactlyOnceWith(launched.id);
+    expect(onHistoryIdentityConfirmed).toHaveReturnedWith(forkId);
+    rmSync(file);
     expect(() => afterRestart.historyLaunchReplay(input.requestId, "different-request")).toThrow();
     const replay = afterRestart.historyLaunchReplay(input.requestId, input.historySelection);
     const recovered = await afterRestart.launch(replay!);
     expect(recovered).toMatchObject({ id: launched.id, nativeSessionId: forkId });
     expect(recovered.historyId).toBeDefined();
+    expect(onHistoryIdentityConfirmed).toHaveBeenCalledTimes(1);
     expect(core.runs).toHaveLength(1);
   });
 

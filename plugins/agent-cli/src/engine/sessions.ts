@@ -208,6 +208,7 @@ export interface SessionsDeps {
   /** 合成启动命令（agent-cli 的 resolveAgentLaunch，已绑定当前 Vault 的设置与检测结果）。 */
   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
   codexHistoryRuntime?: { node: string; helper: string };
+  onHistoryIdentityConfirmed?(sessionId: string): void;
   now(): Date;
   inputOwnership?: InputOwnership;
   codex?: CodexDispatch | undefined;
@@ -1130,6 +1131,7 @@ export class SessionsService {
     };
     delete next.error;
     this.save(next);
+    if (history) this.d.onHistoryIdentityConfirmed?.(next.id);
     return next;
   }
 

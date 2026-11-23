@@ -1428,7 +1428,9 @@ else if (a[0] === "resume" && [source.id, child.id].includes(a[1])) {
       return (result as { data: T }).data;
     }
     await call("agent.settings.update", { expectedRevision: 0, defaultAgent: null, agents: { claude: { command: claude }, codex: { command: codex }, pi: { enabled: false } } });
-    const [space] = await call<{ id: string }[]>("agent.spaces.list");
+    const [space] = await call<{ id: string; name: string; revision: number }[]>("agent.spaces.list");
+    expect(space).toBeDefined();
+    await call("agent.spaces.save", { id: space!.id, name: space!.name, root: cwd, expectedRevision: space!.revision });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
     const confirm = page.getByTestId("history-launch");
     const historyRow = (title: string) => page.getByTestId("history-item").filter({ hasText: title });
@@ -1439,7 +1441,8 @@ else if (a[0] === "resume" && [source.id, child.id].includes(a[1])) {
       { title: "Codex 原始历史", id: codexId },
     ]) {
       await search.fill(original.id);
-      await historyRow(original.title).getByTestId("history-fork").click();
+      await historyRow(original.title).getByTestId("history-view").click();
+      await page.getByTestId("history-fork").click();
       await expect(confirm.getByLabel("打开位置")).toHaveValue("tab");
       await confirm.getByRole("button", { name: "创建分支" }).click();
       let childId = codexChild;
@@ -1457,6 +1460,8 @@ else if (a[0] === "resume" && [source.id, child.id].includes(a[1])) {
       const restored = (await sessions()).find(({ nativeSessionId }) => nativeSessionId === original.id)!;
       await page.getByTestId("history-item").getByTestId("history-locate").click();
       await expect(page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${restored.id}"]`))).toHaveAttribute("data-active", "true");
+      await page.getByTestId("agent-history-toggle").click();
+      await expect(search).toBeVisible();
       await search.clear();
     }
     expect(readFileSync(claudeSource, "utf8")).toBe(claudeOriginal);

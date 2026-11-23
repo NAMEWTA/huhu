@@ -123,6 +123,36 @@ function watchVersion(qc: QueryClient, key: ReturnType<typeof queryKey>, read: (
 }
 
 describe("查询失效", () => {
+  test("原生会话身份确认后，正在读取的历史列表随后重查并恢复资格", async () => {
+    const qc = new QueryClient();
+    let childConfirmed = false;
+    const historyKey = queryKey("vault-a", "agent.history.list", { spaceId: "space", query: "parent", offset: 0 });
+    const history = watchVersion(qc, historyKey, () => Number(childConfirmed));
+    const sessionsKey = queryKey("vault-a", "agent.sessions.list", { spaceId: "space" });
+    const otherVault = queryKey("vault-b", "agent.history.list", { spaceId: "space" });
+    const transcript = queryKey("vault-a", "agent.history.read", { historyId: "parent" });
+    for (const key of [sessionsKey, otherVault, transcript]) qc.setQueryData(key, {});
+    try {
+      const oldRead = history.observer.refetch();
+      expect(history.requests.map(({ version }) => version)).toEqual([0]);
+      childConfirmed = true;
+      const refreshed = invalidateForEvent(qc, "vault-a", { type: "entity.changed", payload: { kind: "agent-session", id: "child", op: "updated" } });
+      expect(history.requests[0]?.signal.aborted).toBe(false);
+      history.requests[0]?.finish();
+      await oldRead;
+      await expect.poll(() => history.requests.map(({ version }) => version)).toEqual([0, 1]);
+      history.requests[1]?.finish();
+      await refreshed;
+      expect(history.observer.getCurrentResult().data).toBe(1);
+      expect(qc.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(otherVault)?.isInvalidated).toBe(false);
+      expect(qc.getQueryState(transcript)?.isInvalidated).toBe(false);
+    } finally {
+      history.stop();
+      qc.clear();
+    }
+  });
+
   test.each([
     { source: "工具权限", event: { type: "entity.changed", payload: { kind: "tool-access", id: "policy", op: "updated" } } as const, capabilities: ["gateway.get", "capabilities.list"] },
     { source: "插件状态", event: { type: "plugin.stateChanged", payload: { id: "tasks", state: "disabled" } } as const, capabilities: ["plugins.list", "capabilities.list", "capabilities.discovered"] },
