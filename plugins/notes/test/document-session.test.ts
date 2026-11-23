@@ -13,6 +13,7 @@ class FakeEngine implements SessionEngine {
   saveWriteIds: (string | undefined)[] = [];
   failSave: Error | null = null;
   failDraft: Error | null = null;
+  failDraftRead: Error | null = null;
   failDraftDiscard: Error | null = null;
   draftDiscardGate: Promise<void> | null = null;
   failRead: Error | null = null;
@@ -49,6 +50,7 @@ class FakeEngine implements SessionEngine {
       return { version: String(f.version + 1) } as T;
     }
     if (cap === "notes.draft.get") {
+      if (this.failDraftRead) throw this.failDraftRead;
       const draft = this.drafts.get(i.path);
       return (draft && i.withVersion ? { ...draft, version: JSON.stringify(draft) } : (draft ?? null)) as T;
     }
@@ -2129,6 +2131,75 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(eng.calls).not.toContain("notes.save");
   });
 
+  test.each(["读到草稿后", "删除草稿期间"] as const)("停放恢复读取发生在%s时，用户丢弃的草稿不再出现", async (timing) => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    eng.drafts.set(path, { text: "待丢弃的草稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" });
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", path, make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "Web 正文");
+    eng.calls.length = 0;
+
+    const read = Promise.withResolvers<void>();
+    const discard = Promise.withResolvers<void>();
+    eng.readGate = read.promise;
+    if (timing === "删除草稿期间") {
+      eng.draftDiscardGate = discard.promise;
+      before.session.discardDraft();
+      expect(eng.drafts.has(path)).toBe(true);
+    }
+    const resumed = await reg.acquire("v", path, make(eng));
+    try {
+      expect(eng.calls).toContain("notes.read");
+      if (timing === "读到草稿后") {
+        expect(eng.calls).toContain("notes.draft.get");
+        resumed.session.discardDraft();
+        expect(eng.drafts.has(path)).toBe(false);
+      }
+      read.resolve();
+      await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ text: "Web 正文", baseVersion: "2", draft: null }));
+      discard.resolve();
+      await vi.waitFor(() => expect(eng.drafts.has(path)).toBe(false));
+      expect(resumed.session.getSnapshot().draft).toBeNull();
+      expect(eng.calls).not.toContain("notes.save");
+    } finally {
+      read.resolve();
+      discard.resolve();
+      await Promise.all([resumed.release(), evict()]);
+    }
+  });
+
+  test("停放恢复读草稿失败时保留恢复入口并报告错误，重读成功后清除错误", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const draft = { text: "本地草稿", baseVersion: "1", savedAt: "2026-11-15T08:00:00" };
+    eng.drafts.set(path, draft);
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", path, make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "Web 正文");
+    eng.failDraftRead = new Error("草稿暂时不可读");
+
+    const resumed = await reg.acquire("v", path, make(eng));
+    try {
+      await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ text: "Web 正文", baseVersion: "2", hasUnsaved: false, draft, flushError: expect.stringContaining("草稿暂时不可读") }));
+      expect(eng.drafts.get(path)).toEqual(draft);
+
+      eng.failDraftRead = null;
+      eng.drafts.delete(path);
+      resumed.session.notifyExternalChange();
+      await vi.waitFor(() => expect(resumed.session.getSnapshot()).toMatchObject({ draft: null, flushError: null }));
+      expect(eng.calls).not.toContain("notes.save");
+    } finally {
+      await Promise.all([resumed.release(), evict()]);
+    }
+  });
+
   test("恢复仍有本地编辑的停放会话时确认冲突并保留正文", async () => {
     const path = "a.md";
     const eng = new FakeEngine({ [path]: "原稿" });
@@ -2175,6 +2246,44 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(eng.disk(path)).toBe("Web 正文");
     await Promise.all([anotherView.release(), resumed.release(), evict()]);
     expect(eng.calls).not.toContain("notes.save");
+  });
+
+  test("停放恢复接纳磁盘正文前等待编辑器交付，保留待结算输入", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const reg = new DocumentSessionRegistry();
+    const makeManual = (id: ConstructorParameters<typeof DocumentSession>[0]["id"]) => new DocumentSession({ id, engine: eng, autosave: () => false, pollMs: 0 });
+    const before = await reg.acquire("v", path, makeManual);
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "Web 正文");
+    const read = Promise.withResolvers<void>();
+    const delivery = Promise.withResolvers<void>();
+    eng.readGate = read.promise;
+    const resumed = await reg.acquire("v", path, makeManual);
+    const drain = vi.fn(async () => {
+      await delivery.promise;
+      resumed.session.setText("原稿和待结算输入");
+    });
+    const detach = resumed.session.attachDrainer(drain);
+
+    try {
+      read.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(drain).toHaveBeenCalledOnce();
+      expect(resumed.session.getSnapshot()).toMatchObject({ text: "原稿", baseVersion: "1" });
+      delivery.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(resumed.session.getSnapshot()).toMatchObject({ text: "原稿和待结算输入", baseVersion: "1", hasUnsaved: true });
+      expect(eng.disk(path)).toBe("Web 正文");
+      expect(eng.calls).not.toContain("notes.save");
+    } finally {
+      read.resolve();
+      delivery.resolve();
+      detach();
+      await Promise.all([resumed.release(), evict()]);
+    }
   });
 
   test("C06：停放时文件已消失，草稿写成后最后引用仍可释放，恢复路径后可读取草稿", async () => {

@@ -146,6 +146,101 @@ async function checkManualSaveReceipt(saveWhileFirstInFlight: boolean): Promise<
 test("C06 手动保存回执在途时继续输入，下一次点击才写入新内容", () => checkManualSaveReceipt(false));
 test("C06 两次手动保存重叠时，各自只写入触发时的正文", () => checkManualSaveReceipt(true));
 
+test("C06 停放恢复读盘在途时保留富文本组合输入，条件保存仍保护磁盘新版", async () => {
+  const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
+  const file = path.join(vault, name);
+  const outside = "外部写入的新正文";
+  const diskText = original.replace("初始正文", outside);
+  const preedit = "nihao";
+  const committed = "你好";
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    const { version } = await call<{ version: string }>(page, "notes.read", { path: name });
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await expect(page.getByTestId("notes-module")).toHaveCount(0);
+    await call(page, "notes.save", { path: name, text: diskText, expectedVersion: version });
+    expect(readFileSync(file, "utf8")).toBe(diskText);
+
+    const gate = await page.evaluateHandle(
+      ({ notePath, diskText }) => {
+        const fetch = window.fetch;
+        const release = Promise.withResolvers<void>();
+        const returned = Promise.withResolvers<void>();
+        let held = false;
+        window.fetch = async (input, init) => {
+          const response = await fetch.call(window, input, init);
+          if (typeof input !== "string" || !input.endsWith("/api/v1/call") || typeof init?.body !== "string") return response;
+          const request = JSON.parse(init.body) as { capability: string; input?: { path?: string } };
+          if (request.capability !== "notes.read" || request.input?.path !== notePath) return response;
+          const readJson = response.json.bind(response);
+          response.json = async () => {
+            const result = (await readJson()) as { ok: boolean; data?: { text?: string } };
+            if (result.ok && result.data?.text === diskText) {
+              held = true;
+              await release.promise;
+              // 让调用方的微任务与随后的渲染提交先处理正文回执。
+              requestAnimationFrame(() => requestAnimationFrame(() => returned.resolve()));
+            }
+            return result;
+          };
+          return response;
+        };
+        return {
+          held: () => held,
+          release: () => {
+            release.resolve();
+            return returned.promise;
+          },
+          restore: () => {
+            window.fetch = fetch;
+            release.resolve();
+          },
+        };
+      },
+      { notePath: name, diskText },
+    );
+
+    try {
+      await openNote(page);
+      await expect.poll(() => gate.evaluate((gate) => gate.held())).toBe(true);
+      const editor = prose(page);
+      const state = page.getByTestId("save-state");
+      await editor.getByText("初始正文", { exact: true }).click();
+      await page.keyboard.press("End");
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        await cdp.send("Input.imeSetComposition", { text: preedit, selectionStart: preedit.length, selectionEnd: preedit.length });
+        await expect(editor).toContainText(`初始正文${preedit}`);
+        await expect.poll(() => editor.evaluate((element: HTMLElement & { editor?: { state: { doc: { textContent: string } } } }) => element.editor?.state.doc.textContent)).toContain(preedit);
+        await expect(state).toHaveText("已保存");
+        await gate.evaluate((gate) => gate.release());
+        await expect(editor).toContainText(`初始正文${preedit}`);
+        await cdp.send("Input.insertText", { text: committed });
+      } finally {
+        await cdp.detach();
+      }
+
+      await expect(editor).toContainText(`初始正文${committed}`);
+      await expect(editor).not.toContainText(preedit);
+      await expect(state).toHaveText(/未保存修改|文件已被外部修改/);
+      if ((await state.textContent()) === "未保存修改") await page.getByTestId("note-save").click();
+      await expect(state).toHaveText("文件已被外部修改");
+      expect(readFileSync(file, "utf8")).toBe(diskText);
+      await page.getByTestId("note-keep-mine").click();
+      await page.getByTestId("note-save").click();
+      await expect(state).toHaveText("已保存");
+      expect(readFileSync(file, "utf8")).toBe(original.replace("初始正文", `初始正文${committed}`));
+    } finally {
+      await gate.evaluate((gate) => gate.restore());
+      await gate.dispose();
+    }
+  } finally {
+    await close();
+  }
+});
+
 test("C06 对账无法读取且缓冲等于原文时，笔记仍可保留修改并确认重载", async () => {
   const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
   const file = path.join(vault, name);

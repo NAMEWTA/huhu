@@ -147,6 +147,8 @@ export class DocumentSession {
   private flushError: string | null = null;
   private draft: DraftRecord | null = null;
   private draftVersionForBuffer: string | undefined;
+  private draftDiscardRevision = 0;
+  private pendingDraftDiscards = 0;
   private format: TextFormat = { bom: false, eol: "none", finalNewline: false };
   private loaded = false;
   private disposed = false;
@@ -250,24 +252,30 @@ export class DocumentSession {
     const discardVersion = discardEdits ? this.draftVersionForBuffer : undefined;
     while (canLoad()) {
       const diskRevision = this.diskRevision;
+      const draftDiscardRevision = this.draftDiscardRevision;
+      const discardPending = this.pendingDraftDiscards > 0;
+      const canUseDraft = () => !discardPending && draftDiscardRevision === this.draftDiscardRevision;
       let file: NoteFile;
       let draft: (SessionDraft & { version?: string }) | null;
+      let draftError: string | null = null;
       try {
         [file, draft] = await Promise.all([
           this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
           this.engine.call<(SessionDraft & { version?: string }) | null>("notes.draft.get", { path: this.id.path, withVersion: true }).catch((error: unknown) => {
             if (expectedRevision !== undefined || discardEdits) throw error;
+            draftError = `读取草稿失败：${error instanceof Error ? error.message : String(error)}`;
             return null;
           }),
         ]);
-        if (!canLoad()) return false;
-        if (expectedRevision !== undefined) {
-          // 重开读取期间编辑器仍可输入，先结算可能还没有进会话的正文。
-          await this.drainEditors(canLoad);
-          if (!canLoad() || expectedRevision !== this.revision || draft?.text !== this.text) return false;
+        if (!canAdopt()) return false;
+        if (expectedRevision !== undefined || (!discardEdits && this.loaded && file.text !== this.text)) {
+          // 接纳不同正文前，先结算复读期间仍留在编辑器中的输入。
+          await this.drainEditors(canAdopt);
+          if (!canAdopt()) return false;
         }
+        if (expectedRevision !== undefined && (!canUseDraft() || expectedRevision !== this.revision || draft?.text !== this.text)) return false;
       } catch (error) {
-        if (!canLoad()) return false;
+        if (!canAdopt()) return false;
         if (diskRevision !== this.diskRevision) {
           await this.activeFileWrite?.reconciliation;
           continue;
@@ -284,10 +292,11 @@ export class DocumentSession {
         continue;
       }
 
+      if (discardVersion !== undefined && !canUseDraft()) return false;
       if (discardVersion !== undefined && draft?.version === discardVersion) {
         try {
           const discarded = await this.serializeWrite(async () => {
-            if (!canAdopt() || diskRevision !== this.diskRevision) return false;
+            if (!canAdopt() || !canUseDraft() || diskRevision !== this.diskRevision) return false;
             await this.discardDraftVersion(discardVersion);
             // 让删除前已取样的草稿读数失效。
             this.diskRevision++;
@@ -307,13 +316,15 @@ export class DocumentSession {
       }
 
       this.adoptLoadedFile(file);
-      this.draft = null;
-      if (draft) {
-        const { version, ...content } = draft;
-        if (discardEdits || content.outcome === "unknown" || content.text !== file.text) {
-          this.draft = { content, version };
-        } else if (version !== undefined) {
-          void this.discardDraftVersion(version).catch(() => undefined);
+      if (canUseDraft()) {
+        if (draftError !== null) this.flushError = draftError;
+        else {
+          this.draft = null;
+          if (draft) {
+            const { version, ...content } = draft;
+            if (discardEdits || content.outcome === "unknown" || content.text !== file.text) this.draft = { content, version };
+            else if (version !== undefined) this.discardKnownDraft(version);
+          }
         }
       }
       this.emit();
@@ -475,7 +486,7 @@ export class DocumentSession {
         const draftVersion = this.draftVersionForBuffer ?? this.draft?.version;
         this.draft = null;
         this.draftVersionForBuffer = undefined;
-        if (draftVersion !== undefined) void this.discardDraftVersion(draftVersion).catch(() => undefined);
+        if (draftVersion !== undefined) this.discardKnownDraft(draftVersion);
       }
       if (this.isBaselineCurrent(baselineGeneration)) this.onSaved?.();
       return true;
@@ -961,8 +972,20 @@ export class DocumentSession {
     const version = this.draft?.version;
     this.draft = null;
     this.draftVersionForBuffer = undefined;
-    if (version !== undefined) void this.discardDraftVersion(version).catch(() => undefined);
+    this.discardKnownDraft(version);
     this.emit();
+  }
+
+  private discardKnownDraft(version: string | undefined): void {
+    // 删除之前或删除在途时取到的草稿，都不能重新进入会话。
+    this.draftDiscardRevision++;
+    if (version === undefined) return;
+    this.pendingDraftDiscards++;
+    void this.discardDraftVersion(version)
+      .catch(() => undefined)
+      .finally(() => {
+        this.pendingDraftDiscards--;
+      });
   }
 
   private discardDraftVersion(expectedVersion: string): Promise<unknown> {
