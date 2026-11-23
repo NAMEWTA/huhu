@@ -1,0 +1,2 @@
+# task13 — 诊断日志投影净化
+Lead t3p，t176，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。t17c-report13一项低项：attach.live.test探针错误路径不要输出serveStderr/serveError/String(error)自由文本，改stderrBytes和有限错误码/异常类别；tests/e2e/helpers/perf-diagnostics.ts解析bridge JSON应显式白名单字段投影（session/connection/event仅已知格式/枚举，数字计数/时间有限数/null），不把额外任意字段保存。只改这两个文件，必要局部测试，不动业务桥/阈值。已有正常t188/真实t18c结果不重跑；定向types/lint即可。报告temp/final-audit/t176-report13.md。t18d正在疑难只读分析，暂不改性能逻辑。

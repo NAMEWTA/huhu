@@ -1,0 +1,4 @@
+# task10 — 工作台名称目录投影
+Lead t3p，worker t178，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。task09已核验，按其最小方案实施显式 ?view=names；默认完整目录完全保持。名称投影必须每次dispatcher.discover(caller)并沿用会话撤销signal、认证、no-store、插件即时失效，不缓存授权结果，不改SSHschema/MCP合同。
+可写 packages/kernel/src/server/capability-http.ts，packages/workbench/src/engine-client/client.ts/react.tsx，apps/engine/test/capability-catalog.test.ts及确有需要对应单测；tests/e2e/workflows/web-terminal-widgets.spec.ts只适配原拦截URL兼容query（若无需则不动）。禁止改perf.spec/helper、公共descriptor契约、根锁、其它业务。
+客户端保留默认完整行为，可选view；useDiscoveredCapabilities显式names，保持查询键、signal与权限即时取消重查。先按zh-modern-web-guidance已有指南核对，必要search/retrieve。单文件回归覆盖同身份names/full名称等价、停用启用、Web排除desktop-only及撤销、完整MCP契约保持；不为每项另建设施，复用已有目录测试。只跑单文件Vitest，类型仅定向，禁止E2E/build/full门禁。报告temp/final-audit/t178-report10.md含测试与未运行验证，供独审后Lead构建实测。不得新agent。

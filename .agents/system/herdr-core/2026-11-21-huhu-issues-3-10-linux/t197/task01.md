@@ -1,0 +1,5 @@
+# task01 停放恢复草稿竞态修复
+身份Lead t3p；worker t197；cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。读取项目AGENTS、角色模型规则、system-herdr-core、适用dev-debug/TDD及前端zh-modern-web-guidance search/retrieve。
+当前已提交17ce3c60给registry仅park到首次active时notifyExternalChange，原Web漏刷新E2E已通过，notes32项通过。独审 temp/final-audit/t194-report01.md 复现两P2：1恢复load的draft快照被discardDraft删除后仍迟到接纳，2draft.get拒绝被当null隐藏已有恢复草稿；另pending编辑drainer未交付前可能被load覆盖待验证。先读该报告和t176-report19/20，先单文件红灯再最小修复这两P2，并以实际drainer测试明确第3项，补一条生产编辑器组合输入E2E（只写不跑）以便Lead核对。
+唯一可写：plugins/notes/src/ui/documents/DocumentSession.ts、DocumentSessionRegistry.ts（仅必要时）、plugins/notes/test/document-session.test.ts、tests/e2e/knowledge/session-flush.spec.ts。保留用户丢弃意图、失败时已知草稿与明确错误，所有迟到load遵守revision/基线/草稿操作状态；复用已有机制，不重写保存架构、不削弱原测试。先评估现有实现/temp/sources优先，不添基础设施。其他代理写 external-agent-desktop.spec.ts，Lead写 gateway-package-boundaries.spec.ts，不触及。
+仅单个vitest文件和定向静态/类型；不E2E/build/打包/全仓检查，不提交，不启动agent。报告 temp/final-audit/t197-report01.md，记录每项红绿/已证实与待验证/未运行项目，必要新E2E具体名称。共享目录可能只读，报告写本地即可，不申请权限升级。

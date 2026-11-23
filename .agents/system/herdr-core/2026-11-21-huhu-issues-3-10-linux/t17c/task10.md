@@ -1,0 +1,2 @@
+# task10 — 新增性能诊断独审
+Lead t3p，t17c，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。只读审查当前dirty tests/e2e/perf.spec.ts、helpers/perf-diagnostics.ts、helpers/plugin-perf-diagnostics.ts。确认新增诊断不改变正式阈值、输入负载与授权，不在报告泄露Vault正文/token；Core独立tail读是否能支持“Core完成但WS落后”的有限推论（不能据它推断20s前何时完成）；插件请求timing是否解释正确。实际证据temp/final-audit/flood-stages-artifacts-da645ee8、plugin-network-artifacts-da645ee8。只写temp/final-audit/t17c-report10.md，禁止代码/E2E/build/重型验证。业务实现由t176/t178另做，无需审查尚未完成业务diff。

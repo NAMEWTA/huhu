@@ -1,0 +1,6 @@
+# 原取消跨模块落盘与helper预检取消
+Lead t3p；worker t86；工作目录integration。task06已收取并保存66667d9f，Mail完全冻结。
+只修t9b/report02.md第一P2的两条具体缺口。基准18aa8c6b：
+1 Agent已保存nativeCancelledBeforeStart，但Automations cancelled落盘失败/关闭后重开，列表隐藏私有回执导致新信号把同一run结算failed；需经原请求的私有服务对账取消事实，不能把私有回执暴露到普通列表，也不重放命令。
+2 launchApprovedShell受理后pinHelper异步核验期间取消，没有Agent会话/terminal.run，却被submitted标记变unknown。让原请求可证明未提交的取消确定结算cancelled；不得把所有AbortError笼统算未发。
+先写受控失败测试分别卡住这两处真实窗口，避免mock直接返回实现需要的结构化取消。允许sessions.ts、launch-binding.ts及直接测试、Automations service.ts/terminal-environment.ts及测试、必要Agent index私有服务接线（先说明接口）。禁止native/provider/Mail/SSH/公开契约包；不要扩大通用协议或TS目标。不运行重型/Go/E2E，单文件Vitest。保留t9g真实一次执行合同；报告report07写明运行证据与未验。完成冻结，不启动代理。

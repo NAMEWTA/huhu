@@ -3,3 +3,6 @@ packages/testkit/fixtures/**/crlf-*.md -text
 *.cmd text eol=crlf
 
 assets/brand/** -text
+
+# Archived Git bundles must remain byte-for-byte restorable.
+*.bundle binary

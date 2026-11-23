@@ -1,0 +1,2 @@
+# task09 · 终端洪流定向取证
+Lead t3p；integration。新固定da645ee8也缺尾标，按report08建议补最小诊断，不修改生产代码。唯一写入tests/e2e/perf.spec.ts和已有perf diagnostics helper（只需时）。在采样窗口结束且断言前、Core清理前，用已有agent.sessions.output能力独立读取同一会话的尾部/屏幕，记录会话ID、是否含尾标/提示符，复用window.huhuHost engine入口。最好同时通过现有Playwright/CDP只观察WS接收字节与跨消息尾标，避免改页面WebSocket实现；检测窗口内DOM行节点是否被替换。诊断只在HUHU_PERF_DIAGNOSTICS=1启用，保存小附件/计数，不打印全部10MiB。不得修改20秒、真实键盘节奏、10MiB速率、指标。若增加观测开销明确限制。先完成guidance规则（沿用已有实际文档），定向类型/lint检查；不跑E2E/build。报告temp/final-audit/t176-report09.md，由Lead读取。

@@ -1,0 +1,2 @@
+# task14 — 日志投影返工复核
+Lead t3p，cwd integration，只读独审。核对t176-report13及当前相对9350两个文件：packages/herdr-client/test/attach.live.test.ts、tests/e2e/helpers/perf-diagnostics.ts。确认原task13低项关闭、不丢合法诊断字段。读取实际diff及重放方法，不跑E2E/build。报告temp/final-audit/t17c-report14.md。

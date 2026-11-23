@@ -1,0 +1,2 @@
+# t168/task01
+Lead t3p，读取topic与manifest。独立审查，使用dev-review。工作目录 /home/wta/projects/huhu/temp/issue-worktrees/integration，基线05a748b6。只读业务无子代理，不跑E2E/构建/全仓门禁。仅审查 packages/vault/src/index/vault-index.ts 与 packages/vault/test/vault-index.test.ts 的未提交修改。上次目录快照缓存审查P2/P3已返工，参考 temp/final-audit/t15y-report01.md 和 t163-report01.md。现在直接lstat目标元数据，不再扫描目录，并bounded fd读取。核查增量索引正确性、删除/重命名/忽略/符号链接/旧索引清理、读取增长与内存上限，是否引入真实回归。19单文件测试通过但E2E退出未验证。需要指出真实阻断而非无限拓展原有行为；读取并核对新测试。仅写 temp/final-audit/t168-report01.md，Lead主动收取，不需hc send。给文件行号、实际影响和未验证范围。

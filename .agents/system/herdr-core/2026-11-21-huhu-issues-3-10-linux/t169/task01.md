@@ -1,0 +1,4 @@
+# t169/task01
+Lead t3p；读取topic与manifest。integration工作树05a748b6上修复Notes自身通知迟到虚假冲突。仅可写 plugins/notes/src/ui/documents/DocumentSession.ts、plugins/notes/test/document-session.test.ts、plugins/notes/test/document-events.engine.test.ts。最后一个文件为Lead新增未跟踪文件，保留当前全部用例；其他人不写这些文件。
+读取dev-debug/dev-tdd，先读temp/final-audit/t15y-report02.md P2。Engine notes.save已新增规范化vault.fileChanged，事件经过WS和HTTP回执顺序独立。保存A已回执，再输入B，才收到A的事件时不能冲突；真正不同版本/正文仍应保留B并冲突。先补可重复红灯，再沿现有baselineGeneration/loadSeq/diskRevision/activeFileWrite守卫最小修复；避免迟到读数清掉新编辑、误判新保存或载入。当前同步EventBus两项绿灯只覆盖回执前事件，需要延迟交付回执后事件回归。
+客户端须modern-web-guidance search/retrieve。本轮已有Lead搜索abort stale fetch results并取js，完整文件 /tmp/mwg-guide-742470-1795376192756.md，可先完整读取并引用；如须额外搜索网络遇审批，报告命令由Lead执行，不自行等权限。只跑自己单个vitest文件（可逐个跑），不E2E/构建/全仓类型/重型验证，无子代理，无commit/push。报告写temp/final-audit/t169-report01.md，单列未运行验证，Lead主动读取无需hc send。

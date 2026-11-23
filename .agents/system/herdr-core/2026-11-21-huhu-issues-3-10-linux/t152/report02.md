@@ -1,0 +1,23 @@
+# t152 · Notes task10 定向复核
+
+Lead `t3p`，worker `t152`，任务 `task02.md`，执行状态 `done`。基准为 `fa5d5c3acfbfdbeb49b2e55e41048160ecac7537`，目标为 `agent-linux` 上的 Notes task10 未提交差异及保存、重开、冲突处理的直接调用方。复核时 `DocumentSession.ts` 为 `e86dc3e9`，Engine `index.ts` 为 `f7151f71`，会话和真实 Engine 测试分别为 `e9c4f82b`、`dd963a9d`。 [派工文件](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t152/task02.md) · [原发现](t14y-report01.md) · [实施报告](t13b-report10.md)
+
+## 规格轴
+
+- **原 P2 · 同文重开自动清除未知写入草稿，原复现场景已关闭。** 写入对账将未确认结果留在会话，关闭和切 Vault 走队列中的 `preserveDraft`，随正文和基线版本保存 `outcome: "unknown"`。Workbench 与工具两支保存共用序列化数据，读取经同一草稿 schema，移动时展开整个草稿对象，所以标记会保留。新会话保留带标记的同文稿，普通无标记同文稿仍自动清除。点恢复后沿用草稿基线，显示冲突并停掉自动保存，显式保存也受该冲突约束。恢复前的「丢弃草稿」仍走 Engine 删除。模拟旧保存提交前后两次重开的会话回归通过，真实 Engine 往返单独证实标记跨重启、普通草稿无标记、正文文件字节不变。真实 Engine 中 Notes 写能力有共用串行队列，会话回归里「旧 handler 仍挂起时先完成留稿」的顺序用夹具控制。 [留稿](../../plugins/notes/src/ui/documents/DocumentSession.ts#L610) · [Workbench 结算入口](../../plugins/notes/src/ui/documents/useDocumentSession.ts#L55) · [草稿序列化与读取](../../plugins/notes/src/engine/index.ts#L701) · [移动](../../plugins/notes/src/engine/index.ts#L479) · [Engine 写序列](../../plugins/notes/src/engine/index.ts#L409) · [同文规则](../../plugins/notes/src/ui/documents/DocumentSession.ts#L268) · [恢复与丢弃](../../plugins/notes/src/ui/documents/DocumentSession.ts#L831) · [会话回归](../../plugins/notes/test/document-session.test.ts#L1545) · [Engine 重启](../../plugins/notes/test/domain-exposure.engine.test.ts#L720)
+- **原 P3 · 字段回读取样后漏掉外部修改，已关闭。** `vault.fileChanged` 到达当前会话后，活动写记录最新通知，按接收时的基线与读取序号核对。在字段更新及回读结束后、队列项完成前复读。与已确认磁盘相同即结束。磁盘出现 B 时，干净缓冲采用 B，已有本地编辑则保留合入字段后的正文和条件写基线，进入冲突并淘汰旧队列。核对只读。后发的显式重载会淘汰旧通知，测试通过读取次数断言没有额外自动读，并验证重载后排队的新正文照常保存。干净、脏稿和显式重载三支都有 t155 的会话证据。 [事件入口](../../plugins/notes/src/ui/NotesModule.tsx#L67) · [活动写挂起通知](../../plugins/notes/src/ui/documents/DocumentSession.ts#L708) · [结算复读](../../plugins/notes/src/ui/documents/DocumentSession.ts#L335) · [字段请求](../../plugins/notes/src/ui/documents/DocumentSession.ts#L530) · [显式重载回归](../../plugins/notes/test/document-session.test.ts#L367) · [干净和脏稿回归](../../plugins/notes/test/document-session.test.ts#L456)
+
+### 本次修补的直接影响
+
+1. **P2 · 保存新正文会误删尚未处理的未知草稿。** 用原回归在旧写迟到提交 A 后打开同一个文本文件，此时磁盘是 A、草稿恢复入口持有 X。用户先保留该入口，在 A 上编辑并手动保存 B。编辑器允许这一步，因为载入只把标记放进 `draft`，冲突保护要点「恢复草稿」才启用。B 写成功后，保存回执分支无条件清除 `this.draft` 并发出同路径 `notes.draft.discard`。此时 X 从恢复入口和草稿文件同时消失，B 与旧稿 X 无关，用户也未明确放弃 X。同一路径在自动保存开启时也能触发。 [载入分支](../../plugins/notes/src/ui/documents/DocumentSession.ts#L268) · [文本编辑保存入口](../../plugins/notes/src/ui/viewers/TextFileView.tsx#L73) · [回执清理](../../plugins/notes/src/ui/documents/DocumentSession.ts#L399) · [Engine 删除](../../plugins/notes/src/engine/index.ts#L735)
+2. **P3 · 恢复后确认放弃并重载，会把同一份标记草稿重新列为可恢复。** 在磁盘仍为 X 的同文场景点「恢复草稿」，再点重载并确认放弃。确认按钮只调用通用 `load()`。它同时读正文和原草稿，采用磁盘正文并清掉冲突，但由于持久标记仍是 `unknown`，立即重新显示同一份草稿。再次打开也会显示。恢复前单独点「丢弃草稿」仍能删除，确认放弃未完成用户所选动作。 [确认操作](../../plugins/notes/src/ui/NoteDocument.tsx#L248) · [中文提示](../../plugins/notes/src/ui/i18n.ts#L72) · [文本确认操作](../../plugins/notes/src/ui/viewers/TextFileView.tsx#L95) · [重载读稿](../../plugins/notes/src/ui/documents/DocumentSession.ts#L227) · [恢复与丢弃](../../plugins/notes/src/ui/documents/DocumentSession.ts#L831)
+3. **P3 · 档案记录页重开时没有标记草稿的恢复或丢弃入口。** 在档案正文或字段写入结果未知时关闭，待留稿完成再从档案列表重开。共享会话能读取该草稿，记录页仅依据 `snapshot.state` 和 `flushError` 呈现冲突与错误。首次载入的状态是 saved，草稿在 `snapshot.draft`，页面直接显示磁盘正文。用户需要额外切到「以 Markdown 打开」才能找到恢复或丢弃按钮。记录页原有的入口缺口也作用于新增标记稿。 [档案会话](../../plugins/notes/src/ui/archives/ArchiveRecordView.tsx#L12) · [档案正文及状态](../../plugins/notes/src/ui/archives/ArchivesViews.tsx#L435) · [切换入口](../../plugins/notes/src/ui/NotesModule.tsx#L546) · [Markdown 草稿入口](../../plugins/notes/src/ui/NoteDocument.tsx#L287)
+
+## 规范轴
+
+定向范围内未发现独立规范违规。标记复用现有草稿 JSON、能力 schema、路径归属和写队列，旧记录允许缺省字段。延后通知的状态归属当前文件写入，受会话基线和读取序号约束。界面复用共享会话和已有 Engine 能力。Lead 的首次格式检查发现会话文件格式问题，后续 13 文件格式复查及 lint 通过。 [草稿 schema](../../plugins/notes/src/engine/index.ts#L24) · [通知所有权](../../plugins/notes/src/ui/documents/DocumentSession.ts#L93) · [复查日志](notes-persist-lint-recheck.log)
+
+## 既有证据与未运行验证
+
+- t150 修前 3 失败、1 通过、70 未选。t155 修后会话单测 74/74，真实 Engine 草稿重启用例 1/1（8 项未选），Notes 包类型检查退出 0。以上为 Lead 已有证据。新增发现来自实际入口的源码复核，尚无本次运行结果。 [修前日志](save-reopen-notify-red.log) · [修后日志](save-persist-check.log) · [类型退出记录](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/evidence/linux-final-acceptance.md#L206)
+- 本轮未执行单测、类型检查、lint、Playwright/Electron E2E、构建或打包。工作台实际恢复与丢弃、档案通知后的画面及当前候选包待验。 [相关桌面用例](../../tests/e2e/knowledge/session-flush.spec.ts#L149)

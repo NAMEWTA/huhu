@@ -1,0 +1,4 @@
+# t175/task01 非SSH性能失败根因分析
+Lead t3p。工作树 integration，HEAD4a54f0a9，clean/frozen正在 t174串行E2E。不改业务，不构建/E2E/全仓/压测/子代理。角色疑难分析 astra/high。
+按dev-benchmark读取现有实现、测量与可用trace，针对3项稳定越界与1项滚动/退出异常给证据分层根因假设、最小可判别探针/已有复用和推荐修复切片。当前日志 temp/final-audit/followup-failed-4a54f0a9.log：插件inbox启用414ms（旧05a912ms，阈值300），1MiB打开679ms（旧898，阈值500），5000行实时预览输入p95 18.8ms（旧17.1，阈值16），1000任务scroll DOM1001帧间隔133ms/10次>66，随后app.close仍未返回（旧trace也关窗卡住）。不能仅数字推断根因，不提高阈值/标记CI跳过/减少负载/删除正确性断言。Lead负责实际profile/E2E，给可执行诊断步骤。
+输入 tests/e2e/perf.spec.ts、packages/editor上游、plugins/notes/ tasks、kernel plugin lifecycle；先当前实现再temp/sources成熟方案。前端分析遵循zh-modern-web-guidance检索retrieve，可复用 /tmp/mwg-guide-742470-1795376192756.md已检索js，需特定性能指南时按技能检索。允许只读脚本解析已存在trace。当前test-results会被t174每组保全到temp/final-audit/followup-{group}-artifacts-4a54f0a9，不要改/删它。报告 temp/final-audit/t175-report01.md，清楚区分测量缺陷与产品热路径，Lead主动收取。

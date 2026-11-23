@@ -1,0 +1,4 @@
+# t168/task02
+Lead t3p，上一审查已收取，Vault返工交t15t，你不改业务。独立只读审查t15t/task01实现与Lead夹具更正。先读 temp/final-audit/t15t-report01.md。范围 packages/ui/src/components/TerminalView.tsx、plugins/agent-cli/src/engine/{input-ownership,terminal-bridge,sessions,capabilities,index}.ts、src/ui/{AgentCliModule,WorkspaceCanvas,ReviewPanel,i18n}.tsx/ts及sessions测试；ToolPolicyCatalog.tsx和tests/e2e/{shell.spec.ts,workflows/acceptance.spec.ts}。重点控制证明是否始终绑定当前view/session、观察者不能发送、Tasks排他、断线/回执恢复、共享TerminalView其他调用者是否回归。Typecheck t16f通过，聚焦11单测通过，真实UI未运行。
+另核对Lead tests/e2e/helpers/candidate-desktop.ts关闭后使用启动时保存的desktopPid(而非app.process)，tests/e2e/workflows/external-task-web.spec.ts仅create传通用持久意图，tasks.update按版本写；tasks-journey.spec.ts为固定Codex配置普通检测路径，保留受控派遣hash。t166 T7.2包诊断1pass，t16h tools-web包诊断1pass；旧05a包加测试改动非最终组合。测试身份预检上轮t15w/task02已审。
+不跑E2E/构建/全仓验证，无子代理，不扩大SSH或既有不相关风险。仅写 temp/final-audit/t168-report02.md，给真实缺陷与未运行范围；Lead主动收取无需hc send。

@@ -1,0 +1,5 @@
+# Linux 已批准终端规则外部闭环
+共享根 /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux，Core wta-ubuntu，Lead t3p，执行 t4x，report13.md。代码目录 /home/wta/projects/huhu/temp/issue-worktrees/agent-linux，分支 impl/huhu-issues-3-10-desktop-web-verify，Mail task12 已由 Lead 提交 41f3c8e4 并合入候选，继续此工作树。禁止自行提交和远端写入。
+读取 t5h/report08.md 第二实施入口及原规格依据，按 dev-build 完成 Linux sh 终端规则的桌面批准→授权 CLI/MCP 配置与手动运行正向链路。复用现有本地 POSIX 保护规则执行、外部批准/撤销、意图回执、credential lease 和 approvedDirectory。批准目标必须绑定真正解析到的 shell 文件/映像、固定 argv、规则版本/命令/目录/变量名，执行时不得重新按 PATH 选另一解释器。保留 Windows powershell 原合同，不支持的 shell 明确提示而非泛化放开。
+可写 plugins/automations/** 相关引擎、UI、单测及 tests/e2e/workflows 下新建独立 automation-linux-environment.spec.ts；不得修改 task-journey.spec.ts 或其它现有 workflow spec。相关 apps/cli/test/approved-terminal.test.ts 可写。公共 contracts、Agent 引擎、desktop/Engine 注册只读，若需要接口接线在报告列出，Lead 处理。t86 同时实现 Linux Agent 原生环境，不能干预其文件。前端按 zh-modern-web-guidance 先 search/retrieve。确认普通无保护值规则原用法不受影响。
+使用合成值、临时 Vault、已有 TestProtection 或本地可用夹具，只跑本次相关单个 Vitest 文件。若 sandbox 不允许监听则记录实际失败交 Lead 运行，不申请 bypass，不把退出126当通过。禁止全仓检查、E2E/Go构建/打包和子代理。报告明确完成的批准目标，版本变化拒绝、撤权、重复请求和零重复启动证据，以及 Lead 需要运行的真实CLI/MCP/Core用例。

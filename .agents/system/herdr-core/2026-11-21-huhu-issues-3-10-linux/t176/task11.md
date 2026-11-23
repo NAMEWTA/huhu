@@ -1,0 +1,2 @@
+# task11 — 恢复隔离直连诊断用例供 Lead 执行
+Lead t3p，worker t176，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。task10 sandbox不能启动Core，已如实记录。请恢复单个 packages/herdr-client/test/attach.live.test.ts 临时诊断，使用私有HOME/XDG/socket、固定PATH /usr/bin:/bin、/bin/sh、锁定Core与满速10MiB原生产命令。记录尾标时刻、字节、CAN重绘计数和最终Core独立读取汇总。必须可靠清理自有Core/holder并超时失败留证。此次只写不跑，Lead在当前授权环境串行实际执行。你不改其他文件、不启动子agent。报告temp/final-audit/t176-report11.md包含精确命令/变量和未运行原因。探针不要执行后自行删除；Lead收证再决定保留。

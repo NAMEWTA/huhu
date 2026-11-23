@@ -1,0 +1,2 @@
+# task14 — 停键因果实验夹具
+Lead t3p，cwd integration。读取temp/final-audit/t18d-report01.md。只在 temp/final-audit 生成诊断变体生成脚本（以当前 tests/e2e/perf.spec.ts 为输入，生成 tests/e2e/perf-stop-diagnostic.spec.ts 临时文件），不修改正式测试/业务；允许生成临时文件后定向tsc，E2E仅Lead运行。变体只保留终端洪流测试，或runner按grep选该测试。密集按键到gate+5000ms即停，之后以现有exposeFunction尾标通知的Promise或20秒deadline计时器等待，不能密集page.evaluate轮询。保持焦点、观察、gate、10MiB命令、所有正式断言/清理；记录最后发键时间和诊断变体身份，不计正式验收。通过固定env DIAGNOSTIC_STOP_MS选择5000或10000，必须明确仅诊断。脚本严格替换目标一次确保不静默漂移。报告temp/final-audit/t176-report14.md，说明如何生成/运行/删除，不能运行E2E或build。不要改task13两个待审文件。

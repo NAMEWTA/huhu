@@ -1,0 +1,4 @@
+# task12 — 真实 bridge 分段诊断
+Lead t3p，worker t176，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。Lead已跑t188，temp/final-audit/direct-attach-lead-probe.log：直连同10MiB尾标300.4ms，11102595B，5658frames，CAN0，Core读303ms tailtrue，正常stop和清理无残留。task11报告已收，探针暂保留。
+下一步只加 HUHU_PERF_DIAGNOSTICS=1 条件下的桥接聚合观测，不改变业务节流、credit策略或阈值。可写plugins/agent-cli/src/engine/terminal-bridge.ts及tests/e2e/helpers/perf-diagnostics.ts、tests/e2e/perf.spec.ts（Lead现已停止写，840baba8提交）。记录同session Core DATA到达首/末/tail时间与累计字节帧、canSend判断被阻止次数/最大bufferedAmount、ws.send调用和完成回调累计字节/尾标时间/错误数。仅聚合，不落正文/token。tail采用既有夹具特定FLOOD-DONE-42-10485760跨帧匹配，仅诊断开关下。用process.stderr输出带固定前缀的JSON，test监听 app.process().stderr只提取这类聚合并attachment；确保关闭前/失败finally可取证，取消与清理不被附件阻止。不引入持久生产接口、全局timer或改变send callback之外逻辑。若不需正式源码hook有更小现成入口先复用。
+只写、定向types/lint；不跑E2E/build。Lead待names改动一起构建再单跑flood；报告temp/final-audit/t176-report12.md并列未运行。禁止SSH/其他业务/新agent。

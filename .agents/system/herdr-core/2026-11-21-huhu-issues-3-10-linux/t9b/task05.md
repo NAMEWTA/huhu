@@ -1,0 +1,4 @@
+# 原取消跨模块恢复收尾复核
+Lead t3p，worker t9b，integration。只读f13d4c78对父提交六文件差异，核对你report02第一P2剩余两条真实触发路径是否关闭：Agent取消已落盘而Automations写失败/关闭后重开；pinHelper异步核验前取消尚无会话/Core请求。读t86/report07及新的真实服务受控红绿用例。私有readApprovedShellCancellation只读原请求、不暴露通用列表、不重放命令，helper可用性不应阻止原取消查证。只检此修复直接影响，不重新全模块审查。
+Lead t9v正在运行三个模块types、完整sessions/service与真实CLI/MCP，日志cancel-recovery-check.log。可等待该日志或使用已有受控测试；不重复实程/全量。不修改业务，无子代理。分别写规格规范与未验证，report05.md完成冻结。
+附：task04调用名P2已收取。其可移植测试提醒已用66a9245d显式创建sh链接，避免依赖系统/bin/sh本身是否链接，单文件复验随后Lead执行。

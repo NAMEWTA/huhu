@@ -6,19 +6,149 @@ t9	task01.md	done
 t10	task02.md	done
 t11	task01.md	done
 t19	task01.md	done
-t1k	task01.md	done
-t1m	task01.md	done
-t1t	task01.md	done
-t1m	task02.md	done
 t1k	task02.md	done
+t1m	task02.md	done
+t1t	task01.md	done
 t23	task01.md	done
 t26	task01.md	done
-t27	task01.md	done
 t27	task02.md	done
 t28	task01.md	done
 t2q	task01.md	done
-t2r	task01.md	done
-t2y	task01.md	done
 t2r	task02.md	done
-t30	task01.md	active
-t2y	task02.md	active
+t2y	task06.md	done
+t30	task01.md	done
+t31	task01.md	done
+t32	task01.md	done
+t33	task01.md	done
+t34	task01.md	active
+t4k	task01.md	done
+t4v	task03.md	done
+t4x	task13.md	done
+t4t	task08.md	done
+t5h	task08.md	done
+t86	task07.md	done
+t8g	task01.md	done
+t8k	task04.md	done
+t8t	task01.md	done
+t8y	task01.md	done
+t91	task01.md	done
+t93	task02.md	done
+t9b	task05.md	done
+t10b	task01.md	done
+t10c	task01.md	done
+t10d	task01.md	active
+t10f	task01.md	active
+t10g	task01.md	active
+t10h	task01.md	done
+t10j	task02.md	done
+t10k	task01.md	active
+t10m	task01.md	done
+t10n	task02.md	done
+t10p	task01.md	active
+t10q	task01.md	active
+t10r	task01.md	done
+t10s	task01.md	active
+t10t	task01.md	active
+t10w	task01.md	done
+t10x	task01.md	active
+t110	task01.md	active
+t111	task01.md	active
+t115	task01.md	active
+t117	task01.md	active
+
+t11f	graph-state-fix	task01.md	working	agent-linux
+
+t11g	package-fixture-fix	task01.md	working	agent-linux
+
+t11h	manual-save-diagnose	task01.md	working	agent-linux
+
+t11n	manual-save-red	task01.md	working	agent-linux
+
+t11n	manual-save-fix	task02.md	working	agent-linux
+
+t120	graph-final-review	task01.md	working	agent-linux
+
+t124	save-fixture-review	task01.md	working	agent-linux
+
+t125	graph-arrival-design	task01.md	working	agent-linux
+t12c	task01.md	done
+t12f	task01.md	done
+t12g	task01.md	done
+t12q	task01.md	done
+t12v	task01.md	done
+t12z	task01.md	done
+t136	task01.md	done
+t13b	task12.md	done
+t13d	task01.md	done
+t13j	task02.md	done
+t13p	task01.md	done
+t13x	task01.md	done
+t142	task01.md	done
+t144	task05.md	done
+t147	task01.md	done
+t14j	task01.md	done
+t14m	task01.md	done
+t14s	task01.md	done
+t14y	task01.md	done
+t152	task04.md	done
+t15p	task01.md	done
+t15s	task01.md	done
+t15t	task04.md	done
+t15v	task01.md	done
+t15w	task02.md	done
+t15y	task02.md	done
+t163	task01.md	done
+t168	task05.md	done
+t169	task01.md	done
+t16n	task03.md	done
+t175	task01.md	done
+t176	task27.md	done
+t178	task10.md	active
+t17c	task17.md	done
+t18d	task04.md	done
+t194	task19.md	done
+t197	task11.md	done
+t194	task19.md	done
+t176	task27.md	done
+t194	task19.md	done
+t176	task27.md	done
+t194	task19.md	done
+t194	task19.md	done
+t176	task27.md	done
+t19k	lead-package-validation	done
+t19m	lead-package-validation	done
+t19q	lead-package-validation	done
+t19r	lead-package-validation	done
+t19s	lead-package-validation	active
+t19s	lead-package-validation	done
+t19v	lead-package-validation	done
+t19w	lead-package-validation	done
+t19x	lead-dashboard-validation	done
+t19y	lead-dashboard-validation	done
+t19z	lead-dashboard-validation	done
+t1b0	lead-dashboard-validation	done
+t1b1	lead-dashboard-validation	done
+t1b2	lead-dashboard-validation	done
+t1b3	lead-dashboard-validation	done
+t1b4	lead-dashboard-validation	done
+t1b5	lead-dashboard-validation	done
+t1b6	lead-dashboard-validation	done
+t1b7	lead-dashboard-validation	done
+t1b8	lead-dashboard-validation	done
+t1b9	lead-dashboard-validation	done
+t1bb	lead-dashboard-validation	done
+t194	task19.md	done
+t176	task27.md	done
+t1bd	lead-combined-acceptance	done
+t194	task19.md	done
+t176	task27.md	done
+t194	task19.md	done
+t194	task19.md	done
+t194	task19.md	done
+t1bj	deferred-final-package	active
+t1bk	deferred-combined-accept	active
+t1bj	deferred-final-package	done
+t1bk	deferred-combined-accept	done-13-passed
+t1bm	reviewed-final-land	done-5ea79f717baf81795566558f6f117f27d381aa17
+t194	task19.md	done
+t176	task27.md	done

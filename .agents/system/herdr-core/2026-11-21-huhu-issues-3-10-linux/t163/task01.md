@@ -1,0 +1,2 @@
+# t163/task01
+Lead t3p，先核对topic/manifest，工作目录integration，基线05a。只负责packages/vault/src/index/vault-index.ts及packages/vault/test/vault-index.test.ts已有未提交补丁的返工。读取temp/final-audit/t15v-report01.md与t15y-report01.md（P2缓存旧size扩大整读超大正文窗口，P3嵌套递归快照同时占内存）。优先复用现有infoOf等实现，按变更文件直接读当前元数据，不必坚持递归快照缓存；保持原来不跟随文件符号链接、忽略规则、目录层级语义，避免扫描无关子树。不要新造基础设施。要用实际成本计数和索引输出回归测试，覆盖超限文件在批间/批内变化、嵌套多目录、symlink（平台适用）等相关风险；不把计数减少当作E2E退出已修复。仅跑本次单个vault-index.test.ts，不跑E2E/build/重型benchmark/全仓门禁，不提交push，不启动子代理，不改其他worker文件。报告temp/final-audit/t163-report01.md，Lead主动读取，不需hc send权限。

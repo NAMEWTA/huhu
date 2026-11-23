@@ -1,0 +1,4 @@
+# task17 — Electron 152 输入后任务延迟兼容修复
+Lead t3p，integration，实现仅 apps/desktop/src/main 启动配置及对应单个unit test；不改共享Web/SSH/bridge/CREDIT/正式性能阈值。t18t已验证同一9350构建Chromium152.0.7977.167，其他enable/disable功能列表一致，默认十秒停键后DOM10.15s，禁用DeferRendererTasksAfterInput后在持续相同密度XTEST输入中DOM2.131s、p95 37.1ms301窗内样本，清理通过。日志temp/final-audit/deferral-preload-{default,disabled}.log；报告t18d-report04有锁定Chromium源码依据，临时preload演示正确合并。
+按复用优先检查现有桌面启动开关工具。为当前受控Electron/Chromium152添加小范围调度兼容措施：启动最早、app ready/BrowserWindow之前，仅Chrome major152追加disable feature DeferRendererTasksAfterInput；保留已有disabled功能及试验参数/顺序，去重目标，若显式enable同名需定义一致可测试优先规则（应用修复优先或保留用户选择，报告选择）。其他Chromium主版本保持原样，并注明这是有固定源码及实测证据的暂时兼容点，升级运行时须复验而非延续未证实修改。用户Web入口不改、不声称修复浏览器本身。
+避免新通用基础设施，一小函数便于测试即可。单个unit覆盖目标版本、生效时机调用位置、已有列表保留/目标不重复、非目标版本。需要现代webguidance时按项目读取；主进程配置非renderer可沿用已有performance指导。worker只写、单Vitest文件、定向types；不build/E2E/全仓。报告temp/final-audit/t176-report17.md，交Lead独审与固定构建原始洪流正式验证。

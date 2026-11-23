@@ -1,0 +1,37 @@
+# Notes 活动写状态独立复核
+
+Lead `t3p`，worker `t14y`，`task01`，状态 `done`，待 Lead 收取。基准与工作树 HEAD 同为 `fa5d5c3acfbfdbeb49b2e55e41048160ecac7537`。复核该提交上的 Notes 保存相关未提交差异、会话单测、`session-flush.spec.ts` 与共享 EngineClient 一行改动及单测。工作树对象短哈希为 `92a58e43`（DocumentSession）、`38aebe8d`（NoteDocument）、`082d881f`（ArchivesViews）、`4192cfed`（TextFileView）、`7a1505e5`（Notes 单测）、`9c261d62`（EngineClient）、`0f3d5e52`（客户端单测）、`32ff5d8c`（E2E）。[任务单](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t14y/task01.md) · [原两项发现](t14j-report01.md) · [活动写约定](t14m-report01.md) · [实施报告](t13b-report08.md)
+
+## 规格轴
+
+**原两项 P2 的时序已在源码关闭。当前仍有一条 P2 会使未知写入留下的草稿无法恢复，以及一条 P3 会漏掉字段回读期间真正的新外部版本。** 两条发现均为源码时序推导。
+
+### 原两项 P2
+
+- **对账期间自动重载覆盖撤销正文，已关闭。** 同代错误发布 dirty 时活动写仍在，延续到对账采用磁盘版本、保留缓冲并建立冲突之后。外部通知在调用 `load` 前检查活动写，已发自动读也须通过同一闭包和磁盘读数检查才能接纳。兜底轮询在发请求和接纳时分别检查。原顺序下缓冲 X、磁盘 A，最终留稿 X，正文请求只有一笔。[开始与结算](../../plugins/notes/src/ui/documents/DocumentSession.ts#L323) · [正文错误及对账](../../plugins/notes/src/ui/documents/DocumentSession.ts#L381) · [自动入口](../../plugins/notes/src/ui/documents/DocumentSession.ts#L671) · [定向用例](../../plugins/notes/test/document-session.test.ts#L890)
+- **Vault 切换漏选回执待定的文档，已关闭。** 开始和结算活动写均发布订阅快照。回执及对账期间，即使 X 等于上次确认的磁盘，`hasUnsaved` 仍为真。弹窗列举与确认提交均先 drain 再按同一快照筛选。`keepDraft` 等待前序写并在出现切代时按新代结算，当前代的留稿失败会令切换留在原处。选择全部保存时经 `untilClean` 等待在途写，无法结清再留稿。会话单测覆盖快照与实际留稿数据，真实的两文档筛选及切回回读由待运行的桌面用例覆盖。[快照](../../plugins/notes/src/ui/documents/DocumentSession.ts#L176) · [注册入口](../../plugins/notes/src/ui/documents/useDocumentSession.ts#L55) · [筛选与结算](../../packages/workbench/src/state/flushers.ts#L38) · [切换](../../packages/workbench/src/shell/VaultSwitchDialog.tsx#L38) · [跨代留稿](../../plugins/notes/src/ui/documents/DocumentSession.ts#L647) · [单测](../../plugins/notes/test/document-session.test.ts#L1217) · [桌面用例](../../tests/e2e/knowledge/session-flush.spec.ts#L774)
+
+### P2 · 同 Vault 重开会删除为未知写入保留的同文草稿
+
+1. 手动保存的文本文件从磁盘 X 编辑为 A，点击保存后立即撤销到 X。让正文写停在实际替换文件之前，由 Dispatcher 的超时先返回 `details.outcome = "unknown"`。Dispatcher 将 handler 和超时竞速，正文 handler 未把取消信号传给文件写入。路径队列和异步原子替换可以继续，读文件可以先看到 X。[超时与未知回执](../../packages/kernel/src/dispatcher.ts#L366) · [正文 handler](../../plugins/notes/src/engine/index.ts#L548) · [文件写入与原子替换](../../packages/vault/src/write.ts#L112)
+2. 此时对账读到 X，会话正确保留 unknown。关闭文本文件标签，释放最后引用，`flushForExit` 将 X 留稿。Workbench 的草稿写入单独的 `.huhu/drafts/`，可以先于挂起的正文写完成。随即在同一个 Vault 重开标签，新会话同时读到磁盘 X 和草稿 X，仅按字节相等自动调用 `notes.draft.discard`，用户看不到恢复入口。[对账](../../plugins/notes/src/ui/documents/DocumentSession.ts#L430) · [留稿](../../plugins/notes/src/ui/documents/DocumentSession.ts#L573) · [退出](../../plugins/notes/src/ui/documents/DocumentSession.ts#L629) · [引用释放与重开](../../plugins/notes/src/ui/documents/DocumentSessionRegistry.ts#L30) · [首次读取](../../plugins/notes/src/ui/documents/useDocumentSession.ts#L67) · [同文草稿清理](../../plugins/notes/src/ui/documents/DocumentSession.ts#L257) · [草稿持久化与删除](../../plugins/notes/src/engine/index.ts#L714)
+3. 等旧 handler 提交 A 后再打开标签，磁盘为 A，X 的草稿已删除。预期是未知写入尚能迟到提交时，第一次重开仍保留 X 的恢复能力。现有未知回归断言到草稿已写入，另有普通同文草稿被清理的回归，两个用例之间缺少这条先重开、后提交的顺序。[未知回归](../../plugins/notes/test/document-session.test.ts#L965) · [普通同文草稿用例](../../plugins/notes/test/document-session.test.ts#L1132)
+
+### P3 · 字段回读取样后送达的外部修改可以一直不显示
+
+从干净档案开始修改字段，`archives.update` 成功后让 `notes.read` 先从磁盘取样 F，并扣住它的响应。外部编辑器随即把正文改为 B。Vault watcher 通过内容版本过滤自写回声，B 是真实的新内容，通知经 NotesModule 抵达会话。此时活动字段写存在，通知被直接返回，也没有递增任何读数标记。释放 F 响应后，字段任务把 F 合并并标记 saved。正文编辑区读取会话快照，查询缓存刷新也无法替换该正文，且 saved 状态不启用兜底轮询。磁盘保持 B，编辑区停留于 F，直至重开或再有一次外部变更。应在保护窗口结束后核对取样期间收到的变化，使无本地改动时能显示 B。这是字段回读保护仍留下的行为，基准版本对 saving 中的通知也有同类遗漏。[外部修改契约](../../.agents/dev/archive/changes/implemented/feature_2026-11-09-huhu-workbench-definition/modules/knowledge.md#L90) · [Watcher 发出与过滤](../../packages/vault/src/watch/watcher.ts#L178) · [真实通知入口](../../plugins/notes/src/ui/NotesModule.tsx#L67) · [字段读数接纳](../../plugins/notes/src/ui/documents/DocumentSession.ts#L514) · [通知和轮询门控](../../plugins/notes/src/ui/documents/DocumentSession.ts#L671) · [档案正文来源](../../plugins/notes/src/ui/archives/ArchivesViews.tsx#L483)
+
+### 其余行为
+
+- 手动保存从交付后的会话捕获各次正文，前一笔 ACK 只推进它自己的版本，排队项获得该版本而保留其自身输入。真实笔记按钮、菜单与快捷键仍使用手动语义，纯文本/JSON 的编辑端口同步交付并直接 `save`。批注、编辑模式、路径操作和 Vault 保存显式排空。Rich editor 的 drainer 调用 `emitNow` 交付，直接调用方未形成回等队尾的路径。队尾在活动状态通知前登记，`onSaved` 只启动缓存失效。[队列与快照](../../plugins/notes/src/ui/documents/DocumentSession.ts#L454) · [排空](../../plugins/notes/src/ui/documents/DocumentSession.ts#L607) · [笔记入口](../../plugins/notes/src/ui/NoteDocument.tsx#L119) · [文本入口](../../plugins/notes/src/ui/viewers/TextFileView.tsx#L73) · [编辑端口](../../packages/editor/src/rich/RichMarkdownEditor.tsx#L537) · [保存回调](../../plugins/notes/src/ui/documents/useDocumentSession.ts#L50) · [手动快照单测](../../plugins/notes/test/document-session.test.ts#L148)
+- 档案的失焦更新及删除未定义字段复用同一 `writeFields`。预检期间可自动读，切代后的预检不会发更新。提交及 ACK 后回读期间持续可见；回读成功后把字段差异三方合并进同代各次冻结的正文，合并失败的快照拒绝写入。当前 `rawCall` 封装也等待查询刷新，失败后保留原槽对账。显式 load 和冲突操作按代数、读序号和磁盘修订号仲裁，只在旧读数失效时等待已开始的对账。对账读不等显式 load，代码路径未形成相互等待。跨代已发写入仍核对真实磁盘，留稿按当前代重试。笔记、档案和纯文本的转换完成进入会话实时判断，笔记及纯文本冲突按钮按 `hasUnsaved` 判断保留与确认重载，档案动作随后刷新详情。[档案调用](../../plugins/notes/src/ui/archives/ArchivesViews.tsx#L377) · [字段更新与快照合并](../../plugins/notes/src/ui/documents/DocumentSession.ts#L493) · [显式读取](../../plugins/notes/src/ui/documents/DocumentSession.ts#L216) · [显式重载先于旧写的单测](../../plugins/notes/test/document-session.test.ts#L752) · [字段窗口单测](../../plugins/notes/test/document-session.test.ts#L391) · [文本冲突入口](../../plugins/notes/src/ui/viewers/TextFileView.tsx#L95)
+- EngineClient 只在 `write: true` 的 `res.json()` 读取或解码失败上附加现有 unknown 标记，错误码与消息保持原值，成功解析出的服务端错误详情照常透传。Notes 一并识别原始传输错误、客户端解码标记和 Engine 明确未知。同代普通错误对账同盘后仍能重试。直接使用详情的 Mail/SSH UI 取 `reason`，Agent CLI 已按 INTERNAL 进入核对流程，Versioning 包装透传详情，此次新增字段未改变这些分支条件。[客户端](../../packages/workbench/src/engine-client/client.ts#L64) · [客户端用例](../../packages/workbench/test/engine-client.test.ts#L28) · [Notes 边界用例](../../plugins/notes/test/document-session.test.ts#L928) · [Mail](../../plugins/mail/src/ui/MailModule.tsx#L740) · [SSH](../../plugins/ssh/src/ui/FilesPanel.tsx#L116) · [Agent CLI](../../plugins/agent-cli/src/ui/AgentCliModule.tsx#L268) · [Versioning](../../plugins/versioning/src/ui/useCall.ts#L16)
+
+## 规范轴
+
+此次范围内未发现独立的项目规范违规。正文、字段、草稿沿用原会话与队列，复用现有条件版本、错误详情和冲突控件。编解码修改保留桌面与 Web 共用的 EngineClient 接口。静态复核沿用任务指定的前端异步指南。[项目指令](../../AGENTS.md) · [客户端异步指南](/tmp/mwg-guide-3235787-1795365728802.md#L160)
+
+## 已有证据与未运行项
+
+- t14r 的修复前日志记录原两项失败。t14x 的日志记录 Notes 71/71 与 EngineClient 14/14，Lead 台账记录 Notes 包类型、E2E 差异类型、定向格式和 oxlint 已结束并通过。此次仅引用已有证据。[前序红灯](save-active-write-red.log#L215) · [定向绿灯](save-active-write-check.log#L5) · [Lead 验收台账](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/evidence/linux-final-acceptance.md#L194)
+- 本轮未运行单测、类型检查、lint、构建、打包、浏览器或 Electron E2E。当前桌面待验收项包括 `session-flush.spec.ts` 的「手动保存回执在途时继续输入」「两次手动保存重叠」「对账无法读取且缓冲等于原文」「两篇笔记切 Vault 时，回执待定且已撤销的笔记也保留草稿」。上述 P2 与 P3 也尚无运行证据。[前三条用例](../../tests/e2e/knowledge/session-flush.spec.ts#L146) · [双文档切换用例](../../tests/e2e/knowledge/session-flush.spec.ts#L774)

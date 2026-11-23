@@ -1,0 +1,2 @@
+# #8 S4.2 Graph 正文与增量的边界核对
+共享根 /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux，Core wta-ubuntu，Lead t3p，执行 t5h。按 dev-architecture，只读固定候选 18857911，写 t5h/report06.md。S4.1 的新 Graph 专属 consent 仍有用户决策边界，不修改此决定。依据已确认的 S4.2、设计待决项、Gmail 生产实现与本地 one-mail 固定上游，分析在已有合适 Graph 凭据情况下可交付的最小可用增量和 MIME 正文流程。不通过个人环境找凭据，不请求真实 OAuth 或邮件服务。报告列当前 Engine 能力/账号数据、是否已有受控的存量 Graph 凭据入口、授权受众/许可缺口、能先实际模拟和实现的工作及必要测试。若没有合格账号装配入口，给出兼容默认 Outlook IMAP 的具体合同，而不是假造生产已接通。当前源码只读，不跑构建、全量、E2E 或远端写入。必要的提供商合同核对使用版本对应的 Microsoft 官方文档。

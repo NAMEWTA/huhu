@@ -1,0 +1,2 @@
+# task13 — bridge诊断及直连探针独审
+Lead t3p，t17c，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。只读当前dirty packages/herdr-client/test/attach.live.test.ts、plugins/agent-cli/src/engine/terminal-bridge.ts、tests/e2e/helpers/perf-diagnostics.ts、perf.spec.ts；另plugin-perf-diagnostics.ts增加namesOnly布尔观测。t176-report11/12说明设计，t188直连实际通过且正常cleanup。目的观测Core接收→WS发送/完成→浏览器，不改变正式阈值/负载/credit/权限；只能开关下统计，不写正文/token。核对实际统计/尾标/取消清理与非诊断默认行为，生产阶段后将评估是否移除诊断。Lead将固定提交构建真跑。报告temp/final-audit/t17c-report13.md；只读无E2E/build，不扩大范围。

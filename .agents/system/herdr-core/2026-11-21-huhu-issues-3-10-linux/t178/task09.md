@@ -1,0 +1,3 @@
+# task09 — 能力目录性能定位
+Lead t3p，worker t178，cwd /home/wta/projects/huhu/temp/issue-worktrees/integration。task08 helper Lead已接线真跑 t183，da645 应用冷启1845ms，off38/on279ms，RSS341MiB；单次通过但旧t180启用472ms。证据 temp/final-audit/plugin-network-artifacts-da645ee8/plugin-perf-network.json。capabilities GET响应14184843bytes，~296ms首字节；off后目录232ms首字节；enable请求requestStart220ms，responseStart237ms，即HTTP发送前排队占主要部分。
+先只读定位14MB来源、生成成本、调用方实际需要的字段；复用已有schema/目录缓存方案，给出精确改动建议，不先删契约字段、不改变授权/撤销立即生效。可写临时诊断脚本temp/final-audit，不改生产或perf.spec（等待Lead明确范围）。可跑单个现有Vitest/纯本地小脚本，禁止E2E/build/全仓门禁。不得新agent。报告temp/final-audit/t178-report09.md，列实际证据与未验证假设。

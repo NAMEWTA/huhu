@@ -1,0 +1,2 @@
+# t15t/task02
+Lead t3p，上一任务已收取。现在只负责 packages/vault/src/index/vault-index.ts 和 test/vault-index.test.ts，两文件已有t163补丁需保留。读 temp/final-audit/t168-report01.md，修复大小写不敏感卷refreshPaths旧改名路径仍存在的问题。原目录精确文件名匹配语义不能丢；普通增量避免重复递归扫描；可以浅目录条目一次批内读取、或明确改名源删除，优先已有接口小适配。覆盖文件名仅改大小写及父目录大小写改名，断言旧树/全文/反链被清理，保留当前19测试和有界读取。先红后绿，只单个vitest，无E2E/构建/全仓检查/子代理/commit。其他Agent文件归Lead冻结待审，不再改。写 temp/final-audit/t15t-report02.md，Lead主动收取。

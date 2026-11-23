@@ -1,0 +1,787 @@
+[
+  {
+    "ref": "refs/heads/closeout/issue2-css",
+    "sha": "eb21c5bb287c6bd9e762a2abe75572748a3547ea",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout/issue2-integration",
+    "sha": "f7c8b23659ee4480390179ca99959feab1282498",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout/issue2-layout",
+    "sha": "ac6c8a57d697f91c895883a00e63a3cbc57d9efd",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout/issue2-parity",
+    "sha": "6d76add4ee2708c854f954ff3a13273f0a72781e",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout/issue2-pm",
+    "sha": "f9dbed316bc7202226d892a0c8756767ba924a03",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout/issue2-session",
+    "sha": "cea7b3c38c6d9e557da1aa5278f3d9520951a2a1",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout2/b06",
+    "sha": "ed092e492bbe44557d813aaf6326893dddf760ea",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout2/final",
+    "sha": "f9f01868c799efdf80b718c7530788c9c43a8f64",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout2/g07",
+    "sha": "8270026ff81bc5893cd1ffef9f6addc6d2f8c7fe",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout2/h02",
+    "sha": "50747452f5b24a063c76fd734f278836e009f7d5",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout3/b06",
+    "sha": "b813c90cec10b580caa2654d856bb845a067654b",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout3/h02",
+    "sha": "8a4f7d070a2387e7ccd9a70e16cf3756ac4344a9",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/b01",
+    "sha": "f4180e45c42cb7eaac0639b22d10abe1a19bdb09",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/d02",
+    "sha": "535e3328c2dc595cbc69c379773af18ca6a9cce6",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/final",
+    "sha": "4f6b70326caba39e17892924fa0db6b2f70758ea",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/fix",
+    "sha": "6f598fe1787b423052d09d033e37784f0981299f",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/fix2a",
+    "sha": "67ca69eb86d69ad46352e98607055e64094a9934",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/fix2b",
+    "sha": "e3c97dac87925b7bcb0513b5025f524af69e7b8b",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/inbox",
+    "sha": "a6490aa64c0c43526231d3396869d97fd0ebe2b8",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp1",
+    "sha": "0d6df94a2d7b9ba9ee07df6b5d0d0f68f52a45ae",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp2",
+    "sha": "97040120b7c4e54c85814c10007ca09a755ab1d5",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp3",
+    "sha": "1ed7cb01ab3168b6e376f0225ceac937bbe0fd4a",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp4",
+    "sha": "c7da2fb8d7478a02576c78acede2acf2afd0c1b0",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp5",
+    "sha": "ca9f79cadcac9bd8b6612a71d415f06afc8b1aa0",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp6",
+    "sha": "a09d481e1874e2482c147e0b0fceaa06b35aab9b",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout4/wp7",
+    "sha": "48b3c2d3b8390374ae42b6564b206031f0844109",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/closeout5/rest",
+    "sha": "57a9f8bc960b9a60e9fc943f8280091f716a0856",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/feature/issue-fix",
+    "sha": "47f190b12bc976ffc5e76669606b68ded05e580c",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/handoff/huhu-2026-11-22-integration",
+    "sha": "cc671b5f5afe63c61827e8fe3fb7cc4b8d4a8a8a",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/handoff/huhu-issues-3-10-mail-cache-stash",
+    "sha": "f4a4c1585ad8a5761afd4eaccb158f9c5baeb460",
+    "merged": false,
+    "unmatched": [
+      "+ bca45cbb5c749bb483cc5c6bf98e030c46a7a542",
+      "+ 50b86ff36718b878c2d0ce2b9b37378a438f032c"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-acceptance-followup",
+    "sha": "d056eb6383ae48411d808900c6094a48f772c07a",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-agent-environment",
+    "sha": "7c1d1ee824d25d69d0a0a5ffd9d51c1e1f213e44",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-agent-lifecycle",
+    "sha": "ec581b3276541a7660a69bb2f50a551545ec0689",
+    "merged": false,
+    "unmatched": [
+      "+ ce5289ddd1ae5713167f6987fe6db53c3beef51f"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-agent-linux",
+    "sha": "f70f1a44a3330baefc6d8c966bc18aa0b1213ee3",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-agent-pty",
+    "sha": "f4f68fd34f2badf64bc7802091a081369ff3d805",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-agent-space-package",
+    "sha": "331defdb626fbca6320e042872d570bbf432d588",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-automation-tools",
+    "sha": "1eb37eeac223df29001ab2d3d2b4de216591cd92",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-capability",
+    "sha": "c70a98729fd2c72dca819f3ca1888e5a2e45949e",
+    "merged": false,
+    "unmatched": [
+      "+ 29a6e8f13bcbd3e644ef9b7a2a463627e6d39735"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-credentials",
+    "sha": "47f854b43b1c8f66e6d5aac6423278d4eaf547b5",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-dashboard-geometry",
+    "sha": "3eeb62d72fa3f3f7eb47a88dcc35434f314eb499",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-dashboard-restore",
+    "sha": "95ecb232575813a0f8ccf665e79eec78dd03869d",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-desktop-web-verify",
+    "sha": "935f203059d55f140a9ba434be55994554fa7374",
+    "merged": false,
+    "unmatched": [
+      "+ fa472010902b7335f4357b79683a17367aeb7e7e",
+      "+ 41f3c8e404bd9d9aec83c4be99ff2b97335530e7",
+      "+ dcde4772fe8d3f56143cf482e91ca0db5041a207",
+      "+ cda0aa30a5265b3e918f387874f907d9f3da255b",
+      "+ 4feefb17a7ec69c27a2e555b24cc3e076b50af99",
+      "+ 8aad86e433d3163727d6e176e2e5135b26fc97f6"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-follow-up",
+    "sha": "35e138909f203f798b3b3d45fb850a3014a43117",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-agent",
+    "sha": "18fe0ca72cc9b2284281f57a1e42dc112edcaa35",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-extensions",
+    "sha": "c59550289b96fdf6560ad087e0e66fda8af3a52c",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-kernel",
+    "sha": "9f4f72cab7cc55a8b93fbb39a011f06bbd3e49fd",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-mail",
+    "sha": "fc0447137cf0a7387abfcd375d5834f62ecaa61d",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-notes",
+    "sha": "d85d21b59228f27858a2f5884fedf6585428dacf",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-protocol",
+    "sha": "438f4281a01094fd98a73af40d8a0ae09949be43",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-ssh",
+    "sha": "8ddfc4356ffebf2e0b4900928cd8f630d9ff53cc",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-tasks",
+    "sha": "cd9016f517896ab1365c137153855287348bbaed",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-g6-versioning",
+    "sha": "96f9272d71c84724f992c4ff2bcb68cef6aff3ef",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-batch-routes",
+    "sha": "abe8e3317bac97abe1e6ea1a8a91e9015fce4fcd",
+    "merged": false,
+    "unmatched": [
+      "+ abe8e3317bac97abe1e6ea1a8a91e9015fce4fcd"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-ca-policy",
+    "sha": "e8670c0c5a121539d0f36550c20f06ad5ed8ff13",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-host-cert-policy",
+    "sha": "ec654d5684d2f3bb7023d2522ac55462251433e3",
+    "merged": false,
+    "unmatched": [
+      "+ ec654d5684d2f3bb7023d2522ac55462251433e3"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-outbound-proxy",
+    "sha": "cd62eede6d4b21590c42e34b7799f6765ac6a4ea",
+    "merged": false,
+    "unmatched": [
+      "+ cd62eede6d4b21590c42e34b7799f6765ac6a4ea"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-proxy-command",
+    "sha": "2bca289a38b5819ac5a5d71bbcb9e550619207f5",
+    "merged": false,
+    "unmatched": [
+      "+ 2bca289a38b5819ac5a5d71bbcb9e550619207f5"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-recording-playback",
+    "sha": "4eade18a7e144aebe7eaa756fff377076c21d6c3",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-shortcuts",
+    "sha": "c3a9bcdebef8fdb921025bd39089c7962d1338c3",
+    "merged": false,
+    "unmatched": [
+      "+ c3a9bcdebef8fdb921025bd39089c7962d1338c3"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-ssh-ui",
+    "sha": "53e516ca830e975f081066f41cd9f14ad2b2d6c6",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-terminal-layout",
+    "sha": "5e832adae68e656b7f19b8128037fc91a98551cf",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-user-cert",
+    "sha": "741f8884b595207aeae2fa0adb2e54429202084e",
+    "merged": false,
+    "unmatched": [
+      "+ 741f8884b595207aeae2fa0adb2e54429202084e"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-h7-window-control",
+    "sha": "e5a154c68f3a7d81f16f9c3175f74aaab7cc6f96",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-integration",
+    "sha": "4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail",
+    "sha": "be12ca89984b760face1778499db222f98caab40",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-ai",
+    "sha": "5c1c52a94fd68b2841047905dff6c8e0456427aa",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-api-sync",
+    "sha": "119d19c82cbac77964ab32b7446b3331e50f0807",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-confirmed-ui",
+    "sha": "2524d695dd01027fe149ed98a38d891549bd6ba4",
+    "merged": false,
+    "unmatched": [
+      "+ 44941ecd346f9aa452efcc0de13ad6fe84d2dae2",
+      "+ 6a75ccd7fd88c8c6149887c3c3a0640cd6ebfb68",
+      "+ 46b9047ae67e2a1f1abe9f0549e3f7144a512cc2",
+      "+ f4e43d5eba286969b1ea141f644f6c24366119e2",
+      "+ b1aafd92c5649e7d314dcbcb42ee5776fe3a51a2",
+      "+ d941065be459584a9a3767673b28de1f56c5b2d5",
+      "+ 2a627f54e8ed0d2aa5c9d1a124e3441829b3a38f",
+      "+ 2524d695dd01027fe149ed98a38d891549bd6ba4"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-data-settings",
+    "sha": "6c88b90b08c8a6ebca66f019798f64184ba9fb47",
+    "merged": false,
+    "unmatched": [
+      "+ 6c88b90b08c8a6ebca66f019798f64184ba9fb47"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-drafts",
+    "sha": "bf37a4eaf86291ac127358aeb65559f13bde2ab9",
+    "merged": false,
+    "unmatched": [
+      "+ bf37a4eaf86291ac127358aeb65559f13bde2ab9"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-oauth",
+    "sha": "03b8ccc081eda52435288ce2b3b99ce7bc884195",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-oauth-outcomes",
+    "sha": "e01b5b06423806d7685046578fa257157c8b468e",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-oauth-review",
+    "sha": "d7f1cff235893b5d1d3df6ca5511c419fd40ec62",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-repair",
+    "sha": "6d9fde656fdc108b5d355a378ab295f3d9418b26",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-safe",
+    "sha": "b039409e4a9b5f17698063aa1491434653bcded9",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-mail-sync",
+    "sha": "251baeeff1a6d667f5629e75d7c6a56cfd1dabf2",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-native-existing",
+    "sha": "43fdad6c852c8e5505b330cc439012aa879d5670",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-normal-reply",
+    "sha": "6d4b6623d864666195ab342b0982d8660d058d7b",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-production-cutover",
+    "sha": "1f7ceec859c167ad5019e7a7857c5ea3467af97c",
+    "merged": false,
+    "unmatched": [
+      "+ 311ba0c82839f627018695f8651541c8ff63ad71",
+      "+ 14a95f7fa91a83f98cd8e1b25b9a529ca5818596",
+      "+ 7ae257b2772a178d3b5821b7b862f31ff3b047f9",
+      "+ 8ff3549b7e86f5ff4677a9f0af4be230ef8a5e2e",
+      "+ 1f7ceec859c167ad5019e7a7857c5ea3467af97c"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-protected-env",
+    "sha": "fb562efe0a3f4a19a94639ad551df01b31754e0a",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-receipt",
+    "sha": "4fe97901d7952709f1371432bb0327ef0bdaf958",
+    "merged": false,
+    "unmatched": [
+      "+ ce5289ddd1ae5713167f6987fe6db53c3beef51f"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-reminders",
+    "sha": "3b08dc4400c1124a3e8fcf9975fcbd5a1ab32648",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-safe-confirmed-ui",
+    "sha": "ec781688a7608781ab3388769922d5d921417bf8",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-safe-git",
+    "sha": "65f00e7668d05b0c6d9e5b4e6d7ceea0049c0016",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-safe-personal",
+    "sha": "aaeed7f8e2008c7379455fe3993a60608b2bb1aa",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-safe-tools",
+    "sha": "1bac3348bf237650937bea14335a7b12f14fc3f7",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-scan-cutover",
+    "sha": "35e46623e669e4fdb68182a8ecc060fe8d898620",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh",
+    "sha": "38891343ac6e64bcbba642189d07f399a13a91db",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-actions",
+    "sha": "a308b39371a8e8eb8833f0ae8b67e1f6af958188",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-confirmed-ui",
+    "sha": "4f7713582cecb795b9a5def90be76a12d5f23a8e",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-deferred",
+    "sha": "45b9fae3e13cab49ad3dd0d62c51a52133bfcc56",
+    "merged": false,
+    "unmatched": [
+      "+ 2bca289a38b5819ac5a5d71bbcb9e550619207f5",
+      "+ 45b9fae3e13cab49ad3dd0d62c51a52133bfcc56"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-exec-jobs",
+    "sha": "0748a5164728ab6d204d55e71be59a6a17a2eaa3",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-file-follow",
+    "sha": "295c052b3b46100808c086f83e78ac894d140f5c",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-forwarding",
+    "sha": "f19a3a9e5fae264e916b71eacd5fec1d436be6b3",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-host-auth",
+    "sha": "657428876632f9a420f321a7b1c85a559dc0633a",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-import",
+    "sha": "a12309b8035a66d9e5cbd9489817b4f325d86293",
+    "merged": false,
+    "unmatched": [
+      "+ a12309b8035a66d9e5cbd9489817b4f325d86293"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-import-confirm",
+    "sha": "588bece5b7275f7451a0b77c1c0e6032c71db1d0",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-last",
+    "sha": "264be309894ad02310694ab0eaff5ca2d1c3c1e4",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-monitoring",
+    "sha": "9c55c07e0533c284724932118d16a10faf6455ec",
+    "merged": false,
+    "unmatched": [
+      "+ c2e3605dc56c7c41beabc59823b8f1e803432314",
+      "+ 9c55c07e0533c284724932118d16a10faf6455ec"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-owned",
+    "sha": "22508ce8da605b8d74d84024424f0505f05d1f89",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-public-resources",
+    "sha": "be7a8b8e2252149b8ab7330d17e9defc8319d6ad",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-settings",
+    "sha": "6ba3c6bddf7d59763643d86e07509c4177211f47",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-ssh-transfers",
+    "sha": "895ae975ae0250870a334ef5e5737640cebda189",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-t5-tasks",
+    "sha": "680704910ca4291f035fe3c56995419bff449f42",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-executor",
+    "sha": "da653169aa2f71aabe08085989e951aa885bc1bb",
+    "merged": false,
+    "unmatched": [
+      "+ ff0afc5866e85b399143574f9e62f6820d4a90c1",
+      "+ 9b34df699ecfdd6f46b210f2d95b362cccdad56d",
+      "+ 77a52b6b2a7d92d41ef7fe1dd9a0b3f006d85c90",
+      "+ 15b34b45c1549d8128aa3787e92f64639ca1335d",
+      "+ da653169aa2f71aabe08085989e951aa885bc1bb"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-occurrence",
+    "sha": "3174c325468ba022c15bd7fdc97557fb2a635894",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-recovery",
+    "sha": "3c79467e5ea88318c48a13b78ee0702720fbcd1f",
+    "merged": false,
+    "unmatched": [
+      "+ a5d82cb704cdd44fbae387518f7d1c4246908fb1"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-run-ui",
+    "sha": "2b693b4e0152094a1768e4c3aca517ca024011b1",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-supplement",
+    "sha": "7d1a869b0363c420a91f9216b443c843cb02934e",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-terminal-view",
+    "sha": "33e2d230976de268ffb492fe8025f1456b54de9e",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-task-tool-access",
+    "sha": "315c75d1fe9ce1f866dca5cc895e6e4bfdfa5f4c",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-tasks",
+    "sha": "29d68b3ae136709191c9c4e515fd2506d17c843a",
+    "merged": false,
+    "unmatched": [
+      "+ a5d82cb704cdd44fbae387518f7d1c4246908fb1"
+    ]
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-versioning-auth",
+    "sha": "bb6f450b96dfb9259713714041c55c1e15dcacd3",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-versioning-owned-auth",
+    "sha": "df0fca9127d7ca741bd86e53771f3ff572fbba93",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-w05-widgets",
+    "sha": "e197f9abe421f4b4ffc38292420b23aa16e8967a",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-w4-agent",
+    "sha": "664996ad1cdaaf06f92938157bdf8614091e33c5",
+    "merged": true,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-web-share-ui",
+    "sha": "464c0e034ff437b563941afc75a0ecc57c51de25",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-widgets",
+    "sha": "7e9cedaa663f06668f080705dace90fc492fef70",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-issues-3-10-window-chrome",
+    "sha": "688122c1304ed393c19919f8ff1b07f486785c27",
+    "merged": false,
+    "unmatched": []
+  },
+  {
+    "ref": "refs/heads/impl/huhu-mail-graph-completion",
+    "sha": "05a748b61eaa6dddaaa86aa648a2e68dd385d085",
+    "merged": true,
+    "unmatched": []
+  }
+]

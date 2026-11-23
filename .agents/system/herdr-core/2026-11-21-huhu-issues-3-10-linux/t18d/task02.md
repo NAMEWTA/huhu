@@ -1,0 +1,2 @@
+# task02 — 停键实验复核与下一最小区分
+Lead t3p，integration，只读。5秒变体已运行，temp/final-audit/stop-five.log 与 stop-keys-5000-artifacts/*json、证据根 stop-5000-9350*.cOe6Ls/result.json。注意core尾标322ms但completed平台至5196ms，DOM5611ms；原20s平台也在停键后恢复。10秒变体正在t18k?以Lead消息实际ID为准，不启动任何测试。结合完成后stop-ten.log和stop-keys-10000-artifacts数据判断。请给出下一项最小实际区分实验的可执行脚本/调用方案（可写temp/final-audit，不改业务/正式测试）。优先XTEST真实按键输入匹配6ms间隔，保留焦点/真实input/原阈值；指出如何正确定位隔离Xvfb窗口、发a/Backspace且避免用户窗口，不能含模糊全局输入。仅准备、Lead执行。报告temp/final-audit/t18d-report02.md。

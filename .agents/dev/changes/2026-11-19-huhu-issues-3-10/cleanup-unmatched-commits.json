@@ -1,0 +1,782 @@
+[
+  {
+    "sha": "14a95f7fa91a83f98cd8e1b25b9a529ca5818596",
+    "subject": "feat(ssh): save and reopen workspace templates",
+    "matches": [
+      "c16acfb38188d35265c19f881ed14800b0c84c37"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H4.1-workspace-template-windows.md",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/host-configurations.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/workspace-templates.ts",
+      "plugins/ssh/src/shared/workspace.ts",
+      "plugins/ssh/src/ui/SshModule.tsx",
+      "plugins/ssh/src/ui/WorkspaceLayout.tsx",
+      "plugins/ssh/src/ui/WorkspaceLibrary.tsx",
+      "plugins/ssh/src/ui/ssh.css",
+      "tests/e2e/workflows/ssh-workspaces.spec.ts"
+    ]
+  },
+  {
+    "sha": "15b34b45c1549d8128aa3787e92f64639ca1335d",
+    "subject": "feat(agent-cli): deliver a native question answer once",
+    "matches": [
+      "af2305b3f24a053990e023eafae9883b133309d7"
+    ],
+    "files": [
+      "plugins/agent-cli/huhu-plugin.json",
+      "plugins/agent-cli/src/engine/codex-dispatch-helper.cjs",
+      "plugins/agent-cli/src/engine/codex-dispatch.ts",
+      "plugins/agent-cli/src/engine/dispatch-capabilities.ts",
+      "plugins/agent-cli/src/engine/dispatch.ts",
+      "plugins/agent-cli/src/engine/native-answer.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/agent-cli/test/fixtures/codex-receipts-provider.cjs",
+      "plugins/agent-cli/test/native-receipts.live.test.ts"
+    ]
+  },
+  {
+    "sha": "1f7ceec859c167ad5019e7a7857c5ea3467af97c",
+    "subject": "feat(ssh): save bound remote text with revision checks",
+    "matches": [],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H6.3-text-edit-windows.md",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/file-sessions.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/sftp.ts",
+      "plugins/ssh/src/shared/files.ts",
+      "plugins/ssh/src/ui/FilesPanel.tsx",
+      "plugins/ssh/src/ui/RemoteTextEditor.tsx",
+      "plugins/ssh/src/ui/files.css",
+      "plugins/ssh/test/fake-server.ts",
+      "tests/e2e/workflows/ssh-workspaces.spec.ts"
+    ]
+  },
+  {
+    "sha": "2524d695dd01027fe149ed98a38d891549bd6ba4",
+    "subject": "feat(mail): 搜索并定位跨账号缓存邮件",
+    "matches": [
+      "288ec99d8c0d6ed298a9420a137d5e45ae1dbe6e"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-located-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-search-results-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.2-search-locate.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/conversations.ts",
+      "plugins/mail/src/engine/index.ts",
+      "plugins/mail/src/engine/prepare-reply.ts",
+      "plugins/mail/src/engine/public-mail.ts",
+      "plugins/mail/src/engine/search-text.ts",
+      "plugins/mail/src/mail-calendar.ts",
+      "plugins/mail/src/mail-html-tree.ts",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailSearch.tsx",
+      "plugins/mail/src/ui/index.tsx",
+      "plugins/mail/src/ui/mail-html.tsx",
+      "plugins/mail/src/ui/mail-search-command.ts",
+      "plugins/mail/src/ui/mail.css",
+      "plugins/mail/test/conversations-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "29a6e8f13bcbd3e644ef9b7a2a463627e6d39735",
+    "subject": "feat(gateway): persist explicit Vault tool access",
+    "matches": [
+      "9d6ad33b72aa274c4512be8bf0a081de01eadeb5"
+    ],
+    "files": [
+      "apps/cli/src/commands/call.ts",
+      "apps/cli/src/main.ts",
+      "apps/cli/src/mcp.ts",
+      "apps/cli/test/cli.test.ts",
+      "apps/engine/src/boot.ts",
+      "apps/engine/test/capability-catalog.test.ts",
+      "apps/engine/test/engine.test.ts",
+      "apps/engine/test/tool-access.test.ts",
+      "packages/contracts/src/capability.ts",
+      "packages/kernel/src/capabilities/system.ts",
+      "packages/kernel/src/dispatcher.ts",
+      "packages/kernel/src/exposure.ts",
+      "packages/kernel/src/mcp.ts",
+      "packages/kernel/src/server/http-app.ts",
+      "packages/kernel/test/dispatcher.test.ts",
+      "packages/kernel/test/notifications.test.ts",
+      "packages/kernel/test/server.test.ts",
+      "tests/e2e/packaged/packaged.spec.ts",
+      "tests/e2e/workflows/write-and-restore.spec.ts"
+    ]
+  },
+  {
+    "sha": "2a627f54e8ed0d2aa5c9d1a124e3441829b3a38f",
+    "subject": "fix(mail): 隔离联系人原文并关闭已撤出的读区",
+    "matches": [
+      "0e3d6a5e09d24999f96d7895b964eff528481b5e"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-public-sent-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.1-public-reader.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/account-definition.ts",
+      "plugins/mail/src/engine/account-removals.ts",
+      "plugins/mail/src/engine/conversations.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/mail-folder-visibility.ts",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailReader.tsx",
+      "plugins/mail/test/conversations-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "2bca289a38b5819ac5a5d71bbcb9e550619207f5",
+    "subject": "wip(ssh): preserve deferred device proxy transport work",
+    "matches": [],
+    "files": [
+      "plugins/ssh/src/engine/proxy-command.ts",
+      "plugins/ssh/test/proxy-command.test.ts"
+    ]
+  },
+  {
+    "sha": "311ba0c82839f627018695f8651541c8ff63ad71",
+    "subject": "feat(automations): 切换到独立受保护的终端规则配置",
+    "matches": [
+      "d667d1acaee81c854cd0ef56f9132c26caad6c7a"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-5-task-automation/evidence/T6.3b-protected-terminal.md",
+      "apps/engine/test/engine.test.ts",
+      "apps/engine/test/module-credential-host.test.ts",
+      "packages/contracts/src/kinds/automation.ts",
+      "plugins/agent-cli/src/engine/index.ts",
+      "plugins/agent-cli/src/engine/protected-launch.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/automations/src/engine/index.ts",
+      "plugins/automations/src/engine/service.ts",
+      "plugins/automations/src/ui/AutomationsModule.tsx",
+      "plugins/automations/src/ui/RuleEditor.tsx",
+      "plugins/automations/src/ui/TerminalEnvironment.tsx",
+      "plugins/automations/src/ui/i18n.ts",
+      "plugins/automations/test/service.test.ts",
+      "tests/e2e/workflows/acceptance.spec.ts"
+    ]
+  },
+  {
+    "sha": "41f3c8e404bd9d9aec83c4be99ff2b97335530e7",
+    "subject": "feat(mail): restore same-address accounts as independent copies",
+    "matches": [
+      "f19affac7ff55c0bd5d0c6864b46219169a640e0"
+    ],
+    "files": [
+      "plugins/mail/src/engine/accounts.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/subset-data.ts",
+      "plugins/mail/src/ui/MailSubsetSettings.tsx",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "44941ecd346f9aa452efcc0de13ad6fe84d2dae2",
+    "subject": "feat(mail): 切换邮箱并修复原账号认证",
+    "matches": [
+      "ca6e6e31623627e82bf5d4b622997ae09ad1767e"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-repair-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1a.3-account-repair.md",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.3-manage-accounts.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/account-setup.ts",
+      "plugins/mail/src/engine/accounts.ts",
+      "plugins/mail/src/engine/discovery.ts",
+      "plugins/mail/src/ui/MailAccountDialog.tsx",
+      "plugins/mail/src/ui/MailAccountNameDialog.tsx",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/mail.css",
+      "plugins/mail/test/accounts-engine.test.ts",
+      "plugins/mail/test/fixtures/imap.ts"
+    ]
+  },
+  {
+    "sha": "45b9fae3e13cab49ad3dd0d62c51a52133bfcc56",
+    "subject": "wip(ssh): preserve paused implementation and remaining validation",
+    "matches": [],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/pause-2026-11-22.md",
+      "apps/engine/test/web-share.test.ts",
+      "packages/kernel/src/capabilities/vault.ts",
+      "plugins/ssh/src/ui/HostAuthoritiesPanel.tsx",
+      "plugins/ssh/test/identity-certificate.test.ts"
+    ]
+  },
+  {
+    "sha": "46b9047ae67e2a1f1abe9f0549e3f7144a512cc2",
+    "subject": "feat(mail): 接上桌面草稿附件的选择与移除",
+    "matches": [
+      "2ea0bda8cb7f779cd73962e83915e46d7c8353b8"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-attachments-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1b.2-desktop-attachments.md",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1b.2-managed-attachments.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/package.json",
+      "plugins/mail/src/desktop-attachments.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/ui/MailComposer.tsx",
+      "plugins/mail/src/ui/mail.css",
+      "plugins/mail/test/draft-attachments-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "4feefb17a7ec69c27a2e555b24cc3e076b50af99",
+    "subject": "fix(mail): resume partially restored same-address account batches",
+    "matches": [
+      "0f24ba18ce66bf11d069def7eb8765bafab83ad4"
+    ],
+    "files": [
+      "plugins/mail/src/engine/subset-data.ts",
+      "plugins/mail/test/oauth-engine.test.ts",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "50b86ff36718b878c2d0ce2b9b37378a438f032c",
+    "subject": "index on impl/huhu-issues-3-10-mail-data-settings: 42d332a9 feat(engine): declare Mail OAuth capabilities before plugin activation",
+    "matches": [],
+    "files": []
+  },
+  {
+    "sha": "6a75ccd7fd88c8c6149887c3c3a0640cd6ebfb68",
+    "subject": "feat(mail): 保留原邮件身份和线程头的回复草稿",
+    "matches": [
+      "b854b7bc69d0c559568092a834dabeed2c7fabf7"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-reply-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.5-replies.md",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S2.5-reply-forward.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/package.json",
+      "plugins/mail/src/engine/draft-content.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/outbox.ts",
+      "plugins/mail/src/engine/prepare-reply.ts",
+      "plugins/mail/src/engine/reply-context.ts",
+      "plugins/mail/src/engine/smtp.ts",
+      "plugins/mail/src/ui/MailComposer.tsx",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailReader.tsx",
+      "plugins/mail/src/ui/mail.css",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "6c88b90b08c8a6ebca66f019798f64184ba9fb47",
+    "subject": "feat(mail): 预检并恢复 Huhu 邮件子集",
+    "matches": [
+      "04bd14e41e04449975a656f91010cac7b0e62a2b"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S6b.1-subset-restore.md",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S7.3-cache-settings.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/account-definition.ts",
+      "plugins/mail/src/engine/account-removals.ts",
+      "plugins/mail/src/engine/account-setup.ts",
+      "plugins/mail/src/engine/accounts.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/outbox-storage.ts",
+      "plugins/mail/src/engine/registration.ts",
+      "plugins/mail/src/engine/subset-archive.ts",
+      "plugins/mail/src/engine/subset-data.ts",
+      "plugins/mail/src/mail-subset-limit.ts",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailSubsetSettings.tsx",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "741f8884b595207aeae2fa0adb2e54429202084e",
+    "subject": "feat(ssh): prepare local Ed25519 certificate pairing",
+    "matches": [],
+    "files": [
+      "plugins/ssh/src/engine/host-configurations.ts",
+      "plugins/ssh/src/engine/identity-certificate.ts",
+      "plugins/ssh/test/identity-certificate.test.ts"
+    ]
+  },
+  {
+    "sha": "77a52b6b2a7d92d41ef7fe1dd9a0b3f006d85c90",
+    "subject": "feat(agent-cli): persist and replay native execution receipts",
+    "matches": [
+      "79b495a2998fea9fafd7fee7fb10092e7070b534"
+    ],
+    "files": [
+      "plugins/agent-cli/huhu-plugin.json",
+      "plugins/agent-cli/src/engine/codex-dispatch-helper.cjs",
+      "plugins/agent-cli/src/engine/codex-dispatch.ts",
+      "plugins/agent-cli/src/engine/dispatch-store.ts",
+      "plugins/agent-cli/src/engine/execution-receipts.ts",
+      "plugins/agent-cli/src/engine/index.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/agent-cli/test/execution-receipts.test.ts",
+      "plugins/agent-cli/test/fixtures/codex-receipts-provider.cjs",
+      "plugins/agent-cli/test/native-receipts.live.test.ts"
+    ]
+  },
+  {
+    "sha": "7ae257b2772a178d3b5821b7b862f31ff3b047f9",
+    "subject": "feat(ssh): launch durable workspace runs with independent panes",
+    "matches": [
+      "0e1b116775d79936b270a8252ba406fcae726962"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H4.2-workspace-launch-windows.md",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/manager.ts",
+      "plugins/ssh/src/engine/workspace-runs.ts",
+      "plugins/ssh/src/engine/workspace-target.ts",
+      "plugins/ssh/src/engine/workspace-templates.ts",
+      "plugins/ssh/src/shared/workspace.ts",
+      "plugins/ssh/src/ui/SshModule.tsx",
+      "plugins/ssh/src/ui/WorkspaceLibrary.tsx",
+      "plugins/ssh/src/ui/WorkspaceRunView.tsx",
+      "plugins/ssh/src/ui/ssh.css",
+      "plugins/ssh/test/fake-server.ts",
+      "tests/e2e/workflows/ssh-workspaces.spec.ts"
+    ]
+  },
+  {
+    "sha": "8aad86e433d3163727d6e176e2e5135b26fc97f6",
+    "subject": "feat(agent): resolve Linux provider installs and return to shell",
+    "matches": [
+      "6874c619146f363a798dd4ff95cfb66686de1c2d"
+    ],
+    "files": [
+      "native/agent-pty/PROTOCOL.md",
+      "native/agent-pty/README.md",
+      "native/agent-pty/console_linux.go",
+      "native/agent-pty/installation_linux.go",
+      "native/agent-pty/installation_linux_test.go",
+      "native/agent-pty/mask.go",
+      "native/agent-pty/mask_test.go",
+      "native/agent-pty/pins_linux.go",
+      "native/agent-pty/protocol.go",
+      "native/agent-pty/protocol_linux.go",
+      "native/agent-pty/protocol_windows.go",
+      "native/agent-pty/tests/linux-fixture/main.go",
+      "native/agent-pty/tests/verify-linux.py",
+      "native/agent-pty/tests/verify-real-provider.py",
+      "plugins/agent-cli/src/engine/interactive-environment.ts",
+      "plugins/agent-cli/src/engine/linux-interactive-program.ts",
+      "plugins/agent-cli/src/engine/native-pty.ts",
+      "plugins/agent-cli/test/linux-interactive-program.test.ts",
+      "tests/e2e/agents/linux-environment.spec.ts"
+    ]
+  },
+  {
+    "sha": "8ff3549b7e86f5ff4677a9f0af4be230ef8a5e2e",
+    "subject": "feat(ssh): bind file sessions to their original connection",
+    "matches": [],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H6.1-file-session-windows.md",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/file-sessions.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/manager.ts",
+      "plugins/ssh/src/engine/sftp.ts",
+      "plugins/ssh/src/shared/files.ts",
+      "plugins/ssh/src/ui/FileTable.tsx",
+      "plugins/ssh/src/ui/FileWorkspace.tsx",
+      "plugins/ssh/src/ui/FilesPanel.tsx",
+      "plugins/ssh/src/ui/SshModule.tsx",
+      "plugins/ssh/src/ui/WorkspaceLibrary.tsx",
+      "plugins/ssh/src/ui/WorkspaceRunView.tsx",
+      "plugins/ssh/src/ui/files.css",
+      "plugins/ssh/test/fake-server.ts",
+      "tests/e2e/workflows/ssh-workspaces.spec.ts"
+    ]
+  },
+  {
+    "sha": "9b34df699ecfdd6f46b210f2d95b362cccdad56d",
+    "subject": "feat(agent-cli): bind controlled Codex dispatch to native turns",
+    "matches": [
+      "c839daf64329eebade2607350fe0c4a0e9832be8"
+    ],
+    "files": [
+      "apps/desktop/electron-builder.yml",
+      "apps/desktop/src/main/engine-supervisor.ts",
+      "apps/engine/src/boot.ts",
+      "apps/engine/test/codex-dispatch.live.test.ts",
+      "apps/engine/test/fixtures/codex-app-server.cjs",
+      "plugins/agent-cli/src/engine/codex-dispatch-helper.cjs",
+      "plugins/agent-cli/src/engine/codex-dispatch.ts",
+      "plugins/agent-cli/src/engine/dispatch-capabilities.ts",
+      "plugins/agent-cli/src/engine/dispatch-store.ts",
+      "plugins/agent-cli/src/engine/dispatch.ts",
+      "plugins/agent-cli/src/engine/index.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/agent-cli/src/engine/terminal-bridge.ts",
+      "plugins/tasks/src/engine/agent-dispatch-executor.ts"
+    ]
+  },
+  {
+    "sha": "9c55c07e0533c284724932118d16a10faf6455ec",
+    "subject": "feat(ssh): read process and container status from the bound pane",
+    "matches": [
+      "95b7352c2ad220d54f57670d1fddf2025dde4986"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H9-tools-windows.md",
+      "plugins/ssh/e2e/monitoring.spec.ts",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/monitor-sample.ts",
+      "plugins/ssh/src/engine/monitor-tools.ts",
+      "plugins/ssh/src/shared/monitoring.ts",
+      "plugins/ssh/src/ui/MonitorSidebar.tsx",
+      "plugins/ssh/src/ui/MonitorTools.tsx",
+      "plugins/ssh/test/monitor.engine.test.ts"
+    ]
+  },
+  {
+    "sha": "a12309b8035a66d9e5cbd9489817b4f325d86293",
+    "subject": "Preview eight SSH host import formats in the workbench",
+    "matches": [
+      "0839ab75ebe48ed2e4efbc00c84663ec6e6e679e"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/tasks/H2.4-import-preview.md",
+      "THIRD_PARTY_NOTICES.md",
+      "docs/upstream/ledger.md",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/package.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/import/capability.ts",
+      "plugins/ssh/src/engine/import/input.ts",
+      "plugins/ssh/src/engine/import/openssh.ts",
+      "plugins/ssh/src/engine/import/preview.ts",
+      "plugins/ssh/src/engine/import/structured-formats.ts",
+      "plugins/ssh/src/engine/import/text-formats.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/test/directory.test.ts",
+      "plugins/ssh/test/host-import.test.ts",
+      "pnpm-lock.yaml"
+    ]
+  },
+  {
+    "sha": "a5d82cb704cdd44fbae387518f7d1c4246908fb1",
+    "subject": "fix(tasks): protect edits and persist agent targets",
+    "matches": [
+      "96f53d35e00b90a011d8e7275ffad2630d0f6694"
+    ],
+    "files": [
+      "packages/contracts/src/dto/task.ts",
+      "packages/contracts/src/kinds/task.ts",
+      "plugins/tasks/src/engine/index.ts",
+      "plugins/tasks/src/engine/service.ts",
+      "plugins/tasks/src/ui/TaskEditor.tsx",
+      "plugins/tasks/test/persistence-http.test.ts",
+      "plugins/tasks/test/service.test.ts"
+    ]
+  },
+  {
+    "sha": "abe8e3317bac97abe1e6ea1a8a91e9015fce4fcd",
+    "subject": "feat(ssh): edit selected jump routes atomically",
+    "matches": [],
+    "files": [
+      "packages/kernel/src/credentials/module-credentials.ts",
+      "plugins/ssh/src/engine/host-configurations.ts",
+      "plugins/ssh/src/engine/route-edits.ts",
+      "plugins/ssh/src/ui/RoutePanel.tsx",
+      "plugins/ssh/test/route-edits.test.ts",
+      "tests/e2e/ssh/remaining.spec.ts"
+    ]
+  },
+  {
+    "sha": "b1aafd92c5649e7d314dcbcb42ee5776fe3a51a2",
+    "subject": "feat(mail): 从原邮件发起转发与新话题",
+    "matches": [
+      "46a770ed6f0224b5d9c2f273432620449fb04dc2"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-forward-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.6-forward.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/draft-attachments.ts",
+      "plugins/mail/src/engine/draft-content.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/engine/forward-context.ts",
+      "plugins/mail/src/engine/message-body.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/prepare-forward.ts",
+      "plugins/mail/src/engine/prepare-reply.ts",
+      "plugins/mail/src/ui/MailComposer.tsx",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailReader.tsx",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "bca45cbb5c749bb483cc5c6bf98e030c46a7a542",
+    "subject": "untracked files on impl/huhu-issues-3-10-mail-data-settings: 42d332a9 feat(engine): declare Mail OAuth capabilities before plugin activation",
+    "matches": [],
+    "files": []
+  },
+  {
+    "sha": "bf37a4eaf86291ac127358aeb65559f13bde2ab9",
+    "subject": "Reconcile and selectively retry Mail deliveries",
+    "matches": [
+      "415efe99dbe6b9041a7549ed6458d176de6fdef3"
+    ],
+    "files": [
+      "plugins/mail/src/engine/draft-content.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/engine/outbox-storage.ts",
+      "plugins/mail/src/engine/outbox.ts",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "c2e3605dc56c7c41beabc59823b8f1e803432314",
+    "subject": "feat(ssh): monitor bound panes and share dashboard samples by connection",
+    "matches": [
+      "adca7b97e141212a9271aa7bcc2b2391ab20612b"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H9-monitoring-windows.md",
+      "plugins/ssh/e2e/monitoring.spec.ts",
+      "plugins/ssh/e2e/playwright.config.ts",
+      "plugins/ssh/huhu-plugin.json",
+      "plugins/ssh/src/engine/capabilities.ts",
+      "plugins/ssh/src/engine/index.ts",
+      "plugins/ssh/src/engine/manager.ts",
+      "plugins/ssh/src/engine/monitor-panels.ts",
+      "plugins/ssh/src/engine/monitor-sample.ts",
+      "plugins/ssh/src/engine/monitors.ts",
+      "plugins/ssh/src/shared/monitoring.ts",
+      "plugins/ssh/src/ui/MonitorDashboard.tsx",
+      "plugins/ssh/src/ui/MonitorSidebar.tsx",
+      "plugins/ssh/src/ui/SshModule.tsx",
+      "plugins/ssh/src/ui/WorkspaceLibrary.tsx",
+      "plugins/ssh/src/ui/WorkspaceRunView.tsx",
+      "plugins/ssh/src/ui/ssh.css",
+      "plugins/ssh/test/fake-server.ts",
+      "plugins/ssh/test/monitor.engine.test.ts"
+    ]
+  },
+  {
+    "sha": "c3a9bcdebef8fdb921025bd39089c7962d1338c3",
+    "subject": "feat(ssh): add the Vault shortcut library and terminal picker",
+    "matches": [],
+    "files": [
+      "plugins/ssh/src/engine/shortcuts.ts",
+      "plugins/ssh/src/shared/shortcuts.ts",
+      "plugins/ssh/src/ui/ShortcutPanel.tsx",
+      "plugins/ssh/src/ui/TerminalActions.tsx",
+      "plugins/ssh/test/shortcuts.test.ts",
+      "tests/e2e/ssh/shortcuts.spec.ts"
+    ]
+  },
+  {
+    "sha": "cd62eede6d4b21590c42e34b7799f6765ac6a4ea",
+    "subject": "feat(ssh): implement SOCKS5 and HTTP CONNECT transports",
+    "matches": [],
+    "files": [
+      "plugins/ssh/src/engine/outbound-proxy-dial.ts",
+      "plugins/ssh/test/outbound-proxy-dial.test.ts"
+    ]
+  },
+  {
+    "sha": "cda0aa30a5265b3e918f387874f907d9f3da255b",
+    "subject": "fix: preserve Mail restore identity and allow unavailable-shell revocation",
+    "matches": [
+      "c1b5cd3904809b1f6505b1e489dda84db51fdaf3"
+    ],
+    "files": [
+      "plugins/automations/src/engine/approved-linux-shell.ts",
+      "plugins/automations/src/engine/terminal-environment.ts",
+      "plugins/automations/src/ui/TerminalApproval.tsx",
+      "plugins/automations/src/ui/TerminalEnvironment.tsx",
+      "plugins/automations/test/service.test.ts",
+      "plugins/mail/src/engine/accounts.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/read-overrides.ts",
+      "plugins/mail/src/engine/subset-data.ts",
+      "plugins/mail/test/outbox-engine.test.ts",
+      "tests/e2e/workflows/automation-linux-approval-revoke.spec.ts"
+    ]
+  },
+  {
+    "sha": "ce5289ddd1ae5713167f6987fe6db53c3beef51f",
+    "subject": "fix(agent-cli): align launch preview with Core execution",
+    "matches": [
+      "9d36640ec6cf06bc040b5ab241f8a249e55fb661"
+    ],
+    "files": [
+      "plugins/agent-cli/src/engine/detect.ts",
+      "plugins/agent-cli/src/engine/index.ts",
+      "plugins/agent-cli/src/engine/launch.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/agent-cli/test/agent.test.ts",
+      "plugins/agent-cli/test/launch.live.test.ts"
+    ]
+  },
+  {
+    "sha": "d941065be459584a9a3767673b28de1f56c5b2d5",
+    "subject": "feat(mail): 从缓存邮件聚合公开联系人对话",
+    "matches": [
+      "e5de8840f750d8667487151975bf4c6e5e852e00"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-contacts-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S2.1-contacts.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/conversations.ts",
+      "plugins/mail/src/engine/imap-message.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/public-mail.ts",
+      "plugins/mail/src/engine/registration.ts",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailReader.tsx",
+      "plugins/mail/src/ui/mail.css",
+      "plugins/mail/test/conversations-engine.test.ts",
+      "plugins/mail/test/fixtures/imap.ts"
+    ]
+  },
+  {
+    "sha": "da653169aa2f71aabe08085989e951aa885bc1bb",
+    "subject": "feat(agent-cli): stop the original controlled Codex turn",
+    "matches": [
+      "264699e1c7f955bdd574dae533b0c009545b2776"
+    ],
+    "files": [
+      "plugins/agent-cli/huhu-plugin.json",
+      "plugins/agent-cli/src/engine/codex-dispatch-helper.cjs",
+      "plugins/agent-cli/src/engine/codex-dispatch.ts",
+      "plugins/agent-cli/src/engine/dispatch-capabilities.ts",
+      "plugins/agent-cli/src/engine/dispatch-store.ts",
+      "plugins/agent-cli/src/engine/dispatch.ts",
+      "plugins/agent-cli/src/engine/native-stop.ts",
+      "plugins/agent-cli/src/engine/sessions.ts",
+      "plugins/agent-cli/test/fixtures/codex-receipts-provider.cjs",
+      "plugins/agent-cli/test/native-stop.live.test.ts"
+    ]
+  },
+  {
+    "sha": "dcde4772fe8d3f56143cf482e91ca0db5041a207",
+    "subject": "feat(automations): bind Linux shell approvals to executable identity",
+    "matches": [
+      "fc38dc861f6a709255fd8ef41daec0041c705828"
+    ],
+    "files": [
+      "apps/cli/test/approved-terminal.test.ts",
+      "plugins/automations/src/engine/approved-linux-shell.ts",
+      "plugins/automations/src/engine/terminal-environment.ts",
+      "plugins/automations/src/ui/AutomationsModule.tsx",
+      "plugins/automations/src/ui/TerminalApproval.tsx",
+      "plugins/automations/src/ui/TerminalEnvironment.tsx",
+      "plugins/automations/test/service.test.ts",
+      "tests/e2e/workflows/automation-linux-environment.spec.ts"
+    ]
+  },
+  {
+    "sha": "ec654d5684d2f3bb7023d2522ac55462251433e3",
+    "subject": "feat(ssh): validate Ed25519 host certificates and trusted signers",
+    "matches": [],
+    "files": [
+      "plugins/ssh/src/engine/host-certificate.ts",
+      "plugins/ssh/src/engine/identity-certificate.ts",
+      "plugins/ssh/src/engine/ssh-wire.ts",
+      "plugins/ssh/test/host-certificate.test.ts"
+    ]
+  },
+  {
+    "sha": "f4e43d5eba286969b1ea141f644f6c24366119e2",
+    "subject": "feat(mail): 预览并可恢复地删除指定本地邮箱",
+    "matches": [
+      "7fd88b74503a48a2cbd754ff0b43ddce695766d7"
+    ],
+    "files": [
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/mail-remove-preview-390.png",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1-workbench/workbench-renderer.test.ts",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S1a.4-remove-account.md",
+      ".agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S1a.4-remove-account.md",
+      "plugins/mail/huhu-plugin.json",
+      "plugins/mail/src/engine/account-removals.ts",
+      "plugins/mail/src/engine/account-setup.ts",
+      "plugins/mail/src/engine/accounts.ts",
+      "plugins/mail/src/engine/draft-attachments.ts",
+      "plugins/mail/src/engine/drafts.ts",
+      "plugins/mail/src/engine/message-cache.ts",
+      "plugins/mail/src/engine/outbox-storage.ts",
+      "plugins/mail/src/engine/outbox.ts",
+      "plugins/mail/src/engine/registration.ts",
+      "plugins/mail/src/ui/MailAccountRemovalDialog.tsx",
+      "plugins/mail/src/ui/MailComposer.tsx",
+      "plugins/mail/src/ui/MailModule.tsx",
+      "plugins/mail/src/ui/MailOutbox.tsx",
+      "plugins/mail/test/fixtures/imap.ts",
+      "plugins/mail/test/outbox-engine.test.ts"
+    ]
+  },
+  {
+    "sha": "fa472010902b7335f4357b79683a17367aeb7e7e",
+    "subject": "test(workflows): cover desktop save and dashboard close with web sharing",
+    "matches": [
+      "2b314d4c7c2dc35fe4fa21b2c774d42e89dba9ae"
+    ],
+    "files": [
+      "tests/e2e/workflows/web-share.spec.ts"
+    ]
+  },
+  {
+    "sha": "ff0afc5866e85b399143574f9e62f6820d4a90c1",
+    "subject": "feat(tasks): bind durable dispatch to Agent CLI input",
+    "matches": [
+      "c0c70e670e54ce252e2910d35fd94dc6c35fa40a"
+    ],
+    "files": [
+      "apps/engine/src/boot.ts",
+      "apps/engine/test/task-dispatch.live.test.ts",
+      "packages/contracts/src/kinds/task.ts",
+      "packages/kernel/src/capabilities/define.ts",
+      "packages/kernel/src/context.ts",
+      "packages/kernel/src/dispatcher.ts",
+      "packages/kernel/src/permissions.ts",
+      "plugins/agent-cli/src/engine/dispatch-capabilities.ts",
+      "plugins/agent-cli/src/engine/dispatch-store.ts",
+      "plugins/agent-cli/src/engine/dispatch.ts",
+      "plugins/agent-cli/src/engine/index.ts",
+      "plugins/agent-cli/test/dispatch.live.test.ts",
+      "plugins/agent-cli/test/fixtures/dispatch-provider.ts",
+      "plugins/agent-cli/test/launch.live.test.ts",
+      "plugins/tasks/huhu-plugin.json",
+      "plugins/tasks/src/engine/agent-dispatch-executor.ts",
+      "plugins/tasks/src/engine/dispatch-store.ts",
+      "plugins/tasks/src/engine/dispatch.ts",
+      "plugins/tasks/src/engine/index.ts",
+      "plugins/tasks/src/engine/service.ts",
+      "plugins/tasks/test/agent-dispatch-executor.test.ts",
+      "plugins/tasks/test/persistence-http.test.ts"
+    ]
+  }
+]

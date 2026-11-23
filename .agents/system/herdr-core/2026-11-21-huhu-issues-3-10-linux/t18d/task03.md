@@ -1,0 +1,2 @@
+# task03 — XTEST 预检失败修复
+Lead t3p，integration，只改temp/final-audit/t18d-xtest诊断夹具。t18m没有发键，replay.py报Electron launch environment mismatch: DISPLAY。日志temp/final-audit/native-keys-run.log和native-10000-9350*.FNHCVp/result.json。查Electron/Playwright process PID与环境（可能Electron清理/proc环境或PID身份差异），如需下一次实际输出，只打印固定DISPLAY值、PID以及身份布尔，不输出整个环境。保留私有Xvfb peer验证与XID/PID匹配，不能任意移除校验。可改用app.evaluate读取实际主进程process.pid/env固定字段并核对，实际运行仍Lead。报告temp/final-audit/t18d-report03.md。
