@@ -410,3 +410,16 @@ t17c/task15 独审确认默认路径和正式证据，指出显式 feature 分�
 web组1项失败：web-share.spec.ts:226，浏览器写入新正文已通过磁盘断言，桌面openNote后ProseMirror仍显示旧正文，5s超时。失败日志和页面error-context已保全，未产出trace；退出包装还报告隔离runtime/gvfs挂载忙和doc目录残留，未将清理记成功。t176/task19只读定位文档事件与恢复路径。不能将八组通过写为全部联验通过，当前main尚未落地；SSH仍暂停。
 
 Web失败后的隔离目录 `/tmp/hc-a.0Zsknp` 经Lead核对所属HOME/runtime进程0、挂载0后已清理；记录 `temp/final-audit/web-b8f6c427-late-cleanup.json`。此事后清理不改变原测试失败和包装清理失败记录。
+
+
+## 停放恢复复审与新增组合用例（2026-11-23）
+
+`17ce3c60` 的原完整 Web 源码旅程通过 1 项，Notes 回归通过 32 项；日志为 `temp/final-audit/park-web-recheck-17ce3c60.log` 与 `park-notes-regress-17ce3c60.log`。这些是源码构建结果，不是修复包的结果。
+
+独审 `t194-report01.md` 发现迟到草稿读取会复活已丢弃草稿，以及草稿读取失败会隐藏已知草稿。返工还覆盖了恢复接纳正文前排空编辑器缓冲。`t197-regression-red.log` 的 4 项失败在返工后成为单文件 101/101 通过（`temp/final-audit/t197-regression-green.log`）。新增真实 Chromium 组合输入用例尚待 Lead 运行；合成 CDP 组合事件不代表实际操作系统输入法矩阵。
+
+新增候选包用例：`external-agent-desktop.spec.ts` 的 CLI-only/MCP-only 原任务问答与桌面原会话定位；`gateway-package-boundaries.spec.ts` 的批量授权/陈旧策略与资源错误；`close-package.spec.ts` 的看板保存失败重试及放弃、笔记结算与专注暂停。t198、t199、t19b、t19c 定向类型/lint/格式检查通过，尚未算作 E2E 通过。
+
+独审 `t194-report02.md` 指出 ASAR 重命名不能可靠制造资源缺失，测试已改为加载同一候选包内 Engine 的独立 utilityProcess，并将从该包提取的入口放在私有物理目录，验证同一 listener 的 200→503→200。此项是包内生产 Engine 的故障注入，不冒充未修改的桌面资源路径。关窗异常清理改用独立清理步骤。`t194-report03.md` 未发现阻止外部 Agent 用例实跑的静态缺陷；已补二进制回放字节断言，避免仅以 WebSocket 握手声称 Core 附着。
+
+HC Codex CLI 的账号用量上限中断了后续工作。两份测试独审报告已保存；Notes 返工后的独立复审尚未完成。Lead 继续核对和验证，不能将未完成复审记为通过。#7 SSH 仍暂停，change 与代码保留。

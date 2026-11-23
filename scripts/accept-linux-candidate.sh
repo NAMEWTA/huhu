@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Run one final candidate acceptance in a fresh display and Secret Service session.
 set -euo pipefail
-mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
+mode=${1:?usage: accept-linux-candidate.sh tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|gateway|close|external-agent APPIMAGE SHA256 GIT_SHA CODEX [LINUX_PROBE]}
 artifact=$(realpath -e "${2:?AppImage required}")
 artifact_sha=${3:?SHA-256 required}
 candidate_commit=${4:?full Git SHA required}
 provider=$(realpath -e "${5:?pinned Codex required}")
-case "$mode" in tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package) ;; *) exit 64 ;; esac
+case "$mode" in tasks|workspace|credentials|native|web|rule|tools-web|git|web-terminal|package|gateway|close|external-agent) ;; *) exit 64 ;; esac
 [[ $(uname -sm) == 'Linux x86_64' ]]
 [[ $(git rev-parse HEAD) == "$candidate_commit" ]]
 [[ -z $(git status --porcelain) ]]
@@ -20,6 +20,7 @@ if [[ "$mode" == native ]]; then
   expected_tests=2
 fi
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}
+if [[ "$mode" == close || "$mode" == external-agent ]]; then expected_tests=2; fi
 if [[ "$mode" == package ]]; then expected_tests=5; fi
 if [[ "$mode" == web-terminal ]]; then expected_tests=3; fi
 node_binary=$(node -p 'process.execPath')
@@ -62,6 +63,15 @@ env -i PATH="$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-
       web)
         export HUHU_WEB_SHARE_ACCEPTANCE=1
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/web-share.spec.ts ;;
+      external-agent)
+        export HUHU_EXTERNAL_AGENT_DESKTOP_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/external-agent-desktop.spec.ts ;;
+      close)
+        export HUHU_CLOSE_PACKAGE_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/close-package.spec.ts ;;
+      gateway)
+        export HUHU_GATEWAY_BOUNDARY_ACCEPTANCE=1
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/gateway-package-boundaries.spec.ts ;;
       tools-web)
         export HUHU_EXTERNAL_TASK_WEB_ACCEPTANCE=1
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/external-task-web.spec.ts ;;
