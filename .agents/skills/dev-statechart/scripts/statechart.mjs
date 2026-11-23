@@ -6,7 +6,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { killGroup, messageOf } from "./run.mjs";
 
-const USAGE = `用法：statechart SPEC.tla [--config FILE] [--view FILE] [--out DIR]
+const USAGE = `用法：statechart SPEC.tla [--config FILE] [--view FILE] --out DIR
 
 使用 TLC 检查 SPEC.tla，并把状态图绘制为 Mermaid。超过 500 个状态时，只绘制
 通向违规规则的路径；没有违规规则时，不生成 chart.mmd。
@@ -16,8 +16,7 @@ const USAGE = `用法：statechart SPEC.tla [--config FILE] [--view FILE] [--out
                  数组生成父状态，对象生成并行区域。默认显示各状态的值。
                  colors 为每个分组指定 blue、orange、purple、yellow、teal、tan 或 pink。
   --out DIR      写入 report.md、chart.mmd、tlc.out，以及每个违规时序属性和
-                 图中未显示的违规规则的 tlc-RULE.out。目录必须新建或为空。
-                 默认为 SPEC-chart。
+                 图中未显示的违规规则的 tlc-RULE.out。指定目标项目 temp/dev/ 下的新目录或空目录。
 退出码对应原样配置的 TLC 结果：全部规则成立为 0，规则被违反为 1，TLC 错误、
 信号终止检查或命令无法运行为 2。SIGINT 和 SIGTERM 分别返回 130 和 143。
 只有退出码 0 和 1 会写出结果。`;
@@ -42,6 +41,7 @@ try {
   if (flags.help) { console.log(USAGE + "\n本地依赖：设置 TLA2TOOLS 为 tla2tools.jar 的绝对路径，可选 JAVA 指定 Java 11+ 可执行文件。命令不联网。\n--help 显示帮助。"); process.exit(0); }
   [specFile] = args.positionals;
   if (args.positionals.length !== 1) throw new Error("请提供一个 SPEC.tla。");
+  if (!flags.out) throw new Error("请用 --out DIR 指定本轮输出目录。");
 } catch (error) {
   console.error(`${messageOf(error)}\n\n${USAGE}`);
   process.exit(2);
@@ -54,7 +54,7 @@ try {
   const configFile = flags.config ?? specFile.replace(/\.tla$/, ".cfg");
   if (!fs.existsSync(configFile))
     throw new Error(`找不到 TLC 配置 ${configFile}。请传入 --config FILE。`);
-  const out = flags.out ?? specFile.replace(/\.tla$/, "-chart");
+  const out = flags.out;
   let entries           = [];
   let dest        ;
   try {
@@ -78,8 +78,8 @@ try {
       `${out} 非空，包含 ${entries.sort()[0]}。命令只写入新目录或空目录。请通过 --out 指定新目录。`,
     );
 
-  let base = path.dirname(dest);
-  while (!fs.existsSync(base)) base = path.dirname(base);
+  const base = path.dirname(dest);
+  fs.mkdirSync(base, { recursive: true });
   const stage = fs.mkdtempSync(path.join(base, `.${path.basename(dest)}.statechart-`));
   const done = path.join(stage, "done");
   let tmp                    ;
@@ -123,7 +123,6 @@ try {
       console.error(`${worker.signalCode} 终止了检查，命令未写出结果。`);
       exitCode = 2;
     } else if ((verdict === 0 || verdict === 1) && fs.existsSync(done)) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
       try {
         try {
           fs.renameSync(done, dest);

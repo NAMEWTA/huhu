@@ -34,7 +34,7 @@ description: 以延迟、吞吐、资源使用或指定指标为目标，诊断�
 
 `dev-guardrails`（真实证据）检查实际产物；`dev-guardrails`（可重跑工具）使测量可复查；`dev-guardrails`（可验证单元）安排迭代；`dev-guardrails`（共享状态隔离）避免试验污染；`dev-guardrails`（上下文预算）处理大型捕获；`dev-guardrails`（最小改动）与`dev-guardrails`（结构化经验）限制额外负担。
 
-按[测量记录](assets/measurement.md)保存目标、环境、命令、样本、错误、工作量、限制因素和结论。持续优化可用[试验日志](assets/experiments.md)。新增测量记录和可持久化的结果放在 `.agents/dev/changes/<日期-主题>/`；已有产物按真实位置引用，私有原始数据留在受控位置。不记录凭据或无关业务数据。
+按[测量记录](assets/measurement.md)保存目标、环境、命令、样本、错误、工作量、限制因素和结论。持续优化可用[试验日志](assets/experiments.md)。采样、轨迹、原始表格和工具输出留项目根 `temp/dev/` 的本轮目录。以上模板用于组织 `evidences/` 内与原 task 完全同名的一份 `.md`，记录可重复的测量和结论；已有产物按真实位置引用，不记录凭据或无关业务数据。
 
 长时间性能实验按`dev-workflow`（决策证据方法）记录重要选择并对照真实产物复核，可参考`dev-workflow`（决策记录）。试验日志已包含同样信息时复用它，不再维护重复账本。Markdown 为默认；TSV 与本地追加脚本只是该方法中的可选输出。通用开发任务的决策审计由 `dev-workflow` 承接。
 

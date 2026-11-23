@@ -55,12 +55,13 @@
 
 ## 选择技能
 
-跨阶段目标或当前阶段不明时使用 `$dev-workflow`；已有明确阶段时直接推荐对应入口，例如按规格与有效体验基线实施用 `$dev-build`、将完整文档转成交互 HTML 让用户确认用 `$dev-prototype`、普通故障用 `$dev-debug`。推荐前先读取该技能，并给一个示例提示词。
+跨阶段目标或当前阶段不明时使用 `$dev-workflow`；已有明确阶段时直接推荐对应入口，例如写可认领 Issue 用 `$dev-issue`、按规格与有效体验基线实施用 `$dev-build`、将完整文档转成交互 HTML 让用户确认用 `$dev-prototype`、复现或修复普通故障用 `$dev-debug`。推荐前先读取该技能，并给一个示例提示词。
 
 | 用户想做什么 | 技能 |
 |---|---|
 | 协调跨阶段目标、接续后阶段未明的任务或完成约定交付 | `dev-workflow`（`$dev-workflow`） |
 | 保存开发上下文、交给新会话、接手具体旧任务或明确暂停 | [`$dev-handoff`](capabilities.md) |
+| 将想法、Bug 或优化写成可认领 Issue，更新正文或追加评论 | [`$dev-issue`](capabilities.md)；按授权发布或交付草稿 |
 | 把聊天、Issue、截图或日志整理成目标、事实、范围与缺口 | [`$dev-intake`](capabilities.md)（需求整理） |
 | 产品规则尚未决定，需要按依赖逐层做选择 | [`$dev-grill`](capabilities.md)（决策访谈） |
 | 共识已明确，补齐可实施、可验收的行为约定 | [`$dev-spec`](capabilities.md)（行为规格） |
@@ -107,7 +108,7 @@
 容易混淆的选择：
 
 - `$dev-intake` 整理需求材料，`$dev-grill` 解决未决产品选择，`$dev-spec` 补全行为契约，`$dev-sharpen` 改写请求表达。按真实缺口调用，已有充分结果直接复用。
-- `$dev-intake` 与 `$dev-issue-triage` 以输出区分，不以材料是否来自 Issue 区分；后者只做分类、查重与分流，复现和修复交 `$dev-debug` 或满足报告流程前提的 `$dev-issue-fix`。
+- 按预期产物区分 Issue 相关请求：完整正文的撰写与维护、增量评论由 `$dev-issue` 负责，来源、目标与缺口整理用 `$dev-intake`，分类、查重与分流用 `$dev-issue-triage`。要求复现或修复时才交 `$dev-debug` 或满足报告流程前提的 `$dev-issue-fix`；材料来自 Issue 不决定路线。
 - `$dev-deploy` 可单独完成 PR 交付，无需环境部署；`$dev-personalize` 可单独编写项目技能，无需个人历史。
 - `$dev-formal-verify` 按属性选择工具；只有 TLA+/TLC 模型与结果交 `$dev-statechart`，JS 模型采用兼容展示。应用验证生成 `dev-verify-<app>`，形式属性验证生成 `dev-formal-verify-<area>`。
 - `$dev-learn` 解释当前机制与修改入口，教学中按需要补充已有历史依据；独立追查历史决定由 `$dev-why` 负责。
@@ -136,7 +137,7 @@
 
 相近名称可能被宿主匹配到其他技能，执行前应读取实际内容并核对目标。`dev-workflow`（`dev-workflow`） 的 Playbooks 部分列出全部流程及适用条件。[指南第 6 页](guide-verification.md) 说明开启、跟进和落地 PR。
 
-本项目有按任务选择的规格、计划与实施方法；宿主真实提供计划模式时可配合使用。跨阶段或堆叠 PR 的工作，要求 `$dev-workflow` 制订计划会使用 `dev-plan`（多阶段计划流程）。只要求计划时不实施；已授权持续实施时，计划核对后按原授权交给 `dev-build`。设计问题按实际缺口通过研究、Prototype 流程或 `$dev-architecture` 厘清，不重做已有决定。
+本项目有按任务选择的规格、计划与实施方法，宿主提供的计划模式可配合使用。`$dev-workflow` 通过 `dev-plan` 保存实施票据并汇总 DAG；跨阶段或堆叠 PR 再按实际交付分组。只要求计划时交付票据和计划。已授权持续实施时，核对后交给 `dev-build`。设计问题按实际缺口通过研究、Prototype 流程或 `$dev-architecture` 厘清，沿用有效的决定。
 
 原则全文由 `dev-guardrails` 维护，按任务需要调用；在它改变决定时说明实际作用，不要求每轮机械引用全部原则。用户通常用名称引导，例如“apply prove it works. show me the real output.”，执行者再读取该原则的完整方法。[指南第 8 页](guide-principles.md) 列出了这些原则。
 

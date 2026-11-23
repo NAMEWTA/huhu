@@ -21,7 +21,7 @@
 
 ## 简短记录
 
-可以写入已有 `evidence.md`，不强制独立文件或 JSON。
+这些结果更新所属 Change 的 `evidences/` 内与原 task 同名的 Markdown。运行日志、截图、一次性诊断脚本和原始 JSON 留项目根 `temp/dev/`，不另建报告。
 
 ```markdown
 ## 故障现象

@@ -52,4 +52,4 @@ node "$SKILL_DIR/scripts/check-model.mjs" "$SKILL_DIR/assets/example/model.mjs" 
 
 最短反例仅指这个枚举器生成的图中以动作步数计的最短路径。复用到真实项目时，仍要按[创建检查](create-check.md)建立代码映射和故障校准，并按[维护检查](maintain-check.md)识别漂移。
 
-检查器输出 Markdown 报告；可用 `--out NEW_REPORT.md` 保存到尚不存在的文件。需要图示时按实际报告展示规则结果与反例步骤，不能从通过报告补造未导出的完整状态图。这个 `.mjs` 模型不能直接交给 `dev-statechart`，后者只接受 TLA+ 模型并运行 TLC。
+检查器输出 Markdown 报告；需要留原件时先确定并创建项目根 `temp/dev/` 下的本轮目录，用 `--out "$RUN_DIR/model-check.md"` 写尚不存在的文件。它不是 task 的持久验收报告。需要图示时按实际报告展示规则结果与反例步骤，不能从通过报告补造未导出的完整状态图。这个 `.mjs` 模型不能直接交给 `dev-statechart`，后者只接受 TLA+ 模型并运行 TLC。

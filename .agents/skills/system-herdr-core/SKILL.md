@@ -103,7 +103,7 @@ hc attach t7
 
 ## 文件协作
 
-需要持久化派发、验收或交接时，从首次投递起使用文件。派发者为 Lead，执行者为 worker。控制消息只传 task 和 report 的路径，文件保存完整任务、产物和恢复依据。使用 [topic](assets/topic.md)、[manifest](assets/manifest.tsv)、[task](assets/task.md) 和 [report](assets/report.md)。
+需要持久化派发、验收或交接时，从首次投递起使用文件。派发者为 Lead，执行者为 worker。控制消息只传 task 和 report 的路径。`taskNN.md` 是派发单，`reportNN.md` 是同号执行回执，用于核对身份、交回和恢复，不替代业务验收。使用 [topic](assets/topic.md)、[manifest](assets/manifest.tsv)、[task](assets/task.md) 和 [report](assets/report.md)。
 
 ### 共享根和任务身份
 
@@ -115,7 +115,7 @@ hc attach t7
 
 ### 清单与状态
 
-`manifest.tsv` 的固定表头为 `terminal_address`、`task`、`status`，以真实制表符分隔。以 Lead 侧的原始完整地址为键，每个已派发终端一行；`task` 只保存当前文件名，如 `task01.md`。只有 Lead 写入。不为自身或空闲终端添加占位行，旧任务的判断与证据留在报告。
+`manifest.tsv` 的固定表头为 `terminal_address`、`task`、`status`，以真实制表符分隔。以 Lead 侧的原始完整地址为键，每个已派发终端一行；`task` 只保存当前文件名，如 `task01.md`。只有 Lead 写入。不为自身或空闲终端添加占位行，历史派发保留原身份及回执。
 
 | status | 含义 |
 | --- | --- |
@@ -125,18 +125,20 @@ hc attach t7
 
 worker 在报告中写 `done` 只表示其认为任务完成，不能直接改变清单状态。
 
-### 验收附件
+### 业务验收与运行附件
 
-报告记录实际版本、工作目录、命令、结果和限制。验收或接手需要原始日志、诊断或截图时，Lead 在 task 中指定要保留的附件及双方可达的位置。沿用项目已授权的工件位置；默认使用 `.agents/system/ignore/herdr-core/<topic>/<终端目录>/<任务文件名去掉 .md>/`，沿用已编码的终端目录名，如 `.../ignore/herdr-core/<topic>/t122/task01/`。有附件时才创建目录。
+有业务 task 时，派发单写所属 Change 的 `tasks/<文件名>.md` 与 `evidences/` 内完全同名的一份 `.md`。新建票据即建报告，尚无检查结果标「未验证」；报告目录只含这些普通 Markdown，不放其他文件、符号链接或目录。独立系统变更使用 `.agents/system/<host>/changes/<change-id>/`；短查询不造业务票。补充、返工或换终端只更换派发身份，不新增业务验收报告。整体验收通过且到达交付终点后，由 Change 负责人写根 `evidence.md`。
 
-报告从自身位置引用附件，例如 `[运行日志](../../../ignore/herdr-core/<topic>/t122/task01/install.log)`。链接中的空格和文件名里的百分号须 URL 转义。挂载不同则写明 Lead 可达位置。临时附件标明本轮用途，正文保留可复核的结果，长期需要的原件引用项目的持久工件。旧报告沿用原路径。
+Lead 在派发单指定必需附件、worker 可写路径和 Lead 可读路径。Herdr Core 自身日志、诊断、截图和需留存的临时观察写协调项目根 `temp/system/herdr-core/<topic>/<终端目录>/<派发 task-stem>/<run-id>/`，保留已编码的终端目录，如 `build%2Ft7`。开发测试原件仍用目标项目 `temp/dev/`。有附件才建目录；Git 项目先核对忽略和跟踪状态，不把原件提交到 Git。确认实际挂载或已授权的交接方式。
+
+worker 交回实际版本、命令、观察及限制，短结果可用终端回告，需留的观察放临时目录。`reportNN.md` 只保存执行状态和指针，Lead 把可复查结论更新到原业务 task 的同名验收报告。同根布局从回执目录退五层到项目根；相对链接中空格写 `%20`，字面 `%` 写 `%25`，如 `build%252Ft7`。必要附件无法回读就记缺口，不予验收。
 
 ### 发布与执行
 
 1. 用[启动命令](#启动-agent)创建空闲交互 worker，保存 `hc run --json` 的 `address`，或复用已确认空闲的终端。写完整 task，填好身份、输入、边界、工作目录、产物、验证、报告位置及附件要求。双方确认可达后发布，发布后保留原 task。
 2. 确认目标已可接收输入。更新 manifest 的当前任务及 `active`，再用 `hc send` 向真实地址投递两个绝对路径。用引号区分路径，整条消息作为单个参数。多项任务先发完，再观察或等待。
 3. worker 读 task、topic 和 manifest，核对连接、自身身份和当前指针。已在执行同一任务就接续；已有匹配终稿就只回告路径。遇到旧指针、身份不符、另一任务在执行或不匹配的报告时停止并说明，由 Lead 处理。
-4. worker 按 task 写业务产物并验证。协作记录只写自己的报告执行部分、同目录临时稿和指定附件。完成或阻塞时，先写完附件，再在报告同目录写完整临时报告，核对身份后用不覆盖已有文件的操作发布终稿。Node.js 可在支持硬链接的文件系统用 `fs.link` 从完整临时稿发布，成功后删除临时稿。目标已存在时先读终稿；无法保证完整发布时交回 Lead。
+4. worker 按 task 写业务产物并验证，不编辑业务验收报告，除非被指定为唯一写入者。先写完指定附件和临时观察，再在回执同目录写完整临时稿，核对身份后用不覆盖已有文件的操作发布终稿。Node.js 可在支持硬链接的文件系统用 `fs.link` 从完整临时稿发布，成功后删除临时稿。目标已存在时先读终稿；无法保证完整发布时交回 Lead。
 5. worker 回告终稿绝对路径。Core 来信带 `reach` 时使用其中的 Lead 回信地址，否则用 task 中验证过的地址。`HC_TERMINAL_ID` 是 worker 自身身份；外部 Lead 按 topic 指定的位置收取。回告后等待派发，不自行领任务。报告写入失败时在终端说明身份、原因和已产生的结果。
 
 Lead 侧投递示例。替换成实际地址和路径；远端挂载不同时传 worker 侧路径：
@@ -151,7 +153,7 @@ hc send $workerAddress $message
 
 ### 验收与恢复
 
-- Lead 读取同号报告，核对完整身份、实际产物和验证证据，打开必需的附件。通过后更新 manifest 为 `done`，因明确阻碍停止时标为 `blocked`。在终稿末尾追加验收意见，不改 worker 的执行部分。
+- Lead 核对同号回执、完整身份、真实产物与必需附件。先由唯一写入者更新原业务 task 的同名报告，再把 manifest 标为 `done` 或 `blocked`。在回执末尾追加清单决定、验收报告指针和后续安排，不改 worker 的执行部分，也不复制验收正文。
 - 验收通过且无需复用时，按[回收临时 worker](#回收临时-worker)清理本次创建的终端。
 - `hc send` 只表示投递，`hc wait` 和状态只反映终端观察。发送失败、模板 `first_message.sent=false`、等待超时或被消息打断时，先用 `hc get`、`hc read` 核对终端，再检查准确的 task/report 和实际产物。无报告不表示动作未发生。
 - 返工、补充、解除阻塞或更换执行者时分配新编号。更换终端时使用新地址的目录，保留旧身份和证据，在新 task 引用前序任务和报告。更新 manifest 前确认旧执行者已停止或交回。

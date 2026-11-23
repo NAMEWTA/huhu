@@ -4,6 +4,7 @@
 
 ## 执行方法
 
+- [运行原件与验收报告](evidence-storage.md)
 - [创建笔记](feature-map-example.md)
 - [笔记验证图](feature-map-index.md)
 - [搜索笔记](feature-search-example.md)

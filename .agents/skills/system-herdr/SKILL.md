@@ -108,6 +108,8 @@ herdr --machine <label-or-id> agent prompt <remote-agent-name> "Reply with your 
 
 默认使用当前标签页中的相邻窗格和当前工作目录。除非用户明确要求相应拓扑或位置，否则不要创建工作区、标签页、worktree，也不要换用其他工作目录。
 
+记录本次创建的临时 worker 的真实 pane ID。每次验收后，按[回收临时 worker](#回收临时-worker)收尾。
+
 遵循用户指定的拆分方向。如果未指定，先检查调用方窗格：
 
 ```bash
@@ -213,6 +215,14 @@ herdr pane read <returned-pane-id> --source recent-unwrapped --lines 120
 - 绝不要杀死 Herdr 主进程。需要隔离服务端的实验应使用具名测试会话。
 - CLI 服务端错误以 JSON 输出到 stderr，退出状态为 1。CLI 语法错误退出状态为 2。
 
+## 回收临时 worker
+
+每次验收后，由 Lead 主动关闭本次创建、已无运行中或待处理的工作且无需继续复用的临时 worker。按创建时记录的真实 pane ID 和连接上下文核对目标，用 `herdr pane list` 查看窗格，按需用 `herdr agent get`、`herdr pane read` 检查进程状态与输出，并确认后台任务已结束。保留 Lead、用户窗格、需要复用的 worker，以及身份、运行状态或关闭影响不明的窗格。
+
+使用文件协作时，在关闭前重读当前 topic 的运行清单 `manifest.tsv`。仅回收对应行仍指向已验收的 task 且状态为 `done` 的 worker，保留清单、派发单和回执。短任务直接依据已核验的结果和后续安排判断。
+
+在同一连接上下文执行 `herdr pane close <pane_id>`，随后用 `herdr pane list` 确认目标已关闭。
+
 ## Claude Code & Codex & Pi 的默认启动方式命令
 
 在已有可用 shell 窗格中启动；`<name>` 为唯一名称，`<returned-pane-id>` 为实际返回的窗格 ID，`<models_name>`/`<effort>` 为模型/推理强度，未指定则删除对应参数：
@@ -225,7 +235,7 @@ herdr agent start <name> --kind pi --pane <returned-pane-id> -- --model <models_
 
 ## 文件通信协议
 
-需要持久化派发与回复时，首次投递就使用以下约定。任务派发方称为 Lead，目标 pane 的执行者称为 worker；Herdr 发送文件位置，文件保存任务、结果和恢复依据。通用格式见 [topic](assets/topic.md)、[manifest](assets/manifest.tsv)、[task](assets/task.md) 和 [report](assets/report.md)。
+需要持久化派发与回复时，首次投递就使用以下约定。任务派发方称为 Lead，目标 pane 的执行者称为 worker；Herdr 发送文件位置，`taskNN.md` 是派发单，`reportNN.md` 是同号执行回执。两者用于确认身份、交回和恢复，不替代业务验收。通用格式见 [topic](assets/topic.md)、[manifest](assets/manifest.tsv)、[task](assets/task.md) 和 [report](assets/report.md)。
 
 ### 目录与身份
 
@@ -247,22 +257,32 @@ herdr agent start <name> --kind pi --pane <returned-pane-id> -- --model <models_
 | `done` | Lead 已按该任务的验收要求确认通过。 |
 | `blocked` | 当前任务因明确阻碍停止推进，原因与下一步见报告或 topic。 |
 
-只有 Lead 写 manifest；worker 不改清单。报告中的 `done` 只表示 worker 认为任务完成，不能直接变成清单的 `done`。清单保存当前指针，旧任务的结果和验收决定留在对应报告。
+只有 Lead 写 manifest。worker 回执中的 `done` 表示交回，不等于清单的 `done`。清单保存当前指针，历史派发保留原身份及回执。
+
+### 业务验收与运行附件
+
+有业务 task 时，派发单写所属 Change 的 `tasks/<文件名>.md` 与 `evidences/` 内完全同名的一份 `.md`。新建票据时同时建报告，尚未检查标「未验证」；报告目录除这些普通 Markdown 外不放任何文件、符号链接或目录。独立系统变更使用 `.agents/system/<host>/changes/<change-id>/`；短查询不造业务票。补充、返工与换 pane 不另建业务验收报告；整体验收通过且到达交付终点后，由 Change 负责人写根 `evidence.md`。
+
+Lead 在派发单内指定必需附件、worker 可写路径和 Lead 可读路径。Herdr 自身的日志、诊断、截图和需保留的临时观察写协调项目根 `temp/system/herdr/<topic>/<pane 目录>/<派发 task-stem>/<run-id>/`，开发测试原件用项目根 `temp/dev/`。有附件才建目录；在 Git 项目先核对实际忽略和跟踪状态，不强制提交或复制进持久目录。跨挂载确认确实能访问文件；不能共享时使用已授权的交接方式。
+
+worker 返回实际版本、命令、观察与限制，短结果可在终端交回，需留存的本轮观察放临时运行目录。`reportNN.md` 只保存执行状态、成果与指针，Lead 把可复查结论写入唯一同名验收报告。若回执用相对路径引用临时附件，默认同根布局从回执目录退五层到项目根；空格编码为 `%20`，字面 `%` 编码为 `%25`。不能回读必需附件时记录缺口，不据此验收。
 
 ### 发布与执行
 
-1. Lead 填好 task 的全部路径、目标、输入、读写边界、工作目录、产物和验证要求。任务必须自包含；没有安装本技能的 worker 也能按它完成。先写完整文件再发布，发布后 task 不变。
+1. Lead 填好 task 的全部路径、目标、输入、读写边界、工作目录、产物、验证要求及所需验收附件。任务必须自包含；没有安装本技能的 worker 也能按它完成。先写完整文件再发布，发布后 task 不变。
 2. 确认该 pane 没有尚在执行的任务；把 manifest 指向新 task，状态设为 `active`，再通过 Herdr 提示读取准确的绝对 task 路径，并给出绝对 report 路径。控制消息只传这两个文件指针，不另放一份任务正文。
 3. 有多个已确定需要并行投递的任务时，先全部 `prompt`，再观察和 `wait`，避免逐个 `prompt --wait` 使投递串行。
 4. worker 先读 task、topic 和 manifest，核对服务端、实际 pane、当前 task 与完整任务身份。若已有身份匹配的终稿 report，只回告其绝对路径，不重跑。指针过期、pane 不符或清单不是 `active` 时停止，并在终端说明；不擅自修正清单或转到下一任务。
-5. worker 只执行当前 task。业务产物仅在任务允许的范围写入；协作记录只写自己的报告执行部分，不改 topic、manifest、task、他人报告或自己的 Lead 验收部分。无法继续时报告具体阻碍。
-6. worker 按完整格式把报告写到同目录临时文件，检查身份与内容后重命名为同号终稿 report；不覆盖已有终稿。提交后停止写报告，只回告绝对报告路径，不自动领取下一任务。无法写报告时在终端明确说明任务身份、失败原因和已有产物，不能声称报告已提交。
+5. worker 只执行当前 task。按任务边界写业务产物，先完成附件及临时观察，再发布自己的回执。除非被明确指定为唯一写入者，不编辑业务验收报告；无法继续则交回具体阻碍。
+6. worker 按完整格式在同目录写临时稿，核对身份和内容后用拒绝覆盖的操作发布回执。支持硬链接的文件系统可用 `fs.link` 发布完整临时稿，成功后删除临时稿；不要用可能覆盖目标的普通 rename。提交后停止写、只回告绝对路径，不自动领下一任务。无法发布时说明身份、原因和已有产物。
 
 ### 验收与下一任务
 
-Lead 读取同号报告与实际产物，核对任务的验收要求和验证证据，必要时独立检查。只有验收通过才把 manifest 标为 `done`；阻塞时标为 `blocked`，说明缺什么条件。
+Lead 核对同号回执、当前身份和真实产物，打开必需附件，必要时独立检查。先由唯一写入者更新原业务 task 的同名报告，再把 manifest 标为 `done` 或 `blocked`；回执或终端状态不能代替验收。
 
-worker 交回终稿后不再写报告。Lead 可在末尾追加验收决定、依据和后续安排，不改执行部分。需要补充、返工、解除阻塞或换任务时，建立下一编号 task，引用原任务和报告；确认原执行者已停止后才更新清单并派发。可以提前准备后续 task，但 worker 不能自行扫描领取。
+worker 交回终稿后不再写回执。Lead 可在末尾追加清单决定、验收报告指针和后续安排，不复写业务验收正文或修改执行部分。需要补充、返工、解除阻塞或换任务时，建立下一编号 task，引用原任务和报告；确认原执行者已停止后才更新清单并派发。可以提前准备后续 task，但 worker 不能自行扫描领取。
+
+验收通过且无需继续复用时，按[回收临时 worker](#回收临时-worker)关闭本次创建的窗格。
 
 ### 观察、恢复与交接
 

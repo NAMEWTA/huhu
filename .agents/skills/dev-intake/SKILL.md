@@ -1,6 +1,6 @@
 ---
 name: dev-intake
-description: 将聊天、Issue、PR 评审、截图、日志或文档中的散落材料整理成需求简报，记录来源、事实、目标、范围、已有决定与缺口。用于汇总反馈或复述理解中的目标；未决产品取舍交 dev-grill，补足行为契约交 dev-spec，仅报告分类查重分流交 dev-issue-triage。
+description: 将聊天、Issue、PR 评审、截图、日志或文档中的散落材料整理成需求简报，记录来源、事实、目标、范围、已有决定与缺口。用于汇总反馈或复述理解中的目标；撰写或维护可认领 Issue 交 dev-issue，未决产品取舍交 dev-grill，补足行为契约交 dev-spec，仅报告分类查重分流交 dev-issue-triage。
 ---
 
 # 需求整理
@@ -21,7 +21,7 @@ description: 将聊天、Issue、PR 评审、截图、日志或文档中的散�
 
 多来源、缺陷、截图、评审和追加需求的具体处理见 [来源处理](references/input-evidence.md)。
 
-按用户想得到的结果选择入口：整理成开发请求由本技能负责；仅对报告分类、查重和分流由 `dev-issue-triage` 负责，手工材料同样适用；复现、定位或修复由 `dev-debug` 负责，符合可信报告复现流程时使用 `dev-issue-fix`。来源是 Issue 或是否已有适配器，不决定使用哪个技能。只有需要接入来源或持续触发时才由 `dev-issue-setup` 初始化。
+按用户想得到的结果选择入口：整理成开发请求由本技能负责；撰写或发布可认领 Issue、更新正文或追加评论由 `dev-issue` 负责，本技能只补它指定的需求缺口并返回；仅对报告分类、查重和分流由 `dev-issue-triage` 负责，手工材料同样适用；复现、定位或修复由 `dev-debug` 负责，符合可信报告复现流程时使用 `dev-issue-fix`。来源是 Issue 或是否已有适配器，不决定使用哪个技能。只有需要接入来源或持续触发时才由 `dev-issue-setup` 初始化。
 
 ## 交接
 

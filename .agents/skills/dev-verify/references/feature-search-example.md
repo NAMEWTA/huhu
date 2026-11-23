@@ -34,7 +34,7 @@
 - **清除查询。** 选择 `Clear search`，运行 `control-notes browser click --role button --name "Clear search"`。搜索框为空，`Recent notes` 区域替代结果列表。
 - **CLI 匹配。** 从终端搜索，运行 `control-notes cli -- notes search "quarterly" --format json`。退出码 `0`，stdout 含一个标题为 `Quarterly plan` 的对象。
 - **CLI 未匹配。** 搜索不存在值，运行 `control-notes cli -- notes search "volcano" --format json`。退出码 `0`，stdout 为 `[]`。
-- **证明。** 捕获有结果状态，运行 `control-notes browser snapshot --aria --path artifacts/search/results.aria.txt` 和 `control-notes browser screenshot --path artifacts/search/results.png`。两份产物都识别笔记应用、查询和 `Quarterly plan`。
+- **证明。** 捕获有结果状态，运行 `control-notes browser snapshot --aria --path "$RUN_DIR/results.aria.txt"` 和 `control-notes browser screenshot --path "$RUN_DIR/results.png"`。两份产物都识别笔记应用、查询和 `Quarterly plan`。
 
 ## 注意事项
 

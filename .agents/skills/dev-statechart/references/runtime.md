@@ -18,7 +18,7 @@ TLC 1.7.4 对应 JAR 的 SHA-256 为 `936a262061c914694dfd669a543be24573c45d5aa0
 
 ## 命令
 
-`SKILL_DIR` 始终指本技能 `SKILL.md` 所在目录。下面路径是待替换的本地路径，执行时填入真实值。
+`SKILL_DIR` 指本技能 `SKILL.md` 所在目录。把 `RUN_DIR` 设为目标项目根 `temp/dev/` 下的本次绝对路径，不能按输入文件位置推导。下方模型与工具路径换成实际值。
 
 ```sh
 export TLA2TOOLS=/absolute/tools/tla2tools.jar
@@ -29,7 +29,7 @@ node "$SKILL_DIR/scripts/statechart.mjs" --help
 node "$SKILL_DIR/scripts/statechart.mjs" /absolute/models/Reservation.tla \
   --config /absolute/models/Reservation.cfg \
   --view /absolute/models/view.mjs \
-  --out /absolute/runs/reservation-001
+  --out "$RUN_DIR/chart"
 ```
 
 `JAVA` 未设置时使用当前 PATH 中的 `java`。确认解释器与 JAR 为本次项目允许的本地工具。配置和视图文件都应可信；视图是执行的 JavaScript 模块，并非被动数据。
@@ -42,7 +42,7 @@ node "$SKILL_DIR/scripts/statechart.mjs" /absolute/models/Reservation.tla \
 
 ```sh
 npm --prefix "$SKILL_DIR/scripts" install --omit=dev --ignore-scripts --no-audit --no-fund
-node "$SKILL_DIR/scripts/render.mjs" /absolute/runs/reservation-001/chart.mmd
+node "$SKILL_DIR/scripts/render.mjs" "$RUN_DIR/chart/chart.mmd" --out "$RUN_DIR/chart/chart.svg"
 ```
 
 环境不允许获取依赖时，明确阻塞项并提供 Mermaid 文本；不要切换到未授权远程服务传送模型。已有兼容模块可以通过 `STATECHART_PELE_MODULE` 复用。

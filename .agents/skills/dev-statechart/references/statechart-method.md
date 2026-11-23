@@ -8,17 +8,17 @@
 
 将 `SKILL_DIR` 设为本技能 `SKILL.md` 所在目录。先读[本地运行环境](runtime.md)，核对 Node.js、Java 和 TLC；此命令不联网、不自动安装依赖。主入口为[本地命令](../scripts/statechart.mjs)。
 
-在仓库之外的临时目录中运行。沿用已有 TLA+ 规格及其配置；确需建模时才编写，并保留与代码的映射。已有同版本、同配置的有效结果可以直接引用；下列命令会重新执行 TLC，不是旧日志导入器：
+将 `RUN_DIR` 设为目标项目根 `temp/dev/` 下本轮运行目录的绝对路径。沿用已有 TLA+ 规格及其配置；确需建模时才编写，并保留与代码的映射。已有同版本、同配置的有效结果可以直接引用；下列命令会重新执行 TLC，不是旧日志导入器：
 
 ```sh
-node "$SKILL_DIR/scripts/statechart.mjs" SPEC.tla [--config FILE] [--view FILE] [--out DIR]
+node "$SKILL_DIR/scripts/statechart.mjs" SPEC.tla [--config FILE] [--view FILE] --out "$RUN_DIR/chart"
 ```
 
 `scripts/statechart.mjs` 使用 Node.js 22.14 或更高版本直接执行，无需 TypeScript 编译器。
 
 使用本地 `TLA2TOOLS` 指向 `tla2tools.jar`，可选 `JAVA` 指定 Java 可执行文件。原始模型和配置不被改写；输出目录必须是新目录或空目录。需要示范时，使用[额度预留模型](../assets/Reservation.tla)、[故障配置](../assets/Reservation.cfg)、[修复配置](../assets/Reservation.fixed.cfg)和[中文视图](../assets/view.mjs)。案例参数只服务于该示例，不是其他系统的默认规模。
 
-模型与可执行验证代码继续在项目真实验证目录维护。需要持久保存的属性说明、代码映射、图和反例证据统一放在 `.agents/dev/changes/<日期-主题>/verification/`，长期约束写入 `.agents/dev/notes/context/` 并引用真实模型与代码。临时运行仍使用独立输出目录；复制模型时保留它所引用的本地 TLA+ 模块。
+模型与可执行验证代码继续在项目真实验证目录维护。图、生成报告和反例输出留本轮 `temp/dev/` 目录；在 `evidences/` 下与原 task 同名的 Markdown 记录适用属性、代码映射、实际结果和可重跑命令。长期约束写入 `.agents/dev/notes/context/` 并引用真实模型与代码。复制模型时保留它所引用的本地 TLA+ 模块。
 
 ## 编写规格
 

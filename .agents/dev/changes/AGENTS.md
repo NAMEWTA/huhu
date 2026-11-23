@@ -1,7 +1,6 @@
 # 当前变更
 
-- 保存活跃任务的目标、规格、进展与验证证据。
-- 新建目录使用 `./<YYYY-MM-DD-slug>/`；各阶段沿用同一任务记录，不提前分类或改名。
-- 文件按需建立，不强制完整模板；可视化确认使用本 change 的 `prototype/index.html` 及资源，`prototype-review.md` 记录实际走查、资源版本与用户确认范围。
-- 已确认原型是其覆盖的布局和交互依据；文档说明规则，任务安排工作。资源变化后核对受影响确认，不由 Agent 代签。
-- 交付完成或明确不实施后，由 `dev-archive` 提炼长期知识到 `../notes/`，再分类、重命名并归入 `../archive/changes/`。
+- 活跃任务在 `./<YYYY-MM-DD-slug>/` 保存目标、规格和进展，各阶段沿用原记录。原件放项目根 `temp/dev/`，不进 Git。
+- 出票即建 `evidences/` 下与 `tasks/` 完全同名的一份普通 `.md`，初始标「未验证」。目录只含同名报告，失败和复验更新原文件；整体验收后才写 Change 根 `evidence.md`。
+- 原型用 `prototype/index.html` 及资源；`prototype-review.md` 记实际走查、版本与用户确认范围。资源变化后重核受影响确认，不由 Agent 代签。
+- 完成交付或明确不实施后，由 `dev-archive` 将长期知识提炼到 `../notes/`，把 Change 分类归入 `../archive/changes/`。

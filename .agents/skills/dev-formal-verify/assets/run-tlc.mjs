@@ -7,15 +7,15 @@ import { pathToFileURL } from "node:url";
 
 export function main(argv = process.argv.slice(2)) {
   try {
-    if (argv.length < 2 || argv.length > 3)
-      throw new Error("用法：node run-tlc.mjs MODEL.tla CONFIG.cfg [NEW_OUTPUT_DIRECTORY]");
+    if (argv.length !== 3 || !argv[2])
+      throw new Error("用法：node run-tlc.mjs MODEL.tla CONFIG.cfg NEW_OUTPUT_DIRECTORY（指定目标项目 temp/dev/ 下的新目录）");
     const jar = process.env.TLA2TOOLS;
     if (!jar || !path.isAbsolute(jar) || !fs.statSync(jar, { throwIfNoEntry: false })?.isFile())
       throw new Error("请设置 TLA2TOOLS 为本地 tla2tools.jar 的绝对路径");
     const model = fs.realpathSync(argv[0]);
     const config = fs.realpathSync(argv[1]);
     if (!fs.statSync(model).isFile() || !fs.statSync(config).isFile()) throw new Error("模型和配置必须是常规文件");
-    const output = path.resolve(argv[2] ?? model.replace(/\.tla$/, "") + "-verification");
+    const output = path.resolve(argv[2]);
     if (fs.lstatSync(output, { throwIfNoEntry: false })) throw new Error("输出目录已存在，请指定新目录");
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.mkdirSync(output);

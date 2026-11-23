@@ -1,6 +1,6 @@
 # 渲染状态图
 
-用 npm 包 `pele@1.9.0` 渲染你展示的每个 `.mmd` 文件，并把 SVG 交给用户。在本技能的 scripts 目录按[运行环境](runtime.md)准备固定版本依赖。把每个 SVG 写在对应 `.mmd` 文件旁，使用相同文件名。完整调用方式为 `const { svg } = render(mermaidText, options)`，本技能的[渲染脚本](../scripts/render.mjs)执行该调用。向 `render` 传入 `{ limit: 1_000_000, outputLimit: 8_000_000, maxEdges: 10_000 }` 作为选项。Pele 的默认上限可能小于 500 个状态的图所需的上限。Pele 抛出 `PeleError` 时，向用户展示 Mermaid 文本与错误。
+用 npm 包 `pele@1.9.0` 渲染你展示的每个 `.mmd` 文件，并把 SVG 交给用户。在本技能的 scripts 目录按[运行环境](runtime.md)准备固定版本依赖。用 `--out` 把 SVG 写到目标项目的本轮 `temp/dev/` 目录，使用便于对应的文件名。完整调用方式为 `const { svg } = render(mermaidText, options)`，本技能的[渲染脚本](../scripts/render.mjs)执行该调用。向 `render` 传入 `{ limit: 1_000_000, outputLimit: 8_000_000, maxEdges: 10_000 }` 作为选项。Pele 的默认上限可能小于 500 个状态的图所需的上限。Pele 抛出 `PeleError` 时，向用户展示 Mermaid 文本与错误。
 
 ## 颜色
 
@@ -95,10 +95,9 @@ Pele 忽略 Mermaid 的 `theme` 和 `themeVariables`。在 `.pele` 上设置它�
 ## 本地命令
 
 ```sh
-node "$SKILL_DIR/scripts/render.mjs" /absolute/run/chart.mmd
-node "$SKILL_DIR/scripts/render.mjs" /absolute/run/chart.mmd --out /absolute/run/statechart.svg
+node "$SKILL_DIR/scripts/render.mjs" "$RUN_DIR/chart/chart.mmd" --out "$RUN_DIR/chart/chart.svg"
 ```
 
-默认把 SVG 写在输入旁，使用同名 `.svg` 扩展名。已有文件不会被覆盖；选择新输出路径或按本次任务授权处理旧文件。命令只读取本地 Mermaid、主题和渲染模块，不发送模型内容到远程服务。可以用 `STATECHART_PELE_MODULE` 指定已经安装的 Pele 入口文件绝对路径；否则读取 scripts 目录已安装的固定依赖。
+`RUN_DIR` 是目标项目根 `temp/dev/` 下本轮目录的绝对路径。必须显式传入 `.svg` 输出路径，已有文件不会被覆盖。复跑时选择新的运行目录。命令只读取本地 Mermaid、主题和渲染模块，不发送模型内容到远程服务。可以用 `STATECHART_PELE_MODULE` 指定已经安装的 Pele 入口文件绝对路径；否则读取 scripts 目录已安装的固定依赖。
 
 原始 TLC 输出中的英文协议文本保持原样，便于复核；状态、箭头、报告与图例使用中文。渲染错误保留原始错误细节，不据此改变模型或属性。

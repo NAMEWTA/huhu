@@ -5,7 +5,7 @@
 ## 基线前置条件
 
 - 在 `http://127.0.0.1:4173` 启动笔记应用，使用可丢弃数据目录。
-- 设置 `NOTES_DATA_DIR=/tmp/notes-verify-$RUN_ID`，使并行运行不共享状态。
+- 为实例设置独立可丢弃的 `NOTES_DATA_DIR`，使并行运行不共享状态。另把 `RUN_DIR` 设为目标项目根 `temp/dev/` 下本轮目录的绝对路径，按需创建，用于证据而非实例数据。
 - 创建标题为 `Quarterly plan` 和 `Grocery list` 的种子笔记。
 - 把 `control-notes` 和 `notes` CLI 放到 `PATH`。
 - 运行 `control-notes doctor`，要求预期地址、数据目录和构建版本。
@@ -26,7 +26,7 @@
 - UI 证明含 ARIA 快照和能识别应用身份的截图。
 - CLI 证明含命令、stdout、stderr、退出码。
 - 修改证明含对存储值的第二个只读视图。
-- 每份产物记录功能 ID 和所用入口。
+- 需要保留的原件写入 `RUN_DIR`。每份产物记录功能 ID 和所用入口，结果沿用所属票据的同名报告，见[证据存放方法](evidence-storage.md)。
 - 不可到达路径要报告尝试命令和未满足前提。
 - 不得用另一路径的验证宣称被跳过入口已验证。
 

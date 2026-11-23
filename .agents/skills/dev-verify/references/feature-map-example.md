@@ -29,7 +29,7 @@
 - **确认持久化。** 返回笔记列表，再打开该笔记。运行 `control-notes browser click --role link --name "All notes"` 和 `control-notes browser click --role link --name "Release checklist"`。编辑器显示两个已保存值。
 - **取消草稿。** 新建笔记、输入 `Discard me`、选择 `Cancel`。运行 `control-notes browser click --role button --name "New note"`、`control-notes browser fill --role textbox --name "Title" --value "Discard me"` 和 `control-notes browser click --role button --name "Cancel"`。回到笔记列表，没有 `Discard me` 链接。
 - **CLI 入口。** 创建第二条笔记。运行 `control-notes cli -- notes create --title "CLI note" --body "Created from terminal" --format json`。退出码为 `0`，标准输出包含新笔记 ID 与标题。
-- **证明。** 从 `All notes` 重新打开两条已保存笔记。运行 `control-notes browser snapshot --aria --path artifacts/create-note/list.aria.txt` 和 `control-notes browser screenshot --path artifacts/create-note/list.png`。产物显示 `Release checklist` 和 `CLI note`。
+- **证明。** 从 `All notes` 重新打开两条已保存笔记。运行 `control-notes browser snapshot --aria --path "$RUN_DIR/list.aria.txt"` 和 `control-notes browser screenshot --path "$RUN_DIR/list.png"`。产物显示 `Release checklist` 和 `CLI note`。
 
 ## 注意事项
 

@@ -8,13 +8,13 @@
 - [待审的堆叠 PR 队列](autopilot-stack.md)
 - [跟进 PR](babysit.md)
 - [按实际环境发布](environments.md)
-- [本地 PR 观察与工作树审计](local-tools.md)
+- [本地 PR 观察](local-tools.md)
 - [项目与共享服务部署](project-deployment.md)
 - [PR 证据与说明](pull-request-evidence.md)
 - [打开 PR](pull-request-procedure.md)
 - [凭据、备份与恢复](secrets-recovery.md)
 - [验证后落地](verified-landing.md)
-- [工作树和模拟器清理](worktree-cleanup.md)
+- 工作树审计与清理调用 `dev-worktree`。
 
 ## 产物模板
 
