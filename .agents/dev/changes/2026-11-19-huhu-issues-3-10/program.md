@@ -166,3 +166,13 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 ## 2026-11-23 首页验收补充
 
 四主题明暗与键盘验收发现并修复了保存后的主动取消假错误。应用 9d96e902 新包已完成 dashboard/close/Web 三组四项定向回归；其余组合组保留 f91 原记录。原生截图排除了页面截图在125%缩放时的裁切假象。证据见 [首页查询取消](evidence/dashboard-save-cancellation.md)。全平台、真实读屏、第二设备、线上邮箱和独审额度缺口不变；#7继续暂停。
+
+## 2026-11-23 同包补验与独审恢复
+
+`t1bd` 在9d96e902同一AppImage补齐Tasks、CLI-only/MCP-only外部Agent、Gateway、包恢复9项；结合前轮dashboard/close/Web，共7组13项，三组目标联验齐备，见 [机器记录](evidence/linux-package-9d96e902.json)。旧f91更多场景只按其原版本记录。
+
+已重验审查终端t194确实可用，task04确认Notes的组合输入自动保存P2仍在，新增首页同轮旧读缓存回写P3（实际Query内存对照，Chromium该时序未捕获）。t197/task02、t176/task22分别实施，Lead串行验证。当前不能以额度缺口代替已收到的真实报告，也不能以通过的13项推断这两项关闭。外部平台/第二设备/线上邮箱缺口仍在。
+
+独审原文已保存：[t194/task04](evidence/review-notes-dashboard-f55f0759.md)。共享任务目录不可写及HC发送权限弹窗通过取消非必要写入/发送、由Lead主动读取工作树报告解决，未更改沙箱或权限设置。
+
+返工候选已保存：Notes `8d56591f`（104项单文件通过），首页 `916a0508`（真实hook 5项通过），实施者定向类型/lint/format通过。t194/task05、task06正在独审，Lead尚未实跑新E2E，不能提前记为验收完成。
