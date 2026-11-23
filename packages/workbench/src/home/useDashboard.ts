@@ -48,14 +48,15 @@ export function useDashboard(ui: StoreApi<UiState>) {
   const inFlight = useRef<Promise<boolean> | undefined>(undefined);
   const unverified = useRef(false);
   const liveDraft = useRef<Draft | undefined>(undefined);
-  const alive = useRef(true);
+  const activeQueryClient = useRef<typeof qc | undefined>(qc);
+  const isCurrent = () => activeQueryClient.current === qc;
   useEffect(() => {
-    alive.current = true;
+    activeQueryClient.current = qc;
     return () => {
-      alive.current = false;
+      activeQueryClient.current = undefined;
       pending.current?.finish(false);
     };
-  }, [engine.vaultId]);
+  }, [qc]);
 
   const changeDraft = useCallback((next: Draft | undefined) => {
     liveDraft.current = next;
@@ -75,7 +76,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
           request.signal.removeEventListener("abort", abort);
           if (pending.current === choice) {
             pending.current = undefined;
-            if (alive.current) setLeaving(undefined);
+            if (activeQueryClient.current) setLeaving(undefined);
           }
           resolve(allowed);
         },
@@ -127,14 +128,19 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setLatest(undefined);
   }
 
-  function wrote(view: DashboardView, text = "布局已保存。") {
-    unverified.current = false;
+  async function wrote(view: DashboardView, text = "布局已保存。") {
+    if (!isCurrent()) return false;
+    if (view.vaultId !== engine.vaultId) throw new Error("布局回执不属于当前 Vault");
     const key = queryKey(engine.vaultId, capability);
-    void qc.cancelQueries({ queryKey: key, exact: true });
+    // A resolved retryer may still have a queued cache write when cancellation begins.
+    await qc.cancelQueries({ queryKey: key, exact: true });
+    if (!isCurrent()) return false;
     qc.setQueryData(key, view);
+    unverified.current = false;
     changeDraft(undefined);
     setLatest(undefined);
     setNotice({ text });
+    return true;
   }
 
   function save(): Promise<boolean> {
@@ -150,12 +156,9 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setNotice({ text: "正在保存布局…" });
     const operation = engine
       .call<DashboardView>("home.dashboard.update", { ...editable(current.board), baseRevision: current.base.revision }, { write: true, idempotencyKey: current.requestId })
-      .then((view) => {
-        if (alive.current) wrote(view);
-        return true;
-      })
+      .then((view) => wrote(view))
       .catch((error: unknown) => {
-        if (!alive.current) return false;
+        if (!isCurrent()) return false;
         if (error instanceof CapabilityError && error.code === "VERSION_CONFLICT") {
           setNotice({ text: "其他会话已保存新版本。你的草稿仍在。", action: "compare", error: true });
         } else if (error instanceof CapabilityError && error.code !== "INTERNAL") {
@@ -168,7 +171,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
       })
       .finally(() => {
         inFlight.current = undefined;
-        if (alive.current) setBusy(false);
+        if (isCurrent()) setBusy(false);
       });
     inFlight.current = operation;
     return operation;
@@ -179,13 +182,13 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setBusy(true);
     try {
       const view = await engine.call<DashboardView>(capability);
-      if (!alive.current || view.vaultId !== engine.vaultId) return;
+      if (!isCurrent() || view.vaultId !== engine.vaultId) return;
       if (view.source !== "stored" && view.source !== "default") {
         setNotice({ ...notice, text: "无法读取当前布局原件。草稿仍在。", error: true });
         return;
       }
       if (notice?.action === "verify" && view.board.revision !== draft.base.revision && matchLayout(view.board, draft.board)) {
-        wrote(view);
+        await wrote(view);
       } else if (notice?.action === "verify" && view.board.revision === draft.base.revision) {
         unverified.current = false;
         setNotice({ text: "已核对，尚未保存布局。草稿仍在，可以重试。", error: true });
@@ -193,9 +196,9 @@ export function useDashboard(ui: StoreApi<UiState>) {
         setLatest(view);
       }
     } catch {
-      if (alive.current) setNotice({ ...notice, text: "未能读取已提交布局。草稿仍在。", error: true });
+      if (isCurrent()) setNotice({ ...notice, text: "未能读取已提交布局。草稿仍在。", error: true });
     } finally {
-      if (alive.current) setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -214,11 +217,11 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setNotice(undefined);
     try {
       const preview = await engine.call<DashboardRecoveryPreview>("home.dashboard.recovery.preview", intent);
-      if (alive.current && preview.confirmation.vaultId === engine.vaultId) setRecovery({ intent, preview });
+      if (isCurrent() && preview.confirmation.vaultId === engine.vaultId) setRecovery({ intent, preview });
     } catch (error) {
-      if (alive.current) setNotice({ text: error instanceof CapabilityError ? error.message : "无法读取布局恢复预览。", error: true });
+      if (isCurrent()) setNotice({ text: error instanceof CapabilityError ? error.message : "无法读取布局恢复预览。", error: true });
     } finally {
-      if (alive.current) setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -231,10 +234,10 @@ export function useDashboard(ui: StoreApi<UiState>) {
     try {
       backup = DashboardBoardSchema.parse(JSON.parse(await file.text()));
     } catch {
-      if (alive.current) setNotice({ text: "所选文件不是可读取的当前格式布局备份。", error: true });
+      if (isCurrent()) setNotice({ text: "所选文件不是可读取的当前格式布局备份。", error: true });
       return;
     }
-    if (alive.current) await previewRecovery({ action: "restore", backup });
+    if (isCurrent()) await previewRecovery({ action: "restore", backup });
   }
 
   async function saveBackup() {
@@ -242,7 +245,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setBusy(true);
     try {
       const committed = await engine.call<DashboardView>(capability);
-      if (!alive.current || committed.vaultId !== engine.vaultId) return;
+      if (!isCurrent() || committed.vaultId !== engine.vaultId) return;
       if (committed.source !== "stored") {
         setNotice({ text: "当前没有可备份的已保存布局。", error: true });
         return;
@@ -260,11 +263,11 @@ export function useDashboard(ui: StoreApi<UiState>) {
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 0);
       }
-      if (alive.current) setNotice({ text: "已导出保存的布局。" });
+      if (isCurrent()) setNotice({ text: "已导出保存的布局。" });
     } catch {
-      if (alive.current) setNotice({ text: "无法导出布局备份。", error: true });
+      if (isCurrent()) setNotice({ text: "无法导出布局备份。", error: true });
     } finally {
-      if (alive.current) setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   }
 
@@ -278,12 +281,9 @@ export function useDashboard(ui: StoreApi<UiState>) {
     setBusy(true);
     const operation = engine
       .call<DashboardRecoveryResult>("home.dashboard.recovery.commit", { intent, confirmation: preview.confirmation }, { write: true })
-      .then(({ view, preservedPath }) => {
-        if (alive.current && view.vaultId === engine.vaultId) wrote(view, preservedPath ? `布局已恢复。原件保存在 ${preservedPath}。` : "布局已恢复。");
-        return true;
-      })
+      .then(({ view, preservedPath }) => wrote(view, preservedPath ? `布局已恢复。原件保存在 ${preservedPath}。` : "布局已恢复。"))
       .catch(async (error: unknown) => {
-        if (!alive.current) return false;
+        if (!isCurrent()) return false;
         if (error instanceof CapabilityError && error.code === "VERSION_CONFLICT") {
           setNotice({ text: "布局已变化。请重新预览后再恢复。", error: true });
         } else if (error instanceof CapabilityError && error.code !== "INTERNAL") {
@@ -296,7 +296,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
       })
       .finally(() => {
         inFlight.current = undefined;
-        if (alive.current) {
+        if (isCurrent()) {
           setRecovery(undefined);
           setBusy(false);
         }

@@ -53,6 +53,7 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
         await page.keyboard.press("Enter");
         await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("布局已保存");
         await expect(page.getByTestId("home-dashboard").getByRole("alert")).toHaveCount(0);
+        await expect.poll(() => card.evaluate((element) => Number(getComputedStyle(element).gridRowStart) - 1)).toBe(previousY + 1);
         const board = JSON.parse(readFileSync(path.join(vault, ".huhu/home/widgets.json"), "utf8"));
         expect(board.layout.find((item: { instanceId: string }) => item.instanceId === "default-focus").y).toBe(previousY + 1);
         const appearance = JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance;
