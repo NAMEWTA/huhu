@@ -281,12 +281,15 @@
   }
   .agent-space-header > div {
     display: flex;
+    flex: 1;
     align-items: center;
     gap: 9px;
     min-width: 0;
   }
   .agent-space-header strong {
     font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 550;
   }
@@ -621,19 +624,7 @@
       display: none;
     }
   }
-  .agent-history-toggle {
-    display: none;
-    border: 0;
-    background: transparent;
-    padding: 4px;
-  }
   @media (max-width: 760px) {
-    .agent-history-toggle {
-      display: flex;
-    }
-    .agent-space-header > .agent-history-toggle {
-      margin-left: auto;
-    }
     .agent-layout.agent-history-open > .agent-history {
       display: flex;
       position: absolute;

@@ -531,17 +531,14 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             <span className="agent-cwd">{space?.root || "先选择一个工作目录"}</span>
           </div>
           <IconButton icon={Folder} label="工作区文件" disabled={!boundSpace} onClick={() => setShowFiles(true)} />
-          <button
-            type="button"
-            className="agent-history-toggle"
+          <IconButton
+            icon={History}
+            label={showHistory && boundSpace ? t.history.close : t.history.open}
             aria-expanded={showHistory && boundSpace}
-            aria-label={showHistory ? t.history.close : t.history.open}
             data-testid="agent-history-toggle"
             disabled={!boundSpace}
-            onClick={() => setShowHistory(!showHistory)}
-          >
-            <History size={15} aria-hidden />
-          </button>
+            onClick={() => setShowHistory((open) => !open)}
+          />
         </header>
         {space && boundSpace ? (
           <WorkspaceFilesDialog
