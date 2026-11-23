@@ -437,3 +437,12 @@ HC Codex CLI 的账号用量上限中断了后续工作。两份测试独审报�
 `t19n` 的 f91 Web 全流程已执行到重开回读，失败仅发生在最初桌面已经由用户关窗、最后夹具再调用 `app.process()` 的清理阶段。保留原失败及 `fixture-cleanup-errors` 的“关闭 Electron”附件。共享候选夹具现在先用启动时记录的 PID 检查进程是否已经退出，已退出则跳过 Playwright 关闭调用，仍执行 Engine 描述、Core/holder、socket 和目录清理检查。
 
 `t19q` 同一 f91 AppImage 原完整 Web 用例 1/1 通过（25.1s），报告 `temp/candidate-acceptance/web.ZE45VG/result.json`，日志 `temp/final-audit/web-close-recheck-f91.log`。包含菜单保存、Web 刷新、桌面双向编辑、两邀请三会话、单份撤销、看板继续编辑/保存退出及重开回读；退出包装成功。`t19r` 定向类型检查通过，单文件格式/lint通过。测试驱动的修正不改变 f91 应用字节。前两轮遗留目录经检查零所属进程、零挂载后清理，见 `f91-diagnostic-late-cleanup.json`，不追改历史失败。
+
+
+## f91a5515 同包组合结果：12 组 21 项通过
+
+`t19s` 在重型锁下串行完成余下 tasks(1)、workspace(1)、tools-web(1)、web-terminal(3)、native(2)、rule(1)、git(1)、package(5)；加 gateway(1)、close(2)、external-agent(2)、web(1)，共 12 组 21 项通过。每组原始 Playwright JSON 的 unexpected/skipped/flaky 均为 0，errors 为空；每组包装退出 0。源码全量与历史失败不被这些定向结果覆盖或抹除。
+
+所有组使用同一个 f91 AppImage（SHA-256 4152f8ea2b48bb1e7f60192b2aa4f9f77b4622a7b8245e5c53f54926b997a0cc）。应用构建后仅测试驱动和本文档变更：d9dcf3d1 修正外部来源/PID取值，40a47ad3 修正已退出桌面的清理；`git diff --name-only f91a5515 40a47ad3` 仅包含三个测试文件和本证据。未重新打包，未把驱动提交冒充应用版本。完整原始报告路径、报告 SHA-256 和统计见 [同包证据索引](linux-package-f91a5515.json)。
+
+[逐 Issue 交付范围](linux-delivery-scope-f91a5515.md) 列明本地已验证路径、平台/设备/账号缺证与 Graph 通知待决；七项非 SSH Issue 尚不能宣称完整关闭。部署和发布未执行。Notes 返工未完成的独立复审仍按账号额度限制披露，Lead 的相关检查、101项回归、组合输入和同包 Web 结果不冒充独审。#7 SSH 保持暂停，现有代码和 change 保留。

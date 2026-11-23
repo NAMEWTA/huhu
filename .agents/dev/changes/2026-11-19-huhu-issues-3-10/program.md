@@ -151,6 +151,10 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 
 ## 2026-11-23 当前接续：integration
 
-当前工作树已回到 `temp/issue-worktrees/integration`，分支 `impl/huhu-acceptance-followup`。远端保存检查点 `feature/issue-fix=0f0a65fd`；main仍为4ae7e7e4。此前agent-linux记录为历史阶段，不是当前工作目录。
+当前工作树 `temp/issue-worktrees/integration`，分支 `impl/huhu-acceptance-followup`。固定应用 f91a55158f5b4e56100685a306cc954db592841b 的同一个 AppImage 已完成 12 组 21 项组合验收，零跳过/flaky/测试外错误。测试驱动修正与证据已保存至 feature/issue-fix 的 40a47ad3；其后仅交付资料更新。最终 origin/main 落地与回读在下方另记，不把 feature 保存当作 main 完成。
 
-查询合并、模块名称目录和终端调度修复已经形成定向证据；e5693dbf组合构建的五项正式性能回归通过，另外3项扩展用例按原开关跳过。正在修复独审发现的显式Chromium参数解析边界，随后固定新候选执行剩余3个失败场景、笔记和邮件定向旅程，再串行验收同一安装包。先前全量检查不重复。Graph S5.2通知口径仍待决定，外部设备/真实邮箱未覆盖范围仍单列；#7暂停状态与change保留不变。具体数据与产物见Linux最终验收记录。
+本机可验证的原 Web 停放旧正文、组合输入、原生任务/工作区、外部 CLI/MCP、权限/凭据/包恢复和窗口草稿组合均已有证据。原全量检查不重复。完整 Issue 签收仍缺声明平台/第二设备/授权线上账号条件，Graph S5.2 旧信移回通知口径待决定；Notes 返工独审受 CLI 账号额度限制未完成，Lead 检查与实跑另记。#7 SSH 暂停且 change 保留。部署/发布另等授权。
+
+- [同包证据索引](evidence/linux-package-f91a5515.json)
+- [逐 Issue 已验证及缺证范围](evidence/linux-delivery-scope-f91a5515.md)
+- [完整历史与失败/修复记录](evidence/linux-final-acceptance.md)

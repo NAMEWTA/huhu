@@ -1,0 +1,165 @@
+{
+  "applicationCommit": "f91a55158f5b4e56100685a306cc954db592841b",
+  "artifact": "/home/wta/projects/huhu/temp/issue-worktrees/integration/apps/desktop/release/HUHU-0.0.1-rc.4-linux-x64.AppImage",
+  "artifactSha256": "4152f8ea2b48bb1e7f60192b2aa4f9f77b4622a7b8245e5c53f54926b997a0cc",
+  "driverNote": "gateway/close: f91; external-agent: hashes in external-agent-driver-f91.json; web: d9dcf3d1 plus candidate PID guard; remaining: 40a47ad3. Only test drivers/docs changed after application build.",
+  "groups": [
+    {
+      "mode": "gateway",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/gateway.7RwsA6/result.json",
+      "reportSha256": "ae9209b2e1410f65ba9df6263e1818188ce7da6ac06643be4e2cc6f785f4feed",
+      "stats": {
+        "startTime": "2026-11-23T00:22:25.414Z",
+        "duration": 15767.18,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "close",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/close.5EBakm/result.json",
+      "reportSha256": "e1d5f4f15205af8b827e6a7c9bc20e68a02bf5ba169a9a6c24e2c53aba25c8de",
+      "stats": {
+        "startTime": "2026-11-23T00:22:42.275Z",
+        "duration": 15457.329,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "external-agent",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/external-agent.bjEbVb/result.json",
+      "reportSha256": "17871f227e270141a5d5d523112622577214505d157c50bf56859578e7fbe7a6",
+      "stats": {
+        "startTime": "2026-11-23T00:29:56.646Z",
+        "duration": 44568.901999999995,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "web",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/web.ZE45VG/result.json",
+      "reportSha256": "8224f8bcb646ffe5c9529f8c8c56236ac0268603e6810ec429abb2fe1c1bd713",
+      "stats": {
+        "startTime": "2026-11-23T00:35:50.168Z",
+        "duration": 25127.187,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "tasks",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/tasks.CFvtL1/result.json",
+      "reportSha256": "6639c6a8d0f59e7c279a8207e341fff5e7f951092b9f5d0d08a8ddc6a195bd4f",
+      "stats": {
+        "startTime": "2026-11-23T00:37:03.640Z",
+        "duration": 103054.047,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "workspace",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/workspace.hqybuf/result.json",
+      "reportSha256": "5326ef62488aa03df2d4783008d8ddbc7c02effced3e04977c1cad11d29c2da4",
+      "stats": {
+        "startTime": "2026-11-23T00:38:47.793Z",
+        "duration": 45501.808000000005,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "tools-web",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/tools-web.TI4Avi/result.json",
+      "reportSha256": "75af54854dced3732af211f11e21ebb709a920d1267811af3f6bd6b05309a801",
+      "stats": {
+        "startTime": "2026-11-23T00:39:34.409Z",
+        "duration": 15763.936,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "web-terminal",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/web-terminal.sQx7GL/result.json",
+      "reportSha256": "8f092d06d25eb563edd5a441f5b64fb0996b73479001ffecb37f09f75ee62d28",
+      "stats": {
+        "startTime": "2026-11-23T00:39:51.282Z",
+        "duration": 20329.664,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "native",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/native.Kpwi30/result.json",
+      "reportSha256": "efc06d97a8f9b1ecb8cdc28eda02682aedd416a6646466d651e1dbc11826a7a8",
+      "stats": {
+        "startTime": "2026-11-23T00:40:12.724Z",
+        "duration": 22658.343999999997,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "rule",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/rule.uL1kOO/result.json",
+      "reportSha256": "2f6a2d5f84e80c9cfbb76d8e48bbfc874cebfff669ce9f5d8d86ba6b4bfd2879",
+      "stats": {
+        "startTime": "2026-11-23T00:40:36.459Z",
+        "duration": 14342.465,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "git",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/git.kgVh3L/result.json",
+      "reportSha256": "67ec69d39e7e34548974efe8f5745c9361fda406ea7bdff351366202e3b11b42",
+      "stats": {
+        "startTime": "2026-11-23T00:40:51.891Z",
+        "duration": 12172.118,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "package",
+      "report": "/home/wta/projects/huhu/temp/issue-worktrees/integration/temp/candidate-acceptance/package.WVRcd3/result.json",
+      "reportSha256": "654b2e715dbc5c2d688e0cff799ea026dd74a7daa2b619b5f05b7ee0942870bf",
+      "stats": {
+        "startTime": "2026-11-23T00:41:05.142Z",
+        "duration": 25891.243000000002,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "passed": 21
+}
