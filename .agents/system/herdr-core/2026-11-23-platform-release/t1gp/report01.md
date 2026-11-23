@@ -23,3 +23,5 @@ task02 的 Windows PowerShell 改动覆盖首轮已定位的下载故障，`maco
 独立解析 YAML 后与 `57646e4f` 逐项比较，差异限于 macOS runner 标签和按平台拆分的 Herdr 下载。14 个 Bash 步骤通过 `bash -n`，两段内嵌 JavaScript 通过 `node --check`，工作流 `git diff --check` 通过。运行了盘符命令解析与发布故障的离线探针。原实施报告明示其模拟验证和未运行的项目，修订报告所列摘要与本次审查文件一致。
 
 未执行 GitHub 调度或 Release 写操作，未运行 Windows PowerShell、macOS runner、依赖安装、构建、打包或 E2E，也未运行全仓验证。线上状态取自 Lead 保存的本地快照和首轮取消回报。
+
+Lead 验收：已核对报告与工作流 SHA，接受本轮静态结论。实际发布由 Actions 45135526567 继续验证。

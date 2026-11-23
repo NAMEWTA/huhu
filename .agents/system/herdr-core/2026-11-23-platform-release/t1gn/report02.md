@@ -8,3 +8,5 @@
 - 通过 YAML 结构对照、`git diff --check` 和 macOS Bash 参数探针。结构对照验证了 runner 标签和拆分的两个下载步骤之外的内容一致，标签仍解析为 `e14bc4c790c0afb6f5e75a25bbbb740a2202be25`。
 
 未运行 Windows PowerShell 实机验证、macOS runner、构建、E2E 或全仓检查。此次只修改本地工作流，尚未提交、重新调度或变更任何远端运行。
+
+Lead 验收：已核对报告与工作流 SHA，接受本轮静态结论。实际发布由 Actions 45135526567 继续验证。

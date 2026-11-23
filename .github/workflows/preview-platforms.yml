@@ -109,6 +109,11 @@ jobs:
       - name: Test the packaged executable
         run: |
           test -f "$PACKAGED_EXE"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            # The isolated fixture adds a profile/runtime suffix; macOS limits Unix socket paths.
+            node --input-type=module -e 'import os from "node:os"; const n = Buffer.byteLength(os.tmpdir()); console.log({ tmpdirBytes: n, projectedHolderSocketBytes: n + 71 });'
+            export TMPDIR=/tmp
+          fi
           HUHU_PACKAGED_EXE="$GITHUB_WORKSPACE/$PACKAGED_EXE" PLAYWRIGHT_JSON_OUTPUT_FILE=packaged-results.json \
             pnpm e2e:packaged --reporter=list,json
           node --input-type=module <<'NODE'

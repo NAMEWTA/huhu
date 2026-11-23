@@ -9,3 +9,7 @@
 ## Actions 首轮修正
 
 45134418196 在 Windows 获取 Core 时失败：Git Bash 的 GNU tar 将盘符 D: 当作远程地址。已限定该步骤使用 PowerShell；macOS 改用 macos-26 ARM64。独立审查确认可重新调度；空 starter 上传占位的恢复需 Lead 按附件 ID 核对后清理，完整异摘要附件仍禁止覆盖。两平台实际构建和发布尚未完成。
+
+## 第二轮构建
+
+工作流提交 `8b884993`，运行 https://github.com/NAMEWTA/huhu/actions/runs/45135526567 。Windows 作业 137560775311 已成功：包内 E2E 4 passed / 1 skipped / 0 failed / 0 flaky。macOS 已开始打包。为释放 macOS runner，取消了 24 个提交已是当前 HEAD 祖先的旧 CI；原结果仍保留于 Actions，未修改 CI 规则。取消清单在 temp/cross-platform-release/stale-ci-confirmed.json。原 Windows 全量测试失败仍未宣称通过。
