@@ -130,7 +130,7 @@ export function useDashboard(ui: StoreApi<UiState>) {
   function wrote(view: DashboardView, text = "布局已保存。") {
     unverified.current = false;
     const key = queryKey(engine.vaultId, capability);
-    void qc.cancelQueries({ queryKey: key, exact: true }, { revert: false });
+    void qc.cancelQueries({ queryKey: key, exact: true });
     qc.setQueryData(key, view);
     changeDraft(undefined);
     setLatest(undefined);
