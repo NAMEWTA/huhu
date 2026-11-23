@@ -1,19 +1,20 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
 import { HerdrCore } from "../../../packages/herdr-client/src/herdr-core.js";
 import { machineId } from "../../../packages/vault/src/vault.js";
 import type { AgentSettingsFile } from "../../../plugins/agent-cli/src/shared/settings.js";
-import type { WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
+import { leaves, type WorkspaceView } from "../../../plugins/agent-cli/src/shared/workspace-layout.js";
 import { startCodexResponsesFixture } from "../../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
 import type { TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import { candidatePackage, candidateEnvironment, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
+import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
 import { openApp, rmTree } from "../helpers/launch.js";
 
 test.afterAll(disposeCandidate);
@@ -617,8 +618,15 @@ esac
     expect((await listDispatches(call, task.id))[0]).toMatchObject({ runId: run.runId, dispatchId, attempt: 1, session: { id: session.id, spaceId: homeSpace!.id } });
     const detail = await openRun(page, title);
     await detail.getByRole("button", { name: "定位原会话" }).click();
-    await page.getByTestId("workspace-session-preview").getByRole("button", { name: "放入新标签" }).click();
+    await page.getByTestId("workspace-session-preview").getByRole("button", { name: "放入当前标签", exact: true }).click();
     await expect(pane(session.id).getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+    const claimed = await workspace(homeSpace!.id);
+    expect(claimed.layout.tabs.map(({ id }) => id)).toEqual(originalLayout.layout.tabs.map(({ id }) => id));
+    const [originTab] = originalLayout.layout.tabs;
+    const currentLeaves = leaves(claimed.layout.tabs[0]!.pane);
+    expect(currentLeaves).toEqual(expect.arrayContaining([...leaves(originTab!.pane), expect.objectContaining({ sessionId: session.id })]));
+    expect(currentLeaves).toHaveLength(leaves(originTab!.pane).length + 1);
+    await expect(pane(anchor!.id).getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
     await pane(session.id).getByTestId("agent-review-toggle").click();
     await expect(page.getByTestId("review-panel").getByTestId("review-file").filter({ hasText: "w8-review.md" })).toBeVisible();
 
@@ -744,4 +752,74 @@ esac
       }
     }
   }
+});
+
+test("W8.1 候选安装包：Vault 数据包恢复分栏与未绑定终端，保持零隐式启动", async ({ browserName }, testInfo) => {
+  void browserName;
+  test.skip(process.env["HUHU_AGENT_WORKSPACE_ACCEPTANCE"] !== "1", "通过隔离候选安装包环境运行");
+  test.setTimeout(150_000);
+  const sandbox = await mkdtemp(path.join(tmpdir(), "huhu-w8-package-"));
+  const external = path.join(sandbox, "external");
+  const zipPath = path.join(sandbox, "workspace.zip");
+  const targetDir = path.join(sandbox, "restored");
+  let source: Awaited<ReturnType<typeof openCandidateDesktop>> | undefined;
+  let target: Awaited<ReturnType<typeof openCandidateDesktop>> | undefined;
+  await withFixtureCleanup(async () => {
+    await mkdir(external);
+    source = await openCandidateDesktop({ identityAttachment: "workspace-package-source", disableProviderDetection: true });
+    const page = source.page;
+    const call = caller(page);
+    const spaces = await call<{ id: string; root: string; name: string }[]>("agent.spaces.list");
+    const space = spaces.find(({ root }) => root === source?.vault)!;
+    expect(space).toBeDefined();
+    const outside = await call<{ id: string }>("agent.spaces.save", { root: external, name: "原外部目录" });
+    await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await page
+      .getByTestId("agent-space-item")
+      .filter({ has: page.getByText(space.name, { exact: true }) })
+      .click();
+    await page.getByTestId("workspace-pane-launch").click();
+    await page.getByTestId("launch-shell").click();
+    await expect(page.getByTestId("terminal-view")).toHaveCount(1, { timeout: 15_000 });
+    await page.getByTestId("workspace-split-right").click();
+    await page.getByTestId("launch-shell").click();
+    await expect(page.getByTestId("terminal-view")).toHaveCount(2, { timeout: 15_000 });
+    const original = await call<WorkspaceView>("agent.workspace.get", { spaceId: space.id });
+    expect(original.layout.tabs[0]?.pane).toMatchObject({ kind: "split", axis: "columns" });
+    const before = leaves(original.layout.tabs[0]!.pane);
+    expect(before.every(({ sessionId }) => !!sessionId)).toBe(true);
+    const exported = await call<{ sha256: string; files: number }>("vault.exportPackage", { dest: zipPath });
+    await mkdir(targetDir);
+    target = await openCandidateDesktop({ identityAttachment: "workspace-package-target", vault: targetDir, importPackage: zipPath });
+    const sourceIdentity = await source.confirmEngine();
+    expect((await target.confirmEngine()).vaultId).not.toBe(sourceIdentity.vaultId);
+    expect(await call<WorkspaceView>("agent.workspace.get", { spaceId: space.id })).toEqual(original);
+    const restoredPage = target.page;
+    const read = caller(restoredPage);
+    await restoredPage.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
+    await restoredPage
+      .getByTestId("agent-space-item")
+      .filter({ has: restoredPage.getByText(space.name, { exact: true }) })
+      .click();
+    await expect(restoredPage.getByTestId("workspace-pane").filter({ hasText: "未绑定终端" })).toHaveCount(2);
+    await expect(restoredPage.getByTestId("terminal-view")).toHaveCount(0);
+    const restored = await read<WorkspaceView>("agent.workspace.get", { spaceId: space.id });
+    expect(restored).toMatchObject({ version: 0, layout: { tabs: [{ pane: { kind: "split", axis: "columns", ratio: 0.5 } }] } });
+    expect(leaves(restored.layout.tabs[0]!.pane)).toMatchObject([
+      { sessionId: null, unbound: true },
+      { sessionId: null, unbound: true },
+    ]);
+    expect(await read("agent.sessions.list", { spaceId: space.id })).toEqual([]);
+    await restoredPage.getByTestId("agent-space-item").filter({ hasText: "原外部目录" }).click();
+    expect(await read("agent.spaces.list")).toContainEqual(expect.objectContaining({ id: outside.id, root: "", binding: { status: "needs-binding", reason: "external" } }));
+    await expect(restoredPage.getByText("请在此 Vault 中重新选择外部工作目录。", { exact: false })).toBeVisible();
+    await expect(restoredPage.getByTestId("workspace-pane-launch")).toBeDisabled();
+    expect(await read("agent.core.status")).toMatchObject({ state: "idle" });
+    await expect(lstat(path.join(targetDir, ".huhu/runtime", machineId(), "herdr"))).rejects.toMatchObject({ code: "ENOENT" });
+    await testInfo.attach("workspace-package-restore", { contentType: "application/json", body: JSON.stringify({ exported, original: { version: original.version, panes: before.length }, restored }) });
+  }, [
+    ["关闭恢复目标", () => target?.close()],
+    ["关闭源 Vault", () => source?.close()],
+    ["删除独立数据包目录", () => rmTree(sandbox)],
+  ]);
 });

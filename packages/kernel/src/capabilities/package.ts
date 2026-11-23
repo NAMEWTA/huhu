@@ -49,9 +49,9 @@ function sha256File(file: string): Promise<string> {
   });
 }
 
-type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "includeFile" | "verifyFiles"> & { externalFiles?: ReadonlySet<string> };
+type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "computedFiles" | "includeFile" | "verifyFiles"> & { externalFiles?: ReadonlySet<string> };
 type PackageOptions = {
-  withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal) => Promise<T>;
+  withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal, desktop: boolean) => Promise<T>;
   validateStaging?: ValidatePackageStaging;
 };
 const packageId = z.uuidv4();
@@ -128,7 +128,7 @@ export function registerPackageCapabilities(registry: CapabilityRegistry, vault:
           });
         exporting.add(dest);
         try {
-          const m = await (withSnapshot ? withSnapshot(build, c.signal) : build(c.signal));
+          const m = await (withSnapshot ? withSnapshot(build, c.signal, !external) : build(c.signal));
           return { path: dest, size: statSync(dest).size, sha256: await sha256File(dest), files: m.files.length, vaultId: m.vaultId };
         } finally {
           exporting.delete(dest);
@@ -170,8 +170,7 @@ export function registerPackageCapabilities(registry: CapabilityRegistry, vault:
         const root = realpathSync(vault.root);
         const target = realish(targetDir);
         if (within(root, target) || within(target, root)) throw errors.invalidInput("目标目录不能在当前 Vault 里面，也不能包含它");
-        // 同 id 的 Vault 已经打开着：导入的副本生成新的 id，避免两个 Vault 共用一个标识
-        const r = importPackage(zipPath, targetDir, { existingVaultIds: [vault.id], regenerateId: external, ...(validateStaging && { validateStaging }) });
+        const r = importPackage(zipPath, targetDir, { regenerateId: true, ...(validateStaging && { validateStaging }) });
         return { vaultId: r.vaultId, files: r.files, targetDir };
       },
     }),

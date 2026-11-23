@@ -14,7 +14,6 @@ import {
   removePane,
   sessionPlacement,
   SpaceLayoutSchema,
-  WorkspaceDocumentSchema,
   WorkspaceEditSchema,
   WorkspaceViewSchema,
   type SpaceLayout,
@@ -25,8 +24,8 @@ import {
 import { sessionGeneration, type LaunchInput, type SessionsService } from "./sessions.js";
 import { launchHash } from "./launch-binding.js";
 import type { SpaceStore } from "./spaces.js";
+import { readWorkspaceDocument } from "./workspace-package.js";
 
-const envelope = z.strictObject({ version: z.int().nonnegative(), value: z.unknown() });
 const saved = z.strictObject({ version: z.int().positive() });
 const closeInput = WorkspaceEditSchema.pick({ spaceId: true, baseVersion: true })
   .extend({
@@ -43,6 +42,7 @@ interface WorkspaceDeps {
   core(): Promise<HerdrClient>;
   /** start=false：外部只读调用，不得为读取而启动 Core。 */
   readCore?(start: boolean): Promise<HerdrClient | null>;
+  readRestored?(): Record<string, SpaceLayout> | undefined;
   spaces: SpaceStore;
   sessions: SessionsService;
   readOnly: boolean;
@@ -54,19 +54,12 @@ class WorkspaceLayoutService {
 
   constructor(private readonly deps: WorkspaceDeps) {}
 
-  private async document(client: HerdrClient) {
-    const reply = envelope.safeParse(await client.call("doc.get", { name: WORKSPACE_DOCUMENT }));
-    if (!reply.success) throw new HuhuError("INTERNAL", "无法核对 Core 保存的工作区布局");
-    const { version, value } = reply.data;
-    const parsed = WorkspaceDocumentSchema.safeParse(value ?? { format: 1, spaces: {} });
-    if (!parsed.success) throw errors.invalidInput("工作区布局格式无效，已保留原文档");
-    return { version, value: parsed.data };
-  }
-
   private async current(spaceId: string, connected?: HerdrClient) {
     this.deps.spaces.get(spaceId);
     const client = connected ?? (await this.deps.core());
-    const document = await this.document(client);
+    const accepted = await readWorkspaceDocument(client);
+    const restored = accepted.version === 0 ? this.deps.readRestored?.() : undefined;
+    const document = restored ? { ...accepted, value: { ...accepted.value, spaces: restored } } : accepted;
     const layout = document.value.spaces[spaceId];
     const view: WorkspaceView = {
       spaceId,
@@ -82,7 +75,7 @@ class WorkspaceLayoutService {
     this.deps.spaces.get(spaceId);
     const client = await this.deps.readCore(start);
     if (client) return (await this.current(spaceId, client)).view;
-    return { spaceId, version: 0, layout: emptyLayout(spaceId), writable: !this.deps.readOnly };
+    return { spaceId, version: 0, layout: this.deps.readRestored?.()?.[spaceId] ?? emptyLayout(spaceId), writable: !this.deps.readOnly };
   }
 
   private operate<T>(signal: AbortSignal, action: (active: AbortSignal) => Promise<T>): Promise<T> {

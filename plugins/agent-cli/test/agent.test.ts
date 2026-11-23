@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, test } from "vitest";
-import { AgentDetector, findOnPath, probeVersion } from "../src/engine/detect.js";
+import { AgentDetector, findOnPath, probeHistory, probeVersion } from "../src/engine/detect.js";
 import { resolveAgentLaunch } from "../src/engine/launch.js";
 import { AGENT_CATALOG, emptyAgentSettings, type AgentCatalogEntry, type AgentSettingsFile } from "../src/shared/index.js";
 import { SpaceStore } from "../src/engine/spaces.js";
@@ -24,7 +27,41 @@ function fakeBin(dir: string, name: string, script: string) {
 
 const settingsWith = (agents: AgentSettingsFile["agents"] = {}, defaultAgent: AgentSettingsFile["defaultAgent"] = null): AgentSettingsFile => ({ ...emptyAgentSettings(), defaultAgent, agents });
 
+const { historyInvocation } = createRequire(import.meta.url)("../src/engine/codex-dispatch-helper.cjs") as {
+  historyInvocation(command: string, argv: string[], env: NodeJS.ProcessEnv, platform: NodeJS.Platform): { command: string; argv: string[]; env: NodeJS.ProcessEnv; windowsVerbatimArguments: boolean };
+};
+
 describe("智能体检测", () => {
+  test("历史 helper 通过 cmd 传递批处理路径和独立参数，原生 exe 不走 cmd", () => {
+    const env = { ComSpec: "C:\\Windows\\System32\\cmd.exe", CODEX_HOME: "C:\\资料 目录" };
+    const command = "C:\\Users\\A & %path% B\\pnpm\\codex.CmD";
+    const args = ["resume", "uuid", "-c", 'model="o3"', "name %PATH% !x! & ^ | < > (x)", "--add-dir", "C:\\some directory\\", 'a\\" & other', ""];
+    const batch = historyInvocation(command, args, env, "win32");
+    expect(batch.command).toBe(env.ComSpec);
+    expect(batch.windowsVerbatimArguments).toBe(true);
+    expect(batch.argv.slice(0, -1)).toEqual(["/d", "/s", "/e:on", "/v:off", "/c"]);
+    expect(batch.argv.at(-1)).toBe('""%HUHU_HISTORY_COMMAND%" "resume" "uuid" "-c" "model=""o3""" "name %%cd:~,%PATH%%cd:~,% !x! & ^ | < > (x)" "--add-dir" "C:\\some directory\\\\" "a\\\\"" & other" """');
+    expect(batch.env).toEqual({ ...env, HUHU_HISTORY_COMMAND: command });
+    const appServer = historyInvocation("C:\\npm\\codex.bat", ["app-server", "--listen", "stdio://"], env, "win32");
+    expect(appServer.argv.at(-1)).toBe('""%HUHU_HISTORY_COMMAND%" "app-server" "--listen" "stdio://""');
+    expect(appServer.env).toEqual({ ...env, HUHU_HISTORY_COMMAND: "C:\\npm\\codex.bat" });
+    for (const malformed of ["\r", "\n", "\0"]) expect(() => historyInvocation(command, [malformed], env, "win32")).toThrow();
+    expect(historyInvocation("C:\\native\\codex.exe", args, env, "win32")).toEqual({ command: "C:\\native\\codex.exe", argv: args, env, windowsVerbatimArguments: false });
+    expect(historyInvocation("/test/bin/codex", args, env, "linux")).toEqual({ command: "/test/bin/codex", argv: args, env, windowsVerbatimArguments: false });
+  });
+
+  test.skipIf(process.platform !== "win32")("Windows 批处理将带引号的 TOML 配置值原样交给子进程", async () => {
+    const dir = tmp();
+    const script = path.join(dir, "argv.cjs");
+    const batch = path.join(dir, "Codex fixture.cmd");
+    writeFileSync(script, 'require("node:fs").writeSync(1, JSON.stringify(process.argv.slice(2)));');
+    writeFileSync(batch, '@echo off\r\n"%HUHU_FIXTURE_NODE%" "%HUHU_FIXTURE_SCRIPT%" %*\r\n');
+    const argv = ["resume", "uuid", "-c", 'model="o3"'];
+    const call = historyInvocation(batch, argv, { ...process.env, HUHU_FIXTURE_NODE: process.execPath, HUHU_FIXTURE_SCRIPT: script }, "win32");
+    const { stdout } = await promisify(execFile)(call.command, call.argv, { env: call.env, windowsVerbatimArguments: call.windowsVerbatimArguments, timeout: 5000 });
+    expect(JSON.parse(stdout)).toEqual(argv);
+  });
+
   test.skipIf(process.platform === "win32")("找到 → 已检测 + 版本；未安装 → 未检测到；结果缓存 10 分钟；停用的不探测", async () => {
     const bin = tmp();
     fakeBin(bin, "claude", 'echo "2.1.0 (Claude Code)"');
@@ -80,6 +117,15 @@ describe("智能体检测", () => {
     const det = new AgentDetector({ settings: () => settingsWith(), env: { PATH: tmp() }, home });
     expect((await det.detect()).find((x) => x.id === "claude")).toMatchObject({ installed: true, via: "installDir", version: "9.9.9" });
   });
+  test.skipIf(process.platform === "win32")("原生历史逐动作检测，Codex 0.170.0 支持本地协议分支", async () => {
+    const bin = tmp();
+    fakeBin(bin, "claude", "printf '  -r, --resume [id]\\n  --session-id <uuid>\\n'");
+    fakeBin(bin, "codex", "case \"$1\" in resume) echo 'Usage: codex resume [SESSION_ID]' ;; app-server) echo '  --listen <URL>' ;; esac");
+    const env = { PATH: bin };
+    expect(await probeHistory("claude", path.join(bin, "claude"), env)).toEqual({ resume: true, fork: false });
+    expect(await probeHistory("codex", path.join(bin, "codex"), env, "codex-cli 0.169.0")).toEqual({ resume: true, fork: false });
+    expect(await probeHistory("codex", path.join(bin, "codex"), env, "codex-cli 0.170.0")).toEqual({ resume: true, fork: true });
+  });
   test("版本探测 5 秒超时被杀（用短超时验证）", async () => {
     const bin = tmp();
     fakeBin(bin, "claude", "sleep 5; echo late");
@@ -123,6 +169,19 @@ describe("启动合成 resolveAgentLaunch", () => {
   const det = (id: string, p = `/b/${id}`) => ({ id, displayName: id, installed: true, path: p, headless: true, detectedAt: "x" }) as never;
   const run = (agentId: string, over: Record<string, unknown> = {}, settings = settingsWith()) => resolveAgentLaunch({ settings, detected: det(agentId) }, { agentId, mode: "interactive", ...over } as never);
 
+  test("Windows 批处理历史资格保留 TOML 引号，并在 resolver 拒绝不可传递字符", () => {
+    const nativeId = "11111111-1111-4111-a111-111111111111";
+    const resolved = (value: string, mode: "resume" | "fork", locatedCommand = "C:\\npm\\codex.cmd") => {
+      const context = { settings: settingsWith({ codex: { args: ["-c", value] } }), locatedCommand, platform: "win32" as const };
+      return resolveAgentLaunch(context, { agentId: "codex", mode: "interactive", history: { mode, nativeId, profile: path.resolve("fixture") } });
+    };
+    for (const mode of ["resume", "fork"] as const) {
+      expect(resolved('model="o3"', mode).argv).toEqual(["resume", nativeId, "-c", 'model="o3"']);
+      for (const control of ["\r", "\n", "\0"]) expect(() => resolved('model="o3"' + control, mode)).toThrow("Windows 批处理入口无法传递此历史启动参数");
+      expect(resolved('model="o3"', mode, "C:\\native\\codex.exe").argv.at(-1)).toBe('model="o3"');
+    }
+  });
+
   test("LA-01 缺省设置：完全访问参数", () => {
     expect(run("claude")).toMatchObject({ command: "/b/claude", argv: ["--dangerously-skip-permissions"], env: {} });
     expect(run("codex")).toMatchObject({ command: "/b/codex", argv: ["--dangerously-bypass-approvals-and-sandbox"] });
@@ -140,8 +199,17 @@ describe("启动合成 resolveAgentLaunch", () => {
     const file = path.resolve("synthetic Pi history", "中文.jsonl");
     expect(run("pi", { history: { mode: "resume", nativeId, file } }).argv).toEqual(["--session", file]);
     expect(run("pi", { history: { mode: "fork", nativeId, file, forkId: "new-id" } }).argv).toEqual(["--fork", file, "--session-id", "new-id"]);
-    expect(run("claude", { history: { mode: "fork", nativeId } }).argv.slice(-3)).toEqual(["--resume", nativeId, "--fork-session"]);
-    expect(run("codex", { history: { mode: "fork", nativeId } }).argv.slice(0, 2)).toEqual(["fork", nativeId]);
+    const forkId = "22222222-2222-4222-a222-222222222222";
+    const profile = path.resolve("synthetic profile");
+    expect(run("claude", { history: { mode: "fork", nativeId, forkId, profile } })).toMatchObject({
+      argv: ["--resume", nativeId, "--fork-session", "--session-id", forkId],
+      env: { CLAUDE_CONFIG_DIR: profile },
+    });
+    expect(run("codex", { history: { mode: "resume", nativeId, profile } })).toMatchObject({ argv: ["resume", nativeId], env: { CODEX_HOME: profile } });
+    expect(run("codex", { history: { mode: "fork", nativeId, profile } }).argv).toEqual(["resume", nativeId]);
+    expect(() => run("claude", { history: { mode: "resume", nativeId, profile } }, settingsWith({ claude: { args: ["--worktree=new"] } }))).toThrow("覆盖了原生历史");
+    expect(() => run("codex", { history: { mode: "resume", nativeId, profile } }, settingsWith({ codex: { args: ["-C/tmp"] } }))).toThrow("覆盖了原生历史");
+    expect(() => run("codex", { history: { mode: "resume", nativeId, profile } }, settingsWith({ codex: { env: { CODEX_HOME: path.resolve("other profile") } } }))).toThrow("资料目录");
     expect(() => run("pi", { history: { mode: "resume", nativeId, file: "relative.jsonl" } })).toThrow("确切的历史文件");
     expect(() => run("pi", { history: { mode: "fork", nativeId, file, forkId: "new-id" } }, settingsWith({ pi: { args: ["--continue"] } }))).toThrow("覆盖了原生历史");
     expect(run("pi", { newPiId: "huhu-test", prompt: "开始" })).toMatchObject({ nativeSessionId: "huhu-test", argv: ["--session-id", "huhu-test", "开始"] });

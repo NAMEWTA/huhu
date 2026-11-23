@@ -20,7 +20,7 @@ if [[ "$mode" == native ]]; then
   expected_tests=2
 fi
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}
-if [[ "$mode" == close || "$mode" == external-agent ]]; then expected_tests=2; fi
+if [[ "$mode" == close || "$mode" == external-agent || "$mode" == workspace ]]; then expected_tests=2; fi
 if [[ "$mode" == package ]]; then expected_tests=5; fi
 if [[ "$mode" == web-terminal ]]; then expected_tests=3; fi
 node_binary=$(node -p 'process.execPath')
@@ -57,7 +57,7 @@ env -i PATH="$(dirname "$node_binary"):/usr/local/bin:/usr/bin:/bin" LANG=C.UTF-
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/task-journey.spec.ts -g "T7.2 候选安装包" ;;
       workspace)
         export HUHU_AGENT_WORKSPACE_ACCEPTANCE=1
-        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/task-journey.spec.ts -g "W8.2/W8.3 候选安装包" ;;
+        xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/workflows/task-journey.spec.ts -g "W8\.1 候选安装包|W8\.2/W8\.3 候选安装包" ;;
       native)
         xvfb-run -a "$HUHU_ACCEPTANCE_NODE" "$HUHU_ACCEPTANCE_PLAYWRIGHT" test --reporter=list,json tests/e2e/agents/linux-environment.spec.ts ;;
       web)

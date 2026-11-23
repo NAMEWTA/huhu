@@ -197,21 +197,28 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerPackageCapabilities(registry, vault, {
-    withSnapshot: (read, signal) =>
-      safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
+    withSnapshot: async (read, signal, desktop) => {
+      const activeAgent = desktop && plugins.isEnabled("agent-cli") ? getService<{ core: HerdrCore }>("agentCli") : undefined;
+      const workspace = desktop ? await agentCli.workspacePackageSnapshot(vault, signal, activeAgent?.core) : undefined;
+      return safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
         mail.withMailSnapshot(vault.files, () => {
           signal.throwIfAborted();
           const mailSelection = mail.mailPackageSelection(vault.files);
           const definitions = [mail.mailAccountPackageFile(vault.files), ...ssh.sshPortablePackageFiles(vault.files)];
           return read(signal, {
+            ...(workspace && { computedFiles: new Map([[agentCli.workspacePackagePath, workspace.bytes]]) }),
             externalFiles: new Set(definitions.map(({ path }) => path)),
             includeFile(relative) {
               const normalized = relative.toLowerCase();
+              if (normalized === agentCli.workspacePackagePath) return relative === normalized && workspace !== undefined;
               if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
               return mailSelection.includeFile(relative);
             },
             verifyFiles(files) {
               const written = new Map(files.map(({ path, sha256 }) => [path, sha256]));
+              for (const [path, expected] of workspace?.spaceFiles ?? []) {
+                if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份期间工作区已变化，请重新导出", { retryable: true });
+              }
               for (const { path, sha256 } of definitions) {
                 if ((written.get(path) ?? null) !== sha256) throw new HuhuError("VERSION_CONFLICT", "备份期间 Mail 或 SSH 定义已变化，请重新导出");
               }
@@ -222,10 +229,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
             },
           });
         }),
-      ),
+      );
+    },
     validateStaging(files, restored) {
       safe.validateSafePackage(files);
       mail.validateMailPackage(files, restored);
+      agentCli.validateWorkspacePackage(files, restored);
     },
   });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};

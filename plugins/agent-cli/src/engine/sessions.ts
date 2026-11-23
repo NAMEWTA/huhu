@@ -4,7 +4,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { HuhuError, errors, newId, type ExecutionBinding } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
-import { isValidNativeId, isWithin, isPiHistoryFile } from "./history/scanner.js";
+import { claudeHistoryChild, codexHistoryChild, historyProfileKey, isValidNativeId, isWithin, nativeHistoryCandidates, nativeHistorySourceMatches } from "./history/scanner.js";
+import { prepareCodexHistory, readCodexHistoryReceipt, stageCodexHistory, type CodexHistoryReceipt } from "./history/codex-fork.js";
 import { agentById, type AgentId } from "../shared/catalog.js";
 import { redactSecrets, shellCommand, type ShellName } from "../shared/shell.js";
 import { matchesProtectedDirectory, type ProtectedDirectory, type ProtectedLaunch } from "./protected-launch.js";
@@ -29,6 +30,7 @@ export interface SessionRecord {
   exitedAt?: string;
   requestId: string;
   launchReceipt?: LaunchReceipt;
+  historyLaunch?: { history: NonNullable<LaunchInput["history"]>; spaceRevision: number; selection: string; cwd: string; codex?: CodexHistoryReceipt };
   controlled?: "codex";
   terminalId: string | null;
   name: string;
@@ -49,7 +51,7 @@ export interface SessionRecord {
   error?: string;
 }
 
-export function publicSession({ launchReceipt: _launchReceipt, controlled: _controlled, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "controlled"> {
+export function publicSession({ launchReceipt: _launchReceipt, historyLaunch: _historyLaunch, controlled: _controlled, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "historyLaunch" | "controlled"> {
   if (!session.waiting) return session;
   const { ownerDispatchId: _, ...waiting } = session.waiting;
   return { ...session, waiting };
@@ -134,7 +136,8 @@ export interface LaunchInput {
   workspaceIntent?: string;
   /** 恢复历史会话（仅内部调用：id 来自对历史的扫描结果，不由外部直接传入）。 */
   resumeSessionId?: string | undefined;
-  history?: (HistoryLaunch & { sourceId: string; revision?: string }) | undefined;
+  history?: (HistoryLaunch & { sourceId: string; revision?: string; sourceCwd?: string }) | undefined;
+  historySelection?: string;
   /** 显式 cwd 必须是 Space 范围内的现有绝对目录。 */
   cwd?: string | undefined;
   /** 终端命令（只与 provider=shell 一起用）：以 `argv = [shell, -c, command]` 运行，能拿到退出码。 */
@@ -204,6 +207,7 @@ export interface SessionsDeps {
   peekCore?(): Promise<HerdrClient | "absent" | null>;
   /** 合成启动命令（agent-cli 的 resolveAgentLaunch，已绑定当前 Vault 的设置与检测结果）。 */
   resolve(input: ResolveInput): Promise<ResolvedLaunch>;
+  codexHistoryRuntime?: { node: string; helper: string };
   now(): Date;
   inputOwnership?: InputOwnership;
   codex?: CodexDispatch | undefined;
@@ -495,6 +499,9 @@ export class SessionsService {
     let env: Record<string, string> | undefined;
     let nativeSessionId: string | undefined;
     let controlled: Awaited<ReturnType<CodexDispatch["prepare"]>> | undefined;
+    let codexHistory: ReturnType<typeof prepareCodexHistory> | undefined;
+    const history = input.history;
+    if (history && !this.currentHistorySource(input, cwd)) throw errors.notFound("原生会话来源已变化或标识不唯一，请重新选择");
     if (input.controlled) {
       if (!this.d.codex || input.provider !== "codex" || input.prompt !== undefined || input.resumeSessionId !== undefined || input.history !== undefined || input.command !== undefined || input.env !== undefined)
         throw errors.invalidInput("受控 Codex 仅支持新会话");
@@ -508,9 +515,28 @@ export class SessionsService {
       argv = [r.command, ...r.argv];
       env = Object.keys(r.env).length > 0 ? r.env : undefined;
       nativeSessionId = r.nativeSessionId;
+      if (history && (input.provider === "claude" || input.provider === "codex")) {
+        if (env?.[historyProfileKey(input.provider)] !== history.profile) throw errors.invalidInput("原生历史资料目录未绑定");
+        if (input.provider === "codex") {
+          if (!this.d.codexHistoryRuntime || !history.file || !history.profile) throw errors.invalidInput("本机 Codex 历史启动程序不可用");
+          codexHistory = prepareCodexHistory(argv, { file: history.file, profile: history.profile, nativeId: history.nativeId, cwd, mode: history.mode }, this.d.codexHistoryRuntime);
+        }
+      }
     }
     if (approvedDirectory && (input.provider !== "shell" || !(env || input.approvedShell) || !argv)) throw errors.invalidInput("批准的工作目录仅用于受保护终端命令");
-    return { space, cwd, argv, env, controlled, nativeSessionId };
+    return { space, cwd, argv, env, controlled, nativeSessionId, codexHistory };
+  }
+
+  private currentHistorySource(input: Pick<LaunchInput, "provider" | "history">, cwd: string): boolean {
+    const { provider, history } = input;
+    if (!history?.file || (provider !== "pi" && provider !== "claude" && provider !== "codex")) return false;
+    if (provider !== "pi" && (!history.profile || !history.sourceCwd || localDrivePath(history.sourceCwd) !== cwd)) return false;
+    const source = { provider, file: history.file, nativeSessionId: history.nativeId, historyId: history.sourceId, revision: history.revision, cwd: history.sourceCwd ?? cwd };
+    if (provider === "claude" && history.mode === "fork") {
+      const candidates = nativeHistoryCandidates(provider, history.profile!);
+      return !!candidates && !!history.forkId && !candidates.has(history.forkId.toLowerCase()) && nativeHistorySourceMatches(source, history.profile, candidates);
+    }
+    return nativeHistorySourceMatches(source, history.profile);
   }
 
   private async prepareApprovedShell(input: LaunchInput, cwd: string, delivery: Pick<ApprovedShellInput, "names" | "use" | "onPending" | "assertCurrent">, intent: LaunchIntent, signal?: AbortSignal): Promise<NativeDelivery> {
@@ -642,7 +668,7 @@ export class SessionsService {
     }
     if (!prepared || !executionHash || !intent.resolvedHash) throw errors.invalidInput("启动配置不可用");
 
-    const { space, cwd, env, controlled } = prepared;
+    const { space, cwd, env, controlled, codexHistory } = prepared;
     const redactEnv = env && !native && !input.environment ? env : undefined;
     this.d.spaces.validateForLaunch(space.id, input.spaceRevision);
     let { argv } = prepared;
@@ -655,8 +681,13 @@ export class SessionsService {
       argvHash: argv ? launchHash(argv) : null,
     };
     const history = input.history;
-    const nativeSessionId = history ? (history.mode === "resume" ? history.nativeId : history.forkId) : (prepared.nativeSessionId ?? input.resumeSessionId);
-    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) throw errors.notFound("原 Pi 会话文件已变化，请重新选择");
+    const nativeSessionId = history
+      ? history.mode === "resume" && input.provider !== "codex"
+        ? history.nativeId
+        : history.mode === "fork" && input.provider === "pi"
+          ? history.forkId
+          : undefined
+      : (prepared.nativeSessionId ?? input.resumeSessionId);
     const session: SessionRecord = previous ?? {
       id: newId("cap").replace(/^cap-/, "sess-"),
       spaceId: space.id,
@@ -671,7 +702,7 @@ export class SessionsService {
       cwd,
       createdAt: this.d.now().toISOString(),
       ...(nativeSessionId ? { nativeSessionId } : {}),
-      ...(history?.mode === "resume" ? { historyId: history.sourceId } : {}),
+      ...(history?.mode === "resume" && nativeSessionId ? { historyId: history.sourceId } : {}),
       ...(input.controlled ? { controlled: input.controlled } : {}),
       launchReceipt: receipt,
     };
@@ -718,8 +749,12 @@ export class SessionsService {
     const current = this.currentLaunch(session, intent, executionHash);
     if (current.launchReceipt?.attempt) return this.findLaunch(current, signal);
     this.d.spaces.validateForLaunch(space.id, input.spaceRevision);
-    if (history?.file && !isPiHistoryFile(history.file, history.nativeId, history.sourceId, history.revision)) {
-      throw this.confirmNotCreated(current, receipt, "run", "原 Pi 会话文件已变化，启动请求尚未发送");
+    if (history) {
+      try {
+        if (localDrivePath(this.launchDirectory(space.root, cwd)) !== cwd || !this.currentHistorySource(input, cwd)) throw errors.invalidInput("原生会话来源已变化");
+      } catch {
+        throw this.confirmNotCreated(current, receipt, "run", "原生会话来源已变化，启动请求尚未发送");
+      }
     }
     if (input.approvedDirectory && !matchesProtectedDirectory(cwd, input.approvedDirectory)) {
       const changed = this.approvedDirectoryChanged();
@@ -730,9 +765,28 @@ export class SessionsService {
     if (controlled) {
       argv = this.d.codex!.start(controlled, { vaultId: receipt.vaultId, machineId: receipt.machineId, sessionId: session.id, attempt: attempt.id, coreId: core.id });
     }
+    let codexHistoryStage: ReturnType<typeof stageCodexHistory> | undefined;
+    if (codexHistory) {
+      try {
+        codexHistoryStage = stageCodexHistory(codexHistory, this.d.dir, attempt.id);
+      } catch {
+        throw this.confirmNotCreated(current, receipt, "run", "无法保存 Codex 历史回执，启动请求尚未发送");
+      }
+    }
+    if (codexHistoryStage) argv = codexHistoryStage.argv;
     const ticket = protectedPort && env && argv ? this.d.protectedLaunch!.issue(protectedPort, argv, env, input.approvedDirectory) : undefined;
     if (ticket) argv = ticket.argv;
-    let pending: SessionRecord = { ...current, state: "launching", launchReceipt: { ...receipt, ...((controlled || ticket) && { argvHash: launchHash(argv) }), attempt } };
+    const historyLaunch =
+      history && (input.historySelection !== undefined || input.provider !== "pi")
+        ? {
+            history,
+            spaceRevision: input.spaceRevision,
+            selection: input.historySelection ?? "",
+            cwd: input.cwd ?? cwd,
+            ...(codexHistoryStage && { codex: codexHistoryStage.receipt }),
+          }
+        : undefined;
+    let pending: SessionRecord = { ...current, state: "launching", ...(historyLaunch && { historyLaunch }), launchReceipt: { ...receipt, ...((controlled || ticket || codexHistoryStage) && { argvHash: launchHash(argv) }), attempt } };
     try {
       delete pending.error;
       this.save(pending);
@@ -744,7 +798,7 @@ export class SessionsService {
     let terminal: Terminal | undefined;
     let rejectedBeforeCreation = false;
     try {
-      const terminalEnv = controlled || ticket ? { ELECTRON_RUN_AS_NODE: "1" } : env;
+      const terminalEnv = controlled || ticket ? { ELECTRON_RUN_AS_NODE: "1" } : codexHistoryStage ? { ...env, ELECTRON_RUN_AS_NODE: "1", NODE_OPTIONS: "", NODE_PATH: "" } : env;
       terminal = await client.call<Terminal>("terminal.run", { ...(argv ? { argv } : {}), cwd, ...(terminalEnv ? { env: terminalEnv } : {}), labels: launchLabels(this.d.vaultId, pending), name: session.id });
     } catch (error) {
       // JSON-RPC parameter rejection happens before terminal.run. spawn_failed also covers holder timeouts.
@@ -1007,6 +1061,14 @@ export class SessionsService {
     return this.recordedLaunch(requestId)?.launchReceipt?.attempt !== undefined;
   }
 
+  historyLaunchReplay(requestId: string, selection: string): LaunchInput | undefined {
+    const session = this.recordedLaunch(requestId);
+    const frozen = session?.historyLaunch;
+    if (!session?.launchReceipt?.attempt || !frozen) return undefined;
+    if (frozen.selection !== selection) throw errors.invalidInput("requestId 已用于另一条历史启动请求");
+    return { requestId, spaceId: session.spaceId, spaceRevision: frozen.spaceRevision, provider: session.provider, cwd: frozen.cwd, history: frozen.history, historySelection: selection };
+  }
+
   private async findLaunch(session: SessionRecord, signal: AbortSignal | undefined): Promise<SessionRecord> {
     if (session.state === "exited") return session;
     if (session.launchReceipt?.nativeCancelledBeforeStart) throw this.nativeCancellation(session);
@@ -1054,11 +1116,13 @@ export class SessionsService {
 
   private bind(session: SessionRecord, terminal: Terminal, binding: ProcessBinding): SessionRecord {
     const finished = terminal.state === "finished";
-    if (session.state === "running" && !finished) return session;
+    const history = this.confirmNativeHistory(session, binding);
+    if (session.state === "running" && !finished && !history) return session;
     const receipt = session.launchReceipt!;
     const attempt = receipt.attempt!;
     const next: SessionRecord = {
       ...session,
+      ...history,
       terminalId: binding.address,
       state: finished ? "exited" : "running",
       launchReceipt: { ...receipt, attempt: { id: attempt.id, core: attempt.core, binding, ...(attempt.nativeStatus && { nativeStatus: attempt.nativeStatus }), ...(attempt.nativeConsumed && { nativeConsumed: true }) } },
@@ -1067,6 +1131,23 @@ export class SessionsService {
     delete next.error;
     this.save(next);
     return next;
+  }
+
+  private confirmNativeHistory(session: SessionRecord, binding: ProcessBinding): Pick<SessionRecord, "nativeSessionId" | "historyId"> | undefined {
+    const frozen = session.historyLaunch;
+    const history = frozen?.history;
+    const attempt = session.launchReceipt?.attempt;
+    if (session.nativeSessionId || !history || !attempt || !history.profile || !history.file) return undefined;
+    if (session.provider === "claude" && history.mode === "fork" && history.forkId) {
+      const historyId = claudeHistoryChild(history.profile, history.forkId, session.cwd);
+      if (historyId) return { nativeSessionId: history.forkId, historyId };
+    } else if (session.provider === "codex" && frozen?.codex) {
+      const child = readCodexHistoryReceipt(frozen.codex, attempt.id, binding, { nativeId: history.nativeId, file: history.file, profile: history.profile, cwd: session.cwd, mode: history.mode });
+      if (child && history.mode === "resume") return { nativeSessionId: child.id, historyId: history.sourceId };
+      const historyId = child && codexHistoryChild(child.file, child.id, session.cwd);
+      if (child && historyId) return { nativeSessionId: child.id, historyId };
+    }
+    return undefined;
   }
 
   private markUnknown(session: SessionRecord, issue: string): SessionRecord {

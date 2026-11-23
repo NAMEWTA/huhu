@@ -2,7 +2,7 @@
 
 const { spawn } = require("node:child_process");
 const { createHash, createHmac, timingSafeEqual } = require("node:crypto");
-const { closeSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmdirSync, statSync, writeFileSync } = require("node:fs");
+const { closeSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync, writeSync } = require("node:fs");
 const { createServer } = require("node:net");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
@@ -493,12 +493,178 @@ function main(file) {
   });
 }
 
-module.exports = { createNativeAnswerOutputReader };
-if (require.main === module) {
+function historyInvocation(command, argv, env, platform = process.platform) {
+  const batch = platform === "win32" && /\.(?:cmd|bat)$/i.test(command);
+  if (!batch) return { command, argv, env, windowsVerbatimArguments: false };
+  if (/["\r\n\0]/.test(command) || argv.some((value) => /[\r\n\0]/.test(value))) throw new Error("Invalid Windows batch arguments for Codex history");
+  // Herdr Core's Windows batch_line encoding keeps quotes literal through cmd and the child argv parser.
+  // The empty %cd:~,% expansion prevents percent signs in arguments from forming variable references.
+  const args = argv.map(
+    (value) =>
+      '"' +
+      value
+        .replace(/(\\*)"/g, '$1$1""')
+        .replace(/%/g, "%%cd:~,%")
+        .replace(/\\+$/, "$&$&") +
+      '"',
+  );
+  const line = ['"%HUHU_HISTORY_COMMAND%"', ...args].join(" ");
+  return {
+    command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe",
+    argv: ["/d", "/s", "/e:on", "/v:off", "/c", `"${line}"`],
+    env: { ...env, HUHU_HISTORY_COMMAND: command },
+    windowsVerbatimArguments: true,
+  };
+}
+
+async function openHistory(file) {
+  const config = JSON.parse(readFileSync(file, "utf8"));
+  const directory = path.dirname(file);
+  const address = process.env.HC_TERMINAL_ID;
+  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+  const stamp = (location) => {
+    const stat = statSync(location, { bigint: true });
+    if (!stat.isFile() || realpathSync(location) !== location) throw new Error("File changed");
+    return [stat.dev, stat.ino, stat.birthtimeNs, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  };
+  const sameFile = (actual, expected) => typeof actual === "string" && path.isAbsolute(actual) && path.relative(realpathSync(actual), expected) === "";
+  const commandTarget = config.commandTarget ?? config.command;
+  const commandUnchanged = () => realpathSync(config.command) === commandTarget && stamp(commandTarget) === config.commandStamp;
+  const sourceUnchanged = () => {
+    if (!commandUnchanged() || stamp(config.helper) !== config.helperStamp || stamp(config.file) !== config.fileStamp || !sameFile(process.cwd(), config.cwd)) {
+      throw new Error("History source or launch configuration changed");
+    }
+  };
+  if (
+    !address ||
+    !/^[A-Za-z0-9._-]{1,128}$/.test(address) ||
+    !/^[a-f0-9]{64}$/.test(config.secret) ||
+    !uuid.test(config.nativeId) ||
+    !["resume", "fork"].includes(config.mode) ||
+    config.argv[0] !== "resume" ||
+    config.argv[1] !== config.nativeId
+  )
+    throw new Error("Invalid history request");
+  sourceUnchanged();
+  const env = { ...process.env, CODEX_HOME: config.profile };
+  delete env.ELECTRON_RUN_AS_NODE;
+  // Reject invalid TUI arguments before sending any fork request.
+  historyInvocation(config.command, config.argv, env);
+  const spawnCodex = (args, stdio) => {
+    const launch = historyInvocation(config.command, args, env);
+    return spawn(launch.command, launch.argv, { cwd: config.cwd, env: launch.env, windowsHide: true, windowsVerbatimArguments: launch.windowsVerbatimArguments, stdio });
+  };
+  writeFileSync(path.join(directory, "helper-started"), "", { flag: "wx", mode: 0o600, flush: true });
+  const app = spawnCodex(["app-server", "--listen", "stdio://"], ["pipe", "pipe", "ignore"]);
+  const output = createInterface({ input: app.stdout });
+  const pending = new Map();
+  let serial = 0;
+  const stop = (error) => {
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+  };
+  const ended = new Promise((resolve) => {
+    app.once("error", (error) => {
+      stop(error);
+      resolve();
+    });
+    app.once("exit", () => {
+      stop(new Error("App Server exited"));
+      resolve();
+    });
+  });
+  app.stdin.on("error", stop);
+  output.on("line", (line) => {
+    let response;
+    try {
+      response = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!response || typeof response !== "object") return;
+    const request = pending.get(response.id);
+    if (!request || response.method) return;
+    pending.delete(response.id);
+    if (response.error || !response.result) request.reject(new Error("Codex rejected the history request"));
+    else request.resolve(response.result);
+  });
+  const send = (message) => app.stdin.write(JSON.stringify(message) + "\n");
+  const request = (method, params) =>
+    new Promise((resolve, reject) => {
+      const id = ++serial;
+      pending.set(id, { resolve, reject });
+      send({ id, method, params });
+    });
+  const timeout = setTimeout(() => stop(new Error("Codex did not confirm the history request")), 15_000);
+  let id = config.nativeId;
+  let rollout = config.file;
   try {
-    main(process.argv[2]);
-  } catch {
-    process.stderr.write("HUHU Codex: controlled launch unavailable\n");
-    process.exitCode = 1;
+    await request("initialize", { clientInfo: { name: "huhu", version: "1" }, capabilities: { experimentalApi: true } });
+    send({ method: "initialized", params: {} });
+    const { thread: source } = await request("thread/read", { threadId: config.nativeId, includeTurns: false });
+    if (source?.id?.toLowerCase() !== config.nativeId.toLowerCase() || !sameFile(source.path, config.file) || !sameFile(source.cwd, config.cwd)) throw new Error("Codex resolved a different history source");
+    sourceUnchanged();
+    if (config.mode === "fork") {
+      const { thread } = await request("thread/fork", {
+        threadId: config.nativeId,
+        path: config.file,
+        cwd: config.cwd,
+        ephemeral: false,
+        excludeTurns: true,
+        deferGoalContinuation: true,
+      });
+      if (
+        !uuid.test(thread?.id) ||
+        thread.id.toLowerCase() === config.nativeId.toLowerCase() ||
+        thread.forkedFromId?.toLowerCase() !== config.nativeId.toLowerCase() ||
+        !sameFile(thread.cwd, config.cwd) ||
+        !path.isAbsolute(thread.path ?? "")
+      )
+        throw new Error("Codex did not confirm an independent fork");
+      const child = realpathSync(thread.path);
+      const relative = path.relative(path.join(config.profile, "sessions"), child);
+      if (!relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative) || !path.basename(child).endsWith("-" + thread.id + ".jsonl") || !statSync(child).isFile())
+        throw new Error("Codex did not persist the selected fork");
+      id = thread.id;
+      rollout = child;
+    }
+  } finally {
+    clearTimeout(timeout);
+    output.close();
+    app.stdin.end();
+    const kill = setTimeout(() => app.kill("SIGKILL"), 1500);
+    await ended;
+    clearTimeout(kill);
+  }
+  if (config.mode === "resume") sourceUnchanged();
+  const data = { attempt: config.attempt, address, pid: process.pid, parent: config.nativeId, source: config.file, id, file: rollout, cwd: config.cwd };
+  const mac = createHmac("sha256", Buffer.from(config.secret, "hex"))
+    .update(JSON.stringify([config.mode, data]))
+    .digest("hex");
+  const receipt = path.join(directory, config.mode + ".json");
+  writeFileSync(receipt + ".tmp", JSON.stringify({ data, mac }), { flag: "wx", mode: 0o600, flush: true });
+  renameSync(receipt + ".tmp", receipt);
+  if (!commandUnchanged()) throw new Error("Codex entry point changed before interactive launch");
+  const terminal = spawnCodex(["resume", id, ...config.argv.slice(2)], "inherit");
+  process.exitCode = await new Promise((resolve, reject) => {
+    terminal.once("error", reject);
+    terminal.once("exit", (code) => resolve(code ?? 1));
+  });
+}
+
+module.exports = { createNativeAnswerOutputReader, historyInvocation };
+if (require.main === module) {
+  if (process.argv[2] === "--history") {
+    openHistory(process.argv[3]).catch((error) => {
+      writeSync(2, "HUHU Codex: " + (error instanceof Error && !error.code ? error.message : "native history launch unavailable") + "\n");
+      process.exitCode = 1;
+    });
+  } else {
+    try {
+      main(process.argv[2]);
+    } catch {
+      process.stderr.write("HUHU Codex: controlled launch unavailable\n");
+      process.exitCode = 1;
+    }
   }
 }

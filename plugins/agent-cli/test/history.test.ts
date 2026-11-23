@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { isPiHistoryFile, isValidNativeId, scanHistory } from "../src/engine/history/scanner.js";
+import { isPiHistoryFile, isValidNativeId, nativeHistorySourceMatches, scanHistory } from "../src/engine/history/scanner.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -35,6 +35,42 @@ function codexFile(home: string, day: string, id: string, rows: unknown[], at?: 
 const userRow = (cwd: string, text: unknown, over: Record<string, unknown> = {}) => ({ type: "user", cwd, sessionId: "x", isMeta: false, message: { role: "user", content: text }, ...over });
 
 describe("历史扫描", () => {
+  const nativeId = "f5806e5c-1127-424b-966c-22087b88af27";
+
+  test("Claude 原生操作校验列表之外的同 UUID 候选及固定资料目录", () => {
+    const home = tmp();
+    const root = realpathSync(tmp());
+    const profile = path.join(realpathSync(home), ".claude");
+    claudeFile(home, root, nativeId, [userRow(root, "选定会话")]);
+    const [selected] = scanHistory({ roots: [root], home, env: {} }).entries;
+    expect(selected).toBeDefined();
+    expect(nativeHistorySourceMatches(selected!, profile)).toBe(true);
+    expect(nativeHistorySourceMatches(selected!, tmp())).toBe(false);
+    claudeFile(home, tmp(), nativeId, ["无法解析的另一候选"]);
+    expect(scanHistory({ roots: [root], home, env: {} }).entries).toHaveLength(1);
+    expect(nativeHistorySourceMatches(selected!, profile)).toBe(false);
+  });
+
+  test("Codex 原生操作发现归档同 UUID 候选及选定文件被替换", () => {
+    const home = tmp();
+    const root = realpathSync(tmp());
+    const profile = path.join(realpathSync(home), ".codex");
+    const rows = [{ type: "session_meta", payload: { id: nativeId, cwd: root } }];
+    const file = codexFile(home, "2026-11-04", nativeId, rows);
+    const [selected] = scanHistory({ roots: [root], home, env: {} }).entries;
+    expect(selected).toBeDefined();
+    expect(nativeHistorySourceMatches(selected!, profile)).toBe(true);
+    const archive = path.join(profile, "archived_sessions");
+    mkdirSync(archive);
+    const duplicate = path.join(archive, path.basename(file));
+    writeFileSync(duplicate, "损坏候选");
+    expect(nativeHistorySourceMatches(selected!, profile)).toBe(false);
+    rmSync(duplicate);
+    renameSync(file, `${file}.old`);
+    writeFileSync(file, jl(...rows));
+    expect(nativeHistorySourceMatches(selected!, profile)).toBe(false);
+  });
+
   test("claude：按 cwd 归属 Space，标题取第一条真实提问（跳过命令包装与 meta），按时间倒序", async () => {
     const home = tmp();
     const root = tmp();

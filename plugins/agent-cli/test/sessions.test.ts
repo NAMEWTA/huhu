@@ -15,6 +15,7 @@ import { InteractiveEnvironment } from "../src/engine/interactive-environment.js
 import type { AgentEnvironmentProfile } from "../src/engine/launch-environment.js";
 import type { BrokerOutcome, NativePtyBroker } from "../src/engine/native-pty.js";
 import type { SessionRecord } from "../src/engine/sessions.js";
+import { scanHistory } from "../src/engine/history/scanner.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -113,7 +114,7 @@ function setup(client: HerdrClient, over: Partial<ConstructorParameters<typeof S
     core: async () => client,
     resolve: async (i) => {
       const detector = new AgentDetector({ settings: () => emptyAgentSettings(), now: () => 0, env: { PATH: bin }, home: tmp() });
-      return resolveAgentLaunch({ settings: emptyAgentSettings(), detected: (await detector.detect()).find((r) => r.id === i.agentId) }, i);
+      return resolveAgentLaunch({ settings: emptyAgentSettings(), locatedCommand: detector.locate(i.agentId)?.path ?? null }, i);
     },
     now: () => new Date("2026-11-11T00:00:00Z"),
     ...over,
@@ -127,6 +128,58 @@ const req = (space: { id: string; revision: number }, over: Record<string, unkno
   provider: "shell" as const,
   requestId: `req-${Math.random().toString(36).slice(2)}`,
   ...over,
+});
+
+describe("原生历史启动", () => {
+  const nativeId = "f5806e5c-1127-424b-966c-22087b88af27";
+  const forkId = "fca2240f-0e87-4099-92dc-1214f5cadd11";
+  function source(work: string) {
+    const profile = realpathSync(tmp());
+    const projects = path.join(profile, "projects", work.replace(/[^a-zA-Z0-9]/g, "-"));
+    mkdirSync(projects, { recursive: true });
+    const file = path.join(projects, `${nativeId}.jsonl`);
+    const row = JSON.stringify({ type: "user", cwd: work, message: { role: "user", content: "source" } }) + "\n";
+    writeFileSync(file, row);
+    const [entry] = scanHistory({ roots: [work], env: { CLAUDE_CONFIG_DIR: profile } }).entries;
+    return { file, projects, profile, row, history: { nativeId, file, profile, sourceId: entry!.historyId, revision: entry!.revision, sourceCwd: entry!.cwd } };
+  }
+
+  test("Claude 分支提交后重放原请求，原生子文件出现前不登记子 UUID", async () => {
+    const core = fakeClient({ failRun: "throw-after-create" });
+    const { svc, reopen, space, work } = setup(core.client);
+    const { file, projects, row, history } = source(realpathSync(work));
+    const input = { ...req(space), provider: "claude" as const, cwd: realpathSync(work), history: { ...history, mode: "fork" as const, forkId }, historySelection: "frozen-request" };
+    const launched = await svc.launch(input);
+    expect(launched).toMatchObject({ state: "running" });
+    expect(launched.nativeSessionId).toBeUndefined();
+    expect(core.runs[0]?.argv?.slice(1)).toEqual(["--resume", nativeId, "--fork-session", "--session-id", forkId]);
+    rmSync(file);
+    writeFileSync(path.join(projects, `${forkId}.jsonl`), row);
+    const afterRestart = reopen();
+    expect(() => afterRestart.historyLaunchReplay(input.requestId, "different-request")).toThrow();
+    const replay = afterRestart.historyLaunchReplay(input.requestId, input.historySelection);
+    const recovered = await afterRestart.launch(replay!);
+    expect(recovered).toMatchObject({ id: launched.id, nativeSessionId: forkId });
+    expect(recovered.historyId).toBeDefined();
+    expect(core.runs).toHaveLength(1);
+  });
+
+  test("等待 Core 期间出现同 UUID 候选时零启动", async () => {
+    let insert = () => {};
+    const core = fakeClient({ beforeHello: async () => insert() });
+    const { svc, space, work } = setup(core.client);
+    const { profile, history } = source(realpathSync(work));
+    const other = path.join(profile, "projects", "outside");
+    insert = () => {
+      mkdirSync(other);
+      writeFileSync(path.join(other, `${nativeId}.jsonl`), "another native candidate");
+    };
+    await expect(svc.launch({ ...req(space), provider: "claude", cwd: realpathSync(work), history: { ...history, mode: "resume" } })).rejects.toMatchObject({
+      code: "HERDR_UNAVAILABLE",
+      details: { stage: "run", reason: "confirmed_not_created" },
+    });
+    expect(core.runs).toHaveLength(0);
+  });
 });
 
 function ordinaryProfile(provider: AgentEnvironmentProfile["provider"]) {

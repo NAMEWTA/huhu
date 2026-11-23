@@ -62,10 +62,22 @@ function collect(root: string, includeAttachments: boolean, includeFile?: (relat
 export async function exportPackage(
   root: string,
   dest: string,
-  opts: { includeAttachments?: boolean; signal?: AbortSignal; includeFile?: (relative: string) => boolean; verifyFiles?: (files: readonly PackageManifest["files"][number][]) => void } = {},
+  opts: { includeAttachments?: boolean; signal?: AbortSignal; includeFile?: (relative: string) => boolean; verifyFiles?: (files: readonly PackageManifest["files"][number][]) => void; computedFiles?: ReadonlyMap<string, Uint8Array> } = {},
 ): Promise<PackageManifest> {
   const vault = VaultJsonSchema.parse(JSON.parse(readFileSync(path.join(root, HUHU_DIR, "vault.json"), "utf8")));
-  const files = collect(root, opts.includeAttachments ?? true, opts.includeFile);
+  const computed = opts.computedFiles ?? new Map<string, Uint8Array>();
+  const reserved = new Set<string>();
+  const includes = (relative: string) => opts.includeFile?.(relative) !== false;
+  for (const [relative, bytes] of computed) {
+    const key = relative.toLowerCase();
+    if (normalizeRelPath(relative) !== relative || localState(relative) || key === PACKAGE_MANIFEST || key === `${HUHU_DIR}/vault.json` || key === `${HUHU_DIR}/writer.lock` || reserved.has(key) || bytes.length > MAX_FILE_BYTES) {
+      throw errors.invalidInput("计算的数据包条目无效");
+    }
+    reserved.add(key);
+  }
+  const files = collect(root, opts.includeAttachments ?? true, (relative) => !reserved.has(relative.toLowerCase()) && includes(relative));
+  for (const relative of computed.keys()) if (includes(relative)) files.push(relative);
+  files.sort();
   const entries: PackageManifest["files"] = [];
   const cancelled = () => {
     if (opts.signal?.aborted) throw errors.invalidInput("导出已取消");
@@ -94,7 +106,7 @@ export async function exportPackage(
     let n = 0;
     for (const rel of files) {
       cancelled();
-      const bytes = readFileSync(path.join(root, rel));
+      const bytes = computed.get(rel) ?? readFileSync(path.join(root, rel));
       entries.push({ path: rel, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length });
       await addFile(rel, bytes);
       if (++n % 20 === 0) await new Promise((r) => setImmediate(r));

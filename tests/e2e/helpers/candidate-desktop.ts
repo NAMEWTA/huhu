@@ -84,7 +84,7 @@ async function readCoreIdentity(client: HerdrClient, endpoint: string, executabl
   return { pid: status.pid, coreIdHash: createHash("sha256").update(status.core.id).digest("hex"), endpoint, executablePath, holderPids };
 }
 
-export async function openCandidateDesktop(options: { identityAttachment: string; vault?: string; prepareVault?: (vault: string) => void; disableProviderDetection?: boolean }) {
+export async function openCandidateDesktop(options: { identityAttachment: string; vault?: string; importPackage?: string; prepareVault?: (vault: string) => void; disableProviderDetection?: boolean }) {
   // Keep this path short for Unix holder sockets and outside the wrapper's exit trap.
   const directory = mkdtempSync(path.join("/tmp", "hc-d-"));
   const vault = options.vault ?? path.join(directory, "vault");
@@ -292,9 +292,20 @@ export async function openCandidateDesktop(options: { identityAttachment: string
       writeFileSync(path.join(agentsDir, "agents.json"), JSON.stringify(settings), { flag: "wx", mode: 0o600 });
     }
     candidate = await candidatePackage();
+    if (options.importPackage) delete env["HUHU_VAULT"];
     app = await electron.launch({ executablePath: candidate.executablePath, args: ["--no-sandbox", `--user-data-dir=${userData}`], env });
     desktopPid = app.process().pid;
     const page = await app.firstWindow();
+    if (options.importPackage) {
+      await expect(page.getByTestId("vault-launch")).toBeVisible();
+      await app.evaluate(
+        ({ dialog }, paths) => {
+          dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [paths.shift() ?? ""] })) as typeof dialog.showOpenDialog;
+        },
+        [options.importPackage, vault],
+      );
+      await page.getByTestId("vault-import").click();
+    }
     await engineReady(page);
     engine = await readEngine();
     if (disabledProviders.length > 0) {

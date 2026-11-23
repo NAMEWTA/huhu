@@ -1288,7 +1288,7 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
     for (const row of await page.getByTestId("history-item").all()) {
       const resume = row.getByTestId("history-resume");
       await expect(resume).toBeDisabled();
-      await expect(resume).toHaveAccessibleDescription(/无法绑定所选历史文件，仅可预览/);
+      await expect(resume).toHaveAccessibleDescription(/没有有效的原生会话 UUID，仅可预览/);
     }
     // 恢复入口只对白名单里的会话开放：未知 id 被后端拒绝
     const err = await page.evaluate(async () => {
@@ -1319,6 +1319,152 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   } finally {
     await app.close();
     for (const d of [vault, cfg, cx]) rmTree(d);
+  }
+});
+
+test("Agent CLI 历史：Claude 与 Codex 在原目录创建独立分支，恢复原会话并定位分栏", async () => {
+  test.skip(process.platform !== "linux" || !existsSync(HERDR), "此隔离夹具使用 Linux CLI 和本地 Core");
+  test.setTimeout(90_000);
+  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-native-history-")));
+  const vault = path.join(base, "vault");
+  const cwd = path.join(vault, "project");
+  const cc = path.join(base, "Claude data");
+  const cx = path.join(base, "Codex data");
+  const bucket = path.join(cc, "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+  const rollouts = path.join(cx, "sessions", "2026", "11", "21");
+  for (const dir of [cwd, bucket, rollouts]) mkdirSync(dir, { recursive: true });
+  const claudeId = "79fc8333-8db7-463a-a6d6-02fbb2216496";
+  const codexId = "01998fe4-0316-7140-97c3-74965ba41745";
+  const codexChild = "01998fe4-0316-7140-97c3-74965ba41746";
+  const codexPath = (id: string) => path.join(rollouts, `rollout-2026-11-21T10-00-00-${id}.jsonl`);
+  const claudeSource = path.join(bucket, claudeId + ".jsonl");
+  const claudeOriginal = JSON.stringify({ type: "user", cwd, message: { role: "user", content: "Claude 原始历史" } }) + "\n";
+  const codexOriginal =
+    [
+      { type: "session_meta", payload: { id: codexId, cwd } },
+      { type: "event_msg", payload: { type: "user_message", message: "Codex 原始历史" } },
+    ]
+      .map((row) => JSON.stringify(row))
+      .join("\n") + "\n";
+  writeFileSync(claudeSource, claudeOriginal);
+  writeFileSync(codexPath(codexId), codexOriginal);
+  const claude = path.join(base, "claude.cjs");
+  const codex = path.join(base, "codex.cjs");
+  writeFileSync(
+    claude,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+const a = process.argv.slice(2);
+const output = (text) => fs.writeSync(1, text + "\\n");
+if (a[0] === "--version") output("2.1.211 (Claude Code)");
+else if (a[0] === "--help") output("  -r, --resume [id]\\n  --fork-session\\n  --session-id <uuid>");
+else if (a[a.indexOf("--resume") + 1] === ${JSON.stringify(claudeId)} && process.cwd() === ${JSON.stringify(cwd)}) {
+  if (a.includes("--fork-session")) fs.copyFileSync(${JSON.stringify(claudeSource)}, path.join(${JSON.stringify(bucket)}, a[a.indexOf("--session-id") + 1] + ".jsonl"), fs.constants.COPYFILE_EXCL);
+  console.log("Claude fixture ready");
+  setInterval(() => {}, 1000);
+} else process.exit(1);
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    codex,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const a = process.argv.slice(2);
+const source = { id: ${JSON.stringify(codexId)}, path: ${JSON.stringify(codexPath(codexId))}, cwd: ${JSON.stringify(cwd)} };
+const child = { id: ${JSON.stringify(codexChild)}, path: ${JSON.stringify(codexPath(codexChild))}, cwd: source.cwd, forkedFromId: source.id };
+const output = (text) => fs.writeSync(1, text + "\\n");
+if (a[0] === "--version") output("codex-cli 0.170.0");
+else if (a[1] === "--help") output(a[0] === "resume" ? "Usage: codex resume [SESSION_ID]" : "  --listen <URL>");
+else if (process.env.CODEX_HOME !== ${JSON.stringify(cx)} || process.cwd() !== source.cwd) process.exit(1);
+else if (a[0] === "app-server") {
+const handle = (line) => {
+  const { id, method, params } = JSON.parse(line);
+  if (!id) return;
+  let result;
+  if (method === "initialize") result = {};
+  if (method === "thread/read" && params.threadId === source.id) result = { thread: source };
+  if (method === "thread/fork" && params.path === source.path && params.deferGoalContinuation) {
+    fs.writeFileSync(child.path, JSON.stringify({ type: "session_meta", payload: { id: child.id, cwd: child.cwd } }) + "\\n", { flag: "wx" });
+    result = { thread: child };
+  }
+  output(JSON.stringify(result ? { id, result } : { id, error: { message: "unexpected history call" } }));
+};
+const chunk = Buffer.alloc(4096);
+let remaining = "";
+for (let length; (length = fs.readSync(0, chunk));) {
+  const lines = (remaining + chunk.toString("utf8", 0, length)).split("\\n");
+  remaining = lines.pop();
+  for (const line of lines) handle(line);
+}
+}
+else if (a[0] === "resume" && [source.id, child.id].includes(a[1])) {
+  console.log("Codex fixture ready");
+  setInterval(() => {}, 1000);
+} else process.exit(1);
+`,
+    { mode: 0o755 },
+  );
+  const app = await launch(vault, { CLAUDE_CONFIG_DIR: cc, CODEX_HOME: cx, PI_CODING_AGENT_SESSION_DIR: path.join(base, "no-pi-history") });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    async function call<T>(capability: string, input: object = {}): Promise<T> {
+      const result = await page.evaluate(
+        async ({ capability, input }) => {
+          const ep = await window.huhuHost.engine();
+          const id = crypto.randomUUID();
+          const response = await fetch(`${ep.baseUrl}/api/v1/call`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${ep.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ capability, input, requestId: id, idempotencyKey: id }),
+          });
+          return (await response.json()) as CapabilityResult<unknown>;
+        },
+        { capability, input },
+      );
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      return (result as { data: T }).data;
+    }
+    await call("agent.settings.update", { expectedRevision: 0, defaultAgent: null, agents: { claude: { command: claude }, codex: { command: codex }, pi: { enabled: false } } });
+    const [space] = await call<{ id: string }[]>("agent.spaces.list");
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    const confirm = page.getByTestId("history-launch");
+    const historyRow = (title: string) => page.getByTestId("history-item").filter({ hasText: title });
+    const search = page.getByRole("searchbox", { name: "搜索会话历史" });
+    const sessions = () => call<{ id: string; nativeSessionId?: string; state: string; cwd: string }[]>("agent.sessions.list", { spaceId: space!.id });
+    for (const original of [
+      { title: "Claude 原始历史", id: claudeId },
+      { title: "Codex 原始历史", id: codexId },
+    ]) {
+      await search.fill(original.id);
+      await historyRow(original.title).getByTestId("history-fork").click();
+      await expect(confirm.getByLabel("打开位置")).toHaveValue("tab");
+      await confirm.getByRole("button", { name: "创建分支" }).click();
+      let childId = codexChild;
+      if (original.id === claudeId) {
+        const children = () => readdirSync(bucket).filter((name) => name.endsWith(".jsonl") && name !== claudeId + ".jsonl");
+        await expect.poll(children).toHaveLength(1);
+        childId = path.basename(children()[0]!, ".jsonl");
+      }
+      expect(childId).not.toBe(original.id);
+      await expect.poll(async () => (await sessions()).find(({ nativeSessionId }) => nativeSessionId === childId)).toMatchObject({ state: "running", cwd });
+      await historyRow(original.title).getByTestId("history-resume").click();
+      await confirm.getByLabel("打开位置").selectOption("pane");
+      await confirm.getByRole("button", { name: "恢复会话" }).click();
+      await expect.poll(async () => (await sessions()).find(({ nativeSessionId }) => nativeSessionId === original.id)).toMatchObject({ state: "running", cwd });
+      const restored = (await sessions()).find(({ nativeSessionId }) => nativeSessionId === original.id)!;
+      await page.getByTestId("history-item").getByTestId("history-locate").click();
+      await expect(page.getByTestId("workspace-pane").and(page.locator(`[data-session-id="${restored.id}"]`))).toHaveAttribute("data-active", "true");
+      await search.clear();
+    }
+    expect(readFileSync(claudeSource, "utf8")).toBe(claudeOriginal);
+    expect(readFileSync(codexPath(codexId), "utf8")).toBe(codexOriginal);
+    expect(await sessions()).toHaveLength(4);
+  } finally {
+    await app.close();
+    rmTree(base);
   }
 });
 

@@ -103,6 +103,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const tab = view?.layout.tabs.find(({ id }) => id === inSpace?.tab) ?? view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId !== null)) ?? view?.layout.tabs[0];
   const openLeaves = tab ? leaves(tab.pane) : [];
   const currentLeaf = openLeaves.find(({ id }) => id === inSpace?.leaf) ?? openLeaves[0];
+  const currentPaneTarget: WorkspaceTarget | null = tab && currentLeaf ? { kind: "leaf", tab: tab.id, leaf: currentLeaf.id, ...(currentLeaf.sessionId && { direction: "right" }) } : null;
   const moving = moveSource?.spaceId === space?.id ? moveSource : null;
   const zoom = openLeaves.find(({ id }) => id === inSpace?.zoom)?.id ?? null;
   const editable = Boolean(view?.writable && !busy && !workspace.isFetching && !workspace.isError);
@@ -283,9 +284,8 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   }
 
   function planHistory(selection: HistorySelection, action: HistoryAction) {
-    const target: WorkspaceTarget | null = tab && currentLeaf ? { kind: "leaf", tab: tab.id, leaf: currentLeaf.id, ...(currentLeaf.sessionId && { direction: "right" }) } : null;
     const newTab = startTarget({ kind: "tab" });
-    const current = target && startTarget(target);
+    const current = currentPaneTarget && startTarget(currentPaneTarget);
     if (!newTab) return null;
     const options = { history: { ...selection, action } };
     return {
@@ -402,8 +402,20 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     }
   }
 
-  function edit(basis: WorkspaceView, layout: SpaceLayout, focus?: Destination) {
-    return commitWorkspace(() => engine.call<WorkspaceView>("agent.workspace.save", { spaceId: basis.spaceId, baseVersion: basis.version, layout }, { write: true }), focus ? () => focus : undefined);
+  function edit(basis: WorkspaceView, layout: SpaceLayout, focus?: Destination, spaceRevision?: number) {
+    return commitWorkspace(
+      () => engine.call<WorkspaceView>("agent.workspace.save", { spaceId: basis.spaceId, baseVersion: basis.version, layout, ...(spaceRevision === undefined ? {} : { spaceRevision }) }, { write: true }),
+      focus ? () => focus : undefined,
+    );
+  }
+
+  function placePreview(target: WorkspaceTarget) {
+    if (!view || !space || view.spaceId !== space.id || !preview || preview.spaceId !== space.id || !editable) return;
+    const next = placeSession(view.layout, target, preview.id, createRequestId());
+    if (!next) return;
+    const assigned = next.layout.tabs.find(({ id }) => id === next.tab);
+    const leaf = assigned && leaves(assigned.pane).find(({ id }) => id === next.leaf);
+    if (leaf) void edit(view, next.layout, { tab: next.tab, leaf }, target.kind === "leaf" ? space.revision : undefined);
   }
 
   function closePane(basis: WorkspaceView, tab: string, leaf: string, terminate = false) {
@@ -693,15 +705,14 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               <strong>{preview.name}</strong>
               {stateBadge(preview)}
               <Button
-                disabled={!editable}
+                disabled={!editable || !boundSpace || !currentPaneTarget}
                 onClick={() => {
-                  if (!view) return;
-                  const next = placeSession(view.layout, { kind: "tab" }, preview.id, createRequestId());
-                  if (!next) return;
-                  const assigned = next.layout.tabs.at(-1)!;
-                  void edit(view, next.layout, { tab: next.tab, leaf: leaves(assigned.pane)[0]! });
+                  if (currentPaneTarget) placePreview(currentPaneTarget);
                 }}
               >
+                放入当前标签
+              </Button>
+              <Button disabled={!editable} onClick={() => placePreview({ kind: "tab" })}>
                 放入新标签
               </Button>
               {preview.state === "running" ? (

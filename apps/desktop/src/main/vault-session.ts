@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
+import { validateWorkspacePackage } from "@huhu/plugin-agent-cli/engine";
 import { validateMailPackage } from "@huhu/plugin-mail/engine";
 import { validateSafePackage } from "@huhu/plugin-safe/engine";
 import { importPackage } from "@huhu/vault";
@@ -56,9 +57,11 @@ export function importPackageTo(zipPath: string, target: string): OpenFailure | 
   if (bad) return bad;
   try {
     importPackage(zipPath, target, {
+      regenerateId: true,
       validateStaging(files, restored) {
         validateSafePackage(files);
         validateMailPackage(files, restored);
+        validateWorkspacePackage(files, restored);
       },
     });
     return null;

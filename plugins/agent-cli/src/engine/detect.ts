@@ -5,6 +5,7 @@ import path from "node:path";
 import { findInDirs, findOnPath, runnable } from "@huhu/herdr-client";
 import { AGENT_CATALOG, type AgentCatalogEntry, type AgentId } from "../shared/catalog.js";
 import { entryOf, isEnabled, type AgentSettingsFile } from "../shared/settings.js";
+import type { HistoryEntry } from "./history/scanner.js";
 
 export { findInDirs, findOnPath };
 
@@ -19,7 +20,7 @@ export interface DetectInfo {
   via?: "path" | "installDir" | "override";
   headless: boolean;
   detectedAt: string;
-  /** Pi flags confirmed by the last explicit probe. */
+  /** Native history actions confirmed by the last explicit probe. */
   history?: { resume: boolean; fork: boolean };
 }
 
@@ -67,6 +68,25 @@ async function probePiHistory(exe: string, env: NodeJS.ProcessEnv) {
   const help = (await probeText(exe, ["--help"], 5000, env)) ?? "";
   const sessionId = /^\s+--session-id\s/m.test(help);
   return { resume: /^\s+--session\s/m.test(help), fork: sessionId && /^\s+--fork\s/m.test(help), new: sessionId };
+}
+
+const helpOption = (help: string, flag: string): boolean => help.split(/\r?\n/).some((line) => line.trimStart().startsWith("-") && line.split(/[^\w-]+/).includes(`--${flag}`));
+
+export async function probeHistory(provider: HistoryEntry["provider"], exe: string, env: NodeJS.ProcessEnv, version?: string | null): Promise<NonNullable<DetectInfo["history"]>> {
+  if (provider === "pi") return probePiHistory(exe, env);
+  if (provider === "claude") {
+    const help = (await probeText(exe, ["--help"], 5000, env)) ?? "";
+    const resume = helpOption(help, "resume");
+    return { resume, fork: resume && helpOption(help, "fork-session") && helpOption(help, "session-id") };
+  }
+  const [resumeHelp, serverHelp, detectedVersion] = await Promise.all([
+    probeText(exe, ["resume", "--help"], 5000, env),
+    probeText(exe, ["app-server", "--help"], 5000, env),
+    version === undefined ? probeVersion(exe, ["--version"], 5000, env) : version,
+  ]);
+  const release = /^codex(?:-cli)?\s+(\d+)\.(\d+)\.\d+\b/i.exec(detectedVersion ?? "");
+  const resume = /\bSESSION_ID\b/.test(resumeHelp ?? "") && helpOption(serverHelp ?? "", "listen");
+  return { resume, fork: resume && !!release && (Number(release[1]) > 0 || Number(release[2]) >= 170) };
 }
 
 function probeText(exe: string, args: string[], timeoutMs: number, env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -167,7 +187,9 @@ export class AgentDetector {
     const catalog = this.d.catalog ?? AGENT_CATALOG;
     const checks = this.scanLocations().map(async (result, index) => {
       if (!result.path) return result;
-      const [version, history] = await Promise.all([probeVersion(result.path, catalog[index]?.detect.versionArgs, 5000, env), result.id === "pi" ? probePiHistory(result.path, env) : undefined]);
+      const effectiveEnv = { ...env, ...catalog[index]?.env, ...entryOf(this.d.settings(), result.id).env };
+      const version = await probeVersion(result.path, catalog[index]?.detect.versionArgs, 5000, effectiveEnv);
+      const history = result.id === "claude" || result.id === "codex" || result.id === "pi" ? await probeHistory(result.id, result.path, effectiveEnv, version) : undefined;
       return { ...result, ...(version && { version }), ...(history && { history: { resume: history.resume, fork: history.fork } }) };
     });
     const pending = Promise.all(checks)

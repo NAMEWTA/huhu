@@ -156,7 +156,7 @@ export function WorkspaceCanvas({
       <div className="agent-workspace-surface" style={size}>
         {cells.map(({ pane: leaf, bounds }, index) => {
           const session = sessions.find(({ id }) => id === leaf.sessionId);
-          const name = session?.name ?? (leaf.sessionId ? "原会话" : "空分栏");
+          const name = session?.name ?? (leaf.sessionId ? "原会话" : leaf.unbound ? "未绑定终端" : "空分栏");
           const hidden = index >= paneCount || Boolean(zoom && zoom !== leaf.id);
           const isSource = retained?.id === leaf.id;
           return (

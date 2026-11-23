@@ -3,8 +3,9 @@ import path from "node:path";
 import { AGENT_CATALOG, type AgentCatalogEntry, type ArgTemplate, type ConflictFlag, type OptionArgs } from "../shared/catalog.js";
 import { entryOf, isEnabled, type AgentSettingsEntry, type AgentSettingsFile } from "../shared/settings.js";
 import type { DetectInfo } from "./detect.js";
+import { historyProfileKey, isUuidHistoryId, nativeHistoryProfile } from "./history/scanner.js";
 
-export type HistoryLaunch = { mode: "resume"; nativeId: string; file?: string } | { mode: "fork"; nativeId: string; file?: string; forkId?: string };
+export type HistoryLaunch = { nativeId: string; file?: string; profile?: string } & ({ mode: "resume" } | { mode: "fork"; forkId?: string });
 
 export interface ResolveInput {
   agentId: string;
@@ -42,6 +43,17 @@ export interface ResolvedLaunch {
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const HISTORY_FLAGS = /^(?:--(?:resume|continue|session|session-id|fork|fork-session|no-session|last|remote|print|mode|help|version|list-models|teleport)(?:=|$)|-[rphv]$|--$)/;
+const UUID_HISTORY_FLAGS =
+  /^(?:--(?:cd|directory|cwd|worktree|from-pr|bg|background|attach|resume-session-at|remote(?:-[\w-]+)?|app-server(?:-[\w-]+)?|profile(?:-file)?|config-dir|settings|setting-sources|exec|bare|no-session-persistence|name)(?:=|$)|-[CwRrphv])/;
+
+function overridesUuidHistory(args: string[], provider: "claude" | "codex"): boolean {
+  return args.some((arg, i) => {
+    if (UUID_HISTORY_FLAGS.test(arg)) return true;
+    if (provider !== "codex") return false;
+    const config = arg === "-c" || arg === "--config" ? args[i + 1] : arg.startsWith("--config=") ? arg.slice(9) : arg.startsWith("-c") ? arg.slice(2) : undefined;
+    return config !== undefined && !/^(?:model|model_reasoning_effort|service_tier|approval_policy|sandbox_mode|sandbox_workspace_write\.[\w_]+)=/.test(config);
+  });
+}
 
 const fill = (t: ArgTemplate, vars: { v?: string; id?: string; uuid?: string }): string[] =>
   t.map((a) =>
@@ -67,7 +79,15 @@ const mask = (env: Record<string, string>): Record<string, string> => Object.fro
  * 命令 → 前缀子命令 → 启动选项 → 用户参数 → 模式参数 → 会话参数 → 位置参数 → 末尾参数。
  */
 export function resolveAgentLaunch(
-  ctx: { settings: AgentSettingsFile; detected?: DetectInfo | undefined; /** 引擎已解析的本机绝对路径，null 表示找不到。 */ locatedCommand?: string | null; /** 测试用：替换目录。 */ catalog?: readonly AgentCatalogEntry[] },
+  ctx: {
+    settings: AgentSettingsFile;
+    detected?: DetectInfo | undefined;
+    /** 引擎已解析的本机绝对路径，null 表示找不到。 */
+    locatedCommand?: string | null;
+    /** 测试用：替换目录。 */
+    catalog?: readonly AgentCatalogEntry[];
+    platform?: NodeJS.Platform;
+  },
   input: ResolveInput,
 ): ResolvedLaunch {
   const entry = (ctx.catalog ?? AGENT_CATALOG).find((e) => e.id === input.agentId);
@@ -107,22 +127,38 @@ export function resolveAgentLaunch(
   if (!command) throw new HuhuError("AGENT_NOT_FOUND", `未检测到 ${entry.displayName}`);
 
   const warnings: string[] = [];
-  const userArgs = user.args ?? entry.fullAccessArgs;
-  const argv: string[] = [];
   const history = input.history;
-  const overridesHistory = userArgs.some((arg) => HISTORY_FLAGS.test(arg) || (arg === "-c" && entry.id !== "codex"));
+  const uuidProvider = entry.id === "claude" || entry.id === "codex" ? entry.id : undefined;
+  const userArgs = user.args ?? (history && uuidProvider ? [] : entry.fullAccessArgs);
+  const argv: string[] = [];
+  const overridesHistory = userArgs.some((arg) => HISTORY_FLAGS.test(arg) || (arg === "-c" && entry.id !== "codex")) || !!(history && uuidProvider && overridesUuidHistory(userArgs, uuidProvider));
+  const env = { ...entry.env, ...user.env };
   if (history) {
     if (!SAFE_ID.test(history.nativeId) || input.mode !== "interactive" || input.resume || input.prompt !== undefined) throw errors.invalidInput("历史会话启动参数无效");
     if (overridesHistory) throw errors.invalidInput("当前智能体参数覆盖了原生历史，请在设置中移除冲突参数");
     if (entry.id === "pi" && (!history.file || !path.isAbsolute(history.file))) throw errors.invalidInput("Pi 需要确切的历史文件");
     if (entry.id !== "pi" && !entry.interactive.resume) throw errors.invalidInput("此智能体不支持原生历史启动");
     if (history.mode === "fork" && entry.id === "pi" && (!history.forkId || !SAFE_ID.test(history.forkId))) throw errors.invalidInput("Pi 分支标识无效");
+    if (uuidProvider) {
+      if (!isUuidHistoryId(history.nativeId)) throw errors.invalidInput("原生历史会话 UUID 无效");
+      if (!history.profile || !path.isAbsolute(history.profile)) throw errors.invalidInput("原生历史资料目录无效");
+      const key = historyProfileKey(uuidProvider);
+      if (env[key] !== undefined && env[key] !== history.profile && nativeHistoryProfile(uuidProvider, env) !== history.profile) {
+        throw errors.invalidInput("当前智能体设置使用了不同的原生历史资料目录");
+      }
+      if ((ctx.platform ?? process.platform) === "win32") {
+        for (const name of Object.keys(env)) if (name !== key && name.toUpperCase() === key) delete env[name];
+      }
+      env[key] = history.profile;
+      if (history.mode === "fork" && uuidProvider === "claude" && (!history.forkId || !isUuidHistoryId(history.forkId) || history.forkId.toLowerCase() === history.nativeId.toLowerCase())) {
+        throw errors.invalidInput("Claude 分支 UUID 无效");
+      }
+    }
   }
-  const resumeId = history && entry.id !== "pi" && (history.mode === "resume" || entry.id === "claude") ? history.nativeId : input.resume;
+  const resumeId = history && entry.id !== "pi" ? history.nativeId : input.resume;
 
   // 2. 前缀子命令
   if (input.mode === "headless" && headless) argv.push(...(resumeId && headless.resume.prefix ? headless.resume.prefix : headless.prefix));
-  else if (history?.mode === "fork" && entry.id === "codex") argv.push("fork", history.nativeId);
   else if (resumeId && entry.interactive.resume?.position === "prefix") argv.push(...fill(entry.interactive.resume.argv, { id: resumeId }));
 
   // 3. 启动选项
@@ -152,7 +188,7 @@ export function resolveAgentLaunch(
       else tail.push(...fill(headless.resume.argv, { id: resumeId }));
     } else if (input.sessionId && headless.newSession) argv.push(...fill(headless.newSession, { uuid: input.sessionId }));
   } else if (resumeId && entry.interactive.resume?.position === "option") argv.push(...fill(entry.interactive.resume.argv, { id: resumeId }));
-  if (history?.mode === "fork" && entry.id === "claude") argv.push("--fork-session");
+  if (history?.mode === "fork" && entry.id === "claude" && history.forkId) argv.push("--fork-session", "--session-id", history.forkId);
   if (history && entry.id === "pi" && history.file) {
     argv.push(history.mode === "fork" ? "--fork" : "--session", history.file);
     if (history.mode === "fork" && history.forkId) argv.push("--session-id", history.forkId);
@@ -166,7 +202,13 @@ export function resolveAgentLaunch(
   // 8. 末尾可变参数选项
   if (input.mode === "headless" && headless?.trailing) argv.push(...headless.trailing);
 
-  const env = { ...entry.env, ...user.env };
+  // The history list and first launch both use this resolver before the Core attempt.
+  if (history && entry.id === "codex" && (ctx.platform ?? process.platform) === "win32" && /\.(?:cmd|bat)$/i.test(command)) {
+    if (/["\r\n\0]/.test(command) || argv.some((arg) => /[\r\n\0]/.test(arg))) {
+      throw errors.invalidInput("Windows 批处理入口无法传递此历史启动参数");
+    }
+  }
+
   return {
     command,
     argv,

@@ -40,6 +40,29 @@ const HEAD_LINES = 400;
 const MAX_FILES = 2000;
 const TITLE_CHARS = 120;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
+const CODEX_FILE_ID = /-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.jsonl$/i;
+
+export type UuidHistoryProvider = "claude" | "codex";
+export type SelectedHistorySource = Pick<HistoryEntry, "provider" | "nativeSessionId" | "file" | "historyId" | "cwd"> & { revision?: string | undefined };
+
+export function isUuidHistoryId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
+export function historyProfileKey(provider: UuidHistoryProvider): "CLAUDE_CONFIG_DIR" | "CODEX_HOME" {
+  return provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+}
+
+export function nativeHistoryProfile(provider: UuidHistoryProvider, env: NodeJS.ProcessEnv, home = os.homedir()): string | undefined {
+  const dir = env[historyProfileKey(provider)] || path.join(home, provider === "claude" ? ".claude" : ".codex");
+  if (!path.isAbsolute(dir)) return undefined;
+  try {
+    return statSync(dir).isDirectory() ? realpathSync(dir) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** 路径是否在 root 之内（含自身）；名字以 .. 开头的目录不算越界。 */
 export function isWithin(root: string, target: string): boolean {
@@ -199,14 +222,17 @@ function historyIdentity(provider: HistoryEntry["provider"], id: string, file: s
     .digest("hex");
 }
 
-export function readSelectedHistory<T>(provider: HistoryEntry["provider"], file: string, nativeId: string, historyId: string, project: (fd: number) => T, expectedRevision?: string): T | undefined {
+export function readSelectedHistory<T>(provider: HistoryEntry["provider"], file: string, nativeId: string, historyId: string, project: (fd: number) => T, expectedRevision?: string, expectedCwd?: string): T | undefined {
   try {
     return useHistorySource(
       file,
       (fd, stamp) => {
         const parsed = parsers[provider](fd);
         const id = parsed.id ?? (provider === "claude" ? path.basename(file, ".jsonl") : null);
-        if (!parsed.cwd || id !== nativeId || historyIdentity(provider, id, file, parsed.cwd, real(parsed.cwd), stamp.physical) !== historyId) return undefined;
+        if (!parsed.cwd || id !== nativeId) return undefined;
+        const cwd = expectedCwd ? realpathSync(parsed.cwd) : real(parsed.cwd);
+        if (expectedCwd && (!path.isAbsolute(parsed.cwd) || path.relative(cwd, expectedCwd) !== "")) return undefined;
+        if (historyIdentity(provider, id, file, parsed.cwd, cwd, stamp.physical) !== historyId) return undefined;
         return project(fd);
       },
       expectedRevision,
@@ -219,6 +245,74 @@ export function readSelectedHistory<T>(provider: HistoryEntry["provider"], file:
 export function isPiHistoryFile(file: string, nativeId: string, historyId: string, expectedRevision?: string): boolean {
   return readSelectedHistory("pi", file, nativeId, historyId, () => true, expectedRevision) === true;
 }
+
+/** Browse is capped by Space and age. UUID lookups must also account for candidates the CLI can see outside that list. */
+export function nativeHistoryCandidates(provider: UuidHistoryProvider, profile: string): ReadonlyMap<string, string | null> | undefined {
+  if (!path.isAbsolute(profile)) return undefined;
+  const candidates = new Map<string, string | null>();
+  const visit = (dir: string, depth: number, optional = false) => {
+    let entries;
+    try {
+      if (realpathSync(dir) !== dir) throw new Error("Noncanonical history directory");
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch (error) {
+      if (optional && (error as NodeJS.ErrnoException).code === "ENOENT" && !lstatSync(dir, { throwIfNoEntry: false })) return;
+      throw error;
+    }
+    for (const entry of entries) {
+      const location = path.join(dir, entry.name);
+      if (depth > 0 && entry.isDirectory()) {
+        visit(location, depth - 1);
+        continue;
+      }
+      if (depth > 0 && entry.isSymbolicLink() && statSync(location, { throwIfNoEntry: false })?.isDirectory()) throw new Error("Aliased history directory");
+      const name = provider === "claude" && depth === 0 ? entry.name.replace(/\.jsonl$/i, "") : provider === "codex" && entry.name.startsWith("rollout-") ? CODEX_FILE_ID.exec(entry.name)?.[1] : undefined;
+      if (name && entry.name.toLowerCase().endsWith(".jsonl") && isUuidHistoryId(name)) {
+        const id = name.toLowerCase();
+        candidates.set(id, !candidates.has(id) && entry.isFile() ? location : null);
+      }
+    }
+  };
+  try {
+    if (realpathSync(profile) !== profile) return undefined;
+    if (provider === "claude") visit(path.join(profile, "projects"), 1);
+    else {
+      visit(path.join(profile, "sessions"), 3);
+      visit(path.join(profile, "archived_sessions"), 0, true);
+    }
+    return candidates;
+  } catch {
+    return undefined;
+  }
+}
+
+export function nativeHistorySourceMatches(source: SelectedHistorySource, profile?: string, lookup = source.provider === "pi" || !profile ? undefined : nativeHistoryCandidates(source.provider, profile)): boolean {
+  if (source.provider !== "pi" && (!isUuidHistoryId(source.nativeSessionId) || lookup?.get(source.nativeSessionId.toLowerCase()) !== source.file)) return false;
+  return readSelectedHistory(source.provider, source.file, source.nativeSessionId, source.historyId, () => true, source.revision, source.provider === "pi" ? undefined : source.cwd) === true;
+}
+
+/** The UUID is reserved in the launch request. Claude may write the transcript only after the first user input. */
+export function claudeHistoryChild(profile: string, id: string, cwd: string): string | undefined {
+  const file = nativeHistoryCandidates("claude", profile)?.get(id.toLowerCase());
+  return file ? historyChild("claude", file, id, cwd) : undefined;
+}
+
+export function codexHistoryChild(file: string, id: string, cwd: string): string | undefined {
+  return historyChild("codex", file, id, cwd);
+}
+
+function historyChild(provider: UuidHistoryProvider, file: string, id: string, cwd: string): string | undefined {
+  try {
+    return useHistorySource(file, (fd, stamp) => {
+      const parsed = parsers[provider](fd);
+      if (!parsed.cwd || path.relative(realpathSync(parsed.cwd), cwd) !== "" || (provider === "codex" && parsed.id !== id)) return undefined;
+      return historyIdentity(provider, id, file, parsed.cwd, real(parsed.cwd), stamp.physical);
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function claudeRoot(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(env["CLAUDE_CONFIG_DIR"] || path.join(home, ".claude"), "projects");
 }

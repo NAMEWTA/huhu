@@ -7,11 +7,11 @@ const maxDepth = 16;
 
 export type SplitDirection = "up" | "down" | "left" | "right";
 export type PaneLocation = { tab: string; leaf: string };
-export type PaneLeaf = { kind: "leaf"; id: string; sessionId: string | null };
+export type PaneLeaf = { kind: "leaf"; id: string; sessionId: string | null; unbound?: true | undefined };
 export type PaneBranch = { kind: "split"; id: string; axis: "columns" | "rows"; ratio: number; first: Pane; second: Pane };
 export type Pane = PaneLeaf | PaneBranch;
 
-const leaf: z.ZodType<PaneLeaf> = z.strictObject({ kind: z.literal("leaf"), id, sessionId: id.nullable() });
+const leaf: z.ZodType<PaneLeaf> = z.strictObject({ kind: z.literal("leaf"), id, sessionId: id.nullable(), unbound: z.literal(true).optional() }).refine((value) => !value.unbound || value.sessionId === null);
 const pane: z.ZodType<Pane> = z.lazy(() => z.union([leaf, z.strictObject({ kind: z.literal("split"), id, axis: z.enum(["columns", "rows"]), ratio: z.number().min(0.05).max(0.95), first: pane, second: pane })]));
 const tab = z.strictObject({ id, pane });
 const SpaceLayout = z.strictObject({ tabs: z.array(tab).max(64) });
@@ -156,7 +156,7 @@ export function placeSession(layout: SpaceLayout, target: WorkspaceTarget, sessi
     layout: {
       tabs: layout.tabs.map((item) => {
         if (item.id !== tab) return item;
-        const pane = direction ? splitPane(item.pane, leaf, direction, `split-${operationId}`, opened) : replacePane(item.pane, leaf, () => ({ ...existing, sessionId }));
+        const pane = direction ? splitPane(item.pane, leaf, direction, `split-${operationId}`, opened) : replacePane(item.pane, leaf, () => ({ kind: "leaf", id: leaf, sessionId }));
         return { ...item, pane };
       }),
     },
