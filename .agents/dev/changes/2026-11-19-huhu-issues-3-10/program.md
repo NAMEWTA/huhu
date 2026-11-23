@@ -162,3 +162,7 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 ## origin/main 实际落地
 
 2026-11-23，HC `t19v` 先 fetch 并核对 origin/main、origin/feature/issue-fix 均为候选祖先，再依次快进两分支。远端实际回读均为 `7c3a494b117b6996aae17bbd695e8d0e516e5cf8`，原 main `4ae7e7e4`。这证明有效改动已落地，不代表上表外部环境缺证已完成；未关闭 Issue、未部署或发布。随后只追加本落地回执，应用仍为已验收的 f91 字节。
+
+## 2026-11-23 首页验收补充
+
+四主题明暗与键盘验收发现并修复了保存后的主动取消假错误。应用 9d96e902 新包已完成 dashboard/close/Web 三组四项定向回归；其余组合组保留 f91 原记录。原生截图排除了页面截图在125%缩放时的裁切假象。证据见 [首页查询取消](evidence/dashboard-save-cancellation.md)。全平台、真实读屏、第二设备、线上邮箱和独审额度缺口不变；#7继续暂停。

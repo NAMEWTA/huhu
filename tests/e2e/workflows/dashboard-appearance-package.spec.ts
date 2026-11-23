@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
 import { disposeCandidate } from "../helpers/candidate-package.js";
@@ -57,13 +57,22 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
         expect(board.layout.find((item: { instanceId: string }) => item.instanceId === "default-focus").y).toBe(previousY + 1);
         const appearance = JSON.parse(readFileSync(path.join(vault, ".huhu/settings.json"), "utf8")).appearance;
         expect(appearance).toMatchObject({ theme, mode, motion: "reduced" });
-        const metrics = await page
-          .getByTestId("home-dashboard")
-          .evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth, animationDuration: getComputedStyle(element).animationDuration, transitionDuration: getComputedStyle(element).transitionDuration }));
+        const metrics = await page.getByTestId("home-dashboard").evaluate((element) => ({
+          width: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+          left: element.getBoundingClientRect().left,
+          right: element.getBoundingClientRect().right,
+          viewport: window.innerWidth,
+          animationDuration: getComputedStyle(element).animationDuration,
+          transitionDuration: getComputedStyle(element).transitionDuration,
+        }));
         expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.width + 1);
+        expect(metrics.left).toBeGreaterThanOrEqual(0);
+        expect(metrics.right).toBeLessThanOrEqual(metrics.viewport + 1);
         expect(metrics.animationDuration.split(",").every((value) => parseFloat(value) <= 0.001)).toBe(true);
         expect(metrics.transitionDuration.split(",").every((value) => parseFloat(value) <= 0.001)).toBe(true);
-        await page.screenshot({ path: test.info().outputPath(`${theme}-${mode}.png`), animations: "disabled" });
+        const screenshot = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0]!.webContents.capturePage()).toPNG().toString("base64"));
+        writeFileSync(test.info().outputPath(`${theme}-${mode}.png`), Buffer.from(screenshot, "base64"));
         evidence.push({ theme, mode, zoom: 1.25, enterTabs, moveTabs, saveTabs, placement: board.layout.find((item: { instanceId: string }) => item.instanceId === "default-focus"), metrics });
       }
     }
