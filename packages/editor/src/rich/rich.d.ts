@@ -20,7 +20,9 @@ export interface RichEditorPort extends EditorPort {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /** 组合开始至最终文本交付期间为 true。 */
   isComposing(): boolean;
+  onCompositionSettled(listener: () => void): () => void;
 }
 
 export interface EditorAssetActions {

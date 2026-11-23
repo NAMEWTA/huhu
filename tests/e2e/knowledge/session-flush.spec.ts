@@ -146,6 +146,51 @@ async function checkManualSaveReceipt(saveWhileFirstInFlight: boolean): Promise<
 test("C06 手动保存回执在途时继续输入，下一次点击才写入新内容", () => checkManualSaveReceipt(false));
 test("C06 两次手动保存重叠时，各自只写入触发时的正文", () => checkManualSaveReceipt(true));
 
+function holdParkedNoteRead(page: Page, diskText: string) {
+  return page.evaluateHandle(
+    ({ notePath, diskText }) => {
+      const fetch = window.fetch;
+      const release = Promise.withResolvers<void>();
+      const returned = Promise.withResolvers<void>();
+      const writes: string[] = [];
+      let reads = 0;
+      let held = false;
+      window.fetch = async (input, init) => {
+        if (typeof input !== "string" || !input.endsWith("/api/v1/call") || typeof init?.body !== "string") return fetch.call(window, input, init);
+        const request = JSON.parse(init.body) as { capability: string; input?: { path?: string; text?: string } };
+        if (request.input?.path === notePath && request.capability === "notes.save" && typeof request.input.text === "string") writes.push(request.input.text);
+        const response = await fetch.call(window, input, init);
+        if (request.input?.path !== notePath || request.capability !== "notes.read") return response;
+        reads++;
+        const readJson = response.json.bind(response);
+        response.json = async () => {
+          const result = (await readJson()) as { ok: boolean; data?: { text?: string } };
+          if (result.ok && result.data?.text === diskText) {
+            held = true;
+            await release.promise;
+            // 让调用方的微任务与随后的渲染提交先处理正文回执。
+            requestAnimationFrame(() => requestAnimationFrame(() => returned.resolve()));
+          }
+          return result;
+        };
+        return response;
+      };
+      return {
+        snapshot: () => ({ held, reads, writes }),
+        release: () => {
+          release.resolve();
+          return returned.promise;
+        },
+        restore: () => {
+          window.fetch = fetch;
+          release.resolve();
+        },
+      };
+    },
+    { notePath: name, diskText },
+  );
+}
+
 test("C06 停放恢复读盘在途时保留富文本组合输入，条件保存仍保护磁盘新版", async () => {
   const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
   const file = path.join(vault, name);
@@ -163,48 +208,11 @@ test("C06 停放恢复读盘在途时保留富文本组合输入，条件保存�
     await call(page, "notes.save", { path: name, text: diskText, expectedVersion: version });
     expect(readFileSync(file, "utf8")).toBe(diskText);
 
-    const gate = await page.evaluateHandle(
-      ({ notePath, diskText }) => {
-        const fetch = window.fetch;
-        const release = Promise.withResolvers<void>();
-        const returned = Promise.withResolvers<void>();
-        let held = false;
-        window.fetch = async (input, init) => {
-          const response = await fetch.call(window, input, init);
-          if (typeof input !== "string" || !input.endsWith("/api/v1/call") || typeof init?.body !== "string") return response;
-          const request = JSON.parse(init.body) as { capability: string; input?: { path?: string } };
-          if (request.capability !== "notes.read" || request.input?.path !== notePath) return response;
-          const readJson = response.json.bind(response);
-          response.json = async () => {
-            const result = (await readJson()) as { ok: boolean; data?: { text?: string } };
-            if (result.ok && result.data?.text === diskText) {
-              held = true;
-              await release.promise;
-              // 让调用方的微任务与随后的渲染提交先处理正文回执。
-              requestAnimationFrame(() => requestAnimationFrame(() => returned.resolve()));
-            }
-            return result;
-          };
-          return response;
-        };
-        return {
-          held: () => held,
-          release: () => {
-            release.resolve();
-            return returned.promise;
-          },
-          restore: () => {
-            window.fetch = fetch;
-            release.resolve();
-          },
-        };
-      },
-      { notePath: name, diskText },
-    );
+    const gate = await holdParkedNoteRead(page, diskText);
 
     try {
       await openNote(page);
-      await expect.poll(() => gate.evaluate((gate) => gate.held())).toBe(true);
+      await expect.poll(() => gate.evaluate((gate) => gate.snapshot().held)).toBe(true);
       const editor = prose(page);
       const state = page.getByTestId("save-state");
       await editor.getByText("初始正文", { exact: true }).click();
@@ -237,6 +245,82 @@ test("C06 停放恢复读盘在途时保留富文本组合输入，条件保存�
       await gate.dispose();
     }
   } finally {
+    await close();
+  }
+});
+
+test("C06 停放恢复读盘遇到组合输入时，磁盘回退也只自动保存提交后的文字", async () => {
+  const { page, vault, close } = await openApp({}, (vault) => writeFileSync(path.join(vault, name), original));
+  const file = path.join(vault, name);
+  const diskText = original.replace("初始正文", "会被撤销的外部正文");
+  const preedit = "nihao";
+  const committed = "你好";
+  const finalText = original.replace("初始正文", `初始正文${committed}`);
+  let holdEvents = false;
+  let receivedHello = false;
+  const delayedEvents: (() => void)[] = [];
+  try {
+    // 将回退通知留到断言之后，确保它不会抢先使已取样的恢复读数失效。
+    await page.routeWebSocket(/\/ws\/events(?:\?|$)/, (socket) => {
+      socket.connectToServer().onMessage((message) => {
+        if (holdEvents) delayedEvents.push(() => socket.send(message));
+        else {
+          if (typeof message === "string" && (JSON.parse(message) as { type: string }).type === "hello") receivedHello = true;
+          socket.send(message);
+        }
+      });
+    });
+    await page.reload();
+    await engineReady(page);
+    await expect.poll(() => receivedHello).toBe(true);
+    await setAutosave(page, true);
+    await openNote(page);
+    const { version } = await call<{ version: string }>(page, "notes.read", { path: name });
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    await expect(page.getByTestId("notes-module")).toHaveCount(0);
+    holdEvents = true;
+    await call(page, "notes.save", { path: name, text: diskText, expectedVersion: version });
+    expect(readFileSync(file, "utf8")).toBe(diskText);
+    const gate = await holdParkedNoteRead(page, diskText);
+    try {
+      await openNote(page);
+      const requests = () => gate.evaluate((gate) => gate.snapshot());
+      await expect.poll(requests).toEqual({ held: true, reads: 1, writes: [] });
+      const editor = prose(page);
+      const state = page.getByTestId("save-state");
+      await editor.getByText("初始正文", { exact: true }).click();
+      await page.keyboard.press("End");
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        await cdp.send("Input.imeSetComposition", { text: preedit, selectionStart: preedit.length, selectionEnd: preedit.length });
+        await expect(editor).toContainText(`初始正文${preedit}`);
+        await expect.poll(() => editor.evaluate((element: HTMLElement & { editor?: { state: { doc: { textContent: string } } } }) => element.editor?.state.doc.textContent)).toContain(preedit);
+        await expect(state).toHaveText("已保存");
+        writeFileSync(file, original);
+        await gate.evaluate((gate) => gate.release());
+        // 交付已过时的回执后，让 800 ms 自动保存窗口完整经过。
+        await page.waitForTimeout(1_200);
+        await expect(editor).toContainText(`初始正文${preedit}`);
+        expect(await requests()).toEqual({ held: true, reads: 1, writes: [] });
+        expect(readFileSync(file, "utf8")).toBe(original);
+        await cdp.send("Input.insertText", { text: committed });
+      } finally {
+        await cdp.detach();
+      }
+
+      await expect(editor).toContainText(`初始正文${committed}`);
+      await expect(editor).not.toContainText(preedit);
+      await expect.poll(async () => (await requests()).reads).toBeGreaterThan(1);
+      await expect.poll(() => readFileSync(file, "utf8")).toBe(finalText);
+      await expect(state).toHaveText("已保存");
+      expect((await requests()).writes).toEqual([finalText]);
+    } finally {
+      await gate.evaluate((gate) => gate.restore());
+      await gate.dispose();
+    }
+  } finally {
+    holdEvents = false;
+    for (const deliver of delayedEvents) deliver();
     await close();
   }
 });

@@ -86,7 +86,9 @@ export interface RichEditorPort extends EditorPort {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /** 组合开始至最终文本交付期间为 true。 */
   isComposing(): boolean;
+  onCompositionSettled(listener: () => void): () => void;
 }
 
 export interface RichMarkdownEditorProps {
@@ -200,9 +202,9 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
   const mixedEnvelope = useRef<string | null>(null);
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queued = useRef(false);
-  // 输入法组合进行中不把未提交的拼音交给会话（否则 800 ms 自动保存会把拼音写进磁盘）；组合结束后补一次交付。flush / 卸载仍然无条件交付。
+  // 组合进行中延后自动交付。显式 flush 和卸载仍会交付当前文本。
   const composing = useRef(false);
-  const deferredWhileComposing = useRef(false);
+  const compositionListeners = useRef(new Set<() => void>());
   const ytextRef = useRef<Y.Text | null>(null);
   const providerRef = useRef<LocalDocProvider | null>(null);
   // 源码优先打开的大文档：富文本表示（解析 + Y.XmlFragment）延后到第一次需要时才构建（P-S3：F09）
@@ -227,22 +229,26 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
 
   useEffect(() => {
     const inEditor = (e: Event) => e.target instanceof Element && e.target.closest(".ProseMirror") !== null && editorScope.current?.contains(e.target);
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
     const start = (e: Event) => {
-      if (inEditor(e)) composing.current = true;
+      if (!inEditor(e)) return;
+      clearTimeout(settleTimer);
+      composing.current = true;
     };
     const end = (e: Event) => {
       if (!inEditor(e)) return;
-      composing.current = false;
-      // compositionend 之后 ProseMirror 才把最终文本写进文档：下一个宏任务再交付
-      setTimeout(() => {
-        if (composing.current || !deferredWhileComposing.current) return;
-        deferredWhileComposing.current = false;
+      clearTimeout(settleTimer);
+      // 让 ProseMirror 先处理 compositionend 及随后的 DOM 变更，再交付并恢复后台读取。
+      settleTimer = setTimeout(() => {
         emitNow();
+        composing.current = false;
+        for (const listener of compositionListeners.current) listener();
       }, 0);
     };
     document.addEventListener("compositionstart", start, true);
     document.addEventListener("compositionend", end, true);
     return () => {
+      clearTimeout(settleTimer);
       document.removeEventListener("compositionstart", start, true);
       document.removeEventListener("compositionend", end, true);
     };
@@ -267,15 +273,11 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       const observer = (_event: Y.YTextEvent, tr: Y.Transaction) => {
         if (tr.origin === FILE_LOAD_ORIGIN) return;
         // 同一事务批内合并为一次交付（微任务）：会话的文本始终与编辑器保持同步，退出前 flush 不依赖定时器
-        if (composing.current) {
-          deferredWhileComposing.current = true;
-          return;
-        }
-        if (queued.current) return;
+        if (composing.current || queued.current) return;
         queued.current = true;
         queueMicrotask(() => {
           queued.current = false;
-          emitNow();
+          if (!composing.current) emitNow();
         });
       };
       yt.observe(observer);
@@ -558,6 +560,10 @@ export function RichMarkdownEditor(props: RichMarkdownEditorProps) {
       canUndo: () => !isRead() && documentHistory(provider.document).canUndo(),
       canRedo: () => !isRead() && documentHistory(provider.document).canRedo(),
       isComposing: () => composing.current,
+      onCompositionSettled(listener) {
+        compositionListeners.current.add(listener);
+        return () => compositionListeners.current.delete(listener);
+      },
     };
     onPort(port);
     return () => onPort(null);

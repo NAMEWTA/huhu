@@ -214,6 +214,19 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(eng.disk("a.md")).toBe("abcd");
   });
 
+  test("显式保存仍会结算正在组合的编辑器", async () => {
+    const eng = new FakeEngine({ "a.md": "原稿" });
+    const session = mk(eng);
+    await session.load();
+    const detach = session.attachDrainer(() => session.setText("编辑器显式交付的正文"), { isComposing: () => true, onCompositionSettled: () => () => undefined });
+    try {
+      expect(await session.flush()).toBe(true);
+      expect(eng.disk("a.md")).toBe("编辑器显式交付的正文");
+    } finally {
+      detach();
+    }
+  });
+
   test.each(["flush", "flushForExit", "keepDraft", "dispose"] as const)("%s 等待异步编辑器交付才读稿", async (action) => {
     const eng = new FakeEngine({ "a.md": "初始" });
     const s = mk(eng);
@@ -2281,6 +2294,70 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     } finally {
       read.resolve();
       delivery.resolve();
+      detach();
+      await Promise.all([resumed.release(), evict()]);
+    }
+  });
+
+  test.each(["提交", "取消"] as const)("停放恢复在组合输入%s前不启动自动保存，结算后重新核对磁盘", async (finish) => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "原稿" });
+    const original = eng.files.get(path)!;
+    const reg = new DocumentSessionRegistry();
+    const before = await reg.acquire("v", path, make(eng));
+    await before.session.load();
+    const evict = reg.retainForPark(before.session);
+    await before.release();
+    eng.externalWrite(path, "已被撤销的外部正文");
+    eng.calls.length = 0;
+
+    const read = Promise.withResolvers<void>();
+    eng.readGate = read.promise;
+    const resumed = await reg.acquire("v", path, make(eng));
+    const session = resumed.session;
+    let composing = true;
+    let onSettled: (() => void) | undefined;
+    const drain = vi.fn(() => {
+      if (composing) session.setText("原稿nihao");
+    });
+    const detach = session.attachDrainer(drain, {
+      isComposing: () => composing,
+      onCompositionSettled: (listener: () => void) => {
+        onSettled = listener;
+        return () => {
+          onSettled = undefined;
+        };
+      },
+    });
+    try {
+      expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(1);
+      // 真正的文件版本取决于字节，恢复原字节会再次匹配旧条件写版本。
+      eng.files.set(path, original);
+      eng.readGate = null;
+      read.resolve();
+      await vi.advanceTimersByTimeAsync(801);
+      expect(eng.disk(path)).toBe("原稿");
+      expect(eng.calls).not.toContain("notes.save");
+      expect(drain).not.toHaveBeenCalled();
+      expect(session.getSnapshot()).toMatchObject({ text: "原稿", baseVersion: "1", state: "saved" });
+
+      if (finish === "提交") session.setText("原稿你好");
+      else eng.externalWrite(path, "取消后重新读取的磁盘正文");
+      composing = false;
+      onSettled?.();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(eng.calls.filter((call) => call === "notes.read")).toHaveLength(2);
+      if (finish === "提交") {
+        expect(session.getSnapshot()).toMatchObject({ text: "原稿你好", state: "dirty" });
+        await vi.advanceTimersByTimeAsync(801);
+        expect(eng.disk(path)).toBe("原稿你好");
+        expect(eng.calls.filter((call) => call === "notes.save")).toHaveLength(1);
+      } else {
+        expect(session.getSnapshot()).toMatchObject({ text: "取消后重新读取的磁盘正文", state: "saved" });
+        expect(eng.calls).not.toContain("notes.save");
+      }
+    } finally {
+      read.resolve();
       detach();
       await Promise.all([resumed.release(), evict()]);
     }

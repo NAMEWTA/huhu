@@ -84,6 +84,11 @@ interface NoteFile {
 type Listener = () => void;
 export type MarkdownEquivalence = (baseline: string, current: string) => boolean;
 
+interface EditorComposition {
+  isComposing(): boolean;
+  onCompositionSettled(listener: Listener): () => void;
+}
+
 interface SaveSnapshot {
   readonly baselineGeneration: number;
   text: string;
@@ -163,8 +168,9 @@ export class DocumentSession {
   private readonly queuedSaves = new Set<SaveSnapshot>();
   private loadSeq = 0;
   private externalCheckSeq = 0;
+  private deferredExternalCheck: { generation: number; loadSeq: number } | null = null;
   private readonly listeners = new Set<Listener>();
-  private readonly drainers = new Set<() => void | Promise<void>>();
+  private readonly drainers = new Set<{ flush: () => void | Promise<void>; composition: EditorComposition | undefined; unsubscribe: (() => void) | undefined }>();
   private snap: SessionSnapshot;
 
   constructor(opts: SessionOptions) {
@@ -240,15 +246,16 @@ export class DocumentSession {
   }
 
   load(expectedRevision?: number, isCurrent = () => true): Promise<boolean> {
-    return this.loadFile(expectedRevision, isCurrent, false);
+    return this.loadFile(expectedRevision, isCurrent, "load");
   }
 
-  private async loadFile(expectedRevision: number | undefined, isCurrent: () => boolean, discardEdits: boolean): Promise<boolean> {
+  private async loadFile(expectedRevision: number | undefined, isCurrent: () => boolean, reason: "load" | "discard" | "external"): Promise<boolean> {
     const seq = ++this.loadSeq;
     const generation = this.baselineGeneration;
     const revision = this.revision;
     const canLoad = () => this.isBaselineCurrent(generation) && seq === this.loadSeq && isCurrent();
     const canAdopt = () => canLoad() && revision === this.revision;
+    const discardEdits = reason === "discard";
     const discardVersion = discardEdits ? this.draftVersionForBuffer : undefined;
     while (canLoad()) {
       const diskRevision = this.diskRevision;
@@ -269,9 +276,11 @@ export class DocumentSession {
         ]);
         if (!canAdopt()) return false;
         if (expectedRevision !== undefined || (!discardEdits && this.loaded && file.text !== this.text)) {
+          if (reason === "external" && this.deferExternalCheckWhileComposing(generation, seq)) return false;
           // 接纳不同正文前，先结算复读期间仍留在编辑器中的输入。
           await this.drainEditors(canAdopt);
           if (!canAdopt()) return false;
+          if (reason === "external" && this.deferExternalCheckWhileComposing(generation, seq)) return false;
         }
         if (expectedRevision !== undefined && (!canUseDraft() || expectedRevision !== this.revision || draft?.text !== this.text)) return false;
       } catch (error) {
@@ -335,7 +344,7 @@ export class DocumentSession {
 
   /** 用户确认放弃编辑时，连同当前缓冲对应的草稿一起丢弃。 */
   discardEditsAndReload(): Promise<boolean> {
-    return this.loadFile(undefined, () => true, true);
+    return this.loadFile(undefined, () => true, "discard");
   }
 
   // ---- 编辑 ----
@@ -369,13 +378,18 @@ export class DocumentSession {
   }
 
   /** 注册在保存或检查未保存状态前向会话交付文本的编辑器。 */
-  attachDrainer(fn: () => void | Promise<void>): () => void {
-    this.drainers.add(fn);
-    return () => this.drainers.delete(fn);
+  attachDrainer(fn: () => void | Promise<void>, composition?: EditorComposition): () => void {
+    const drainer = { flush: fn, composition, unsubscribe: composition?.onCompositionSettled(this.resumeDeferredExternalCheck) };
+    this.drainers.add(drainer);
+    return () => {
+      if (!this.drainers.delete(drainer)) return;
+      drainer.unsubscribe?.();
+      this.resumeDeferredExternalCheck();
+    };
   }
   async drainEditors(isCurrent = () => true): Promise<void> {
     const generation = this.baselineGeneration;
-    const results = await Promise.allSettled([...this.drainers].map(async (drain) => drain()));
+    const results = await Promise.allSettled([...this.drainers].map(async ({ flush }) => flush()));
     if (!this.isBaselineCurrent(generation) || !isCurrent()) return;
     const failures = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
     if (failures.length) {
@@ -791,6 +805,27 @@ export class DocumentSession {
   }
 
   // ---- 外部变更 / 冲突 ----
+  private isEditorComposing(): boolean {
+    for (const { composition } of this.drainers) {
+      if (composition?.isComposing()) return true;
+    }
+    return false;
+  }
+
+  private deferExternalCheckWhileComposing(generation: number, loadSeq: number): boolean {
+    if (!this.isEditorComposing()) return false;
+    this.deferredExternalCheck = { generation, loadSeq };
+    return true;
+  }
+
+  private resumeDeferredExternalCheck = (): void => {
+    const deferred = this.deferredExternalCheck;
+    if (!deferred || this.isEditorComposing()) return;
+    this.deferredExternalCheck = null;
+    // 组合结算后重新取样，并按已交付的正文决定刷新还是核对冲突。
+    if (this.isBaselineCurrent(deferred.generation) && deferred.loadSeq === this.loadSeq) this.notifyExternalChange();
+  };
+
   private matchesSavedFile(file: NoteFile): boolean {
     return file.version === this.savedVersion && file.text === this.savedText;
   }
@@ -822,7 +857,7 @@ export class DocumentSession {
     const canReload = () => !this.activeFileWrite && !this.lateWriteConflict && !this.hasUnsavedText();
     if (canReload()) {
       const generation = this.baselineGeneration;
-      const loading = this.load(undefined, canReload);
+      const loading = this.loadFile(undefined, canReload, "external");
       const seq = this.loadSeq;
       void loading.catch((error: unknown) => {
         if (this.isBaselineCurrent(generation) && this.loadSeq === seq && canReload()) this.fail(error);
@@ -1008,7 +1043,9 @@ export class DocumentSession {
       this.poll = null;
     }
     this.disposed = true;
+    this.deferredExternalCheck = null;
     this.listeners.clear();
+    for (const { unsubscribe } of this.drainers) unsubscribe?.();
     this.drainers.clear();
   }
 }

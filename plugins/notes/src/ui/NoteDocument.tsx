@@ -125,7 +125,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   const onPort = useCallback(
     (port: RichEditorPort | null) => {
       detachDrainer.current?.();
-      detachDrainer.current = port && !port.readOnly ? session?.attachDrainer(() => port.flush()) : undefined;
+      detachDrainer.current = port && !port.readOnly ? session?.attachDrainer(() => port.flush(), port) : undefined;
       editor.current = port;
       registerEditor(port);
     },
