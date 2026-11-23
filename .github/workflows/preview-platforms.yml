@@ -31,7 +31,7 @@ jobs:
             target: win32-x64
             extension: exe
             executable: apps/desktop/release/win-unpacked/HUHU.exe
-          - os: macos-15
+          - os: macos-26
             target: darwin-arm64
             extension: dmg
             executable: apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU
@@ -78,7 +78,14 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: native/agent-pty
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/fetch-herdr.mjs --target "$TARGET"
+      - name: Fetch locked Herdr Core (Windows)
+        if: runner.os == 'Windows'
+        # Git Bash can put GNU tar ahead of Windows tar for Node subprocesses.
+        shell: pwsh
+        run: node scripts/fetch-herdr.mjs --target $env:TARGET
+      - name: Fetch locked Herdr Core (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/fetch-herdr.mjs --target "$TARGET"
       # The original CI workflow owns the full lint, typecheck and test checks.
       - run: pnpm notices
       - name: Build from the preview tag

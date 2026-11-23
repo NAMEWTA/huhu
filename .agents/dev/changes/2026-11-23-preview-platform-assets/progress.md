@@ -5,3 +5,7 @@
 旧 v0.0.1-rc.4 已有 win32-x64 exe 和 darwin-arm64 dmg。当前 tag release run 45126902160：Windows typecheck 成功，全量测试 2124通过、27失败、103跳过，未进入打包；macOS15尚未分配runner；Linux typecheck步骤取消。原始日志保存在 temp/cross-platform-release，保留原CI结论。
 
 新增手动补包入口仅证明固定标签的构建和包内 E2E，不替代原完整 CI。需要 Windows/macOS 两份附件实际上传并核对大小与摘要，合并 Linux 的原SHA256SUMS后才算完成。实施者 t1gn，具体见 .agents/system/herdr-core/2026-11-23-platform-release/。
+
+## Actions 首轮修正
+
+45134418196 在 Windows 获取 Core 时失败：Git Bash 的 GNU tar 将盘符 D: 当作远程地址。已限定该步骤使用 PowerShell；macOS 改用 macos-26 ARM64。独立审查确认可重新调度；空 starter 上传占位的恢复需 Lead 按附件 ID 核对后清理，完整异摘要附件仍禁止覆盖。两平台实际构建和发布尚未完成。
