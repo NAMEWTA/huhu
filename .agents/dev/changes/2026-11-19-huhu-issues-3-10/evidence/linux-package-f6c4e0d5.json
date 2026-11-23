@@ -1,0 +1,124 @@
+{
+  "applicationCommit": "f6c4e0d5684afa6e832340c4fbb4fd5445cf71b5",
+  "driverCommit": "f6c4e0d5684afa6e832340c4fbb4fd5445cf71b5",
+  "artifactSha256": "6d21c2d25f18ea775c3f611165cbb29c5f68cf71c946acb23c0eb968e40b46cb",
+  "debSha256": "fb29b907989774d647d16051bd6cd6c69567ea341cabf298fe0e5829eef346a8",
+  "reports": [
+    {
+      "mode": "workspace",
+      "path": "temp/candidate-acceptance/workspace.eG9U6j/result.json",
+      "sha256": "9486c189f60b474a2d45d91f4f1f113c0d81ae698bf30c5fe51a46252b59f937",
+      "stats": {
+        "startTime": "2026-11-23T03:43:00.441Z",
+        "duration": 60404.507,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "dashboard",
+      "path": "temp/candidate-acceptance/dashboard.UAsPrC/result.json",
+      "sha256": "476a7f8cddd136ae08c6ad17e3221a2f31b9880c786a0f4286ca6bd438a4a8dc",
+      "stats": {
+        "startTime": "2026-11-23T03:44:02.074Z",
+        "duration": 27657.754,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "close",
+      "path": "temp/candidate-acceptance/close.KcyzcP/result.json",
+      "sha256": "f41f794dfe744a5c3f4691b45429eb1e5962ddcb0f311ad235ccfcde07c15da6",
+      "stats": {
+        "startTime": "2026-11-23T03:44:31.035Z",
+        "duration": 16822.818,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "web",
+      "path": "temp/candidate-acceptance/web.AJ5lzp/result.json",
+      "sha256": "8fd5eb90bf9daa4ccb8440ef8d6d9759502c6e5ef3d98c1235370252ba8e0117",
+      "stats": {
+        "startTime": "2026-11-23T03:44:49.040Z",
+        "duration": 28956.479,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "tasks",
+      "path": "temp/candidate-acceptance/tasks.jqhB5t/result.json",
+      "sha256": "f7e5f4143a09d0b983e22dedc19e215427cff0ec9301d5a8f71ffe20bf9aa838",
+      "stats": {
+        "startTime": "2026-11-23T03:45:19.308Z",
+        "duration": 134412.37800000003,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "external-agent",
+      "path": "temp/candidate-acceptance/external-agent.R301gP/result.json",
+      "sha256": "15f9f8ee8171be0bfa11bd683d27dbb473e3967d67560b806defe6e34a6acd37",
+      "stats": {
+        "startTime": "2026-11-23T03:47:34.917Z",
+        "duration": 46263.87899999999,
+        "expected": 2,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "gateway",
+      "path": "temp/candidate-acceptance/gateway.VjlA8w/result.json",
+      "sha256": "1505dcbbd05e4bee43ea7b93b1d7be91606c432443690e165137e53c42b5b32b",
+      "stats": {
+        "startTime": "2026-11-23T03:48:22.408Z",
+        "duration": 15114.037999999999,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "mode": "package",
+      "path": "temp/candidate-acceptance/package.M3rcaN/result.json",
+      "sha256": "97c5038c76d4071f557737ee0471e21283566c9fbf49c17814cd30fa27899bc7",
+      "stats": {
+        "startTime": "2026-11-23T03:48:38.865Z",
+        "duration": 47081.541999999994,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "sourceHistory": {
+    "path": "/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/followup-history-f6c4e0d5684afa6e832340c4fbb4fd5445cf71b5.UG2u1K/result.json",
+    "sha256": "b30bd01824edb4188f0949f7a6c6e7beaf255a6dc6c51e4fe572183aede32600",
+    "stats": {
+      "startTime": "2026-11-23T03:39:48.318Z",
+      "duration": 12169.922,
+      "expected": 2,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  }
+}
