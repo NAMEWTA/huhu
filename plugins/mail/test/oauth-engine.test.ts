@@ -345,7 +345,9 @@ test("Graph backfills the 201st historical message when the list still includes 
   }
 }, 30_000);
 
-const exerciseOAuthEngine = async (audit?: "deletions" | "verification" | "route-change" | "send" | "retry-feedback") => {
+const exerciseOAuthEngine = async (
+  audit?: "deletions" | "verification" | "route-change" | "send" | "retry-feedback" | "returning-mail" | "trimmed-removal" | "early-list" | "retained-list" | "full-window-arrival" | "initial-history" | "partial-list",
+) => {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-mail-oauth-"));
   const vaultPath = path.join(root, "vault");
   const desktopUserData = path.join(root, "app");
@@ -575,6 +577,8 @@ const exerciseOAuthEngine = async (audit?: "deletions" | "verification" | "route
           cursor: string;
           message: { summary: GraphSummary };
           history: { summary: GraphSummary }[];
+          observedMessageIds?: string[];
+          progress?: { next?: string };
         };
       type GraphSummary = { nativeId: string; localMessageId: string; readState: string };
       const summaries = (cache = snapshot()) => [cache.message, ...cache.history].map(({ summary }) => summary);
@@ -623,6 +627,221 @@ const exerciseOAuthEngine = async (audit?: "deletions" | "verification" | "route
           state: "ready",
           body: { text: expect.stringContaining("Graph body 1") },
         });
+      } else if (audit === "returning-mail") {
+        const historical = graph.add("old-archive-then-inbox", outlook, 2);
+        const newer = graph.add("newer-initial-inbox", outlook, 3);
+        graph.pages.set("initial", { value: [newer, historical], cursor: "before-window-shift" });
+        await call("mail.sync.refresh", mailbox);
+        const old = summaries().find(({ nativeId }) => nativeId === historical.id);
+        assert(old);
+        expect(delivered).toEqual([]);
+
+        const window = Array.from({ length: 200 }, (_, i) => graph.add(`window-shift-${i}`, outlook, i + 10));
+        for (const item of window) item.isRead = true;
+        graph.pages.set("before-window-shift", { value: window.slice(0, 100), next: "window-shift-page" });
+        graph.pages.set("window-shift-page", { value: window.slice(100), cursor: "before-archive" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toHaveLength(200);
+        expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(historical.id);
+        expect(snapshot().observedMessageIds).toContain(old.localMessageId);
+        expect(delivered).toEqual([]);
+
+        for (const item of window) graph.inbox.delete(item.id);
+        graph.inbox.delete(historical.id);
+        graph.pages.set("before-archive", { value: window.map(({ id }) => removed(id)), next: "archived-old-message" });
+        graph.pages.set("archived-old-message", { value: [removed(historical.id)], cursor: "after-archive" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries().map(({ nativeId }) => nativeId)).toEqual([newer.id]);
+        expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: old.localMessageId })).toEqual({ state: "needs-refresh" });
+        expect(delivered).toEqual([]);
+
+        await engine.shutdown();
+        engine = await boot({ vaultPath, desktopUserData, mailOAuth: runtime });
+        graph.inbox.set(historical.id, historical);
+        const lateNew = graph.add("late-new-inbox", outlook, 1);
+        graph.pages.set("after-archive", { value: [historical, lateNew], cursor: "after-return" });
+        graph.pages.set("after-return", { value: [historical, lateNew], cursor: "after-replay" });
+        const beforeReturn = graph.requests.length;
+        await call("mail.sync.refresh", mailbox);
+        expect(graph.requests[beforeReturn]?.key).toBe("after-archive");
+        expect(summaries()).toContainEqual(old);
+        expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: old.localMessageId })).toMatchObject({ state: "ready" });
+        expect(delivered).toHaveLength(1);
+        expect(await call("mail.notifications.target", { id: delivered[0] })).toMatchObject({ ...mailbox, source: "graph", nativeId: lateNew.id });
+
+        await call("mail.sync.refresh", mailbox);
+        expect(snapshot().cursor).toContain("after-replay");
+        expect(delivered).toHaveLength(1);
+      } else if (audit === "trimmed-removal") {
+        const anchor = graph.add("latest-anchor", outlook, 500);
+        const old = graph.add("zz-old-trimmed-removal", outlook, 10);
+        const cached = Array.from({ length: 199 }, (_, i) => graph.add(`cached-recent-${i}`, outlook, i + 11));
+        const uncached = Array.from({ length: 200 }, (_, i) => graph.add(`batch-older-${i}`, outlook, 1));
+        for (const item of [...cached, ...uncached]) item.isRead = true;
+        graph.pages.set("initial", { value: [anchor, old, ...cached, ...uncached], cursor: "before-trimmed-removal" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toHaveLength(200);
+        expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(old.id);
+        expect(delivered).toEqual([]);
+
+        for (const item of [...cached, ...uncached, old]) graph.inbox.delete(item.id);
+        graph.pages.set("before-trimmed-removal", { value: [...cached, ...uncached, old].map(({ id }) => removed(id)), next: "trimmed-removal-1" });
+        for (let i = 1; i < 20; i++) graph.pages.set(`trimmed-removal-${i}`, { value: [], next: `trimmed-removal-${i + 1}` });
+        graph.pages.set("trimmed-removal-20", { value: [], cursor: "after-trimmed-removal" });
+        await call("mail.sync.refresh", mailbox);
+        const checkpoint = snapshot();
+        expect(checkpoint.cursor).toContain("before-trimmed-removal");
+        expect(checkpoint.progress?.next).toContain("trimmed-removal-20");
+        await engine.shutdown();
+        engine = await boot({ vaultPath, desktopUserData, mailOAuth: runtime });
+        const resume = graph.requests.length;
+        await call("mail.sync.refresh", mailbox);
+        expect(graph.requests[resume]?.key).toBe("trimmed-removal-20");
+        const completed = snapshot();
+        expect(completed.cursor).toContain("after-trimmed-removal");
+        expect(completed.progress).toBeUndefined();
+        expect(summaries().map(({ nativeId }) => nativeId)).toEqual([anchor.id]);
+
+        graph.inbox.set(old.id, old);
+        graph.pages.set("after-trimmed-removal", { value: [old], cursor: "trimmed-removal-returned" });
+        await call("mail.sync.refresh", mailbox);
+        const returned = summaries().find(({ nativeId }) => nativeId === old.id);
+        assert(returned);
+        expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: returned.localMessageId })).toMatchObject({ state: "ready" });
+        expect.soft(checkpoint.observedMessageIds).toContain(returned.localMessageId);
+        expect.soft(completed.observedMessageIds).toContain(returned.localMessageId);
+        expect(delivered).toEqual([]);
+      } else if (audit === "initial-history") {
+        const history = graph.add("old-inbox-outside-initial-window", outlook, 2);
+        const newer = Array.from({ length: 200 }, (_, i) => graph.add(`initial-read-${i}`, outlook, 100 + i));
+        for (const item of newer) item.isRead = true;
+        graph.pages.set("initial", { value: [...newer, history], cursor: "before-initial-history-backfill" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toHaveLength(200);
+        expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(history.id);
+        expect(delivered).toEqual([]);
+
+        const freed = newer[0]!;
+        graph.inbox.delete(freed.id);
+        graph.pages.set("before-initial-history-backfill", { value: [removed(freed.id)], cursor: "before-initial-history-replay" });
+        await call("mail.sync.refresh", mailbox);
+        const restored = summaries().find(({ nativeId }) => nativeId === history.id);
+        assert(restored);
+        expect(restored.readState).toBe("unread");
+        expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: restored.localMessageId })).toMatchObject({ state: "ready" });
+        expect(delivered).toEqual([]);
+
+        await engine.shutdown();
+        engine = await boot({ vaultPath, desktopUserData, mailOAuth: runtime });
+        graph.pages.set("before-initial-history-replay", { value: [history], cursor: "initial-history-replayed" });
+        graph.pages.set("initial-history-replayed", { value: [history], cursor: "initial-history-done" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toContainEqual(restored);
+        expect(delivered, "Mail seen by the initial delta should stay silent").toHaveLength(0);
+        await call("mail.sync.refresh", mailbox);
+        expect(snapshot().cursor).toContain("initial-history-done");
+        expect(delivered).toHaveLength(0);
+      } else if (audit === "early-list" || audit === "retained-list" || audit === "partial-list") {
+        const anchor = graph.add("latest-anchor", outlook, 500);
+        const moved = graph.add("removed-to-reconcile", outlook, 450);
+        anchor.isRead = true;
+        moved.isRead = true;
+        graph.pages.set("initial", { value: [anchor, moved], cursor: "before-list-only" });
+        await call("mail.sync.refresh", mailbox);
+        const fresh = graph.add("fresh-older-list-only", outlook, 2);
+        graph.inbox.delete(moved.id);
+        const afterList = audit === "early-list" ? "before-eviction" : audit === "partial-list" ? "before-unread-update" : "before-late-delta";
+        graph.pages.set("before-list-only", { value: [removed(moved.id)], cursor: afterList });
+        await call("mail.sync.refresh", mailbox);
+        const listed = summaries().find(({ nativeId }) => nativeId === fresh.id);
+        assert(listed);
+        expect.soft(snapshot().observedMessageIds).not.toContain(listed.localMessageId);
+        expect(delivered).toEqual([]);
+
+        const evicted = [];
+        if (audit === "early-list") {
+          const newer = Array.from({ length: 200 }, (_, i) => graph.add(`later-${i}`, outlook, 600 + i));
+          for (const item of newer) item.isRead = true;
+          graph.pages.set("before-eviction", { value: newer, cursor: "before-late-delta" });
+          await call("mail.sync.refresh", mailbox);
+          expect(summaries()).toHaveLength(200);
+          expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(fresh.id);
+          expect(delivered).toEqual([]);
+          evicted.push(...newer, anchor);
+        }
+        if (audit === "partial-list") {
+          graph.pages.set("before-unread-update", { value: [{ id: fresh.id, isRead: false }], cursor: "before-late-delta" });
+          await call("mail.sync.refresh", mailbox);
+          expect(snapshot().cursor).toContain("before-late-delta");
+          expect(summaries()).toContainEqual(listed);
+          expect(delivered, "The partial unread update alone should stay silent").toHaveLength(0);
+        }
+
+        await engine.shutdown();
+        engine = await boot({ vaultPath, desktopUserData, mailOAuth: runtime });
+        if (audit !== "early-list") {
+          expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: listed.localMessageId })).toMatchObject({ state: "ready" });
+        }
+        for (const item of evicted) graph.inbox.delete(item.id);
+        graph.pages.set("before-late-delta", { value: [fresh, ...evicted.map(({ id }) => removed(id))], cursor: "early-list-confirmed" });
+        graph.pages.set("early-list-confirmed", { value: [fresh], cursor: "early-list-replayed" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toHaveLength(audit === "early-list" ? 1 : 2);
+        expect(summaries()).toContainEqual(listed);
+        expect(delivered, "The first delta confirmation should notify once").toHaveLength(1);
+        expect(await call("mail.notifications.target", { id: delivered[0] })).toMatchObject({ ...mailbox, source: "graph", nativeId: fresh.id });
+        await call("mail.sync.refresh", mailbox);
+        expect(snapshot().cursor).toContain("early-list-replayed");
+        expect(delivered).toHaveLength(1);
+      } else if (audit === "full-window-arrival") {
+        const newer = Array.from({ length: 200 }, (_, i) => graph.add(`newer-read-${i}`, outlook, 100 + i));
+        for (const item of newer) item.isRead = true;
+        graph.pages.set("initial", { value: newer, cursor: "before-full-window-arrival" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries()).toHaveLength(200);
+        expect(summaries().every(({ readState }) => readState === "synced")).toBe(true);
+        expect(delivered).toEqual([]);
+
+        const fresh = graph.add("fresh-below-full-window", outlook, 2);
+        graph.pages.set("before-full-window-arrival", { value: [fresh], cursor: "before-window-opens" });
+        const arrival = graph.requests.length;
+        await call("mail.sync.refresh", mailbox);
+        expect(graph.requests.slice(arrival).map(({ path }) => path)).toContain(`/mailFolders/inbox/messages/${fresh.id}/$value`);
+        expect(snapshot().cursor).toContain("before-window-opens");
+        expect(summaries()).toHaveLength(200);
+        expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(fresh.id);
+        expect(delivered).toEqual([]);
+
+        await engine.shutdown();
+        engine = await boot({ vaultPath, desktopUserData, mailOAuth: runtime });
+        const freed = newer[0]!;
+        graph.inbox.delete(freed.id);
+        graph.pages.set("before-window-opens", { value: [fresh, removed(freed.id)], cursor: "window-arrival-located" });
+        graph.pages.set("window-arrival-located", { value: [fresh], cursor: "window-arrival-replayed" });
+        const resume = graph.requests.length;
+        await call("mail.sync.refresh", mailbox);
+        expect(graph.requests[resume]?.key).toBe("before-window-opens");
+        const located = summaries().find(({ nativeId }) => nativeId === fresh.id);
+        assert(located);
+        expect(located.readState).toBe("unread");
+        expect(await call("mail.messages.loadBody", { ...mailbox, localMessageId: located.localMessageId })).toMatchObject({ state: "ready" });
+        expect(delivered, "The confirmed arrival should notify once when it fits in the window").toHaveLength(1);
+        expect(await call("mail.notifications.target", { id: delivered[0] })).toMatchObject({ ...mailbox, source: "graph", nativeId: fresh.id, localMessageId: located.localMessageId });
+        await call("mail.sync.refresh", mailbox);
+        expect(snapshot().cursor).toContain("window-arrival-replayed");
+        expect(delivered).toHaveLength(1);
+
+        const nextArrival = graph.add("fresh-backfilled-without-replay", outlook, 1);
+        graph.pages.set("window-arrival-replayed", { value: [nextArrival], cursor: "before-backfill-only" });
+        await call("mail.sync.refresh", mailbox);
+        expect(summaries().map(({ nativeId }) => nativeId)).not.toContain(nextArrival.id);
+        expect(delivered).toHaveLength(1);
+        const nextFreed = newer[1]!;
+        graph.inbox.delete(nextFreed.id);
+        graph.pages.set("before-backfill-only", { value: [removed(nextFreed.id)], cursor: "after-backfill-only" });
+        await call("mail.sync.refresh", mailbox);
+        expect(delivered).toHaveLength(2);
+        expect(await call("mail.notifications.target", { id: delivered[1] })).toMatchObject({ ...mailbox, source: "graph", nativeId: nextArrival.id });
       } else if (audit === "verification") {
         const candidates = Array.from({ length: 20 }, (_, i) => graph.add(`conflict-${i}`, outlook, i + 1));
         graph.pages.set("initial", { value: candidates, cursor: "before-verification" });
@@ -1637,12 +1856,14 @@ const exerciseOAuthEngine = async (audit?: "deletions" | "verification" | "route
     });
     await expectGraphNotice(beforeWindowNotice, "window-0");
 
-    graph.pages.set("round-window", { value: [], cursor: "round-window-empty" });
+    const historicalId = "history-backfill";
+    // Record the earlier move-out before the old mail reappears in the independent Inbox list.
+    graph.pages.set("round-window", { value: [{ id: historicalId, "@removed": {} }], cursor: "round-window-empty" });
     await graphRefresh("window-199");
     expect(cache().history.map(({ summary }) => summary.nativeId)).toContain("window-0");
 
     const early = graph.add("between-delta-and-list", outlook, 235);
-    const historical = graph.add("history-backfill", outlook, 90);
+    const historical = graph.add(historicalId, outlook, 90);
     graph.inbox.set("window-196", { ...windowMail[196]!, isRead: false });
     graph.omittedFromList.add("window-197");
     // The Inbox list still contains window-198 and the old window-199 read state.
@@ -1758,6 +1979,13 @@ const exerciseOAuthEngine = async (audit?: "deletions" | "verification" | "route
 
 engineTest("OAuth uses the real dispatcher, callback, module credentials, IMAP and SMTP with isolated issuers", () => exerciseOAuthEngine(), 120_000);
 engineTest("Graph backfills past a stale listing entry after 201 uncached deletions", () => exerciseOAuthEngine("deletions"), 30_000);
+engineTest("Graph silently restores old Inbox mail after restart and notifies a genuinely new older arrival", () => exerciseOAuthEngine("returning-mail"), 30_000);
+engineTest("Graph retains a trimmed removal across restart and restores the old mail without a notice", () => exerciseOAuthEngine("trimmed-removal"), 30_000);
+engineTest("Graph notifies an older list-only arrival when delta confirms it after MIME eviction", () => exerciseOAuthEngine("early-list"), 30_000);
+engineTest("Graph notifies an older list-only arrival still in the MIME window when delta confirms it", () => exerciseOAuthEngine("retained-list"), 30_000);
+engineTest("Graph notifies a confirmed arrival after a full MIME window opens across restart", () => exerciseOAuthEngine("full-window-arrival"), 30_000);
+engineTest("Graph keeps mail seen by the initial delta silent after backfill and restart", () => exerciseOAuthEngine("initial-history"), 30_000);
+engineTest("Graph notifies an older list-only arrival after a partial unread update and restart", () => exerciseOAuthEngine("partial-list"), 30_000);
 engineTest("Graph resumes conflicting message verification across the round budget and Engine restart", () => exerciseOAuthEngine("verification"), 30_000);
 engineTest("Graph records no delivery when reauthorization disables sending during MIME build", () => exerciseOAuthEngine("send"), 30_000);
 engineTest("Outlook reauthorization cancels the old Graph page and immediately refreshes through Exchange", () => exerciseOAuthEngine("route-change"), 30_000);

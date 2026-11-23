@@ -32,11 +32,13 @@ type DeltaItem = z.infer<typeof deltaItem>;
 const deltaChange = deltaItem.extend({ verify: z.literal(true).optional() });
 type DeltaChange = z.infer<typeof deltaChange>;
 const maxPages = 20;
+const evidenceVersion = 4;
 const roundProgressFields = {
   initial: z.boolean(),
   recovery: graphRecovery.optional(),
   changes: z.array(deltaChange).max(4 * IMAP_WINDOW),
   discardedRemovalFrom: graphNativeId.optional(),
+  mergeVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(evidenceVersion)]).optional(),
 };
 const inboxProgress = z.strictObject({
   next: graphDeltaLink.nullable(),
@@ -46,7 +48,7 @@ const inboxProgress = z.strictObject({
 });
 type InboxProgress = z.infer<typeof inboxProgress>;
 export const graphProgress = z.union([
-  z.strictObject({ ...roundProgressFields, next: graphDeltaLink, reconcile: z.boolean().optional(), mergeVersion: z.union([z.literal(1), z.literal(2)]).optional() }),
+  z.strictObject({ ...roundProgressFields, next: graphDeltaLink, reconcile: z.boolean().optional() }),
   z.strictObject({
     ...roundProgressFields,
     cursor: graphDeltaLink,
@@ -62,12 +64,15 @@ export const graphPending = z
       seen: z.boolean(),
       receivedAt: z.iso.datetime(),
       arrival: z.boolean(),
+      confirmed: z.literal(true).optional(),
     }),
   )
   .max(IMAP_WINDOW);
 type PendingSource = z.infer<typeof graphPending>[number];
-export type GraphRow = { id: string; seen: boolean; added?: true; bytes?: Buffer; receivedAt?: string } | { id: string; removed: true };
-export type GraphPage = {
+export type GraphRow = { id: string; seen: boolean; added?: true; confirmed?: true | undefined; bytes?: Buffer; receivedAt?: string } | { id: string; removed: true };
+type NoticeEvidence = { arrived: boolean; seen: boolean };
+type IdentityEvidence = { historicalIds: ReadonlySet<string>; removedIds: ReadonlySet<string> };
+export type GraphPage = IdentityEvidence & {
   cursor: string;
   initial: boolean;
   recovery?: z.infer<typeof graphRecovery>;
@@ -75,6 +80,7 @@ export type GraphPage = {
   pending: PendingSource[];
   awaitingDelta: ReadonlySet<string>;
   arrivalWatermark: string | undefined;
+  noticeEvidence: ReadonlyMap<string, NoticeEvidence>;
 };
 export type GraphSyncInput = {
   cursor: string | null;
@@ -85,7 +91,7 @@ export type GraphSyncInput = {
   awaitingDelta?: string[] | undefined;
   arrivalWatermark?: string | undefined;
 };
-type GraphCheckpoint = { progress: z.infer<typeof graphProgress> };
+type GraphCheckpoint = IdentityEvidence & { progress: z.infer<typeof graphProgress> };
 type DeltaBatch = Pick<GraphPage, "cursor" | "initial" | "recovery"> & {
   changes: Map<string, DeltaChange>;
   reconcile: boolean;
@@ -152,6 +158,8 @@ export async function probeGraphInbox(endpoint: string, token: string, signal: A
 }
 
 export async function readGraphDelta(endpoint: string, token: string, inbox: string, previous: GraphSyncInput | undefined, request: AbortSignal): Promise<GraphPage | GraphCheckpoint> {
+  const removedIds = new Set<string>();
+  const historicalIds = new Set<string>();
   const stopAfter = Date.now() + 50_000;
   const signal = AbortSignal.any([request, AbortSignal.timeout(75_000)]);
   const initial = new URL(`${endpoint}/${inboxPath}/delta`);
@@ -245,9 +253,9 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
   }
 
   async function pages(input: GraphSyncInput | undefined, recovery?: z.infer<typeof graphRecovery>): Promise<DeltaBatch | GraphCheckpoint> {
-    // Replay older checkpoints from the committed cursor to recover any trimmed removal evidence.
+    // Replay older checkpoints from the committed cursor to recover trimmed identity evidence.
     const stored = input?.progress;
-    const progress = stored && "next" in stored && stored.mergeVersion === 2 ? stored : undefined;
+    const progress = stored && "next" in stored && stored.mergeVersion === evidenceVersion ? stored : undefined;
     const completeScan = progress?.initial ?? !input?.cursor;
     const reason = progress?.recovery ?? recovery;
     const cached = completeScan ? undefined : input?.cached;
@@ -263,7 +271,13 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
       if (!response) throw new GraphMailError("graph-api-unavailable");
       const data = deltaPage.parse(JSON.parse((await readBytes(response, pageBytes)).toString("utf8")));
       for (const item of data.value) {
-        if (removed(item)) reconcile = true;
+        if (removed(item)) {
+          // Identity evidence travels with the checkpoint even if this tombstone does not survive compaction.
+          removedIds.add(item.id);
+          reconcile = true;
+        } else if (completeScan) {
+          historicalIds.add(item.id);
+        }
         changes.set(item.id, mergeChange(changes.get(item.id), item));
       }
       // Keep one additional window of candidate evidence in case later removals expose those arrivals.
@@ -287,7 +301,9 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
       if (visited.has(link)) throw new GraphMailError("graph-api-unavailable");
     }
     return {
-      progress: { next: link, changes: [...changes.values()], reconcile, discardedRemovalFrom, initial: completeScan, mergeVersion: 2, ...(reason && { recovery: reason }) },
+      progress: { next: link, changes: [...changes.values()], reconcile, discardedRemovalFrom, initial: completeScan, mergeVersion: evidenceVersion, ...(reason && { recovery: reason }) },
+      removedIds,
+      historicalIds,
     };
   }
 
@@ -322,10 +338,13 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
         pending,
         awaitingDelta: new Set(input.awaitingDelta),
         arrivalWatermark: input.arrivalWatermark,
+        removedIds,
+        historicalIds,
+        noticeEvidence: new Map(rows.flatMap((row) => ("added" in row && row.added ? [[row.id, { arrived: true, seen: row.seen }]] : []))),
       };
     }
     const stored = input?.progress;
-    const verification = stored && "cursor" in stored ? stored : undefined;
+    const verification = stored && "cursor" in stored && stored.mergeVersion === evidenceVersion ? stored : undefined;
     const batch: DeltaBatch | GraphCheckpoint = verification
       ? {
           cursor: inboxLink(verification.cursor),
@@ -341,6 +360,7 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
     const checkpoint = (inbox?: InboxProgress): GraphCheckpoint => ({
       progress: {
         cursor: batch.cursor,
+        mergeVersion: evidenceVersion,
         initial: batch.initial,
         recovery: batch.recovery,
         changes: [...batch.changes.values()],
@@ -349,6 +369,8 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
         verified: [...verified.values()],
         inbox,
       },
+      removedIds,
+      historicalIds,
     });
     const couldHaveDiscardedRemoval = (id: string) => batch.discardedRemovalFrom !== undefined && (batch.initial || !input?.cached.has(id)) && id >= batch.discardedRemovalFrom;
     for (const change of batch.changes.values()) {
@@ -361,6 +383,7 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
 
     const rows: GraphRow[] = [];
     const candidates: PendingSource[] = [];
+    const noticeEvidence = new Map<string, NoticeEvidence>();
     const previousWatermark = batch.initial ? undefined : input?.arrivalWatermark;
     let arrivalWatermark = previousWatermark;
     const awaitingDelta = new Set(batch.initial ? [] : input?.awaitingDelta);
@@ -372,6 +395,7 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
       if (removed(item)) {
         excluded.add(id);
         awaitingDelta.delete(id);
+        removedIds.add(id);
         rows.push({ id, removed: true });
       } else {
         resolved.set(id, item);
@@ -392,21 +416,24 @@ export async function readGraphDelta(endpoint: string, token: string, inbox: str
         if (!arrivalWatermark || receivedAt > arrivalWatermark) arrivalWatermark = receivedAt;
       }
       const existing = batch.initial ? undefined : input?.cached.get(id);
-      const confirmedArrival = !batch.initial && !!change && awaitingDelta.delete(id);
+      const arrival = !batch.initial && !!change?.receivedDateTime;
+      if (arrival) awaitingDelta.delete(id);
+      const deltaRead = verified.has(id) ? isRead : change?.isRead;
+      // Preserve delta evidence even when no MIME source fits in the current window.
+      const seen = deltaRead ?? existing?.seen ?? isRead;
+      if (seen !== undefined && (arrival || deltaRead === true)) noticeEvidence.set(id, { arrived: arrival, seen });
       if (existing) {
         if (!change) continue;
-        const seen = (verified.has(id) ? isRead : change.isRead) ?? existing.seen;
-        rows.push({ id, seen, ...(confirmedArrival && { added: true }) });
+        rows.push({ id, seen: deltaRead ?? existing.seen });
       } else if (receivedAt && isRead !== undefined) {
         // A list-only row newer than the confirmed mail may have arrived after the delta snapshot.
         if (!batch.initial && !change && (!previousWatermark || receivedAt > previousWatermark)) awaitingDelta.add(id);
-        const arrival = confirmedArrival || (!batch.initial && !!change?.receivedDateTime);
-        candidates.push({ id, seen: isRead, receivedAt, arrival });
+        candidates.push({ id, seen: isRead, receivedAt, arrival, ...(batch.initial && { confirmed: true as const }) });
       }
     }
     candidates.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || a.id.localeCompare(b.id));
     const pending = await loadSources(candidates.slice(0, IMAP_WINDOW), rows);
-    return { cursor: batch.cursor, rows, initial: batch.initial, ...(batch.recovery && { recovery: batch.recovery }), pending, awaitingDelta, arrivalWatermark };
+    return { cursor: batch.cursor, rows, initial: batch.initial, ...(batch.recovery && { recovery: batch.recovery }), pending, awaitingDelta, arrivalWatermark, removedIds, historicalIds, noticeEvidence };
   }
 
   try {

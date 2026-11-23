@@ -91,6 +91,8 @@ const graphSnapshot = gmailSnapshot.extend({
     .array(graphNativeId)
     .max(2 * maxCachedMessages)
     .optional(),
+  observedMessageIds: z.array(sourceMessage.shape.localMessageId).optional(),
+  deferredNoticeIds: z.array(sourceMessage.shape.localMessageId).optional(),
   arrivalWatermark: z.iso.datetime().optional(),
   recovery: graphRecovery.optional(),
   message: graphEntry.nullable(),
@@ -586,8 +588,26 @@ export function registerMessageCache(
           const message = error.reason === "graph-api-permission" ? "Microsoft Graph 拒绝访问收件箱，已同步邮件仍可查看。" : "无法刷新 Microsoft Graph 收件箱";
           throw new HuhuError("INVALID_INPUT", message, { details: { reason: error.reason } });
         });
+      const observed = new Set(previous?.observedMessageIds);
+      if (!previous?.observedMessageIds) {
+        // Older snapshots only have retained messages and the original list-ahead marker.
+        const previouslyAwaitingDelta = new Set(previous?.awaitingDelta);
+        for (const { summary } of oldEntries) {
+          if (!previouslyAwaitingDelta.has(summary.nativeId)) observed.add(summary.localMessageId);
+        }
+      }
+      const deferred = new Set(previous?.deferredNoticeIds);
+      for (const id of deferred) if (marked.has(id)) deferred.delete(id);
+      for (const id of graph.historicalIds) observed.add(nativeMessageId(input, "graph", binding, id));
+      for (const id of graph.removedIds) {
+        const key = nativeMessageId(input, "graph", binding, id);
+        observed.add(key);
+        deferred.delete(key);
+      }
       if ("progress" in graph) {
-        const snapshot: GraphSnapshot = { ...(previous ?? { cursor: null, binding, message: null }), progress: graph.progress };
+        const snapshot: GraphSnapshot = { ...(previous ?? { cursor: null, binding, message: null }), progress: graph.progress, observedMessageIds: [...observed] };
+        if (deferred.size) snapshot.deferredNoticeIds = [...deferred];
+        else delete snapshot.deferredNoticeIds;
         const checkpoint: CacheRecord = oldImap && !activeGraph ? { format: 3, active: "imap", imap: oldImap, graph: snapshot } : { format: 3, active: "graph", graph: snapshot, ...(oldImap && { imap: oldImap }) };
         await write(input, checkpoint, before.version, signal, assertCurrent);
         assertCurrent();
@@ -595,10 +615,29 @@ export function registerMessageCache(
       }
       const entries = await apiEntries(input, "graph", graph, binding, oldEntries, marked);
       const carried = new Set(previous?.pendingNotices);
-      const arrivals = new Set(graph.rows.flatMap((row) => (!("removed" in row) && row.added ? [row.id] : [])));
-      const pending = entries
-        .filter(({ summary, publicMail }) => publicMail && (carried.has(summary.localMessageId) || (notify && activeGraph && !graph.initial && arrivals.has(summary.nativeId) && summary.readState === "unread")))
-        .map(({ summary }) => summary.localMessageId);
+      const canNotify = notify && activeGraph && !graph.initial;
+      for (const [id, { arrived, seen }] of graph.noticeEvidence) {
+        const key = nativeMessageId(input, "graph", binding, id);
+        if (seen) deferred.delete(key);
+        if (arrived) {
+          if (!seen && canNotify && !observed.has(key) && !marked.has(key)) deferred.add(key);
+          observed.add(key);
+        }
+      }
+      for (const row of graph.rows) {
+        // A MIME source from the independent list is not delta evidence.
+        if (!("removed" in row) && (row.confirmed || row.added)) observed.add(nativeMessageId(input, "graph", binding, row.id));
+      }
+      const pending: string[] = [];
+      for (const {
+        summary: { localMessageId, readState },
+        publicMail,
+      } of entries) {
+        if (readState !== "unread") deferred.delete(localMessageId);
+        if (!publicMail) continue;
+        const ready = canNotify && deferred.delete(localMessageId);
+        if (ready || carried.has(localMessageId)) pending.push(localMessageId);
+      }
       const retained = new Set([...entries.map(({ summary }) => summary.nativeId), ...graph.pending.map(({ id }) => id)]);
       const awaitingDelta = [...graph.awaitingDelta].filter((id) => retained.has(id));
       const snapshot: GraphSnapshot = {
@@ -608,6 +647,8 @@ export function registerMessageCache(
         history: entries.slice(1),
         ...(graph.pending.length && { pending: graph.pending }),
         ...(awaitingDelta.length && { awaitingDelta }),
+        observedMessageIds: [...observed],
+        ...(deferred.size && { deferredNoticeIds: [...deferred] }),
         ...(graph.arrivalWatermark && { arrivalWatermark: graph.arrivalWatermark }),
         ...(graph.recovery && { recovery: graph.recovery }),
         ...(pending.length && { pendingNotices: pending }),
