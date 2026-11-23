@@ -184,3 +184,11 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 独审 [task05](evidence/review-followup-task05.md) 关闭首页同轮旧读 P3；[task06](evidence/review-followup-task06.md) 关闭 Notes 拼音误保存 P2，但发现组合期间后续读失败会丢失延期刷新。3cf40143 只接续同基线且相邻序号的后台读，单文件108/108通过，显式重载、删除、基线切换失效保护均有回归；task07正在独立复核。
 
 `t1bg` 已生成 fda24761 中间包，AppImage SHA-256 `7ccfe946896002dde5a14e27c2cc2089065dc759d986eff02f7d27cc76817014`，deb `6a7c9f88e7327d938657177f4f2eebd8fd26a0a16d6130916ff3bdcf9770f06a`。它不含3cf40143，不作为最终候选；尚未执行其安装包验收。最终包须重新固定当前应用提交。SSH继续暂停，外部环境缺证不变。
+
+## 2026-11-23 当前候选 37fe09fd 已验收
+
+独审 [task07](evidence/review-followup-task07.md) 关闭后续读取失败 P3，独立单文件108/108；首页task05与Notes task06原P2关闭结论保留。`t1bh` 对37fe09fd源码构建的两条真实Chromium组合用例再次2/2通过。
+
+`t1bj` 生成应用37fe09fdf68a67995e3a09ed7a45646a0c36f917的AppImage/deb；`t1bk` 同一个AppImage串行完成dashboard、close、web、tasks、external-agent、gateway、package七组13项，零失败/跳过/flaky/测试外错误，见[最终同包索引](evidence/linux-package-37fe09fd.json)。覆盖三组约定联验；并非全量套件，历史失败不删除。原生截图已保存，Lead查看Vercel暗色完整截图；八主题组合均有驱动布局/保存断言，不将截图检查称为读屏验证。
+
+实际OS输入法、完整跨平台/第二设备/授权线上邮箱及Graph通知决策仍未完成；#7暂停不变。代码交付不等于完整Issue签收，未部署、未发布。以下证据提交仅改变资料，应用字节保持37fe09fd。
