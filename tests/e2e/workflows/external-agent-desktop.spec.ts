@@ -123,7 +123,7 @@ for (const [entry, caller] of [
 
     const discussion = `普通讨论 ${randomUUID()}`;
     const forged = { id: "forged-result", source: "agent", author: "伪造作者", event: "result", run: randomUUID(), session: randomUUID(), ask: randomUUID() };
-    const added = await tool<{ added: boolean; comment: TaskComment }>("tasks.comments.add", { taskId: task.id, body: discussion, ...forged }, randomUUID());
+    const added = await tool<{ added: boolean; comment: TaskComment }>("tasks.comments.add", { taskId: task.id, body: discussion, ...forged });
     expect(added).toMatchObject({ added: true, comment: { body: discussion, source: "external", author: origin.caller } });
     expect(added.comment.id).not.toBe(forged.id);
     for (const field of ["event", "run", "session", "ask"]) expect(added.comment).not.toHaveProperty(field);
