@@ -1,6 +1,6 @@
 # Huhu 工作台（总体）
 
-核对：2026-11-13，main（8283c5c，领先 origin 2 个提交），对照目录结构、`packages/kernel`、`packages/workbench`、`scripts/`、`.github/workflows/`。
+初版架构核对于 2026-11-13（`8283c5c`）。桌面与 Web 入口、首页看板、模块凭据和 Graph 通知于 2026-11-23 按 `fc43ceef` 源码核对。
 
 ## 这部分负责什么
 
@@ -12,8 +12,8 @@ Huhu 是以本地 Vault（Markdown 为唯一事实来源）为根的桌面工作
 
 | 问题 | 入口 | 需要知道的约束 |
 | --- | --- | --- |
-| 业务调用怎么进来 | `packages/kernel/src/dispatcher.ts`、`capabilities/*` | 渲染进程、CLI、MCP、外部插件都走 Engine 回环 HTTP/WS 的同一 Dispatcher（鉴权→插件启用→校验→幂等→执行→审计）；Main↔Renderer IPC 只做系统对话框、窗口、外链 |
-| 插件怎么贡献界面/命令/首页卡片 | `packages/workbench/src/contributions.ts`，各 `plugins/*/src/ui/index.tsx` | `homeWidgets` 卡片 id 形如 `widget:<插件>:<卡片>`，布局存 `.huhu/home/widgets.json`；内置卡片仍由首页渲染（D-37） |
+| 业务调用怎么进来 | [Dispatcher](../../../../packages/kernel/src/dispatcher.ts)、[浏览器共享](../../../../packages/kernel/src/server/web-share.ts)、[桌面及浏览器入口](../../../../apps/desktop/src/renderer/main.tsx) | 业务走 Engine 能力。桌面通过 `window.huhuHost` preload 调用宿主功能；浏览器入口使用 Web 宿主与已受理的共享会话。CLI/MCP 的工具开放、授权与撤销在引擎中落实。 |
+| 插件怎么贡献界面、命令和首页卡片 | `packages/workbench/src/contributions.ts`，各 `plugins/*/src/ui/index.tsx` | `homeWidgets` 卡片 id 形如 `widget:<插件>:<卡片>`；内置卡片仍由首页渲染（D-37）。 |
 | 列表为何不刷新 | `packages/workbench/src/engine-client/query.ts` 的 `ENTITY_CAPS` | 引擎发 `entity.changed`（kind）→ 失效哪些查询前缀由这里映射；新增实体种类必须同时发事件并登记，否则 5 秒 staleTime 内是旧数据 |
 | 版本号 | 根 `package.json` + `scripts/sync-version.mjs --check` | 单一来源；release 工作流要求标签等于该版本，rc 后缀可用（D-32/D-35） |
 | UI 样式与组件 | `packages/ui/src/styles/proto/`、`components.css`、`packages/ui/src/components` | 原型 CSS 原样复制，`components.css` 只补缺失类；Radix + 薄封装，Huhu 自有界面不用 Tailwind（D-31；知识库编辑器的 OK vendor 例外，Tailwind 只在 `.ok-root` 内，见 [知识库编辑器决定](../decisions/2026-11-15-knowledge-editor-ok.md)）；数据表一律 `DataTable`（D-39/D-43） |
@@ -27,7 +27,20 @@ Huhu 是以本地 Vault（Markdown 为唯一事实来源）为根的桌面工作
 - **写入**：单 Vault 单写者锁；单文件原子写；多文件操作走 `.huhu/operations/` 日志，数据页“未完成操作”读 `vault.pendingOperations`，关闭/切换 Vault 前有未完成操作必须先备份。
 - **测试位置**：单元测试在各包 `test/`；e2e 在 `tests/e2e`（`acceptance.spec.ts` 对应规格 ACC-*）；CI 为 `.github/workflows/ci.yml`（windows-2022 / macos-15 / ubuntu-22.04），发布为 `release.yml`（草稿预发布）。
 
-## 仍然未知（0.0.1-rc.2 归档时）
+## 看板与关窗
+
+桌面和 Web 读取同一份 Vault 看板布局 `.huhu/home/widgets.json`。各工作台编辑各自的草稿，提交带基础 revision 和幂等键，收到保存回执后才接受新的布局。旧查询需在发布回执前结算，防止迟到的读取覆盖保存结果。桌面原生关窗结算看板和文档，保存失败或回执未确认时用户可保留窗口重试，也可按提示退出。 [看板能力](../../../../packages/kernel/src/capabilities/home-dashboard.ts) · [工作台看板](../../../../packages/workbench/src/home/useDashboard.ts) · [桌面退出](../../../../apps/desktop/src/main/index.ts)
+
+## 模块凭据与邮件通知
+
+- Safe 保存个人网站与应用账号，由主密码保护。Mail、Git HTTPS、Agent CLI、Automations 分别拥有运行凭据。Safe 锁定不阻断模块正常认证。桌面凭据宿主的本机密文在 Vault 之外，绑定本机 Vault 实例，通过系统凭据后端保护密钥，Linux 使用 Secret Service。Vault 包可恢复新版 Safe 密文和模块配置，模块认证须按所属模块重新配置。旧版从 Safe 引用运行凭据的约定已被替代，旧格式迁入不在本批范围。 [Safe 个人记录](../../../../plugins/safe/src/engine/personal.ts) · [桌面凭据宿主](../../../../apps/engine/src/module-credential-host.ts) · [模块装配](../../../../apps/engine/src/boot.ts)
+- Graph 中旧邮件回到 Inbox 时更新列表，用户不会再次收到新信通知。新信通知需要非首扫增量中的到达证据和未读状态。观察身份、待确认与延后通知随同步状态保存，翻页、缓存窗口替换和重启仍可区分旧信回流与新信到达。独立补列可更新列表，通知判断仍以增量为准。 [Graph 增量](../../../../plugins/mail/src/engine/graph-mail.ts) · [邮件缓存与通知](../../../../plugins/mail/src/engine/message-cache.ts)
+
+## 本轮交付的验证边界
+
+应用与驱动固定在 `f6c4e0d5` 的 Linux AppImage 验过关窗、Web、看板、任务、Agent 历史和邮件认证恢复等路径。Graph 通知有真实 Engine 集成证据。真实线上 Gmail/Microsoft/IMAP/SMTP、第二台 LAN 设备、Windows/macOS 安装与系统凭据后端、完整 GNOME 窗口操作、真实 OS 输入法与读屏矩阵仍待实机核验。#7 SSH 暂停，#11 与 #12 超出本次收尾范围。
+
+## 0.0.1-rc.2 留下的历史验证说明
 
 - 三平台真机验证（Windows/macOS 实机，仅 CI 与 Linux 本机跑过）；8 小时 soak；KN-03 / SF-07 / AG-06 手动记录；VS-05 / VS-08 真实远端。
 - 编辑输入延迟 p95 ≤ 16 ms：非空闲机器上 13.0–16.4 ms，负载下 43.9 ms；需在空闲机器上正式测一次。

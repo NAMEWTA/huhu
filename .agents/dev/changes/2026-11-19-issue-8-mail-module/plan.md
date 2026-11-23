@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | S0 · 开发来源和后端选择 | [S0.1 确认可复用源码与 Huhu 的差异](tasks/S0.1-source-baseline.md) | 无，可直接在隔离样本上验证 |
 | S0 · 开发来源和后端选择 | [S0.2 确定首条收发路径的协议后端](tasks/S0.2-transport-choice.md) | [S0.1](tasks/S0.1-source-baseline.md) |
-| S1a · 账号与首次收件 | [S1a.1 用预设发现文件夹并保存邮箱](tasks/S1a.1-account-discovery.md) | [S0.2](tasks/S0.2-transport-choice.md)、[#9](../2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同 |
+| S1a · 账号与首次收件 | [S1a.1 用预设发现文件夹并保存邮箱](tasks/S1a.1-account-discovery.md) | [S0.2](tasks/S0.2-transport-choice.md)、[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同 |
 | S1a · 账号与首次收件 | [S1a.2 从所选邮箱读到首封 IMAP 邮件](tasks/S1a.2-first-message.md) | [S1a.1](tasks/S1a.1-account-discovery.md) |
 | S1a · 账号与首次收件 | [S1a.3 在账号栏切换邮箱并修复认证](tasks/S1a.3-manage-accounts.md) | [S1a.1](tasks/S1a.1-account-discovery.md) |
 | S1a · 账号与首次收件 | [S1a.4 预览影响并删除指定邮箱](tasks/S1a.4-remove-account.md) | [S1a.1](tasks/S1a.1-account-discovery.md)、[S1b.4](tasks/S1b.4-outbox-reconcile.md) 的投递对账合同 |
@@ -32,13 +32,13 @@
 | S6a · 新格式导出与整包恢复 | [S6a.1 导出一致的邮件子集或整 Vault 包](tasks/S6a.1-snapshot-export.md) | [S1a.1](tasks/S1a.1-account-discovery.md)、[S1b.2](tasks/S1b.2-managed-attachments.md)、[S1b.4](tasks/S1b.4-outbox-reconcile.md) |
 | S6a · 新格式导出与整包恢复 | [S6a.2 从整 Vault 新格式备份恢复邮件](tasks/S6a.2-vault-restore.md) | [S6a.1](tasks/S6a.1-snapshot-export.md) |
 | S6b · 新格式邮件子集恢复 | [S6b.1 预检并恢复 Huhu 新格式邮件子集](tasks/S6b.1-subset-restore.md) | [S6a.1](tasks/S6a.1-snapshot-export.md)；同地址提交取设计中的用户选择 |
-| S7 · 可选 AI 与设置 | [S7.1 配置并验证 Mail 专用 AI 服务](tasks/S7.1-ai-settings.md) | [#9](../2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同 |
+| S7 · 可选 AI 与设置 | [S7.1 配置并验证 Mail 专用 AI 服务](tasks/S7.1-ai-settings.md) | [#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同 |
 | S7 · 可选 AI 与设置 | [S7.2 只向已选择的 AI 服务提交选定邮件内容](tasks/S7.2-ai-selection.md) | [S7.1](tasks/S7.1-ai-settings.md)、[S2.3](tasks/S2.3-read-message.md)；采纳草稿需 [S1b.1](tasks/S1b.1-compose-draft.md) |
 | S7 · 可选 AI 与设置 | [S7.3 查看占用并清理可重建邮件缓存](tasks/S7.3-cache-settings.md) | [S1b.2](tasks/S1b.2-managed-attachments.md)、[S1b.4](tasks/S1b.4-outbox-reconcile.md)、[S2.2](tasks/S2.2-search-locate.md)、[S2.4](tasks/S2.4-read-state.md) |
 | S8 · 外部能力与 Web | [S8.1 通过获开放的工具操作同一邮箱](tasks/S8.1-public-capabilities.md) | [#6](../2026-11-19-issue-6-unified-tools-web/plan.md) 的发现/调用合同；每组需对应业务 handler |
 | S8 · 外部能力与 Web | [S8.2 从 Web 工作台传送草稿附件](tasks/S8.2-remote-files-oauth.md) | [#6](../2026-11-19-issue-6-unified-tools-web/plan.md) Web 会话与授权文件流、[S1b.2](tasks/S1b.2-managed-attachments.md) |
 | S8 · 外部能力与 Web | [S8.3 从另一台设备跟进同一次 OAuth 授权](tasks/S8.3-remote-oauth.md) | [#6](../2026-11-19-issue-6-unified-tools-web/plan.md) Web 会话与系统浏览器宿主；[S3.1](tasks/S3.1-google-consent.md) 或 [S4.1](tasks/S4.1-microsoft-consent.md) |
-| S9 · 组合交付 | [S9.1 核验 Mail 的平台、来源与完整流程](tasks/S9.1-release-evidence.md) | S0–S8 全部现行子项、[#6](../2026-11-19-issue-6-unified-tools-web/plan.md)/[#9](../2026-11-19-issue-9-safe-accounts/plan.md) 实际接入与相关界面确认 |
+| S9 · 组合交付 | [S9.1 核验 Mail 的平台、来源与完整流程](tasks/S9.1-release-evidence.md) | S0–S8 全部现行子项、[#6](../2026-11-19-issue-6-unified-tools-web/plan.md)/[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) 实际接入与相关界面确认 |
 
 <a id="coverage"></a>
 

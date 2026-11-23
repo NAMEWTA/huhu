@@ -8,7 +8,7 @@
 
 ## 签收建议
 
-**签收 `2ceec67` 键归属修复及 `6478854` 的 Windows x64 原生宿主。** report07 的精确同名键误删窗口已用指纹归属关闭。在冻结源码归档中，真实 Windows Credential Manager 支持写入、重开取用及精确删除。同路径重新导入时新物理目录获得新本机实例 ID，复制保留可移植 Vault ID 仍无法继承原模块绑定。发行包中的实际加载、业务模块接线与三平台矩阵继续保留各自验收。 [上轮预审](report07.md) · [#9 P0.1](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P0.1-local-protection.md) · [#9 P0.2](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md)
+**签收 `2ceec67` 键归属修复及 `6478854` 的 Windows x64 原生宿主。** report07 的精确同名键误删窗口已用指纹归属关闭。在冻结源码归档中，真实 Windows Credential Manager 支持写入、重开取用及精确删除。同路径重新导入时新物理目录获得新本机实例 ID，复制保留可移植 Vault ID 仍无法继承原模块绑定。发行包中的实际加载、业务模块接线与三平台矩阵继续保留各自验收。 [上轮预审](report07.md) · [#9 P0.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P0.1-local-protection.md) · [#9 P0.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md)
 
 ## 直接原生及 API
 

@@ -4,7 +4,7 @@
 
 **可见结果与边界**　Versioning 管理历史、恢复、冲突、同步与 HTTPS 认证；SSH remote 的系统认证保持各自归属。
 
-**前置产物**　[G3.1 CLI 与外部 API 发现并调用同一能力](G3.1-cli-api.md)；[#9 的新格式和模块独立认证合同；按本片实际消费的存储或 Safe 业务部分接入](../../2026-11-19-issue-9-safe-accounts/spec.md)
+**前置产物**　[G3.1 CLI 与外部 API 发现并调用同一能力](G3.1-cli-api.md)；[#9 的新格式和模块独立认证合同；按本片实际消费的存储或 Safe 业务部分接入](../../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)
 
 **已有代码入口**　[plugins/versioning/src/engine/index.ts](../../../../../plugins/versioning/src/engine/index.ts)。
 

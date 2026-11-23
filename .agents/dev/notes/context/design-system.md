@@ -25,9 +25,11 @@
 - 历史类名中不能安全改名的登记在 `scripts/css-class-exceptions.json`（带原因）；跨包共用却定义在某个包里的类登记在 `scripts/css-ownership-exceptions.json`。新增的违规会让 `pnpm lint` 失败。
 - 现有 `hu-` 类名多沿用历史名字（如 `hu-knowledge-resource-footer`），语义命名是后续工作。
 
-### 守护（`pnpm lint`）
-`scripts/check-ok-class-collisions.mjs <built-ok.css>`（OK 产出 CSS 与 Huhu 的三类碰撞：类名交集、Huhu TSX 里“无 CSS 规则”的类 token、`.ok-root` 之外的变量 / `html` / `body` / `:root` 规则；C 类违规退出 1）；`check-css-layers`、`check-css-classes`、`check-ui-colors` **不扫** `packages/editor/src/vendor/open-knowledge/` 与生成的 `ok-globals.css`，也**不为 vendor 放宽对 Huhu 自有代码的规则**。其余：
-`check-ui-colors`（无颜色字面量）、`check-css-layers`（除两个白名单文件外规则都在层里）、`check-css-classes`（前缀、悬空类名）、`check-css-ownership`（样式归属与 `shared.css` 不存在）、`check-css-duplicates`（重复选择器只减不增，基线 `scripts/css-duplicates-baseline.json`）、stylelint（含 `declaration-no-important`）。
+### 样式守护
+
+2026-11-23 按 `fc43ceef` 核对 OK 样式守护。桌面构建扫描所有 CSS 资产中的 `vendor.ok-*` 与 `properties.huhu-ok`。A 检查与宿主层的类名交集，B 检查宿主使用但自身缺少 CSS 规则的类名，C 检查选择器是否限定在 `.ok-root`；任一违规均失败。映射文件现在位于 `vendor.ok-host`，纳入检查，取代早期放在 `modules.huhu-ok` 的做法和仅 C 阻断的说明。产物守护与真实浮层视觉验证各有验收证据。 [碰撞守护](../../../../scripts/check-ok-class-collisions.mjs) · [主题映射](../../../../packages/editor/src/rich/token-map.css)
+
+`check-css-layers`、`check-css-classes`、`check-ui-colors` 跳过 `packages/editor/src/vendor/open-knowledge/` 与生成的 `ok-globals.css`，Huhu 自有代码仍受层级、类名、颜色字面量规则约束。其余检查涵盖样式归属与 `shared.css`、重复选择器基线 `scripts/css-duplicates-baseline.json` 及 stylelint 的 `declaration-no-important`。
 
 ### 迁移样式的唯一可靠办法：渲染等价性验证
 - `pnpm visual:baseline <name> [--themes a,b]` / `pnpm visual:compare <name>`：固定 Vault（`tests/visual/fixture.ts`），逐元素比较计算样式（含悬停 / 焦点 / 按下状态的整棵子树与祖先链）、10 个宽度、compact、reduced-motion，并做像素比对（`tests/visual/masks.ts` 里有容差与遮罩的原因）。基线保存在 `.visual/<name>/`（不进 git）。

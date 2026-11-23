@@ -17,7 +17,7 @@ Mail AI 把可移植字段检查与网络验证分开。保留、替换、清除
 
 共享工作树 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-safe-git`，基础 HEAD `5021f54ce9babcf039c84c3a5b77ae32596f45cd`。Core 重启后按 topic 和 Lead 授权先后在 `t1b` 和 `t1g` 接续，报告沿用任务身份 `t6/task03.md`。
 
-- Versioning 候选 `decfca9048817e9d08154aa5b0121f8fb7dcabcd`。包含共用 Git 环境、POSIX 私有 Git 的进程组取消和 HTTPS 回归。Windows 使用命名管道，POSIX 沿用当次 Git 进程的 askpass 专用环境变量。证据位于候选树的 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P4.1-posix-git-askpass.md`。
+- Versioning 候选 `decfca9048817e9d08154aa5b0121f8fb7dcabcd`。包含共用 Git 环境、POSIX 私有 Git 的进程组取消和 HTTPS 回归。Windows 使用命名管道，POSIX 沿用当次 Git 进程的 askpass 专用环境变量。证据位于候选树的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P4.1-posix-git-askpass.md`。
 - Mail 候选 `cccaf2ead4aa2bef100913bd5020ae2a54646680`，父提交为 Versioning 候选。包含可移植字段检查、真实 Engine 回归，以及四个同步、OAuth、附件和发件测试替身对生产能力目录选项的转发。发件失败夹具在 Vault 文件写入接口拒绝认领，覆盖独占创建路径。证据位于候选树的 `.agents/dev/changes/2026-11-19-issue-8-mail-module/evidence/S7.1-ai-portable-settings.md`。
 - 已检查两个候选的文件范围，工作树代码与末端候选逐字节一致，普通索引无暂存。证据由临时索引加入两个提交树。
 

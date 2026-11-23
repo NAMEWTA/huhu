@@ -19,18 +19,18 @@
 
 ### Issue #3 · desktop-shell
 
-成员目录 `.agents/dev/changes/2026-11-19-issue-3-desktop-shell`。下表给出 4d86c84b 中的可复查文件；测试名称见后文组合验收。
+成员目录 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell`。下表给出 4d86c84b 中的可复查文件；测试名称见后文组合验收。
 
 | 计划切片 | 状态 | 实现 / 证据入口 | 剩余动作 |
 | --- | --- | --- | --- |
 | S0-01 采集安装版窗口基线 | 待验证 | `tests/e2e/window-chrome.spec.ts` · `apps/desktop/src/main/index.ts`（首项文件版本 cfbce161） | 三平台安装首屏留全窗截图并记录窗口管理器和缩放 |
-| S0-02 走查标题栏与关闭提示 | 已验收 | `.agents/dev/changes/2026-11-19-issue-3-desktop-shell/prototype-review.md` · `packages/workbench/src/shell/AppShell.tsx` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 6da1b2ec） | 以已确认指纹比较实装关闭提示 |
+| S0-02 走查标题栏与关闭提示 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype-review.md` · `packages/workbench/src/shell/AppShell.tsx` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 6da1b2ec） | 以已确认指纹比较实装关闭提示 |
 | S1a-01 关窗前保存最后一次文档输入 | 已验收 | `tests/e2e/knowledge/session-flush.spec.ts` · `apps/desktop/src/main/index.ts`（首项文件版本 cfbce161） | 最终包读回防抖期最后字节和手动草稿 |
 | S1a-02 从关闭失败提示重试或取消 | 已验收 | `tests/e2e/knowledge/session-flush.spec.ts` · `apps/desktop/src/main/index.ts`（首项文件版本 cfbce161） | 同包复跑保存失败、取消、重试 |
-| S1a-03 把关窗升级为一次可取消的应用退出 | 已验收 | `.agents/dev/changes/2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/knowledge/session-flush.spec.ts`（首项文件版本 6ebe3e04） | 复跑第二窗口拒绝时第一窗及 Engine 存活 |
-| S1b-01 把真实窗口状态交给所属工作台 | 已验收 | `.agents/dev/changes/2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | 同包验证主 frame、预览隔离及订阅清理 |
+| S1a-03 把关窗升级为一次可取消的应用退出 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/knowledge/session-flush.spec.ts`（首项文件版本 6ebe3e04） | 复跑第二窗口拒绝时第一窗及 Engine 存活 |
+| S1b-01 把真实窗口状态交给所属工作台 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | 同包验证主 frame、预览隔离及订阅清理 |
 | S1b-02 在 macOS 保留系统红黄绿 | 待验证 | `apps/desktop/src/main/window-chrome.ts` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 efc33768） | macOS 安装版验证红黄绿、系统偏好与原生菜单 |
-| S1b-03 在 Windows 保留贴靠与窗口菜单 | 待验证 | `.agents/dev/changes/2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | Windows 实机补 Snap 悬停、系统菜单及多屏 DPI |
+| S1b-03 在 Windows 保留贴靠与窗口菜单 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | Windows 实机补 Snap 悬停、系统菜单及多屏 DPI |
 | S1b-04 在 Linux 的目标桌面操作窗口 | 待验证 | `apps/desktop/src/main/window-chrome.ts` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 efc33768） | Linux 分别记录 X11 和 Wayland 的拖动、装饰和系统菜单 |
 | S2-01 工作台共用一条可交互标题栏 | 已验收 | `tests/e2e/window-chrome.spec.ts` · `packages/workbench/src/shell/AppShell.tsx`（首项文件版本 cfbce161） | 核对新包窄窗与拖动命中 |
 | S2-02 在启动与错误页仍可移动和关窗 | 已验收 | `tests/e2e/window-chrome.spec.ts` · `apps/desktop/src/renderer/main.tsx`（首项文件版本 cfbce161） | 重放无库、加载失败及 Renderer 崩溃 |

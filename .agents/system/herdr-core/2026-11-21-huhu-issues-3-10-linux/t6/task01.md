@@ -18,14 +18,14 @@
 
 Lead 在 Linux 上对 `4d86c84b` 跑 `pnpm test`：1261 通过、15 失败、61 跳过。15 项全部是 `SSH_AUTH_FAILED`「SSH 本机认证不可用」，分布在 `apps/engine/test/engine.test.ts`（3 项）和 `plugins/ssh/test/{file-properties,forwarding,monitor,preferences,public-resources}.engine.test.ts`。日志：`/home/wta/projects/huhu/temp/issue-baseline/linux-4d86c84b-test.log`。
 
-根因：`apps/engine/src/module-credential-host.ts` 的 `WindowsCredentialProtection.entry()` 只在 `win32/x64` 上可用，其他平台一律抛 `LocalProtectionError("unavailable")`。于是 Linux、macOS 上所有模块自有凭据（SSH、Git/versioning、Mail、Agent CLI、Automations）都不可用。CI 的 `ubuntu-22.04` 与 `macos-15` 任务也会因此失败。#9 设计方案 A 选的是 `@napi-rs/keyring`（三平台：Windows Credential Manager、macOS Keychain、Linux Secret Service），P0.1 要求记录三平台可用/不可用矩阵，并在 Linux 缺保护后端时给出可修复错误。见 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/design.md`（方案 A/B 表格及其后段落）、`spec.md`、`tasks/P0.1-local-protection.md`、`tasks/P0.2*`。
+根因：`apps/engine/src/module-credential-host.ts` 的 `WindowsCredentialProtection.entry()` 只在 `win32/x64` 上可用，其他平台一律抛 `LocalProtectionError("unavailable")`。于是 Linux、macOS 上所有模块自有凭据（SSH、Git/versioning、Mail、Agent CLI、Automations）都不可用。CI 的 `ubuntu-22.04` 与 `macos-15` 任务也会因此失败。#9 设计方案 A 选的是 `@napi-rs/keyring`（三平台：Windows Credential Manager、macOS Keychain、Linux Secret Service），P0.1 要求记录三平台可用/不可用矩阵，并在 Linux 缺保护后端时给出可修复错误。见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md`（方案 A/B 表格及其后段落）、`spec.md`、`tasks/P0.1-local-protection.md`、`tasks/P0.2*`。
 
 要交付的结果：
 
 1. 生产保护：在 `@napi-rs/keyring` 支持的平台（至少 linux-x64、darwin-x64/arm64、win32-x64，按实际随包的原生绑定核对 `apps/desktop` 的打包配置与 `electron.vite.config.ts` 中 keyring 的处理）启用同一系统钥匙串保护。不允许明文或弱回退。后端缺失、会话锁定或 D-Bus 不可达时仍返回 `unavailable`，已有密文不得被新钥匙覆盖（保持现有 `create` 的“已存在即拒绝”语义）。类名改为不再暗示仅 Windows。
 2. 确定性测试：上述 15 项测试测的是 SSH/Engine 行为而不是系统钥匙串，在没有 Secret Service 的 CI 上也必须稳定。给 Engine 的受信装配加一个只供进程内测试使用的保护注入点（例如 `BootOptions` 中可选的 `moduleCredentialProtection`，类型为 `LocalCredentialProtection`），测试用 `packages/kernel/test/fixtures/credentials.ts` 的 `TestProtection` 或同等内存实现。这个注入点不能经 HTTP、CLI、MCP、环境变量或 renderer 触达，生产 desktop/CLI 启动路径不传它。改这 15 项及其共用夹具使用它。
 3. 真实平台验证：把 `apps/engine/test/module-credential-host.test.ts` 中仅 Windows 的真实钥匙串用例扩展为“当前平台真实后端可用时运行”（本机 Linux 有 gnome-keyring 的 `org.freedesktop.secrets`）。只用随机合成 keyId 与合成值，用例结束时删除它创建的每个条目，并在报告中列出验证清理的方式。另加一个用例覆盖“后端不可用 → unavailable、已有密文保留”。
-4. 记录矩阵：在 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P0.1-protection-platform-matrix.md` 写实测（本机 Linux）与未测平台（macOS、Windows 本轮未测，引用 Windows 旧证据但注明是旧提交）。
+4. 记录矩阵：在 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P0.1-protection-platform-matrix.md` 写实测（本机 Linux）与未测平台（macOS、Windows 本轮未测，引用 Windows 旧证据但注明是旧提交）。
 
 ## 读写范围与产物
 

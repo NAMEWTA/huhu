@@ -33,7 +33,7 @@ node node_modules/vitest/vitest.mjs run plugins/agent-cli/test/native-receipts.l
 | 明文排除 | 校验普通设置、能力目录、临时 Git 配置、共享幂等记录、该次 Git 调用的 argv 与传入环境、ASKPASS 文件和错误摘要。所检查位置未出现对应用户名或令牌。夹具设置的 curl trace 路径未生成文件，推送树未包含模块凭据目录。 |
 | 旧 Safe 引用 | 既有 VaultSync 合成引用解析器被调用一次，真实 Git 经一次性 ASKPASS 向回环服务提交了预期 Basic 认证。临时配置保留原 `safe://` 引用，连接失败摘要未包含合成秘密，捕获的 launcher 所在目录已删除。 |
 
-归档和测试 Vault 均在一次性 Windows 系统临时目录。为 Git 子进程指定本轮临时配置文件，停用系统配置回退并清除继承的代理变量。依赖锁与 W6.3 的归档锁同为 Git 对象 `03c864cafb3cc7a0d3b096f55d12bc98f4cf203b`，运行前后对象一致。后置检查确认 P4.1 的夹具根计数为 0，验证窗格 `t154` 已在退出后移除，归档已清理。 [P4.1 规格](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P4.1-git-authentication.md) · [实施报告](../t12p/report05.md)
+归档和测试 Vault 均在一次性 Windows 系统临时目录。为 Git 子进程指定本轮临时配置文件，停用系统配置回退并清除继承的代理变量。依赖锁与 W6.3 的归档锁同为 Git 对象 `03c864cafb3cc7a0d3b096f55d12bc98f4cf203b`，运行前后对象一致。后置检查确认 P4.1 的夹具根计数为 0，验证窗格 `t154` 已在退出后移除，归档已清理。 [P4.1 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P4.1-git-authentication.md) · [实施报告](../t12p/report05.md)
 
 ```powershell
 node node_modules/vitest/vitest.mjs run plugins/versioning/test/remote-auth.engine.test.ts --no-file-parallelism --maxWorkers=1 --reporter=verbose

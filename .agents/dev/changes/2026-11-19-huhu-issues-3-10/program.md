@@ -80,13 +80,13 @@ Provider 实程已在 `6a510e6f` 组合通过：`t9j` 五项真实 PTY；`t9n` �
 
 | Issue | 来源 | 规格 | 架构与接口 | 实施任务 | 原型 |
 | --- | --- | --- | --- | --- | --- |
-| #3 桌面外壳 | [原文](../2026-11-19-issue-3-desktop-shell/source.md) | [规格](../2026-11-19-issue-3-desktop-shell/spec.md) | [设计](../2026-11-19-issue-3-desktop-shell/design.md) | [任务索引](../2026-11-19-issue-3-desktop-shell/plan.md) | [HTML](../2026-11-19-issue-3-desktop-shell/prototype/index.html) · [确认记录](../2026-11-19-issue-3-desktop-shell/prototype-review.md) |
+| #3 桌面外壳 | [原文](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/source.md) | [规格](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/spec.md) | [设计](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/design.md) | [任务索引](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/plan.md) | [HTML](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype/index.html) · [确认记录](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype-review.md) |
 | #4 Agent CLI | [原文](../2026-11-19-issue-4-agent-cli/source.md) | [规格](../2026-11-19-issue-4-agent-cli/spec.md) | [设计](../2026-11-19-issue-4-agent-cli/design.md) | [任务索引](../2026-11-19-issue-4-agent-cli/plan.md) | [HTML](../2026-11-19-issue-4-agent-cli/prototype/index.html) · [确认记录](../2026-11-19-issue-4-agent-cli/prototype-review.md) |
 | #5 任务与自动化 | [原文](../2026-11-19-issue-5-task-automation/source.md) | [规格](../2026-11-19-issue-5-task-automation/spec.md) | [设计](../2026-11-19-issue-5-task-automation/design.md) | [任务索引](../2026-11-19-issue-5-task-automation/plan.md) | [HTML](../2026-11-19-issue-5-task-automation/prototype/index.html) · [确认记录](../2026-11-19-issue-5-task-automation/prototype-review.md) |
 | #6 统一工具与 Web 入口 | [原文](../2026-11-19-issue-6-unified-tools-web/source.md) | [规格](../2026-11-19-issue-6-unified-tools-web/spec.md) | [设计](../2026-11-19-issue-6-unified-tools-web/design.md) | [任务索引](../2026-11-19-issue-6-unified-tools-web/plan.md) | [HTML](../2026-11-19-issue-6-unified-tools-web/prototype/index.html) · [确认记录](../2026-11-19-issue-6-unified-tools-web/prototype-review.md) |
 | #7 SSH | [原文](../2026-11-19-issue-7-ssh-module/source.md) | [规格](../2026-11-19-issue-7-ssh-module/spec.md) | [设计](../2026-11-19-issue-7-ssh-module/design.md) | [任务索引](../2026-11-19-issue-7-ssh-module/plan.md) | [HTML](../2026-11-19-issue-7-ssh-module/prototype/index.html) · [确认记录](../2026-11-19-issue-7-ssh-module/prototype-review.md) |
 | #8 Mail | [原文](../2026-11-19-issue-8-mail-module/source.md) | [规格](../2026-11-19-issue-8-mail-module/spec.md) | [设计](../2026-11-19-issue-8-mail-module/design.md) | [任务索引](../2026-11-19-issue-8-mail-module/plan.md) | [HTML](../2026-11-19-issue-8-mail-module/prototype/index.html) · [确认记录](../2026-11-19-issue-8-mail-module/prototype-review.md) |
-| #9 保险箱与模块凭据 | [原文](../2026-11-19-issue-9-safe-accounts/source.md) | [规格](../2026-11-19-issue-9-safe-accounts/spec.md) | [设计](../2026-11-19-issue-9-safe-accounts/design.md) | [任务索引](../2026-11-19-issue-9-safe-accounts/plan.md) | [HTML](../2026-11-19-issue-9-safe-accounts/prototype/index.html) · [确认记录](../2026-11-19-issue-9-safe-accounts/prototype-review.md) |
+| #9 保险箱与模块凭据 | [原文](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/source.md) | [规格](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) | [设计](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md) | [任务索引](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) | [HTML](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype/index.html) · [确认记录](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype-review.md) |
 | #10 首页看板 | [原文](../2026-11-19-issue-10-widget-dashboard/source.md) | [规格](../2026-11-19-issue-10-widget-dashboard/spec.md) | [设计](../2026-11-19-issue-10-widget-dashboard/design.md) | [任务索引](../2026-11-19-issue-10-widget-dashboard/plan.md) | [HTML](../2026-11-19-issue-10-widget-dashboard/prototype/index.html) · [确认记录](../2026-11-19-issue-10-widget-dashboard/prototype-review.md) |
 
 ## 跨 change 的交付顺序
@@ -107,11 +107,11 @@ Provider 实程已在 `6a510e6f` 组合通过：`t9j` 五项真实 PTY；`t9n` �
 - #5 T7.1 已在 `690e9097` 按 HTTP Engine 复验两项，旧监督记录保留原字节，生产派遣与抽屉查询由 Tasks 处理。W8.3 安装候选和 W8.2、T7.2 的独立签收仍待共同制品。 [T7.1 复验](../2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md#集成版本复查)
 - #7 外部工作区换栏与关栏在 `f2159c2e` 通过 CLI/HTTP MCP 定向回归。Linux PTY 已分别从随包路径和 PATH 验证重挂、Web 隔离及 SSH 停用回收。快捷文本按终端模式校验并逐分栏回报。 [定向证据](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#快捷文本core-路径及外部布局)
 - #4/#5 已核验真实 Codex 0.170.0 的锁定指纹。在 Linux 下，原生 Core 新会话和原会话问答两项通过。定时任务的安装包 E2E 已采用独立 HOME 和回环夹具，待共同包。 [原生夹具](../2026-11-19-issue-5-task-automation/evidence/T7-cutover-linux.md#t72-原生夹具复查)
-- #3/#6/#10 已核对桌面菜单、看板离场、Web 邀请和布局持久化现有入口。Web 分享界面默认局域网，服务由用户启动。`891ddd8a` 区分正文写入、恢复草稿和保存结果待确认。文档会话 35 项通过。真实菜单、三会话与关窗组合待固定候选实跑。 [#3 证据](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md#linux-集成关窗反馈)
+- #3/#6/#10 已核对桌面菜单、看板离场、Web 邀请和布局持久化现有入口。Web 分享界面默认局域网，服务由用户启动。`891ddd8a` 区分正文写入、恢复草稿和保存结果待确认。文档会话 35 项通过。真实菜单、三会话与关窗组合待固定候选实跑。 [#3 证据](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md#linux-集成关窗反馈)
 - #7 已用 Linux OpenSSH 验证 Ed25519 用户证书及主机 CA。主机证书握手、重协商、错误 CA 和已撤销叶钥通过定向测试。批量路由已有工作台能力、整批 CAS 和提交前取消证据。SSH 私有 Core 的回收待核对反馈、握手取消及外部布局原回执均已完成定向复查。跨窗口仍需在真实工作台验证。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
 - #7 工具栏与首段出站代理已合入。`31352cae` 的 SOCKS5、HTTP CONNECT 回环传输及 CLI/HTTP MCP 三跳连接通过。首段代理的工作台实际操作与其他中继合同待验证。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
 - #7 `feddafd8` 接通快捷文本库、搜索、分组排序与分栏预览。CLI 和 HTTP MCP 的默认关闭、逐项授权和撤销均通过，浏览器与桌面真实交互待执行。 [#7 后续集成复验](../2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md#后续集成复验)
-- #6/#8/#9 在 `46987e71` 从同一合成源 Vault 分别经过 CLI 和 HTTP MCP，验证默认关闭、授权和撤销、Safe 锁定时 Mail 仍可通过 IMAP 认证，以及新格式数据包恢复。外部导出已收录所需的 Mail/SSH 可移植定义，恢复前校验 Safe 与 Mail 附件完整性。固定安装包联验待执行。 [权限与凭据复验](../2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md#同一源-vault-联验)
+- #6/#8/#9 在 `46987e71` 从同一合成源 Vault 分别经过 CLI 和 HTTP MCP，验证默认关闭、授权和撤销、Safe 锁定时 Mail 仍可通过 IMAP 认证，以及新格式数据包恢复。外部导出已收录所需的 Mail/SSH 可移植定义，恢复前校验 Safe 与 Mail 附件完整性。固定安装包联验待执行。 [权限与凭据复验](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md#同一源-vault-联验)
 - #4 与 #5 以 W8.3 共同候选分别验证 W8.2 与 T7.2。#6 和 #9 在模块凭据与授权联验中汇合。#3 与 #10 在关窗和草稿离场路径汇合。
 - 最终检查在固定组合提交上串行执行，全部改动合入 `main` 后运行一次全量 E2E，收尾时生成并检查候选包。逐 Issue 按实际 SHA、平台和观察结果记录通过、失败、跳过及未运行。
 
@@ -123,7 +123,7 @@ Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vaul
 
 - #4 采用已取得的 ORCA 最新默认分支，实施前确认实际引用文件的许可证与依赖闭包。 [Agent CLI 设计](../2026-11-19-issue-4-agent-cli/design.md)
 - #6 干净安装的 MCP 和 CLI 工具默认关闭。局域网邀请在服务开启期间可重复使用。撤销会让旧链接失效，并断开通过该邀请建立的现有浏览器会话。是否按主机缩小 SSH 授权范围由 #6 与 #7 对齐。 [统一工具与 Web 入口设计](../2026-11-19-issue-6-unified-tools-web/design.md)
-- #9 按新数据模型和模块自有凭据实施，无需旧格式兼容或旧库转存。新格式备份与恢复仍属正常功能。本轮没有操作旧库。 [保险箱设计](../2026-11-19-issue-9-safe-accounts/design.md)
+- #9 按新数据模型和模块自有凭据实施，无需旧格式兼容或旧库转存。新格式备份与恢复仍属正常功能。本轮没有操作旧库。 [保险箱设计](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md)
 - #5 停用规则只停止未来触发，已入队未发送的任务继续保留。 [任务与自动化设计](../2026-11-19-issue-5-task-automation/design.md)
 - #10 窄屏和桌面共用一套布局，窄屏提供顺序和尺寸调整。带未保存改动切换模块或关窗时，提示保存、放弃或继续编辑；保存失败保留草稿。 [看板设计](../2026-11-19-issue-10-widget-dashboard/design.md)
 

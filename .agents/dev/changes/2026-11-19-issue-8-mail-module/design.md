@@ -59,7 +59,7 @@ README 第 223 行声明 AGPL-3.0-only，固定树未见独立 LICENSE/COPYING�
 
 | 所有者 | 稳定身份、写入与生命周期 |
 | --- | --- |
-| Mail 账号与认证 | accountId 稳定，配置 revision 与认证版本绑定；替换先写本机受保护的新版本、核对原 revision 后提交配置，再清理失去引用的旧版本。并发刷新按账号合并；服务商已轮换而断电未能保存，只标为需重授权。删除/停用先停止网络、失效旧代；在途发送先对账或留可查的投递结果，清理仅限该账号。密钥后端由 [#9 设计](../2026-11-19-issue-9-safe-accounts/design.md) 负责。 |
+| Mail 账号与认证 | accountId 稳定，配置 revision 与认证版本绑定；替换先写本机受保护的新版本、核对原 revision 后提交配置，再清理失去引用的旧版本。并发刷新按账号合并；服务商已轮换而断电未能保存，只标为需重授权。删除/停用先停止网络、失效旧代；在途发送先对账或留可查的投递结果，清理仅限该账号。密钥后端由 [#9 设计](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md) 负责。 |
 | Mail 消息与同步器 | localMessageId 稳定；每条保留零至多个有证明的来源定位。IMAP 绑定 accountId/folder/UIDVALIDITY/UID，API 绑定 provider/accountId/nativeId。RFC822 ID 仅作同账号关联，无 ID 不猜合并。游标与缓存同代，单账号单飞、多账号有限并发；每页记录持久入缓存后推进相应游标。UIDVALIDITY 换代废弃该目录定位与游标，遇失效 history/delta 对账；不同传输的定位和游标不串用。 |
 | Mail 持久区 | 拟在 stateDir/mail 保存配置、本机草稿、发件操作/结果、本地覆盖、受管附件。附件先暂存并验证后发布引用；未提交时旧版本仍完整，垃圾回收只清无持久引用且无在途导出的对象。发件状态与草稿 revision 同一串行边界提交。 |
 | 可重建缓存 | stateDir/cache/mail 保存远端副本、正文、索引、相应游标；运行态负责句柄、取消与 IDLE。可离线搜索已有范围。擦缓存不影响持久区；只读通过原 Vault 读历史，后台不得用 scratch 创建一个看似成功的持久状态。建议只读时关闭后台同步，仅允许用户主动、既有认证可用、协议确认无标读副作用的正文读取（IMAP 用 PEEK）；若需要轮换令牌则提示改用可写模式。所得正文仅存本次临时缓存。 |

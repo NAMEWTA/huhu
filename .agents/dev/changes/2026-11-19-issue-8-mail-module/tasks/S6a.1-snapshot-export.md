@@ -4,7 +4,7 @@
 
 ## 交付与依赖
 
-Mail 提供同一代持久数据清单和附件快照，Vault 包所有者整合收集器。与 [#9 的包适配](../../2026-11-19-issue-9-safe-accounts/tasks/P8.1-backup-contents.md) 共享一个整合入口，Mail 快照可独立验收。两种导出入口明确包含内容、排除项和新机重授权。
+Mail 提供同一代持久数据清单和附件快照，Vault 包所有者整合收集器。与 [#9 的包适配](../../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P8.1-backup-contents.md) 共享一个整合入口，Mail 快照可独立验收。两种导出入口明确包含内容、排除项和新机重授权。
 
 **前置产物**　[S1a.1](S1a.1-account-discovery.md)、[S1b.2](S1b.2-managed-attachments.md)、[S1b.4](S1b.4-outbox-reconcile.md)。
 

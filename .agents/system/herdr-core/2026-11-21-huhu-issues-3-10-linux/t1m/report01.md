@@ -15,7 +15,7 @@
 
 - 候选提交 — `ff0cf900b561fd44434575b6f8839d08e5483963`，单父为 `f7901b0a6b86910f52d74efac8ec1f438b387a9d`。
 - 工作树 — `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-safe-git`。已用临时索引核对源码和测试与候选一致。真实分支和暂存区未推进。沙箱将工作树的 `.agents/` 挂为只读，证据按 topic 约定直接纳入候选树。
-- 证据 — `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md`。可用 `git show ff0cf90b:.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md` 查看。
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md`。可用 `git show ff0cf90b:.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md` 查看。
 - 范围 — `plugins/safe` 的快照接口与 `plugins/versioning` 的同步、冲突、测试。源端只调整临时索引候选，保留未引用旧密文、审计和旧元数据的本机原件及历史。真实索引只对齐原先未手工暂存的受影响路径。
 
 ## 验证

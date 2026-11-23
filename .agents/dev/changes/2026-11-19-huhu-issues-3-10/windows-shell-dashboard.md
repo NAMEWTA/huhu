@@ -1,6 +1,6 @@
 # Windows 桌面菜单与首页看板阶段验收
 
-2026-11-20 在 Windows 使用固定 pnpm 12.10.1 构建并运行仓库自动化。桌面端使用项目固定 Electron 44.9.1。采用用户确认的 #3 窗口菜单、文档保存与关窗反馈，以及 #10 布局、宽窄调整、冲突和带草稿离场场景。 [#3 原型确认](../2026-11-19-issue-3-desktop-shell/prototype-review.md) · [#10 原型确认](../2026-11-19-issue-10-widget-dashboard/prototype-review.md)
+2026-11-20 在 Windows 使用固定 pnpm 12.10.1 构建并运行仓库自动化。桌面端使用项目固定 Electron 44.9.1。采用用户确认的 #3 窗口菜单、文档保存与关窗反馈，以及 #10 布局、宽窄调整、冲突和带草稿离场场景。 [#3 原型确认](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype-review.md) · [#10 原型确认](../2026-11-19-issue-10-widget-dashboard/prototype-review.md)
 
 ## 自动化结果
 

@@ -11,10 +11,10 @@
 | H1 | [H1.1 从 Huhu 功能定位到可复用源码与许可](tasks/H1.1-upstream-map.md) | 可独立开始 |
 | H1 | [H1.2 核实单一执行组件的分发前提](tasks/H1.2-executor-boundary.md) | [H1.1](tasks/H1.1-upstream-map.md) |
 | H2 | [H2.1 在目录内找到并整理选中的主机](tasks/H2.1-host-directory.md) | 可独立开始 |
-| H2 | [H2.2 保存并按版本修改一台主机](tasks/H2.2-host-record.md) | [H1.2](tasks/H1.2-executor-boundary.md)、[#9](../2026-11-19-issue-9-safe-accounts/spec.md) |
+| H2 | [H2.2 保存并按版本修改一台主机](tasks/H2.2-host-record.md) | [H1.2](tasks/H1.2-executor-boundary.md)、[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) |
 | H2 | [H2.3 删除前查看主机引用与处理结果](tasks/H2.3-host-references.md) | [H2.2](tasks/H2.2-host-record.md) |
 | H2 | [H2.4 预览外部主机配置后按选项导入](tasks/H2.4-import-preview.md) | [H2.2](tasks/H2.2-host-record.md) |
-| H2 | [H2.5 区分已存私钥、文件引用与 agent](tasks/H2.5-key-library.md) | [H1.2](tasks/H1.2-executor-boundary.md)、[#9](../2026-11-19-issue-9-safe-accounts/spec.md) |
+| H2 | [H2.5 区分已存私钥、文件引用与 agent](tasks/H2.5-key-library.md) | [H1.2](tasks/H1.2-executor-boundary.md)、[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) |
 | H2 | [H2.6 用未保存主机表单查看测试反馈](tasks/H2.6-draft-test.md) | [H1.2](tasks/H1.2-executor-boundary.md) |
 | H3 | [H3.1 重新打开连接仍能看到当前信任和认证提示](tasks/H3.1-trust-and-prompts.md) | [H2.2](tasks/H2.2-host-record.md) |
 | H3 | [H3.2 编辑并验证目标到直接跳板的关系](tasks/H3.2-route-editor.md) | [H2.2](tasks/H2.2-host-record.md) |
@@ -51,7 +51,7 @@
 
 ## 执行顺序与归属
 
-- 来源核对、目录编辑和导入样本等本地准备可并行。需要真实连接或本地 PTY 的实施验收使用 H1.2 验证过的执行组件。H2.2、H2.5 使用 [#9 的模块凭据存储合同](../2026-11-19-issue-9-safe-accounts/spec.md)。Q7-1 仅影响有引用主机的删除行为。
+- 来源核对、目录编辑和导入样本等本地准备可并行。需要真实连接或本地 PTY 的实施验收使用 H1.2 验证过的执行组件。H2.2、H2.5 使用 [#9 的模块凭据存储合同](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)。Q7-1 仅影响有引用主机的删除行为。
 - SSH 领域独占连接、等待项、会话、文件、转发和监控对象。工作台维护视图和当前选区，#6 拥有公共授权与适配器。[H11.1](tasks/H11.1-resource-catalog.md) 可先核对稳定对象合同；综合入口的运行证据由 [H11.3](tasks/H11.3-entry-parity.md) 与 #6 对接。终端、文件与监控各自释放所持对象。
 - HTML 原型始终离线，仅使用合成主机、指纹、终端、文件、端口和指标。原型走查记录布局、交互和状态反馈。
 - 实施交付从应用和实际适配器验收。用临时 Vault、专用测试账号及已授权测试主机核对信任、PTY、SFTP、转发与监控；记录实际对象、结果和释放状态。用隔离夹具补充难以稳定制造的竞态或故障。新格式的备份恢复使用测试资料。

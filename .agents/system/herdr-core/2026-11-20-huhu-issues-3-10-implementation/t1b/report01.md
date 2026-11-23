@@ -7,7 +7,7 @@
 - 报告文件 — D:/Document/code/huhu/.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t1b/report01.md
 - 执行结果 — done（只读取证与合同分析交付）
 - 身份与基线 — Windows 默认 Core wta / 346bd5608735e3fcb27f9d01f5c8008e / 0.1.21，HC_TERMINAL_ID=t1b，manifest 为 active。工作树 D:/Document/code/huhu/temp/issue-worktrees/credentials，分支 impl/huhu-issues-3-10-credentials，HEAD bf3942e456c03cd7a4a4070e230557bb45e1ca9c。
-- 依据 — 主工作区 .agents/dev/changes/2026-11-19-issue-9-safe-accounts 下的 spec.md、design.md、tasks/P0.1-local-protection.md、tasks/P0.2-credential-replacement.md、tasks/P7.1-mail-auth-contract.md。
+- 依据 — 主工作区 .agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts 下的 spec.md、design.md、tasks/P0.1-local-protection.md、tasks/P0.2-credential-replacement.md、tasks/P7.1-mail-auth-contract.md。
 
 ## 结论
 

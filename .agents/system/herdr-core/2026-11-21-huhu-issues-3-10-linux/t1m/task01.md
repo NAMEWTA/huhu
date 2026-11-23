@@ -17,7 +17,7 @@
 
 按 Windows t1c2/task02 原文执行（全文照用，路径换成本机：`D:/Document/code/huhu` → `/home/wta/projects/huhu`，原 agent-lifecycle 工作树 → 本工作目录，Windows 临时 Vault → Linux 临时 Vault）。要点：复用 SafeStore 写队列与当前备份集合、现有 VaultSync 临时 index 和 GitRunner.runBuffer；在同一队列下捕获 Safe 当前 keyring、manifest 与引用密文；预览按实际组选择，用户排除导致组断裂时清楚反馈；自动暂存不带审计、旧元数据或未引用旧代；核对真实 Git 对象中的路径与字节；保留用户自己的 index、工作区、旧数据和历史；双边 Safe 代合并不得逐行拼接、不返回假成功。
 
-必读：`.agents/dev/changes/2026-11-19-issue-9-safe-accounts/` 的 `tasks/P8.3*`、`spec.md`、`design.md`（同步与备份表）。
+必读：`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/` 的 `tasks/P8.3*`、`spec.md`、`design.md`（同步与备份表）。
 
 ## 读写范围与产物
 

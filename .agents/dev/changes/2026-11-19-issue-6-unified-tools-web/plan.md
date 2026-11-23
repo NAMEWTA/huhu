@@ -22,7 +22,7 @@
 | G5a | [G5a.1 从外部维护笔记和受管文件](tasks/G5a.1-notes-domain.md) | [G3.1](tasks/G3.1-cli-api.md)、[G2.3](tasks/G2.3-effective-access.md) |
 | G5a | [G5a.2 维护档案类型和文件关联](tasks/G5a.2-archives.md) | [G3.1](tasks/G3.1-cli-api.md) |
 | G5a | [G5a.3 转换收件项并找到撤销结果](tasks/G5a.3-inbox.md) | [G3.1](tasks/G3.1-cli-api.md) |
-| G5a | [G5a.4 外部提交、同步和恢复版本](tasks/G5a.4-versioning.md) | [G3.1](tasks/G3.1-cli-api.md)、[#9](../2026-11-19-issue-9-safe-accounts/spec.md) |
+| G5a | [G5a.4 外部提交、同步和恢复版本](tasks/G5a.4-versioning.md) | [G3.1](tasks/G3.1-cli-api.md)、[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) |
 | G5a | [G5a.5 外部调用指南检查和备份恢复](tasks/G5a.5-agent-guide.md) | [G3.1](tasks/G3.1-cli-api.md) |
 | G5a | [G5a.6 管理 Vault、插件和服务的公开动作](tasks/G5a.6-kernel-admin.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.3](tasks/G3.3-intent-outcomes.md) |
 | G5b | [G5b.1 经单一外部入口完成任务问答](tasks/G5b.1-task-run.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.2](tasks/G3.2-mcp-discovery.md)、[G3.3](tasks/G3.3-intent-outcomes.md)、[#5](../2026-11-19-issue-5-task-automation/spec.md) |
@@ -30,7 +30,7 @@
 | G5b | [G5b.3 按指定 Space 观察与恢复 Agent 会话](tasks/G5b.3-agent-sessions.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.2](tasks/G3.2-mcp-discovery.md)、[#4](../2026-11-19-issue-4-agent-cli/spec.md) |
 | G5c | [G5c.1 从公共目录看到 SSH 资源与等待项](tasks/G5c.1-ssh-consumer.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.2](tasks/G3.2-mcp-discovery.md)、[#7](../2026-11-19-issue-7-ssh-module/spec.md) |
 | G5c | [G5c.2 按真实可用性发现 Mail 同步操作](tasks/G5c.2-mail-consumer.md) | [G3.1](tasks/G3.1-cli-api.md)、[#8](../2026-11-19-issue-8-mail-module/spec.md) |
-| G5c | [G5c.3 分开授权摘要读取与显式查看](tasks/G5c.3-safe-consumer.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.2](tasks/G3.2-mcp-discovery.md)、[#9](../2026-11-19-issue-9-safe-accounts/spec.md) |
+| G5c | [G5c.3 分开授权摘要读取与显式查看](tasks/G5c.3-safe-consumer.md) | [G3.1](tasks/G3.1-cli-api.md)、[G3.2](tasks/G3.2-mcp-discovery.md)、[#9](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) |
 | G5c | [G5c.4 卡片只读取已允许的业务数据](tasks/G5c.4-widget-consumer.md) | [G2.3](tasks/G2.3-effective-access.md)、[#10](../2026-11-19-issue-10-widget-dashboard/spec.md) |
 | G6 | [G6.1 桌面启停 Web 并看到可用地址](tasks/G6.1-web-listener.md) | 可独立开始 |
 | G6 | [G6.2 打包工作台可在普通浏览器打开深链](tasks/G6.2-host-bootstrap.md) | [G6.1](tasks/G6.1-web-listener.md) |

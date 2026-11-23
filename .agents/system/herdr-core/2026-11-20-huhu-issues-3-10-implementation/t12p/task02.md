@@ -1,3 +1,3 @@
 # #9 P1.2 多账号条目加密持久化
 
-终端 t12p，任务 task02.md，报告 report02.md。复用现有 safe-personal 工作树与 Windows 依赖，父提交 `6b11b63cb6cfae8b2a2f0effe5d64657a203496f`。按 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P1.2-save-entry.md`、spec 和 design 实施 Engine 侧已确定的格式、一次保存和读回合成个人多账号。保持实际模块凭据和旧过渡调用者独立，支持先提交密文再原子发布清单、预期版本及 Safe 解锁代，记录受控失败和明文排除证据。敏感操作仅限自己的合成数据和既有测试工具；禁止日志录入合成密码等敏感字段。对已有工作台正常入口做最小接线，界面/原型待确认。勿改其他工作树、真实数据或远端。提供本地提交、实际 Windows 红绿日志、SHA 与范围。只用已有 worktree，完成后结束。
+终端 t12p，任务 task02.md，报告 report02.md。复用现有 safe-personal 工作树与 Windows 依赖，父提交 `6b11b63cb6cfae8b2a2f0effe5d64657a203496f`。按 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P1.2-save-entry.md`、spec 和 design 实施 Engine 侧已确定的格式、一次保存和读回合成个人多账号。保持实际模块凭据和旧过渡调用者独立，支持先提交密文再原子发布清单、预期版本及 Safe 解锁代，记录受控失败和明文排除证据。敏感操作仅限自己的合成数据和既有测试工具；禁止日志录入合成密码等敏感字段。对已有工作台正常入口做最小接线，界面/原型待确认。勿改其他工作树、真实数据或远端。提供本地提交、实际 Windows 红绿日志、SHA 与范围。只用已有 worktree，完成后结束。

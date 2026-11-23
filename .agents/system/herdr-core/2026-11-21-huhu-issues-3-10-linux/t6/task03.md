@@ -18,7 +18,7 @@
 
 两项独立的缺陷修复，各自一个候选提交（可以同一父链上先后两个提交）。
 
-1. **Versioning Linux askpass 未清理 Git 调试环境。** 你在 task02 发现 `plugins/versioning/src/engine/sync.ts:279–294` 的 POSIX askpass 分支没有执行 Windows 分支的环境清理，`remote-auth.engine.test.ts` 的 HTTPS 安全专项在 Linux 上实测生成了被禁止的 Git trace 文件。让 POSIX 分支与 Windows 分支执行同一份环境清理（GIT_TRACE*、GIT_CURL_VERBOSE、GIT_ASKPASS 覆盖等，以 Windows 分支实际清理的集合为准，必要时抽出共享函数），并把该 HTTPS 安全专项改为在 Linux 上也运行（askpass 机制按平台各自实现即可）。#9 Git 凭据规格见 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence-p4-versioning-cutover.md` 与 P4.x 任务。
+1. **Versioning Linux askpass 未清理 Git 调试环境。** 你在 task02 发现 `plugins/versioning/src/engine/sync.ts:279–294` 的 POSIX askpass 分支没有执行 Windows 分支的环境清理，`remote-auth.engine.test.ts` 的 HTTPS 安全专项在 Linux 上实测生成了被禁止的 Git trace 文件。让 POSIX 分支与 Windows 分支执行同一份环境清理（GIT_TRACE*、GIT_CURL_VERBOSE、GIT_ASKPASS 覆盖等，以 Windows 分支实际清理的集合为准，必要时抽出共享函数），并把该 HTTPS 安全专项改为在 Linux 上也运行（askpass 机制按平台各自实现即可）。#9 Git 凭据规格见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence-p4-versioning-cutover.md` 与 P4.x 任务。
 2. **Mail AI 停用保存可把已保存 Key 写进可移植配置（审查 P1，已复现）。** 位置 `plugins/mail/src/engine/ai-settings.ts:203,207,213,227,232`，相关 `packages/vault/src/package/package.ts:24,37`。触发：已保存 HTTPS Key → 保持同一地址 → 取消「启用邮件 AI」→ 选择保留 Key → 把已有 Key 误填进模型字段 → 保存时 `verify=false`，`check(undefined)` 跳过对已保存 Key 的字段检查，Key 明文进入设置响应、普通读取和整 Vault 包。修复：把「可移植字段不得包含当前或新 Key」的检查从网络验证中分离，在保留、替换、清除和停用保存时都执行（能读到当前 Key 时与之比对）。补测试：停用保存可用且零网络请求；设置响应、`mail.ai.getSettings` 与导出的整 Vault 包中都不含合成 Key；正常保存路径不回归。规格见 `.agents/dev/changes/2026-11-19-issue-8-mail-module/` 的 S7.1 任务与 `evidence-S7.1-mail-ai-settings.md`。
 
 ## 读写范围与产物

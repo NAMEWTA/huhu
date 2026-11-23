@@ -19,7 +19,7 @@
 - `apps/engine/src/module-credential-host.ts` 使用系统适配器和原有命名空间。Linux 强制选择持久的 Secret Service。调用失败统一为 `unavailable`，重复创建拒绝并保留原键。
 - `apps/engine/src/boot.ts` 将 `moduleCredentialProtection` 作为受信进程内装配参数。两项 Engine SSH 测试和五个 SSH 插件文件复用现有 `TestProtection`，夹具分配于各自的隔离应用数据目录。
 - 桌面打包配置单独改动 `apps/desktop/electron-builder.yml`，用 `**/keyring.*.node` 解包平台绑定。核对了 `electron.vite.config.ts` 对 `@napi-rs/keyring` 的运行时 external 规则和锁文件的对应预编译包。本轮使用本机 Linux glibc 绑定，安装包未构建。
-- 候选树包含 `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P0.1-protection-platform-matrix.md`。用 `git show <候选>:<该路径>` 回读并逐字节比对。矩阵记录 Ubuntu 26.04.1 LTS x64、未实测的 macOS x64/arm64 与 Windows x64，并引用 Windows 旧提交 `3bd2e24` 的 UtilityProcess 和解包证据。
+- 候选树包含 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P0.1-protection-platform-matrix.md`。用 `git show <候选>:<该路径>` 回读并逐字节比对。矩阵记录 Ubuntu 26.04.1 LTS x64、未实测的 macOS x64/arm64 与 Windows x64，并引用 Windows 旧提交 `3bd2e24` 的 UtilityProcess 和解包证据。
 
 ## 验证
 

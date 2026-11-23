@@ -17,7 +17,7 @@
 | Change | 原型与确认记录 | 原型目录 SHA-256 |
 | --- | --- | --- |
 | #8 邮件 | [打开原型](../../../../dev/changes/2026-11-19-issue-8-mail-module/prototype/index.html) · [走查记录](../../../../dev/changes/2026-11-19-issue-8-mail-module/prototype-review.md) | `f619b7c1d47b831215b4592f92a8c00d94d02b465d90d717e02d7538be4f79be` |
-| #9 保险箱 | [打开原型](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/prototype/index.html) · [走查记录](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/prototype-review.md) | `d06235e74ab296d72d5fe8e0009c38d417a9ec2a0af796facf4b9347aaeca42e` |
+| #9 保险箱 | [打开原型](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype/index.html) · [走查记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype-review.md) | `d06235e74ab296d72d5fe8e0009c38d417a9ec2a0af796facf4b9347aaeca42e` |
 
 每份原型包含 HTML、交互 JS、样式及 Huhu 主题 token 子集四个文件。业务产物只写入上述两个 change。工作区基线 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`，产物在本地工作树。核对批次来源清单和 `temp/sources` 的 HEAD 与 `origin/HEAD`，one-mail 为 `d1be24d5bb83`，Motty 为 `2daa9db582e1`，ORCA 为 `8bc232f5ed8b`。原型复用 Huhu 工作台和现有 Safe 交互的设计来源，参考上游预设、对话聚合及模块边界。
 

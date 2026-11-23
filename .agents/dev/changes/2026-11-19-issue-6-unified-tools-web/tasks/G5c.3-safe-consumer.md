@@ -4,7 +4,7 @@
 
 **可见结果与边界**　Safe 拥有条目、多账号、标签、锁定、显式查看；#6 描述风险与返回边界。
 
-**前置产物**　[G3.1 CLI 与外部 API 发现并调用同一能力](G3.1-cli-api.md)；[G3.2 两种 MCP 传输读取同一份目录与变更](G3.2-mcp-discovery.md)；[#9 的新格式和模块独立认证合同；按本片实际消费的存储或 Safe 业务部分接入](../../2026-11-19-issue-9-safe-accounts/spec.md)
+**前置产物**　[G3.1 CLI 与外部 API 发现并调用同一能力](G3.1-cli-api.md)；[G3.2 两种 MCP 传输读取同一份目录与变更](G3.2-mcp-discovery.md)；[#9 的新格式和模块独立认证合同；按本片实际消费的存储或 Safe 业务部分接入](../../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)
 
 **已有代码入口**　[plugins/safe/src/engine/index.ts](../../../../../plugins/safe/src/engine/index.ts)、[packages/kernel/src/dispatcher.ts](../../../../../packages/kernel/src/dispatcher.ts)。
 

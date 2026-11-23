@@ -6,7 +6,7 @@
 
 Mail 管理账号 ID、配置 revision、私有认证、目录发现；接入已有插件注册。保存成功回到账号栏，保留用户选择。
 
-**前置产物**　[S0.2](S0.2-transport-choice.md)、[#9](../../2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../../2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同。
+**前置产物**　[S0.2](S0.2-transport-choice.md)、[#9](../../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) [P0.2](../../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P0.2-credential-replacement.md) 的模块保存与替换合同。
 
 **代码入口**　[apps/engine/src/boot.ts](../../../../../apps/engine/src/boot.ts)、[one-mail/src/components/account/account-form-types.ts](../../../../../temp/sources/one-mail/src/components/account/account-form-types.ts)。拟在 `plugins/mail` 的账号与收件流程落地。
 

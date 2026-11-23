@@ -32,6 +32,6 @@ node node_modules/vitest/vitest.mjs run apps/engine/test/engine.test.ts apps/eng
 
 复核范围为指定 Engine 夹具，数据全部来自隔离合成 Vault。故障证据来自写入注入与磁盘状态模拟。Renderer 表单与缓存、实际强杀和断电、旧密文版本回收属于本轮范围之外。
 
-依据 [P1.2 规格](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P1.2-save-entry.md)、[P1.3 规格](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P1.3-edit-account.md)、[个人多账号契约](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/spec.md#personal)、[P1.2 实施报告](../t12p/report02.md)、[P1.3 实施报告](../t12p/report03.md)。
+依据 [P1.2 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P1.2-save-entry.md)、[P1.3 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P1.3-edit-account.md)、[个人多账号契约](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md#personal)、[P1.2 实施报告](../t12p/report02.md)、[P1.3 实施报告](../t12p/report03.md)。
 
 ## Lead 验收

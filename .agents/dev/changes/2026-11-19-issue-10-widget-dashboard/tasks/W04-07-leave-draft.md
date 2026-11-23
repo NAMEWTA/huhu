@@ -4,7 +4,7 @@
 
 **规格范围**　ACC-DASH-04、ACC-DASH-10、ACC-DASH-11。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)
 
-**前置产物**　[W04-01 的编辑草稿与保存结果](W04-01-board-draft.md)、[S1a-03 的桌面退出契约](../../2026-11-19-issue-3-desktop-shell/tasks/S1a-03-quit-transaction.md)。工作台在编辑会话挂载时接入该契约，模块导航和桌面关闭请求共用同一个看板离场处理。
+**前置产物**　[W04-01 的编辑草稿与保存结果](W04-01-board-draft.md)、[S1a-03 的桌面退出契约](../../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/tasks/S1a-03-quit-transaction.md)。工作台在编辑会话挂载时接入该契约，模块导航和桌面关闭请求共用同一个看板离场处理。
 
 **现有代码入口**　[src/home](../../../../../packages/workbench/src/home) · [shell/AppShell.tsx](../../../../../packages/workbench/src/shell/AppShell.tsx) · [shell/VaultSwitchDialog.tsx](../../../../../packages/workbench/src/shell/VaultSwitchDialog.tsx) · [main/index.ts](../../../../../apps/desktop/src/main/index.ts) · [state/flushers.ts](../../../../../packages/workbench/src/state/flushers.ts)。
 

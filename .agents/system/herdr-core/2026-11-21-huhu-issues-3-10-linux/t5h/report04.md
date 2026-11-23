@@ -93,7 +93,7 @@
 
 ## 查阅和观察边界
 
-- #3 资料核对 `.agents/dev/changes/2026-11-19-issue-3-desktop-shell/tasks/{S1a-02-retry-close,S1b-01-window-host}.md`。#7 本次核对的是同一个固定 Git 对象中的原文、规划、源代码与既有测试。上游只比对换窗与失败回退的行为。
+- #3 资料核对 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/tasks/{S1a-02-retry-close,S1b-01-window-host}.md`。#7 本次核对的是同一个固定 Git 对象中的原文、规划、源代码与既有测试。上游只比对换窗与失败回退的行为。
 - `apps/desktop/package.json`、已安装的 `apps/desktop/node_modules/electron/{package.json,electron.d.ts}` 与 Electron 官方发行页对应 44.9.1、Chromium 152.0.7977.167；核对了 BrowserWindow 的显示/聚焦、webContents 的失败加载、进程退出、跨文档导航事件。原生 ready-to-show 反映画面可显示，业务附着仍须独立确认。[Electron 44.9.1](https://releases.electronjs.org/release/v44.9.1) · [BrowserWindow](https://www.electronjs.org/docs/latest/api/browser-window) · [webContents 导航事件](https://www.electronjs.org/docs/latest/api/web-contents#navigation-events)
 - 本次仅生成本报告。未启动 Electron、SSH、浏览器或回环夹具，未执行测试或构建。窗口管理器前台激活、目标可输入时刻、断网后同一 shell 的可用性均未作现场观测。
 

@@ -1,6 +1,6 @@
 # #7 SSH 运行对象、凭据与移植边界
 
-本设计只针对用户已获授权的主机、账号及本地开发客户端。外部入口遵守 [#6 的调用与授权合同](../2026-11-19-issue-6-unified-tools-web/design.md)，SSH 独立认证与 [#9 模块存储合同](../2026-11-19-issue-9-safe-accounts/spec.md)对齐。目标体验见[规格](spec.md)。
+本设计只针对用户已获授权的主机、账号及本地开发客户端。外部入口遵守 [#6 的调用与授权合同](../2026-11-19-issue-6-unified-tools-web/design.md)，SSH 独立认证与 [#9 模块存储合同](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)对齐。目标体验见[规格](spec.md)。
 
 ## 已核对的实现与来源
 

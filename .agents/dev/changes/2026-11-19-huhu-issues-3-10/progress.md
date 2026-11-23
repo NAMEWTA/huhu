@@ -8,7 +8,7 @@
 
 | Issue | 本轮产物与状态 | 下一交付点 |
 | --- | --- | --- |
-| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`a4681d7` 增加页面离场参与者，14 项[两窗退出、自动保存与草稿恢复](../2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)通过。 | `t4x` 独立核对；故障反馈选项、真实看板与菜单联验。 |
+| #3 | `51d0863` 修正桌面收不到文档保存回执时误放行。`f193612` 绑定窗口主文档。`a4681d7` 增加页面离场参与者，14 项[两窗退出、自动保存与草稿恢复](../../archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)通过。 | `t4x` 独立核对；故障反馈选项、真实看板与菜单联验。 |
 | #4 | W6.0 经三轮独立审查合入 `1b3b385`，回执合同及 Markdown 回归 55 项通过。[Windows Core](../2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md)实测子进程、握手 generation 与 doc/CAS。W1.1 `ce5289d` 已用锁定 Core 和合成 `.cmd` 实跑。 | `t54` 独立核对 W1.1，再接 W1.2 的持久启动对账。W8.3 等 #5 T7.1，同包分别执行 W8.2 和 T7.2。 |
 | #5 | [T0.1](../2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md)实得 Codex 和 Pi 原生结果。T1.1 `6cc99ed` 修复正文身份，T1.2 `6b43fce` 用合成执行器验证持久受理、占用、重开及迟到结果。集成 `e940403` 修复同文件跨句柄的条件写竞争，Vault 定向 26 项通过。 | `t6n` 核对并发编辑及非法 UTF-8 输入，`t54` 独立复核持久受理。真实执行器和问答仍待接线。 |
 | #6 | `ca8290d` 合入 [G1.1 能力盘点](../2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md)。`t4x` 复核回滚反例、99 项定向及 11 项授权回归。[G1.2/G2.1](../2026-11-19-issue-6-unified-tools-web/evidence/G2.1-windows-integrated-access.md) 合入后八文件 80 项通过。[G6.1 监听生命周期](../2026-11-19-issue-6-unified-tools-web/evidence/G6.1-windows-listener.md)通过。Edge 实测[G6.2 普通 HTTP 意图键](../2026-11-19-issue-6-unified-tools-web/evidence/G6.2-windows-http-intent.md)。 | G6.1 接入 Engine 和桌面，继续打包 Web、邀请和撤销。 |

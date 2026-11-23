@@ -19,7 +19,7 @@
 
 | Change | 本次新增业务文档 |
 | --- | --- |
-| #3 桌面外壳 | [行为规格](../../../../dev/changes/2026-11-19-issue-3-desktop-shell/spec.md) · [平台选型、关闭协议与待决体验](../../../../dev/changes/2026-11-19-issue-3-desktop-shell/design.md) · [S0～S4 实施与验收](../../../../dev/changes/2026-11-19-issue-3-desktop-shell/plan.md) |
+| #3 桌面外壳 | [行为规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/spec.md) · [平台选型、关闭协议与待决体验](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/design.md) · [S0～S4 实施与验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/plan.md) |
 | #10 首页看板 | [行为规格](../../../../dev/changes/2026-11-19-issue-10-widget-dashboard/spec.md) · [贡献协议、保存事务、上游对照与待决体验](../../../../dev/changes/2026-11-19-issue-10-widget-dashboard/design.md) · [W01～W06 实施与验收](../../../../dev/changes/2026-11-19-issue-10-widget-dashboard/plan.md) |
 
 分支 `feature/issue-fix`，checkout `9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。只读查询的远端 main 与 checkout 一致。两个 Issue 固定源码基线为 `913264045cee1818497a37a57715c664aa85a1ae`。本 worker 写入范围为上表六份 Markdown 和本报告，未暂存或提交。切片已完整写在各 plan，无额外 tasks 文件。

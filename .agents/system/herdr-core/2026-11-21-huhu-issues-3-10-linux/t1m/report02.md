@@ -17,7 +17,7 @@
 - 工作树 — `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-safe-git`。源码和测试与候选一致，证据按 topic 约定用临时索引直接装入候选树。
 - Engine 的改动限于 `apps/engine/src/boot.ts` 的 Versioning 注册。使用 `safe.safeGitSnapshots(api.vault.files)`，同时按原条件注入 `credentialHost`。Lead 合并时保留该注册写法。
 - 单侧分歧以 Git 预计算的合并树生成双亲提交，应用前验证整个 Safe 树与选定父提交一致。结合同一 Safe 写队列、引用校验、工作区覆盖检查和 HEAD 比较更新。已有推送白名单仍检查实际出站对象。
-- 项目证据 — `.agents/dev/changes/2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md`。
+- 项目证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P8.3-safe-git-linux.md`。
 
 ## 验证
 

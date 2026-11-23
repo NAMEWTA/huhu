@@ -40,6 +40,6 @@
 
 任务详情按目标、最早派遣/截止、执行目标、当前运行及待处理问题、评论和运行记录组织。列表概要看 questionCount，详情用共享的 Question[]。只有有效问题显示回答入口。前往现场携带 Space/session/run，实例已失效则解释原因。自动化列表用现有 Switch、右侧详情抽屉和 DataTable；编辑器区分既有任务补充指令与新任务模板，均可创建及编辑，预览显示候选、等待与排除原因。Agent List 标识手动/后台来源，后台新建不抢焦点。第三方源码用于对照功能和信息结构，导航、文案、主题和组件采用 Huhu 自有设计，沿用 Huhu DateTimePicker、Markdown 及分层样式；此次交互按[原型确认记录](prototype-review.md)逐场景确认；后台时间推进、竞争、故障和恢复经独立的演示控制触发。
 
-规则保留 Agent、终端命令和提醒三类。Agent 动作只走已有任务或创建真实模板任务，终端命令仍走 Agent CLI，提醒仍走通知/提醒任务。只对授权目的开放执行；外部创建不自动获得派遣权，内部回执绑定本 task/run，无须打开全局外露。规则专用秘密由 Automations 本机加密保存，可复用启动环境归 Agent CLI，经同一执行合同注入。普通查询、导出、评论、快照和日志不含秘密；使用 [#6 外露权限](../2026-11-19-issue-6-unified-tools-web/spec.md)与 [#9 模块认证](../2026-11-19-issue-9-safe-accounts/spec.md)统一切换旧消费者。干净安装 MCP/CLI 工具默认全关，逐项或明确批量授权后才能对外调用。
+规则保留 Agent、终端命令和提醒三类。Agent 动作只走已有任务或创建真实模板任务，终端命令仍走 Agent CLI，提醒仍走通知/提醒任务。只对授权目的开放执行；外部创建不自动获得派遣权，内部回执绑定本 task/run，无须打开全局外露。规则专用秘密由 Automations 本机加密保存，可复用启动环境归 Agent CLI，经同一执行合同注入。普通查询、导出、评论、快照和日志不含秘密；使用 [#6 外露权限](../2026-11-19-issue-6-unified-tools-web/spec.md)与 [#9 模块认证](../../archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md)统一切换旧消费者。干净安装 MCP/CLI 工具默认全关，逐项或明确批量授权后才能对外调用。
 
 本期投递到原任务时间线。后续邮件/IM 通过所属插件，把带 channel/account/thread/externalMessageId/replyTo 的明确输入映射到 taskId 和具体请求；输出消费持久 delivery 并返回渠道确认。无新增渠道服务、消息中间件、全局记忆、独立 Agent harness 或跨机调度。本期沿用单 Vault 单 Engine 的 Markdown/JSON 文件事实，SQLite 只作可重建索引。在空白测试 Vault 验证新格式的正常备份、恢复和损坏报告，按模块的导出范围和执行绑定恢复。未发布产品直接采用新契约，保全真实旧数据和外部历史、进程。

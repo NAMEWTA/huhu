@@ -29,6 +29,6 @@
 node node_modules/vitest/vitest.mjs run plugins/ssh/test/host-auth.engine.test.ts --no-file-parallelism --maxWorkers=1 --reporter=verbose
 ```
 
-依据 [H2.2 验收](../../../../dev/changes/2026-11-19-issue-7-ssh-module/tasks/H2.2-host-record.md)、[P5.1 验收](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P5.1-ssh-host-auth.md) 和 [实施报告](../t12p/report04.md)。
+依据 [H2.2 验收](../../../../dev/changes/2026-11-19-issue-7-ssh-module/tasks/H2.2-host-record.md)、[P5.1 验收](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P5.1-ssh-host-auth.md) 和 [实施报告](../t12p/report04.md)。
 
 ## Lead 验收

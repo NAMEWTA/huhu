@@ -16,7 +16,7 @@
 | Issue | 规格 | 架构与待决选择 | 切片及证据 |
 | --- | --- | --- | --- |
 | #8 Mail | [spec.md](../../../../dev/changes/2026-11-19-issue-8-mail-module/spec.md) | [design.md](../../../../dev/changes/2026-11-19-issue-8-mail-module/design.md) | [plan.md](../../../../dev/changes/2026-11-19-issue-8-mail-module/plan.md) |
-| #9 Safe | [spec.md](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/spec.md) | [design.md](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/design.md) | [plan.md](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/plan.md) |
+| #9 Safe | [spec.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/spec.md) | [design.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md) | [plan.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/plan.md) |
 
 工作区为 D:/Document/code/huhu，分支 feature/issue-fix，HEAD 为 9f870c0fad0c1d0538b9783214d2f4a3a3278b10。本 worker 的写入为上述六份新增 Markdown 及本报告。开始时两个 change 目录各只有 source.md，t8 目录只有 task01.md。未提交。共享分支已有 AGENTS.md 修改、来源快照及其他 worker 的目录。
 
@@ -25,8 +25,8 @@
 | 验收要求 | 实际检查与结果 | 证据位置 |
 | --- | --- | --- |
 | 核对派工身份和写入范围 | hc server status 返回 wta、0.1.21、Core ID 346bd5608735e3fcb27f9d01f5c8008e；本机 WTA、HC_TERMINAL_ID=t8。topic 续派 t4 → t8，manifest 为 t8 / task01.md / active。发布前无同名报告。 | [任务](task01.md)、[topic](../topic.md)、[manifest](../manifest.tsv) |
-| 保留完整来源并区分基线 | #8 和 #9 来源分别为 568、316 行，均无评论。前后 git hash-object 分别为 82ec74f197baf0ad95e75ab917cfc07f48774e98 和 8c52a9d0db13d97b5c556f3791c44280e82743bd。Issue 的 Huhu 链接为 9132640，本 checkout 的 AGENTS.md、编辑器、桌面预览和实际插件入口已重新查证。 | [#8 原始快照](../../../../dev/changes/2026-11-19-issue-8-mail-module/source.md)、[#9 原始快照](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/source.md) |
-| 固定取证和复用边界 | gh api 读 one-mail d1be24d 的树、README 和关键文件，核对 18+1 预设、collect_conversations、stable_uid 到正文 u32 转换、IMAP 读标志确认、SMTP 重试及原生备份 database_key。Motty 1022282 的文件钥匙回退和 Apache-2.0 已核对。记录本地依赖和 npm 候选许可。ORCA 指定提交的 tree/commit 请求返回 404。 | [Mail 来源和差异](../../../../dev/changes/2026-11-19-issue-8-mail-module/design.md)、[Safe 候选与上游](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/design.md) |
+| 保留完整来源并区分基线 | #8 和 #9 来源分别为 568、316 行，均无评论。前后 git hash-object 分别为 82ec74f197baf0ad95e75ab917cfc07f48774e98 和 8c52a9d0db13d97b5c556f3791c44280e82743bd。Issue 的 Huhu 链接为 9132640，本 checkout 的 AGENTS.md、编辑器、桌面预览和实际插件入口已重新查证。 | [#8 原始快照](../../../../dev/changes/2026-11-19-issue-8-mail-module/source.md)、[#9 原始快照](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/source.md) |
+| 固定取证和复用边界 | gh api 读 one-mail d1be24d 的树、README 和关键文件，核对 18+1 预设、collect_conversations、stable_uid 到正文 u32 转换、IMAP 读标志确认、SMTP 重试及原生备份 database_key。Motty 1022282 的文件钥匙回退和 Apache-2.0 已核对。记录本地依赖和 npm 候选许可。ORCA 指定提交的 tree/commit 请求返回 404。 | [Mail 来源和差异](../../../../dev/changes/2026-11-19-issue-8-mail-module/design.md)、[Safe 候选与上游](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/design.md) |
 | 架构与故障窗口 | 沿 Engine boot → Dispatcher/幂等回执 → 插件 handler、VaultFiles/数据包/Git 分类追读。对照 SSH 表单取密、Git ASKPASS、自动化 envRefs → Agent CLI → Core、并存的 headless worker 路径。分别比较 TS/Rust 邮件核心、条目分载荷/整库快照、Engine 钥匙串/main safeStorage；用具体调用和故障时序约束结果。 | 两份 design.md 的当前调用链、提交顺序和恢复窗口 |
 | 前端兼容性研究 | 运行 modern-web-guidance 的 search（sanitize untrusted HTML、edit password form）与 retrieve（sanitize-untrusted-html、security、forms、accessibility、validate-input-after-interaction）。对照 Electron 44.9.1 发布表的 Chromium 152.0.7977.167 和指南中的 Web Baseline，记录 HTML 净化回退与表单错误反馈。 | 两份 design.md 的前端章节及 Electron 发布链接 |
 | Markdown、覆盖与产物 | UTF-8 读取六份文件，检查 61 个本地 Markdown 引用全部可达；将 #8 的 M-01–08、S0–9 和 #9 源文 A/B/C/D 共 23 项对照计划。两个目录各含原快照和三份新文件。最末 git diff --name-only 仍仅列任务开始前已有的 AGENTS.md；限定目录的 git status 确认新增产物。 | 两份 plan.md 的覆盖表和上方产物链接 |

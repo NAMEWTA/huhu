@@ -4,7 +4,7 @@
 - task — task13.md
 - Core — Windows 本机 wta，`346bd5608735e3fcb27f9d01f5c8008e`，0.1.21。
 - 执行结果 — done。建议签收 P1.1 的 Engine 密钥环、解锁会话和过渡兼容切片。
-- 冻结候选 — `6b11b63cb6cfae8b2a2f0effe5d64657a203496f`，直接父 `64788547141e806f5134fff7290b0d44bfa68b5c`，树 `39503b169892f4d1e553d923bb43e87b68a1c274`。 [P1.1 规格](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P1.1-master-session.md) · [t12p 交付](../t12p/report01.md)
+- 冻结候选 — `6b11b63cb6cfae8b2a2f0effe5d64657a203496f`，直接父 `64788547141e806f5134fff7290b0d44bfa68b5c`，树 `39503b169892f4d1e553d923bb43e87b68a1c274`。 [P1.1 规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P1.1-master-session.md) · [t12p 交付](../t12p/report01.md)
 
 ## 规格轴
 
@@ -21,7 +21,7 @@
 
 ## 规范轴与后续验收
 
-- `SafeStore` 在 `.huhu/cache` 写入两份暂存文件，发布前核对会话和原状态，再以同卷目录重命名一次发布。通用 ZIP 收集排除 cache，纳入已发布的 Safe 文件。包装与清单认证绑定可随备份带走的 `vaultKeyId`，因此导入发放新的 Vault ID 后仍能解锁。现有 ZIP 用例验证普通恢复。P8.1/P8.2 的跨写入同代快照、改密前后分包以及新账号和标签逐项恢复仍需各自验收。 [P8.1](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P8.1-backup-contents.md) · [P8.2](../../../../dev/changes/2026-11-19-issue-9-safe-accounts/tasks/P8.2-restore-new-vault.md)
+- `SafeStore` 在 `.huhu/cache` 写入两份暂存文件，发布前核对会话和原状态，再以同卷目录重命名一次发布。通用 ZIP 收集排除 cache，纳入已发布的 Safe 文件。包装与清单认证绑定可随备份带走的 `vaultKeyId`，因此导入发放新的 Vault ID 后仍能解锁。现有 ZIP 用例验证普通恢复。P8.1/P8.2 的跨写入同代快照、改密前后分包以及新账号和标签逐项恢复仍需各自验收。 [P8.1](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P8.1-backup-contents.md) · [P8.2](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/tasks/P8.2-restore-new-vault.md)
 - 在已复跑的普通 Engine 场景中未发现签收阻断。真实窗口即时清理旧缓存和显隐状态尚待接线。当前 `safe.status` 已提供 `instanceId`、`generation` 和 `corruptFile`，共享锁定事件与 Renderer 联验仍待完成。典型待验场景为用户正在查看 Safe 时，从另一入口锁定，当前窗口应即时清除旧内容并丢弃晚到的结果。本轮 Engine 已验证迟到操作拒绝，未运行实际窗口缓存路径。 [t12p Renderer 接线说明](../t12p/report01.md)
 
 ## 验证与清理

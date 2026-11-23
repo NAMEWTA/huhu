@@ -1,0 +1,6 @@
+terminal_address	task	status
+t1d3	task01.md	done
+t1d4	task01.md	done
+t1d5	task02.md	active
+t1d7	task01.md	active
+t1d8	task01.md	active
