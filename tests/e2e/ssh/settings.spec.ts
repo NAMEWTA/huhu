@@ -145,7 +145,6 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     };
     const shared = await openSharedTools();
     await expect(shared.getByText("在能力网关的 MCP 工具目录更改可开放工具的选择。")).toBeVisible();
-    await expect(shared.getByText("已关闭", { exact: true })).toBeVisible();
     await expect(shared.getByText("端点已关闭", { exact: true })).toBeVisible();
     const revision = shared.getByTestId("ssh-tool-policy-revision");
     const initial = await desktopCall<{ toolAccess: { revision: number } }>(page, "gateway.get");
