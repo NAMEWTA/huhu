@@ -1,3 +1,4 @@
+import { requestDialogClose } from '@huhu/ui';
 import { incrementJsxArrowNodeSelectFailed } from '@inkeep/open-knowledge-core/metrics/parse-health';
 import type { Editor } from '@tiptap/core';
 import { Extension } from '@tiptap/core';
@@ -157,6 +158,12 @@ export const KeyboardNav = Extension.create({
   addKeyboardShortcuts() {
     return {
       Escape: ({ editor }) => {
+        // Suggestions run before this keymap. ProseMirror consumes even unhandled Escape.
+        const dialog = editor.view.dom.closest<HTMLDialogElement>('dialog[open]');
+        if (dialog) {
+          if (!editor.view.composing) requestDialogClose(dialog);
+          return true;
+        }
         const { state } = editor;
 
         if (state.selection instanceof NodeSelection) {

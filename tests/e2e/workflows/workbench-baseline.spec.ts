@@ -21,6 +21,7 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
   let browser: Browser | undefined;
   const results: unknown[] = [];
+  const failures: string[] = [];
   try {
     desktop = await openApp({ XDG_RUNTIME_DIR: runtime }, prepare, artifacts);
     await engineReady(desktop.page);
@@ -52,13 +53,14 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
         fontSize: getComputedStyle(document.body).fontSize,
       }));
       const attempt = await sample(page, name, desktop.vault).then(() => ({ sampled: true }), (error: unknown) => ({ sampled: false, error: error instanceof Error ? error.message : String(error) }));
+      if ("error" in attempt) failures.push(`${name}: ${attempt.error}`);
       results.push({ name, geometry, errors, ...attempt });
     }
     await info.attach("environment", {
       body: JSON.stringify({ linux: release(), desktop: JSON.parse(readFileSync(path.join(artifacts, "out/build-info.json"), "utf8")), electron, webChromium: browser.version(), results }, null, 2),
       contentType: "application/json",
     });
-    expect(results).toMatchObject([{ sampled: true }, { sampled: true }]);
+    expect(results, failures.join("\n\n")).toMatchObject([{ sampled: true }, { sampled: true }]);
   } finally {
     await browser?.close();
     await desktop?.close();
