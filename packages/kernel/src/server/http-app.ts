@@ -44,8 +44,6 @@ export interface RunningServer {
   replay: EventReplay;
   /** 当前 WebSocket 连接数。 */
   activeConnections(): number;
-  /** 令牌被撤销后关闭该身份已建立的 WebSocket 连接。 */
-  closeConnectionsOf(caller: Caller): void;
   hasMcpPrincipal(caller: Caller, subject: string): boolean;
   /** 最近一次 HTTP/WS 活动的时间戳。 */
   lastActivity(): number;
@@ -134,19 +132,20 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     events: d.events,
     ...(d.terminal ? { terminal: d.terminal } : {}),
     bearerProtocol: true,
-    authorize: (req, terminal) => {
+    authorize: (req) => {
       const verdict = checkIngress(req.headers, port);
       if (!verdict.ok) return { status: verdict.status };
       const protocol = String(req.headers["sec-websocket-protocol"] ?? "")
         .split(",")
         .map((value) => value.trim())
         .find((value) => value.startsWith("bearer."));
-      const caller = d.tokens.authenticate(protocol?.slice("bearer.".length));
-      if (!caller) return { status: 401 };
-      // 回环终端只接受桌面令牌，外部扩展也不能订阅事件流。
-      if ((terminal && caller !== "desktop") || caller.startsWith("plugin:")) return { status: 403 };
+      const principal = d.tokens.principal(protocol?.slice("bearer.".length));
+      if (!principal) return { status: 401 };
+      // The loopback listener owns desktop subscriptions. Invited Web sessions
+      // enter through their separate listener and supply the invitation lifetime.
+      if (principal.caller !== "desktop") return { status: 403 };
       lastActivity = Date.now();
-      return { caller };
+      return principal;
     },
   });
 
@@ -162,7 +161,6 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
     server,
     replay: streams.replay,
     activeConnections: streams.activeConnections,
-    closeConnectionsOf: streams.closeConnectionsOf,
     hasMcpPrincipal: (caller, subject) => sessions.hasPrincipal(caller, subject),
     lastActivity: () => lastActivity,
     close: async () => {

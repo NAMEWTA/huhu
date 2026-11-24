@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { createServer, request as httpRequest } from "node:http";
 import type { NetworkInterfaceInfo } from "node:os";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -7,6 +8,7 @@ import { CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStor
 import { WebListener, type WebListenerConfig } from "../src/server/web-listener.js";
 import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
 import { closeHttp, listenHttp } from "../src/server/listen-http.js";
+import { EVENT_REPLAY_BYTES, EVENT_SOCKET_BYTES } from "../src/server/ws-events.js";
 
 let running: RunningServer | undefined;
 afterEach(async () => {
@@ -14,7 +16,7 @@ afterEach(async () => {
   running = undefined;
 });
 
-async function boot(mcp?: { service: () => AbortSignal; choices: Record<string, boolean> }) {
+async function boot(mcp?: { service: () => AbortSignal; enabled?: () => boolean; choices: Record<string, boolean> }) {
   const registry = new CapabilityRegistry();
   registry.register(defineCapability({ name: "vault.info", plugin: "kernel", scope: "read", input: z.object({}), output: z.object({ name: z.string() }), exposable: true, defaultExposed: true, handler: () => ({ name: "占位" }) }));
   const tokens = new TokenTable();
@@ -28,7 +30,7 @@ async function boot(mcp?: { service: () => AbortSignal; choices: Record<string, 
     grantedPermissions: () => [],
     pluginOrigin: () => "external",
   });
-  running = await startEngineServer({ dispatcher, registry, tokens, events, ...(mcp && { vaultInstance: "fixture-vault-instance", mcpHttp: { enabled: () => true }, mcpSignal: mcp.service }) });
+  running = await startEngineServer({ dispatcher, registry, tokens, events, ...(mcp && { vaultInstance: "fixture-vault-instance", mcpHttp: { enabled: mcp.enabled ?? (() => true) }, mcpSignal: mcp.service }) });
   const base = `http://127.0.0.1:${running.port}`;
   return { base, tokens, events, registry, server: running, port: running.port };
 }
@@ -299,7 +301,10 @@ function openWs(port: number, token: string, query = ""): Promise<{ ws: WebSocke
     ws.on("message", (m) => msgs.push(JSON.parse(String(m))));
     ws.on("open", () => resolve({ ws, msgs }));
     ws.on("error", reject);
-    ws.on("unexpected-response", (_r, res) => reject(new Error(`status ${res.statusCode}`)));
+    ws.on("unexpected-response", (_r, res) => {
+      res.resume();
+      reject(new Error(`status ${res.statusCode}`));
+    });
   });
 }
 const tick = (ms = 50) => new Promise((r) => setTimeout(r, ms));
@@ -317,9 +322,96 @@ describe("WS 事件", () => {
     expect(ev.map((m) => m.seq)).toEqual([1, 2]);
     ws.close();
   });
-  test("外部扩展令牌不能订阅事件流（事件载荷不受权限表约束）", async () => {
-    const { tokens, port } = await boot();
-    await expect(openWs(port, tokens.issue("plugin:probe"))).rejects.toThrow(/403/);
+  test("工作台事件身份矩阵在工具开放、关闭和重连时一致", async () => {
+    const choices = { "vault.info": true };
+    const mcp = new AbortController();
+    let enabled = true;
+    const { tokens, port, base } = await boot({ service: () => mcp.signal, enabled: () => enabled, choices });
+    const credentials = (["cli", "mcp", "http", "plugin:fixture", "web:fixture"] as const).map((caller) => tokens.issue(caller));
+    const check = async () => {
+      for (const token of credentials) {
+        await expect(openWs(port, token)).rejects.toThrow(/403/);
+        await expect(openWs(port, token, "?lastSeq=0")).rejects.toThrow(/403/);
+      }
+    };
+    expect(await (await call(base, credentials[0]!, REQ)).json()).toMatchObject({ ok: true });
+    await check();
+    choices["vault.info"] = false;
+    enabled = false;
+    mcp.abort();
+    expect(await (await call(base, credentials[0]!, REQ)).json()).toMatchObject({ ok: false });
+    await check();
+    const desktop = tokens.issue("desktop");
+    const { ws } = await openWs(port, desktop);
+    ws.close();
+  });
+
+  test("撤销工作台凭据仅关闭该凭据的事件流", async () => {
+    const { tokens, port, events } = await boot();
+    const first = tokens.issue("desktop");
+    const second = tokens.issue("desktop");
+    const a = await openWs(port, first);
+    const b = await openWs(port, second);
+    const closed = once(a.ws, "close");
+    tokens.removeHash(TokenTable.hashHex(first));
+    await closed;
+    events.publish("entity.changed", { kind: "task", id: "fixture", op: "created" });
+    await expect.poll(() => b.msgs.at(-1)?.type).toBe("entity.changed");
+    await expect(openWs(port, first)).rejects.toThrow(/401/);
+    expect(b.ws.readyState).toBe(WebSocket.OPEN);
+    b.ws.close();
+  });
+
+  test("慢连接积压受限，快连接持续收齐，旧序号重连获得快照信号", async () => {
+    const { tokens, events, port, server } = await boot();
+    const token = tokens.issue("desktop");
+    const slow = await openWs(port, token);
+    const fast = await openWs(port, token);
+    await expect.poll(() => slow.msgs[0]?.type).toBe("hello");
+    slow.ws.pause();
+    const sizes = new Map<WebSocket, number>();
+    const actualSend = WebSocket.prototype.send;
+    const spy = vi.spyOn(WebSocket.prototype, "send").mockImplementation(function (this: WebSocket, data, ...options) {
+      if (typeof data === "string") sizes.set(this, Math.max(sizes.get(this) ?? 0, this.bufferedAmount + Buffer.byteLength(data) + 10));
+      Reflect.apply(actualSend, this, [data, ...options]);
+    });
+    const count = 128;
+    const bodyLength = 64 * 1024;
+    try {
+      for (let seq = 0; seq < count; seq++) {
+        events.publish("vault.fileChanged", { path: "fixture/" + "x".repeat(bodyLength) + String(seq), change: "modified" });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      await expect.poll(server.activeConnections).toBe(1);
+      await expect.poll(() => fast.msgs.filter(({ type }) => type === "vault.fileChanged").length).toBe(count);
+      expect(fast.msgs.filter(({ type }) => type === "vault.fileChanged").map(({ seq }) => seq)).toEqual(Array.from({ length: count }, (_, i) => i + 1));
+      const maxQueued = Math.max(...sizes.values());
+      expect(maxQueued).toBeGreaterThan(EVENT_SOCKET_BYTES / 2);
+      expect(maxQueued).toBeLessThanOrEqual(EVENT_SOCKET_BYTES);
+      console.info(`F18 本地慢连接，${count * bodyLength} B 合成载荷，发送前峰值估计 ${maxQueued} B，快连接完整收到 ${count} 帧`);
+      const reconnected = await openWs(port, token, "?lastSeq=0");
+      await expect.poll(() => reconnected.msgs.at(0)).toMatchObject({ type: "resync", seq: count });
+      reconnected.ws.close();
+    } finally {
+      spy.mockRestore();
+      slow.ws.resume();
+      slow.ws.terminate();
+      fast.ws.terminate();
+    }
+  });
+
+  test("巨大事件变为 resync，补发按字节淘汰后仍能继续收新事件", async () => {
+    const replay = new EventReplay();
+    const event = { id: "evt", vaultId: "v", type: "vault.fileChanged", at: "", payload: { path: "x".repeat(64 * 1024), change: "modified" } } as const;
+    for (let i = 0; i < 100; i++) replay.push(event);
+    expect(replay.since(0)).toEqual({ resync: true });
+    const tail = replay.since(100 - 4);
+    expect(tail.resync).toBe(false);
+    expect(!tail.resync && tail.events.reduce((total, { frame }) => total + frame.bytes, 0)).toBeLessThan(EVENT_REPLAY_BYTES);
+    expect(replay.push({ ...event, payload: { ...event.payload, path: "x".repeat(EVENT_SOCKET_BYTES) } })).not.toHaveProperty("frame");
+    expect(replay.since(100)).toEqual({ resync: true });
+    replay.push(event);
+    expect(replay.since(101)).toMatchObject({ resync: false, events: [{ seq: 102 }] });
   });
   test("断线重连按 lastSeq 补发；超出缓冲 resync", async () => {
     const { tokens, events, port } = await boot();

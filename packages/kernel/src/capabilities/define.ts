@@ -23,6 +23,7 @@ interface CapabilityContract<I, O> {
   plugin: string;
   scope: CapabilityScope;
   input: z.ZodType<I>;
+  /** Result DTO projected by the Dispatcher. Output schemas must accept their own projected value on replay. */
   output: z.ZodType<O>;
   /** 是否可为 CLI、MCP 和受权 HTTP 工具入口开放。 */
   exposable: boolean;

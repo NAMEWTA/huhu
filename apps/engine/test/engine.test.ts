@@ -616,11 +616,13 @@ describe("Engine 启动与关闭", () => {
     expect(cp.error, JSON.stringify(cp.error)).toBeUndefined();
     const saved2 = (await call("notes.save", { path: note.path, text: "# 历史笔记\n\n第二版\n", expectedVersion: saved.version })).data as { version: string };
     await call("history.checkpoint", { path: note.path, title: "第二版" });
-    const tl = (await call("history.timeline", { path: note.path })).data as { id: string; title: string | null }[];
-    expect(tl.map((t) => t.title).slice(0, 2)).toEqual(["第二版", "第一版"]);
-    expect(((await call("history.read", { path: note.path, entryId: tl[1]?.id })).data as { text: string }).text).toContain("第一版");
-    expect((await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: "wrong" })).error?.code).toBe("VERSION_CONFLICT");
-    const rest = await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: saved2.version });
+    const tl = (await call("history.timeline", { path: note.path })).data as { id: string; source: string; title: string | null }[];
+    const named = tl.filter(({ source }) => source === "checkpoint");
+    expect(named.map((entry) => entry.title).slice(0, 2)).toEqual(["第二版", "第一版"]);
+    const firstId = named[1]!.id;
+    expect(((await call("history.read", { path: note.path, entryId: firstId })).data as { text: string }).text).toContain("第一版");
+    expect((await call("history.restore", { path: note.path, entryId: firstId, expectedCurrentVersion: "wrong" })).error?.code).toBe("VERSION_CONFLICT");
+    const rest = await call("history.restore", { path: note.path, entryId: firstId, expectedCurrentVersion: saved2.version });
     expect(rest.error, JSON.stringify(rest.error)).toBeUndefined();
     expect(((await call("notes.read", { path: note.path })).data as { text: string }).text).toContain("第一版");
     for (const directory of ["Automation Runs", "Task Runs"]) {
@@ -982,35 +984,45 @@ describe("Engine 启动与关闭", () => {
       await srv.close();
     }
   }, 60_000);
-  test("审计回归：HTTP 令牌不能连接终端流（403）；撤销令牌会关闭它已建立的事件连接（4401）", async () => {
+  test("F18 HTTP 凭据不能订阅原始工作台事件，撤销一枚凭据保留另一枚", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     const { WebSocket } = await import("ws");
-    const created = (
-      (await (
-        await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability: "gateway.tokens.create", input: { name: "t" }, requestId: "r", idempotencyKey: "key-tok-create-1" }),
-        })
-      ).json()) as { data: { id: string; token: string } }
-    ).data;
-    const status = await new Promise<number>((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${e.port}/ws/terminal/sess-abcdef`, [`bearer.${created.token}`]);
-      ws.on("unexpected-response", (_r, res) => resolve(res.statusCode ?? 0));
-      ws.on("open", () => resolve(200));
-      ws.on("error", () => undefined);
+    const manage = (capability: string, input: unknown) => post(e, e.rendererToken, {
+      capability, input, requestId: "fixture", idempotencyKey: crypto.randomUUID(),
     });
-    expect(status).toBe(403);
-    const events = new WebSocket(`ws://127.0.0.1:${e.port}/ws/events`, [`bearer.${created.token}`]);
-    await new Promise<void>((r) => events.on("open", () => r()));
-    const closed = new Promise<number>((r) => events.on("close", (c) => r(c)));
-    await fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ capability: "gateway.tokens.revoke", input: { id: created.id }, requestId: "r", idempotencyKey: "key-tok-revoke-1" }),
+    const create = async (name: string) => {
+      const result = await manage("gateway.tokens.create", { name });
+      expect(result.ok).toBe(true);
+      return result.data as unknown as { id: string; token: string };
+    };
+    const a = await create("first fixture");
+    const b = await create("second fixture");
+    const upgrade = (token: string, route: string) => new Promise<number>((resolve, reject) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${e.port}${route}`, [`bearer.${token}`]);
+      socket.on("unexpected-response", (_r, response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      });
+      socket.on("open", () => {
+        socket.close();
+        resolve(200);
+      });
+      socket.on("error", reject);
     });
-    expect(await Promise.race([closed, new Promise<number>((r) => setTimeout(() => r(-1), 3000))])).toBe(4401);
+    for (const { token } of [a, b]) {
+      expect(await upgrade(token, "/ws/terminal/sess-fixture")).toBe(403);
+      expect(await upgrade(token, "/ws/events?lastSeq=0")).toBe(403);
+    }
+    const ping = (token: string) => fetch(`http://127.0.0.1:${e.port}/api/v1/capabilities`, { headers: { authorization: `Bearer ${token}` } });
+    expect((await ping(a.token)).status).toBe(200);
+    expect((await ping(b.token)).status).toBe(200);
+    expect((await manage("gateway.tokens.revoke", { id: a.id })).ok).toBe(true);
+    expect((await ping(a.token)).status).toBe(401);
+    expect((await ping(b.token)).status).toBe(200);
+    expect(await upgrade(a.token, "/ws/events")).toBe(401);
+    expect(await upgrade(b.token, "/ws/events")).toBe(403);
+    expect(await upgrade(e.rendererToken, "/ws/events")).toBe(200);
   }, 30_000);
   test("旧规则环境只需重新配置，工作台和工具拒绝旧格式启动", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });

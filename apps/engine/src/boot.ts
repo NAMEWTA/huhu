@@ -250,12 +250,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.onInstallConfirmed = (id) => registry.confirmPluginInstall(id);
   plugins.onUnregister = (id) => registry.forgetPlugin(id);
   const serverRef: { current?: RunningServer } = {};
-  const gatewayTokens = new GatewayTokens(
-    path.join(vault.stateDir, "gateways.json"),
-    tokens,
-    () => new Date(),
-    () => serverRef.current?.closeConnectionsOf("http"),
-  );
+  const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
   const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）

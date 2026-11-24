@@ -350,3 +350,156 @@ describe("Dispatcher 管线", () => {
     expect(new GatewayAudit(path.join(dir, "a.ndjson")).list().length).toBe(500);
   });
 });
+
+describe("F15 Dispatcher 取消边界", () => {
+  test("已取消的工作台、外部和插件调用不会执行或写入回执", async () => {
+    const { dir } = setup();
+    const operationFile = path.join(dir, "operations.jsonl");
+    const ledger = new OperationReceipts(operationFile);
+    const invoked: string[] = [];
+    const registry = new CapabilityRegistry();
+    for (const scope of ["read", "write", "execute", "admin"] as const) {
+      registry.register(defineCapability({
+        name: `test.${scope}`, plugin: "test", scope, input: z.object({}), output: z.string(), exposable: true,
+        defaultExposed: false, ...(scope === "write" && { idempotency: "durable" as const }),
+        handler: () => { invoked.push(scope); return scope; },
+      }));
+    }
+    const legacyFile = path.join(dir, "cancelled-idem.ndjson");
+    const auditFile = path.join(dir, "cancelled-audit.ndjson");
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(auditFile), idempotency: new IdempotencyStore(legacyFile),
+      operations: { vaultInstance: "fixture", ledger }, isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.write": true } }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => ["test.write"],
+    });
+    const signal = AbortSignal.abort();
+    for (const scope of ["read", "write", "execute", "admin"]) {
+      expect(await dispatcher.call("desktop", req(`test.${scope}`, {}, "legacy-key"), signal)).toMatchObject({
+        ok: false, error: { code: "INVALID_INPUT", details: { outcome: "not-accepted" } },
+      });
+    }
+    for (const caller of ["cli", "plugin:fixture"] as const) {
+      expect(await dispatcher.call(caller, { ...req("test.write"), intentKey: "stable-write" }, signal)).toMatchObject({
+        ok: false, error: { details: { outcome: "not-accepted" } },
+      });
+    }
+    expect(invoked).toEqual([]);
+    for (const file of [operationFile, legacyFile, auditFile]) expect(existsSync(file)).toBe(false);
+    expect(await dispatcher.call("desktop", req("test.write", {}, "legacy-key"))).toEqual({ ok: true, data: "write" });
+  });
+
+  test("输入解析期间取消不会调用 handler，受理之后取消可查询回执", async () => {
+    const { dir } = setup();
+    const abortOnParse = new AbortController();
+    const waiting = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const registry = new CapabilityRegistry();
+    let executions = 0;
+    registry.register(defineCapability({
+      name: "test.write", plugin: "test", scope: "write",
+      input: z.object({ abort: z.boolean() }).transform((input) => {
+        if (input.abort) abortOnParse.abort();
+        return input;
+      }),
+      output: z.string(), exposable: false, defaultExposed: false, idempotency: "durable",
+      handler: (context) => {
+        executions++;
+        markStarted();
+        return new Promise<string>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(new HuhuError("INVALID_INPUT", "cooperative stop")), { once: true });
+        });
+      },
+    }));
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+      operations: { vaultInstance: "fixture", ledger: new OperationReceipts(path.join(dir, "operations.jsonl")) },
+      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+    });
+    expect(await dispatcher.call("desktop", req("test.write", { abort: true }, "legacy-key"), abortOnParse.signal)).toMatchObject({
+      ok: false, error: { details: { outcome: "not-accepted" } },
+    });
+    expect(executions).toBe(0);
+    const request = { ...req("test.write", { abort: false }), intentKey: "accepted-write" };
+    const result = dispatcher.call("desktop", request, waiting.signal);
+    await started;
+    waiting.abort();
+    expect(await result).toMatchObject({ ok: false, error: { code: "INTERNAL", retryable: false, details: { outcome: "unknown" } } });
+    expect(dispatcher.readOperation("desktop", "desktop", { capability: "test.write", intentKey: "accepted-write" })).toMatchObject({ ok: true, data: { state: "unknown" } });
+    expect(executions).toBe(1);
+  });
+});
+
+describe("F16 公共输出投影", () => {
+  test("普通调用、命中旧缓存和回执查询都使用同一输出规则", async () => {
+    const { dir } = setup();
+    const { d, calls } = setup({ exposure: true, extraField: true });
+    const reqLegacy = req("tasks.create", { title: "AB" }, "legacy-output-key");
+    const expected = { ok: true, data: { n: 3 } };
+    for (const caller of ["desktop", "web:fixture", "cli", "mcp", "http"] as const) {
+      const result = await d.call(caller, reqLegacy);
+      expect(result).toEqual({ ok: true, data: { n: 2 + calls() } });
+      expect(await d.call(caller, reqLegacy)).toEqual(result);
+    }
+    expect(calls()).toBe(5);
+
+    const vaultInstance = "vault-for-output";
+    const ledger = new OperationReceipts(path.join(dir, "output-receipts.ndjson"));
+    const owner = JSON.stringify([vaultInstance, "http", "http"]);
+    const { entry } = ledger.claim(owner, reqLegacy.capability, "old-public-result", reqLegacy.input);
+    if (entry.phase !== "accepted") throw new Error("expected fresh test receipt");
+    ledger.complete(entry, "completed", { ok: true, data: { n: 3, privateKey: "discard-me" }, opId: entry.operationId });
+    const replay = setup({ exposure: true, operations: { vaultInstance, ledger } });
+    expect(await replay.d.call("http", { ...reqLegacy, intentKey: "old-public-result" })).toEqual({ ...expected, opId: entry.operationId });
+    const receipt = replay.d.readOperation("http", "http", { operationId: entry.operationId });
+    expect(receipt).toMatchObject({ ok: true, data: { state: "completed", result: expected } });
+    expect(JSON.stringify(receipt)).not.toContain("privateKey");
+    expect(replay.calls()).toBe(0);
+  });
+
+  test("普通写入返回坏 DTO 时副作用只执行一次，缓存和重启也返回待核实", async () => {
+    const { d, calls, dir } = setup({ invalidOutput: true });
+    const request = req("tasks.create", { title: "fixture" }, "bad-output-key");
+    const first = await d.call("desktop", request);
+    expect(first).toMatchObject({ ok: false, error: { code: "INTERNAL", retryable: false, details: { verification: "invalid-output", outcome: "unknown" } } });
+    expect(await d.call("desktop", request)).toEqual(first);
+    expect(calls()).toBe(1);
+    const saved = new IdempotencyStore(path.join(dir, "idem.ndjson")).lookup("desktop", "tasks.create", "bad-output-key", request.input);
+    expect(saved).toMatchObject({ hit: true, result: first });
+    expect(JSON.stringify(saved)).not.toContain("wrong-output-fixture");
+  });
+
+  test("高频递归联合输出每次调用只处理一遍，读错误返回可重试 INTERNAL", async () => {
+    type Item = { kind: "leaf"; value: number } | { kind: "branch"; children: Item[] };
+    let leaves = 0;
+    const item: z.ZodType<Item> = z.lazy(() => z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("leaf"), value: z.number().refine(() => { leaves++; return true; }) }),
+      z.object({ kind: z.literal("branch"), children: z.array(item) }),
+    ]));
+    const registry = new CapabilityRegistry();
+    const children = Array.from({ length: 200 }, (_, value) => ({ kind: "leaf" as const, value, internal: true }));
+    registry.register(defineCapability({
+      name: "test.tree", plugin: "test", scope: "read", input: z.object({ invalid: z.boolean() }), output: item,
+      exposable: true, defaultExposed: false,
+      handler: (_context, { invalid }) => invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children },
+    }));
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.tree": true } }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+    });
+    const started = performance.now();
+    for (let run = 0; run < 100; run++) {
+      const result = await dispatcher.call("desktop", req("test.tree", { invalid: false }));
+      expect(result.ok).toBe(true);
+      if (run === 0) expect(result).toEqual({ ok: true, data: { kind: "branch", children: children.map(({ value, kind }) => ({ kind, value })) } });
+    }
+    console.info(`F16 投影测量，100 次调用 / 20,000 个叶节点，${(performance.now() - started).toFixed(1)} ms`);
+    expect(leaves).toBe(20_000);
+    expect(await dispatcher.call("http", req("test.tree", { invalid: true }))).toMatchObject({
+      ok: false, error: { code: "INTERNAL", retryable: true, details: { verification: "invalid-output" } },
+    });
+  });
+});
