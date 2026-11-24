@@ -350,3 +350,84 @@ describe("Dispatcher 管线", () => {
     expect(new GatewayAudit(path.join(dir, "a.ndjson")).list().length).toBe(500);
   });
 });
+
+describe("F15 Dispatcher 取消边界", () => {
+  test("已取消的工作台、外部和插件调用不会执行或写入回执", async () => {
+    const { dir } = setup();
+    const operationFile = path.join(dir, "operations.jsonl");
+    const ledger = new OperationReceipts(operationFile);
+    const invoked: string[] = [];
+    const registry = new CapabilityRegistry();
+    for (const scope of ["read", "write", "execute", "admin"] as const) {
+      registry.register(defineCapability({
+        name: `test.${scope}`, plugin: "test", scope, input: z.object({}), output: z.string(), exposable: true,
+        defaultExposed: false, ...(scope === "write" && { idempotency: "durable" as const }),
+        handler: () => { invoked.push(scope); return scope; },
+      }));
+    }
+    const legacyFile = path.join(dir, "cancelled-idem.ndjson");
+    const auditFile = path.join(dir, "cancelled-audit.ndjson");
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(auditFile), idempotency: new IdempotencyStore(legacyFile),
+      operations: { vaultInstance: "fixture", ledger }, isPluginEnabled: () => true,
+      toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.write": true } }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => ["test.write"],
+    });
+    const signal = AbortSignal.abort();
+    for (const scope of ["read", "write", "execute", "admin"]) {
+      expect(await dispatcher.call("desktop", req(`test.${scope}`, {}, "legacy-key"), signal)).toMatchObject({
+        ok: false, error: { code: "INVALID_INPUT", details: { outcome: "not-accepted" } },
+      });
+    }
+    for (const caller of ["cli", "plugin:fixture"] as const) {
+      expect(await dispatcher.call(caller, { ...req("test.write"), intentKey: "stable-write" }, signal)).toMatchObject({
+        ok: false, error: { details: { outcome: "not-accepted" } },
+      });
+    }
+    expect(invoked).toEqual([]);
+    for (const file of [operationFile, legacyFile, auditFile]) expect(existsSync(file)).toBe(false);
+    expect(await dispatcher.call("desktop", req("test.write", {}, "legacy-key"))).toEqual({ ok: true, data: "write" });
+  });
+
+  test("输入解析期间取消不会调用 handler，受理之后取消可查询回执", async () => {
+    const { dir } = setup();
+    const abortOnParse = new AbortController();
+    const waiting = new AbortController();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const registry = new CapabilityRegistry();
+    let executions = 0;
+    registry.register(defineCapability({
+      name: "test.write", plugin: "test", scope: "write",
+      input: z.object({ abort: z.boolean() }).transform((input) => {
+        if (input.abort) abortOnParse.abort();
+        return input;
+      }),
+      output: z.string(), exposable: false, defaultExposed: false, idempotency: "durable",
+      handler: (context) => {
+        executions++;
+        markStarted();
+        return new Promise<string>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => reject(new HuhuError("INVALID_INPUT", "cooperative stop")), { once: true });
+        });
+      },
+    }));
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+      operations: { vaultInstance: "fixture", ledger: new OperationReceipts(path.join(dir, "operations.jsonl")) },
+      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: {} }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+    });
+    expect(await dispatcher.call("desktop", req("test.write", { abort: true }, "legacy-key"), abortOnParse.signal)).toMatchObject({
+      ok: false, error: { details: { outcome: "not-accepted" } },
+    });
+    expect(executions).toBe(0);
+    const request = { ...req("test.write", { abort: false }), intentKey: "accepted-write" };
+    const result = dispatcher.call("desktop", request, waiting.signal);
+    await started;
+    waiting.abort();
+    expect(await result).toMatchObject({ ok: false, error: { code: "INTERNAL", retryable: false, details: { outcome: "unknown" } } });
+    expect(dispatcher.readOperation("desktop", "desktop", { capability: "test.write", intentKey: "accepted-write" })).toMatchObject({ ok: true, data: { state: "unknown" } });
+    expect(executions).toBe(1);
+  });
+});

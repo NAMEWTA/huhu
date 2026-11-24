@@ -80,7 +80,6 @@ export class Dispatcher {
 
   async call(caller: Caller, req: CapabilityRequest, signal: AbortSignal = new AbortController().signal, principal: string | McpSessionPrincipal = caller): Promise<CapabilityResult<unknown>> {
     if (typeof principal !== "string" && (principal.signal.aborted || principal.identity.caller !== caller)) return this.fail(errors.permissionDenied("MCP 会话已关闭"));
-    if (typeof principal !== "string" && signal.aborted) return this.fail(errors.invalidInput("调用在受理前已取消"));
     const session = typeof principal === "string" ? undefined : principal.identity;
     const subject = typeof principal === "string" ? principal : mcpSessionSubject(principal.identity);
     const lifetime = typeof principal === "string" ? signal : AbortSignal.any([signal, principal.signal]);
@@ -88,6 +87,7 @@ export class Dispatcher {
   }
 
   private async dispatch(invocation: Invocation, req: CapabilityRequest, signal: AbortSignal): Promise<CapabilityResult<unknown>> {
+    if (signal.aborted) return this.cancelled();
     const { caller } = invocation;
     const started = (this.d.now ?? Date.now)();
     const result = await this.run(invocation, req, signal);
@@ -109,6 +109,12 @@ export class Dispatcher {
 
   private fail(e: HuhuError): CapabilityResult<never> {
     return { ok: false, error: e.toJSON() };
+  }
+
+  private cancelled(operationId?: string): CapabilityResult<never> {
+    return this.fail(new HuhuError("INVALID_INPUT", "调用在执行前已取消", {
+      details: { outcome: "not-accepted", ...(operationId && { operationId }) },
+    }));
   }
 
   private operationOwner(caller: Caller, subject: string): string {
@@ -157,7 +163,7 @@ export class Dispatcher {
   ): Promise<CapabilityResult<unknown>> {
     const ledger = this.d.operations?.ledger;
     if (!ledger) return this.fail(errors.invalidInput("此能力需要可写的持久操作记录"));
-    if (signal.aborted) return this.fail(errors.invalidInput("调用在受理前已取消"));
+    if (signal.aborted) return this.cancelled();
     try {
       const { entry, mismatch, fresh } = ledger.claim(claim.owner, claim.capability, claim.key, claim.input);
       const { operationId } = entry;
@@ -172,7 +178,7 @@ export class Dispatcher {
       }
       const admitted = entry.phase === "accepted" ? entry : ledger.resume(entry);
       const task = Promise.resolve().then(async () => {
-        if (signal.aborted) return ledger.complete(admitted, "failed", this.fail(new HuhuError("INVALID_INPUT", "调用在执行前已取消", { details: { operationId } }))).result;
+        if (signal.aborted) return ledger.complete(admitted, "failed", this.cancelled(operationId)).result;
         const executed = await execute(operationId);
         if (!executed.ok) {
           const failure = { ...executed.error, details: { ...executed.error.details, operationId } };
@@ -200,7 +206,8 @@ export class Dispatcher {
   /** Forward an already authenticated proxy request through the specific command's Dispatcher entry. */
   forwardCommand(context: CapabilityContext, capability: string, input: unknown): Promise<CapabilityResult<unknown>> {
     const prior = this.contexts.get(context);
-    if (!prior || prior.def.commandInvocation !== "forward" || context.signal.aborted) return Promise.resolve(this.fail(errors.permissionDenied(capability)));
+    if (!prior || prior.def.commandInvocation !== "forward") return Promise.resolve(this.fail(errors.permissionDenied(capability)));
+    if (context.signal.aborted) return Promise.resolve(this.cancelled());
     const command = this.d.registry.get(capability)?.commandInvocation ?? this.d.registry.getDescriptor(capability)?.commandInvocation;
     if (typeof command !== "object") return Promise.resolve(this.fail(errors.capabilityNotFound(capability)));
     return this.dispatch({ ...prior, forwarder: prior.def }, { ...prior.request, capability, input }, context.signal);
@@ -247,7 +254,9 @@ export class Dispatcher {
   async invokeCommandStep(context: CapabilityContext, name: string, input: unknown, step: unknown, { signal, vaultInstance }: { signal: AbortSignal; vaultInstance: string }): Promise<CapabilityResult<unknown>> {
     const prior = this.contexts.get(context);
     const reject = (error: HuhuError) => this.fail(new HuhuError(error.code, error.message, { retryable: error.retryable, details: { ...error.details, extensionStep: "not-admitted" } }));
-    if (!prior || signal.aborted || this.closing) return reject(errors.permissionDenied(name));
+    if (!prior || this.closing) return reject(errors.permissionDenied(name));
+    signal = AbortSignal.any([context.signal, signal]);
+    if (signal.aborted) return this.cancelled();
     const { caller, def, forwarder } = prior;
     if (typeof def.commandInvocation !== "object" || !def.commandInvocation.dependencies.includes(name)) return reject(errors.permissionDenied(name));
     const target = this.d.registry.get(name);
@@ -291,6 +300,7 @@ export class Dispatcher {
     if (this.closing && def.scope !== "read") return this.fail(errors.engineClosing());
 
     const parsed = def.input.safeParse(req.input);
+    if (signal.aborted) return this.cancelled();
     if (!parsed.success) return this.fail(errors.invalidInput("输入不符合要求", parsed.error.issues));
     if (def.externalIntentRequired && req.intentKey === undefined && !isWorkbenchCaller(caller) && !caller.startsWith("plugin:")) {
       return this.fail(errors.invalidInput('此能力的外部调用必须提供稳定意图键：CLI 使用 --intent-key，MCP 使用 _meta["huhu.dev/intent-key"]'));
@@ -330,7 +340,7 @@ export class Dispatcher {
     const p = (async () => {
       const result = await this.execute(def, invocation, req, parsed.data, signal);
       // 可重试的失败不缓存，允许同 key 重试
-      if (result.ok || !result.error.retryable) {
+      if (result.ok || (!result.error.retryable && result.error.details?.["outcome"] !== "not-accepted")) {
         try {
           this.d.idempotency.record(owner, def.name, key, req.input, result);
         } catch (e) {
@@ -364,27 +374,25 @@ export class Dispatcher {
   }
 
   private async execute(def: CapabilityDefinition, invocation: Invocation, req: CapabilityRequest, input: unknown, outer: AbortSignal, parentOperationId?: string): Promise<CapabilityResult<unknown>> {
+    if (outer.aborted) return this.cancelled(parentOperationId);
     const { caller, subject, session, delegatedBy } = invocation;
     const timeoutMs = def.timeoutMs ?? this.d.defaultTimeoutMs ?? 60_000;
     const ac = new AbortController();
-    const onAbort = () => ac.abort(outer.reason);
-    if (outer.aborted) ac.abort(outer.reason);
-    else outer.addEventListener("abort", onAbort, { once: true });
     let timer: NodeJS.Timeout | undefined;
     let interrupted = false;
-    let rejectOnAbort: (() => void) | undefined;
+    let cancel: (() => void) | undefined;
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
+      const interrupt = (error: Error, reason: unknown) => {
         interrupted = true;
-        ac.abort(new Error("timeout"));
-        reject(new Error(`能力 ${def.name} 超时`));
-      }, timeoutMs);
-      rejectOnAbort = () => {
-        interrupted = true;
-        reject(new Error(`能力 ${def.name} 已取消`));
+        reject(error);
+        ac.abort(reason);
       };
-      if (outer.aborted) rejectOnAbort();
-      else outer.addEventListener("abort", rejectOnAbort, { once: true });
+      timer = setTimeout(() => {
+        const error = new Error(`能力 ${def.name} 超时`);
+        interrupt(error, error);
+      }, timeoutMs);
+      cancel = () => interrupt(new Error(`能力 ${def.name} 已取消`), outer.reason);
+      outer.addEventListener("abort", cancel, { once: true });
     });
     timeout.catch(() => undefined); // 避免 handler 先完成时的未处理拒绝
     const context: CapabilityContext = {
@@ -405,10 +413,11 @@ export class Dispatcher {
     };
     this.contexts.set(context, { ...invocation, def, request: req });
     try {
+      if (outer.aborted) return this.cancelled(parentOperationId);
       const data = await Promise.race([Promise.resolve(def.handler(context, input)), timeout]);
       return { ok: true, data };
     } catch (e) {
-      if (e instanceof HuhuError) return this.fail(e);
+      if (!interrupted && e instanceof HuhuError) return this.fail(e);
       const correlationId = randomUUID();
       this.d.log?.("error", `能力 ${def.name} 失败`, { correlationId, error: e instanceof Error ? (e.stack ?? e.message) : String(e) });
       // 写入/执行类超时或取消后 handler 可能仍在完成副作用：结果未知，不可重试，也不自动重放
@@ -419,8 +428,7 @@ export class Dispatcher {
     } finally {
       this.contexts.delete(context);
       if (timer) clearTimeout(timer);
-      outer.removeEventListener("abort", onAbort);
-      if (rejectOnAbort) outer.removeEventListener("abort", rejectOnAbort);
+      if (cancel) outer.removeEventListener("abort", cancel);
     }
   }
 }
