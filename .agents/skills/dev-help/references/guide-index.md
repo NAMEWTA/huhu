@@ -4,7 +4,7 @@
 
 你将学到：
 
-1. [配置 本项目技能](guide-setup.md)：确认安装与宿主能力，按需要配置角色与预算。
+1. [配置 本项目技能](guide-setup.md)：确认安装、运行环境与主机资源。
 2. [通过 `$dev-workflow` 分派工作](guide-routing.md)：给它目标，看它选择流程。
 3. [理解代码](guide-understanding.md)：按当前机制、历史理由、教学或任务接续选择所需方法，沿用已有证据。
 4. [设计变更](guide-design.md)：在代码固定形状前使用 `$dev-architecture`、`$dev-parallel`、`$dev-parallel`、`$dev-review`、原型和计划。

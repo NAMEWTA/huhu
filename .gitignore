@@ -21,3 +21,4 @@ packages/editor/harness-dist
 packages/editor/test-results
 /.agents/dev/worktree/
 /.agents/system/ignore/
+.agents/.skills-hub-*

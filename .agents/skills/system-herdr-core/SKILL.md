@@ -22,12 +22,12 @@ description: "当用户明确要求使用 herdr-core、hc 或 system-herdr-core 
 
 ### Claude Code、Codex 和 Pi 的全权限启动命令
 
-在已授权的机器和工作目录内，用下面的命令启动交互 worker。示例适用于 PowerShell，POSIX shell 也可用 `"$PWD"`。每个在线终端使用唯一名称。
+在已授权的机器和工作目录内，用下面的命令启动交互 worker。示例适用于 PowerShell，POSIX shell 也可用 `"$PWD"`。终端名称使用 `<cli>-<topic>`，如 `codex-error-review`。将 `<topic>` 替换为当前任务的简短主题，使用小写字母、数字和连字符。同一主题创建多个同类 worker 时追加 `-2`、`-3`，确保同一目标 Core 内在线名称唯一。以下 `error-review` 是示例主题，执行时替换为实际主题。
 
 ```powershell
-hc run --bg --json --name claude-worker --cwd "$PWD" -- claude --dangerously-skip-permissions
-hc run --bg --json --name codex-worker --cwd "$PWD" -- codex --no-daemon --dangerously-bypass-approvals-and-sandbox
-hc run --bg --json --name pi-worker --cwd "$PWD" -- pi
+hc run --bg --json --name claude-error-review --cwd "$PWD" -- claude --dangerously-skip-permissions
+hc run --bg --json --name codex-error-review --cwd "$PWD" -- codex --no-daemon --dangerously-bypass-approvals-and-sandbox
+hc run --bg --json --name pi-error-review --cwd "$PWD" -- pi
 ```
 
 Claude Code 必须带 `--dangerously-skip-permissions`。Codex 必须同时带 `--no-daemon` 和 `--dangerously-bypass-approvals-and-sandbox`，分别让实例留在自己的终端上下文，以及跳过审批并关闭沙箱。Pi 使用原生交互入口 `pi`，保留默认工具，不加 Claude Code 或 Codex 的参数，也不用 `-p` 启动一次性进程。
@@ -46,6 +46,8 @@ Codex 的 `-c` 等同于 `--config`。无法解析为 TOML 的覆盖值按字符
 
 ### 检查模板和终端身份
 
+角色模板使用 `<cli>-<topic>.md`，如 `codex-error-review.md`，调用时使用不带 `.md` 的模板名。模板不使用 `codex`、`claude`、`pi` 等实际程序名；已有同名模板按实际主题改名，并同步模板调用处。模板的 `command:` 和直接启动命令中的可执行程序仍使用真实名称与完整参数。`--name` 只命名终端，不参与模板匹配；仅修改 `--name` 不能消除同名模板冲突。
+
 `hc templates` 列出当前 Core 的角色模板。远程启动由目标 Core 解析模板，也要在目标上核对。Core 会先查与命令同名的模板；`--` 只分隔参数，不阻止模板解析。需要直接启动而遇到同名模板时，使用目标机器上核实的可执行文件绝对路径，例如 `/usr/local/bin/codex` 或 Windows 上 `codex.cmd` 的实际路径。
 
 交互 agent 使用 `--bg`，保留查看、干预和继续会话的能力。记录 `hc run --json` 返回的完整 `address`（如 `t7`、`build/t7`）及连接上下文，后续投递、验收和回收都沿用它。名称供人识别，不代替文件协作中的完整地址。从 Core 终端启动的子终端默认随父终端的程序结束；仅在用户明确要求独立存活时用 `--outlive-parent`。
@@ -54,12 +56,12 @@ Codex 的 `-c` 等同于 `--config`。无法解析为 TOML 的覆盖值按字符
 
 ### 首条任务
 
-短任务可用角色模板。模板是 Core 配置目录 `templates/` 下的 `<模板名>.md`。Windows 默认在 `%APPDATA%\herdr-core\templates`，Unix 默认在 `~/.config/herdr-core/templates`，也可受 `XDG_CONFIG_HOME` 影响。模板的 `command:` 单行写完整程序和参数，保留上面的必带参数。Core 通过 `sh -c` 执行，Windows 的 Core 进程也需要能找到 `sh`。模板正文给出角色说明，命令行的剩余任务文本拼接成首条消息。
+短任务可用角色模板。模板是 Core 配置目录 `templates/` 下的 `<cli>-<topic>.md`。Windows 默认在 `%APPDATA%\herdr-core\templates`，Unix 默认在 `~/.config/herdr-core/templates`，也可受 `XDG_CONFIG_HOME` 影响。模板的 `command:` 单行写完整程序和参数，保留上面的必带参数。Core 通过 `sh -c` 执行，Windows 的 Core 进程也需要能找到 `sh`。模板正文给出角色说明，命令行的剩余任务文本拼接成首条消息。
 
-配置好 `reviewer` 模板后，可用它派发一次只读检查：
+配置好 `codex-error-review` 模板后，可用它派发一次只读检查：
 
 ```powershell
-hc run --bg --json --name review --cwd "$PWD" reviewer "只审查当前分支的错误处理。按文件和行号给出发现。"
+hc run --bg --json --name codex-error-review --cwd "$PWD" codex-error-review "只审查当前分支的错误处理。按文件和行号给出发现。"
 ```
 
 用 `first_message.sent` 核实模板首条消息是否已投递。模板默认等 agent 上报 OSC 7501；熟悉该 CLI 的启动过程且确认适用时，模板可用 `ready: quiet` 等输出稳定。Core 0.1.21 默认最多等候就绪 60 秒，其他版本看本机手册。未发送时先用 `hc get` 和 `hc read` 检查信任、认证或其他交互提示。确认界面可输入后再发；确需用户参与的提示交给用户。
@@ -67,7 +69,7 @@ hc run --bg --json --name review --cwd "$PWD" reviewer "只审查当前分支的
 也可按具体 CLI 的语法传入位置参数，例如：
 
 ```powershell
-hc run --bg --json --name review --cwd "$PWD" -- claude --dangerously-skip-permissions "只审查当前分支的错误处理。"
+hc run --bg --json --name claude-error-review --cwd "$PWD" -- claude --dangerously-skip-permissions "只审查当前分支的错误处理。"
 ```
 
 这里的任务参数由 Claude Code 解释，不是 Core 的 `first_message` 投递结果。[文件协作](#文件协作)需要先取得任务身份，因此先启动空闲 worker，建立身份和文件后再发消息。

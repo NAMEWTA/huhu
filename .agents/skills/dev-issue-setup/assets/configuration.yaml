@@ -1,5 +1,5 @@
 # 非秘密配置示例。复制到项目资料目录再填写；此文件不会自动创建或启用任务。
-# schema_version 只表示此配置格式版本，不是工作流状态机。所有动作名称与模型必须来自实际能力。
+# schema_version 只表示此配置格式版本，不是工作流状态机。所有动作名称必须来自实际能力。
 schema_version: 2
 
 # 先保留实际目标，不能从来源平台推断要运行缺陷分诊。
@@ -106,9 +106,3 @@ budgets:
   rejection_window_minutes: 10
   fix_minutes: 90
   operations_follow_up_minutes: 45
-
-models: # inherit 表示沿用当前模型，不传入虚构的模型标识
-  triage: "inherit"
-  reproduce: "inherit"
-  code: "inherit"
-  media_review: "inherit"
