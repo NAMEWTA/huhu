@@ -173,14 +173,17 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
-  void index.build(); // 后台构建；构建期间 vault.indexEntries 已可用，vault.search 返回 indexing=true
-
   const events = new EventBus(() => vault.id);
-  const repo = new SemanticRepository(vault.files, new OperationLog(vault.files, path.join(vault.stateDir, "operations")));
+  const operations = new OperationLog(vault.files, path.join(vault.stateDir, "operations"));
+  const repo = new SemanticRepository(vault.files, operations);
   repo.onWritten = (paths) => index.refreshPaths(paths);
+  const trash = new Trash(vault.files, undefined, operations);
   // 只读打开时不能回滚：未完成的多文件操作可能正由另一个（写者）实例执行，回滚会改写用户文件
-  if (!vault.readOnly) new OperationLog(vault.files, path.join(vault.stateDir, "operations")).recover();
-  const trash = new Trash(vault.files);
+  if (!vault.readOnly) {
+    trash.cleanupRetired();
+    operations.recover();
+  }
+  void index.build();
   const dispatcherRef: { current?: Dispatcher } = {};
   const {
     root: cordisRoot,

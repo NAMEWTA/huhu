@@ -116,7 +116,7 @@ describe("转换", () => {
   test("删除只移走原始记录", async () => {
     const { svc, root } = setup();
     const c = await svc.capture({ body: "x", source: "quick" });
-    svc.delete(c.id);
+    await svc.delete(c.id);
     expect(readdirSync(path.join(root, "Inbox"))).toEqual([]);
     expect(readdirSync(path.join(root, ".huhu/trash"))).toHaveLength(1);
   });

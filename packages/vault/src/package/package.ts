@@ -24,7 +24,7 @@ const ManifestSchema = z.object({
 export type PackageManifest = z.infer<typeof ManifestSchema>;
 export type ValidatePackageStaging = (files: VaultFiles, restored: ReadonlyMap<string, string>) => void;
 
-const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history", "gateways.json"]);
+const EXCLUDED_HUHU = new Set(["runtime", "cache", "ui", "history", "gateways.json", "trash-retired"]);
 const IGNORED_ROOT = new Set([".git", "node_modules", ".agents"]);
 
 function localState(relative: string): boolean {
@@ -37,13 +37,13 @@ function collect(root: string, includeAttachments: boolean, includeFile?: (relat
   const walk = (rel: string) => {
     for (const ent of readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const childRel = rel ? `${rel}/${ent.name}` : ent.name;
-      if (ent.isSymbolicLink() || localState(childRel)) continue;
+      if (ent.isSymbolicLink() || ent.name.startsWith(CREATION_STAGE_PREFIX) || localState(childRel)) continue;
       if (ent.isDirectory()) {
         if (!rel && IGNORED_ROOT.has(ent.name)) continue;
         if (rel === HUHU_DIR && ent.name === "writer.lock") continue;
         walk(childRel);
       } else if (ent.isFile()) {
-        if (ent.name === ".DS_Store" || ent.name === "Thumbs.db" || ent.name.startsWith(CREATION_STAGE_PREFIX) || childRel === `${HUHU_DIR}/writer.lock`) continue;
+        if (ent.name === ".DS_Store" || ent.name === "Thumbs.db" || childRel === `${HUHU_DIR}/writer.lock`) continue;
         const isText = /\.(md|txt|json|ndjson|yaml|yml)$/i.test(ent.name) || childRel.startsWith(`${HUHU_DIR}/`);
         if (!isText && !includeAttachments) continue;
         if (includeFile && !includeFile(childRel)) continue;

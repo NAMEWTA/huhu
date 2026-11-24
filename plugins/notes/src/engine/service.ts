@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import hostPath from "node:path";
 import path from "node:path/posix";
-import { errors, KINDS, newId } from "@huhu/contracts";
-import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { errors, isId, KINDS, newId } from "@huhu/contracts";
+import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
@@ -60,6 +60,8 @@ export interface MoveResult {
   ambiguous: string[];
 }
 
+type TrashProjection = (documents: ReadonlyMap<string, string>) => { steps: OpStep[]; publish(): void };
+
 /** 笔记与文件夹管理（modules/knowledge.md §3）。所有多文件改动走操作日志，可恢复。 */
 export class NotesService {
   private readonly pendingCreations = new Set<string>();
@@ -80,7 +82,7 @@ export class NotesService {
   identities(): Record<string, string> {
     return this.readJson<Record<string, string>>(IDENTITIES, {});
   }
-  private jsonStep(rel: string, value: unknown): OpStep {
+  private jsonStep(rel: string, value: unknown): Extract<OpStep, { action: "write" }> {
     return { action: "write", path: rel, bytes: Buffer.from(JSON.stringify(value, null, 2)) };
   }
   noteId(rel: string): string | null {
@@ -88,13 +90,18 @@ export class NotesService {
   }
   /** 确保普通笔记有稳定 id（首次需要时分配）。 */
   async ensureId(rel: string): Promise<string> {
-    const ids = this.identities();
-    if (ids[rel]) return ids[rel] as string;
-    const id = newId("note");
-    ids[rel] = id;
-    const cur = this.d.files.currentVersion(IDENTITIES);
-    await this.d.files.write(IDENTITIES, Buffer.from(JSON.stringify(ids, null, 2)), { expectedVersion: cur });
-    return id;
+    const existing = this.noteId(rel);
+    if (existing !== null) return existing;
+    return this.d.files.withCommit([IDENTITIES, rel], async (write) => {
+      const ids = this.identities();
+      if (ids[rel]) return ids[rel];
+      if (!this.d.files.exists(rel)) throw errors.notFound(rel);
+      const id = newId("note");
+      ids[rel] = id;
+      const step = this.trashStateStep(IDENTITIES, ids);
+      await write(step.path, step.bytes, { expectedVersion: step.expectedVersion });
+      return id;
+    });
   }
   favorites(): string[] {
     return this.readJson<string[]>(FAVORITES, []);
@@ -504,13 +511,12 @@ export class NotesService {
   }
 
   // ---- 回收站 ----
-  async trash(rel: string): Promise<{ trashId: string }> {
+  async trash(rel: string, expectedVersion?: string): Promise<{ trashId: string }> {
     const norm = normalizeRelPath(rel);
     resolveReadableAsset(this.d.files.root, norm);
     const ids = this.identities();
     const under = this.d.index.entries(norm).map((e) => e.path); // 文件夹整体进回收站：连同后代一并从索引移除
-    const r = { trashId: this.d.trash.moveIn(norm, ids[norm] ?? null).trashId };
-    // 被删条目（及其后代）的稳定 id 随回收站条目保存，不再占用原路径：同名新建会得到新 id，恢复时原样带回
+    const noteId = ids[norm] ?? null;
     const carried: Record<string, string> = {};
     for (const [p, id] of Object.entries(ids)) {
       if (p === norm || p.startsWith(`${norm}/`)) {
@@ -518,17 +524,42 @@ export class NotesService {
         delete ids[p];
       }
     }
-    const folders = this.folders().filter((f) => f !== norm && !f.startsWith(`${norm}/`));
-    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
-    if (Object.keys(carried).length > 0) trashed[r.trashId] = carried;
-    await this.d.ops.run(`trash-${r.trashId}`, "trash-ids", [this.jsonStep(IDENTITIES, ids), this.jsonStep(FOLDERS, folders), this.jsonStep(TRASHED_IDS, trashed)]);
+    const folders = this.folders();
+    const retainedFolders = folders.filter((f) => f === norm || f.startsWith(`${norm}/`));
+    const retained = new Set(retainedFolders);
+    const { trashId } = await this.d.trash.moveIn(norm, noteId, {
+      documents: carried,
+      folders: retainedFolders.map((f) => (f === norm ? "" : f.slice(norm.length + 1))),
+      ...(expectedVersion !== undefined && { expectedVersion }),
+      steps: [
+        this.trashStateStep(IDENTITIES, ids),
+        ...(retained.size ? [this.trashStateStep(FOLDERS, folders.filter((f) => !retained.has(f)))] : []),
+      ],
+    });
     this.d.index.refreshPaths([...new Set([norm, ...under])]);
-    return r;
+    return { trashId };
   }
+
+  private trashStateStep(rel: string, value: unknown): Extract<OpStep, { action: "write" }> & { expectedVersion: string | null } {
+    return { ...this.jsonStep(rel, value), expectedVersion: this.d.files.currentVersion(rel) };
+  }
+
+  private trashDocuments(meta: TrashMeta, root: string): { documents: Map<string, string>; legacyStep?: OpStep } {
+    const legacy = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
+    const carried = meta.documents ?? legacy[meta.trashId] ?? (meta.noteId && isId(meta.noteId, "note") ? { "": meta.noteId } : {});
+    const documents = new Map<string, string>();
+    for (const [relative, id] of Object.entries(carried)) {
+      if (!isId(id, "note") || documents.has(id)) throw errors.invalidInput("回收站笔记身份清单无效");
+      documents.set(id, relative ? `${root}/${normalizeRelPath(relative)}` : root);
+    }
+    if (!Object.hasOwn(legacy, meta.trashId)) return { documents };
+    delete legacy[meta.trashId];
+    return { documents, legacyStep: this.trashStateStep(TRASHED_IDS, legacy) };
+  }
+
   /** 恢复；原路径已有同名文件时必须提供 newName，不覆盖。 */
-  async restore(trashId: string, newName?: string, assertDestination?: (path: string) => void): Promise<string> {
-    const meta = this.d.trash.list().find((m) => m.trashId === trashId);
-    if (!meta) throw errors.notFound("回收站条目不存在");
+  async restore(trashId: string, newName?: string, assertDestination?: (path: string) => void, project?: TrashProjection): Promise<string> {
+    const { meta, directory } = this.d.trash.get(trashId);
     const dir = path.dirname(meta.originalPath) === "." ? "" : `${path.dirname(meta.originalPath)}/`;
     const target = newName ? `${dir}${withExtension(newName, path.extname(meta.originalPath))}` : meta.originalPath;
     if (newName) {
@@ -538,26 +569,38 @@ export class NotesService {
     assertDestination?.(target);
     this.assertUnprotectedDestination(target);
     if (this.findCaseInsensitive(target)) throw errors.nameConflict(target);
-    const restored = this.d.trash.restore(trashId, target);
-    // 带回稳定 id；恢复的是文件夹时，空文件夹重新登记
-    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
-    const carried = trashed[trashId];
-    delete trashed[trashId];
+    const { documents, legacyStep } = this.trashDocuments(meta, target);
+    const steps: OpStep[] = legacyStep ? [legacyStep] : [];
     const ids = this.identities();
-    for (const [sub, id] of Object.entries(carried ?? {})) if (!Object.values(ids).includes(id)) ids[sub === "" ? restored : `${restored}/${sub}`] = id;
-    const steps = [this.jsonStep(IDENTITIES, ids), this.jsonStep(TRASHED_IDS, trashed)];
-    if (existsSync(this.d.files.abs(restored)) && statSync(this.d.files.abs(restored)).isDirectory()) steps.push(this.jsonStep(FOLDERS, [...new Set([...this.folders(), restored])].sort()));
-    await this.d.ops.run(`restore-${trashId}`, "restore-ids", steps);
+    const active = new Map(Object.entries(ids).map(([rel, id]) => [id, rel]));
+    for (const [id, rel] of documents) {
+      if ((active.has(id) && active.get(id) !== rel) || (ids[rel] && ids[rel] !== id)) throw errors.nameConflict(rel);
+      ids[rel] = id;
+    }
+    if (documents.size) steps.push(this.trashStateStep(IDENTITIES, ids));
+    if (directory) {
+      const folders = (meta.folders ?? []).map((rel) => (rel ? `${target}/${normalizeRelPath(rel)}` : target));
+      steps.push(this.trashStateStep(FOLDERS, [...new Set([...this.folders(), target, ...folders])].sort()));
+    }
+    const projection = project?.(documents);
+    if (projection) steps.push(...projection.steps);
+    const restored = await this.d.trash.restore(trashId, target, steps);
     this.d.index.refreshPaths([restored, ...this.filesUnder(restored)]);
+    projection?.publish();
     return restored;
   }
-  async deletePermanent(trashId: string): Promise<void> {
-    this.d.trash.deletePermanent(trashId);
-    const trashed = this.readJson<Record<string, Record<string, string>>>(TRASHED_IDS, {});
-    if (trashed[trashId]) {
-      delete trashed[trashId];
-      await this.d.files.write(TRASHED_IDS, Buffer.from(JSON.stringify(trashed, null, 2)));
-    }
+  async deletePermanent(trashId: string, project?: TrashProjection): Promise<void> {
+    const meta = this.d.trash.list().find((item) => item.trashId === trashId);
+    if (!meta) return this.d.trash.deletePermanent(trashId);
+    const { documents, legacyStep } = this.trashDocuments(meta, meta.originalPath);
+    const steps: OpStep[] = legacyStep ? [legacyStep] : [];
+    const favorites = this.favorites();
+    const remaining = favorites.filter((id) => !documents.has(id));
+    if (remaining.length !== favorites.length) steps.push(this.trashStateStep(FAVORITES, remaining));
+    const projection = project?.(documents);
+    if (projection) steps.push(...projection.steps);
+    await this.d.trash.deletePermanent(trashId, steps);
+    projection?.publish();
   }
 
   // ---- 日记 ----

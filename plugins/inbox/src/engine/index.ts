@@ -180,9 +180,9 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.undo, (c, i) => change(c, i, "processed", async () => view(c, await svc.undo(i.id)))));
   api.defineCapability(
     bindCapability(inboxCapabilityDescriptors.delete, (c, i) =>
-      change(c, i, undefined, () => {
+      change(c, i, undefined, async () => {
         if (!trusted(c) && !i.confirmed) throw errors.invalidInput("必须确认移除原收件项");
-        svc.delete(i.id);
+        await svc.delete(i.id);
         return { ok: true as const };
       }),
     ),

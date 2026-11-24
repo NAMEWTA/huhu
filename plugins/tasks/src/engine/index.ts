@@ -669,7 +669,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return agentWriteResult(c.caller, task);
     }),
   );
-  api.defineCapability(bindCapability(taskToolDescriptors.delete, (_c, i) => svc.withTaskWrite(i.id, async () => (svc.delete(i.id), { ok: true as const }))));
+  api.defineCapability(
+    bindCapability(taskToolDescriptors.delete, (_c, i) =>
+      svc.withTaskWrite(i.id, async () => {
+        await svc.delete(i.id);
+        return { ok: true as const };
+      }),
+    ),
+  );
   api.defineCapability(bindCapability(taskToolDescriptors.setStatus, (_c, i) => svc.setStatus(i.id, i.status, i.expectedVersion)));
   api.defineCapability(
     bindCapability(taskToolDescriptors.commentsAdd, (c, i) => {

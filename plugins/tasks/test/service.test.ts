@@ -232,7 +232,7 @@ describe("TasksService（schema 2）", () => {
       path.join(root, "Task Runs/r--run-aaa111.md"),
       `---\nhuhu: {kind: task-run, id: run-aaa111, schema: 1}\ntaskId: ${t.id}\nruleId: rule-1\nprocessingKey: k\nattempt: 1\nstate: succeeded\nprovider: codex\nspaceId: space-1\ncwd: /x\nmachineId: m\n---\n`,
     );
-    svc.delete(t.id);
+    await svc.delete(t.id);
     expect(() => svc.read(t.id)).toThrow();
     expect(readdirSync(path.join(root, "Task Runs"))).toHaveLength(1);
     expect(readdirSync(path.join(root, ".huhu/trash"))).toHaveLength(1);
