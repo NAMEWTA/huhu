@@ -772,8 +772,14 @@ test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async 
       return !!sent?.capability && requestCaps.has(sent.capability);
     });
     await page.getByRole("button", { name: "知识库", exact: true }).first().click();
-    await (await initialTree).finished();
+    const index = await (await initialTree).json();
+    const entries = Array.isArray(index.data) ? index.data : index.data?.entries;
+    expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({ path: name })]));
     await page.getByTestId("notes-section-all").click();
+    // The file follows the 50 folders, outside the initial window of the virtualized tree.
+    const treeScroll = page.getByTestId("notes-resource-tree").locator("[data-file-tree-virtualized-scroll]");
+    await expect(treeScroll).toBeVisible();
+    await treeScroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await treeItem(page, name).click();
     const editor = page.getByTestId("markdown-editor").locator(".ProseMirror");
     await expect(editor).toContainText("原始正文");
