@@ -333,6 +333,13 @@ export class Dispatcher {
 
     if (def.idempotency === "handler" || def.resourceGuarded) return this.execute(def, invocation, req, parsed.data, signal);
     const owner = subject === caller ? caller : JSON.stringify([caller, subject]);
+    const flightKey = `${owner}|${def.name}|${key}`;
+    const running = this.inflight.get(flightKey);
+    if (running) {
+      const sameInput = IdempotencyStore.hashInput(req.input) === this.inflightHash.get(flightKey);
+      const again = await running;
+      return sameInput ? again : this.fail(errors.idempotencyMismatch());
+    }
     const hit = this.d.idempotency.lookup(owner, def.name, key, req.input);
     if (hit.hit) {
       if (hit.mismatch) return this.fail(errors.idempotencyMismatch());
@@ -342,24 +349,25 @@ export class Dispatcher {
       return this.fail(new HuhuError("INTERNAL", "旧调用结果缺少可核实的持有者", { retryable: false, details: { outcome: "unknown" } }));
     }
 
-    const flightKey = `${owner}|${def.name}|${key}`;
-    const running = this.inflight.get(flightKey);
-    if (running) {
-      const sameInput = IdempotencyStore.hashInput(req.input) === this.inflightHash.get(flightKey);
-      const again = await running;
-      return sameInput ? again : this.fail(errors.idempotencyMismatch());
+    if (signal.aborted) return this.cancelled();
+    const store = this.d.idempotency;
+    let acceptance: CapabilityResult<never>;
+    try {
+      acceptance = store.accept(owner, def.name, key, req.input);
+    } catch (error) {
+      this.d.log?.("error", "幂等受理记录写入失败", { error: String(error) });
+      return this.fail(new HuhuError("INTERNAL", "无法保存调用受理记录", { retryable: false, details: { outcome: "not-accepted" } }));
     }
     const p = (async () => {
       const result = await this.execute(def, invocation, req, parsed.data, signal);
-      // 可重试的失败不缓存，允许同 key 重试
-      if (result.ok || (!result.error.retryable && result.error.details?.["outcome"] !== "not-accepted")) {
-        try {
-          this.d.idempotency.record(owner, def.name, key, req.input, result);
-        } catch (e) {
-          this.d.log?.("error", "幂等记录写入失败", { error: String(e) });
-        }
+      try {
+        if (!result.ok && (result.error.retryable || result.error.details?.["outcome"] === "not-accepted")) store.release(owner, def.name, key, req.input);
+        else store.record(owner, def.name, key, req.input, result);
+        return result;
+      } catch (error) {
+        this.d.log?.("error", "幂等结果记录写入失败", { error: String(error) });
+        return acceptance;
       }
-      return result;
     })();
     this.inflightHash.set(flightKey, IdempotencyStore.hashInput(req.input));
     this.inflight.set(flightKey, p);
