@@ -276,6 +276,58 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
   });
 });
 
+test("F22 命令面板隔离键盘焦点并在关闭或执行后恢复导航", async ({ browserName }, info) => {
+  void browserName;
+  await runOnHosts(info, async (page) => {
+    const opener = page.getByTestId("window-titlebar").getByRole("button", { name: "搜索与命令", exact: true });
+    const palette = page.getByRole("dialog", { name: "命令面板" });
+    const search = palette.getByRole("combobox");
+    await opener.click();
+    await expect(search).toBeFocused();
+    expect(await palette.evaluate((element) => element.matches(":modal"))).toBe(true);
+
+    await page.keyboard.press("Shift+Tab");
+    const close = palette.getByRole("button", { name: "关闭" });
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(search).toBeFocused();
+    for (const key of ["F6", "Shift+F6"]) {
+      await page.keyboard.press(key);
+      await expect(search).toBeFocused();
+    }
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await expect(opener).toBeFocused();
+
+    await page.getByRole("button", { name: "收件箱", exact: true }).first().click();
+    await page.getByRole("button", { name: "快速捕获", exact: true }).click();
+    const outer = page.getByRole("dialog", { name: "快速捕获" });
+    const title = outer.getByRole("textbox", { name: "标题" });
+    await expect(title).toBeFocused();
+    await page.keyboard.press("Control+k");
+    await expect(search).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await expect(outer).toBeVisible();
+    await expect(title).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(outer).toBeHidden();
+
+    await opener.click();
+    await search.fill("任务");
+    for (const key of ["Escape", "Enter"]) {
+      await search.dispatchEvent("keydown", { key, isComposing: true, bubbles: true, cancelable: true });
+      await expect(search).toBeFocused();
+    }
+    await page.keyboard.press("Enter");
+    await expect(palette).toBeHidden();
+    const destination = page.getByRole("navigation", { name: "已打开的功能" }).getByRole("button", { name: "任务", exact: true });
+    await expect(destination).toHaveAttribute("aria-current", "page");
+    await expect(destination).toBeFocused();
+  });
+});
+
 async function showAgent(page: Page) {
   await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
   await expect(page.getByTestId("agent-cli-module")).toBeVisible();

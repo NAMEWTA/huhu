@@ -1,6 +1,6 @@
-import { FileIcon, IconButton } from "@huhu/ui";
-import { ArrowUpRight, Command, Search, X } from "lucide-react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Dialog, FileIcon } from "@huhu/ui";
+import { ArrowUpRight, Command, Search } from "lucide-react";
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
@@ -8,6 +8,7 @@ import { EngineClient } from "../engine-client/client.js";
 import type { UiState } from "../state/ui-store.js";
 import { runExternalCommand, type ExternalCommandRef } from "../plugins/run-command.js";
 import { LatestOnly, rankItems, type PaletteItem } from "./palette-model.js";
+import { focusOpenedModule } from "../shell/destination-focus.js";
 
 export type PaletteSearchHit = { path: string; kind: string; title: string; id?: string; archive?: boolean };
 
@@ -52,7 +53,8 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
   const [results, setResults] = useState<PaletteItem[]>([]);
   const [searching, setSearching] = useState(false);
   const latest = useRef(new LatestOnly());
-  const input = useRef<HTMLInputElement>(null);
+  const pendingAction = useRef<(() => void) | null>(null);
+  const listId = useId();
   const [recents, setRecents] = useState<string[]>(readRecents);
   const resetSearch = useCallback(() => {
     latest.current.cancel();
@@ -70,7 +72,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        if (e.defaultPrevented || e.isComposing || e.altKey || e.shiftKey) return;
+        if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.altKey || e.shiftKey) return;
         if (e.target instanceof Element && e.target.closest('[data-editor-link-shortcut] .ProseMirror[contenteditable="true"]')) return;
         e.preventDefault();
         setOpen(!ui.getState().paletteOpen);
@@ -80,7 +82,10 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     return () => window.removeEventListener("keydown", onKey);
   }, [setOpen, ui]);
   useLayoutEffect(() => {
-    if (open) input.current?.focus();
+    if (open || !pendingAction.current) return;
+    const perform = pendingAction.current;
+    pendingAction.current = null;
+    perform();
   }, [open]);
 
   // 外部扩展注册的命令：打开面板时读取（扩展启停后下次打开即更新）
@@ -143,7 +148,10 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
 
   const base = useMemo<PaletteItem[]>(
     () => [
-      ...modules.map((m): PaletteItem => ({ id: `mod:${m.id}`, group: "module", title: m.title, hint: "打开模块", icon: m.icon, run: () => s.openModule(m.id) })),
+      ...modules.map((m): PaletteItem => ({
+        id: `mod:${m.id}`, group: "module", title: m.title, hint: "打开模块", icon: m.icon,
+        run: () => { void s.openModule(m.id, { onOpen: () => focusOpenedModule(ui, m.id) }); },
+      })),
       ...commands.map((c): PaletteItem => ({ id: `cmd:${c.id}`, group: "command", title: c.title, hint: "命令", icon: <Command size={18} aria-hidden />, run: c.run })),
       ...pluginCommands.map((c): PaletteItem => ({
         id: `ext:${c.pluginId}:${c.id}`,
@@ -154,10 +162,9 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
         run: () => void (client && runExternalCommand(client, c).catch(() => undefined)),
       })),
     ],
-    [modules, commands, pluginCommands, client, s],
+    [modules, commands, pluginCommands, client, s, ui],
   );
   const items = useMemo(() => [...rankItems(base, q, recents), ...results], [base, q, recents, results]);
-  if (!open) return null;
   const run = (it: PaletteItem) => {
     if (it.isCurrent?.() === false) return;
     const next = [it.id, ...recents.filter((r) => r !== it.id)].slice(0, 8);
@@ -167,96 +174,83 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     } catch {
       /* 隐私模式下不可用 */
     }
+    pendingAction.current = () => it.run();
     setOpen(false);
-    it.run();
   };
   return (
-    <div className="hu-modal-backdrop" onMouseDown={() => setOpen(false)}>
-      <div role="dialog" aria-modal="true" aria-label="命令面板" className="hu-modal shell-modal-wide" data-testid="command-palette" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="hu-modal-head">
-          <div>
-            <h2>搜索与命令</h2>
-          </div>
-          <IconButton icon={X} label="关闭" onClick={() => setOpen(false)} />
-        </div>
-        <div className="hu-palette-search">
-          <Search size={20} aria-hidden />
-          <input
-            ref={input}
-            role="combobox"
-            aria-expanded
-            aria-autocomplete="list"
-            aria-controls="hu-palette-list"
-            aria-activedescendant={items[sel] ? `hu-palette-opt-${sel}` : undefined}
-            aria-label="搜索模块、命令和内容"
-            placeholder="搜索笔记、任务、功能，或输入命令…"
-            value={q}
-            onChange={(e) => {
-              resetSearch();
-              setQ(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                setOpen(false);
-              } else if (e.key === "Escape" && e.nativeEvent.isComposing) {
-                /* 输入法取消组合，不关闭面板 */
-              } else if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setSel((x) => Math.min(items.length - 1, x + 1));
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setSel((x) => Math.max(0, x - 1));
-              } else if (e.key === "Home" || e.key === "End") {
-                e.preventDefault();
-                setSel(e.key === "Home" ? 0 : Math.max(0, items.length - 1));
-              } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                // Enter 与 Mod+Enter 都执行并在标签里打开（模块与笔记本来就是在新标签里打开）
-                e.preventDefault();
-                const it = items[sel];
-                if (it) run(it);
-              } // IME 组合期间 Enter 不执行
-            }}
-          />
-          <kbd>ESC</kbd>
-        </div>
-        <div id="hu-palette-list" className="shell-command-results" role="listbox" aria-label="搜索结果">
-          {items.map((it, i) => (
-            <Fragment key={it.id}>
-              {it.groupLabel && items[i - 1]?.groupLabel !== it.groupLabel ? (
-                <div className="shell-command-group" role="presentation" data-testid="palette-group">
-                  {it.groupLabel}
-                </div>
-              ) : null}
-              <button
-                id={`hu-palette-opt-${i}`}
-                type="button"
-                role="option"
-                tabIndex={-1}
-                aria-selected={i === sel}
-                className={i === sel ? "selected" : ""}
-                data-testid="palette-item"
-                data-group={it.group}
-                onPointerMove={() => setSel(i)}
-                onClick={() => run(it)}
-              >
-                <span className="shell-command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
-                <span className="hu-flex-fill">
-                  <strong>{it.title}</strong>
-                  {it.hint ? <small>{it.hint}</small> : null}
-                </span>
-                <ArrowUpRight size={15} aria-hidden />
-              </button>
-            </Fragment>
-          ))}
-          {items.length === 0 ? <p className="shell-tw-empty-group">{searching ? "搜索中…" : "没有找到结果"}</p> : null}
-        </div>
-        <div className="shell-palette-foot">
-          <span>↑ ↓ 选择 · Enter 打开</span>
-          <span>ESC 关闭</span>
-          <span>所有结果遵循当前插件状态</span>
-        </div>
+    <Dialog open={open} title="搜索与命令" ariaLabel="命令面板" testId="command-palette" className="hu-command-palette" wide dismissOnBackdrop onClose={() => setOpen(false)}>
+      <div className="hu-palette-search">
+        <Search size={20} aria-hidden />
+        <input
+          role="combobox"
+          aria-expanded
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-activedescendant={items[sel] ? `${listId}-option-${sel}` : undefined}
+          aria-label="搜索模块、命令和内容"
+          placeholder="搜索笔记、任务、功能，或输入命令…"
+          value={q}
+          onChange={(e) => {
+            resetSearch();
+            setQ(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setSel((x) => Math.min(Math.max(0, items.length - 1), x + 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setSel((x) => Math.max(0, x - 1));
+            } else if (e.key === "Home" || e.key === "End") {
+              e.preventDefault();
+              setSel(e.key === "Home" ? 0 : Math.max(0, items.length - 1));
+            } else if (e.key === "Enter") {
+              // Enter 与 Mod+Enter 都执行并在标签里打开（模块与笔记本来就是在新标签里打开）
+              e.preventDefault();
+              const it = items[sel];
+              if (it) run(it);
+            } // IME 组合期间 Enter 不执行
+          }}
+        />
+        <kbd>ESC</kbd>
       </div>
-    </div>
+      <div id={listId} className="shell-command-results" role="listbox" aria-label="搜索结果">
+        {items.map((it, i) => (
+          <Fragment key={it.id}>
+            {it.groupLabel && items[i - 1]?.groupLabel !== it.groupLabel ? (
+              <div className="shell-command-group" role="presentation" data-testid="palette-group">
+                {it.groupLabel}
+              </div>
+            ) : null}
+            <button
+              id={`${listId}-option-${i}`}
+              type="button"
+              role="option"
+              tabIndex={-1}
+              aria-selected={i === sel}
+              className={i === sel ? "selected" : ""}
+              data-testid="palette-item"
+              data-group={it.group}
+              onPointerMove={() => setSel(i)}
+              onClick={() => run(it)}
+            >
+              <span className="shell-command-icon">{it.icon ?? <Command size={18} aria-hidden />}</span>
+              <span className="hu-flex-fill">
+                <strong>{it.title}</strong>
+                {it.hint ? <small>{it.hint}</small> : null}
+              </span>
+              <ArrowUpRight size={15} aria-hidden />
+            </button>
+          </Fragment>
+        ))}
+        {items.length === 0 ? <p className="shell-tw-empty-group">{searching ? "搜索中…" : "没有找到结果"}</p> : null}
+      </div>
+      <div className="shell-palette-foot">
+        <span>↑ ↓ 选择 · Enter 打开</span>
+        <span>ESC 关闭</span>
+        <span>所有结果遵循当前插件状态</span>
+      </div>
+    </Dialog>
   );
 }

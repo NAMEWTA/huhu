@@ -29,14 +29,15 @@ export function cycleRegion(root: ParentNode, active: Element | null, backwards:
   return true;
 }
 
+export function handleRegionCycle(document: Document, event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.key !== "F6" || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (document.querySelector("dialog[open]") || cycleRegion(document, document.activeElement, event.shiftKey)) event.preventDefault();
+}
+
 /** F6 / Shift+F6 在外壳区域间循环（design-system.md：侧栏 → 内容 → 详情）。 */
 export function useRegionCycle(): void {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "F6" || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (document.querySelector("dialog[open]")) return; // 对话框打开时焦点留在对话框里
-      if (cycleRegion(document, document.activeElement, e.shiftKey)) e.preventDefault();
-    };
+    const onKey = (event: KeyboardEvent) => handleRegionCycle(document, event);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
