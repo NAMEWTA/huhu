@@ -354,6 +354,20 @@ describe("VaultIndex.reconcile", () => {
 });
 
 describe("VaultIndex", () => {
+  test("全文搜索按实体元数据携带任务和捕获的稳定 ID，普通文件保留字面路径", async () => {
+    const root = vault({
+      "Tasks/renamed.md": "---\nhuhu: { kind: task, id: task-original }\ntitle: 命中任务\n---\n",
+      "Inbox/renamed.md": "---\nhuhu: { kind: capture, id: cap-original }\ntitle: 命中收件\n---\n",
+      "命中#笔记.md": "普通正文",
+    });
+    const index = new VaultIndex(root);
+    await index.build();
+    expect(index.query("命中").hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "task", id: "task-original", path: "Tasks/renamed.md" }),
+      expect.objectContaining({ kind: "capture", id: "cap-original", path: "Inbox/renamed.md" }),
+      expect.objectContaining({ kind: "note", path: "命中#笔记.md" }),
+    ]));
+  });
   test("树、检索、反链、标签", async () => {
     const root = vault({
       "a/研究摘要.md": "# 研究摘要\n本周进展 #工作 参见 [[读书笔记]]\n",

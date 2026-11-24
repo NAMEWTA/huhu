@@ -101,8 +101,13 @@ export class InboxService {
     const cur = this.read(id);
     if (cur.status === "processed") throw errors.invalidInput("这条捕获已经处理过，请先撤销处理");
     if (!this.d.isTargetEnabled(target)) throw errors.invalidInput("请先在插件中心启用该模块");
+    let input = fields;
+    if (target === "note") {
+      if (fields["body"] !== undefined && typeof fields["body"] !== "string") throw errors.invalidInput("笔记正文必须是 Markdown 文本");
+      input = { ...fields, body: fields["body"] ?? cur.body };
+    }
     // 幂等键含捕获当前版本：崩溃后重试（版本未变）复用同一键；撤销处理后版本已变，会创建新对象
-    const created = await this.d.createTarget(target, fields, `inbox-convert-${id}-${cur.version}`);
+    const created = await this.d.createTarget(target, input, `inbox-convert-${id}-${cur.version}`);
     let e: Entity;
     try {
       e = await this.d.repo.patch("capture", id, { status: "processed", processedAt: iso(this.d.now()), result: { kind: target, id: created.id } }, cur.version);

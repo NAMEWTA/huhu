@@ -2123,6 +2123,51 @@ test("设置：时区改变后页面显示该时区的当前日期，非法时�
   }
 });
 
+test("文件历史：保存后立即切出 Vault 或关闭，重开只记录一次末次修订", async () => {
+  test.setTimeout(90_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-history-lifecycle-"));
+  let app: ElectronApplication | undefined;
+  try {
+    app = await launch(vault);
+    let page = await app.firstWindow();
+    await engineReady(page);
+    const { path: note } = await call<{ path: string }>(page, "notes.create", { name: "末次修订" });
+    const save = async (text: string) => {
+      const { version } = await call<{ version: string }>(page, "notes.read", { path: note });
+      await call(page, "notes.save", { path: note, text, expectedVersion: version });
+    };
+    const history = async () => {
+      const entries = await call<{ id: string }[]>(page, "history.timeline", { path: note });
+      return Promise.all(entries.map(({ id: entryId }) => call<{ text: string }>(page, "history.read", { path: note, entryId })));
+    };
+
+    await page.getByRole("button", { name: "设置" }).first().click();
+    await page.getByTestId("settings-nav-vault").click();
+    await page.getByTestId("svault-switch").click();
+    await save("切出 Vault 前的正文");
+    await page.getByTestId("svault-switch-confirm").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible();
+    await app.close();
+    app = undefined;
+
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await engineReady(page);
+    expect(await history()).toEqual([{ text: "切出 Vault 前的正文" }]);
+    await save("关闭窗口前的正文");
+    await app.close();
+    app = undefined;
+
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await engineReady(page);
+    expect(await history()).toEqual([{ text: "关闭窗口前的正文" }, { text: "切出 Vault 前的正文" }]);
+  } finally {
+    await app?.close();
+    rmTree(vault);
+  }
+});
+
 test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、提交", async () => {
   const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
   const app = await launch(vault);

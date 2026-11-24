@@ -615,6 +615,8 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
     const taskBody = "synthetic body written only to the converted task";
     const archiveBody = "synthetic body written only to the converted archive";
     const archiveField = "synthetic field written only to the converted archive";
+    const noteBody = "Synthetic note first line.\n\n```js\nconst kept = 42\n```\n\n[[Conversion Reference]]";
+    const editedBody = "Synthetic edited note.\n\n[[Conversion Reference]]";
     await f.callDesktop("archives.types.save", { name: "Conversion Library", fields: [{ name: "reference", type: "text" }] });
     const first = IdVersion.parse(await f.callDesktop("inbox.capture", { title: "Source for task", body: BODY }));
     const second = IdVersion.parse(await f.callDesktop("inbox.capture", { title: "Source for archive", body: BODY }));
@@ -637,9 +639,30 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
     expect(archive).toMatchObject({ ok: true, data: { result: { kind: "archive", id: "Archives/Conversion Library/Converted Archive/" } } });
     expect(await f.callDesktop("archives.read", { path: "Archives/Conversion Library/Converted Archive/" })).toMatchObject({ body: expect.stringContaining(archiveBody), fields: { reference: archiveField } });
     expect(await f.callDesktop("inbox.list")).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id, body: BODY }), expect.objectContaining({ id: second.id, body: BODY })]));
+    await f.callDesktop("notes.create", { name: "Conversion Reference" });
+    for (const [name, original, override, expected] of [
+      ["Converted Note Default", noteBody, undefined, noteBody],
+      ["Converted Note Edited", noteBody, editedBody, editedBody],
+      ["Converted Note Empty", noteBody, "", ""],
+    ] as const) {
+      const capture = IdVersion.parse(await f.callDesktop("inbox.capture", { title: name, body: original }));
+      const result = await f.invoke(
+        "inbox.convert",
+        { id: capture.id, expectedVersion: capture.version, target: "note", fields: { name, ...(override !== undefined && { body: override }) } },
+        randomUUID(),
+      );
+      expect(result).toMatchObject({ ok: true, data: { result: { kind: "note", id: expect.any(String) } } });
+      if (!result?.ok) throw new Error("Fixture could not convert to a note");
+      const converted = z.object({ result: z.object({ id: z.string() }) }).parse(result.data).result;
+      expect(readFileSync(path.join(f.root, `${name}.md`), "utf8")).toBe(expected);
+      expect(await f.callDesktop("notes.list")).toEqual(expect.arrayContaining([expect.objectContaining({ path: `${name}.md`, id: converted.id })]));
+      expect(await f.callDesktop("inbox.list")).toEqual(expect.arrayContaining([expect.objectContaining({ id: capture.id, body: original, status: "processed", result: { kind: "note", id: converted.id } })]));
+    }
+    const backlinks = (await f.callDesktop("notes.backlinks", { path: "Conversion Reference.md" })) as { path: string }[];
+    expect(backlinks.filter(({ path: file }) => file.startsWith("Converted Note")).map(({ path: file }) => file).sort()).toEqual(["Converted Note Default.md", "Converted Note Edited.md"]);
     for (const name of ["invocation-intents.ndjson", "idempotency.ndjson"]) {
-      const ledger = readFileSync(path.join(f.engine().vault.runtimeDir, name), "utf8");
-      for (const secret of [taskBody, archiveBody, archiveField]) expect(ledger).not.toContain(secret);
+      const ledger = readFileSync(path.join(f.engine().vault.runtimeDir, name), "utf8").split("\n").filter((line) => !line.startsWith('{"k":"desktop|inbox.capture|')).join("\n");
+      for (const secret of [taskBody, archiveBody, archiveField, noteBody.split("\n")[0]!, editedBody.split("\n")[0]!]) expect(ledger).not.toContain(secret);
     }
 
     const regular = "direct create keeps its existing response";

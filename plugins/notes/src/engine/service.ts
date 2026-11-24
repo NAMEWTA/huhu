@@ -276,7 +276,7 @@ export class NotesService {
     return { path: rel };
   }
 
-  async create(input: { name: string; folder?: string; template?: NoteTemplate; templatePath?: string }): Promise<{ path: string; id: string }> {
+  async create(input: { name: string; folder?: string; template?: NoteTemplate; templatePath?: string; body?: string }): Promise<{ path: string; id: string }> {
     const nameErr = validateName(input.name.replace(/\.md$/i, ""));
     if (nameErr) throw errors.invalidInput(nameErr);
     const base = input.name.replace(/\.md$/i, "").trim();
@@ -288,7 +288,10 @@ export class NotesService {
     if (templatePath !== undefined && (input.template !== undefined || !isLocalTemplate(templatePath))) {
       throw errors.invalidInput("请选择一个内置模板或 Vault 本地模板");
     }
-    const bytes = templatePath === undefined ? Buffer.from(renderTemplate(input.template ?? "blank", base)) : this.readTemplateSource(templatePath);
+    const template = input.template ?? "blank";
+    let bytes = templatePath === undefined ? Buffer.from(renderTemplate(template, base)) : this.readTemplateSource(templatePath);
+    if (input.body !== undefined && templatePath === undefined && template === "blank") bytes = Buffer.from(input.body);
+    else if (input.body) bytes = Buffer.concat([bytes, Buffer.from(`\n\n${input.body}`)]);
     await this.writeNewNote(rel, bytes);
     return { path: rel, id: await this.ensureId(rel) };
   }

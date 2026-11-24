@@ -17,9 +17,10 @@ export interface HistoryEntry {
   size: number;
 }
 
-const MAX_BYTES = 10 * 1024 * 1024;
+export const HISTORY_MAX_BYTES = 10 * 1024 * 1024;
 const TEXT = /\.(md|txt|json|ya?ml|csv|ndjson)$/i;
 const SKIP_PREFIX = [".huhu/"];
+export const historyPathSupported = (rel: string) => TEXT.test(rel) && !SKIP_PREFIX.some((prefix) => rel.startsWith(prefix));
 
 /** 文件历史：`.huhu/history/git` shadow 仓库，与用户自己的 Git 互不影响。 */
 export class FileHistory {
@@ -53,14 +54,18 @@ export class FileHistory {
         await this.git.run(["config", "core.autocrlf", "false"]);
         await this.git.run(["config", "commit.gpgsign", "false"]);
       }
-    })();
+    })().catch((error: unknown) => {
+      this.ready = null;
+      throw error;
+    });
     return this.ready;
   }
 
   recordable(rel: string): boolean {
-    if (!TEXT.test(rel) || SKIP_PREFIX.some((p) => rel.startsWith(p))) return false;
+    if (!historyPathSupported(rel)) return false;
     try {
-      return statSync(this.files.abs(rel)).size <= MAX_BYTES;
+      const file = statSync(this.files.abs(rel));
+      return file.isFile() && file.size <= HISTORY_MAX_BYTES;
     } catch {
       return false;
     }
@@ -69,6 +74,16 @@ export class FileHistory {
   /** 记录文件当前内容为一个版本；内容与上一版相同则不产生新版本。 */
   record(rel: string, source: HistorySource, title: string | null = null, expectedVersion?: string, check?: () => void): Promise<HistoryEntry | null> {
     return this.exclusive(() => this.recordLocked(rel, source, title, expectedVersion, check));
+  }
+
+  async idle(): Promise<void> {
+    await this.tail;
+  }
+
+  recordRevision(rel: string, bytes: Buffer, executable: boolean, source: "edit" | "external", intent: string, recovering: boolean): Promise<HistoryEntry | null> {
+    this.files.assertWritable();
+    const p = normalizeRelPath(rel);
+    return this.exclusive(() => this.recordSnapshot(p, bytes, source, null, undefined, executable ? "100755" : "100644", { id: intent, recovering }));
   }
 
   private async recordLocked(rel: string, source: HistorySource, title: string | null = null, expectedVersion?: string, check?: () => void): Promise<HistoryEntry | null> {
@@ -97,19 +112,33 @@ export class FileHistory {
   }
 
   /** Publish the checked bytes, even if the editor saves a new version during the Git calls. */
-  private async recordSnapshot(p: string, bytes: Buffer, source: HistorySource, title: string | null, check?: () => void): Promise<HistoryEntry> {
+  private async recordSnapshot(
+    p: string,
+    bytes: Buffer,
+    source: HistorySource,
+    title: string | null,
+    check?: () => void,
+    mode?: "100644" | "100755",
+    intent?: { id: string; recovering: boolean },
+  ): Promise<HistoryEntry | null> {
     await this.init();
     const head = (await this.git.run(["rev-parse", "--verify", "--quiet", "HEAD"], { okCodes: [1] })).stdout.trim();
+    const marker = intent && `Huhu-History-Intent: ${intent.id}`;
+    if (head && intent?.recovering) {
+      const recorded = await this.git.run(["log", "-1", "--fixed-strings", `--grep=${marker}`, "--format=%H", head]);
+      if (recorded.stdout.trim()) return null;
+    }
     const dir = mkdtempSync(path.join(os.tmpdir(), "huhu-history-"));
     const at = this.now().toISOString();
     const env = { GIT_INDEX_FILE: path.join(dir, "index"), GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at };
     try {
       if (head) await this.git.run(["read-tree", head], { env });
       const oid = (await this.git.run(["hash-object", "-w", "--stdin"], { input: bytes })).stdout.trim();
-      const mode = statSync(this.files.abs(p)).mode & 0o100 ? "100755" : "100644";
-      await this.git.run(["update-index", "--add", "--cacheinfo", `${mode},${oid},${p}`], { env });
+      const permissions = mode ?? (statSync(this.files.abs(p)).mode & 0o100 ? "100755" : "100644");
+      await this.git.run(["update-index", "--add", "--cacheinfo", `${permissions},${oid},${p}`], { env });
       const tree = (await this.git.run(["write-tree"], { env })).stdout.trim();
-      const id = (await this.git.run(["commit-tree", tree, ...(head ? ["-p", head] : []), "-m", `${source}|${title ?? ""}|${p}`], { env })).stdout.trim();
+      if (head && !title && (await this.git.run(["rev-parse", `${head}^{tree}`])).stdout.trim() === tree) return null;
+      const id = (await this.git.run(["commit-tree", tree, ...(head ? ["-p", head] : []), "-m", `${source}|${title ?? ""}|${p}`, ...(marker ? ["-m", marker] : [])], { env })).stdout.trim();
       check?.();
       await this.git.run(["update-ref", "HEAD", id, head || "0".repeat(id.length)]);
       return { id, at, source, title, path: p, size: bytes.length };

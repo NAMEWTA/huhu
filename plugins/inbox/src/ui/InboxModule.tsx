@@ -5,7 +5,7 @@ import { requestOpenPath, useCapability, useEngine, useQueryClient, useReference
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
-import { takeOpenCapture } from "./open-capture.js";
+import { onOpenCaptureRequest } from "./open-capture.js";
 
 // 紧凑 OK 编辑器（S2c）按需加载：收件箱的首屏不带编辑器闭包
 const CompactView = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownView })));
@@ -45,10 +45,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: "edit"; item: Capture | null } | { kind: "convert"; item: Capture; target: Target } | { kind: "delete"; item: Capture } | { kind: "undo"; item: Capture } | null>(null);
   const every = useCapability<Capture[]>("inbox.list", {});
-  useEffect(() => {
-    const requested = takeOpenCapture(engine);
-    if (requested) setSelected(requested);
-  }, [engine]);
+  useEffect(() => onOpenCaptureRequest(engine, setSelected), [engine]);
   const types = useCapability<ArchiveType[]>("archives.types.list", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
   const all = every.data ?? [];
@@ -331,7 +328,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           target={dialog.target}
           types={types.data ?? []}
           onClose={() => setDialog(null)}
-          onSubmit={async (fields) => (await act("inbox.convert", { id: dialog.item.id, target: dialog.target, fields })) && (setDialog(null), true)}
+          onSubmit={async (fields) => (await act("inbox.convert", { id: dialog.item.id, expectedVersion: dialog.item.version, target: dialog.target, fields })) && (setDialog(null), true)}
         />
       ) : null}
       {dialog?.kind === "delete" ? (
@@ -502,9 +499,18 @@ function ConvertDialog({
   const label = TARGET_TEXT[target];
   const [name, setName] = useState(item.title);
   const [body, setBody] = useState(item.body);
+  const bodyId = useId();
   const [due, setDue] = useState("");
   const [type, setType] = useState(types[0]?.path ?? "");
   const { port, saving, failure, submit } = useDialogSubmit();
+
+  function convert(content: string) {
+    const title = name.trim();
+    if (target === "task") return onSubmit({ title, body: content, ...(due ? { due } : {}) });
+    if (target === "archive") return onSubmit({ name: title, type, body: content });
+    return onSubmit({ name: title, body: content });
+  }
+
   return (
     <Dialog
       open
@@ -524,7 +530,7 @@ function ConvertDialog({
             variant="primary"
             loading={saving}
             disabled={!name.trim()}
-            onClick={() => void submit(body, (body) => onSubmit(target === "task" ? { title: name.trim(), body, ...(due ? { due } : {}) } : target === "note" ? { name: name.trim(), template: "blank" } : { name: name.trim(), type, body }))}
+            onClick={() => void submit(body, convert)}
           >
             创建{label}并完成处理
           </Button>
@@ -551,20 +557,23 @@ function ConvertDialog({
             </select>
           </Field>
         ) : null}
-        {target !== "note" ? (
+        {target === "task" ? (
           <Field label="内容">
-            {target === "task" ? (
-              <CaptureBodyInput
-                value={body}
-                onPort={(editor) => {
-                  port.current = editor;
-                }}
-              />
-            ) : (
-              <textarea aria-label="内容" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
-            )}
+            <CaptureBodyInput
+              value={body}
+              onPort={(editor) => {
+                port.current = editor;
+              }}
+            />
           </Field>
-        ) : null}
+        ) : (
+          <div className="hu-field">
+            <label className="hu-field-label" htmlFor={bodyId}>
+              内容
+            </label>
+            <textarea id={bodyId} rows={5} value={body} disabled={saving} onChange={(e) => setBody(e.target.value)} />
+          </div>
+        )}
       </div>
     </Dialog>
   );

@@ -5,7 +5,7 @@ const op = z.enum(["created", "updated", "deleted"]);
 
 /** 事件类型与 payload；interfaces.md §5 的唯一实现。 */
 export const EVENT_PAYLOADS = {
-  "vault.fileChanged": z.object({ path: z.string(), kind: z.string().optional(), id: z.string().optional(), change, from: z.string().optional(), writeId: z.string().optional() }),
+  "vault.fileChanged": z.object({ path: z.string(), kind: z.string().optional(), id: z.string().optional(), change, from: z.string().optional(), writeId: z.string().optional(), version: z.string().optional() }),
   /** 目录（含空目录）被创建 / 删除 / 改名：资源目录（vault.list）据此失效。 */
   "vault.dirChanged": z.object({ path: z.string() }),
   "entity.changed": z.object({ kind: z.string(), id: z.string(), op, /** 档案等按路径标识的实体：文件夹路径与其 index.md 的笔记 id。 */ path: z.string().optional(), noteId: z.string().nullable().optional() }),

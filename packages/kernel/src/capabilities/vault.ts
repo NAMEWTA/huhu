@@ -235,7 +235,7 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
       plugin: "kernel",
       scope: "read",
       input: z.object({ query: z.string().min(1), kind: z.string().optional(), limit: z.number().int().min(1).max(200).default(50) }),
-      output: z.object({ indexing: z.boolean(), hits: z.array(z.object({ path: z.string(), kind: z.string(), title: z.string(), score: z.number(), archive: z.boolean() })) }),
+      output: z.object({ indexing: z.boolean(), hits: z.array(z.object({ path: z.string(), kind: z.string(), id: z.string().optional(), title: z.string(), score: z.number(), archive: z.boolean() })) }),
       exposable: true,
       defaultExposed: false,
       handler: (_c, i) => {

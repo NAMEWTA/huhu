@@ -31,9 +31,12 @@ describe("LatestOnly（ACC-WB-07：过期搜索结果丢弃）", () => {
     const l = new LatestOnly();
     const first = l.next();
     const second = l.next();
-    expect(first()).toBe(false);
-    expect(second()).toBe(true);
-    l.next();
-    expect(second()).toBe(false);
+    expect(first.signal.aborted).toBe(true);
+    expect(first.isCurrent()).toBe(false);
+    expect(second.isCurrent()).toBe(true);
+    l.cancel();
+    expect(second.signal.aborted).toBe(true);
+    expect(second.isCurrent()).toBe(false);
+    expect(l.next().isCurrent()).toBe(true);
   });
 });
