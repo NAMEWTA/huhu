@@ -137,12 +137,13 @@ function targetKey(target: MailLocationTarget): string {
 }
 
 type LocationIndex = { contactIndex: number; row: number; message: ConversationMessage };
-const groupViews = new WeakMap<ConversationGroups, { contacts: ReturnType<typeof summarize>; locations?: Map<string, LocationIndex> }>();
+type ConversationView = { contacts: ReturnType<typeof summarize>; locations?: Map<string, LocationIndex> };
+const groupViews = new WeakMap<ConversationGroups, ConversationView>();
 
-function conversationView(groups: ConversationGroups) {
+function conversationView(groups: ConversationGroups): ConversationView {
   const existing = groupViews.get(groups);
   if (existing) return existing;
-  const view = { contacts: summarize(groups) };
+  const view: ConversationView = { contacts: summarize(groups) };
   groupViews.set(groups, view);
   return view;
 }
