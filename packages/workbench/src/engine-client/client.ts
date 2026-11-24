@@ -20,6 +20,8 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** 失败后核实或重交同一次操作时复用原键。 */
   idempotencyKey?: string;
+  /** 启用持久意图的能力通过此键恢复操作。 */
+  intentKey?: string;
 }
 
 export class CapabilityError extends Error {
@@ -59,7 +61,7 @@ export class EngineClient {
 
   async call<T>(capability: string, input: unknown = {}, opts: CallOptions = {}): Promise<T> {
     const idempotencyKey = opts.idempotencyKey ?? (opts.write ? createRequestId() : undefined);
-    const body = { capability, input, requestId: createRequestId(), idempotencyKey };
+    const body = { capability, input, requestId: createRequestId(), idempotencyKey, intentKey: opts.intentKey };
     const headers = new Headers({ "content-type": "application/json" });
     if (this.endpoint.token) headers.set("authorization", `Bearer ${this.endpoint.token}`);
     const res = await this.fetchImpl(`${this.endpoint.baseUrl}/api/v1/call`, {

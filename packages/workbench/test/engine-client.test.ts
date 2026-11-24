@@ -17,6 +17,8 @@ describe("EngineClient", () => {
     expect(calls[0]?.body["idempotencyKey"]).toBeUndefined();
     await c.call("x.write", {}, { write: true });
     expect(calls[1]?.body["idempotencyKey"]).toBeTypeOf("string");
+    await c.call("x.write", {}, { write: true, intentKey: "stable-plan-intent" });
+    expect(calls[2]?.body["intentKey"]).toBe("stable-plan-intent");
     await expect(c.call("bad")).rejects.toMatchObject({ name: "CapabilityError", code: "NOT_FOUND" });
     expect(CapabilityError).toBeDefined();
   });
@@ -469,15 +471,35 @@ describe("查询失效", () => {
     }
   });
 
-  test("entity.changed(task) 只让同 Vault 的 tasks.* 查询失效", async () => {
+  test("entity.changed(task) 刷新同 Vault 的任务和计划查询", async () => {
     const qc = new QueryClient();
     qc.setQueryData(queryKey("vault-a", "tasks.list"), []);
+    qc.setQueryData(queryKey("vault-a", "automations.plans.list"), []);
     qc.setQueryData(queryKey("vault-a", "notes.list"), []);
     qc.setQueryData(queryKey("vault-b", "tasks.list"), []);
     await invalidateForEvent(qc, "vault-a", { type: "entity.changed", payload: { kind: "task", id: "task-1", op: "updated" } });
     expect(qc.getQueryState(queryKey("vault-a", "tasks.list"))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKey("vault-a", "automations.plans.list"))?.isInvalidated).toBe(true);
     expect(qc.getQueryState(queryKey("vault-a", "notes.list"))?.isInvalidated).toBe(false);
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
+  });
+
+  test.each([
+    ["automation-rule", "automations.read"],
+    ["task-follow-up", "automations.followUps.get"],
+  ])("%s 同时刷新同一 Vault 的源查询与计划目录", async (kind, sourceCapability) => {
+    const clients = [new QueryClient(), new QueryClient()];
+    const capabilities = [sourceCapability, "automations.plans.list", "automations.plans.read"];
+    for (const client of clients) {
+      for (const vault of ["vault-a", "vault-b"]) {
+        for (const capability of capabilities) client.setQueryData(queryKey(vault, capability), {});
+      }
+      await invalidateForEvent(client, "vault-a", { type: "entity.changed", payload: { kind, id: "plan", op: "updated" } });
+      for (const capability of capabilities) {
+        expect(client.getQueryState(queryKey("vault-a", capability))?.isInvalidated).toBe(true);
+        expect(client.getQueryState(queryKey("vault-b", capability))?.isInvalidated).toBe(false);
+      }
+    }
   });
   test("entity.changed(mail-ai-settings) 让同 Vault 的邮件 AI 设置读取失效，邮件列表不动", async () => {
     const qc = new QueryClient();

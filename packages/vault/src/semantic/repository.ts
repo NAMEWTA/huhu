@@ -132,7 +132,7 @@ export class SemanticRepository {
    * 修改：只改变化的键，保留未知键、注释、顺序与换行符。
    * 标题字段变化时同步重命名文件（多文件操作，可恢复）。
    */
-  async patch(kind: KindName, id: string, changes: Record<string, unknown>, expectedVersion: string, body?: string): Promise<Entity> {
+  async patch(kind: KindName, id: string, changes: Record<string, unknown>, expectedVersion: string, body?: string, beforeCommit?: () => void): Promise<Entity> {
     const spec = KINDS[kind];
     const cur = this.read(kind, id);
     if (cur.readOnly) throw errors.invalidInput("该文件由更新版本的 HUHU 创建，只读");
@@ -155,7 +155,7 @@ export class SemanticRepository {
     const wantPath = `${spec.dir}/${semanticFilename(title, id)}`;
     const bytes = Buffer.from(next);
     if (wantPath === cur.path) {
-      const { version } = await this.files.write(cur.path, bytes, { expectedVersion });
+      const { version } = await this.files.write(cur.path, bytes, { expectedVersion, ...(beforeCommit && { beforeCommit }) });
       this.onWritten?.([cur.path]);
       return { ...cur, version, data: check.data as Record<string, unknown>, body: splitDocument(next).body };
     }
@@ -170,7 +170,7 @@ export class SemanticRepository {
           { action: "delete", path: cur.path, expectedVersion },
         ];
     try {
-      await this.ops.run(`ren-${id}-${randomUUID()}`, `rename-${kind}`, steps);
+      await this.ops.run(`ren-${id}-${randomUUID()}`, `rename-${kind}`, steps, beforeCommit ? { beforeCommit } : undefined);
     } catch (error) {
       if (error instanceof HuhuError && error.code === "WRITE_PARTIAL" && error.details?.["state"] === "rolled_back" && "currentVersion" in error.details) {
         throw new HuhuError("VERSION_CONFLICT", error.message, { details: error.details });
@@ -181,10 +181,10 @@ export class SemanticRepository {
     return { ...cur, path: wantPath, version: versionOf(bytes), data: check.data as Record<string, unknown>, body: splitDocument(next).body };
   }
 
-  async delete(kind: KindName, id: string, expectedVersion: string): Promise<void> {
+  async delete(kind: KindName, id: string, expectedVersion: string, beforeCommit?: () => void): Promise<void> {
     const cur = this.read(kind, id);
     if (cur.version !== expectedVersion) throw errors.versionConflict(cur.version);
-    await this.ops.run(`del-${id}-${randomUUID()}`, `delete-${kind}`, [{ action: "delete", path: cur.path, expectedVersion }]);
+    await this.ops.run(`del-${id}-${randomUUID()}`, `delete-${kind}`, [{ action: "delete", path: cur.path, expectedVersion }], beforeCommit ? { beforeCommit } : undefined);
     this.onWritten?.([cur.path]);
   }
 

@@ -56,6 +56,8 @@ export const AutomationRuleFrontmatterSchema = z.object({
   trigger: z.object({ preset: z.string(), cron: z.string(), zone: z.string() }),
   missedRunGraceMinutes: z.number().int().min(0).default(30),
   action: AutomationActionSchema,
+  // Distinguishes consecutive edits even when their wall-clock timestamp is identical.
+  editId: z.uuidv4().optional(),
   createdAt: dateLike(IsoTime),
   updatedAt: dateLike(IsoTime),
 });

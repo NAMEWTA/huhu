@@ -5,9 +5,10 @@ import { NoteIndexDeltaSchema, type HuhuEvent, type NoteIndexDelta, type VaultIn
 export const queryKey = (vaultId: string, capability: string, input: unknown = {}): readonly unknown[] => [vaultId, capability, input];
 
 const ENTITY_CAPS: Record<string, string[]> = {
-  task: ["tasks."],
+  task: ["tasks.", "automations.plans."],
   "task-run": ["tasks."],
-  "task-follow-up": ["automations.followUps.get"],
+  "task-follow-up": ["automations.followUps.get", "automations.plans."],
+  "automation-rule": ["automations.list", "automations.read", "automations.plans."],
   "agent-session": ["agent.sessions.list", "agent.history.list"],
   "agent-workspace": ["agent.workspace.get"],
   note: ["notes.", "vault.", "archives."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
@@ -20,7 +21,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "ssh-shortcuts": ["ssh.shortcuts."],
   "home-dashboard": ["home.dashboard.get"],
   "tool-access": ["gateway.get", "capabilities.list"],
-  "automation-activation": ["automations.activations"],
+  "automation-activation": ["automations.activations", "automations.plans."],
   "mail-ai-settings": ["mail.ai.getSettings"],
 };
 

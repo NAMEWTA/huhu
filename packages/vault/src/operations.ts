@@ -36,6 +36,7 @@ interface RetainedEntry {
 }
 
 interface OperationHooks {
+  beforeCommit?: () => void;
   afterPublish?: (index: number) => void;
   afterStep?: (index: number) => void;
 }
@@ -147,6 +148,7 @@ export class OperationLog {
   }
 
   private async apply(op: OpRecord, steps: OpStep[], write: VaultFiles["write"], hooks: OperationHooks): Promise<OpRecord> {
+    hooks.beforeCommit?.();
     const { opId, steps: records } = op;
     const previous = this.load(opId);
     if (previous?.state === "prepared" || previous?.state === "needs_attention") {

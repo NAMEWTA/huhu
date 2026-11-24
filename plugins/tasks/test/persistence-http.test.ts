@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isHuhuError, newId, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "@huhu/contracts";
+import { isHuhuError, newId, PlanWriteResultSchema, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type PlanSummary, type PlanWrite, type TaskDto } from "@huhu/contracts";
 import { executionReceiptIdentity } from "@huhu/contracts/execution-receipt/engine";
 import { importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
@@ -879,10 +879,11 @@ test("跟进改期与过期进程只针对原任务受理一次，关闭任务�
   const closed = await createDispatchable(engine, "关闭后无需跟进");
   const first = "2026-11-21T10:01:00.000Z";
   const next = "2026-11-21T10:02:00.000Z";
-  const schedule = (taskId: string, scheduledFor: string, expectedRevision: string | null) => call<{ revision: string }>(engine, "automations.followUps.schedule", { taskId, scheduledFor, expectedRevision });
+  const schedule = (taskId: string, scheduledFor: string, expectedRevision: string | null) => call<{ revision: string; followUpId: string; planId: string }>(engine, "automations.followUps.schedule", { taskId, scheduledFor, expectedRevision });
   const original = await schedule(task.id, first, null);
   expect(original).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: first } });
-  expect(await schedule(task.id, next, original.data.revision)).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: next } });
+  const scheduled = await schedule(task.id, next, original.data.revision);
+  expect(scheduled).toMatchObject({ ok: true, data: { state: "scheduled", scheduledFor: next, planId: original.data.planId } });
   expect(await schedule(task.id, first, original.data.revision)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
   expect(await schedule(closed.id, next, null)).toMatchObject({ ok: true });
   expect(await call(engine, "tasks.setStatus", { id: closed.id, expectedVersion: closed.version, status: "completed" })).toMatchObject({ ok: true });
@@ -903,10 +904,159 @@ test("跟进改期与过期进程只针对原任务受理一次，关闭任务�
   await Promise.all([action(), action()]);
   await expect.poll(() => vi.mocked(fake.dispatch).mock.calls.length).toBe(1);
   expect(await call(reopened, "automations.followUps.get", { taskId: task.id })).toMatchObject({ ok: true, data: { state: "accepted", scheduledFor: next, runId: expect.any(String) } });
+  expect(await call(reopened, "automations.plans.readOccurrence", { occurrenceId: scheduled.data.followUpId })).toMatchObject({
+    ok: true,
+    data: {
+      plan: { planId: scheduled.data.planId, revision: scheduled.data.revision },
+      state: "accepted", acceptedAt: fixture.now.toISOString(),
+      timing: { trigger: "scheduled", scheduledFor: next },
+      frozenInput: { revision: task.inputRevision, digest: task.inputHash },
+    },
+  });
   expect(await call(reopened, "automations.followUps.get", { taskId: closed.id })).toMatchObject({ ok: true, data: { state: "skipped", reason: "task_unavailable" } });
   await action();
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
   expect((await call<TaskDto[]>(reopened, "tasks.list", {})).data.map(({ id }) => id).sort()).toEqual([task.id, closed.id].sort());
+});
+
+test("统一计划目录通过正式能力管理 Cron 和一次性跟进，重开仍保留原意图", { timeout: 60_000 }, async () => {
+  fixture.followUpClock = true;
+  fixture.now = new Date("2026-11-21T10:00:00.000Z");
+  const fake = executor();
+  fixture.executor = fake;
+  const root = tempVault();
+  let engine = await start(root, true);
+  const task = await createDispatchable(engine, "目录中的任务");
+  const schedule = await call<{ followUpId: string; revision: string }>(engine, "automations.followUps.schedule", {
+    taskId: task.id, scheduledFor: "2026-11-21T10:10:00.000Z", expectedRevision: null,
+  });
+  expect(schedule.ok).toBe(true);
+  const dir = path.join(engine.vault.stateDir, "automations", "follow-ups");
+  const file = path.join(dir, readdirSync(dir)[0]!);
+  const original = JSON.parse(readFileSync(file, "utf8"));
+  delete original.plan; // Simulate the format installed by versions before the directory.
+  writeFileSync(file, JSON.stringify(original));
+  const rule = await call<{ id: string; version: string }>(engine, "automations.create", {
+    title: "Cron fixture", trigger: { preset: "hourly", cron: "0 * * * *", zone: "UTC" },
+    action: { kind: "reminder", mode: "notification", text: "目录提醒", taskId: null },
+  });
+  expect(rule.ok).toBe(true);
+  await stop(engine);
+  engine = await start(root);
+
+  const list = async (input: unknown = {}) => {
+    const response = await call<{ plans: PlanSummary[]; nextCursor: string | null }>(engine, "automations.plans.list", input);
+    expect(response.ok).toBe(true);
+    return response.data;
+  };
+  const source = { plugin: "tasks", object: { kind: "task", id: task.id } };
+  const followUp = (await list({ source })).plans[0]!;
+  expect(followUp).toMatchObject({ source, revision: schedule.data.revision, intent: "enabled", title: task.title });
+  expect(followUp.planId).not.toBe(schedule.data.followUpId);
+  const page = await list({ limit: 1 });
+  expect(page.plans).toHaveLength(1);
+  expect((await list({ cursor: page.nextCursor })).plans).toHaveLength(1);
+  const cron = (await list()).plans.find(({ planId }) => planId === rule.data.id)!;
+  expect(cron).toMatchObject({ revision: rule.data.version, intent: "paused", nextAt: null });
+  expect(await list({
+    source: { plugin: "automations", object: { kind: "automation-rule", id: "unrelated" } },
+  })).toEqual({ plans: [], nextCursor: null });
+
+  const submit = async (change: PlanWrite, intentKey = change.intentId) => {
+    const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ capability: "automations.plans.submit", input: change, requestId: randomUUID(), intentKey }),
+    });
+    const reply = await response.json();
+    expect(reply).toMatchObject({ ok: true });
+    return PlanWriteResultSchema.parse(reply.data);
+  };
+  const ref = ({ planId, revision }: PlanSummary) => ({ planId, expectedRevision: revision, intentId: randomUUID() });
+  const change = async (request: PlanWrite) => {
+    const result = await submit(request);
+    if (result.outcome !== "completed") throw new Error(JSON.stringify(result));
+    return result;
+  };
+  const enableCron = { ...ref(cron), change: "set-intent", intent: "enabled" } as const;
+  expect(await submit(enableCron, randomUUID())).toMatchObject({ outcome: "not-accepted", error: { code: "INVALID_INPUT" } });
+  const enabledCron = (await change(enableCron)).plan;
+  expect(enabledCron.nextAt).toBe("2026-11-21T11:00:00.000Z");
+  const newCron = (await change({ ...ref(enabledCron), change: "reschedule", trigger: { kind: "cron", expression: "15 * * * *", zone: "UTC" } })).plan;
+  expect(newCron.nextAt).toBe("2026-11-21T10:15:00.000Z");
+  const pausedCron = (await change({ ...ref(newCron), change: "set-intent", intent: "paused" })).plan;
+  expect(pausedCron.nextAt).toBeNull();
+  expect(await submit({ ...ref(newCron), change: "delete" })).toMatchObject({ outcome: "not-accepted", error: { code: "VERSION_CONFLICT" } });
+  expect(await call(engine, "automations.read", { id: cron.planId })).toMatchObject({
+    ok: true, data: { version: pausedCron.revision, data: { enabled: false, trigger: { cron: "15 * * * *" } } },
+  });
+  const onAgain = (await change({ ...ref(pausedCron), change: "set-intent", intent: "enabled" })).plan;
+  expect(onAgain.revision).not.toBe(newCron.revision);
+  const offAgain = (await change({ ...ref(onAgain), change: "set-intent", intent: "paused" })).plan;
+  expect(offAgain.revision).not.toBe(pausedCron.revision);
+  const run = await call<{ activationId: string }>(engine, "automations.runNow", { id: cron.planId });
+  expect(run.ok).toBe(true);
+  expect(await call(engine, "automations.plans.readOccurrence", { occurrenceId: run.data.activationId })).toMatchObject({
+    ok: true,
+    data: {
+      plan: { planId: cron.planId, revision: offAgain.revision }, timing: { trigger: "manual" }, state: "completed",
+      effects: [{ kind: "notification", state: "completed" }],
+    },
+  });
+
+  const paused = (await change({ ...ref(followUp), change: "set-intent", intent: "paused" })).plan;
+  fixture.now = new Date("2026-11-21T10:11:00.000Z");
+  await fixture.followUps!.tick();
+  expect(fake.dispatch).not.toHaveBeenCalled();
+  expect(await call(engine, "automations.followUps.get", { taskId: task.id })).toMatchObject({
+    ok: true, data: { planId: followUp.planId, revision: paused.revision, state: "paused", followUpId: schedule.data.followUpId },
+  });
+  expect(await submit({ ...ref(followUp), change: "delete" })).toMatchObject({ outcome: "not-accepted", error: { code: "VERSION_CONFLICT" } });
+  const future = "2026-11-21T10:30:00.000Z";
+  const rescheduled = (await change({ ...ref(paused), change: "reschedule", trigger: { kind: "once", scheduledFor: future } })).plan;
+  expect(rescheduled).toMatchObject({ planId: followUp.planId, intent: "paused", nextAt: null });
+  const resumed = (await change({ ...ref(rescheduled), change: "set-intent", intent: "enabled" })).plan;
+  expect(resumed.nextAt).toBe(future);
+  const current = await call<{ followUpId: string }>(engine, "automations.followUps.get", { taskId: task.id });
+  expect(current.data.followUpId).not.toBe(schedule.data.followUpId);
+  const sourceUpdate = await call<{ revision: string }>(engine, "automations.followUps.schedule", {
+    taskId: task.id, scheduledFor: future, expectedRevision: resumed.revision,
+  });
+  expect(sourceUpdate.ok).toBe(true);
+  const fromSource = (await list({ source })).plans[0]!;
+  expect(fromSource).toMatchObject({ planId: followUp.planId, revision: sourceUpdate.data.revision });
+  await change({ ...ref(offAgain), change: "delete" });
+  const remove = { ...ref(fromSource), change: "delete" } as const;
+  const removed = await change(remove);
+  expect(removed.plan).toMatchObject({ planId: followUp.planId, intent: "deleted", actions: [], nextAt: null });
+  await stop(engine);
+  engine = await start(root);
+  expect(await list()).toEqual({ plans: [], nextCursor: null });
+  expect(await call(engine, "automations.plans.read", { planId: removed.plan.planId })).toMatchObject({ ok: true, data: null });
+  expect(await call(engine, "automations.followUps.get", { taskId: task.id })).toMatchObject({ ok: true, data: null });
+  expect(await call(engine, "automations.plans.readOccurrence", { occurrenceId: run.data.activationId })).toMatchObject({
+    ok: true, data: { plan: { planId: cron.planId, revision: offAgain.revision }, state: "completed" },
+  });
+  expect(await submit(remove)).toEqual(removed);
+  const receipt = await fetch(`http://127.0.0.1:${engine.port}/api/v1/operations?operationId=${removed.operationId}`, {
+    headers: { authorization: `Bearer ${engine.rendererToken}` },
+  });
+  expect(await receipt.json()).toMatchObject({ ok: true, data: { result: { ok: true, data: removed } } });
+  fixture.now = new Date("2026-11-21T10:31:00.000Z");
+  await fixture.followUps!.tick();
+  expect(fake.dispatch).not.toHaveBeenCalled();
+
+  const template = await call<{ ruleId: string }>(engine, "automations.plans.defaultTaskScan", { action: "create" });
+  expect(template).toMatchObject({ ok: true, data: { state: "created" } });
+  const installed = (await list()).plans.find(({ planId }) => planId === template.data.ruleId)!;
+  expect(installed).toMatchObject({ trigger: { kind: "cron", expression: "*/15 * * * *" }, intent: "enabled" });
+  await change({ ...ref(installed), change: "delete" });
+  await stop(engine);
+  engine = await start(root);
+  expect(await list()).toEqual({ plans: [], nextCursor: null });
+  expect(await call(engine, "automations.plans.defaultTaskScan", { action: "create" })).toMatchObject({ ok: true, data: { state: "deleted" } });
+  expect(await call(engine, "automations.plans.defaultTaskScan", { action: "restore" })).toMatchObject({ ok: true, data: { state: "created" } });
+  expect((await list()).plans[0]?.planId).toBe(installed.planId);
 });
 
 test("取消一次性跟进后无写入，新的跟进等原轮完成并沿用会话", { timeout: 60_000 }, async () => {

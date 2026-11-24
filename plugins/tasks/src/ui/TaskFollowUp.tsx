@@ -13,6 +13,7 @@ const stateText: Record<FollowUp["state"], string> = {
   accepted: "已触发",
   cancelled: "已取消",
   skipped: "已跳过",
+  paused: "已暂停",
   needs_confirmation: "需要重新确认",
 };
 const skipReasons: Record<string, string> = {
@@ -34,7 +35,7 @@ export function TaskFollowUp({ task, zone }: { task: TaskDto; zone: string | und
   const row = followUp.data;
   const canChange = !task.readOnly && !followUp.error && row !== undefined;
   const canSchedule = canChange && task.status !== "completed" && zone !== undefined;
-  const active = row?.state === "scheduled" || row?.state === "needs_confirmation";
+  const active = row?.state === "scheduled" || row?.state === "paused" || row?.state === "needs_confirmation";
 
   function closeEditor() {
     setEditor((current) => (current ? { ...current, open: false } : null));

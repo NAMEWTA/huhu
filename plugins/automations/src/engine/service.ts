@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { errors, isHuhuError, newId, type AutomationRuleFrontmatter, type AutomationRunFrontmatter, type EventPayload, type EventType, type TaskDto } from "@huhu/contracts";
@@ -212,8 +212,8 @@ export class AutomationsService {
   }
 
   // ---- 规则 ----
-  rules(): { id: string; path: string; version: string; body: string; data: RuleData }[] {
-    return this.d.repo.list("automation-rule").map((e) => ({ id: e.id, path: e.path, version: e.version, body: e.body.replace(/^\r?\n/, ""), data: e.data as unknown as RuleData }));
+  rules(): { id: string; path: string; version: string; body: string; data: RuleData; readOnly: boolean }[] {
+    return this.d.repo.list("automation-rule").map((e) => ({ id: e.id, path: e.path, version: e.version, body: e.body.replace(/^\r?\n/, ""), data: e.data as unknown as RuleData, readOnly: e.readOnly }));
   }
 
   rule(id: string) {
@@ -242,11 +242,11 @@ export class AutomationsService {
       const cur = this.rule(id);
       authorize?.(cur);
       if (expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
-      return this.updateRule(cur, patch, body);
+      return this.updateRule(cur, patch, body, authorize && (() => authorize(cur)));
     });
   }
 
-  private async updateRule(cur: ReturnType<AutomationsService["rule"]>, patch: RulePatch, body?: string) {
+  private async updateRule(cur: ReturnType<AutomationsService["rule"]>, patch: RulePatch, body?: string, beforeCommit?: () => void) {
     const { id, version: expectedVersion } = cur;
     if (patch.trigger) validateSchedule(patch.trigger.cron, patch.trigger.zone);
     const currentAction = cur.data.action;
@@ -261,30 +261,32 @@ export class AutomationsService {
     if (body === undefined && currentAction.kind === "agent" && (next.kind !== "agent" || currentAction.input.source !== next.input.source)) body = "";
     const replacingLegacy = action && hasLegacyTerminalEnvironment(currentAction);
     const changes = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
-    await this.d.repo.patch("automation-rule", id, { ...changes, ...(replacingLegacy && { enabled: false }), updatedAt: iso(this.d.now()) }, expectedVersion, body); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
+    await this.d.repo.patch("automation-rule", id, { ...changes, ...(replacingLegacy && { enabled: false }), updatedAt: iso(this.d.now()), editId: randomUUID() }, expectedVersion, body, beforeCommit); // body = 规则正文（agent 动作“提示词”输入的提示词；“任务”输入的补充指令）
     this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
     return this.rule(id);
   }
 
-  async setEnabled(id: string, enabled: boolean, authorizeEnable?: (action: RuleData["action"]) => void, expectedVersion?: string) {
+  async setEnabled(id: string, enabled: boolean, authorizeEnable?: (action: RuleData["action"]) => void, expectedVersion?: string, assertCurrent?: () => void) {
     return this.withRuleConfiguration(async () => {
+      assertCurrent?.();
       const cur = this.rule(id);
       if (expectedVersion !== undefined && expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
       if (enabled) {
         authorizeEnable?.(cur.data.action);
         if (hasLegacyTerminalEnvironment(cur.data.action)) throw errors.invalidInput("请先在规则中配置受保护环境");
       }
-      await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()) }, cur.version);
+      await this.d.repo.patch("automation-rule", id, { enabled, updatedAt: iso(this.d.now()), editId: randomUUID() }, cur.version, undefined, assertCurrent);
       this.d.publish("entity.changed", { kind: "automation-rule", id, op: "updated" });
       return this.rule(id);
     });
   }
 
-  async delete(id: string, expectedVersion?: string): Promise<void> {
+  async delete(id: string, expectedVersion?: string, assertCurrent?: () => void): Promise<void> {
     await this.withRuleConfiguration(async () => {
+      assertCurrent?.();
       const cur = this.rule(id);
       if (expectedVersion !== undefined && expectedVersion !== cur.version) throw errors.versionConflict(cur.version);
-      await this.d.repo.delete("automation-rule", id, cur.version);
+      await this.d.repo.delete("automation-rule", id, cur.version, assertCurrent);
       this.d.publish("entity.changed", { kind: "automation-rule", id, op: "deleted" });
     });
   }
@@ -529,7 +531,12 @@ export class AutomationsService {
       failure = errorMessage(error) || "无法核对启动配置。";
     }
     try {
-      const run = await this.createTerminalRun(rec, { runId, ...(launch && { terminalLaunch: launch }), failure });
+      const run = await this.withRuleConfiguration(() => {
+        const current = this.rule(rule.id);
+        if (current.version !== rule.version) throw errors.versionConflict(current.version);
+        if (!current.data.enabled) throw errors.invalidInput("定时规则已暂停");
+        return this.createTerminalRun(rec, { runId, ...(launch && { terminalLaunch: launch }), failure });
+      });
       return { run, ...(input && { input }), created: true };
     } catch (error) {
       if (errorCode(error) !== "NAME_CONFLICT") throw error;

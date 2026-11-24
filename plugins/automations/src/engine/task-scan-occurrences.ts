@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { AgentInputSchema, AutomationRuleFrontmatterSchema, errors, HuhuError, isHuhuError } from "@huhu/contracts";
+import { AgentInputSchema, AutomationRuleFrontmatterSchema, errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
 import { filesystemIdentity, machineId, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
@@ -163,6 +163,30 @@ export class TaskScanOccurrences {
 
   read(id: string): Occurrence | null {
     return this.load(TaskScanOccurrenceId.parse(id))?.occurrence ?? null;
+  }
+
+  readPlanOccurrence(id: string): PlanOccurrence | null {
+    if (!TaskScanOccurrenceId.safeParse(id).success) return null;
+    const row = this.read(id);
+    if (!row) return null;
+    const input = row.items.map(({ taskId, inputRevision, inputHash, expectedVersion }) => [taskId, inputRevision, inputHash, expectedVersion]);
+    return {
+      occurrenceId: row.id,
+      plan: { planId: row.ruleId, revision: row.ruleVersion },
+      timing: row.scheduledForUTC ? { trigger: "scheduled", scheduledFor: row.scheduledForUTC } : { trigger: "manual" },
+      state: row.finishedAt ? "completed" : "accepted",
+      acceptedAt: row.startedAt,
+      frozenInput: { revision: row.ruleVersion, digest: digest([JSON.stringify(row.rule), JSON.stringify(input)]) },
+      execution: null,
+      effects: row.items.flatMap<PlanOccurrence["effects"][number]>((item) => item.state === "skipped" ? [] : [{
+        effectId: item.dispatchId,
+        kind: "task-dispatch",
+        target: { kind: "task", id: item.taskId },
+        operationId: null,
+        state: item.state === "accepted" ? "accepted" : "not-accepted",
+        receiptId: item.state === "accepted" ? item.eventId : null,
+      }]),
+    };
   }
 
   dispatches(ruleId: string, id: string) {

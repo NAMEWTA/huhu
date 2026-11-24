@@ -11,6 +11,7 @@ import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan }
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
+import { planDescriptors, registerPlanCatalogue } from "./plans.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
@@ -59,6 +60,11 @@ const RunRow = z.object({
 });
 
 export const automationToolDescriptors = {
+  plansList: planDescriptors.list,
+  plansRead: planDescriptors.read,
+  plansReadOccurrence: planDescriptors.occurrence,
+  plansSubmit: planDescriptors.submit,
+  plansDefaultTaskScan: planDescriptors.defaultTaskScan,
   followUpsGet: defineCapabilityDescriptor({
     name: "automations.followUps.get",
     plugin: "automations",
@@ -447,12 +453,18 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       return ruleWriteResult(c.caller, r);
     }),
   );
+  const deleteRule = (id: string, expectedVersion?: string, assertCurrent?: () => void) => {
+    const remove = () => svc.delete(id, expectedVersion, assertCurrent);
+    return id === DEFAULT_TASK_SCAN_RULE_ID ? defaults.deleteRule(remove, assertCurrent) : remove();
+  };
+  const activations = () => [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])];
+  const readCronOccurrence = (id: string) => scans.readPlanOccurrence(id) ?? reminders?.readPlanOccurrence(id) ?? null;
+  registerPlanCatalogue(api, { rules: svc, followUps, defaults, now, activations, readCronOccurrence, deleteRule });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {
     if (!isWorkbenchCaller(c.caller) && !i.expectedVersion) throw errors.invalidInput("外部删除规则需要规则版本");
-    if (i.id === DEFAULT_TASK_SCAN_RULE_ID) await defaults.deleteRule(() => svc.delete(i.id, i.expectedVersion));
-    else await svc.delete(i.id, i.expectedVersion);
+    await deleteRule(i.id, i.expectedVersion, () => c.signal.throwIfAborted());
     resync();
     return { ok: true as const };
   });
@@ -466,6 +478,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         if (!isWorkbenchCaller(c.caller) && action.kind === "agent" && !i.expectedVersion) throw errors.invalidInput("外部启用任务扫描需要规则版本");
       },
       i.expectedVersion,
+      () => c.signal.throwIfAborted(),
     );
     resync();
     return ruleWriteResult(c.caller, r);
@@ -515,7 +528,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   );
   api.defineCapability(
     bindCapability(automationToolDescriptors.activations, () =>
-      [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])].sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
+      activations().sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.activationId.localeCompare(a.activationId)),
     ),
   );
   defineRuleTool(taskScanToolDescriptors.dispatches, (_c, { ruleId, activationId }) => ({ dispatches: scans.dispatches(ruleId, activationId) }));
