@@ -15,9 +15,9 @@ import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cl
 import type { TaskDispatchView } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import type { TaskQuestionView } from "../../../plugins/tasks/src/engine/receipt-inbox.js";
 import { candidatePackage, candidateEnvironment, confirmCandidate, disposeCandidate } from "../helpers/candidate-package.js";
-import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
+import { openCandidateDesktop, withFixtureCleanup, withFixtureDeadline } from "../helpers/candidate-desktop.js";
 import { createPersistentCodexSource, readCodexSource } from "../helpers/codex-persistent-source.js";
-import { openApp, rmTree } from "../helpers/launch.js";
+import { openApp, rmTree, root as desktopRoot } from "../helpers/launch.js";
 
 test.afterAll(disposeCandidate);
 
@@ -202,6 +202,8 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
   for await (const chunk of createReadStream(provider)) fingerprint.update(chunk);
   expect(fingerprint.digest("hex")).toBe("880819aab735adcf16f36cd628940b9f1e652a36c01d10a5d32f83cc84902971");
   const privateHome = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-task-history-")));
+  const runtime = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-c01-")));
+  const coreBin = process.env["HUHU_HERDR_BIN"] ?? path.join(desktopRoot, "resources/herdr/linux-x64/herdr-core");
   const responses = await startCodexResponsesFixture({ seedReplies: ["SOURCE-A-RESULT", "SOURCE-B-RESULT"], result: "RESUME-B-RESULT" });
   const titleA = "OLDER-HISTORY-A";
   const titleB = "SELECTED-HISTORY-B";
@@ -213,9 +215,9 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
   };
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
   let browser: Browser | undefined;
-  try {
+  await withFixtureCleanup(async () => {
     await writeFile(path.join(privateHome, "config.toml"), responses.config, { mode: 0o600 });
-    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider });
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider, HUHU_HERDR_BIN: coreBin, XDG_RUNTIME_DIR: runtime }, undefined, process.env["HUHU_C01_DESKTOP_APP"]);
     const { page } = desktop;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = caller(page);
@@ -245,12 +247,11 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(sourceRequests.map(({ input }) => [titleA, titleB].filter((marker) => JSON.stringify(input).includes(marker)))).toEqual([[titleA], [titleB]]);
 
     const previousEndpoint = await page.evaluate(async () => (await window.huhuHost.engine()).baseUrl);
-    await page.getByRole("button", { name: "切换 Vault" }).click();
-    await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
-    await page.getByTestId("svault-switch-confirm").click();
-    await expect(page.getByTestId("vault-launch")).toBeVisible();
-    await expect.poll(async () => fetch(`${previousEndpoint}/healthz`).then(() => true, () => false)).toBe(false);
-    await page.getByTestId("vault-recent").filter({ hasText: path.basename(desktop.vault) }).click();
+    await withFixtureDeadline(22_000, () => page.evaluate(() => window.huhuHost.vault.close()));
+    expect(await page.evaluate(() => window.huhuHost.vault.state())).toMatchObject({ path: null });
+    await expect.poll(() => fetch(`${previousEndpoint}/healthz`, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false)).toBe(false);
+    expect(await withFixtureDeadline(25_000, () => page.evaluate((vault) => window.huhuHost.vault.open(vault), desktop!.vault))).toMatchObject({ ok: true });
+    await page.reload({ timeout: 20_000 });
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
     expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
     expect(responses.requests).toHaveLength(sourceRequests.length);
@@ -258,13 +259,6 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const targets = () => call<{ mode: string; nativeSessionId?: string; history?: TaskHistorySelection; available: boolean; reason?: string }[]>("tasks.dispatch.targets", { spaceId: space!.id });
     const sourceA = (await targets()).find((entry) => entry.mode === "resume" && entry.nativeSessionId === a.id);
     expect(sourceA).toMatchObject({ available: true, history: { historyRevision: expect.any(String) } });
-    const changedA = oldA + "\n";
-    await writeFile(a.file, changedA);
-    await expect(call("tasks.create", {
-      title: "过期物理历史选择", body: "This must not start a turn.", type: "agent",
-      execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: a.id, history: sourceA!.history } },
-    })).rejects.toThrow("INVALID_INPUT");
-    expect(responses.requests).toHaveLength(sourceRequests.length);
 
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
@@ -284,6 +278,12 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const tasks = await call<TaskDto[]>("tasks.list", { category: "all" });
     const task = tasks.find((row) => row.title === title)!;
     expect(task.execution).toMatchObject({ provider: "codex", spaceId: space!.id, target: { mode: "resume", nativeSessionId: b.id, history: { spaceId: space!.id } } });
+    const changedA = oldA + "\n";
+    await writeFile(a.file, changedA);
+    await expect(call("tasks.create", {
+      title: "过期物理历史选择", body: "This must not start a turn.", type: "agent",
+      execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: a.id, history: sourceA!.history } },
+    })).rejects.toThrow("INVALID_INPUT");
     expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
     expect(responses.requests).toHaveLength(sourceRequests.length);
 
@@ -362,14 +362,22 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
       body: JSON.stringify({ taskId: task.id, runId: run!.runId, sessionId: session!.id, cwd, sources: { a, b }, identityB, resumedTurn: after.turns[1]!.id, sourceRequests: sourceRequests.length, taskRequests: taskRequests.length }),
       contentType: "application/json",
     });
-  } finally {
-    await withFixtureCleanup(async () => {}, [
-      ["关闭独立浏览器", () => browser?.close()],
-      ["关闭桌面", () => desktop?.close()],
-      ["停止本地模型夹具", () => responses.close()],
-      ["清理受控资料目录", () => rmTree(privateHome)],
-    ]);
-  }
+  }, [
+    ["关闭独立浏览器", () => withFixtureDeadline(10_000, async () => browser?.close())],
+    ["停止桌面引擎", () => withFixtureDeadline(22_000, async () => desktop?.page.evaluate(() => window.huhuHost.vault.close()))],
+    ["回收独立 Core", () => stopFixtureCore(coreBin, runtime, process.env)],
+    ["关闭桌面", async () => {
+      if (!desktop) return;
+      try {
+        await withFixtureDeadline(12_000, desktop.close);
+      } catch (error) {
+        desktop.app.process().kill("SIGKILL");
+        throw error;
+      }
+    }],
+    ["停止本地模型夹具", () => withFixtureDeadline(5_000, responses.close)],
+    ["清理受控资料和运行目录", () => { rmTree(privateHome); rmTree(runtime); }],
+  ]);
 });
 
 test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态并预览三次新触发", async () => {
