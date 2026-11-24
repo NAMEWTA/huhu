@@ -1,4 +1,5 @@
 import { queryKey, registerDirtyDoc, registerFlusher, useEngine, useQueryClient } from "@huhu/workbench";
+import { browserNoteDraft } from "./browser-note-draft.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { archiveNoteRoute } from "../archives/route.js";
 import { DocumentSession, type SessionSnapshot } from "./DocumentSession.js";
@@ -34,6 +35,7 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
 
   useEffect(() => {
     const archive = archiveNoteRoute(path);
+    const browserDraft = browserNoteDraft(engine.endpoint, path);
     const reportReleaseError = (err: unknown) => console.error(`释放文档会话失败：${path}`, err);
     let cancelled = false;
     let lease: SessionLease | null = null;
@@ -45,6 +47,7 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
           new DocumentSession({
             id,
             engine: { call: (cap, input, opts) => engine.call(cap, input, opts) },
+            ...(browserDraft && { browserDraft }),
             // 同一会话可以移交到另一个视图。读共享设置缓存，使旧视图卸载后仍能读取最新偏好。
             autosave: () => qc.getQueryData<{ editor: { autosave: boolean } }>(queryKey(engine.vaultId, "settings.get"))?.editor.autosave ?? autosaveRef.current,
             onSaved: () => {
@@ -55,7 +58,14 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
         (s) => {
           // 退出前落盘 / 切换 Vault 前的未保存文档：每个会话只注册一次，随会话销毁注销
           const offFlush = registerFlusher(() => s.flushForExit());
-          const offDirty = registerDirtyDoc({ label: path, drain: () => s.drainEditors(), isDirty: () => s.getSnapshot().hasUnsaved, save: () => s.flush({ untilClean: true }), keepDraft: () => s.keepDraft() });
+          const offDirty = registerDirtyDoc({
+            label: path,
+            drain: () => s.drainEditors(),
+            isDirty: () => s.getSnapshot().hasUnsaved,
+            save: () => s.flush({ untilClean: true }),
+            keepDraft: () => s.keepDraft(),
+            ...(browserDraft && { checkpoint: () => s.checkpointForBrowser(), subscribe: s.subscribe }),
+          });
           return () => (offFlush(), offDirty());
         },
       )

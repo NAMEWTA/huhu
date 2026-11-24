@@ -2,7 +2,7 @@ import { CapabilityRegistry, Dispatcher, GatewayAudit, IdempotencyStore, defineC
 import { EngineClient } from "@huhu/workbench";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { DocumentSession, detectTextFormat, documentKindOf, type SessionDraft, type SessionEngine } from "../src/ui/documents/DocumentSession.js";
+import { DocumentSession, detectTextFormat, documentKindOf, type BrowserNoteDraft, type SessionDraft, type SessionEngine } from "../src/ui/documents/DocumentSession.js";
 import { DocumentSessionRegistry } from "../src/ui/documents/DocumentSessionRegistry.js";
 
 /** 内存里的“磁盘 + 引擎”：notes.read / save / draft.*，版本冲突与失败可注入。 */
@@ -75,6 +75,101 @@ const mk = (eng: FakeEngine, path = "a.md", extra: Partial<ConstructorParameters
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
+
+function browserDraftFixture(): BrowserNoteDraft {
+  let saved: (SessionDraft & { version: string }) | null = null;
+  let version = 0;
+  return {
+    read: () => saved,
+    write: (content) => {
+      saved = { ...content, version: String(++version) };
+      return saved.version;
+    },
+    discard: (expected) => {
+      if (saved?.version === expected) saved = null;
+    },
+  };
+}
+
+describe("F06 Web 本地草稿", () => {
+  test.each([true, false])("浏览器刷新前于 800 ms 内保留正文（自动保存 %s）", async (autosave) => {
+    const browserDraft = browserDraftFixture();
+    const eng = new FakeEngine({ "a.md": "old" });
+    const original = mk(eng, "a.md", { autosave: () => autosave, browserDraft });
+    await original.load();
+    original.attachDrainer(() => original.setText("last input"));
+    original.checkpointForBrowser();
+    expect(browserDraft.read()).toMatchObject({ text: "last input", baseVersion: "1" });
+    expect(eng.calls).not.toContain("notes.save");
+
+    const reopened = mk(eng, "a.md", { autosave: () => autosave, browserDraft });
+    await reopened.load();
+    expect(reopened.getSnapshot()).toMatchObject({ text: "old", draft: { text: "last input" } });
+    reopened.restoreDraft();
+    expect(await reopened.flush({ untilClean: true })).toBe(true);
+    expect(eng.disk("a.md")).toBe("last input");
+    expect(browserDraft.read()).toBeNull();
+    expect(eng.calls.filter((name) => name.startsWith("notes.draft."))).toEqual([]);
+  });
+
+  test("断网后的未知草稿在重开后仍可明确丢弃", async () => {
+    const browserDraft = browserDraftFixture();
+    const eng = new FakeEngine({ "a.md": "old" });
+    const original = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await original.load();
+    original.setText("offline");
+    eng.failSave = new TypeError("network disconnected");
+    expect(await original.flush()).toBe(false);
+    expect(browserDraft.read()).toMatchObject({ text: "offline", outcome: "unknown" });
+    const reopened = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await reopened.load();
+    expect(reopened.getSnapshot().draft).toMatchObject({ text: "offline", outcome: "unknown" });
+    reopened.discardDraft();
+    expect(browserDraft.read()).toBeNull();
+    expect(eng.disk("a.md")).toBe("old");
+  });
+
+  test("慢回执已提交时，重开读到同一正文即可清理本地草稿", async () => {
+    const browserDraft = browserDraftFixture();
+    const eng = new FakeEngine({ "a.md": "old" });
+    let receipt!: () => void;
+    eng.saveReceiptGate = new Promise<void>((resolve) => { receipt = resolve; });
+    const original = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await original.load();
+    original.setText("committed");
+    const saving = original.save();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(eng.disk("a.md")).toBe("committed");
+    expect(browserDraft.read()).toMatchObject({ outcome: "unknown", matchesSubmitted: true });
+    const reopened = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await reopened.load();
+    expect(reopened.getSnapshot()).toMatchObject({ text: "committed", draft: null, hasUnsaved: false });
+    expect(browserDraft.read()).toBeNull();
+    receipt();
+    expect(await saving).toBe(true);
+  });
+
+  test("在途时撤销到旧正文，即使磁盘目前仍是旧正文也保留撤销稿", async () => {
+    const browserDraft = browserDraftFixture();
+    const eng = new FakeEngine({ "a.md": "old" });
+    let publish!: () => void;
+    eng.saveGate = new Promise<void>((resolve) => { publish = resolve; });
+    const original = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await original.load();
+    original.setText("submitted");
+    const saving = original.save();
+    await vi.advanceTimersByTimeAsync(0);
+    original.setText("old");
+    const reopened = mk(eng, "a.md", { autosave: () => false, browserDraft });
+    await reopened.load();
+    expect(reopened.getSnapshot().draft).toMatchObject({ text: "old", outcome: "unknown" });
+    expect(reopened.getSnapshot().draft?.matchesSubmitted).toBeUndefined();
+    publish();
+    await saving;
+    expect(eng.disk("a.md")).toBe("submitted");
+    expect(browserDraft.read()).toMatchObject({ text: "old" });
+  });
+});
 
 describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
   test("OP-D03：忽略富文本等价规范化，显式源码格式与属性修改仍逐字节保存", async () => {

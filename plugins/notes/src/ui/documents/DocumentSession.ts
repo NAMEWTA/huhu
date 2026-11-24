@@ -20,6 +20,14 @@ export interface SessionDraft {
   baseVersion: string;
   savedAt: string;
   outcome?: "unknown";
+  /** A Web checkpoint matching the submitted bytes can be reconciled by reading them back. */
+  matchesSubmitted?: true;
+}
+
+export interface BrowserNoteDraft {
+  read(): (SessionDraft & { version: string }) | null;
+  write(content: SessionDraft): string;
+  discard(version: string): void;
 }
 
 interface DraftRecord {
@@ -73,6 +81,7 @@ export interface SessionOptions {
   onSaved?: () => void;
   /** 磁盘兜底轮询间隔（仅 dirty 时）。0 = 关闭。 */
   pollMs?: number;
+  browserDraft?: BrowserNoteDraft;
 }
 
 interface NoteFile {
@@ -104,6 +113,7 @@ interface LateWriteConflict {
 
 interface ActiveFileWrite {
   writeId?: string;
+  submittedText?: string;
   ownNoticeReceived?: boolean;
   reconciliation?: Promise<void>;
   externalChange?: { generation: number; loadSeq: number };
@@ -138,6 +148,8 @@ export class DocumentSession {
   private readonly autosaveMs: number;
   private readonly pollMs: number;
   private readonly onSaved: (() => void) | undefined;
+  private readonly browserDraft: BrowserNoteDraft | undefined;
+  private browserCheckpoint: { content: SessionDraft; version: string } | undefined;
 
   private text = "";
   private version = "";
@@ -181,6 +193,7 @@ export class DocumentSession {
     this.autosaveMs = opts.autosaveMs ?? AUTOSAVE_MS;
     this.pollMs = opts.pollMs ?? 2500;
     this.onSaved = opts.onSaved;
+    this.browserDraft = opts.browserDraft;
     this.snap = this.build();
   }
 
@@ -191,6 +204,7 @@ export class DocumentSession {
   };
   getSnapshot = (): SessionSnapshot => this.snap;
   private emit(): void {
+    this.storeBrowserCheckpoint();
     this.snap = this.build();
     this.syncPoll();
     for (const l of this.listeners) l();
@@ -211,6 +225,44 @@ export class DocumentSession {
 
   private hasUnsavedText(): boolean {
     return this.lateWriteConflict?.unknown === true || (this.savedText !== null && this.text !== this.savedText);
+  }
+
+  private currentDraft(): SessionDraft {
+    const unknown = this.lateWriteConflict?.unknown === true || this.activeFileWrite?.submittedText !== undefined;
+    const matchesSubmitted = this.activeFileWrite?.submittedText === this.text && !this.lateWriteConflict;
+    return {
+      text: this.text,
+      baseVersion: this.version,
+      savedAt: new Date().toISOString(),
+      ...(unknown && { outcome: "unknown", ...(matchesSubmitted && { matchesSubmitted: true }) }),
+    };
+  }
+
+  private storeBrowserCheckpoint(): void {
+    if (!this.browserDraft || !this.loaded || this.disposed) return;
+    const saved = this.browserCheckpoint;
+    try {
+      if (!this.activeFileWrite && !this.hasUnsavedText()) {
+        if (saved) this.browserDraft.discard(saved.version);
+        this.browserCheckpoint = undefined;
+        return;
+      }
+      const content = this.currentDraft();
+      const before = saved?.content;
+      if (before && before.text === content.text && before.baseVersion === content.baseVersion && before.outcome === content.outcome && before.matchesSubmitted === content.matchesSubmitted) return;
+      const version = this.browserDraft.write(content);
+      this.browserCheckpoint = { content, version };
+      this.draftVersionForBuffer = version;
+    } catch {
+      this.flushError ??= "浏览器无法保留草稿，请保存后再离开。";
+    }
+  }
+
+  checkpointForBrowser(): void {
+    if (!this.browserDraft || this.disposed) return;
+    // The rich editor delivers its current bridge buffer synchronously when flush starts.
+    void this.drainEditors().catch(() => undefined);
+    this.storeBrowserCheckpoint();
   }
 
   /** 当前缓冲（不经订阅快照，供按键路径读取）。 */
@@ -271,7 +323,7 @@ export class DocumentSession {
       try {
         [file, draft] = await Promise.all([
           this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
-          this.engine.call<(SessionDraft & { version?: string }) | null>("notes.draft.get", { path: this.id.path, withVersion: true }).catch((error: unknown) => {
+          this.readDraft().catch((error: unknown) => {
             if (expectedRevision !== undefined || discardEdits) throw error;
             draftError = `读取草稿失败：${error instanceof Error ? error.message : String(error)}`;
             return null;
@@ -334,7 +386,7 @@ export class DocumentSession {
           this.draft = null;
           if (draft) {
             const { version, ...content } = draft;
-            if (discardEdits || content.outcome === "unknown" || content.text !== file.text) this.draft = { content, version };
+            if (discardEdits || content.text !== file.text || (content.outcome === "unknown" && !content.matchesSubmitted)) this.draft = { content, version };
             else if (version !== undefined) this.discardKnownDraft(version);
           }
         }
@@ -472,7 +524,7 @@ export class DocumentSession {
       return true;
     }
     const writeId = createRequestId();
-    const write: ActiveFileWrite = { writeId };
+    const write: ActiveFileWrite = { writeId, submittedText: body };
     let outcome: "unsubmitted" | "unknown" | "acknowledged" | "rejected" = "unsubmitted";
     let writeUnconfirmed = false;
     try {
@@ -705,6 +757,13 @@ export class DocumentSession {
       if (!this.isBaselineCurrent(generation)) return false;
       if (!this.hasUnsavedText()) return false;
       try {
+        if (this.browserDraft) {
+          const content = this.currentDraft();
+          const version = this.browserDraft.write(content);
+          this.browserCheckpoint = { content, version };
+          this.draftVersionForBuffer = version;
+          return true;
+        }
         const saved = await this.engine.call<{ version?: string }>(
           "notes.draft.save",
           {
@@ -1026,7 +1085,13 @@ export class DocumentSession {
       });
   }
 
-  private discardDraftVersion(expectedVersion: string): Promise<unknown> {
+  private async readDraft(): Promise<(SessionDraft & { version?: string }) | null> {
+    if (this.browserDraft) return this.browserDraft.read();
+    return this.engine.call("notes.draft.get", { path: this.id.path, withVersion: true });
+  }
+
+  private async discardDraftVersion(expectedVersion: string): Promise<unknown> {
+    if (this.browserDraft) return this.browserDraft.discard(expectedVersion);
     return this.engine.call("notes.draft.discard", { path: this.id.path, expectedVersion }, { write: true });
   }
 

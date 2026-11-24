@@ -84,8 +84,16 @@ test("桌面启用分享后，独立浏览器会话可访问同一 Vault 并按�
     }
 
     const user = (index: number) => ({ origin, cookie: cookies[index]! });
-    const bootstrapped = await fetch(`${origin}/api/v1/bootstrap`, { headers: { cookie: cookies[0]! } });
-    expect(await bootstrapped.json()).toMatchObject({ vaultId: e.vault.id, generation: started.data.generation });
+    const bootstrap = async (index: number) => {
+      const response = await fetch(`${origin}/api/v1/bootstrap`, { headers: user(index) });
+      expect(response.status).toBe(200);
+      return (await response.json()) as { sessionId: string };
+    };
+    const bootstrapped = await bootstrap(0);
+    expect(bootstrapped).toMatchObject({ vaultId: e.vault.id, generation: started.data.generation, sessionId: expect.any(String) });
+    expect(await bootstrap(0)).toEqual(bootstrapped);
+    expect((await bootstrap(1)).sessionId).not.toBe(bootstrapped.sessionId);
+    expect(cookies[0]).not.toContain(bootstrapped.sessionId);
     const discovered = (await (await fetch(`${origin}/api/v1/capabilities`, { headers: user(0) })).json()) as { name: string }[];
     expect(discovered.some(({ name }) => name === "tasks.create")).toBe(true);
     expect(discovered.some(({ name }) => name.startsWith("web.share.") || name.startsWith("web.invitations."))).toBe(false);

@@ -5,6 +5,8 @@ export interface EngineEndpoint {
   /** 桌面使用回环令牌，浏览器由同源会话 cookie 鉴权。 */
   token?: string;
   vaultId: string;
+  /** Scope for local drafts. This identifier does not authenticate requests. */
+  browserSessionId?: string;
 }
 
 /** 同一工作台也会运行在普通 LAN HTTP，`randomUUID` 在那里不可用。 */

@@ -376,3 +376,67 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
     ["关闭最初的桌面夹具", close],
   ]);
 });
+
+test("F06 浏览器刷新前询问，重开后恢复未提交正文", async () => {
+  test.skip(!browserBinary, "当前环境未安装 Playwright Chromium 或 Microsoft Edge");
+  const desktop = await openSharedApp({
+    identityAttachment: "web-draft-candidate-identity",
+    prepareVault(directory) {
+      writeFileSync(path.join(directory, noteName), original);
+    },
+  });
+  let browser: Browser | undefined;
+  await withFixtureCleanup(async () => {
+    await engineReady(desktop.page);
+    const autosave = await openAutosaveSettings(desktop.page);
+    if (await autosave.isChecked()) await autosave.click();
+    await expect(autosave).not.toBeChecked();
+
+    const { addresses } = await call<{ addresses: { url: string }[] }>(desktop.page, "web.share.start", { mode: "local", port: 0 });
+    const invitation = await call<{ id: string; links: string[] }>(desktop.page, "web.invitations.create", {});
+    const origin = new URL(addresses[0]!.url).origin;
+    browser = await chromium.launch({ executablePath: browserBinary!, headless: true });
+    const page = await browser.newPage();
+    const link = new URL(invitation.links[0]!);
+    link.pathname = "/notes/" + encodeURIComponent(noteName);
+    await visitInvite(page, link.href, origin);
+    const editor = prose(page);
+    await expect(editor).toContainText("桌面初始正文");
+    const latest = "离场前的最后输入";
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText(latest);
+
+    const prompts: string[] = [];
+    page.on("dialog", async (dialog) => {
+      prompts.push(dialog.type());
+      await dialog.accept();
+    });
+    await page.reload();
+    expect(prompts).toEqual(["beforeunload"]);
+    expect(readFileSync(path.join(desktop.vault, noteName), "utf8")).toBe(original);
+    await page.getByTestId("note-draft-restore").click();
+    await expect(editor).toContainText(latest);
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    await expect.poll(() => readFileSync(path.join(desktop.vault, noteName), "utf8")).toContain(latest);
+
+    await editor.click();
+    await page.reload();
+    expect(prompts).toEqual(["beforeunload"]);
+    await expect(editor).toContainText(latest);
+    await expect(page.getByTestId("note-draft-restore")).toHaveCount(0);
+
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("仅在撤销前的会话出现");
+    const localDrafts = () => page.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("huhu:note-draft:")));
+    await expect.poll(localDrafts).toHaveLength(1);
+    await call(desktop.page, "web.invitations.revoke", { id: invitation.id });
+    await expect(page.getByText("浏览器会话不可用", { exact: true })).toBeVisible();
+    expect(await localDrafts()).toHaveLength(0);
+  }, [
+    ["关闭草稿验证浏览器", () => browser?.close()],
+    ["关闭草稿验证桌面夹具", desktop.close],
+  ]);
+});

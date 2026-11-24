@@ -22,6 +22,7 @@ export * from "./launch/LaunchPage.js";
 export * from "./settings/host.js";
 export * from "./plugins/run-command.js";
 export * from "./state/flushers.js";
+export { browserDraftStorage, switchBrowserDraftScope } from "./state/browser-drafts.js";
 export * from "./state/exit-participants.js";
 export * from "./settings/system-pages.js";
 export * from "./state/open-request.js";
