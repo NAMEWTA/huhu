@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { errors, isWorkbenchCaller, KINDS, VaultListInput, VaultListOutput, VaultReadRangeInput, VaultReadRangeOutput } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, KINDS, VaultIndexEntrySchema, VaultIndexSnapshotSchema, VaultListInput, VaultListOutput, VaultReadRangeInput, VaultReadRangeOutput } from "@huhu/contracts";
 import { listDir, machineId, normalizeRelPath, OperationLog, protectedKindOf, readAsset, resolveReadableAsset, VaultIndex, type Vault } from "@huhu/vault";
 import { z } from "zod";
 import type { CapabilityRegistry } from "./define.js";
 import { durableExternal, registerKernelCapability } from "./system.js";
 
-const TreeEntry = z.object({ path: z.string(), type: z.enum(["file", "dir"]), size: z.number(), mtimeMs: z.number() });
 const MAX_READ_BYTES = 10 * 1024 * 1024;
 
 const DOMAIN_BY_DIR: Record<string, string> = Object.fromEntries(
@@ -154,10 +153,20 @@ export function registerVaultCapabilities(registry: CapabilityRegistry, vault: V
       plugin: "kernel",
       scope: "read",
       input: z.object({ prefix: z.string().default("") }),
-      output: z.array(TreeEntry),
+      output: z.array(VaultIndexEntrySchema),
       exposable: true,
       defaultExposed: false,
       handler: (_c, i) => index.entries(i.prefix),
+    }),
+    registerKernelCapability(registry, {
+      name: "vault.indexSnapshot",
+      plugin: "kernel",
+      scope: "read",
+      input: z.object({}),
+      output: VaultIndexSnapshotSchema,
+      exposable: false,
+      defaultExposed: false,
+      handler: () => ({ revision: index.treeRevision, entries: index.entries() }),
     }),
     registerKernelCapability(registry, {
       name: "vault.list",

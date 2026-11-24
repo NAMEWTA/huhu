@@ -51,6 +51,8 @@ export interface BuildProgress {
 /** 内存索引：路径树、笔记元数据、反链、全文检索。构建可取消，取消保留旧索引。 */
 export class VaultIndex {
   private tree = new Map<string, TreeEntry>();
+  private sortedPaths: string[] | undefined;
+  private revision = 0;
   private notes = new Map<string, NoteMeta>();
   private search = new SearchIndex();
   private _indexing = false;
@@ -70,6 +72,8 @@ export class VaultIndex {
   async build(): Promise<boolean> {
     const snap = takeSnapshot(this.root, false);
     this.tree = this.treeFrom(snap);
+    this.sortedPaths = undefined;
+    this.revision++;
     return this.rebuildContent([...snap.keys()]);
   }
 
@@ -173,6 +177,7 @@ export class VaultIndex {
     const tags = [...new Set([...fmTags, ...parseTags(body)])];
     const links = parseWikiLinks(body);
     if (!huhuKind) notes.set(rel, { path: rel, title, tags, links });
+    else notes.delete(rel);
     const id = (huhuKind === "task" || huhuKind === "capture") && typeof meta?.id === "string" ? meta.id : undefined;
     search.upsert({ path: rel, kind: huhuKind ?? "note", title, body, tags: tags.join(" "), ...(id && { id }) });
   }
@@ -224,17 +229,31 @@ export class VaultIndex {
   }
 
   private updatePath(rel: string, stat: BigIntStats): void {
-    this.tree.set(rel, { path: rel, type: "file", size: Number(stat.size), mtimeMs: Number(stat.mtimeMs) });
+    const old = this.tree.get(rel);
+    const size = Number(stat.size);
+    const mtimeMs = Number(stat.mtimeMs);
+    if (old?.type !== "file" || old.size !== size || old.mtimeMs !== mtimeMs) {
+      if (!old) this.sortedPaths = undefined;
+      this.tree.set(rel, { path: rel, type: "file", size, mtimeMs });
+      this.revision++;
+    }
     const parts = rel.split("/");
     for (let i = 1; i < parts.length; i++) {
       const dir = parts.slice(0, i).join("/");
-      if (!this.tree.has(dir)) this.tree.set(dir, { path: dir, type: "dir", size: 0, mtimeMs: 0 });
+      if (!this.tree.has(dir)) {
+        this.tree.set(dir, { path: dir, type: "dir", size: 0, mtimeMs: 0 });
+        this.sortedPaths = undefined;
+        this.revision++;
+      }
     }
     this.indexFile(rel, this.notes, this.search);
   }
 
   private removePath(rel: string): void {
-    this.tree.delete(rel);
+    if (this.tree.delete(rel)) {
+      this.sortedPaths = undefined;
+      this.revision++;
+    }
     this.notes.delete(rel);
     this.search.removePath(rel);
   }
@@ -290,8 +309,18 @@ export class VaultIndex {
     return undefined;
   }
 
+  get treeRevision(): number {
+    return this.revision;
+  }
+
+  entry(path: string): TreeEntry | undefined {
+    return this.tree.get(path);
+  }
+
   entries(prefix = ""): TreeEntry[] {
-    return [...this.tree.values()].filter((e) => !prefix || e.path === prefix || e.path.startsWith(`${prefix}/`)).sort((a, b) => a.path.localeCompare(b.path));
+    const paths = (this.sortedPaths ??= [...this.tree.keys()].sort((a, b) => a.localeCompare(b)));
+    const selected = prefix ? paths.filter((path) => path === prefix || path.startsWith(`${prefix}/`)) : paths;
+    return selected.map((path) => this.tree.get(path)!);
   }
 
   query(term: string, opts: { kind?: string; limit?: number } = {}): { indexing: boolean; hits: SearchHit[] } {

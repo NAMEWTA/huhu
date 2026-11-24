@@ -1,3 +1,4 @@
+import { clearMailSearchProjections, mailSourceStamp, readMailProjection, removeMailProjections, saveMailProjection } from "./mail-projection.js";
 import { mailRequestId, mailTool, requireMailCaller } from "./tool-access.js";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, statSync, unlinkSync } from "node:fs";
@@ -244,6 +245,63 @@ function visibleMailboxEntries(snapshot: Snapshot | null) {
 
 export function cachedMailboxMessages(files: Files, input: Mailbox) {
   return visibleMailboxEntries(readSnapshot(files, input).snapshot);
+}
+
+const mailboxMetadata = z.array(z.strictObject({
+  summary: cachedSummary,
+  publicMail,
+  date: z.iso.datetime().nullable(),
+}));
+type MailboxMetadata = z.infer<typeof mailboxMetadata>;
+const mailboxSearchIndex = z.array(z.strictObject({ localMessageId: z.string(), digest: z.hash("sha256", { enc: "hex" }), text: z.string() }));
+type MailboxSearchIndex = z.infer<typeof mailboxSearchIndex>;
+
+async function projectMailbox(snapshot: Snapshot | null): Promise<MailboxMetadata> {
+  const rows: MailboxMetadata = [];
+  for (const entry of visibleMailboxEntries(snapshot)) {
+    const info = await cachedPublicMail(entry, true);
+    if (info) rows.push({ summary: entry.summary, publicMail: info, date: receivedMailDate(entry, info) });
+  }
+  return rows;
+}
+
+/** Conversation and notification reads share the same MIME-free projection. */
+export async function readMailboxMetadata(files: Files, input: Mailbox): Promise<{ stamp: string; entries: MailboxMetadata }> {
+  const source = cachePath(input);
+  const stamp = mailSourceStamp(files, source);
+  if (!stamp) return { stamp: "", entries: [] };
+  const cached = readMailProjection(files, source, "received", mailboxMetadata);
+  if (cached?.stamp === stamp && cached.value.every(({ summary }) => summary.accountId === input.accountId && summary.folder === input.folder)) {
+    if (mailSourceStamp(files, source) === stamp) return { stamp, entries: cached.value };
+    return { stamp: "", entries: [] };
+  }
+  const entries = await projectMailbox(readSnapshot(files, input).snapshot);
+  if (mailSourceStamp(files, source) !== stamp) return { stamp: "", entries: [] };
+  await saveMailProjection(files, source, "received", stamp, entries);
+  return { stamp, entries };
+}
+
+/** Reuse extracted text for unchanged MIME across successive mailbox snapshots. */
+export async function readMailboxSearch(files: Files, input: Mailbox, expectedStamp: string, search: ReturnType<typeof makeMailSearchText>, signal: AbortSignal, remember: boolean): Promise<ReadonlyMap<string, string>> {
+  const source = cachePath(input);
+  const stamp = mailSourceStamp(files, source);
+  if (!stamp || stamp !== expectedStamp) return new Map();
+  const cached = readMailProjection(files, source, "search", mailboxSearchIndex);
+  if (cached?.stamp === stamp && mailSourceStamp(files, source) === stamp) return new Map(cached.value.map(({ localMessageId, text }) => [localMessageId, text]));
+  const prior = new Map(cached?.value.map((entry) => [entry.localMessageId, entry]));
+  const entries: MailboxSearchIndex = [];
+  for (const entry of cachedMailboxMessages(files, input)) {
+    signal.throwIfAborted();
+    const localMessageId = entry.summary.localMessageId;
+    const digest = createHash("sha256").update(entry.source).digest("hex");
+    const old = prior.get(localMessageId);
+    const text = old?.digest === digest ? old.text : await search.read(entry.source, signal, remember);
+    entries.push({ localMessageId, digest, text });
+  }
+  if (mailSourceStamp(files, source) !== stamp) return new Map();
+  if (remember) await saveMailProjection(files, source, "search", stamp, entries, signal);
+  signal.throwIfAborted();
+  return new Map(entries.map(({ localMessageId, text }) => [localMessageId, text]));
 }
 
 export function accountMailboxSummaries(files: Files) {
@@ -494,14 +552,25 @@ export function registerMessageCache(
     });
   }
   function write(input: Mailbox, snapshot: CacheRecord, expectedVersion: string | null, signal: AbortSignal, validate?: () => void) {
-    return writer.serialize(() => {
+    return writer.serialize(async () => {
       const beforeCommit = () => {
         signal.throwIfAborted();
         removals.assertActive(input.accountId);
         validate?.();
       };
+      const source = cachePath(input);
       beforeCommit();
-      return files.write(cachePath(input), Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion, beforeCommit });
+      const result = await files.write(source, Buffer.from(JSON.stringify(snapshot) + "\n"), { expectedVersion, beforeCommit });
+      try {
+        const stamp = mailSourceStamp(files, source);
+        if (stamp && files.currentVersion(source) === result.version) {
+          const rows = await projectMailbox(activeSnapshot(snapshot));
+          await saveMailProjection(files, source, "received", stamp, rows);
+        }
+      } catch {
+        // The committed source is authoritative. A later consumer can rebuild the projection.
+      }
+      return result;
     });
   }
 
@@ -924,9 +993,11 @@ export function registerMessageCache(
         for (const [accountId, ids] of marked) await preserveReadOverrides(files, accountId, ids);
         lifetime.throwIfAborted();
         search.clear();
+        clearMailSearchProjections(files);
         for (const { relative } of found) {
           const abs = files.abs(relative);
           if (lstatSync(abs, { throwIfNoEntry: false })?.isFile()) unlinkSync(abs);
+          removeMailProjections(files, relative, ["received", "search"]);
         }
         return removed;
       });
@@ -1034,8 +1105,11 @@ export function registerMessageCache(
         if (removals.read(account.accountId) || accounts?.readDefinition(account.accountId)?.revision !== account.revision) continue;
         for (const folder of account.definition.folders) {
           if (folder.path.toLowerCase() !== "inbox" || !isPublicMailFolder(folder)) continue;
-          const entry = cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path }).find(({ summary }) => noticeId(summary.localMessageId) === id);
-          if (entry?.publicMail) return receivedLocation(entry.summary);
+          const { entries } = await readMailboxMetadata(files, { accountId: account.accountId, folder: folder.path });
+          signal.throwIfAborted();
+          if (removals.read(account.accountId) || accounts?.readDefinition(account.accountId)?.revision !== account.revision) break;
+          const entry = entries.find(({ summary }) => noticeId(summary.localMessageId) === id);
+          if (entry) return receivedLocation(entry.summary);
         }
       }
       return null;
@@ -1190,6 +1264,7 @@ export function registerMessageCache(
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
+        removeMailProjections(files, relative, ["received", "search"]);
       }
     },
     async drain() {

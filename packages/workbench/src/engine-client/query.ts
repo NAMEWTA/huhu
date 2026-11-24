@@ -1,5 +1,5 @@
 import type { Query, QueryClient, QueryFilters } from "@tanstack/react-query";
-import type { HuhuEvent } from "@huhu/contracts";
+import { NoteIndexDeltaSchema, type HuhuEvent, type NoteIndexDelta, type VaultIndexSnapshot } from "@huhu/contracts";
 
 /** 查询键 `[vaultId, capability, input]`。 */
 export const queryKey = (vaultId: string, capability: string, input: unknown = {}): readonly unknown[] => [vaultId, capability, input];
@@ -89,6 +89,43 @@ export function invalidateVaultQueries(qc: QueryClient, vaultId: string, signal:
   return waitForRefresh(refreshQueries(qc, { queryKey: [vaultId] }, [signal]), signal);
 }
 
+function patchIndexSnapshot(qc: QueryClient, vaultId: string, delta: NoteIndexDelta): boolean {
+  const key = queryKey(vaultId, "vault.indexSnapshot");
+  const state = qc.getQueryState<VaultIndexSnapshot>(key);
+  const current = state?.data;
+  if (!state || !current || state.isInvalidated || state.fetchStatus !== "idle") return false;
+  if (current.revision >= delta.revision) return true;
+  if (current.revision !== delta.before || delta.revision !== delta.before + 1) return false;
+  const index = current.entries.findIndex(({ path, type }) => path === delta.entry.path && type === delta.entry.type);
+  if (index < 0) return false;
+  qc.setQueryData<VaultIndexSnapshot>(key, { revision: delta.revision, entries: current.entries.with(index, delta.entry) });
+  return true;
+}
+
+function refreshNoteCommit(qc: QueryClient, vaultId: string, delta: NoteIndexDelta, signal: RefreshScope): Promise<void> {
+  const patched = patchIndexSnapshot(qc, vaultId, delta);
+  const { path } = delta.entry;
+  const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  return waitForRefresh(refreshQueries(qc, {
+    predicate: ({ queryKey: [id, capability, input] }) => {
+      if (id !== vaultId || typeof capability !== "string") return false;
+      const parameters = input as { path?: string; dir?: string; prefix?: string } | undefined;
+      if (capability === "vault.indexSnapshot") return !patched;
+      if (capability === "vault.indexEntries") {
+        const prefix = parameters?.prefix ?? "";
+        return !prefix || path === prefix || path.startsWith(`${prefix}/`);
+      }
+      if (capability === "vault.list") return (parameters?.dir ?? "") === parent;
+      if (capability === "notes.list" || capability === "notes.tags") return delta.tagsChanged;
+      if (["notes.read", "notes.textEncoding", "notes.previewEncoding", "vault.readFile", "vault.readRange"].includes(capability)) return parameters?.path === path;
+      if (capability.startsWith("tasks.")) return path.startsWith("Tasks/");
+      if (capability.startsWith("automations.")) return path.startsWith("Automations/");
+      if (capability.startsWith("archives.")) return path.startsWith("Archives/");
+      return ["notes.backlinks", "vault.search", "home.notes.recent", "home.summary", "health.run"].includes(capability);
+    },
+  }, [signal]), signal);
+}
+
 /** 事件到达时让相关查询失效。 */
 export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<HuhuEvent, "type" | "payload">, signal?: AbortSignal): Promise<void> {
   if (e.type === "safe.locked") {
@@ -102,6 +139,10 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   }
   const prefixes: string[] = [];
   const p = e.payload as Record<string, unknown>;
+  if (e.type === "vault.fileChanged" && p["change"] === "modified") {
+    const parsed = NoteIndexDeltaSchema.safeParse(p["noteIndex"]);
+    if (parsed.success && parsed.data.entry.path === p["path"] && parsed.data.entry.type === "file") return refreshNoteCommit(qc, vaultId, parsed.data, signal);
+  }
   const entityKind = e.type === "entity.changed" ? String(p["kind"]) : "";
   if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[entityKind] ?? []));
   else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import hostPath from "node:path";
 import path from "node:path/posix";
-import { errors, isId, KINDS, newId } from "@huhu/contracts";
+import { errors, isId, KINDS, newId, type NoteIndexDelta } from "@huhu/contracts";
 import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
@@ -622,7 +622,7 @@ export class NotesService {
   }
 
   /** 编辑器保存：必须带 expectedVersion，冲突时返回 VERSION_CONFLICT。 */
-  async save(rel: string, text: string, expectedVersion: string): Promise<{ version: string; previous: { text: string; version: string } }> {
+  async save(rel: string, text: string, expectedVersion: string): Promise<{ version: string; previous: { text: string; version: string }; noteIndex?: NoteIndexDelta }> {
     const norm = normalizeRelPath(rel);
     const file = this.d.files.read(norm);
     if (!file) throw errors.notFound(`文件不存在：${rel}`);
@@ -630,8 +630,18 @@ export class NotesService {
     if (file.bytes.includes(0)) throw errors.invalidInput("不能把二进制文件当作文本覆盖");
     if (textViewerLimit(norm) === HTML_LIMIT && Buffer.byteLength(text, "utf8") > HTML_LIMIT) throw errors.invalidInput("HTML 正文超过 8 MiB，请缩小内容后重试保存");
     const r = await this.d.files.write(norm, Buffer.from(text), { expectedVersion });
-    this.d.index.refreshPaths([norm]);
-    return { ...r, previous };
+    const index = this.d.index;
+    const before = index.treeRevision;
+    const previousEntry = index.entry(norm);
+    const tags = index.tagsOf(norm);
+    index.refreshPaths([norm]);
+    const entry = index.entry(norm);
+    const revision = index.treeRevision;
+    const updatedTags = index.tagsOf(norm);
+    const noteIndex = previousEntry?.type === "file" && entry?.type === "file" && revision <= before + 1
+      ? { before, revision, entry, tagsChanged: tags.length !== updatedTags.length || tags.some((tag, i) => tag !== updatedTags[i]) }
+      : undefined;
+    return { ...r, previous, ...(noteIndex && { noteIndex }) };
   }
 
   list(filter: "all" | "favorites" | "daily" | "trash" | { tag: string }): { path: string; id: string | null; title: string; trashId?: string; deletedAt?: string; favorite?: boolean; tags?: string[] }[] {

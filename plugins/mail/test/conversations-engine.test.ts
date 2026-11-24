@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
-import { assert, expect, test as engineTest } from "vitest";
+import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
@@ -153,7 +153,11 @@ engineTest(
       const before = [imapA.commands.length, imapB.commands.length];
       const list = (offset: number) => call<ConversationsPage>("mail.conversations.list", { accountId: a, offset, limit: 1 });
       expect(await list(0)).toMatchObject({ total: 2, nextOffset: 1, conversations: [{ participants: [carla], count: 1, latest: { subject: "Newest contact" } }] });
+      const analyzed = vi.spyOn(engine.vault.files, "read");
       const next = await list(1);
+      expect(analyzed.mock.calls.map(([relative]) => relative).filter((relative) => /^\.huhu\/(?:cache\/mail|mail\/outbox)\//.test(relative))).toEqual([]);
+      expect(analyzed.mock.calls.some(([relative]) => relative.startsWith(".huhu/cache/mail-projections/"))).toBe(true);
+      analyzed.mockRestore();
       expect(next).toMatchObject({ total: 2, nextOffset: null, conversations: [{ participants: [alice, bob], count: 5, latest: { source: "sent", operationId: sentOnly } }] });
       const group = next.conversations[0]!;
       const all = await call<ConversationsPage>("mail.conversations.list");
@@ -217,6 +221,14 @@ engineTest(
       await engine.shutdown();
       engine = await boot({ vaultPath, desktopUserData });
       expect(await page(4)).toEqual(items3);
+      const restartedReads = vi.spyOn(engine.vault.files, "read");
+      try {
+        expect(await call<MailSearchPage>("mail.conversations.search", asia)).toMatchObject({ total: 1 });
+        expect(restartedReads.mock.calls.some(([relative]) => relative === siblingCache)).toBe(false);
+      } finally {
+        restartedReads.mockRestore();
+      }
+
       inbox.uidValidity = 13;
       inbox.messages = [{ ...fixtureMail("New generation", 42, 14, [`From: ${carla}`, `To: ${aEmail}`]), uidValidity: 13 }];
       expect(await refresh(a)).toMatchObject({ mailboxChanged: true });
@@ -263,6 +275,39 @@ engineTest(
       }
       expect(await call("mail.outbox.status", { operationId: mixed })).toMatchObject({ state: "unknown", retryableRecipients: [] });
       expect(await call("mail.outbox.status", { operationId: uncertain })).toMatchObject({ state: "unknown", recipients: [{ address: unknown, state: "unknown" }] });
+
+      // Remove a valid derived index and place a malformed unrelated receipt next to it.
+      // The list rebuilds just the missing metadata from its source and keeps the same groups.
+      const mailboxSource = `.huhu/cache/mail/${createHash("sha256").update(JSON.stringify([a, "INBOX"])).digest("hex")}.json`;
+      const artifact = `.huhu/cache/mail-projections/${createHash("sha256").update(mailboxSource).digest("hex")}.received.json`;
+      const malformed = `.huhu/mail/outbox/${"f".repeat(64)}.json`;
+      rmSync(engine.vault.files.abs(artifact));
+      await engine.vault.files.write(malformed, Buffer.from("{broken fixture"));
+      try {
+        const reads = vi.spyOn(engine.vault.files, "read");
+        try {
+          expect((await call<ConversationsPage>("mail.conversations.list", { accountId: a })).conversations).toEqual(conversations);
+          expect(reads.mock.calls.filter(([relative]) => relative === mailboxSource)).toHaveLength(1);
+          reads.mockClear();
+          expect((await call<ConversationsPage>("mail.conversations.list", { accountId: a })).conversations).toEqual(conversations);
+          expect(reads.mock.calls.some(([relative]) => relative === mailboxSource)).toBe(false);
+        } finally {
+          reads.mockRestore();
+        }
+      } finally {
+        rmSync(engine.vault.files.abs(malformed));
+      }
+      const mailbox = engine.vault.files.read(mailboxSource);
+      assert(mailbox);
+      const badSnapshot = await engine.vault.files.write(mailboxSource, Buffer.from("{corrupt mailbox"), { expectedVersion: mailbox.version });
+      try {
+        const isolated = await call<ConversationsPage>("mail.conversations.list");
+        expect(isolated.conversations.some(({ latest }) => latest.subject === "New generation")).toBe(false);
+        expect((await call<MailSearchPage>("mail.conversations.search", asia)).total).toBe(1);
+      } finally {
+        await engine.vault.files.write(mailboxSource, mailbox.bytes, { expectedVersion: badSnapshot.version });
+      }
+
     } finally {
       try {
         if (engine?.moduleCredentialHost) {
