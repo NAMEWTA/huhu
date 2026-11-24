@@ -253,6 +253,7 @@ export class AgentDispatch {
     const provider = (target.mode === "existing" ? target.binding.provider : target.provider) as AgentId;
     const adapter = Object.hasOwn(this.d.providers, provider) ? this.d.providers[provider] : undefined;
     if (!adapter?.modes.includes(target.mode) || (target.mode === "resume" && adapter.transport !== "native")) return receipt(prior, "unsupported", "provider_acceptance_unavailable");
+    if (input.resultMode && adapter.transport !== "native") return receipt(prior, "unsupported", "result_mode_unsupported");
     if (prior && prior.adapterId !== adapter.id) return receipt(prior, "unknown", "provider_adapter_changed");
 
     const record: StoredDispatch = prior ?? {
@@ -262,6 +263,7 @@ export class AgentDispatch {
       inputSha256,
       adapterId: adapter.id,
       ...(adapter.transport === "native" && { transport: "native" }),
+      ...(input.resultMode && { resultMode: input.resultMode }),
       acceptedAt: new Date().toISOString(),
       execution: null,
       ownerActive: false,
@@ -333,7 +335,7 @@ export class AgentDispatch {
         if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
         this.d.store.save(sending);
         return true;
-      })
+      }, sending.resultMode)
       .catch((error: unknown) => {
         if (target.mode === "resume" && error instanceof HuhuError && (error.code === "AGENT_DISABLED" || error.code === "HEADLESS_UNSUPPORTED")) return error.code;
         throw error;

@@ -58,6 +58,7 @@ const stopStates: Record<StopReceipt["status"], string> = {
 };
 
 export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null | undefined) {
+  if (run?.state === "unknown" && run.finishedAt) return "执行已结束，结果待核实";
   return row.superseded ? "已失败" : ((run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state]);
 }
 
@@ -258,7 +259,9 @@ export function TaskRunDetails({
   const messages = task.comments.filter((comment) => comment.run === row.runId && (comment.event === "result" || comment.event === "failed"));
   const result = run?.result;
   let deliveryNotice = "";
-  if (result?.kind === "no_update") deliveryNotice = "原会话已结束，本轮没有结果正文。";
+  if (run?.finishedAt && run.state === "unknown") deliveryNotice = "原执行已结束，结果待核实。";
+  else if (run?.state === "interrupted") deliveryNotice = "原执行被外部中断。";
+  else if (result?.kind === "no_update") deliveryNotice = "原会话已结束，本轮没有结果正文。";
   else if (result?.delivery === "pending") deliveryNotice = "已保存原结果回执，正在核对任务时间线投递。";
   else if (result?.delivery === "target_missing") deliveryNotice = "原结果回执已保存，投递时未找到原任务。";
   else if (result?.delivery === "delivered" && messages.length === 0) {
@@ -291,14 +294,14 @@ export function TaskRunDetails({
           <RunQuestion key={`${question.requestId}:${question.requestVersion}`} task={task} question={question} refresh={refresh} />
         ))}
       {session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
-      {run?.finishedAt ? (
-        <div data-testid="managed-run-result">
-          {deliveryNotice ? <p role="status">{deliveryNotice}</p> : null}
-          {messages.map((message) => (
+      <div data-testid={run?.finishedAt ? "managed-run-result" : undefined}>
+        <div role="status">{deliveryNotice ? <p>{deliveryNotice}</p> : null}</div>
+        {run?.finishedAt
+          ? messages.map((message) => (
             <TaskRunMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
-          ))}
-        </div>
-      ) : null}
+          ))
+          : null}
+      </div>
     </>
   );
 }

@@ -516,11 +516,15 @@ test("确认失败后用原快照追加 attempt，旧派遣重传保持原身份
   expect(next.snapshot).toEqual(old.snapshot);
   expect(fake.dispatch).toHaveBeenCalledTimes(2);
   expect(fake.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ attempt: 2, snapshotHash: old.snapshotHash, snapshot: old.snapshot }), expect.any(AbortSignal));
+  expect(await submitReceipt(engine, { version: 1, kind: "failed", receiptId: "retry-confirmed-failure", execution, payload: { code: "fixture", message: "原轮失败" } })).toMatchObject({ ok: true });
+  expect(await submitReceipt(engine, { version: 1, kind: "result", receiptId: "retry-old-late-result", execution, payload: { message: "旧尝试迟到的结果" } })).toMatchObject({ ok: true });
+  expect(await submitReceipt(engine, { version: 1, kind: "result", receiptId: "retry-old-late-result", execution, payload: { message: "旧尝试迟到的结果" } })).toMatchObject({ ok: true });
   expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, state: "running" }] });
   expect(await submitReceipt(engine, { version: 1, kind: "result", receiptId: "retry-success", execution: next.boundExecution!, payload: { message: "第二轮成功" } })).toMatchObject({ ok: true });
   await vi.waitFor(async () => expect(await call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ id: run.runId, state: "succeeded", result: { delivery: "delivered" } }] }));
 
   const { data: running } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  expect(running.comments.filter(({ event }) => event === "failed" || event === "result").map(({ body }) => body)).toEqual(["原轮失败", "第二轮成功"]);
   const reset = await call<TaskDto>(engine, "tasks.setStatus", { id: task.id, expectedVersion: running.version, status: "not_started" });
   expect(reset).toMatchObject({ ok: true });
   const fresh = await acceptDispatch(engine, intent(reset.data));

@@ -19,8 +19,8 @@ function stopEvent(event, fields = {}) {
   appendFileSync(path.join(directory, stopScenario + ".jsonl"), JSON.stringify({ event, ...fields }) + "\n");
 }
 
-function finishTurn(thread, turn, status) {
-  send({ method: "turn/completed", params: { threadId: thread, turn: { id: turn, status } } });
+function finishTurn(thread, turn, status, error) {
+  send({ method: "turn/completed", params: { threadId: thread, turn: { id: turn, status, error } } });
 }
 
 function waitFor(file, fn) {
@@ -44,8 +44,10 @@ if (process.argv.includes("--version")) {
       stopEvent("turn-start", { threadId, turnId });
       send({ id: message.id, result: { turn: { id: turnId } } });
       waitFor(stopScenario + ".finish", () => {
-        const status = stopScenario === "held-interrupt" || stopScenario === "workbench-stop" ? "interrupted" : stopScenario === "failed-before" ? "failed" : "completed";
-        finishTurn(threadId, turnId, status);
+        const status = ["held-interrupt", "workbench-stop", "external-interrupt"].includes(stopScenario) ? "interrupted" : stopScenario.startsWith("failed-") ? "failed" : "completed";
+        const error = stopScenario === "failed-with-error" ? { message: "Synthetic structured provider reason", codexErrorInfo: "serverOverloaded" } : undefined;
+        finishTurn(threadId, turnId, status, error);
+        finishTurn(threadId, turnId, status, error);
         stopEvent("terminal", { status });
       });
     } else if (stopFixture && stopScenario && message.method === "turn/interrupt") {

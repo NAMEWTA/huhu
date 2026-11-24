@@ -126,6 +126,7 @@ function main(file) {
   let turnId;
   let executionBinding;
   let stopRequest;
+  let resultMode;
   const questions = new Map();
   const submittedAnswers = new Map();
   let readAnswerOutput = createNativeAnswerOutputReader();
@@ -193,8 +194,8 @@ function main(file) {
 
   function publishBoundReports() {
     if (!turnId) return;
-    const status = completed.get(turnId);
-    if (!status) {
+    const completion = completed.get(turnId);
+    if (!completion) {
       for (const entry of questions.values()) {
         const { source, question } = entry;
         if (source.turnId !== turnId) continue;
@@ -211,13 +212,18 @@ function main(file) {
       return;
     }
     const final = finals.get(turnId);
+    const { status, error } = completion;
     if (status === "completed" && final) report(final.source, { message: final.text });
-    save(runFile(executionBinding, "completed"), { threadId, turnId, status });
+    const withoutFinal = status === "completed" && !final
+      ? (final === undefined && resultMode === "allow_no_update" ? "allowed" : "unconfirmed")
+      : undefined;
+    save(runFile(executionBinding, "completed"), { threadId, turnId, status, error, withoutFinal });
     log("original turn ended");
     submitted = false;
     turnId = undefined;
     executionBinding = undefined;
     stopRequest = undefined;
+    resultMode = undefined;
     currentQuestion = undefined;
     questions.clear();
     submittedAnswers.clear();
@@ -252,6 +258,17 @@ function main(file) {
     return true;
   }
 
+  function recordFinal(turn, item) {
+    if (item?.type !== "agentMessage" || item.phase !== "final_answer") return;
+    const prior = finals.get(turn);
+    if (prior === null || (prior === undefined && finals.size >= 32)) return;
+    if (!validId(item.id) || !validText(item.text, 64_000) || (prior && (prior.source.itemId !== item.id || prior.text !== item.text))) {
+      finals.set(turn, null);
+    } else if (!prior) {
+      finals.set(turn, { source: { kind: "result", threadId, turnId: turn, itemId: item.id }, text: item.text });
+    }
+  }
+
   function nativeNotice(method, params) {
     if (!submitted || params?.threadId !== threadId) return;
     if (method === "serverRequest/resolved") {
@@ -264,14 +281,15 @@ function main(file) {
     }
     recordAnswerOutput(readAnswerOutput(method, params, threadId, turnId));
     if (method === "item/completed" && validId(params.turnId) && (turnId ? params.turnId === turnId : !observedTurns.has(params.turnId))) {
-      const item = params.item;
-      if (item?.type !== "agentMessage" || item.phase !== "final_answer" || !validId(item.id) || !validText(item.text, 64_000)) return;
-      const prior = finals.get(params.turnId);
-      if (prior === undefined && finals.size < 32) finals.set(params.turnId, { source: { kind: "result", threadId, turnId: params.turnId, itemId: item.id }, text: item.text });
-      else if (prior && (prior.source.itemId !== item.id || prior.text !== item.text)) finals.set(params.turnId, null);
+      recordFinal(params.turnId, params.item);
     } else if (method === "turn/completed" && validId(params.turn?.id) && (turnId ? params.turn.id === turnId : !observedTurns.has(params.turn.id))) {
-      const { id: completedId, status } = params.turn;
-      if (["completed", "failed", "interrupted"].includes(status) && completed.size < 32) completed.set(completedId, status);
+      const { id: completedId, status, error, items } = params.turn;
+      if (!["completed", "failed", "interrupted"].includes(status) || completed.has(completedId) || completed.size >= 32) return;
+      if (status === "completed" && Array.isArray(items)) for (const item of items) recordFinal(completedId, item);
+      const info = error?.codexErrorInfo;
+      const code = typeof info === "string" ? info : info && typeof info === "object" && Object.keys(info).length === 1 ? Object.keys(info)[0] : undefined;
+      const reason = status === "failed" && validText(error?.message, 8_000) ? { message: error.message, code: validId(code) ? code : undefined } : undefined;
+      completed.set(completedId, { status, error: reason });
       publishBoundReports();
     }
   }
@@ -323,7 +341,7 @@ function main(file) {
   }
 
   function submit(data) {
-    const { execution, input } = data ?? {};
+    const { execution, input, resultMode: requestedResultMode } = data ?? {};
     const binding = execution?.sessionBinding;
     if (
       submitted ||
@@ -341,7 +359,8 @@ function main(file) {
       binding?.nativeSessionId !== threadId ||
       !id.test(binding?.processGeneration ?? "") ||
       typeof execution?.dispatchId !== "string" ||
-      typeof execution?.runId !== "string"
+      typeof execution?.runId !== "string" ||
+      (requestedResultMode !== undefined && requestedResultMode !== "allow_no_update")
     )
       return;
     if (resume && observedTurns.size === 0) {
@@ -352,11 +371,12 @@ function main(file) {
     if (statSync(path.join(directory, intent + ".json"), { throwIfNoEntry: false })) return;
     submitted = true;
     executionBinding = execution;
+    resultMode = requestedResultMode;
     const inputSha256 = createHash("sha256").update(input).digest("hex");
     const clientUserMessageId = createHash("sha256")
       .update(JSON.stringify([execution, inputSha256]))
       .digest("hex");
-    save(intent, { execution, inputSha256, clientUserMessageId });
+    save(intent, { execution, inputSha256, clientUserMessageId, resultMode });
     request("turn/start", { threadId, clientUserMessageId, input: [{ type: "text", text: input }] }, (result) => {
       if (typeof result?.turn?.id !== "string" || !id.test(result.turn.id) || observedTurns.has(result.turn.id)) return stop("turn acceptance is unconfirmed");
       turnId = result.turn.id;

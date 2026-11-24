@@ -50,6 +50,7 @@ export { validateWorkspacePackage, workspacePackagePath, workspacePackageSnapsho
 export { AgentDispatchTargetInfoSchema, AgentDispatchResponseSchema } from "./dispatch-capabilities.js";
 export { DispatchInput as AgentDispatchInputSchema, DispatchTarget as AgentDispatchTargetSchema } from "./dispatch-store.js";
 export { NativeStop as AgentNativeStopInputSchema, NativeStopStatus as AgentNativeStopStatusSchema } from "./native-stop.js";
+export { nativeTerminalCodes } from "./codex-dispatch.js";
 
 function summarizeSettings(settings: AgentSettingsFile): AgentSettingsFile {
   return {

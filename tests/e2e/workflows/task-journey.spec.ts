@@ -148,6 +148,50 @@ test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目�
   }
 });
 
+test("TW1 已受理的 Codex 失败显示在原任务且业务任务仍打开", async ({ browserName }) => {
+  void browserName;
+  test.setTimeout(120_000);
+  const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  test.skip(process.platform !== "linux" || !binary, "需要 Linux 上受控派遣白名单中的固定 Codex 二进制。");
+  const provider = await realpath(binary!);
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-task-terminal-")));
+  const failure = "Huhu isolated provider failure";
+  const responses = await startCodexResponsesFixture({ failedTurn: failure });
+  let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  try {
+    await writeFile(path.join(home, "config.toml"), responses.config, { mode: 0o600 });
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: home, HUHU_CODEX_DISPATCH_BIN: provider });
+    const { page } = desktop;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = caller(page);
+    await pauseRules(call);
+    const [space] = await call<{ id: string }[]>("agent.spaces.list");
+    const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
+    await call("agent.settings.update", {
+      ...settings,
+      expectedRevision: settings.revision,
+      agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: home } } },
+    });
+    const task = await call<TaskDto>("tasks.create", { title: "保留失败轮次的任务", body: "Run one isolated turn.", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+    const detail = await openTask(page, task.title);
+    await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    await expect.poll(() => listDispatches(call, task.id), { timeout: 20_000 }).toHaveLength(1);
+    const [run] = await listDispatches(call, task.id);
+    await expect.poll(() => call("tasks.runs", { id: task.id }), { timeout: 45_000 }).toMatchObject([{ id: run!.runId, state: "failed", finishedAt: expect.any(String) }]);
+    const managed = detail.getByTestId("managed-task-run");
+    await managed.getByRole("button", { name: "展开结果" }).click();
+    await expect(managed.getByTestId("managed-run-result")).toContainText(failure);
+    expect(await call<TaskDto>("tasks.read", { id: task.id })).toMatchObject({ status: "in_progress" });
+    expect(responses.requests).toHaveLength(1);
+  } finally {
+    await withFixtureCleanup(async () => {}, [
+      ["关闭桌面", () => desktop?.close()],
+      ["停止本地模型夹具", () => responses.close()],
+      ["清理受控资料目录", () => rmTree(home)],
+    ]);
+  }
+});
+
 test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答", async ({ browserName }, testInfo) => {
   void browserName;
   test.setTimeout(180_000);

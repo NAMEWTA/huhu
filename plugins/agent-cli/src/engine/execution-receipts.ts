@@ -126,7 +126,7 @@ export function pollExecutionReceipts(
         signal.throwIfAborted();
         try {
           reconcile(record.execution);
-          for (const report of sessions.nativeReports(record.execution, record.inputSha256)) {
+          for (const report of sessions.nativeReports(record.execution, record.inputSha256, record.resultMode, () => dispatches.stopIntent(record.execution))) {
             try {
               const ack = receipts.receive(report.receipt, record.execution);
               if (ack) report.acknowledge(ack);

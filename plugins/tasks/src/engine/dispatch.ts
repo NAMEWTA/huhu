@@ -206,7 +206,8 @@ export class TaskDispatch {
       stopped.throwIfAborted();
       const expected = this.boundExecution(receipt.execution);
       if (!expected) throw new HuhuError("RUN_UNKNOWN", "任务仍在等待已确认的执行绑定", { retryable: true });
-      return this.receipts.consume(receipt, expected, stopped);
+      const retry = this.store.read(eventIdOf(retryDispatchId(expected.dispatchId)))?.record;
+      return this.receipts.consume(receipt, expected, stopped, retry?.retryOf?.intent.dispatchId === expected.dispatchId);
     });
   }
 
@@ -480,7 +481,7 @@ export class TaskDispatch {
           model: snapshot.execution.model,
           questions: open.filter(({ reply }) => !reply).length,
           ...(receipt.parentRunId && { parentRunId: receipt.parentRunId }),
-          ...(outcome && outcome.state !== "unknown" && { result: outcome.result }),
+          ...(outcome && "result" in outcome && { result: outcome.result }),
         },
       ];
     });
