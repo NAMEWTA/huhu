@@ -1,9 +1,10 @@
 import net from "node:net";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
-import { FrameDecoder, FrameKind, HerdrClient, HerdrError, MAX_PAYLOAD, creditFrame, encodeFrame, resizeFrame } from "../src/index.js";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { FrameDecoder, FrameKind, HerdrClient, HerdrError, MAX_PAYLOAD, creditFrame, encodeFrame, resizeFrame, subscribeEvents } from "../src/index.js";
 
 /** 假 Core 的监听地址：Windows 用命名管道（临时目录里的 .sock 文件在 Windows 上不能 listen）。 */
 const sockIn = (dir: string, name: string): string => (process.platform === "win32" ? `\\\\.\\pipe\\huhu-${path.basename(dir)}-${name}` : path.join(dir, name));
@@ -112,6 +113,141 @@ describe("HerdrClient（假 Core）", () => {
     await expect(p).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
     expect(closed).toBe(1);
     core.close();
+  });
+});
+
+describe("HerdrClient 字节流", () => {
+  function controlledSocket() {
+    // Drive data boundaries directly. Two writes to a real socket may be delivered together.
+    const socket = new net.Socket();
+    const createConnection = vi.spyOn(net, "createConnection").mockReturnValueOnce(socket);
+    vi.spyOn(socket, "write").mockReturnValue(true);
+    return {
+      socket,
+      data: (bytes: Buffer) => socket.emit("data", bytes),
+      cleanup: () => {
+        createConnection.mockRestore();
+        socket.destroy();
+      },
+    };
+  }
+
+  const line = (message: object) => Buffer.from(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\r\n");
+
+  test("中文与 Emoji 回执在每一个字节切点以及逐字节交付时一致", async () => {
+    const wire = controlledSocket();
+    const client = new HerdrClient({ endpoint: "fixture" });
+    try {
+      const connected = client.connect();
+      wire.socket.emit("connect");
+      await connected;
+      const result = { title: "日报📌" };
+      const replyFor = (id: number) => Buffer.from(`{"jsonrpc":"2.0","id":${String(id).padEnd(3)},"result":${JSON.stringify(result)}}\r\n`);
+      const bytes = replyFor(1).length;
+      for (let cut = 1; cut < bytes; cut++) {
+        const pending = client.call("terminal.get");
+        const reply = replyFor(cut);
+        wire.data(reply.subarray(0, cut));
+        wire.data(reply.subarray(cut));
+        await expect(pending).resolves.toEqual(result);
+      }
+      const pending = client.call("terminal.get");
+      for (const byte of replyFor(bytes)) wire.data(Buffer.from([byte]));
+      await expect(pending).resolves.toEqual(result);
+    } finally {
+      wire.cleanup();
+    }
+  });
+
+  test("普通订阅按序处理多行，断线时丢弃未结束行并报告一次", async () => {
+    const wire = controlledSocket();
+    const events: unknown[] = [];
+    const onLost = vi.fn();
+    try {
+      const subscribed = subscribeEvents("fixture", { onEvent: (event) => events.push(event), onLost });
+      wire.socket.emit("connect");
+      await Promise.resolve();
+      const snapshot = { seq: 40, terminals: [{ title: "日报📌" }] };
+      const reply = line({ id: 1, result: snapshot });
+      const first = { seq: 41, type: "status", data: "中文📌" };
+      const second = { seq: 42, type: "status", data: "收尾🌈" };
+      const cut = reply.indexOf(Buffer.from("📌")) + 2;
+      wire.data(reply.subarray(0, cut));
+      wire.data(
+        Buffer.concat([
+          reply.subarray(cut),
+          Buffer.from("\nnot-json\r\n"),
+          line({ method: "event", params: first }),
+          line({ method: "event", params: second }),
+          line({ method: "event", params: { seq: 43, type: "status" } }).subarray(0, -2),
+        ]),
+      );
+      await expect(subscribed).resolves.toMatchObject({ snapshot });
+      const closed = once(wire.socket, "close");
+      wire.socket.destroy();
+      await closed;
+      expect(events).toEqual([first, second]);
+      expect(onLost).toHaveBeenCalledExactlyOnceWith("closed");
+    } finally {
+      wire.cleanup();
+    }
+  });
+
+  test("未结束行积累超过上限时关闭 socket 并拒绝待定调用", async () => {
+    const wire = controlledSocket();
+    const client = new HerdrClient({ endpoint: "fixture" });
+    try {
+      const connected = client.connect();
+      wire.socket.emit("connect");
+      await connected;
+      const pending = expect(client.call("terminal.get")).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
+      wire.data(Buffer.alloc(MAX_PAYLOAD, 0x20));
+      expect(wire.socket.destroyed).toBe(false);
+      wire.data(Buffer.from(" "));
+      expect(wire.socket.destroyed).toBe(true);
+      await pending;
+    } finally {
+      wire.cleanup();
+    }
+  });
+
+  test("无效 UTF-8 不会以替代字符交付给调用者", async () => {
+    const wire = controlledSocket();
+    const client = new HerdrClient({ endpoint: "fixture" });
+    try {
+      const connected = client.connect();
+      wire.socket.emit("connect");
+      await connected;
+      const pending = expect(client.call("terminal.get")).rejects.toMatchObject({ code: "HERDR_UNAVAILABLE" });
+      wire.data(Buffer.concat([Buffer.from('{"jsonrpc":"2.0","id":1,"result":"'), Buffer.from([0xff]), Buffer.from('"}\n')]));
+      await pending;
+    } finally {
+      wire.cleanup();
+    }
+  });
+
+  test("hello 的最后一段与二进制帧同块时保持帧原字节", async () => {
+    const wire = controlledSocket();
+    const client = new HerdrClient({ endpoint: "fixture" });
+    const onFrame = vi.fn();
+    try {
+      const connected = client.connect();
+      wire.socket.emit("connect");
+      await connected;
+      client.onStream(7, onFrame);
+      const pending = client.hello();
+      const reply = line({ id: 1, result: { name: "中文📌" } });
+      const payload = Buffer.from([0xff, 0x0a, 0x00, 0xe4, 0xb8]);
+      const frame = encodeFrame({ channel: 7, kind: FrameKind.DATA, payload });
+      const cut = reply.indexOf(Buffer.from("📌")) + 2;
+      wire.data(reply.subarray(0, cut));
+      wire.data(Buffer.concat([reply.subarray(cut), frame.subarray(0, 5)]));
+      wire.data(frame.subarray(5));
+      await expect(pending).resolves.toEqual({ name: "中文📌" });
+      expect(onFrame).toHaveBeenCalledExactlyOnceWith({ channel: 7, kind: FrameKind.DATA, payload });
+    } finally {
+      wire.cleanup();
+    }
   });
 });
 

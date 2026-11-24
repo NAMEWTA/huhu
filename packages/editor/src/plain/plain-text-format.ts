@@ -1,3 +1,5 @@
+import { jsonLanguage } from "@codemirror/lang-json";
+
 /**
  * 纯文本 / JSON 文件的“字节保真”辅助（F02）：编码、BOM、换行、JSON 诊断与显式格式化。
  * 全部是纯函数：会话永远保存原样字符串，编辑器只在显示层剥离 BOM / 选择行分隔符，写回时逐字节还原。
@@ -75,18 +77,46 @@ export function guessJsonIndent(text: string): string | number {
 
 export type FormatResult = { ok: true; text: string } | { ok: false; message: string };
 
+const MAX_FORMATTED_JSON_LENGTH = 8 * 1024 * 1024;
+
 /**
- * 显式格式化：解析失败返回错误且不产生任何文本（无效 JSON 永远不会被清空或改写）。
- * 保持原有换行风格、BOM 与末尾换行；保存路径**永不**调用本函数。
+ * 使用 CodeMirror 的 JSON 语法树定位源 token，只替换 token 之间的结构空白。
  */
 export function formatJsonText(text: string): FormatResult {
   const fmt = detectPlainFormat(text);
   const diag = diagnoseJson(text);
   if (!diag.ok) return { ok: false, message: diag.message };
-  const parsed: unknown = JSON.parse(stripBom(text));
-  let out = JSON.stringify(parsed, null, guessJsonIndent(text));
-  if (fmt.finalNewline) out += "\n";
-  if (fmt.eol === "crlf") out = out.replace(/\n/g, "\r\n");
-  if (fmt.eol === "cr") out = out.replace(/\n/g, "\r");
-  return { ok: true, text: restoreBom(out, fmt.bom) };
+  const { editable, separator } = lineSeparatorFor(fmt.eol);
+  if (!editable) return { ok: false, message: "文件使用混合换行，无法在保留换行风格时格式化" };
+
+  const source = stripBom(text);
+  const eol = separator ?? "\n";
+  const style = guessJsonIndent(text);
+  const indent = typeof style === "number" ? " ".repeat(style) : style;
+  const cursor = jsonLanguage.parser.parse(source).cursor();
+  let formatted = fmt.bom ? BOM : "";
+  const finalNewline = fmt.finalNewline ? eol : "";
+  let depth = 0;
+  let previous = "";
+  do {
+    if (cursor.type.isError) return { ok: false, message: "JSON 结构无法无损格式化" };
+    if (cursor.node.firstChild) continue;
+
+    const kind = cursor.name;
+    const closes = kind === "}" || kind === "]";
+    if (closes) depth--;
+    const afterOpen = previous === "{" || previous === "[";
+    const newLine = previous === "," || (afterOpen && !closes) || (closes && !afterOpen);
+    const spaceLength = newLine ? eol.length + depth * indent.length : previous === ":" ? 1 : 0;
+    // Deeply nested JSON can expand quadratically when indented.
+    if (formatted.length + spaceLength + cursor.to - cursor.from + finalNewline.length > MAX_FORMATTED_JSON_LENGTH) {
+      return { ok: false, message: "格式化后的 JSON 超过编辑大小上限" };
+    }
+    if (newLine) formatted += eol + indent.repeat(depth);
+    else if (previous === ":") formatted += " ";
+    formatted += source.slice(cursor.from, cursor.to);
+    if (kind === "{" || kind === "[") depth++;
+    previous = kind;
+  } while (cursor.next());
+  return { ok: true, text: formatted + finalNewline };
 }
