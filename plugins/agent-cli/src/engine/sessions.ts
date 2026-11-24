@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { HuhuError, errors, newId, type ExecutionBinding } from "@huhu/contracts";
+import { HuhuError, errors, newId, type ExecutionBinding, type TaskExecutionProfile } from "@huhu/contracts";
 import { HerdrError, type HerdrClient } from "@huhu/herdr-client";
 import { claudeHistoryChild, codexHistoryChild, historyProfileKey, isValidNativeId, isWithin, nativeHistoryCandidates, nativeHistorySourceMatches } from "./history/scanner.js";
 import { prepareCodexHistory, readCodexHistoryReceipt, stageCodexHistory, type CodexHistoryReceipt } from "./history/codex-fork.js";
@@ -32,6 +32,7 @@ export interface SessionRecord {
   launchReceipt?: LaunchReceipt;
   historyLaunch?: { history: NonNullable<LaunchInput["history"]>; spaceRevision: number; selection: string; cwd: string; codex?: CodexHistoryReceipt; dispatch?: { id: string; configurationId: string } };
   controlled?: "codex";
+  writableDispatch?: true;
   terminalId: string | null;
   name: string;
   cwd: string;
@@ -151,6 +152,7 @@ export interface LaunchInput {
   approvedShell?: ApprovedLinuxShell;
   expectedConfigurationId?: string;
   controlled?: "codex";
+  profile?: TaskExecutionProfile | undefined;
   resumeDispatchId?: string;
   environment?: AgentEnvironmentApproval;
 }
@@ -504,6 +506,7 @@ export class SessionsService {
     let codexHistory: ReturnType<typeof prepareCodexHistory> | undefined;
     const history = input.history;
     if (history && !this.currentHistorySource(input, cwd, historyCandidates)) throw errors.notFound("原生会话来源已变化或标识不唯一，请重新选择");
+    if (input.profile === "workspace-write" && !input.controlled) throw errors.permissionDenied("当前 Provider 不支持受控工作区写入");
     if (input.controlled) {
       if (
         !this.d.codex ||
@@ -516,7 +519,11 @@ export class SessionsService {
         (history && (!input.resumeDispatchId || history.mode !== "resume"))
       )
         throw errors.invalidInput("受控 Codex 启动来源无效");
-      controlled = await this.d.codex.prepare(input);
+      const approval = input.profile === "workspace-write" ? this.d.spaces.dispatchWriteApproval(space) : undefined;
+      if (input.profile === "workspace-write" && (!approval || cwd !== approval.root || history)) {
+        throw new HuhuError("PERMISSION_DENIED", "当前工作区版本尚未批准 Agent 写入", { details: { reason: "workspace_write_approval_required" } });
+      }
+      controlled = await this.d.codex.prepare(input, approval);
     } else if (input.command !== undefined) {
       if (input.provider !== "shell") throw errors.invalidInput("command 只能与终端（shell）一起用");
       argv = input.approvedShell?.argv ?? shellCommand(input.shell ?? "default", input.command);
@@ -717,6 +724,7 @@ export class SessionsService {
       ...(nativeSessionId ? { nativeSessionId } : {}),
       ...(history?.mode === "resume" && nativeSessionId ? { historyId: history.sourceId } : {}),
       ...(input.controlled ? { controlled: input.controlled } : {}),
+      ...(input.profile === "workspace-write" && { writableDispatch: true as const }),
       launchReceipt: receipt,
     };
     this.recordLaunchRequest(session, receipt);
@@ -1316,7 +1324,7 @@ export class SessionsService {
     return {
       spaceId: session.spaceId,
       finished: verified.terminal.state === "finished" || verified.terminal.finished_ms != null,
-      ...(thread && { nativeExisting: thread.protocol === 2 }),
+      ...(thread && { nativeExisting: thread.protocol === 2 && !session.writableDispatch }),
       binding: {
         machineId,
         sessionId: session.id,

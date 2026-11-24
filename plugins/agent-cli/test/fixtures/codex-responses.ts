@@ -12,7 +12,9 @@ const question = {
     { label: "Square", description: "Four corners" },
   ],
 };
-export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn }: { seedReply?: string; seedReplies?: readonly string[]; result?: string; failedTurn?: string } = {}) {
+export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn, workspaceCommand }: {
+  seedReply?: string; seedReplies?: readonly string[]; result?: string; failedTurn?: string; workspaceCommand?: { command: string; cwd: string };
+} = {}) {
   const requests: { path: string | undefined; tools: { name?: string }[]; input: { type?: string; call_id?: string; output?: unknown }[] }[] = [];
   const questionRequest = seedReplies.length + 1;
   const server = createServer(async (req, res) => {
@@ -31,8 +33,11 @@ export async function startCodexResponsesFixture({ seedReply, seedReplies = seed
       }
       const ask = requests.length === questionRequest;
       const reply = seedReplies[requests.length - 1] ?? result;
+      const shell = workspaceCommand && tools.find(({ name }) => name === "exec_command" || name === "shell_command")?.name;
+      if (ask && workspaceCommand && !shell) throw new Error("App Server did not offer the approved shell tool");
+      const command = workspaceCommand && shell && (shell === "exec_command" ? { cmd: workspaceCommand.command, workdir: workspaceCommand.cwd } : { command: workspaceCommand.command, workdir: workspaceCommand.cwd });
       const item = ask
-        ? { id: "fc_fixture", type: "function_call", status: "completed", call_id: callId, name: toolName, arguments: JSON.stringify({ questions: [question] }) }
+        ? { id: "fc_fixture", type: "function_call", status: "completed", call_id: callId, name: shell ?? toolName, arguments: JSON.stringify(command || { questions: [question] }) }
         : { id: "msg_fixture_" + requests.length, type: "message", status: "completed", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: reply, annotations: [] }] };
       // Reuse the Responses lifecycle from deepseek-harness's subagent-codex fixture.
       const response = { id: "resp_fixture_" + requests.length, object: "response", output: [item], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } };

@@ -108,14 +108,14 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
     async ready(work, signal): Promise<TaskDispatchReadiness> {
       const { execution } = work.snapshot;
       const preference = execution.target ?? { mode: "new" };
-      const { spaceId, provider, model, effort, fast } = execution;
+      const { spaceId, provider, model, effort, fast, profile } = execution;
       const text = textOf(work);
       if (preference.mode === "resume") {
         const result = await historyReadiness(execution, text, work.agentTarget, signal);
         return result.target && (result.state === "ready" || result.state === "busy") ? { state: result.state, target: result.target } : result.state;
       }
       if (!spaceId || !InputText.safeParse(text).success) return "unavailable";
-      const options = preference.mode === "new" ? { ...(model != null && { model }), ...(effort != null && { effort }), fast } : undefined;
+      const options = preference.mode === "new" ? { ...(model != null && { model }), ...(effort != null && { effort }), fast, ...(profile && { profile }) } : undefined;
       let listing: z.infer<typeof Targets>;
       try {
         listing = Targets.parse(await api.call("agent.targets.list", { ...scope, spaceId, ...(options && { options }) }, { signal }));

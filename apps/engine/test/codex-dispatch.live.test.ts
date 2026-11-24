@@ -117,7 +117,7 @@ test.skipIf(!bin)(
       expect(await internal("agent.targets.list", { ...scope, spaceId: space!.id })).toMatchObject({
         ok: true,
         data: expect.arrayContaining([
-          expect.objectContaining({ provider: "codex", mode: "new", available: true, structuredReply: false, structuredResult: false, cancel: false }),
+          expect.objectContaining({ provider: "codex", mode: "new", available: true, capabilities: expect.objectContaining({ structuredReply: expect.objectContaining({ state: "runtime_check" }), stop: expect.objectContaining({ state: "runtime_check" }) }) }),
           expect.objectContaining({ provider: "codex", mode: "resume", available: false }),
         ]),
       });

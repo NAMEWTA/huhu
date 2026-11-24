@@ -74,6 +74,20 @@ function main(file) {
   if ((statSync(userConfig, { throwIfNoEntry: false }) ? stamp(userConfig) : null) !== config.configStamp) throw new Error("Provider configuration changed");
   const nativeChoiceBridge = config.nativeChoiceBridge === true;
   const resume = config.resume;
+  const workspace = config.workspace;
+  function workspaceApproved() {
+    if (!workspace) return true;
+    try {
+      const stat = statSync(workspace.root, { bigint: true });
+      const identity = stat.ino === 0n ? null : `${stat.dev}:${stat.ino}`;
+      return !resume && process.platform === "linux" && process.cwd() === workspace.root && realpathSync(workspace.root) === workspace.root &&
+        stat.isDirectory() && JSON.stringify([identity, String(stat.birthtimeNs)]) === workspace.rootIdentity &&
+        workspace.files.every(({ path, stamp: expected }) => stamp(path) === expected);
+    } catch {
+      return false;
+    }
+  }
+  if (!workspaceApproved()) throw new Error("Workspace write approval changed");
   function resumeStamp() {
     const stat = statSync(resume.file, { bigint: true });
     const physical = [stat.dev, stat.ino, stat.birthtimeNs].join(":");
@@ -110,7 +124,10 @@ function main(file) {
 
   const nativeChoiceFeature = "default_mode_request_user_input";
   const choiceArgs = nativeChoiceBridge ? ["--enable", nativeChoiceFeature] : [];
-  const app = spawn(config.command, [...config.args, ...choiceArgs, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', "--disable", "shell_tool", "app-server", "--listen", "stdio://"], {
+  const toolArgs = workspace
+    ? ["--enable", "shell_tool", "--config", "sandbox_workspace_write={writable_roots=[],network_access=false,exclude_tmpdir_env_var=true,exclude_slash_tmp=true}"]
+    : ["--disable", "shell_tool"];
+  const app = spawn(config.command, [...config.args, ...choiceArgs, "--config", "mcp_servers={}", "--config", 'web_search="disabled"', ...toolArgs, "app-server", "--listen", "stdio://"], {
     cwd: process.cwd(),
     env,
     windowsHide: true,
@@ -151,6 +168,7 @@ function main(file) {
     if (closing) return;
     closing = true;
     clearTimeout(startup);
+    clearInterval(approvalWatch);
     for (const socket of sockets) socket.destroy();
     server?.close();
     app.stdin.destroy();
@@ -363,6 +381,7 @@ function main(file) {
       (requestedResultMode !== undefined && requestedResultMode !== "allow_no_update")
     )
       return;
+    if (!workspaceApproved()) return stop("workspace write approval changed before input");
     if (resume && observedTurns.size === 0) {
       if (execution.dispatchId !== resume.dispatchId) return;
       if (resumeStamp() !== resumedStamp) return stop("resume source changed before the first turn");
@@ -443,6 +462,9 @@ function main(file) {
   }
 
   const startup = setTimeout(() => stop("thread startup is unconfirmed"), 20_000);
+  const approvalWatch = workspace ? setInterval(() => {
+    if (!workspaceApproved()) stop("workspace write approval changed");
+  }, 250) : undefined;
   app.once("error", () => stop("App Server unavailable"));
   app.once("close", () => stop("App Server ended"));
   app.stdin.on("error", () => stop("App Server connection lost"));
@@ -510,7 +532,7 @@ function main(file) {
     send({ method: "initialized", params: {} });
     const settings = {
       cwd: process.cwd(),
-      sandbox: "read-only",
+      sandbox: workspace ? "workspace-write" : "read-only",
       approvalPolicy: "never",
       ...(nativeChoiceBridge && { experimentalRawEvents: true }),
       ...(config.model ? { model: config.model } : {}),
@@ -519,6 +541,14 @@ function main(file) {
     };
     const ready = (started) => {
       if (!validId(started?.thread?.id)) return stop("thread startup is unconfirmed");
+      if (workspace) {
+        const sandbox = started.sandbox;
+        if (!workspaceApproved() || started.approvalPolicy !== "never" || started.thread.cwd !== workspace.root || sandbox?.type !== "workspaceWrite" ||
+            sandbox.networkAccess !== false || sandbox.excludeTmpdirEnvVar !== true || sandbox.excludeSlashTmp !== true ||
+            !Array.isArray(sandbox.writableRoots) || sandbox.writableRoots.some((root) => root !== workspace.root)) {
+          return stop("workspace sandbox is unconfirmed");
+        }
+      }
       threadId = started.thread.id;
       if (nativeChoiceBridge) prepareDefaultChoices(undefined, 4);
       else listenForControl();

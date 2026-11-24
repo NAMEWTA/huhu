@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { HuhuError, errors, newId } from "@huhu/contracts";
-import { filesystemIdentity, normalizeRelPath } from "@huhu/vault";
+import { filesystemIdentity, normalizeRelPath, protectedKindOf } from "@huhu/vault";
 import { z } from "zod";
 import { spaceCanLaunch, type Space } from "../shared/space.js";
+import { launchHash } from "./launch-binding.js";
 
 export type { Space } from "../shared/space.js";
 
@@ -279,6 +280,7 @@ export class SpaceStore {
     if (this.anchor?.readOnly) throw errors.readOnlyVault();
     const record = this.record(id);
     if (!this.safeDirectory(this.dir)) throw errors.pathOutsideVault(this.dir);
+    if (this.anchor && this.safeDirectory(this.anchor.bindings)) rmSync(path.join(this.anchor.bindings, `${id}.dispatch-write.json`), { force: true });
     rmSync(this.file(id), { force: true });
     if ("format" in record && record.directory.kind === "external") this.dropBinding(record.directory.bindingId);
   }
@@ -311,5 +313,42 @@ export class SpaceStore {
       throw new HuhuError("SPACE_INVALID", "Space 目录不存在或不可访问");
     }
     return space;
+  }
+
+  approveDispatchWrite(id: string, revision: number, allowed: boolean): void {
+    const space = this.validateForLaunch(id, revision);
+    const anchor = this.anchor;
+    if (!anchor || anchor.readOnly) throw errors.readOnlyVault();
+    const file = path.join(anchor.bindings, `${space.id}.dispatch-write.json`);
+    if (!this.safeDirectory(anchor.bindings)) throw errors.pathOutsideVault(anchor.bindings);
+    if (allowed) {
+      // Do not make the Vault's own metadata/runtime writable to a model.
+      const member = relativeWithin(anchor.root, space.root);
+      if (relativeWithin(space.root, anchor.root) !== null || (member && protectedKindOf(member.split(path.sep).join("/")))) throw errors.permissionDenied("选择专用工作目录以批准 Agent 写入");
+      if (this.dispatchWriteApproval(space)) return;
+      this.write(file, this.dispatchWriteIdentity(space, anchor));
+    } else {
+      rmSync(file, { force: true });
+    }
+  }
+
+  private dispatchWriteIdentity(space: Space, anchor: Anchor): string {
+    return launchHash([anchor.stamp, space.id, space.revision, space.root, directoryStamp(space.root)]);
+  }
+
+  dispatchWriteApproval(space: Space): { root: string; rootIdentity: string; files: { path: string; stamp: string }[] } | undefined {
+    const anchor = this.anchor;
+    if (!anchor || anchor.readOnly || !spaceCanLaunch(space) || !this.safeDirectory(anchor.bindings)) return undefined;
+    try {
+      const file = path.join(anchor.bindings, `${space.id}.dispatch-write.json`);
+      if (!lstatSync(file).isFile() || readFileSync(file, "utf8") !== this.dispatchWriteIdentity(space, anchor)) return undefined;
+      const files = [file, this.file(space.id)].map((p) => {
+        const stat = statSync(p, { bigint: true });
+        return { path: p, stamp: launchHash([p, stat.ino.toString(), stat.size.toString(), stat.mtimeNs.toString()]) };
+      });
+      return { root: space.root, rootIdentity: directoryStamp(space.root), files };
+    } catch {
+      return undefined;
+    }
   }
 }

@@ -8,6 +8,7 @@ import {
   TaskCategorySchema,
   TaskCommentSchema,
   TaskDtoSchema,
+  TaskExecutionProfileSchema,
   TaskExecutionSchema,
   TaskPatchSchema,
   TaskStatusSchema,
@@ -185,8 +186,8 @@ export const taskToolDescriptors = {
     scope: "read",
     exposable: true,
     defaultExposed: false,
-    input: z.strictObject({ spaceId: z.string().min(1) }),
-    output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, nativeSessionId: true, history: true, historyTitle: true, available: true, reason: true })),
+    input: z.strictObject({ spaceId: z.string().min(1), profile: TaskExecutionProfileSchema.optional() }),
+    output: z.array(AgentDispatchTargetInfoSchema.pick({ mode: true, provider: true, sessionId: true, nativeSessionId: true, history: true, historyTitle: true, available: true, reason: true, profile: true, capabilities: true })),
     title: "查看派遣目标",
     description: "查看指定 Space 可选的 Agent 与会话目标。",
     risk: "normal",
@@ -449,7 +450,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     if (target?.mode !== "existing" && (!provider || !agentById(provider))) throw errors.invalidInput("请选择已知的 Agent");
     if (model?.startsWith("-") || effort?.startsWith("-")) throw errors.invalidInput("模型或推理强度不能以命令选项开头");
   };
-  const validateHistorySelection = async (c: CapabilityContext, execution: TaskExecution | null | undefined, previous?: TaskExecution | null) => {
+  const validateExecutionSelection = async (c: CapabilityContext, execution: TaskExecution | null | undefined, previous?: TaskExecution | null) => {
+    if (execution?.profile === "workspace-write") {
+      if (execution.provider !== "codex" || (execution.target && execution.target.mode !== "new")) throw errors.invalidInput("工作区写入只支持受控 Codex 新会话");
+      if (c.caller !== "desktop" && JSON.stringify(execution) !== JSON.stringify(previous)) throw errors.permissionDenied("需要在本机桌面选择工作区写入 profile");
+    }
     const target = execution?.target;
     if (!execution || target?.mode !== "resume") return;
     if (execution.provider !== "codex" || target.history?.machineId !== machine || !execution.spaceId || target.history.spaceId !== execution.spaceId || execution.model || execution.effort || execution.fast) {
@@ -558,16 +563,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId }) => {
+    bindCapability(taskToolDescriptors.dispatchTargets, async ({ caller, signal }, { spaceId, profile }) => {
       if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务的会话目标");
-      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
+      const input = { vaultId: api.vault.vaultId, machineId: machineId(), spaceId, ...(profile && { options: { profile } }), ...(!isWorkbenchCaller(caller) && { mode: "snapshot" }) };
       const response = await api.call("agent.targets.list", input, { signal }).catch((error: unknown) => {
         const code = ErrorCodeSchema.safeParse(error instanceof Error && "code" in error ? error.code : undefined);
         if (code.success && error instanceof Error) throw new HuhuError(code.data, error.message);
         throw error;
       });
       const targets = z.array(AgentDispatchTargetInfoSchema).parse(response);
-      return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason }));
+      return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }));
     }),
   );
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
@@ -633,7 +638,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
         if (i.type !== "agent") throw errors.permissionDenied("人工任务不能设置 Agent 执行目标");
         validateAgentTarget(i.execution);
       }
-      if (i.type === "agent") await validateHistorySelection(c, i.execution);
+      if (i.type === "agent") await validateExecutionSelection(c, i.execution);
       const task = await svc.create(i, originOf(c.caller));
       // 受信 Inbox 转换只需要任务 ID：不让下游幂等账本持久化任务正文
       if (c.caller === "plugin:inbox" && !c.delegatedBy) return { id: task.id };
@@ -645,7 +650,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       const { caller } = c;
       if (!isTaskToolCaller(caller)) throw errors.permissionDenied("创建 Agent 任务");
       validateAgentTarget(input.execution);
-      await validateHistorySelection(c, input.execution);
+      await validateExecutionSelection(c, input.execution);
       return agentWriteResult(caller, await svc.create(input, originOf(caller)));
     }),
   );
@@ -659,7 +664,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
           if (type === "agent") validateAgentTarget(execution);
           includesAgentInput = true;
         }
-        if (type === "agent" && (i.patch.execution !== undefined || current.type !== type)) await validateHistorySelection(c, execution, current.type === "agent" ? current.execution : undefined);
+        if (type === "agent" && (i.patch.execution !== undefined || current.type !== type)) await validateExecutionSelection(c, execution, current.type === "agent" ? current.execution : undefined);
       });
       return agentWriteResult(c.caller, task, includesAgentInput);
     }),
@@ -672,7 +677,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
           authorizeAgentEdit(c);
           validateAgentTarget(current.execution);
         }
-        await validateHistorySelection(c, current.execution);
+        await validateExecutionSelection(c, current.execution);
       });
       return agentWriteResult(c.caller, task);
     }),

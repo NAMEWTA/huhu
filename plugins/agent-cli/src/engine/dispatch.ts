@@ -41,7 +41,7 @@ const receipt = (record: StoredDispatch | null, status: Status, reason: string |
 });
 type DispatchResponse = ReturnType<typeof receipt>;
 export type ResumeTarget = Extract<DispatchInput["target"], { mode: "resume" }>;
-type ResumeInfo = Omit<z.infer<typeof AgentDispatchTargetInfoSchema>, "structuredReply" | "structuredResult" | "cancel">;
+type ResumeInfo = Omit<z.infer<typeof AgentDispatchTargetInfoSchema>, "profile" | "capabilities">;
 
 export class AgentDispatch {
   private readonly inflight = new Map<string, { fingerprint: string; result: Promise<DispatchResponse> }>();
@@ -70,19 +70,26 @@ export class AgentDispatch {
     const space = this.d.spaces.get(input.spaceId);
     const unavailable = this.d.readOnly ? "read_only_vault" : null;
     const snapshot = input.mode === "snapshot";
+    const profile = input.options?.profile ?? "read-only";
+    const write = profile === "workspace-write";
     const newTargets = await Promise.all(
       AGENT_CATALOG.map(async ({ id: provider }) => {
         const adapter = this.d.providers[provider];
         let reason = unavailable ?? (adapter?.modes.includes("new") ? null : "provider_acceptance_unavailable");
+        if (write) {
+          if (provider !== "codex" || adapter?.transport !== "native" || process.platform !== "linux" || process.arch !== "x64") reason ??= "workspace_write_profile_unsupported";
+          else if (!this.d.spaces.dispatchWriteApproval(space)) reason ??= "workspace_write_approval_required";
+        }
         let configurationId: string | null = null;
         if (!reason && snapshot) {
-          if (!spaceCanLaunch(space)) reason = "SPACE_INVALID";
+          if (write) reason = "binding_unverified";
+          else if (!spaceCanLaunch(space)) reason = "SPACE_INVALID";
           else if (!this.d.detector.locate(provider)) reason = "configuration_unavailable";
         } else if (!reason) {
           try {
             configurationId = await this.d.sessions.freezeLaunch({ ...input.options, spaceId: space.id, spaceRevision: space.revision, provider, ...(adapter?.transport === "native" && { controlled: "codex" as const }) });
           } catch (error) {
-            reason = error instanceof HuhuError ? (error.code === "HEADLESS_UNSUPPORTED" ? "provider_acceptance_unavailable" : error.code) : "configuration_unavailable";
+            reason = error instanceof HuhuError ? (error.code === "HEADLESS_UNSUPPORTED" ? "provider_acceptance_unavailable" : String(error.details?.["reason"] ?? error.code)) : "configuration_unavailable";
           }
         }
         return { mode: "new" as const, provider, spaceId: space.id, spaceRevision: space.revision, configurationId, binding: null, available: reason === null, reason };
@@ -96,7 +103,7 @@ export class AgentDispatch {
         .map(async (session) => {
           const provider = session.provider as AgentId;
           const adapter = this.d.providers[provider];
-          let reason = unavailable ?? (session.state === "exited" ? "session_ended" : adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
+          let reason = unavailable ?? (write || session.writableDispatch ? "profile_requires_new_thread" : session.state === "exited" ? "session_ended" : adapter?.modes.includes("existing") ? null : "provider_generation_unavailable");
           if (!reason && snapshot) reason = "binding_unverified";
           const current = reason ? null : await this.d.sessions.executionSession(session.id);
           if (!reason && current?.finished) reason = "session_ended";
@@ -108,7 +115,7 @@ export class AgentDispatch {
     );
     signal.throwIfAborted();
     const codex = this.d.providers.codex;
-    const history = codex?.transport === "native" && codex.modes.includes("resume") && this.d.resumeTargets ? await this.d.resumeTargets(space, snapshot) : [];
+    const history = !write && codex?.transport === "native" && codex.modes.includes("resume") && this.d.resumeTargets ? await this.d.resumeTargets(space, snapshot) : [];
     signal.throwIfAborted();
     const resume = AGENT_CATALOG.filter(({ id }) => !history.some((item) => item.provider === id)).map(({ id: provider }) => ({
       mode: "resume" as const,
@@ -118,16 +125,40 @@ export class AgentDispatch {
       configurationId: null,
       binding: null,
       available: false,
-      reason: "native_resume_evidence_unavailable",
+      reason: write ? "profile_requires_new_thread" : "native_resume_evidence_unavailable",
     }));
-    return [...newTargets, ...existing, ...history, ...resume].map((target) => ({
-      ...target,
-      available: !unavailable && target.available,
-      reason: unavailable ?? target.reason,
-      structuredReply: false,
-      structuredResult: false,
-      cancel: false,
-    }));
+    const unsupported = (reason: string) => ({ state: "unsupported" as const, reason });
+    const runtime = (reason: string) => ({ state: "runtime_check" as const, reason });
+    const conditional = (reason: string) => ({ state: "conditional" as const, reason });
+    const available = { state: "available" as const };
+    const interactiveProviders = new Set(spaceCanLaunch(space) ? AGENT_CATALOG.filter(({ id }) => this.d.detector.locate(id)).map(({ id }) => id) : []);
+    return [...newTargets, ...existing, ...history, ...resume].map((target) => {
+      const provider = target.provider as AgentId;
+      const adapter = this.d.providers[provider];
+      const native = adapter?.transport === "native";
+      const reason = unavailable ?? target.reason;
+      const dispatch = reason === "binding_unverified" ? runtime(reason)
+        : reason ? (adapter ? conditional(reason) : unsupported(reason))
+        : target.configurationId || target.binding ? available : runtime("binding_unverified");
+      const feature = native && !reason ? runtime("verify_native_thread_and_turn") : unsupported(reason ?? "provider_evidence_unavailable");
+      const writeFeature = write && native && target.mode === "new"
+        ? reason === "workspace_write_approval_required" ? conditional(reason) : reason ? dispatch : runtime("verify_effective_workspace_sandbox")
+        : unsupported(reason ?? "read_only_profile");
+      const interactive = interactiveProviders.has(provider) ? available : conditional("interactive_installation_or_space_unavailable");
+      return {
+        ...target,
+        available: !unavailable && target.available,
+        reason,
+        profile,
+        capabilities: {
+          interactive, dispatch,
+          liveSession: target.mode === "existing" ? dispatch : runtime("requires_live_binding"),
+          coldResume: target.mode === "resume" ? dispatch : runtime("requires_qualified_persistent_history"),
+          structuredReply: feature, structuredResult: feature, stop: feature, workspaceRead: feature,
+          workspaceWrite: writeFeature, command: writeFeature, mcp: unsupported("no_task_tool_scope"),
+        },
+      };
+    });
   }
 
   async dispatch(input: DispatchInput, requestSignal: AbortSignal): Promise<DispatchResponse> {
@@ -253,6 +284,7 @@ export class AgentDispatch {
     const provider = (target.mode === "existing" ? target.binding.provider : target.provider) as AgentId;
     const adapter = Object.hasOwn(this.d.providers, provider) ? this.d.providers[provider] : undefined;
     if (!adapter?.modes.includes(target.mode) || (target.mode === "resume" && adapter.transport !== "native")) return receipt(prior, "unsupported", "provider_acceptance_unavailable");
+    if (target.mode === "new" && target.profile === "workspace-write" && adapter.transport !== "native") return receipt(prior, "unsupported", "workspace_write_profile_unsupported");
     if (input.resultMode && adapter.transport !== "native") return receipt(prior, "unsupported", "result_mode_unsupported");
     if (prior && prior.adapterId !== adapter.id) return receipt(prior, "unknown", "provider_adapter_changed");
 
@@ -278,6 +310,7 @@ export class AgentDispatch {
         id = await this.launchNew(target, record, signal);
       } catch (error) {
         if (error instanceof HuhuError && error.code === "HEADLESS_UNSUPPORTED") return receipt(record, "unsupported", "provider_acceptance_unavailable");
+        if (error instanceof HuhuError && error.details?.["reason"] === "workspace_write_approval_required") return receipt(record, "unsupported", "workspace_write_approval_required");
         throw error;
       }
     }
@@ -330,7 +363,10 @@ export class AgentDispatch {
     const write = await this.d.sessions
       .writeExecutionInput(execution, text, signal, () => {
         this.assertCurrent(record);
-        if (target.spaceRevision !== undefined) this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
+        if (target.spaceRevision !== undefined) {
+          const space = this.d.spaces.validateForLaunch(target.spaceId, target.spaceRevision);
+          if (target.mode === "new" && target.profile === "workspace-write" && !this.d.spaces.dispatchWriteApproval(space)) return false;
+        }
         if (target.mode === "resume" && (this.d.resumeAbandoned?.(input.dispatchId) || this.d.sessions.resumeOwner(id) !== input.dispatchId)) return false;
         if (!this.d.ownership.availableForTask(id, input.dispatchId)) return false;
         this.d.store.save(sending);

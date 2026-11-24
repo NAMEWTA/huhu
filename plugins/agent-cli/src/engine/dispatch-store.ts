@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskHistorySelectionSchema, TaskRunAttemptSchema } from "@huhu/contracts";
+import { ExecutionBindingSchema, ExecutionSessionBindingSchema, HuhuError, TaskExecutionProfileSchema, TaskHistorySelectionSchema, TaskRunAttemptSchema } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { putReceiptFile } from "./execution-receipts.js";
@@ -23,6 +23,7 @@ export const LaunchOptions = z.strictObject({
   model: z.string().min(1).optional(),
   effort: z.string().min(1).optional(),
   fast: z.boolean().optional(),
+  profile: TaskExecutionProfileSchema.optional(),
 });
 export const DispatchTarget = z.discriminatedUnion("mode", [
   LaunchOptions.extend({ mode: z.literal("new"), spaceId: Id, spaceRevision: z.number().int().positive(), provider, configurationId: Fingerprint }),

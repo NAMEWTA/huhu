@@ -287,6 +287,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return isAgentTool(c.caller) ? { ...projected, requestId } : projected;
   };
   api.defineCapability(bindCapability(mainAgentDescriptors.spacesList, () => spaces.list()));
+  api.defineCapability(bindCapability(mainAgentDescriptors.dispatchWriteApproval, ({ caller, signal }, { id, expectedRevision, allowed }) => {
+    if (caller !== "desktop") throw errors.permissionDenied("需要在本机桌面批准工作区写入");
+    signal.throwIfAborted();
+    spaces.approveDispatchWrite(id, expectedRevision, allowed);
+    return { allowed };
+  }));
   api.defineCapability(
     bindCapability(mainAgentDescriptors.spacesSave, ({ caller }, i) => {
       const external = isAgentTool(caller);
