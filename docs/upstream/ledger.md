@@ -59,6 +59,54 @@
 
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
+## 账本来源与领域合同（#11 L0a）
+
+HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提交已获取到 `temp/sources/homibook`。根 LICENSE 为 MIT，版权为 saaangxy（2026）。本阶段复用行为与边界样例，Huhu 合同独立实现。基线为 Huhu `825b0c0327954680c1133a4307730db5e94b33ca`。 [固定提交](https://github.com/saaangxy/HomiBook/commit/5d3d71713de805c95245378408b73f101f69659a) · [LICENSE](https://github.com/saaangxy/HomiBook/blob/5d3d71713de805c95245378408b73f101f69659a/LICENSE)
+
+| 固定源文件 | Huhu 适配与责任 |
+| --- | --- |
+| `backend/prisma/schema.prisma` 的 `AccountBook`、`Account`、`BalanceAdjustment`、`Record` 与 `RecordAttachment` | `packages/contracts/src/ledger.ts` 冻结账本、账户、余额基准、流水、转账、平账组及两条提交输入样例。JSON 金额使用最小单位整数字符串，加减用 BigInt。不同币种分别出账，两个转账端点独立保存。以首批合同中固定的币种精度表校验，未知币种进入待决。 |
+| `backend/src/services/balance.ts`、`backend/src/lib/date-time.ts` | 保留期初/校准与真实资金变动关系。将上游浮点舍入替换成精确整数，账本自带 IANA 时区。以半开业务日区间归集，明确处理重复或不存在的来源壁钟时刻。 |
+| `backend/src/services/offset-match.ts`、`backend/src/services/backup/{export,import}.ts` | 平账/恢复交互参照上游。后续 `plugins/ledger/src/domain/offset.ts` 复用候选排序的行为，Engine 复核组成员和版本。归档或缺失的凭证/知识资源保留可辨认状态，历史流水保持可读。迁入旧 `offsetAt` 时复核缺失关系，不捏造组身份。 |
+| `backend/src/services/scheduler.ts`、`backend/src/routes/recurring.ts`、`frontend/src/pages/BooksPage.tsx` | UI 模块承接建账、流水、导入和报表。固定收支接 Automations 唯一 planId/revision，贷款历史显式确认。账本 owner 保存期次和入账关系，经现有 VaultFiles/OperationLog 做一致提交与恢复。 |
+
+合同放在已装配且可单独验证的 `@huhu/contracts`，沿用 `CapabilityIntentKeySchema`。L1 建立插件时由账本 owner 消费此共享输入及本地提交约定。`packages/contracts/test/ledger.test.ts` 的固定样例验证宽金额、校准、时区、异常引用和受控导入确认输入。样例不代表 SQLite、Vault 写入或业务能力已经注册。
+
+## MCP 聚合来源与合同（#12 P0）
+
+首选 Huhu 现有 Dispatcher、MCP 会话、工作台接入中心、VaultFiles 及模块凭据宿主。实施机的 `temp/sources` 未预置 Magpie，本次取回 v0.1.4676 固定提交 `700f4127e8044ac6dfbb0e0cc937e91c59a601ac`，保存在 `temp/sources/magpie` 下的 `refs/huhu-research/issue12`。根 LICENSE 为 MIT，版权 yetone（2026）。P0 适配连接和工具路由行为，未复制 Go 源码。 [固定提交][mcp-magpie] · [LICENSE][mcp-magpie-license]
+
+| 路径 | 实际交付与迁移目标 | 测试来源与边界 |
+| --- | --- | --- |
+| Magpie `docs/subsystems/mcp-router.md`、`docs/subsystems/library.md`、`internal/library/mcp_check.go`、`internal/library/mcp_accounts.go` | 服务列表、共享入口、显式检查、身份绑定迁移到 `prototype/mcp/prototype.js`，真实连接管理拟落在 `plugins/mcp/src/engine/{sources,credentials}.ts`。 [Router][mcp-magpie-router] · [Library][mcp-magpie-library] · [检查][mcp-magpie-check] · [账户][mcp-magpie-accounts] | P0 原型走查添加、检查、OAuth 过期和状态分离。P1/P4 连接夹具和认证状态核对真实效果。 |
+| Magpie `internal/gateway/hub_mcp.go` 与 `hub_mcp_test.go` | `packages/kernel/src/mcp-routing.ts` 确认来源权限后按稳定公开键命中。延续有来源前缀的工具名与原生 MCP 结果。 [实现][mcp-magpie-hub] · [测试][mcp-magpie-hub-test] | `TestHubMCPListsAndRoutes`、`TestHubMCPGuarded`、`TestHubMCPNamesItsServers` 对应本票目录、缓存名和多来源样例。Magpie 仅聚合 Tools，其 `hubNamed` 的顺序后缀及 `TestHubMCPCallsAToolNoLongerListed` 的前缀回退均未移植。 |
+| Magpie `internal/library/mcp_hub.go` 与 `mcp_hub_test.go` | P1/P2/P5 拟迁移并发连接合并、分页、来源故障隔离及回收至 `plugins/mcp/src/engine/{runtime,catalog}.ts`。 [实现][mcp-magpie-pool] · [测试][mcp-magpie-pool-test] | `TestHubToolsAndCalls`、`TestHubServerDiesAndIdles`、`TestHubEntrySwap` 对应后续真实连接验收。 |
+| TypeScript SDK 1.32.2（已锁定，提交 `3b73021a0a2272c0c04c3917bcdb03398b3ec63f`） | P0 引用 SDK 原生结果 schema 和类型。P1–P4 直接使用 stdio、Streamable HTTP、旧版 SSE、OAuth 与 URI 模板原语。 [协议版本][mcp-sdk] · [stdio][mcp-sdk-stdio] · [Streamable HTTP][mcp-sdk-http] · [SSE][mcp-sdk-sse] · [OAuth][mcp-sdk-auth] | 库声明兼容的握手和 Huhu 验收矩阵分别记录。P0 不声明真实传输兼容。 |
+| #12 的 1MCP、MCPHub、MetaMCP 固定参考 | 1MCP 的快照/代次、模板与 supervisor 对应 P2、P3、P5；MCPHub 的服务/导入和资源/提示对应 P2、P3；MetaMCP 仅参照发现/调用双检。MCPHub 与 1MCP 的 SDK 2.x 包入口需转为现有 SDK。 [1MCP 快照][mcp-1mcp-cap] · [1MCP 模板][mcp-1mcp-template] · [1MCP 进程恢复][mcp-1mcp-stdio] · [MCPHub 导入][mcp-mcphub-import] · [MCPHub 资源][mcp-mcphub-resources] · [MCPHub 提示][mcp-mcphub-prompts] · [MetaMCP 过滤][mcp-metamcp-filter] | 1MCP 的同仓快照、模板和 supervisor 单测是后续迁移的用例来源。此行用 #12 固定路径标出后续来源，无直接复制。MetaMCP 查询异常时放行的分支不适用。 |
+
+[mcp-magpie]: https://github.com/yetone/magpie/commit/700f4127e8044ac6dfbb0e0cc937e91c59a601ac
+[mcp-magpie-license]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/LICENSE
+[mcp-magpie-router]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/docs/subsystems/mcp-router.md
+[mcp-magpie-library]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/docs/subsystems/library.md
+[mcp-magpie-check]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/library/mcp_check.go
+[mcp-magpie-accounts]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/library/mcp_accounts.go
+[mcp-magpie-hub]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/gateway/hub_mcp.go
+[mcp-magpie-hub-test]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/gateway/hub_mcp_test.go
+[mcp-magpie-pool]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/library/mcp_hub.go
+[mcp-magpie-pool-test]: https://github.com/yetone/magpie/blob/700f4127e8044ac6dfbb0e0cc937e91c59a601ac/internal/library/mcp_hub_test.go
+[mcp-sdk]: https://github.com/modelcontextprotocol/typescript-sdk/blob/3b73021a0a2272c0c04c3917bcdb03398b3ec63f/src/types.ts
+[mcp-sdk-stdio]: https://github.com/modelcontextprotocol/typescript-sdk/blob/3b73021a0a2272c0c04c3917bcdb03398b3ec63f/src/client/stdio.ts
+[mcp-sdk-http]: https://github.com/modelcontextprotocol/typescript-sdk/blob/3b73021a0a2272c0c04c3917bcdb03398b3ec63f/src/client/streamableHttp.ts
+[mcp-sdk-sse]: https://github.com/modelcontextprotocol/typescript-sdk/blob/3b73021a0a2272c0c04c3917bcdb03398b3ec63f/src/client/sse.ts
+[mcp-sdk-auth]: https://github.com/modelcontextprotocol/typescript-sdk/blob/3b73021a0a2272c0c04c3917bcdb03398b3ec63f/src/client/auth.ts
+[mcp-1mcp-cap]: https://github.com/1mcp-app/agent/blob/6e25f4a5b8b2728e74af06cd61981f5cd94c125c/src/core/capabilities/capabilityAggregator.ts
+[mcp-1mcp-template]: https://github.com/1mcp-app/agent/blob/6e25f4a5b8b2728e74af06cd61981f5cd94c125c/src/sdk/legacy/shared/resourceTemplateRouting.ts
+[mcp-1mcp-stdio]: https://github.com/1mcp-app/agent/blob/6e25f4a5b8b2728e74af06cd61981f5cd94c125c/src/core/server/backendStdioSupervisor.ts
+[mcp-mcphub-import]: https://github.com/samanhappy/mcphub/blob/f4aad3de1857385b234887bb46f81fbc2fbf8816/frontend/src/components/JSONImportForm.tsx
+[mcp-mcphub-resources]: https://github.com/samanhappy/mcphub/blob/f4aad3de1857385b234887bb46f81fbc2fbf8816/src/services/mcpResources.ts
+[mcp-mcphub-prompts]: https://github.com/samanhappy/mcphub/blob/f4aad3de1857385b234887bb46f81fbc2fbf8816/src/services/mcpPrompts.ts
+[mcp-metamcp-filter]: https://github.com/metatool-ai/metamcp/blob/05818ec2767b946f98d280ae9cefa401f0362d62/apps/backend/src/lib/metamcp/metamcp-middleware/filter-tools.functional.ts
+
 ## 安装包依赖
 
 | 依赖 | 来源与许可 | 用途 |
