@@ -27,7 +27,6 @@ export class GatewayTokens {
     private readonly file: string,
     private readonly table: TokenTable,
     private readonly now: () => Date = () => new Date(),
-    private readonly onRevoked?: () => void,
   ) {
     try {
       for (const t of this.load().tokens ?? []) this.table.addHash(t.hash, "http", t.id);
@@ -106,7 +105,6 @@ export class GatewayTokens {
     if (!rec) return false;
     this.write({ ...all, tokens: all.tokens.filter((t) => t.id !== id) });
     this.table.removeHash(rec.hash);
-    this.onRevoked?.(); // 关闭该身份已建立的连接
     return true;
   }
 

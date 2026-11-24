@@ -1,5 +1,7 @@
 import { chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import path from "node:path";
 import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
 import { disposeCandidate } from "../helpers/candidate-package.js";
@@ -225,6 +227,46 @@ test("Web 分享：两份邀请和三个浏览器会话，单份撤销与看板�
       }),
     );
     const [first, second, other] = browsers;
+    await test.step("F18 HTTP 凭据从工作台事件流隔离，撤销一枚后另一枚仍可使用", async () => {
+      const control = await page.evaluate(async () => (await window.huhuHost.engine()).baseUrl);
+      const makeToken = (name: string) => call<{ id: string; token: string }>(page, "gateway.tokens.create", { name });
+      const firstCredential = await makeToken("F18 first");
+      const secondCredential = await makeToken("F18 second");
+      const probe = (token: string) => new Promise<number>((resolve, reject) => {
+        const upgrade = request(new URL("/ws/events?lastSeq=0", control), {
+          headers: {
+            Connection: "Upgrade",
+            Upgrade: "websocket",
+            "Sec-WebSocket-Version": "13",
+            "Sec-WebSocket-Key": randomBytes(16).toString("base64"),
+            "Sec-WebSocket-Protocol": `bearer.${token}`,
+          },
+        }, (response) => {
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        });
+        upgrade.on("upgrade", (response, socket) => {
+          socket.destroy();
+          resolve(response.statusCode ?? 0);
+        });
+        upgrade.on("error", () => reject(new Error("工作台事件探测失败")));
+        upgrade.setTimeout(5_000, () => upgrade.destroy(new Error("工作台事件探测超时")));
+        upgrade.end();
+      });
+      const capabilities = async (token: string) => {
+        const response = await fetch(new URL("/api/v1/capabilities", control), { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
+        await response.text();
+        return response.status;
+      };
+      expect(await probe(firstCredential.token)).toBe(403);
+      expect(await probe(secondCredential.token)).toBe(403);
+      expect(await capabilities(firstCredential.token)).toBe(200);
+      await call(page, "gateway.tokens.revoke", { id: firstCredential.id });
+      expect(await probe(firstCredential.token)).toBe(401);
+      expect(await capabilities(secondCredential.token)).toBe(200);
+      await call(page, "gateway.tokens.revoke", { id: secondCredential.id });
+    });
+
     await expect(aRow).toContainText("2 个会话");
     await expect(rows.filter({ hasText: "1 个会话" })).toHaveCount(1);
     const browserTitlebar = other!.getByTestId("window-titlebar");
