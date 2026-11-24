@@ -1,5 +1,7 @@
 # S3-01 用平台入口打开 HUHU 菜单
 
+[验收报告](../evidences/S3-01-product-menu.md)
+
 Main 安装平台菜单模板，复用系统角色、关于、退出与 HUHU 帮助。Windows/Linux 按钮与 Alt/F10 唤起同一菜单。
 
 **规格范围**　TB-03、TB-06、TB-12、TB-17。[行为规格](../spec.md#可观察行为) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

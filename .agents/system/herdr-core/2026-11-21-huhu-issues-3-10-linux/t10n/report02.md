@@ -6,7 +6,7 @@ Lead t3p，worker t10n，任务 task02，主机 wta-ubuntu。审查工作树 `ag
 
 ### P1 · 当前包装器无法为已冻结的 4ae7e7e4 AppImage 执行这套新增脚手架
 
-`scripts/accept-linux-candidate.sh:11–13,45–46` 要求执行工作树干净，且 HEAD 等于传给脚本的候选提交。`tests/e2e/helpers/candidate-package.ts:29–37,43–49` 又要求解包的 `out/build-info.json` 等于同一个 SHA。冻结 AppImage 对应 `4ae7e7e4`，该提交的脚本没有 `web/rule/package`，也没有新 helper。在当前工作树运行会卡在干净工作树门槛，提交脚手架后会同时改变 HEAD 与包内提交的对应关系。从旧干净提交运行则缺新增入口。证据记录的阶段明确区分冻结包和准备中的修复。 [冻结制品记录](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/evidence/linux-final-acceptance.md#冻结候选与落地)
+`scripts/accept-linux-candidate.sh:11–13,45–46` 要求执行工作树干净，且 HEAD 等于传给脚本的候选提交。`tests/e2e/helpers/candidate-package.ts:29–37,43–49` 又要求解包的 `out/build-info.json` 等于同一个 SHA。冻结 AppImage 对应 `4ae7e7e4`，该提交的脚本没有 `web/rule/package`，也没有新 helper。在当前工作树运行会卡在干净工作树门槛，提交脚手架后会同时改变 HEAD 与包内提交的对应关系。从旧干净提交运行则缺新增入口。证据记录的阶段明确区分冻结包和准备中的修复。 [冻结制品记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/verification/linux-final-acceptance.md#冻结候选与落地)
 
 如果目标是补验现有冻结包，建议分别固定并记录干净的验收脚手架提交、应用构建提交和 AppImage SHA，分别校验对应来源。如果下一轮计划重打包，可保留当前单 SHA 门槛，使用包含脚手架的干净提交重建一次，再让各模式共享新制品摘要。以现有包装器审查时，两种用途只能按后一种交付。
 

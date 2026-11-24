@@ -1,7 +1,0 @@
-# H02 @ e85d281: node scripts/check-ok-class-collisions.mjs apps/desktop/out/renderer/assets/host-fetch-*.css
-OK 产出类名 1585｜Huhu CSS 类名 709｜Huhu TSX/HTML 类 token 612
-A（两边都有规则）10：ProseMirror cm-content cm-editor cm-searchMatch cm-searchMatch-selected cm-selectionLayer cm-selectionMatch grow is-active tiptap-editor
-B（Huhu 用但无 CSS 规则，OK 会给它加规则）12：border-t flex flex-1 flex-col h-full min-h-0 ok-root overflow-y-auto p-2 text-link text-muted-foreground text-xs
-C（.ok-root 之外的全局 / 变量规则）1：
-  :root
-exit 126

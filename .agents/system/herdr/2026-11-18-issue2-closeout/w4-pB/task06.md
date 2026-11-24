@@ -11,7 +11,7 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report06.md
 - 工作目录：/home/wta/projects/huhu-wt-layout（分支 closeout/issue2-layout）；OK 基线运行在 /home/wta/projects/huhu/temp/sources/open-knowledge 的一个**副本**里（例如 `git -C /home/wta/projects/huhu/temp/sources/open-knowledge worktree add /home/wta/projects/ok-baseline 44a2e0a`，或者复制一份），不要修改原工作副本
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pB
-- 接续依据：复审报告 /home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pE/report02.md（规格 4：“兼容性矩阵多行仍只有一侧 E2E 或上游单测，固定 OK 同样本同操作对照需用实跑记录或明确差异逐项补齐”）；方法见 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification.md §4（第 65–83 行）；矩阵见 /home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md 与 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/parity-matrix.md
+- 接续依据：复审报告 /home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pE/report02.md（规格 4：“兼容性矩阵多行仍只有一侧 E2E 或上游单测，固定 OK 同样本同操作对照需用实跑记录或明确差异逐项补齐”）；方法见 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification.md §4（第 65–83 行）；矩阵见 /home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md 与 .agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/parity-matrix.md
 
 ## 目标与输入
 
@@ -29,7 +29,7 @@ Issue 验收的 B03（“/ 分类、过滤、别名、预览、方向键、Enter
 
 ## 读写范围与产物
 
-- 可写业务范围：`tests/parity-ok/**`（新增）、`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity-ok/**`（新增：每个功能一份 md，截图放在子目录）。不改产品代码；发现“未对齐”只报告，由 Lead 分派修复。
+- 可写业务范围：`tests/parity-ok/**`（新增）、`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity-ok/**`（新增：每个功能一份 md，截图放在子目录）。不改产品代码；发现“未对齐”只报告，由 Lead 分派修复。
 - 预期产物：在你的分支上提交；`evidence/parity-ok/README.md` 写明 OK 的运行方式、版本、覆盖项与归类汇总表。
 
 ## 验收与验证

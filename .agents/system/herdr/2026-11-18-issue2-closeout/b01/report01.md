@@ -7,7 +7,7 @@
 - 报告文件：`/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/b01/report01.md`
 - 执行结果：`done`
 - 工作树：`/home/wta/projects/huhu-wt-b01`，分支 `closeout4/b01`，基线 `a86dbbf`，交付提交 `31e29f170003ea0c7a497434c7d816d23f194eea`，未推送。
-- 复刻矩阵：`/home/wta/projects/huhu-wt-b01/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/parity-matrix.md`
+- 复刻矩阵：`/home/wta/projects/huhu-wt-b01/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/parity-matrix.md`
 
 ## 子要求
 

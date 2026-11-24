@@ -1,5 +1,7 @@
 # S6 主题验收与收尾
 
+[验收报告](../evidences/06-theme-acceptance-and-docs.md)
+
 规格：[spec.md](../spec.md) DSC-13～DSC-16；上游 DS-02、DS-06、DS-07、DS-12～DS-15。
 交付：四套主题 × 明暗 × 8 个界面共 64 组截图已逐张核对；上游验收项有本 change 之后的运行证据；文档与上游 change 的状态更新完毕。
 依赖：S5c。

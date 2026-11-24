@@ -17,7 +17,7 @@
 
 Issue #2 验收原文见 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/source-issue-2.md §14，规格 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md（§5.1 修订、§5.2 G/H）。归档证据里以下项登记为“未做 / 未验证”，你要在**真实应用入口**（Playwright Electron e2e，涉及保存的必须关闭后重新打开再断言磁盘与渲染）或适当的单测里补齐证据；发现真实缺陷就修并加回归：
 
-1. **H01**：`LocalDocProvider` 契约——对 OK 的 22 个黄金样本（上游 /home/wta/projects/huhu/temp/sources/open-knowledge 里的 golden / fixtures 样本，以实际位置为准，约 7.5 MB）与 Huhu 的 frontmatter 样本，hydrate → serialize 与原文字节相等，或在登记的“规范化”例外内且 `markdownSemanticallyUnchanged` 判为无变化；无编辑打开 / 关闭不调用 `notes.save`；一次编辑只产生一次保存，回执不清除更新的 dirty。另：`replaceRawBody`（外部写回 / FILE_WATCHER_ORIGIN）不进撤销栈（B05 修订）。背景：/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/spikes/sp-4.md、sp-6.md。新增测试文件 `packages/editor/test/golden-roundtrip.test.ts`（及必要夹具目录 `packages/editor/test/fixtures/golden/`）与 e2e `tests/e2e/knowledge/session-*.spec.ts`。
+1. **H01**：`LocalDocProvider` 契约——对 OK 的 22 个黄金样本（上游 /home/wta/projects/huhu/temp/sources/open-knowledge 里的 golden / fixtures 样本，以实际位置为准，约 7.5 MB）与 Huhu 的 frontmatter 样本，hydrate → serialize 与原文字节相等，或在登记的“规范化”例外内且 `markdownSemanticallyUnchanged` 判为无变化；无编辑打开 / 关闭不调用 `notes.save`；一次编辑只产生一次保存，回执不清除更新的 dirty。另：`replaceRawBody`（外部写回 / FILE_WATCHER_ORIGIN）不进撤销栈（B05 修订）。背景：.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/spikes/sp-4.md、sp-6.md。新增测试文件 `packages/editor/test/golden-roundtrip.test.ts`（及必要夹具目录 `packages/editor/test/fixtures/golden/`）与 e2e `tests/e2e/knowledge/session-*.spec.ts`。
 2. **C05**：坏 YAML 在属性面板里显示诊断文案与原文修复入口（实际可用：点修复入口 → 进入源码修好 → 保存重开后属性恢复显示），不清空属性、不隐藏文件、不静默重写（磁盘字节不变直到用户修）。
 3. **D01**：属性面板里的“属性评论”UI 层创建 → 进入同一 `Comments/` 真实存储，取消不留伪线程；重开后线程仍在。
 4. **D06**：移动、回收站删除后恢复、档案视图打开同一笔记，评论不丢（e2e）；任务评论（`tasks.comments.*`）既有 e2e 重跑无回归（找出对应用例并运行）。
@@ -27,16 +27,16 @@ Issue #2 验收原文见 /home/wta/projects/huhu/.agents/dev/archive/changes/imp
 8. **E05**：档案附件（档案记录目录里的 .pdf / .html / 图片）从档案视图打开时走统一 `FileViewer` 分派（不是独立查看器），双链 / `@` / 反链指向真实文件路径。
 9. **E04 偶发失败定因**：`tests/e2e/workflows/archives-tabs.spec.ts` 的 E04 用例（约 136 行）在全量运行中失败过一次（“电话”字段改动 5 s 内未落盘，同时 Markdown 未保存编辑在途），单独重跑通过——疑似保存竞态。请在负载下（如同时跑 `stress` 或并行 2–3 个 e2e）重复运行 ≥ 20 次，统计失败率；若复现，查明是测试节奏还是 Markdown 草稿 flush 与档案字段保存的竞态（规格 C04：两种修改最终都保存到同一文件、不互相覆盖），是产品缺陷就修并给回归用例。
 
-规格与现有实现：会话与保存在 `plugins/notes/src`（DocumentSession 等），资源与文件树适配在 `packages/editor/src` 下的 host / explorer（以实际位置为准），查看器 `FileViewer`，评论 `plugins/notes/src/engine/comments/`。项目背景：/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/design.md、/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s4/verification.md、s5/verification.md、s6/verification.md、s7/sp-7.md。涉及前端代码时遵循 /home/wta/projects/huhu-wt-session/AGENTS.md（先按 .agents/skills/zh-modern-web-guidance/SKILL.md 的 search / retrieve 流程核对）。
+规格与现有实现：会话与保存在 `plugins/notes/src`（DocumentSession 等），资源与文件树适配在 `packages/editor/src` 下的 host / explorer（以实际位置为准），查看器 `FileViewer`，评论 `plugins/notes/src/engine/comments/`。项目背景：/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/design.md、.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/s4/verification.md、s5/verification.md、s6/verification.md、s7/sp-7.md。涉及前端代码时遵循 /home/wta/projects/huhu-wt-session/AGENTS.md（先按 .agents/skills/zh-modern-web-guidance/SKILL.md 的 search / retrieve 流程核对）。
 
 ## 读写范围与产物
 
 - 可读范围：整个仓库、/home/wta/projects/huhu/temp/sources、归档目录 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity。
-- 可写业务范围（仅在 /home/wta/projects/huhu-wt-session 内）：`plugins/notes/src/engine/**`、`plugins/notes/src/ui/` 下的会话 / 评论 / 属性 / 档案 / 查看器 / 文件树组件（**不改** `notes.css` 中工具栏与详情面板布局，属 w4:pB），`plugins/notes/test/**`、`packages/vault/**`、`packages/workbench/**` 中仅修缺陷所需、`packages/editor/test/golden-roundtrip.test.ts` 与 `packages/editor/test/fixtures/golden/**`（新增）、`tests/e2e/workflows/**`、`tests/e2e/knowledge/session-*.spec.ts` / `comments-*.spec.ts` / `explorer-*.spec.ts`（新增）、`tests/fixtures/**`、`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/**`（新建）。
+- 可写业务范围（仅在 /home/wta/projects/huhu-wt-session 内）：`plugins/notes/src/engine/**`、`plugins/notes/src/ui/` 下的会话 / 评论 / 属性 / 档案 / 查看器 / 文件树组件（**不改** `notes.css` 中工具栏与详情面板布局，属 w4:pB），`plugins/notes/test/**`、`packages/vault/**`、`packages/workbench/**` 中仅修缺陷所需、`packages/editor/test/golden-roundtrip.test.ts` 与 `packages/editor/test/fixtures/golden/**`（新增）、`tests/e2e/workflows/**`、`tests/e2e/knowledge/session-*.spec.ts` / `comments-*.spec.ts` / `explorer-*.spec.ts`（新增）、`tests/fixtures/**`、`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/**`（新建）。
 - 不得改动：`packages/editor/src/**`（含 vendor，属 w4:pA；若发现编辑器内核缺陷，写清复现与根因证据交 Lead，不自行修）、`packages/editor/test/` 下其它文件与 vitest 配置、样式与 i18n（属 w4:pB）、归档目录；不要 push / merge / 改 main。
 - 预期产物：
   1. 提交到 closeout/issue2-session（中文 conventional 提交消息，结尾 `Co-Authored-By: Codex <noreply@openai.com>`）。
-  2. `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/` 下：`gaps.md`（上面 9 项逐项：验收要求 / 做了什么 / 测试文件:用例名 / 结果 / 发现与修复的缺陷 / 仍有的限制）、`e04-flake.md`（运行次数、负载方法、失败率、结论）、`runs.md`（全部命令、退出码、计数、失败 / 重跑如实记录）。
+  2. `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/` 下：`gaps.md`（上面 9 项逐项：验收要求 / 做了什么 / 测试文件:用例名 / 结果 / 发现与修复的缺陷 / 仍有的限制）、`e04-flake.md`（运行次数、负载方法、失败率、结论）、`runs.md`（全部命令、退出码、计数、失败 / 重跑如实记录）。
 
 ## 验收与验证
 

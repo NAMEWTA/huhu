@@ -2,7 +2,7 @@
 
 ## 编排规则
 
-使用 Herdr Core 编排，按 `.agents/skills/system-herdr-core/SKILL.md` 和本机 `hc --skill` 操作。分工、前端实现和同一 Bug 两次修复失败后的升级，按[模型角色分工](.agents/dev/context/team/huhu-development.md)执行。Codex 使用 `--no-daemon`，不用 fast，不传 `-c service_tier=fast`，也不从旧模板继承 fast 或权限绕过参数。
+使用 Herdr Core 编排，按 `.agents/skills/system-herdr-core/SKILL.md` 和本机 `hc --skill` 操作。分工、前端实现和同一 Bug 两次修复失败后的升级，按[模型角色分工](.agents/dev/context/team/huhu-development-gpt.md)执行。Codex 使用 `--no-daemon`，不用 fast，不传 `-c service_tier=fast`，也不从旧模板继承 fast 或权限绕过参数。
 
 ## 本机资源硬限制
 

@@ -22,4 +22,4 @@
 
 ## 产物
 
-链式候选提交（临时索引，父 `82f0d188`），每组一批，报告逐批追加 SHA 与逐切片分类，不逐批停下；全部完成或上下文超过 80% 时发布 `report01.md` 终稿（格式按 `/home/wta/projects/huhu/.agents/skills/system-herdr-core/assets/report.md`，单列「未运行的验证」与「需 Lead 接线」）、打印路径并停下。证据新建 `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md`。
+链式候选提交（临时索引，父 `82f0d188`），每组一批，报告逐批追加 SHA 与逐切片分类，不逐批停下；全部完成或上下文超过 80% 时发布 `report01.md` 终稿（格式按 `/home/wta/projects/huhu/.agents/skills/system-herdr-core/assets/report.md`，单列「未运行的验证」与「需 Lead 接线」）、打印路径并停下。证据新建 `.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H-remaining-linux.md`。

@@ -15,7 +15,7 @@
 
 ## 目标与输入
 
-Issue #2 的 B01 要求“上游本地功能矩阵逐项对应源码、Huhu 实现和测试”，完成定义要求复刻矩阵完成。归档复刻矩阵 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/parity-matrix.md（§18 汇总）283 行中 **82 行标“未逐项验证”**（`grep -n 未逐项验证` 可列出：§1 少见节点 / 保真，§2 辅助扩展，§3 块组件，§4 工具栏与气泡按钮，§6 粘贴来源 / 拖放 / 复制，§7 快捷键，§8 上下文菜单等）。你的任务是让这 82 行每一行都变成以下两种之一：
+Issue #2 的 B01 要求“上游本地功能矩阵逐项对应源码、Huhu 实现和测试”，完成定义要求复刻矩阵完成。归档复刻矩阵 .agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/parity-matrix.md（§18 汇总）283 行中 **82 行标“未逐项验证”**（`grep -n 未逐项验证` 可列出：§1 少见节点 / 保真，§2 辅助扩展，§3 块组件，§4 工具栏与气泡按钮，§6 粘贴来源 / 拖放 / 复制，§7 快捷键，§8 上下文菜单等）。你的任务是让这 82 行每一行都变成以下两种之一：
 
 1. **已验证**：有在本工作目录真实运行并通过的测试作为证据（迁入的上游测试或新增 e2e / 单测），并写出测试文件:用例名；
 2. **不适用**：仅当该行服务于 OK 的云协作 / AI / 账户 / OK 应用壳等 Huhu 范围外能力（判定口径见 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/decisions.md OP-D19 与 spec.md §8），写明理由。**“难测”不是不适用的理由**；本地编辑功能不得降为可选。
@@ -31,12 +31,12 @@ Issue #2 的 B01 要求“上游本地功能矩阵逐项对应源码、Huhu 实�
 ## 读写范围与产物
 
 - 可读范围：整个仓库、/home/wta/projects/huhu/temp/sources、归档目录 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity。
-- 可写业务范围（仅在 /home/wta/projects/huhu-wt-parity 内）：`packages/editor/**`（含 vendor 与 PATCHES.md、vitest 配置、test/）、`tests/e2e/knowledge/editor-parity-*.spec.ts` 与 `tests/e2e/knowledge/fidelity-*.spec.ts`（新增）、`tests/e2e/helpers/**`（只增不改既有导出签名）、`plugins/notes/src/**` 中编辑器装配相关文件（仅修缺陷所需）、`packages/editor/package.json` 与根 `package.json` 的 devDependencies（如 jsdom 需要；锁文件随之更新）、`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/**`（新建）。
+- 可写业务范围（仅在 /home/wta/projects/huhu-wt-parity 内）：`packages/editor/**`（含 vendor 与 PATCHES.md、vitest 配置、test/）、`tests/e2e/knowledge/editor-parity-*.spec.ts` 与 `tests/e2e/knowledge/fidelity-*.spec.ts`（新增）、`tests/e2e/helpers/**`（只增不改既有导出签名）、`plugins/notes/src/**` 中编辑器装配相关文件（仅修缺陷所需）、`packages/editor/package.json` 与根 `package.json` 的 devDependencies（如 jsdom 需要；锁文件随之更新）、`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/**`（新建）。
 - 不得改动：`plugins/notes/src/ui/notes.css` 与工具栏 / 详情面板布局（属 w4:pB）；`packages/editor/src/rich/**/*.css` 与 token 映射（属 w4:pB）；i18n 目录（属 w4:pB）；归档目录 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity（只读）；不要 push / merge / 改 main。
 - 预期产物：
   1. 提交到分支 closeout/issue2-parity 的代码与测试（可多次提交，消息用中文 conventional 风格，结尾加 `Co-Authored-By: Codex <noreply@openai.com>`）。
-  2. `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md`：82 行逐行表（矩阵行号 / 项名 / 新状态 已验证|不适用 / 证据：测试文件:用例名 或 不适用理由 / 发现并修复的缺陷）；以及迁入上游 dom 测试的三分类结果表（总数 / 原样通过 / 适配后通过 / 不适用及原因）。
-  3. `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md`：实际运行的命令、退出码、通过 / 失败 / 跳过计数、失败与重跑如实记录。
+  2. `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md`：82 行逐行表（矩阵行号 / 项名 / 新状态 已验证|不适用 / 证据：测试文件:用例名 或 不适用理由 / 发现并修复的缺陷）；以及迁入上游 dom 测试的三分类结果表（总数 / 原样通过 / 适配后通过 / 不适用及原因）。
+  3. `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md`：实际运行的命令、退出码、通过 / 失败 / 跳过计数、失败与重跑如实记录。
 
 ## 验收与验证
 

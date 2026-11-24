@@ -17,7 +17,7 @@ Linux CLI 自启动的 Engine 已能复用桌面保存的 SSH 托管密码。使
 - 候选提交 — `f70f1a44a3330baefc6d8c966bc18aa0b1213ee3`
 - 父提交 — `5021f54ce9babcf039c84c3a5b77ae32596f45cd`
 - 工作区 — `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-agent-linux`。工作区业务文件与候选树内容核对一致。只读的工作区 `.agents` 下，证据文件经临时索引纳入候选树。
-- 证据 — `.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/headless-engine-credentials-linux.md`
+- 证据 — `.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/headless-engine-credentials-linux.md`
 - CLI 连接函数仅在自启动分支推导 Electron 的默认用户数据目录，优先使用受信启动环境已有的 `HUHU_DESKTOP_USER_DATA`。Linux 已核对安装包目录为 `$XDG_CONFIG_HOME/@huhu/desktop`。应用名来自桌面清单，%APPDATA% 与 macOS Application Support 按 Electron 文档取值。 [Electron 路径](https://www.electronjs.org/docs/latest/api/app/#appgetpathname)
 - Engine 拥有作业保活登记，按当前 Vault 的 SSH 插件作用域绑定。新受理作业持有登记直至终态和清理，最后一次释放计入空闲时间。生命周期使用现有 `PublicExecJobs.finish` 和插件处置。涉及 CLI 连接、Engine 装配和 SSH 作业文件，Kernel 无变更。
 

@@ -14,7 +14,7 @@
 
 两名 sol/xhigh 独审确认 #1、#3、#9 可按已确认范围关闭。#4/#5 缺原生历史任务派遣；#6 缺外部 Agent 普通评论、独立 Web 构建和空 MCP 包清理；#8 缺账号行操作/未读数及可调分栏；#10 缺约定的成熟网格实测选型。先前非 SSH 完成总结只覆盖已运行路径，不再作为这几项无缺口的证明。本轮按用户要求补齐后再关对应 Issue。
 
-已归档 #3、#9 和 GitHub Issue 来源配置 change，保留原型/证据并修正仓内相对引用。#1 沿用既有归档。#2 已由维护者关闭，但原收尾 change 存在未闭环的历史验收，暂保留不伪装完成。SSH 与总批次暂保留。
+已归档 #3、#9 和 GitHub Issue 来源配置 change，保留原型/证据并修正仓内相对引用。#1 沿用既有归档。#2 已由维护者关闭，但原收尾 change 存在未闭环的历史验收，暂保留不伪装完成。SSH 与总批次在当时暂保留。后续按确认范围完成了 [#2 收尾归档](../bug-fix_2026-11-18-issue2-closeout/evidence.md) 和 [批次归档](../feature_2026-11-19-huhu-issues-3-10/evidence.md)。
 
 ## 第一批实际落地
 
@@ -28,7 +28,7 @@ Mail M01 和独立 Web/普通评论已交付首版代码及定向单文件回归
 
 原生历史派遣方案 t1d7 已核对，交由 t1dd（sol/high）实施。Dashboard 同样本网格比较由 t1d8 准备运行夹具，Lead 运行后确定生产接入；未凭静态源码宣布选型完成。重型验证串行，当前仅主工作树执行。
 
-增量结果：t1dq Mail 3/3、t1dr Web 1/1，通过且零跳过/错误。都使用修正配置后的源码桌面产物，未称为最终安装包验收。[原始报告索引](evidence/mail-web-incremental.json)。
+增量结果：t1dq Mail 3/3、t1dr Web 1/1，通过且零跳过/错误。都使用修正配置后的源码桌面产物，未称为最终安装包验收。原始报告索引（本机原件 `temp/dev/feature_2026-11-23-closeout-preview-release/integration/legacy-7984bff4/mail-web-incremental.json`）。
 
 受影响的四个 E2E spec 定向类型检查 t1ds 通过；19 个 Web/Mail TS 文件定向 lint/format 与 Mail CSS stylelint 通过。暂存已删除的空 MCP 包后，版本同步检查确认 0.0.2-rc.1 一致。尚未运行最终全量门禁与 Release。
 

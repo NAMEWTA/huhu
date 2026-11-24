@@ -1,5 +1,7 @@
 # S4 类名统一
 
+[验收报告](../evidences/04-class-names.md)
+
 规格：[spec.md](../spec.md) §3.3、§5“改名用 codemod”、DC-D6、DC-D7；DSC-07、DSC-08、DSC-10。
 交付：全部类名符合前缀规则；TSX 中没有悬空类名；e2e 不再依赖项目类名；stylelint 强制前缀。
 依赖：S3（每个类只有一个归属之后，改名才是单包内的事）。

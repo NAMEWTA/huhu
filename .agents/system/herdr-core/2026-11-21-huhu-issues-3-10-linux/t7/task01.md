@@ -19,7 +19,7 @@
 为 Issue #3、#4、#5、#6 建立“已验收 / 待验证 / 独立候选 / WIP / 未开始”的逐切片清单，供 Lead 决定剩余派发。这是 dev-program / dev-plan 意义上的核对，不实施。
 
 输入（全部在快照内，路径相对快照根）：
-- 批次：`.agents/dev/changes/2026-11-19-huhu-issues-3-10/` 的 `program.md`、`progress.md`、`handoff.nd`（交接文件在 `/home/wta/projects/huhu/.agents/dev/changes/2026-11-19-huhu-issues-3-10/handoff.nd`）以及 `windows-stage-*.md`、`evidence/`。
+- 批次：`.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/` 的 `program.md`、`progress.md`、`handoff.nd`（交接文件在 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/handoff.md`）以及 `windows-stage-*.md`、`evidence/`。
 - 成员目录：`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/`、`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/`、`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/`、`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/` 下的 `source.md`（GitHub Issue 原文快照；Lead 已于 2026-11-21 确认 #3–#10 仍开放、零评论）、`spec.md`、`design.md`、`plan.md`、`tasks/*.md`、`evidence/`、`prototype-review.md`。
 - 代码：快照中的 `apps/`、`packages/`、`plugins/`、`tests/`。用代码和测试核实任务声称的状态，不要只信文档勾选框。
 - Git：可以只读运行 `git -C /home/wta/projects/huhu log/show/diff/branch -r/merge-base` 查看提交和远端分支（`origin/impl/huhu-issues-3-10-*`）。集成基线是 `4d86c84b`。已知未合入候选：Mail AI `origin/impl/huhu-issues-3-10-mail-ai`（`5c1c52a9`，#8 S7.1/S7.2）、SSH WIP `origin/impl/huhu-issues-3-10-ssh-exec-jobs`（`c23a8258`，#7 H11.2，正由 t5 处理）、#9 P8.3 尚未开工（由 t6 处理）。另查是否还有其他远端 impl 分支含有集成里没有的独有提交（`git log 4d86c84b..origin/<分支>`），逐一判断是否已被替代。

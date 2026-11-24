@@ -19,7 +19,7 @@
 
 ## 产物
 
-核对了 1.43.0 的 `DOMSelState` 与键盘处理前的 `forceFlush(true)`。本地 1.41.8 保留待处理的原生导航事件及端点。文档起点处可信、未取消的 Home／Ctrl+Home 可以确认起点。原有的端点移动判断继续用于其他导航。源码、ESM 与 CJS 一致，补丁 SHA-256 和锁文件指纹为 `d462fc3d252f64b879f0d1f951928c11629c14d84da3912015ae5b4d4cf45271`。已同步 R-53、第三方声明、专项测试和 pm-focus 证据。提交保留在本地，工作树干净。 [补丁重放与构建入口](/tmp/huhu-b06-task02.vAH7kc/replay.log) · [跟踪证据](/home/wta/projects/huhu-wt-pm/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/README.md) · [上游发布包](https://registry.npmjs.org/prosemirror-view/-/prosemirror-view-1.43.0.tgz)
+核对了 1.43.0 的 `DOMSelState` 与键盘处理前的 `forceFlush(true)`。本地 1.41.8 保留待处理的原生导航事件及端点。文档起点处可信、未取消的 Home／Ctrl+Home 可以确认起点。原有的端点移动判断继续用于其他导航。源码、ESM 与 CJS 一致，补丁 SHA-256 和锁文件指纹为 `d462fc3d252f64b879f0d1f951928c11629c14d84da3912015ae5b4d4cf45271`。已同步 R-53、第三方声明、专项测试和 pm-focus 证据。提交保留在本地，工作树干净。 [补丁重放与构建入口](/tmp/huhu-b06-task02.vAH7kc/replay.log) · [跟踪证据](/home/wta/projects/huhu-wt-pm/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/README.md) · [上游发布包](https://registry.npmjs.org/prosemirror-view/-/prosemirror-view-1.43.0.tgz)
 
 ## 验证
 

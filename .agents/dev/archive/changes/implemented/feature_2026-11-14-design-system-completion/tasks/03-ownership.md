@@ -1,5 +1,7 @@
 # S3 样式归位与分层
 
+[验收报告](../evidences/03-ownership.md)
+
 规格：[spec.md](../spec.md) §3.1、§5“先归位、后改名”；DSC-06 的一半；Q4、Q5。
 交付：`shared.css` 里属于 workbench / 某个插件 / 编辑器的规则迁到所属包，`shared.css` 只剩共享组件与全局基础；`check-css-ownership` 通过。
 依赖：S2b（样式已整体在 `components` 层，层已生效，跨文件移动规则不再依赖加载顺序）。

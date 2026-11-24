@@ -1,5 +1,7 @@
 # S5c 无用样式核查（PurgeCSS 与覆盖率）
 
+[验收报告](../evidences/05c-purge.md)
+
 规格：[spec.md](../spec.md) DSC-11、DSC-12；上游 DS-11。
 交付：PurgeCSS 的 rejected 报告逐条核查完毕：没用的删除，动态类名与状态类写进登记表并注明出处。
 依赖：S5b（先去重，报告才不会被重复规则淹没）。

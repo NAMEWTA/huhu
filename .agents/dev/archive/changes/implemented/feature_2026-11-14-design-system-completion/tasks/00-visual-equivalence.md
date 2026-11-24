@@ -1,5 +1,7 @@
 # S0 等价性验证入库
 
+[验收报告](../evidences/00-visual-equivalence.md)
+
 规格：[spec.md](../spec.md) §3.4、§6；DSC-02、DSC-03 的验证工具；Q3。细则：[verification.md](../verification.md)。
 交付：一条命令能证明“渲染没变”，并且这套工具是仓库资产而不是临时脚本；`origin` 基线已生成并冻结。
 依赖：无。

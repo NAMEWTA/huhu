@@ -1,5 +1,7 @@
 # S5b 去重与同义类合并
 
+[验收报告](../evidences/05b-dedupe-merge.md)
+
 规格：[spec.md](../spec.md) §5“去重合并的安全条件”、DC-D7；DSC-09。
 交付：重复选择器合并；`.btn` / `.hu-btn` 这类同义类合并为一个；`class-merge-pending.json` 清空。
 依赖：S5a。

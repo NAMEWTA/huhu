@@ -19,7 +19,7 @@
 | 最后一次释放会话时正文和草稿保存都失败 | 错误向上传递，但注册表已经移除会话，无法由该注册表重试原脏缓冲。见 OP-D03。 |
 | 用详情属性、大纲及多种编辑模式继续工作 | 详情只列标题/目录/标签，大纲把围栏/YAML 的伪标题收进来，源码模式另建撤销管理器。见 C01、B10、B05。 |
 
-**证据读法。** 原文入口为归档 `source-issue-2.md:574–641`、`spec.md:34–46,60–88`、`decisions.md:7–135`。以下仓库相对路径均基于上表候选。`旧证/` 指 `.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/`；未带前缀的归档文件按同一个 change 读取。`acceptance.md` 和“收尾证”分别在 `.agents/dev/changes/2026-11-18-issue2-closeout/` 及其 `evidence/`。协作报告位于共享根。表内简写 `V/` 指 `packages/editor/src/vendor/open-knowledge/`，`ET/` 指 `packages/editor/test/`，`K/` 指 `tests/e2e/knowledge/`。未另指明的 host、rich 文件属 `packages/editor/src/`，DocumentSession 及 Registry 属 `plugins/notes/src/ui/documents/`。源码、探针、历史运行、团队决定各自注明；有生产代码的反例算未实现，只有先前可比行为/读数的证据才称行为回归。
+**证据读法。** 原文入口为归档 `source-issue-2.md:574–641`、`spec.md:34–46,60–88`、`decisions.md:7–135`。以下仓库相对路径均基于上表候选。`旧证/` 指 `.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/`；未带前缀的归档文件按同一个 change 读取。`acceptance.md` 和“收尾证”分别在 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/` 及其 `evidence/`。协作报告位于共享根。表内简写 `V/` 指 `packages/editor/src/vendor/open-knowledge/`，`ET/` 指 `packages/editor/test/`，`K/` 指 `tests/e2e/knowledge/`。未另指明的 host、rich 文件属 `packages/editor/src/`，DocumentSession 及 Registry 属 `plugins/notes/src/ui/documents/`。源码、探针、历史运行、团队决定各自注明；有生产代码的反例算未实现，只有先前可比行为/读数的证据才称行为回归。
 
 ### A 资源、隐藏、操作
 

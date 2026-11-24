@@ -6,7 +6,7 @@
 
 沿用 Huhu 工作台的窗口栏、56px 模块栏、标签条、面包屑及状态栏，使用当前 Claude 默认主题及 Apple、Notion、Vercel 的本地 token 子集。窄窗按账号、对话、正文逐层进入，返回时恢复选中对象和焦点。 [AppShell](../../../../../../packages/workbench/src/shell/AppShell.tsx) · [基础尺寸](../../../../../../packages/ui/src/styles/tokens.css) · [主题色](../../../../../../packages/ui/src/styles/themes.generated.css)
 
-Huhu 检出为 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。邮箱预设和参与者信息结构对照本地 one-mail 默认分支 `d1be24d5bb83c2da7123b167f119d5abd169b0af`，Huhu 自有界面承载演示文案和样例。 [来源](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md) · [批次来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)
+Huhu 检出为 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。邮箱预设和参与者信息结构对照本地 one-mail 默认分支 `d1be24d5bb83c2da7123b167f119d5abd169b0af`，Huhu 自有界面承载演示文案和样例。 [来源](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md) · [批次来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 走查场景
 

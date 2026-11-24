@@ -1,5 +1,7 @@
 # 08 清理、文档与全回归（S8）
 
+[验收报告](../evidences/08-cleanup-regression.md)
+
 规格：G01–G07、H01–H07、全部 A–F、spec §1 的完整用户路径；设计：[design.md](../design.md) §14；[verification.md](../verification.md)。
 交付：旧链路按清单删除并有零引用证据；来源台账、第三方声明、说明文档、demo Vault、能力说明与受影响测试全部更新；全部门禁与真实 Electron 对照执行并记录；用户可以连续完成 spec §1 的路径。
 依赖：S2b–S7 全部。

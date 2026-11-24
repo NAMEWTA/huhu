@@ -18,7 +18,7 @@ Embed 的属性输入框、Callout 属性和表情结果已按当前中文可达
 - 工作树 `/home/wta/projects/huhu-wt-parity`，分支 `closeout/issue2-parity`，最终提交 `f9238bb1620b9cd16cf72812b913c24ae93faead`。工作树干净。合入候选 `33e2113` 的提交为 `6ecc0d9`。
 - `e99571c46e25b1f60683a20481531a2dd1d75381` 提交了产品修复和两份用例。沙箱预览内页转发真实鼠标进入、离开的布尔状态。代码块仅接受当前预览 iframe 的状态，继续使用原有悬停样式和键盘焦点。沙箱和 CSP 原样保留。已登记 `PATCHES.md` 并刷新重放清单。
 - 更新 `editor-parity-closeout-remaining.spec.ts` 和 `editor-s3-matrix.spec.ts`。表情的搜索仍输入英文别名，点击「拉炮彩带」并断言实际插入 🎉。跟进提交 `88bbc30` 收紧同文件另一条斜杠测试的落盘检查，等两次 `/表格` 输入都保存后再比较重开前后的字节。
-- 原始日志和 trace 在 `/tmp/huhu-parity07-tPFY8N/`。逐项基线和运行结果已写入 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md`。
+- 原始日志和 trace 在 `/tmp/huhu-parity07-tPFY8N/`。逐项基线和运行结果已写入 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md`。
 
 ## 验证
 

@@ -19,6 +19,8 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
+      - if: runner.os == 'Linux'
+        run: node scripts/check-development-evidence.mjs
       - run: pnpm install --frozen-lockfile
       - name: Herdr Core（下载并校验；失败即中止，不能让真实 Herdr 用例被静默跳过）
         run: node scripts/fetch-herdr.mjs

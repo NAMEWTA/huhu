@@ -27,7 +27,7 @@
 
 ## 读写范围与产物
 
-- 可写业务范围：你 task01–task04 的全部范围，**另加**：`packages/editor/src/rich/RichMarkdownEditor.tsx`（选区同步部分；不改 pC 加入的 flush / drainer 逻辑）、`plugins/notes/src/ui/documents/NoteEditorSurface.tsx`（仅就地右键与模板的宿主接线；pC 也会改这个文件的附件读取部分，请把改动限制在独立的函数 / 区块内）、`scripts/ok-patches.mjs` 与清单文件、`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/**`。不改 TabStrip / 设置 / 样式（属 w4:pB），不改会话与 archives（属 w4:pC）。
+- 可写业务范围：你 task01–task04 的全部范围，**另加**：`packages/editor/src/rich/RichMarkdownEditor.tsx`（选区同步部分；不改 pC 加入的 flush / drainer 逻辑）、`plugins/notes/src/ui/documents/NoteEditorSurface.tsx`（仅就地右键与模板的宿主接线；pC 也会改这个文件的附件读取部分，请把改动限制在独立的函数 / 区块内）、`scripts/ok-patches.mjs` 与清单文件、`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/**`。不改 TabStrip / 设置 / 样式（属 w4:pB），不改会话与 archives（属 w4:pC）。
 - 预期产物：在你的分支上提交；更新 parity-82.md、runs.md，新增 dom-tests-applicability.md、review-fixes.md（每条：问题、修法、证据）。
 
 ## 验收与验证

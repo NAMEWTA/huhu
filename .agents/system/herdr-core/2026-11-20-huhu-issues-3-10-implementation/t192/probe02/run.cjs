@@ -11,7 +11,8 @@ require(path.join(root, "node_modules/.pnpm/tsx@4.23.15/node_modules/tsx/dist/cj
 const { HerdrCore } = require(path.join(root, "plugins/agent-cli/src/engine/herdr-core.ts"));
 const { attachTerminal } = require(path.join(root, "packages/herdr-client/src/index.ts"));
 const bin = path.join(root, "apps/desktop/resources/herdr/win32-x64/herdr-core.exe");
-const fixture = path.join(__dirname, "fixture.exe");
+const fixture = process.argv[2];
+assert(fixture && path.isAbsolute(fixture), "Pass the built fixture path from replay.ps1");
 const sha = file => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 assert.equal(sha(bin), "8c5c088eda5c441502fa58714277a250e38103c66180376ef00d63d6cab03f8d");
 const tempRoot = fs.realpathSync(os.tmpdir());

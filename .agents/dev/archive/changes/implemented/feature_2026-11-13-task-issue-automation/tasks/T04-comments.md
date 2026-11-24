@@ -1,5 +1,7 @@
 # T04 任务文件内的评论时间线
 
+[验收报告](../evidences/T04-comments.md)
+
 **规格**：[spec.md](../spec.md)
 - §3.1–§3.3：`<comments>` 区段的写入与转义。
 - §5：全部。

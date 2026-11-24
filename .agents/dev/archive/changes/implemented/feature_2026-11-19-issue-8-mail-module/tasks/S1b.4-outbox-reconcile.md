@@ -1,5 +1,7 @@
 # S1b.4 在发件箱核对部分成功与未知投递
 
+[验收报告](../evidences/S1b.4-outbox-reconcile.md)
+
 所属交付 S1b。本项承接 [Issue §8.1、M-07](../source.md)，行为规则见[网络与数据契约](../spec.md#durability)，设计见[调用与失败处理](../design.md#operations)。
 
 ## 交付与依赖

@@ -1,11 +1,13 @@
 # 00 来源冻结与闸门（S0）
 
+[验收报告](../evidences/00-freeze-and-spikes.md)
+
 规格：[spec.md](../spec.md) G01–G04、H01–H04、B01 的前置；[plan.md](../plan.md) §4 停止条件；[decisions.md](../decisions.md) OP-D02 / D05 / D06 / D17 的验证。
 交付：来源与基线冻结（含**与上游最新提交的差异记录**，仅记录、不升级）、用户问题在 rc.4 上的真实复现、`rc4` 视觉基线、复刻矩阵与端点矩阵、**六个 spike 的结论（SP-1～SP-6）**、依赖 / 许可证 / 补丁清单；**S0 开始前先把阈值写进 `decisions.md` 与 `plan.md`（已写死：补丁 ≤ 150 个文件、`DocumentContext` / `provider-pool` 的 Huhu 侧替换 ≤ 1200 行、上游测试适配后通过率 ≥ 70%），S0 不得事后放宽，放宽需用户确认**。**S0 不改产品代码**；spike 的代码放在 `scratch/ok-spike` 分支，结论与数据进 `evidence/`。
 依赖：无。
 边界：唯一写入者 = S0 负责人；不修改 `plugins/`、`packages/` 的生产代码；不覆盖用户本地 `temp/sources` 的任何改动（只读；LICENSE 缺失不去恢复它，取 `git show`）。
 
-## 当前代码 / 来源指针（已核实，见 [evidence/e0-source-survey.md](../evidence/e0-source-survey.md)）
+## 当前代码 / 来源指针（已核实，见 [evidence/e0-source-survey.md](../verification/e0-source-survey.md)）
 
 - `temp/sources/open-knowledge`（`44a2e0a`）、`temp/sources/orca`（`7041ea02`）；Huhu `9132640`（`v0.0.1-rc.4`）。
 - 拟新增：`scripts/ok-closure.mjs`、`evidence/closure-manifest.json`、`evidence/parity-matrix.md`、`evidence/endpoint-matrix.md`、`evidence/spikes/sp-{1..5}.md`、`evidence/repro/`、`.visual/rc4/`（不进 git）。

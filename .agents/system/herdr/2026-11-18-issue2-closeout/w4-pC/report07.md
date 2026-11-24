@@ -19,7 +19,7 @@
 - 标签菜单三种关闭与关闭按钮共用入口。手动模式恢复草稿，自动模式落盘。
 - 桌面主进程区分成功回执、明确失败和 3 秒无回执。明确失败保留窗口并提供重试或明确放弃的选择。超时沿用原有退出上限。
 - H01 比较实际序列化字节，字节变化时使用固定 OK 普通保存的语义判定。粗体丢失和链接目标变化的反例均被拒绝。保留四个大样本的真实富文本构建、序列化和再次读入。
-- 验证明细已写入 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md` 与 `runs.md`。原始日志与 trace 位于 `/tmp/huhu-session-07/`。
+- 验证明细已写入 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md` 与 `runs.md`。原始日志与 trace 位于 `/tmp/huhu-session-07/`。
 
 ## 验证
 

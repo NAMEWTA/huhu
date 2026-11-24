@@ -85,6 +85,10 @@ const fonts = FONTS.map(([pkg, family]) => ({ family, pkg, ...fontLicense(pkg) }
 const oflText = fonts[0].text.slice(fonts[0].text.indexOf("SIL OPEN FONT LICENSE")).trim();
 
 const ledger = readFileSync(path.join(root, "docs/upstream/ledger.md"), "utf8");
+const rootLedger = ledger.trim().replace(/\]\(([^\s)#]+)(#[^\s)]*)?\)/g, (link, target, anchor = "") => {
+  if (/^(?:[a-z]+:|\/)/i.test(target)) return link;
+  return `](${path.posix.join("docs/upstream", target)}${anchor})`;
+});
 const lines = [
   "# 第三方声明",
   "",
@@ -109,7 +113,7 @@ const lines = [
   "",
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
   "",
-  ledger.trim().replaceAll("](../../", "]("),
+  rootLedger,
   "",
   "## npm 运行时依赖",
   "",

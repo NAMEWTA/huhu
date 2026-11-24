@@ -2,7 +2,7 @@
 
 角色：疑难分析（gpt-6.2-astra high）。只读。候选 `/home/wta/projects/huhu-wt-int`（分支 `closeout4/final` 4b4ce9c）。可写：/tmp、本目录 report01.md。
 
-背景：台账 `.agents/dev/changes/2026-11-18-issue2-closeout/acceptance.md` 曾把 H05 标为满足，但证据只覆盖任务评论提交，收件箱想法输入仍是 textarea、IME 未在 compact 中测（已派 w4:pP 修复）。需要排查其他条目是否有同类高估。
+背景：台账 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/acceptance.md` 曾把 H05 标为满足，但证据只覆盖任务评论提交，收件箱想法输入仍是 textarea、IME 未在 compact 中测（已派 w4:pP 修复）。需要排查其他条目是否有同类高估。
 
 ## 要求
 1. 以规格 `.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md` 的每个验收条目（A–H 全部、含 R 表中的回归要求）和 `decisions.md` 中带约束的决定为准，逐条把**规格原文的每个子要求**拆开，对照候选代码和台账列出的证据（测试文件里实际断言了什么，不看测试名）。

@@ -23,7 +23,7 @@ H4.2 在完整运行绑定原子写入后，复用 SshManager 分别建立连接
 - 实现集中在 plugins/ssh，真实应用验收在 tests/e2e/workflows/ssh-workspaces.spec.ts。工作树干净。
 - 模板使用 .huhu/ssh/workspace-templates.json。运行绑定使用独立的 .huhu/runtime/ssh/workspace-runs.json，现有 Vault 打包收集器排除 runtime。
 - 对照已确认原型及本地 Motty main@2daa9db582e16edf60a60b7ada26f47f808f973c 的 internal/workspace/spec.go 和 internal/workbench/workspace_launch.go。
-- 证据目录 — D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence
+- 证据目录 — D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification
 
 ## 验证
 

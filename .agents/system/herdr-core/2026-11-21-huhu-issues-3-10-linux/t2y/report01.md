@@ -15,7 +15,7 @@
 ## 产物与改动
 
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/safe-git`，分支 `impl/huhu-issues-3-10-g6-ssh`，HEAD 仍为 `314c0bed`。候选使用临时索引生成。三个 SSH 代码／测试文件与候选逐字匹配。
-- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-ssh-exposure-linux.md` 已写入候选树。worktree 的 `.agents` 为只读挂载，该文件从候选提交读取。
+- 证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G-ssh-exposure-linux.md` 已写入候选树。worktree 的 `.agents` 为只读挂载，该文件从候选提交读取。
 - 两个设置描述符来自 `ssh.sshCapabilityDescriptors` 的 `settingsGet`、`settingsUpdate`。继续沿用 `apps/engine/src/boot.ts:149` 的 `registry.declareDescriptors("ssh", Object.values(ssh.sshCapabilityDescriptors))` 和 `ssh.apply` 中对应的 `bindCapability`。本批所需的声明和绑定已齐。
 - t19 将设置写入归为领域意图。现有设置写入只有 `expectedRevision`，没有独立领域操作标识。候选复用 `durableExternal` 对账并保留修订校验，结果只存库级设置和新修订。外部更新传输默认值后，由现有调度时机使用新值。桌面及插件内部调整保留即时调度行为。
 
@@ -140,7 +140,7 @@
 
 ## 阻碍与接续
 
-- Q6-3 决定见 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md:13`。`packages/contracts/src/capability.ts:41` 的 `ToolAccessChoicesSchema` 只描述能力名到布尔值，`packages/kernel/src/exposure.ts` 同样只保存这些选择。`packages/kernel/src/dispatcher.ts:345` 的当前授权及其 `:118` 回执读入口无法检查主机授权。开放旧绑定会让当前工具开关覆盖超出选择的目标，例如旧 `ssh.disconnect` 直接对全局 hostId 断线，旧 `ssh.hosts.list` 访问本机凭据状态，旧 `ssh.sftp.upload/download` 接受 Engine 本机路径。
+- Q6-3 决定见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md:13`。`packages/contracts/src/capability.ts:41` 的 `ToolAccessChoicesSchema` 只描述能力名到布尔值，`packages/kernel/src/exposure.ts` 同样只保存这些选择。`packages/kernel/src/dispatcher.ts:345` 的当前授权及其 `:118` 回执读入口无法检查主机授权。开放旧绑定会让当前工具开关覆盖超出选择的目标，例如旧 `ssh.disconnect` 直接对全局 hostId 断线，旧 `ssh.hosts.list` 访问本机凭据状态，旧 `ssh.sftp.upload/download` 接受 Engine 本机路径。
 - Lead 需给现有 Gateway 策略提供工作台可管理、默认无授权的稳定 SSH 主机 ID 集，以及按当前 Vault 获取实时授权的接线。SSH 根据可信 `ctx.subject`、主机/路由修订及原领域对象检查授权和归属。主机撤销应立即约束旧会话、资源、流和操作回读。涉及主机的持久回执可优先沿用领域回执以重新验权。计划复用已有公共资源模块及便携定义读取。
 - 接线后从主机目录和列表起补脱敏投影，再补主机修订、连接和信任、监控、转发、文件来源、传输以及终端。仍需将现有 10 个公共入口接入 Q6-3 并逐项取得两入口矩阵，尤其是连接核验重启的未知结果和撤权后的流与回执。
 - 测试使用隔离 Vault、临时配置和回环网络。本批未运行全量测试，未修改集成分支或推送。

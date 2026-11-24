@@ -1,5 +1,7 @@
 # W01 工程基线
 
+[验收报告](../evidences/W01-foundation.md)
+
 ## W01.1 建立 pnpm monorepo 与工具链
 
 - 目标：克隆仓库后 `pnpm install && pnpm lint && pnpm typecheck && pnpm test` 在三平台通过。

@@ -1,5 +1,7 @@
 # W17 能力网关与 Agent 指南
 
+[验收报告](../evidences/W17-gateway-guide.md)
+
 ## W17.1 MCP 服务（stdio 与 HTTP）
 
 - 目标：外部 MCP 客户端通过 `huhu mcp` 或 HTTP 使用已开放能力、资源、模板与提示词；开放状态与插件启停实时生效。

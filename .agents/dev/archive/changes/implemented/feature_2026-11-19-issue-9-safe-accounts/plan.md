@@ -2,7 +2,7 @@
 
 # Safe 实施计划与切片索引
 
-从一个新 Vault 建立个人多账号资料，并让 SSH、Git、Agent CLI、自动化与 Mail 各自维护业务认证。本计划安排后续实施，各切片维护自己的交付边界、验收与证据。 [行为规格](spec.md) · [技术设计](design.md) · [Issue 历史原文](source.md) · [批次源码清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)
+从一个新 Vault 建立个人多账号资料，并让 SSH、Git、Agent CLI、自动化与 Mail 各自维护业务认证。本计划安排后续实施，各切片维护自己的交付边界、验收与证据。 [行为规格](spec.md) · [技术设计](design.md) · [Issue 历史原文](source.md) · [批次源码清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 切片索引与依赖
 

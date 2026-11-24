@@ -2,7 +2,7 @@
 
 角色：具体实现（gpt-6.2-sol medium）。工作目录 `/home/wta/projects/huhu-wt-parity`，分支 `closeout2/g07`（= main f16f614，依赖已装）。完成后提交，不推送。**只改测量脚本，不改产品代码。**
 
-依据：规格 G07（`spec.md:79`）「首屏与非知识库模块的冷启动指标对 rc.4 基线无回退」。现脚本 `scripts/measure-notes-startup.mjs` 只测工作台外壳+引擎就绪（同帧 rAF `homeMs`，旧 locator `homeLocatorMs`）、从工作台切到收件箱外壳。独立审查指出未测：首页卡片数据填充完成（`packages/workbench/src/home/HomeModule.tsx` 的 `home.summary` 就绪前会渲染空容器）、各非知识库模块直接冷启动入口。见 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/herdr/w4-pE-report05.md`「G07」、`w4-pG-report01.md`（locator 退避机制）。rc.4 基线工作树 `/home/wta/projects/huhu-wt-rc4`（9132640，已构建，旧版 UI 结构可能不同，需兼容）。
+依据：规格 G07（`spec.md:79`）「首屏与非知识库模块的冷启动指标对 rc.4 基线无回退」。现脚本 `scripts/measure-notes-startup.mjs` 只测工作台外壳+引擎就绪（同帧 rAF `homeMs`，旧 locator `homeLocatorMs`）、从工作台切到收件箱外壳。独立审查指出未测：首页卡片数据填充完成（`packages/workbench/src/home/HomeModule.tsx` 的 `home.summary` 就绪前会渲染空容器）、各非知识库模块直接冷启动入口。见 `.agents/system/herdr/2026-11-18-issue2-closeout/w4-pE/report05.md`「G07」、`w4-pG-report01.md`（locator 退避机制）。rc.4 基线工作树 `/home/wta/projects/huhu-wt-rc4`（9132640，已构建，旧版 UI 结构可能不同，需兼容）。
 
 要求：
 1. 新增端点（两侧 rc.4 与候选都可测，语义相同）：

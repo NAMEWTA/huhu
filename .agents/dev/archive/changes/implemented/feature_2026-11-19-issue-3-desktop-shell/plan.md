@@ -4,7 +4,7 @@
 
 让用户从首次打开 Vault 起就能操作一条 HUHU 标题栏，使用系统菜单与窗口控件，在关窗前知道最后一次输入是否已保存。本页按 S0～S4 保留原交付编号。S1a 负责关闭事务，S1b 负责平台宿主，S3 承接 S1 的菜单安装与动作贯通。
 
-[规格和 TB 验收](spec.md) · [平台、关闭和菜单设计](design.md) · [原始 Issue](source.md) · [当前上游检出](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)
+[规格和 TB 验收](spec.md) · [平台、关闭和菜单设计](design.md) · [原始 Issue](source.md) · [当前上游检出](../feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 执行边界
 

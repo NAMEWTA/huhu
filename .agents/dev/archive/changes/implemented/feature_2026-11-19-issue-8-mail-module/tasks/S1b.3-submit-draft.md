@@ -1,5 +1,7 @@
 # S1b.3 同一草稿版本只启动一次投递
 
+[验收报告](../evidences/S1b.3-submit-draft.md)
+
 所属交付 S1b。本项承接 [Issue §8.1、M-06](../source.md)，行为规则见[网络与数据契约](../spec.md#durability)，设计见[调用与失败处理](../design.md#operations)。
 
 ## 交付与依赖

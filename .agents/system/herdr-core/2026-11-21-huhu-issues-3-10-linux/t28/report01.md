@@ -73,7 +73,7 @@ Agent CLI 40 个用户动作和 `tasks.dispatch.targets` 已支持单项开放�
 ## 产物与改动
 
 - 候选提交 — ，父提交 `d7581825`，工作树分支 `impl/huhu-issues-3-10-g6-agent`。
-- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-agent-cli-exposure-linux.md`。工作树的 `.agents` 由沙箱设为只读，证据直接写入候选树，快进后可读。
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G-agent-cli-exposure-linux.md`。工作树的 `.agents` 由沙箱设为只读，证据直接写入候选树，快进后可读。
 - Engine 装配 — 候选内只有一行 boot 静态声明变化，`registry.declareDescriptors("agent-cli", agentCli.agentToolDescriptors)`。该集合含 41 个 descriptor（上表 Agent 的 40 个开项和 `agent.catalog.detect`）。索引内 `mainAgentDescriptors` 加上启动环境、布局、工作区文件与 worktree 导出的描述，均由领域注册函数 bind 同一对象。8 个内部名使用清单与原注册。Tasks 按原 `taskToolDescriptors.dispatchTargets` declare 和 bind。
 - 插件清单补入 `agent.history.locate`、`agent.history.workspaceLaunch`。Tasks 改动限目标入口、其错误传递及目标夹具。
 

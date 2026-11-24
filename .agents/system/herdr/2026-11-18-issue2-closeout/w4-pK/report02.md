@@ -30,7 +30,7 @@
 
 ## rc.4 非知识库视觉对照
 
-以实机启动的 `9132640`（rc.4）、`f9f0186` 和候选构建为三方对照，复用视觉夹具、默认状态采集器、截图遮罩与容差。以下每格为「计算样式差异数 / RGB 异动像素数」。逐属性和图像对照保存在取证目录。 [归档判定](/home/wta/projects/huhu-wt-css/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/visual-compare-rc4.md) · [本次逐项样式](/tmp/huhu-h02-task02/rc4-candidate-styles.json) · [像素对照](/tmp/huhu-h02-task02/rc4-candidate-pixels.json)
+以实机启动的 `9132640`（rc.4）、`f9f0186` 和候选构建为三方对照，复用视觉夹具、默认状态采集器、截图遮罩与容差。以下每格为「计算样式差异数 / RGB 异动像素数」。逐属性和图像对照保存在取证目录。 [归档判定](/home/wta/projects/huhu-wt-css/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/visual-compare-rc4.md) · [本次逐项样式](/tmp/huhu-h02-task02/rc4-candidate-styles.json) · [像素对照](/tmp/huhu-h02-task02/rc4-candidate-pixels.json)
 
 | 页面 | rc.4 → 候选 亮 | rc.4 → 候选 暗 | f9f0186 → 候选 亮 | f9f0186 → 候选 暗 | 归档与来源 |
 | --- | ---: | ---: | ---: | ---: | --- |

@@ -24,7 +24,7 @@
 
 每次聚焦建立独立记录。PM 未接管的可信导航按键在默认动作前保存 DOM 端点。若回调执行时视图仍存活、聚焦、可编辑且未组合输入，折叠端点仍在编辑器内并相对该次按键移动，先让 DOM 观察器读取。没有本次导航时恢复旧有光标语义。既有非折叠选区路径继续使用聚焦时快照判断。 [补丁](/home/wta/projects/huhu-wt-pm/patches/prosemirror-view@1.41.8.patch) · [回归用例](/home/wta/projects/huhu-wt-pm/tests/e2e/knowledge/editor-selection-focus.spec.ts)
 
-核对了 npm 1.43.0 与上游 Git HEAD `c828930`。上游在新的 `DOMSelState` 中比较 DOM 选择快照，并仅在端点仍相同时同步模型到 DOM。本地回移快照比较，在固定版本中沿用原有观察器。源码、ESM、CJS 的已安装内容逐字节核对。pnpm 重新生成的锁文件只改变该补丁指纹，更新为 `da42778675211e26b06cb163d935e568bed5ee521a7b40f2495a72233f30f50e`，R-53 和 notices 已同步。 [上游版本](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) · [上游 HEAD](https://code.haverbeke.berlin/prosemirror/prosemirror-view/src/commit/c828930c0514183eaa9061103105f32ac7438b29/src/input.ts) · [R-53](/home/wta/projects/huhu-wt-pm/docs/upstream/ledger.md) · [证据](/home/wta/projects/huhu-wt-pm/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/README.md)
+核对了 npm 1.43.0 与上游 Git HEAD `c828930`。上游在新的 `DOMSelState` 中比较 DOM 选择快照，并仅在端点仍相同时同步模型到 DOM。本地回移快照比较，在固定版本中沿用原有观察器。源码、ESM、CJS 的已安装内容逐字节核对。pnpm 重新生成的锁文件只改变该补丁指纹，更新为 `da42778675211e26b06cb163d935e568bed5ee521a7b40f2495a72233f30f50e`，R-53 和 notices 已同步。 [上游版本](https://www.npmjs.com/package/prosemirror-view/v/1.43.0) · [上游 HEAD](https://code.haverbeke.berlin/prosemirror/prosemirror-view/src/commit/c828930c0514183eaa9061103105f32ac7438b29/src/input.ts) · [R-53](/home/wta/projects/huhu-wt-pm/docs/upstream/ledger.md) · [证据](/home/wta/projects/huhu-wt-pm/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/README.md)
 
 ## 验证
 

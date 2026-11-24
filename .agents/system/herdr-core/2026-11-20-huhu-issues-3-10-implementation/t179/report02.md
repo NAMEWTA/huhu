@@ -21,7 +21,7 @@ Windows x64、Node 24.21.0、pnpm 12.10.1、Electron 44.9.1／Chromium 152.0.797
 | 存储、版本和认证 | `exec vitest run --maxWorkers=1 --minWorkers=1 plugins/ssh/test/host-auth.engine.test.ts plugins/ssh/test/directory.test.ts plugins/ssh/test/host-import.test.ts`，3 文件 17 项通过。包括受保护存储写失败后旧版本及凭据保持，合成回环连接上的密码、加密私钥和本机身份文件使用。 |
 | 检查 | 目标文件 `oxlint -c oxlint.json`、`stylelint`、`oxfmt --check` 通过。`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`、`check-css-duplicates` 和 `git diff --check` 通过。 |
 
-实际截图中使用合成的主机名和地址。 [960 × 600 编辑冲突与草稿](evidence-task02/ssh-edit-conflict.png) · [删除前的跳板引用](evidence-task02/ssh-references.png)
+实际截图中使用合成的主机名和地址。 960 × 600 编辑冲突与草稿（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task02/legacy-7984bff4/evidence-task02/ssh-edit-conflict.png`） · 删除前的跳板引用（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task02/legacy-7984bff4/evidence-task02/ssh-references.png`）
 
 ## 合同缺口和未测
 

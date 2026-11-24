@@ -1,5 +1,7 @@
 # S6b.1 预检并恢复 Huhu 新格式邮件子集
 
+[验收报告](../evidences/S6b.1-subset-restore.md)
+
 所属交付 S6b。本项承接 [Issue §9.1、§9.2 范围修订、M-08](../source.md)，行为规则见[网络与数据契约](../spec.md#durability)，设计见[待定产品选择](../design.md#open)。
 
 ## 交付与依赖

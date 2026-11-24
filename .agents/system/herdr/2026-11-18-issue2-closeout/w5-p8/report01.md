@@ -18,7 +18,7 @@
 | G04 OK 分母 | 缺验证 | 核完 112 个待定测试。40 个对应已交付实现，72 个的被测主体未交付。适用口径 512／639（80.13%），原保守口径 512／1315（38.94%）。两种口径和每档理由见归档 `evidence/vendor-test-results.md`、`vendor-test-subject-review.json` 及 `vendor-test-files.jsonl.gz`。 |
 | G04 ORCA 闸门 | 缺验证 | 8／11（72.73%）。四个独立 Vitest 文件通过，新增计入四个 Electron 适配。查找归属、命中计数、重开缓存和坏文件恢复的断言分别见 `tests/e2e/workflows/viewers.spec.ts:750`、第 834、861、888 行。 |
 | H04 批注列表读取失败 | 未实现 | 显示可播报的读取错误和重试按钮。读取成功后才显示空列表文案。渲染单测 `packages/editor/test/host-feedback.test.tsx:425`，Electron `tests/e2e/knowledge/comments-s4.spec.ts:588` 验证失败、重试、恢复及 Vault 文件状态。 |
-| H04 平台成员与 Clipboard 回退 | 缺验证 | `packages/editor/test/host-feedback.test.tsx:456` 模拟 Win32、MacIntel、Linux 并检查桥成员。第 480 行通过真实编辑器图片复制监听断言 Clipboard API 缺失或拒绝写入均显示错误通知。端点及测试边界见 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/endpoint-matrix.md`。 |
+| H04 平台成员与 Clipboard 回退 | 缺验证 | `packages/editor/test/host-feedback.test.tsx:456` 模拟 Win32、MacIntel、Linux 并检查桥成员。第 480 行通过真实编辑器图片复制监听断言 Clipboard API 缺失或拒绝写入均显示错误通知。端点及测试边界见 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/endpoint-matrix.md`。 |
 
 ## 合并处理
 

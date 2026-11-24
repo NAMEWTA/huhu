@@ -1,5 +1,7 @@
 # W01-01 用同一布局样本比较网格实现
 
+[验收报告](../evidences/W01-01-grid-comparison.md)
+
 比较 Homarr 行为与 RGL、GridStack 的实际候选版本。由 PoC 负责人给出选用依据，生产画布只接入胜出的一种。
 
 **规格范围**　ACC-DASH-02、ACC-DASH-03、ACC-DASH-13、ACC-DASH-14、ACC-DASH-15、ACC-DASH-16。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

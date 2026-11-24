@@ -1,5 +1,7 @@
 # W02-01 读取新格式布局并区分首次与空板
 
+[验收报告](../evidences/W02-01-read-board.md)
+
 由 Engine 为同一 Vault 读出实例、几何、revision 与可写性。缺文件返回内存默认。合法空板仍为空。只读从原 Vault 取板。
 
 **规格范围**　ACC-DASH-01、ACC-DASH-10、ACC-DASH-11、ACC-DASH-12。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

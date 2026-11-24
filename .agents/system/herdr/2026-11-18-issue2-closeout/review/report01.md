@@ -25,7 +25,7 @@
 | **应修 · A08 文件操作在途仍可产生旧路径草稿** | `plugins/notes/src/ui/explorer/filesDeps.ts:97–127`、`plugins/notes/src/ui/documents/DocumentSessionRegistry.ts:105–117`、`plugins/notes/src/engine/index.ts:66–73`。在树移动打开的笔记或父目录，延迟移动回执，在初次 flush 结束及服务读取旧草稿之后继续输入。 | 静态确认前置 flush 和路径改动之间没有会话锁或最终 revision 握手。回执后卸载的会话仍绑定旧路径，其退出结算最多将新增编辑留在旧路径草稿。现有 A08 用例只在操作前造脏文档。建议覆盖 flush 到 remap 的同一个会话迁移区间，或在操作期间明确暂停相关编辑，保留失败重试。用可控回执验证新输入在新路径恢复。 |
 | **应修 · A08 大小写改名的物理变更绕过回滚** | `plugins/notes/src/engine/service.ts:466–505`。用仅大小写不同的名称改一个带草稿的文件，第二次物理改名或后续日志写入失败。 | 两次 rename 先于 OperationLog，在日志中只有草稿、身份等步骤。落在临时名或新名字时，调用方收到失败，旧标签及草稿可继续指向旧路径。建议以唯一、保留的临时名在日志内记录两次移动及回滚，再提交元数据。现有大小写断言只涵盖成功。 |
 | **应修 · H04 读错提示取决于两次并行刷新结果** | `packages/editor/src/vendor/open-knowledge/app/src/comments/CommentsPanel.tsx:19–36`、同目录 `store.ts:73–85,104–110,122–138`。第一次打开尚未读过的笔记批注列表，快照读取先触发 `ensureLoaded`，组件 effect 再主动刷新。 | 两个请求可各自提交全库列表。若快照触发的请求成功而 effect 的请求失败，成功线程与“无法加载批注”可以并显。更早的慢回执也可替换较新的列表。现有用例同步拒绝所有读取，重试只验证空库。建议把加载/错误状态与给列表的快照统一到同一个按上下文的请求代次，合并同一轮 in-flight 请求，并测试失败/成功乱序、切标签与非空恢复。H04 显示错误、重试与剪贴板两类失败提示的基本路径已接通。 |
-| **建议 · 只读检查发现尾随空格** | `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/reopened/red3.log:56,98`、`patches/prosemirror-view@1.41.8.patch:266,334,353,395`。 | `git diff --check` 报六处。补丁中的单空格可能是 unified-diff 空上下文行，保留其句法并按项目口径免检。原始日志可在不影响证据时清理。 |
+| **建议 · 只读检查发现尾随空格** | `temp/dev/2026-11-18-issue2-closeout/integration/legacy-7984bff4/reopened/red3.log:56,98`、`patches/prosemirror-view@1.41.8.patch:266,334,353,395`。 | `git diff --check` 报六处。补丁中的单空格可能是 unified-diff 空上下文行，保留其句法并按项目口径免检。原始日志可在不影响证据时清理。 |
 
 本报告中的文件位置以候选工作树为根。探针脚本与输出位于 `/tmp/huhu-e550c52-review.vh8KEK/`。实际 CodeMirror/Yjs 绑定探针用 JSDOM 验证偏移，磁盘探针使用真实 NotesService、VaultFiles 与 OperationLog，在临时目录内运行。
 

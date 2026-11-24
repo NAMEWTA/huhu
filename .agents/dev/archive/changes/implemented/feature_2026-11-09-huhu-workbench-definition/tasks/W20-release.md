@@ -1,5 +1,7 @@
 # W20 首版发布
 
+[验收报告](../evidences/W20-release.md)
+
 ## W20.1 许可与第三方声明
 
 - 目标：`LICENSE`、`THIRD_PARTY_NOTICES.md`、`docs/upstream/ledger.md` 完整，并随安装包分发。

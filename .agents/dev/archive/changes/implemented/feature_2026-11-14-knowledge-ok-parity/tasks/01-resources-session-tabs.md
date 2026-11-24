@@ -1,5 +1,7 @@
 # 01 资源目录、会话与标签契约（S1）
 
+[验收报告](../evidences/01-resources-session-tabs.md)
+
 规格：A01、A05、A09、A10、C03、C04、C06、E04（会话共享部分）、F02（编码保留）；设计：[design.md](../design.md) §3.1 / §3.4 / §5 / §6 / §7；决定：OP-D03 / D10 / D11 / D12。
 交付：从用户角度——文件树数据源是真实文件系统（空目录、`Tasks/`、点目录、未知扩展名都在）；笔记编辑、保存、冲突、草稿、关闭前 flush 的行为与现在**完全一致**，但逻辑已抽成 `DocumentSession`；`DocTab` / `EditorPort` / `vault.list` / `vault.readRange` / `hiddenPaths` 的契约冻结，供 S2a、S5、S6、S7 使用。
 依赖：S0（闸门通过）。

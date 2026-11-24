@@ -23,13 +23,13 @@ rc.4 同次启动的正文减标题中位数为 +0.2 ms，范围 +0.1 至 +0.3 m
 
 原型同次启动的正文减标题中位数为 +0.2 ms，范围 +0.1 至 +0.5 ms。
 
-本轮普通正文从标题到可读的额外等待已降到驱动采样间隔内。跨会话的绝对启动时间会波动，判断使用各自同机交错的 rc.4 配对差。首篇笔记仍走完整知识库编辑器，归档的原候选 40 对结果为 +394.6 ms；本轮记录的 +392.8 ms 与之接近。两批都以 rc.4 为基准，未做原候选与原型直接配对。本轮的 CI 精度也不足以排除任务等端点的小幅回退。[原候选结果](/home/wta/projects/huhu-wt-perf/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/reopened/README.md:22)
+本轮普通正文从标题到可读的额外等待已降到驱动采样间隔内。跨会话的绝对启动时间会波动，判断使用各自同机交错的 rc.4 配对差。首篇笔记仍走完整知识库编辑器，归档的原候选 40 对结果为 +394.6 ms；本轮记录的 +392.8 ms 与之接近。两批都以 rc.4 为基准，未做原候选与原型直接配对。本轮的 CI 精度也不足以排除任务等端点的小幅回退。[原候选结果](/home/wta/projects/huhu-wt-perf/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/reopened/README.md:22)
 
 正式原型的 renderer 为 36,738,516 B，比未插桩候选多 3,420 B；rich/host-fetch JS 及其 CSS 的大小都保持候选值。这里的数字对应未压缩构建目录，安装包仍需在发布产物上测量。
 
 ## 0.8 秒花在哪里
 
-历史对照为 rc.4 `9132640` 与集成构建 `d6a4663`。其正文配对差为 +782.0 ms [765.8, 880.4]，10/10 对更慢，标题配对差 +11.1 ms。此次在 `f9f0186` 重新构建并复现。生产资源使用本地 `huhu-app://workbench/assets/` 协议，传输数值包含 Chromium 调度、读取和数据交付。[原 10 对记录](/home/wta/projects/huhu-wt-perf/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/reopened/g07-body-ab.jsonl)
+历史对照为 rc.4 `9132640` 与集成构建 `d6a4663`。其正文配对差为 +782.0 ms [765.8, 880.4]，10/10 对更慢，标题配对差 +11.1 ms。此次在 `f9f0186` 重新构建并复现。生产资源使用本地 `huhu-app://workbench/assets/` 协议，传输数值包含 Chromium 调度、读取和数据交付。[原 10 对记录](/home/wta/projects/huhu-wt-perf/temp/dev/2026-11-18-issue2-closeout/integration/legacy-7984bff4/reopened/g07-body-ab.jsonl)
 
 每次启动均打开带 2,001 篇笔记和一条真实收件记录的新 Vault，首次可命中导航按钮时发可信指针点击。复制候选产物后为懒加载、模块体、语言切换、provider、构造器和有工作量的 settle 加 mark，同时采 CDP Network/DevTools 时间线、V8 编译事件、React 调度标记和正文 DOM。三轮开始时的一分钟负载为 1.92、1.99、1.99，其他 Electron/Playwright 为零。下表单位为 ms。相位内有并行下载、流式编译和嵌套执行，表内有意保留重叠区间。
 

@@ -4,7 +4,7 @@
 
 ## 依据（必读）
 - 规格 H02（`.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md:83`）原文：`check-ok-class-collisions` **为空交集**。三类定义见 `decisions.md` OP-D05「守护」：(a) Tailwind 产出的类名 ∩ Huhu CSS（**components/shell/modules 层**）类名；(b) Tailwind 产出的类名 ∩ Huhu TSX/HTML 里出现但没有 CSS 规则的类 token；(c) `.ok-root` 之外出现 OK 的变量名。
-- 现状：`pnpm check:ok-css` 报 A=10（ProseMirror、cm-content、cm-editor、cm-searchMatch、cm-searchMatch-selected、cm-selectionLayer、cm-selectionMatch、grow、is-active、tiptap-editor）、B=12（border-t、flex、flex-1、flex-col、h-full、min-h-0、ok-root、overflow-y-auto、p-2、text-link、text-muted-foreground、text-xs），均以「登记」放行。逐项来源见 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/herdr/w4-pJ-report01.md`。独立审查 `evidence/herdr/w4-pE-report07.md`「H02」与「分级」。
+- 现状：`pnpm check:ok-css` 报 A=10（ProseMirror、cm-content、cm-editor、cm-searchMatch、cm-searchMatch-selected、cm-selectionLayer、cm-selectionMatch、grow、is-active、tiptap-editor）、B=12（border-t、flex、flex-1、flex-col、h-full、min-h-0、ok-root、overflow-y-auto、p-2、text-link、text-muted-foreground、text-xs），均以「登记」放行。逐项来源见 `.agents/system/herdr/2026-11-18-issue2-closeout/w4-pJ/report01.md`。独立审查 `evidence/herdr/w4-pE-report07.md`「H02」与「分级」。
 
 ## 要求
 1. **严格按 OP-D05 定义计算 A/B**（A 只与 Huhu 在 components/shell/modules 层的 CSS 求交；B 只取 Huhu TSX/HTML 中无任何 Huhu CSS 规则的 token），先报告严格口径下的实际集合，与现脚本口径的差别及理由。

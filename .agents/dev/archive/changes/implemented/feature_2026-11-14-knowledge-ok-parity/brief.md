@@ -16,7 +16,7 @@ Huhu 的知识库用户（也是产品作者本人）要在 Huhu 里获得 Open 
 
 ## 当前事实
 
-调查全文见 [evidence/e0-source-survey.md](evidence/e0-source-survey.md)。要点：
+调查全文见 [evidence/e0-source-survey.md](verification/e0-source-survey.md)。要点：
 
 - 本地来源工作副本存在且与 issue 固定 SHA 一致（OK `44a2e0a`、ORCA `7041ea02`）；Huhu 与 OK 同为 GPL-3.0-or-later，ORCA 为 MIT。
 - issue 的 F01–F10 缺口大多成立（有细节订正：`isNoteFile` 只查第一段目录；空目录不在 `vault.tree`；`FileCard` 把 HTML 当源码显示；无 `contextmenu`；标签是单选字符串 + 独立 `folderView`）。

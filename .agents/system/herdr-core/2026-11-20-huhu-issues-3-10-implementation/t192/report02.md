@@ -9,7 +9,7 @@
 
 ## 结论
 
-**固定 Herdr Core 0.1.19 上，受信宿主可以在内层 ConPTY 中保留真实控制台交互，并在输出进入外层 Core 前遮蔽合成值。** 两轮独立运行各完成四个场景。成功场景中，测试操作者从 Core attach 看到了**没有换行的** `CLI_INPUT>` 提示符，发送 `ping` 后收到了子进程的 `CLI_PONG`。子进程对 stdin、stdout、stderr 三个句柄逐个调用 Windows `GetConsoleMode`，全部成功。内层 stderr 回显的完整标记被替换一次，外层 attach 与 Core 屏幕只看到了 `[REDACTED]`。[首轮结果](probe02/result.json) · [独立复跑](probe02/repeat.json)
+**固定 Herdr Core 0.1.19 上，受信宿主可以在内层 ConPTY 中保留真实控制台交互，并在输出进入外层 Core 前遮蔽合成值。** 两轮独立运行各完成四个场景。成功场景中，测试操作者从 Core attach 看到了**没有换行的** `CLI_INPUT>` 提示符，发送 `ping` 后收到了子进程的 `CLI_PONG`。子进程对 stdin、stdout、stderr 三个句柄逐个调用 Windows `GetConsoleMode`，全部成功。内层 stderr 回显的完整标记被替换一次，外层 attach 与 Core 屏幕只看到了 `[REDACTED]`。首轮结果（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t192/task02/legacy-7984bff4/probe02/result.json`） · 独立复跑（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t192/task02/legacy-7984bff4/probe02/repeat.json`）
 
 **此次交付给已运行、能配合握手的合成 CLI。** 子进程出生时没有该变量，宿主先核对其 PID 与内核创建时间，再发送合成值，由子进程写入自己的环境并读回。这个实验回答了握手、单次交付与交互能否共存；不会握手的任意第三方 EXE 能否在程序入口直接继承同等约束的环境，仍需针对该启动方式另验。未运行 Pi 或任何真实 provider，未访问其他机器。
 

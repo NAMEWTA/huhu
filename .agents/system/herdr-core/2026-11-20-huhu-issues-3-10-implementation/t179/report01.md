@@ -23,7 +23,7 @@ Windows x64，Node 24.21.0，使用本机缓存的 `corepack pnpm@12.10.1 --conf
 | Web | 通过只监听回环的共享服务打开真实浏览器页面，读取桌面写入的主机及分组，核对导入按钮只在桌面显示。 |
 | 格式与 lint | 目标文件 `oxfmt --check`、`oxlint -c oxlint.json`、SSH CSS `stylelint` 均通过。`check-ui-colors`、`check-css-layers`、`check-css-classes`、`check-css-ownership`、`check-css-duplicates` 与 `git diff --check` 通过。 |
 
-截图为最终构建的浅色实际渲染。 [SecureCRT 预览，1440 × 1000](evidence-task01/ssh-preview.png) · [冲突与更名，960 × 600](evidence-task01/ssh-conflict.png) · [分组待补齐](evidence-task01/ssh-groups-pending.png)
+截图为最终构建的浅色实际渲染。 SecureCRT 预览，1440 × 1000（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task01/legacy-7984bff4/evidence-task01/ssh-preview.png`） · 冲突与更名，960 × 600（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task01/legacy-7984bff4/evidence-task01/ssh-conflict.png`） · 分组待补齐（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task01/legacy-7984bff4/evidence-task01/ssh-groups-pending.png`）
 
 ## 边界与未测
 

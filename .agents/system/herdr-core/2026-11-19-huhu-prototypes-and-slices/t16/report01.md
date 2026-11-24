@@ -27,7 +27,7 @@
 | 验收要求 | 实际检查与结果 |
 | --- | --- |
 | 派工身份 | HC_TERMINAL_ID=t16，hc get t16 的地址、工作目录、模型与推理强度符合 task/topic；hc server status 的 wta ID 一致，manifest 指向 t16 / task01.md / active。 |
-| 来源与版本 | 用配置的 gh issue view 只读取得 #4、#5 正文和评论。统一换行后分别与各自 source.md 的正文一致，均为零评论。核对本地 HEAD、origin/HEAD 及[批次源码清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)，herdr-app master@317e673f1f15、herdr-core master@c7517808d64f、ORCA main@8bc232f5ed8b、agent-autoloop main@d1ec2d8e48de 均一致。Huhu 的 Core 产物锁是 0.1.19，派工用 hc 为 0.1.21。 |
+| 来源与版本 | 用配置的 gh issue view 只读取得 #4、#5 正文和评论。统一换行后分别与各自 source.md 的正文一致，均为零评论。核对本地 HEAD、origin/HEAD 及[批次源码清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)，herdr-app master@317e673f1f15、herdr-core master@c7517808d64f、ORCA main@8bc232f5ed8b、agent-autoloop main@d1ec2d8e48de 均一致。Huhu 的 Core 产物锁是 0.1.19，派工用 hc 为 0.1.21。 |
 | 编号、覆盖与依赖 | 按 source.md 的验收复选项取 ID，与任务正文及 plan 索引逐行比对。#4 为 51/51，#5 为 43/43。每个任务只在本计划索引出现一次。按索引提取依赖并展开父编号范围，51 个节点可拓扑排序，两项跨 Issue 整合共用运行证据。 |
 | 路径、场景与用户确认 | 逐份解析 plan、spec、design、tasks 的相对链接，检查现有文件及 Markdown/HTML 锚点。两组索引、51 份任务、代码/测试和原型场景均可定位，各有 53 个带片段的链接通过检查。发布时另组确认记录的文件状态为#4 待 t15 发布、#5 待 t15 发布。用户确认仍待实际版本走查。 |
 | 实施与验证边界 | 本轮为规划及静态核对。检索并取回 tabs、accessibility、forms、coordinate-global-events 指南以核对界面验收。真实 CLI、Core 故障注入、安装包、备份恢复与跨端旅程均列在各任务的未来验收。原型与浏览器走查由 t15 负责。 |

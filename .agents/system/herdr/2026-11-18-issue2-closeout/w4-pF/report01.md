@@ -18,7 +18,7 @@ B06 已修复。ProseMirror 聚焦回调在回写前先接收可编辑视图内�
 - 工作树 `/home/wta/projects/huhu-wt-pm`，分支 `closeout/issue2-pm`，基线 `9b143a4`，提交 `77d5add77dcdd4fb5741db465b55f8bf3fbd7b64`。工作树干净。
 - `patches/prosemirror-view@1.41.8.patch` 更新 TypeScript 源和随包发布的 ESM、CJS 入口。补丁由 `pnpm-workspace.yaml` 登记，锁文件记录指纹，`docs/upstream/ledger.md` R-53 记录来源。
 - `tests/e2e/knowledge/editor-selection-focus.spec.ts` 增加键盘扩选和快速拖选用例。探针暂存原聚焦回调，两条用例都通过 Chromium 的默认输入行为建立选区。
-- 证据位于 `/home/wta/projects/huhu-wt-pm/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/README.md`。日志目录为 `/tmp/huhu-pm-checks/`。
+- 证据位于 `/home/wta/projects/huhu-wt-pm/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/README.md`。日志目录为 `/tmp/huhu-pm-checks/`。
 
 ## 验证
 

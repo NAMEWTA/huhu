@@ -1,5 +1,7 @@
 # T01a 任务模型 schema 2（整合切片）
 
+[验收报告](../evidences/T01a-task-model.md)
+
 **规格**：[spec.md](../spec.md) 中与本切片相关的部分：
 - §2：全部，标签筛选 UI 除外，见 T01b。
 - §3.1–§3.3：只做 `<task>` 区段；`<comments>` 区段只解析，不写。

@@ -25,7 +25,7 @@
 
 ## 读写范围与产物
 
-- 可写业务范围：`pnpm-workspace.yaml` 的补丁登记、`patches/` 目录（以项目现有位置为准）、`pnpm-lock.yaml`、`docs/upstream/ledger.md` / vendor `PATCHES.md` 的登记、`tests/e2e/knowledge/editor-selection-focus.spec.ts`（新增）、`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/**`（新增）。不改其他产品代码。
+- 可写业务范围：`pnpm-workspace.yaml` 的补丁登记、`patches/` 目录（以项目现有位置为准）、`pnpm-lock.yaml`、`docs/upstream/ledger.md` / vendor `PATCHES.md` 的登记、`tests/e2e/knowledge/editor-selection-focus.spec.ts`（新增）、`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/**`（新增）。不改其他产品代码。
 - 预期产物：在你的分支上提交（中文 conventional 提交消息，结尾 `Co-Authored-By: Codex <noreply@openai.com>`）；在 evidence/pm-focus/ 写清修法、上游核查结果、判红到转绿的记录与重复运行结果。
 
 ## 验收与验证

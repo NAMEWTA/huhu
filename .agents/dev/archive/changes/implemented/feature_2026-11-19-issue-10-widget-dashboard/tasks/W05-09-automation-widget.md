@@ -1,5 +1,7 @@
 # W05-09 从自动化摘要查看真实规则或运行
 
+[验收报告](../evidences/W05-09-automation-widget.md)
+
 automations 插件拥有已启用规则或最近运行的只读摘要与模块入口。摘要不承担规则编辑、取消或调度。
 
 **规格范围**　ACC-DASH-09、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

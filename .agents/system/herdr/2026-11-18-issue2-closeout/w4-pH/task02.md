@@ -2,7 +2,7 @@
 
 角色：具体实现（gpt-6.2-sol medium）。工作目录 `/home/wta/projects/huhu-wt-pm`，分支 `closeout/issue2-pm`。开始前 `git merge --ff-only closeout/issue2-integration`（应快进到 3dbd420）。
 
-依据（必读）：疑难分析 `w4:pD/report05.md`；探针与临时修复副本 `/tmp/huhu-pD05-dwJMot/`（`prepare.py`、`probe.cjs`、`run-when-free.sh`，guard 版本即验证过的方向）。既有补丁 `patches/prosemirror-view@1.41.8.patch`（`77d5add` 引入，覆盖扩选竞态；原包 `src/input.ts:781–804`），证据 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/README.md`。
+依据（必读）：疑难分析 `w4:pD/report05.md`；探针与临时修复副本 `/tmp/huhu-pD05-dwJMot/`（`prepare.py`、`probe.cjs`、`run-when-free.sh`，guard 版本即验证过的方向）。既有补丁 `patches/prosemirror-view@1.41.8.patch`（`77d5add` 引入，覆盖扩选竞态；原包 `src/input.ts:781–804`），证据 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/README.md`。
 
 ## 要求
 1. 在 `patches/prosemirror-view@1.41.8.patch` 中同步修改源码、ESM、CJS：聚焦后的延迟回调中，若视图仍存活、仍聚焦、可编辑、非组合输入，且**本次聚焦之后**发生过原生键盘导航、折叠端点位于编辑器内且已移动，则先让观察器读取 DOM 光标（`domObserver.flush()` 一类），不得用旧 PM 选区覆盖；无导航时保留原光标恢复语义。区分「本次聚焦后的导航」与「先前输入」（不要仅凭 `lastSelectionOrigin === "key"`）。对照上游最新 prosemirror-view 是否有相同修复，有则对齐其写法。更新 pnpm 补丁指纹、`docs/upstream/ledger.md` R-53 说明、`THIRD_PARTY_NOTICES.md`（`pnpm notices`）。

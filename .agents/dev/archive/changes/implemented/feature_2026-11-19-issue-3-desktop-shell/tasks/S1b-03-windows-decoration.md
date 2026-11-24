@@ -1,5 +1,7 @@
 # S1b-03 在 Windows 保留贴靠与窗口菜单
 
+[验收报告](../evidences/S1b-03-windows-decoration.md)
+
 平台层保留 caption buttons、边框与系统菜单，为内容发布可用矩形。
 
 **规格范围**　TB-01、TB-05、TB-07。[行为规格](../spec.md#可观察行为) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

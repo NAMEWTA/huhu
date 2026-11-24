@@ -42,4 +42,4 @@
 ## 补充（Lead，2026-11-21）
 
 - 本机内存有限：vitest 加 `--maxWorkers=3`；不要跑全量 e2e。另一实现者同时在跑测试。
-- 2026-11-21 定案见 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`，与 #9 相关者照办。
+- 2026-11-21 定案见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`，与 #9 相关者照办。

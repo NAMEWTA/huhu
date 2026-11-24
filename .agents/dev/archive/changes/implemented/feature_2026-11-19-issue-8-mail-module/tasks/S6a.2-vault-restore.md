@@ -1,5 +1,7 @@
 # S6a.2 从整 Vault 新格式备份恢复邮件
 
+[验收报告](../evidences/S6a.2-vault-restore.md)
+
 所属交付 S6a。本项承接 [Issue §7、§9.1、M-08](../source.md)，行为规则见[网络与数据契约](../spec.md#durability)，设计见[数据与提交顺序](../design.md#storage)。
 
 ## 交付与依赖

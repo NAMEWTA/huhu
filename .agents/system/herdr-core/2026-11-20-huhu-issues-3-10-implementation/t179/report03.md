@@ -24,7 +24,7 @@ Windows x64，Node 24.21.0，Electron 44.9.1／Chromium 152.0.7977.167。全部�
 | Engine 全 SSH 回归 | `exec vitest run --maxWorkers=1 --minWorkers=1 plugins/ssh/test`，6 文件、57 项通过。包括决定超时、记录在等待期间变化、旧答复与认证阻断，及已有主机认证、目录、SFTP、导入和 Widget。 |
 | 静态检查 | `exec oxfmt --check plugins/ssh tests/e2e/ssh`、项目 oxlint、SSH CSS stylelint、颜色／分层／类名／归属／重复 CSS 检查及 staged diff 检查均通过。 |
 
-最终工作台取证。 [首次指纹与四种选择](evidence-task03/first-fingerprint.png) · [第 2 跳密钥变化](evidence-task03/changed-fingerprint.png) · [独立已知主机复核](evidence-task03/known-hosts-reviewed.png)
+最终工作台取证。 首次指纹与四种选择（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task03/legacy-7984bff4/evidence-task03/first-fingerprint.png`） · 第 2 跳密钥变化（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task03/legacy-7984bff4/evidence-task03/changed-fingerprint.png`） · 独立已知主机复核（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t179/task03/legacy-7984bff4/evidence-task03/known-hosts-reviewed.png`）
 
 ## 仍未覆盖
 

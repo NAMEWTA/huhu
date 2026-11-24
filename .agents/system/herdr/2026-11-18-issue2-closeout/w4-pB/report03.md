@@ -26,11 +26,11 @@
 | `fc04905` | F08 主题测试显式选择属性页 |
 | `bf63f02`、`212f1cd` | 专项、全量、同格式包和低负载监测证据 |
 
-- [H03 扫描与语言切换](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md)
-- [B01 标签页右键](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/tab-menu.md)
-- [ASAR 路径、字节与安装包检查](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/asar-contents.md)
-- [G07 同格式包数据与负载记录](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md)
-- [全部验证和失败复跑](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md)
+- [H03 扫描与语言切换](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md)
+- [B01 标签页右键](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/tab-menu.md)
+- [ASAR 路径、字节与安装包检查](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/asar-contents.md)
+- [G07 同格式包数据与负载记录](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md)
+- [全部验证和失败复跑](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md)
 
 ## 验证
 

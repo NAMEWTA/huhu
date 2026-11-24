@@ -1,5 +1,7 @@
 # S1 层叠审计与根因
 
+[验收报告](../evidences/01-cascade-audit.md)
+
 规格：[spec.md](../spec.md) §3.2、§5、§10 的 Q1、Q2；DC-D3、DC-D4、DC-D5 的实测核实；DSC-04 的静态工具。
 交付：回答“为什么上一轮分层回归”以及“该怎么入层”；产出 `css-layer-report` 与 `!important` 处置清单。**交付是结论与工具，不是界面改动。**
 依赖：S0 的比对命令（二分实验要用）。`css-layer-report` 的编写与 S0 无文件冲突，可提前开始。

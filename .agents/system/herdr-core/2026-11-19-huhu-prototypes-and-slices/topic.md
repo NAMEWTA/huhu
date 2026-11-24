@@ -33,7 +33,7 @@
 
 ## 源码与本机浏览器已就绪
 
-- 最新源码清单位于 .agents/dev/changes/2026-11-19-huhu-issues-3-10/sources.md，12 个 checkout 已核对，含 ORCA main、Motty 和 Viva。
+- 最新源码清单位于 .agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md，12 个 checkout 已核对，含 ORCA main、Motty 和 Viva。
 - 本机浏览器工具已就绪。可从工作区 require('./temp/prototype-qa/node_modules/playwright-core')，浏览器为 C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe，验证过无界面启动和点击。使用 file URL 打开本任务实际原型。
 
 ## 用户确认的撤销与离场交互
@@ -43,4 +43,4 @@
 
 ## Lead 验收
 
-八份报告均已回读，验收通过。核对了 12 个上游 checkout、238 份任务与 408 条显式前置链接、8 个离线 HTML 入口与确认指纹。用户对具体 HTML 版本仍待确认。 [交付总览](../../../dev/changes/2026-11-19-huhu-issues-3-10/program.md)
+八份报告均已回读，验收通过。核对了 12 个上游 checkout、238 份任务与 408 条显式前置链接、8 个离线 HTML 入口与确认指纹。用户对具体 HTML 版本仍待确认。 [交付总览](../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md)

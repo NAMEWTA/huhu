@@ -16,7 +16,7 @@
 ## 目标与输入
 
 1. **表情**：`/` 菜单的“表情”命令派发 `ok:emoji-picker-open`（vendor `app/src/editor/slash-command/emoji-picker-event.ts`），但 Huhu 中没有组件接收这个事件。OK 的做法是在 `/home/wta/projects/huhu/temp/sources/open-knowledge/packages/app/src/components/EditorPane.tsx:1400` 挂载 `<EmojiInsertPopover />`（`editor/components/EmojiInsertPopover.tsx`，依赖 `components/emoji-picker.tsx` 等）。按依赖闭包把它复制进 vendor（固定 SHA 44a2e0a，新增文件登记 PATCHES.md / 闭包清单的约定以现有做法为准；如需新 npm 依赖，版本钉在上游锁文件），在 Huhu 的富文本编辑器挂载点（`packages/editor/src/rich/` 中合适的位置，例如 OkRoot 或 RichMarkdownEditor 内，只在编辑区作用域内）挂载，并迁入上游的 `EmojiInsertPopover.dom.test.tsx`。验收方式：真实 Electron e2e，从 `/` 选“表情”，选择器出现，用键盘和鼠标各选一个表情插入到光标处，保存、关闭、重开后回读磁盘与渲染；Esc 关闭后不留浮层，焦点回到编辑器。表情选择器要离线可用，不发网络请求（断言网络请求数为 0）。
-2. **同类排查**：通读 OK `EditorPane.tsx`（以及 OK 编辑器宿主组件中挂载编辑器相关浮层或监听全局 `ok:*` 事件的地方），列出所有“由应用壳挂载、由编辑器内命令 / 事件触发”的组件和监听器（例如查找替换、代码预览编辑弹窗、链接编辑、图片 / 文件选择、提示 toast、属性面板入口等）。逐个核对 Huhu 是否挂载或有等价实现：已挂载的，写明证据（已有用例）；缺失、且属于本地编辑功能的，按上面相同方式补齐并加 e2e；只服务于 OK 云 / AI / 账户 / 应用壳的，写明不适用的理由。结果写进 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/shell-mounts.md`，并同步 parity-82.md 中相关行的结论（例如第 124 行 EmojiInsertPopover）。
+2. **同类排查**：通读 OK `EditorPane.tsx`（以及 OK 编辑器宿主组件中挂载编辑器相关浮层或监听全局 `ok:*` 事件的地方），列出所有“由应用壳挂载、由编辑器内命令 / 事件触发”的组件和监听器（例如查找替换、代码预览编辑弹窗、链接编辑、图片 / 文件选择、提示 toast、属性面板入口等）。逐个核对 Huhu 是否挂载或有等价实现：已挂载的，写明证据（已有用例）；缺失、且属于本地编辑功能的，按上面相同方式补齐并加 e2e；只服务于 OK 云 / AI / 账户 / 应用壳的，写明不适用的理由。结果写进 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/shell-mounts.md`，并同步 parity-82.md 中相关行的结论（例如第 124 行 EmojiInsertPopover）。
 3. 把斜杠菜单逐项用例里“表情”项的断言改成：选择器真实出现并能插入。
 
 涉及前端时遵循 AGENTS.md（先走 zh-modern-web-guidance 的 search / retrieve 流程；弹出层、焦点、键盘操作要符合指南）。

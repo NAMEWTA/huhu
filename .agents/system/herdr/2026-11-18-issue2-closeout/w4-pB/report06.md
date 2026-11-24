@@ -19,7 +19,7 @@ D02 的评论创建、高亮、点击打开及最终删除等价。Huhu 没有�
 
 - 工作目录 `/home/wta/projects/huhu-wt-layout`，分支 `closeout/issue2-layout`，任务提交 `60d7589ede16d8686f6e01ba40bab6e0f11f14fc`。开工已合并指定集成 tip `9b143a4`。提交后工作树干净。
 - 新增 `tests/parity-ok/compare.spec.ts` 与 `tests/parity-ok/playwright.config.ts`，均在默认 E2E 之外。改动限上述脚本与证据目录，未修改产品代码或原 OK 工作树。
-- `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity-ok/README.md` 收录版本、复跑命令和分类总表。七份功能文档链接到成对截图、DOM 和磁盘 Markdown。`unaligned.md` 收录待对齐项与复现步骤，`startup.md` 记载重启、构建和替代启动路径。
+- `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity-ok/README.md` 收录版本、复跑命令和分类总表。七份功能文档链接到成对截图、DOM 和磁盘 Markdown。`unaligned.md` 收录待对齐项与复现步骤，`startup.md` 记载重启、构建和替代启动路径。
 
 ## 验证
 

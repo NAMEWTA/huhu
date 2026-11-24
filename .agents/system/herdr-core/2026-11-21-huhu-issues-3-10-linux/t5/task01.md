@@ -25,7 +25,7 @@ task15 的不变量照旧适用：host / attempt / session / job 独立标识并
 ## 读写范围与产物
 
 - 可读范围 — 整个仓库及 `/home/wta/projects/huhu/temp/sources/`（若缺 motty/viva，不要联网克隆，在报告中写明）。
-- 可写业务范围 — `plugins/ssh/**`（源码、测试、SSH 领域证据）、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/`、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/tasks/H11.2*` 的状态记录。
+- 可写业务范围 — `plugins/ssh/**`（源码、测试、SSH 领域证据）、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/`、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/tasks/H11.2*` 的状态记录。
 - 禁止改动 — `apps/engine/**`、`apps/desktop/**`、`packages/**` 的公共装配与公共契约、插件全局注册、Vault 包收集器、根 `package.json`/`pnpm-lock.yaml`、其他插件。需要 Engine/Gateway 接线时，用 SSH 包内的最小测试装配验证，并在报告里写出 Lead 要做的精确接线（文件、位置、代码）。不得 push，不得改其他分支，不得启动子 agent。
 - 预期产物 — 在本分支上的一个或多个已提交的非 WIP 提交（可以在 `c23a8258` 之上继续提交；不要 rebase 或改写已推送历史），H11.2 证据文件 `evidence/H11.2-exec-jobs-linux.md`，以及报告。
 

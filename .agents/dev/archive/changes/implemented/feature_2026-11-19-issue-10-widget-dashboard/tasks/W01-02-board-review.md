@@ -1,5 +1,7 @@
 # W01-02 走查完整看板与默认首屏
 
+[验收报告](../evidences/W01-02-board-review.md)
+
 用 Huhu 自有文案与组件核对首屏默认集合、添加配置、宽窄切换、故障及离场。规则按规格，只请用户确认可见实现与尚未确定的首屏选择。
 
 **规格范围**　ACC-DASH-01、ACC-DASH-04、ACC-DASH-05、ACC-DASH-09、ACC-DASH-14、ACC-DASH-15。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

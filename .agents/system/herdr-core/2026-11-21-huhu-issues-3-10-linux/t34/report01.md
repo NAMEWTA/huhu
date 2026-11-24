@@ -28,7 +28,7 @@
 证据按指定路径加入候选树。工作区沙箱对项目文档目录只读，物理文件随 Lead 合并落盘。
 
 ```sh
-git show 53e516ca830e975f081066f41cd9f14ad2b2d6c6:.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md
+git show 53e516ca830e975f081066f41cd9f14ad2b2d6c6:.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H-remaining-linux.md
 ```
 
 | 切片 | 基础 | 候选结论与未闭合项 |

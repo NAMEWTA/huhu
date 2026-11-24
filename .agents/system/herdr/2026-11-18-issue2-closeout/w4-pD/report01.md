@@ -63,7 +63,7 @@ xvfb-run -a pnpm e2e tests/e2e/knowledge/editor-s2b.spec.ts tests/e2e/knowledge/
 | 只读探针，输入前在 renderer 开启 CDP 6 倍 CPU 降速 | 5/5 | 4/5 | 笔记 5 次均落盘「初始关」且都收到 ack（299–1072 ms）；评论 4 次为「撤」，1 次提交完整 |
 | 首笔慢结算，原动作 | 3/3 | 3/3 | 退出 3 次只写「初始关」，评论 3 次提交「撤」 |
 | 同一慢结算条件，动作前调用现有交付函数一次 | 0/3 | 0/3 | 两个用例各 3/3 通过；每一次 PRE 都先观测到了旧值 |
-| 历史独立记录 | 两轮全量各失败一次，三次定向中失败一次 | 两轮定向各提交一次「撤」，随后三次定向均通过 | `/home/wta/projects/huhu-wt-session/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/runs.md:27–45`，未并入本轮分母 |
+| 历史独立记录 | 两轮全量各失败一次，三次定向中失败一次 | 两轮定向各提交一次「撤」，随后三次定向均通过 | `/home/wta/projects/huhu-wt-session/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/runs.md:27–45`，未并入本轮分母 |
 
 降速组在 CPU 4–7 上同样运行两个 CPU 负载进程，输入前用 Playwright CDP 会话执行 `Emulation.setCPUThrottlingRate({rate: 6})`；这一组没有人为改变桥的耗时或调度参数。为便于复核，下面保留首轮受控对照的磁盘读数，以及同一个 renderer 调用栈中交付前后的评论读数（摘取字段）：
 

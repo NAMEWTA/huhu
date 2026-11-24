@@ -22,7 +22,7 @@ H11.2 的 Exec 作业链在隔离 SSH 夹具上通过 CLI 与 HTTP MCP 验收。
 | 提交 | 文件 |
 | --- | --- |
 | `6269093e49c415019a28beb9451268c003218415` | `plugins/ssh/huhu-plugin.json`、`plugins/ssh/src/engine/capabilities.ts`、`plugins/ssh/src/engine/index.ts`、`plugins/ssh/src/engine/manager.ts`、`plugins/ssh/src/engine/public-jobs.ts`、`plugins/ssh/src/engine/public-probes.ts`、`plugins/ssh/test/fake-server.ts`、`plugins/ssh/test/public-resources.engine.test.ts` |
-| `0748a5164728ab6d204d55e71be59a6a17a2eaa3` | `.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H11.2-exec-jobs-linux.md`、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/tasks/H11.2-session-jobs.md` |
+| `0748a5164728ab6d204d55e71be59a6a17a2eaa3` | `.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H11.2-exec-jobs-linux.md`、`.agents/dev/changes/2026-11-19-issue-7-ssh-module/tasks/H11.2-session-jobs.md` |
 
 原工作树的 `.agents` 只读。证据正式路径和任务状态记录已提交进 bundle，可立即阅读原工作树 SSH 包中的同名证据副本。接续 WIP 中已包含 `exec-interrupt.ts`、`job-output.ts`、`public-resources.ts` 的实现，本轮复用了这些文件。 [Linux 验收证据](/home/wta/projects/huhu/temp/issue-worktrees/ssh-exec/plugins/ssh/evidence/H11.2-exec-jobs-linux.md)
 

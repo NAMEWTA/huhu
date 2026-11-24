@@ -11,7 +11,7 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report02.md
 - 工作目录：/home/wta/projects/huhu-wt-layout（分支 closeout/issue2-layout，接着 a842d06 继续）
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pB
-- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/task01.md、/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report01.md（含 Lead 验收），以及 /home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md、/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md
+- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/task01.md、/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report01.md（含 Lead 验收），以及 /home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md、/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md
 
 ## 目标与输入
 
@@ -26,7 +26,7 @@
 
 - 可读范围：整个仓库、/home/wta/projects/huhu/temp/sources、/home/wta/projects/huhu-wt-rc4。
 - 可写业务范围（仅在 /home/wta/projects/huhu-wt-layout）：task01 的全部可写范围，**另加**：vendor 中的文案来源文件（仅用于 i18n）与 Lingui 目录；`packages/editor/src/index.ts` 等包入口与 `packages/editor/package.json` 的 exports（仅用于拆分懒加载）；`plugins/notes/src/**`、`apps/desktop/src/renderer/**`、`apps/desktop/electron.vite.config.*`、`packages/workbench/src/**` 中与启动加载路径相关的部分。不得改动 vendor 编辑器逻辑、`packages/editor/test/**`、`tests/e2e/knowledge/editor-parity-*` / `fidelity-*`、`packages/editor/src/rich/RichMarkdownEditor*` 与桥 / settle 逻辑（另有分析在进行）。
-- 预期产物：在 closeout/issue2-layout 上提交；更新 `/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md`、`/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md`、`/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md`。
+- 预期产物：在 closeout/issue2-layout 上提交；更新 `/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md`、`/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md`、`/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md`。
 
 ## 验收与验证
 

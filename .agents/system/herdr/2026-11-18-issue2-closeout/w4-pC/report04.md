@@ -16,7 +16,7 @@ D01 的旧驱动在刚重开、笔记还未加载时读取详情栏可见性，�
 ## 产物与改动
 
 - 工作目录 /home/wta/projects/huhu-wt-session，分支 closeout/issue2-session，提交 b8df90fe6bdc4cf016e554b655ac0649bb59a0e6。工作区干净。
-- 两项根因、验证记录及探针位置见 .agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md 和 runs.md。原始日志、临时探针代码及失败 trace 位于 /tmp/huhu-session-04/。
+- 两项根因、验证记录及探针位置见 .agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md 和 runs.md。原始日志、临时探针代码及失败 trace 位于 /tmp/huhu-session-04/。
 
 ## 验证
 

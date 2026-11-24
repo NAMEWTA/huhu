@@ -22,9 +22,9 @@ H9.3 增加当前分栏的普通权限只读进程与容器摘要。只接受类
 
 | 提交 | 交付与证据 |
 | --- | --- |
-| `006d42a9548698bbeeaa54ea7e6e5986f0d165b5` | 所有者凭据切换、兼容只读修复标记、回环验证无旧拨号及旧文件与条目逐项保留。 [凭据切换](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/P10-ssh-owner-cutover.md>) |
-| `c2e3605dc56c7c41beabc59823b8f1e803432314` | 活动分栏监控、按连接复用采样、命名仪表盘、前后台与终态证据。 [监控取证](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H9-monitoring-windows.md>) |
-| `9c55c07e0533c284724932118d16a10faf6455ec` | 分栏绑定的进程与容器只读摘要、拒绝任意查询、原连接生命周期。 [服务器工具](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H9-tools-windows.md>) |
+| `006d42a9548698bbeeaa54ea7e6e5986f0d165b5` | 所有者凭据切换、兼容只读修复标记、回环验证无旧拨号及旧文件与条目逐项保留。 [凭据切换](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/P10-ssh-owner-cutover.md>) |
+| `c2e3605dc56c7c41beabc59823b8f1e803432314` | 活动分栏监控、按连接复用采样、命名仪表盘、前后台与终态证据。 [监控取证](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H9-monitoring-windows.md>) |
+| `9c55c07e0533c284724932118d16a10faf6455ec` | 分栏绑定的进程与容器只读摘要、拒绝任意查询、原连接生命周期。 [服务器工具](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H9-tools-windows.md>) |
 
 对照本机 Motty `2daa9db582e16edf60a60b7ada26f47f808f973c` 的 `internal/monitoring/history.go`、`internal/remotestats` 和 `internal/remotetools`。复用既有的 SSH 路由信任、所有者凭据、专用连接共享机制、活动 Shell 与 Vault 文件版本。监控和转发的专用连接池按用途隔离，避免跨功能改变持有者计数。对已存在的普通连接，监控可直接固定连接 ID 并只关闭自己的采样通道。
 

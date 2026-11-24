@@ -26,7 +26,7 @@
 ## 读写范围与产物
 
 - 可写业务范围：你 task01 / task02 的全部范围，**另加**：`packages/contracts` 中的设置 schema、设置页（Huhu 设置模块，以实际位置为准）、`plugins/notes/src/ui/tabs/**` 与 `TabStrip`、`plugins/notes/src/ui/explorer/ResourceTree.tsx` 与 `CommentsPanelSurface.tsx`（仅语言接线）、vendor 中的文案来源与 Lingui 目录（登记 PATCHES.md）、`apps/desktop/electron-builder.yml`、`scripts/check-asar-contents.mjs`（新增）。不改会话 / 保存 / archives（属 w4:pC），不改 RichMarkdownEditor 的选区逻辑（属 w4:pA）。
-- 预期产物：在你的分支上提交；更新 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/` 下的 h03-i18n.md、g07-budget.md、runs.md，新增 tab-menu.md、asar-contents.md。
+- 预期产物：在你的分支上提交；更新 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/` 下的 h03-i18n.md、g07-budget.md、runs.md，新增 tab-menu.md、asar-contents.md。
 
 ## 验收与验证
 

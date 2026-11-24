@@ -21,7 +21,7 @@
 | [tasks/](tasks/) | 九份切片任务（00–08；S2 分 2a-1/2/3、2b、2c），每份可独立接手 |
 | [verification.md](verification.md) | 验证层、验收 → 验证归属、样本与夹具、对照 OK 基线的方法、环境限制、切片门禁 |
 | [progress.md](progress.md) | 进度与证据入口（实施时维护；现为起点记录） |
-| [evidence/](evidence/) | `e0-source-survey.md`（本次调查证据）；后续：closure-manifest、parity / endpoint 矩阵、spike 结论、各切片证据 |
+| [evidence/](verification) | `e0-source-survey.md`（本次调查证据）；后续：closure-manifest、parity / endpoint 矩阵、spike 结论、各切片证据 |
 
 ## 与其他 change 的关系
 

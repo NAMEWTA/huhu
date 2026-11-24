@@ -19,7 +19,7 @@ CodeBlockView 上游用例改为使用生产接线提供的内页 URL。迁入�
 
 - 预览接线测试、测试改动登记及固定上游重放清单与补丁。
 - 中英文通知名称、离线表情名称与搜索别名，以及中文扫描和表情插入 E2E。
-- [H03 验证与扫描](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md) · [运行记录](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md)
+- [H03 验证与扫描](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md) · [运行记录](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md)
 
 ## 验证
 

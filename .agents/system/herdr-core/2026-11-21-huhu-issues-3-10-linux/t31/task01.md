@@ -14,10 +14,10 @@
 1. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T1.4-retry-snapshot.md`
 2. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T4.1-available-at.md`
 3. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T5.5-edit-schedule.md`
-4. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md`：定时、手动和列表的生产调用方切到持久派遣与执行槽（见 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/progress.md` 第 68 行），目标预检与规则配置一并核对。这是 #4 W8.3 的前置。
+4. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.1-cutover.md`：定时、手动和列表的生产调用方切到持久派遣与执行槽（见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/progress.md` 第 68 行），目标预检与规则配置一并核对。这是 #4 W8.3 的前置。
 5. `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/tasks/T7.2-full-task-journey.md`：写完整任务旅程 E2E spec（Linux 可跑部分）；需要 Windows 或真实 provider 的部分写明并 skip 理由。
 
-2026-11-21 定案见 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`，按定案实现，不重新讨论。已合入的 #6 Tasks/Automations 暴露（`exposable`、意图键、会话身份）直接复用，不改 dispatcher/MCP/contracts 调用身份。复用优先：先找 Huhu 现有实现与 temp/sources。
+2026-11-21 定案见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`，按定案实现，不重新讨论。已合入的 #6 Tasks/Automations 暴露（`exposable`、意图键、会话身份）直接复用，不改 dispatcher/MCP/contracts 调用身份。复用优先：先找 Huhu 现有实现与 temp/sources。
 
 ## 职责边界（AGENTS.md「实施者职责边界」，强制）
 
@@ -29,5 +29,5 @@
 ## 产物
 
 - 候选提交（临时索引，父 `369efcfd`，见 topic「决定与交接」第 2 条），工作树与候选一致。测试前设 `XDG_RUNTIME_DIR="$(mktemp -d /tmp/hc-xdg.XXXXXX)"`。
-- 证据追加到 `/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/`（新建 `T7-cutover-linux.md`）。
+- 证据追加到 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/verification/`（新建 `T7-cutover-linux.md`）。
 - 报告按 `/home/wta/projects/huhu/.agents/skills/system-herdr-core/assets/report.md`：逐切片分类表、改动、已跑 vitest、单列「未运行的验证」（E2E 文件+用例名）。先写 `.tmp` 再 `ln` 发布，发布后打印报告绝对路径并停下。一轮上下文不足时按 1→5 顺序提交一批，报告写清剩余。

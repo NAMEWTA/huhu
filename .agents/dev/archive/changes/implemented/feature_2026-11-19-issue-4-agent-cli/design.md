@@ -54,14 +54,14 @@
 
 ## 来源和平台依据
 
-- Huhu 以当前检出为实施基线，复用 Space 校验、resolver、SessionsService、WaitingWatcher、受权终端桥、文件与评审入口。Huhu 为 GPL-3.0-or-later，xterm 6.0.0 为 MIT。各上游本轮采用的默认分支与完整提交见[批次源码清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)，Issue 内固定链接用于追溯。
+- Huhu 以当前检出为实施基线，复用 Space 校验、resolver、SessionsService、WaitingWatcher、受权终端桥、文件与评审入口。Huhu 为 GPL-3.0-or-later，xterm 6.0.0 为 MIT。各上游本轮采用的默认分支与完整提交见[批次源码清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)，Issue 内固定链接用于追溯。
 - herdr-app `master@317e673f1f15` 和 herdr-core `master@c7517808d64f` 均为 Apache-2.0。工作区状态与同步参考 `src/model.rs`、`src/mirror_sync.rs`，Core 对照 `schema/hc.openrpc.json`、`crates/herdr-core/src/api/run.rs`。Huhu 的打包锁为 0.1.19，本批调度用 hc 为 0.1.21。W0.2 要在声明支持的实际安装包核验 feature、父子进程与收纳后的存活。
 - ORCA `main@8bc232f5ed8b` 的本地 LICENSE 为 MIT。已定位 `src/shared/workspace-layout/terminal-topology/terminal-pane-tree.ts` 的 `insertLeafBeside`、`removeLayoutLeaf` 和 `equalizeLayout`：左右对应 vertical，上下对应 horizontal。创建与恢复定位到 `SplitPaneLanding.tsx`、`TabBarCreateEntry.open-focus.test.tsx` 和 `agent-resume-launch-command.ts`。W0.1 追踪本次版本的导入及测试闭包。Huhu 使用自己的导航、组件、主题、图标和文案，只对照授权代码、功能和信息结构。
 - 共享前端已检索并取回 tabs、css-layout、dialog、accessibility。按 Huhu 组件实现锚点、焦点回归、选中状态和弹层。长标题的 flex 子项可收缩，隐藏 pane 不报零网格，Tab 的键盘行为有 roving tabindex 回退，避免依赖 focusgroup。桌面锁 Electron 44.9.1 对应 Chromium 152.0.7977.167；Web 以 Baseline Widely available 为下限。原生 modal dialog 可用，新增子属性须单独查证。待实测 Electron appInfo 和 #6 浏览器入口。[Electron 发布记录](https://releases.electronjs.org/release/v44.9.1) · [Web dialog 支持](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) · [Huhu 视觉规范](../../../../notes/context/design-system.md)
 
 ## 待产品选择
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 1. 进程已真实启动、目标 pane 已被关闭、当前用户已离开原 Space；Issue 已要求可找回和不抢焦点。可将进程保留在原 Space 的终端列表，提供“放入此 Tab”；也可在原 Space 后台自动补建独立 Tab 并提示。推荐前者，减少系统擅改布局，但用户需要一次收纳操作。普通 shell 同样须可找回。只阻塞 W2.2 的失效目标展示和相应原型确认。

@@ -15,23 +15,23 @@ Windows x64，HUHU `0.0.1-rc.4`，固定提交 `40822efd63d80cdc1bcba1d0f9c7d121
 
 | 实测入口 | 观测结果 |
 | --- | --- |
-| 包内 MCP 创建并派遣，Codex 使用默认配置 | 首次模型请求实际公布同步工具 `request_user_input`，说明限 Plan 模式。夹具选择该工具后，第二次模型请求携带 `request_user_input is unavailable in Default mode`。CLI 没有查到问题，终态 run 的 `questions=0`。 [包内默认配置](evidence-task01/packaged-default.jsonl) |
-| 包内同一路径，仅在新 provider HOME 开启 `features.default_mode_request_user_input=true` | 工具说明变为支持 Default 或 Plan。夹具投递同样的一道双选题，下一次请求带回 `{"answers":{}}`，CLI 仍然没有问题。两次模型请求各属于同一轮，结果是夹具随后发出的固定文本。两种配置均未公布 `request_user_input_async`。 [开关状态](evidence-task01/native-features.txt) · [包内启用开关](evidence-task01/packaged-enabled.jsonl) |
-| 独立 stdio 对照，同一原生程序、同样的线程配置、同一道题，直接记录 app-server 帧 | 开启 Default 模式问答后，原生 `item/tool/requestUserInput` 带 `id=0`、`isBlocking=false`、`isOther=true`、`isSecret=false` 和 Blue、Green 两个选项。独立客户端回复 Blue 后，第二次 Responses 请求确实带回 Blue，原 turn 完成。 [原生 Default 协议记录](evidence-task01/native-default-enabled.jsonl) |
-| 独立 stdio 对照，在 `turn/start` 显式选择 Plan | 原生请求变为 `isBlocking=true`，`isOther=true` 保留。直接回答仍可继续。普通事件流有 `serverRequest/resolved`，包内答案读取器在这次对照中没有提取到工具输出。另一次在隔离进程启用 `experimentalRawEvents`，读取器从真实 `function_call` 与 `function_call_output` 配对提取到 `call_t19m` 和 Blue。 [Plan 普通事件](evidence-task01/native-plan.jsonl) · [Plan 原始事件及包内读取器结果](evidence-task01/native-plan-raw.jsonl) |
+| 包内 MCP 创建并派遣，Codex 使用默认配置 | 首次模型请求实际公布同步工具 `request_user_input`，说明限 Plan 模式。夹具选择该工具后，第二次模型请求携带 `request_user_input is unavailable in Default mode`。CLI 没有查到问题，终态 run 的 `questions=0`。 包内默认配置（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/packaged-default.jsonl`） |
+| 包内同一路径，仅在新 provider HOME 开启 `features.default_mode_request_user_input=true` | 工具说明变为支持 Default 或 Plan。夹具投递同样的一道双选题，下一次请求带回 `{"answers":{}}`，CLI 仍然没有问题。两次模型请求各属于同一轮，结果是夹具随后发出的固定文本。两种配置均未公布 `request_user_input_async`。 [开关状态](evidence-task01/native-features.txt) · 包内启用开关（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/packaged-enabled.jsonl`） |
+| 独立 stdio 对照，同一原生程序、同样的线程配置、同一道题，直接记录 app-server 帧 | 开启 Default 模式问答后，原生 `item/tool/requestUserInput` 带 `id=0`、`isBlocking=false`、`isOther=true`、`isSecret=false` 和 Blue、Green 两个选项。独立客户端回复 Blue 后，第二次 Responses 请求确实带回 Blue，原 turn 完成。 原生 Default 协议记录（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/native-default-enabled.jsonl`） |
+| 独立 stdio 对照，在 `turn/start` 显式选择 Plan | 原生请求变为 `isBlocking=true`，`isOther=true` 保留。直接回答仍可继续。普通事件流有 `serverRequest/resolved`，包内答案读取器在这次对照中没有提取到工具输出。另一次在隔离进程启用 `experimentalRawEvents`，读取器从真实 `function_call` 与 `function_call_output` 配对提取到 `call_t19m` 和 Blue。 Plan 普通事件（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/native-plan.jsonl`） · Plan 原始事件及包内读取器结果（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/native-plan-raw.jsonl`） |
 
 包内 helper 的 `turn/start` 没有选择 Plan。它仅受理绑定到当前线程、轮次和 item 的单个阻塞问题，要求问题非秘密、没有自由补充选项，且有 2–8 个互异标签。两种不兼容的标志由原生程序构造，公布给模型的工具参数只有问题 ID、标题、题干和选项。helper 对不受理的 RPC 返回 `-32601`。固定候选的包内 CLI 因此没有可用于 `tasks.reply` 的原 request ID 和 version。独立 stdio 的 Blue 只证明 Codex 能续行。包内成功结束的 run 证明结果投递，包内真实答复、重答、原问题暂停／恢复及答案消费 ACK 均未取得。 [包内原文件](C:/Users/cdewta/AppData/Local/Temp/huhu-40822efd-release-8c634516/win-unpacked/resources/codex-dispatch/helper.cjs:198) · [接收与拒绝分支](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/agent-cli/src/engine/codex-dispatch-helper.cjs:391) · [答案 ACK 条件](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/agent-cli/src/engine/codex-dispatch-helper.cjs:247)
 
 ## 同一包上已走通的业务链
 
-通过实际 MCP HTTP `tools/call` 创建两个 Agent 任务。次日对照任务 `task-mwpirta9p9cs` 的最早派遣为台北时间 11 月 22 日 05:57:09.993。MCP 提前派遣得到 `INVALID_INPUT / not_due`，CLI 读到零次运行。另一任务使用 5 秒一次的包内调度器和真实系统时钟，最早派遣设在本次观测窗口内。以下时间为台北时间 11 月 21 日。 [完整调度与双端回执](evidence-task01/scheduled-durable.jsonl)
+通过实际 MCP HTTP `tools/call` 创建两个 Agent 任务。次日对照任务 `task-mwpirta9p9cs` 的最早派遣为台北时间 11 月 22 日 05:57:09.993。MCP 提前派遣得到 `INVALID_INPUT / not_due`，CLI 读到零次运行。另一任务使用 5 秒一次的包内调度器和真实系统时钟，最早派遣设在本次观测窗口内。以下时间为台北时间 11 月 21 日。 完整调度与双端回执（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/scheduled-durable.jsonl`）
 
 | 业务环节 | 同一现场的观测 |
 | --- | --- |
 | 暂停、未到期 | 规则保持暂停跨过一个扫描点，零发生、零运行、零模型请求。启用后 05:57:20、25、30 三次扫描均以 `not-due` 跳过两项任务。 |
 | 到期与重复扫描 | 近期待执行项于 05:57:32.322 到期，05:57:35 的 occurrence 只受理一次，attempt 为 1。05:57:40 因 `task_occupied` 跳过，45 和 50 秒因 `not-open` 跳过。旁边的次日对照持续为 `not-due`。 |
 | 外部读取与持久化 | 包内 CLI `tasks.read` 从原任务读出一条结果评论。`tasks.runs` 返回一个 `succeeded` run，投递为 `delivered`，问题数为 0。Agent 端结果文件与 Tasks 收件记录的 receiptId 相同，收件记录中的 messageId 等于 CLI 读到的评论 ID。 |
-| 桌面回到原会话并人工完结 | 从该 run 展开结果，点击“定位原会话”。桌面显示活动 Codex 标签与会话预览，终端连接路径为 `/ws/terminal/sess-mwpiscqpywwu`，与任务结果的 session ID 完全相同。结果投递后任务仍为 `in_progress`；从桌面任务列表选择完成，包内 CLI 回读 `completed`，结果数仍为 1。 [任务结果截图](evidence-task01/result.png) · [定位原会话截图](evidence-task01/located.png) |
+| 桌面回到原会话并人工完结 | 从该 run 展开结果，点击“定位原会话”。桌面显示活动 Codex 标签与会话预览，终端连接路径为 `/ws/terminal/sess-mwpiscqpywwu`，与任务结果的 session ID 完全相同。结果投递后任务仍为 `in_progress`；从桌面任务列表选择完成，包内 CLI 回读 `completed`，结果数仍为 1。 任务结果截图（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/result.png`） · 定位原会话截图（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t19m/task01/legacy-7984bff4/evidence-task01/located.png`） |
 
 | 关联字段 | 实际标识 |
 | --- | --- |
@@ -46,7 +46,7 @@ Windows x64，HUHU `0.0.1-rc.4`，固定提交 `40822efd63d80cdc1bcba1d0f9c7d121
 
 ## 跨日与重答的定向验证
 
-在固定提交的临时源码快照复跑 4 项既有用例，4 项通过。真实安装包观察到短周期到期和次日项保持未发，未等待自然跨日，未修改系统时钟。生产 Tasks Engine 用例以注入时钟从 11 月 20 日推进到 21 日，到期前处于等待，到期后执行器仅调用一次。扫描分类另验证台北早上 09:00 前 1 毫秒仍不受理，到点才进入候选。 [本次定向运行](evidence-task01/engine-tests.log) · [生产 Engine 跨日用例](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/tasks/test/persistence-http.test.ts:389) · [扫描边界](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/automations/test/scan.test.ts:80)
+在固定提交的临时源码快照复跑 4 项既有用例，4 项通过。真实安装包观察到短周期到期和次日项保持未发，未等待自然跨日，未修改系统时钟。生产 Tasks Engine 用例以注入时钟从 11 月 20 日推进到 21 日，到期前处于等待，到期后执行器仅调用一次。扫描分类另验证台北早上 09:00 前 1 毫秒仍不受理，到点才进入候选。 本次定向运行（历史位置 `evidence-task01/engine-tests.log`，本次未取得原件） · [生产 Engine 跨日用例](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/tasks/test/persistence-http.test.ts:389) · [扫描边界](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/automations/test/scan.test.ts:80)
 
 重复回答用例在生产 Tasks Engine 注入合成问题和执行器。两个竞争回复只有一个受理；同一回复重交得到相同回执，以同一 replyId 更改答案得到 `IDEMPOTENCY_MISMATCH`。重启后只对账，执行器收到一次回答，原 run 只有一条回答评论。第四项验证停用期间不补扫、重新启用只追最近一轮。真实安装包尚需用原 request 重验重复回答。 [重复回答用例](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/tasks/test/persistence-http.test.ts:791) · [停用与恢复用例](D:/Document/code/huhu/temp/issue-worktrees/integration/plugins/automations/test/task-scan-occurrences.test.ts)
 

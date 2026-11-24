@@ -11,7 +11,7 @@
 
 空 Vault 可按各自原 ID 恢复两个同地址账号，已映射的本地已读定位能在重开后立即再导出。本版写入的恢复记录可跨 v1/v2 识别，空 Vault 的第二账号写入失败后也可按原选择续跑。当前候选有两项待修，涉及已有同地址账号的确认，以及显式保留为独立账号的多选续跑。Lead 已交 t86 复现和修复。
 
-规格以 #8 的持久数据契约、S6b.1 的中断及防重复要求、同地址冲突定案为准，并对照前一轮审查和两份修复报告。 [Issue 8 规格](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-8-mail-module/spec.md:40) · [S6b.1 验收](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S6b.1-subset-restore.md:19) · [同地址定案](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md:15) · [原审查](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8g/report01.md) · [修复一](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8k/report01.md) · [修复二](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8k/report02.md)
+规格以 #8 的持久数据契约、S6b.1 的中断及防重复要求、同地址冲突定案为准，并对照前一轮审查和两份修复报告。 [Issue 8 规格](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-8-mail-module/spec.md:40) · [S6b.1 验收](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-8-mail-module/tasks/S6b.1-subset-restore.md:19) · [同地址定案](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md:15) · [原审查](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8g/report01.md) · [修复一](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8k/report01.md) · [修复二](/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux/t8k/report02.md)
 
 ## 规格轴
 
@@ -38,7 +38,7 @@
 ## 验证与待验收
 
 - 独立运行 Node 24.21.0 下的 `pnpm --config.verifyDepsBeforeRun=false exec vitest run plugins/mail/test/outbox-engine.test.ts -t 'Mail 同地址子集第二账号失败|Mail 子集|Mail 备份内' --maxWorkers=1`，6 项通过，11 项由过滤跳过。固定 Mail 差异的 `git diff --check` 通过。两项待修与迁移观察均基于代码路径，现有过滤用例未覆盖这些触发条件。
-- Lead 对 `0f24ba18` 的单文件验证 17/17，通过 Mail 定向 `tsc`。测试计数可从日志单独核实，类型通过由 Lead 定案记录确认。四文件 lint 日志记录零警告零错误，日志正文只显示文件数量。 [单文件及类型日志](/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/mail-partial-recheck.log:20) · [Lead 定案](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-huhu-issues-3-10/program.md:21) · [lint 日志](/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/mail-revoke-diff.log:1)
+- Lead 对 `0f24ba18` 的单文件验证 17/17，通过 Mail 定向 `tsc`。测试计数可从日志单独核实，类型通过由 Lead 定案记录确认。四文件 lint 日志记录零警告零错误，日志正文只显示文件数量。 [单文件及类型日志](/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/mail-partial-recheck.log:20) · [Lead 定案](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md:21) · [lint 日志](/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/mail-revoke-diff.log:1)
 - 待验收项包括固定候选的实际 Desktop/Web 恢复界面、外部 CLI/MCP/HTTP 实跑及安装包恢复。本轮独立运行限上面的过滤测试和差异检查。E2E、打包、全仓检查与类型检查留待 Lead。
 
 ## 回告

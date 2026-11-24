@@ -2,7 +2,7 @@
 
 # #5 任务与自动化的实施计划
 
-从保存一条“明天处理”的任务，到到期派遣、原会话答复、结果补送和人工完成，沿一条 taskId 核对每个事实。行为以[规格](spec.md)和[数据与恢复设计](design.md)为准，执行侧接口由 [#4](../feature_2026-11-19-issue-4-agent-cli/design.md)维护。开发按[本轮上游默认分支与 Huhu 检出](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)，原始阶段、验收号和完成定义见 [Issue §14–16](source.md)。
+从保存一条“明天处理”的任务，到到期派遣、原会话答复、结果补送和人工完成，沿一条 taskId 核对每个事实。行为以[规格](spec.md)和[数据与恢复设计](design.md)为准，执行侧接口由 [#4](../feature_2026-11-19-issue-4-agent-cli/design.md)维护。开发按[本轮上游默认分支与 Huhu 检出](../feature_2026-11-19-huhu-issues-3-10/sources.md)，原始阶段、验收号和完成定义见 [Issue §14–16](source.md)。
 
 可先做 T0.1、T1.1、T5.1 和 T4.2 的固定时钟分类。Tasks 独占任务、意图、轮次、问题与送达，Automations 独占规则、发生和计时，#4 独占 session 输入与原生回执。两侧先按既定协议分别测试受理/ACK，再用真实 CLI 联验。
 

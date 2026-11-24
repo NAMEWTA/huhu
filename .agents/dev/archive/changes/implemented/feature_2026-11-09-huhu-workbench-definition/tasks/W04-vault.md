@@ -1,5 +1,7 @@
 # W04 Vault 持久化与索引
 
+[验收报告](../evidences/W04-vault.md)
+
 ## W04.1 Vault 生命周期与启动页
 
 - 目标：启动页能打开已有文件夹、新建空 Vault、打开示例 Vault；切换与关闭 Vault；只读打开。

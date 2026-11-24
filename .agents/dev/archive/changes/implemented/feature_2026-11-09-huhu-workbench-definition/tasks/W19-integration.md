@@ -1,5 +1,7 @@
 # W19 集成、性能与无障碍
 
+[验收报告](../evidences/W19-integration.md)
+
 ## W19.1 跨模块工作流 E2E
 
 - 目标：[product](../product.md) §3 的三个工作流在真实应用中完整跑通。

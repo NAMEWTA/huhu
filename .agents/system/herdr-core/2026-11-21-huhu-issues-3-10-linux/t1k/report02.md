@@ -14,7 +14,7 @@
 ## 产物与改动
 
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-g6-extensions`，候选 `c59550289b96fdf6560ad087e0e66fda8af3a52c`，父 `499427bee8976d6e96bf19693f54641f1aa360eb`。临时索引生成候选，分支和真实索引仍指向基线。
-- 证据加入候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G3.4-extension-commands-linux.md`。工作树 `.agents` 为只读挂载，证据随候选树交付。业务文件和候选一致。日志和证据副本在 `/tmp/huhu-g34-t1y.v2Dcpu`。
+- 证据加入候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G3.4-extension-commands-linux.md`。工作树 `.agents` 为只读挂载，证据随候选树交付。业务文件和候选一致。日志和证据副本在 `/tmp/huhu-g34-t1y.v2Dcpu`。
 - `packages/kernel/src/plugins/command-descriptors.ts` 把外部清单的本地 JSON Schema 子集编译给登记表。 `external.ts` 和 `host-script.ts` 管理逐次 IPC 委托。 `dispatcher.ts` 与 `operation-receipts.ts` 增加经授权的命令转发、可安全暂停的父/子回执和稳定步骤。
 - 新增仅工作台可调用的 `plugins.grants.update`，用于缩减或恢复原清单内的授权。更新测试使用已有卸载/安装流程。工作台 UI 无变更。
 

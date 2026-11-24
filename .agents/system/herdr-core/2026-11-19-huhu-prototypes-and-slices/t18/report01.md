@@ -26,7 +26,7 @@
 
 每包六个文件。工作区为 `D:/Document/code/huhu`，`feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。本 worker 的未提交产物为表内两个原型目录和两份确认记录。批次已有工作区改动及并行组切片留给原执行者。
 
-复用当前 Huhu 品牌、四套主题与共享尺寸 token，沿用窗口栏、功能图标栏、标签、面包屑、首页和启动的信息结构。最新本地参考依批次清单为 Open Knowledge main `b2af296a7304`，Homarr dev `b440fdd574c9`，React Grid Layout master `ec4ab79c9744`，GridStack master `a7f828af1c53`，dnd-kit main `ccaf3d583903`。以其窗口留位、菜单分工、网格与编辑行为作参考，两份 HTML 使用 Huhu 自有视觉和受控本地状态。 [批次来源清单](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-huhu-issues-3-10/sources.md)
+复用当前 Huhu 品牌、四套主题与共享尺寸 token，沿用窗口栏、功能图标栏、标签、面包屑、首页和启动的信息结构。最新本地参考依批次清单为 Open Knowledge main `b2af296a7304`，Homarr dev `b440fdd574c9`，React Grid Layout master `ec4ab79c9744`，GridStack master `a7f828af1c53`，dnd-kit main `ccaf3d583903`。以其窗口留位、菜单分工、网格与编辑行为作参考，两份 HTML 使用 Huhu 自有视觉和受控本地状态。 [批次来源清单](D:/Document/code/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 验证
 

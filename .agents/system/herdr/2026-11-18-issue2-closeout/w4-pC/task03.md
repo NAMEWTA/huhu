@@ -31,7 +31,7 @@
 ## 读写范围与产物
 
 - 可写业务范围：你 task01 / task02 的全部范围，**另加**：`plugins/notes/src/ui/archives/**`、`plugins/notes/src/ui/NotesModule.tsx`、`packages/kernel/src/capabilities/vault.ts` 及其测试、`packages/vault/src/paths.ts` 及其测试、`plugins/notes/src/ui/documents/NoteEditorSurface.tsx`、`packages/editor/src/vendor/open-knowledge/app/src/editor/bubble-menu/FileBubbleButtons.tsx`（仅工程 4，改动登记 PATCHES.md）、`docs/upstream/ledger.md`、`packages/editor/test/golden-roundtrip.test.ts` 与要删除的夹具副本。不改 RichMarkdownEditor 的选区逻辑（属 w4:pA），不改 TabStrip / 设置 / 样式（属 w4:pB）。
-- 预期产物：在你的分支上提交；证据写进 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md`（每条：问题、修法、判红到转绿的用例、结果），并更新 runs.md。
+- 预期产物：在你的分支上提交；证据写进 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md`（每条：问题、修法、判红到转绿的用例、结果），并更新 runs.md。
 
 ## 验收与验证
 

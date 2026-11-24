@@ -33,7 +33,7 @@
 
 此处按批次 #3 组合验收记录列出 T03 的剩余前提。
 
-- 在含停止代次修复的同一 Windows 组合 SHA 上构建应用与候选安装包，记录 build-info 和包 SHA。使用真实隔离 Vault 实跑 TB-14/15 的完整 session-flush 场景，包含未落盘输入、取消后继续编辑、重开读回和失联后的宿主恢复。此前的真实文档证据有独立的构建版本。 [批次组合验收](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-huhu-issues-3-10/program.md#组合验收) · [此前 Windows 文档回归](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)
+- 在含停止代次修复的同一 Windows 组合 SHA 上构建应用与候选安装包，记录 build-info 和包 SHA。使用真实隔离 Vault 实跑 TB-14/15 的完整 session-flush 场景，包含未落盘输入、取消后继续编辑、重开读回和失联后的宿主恢复。此前的真实文档证据有独立的构建版本。 [批次组合验收](D:/Document/code/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md#组合验收) · [此前 Windows 文档回归](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md)
 - 按记录的确认范围完成实际 Windows 菜单和窗口入口。S3-01 需要标题栏 S2-01 与退出契约。#10 W04-07 需要草稿会话 W04-01，并接入真实退出参与者验证保存、放弃、继续编辑和失败保留。对应原型反馈及组合联验由各场景记录。 [产品菜单 S3-01](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-issue-3-desktop-shell/tasks/S3-01-product-menu.md) · [看板离场 W04-07](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-issue-10-widget-dashboard/tasks/W04-07-leave-draft.md) · [原型确认](D:/Document/code/huhu/.agents/dev/changes/2026-11-19-issue-3-desktop-shell/prototype-review.md:31)
 
 ## 冻结与验证范围

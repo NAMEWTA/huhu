@@ -11,7 +11,7 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pD/report01.md
 - 工作目录：/home/wta/projects/huhu-wt-analysis（detached，main 9f870c0，已 pnpm install，已放随包 herdr）
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pD
-- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pC/report01.md（“阻碍与接续”）与 /home/wta/projects/huhu-wt-session/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/runs.md 第 27–45 行
+- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pC/report01.md（“阻碍与接续”）与 /home/wta/projects/huhu-wt-session/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/runs.md 第 27–45 行
 
 ## 目标与输入
 
@@ -20,7 +20,7 @@
 1. `tests/e2e/knowledge/editor-s2b.spec.ts:85`「S2b：重开应用后内容一致」：打开笔记、键入「关闭前的最后输入」后立即 `app.close()`，磁盘只有部分内容（观察到「初始关」以及额外的标题尾符号）。在 w4:pC 的两轮全量与 3 次单独复跑里失败 3 次；负载下更易出现。Issue 要求：关闭 / 切换前 flush 不丢草稿（C06、Issue §6.6）。
 2. `tests/e2e/knowledge/compact-cost.spec.ts:26`「S2c：任务评论」：评论输入框输入「撤销测试」→ Ctrl+Z → 输入「真正的评论」→ 立即点提交，偶发提交的是旧内容「撤」。H05 要求紧凑变体输入 / 保存 / 撤销可用。
 
-已知线索（未验证）：S3 为性能给 PM→Markdown 桥加了“自适应推迟结算”，出口要先 `settleNow()`（/home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s3/verification.md 第 10–16 行，PATCHES.md P-S3-01～03）；B07 修过“输入法组合期间推迟交付”（RichMarkdownEditor）。怀疑：应用退出的 flush 链路（桌面主进程 before-quit → 渲染进程 flushers → DocumentSession）和紧凑编辑器提交路径，读取的是**尚未结算**的源文本，或 flush 不等待结算。请核实或推翻。
+已知线索（未验证）：S3 为性能给 PM→Markdown 桥加了“自适应推迟结算”，出口要先 `settleNow()`（.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/s3/verification.md 第 10–16 行，PATCHES.md P-S3-01～03）；B07 修过“输入法组合期间推迟交付”（RichMarkdownEditor）。怀疑：应用退出的 flush 链路（桌面主进程 before-quit → 渲染进程 flushers → DocumentSession）和紧凑编辑器提交路径，读取的是**尚未结算**的源文本，或 flush 不等待结算。请核实或推翻。
 
 方法：在本工作目录 `pnpm build` 后用 `xvfb-run -a pnpm e2e <spec> -g <name> --repeat-each=N` 在负载下（可同时跑 `stress -c 4` 或另一个 e2e）复现，并统计；可加临时埋点（只在本 detached 工作目录，**不提交**，结束后 `git stash` 或还原），沿调用链取证：`packages/editor/src/rich/**`、vendor 中桥 / settle 相关（PATCHES.md 定位）、`plugins/notes/src/**` 会话与 flushers、`packages/workbench/src/state/flushers*`、`apps/desktop/src/main` 退出流程、tasks 插件评论输入组件。
 

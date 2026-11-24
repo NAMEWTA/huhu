@@ -1,5 +1,7 @@
 # S1a.2 从所选邮箱读到首封 IMAP 邮件
 
+[验收报告](../evidences/S1a.2-first-message.md)
+
 所属交付 S1a。本项承接 [Issue §3.2、§6.1、§6.3、M-01](../source.md)，行为规则见[网络与数据契约](../spec.md#durability)，设计见[数据与提交顺序](../design.md#storage)。
 
 ## 交付与依赖
@@ -31,4 +33,4 @@ Mail 为每封信建立 localMessageId 和账号、目录、UIDVALIDITY、UID �
 
 Windows 三文件 24 项通过，原工作区日志 `temp/issue-baseline/core-finished/t14j.log`。
 
-t17c 在已保存账号上补验同步、选择首封和 MIME 阅读。目录换代回执也经 Engine 请求验证。 [回环证据](../evidence/S1-S2-mail-reader.md)
+t17c 在已保存账号上补验同步、选择首封和 MIME 阅读。目录换代回执也经 Engine 请求验证。 [回环证据](../verification/S1-S2-mail-reader.md)

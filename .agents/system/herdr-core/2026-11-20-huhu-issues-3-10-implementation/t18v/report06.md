@@ -24,7 +24,7 @@ H6.3 在该绑定上接入 Workbench 的 UTF-8 文本编辑。保存按原路径
 
 - 实现位于 plugins/ssh。沿用现有 SFTP 能力、连接生命周期和 Windows preload 的文件／目录选择桥。
 - 对照已确认 #7 原型及本地 Motty main@2daa9db582e16edf60a60b7ada26f47f808f973c 的 internal/sftpclient/walk.go 和 text.go。
-- 两提交的 Windows 取证入口为 tests/e2e/workflows/ssh-workspaces.spec.ts，证据为 .agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence 下的 H6.1-file-session-windows.md 和 H6.3-text-edit-windows.md。
+- 两提交的 Windows 取证入口为 tests/e2e/workflows/ssh-workspaces.spec.ts，证据为 .agents/dev/changes/2026-11-19-issue-7-ssh-module/verification 下的 H6.1-file-session-windows.md 和 H6.3-text-edit-windows.md。
 - 本地候选使用 integration 已提交树解析 SshManager、SshModule 两处重叠，保留原 promptId 状态机、主机编辑及信任恢复入口。候选只改 SSH、专属测试和证据；校验了冲突文件的 TypeScript 语法及 Git 差异。集成工作树和工作分支均未由候选生成过程改写。
 
 ## 验证

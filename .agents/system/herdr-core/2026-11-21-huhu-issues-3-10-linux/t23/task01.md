@@ -16,7 +16,7 @@
 
 ## 目标与输入
 
-按 t19 报告「Kernel」组逐 ID 实施 `packages/kernel/src/capabilities/{health,home-dashboard,home,package,system,vault,web-share}.ts` 的开放，结合 2026-11-21 定案（`.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md` 末节）：
+按 t19 报告「Kernel」组逐 ID 实施 `packages/kernel/src/capabilities/{health,home-dashboard,home,package,system,vault,web-share}.ts` 的开放，结合 2026-11-21 定案（`.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md` 末节）：
 
 - **保持仅工作台（`exposable: false`，报告写明依据定案）**：Gateway 管理动作 `gateway.mcp.update`、`gateway.tokens.create`、`gateway.tokens.revoke`、`gateway.update`、`gateway.policy.update`、`gateway.audit.clear`、`web.share.start`、`web.share.stop`、`web.invitations.get`（含可兑换链接）、`web.invitations.create`、`web.invitations.revoke`。
 - **可开放（`exposable: true`、`defaultExposed: false`，按 t19 行内 scope/risk、意图与对象校验）**：其余 Kernel 行，包括只读的 `gateway.get`、`gateway.tokens.list`、`gateway.policy.preview`、`gateway.audit.list`、`gateway.check`、`web.share.status`、`web.invitations.list`，以及 health、home、home-dashboard、package、system 中非 Gateway 项、vault 各项。

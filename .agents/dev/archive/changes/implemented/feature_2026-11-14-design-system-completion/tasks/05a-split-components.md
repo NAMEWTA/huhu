@@ -1,5 +1,7 @@
 # S5a 按组件拆分
 
+[验收报告](../evidences/05a-split-components.md)
+
 规格：[spec.md](../spec.md) §3.1；DSC-06。
 交付：`packages/ui/src/styles/components/<name>.css`，一个共享组件一个文件；`shared.css` 不再存在；只移动规则，不改内容。
 依赖：S4（类名已统一，才能按组件切分）。

@@ -1,5 +1,7 @@
 # S1a.1 用预设发现文件夹并保存邮箱
 
+[验收报告](../evidences/S1a.1-account-discovery.md)
+
 所属交付 S1a。本项承接 [Issue §3.1–3.2、M-01](../source.md)，行为规则见[添加与维护账号](../spec.md#accounts)，设计见[数据与提交顺序](../design.md#storage)。
 
 ## 交付与依赖

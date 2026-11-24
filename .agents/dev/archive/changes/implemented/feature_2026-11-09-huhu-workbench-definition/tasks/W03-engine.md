@@ -1,5 +1,7 @@
 # W03 Engine 与能力管线
 
+[验收报告](../evidences/W03-engine.md)
+
 ## W03.1 contracts 包
 
 - 目标：能力请求/结果、错误、事件、插件清单的 zod 模式与类型可被所有包使用。

@@ -31,7 +31,7 @@
 1. 先读 Windows 版本实现与证据，弄清每个 win32 条件保护的是什么（例如 Windows 控制台/句柄继承、原生二进制定位、helper 进程权限）。在 Linux 上用等价机制实现（例如 POSIX `spawn` + 受控 env、文件描述符不继承、`0700` 目录），不能简单删掉条件。macOS 走同一 POSIX 路径但本轮不验证，报告中列为未测。
 2. 只改 `plugins/agent-cli/**` 与相关测试；`apps/engine/test/*.live.test.ts`、`apps/engine/test/agent-workspace.test.ts`、`apps/cli/test/approved-terminal.test.ts` 的平台限定可改。若需要 `apps/engine/src/boot.ts` 或桌面打包（例如随包 helper 路径、Linux Codex 定位）的变更，写在报告中由 Lead 接线，或在本分支做最小改动并单列。
 3. 让上述 live 测试在 Linux 实际执行；若某用例依赖真正只有 Windows 才有的行为（如 ConPTY 特性），保留限定并写明理由，同时补一个 Linux 等价用例。
-4. 更新 #4 evidence：`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W-linux-native-execution.md`，记录实际 Codex/Core 版本、命令、通过/失败/跳过计数、未测平台。
+4. 更新 #4 evidence：`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W-linux-native-execution.md`，记录实际 Codex/Core 版本、命令、通过/失败/跳过计数、未测平台。
 
 ## 读写范围与产物
 

@@ -21,9 +21,9 @@ G07 将非 Markdown 文件查看器及其 CodeMirror 依赖推迟到打开附件
 
 工作目录 `/home/wta/projects/huhu-wt-layout`，分支 `closeout/issue2-layout`，工作区干净。交付业务构建为 `94e79ead5cabe63ae514c57df5916c9168799058`，证据与收件箱探针提交为 `5f71479ca315551de4ba12cae1074e480be620e8`。前序提交 `6f1023c6948bf735aaa973ae99cf5374ecbddd5d` 引入本地化和整体路由试验，`b12e156ca03affe0d0198e3d493432e6a0e277d7` 记录文件树路由试验。最终拆分范围为查看器及样式，附件和重开笔记两个回归用例各通过三次。
 
-- [H03 扫描与语言判定](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md)
-- [G07 两轮分位数、原始样本和阶段归因](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md)
-- [验证命令、失败用例日志与复跑](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md)
+- [H03 扫描与语言判定](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md)
+- [G07 两轮分位数、原始样本和阶段归因](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md)
+- [验证命令、失败用例日志与复跑](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md)
 
 ## 验证
 

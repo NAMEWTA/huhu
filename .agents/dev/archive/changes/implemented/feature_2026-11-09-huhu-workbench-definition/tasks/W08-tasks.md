@@ -1,5 +1,7 @@
 # W08 任务
 
+[验收报告](../evidences/W08-tasks.md)
+
 ## W08.1 Task 领域与能力
 
 - 目标：`tasks.*` 能力完整实现，规则符合 [tasks](../modules/tasks.md) §1、§5。

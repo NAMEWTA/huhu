@@ -21,16 +21,16 @@
 
 - `0c9705cb7758fe2adfd538f0da56b3bd950b03f0` 增加 Embed 离线提示、Vault 分段附件下载和文件树至 DocTab 的拖放。修复预览编辑模态的 CodeMirror 草稿重置，以及布尔属性开关未显示默认值。增加 9 个真实 Electron 用例。
 - `6a19a4c83e3a49e2d6df67e376d318a4a6b54f22` 修订图片选区同步和格式提示定位。最终构建及整套门禁以此代码提交为依据。
-- `e21203302cb03e8c48aa14498e2238baf172fb3e` 提交逐行矩阵和运行记录。[parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md) · [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md)
+- `e21203302cb03e8c48aa14498e2238baf172fb3e` 提交逐行矩阵和运行记录。[parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md) · [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md)
 
 ## 验证
 
 | 验收要求 | 实际检查与结果 | 证据位置 |
 | --- | --- | --- |
-| B01 与 Embed | 82 行号与归档目标集合一致。图片三种对齐逐次关闭重开，11 MiB 附件下载校验名称与完整字节。Embed 更新 URL 和未改动的 Markdown 属性均保真。 | [逐行矩阵](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md)，[Electron 用例](/home/wta/projects/huhu-wt-parity/tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts) |
-| 斜杠菜单负载 | 原测试 13/20 通过。选区探针 6/8 通过，其中两次复现引用结构残留。顶层段落定向用例 20/20 通过，最终全量中原逐项用例也通过。 | [运行记录](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md) |
+| B01 与 Embed | 82 行号与归档目标集合一致。图片三种对齐逐次关闭重开，11 MiB 附件下载校验名称与完整字节。Embed 更新 URL 和未改动的 Markdown 属性均保真。 | [逐行矩阵](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md)，[Electron 用例](/home/wta/projects/huhu-wt-parity/tests/e2e/knowledge/editor-parity-closeout-remaining.spec.ts) |
+| 斜杠菜单负载 | 原测试 13/20 通过。选区探针 6/8 通过，其中两次复现引用结构残留。顶层段落定向用例 20/20 通过，最终全量中原逐项用例也通过。 | [运行记录](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md) |
 | 知识库 Electron | 首轮 56 通过、1 失败、1 跳过。第二轮 55 通过、2 失败、1 跳过。图片和格式用例修订后各重跑三次通过。最终轮 57 通过、1 跳过，包含 H07 和 200 轮泄漏检查。大 Vault 另跑 1 通过。 | 本机 `/tmp/huhu-parity02-fLyyRi/` 中的 `final-e2e.log`、`final-e2e-serial.log`、`task02-fixture-repeats.log`、`delivery-e2e.log`、`task02-huge.log` |
-| 类型、lint、构建、格式、knip、补丁登记 | 最终提交上均以退出码 0 完成。199 项补丁登记无缺漏、无多余项。 | [运行记录](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md) |
+| 类型、lint、构建、格式、knip、补丁登记 | 最终提交上均以退出码 0 完成。199 项补丁登记无缺漏、无多余项。 | [运行记录](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md) |
 | 根与上游单测 | 根 Vitest 859 通过、1 跳过。上游 Vitest 6,009 通过、4 跳过。限两个 worker 的完整重跑均退出 0。根并发首跑失败的 13 项过滤重跑三轮，每轮均通过。 | `delivery-test-retry.log`、`delivery-test-vendor-retry.log`、`delivery-root-failed-1.log` 至 `delivery-root-failed-3.log` |
 
 ## 阻碍与接续

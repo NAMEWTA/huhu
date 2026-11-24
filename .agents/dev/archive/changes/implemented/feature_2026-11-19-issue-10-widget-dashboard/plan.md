@@ -4,7 +4,7 @@
 
 用户可在同一 Vault 中配置多个独立实例，在宽窄屏编辑同一份布局，保存后重开恢复。原 W01～W06 保留为上级编号。表中链接是任务正文和验证步骤的唯一位置。
 
-[已更新的 ACC-DASH 验收](spec.md#用户验收) · [存储和选择依据](design.md) · [原始 Issue](source.md) · [本批上游检出](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)
+[已更新的 ACC-DASH 验收](spec.md#用户验收) · [存储和选择依据](design.md) · [原始 Issue](source.md) · [本批上游检出](../feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 执行边界
 

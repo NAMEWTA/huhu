@@ -1,9 +1,0 @@
-$ playwright test --output=/tmp/huhu-layout-final-narrow tests/e2e/knowledge/editor-s3-toolbar.spec.ts -g 'F07：800px'
-
-Running 1 test using 1 worker
-
-(node:376779) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-  ✓  1 tests/e2e/knowledge/editor-s3-toolbar.spec.ts:109:3 › F07：800px × 4 个缩放 × 4 个详情/批注状态 (12.7s)
-
-  1 passed (13.3s)

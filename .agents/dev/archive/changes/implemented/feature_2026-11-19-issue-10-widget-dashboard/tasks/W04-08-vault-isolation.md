@@ -1,5 +1,7 @@
 # W04-08 切换 Vault 后隔离迟到的布局与业务结果
 
+[验收报告](../evidences/W04-08-vault-isolation.md)
+
 将草稿、查询、焦点、实例与提交绑定发起 Vault/endpoint。新会话丢弃旧事件、回包和观察器。
 
 **规格范围**　ACC-DASH-10、ACC-DASH-11、ACC-DASH-16。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

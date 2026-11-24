@@ -25,7 +25,7 @@
 
 ## WP6 样式、上游来源与隔离
 
-档案证据目录为 `.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/`。
+档案证据目录为 `.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/`。
 
 | 复核编号 | 原分类 | 现状态 | 断言与证据 |
 | --- | --- | --- | --- |

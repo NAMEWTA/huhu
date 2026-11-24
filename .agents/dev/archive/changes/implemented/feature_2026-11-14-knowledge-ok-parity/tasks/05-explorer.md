@@ -1,5 +1,7 @@
 # 05 文件树、右键菜单、隐藏与 `@`（S5）
 
+[验收报告](../evidences/05-explorer.md)
+
 规格：A02、A03、A04、A06、A07、A08、A09、A10；设计：[design.md](../design.md) §5 / §8；决定：OP-D10 / D11 / D13。
 交付：用户角度——文件树是 OK 的树：真实文件系统、真正的右键菜单、选择 / 展开 / 重命名 / 拖放 / 键盘；用户可只在资源管理器里隐藏目录并可恢复，而 `@`、双链、搜索、已打开标签不受影响；`@` 候选在未展开的大目录里也能找到；计数区分可见 / 总数。
 依赖：S1（`vault.list`、`hiddenPaths`、失效、`DocTab`、`FileIcon`）；**S2a（依赖 / `@pierre/trees` 精确版本 / Tailwind `.ok-root` 作用域 / `hostFetch` 骨架）**；S0（树闭包清单）。vendor 复制由本切片完成（树子树 `packages/editor/src/vendor/open-knowledge/app/components/{FileTree*,file-tree-*,FileTarget*,OkFileTree*,use-file-tree-listing*,…}`），**所有 OK vendor 都在 `packages/editor` 下**（单一 `@source` / UPSTREAM / PATCHES），S2a 写 `core/`、`app/editor`、`app/lib`、`app/components/ui`，S4 写 `app/comments`，S5 写树子树，互不相交。

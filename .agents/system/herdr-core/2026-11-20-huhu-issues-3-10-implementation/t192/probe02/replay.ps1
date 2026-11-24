@@ -6,17 +6,22 @@ $env:GOSUMDB = 'off'
 $env:GOTOOLCHAIN = 'local'
 $env:CGO_ENABLED = '0'
 $env:TSX_DISABLE_CACHE = '1'
+$repository = & git -C $PSScriptRoot rev-parse --show-toplevel
+if ($LASTEXITCODE -ne 0) { throw 'Could not locate repository' }
+$run = Join-Path $repository ('temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t192/task02/replay-' + [guid]::NewGuid().ToString('N'))
+[void][IO.Directory]::CreateDirectory($run)
+$fixture = Join-Path $run 'fixture.exe'
 $cache = Join-Path ([IO.Path]::GetTempPath()) ('huhu-t192-go-' + [guid]::NewGuid().ToString('N'))
 $env:GOCACHE = $cache
 try {
     Push-Location $PSScriptRoot
     try {
-        & go build -mod=readonly -trimpath -buildvcs=false -o fixture.exe .
+        & go build -mod=readonly -trimpath -buildvcs=false -o $fixture .
         if ($LASTEXITCODE -ne 0) { throw 'Offline Go build failed' }
     } finally { Pop-Location }
     Push-Location $Integration
     try {
-        & node (Join-Path $PSScriptRoot 'run.cjs')
+        & node (Join-Path $PSScriptRoot 'run.cjs') $fixture
         if ($LASTEXITCODE -ne 0) { throw 'Probe failed' }
     } finally { Pop-Location }
 } finally {

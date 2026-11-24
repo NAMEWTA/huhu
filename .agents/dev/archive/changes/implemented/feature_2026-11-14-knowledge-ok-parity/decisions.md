@@ -1,6 +1,6 @@
 # 决定记录（OP-D01～D18）
 
-> 范围：本 change 的技术与产品取舍。前缀 OP = Open-knowledge Parity。每条写：决定、依据（证据在 [evidence/e0-source-survey.md](evidence/e0-source-survey.md)）、被拒绝的替代、接受的代价、何时回头检查。
+> 范围：本 change 的技术与产品取舍。前缀 OP = Open-knowledge Parity。每条写：决定、依据（证据在 [evidence/e0-source-survey.md](verification/e0-source-survey.md)）、被拒绝的替代、接受的代价、何时回头检查。
 > 状态词：**定**＝用户已明确要求；**建议**＝我的方案，S0 用实测验证，不通过按“回退”改；**待用户**＝影响范围 / 许可 / 数据，需要你确认（汇总在 [spec.md](spec.md)“待决问题”）。
 > 归档时：OP-D01 取代 `D-08`（并连带 D-09、D-31 在编辑器范围内的部分），按 `dev-archive` 写成 `notes/decisions/2026-11-14-knowledge-editor-ok.md`，并更新 `notes/context/design-system.md`、`product.md` 的非目标。
 

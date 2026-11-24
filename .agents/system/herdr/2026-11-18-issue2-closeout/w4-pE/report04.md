@@ -36,7 +36,7 @@
 
 | 分级 | 截至本轮的证据 |
 | --- | --- |
-| 阻断 · G07 | 仍未见 `cf882bd` 最终构建的同机低负载配对、同格式安装包增量和首篇笔记 p50/p95 的完整结果。旧样本的工作台及收件箱 p95 有回退，不能代替最后候选的无回退结论。Lead 正在保留测量窗口。 [G07 规格](/home/wta/projects/huhu-wt-review/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md:79) · [往轮证据](/home/wta/projects/huhu-wt-review/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md:91) |
+| 阻断 · G07 | 仍未见 `cf882bd` 最终构建的同机低负载配对、同格式安装包增量和首篇笔记 p50/p95 的完整结果。旧样本的工作台及收件箱 p95 有回退，不能代替最后候选的无回退结论。Lead 正在保留测量窗口。 [G07 规格](/home/wta/projects/huhu-wt-review/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md:79) · [往轮证据](/home/wta/projects/huhu-wt-review/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md:91) |
 | 待验收 · G06 | report03 后已补到 `ca28e78` 的 Linux 解包验证，51,020 个 ASAR 条目检查通过，打包冒烟 4/4。最终 `cf882bd` 又包含两项运行时代码变化，现有发布包和完整门禁记录需在最终交付 SHA 上收齐。分支定向结果已核对，不能作为最终全量记录。 [G06 规格](/home/wta/projects/huhu-wt-review/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md:78) · [打包日志](/home/wta/projects/huhu/.agents/dev/changes/2026-11-18-issue2-closeout/packaged-ca28e78.log:339) |
 | 应登记 · F09 | 延续 report03 判定。全量 `471dfdf` 的 17.9 ms p95 仍超严格 16 ms，历史配对中 main 也超阈值，按 Lead 的「测量并记录」口径留原始结果。这轮范围未变更输入延迟路径。 [历史全量](/home/wta/projects/huhu/.agents/dev/changes/2026-11-18-issue2-closeout/e2e-full-471dfdf.log:237) |
 

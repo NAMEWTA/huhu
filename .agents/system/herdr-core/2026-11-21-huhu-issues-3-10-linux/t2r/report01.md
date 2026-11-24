@@ -18,7 +18,7 @@ Mail 逐项开放及工作台一次性批准已提交为候选 `f3e764e80f4f6e4d
 
 - 工作树 — `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-g6-mail`。原 HEAD 与候选直接父均为 `eaa5545ad27524b55eaf9f22db37c39561b0b64f`。
 - 候选 — `f3e764e80f4f6e4de3a77bdb87120584060345cc`。通过临时索引写入，已核对业务文件与候选索引一致。证据随候选树收录，当前工作树的 `.agents` 只读。分支由 Lead 验收后接收候选。
-- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-mail-exposure-linux.md`。
+- 证据 — `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G-mail-exposure-linux.md`。
 - 装配 — `apps/engine/src/boot.ts` 的 Mail 静态声明改为 `registry.declareDescriptors("mail", mail.mailCapabilityDescriptors)`。其余装配沿用原 Mail 注册调用。`plugins/mail/src/engine/registration.ts` 聚合下表的全部 53 个描述符，注册函数绑定同一组对象。
 - 其他源变动位于 `plugins/mail/**`。清单补登记既有的 `mail.sync.status`、`mail.sync.settings`、`mail.sync.setInterval`、`mail.notifications.target` 与 3 个工作台批准能力。未推送。
 

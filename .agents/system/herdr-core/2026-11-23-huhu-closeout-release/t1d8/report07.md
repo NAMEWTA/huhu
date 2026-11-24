@@ -7,7 +7,7 @@
 
 ## 对照与依赖
 
-Lead 在冻结夹具 t1fc 上跑完 32 项，30 项通过，2 项失败。RGL 和 Homarr 各 8/8，Huhu 7/8（键盘调整成功后无播报），GridStack 7/8（越界被裁切并提交）。按 W01-01 选择 RGL 2.3.0，生产代码直接使用发布包。仓内归档保留 17 个冻结夹具文件、锁文件和重跑说明。检查 17 文件与原夹具逐字节相同，66 项原始 JSON、日志、trace 和截图的 SHA-256 全部校验通过。 [比较记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W01-01-grid-comparison.md) · [重跑说明](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/grid-comparison-harness/README.md) · [校验清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W01-01-grid-artifacts.sha256)
+Lead 在冻结夹具 t1fc 上跑完 32 项，30 项通过，2 项失败。RGL 和 Homarr 各 8/8，Huhu 7/8（键盘调整成功后无播报），GridStack 7/8（越界被裁切并提交）。按 W01-01 选择 RGL 2.3.0，生产代码直接使用发布包。仓内归档保留 17 个冻结夹具文件、锁文件和重跑说明。检查 17 文件与原夹具逐字节相同，66 项原始 JSON、日志、trace 和截图的 SHA-256 全部校验通过。 [比较记录](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidences/W01-01-grid-comparison.md) · [重跑说明](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/verification/grid-comparison-harness/README.md) · [校验清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/verification/W01-01-grid-artifacts.sha256)
 
 | RGL 来源 | 版本或校验值 |
 | --- | --- |

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import ts from "typescript";
 import { offlineEmojiAssetPaths } from "./offline-emoji.mjs";
+import { createOkParityRun } from "../../../scripts/ok-parity-paths.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
 const assets = join(root, "apps/desktop/out/renderer/assets");
@@ -169,7 +170,7 @@ for (const [path, calls] of [...desktop].sort(([a], [b]) => a.localeCompare(b)))
   rows.push({ kind: "desktop", path, state: reason ? "documented" : "unresolved", evidence: reason ?? null, calls });
 }
 if (!api.size || !desktop.size) throw new Error("桌面产物未包含 OK 宿主调用");
-const evidence = join(root, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/desktop-host-endpoints.json");
+const evidence = join(createOkParityRun("host-endpoints"), "desktop-host-endpoints.json");
 writeFileSync(evidence, JSON.stringify({ renderer: "Electron production", rows }, null, 2) + "\n");
 const unresolved = rows.filter(({ state }) => state === "unresolved").map(({ path }) => path);
 console.log(`${rows.length} 个宿主签名，${unresolved.length} 个待处理：${unresolved.join(", ")}`);

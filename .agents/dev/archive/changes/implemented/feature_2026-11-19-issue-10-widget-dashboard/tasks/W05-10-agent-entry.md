@@ -1,5 +1,7 @@
 # W05-10 从看板进入 Agent CLI
 
+[验收报告](../evidences/W05-10-agent-entry.md)
+
 Agent CLI 插件拥有已有快捷入口。仅在真实可查询时显示状态，不将完整终端嵌入卡片。
 
 **规格范围**　ACC-DASH-09、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

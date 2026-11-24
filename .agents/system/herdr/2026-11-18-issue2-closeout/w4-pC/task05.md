@@ -11,7 +11,7 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pC/report05.md
 - 工作目录：/home/wta/projects/huhu-wt-session（分支 closeout/issue2-session，接着 b8df90f）
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pC
-- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report03.md（全量 e2e：“完整旅程单独三次复跑通过两次，另一次切回后写入的尾字在磁盘断言中尚未出现”，日志见 /home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md 与 task03-journey-retries.txt）；你在 report04 用过的“精确字节等待 + 慢桥”方法；你 task02 记录的“完整旅程 1/3”
+- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report03.md（全量 e2e：“完整旅程单独三次复跑通过两次，另一次切回后写入的尾字在磁盘断言中尚未出现”，日志见 /home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md 与 task03-journey-retries.txt）；你在 report04 用过的“精确字节等待 + 慢桥”方法；你 task02 记录的“完整旅程 1/3”
 
 ## 目标与输入
 

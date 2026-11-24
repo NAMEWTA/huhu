@@ -19,7 +19,7 @@
 | [设计系统](../../../../dev/notes/context/design-system.md) | 更新 H02 守护说明。映射已移入 `vendor.ok-host`，`check-ok-class-collisions.mjs` 对 A、B、C 都能报失败。保留构建规则与实际渲染是两项不同证据。 |
 | [工作台](../../../../dev/notes/context/workbench.md) 与 [知识索引](../../../../dev/notes/index.md) | 补桌面及 Web 宿主、共享看板和退出回执。Safe 与 Mail、Git HTTPS、Agent CLI、Automations 的运行凭据分别归属。按 `module-credential-host.ts` 核对系统后端和本机实例绑定。按 `graph-mail.ts` 与 `message-cache.ts` 核对旧信回 Inbox 只更新列表，增量证实的新未读邮件才能通知。区分线上、跨设备、其他平台和真实输入法的未验证范围。#7 暂停，#11 和 #12 在本批范围外。 |
 
-本批范围与已有运行结果核对 [program.md](../../../../dev/changes/2026-11-19-huhu-issues-3-10/program.md) 和 [非 SSH 交付](../../../../dev/changes/2026-11-19-huhu-issues-3-10/evidence/non-ssh-final-delivery.md)。后者的固定应用及驱动为 `f6c4e0d5`，已核对是 `fc43ceef` 的祖先。该证据覆盖所列非 SSH 流程和 Graph，适用范围不含 #2 的完整历史验收。
+本批范围与已有运行结果核对 [program.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md) 和 [非 SSH 交付](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/evidence.md)。后者的固定应用及驱动为 `f6c4e0d5`，已核对是 `fc43ceef` 的祖先。该证据覆盖所列非 SSH 流程和 Graph，适用范围不含 #2 的完整历史验收。
 
 ## 附带 change 归档建议
 
@@ -29,7 +29,7 @@
 
 后续 `38cc28f` 合入并发改名、编码转换和源码撤销保护，`e58586c` 合入 `57a9f8b` 的引用块加载、端点核对和证据增补。两个合入提交均在本次基线历史中。`7811141b` 已保留旧 Herdr 协作记录，当前 change 目录仍在原处。 [复审阻断补充](https://github.com/NAMEWTA/huhu/issues/2#issuecomment-7036547529) · [最后一批补充](https://github.com/NAMEWTA/huhu/issues/2#issuecomment-7038851587) · [最后一批执行报告](../../../herdr/2026-11-18-issue2-closeout/rest/report01.md)
 
-证据只部分取代 reopened 结论。最终构建记录显示 A/B/C 为零，源码守护亦已纠正 A 的旧分类口径。相同候选 `57a9f8b` 的全量 E2E 原始日志仍为 **293 通过、22 失败、7 跳过**，其中 OP-D05 实际浮层和 B01 镜像/画板场景均失败，22 项未逐项分诊。G07 富格式 Inbox 正文冷启动对照、H02 对 rc.4 的视觉矩阵、F09、H05 成本与固定 OK 对拍仍缺最终结果。reopened 的候选曾量得 G07 正文配对差中位 **+782 ms**，后续普通正文改用轻量入口属于代码进展，现有证据未给出同口径复测。2026-11-23 固定包的非 SSH 联验也未覆盖这些条款。建议保留 change 及未通过的证据，后续如维护者明确接受遗留验收范围，再据实际处置归档。 [reopened 验收](../../../../dev/changes/2026-11-18-issue2-closeout/evidence/reopened/README.md) · [候选标识](../../../herdr/2026-11-18-issue2-closeout/final1/build-info.json) · [门禁摘要](../../../herdr/2026-11-18-issue2-closeout/final1/status.tsv) · [本机原始 E2E 日志](../../../herdr/2026-11-18-issue2-closeout/final1/e2e-full.log)
+证据只部分取代 reopened 结论。最终构建记录显示 A/B/C 为零，源码守护亦已纠正 A 的旧分类口径。相同候选 `57a9f8b` 的全量 E2E 原始日志仍为 **293 通过、22 失败、7 跳过**，其中 OP-D05 实际浮层和 B01 镜像/画板场景均失败，22 项未逐项分诊。G07 富格式 Inbox 正文冷启动对照、H02 对 rc.4 的视觉矩阵、F09、H05 成本与固定 OK 对拍仍缺最终结果。reopened 的候选曾量得 G07 正文配对差中位 **+782 ms**，后续普通正文改用轻量入口属于代码进展，现有证据未给出同口径复测。2026-11-23 固定包的非 SSH 联验也未覆盖这些条款。建议保留 change 及未通过的证据，后续如维护者明确接受遗留验收范围，再据实际处置归档。 [reopened 验收](../../../../dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/reopened/README.md) · [候选标识](../../../herdr/2026-11-18-issue2-closeout/final1/build-info.json) · [门禁摘要](../../../herdr/2026-11-18-issue2-closeout/final1/status.tsv) · 本机原始 E2E 日志（历史位置 `../../../herdr/2026-11-18-issue2-closeout/final1/e2e-full.log`，本次未取得原件）
 
 ### 2026-11-19-github-issue-source
 

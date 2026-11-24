@@ -1,5 +1,7 @@
 # W02-02 原子提交一份完整新布局
 
+[验收报告](../evidences/W02-02-commit-board.md)
+
 一个 Engine 写者校验整板后同目录原子替换。只存布局与受校验配置，实例与几何一一对应。唯一生产切换点在 W06。
 
 **规格范围**　ACC-DASH-02、ACC-DASH-03、ACC-DASH-06、ACC-DASH-11、ACC-DASH-12。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

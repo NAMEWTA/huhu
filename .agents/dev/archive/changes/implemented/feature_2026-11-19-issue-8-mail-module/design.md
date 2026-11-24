@@ -18,7 +18,7 @@
 
 ### 上游开发基线
 
-2026-11-19 在 [one-mail 本地检出](https://github.com/zhihui-hu/one-mail/tree/d1be24d5bb83c2da7123b167f119d5abd169b0af/.) 核对 `origin/main` 与 `git ls-remote --symref origin HEAD`，均为 `d1be24d5bb83c2da7123b167f119d5abd169b0af`。本次恰与 Issue 历史固定值相同。实施时以[批次来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)和当时默认分支检出重新对照 §10、§14 的路径；保留作者和许可记录。只引入授权范围内的源码，用户界面沿用 Huhu 的视觉与措辞。当前核对限源码，真实账号与协议运行见 S9 的证据要求。
+2026-11-19 在 [one-mail 本地检出](https://github.com/zhihui-hu/one-mail/tree/d1be24d5bb83c2da7123b167f119d5abd169b0af/.) 核对 `origin/main` 与 `git ls-remote --symref origin HEAD`，均为 `d1be24d5bb83c2da7123b167f119d5abd169b0af`。本次恰与 Issue 历史固定值相同。实施时以[批次来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)和当时默认分支检出重新对照 §10、§14 的路径；保留作者和许可记录。只引入授权范围内的源码，用户界面沿用 Huhu 的视觉与措辞。当前核对限源码，真实账号与协议运行见 S9 的证据要求。
 
 | 本地默认分支源码 | 核查结果与移植落点（拟议） |
 | --- | --- |
@@ -77,7 +77,7 @@ README 第 223 行声明 AGPL-3.0-only，固定树未见独立 LICENSE/COPYING�
 
 ## 待决定的产品选择
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 下列建议尚待用户选择。协议和存储事实由实施者采证。新格式数据范围见[规格](spec.md)。

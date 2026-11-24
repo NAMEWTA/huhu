@@ -27,10 +27,10 @@
 | S0-02 走查标题栏与关闭提示 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype-review.md` · `packages/workbench/src/shell/AppShell.tsx` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 6da1b2ec） | 以已确认指纹比较实装关闭提示 |
 | S1a-01 关窗前保存最后一次文档输入 | 已验收 | `tests/e2e/knowledge/session-flush.spec.ts` · `apps/desktop/src/main/index.ts`（首项文件版本 cfbce161） | 最终包读回防抖期最后字节和手动草稿 |
 | S1a-02 从关闭失败提示重试或取消 | 已验收 | `tests/e2e/knowledge/session-flush.spec.ts` · `apps/desktop/src/main/index.ts`（首项文件版本 cfbce161） | 同包复跑保存失败、取消、重试 |
-| S1a-03 把关窗升级为一次可取消的应用退出 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1a-03-quit-coalescing.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/knowledge/session-flush.spec.ts`（首项文件版本 6ebe3e04） | 复跑第二窗口拒绝时第一窗及 Engine 存活 |
-| S1b-01 把真实窗口状态交给所属工作台 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | 同包验证主 frame、预览隔离及订阅清理 |
+| S1a-03 把关窗升级为一次可取消的应用退出 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/verification/S1a-03-quit-coalescing.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/knowledge/session-flush.spec.ts`（首项文件版本 6ebe3e04） | 复跑第二窗口拒绝时第一窗及 Engine 存活 |
+| S1b-01 把真实窗口状态交给所属工作台 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/verification/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | 同包验证主 frame、预览隔离及订阅清理 |
 | S1b-02 在 macOS 保留系统红黄绿 | 待验证 | `apps/desktop/src/main/window-chrome.ts` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 efc33768） | macOS 安装版验证红黄绿、系统偏好与原生菜单 |
-| S1b-03 在 Windows 保留贴靠与窗口菜单 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/evidence/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | Windows 实机补 Snap 悬停、系统菜单及多屏 DPI |
+| S1b-03 在 Windows 保留贴靠与窗口菜单 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/verification/S1b-S2-window-chrome-windows.md` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 cfbce161） | Windows 实机补 Snap 悬停、系统菜单及多屏 DPI |
 | S1b-04 在 Linux 的目标桌面操作窗口 | 待验证 | `apps/desktop/src/main/window-chrome.ts` · `apps/desktop/src/main/index.ts` · `tests/e2e/window-chrome.spec.ts`（首项文件版本 efc33768） | Linux 分别记录 X11 和 Wayland 的拖动、装饰和系统菜单 |
 | S2-01 工作台共用一条可交互标题栏 | 已验收 | `tests/e2e/window-chrome.spec.ts` · `packages/workbench/src/shell/AppShell.tsx`（首项文件版本 cfbce161） | 核对新包窄窗与拖动命中 |
 | S2-02 在启动与错误页仍可移动和关窗 | 已验收 | `tests/e2e/window-chrome.spec.ts` · `apps/desktop/src/renderer/main.tsx`（首项文件版本 cfbce161） | 重放无库、加载失败及 Renderer 崩溃 |
@@ -70,8 +70,8 @@
 
 | 计划切片 | 状态 | 实现 / 证据入口 | 剩余动作 |
 | --- | --- | --- | --- |
-| W0.1 核对工作区与历史的源码出处 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/prototype-review.md` · `plugins/agent-cli/src/ui/AgentCliModule.tsx` · `.agents/dev/changes/2026-11-19-huhu-issues-3-10/sources.md`（首项文件版本 6da1b2ec） | 逐项补齐 ORCA、Core、历史与渲染闭包的本地来源和许可对应 |
-| W0.2 核验安装包 Core 与子终端的真实能力 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W0.2-windows-core-lifecycle.md` · `plugins/agent-cli/src/engine/herdr-core.ts`（首项文件版本 1a6cce76） | 在 Linux/macOS 随包 Core 复测 parent 自然退出、kill 与 outlive |
+| W0.1 核对工作区与历史的源码出处 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/prototype-review.md` · `plugins/agent-cli/src/ui/AgentCliModule.tsx` · `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md`（首项文件版本 6da1b2ec） | 逐项补齐 ORCA、Core、历史与渲染闭包的本地来源和许可对应 |
+| W0.2 核验安装包 Core 与子终端的真实能力 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W0.2-windows-core-lifecycle.md` · `plugins/agent-cli/src/engine/herdr-core.ts`（首项文件版本 1a6cce76） | 在 Linux/macOS 随包 Core 复测 parent 自然退出、kill 与 outlive |
 | W1.1 在所选目录启动 shell 或 Agent | 待验证 | `plugins/agent-cli/test/launch.live.test.ts` · `plugins/agent-cli/src/engine/detect.ts`（首项文件版本 43fdad6c） | 验证当前包的 GUI PATH、三种 CLI 与 shell、带空格目录和错误提示 |
 | W1.2 找回回包丢失的启动 | 已验收 | `plugins/agent-cli/test/launch-reconcile.test.ts` · `plugins/agent-cli/src/engine/sessions.ts`（首项文件版本 bc371828） | 再注入回包丢失、同标签多候选和重启 |
 | W2.1 在多个工作区切换并恢复各自布局 | 待验证 | `apps/engine/test/agent-workspace.test.ts` · `plugins/agent-cli/src/engine/spaces.ts`（首项文件版本 8d836829） | 三 Space 两窗并发 CAS、坏文档、切换焦点、迟到保存 |
@@ -91,11 +91,11 @@
 | W6.1 派遣到有证据支持的目标并仲裁输入 | 待验证 | `plugins/agent-cli/test/dispatch.live.test.ts` · `plugins/agent-cli/src/engine/index.ts`（首项文件版本 f154b370） | Windows 受控 Codex 和非支持 provider 分开复核；Linux 入口有平台门限 |
 | W6.2 接管或停止精确绑定的运行 | 待验证 | `plugins/agent-cli/test/native-stop.live.test.ts` · `plugins/agent-cli/src/engine/sessions.ts`（首项文件版本 891c20e1） | 原 turn 停止、人工接管、替代 shell 拒绝和丢确认 |
 | W6.3 持久保存并重交执行端回执 | 已验收 | `plugins/agent-cli/test/native-receipts.live.test.ts` · `plugins/agent-cli/src/engine/index.ts`（首项文件版本 7688c302） | 在支持环境复验两段 ACK 分别丢失、进程重开补送 |
-| W7.1 在当前工作区打开文件与变更 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W7.1-W7.4-workspace-files.md` · `plugins/agent-cli/src/ui/AgentCliModule.tsx` · `tests/e2e/shell.spec.ts`（首项文件版本 d0a63f0b） | 同候选核对 Files/Changes 实际目录与打开文件 |
+| W7.1 在当前工作区打开文件与变更 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W7.1-W7.4-workspace-files.md` · `plugins/agent-cli/src/ui/AgentCliModule.tsx` · `tests/e2e/shell.spec.ts`（首项文件版本 d0a63f0b） | 同候选核对 Files/Changes 实际目录与打开文件 |
 | W7.2 将评审意见发给原会话 | 待验证 | `plugins/agent-cli/test/sessions.test.ts` · `plugins/agent-cli/src/ui/ReviewPanel.tsx`（首项文件版本 571ac026） | 原会话评审批次、未知送达和并发用户输入 |
-| W7.3 保存模块环境并验证实际子进程 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W7.3-native-pty.md` · `plugins/agent-cli/src/engine/settings.ts`（首项文件版本 5ee1a705） | 真实 Windows 保护宿主已有；Linux 模块凭据及交互 PTY 分别核对 |
-| W7.4 建立或打开授权目录的 worktree | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W7.1-W7.4-workspace-files.md` · `plugins/agent-cli/src/engine/spaces.ts` · `tests/e2e/shell.spec.ts`（首项文件版本 d0a63f0b） | 测授权目录的 worktree 创建、冲突、重开 |
-| W8.1 恢复新格式工作区并核对布局边界 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/evidence/W8.1-space-package.md` · `packages/vault/src/package/package.ts`（首项文件版本 4749b1e2） | 核对新 ZIP 的本机绑定排除、只读、异地重绑和 Core 空布局 |
+| W7.3 保存模块环境并验证实际子进程 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W7.3-native-pty.md` · `plugins/agent-cli/src/engine/settings.ts`（首项文件版本 5ee1a705） | 真实 Windows 保护宿主已有；Linux 模块凭据及交互 PTY 分别核对 |
+| W7.4 建立或打开授权目录的 worktree | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W7.1-W7.4-workspace-files.md` · `plugins/agent-cli/src/engine/spaces.ts` · `tests/e2e/shell.spec.ts`（首项文件版本 d0a63f0b） | 测授权目录的 worktree 创建、冲突、重开 |
+| W8.1 恢复新格式工作区并核对布局边界 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/verification/W8.1-space-package.md` · `packages/vault/src/package/package.ts`（首项文件版本 4749b1e2） | 核对新 ZIP 的本机绑定排除、只读、异地重绑和 Core 空布局 |
 | W8.3 联编工作区与任务的共同验收包 | 待验证 | `tests/e2e/packaged/packaged.spec.ts` · `apps/engine/src/boot.ts`（首项文件版本 e13d8d6d） | 已有 78e180b7 可重放 Windows 包；T7.1 最终接线后再次冻结并交付 SHA |
 | W8.2 用同一安装版本验收完整工作区 | 待验证 | `tests/e2e/packaged/packaged.spec.ts` · `apps/engine/src/boot.ts`（首项文件版本 e13d8d6d） | 同包补三 Space、六 pane、历史、TUI、泄漏与性能对照 |
 
@@ -161,7 +161,7 @@
 
 | 计划切片 | 状态 | 实现 / 证据入口 | 剩余动作 |
 | --- | --- | --- | --- |
-| T0.1 核实每个 provider 能走通的任务路径 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T0.1-provider-evidence.md` · `plugins/agent-cli/src/engine/launch.ts`（首项文件版本 6e820faf） | 区分一次输出、可答复的受控轮次和可恢复历史，记录 provider 版本与平台 |
+| T0.1 核实每个 provider 能走通的任务路径 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidences/T0.1-provider-evidence.md` · `plugins/agent-cli/src/engine/launch.ts`（首项文件版本 6e820faf） | 区分一次输出、可答复的受控轮次和可恢复历史，记录 provider 版本与平台 |
 | T1.1 创建并重开 Human 或 Agent 任务 | 已验收 | `plugins/tasks/test/persistence-http.test.ts` · `plugins/tasks/src/ui/TaskEditor.tsx`（首项文件版本 38ab7f27） | 同包复核 Human/Agent、Markdown 外改、保存零启动 |
 | T1.2 持久接受人工派遣并恢复未领取意图 | 已验收 | `plugins/tasks/test/persistence-http.test.ts` · `plugins/tasks/src/engine/index.ts`（首项文件版本 38ab7f27） | 固定 dispatchId 验证受理后领取前断电与切 Vault |
 | T1.3 在发送前取消指定待派任务 | 已验收 | `plugins/automations/test/task-scan-occurrences.test.ts` · `plugins/tasks/src/engine/index.ts`（首项文件版本 bc371828） | 复验规则删除后的单项取消及与领取竞争 |
@@ -182,9 +182,9 @@
 | T6.1 改期或取消原任务的一次性跟进 | 待验证 | `plugins/tasks/src/ui/TaskFollowUp.tsx` · `plugins/automations/src/engine/scheduler.ts`（首项文件版本 301dee75） | 到期跟进使用原任务，取消/改期/回拨与在途派遣竞争 |
 | T6.2 等待回答时让独立任务继续工作 | 待验证 | `plugins/automations/test/task-scan-occurrences.test.ts` · `plugins/tasks/src/engine/service.ts`（首项文件版本 bc371828） | 两真实独立会话验证等待释放容量、人工输入仲裁 |
 | T6.3a 投递一次提醒或生成提醒任务 | 已验收 | `plugins/automations/test/task-scan-occurrences.test.ts` · `plugins/automations/src/engine/service.ts`（首项文件版本 bc371828） | 同包复核提醒、任务及二者组合的稳定发生身份 |
-| T6.3b 运行带模块配置的终端规则 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T6.3b-protected-terminal.md` · `plugins/automations/src/engine/service.ts`（首项文件版本 d667d1ac） | Linux 实测受保护环境及撤权；Windows 已有批准、注入与清理证据 |
+| T6.3b 运行带模块配置的终端规则 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/verification/T6.3b-protected-terminal.md` · `plugins/automations/src/engine/service.ts`（首项文件版本 d667d1ac） | Linux 实测受保护环境及撤权；Windows 已有批准、注入与清理证据 |
 | T6.4 停用模块、切 Vault 后找回未完业务 | 待验证 | `plugins/agent-cli/test/native-receipts.live.test.ts` · `plugins/tasks/src/engine/index.ts`（首项文件版本 7688c302） | 原生结果到达后跨插件停启、切库和只读再恢复原绑定 |
-| T7.1 一次切换 Tasks、Automations 与工具的生产调用者 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/evidence/T7.1-terminal-occurrence-recovery.md` · `plugins/automations/src/engine/index.ts`（首项文件版本 623608c7） | 4c8fe523、d667d1ac 后按全部生产调用点和旧 supervisor 残留复核 |
+| T7.1 一次切换 Tasks、Automations 与工具的生产调用者 | 待验证 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/verification/T7.1-terminal-occurrence-recovery.md` · `plugins/automations/src/engine/index.ts`（首项文件版本 623608c7） | 4c8fe523、d667d1ac 后按全部生产调用点和旧 supervisor 残留复核 |
 | T7.2 用真实 CLI 签收从明日任务到人工完成 | 待验证 | `tests/e2e/packaged/packaged.spec.ts` · `plugins/tasks/src/ui/TaskEditor.tsx`（首项文件版本 e13d8d6d） | 78e180b7 已有混合入口随包问答；补明日调度、各入口独立全程和最终包 |
 
 **Issue 原文验收逐条核对**。编号来自该成员 source.md 的验收章节。下列结论按原编号的完整范围判定。「已满足」的运行环境沿用 Windows 阶段记录；每项可按所列切片回查上表。
@@ -241,9 +241,9 @@
 
 | 计划切片 | 状态 | 实现 / 证据入口 | 剩余动作 |
 | --- | --- | --- | --- |
-| G1.1 从用户动作查到唯一领域入口 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md` · `packages/contracts/src/index.ts`（首项文件版本 ca8290d0） | 按当前版本更新动作差集；旧盘点为基线 |
-| G1.2 插件停用后仍能查看工具说明 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G2.1-windows-integrated-access.md` · `packages/kernel/src/capabilities/define.ts`（首项文件版本 6ebe3e04） | 补新模块和扩展卸载重装的同包目录校验 |
-| G2.1 干净安装零开放，重启可读回用户选择 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G2.1-windows-integrated-access.md` · `packages/kernel/src/exposure.ts`（首项文件版本 6ebe3e04） | 同包干净默认、损坏拒绝、撤销及重启 |
+| G1.1 从用户动作查到唯一领域入口 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidences/G1.1-action-inventory.md` · `packages/contracts/src/index.ts`（首项文件版本 ca8290d0） | 按当前版本更新动作差集；旧盘点为基线 |
+| G1.2 插件停用后仍能查看工具说明 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G2.1-windows-integrated-access.md` · `packages/kernel/src/capabilities/define.ts`（首项文件版本 6ebe3e04） | 补新模块和扩展卸载重装的同包目录校验 |
+| G2.1 干净安装零开放，重启可读回用户选择 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G2.1-windows-integrated-access.md` · `packages/kernel/src/exposure.ts`（首项文件版本 6ebe3e04） | 同包干净默认、损坏拒绝、撤销及重启 |
 | G2.2 两位管理者按版本提交整批选择 | 已验收 | `apps/engine/test/tool-access.test.ts` · `packages/kernel/src/exposure.ts`（首项文件版本 c6ece89b） | 复验两管理员 CAS 与整批写失败时旧版本 |
 | G2.3 检查为何可用并在实际调用时复核 | 待验证 | `apps/engine/test/tool-access.test.ts` · `packages/kernel/src/dispatcher.ts`（首项文件版本 c6ece89b） | 逐域核对投影原因与 Dispatcher、缓存调用及流处理一致 |
 | G3.1 CLI 与外部 API 发现并调用同一能力 | 待验证 | `apps/cli/test/cli.test.ts` · `apps/cli/src/main.ts`（首项文件版本 558af632） | CLI/API 重跑同 ID、身份、输出和错误；核对全域差集 |
@@ -261,13 +261,13 @@
 | G5b.1 经单一外部入口完成任务问答 | 待验证 | `plugins/agent-cli/test/native-receipts.live.test.ts` · `plugins/tasks/src/engine/index.ts`（首项文件版本 7688c302） | 完成两个独立入口的真实包完整 Task 旅程 |
 | G5b.2 外部管理自动化规则和已排队任务 | 待验证 | `plugins/automations/test/task-scan-occurrences.test.ts` · `plugins/automations/src/engine/index.ts`（首项文件版本 bc371828） | 对现有 taskScan、runs、终端批准分别跑创建至取消；复查普通规则 |
 | G5b.3 按指定 Space 观察与恢复 Agent 会话 | WIP | `apps/engine/test/agent-workspace.test.ts` · `plugins/agent-cli/src/engine/index.ts`（首项文件版本 8d836829） | agent.spaces.list、agent.workspace.launch 硬关闭；开放指定 Space 的合约后验证只读零启动、unsupported 明示 |
-| G5c.1 从公共目录看到 SSH 资源与等待项 | WIP | `.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H11.1-public-resources-windows.md` · `plugins/ssh/src/engine/index.ts`（首项文件版本 be7a8b8e） | H11.1 已集成；等待 t5 作业状态/输出/取消，再复核外部流控制和 SFTP |
-| G5c.2 按真实可用性发现 Mail 同步操作 | WIP | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G1.1-action-inventory.md` · `packages/kernel/src/capabilities/define.ts`（首项文件版本 ca8290d0） | 逐项接 #8 Mail 同步及未入集成的 AI 能力，核对停用目录和授权 |
+| G5c.1 从公共目录看到 SSH 资源与等待项 | WIP | `.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H11.1-public-resources-windows.md` · `plugins/ssh/src/engine/index.ts`（首项文件版本 be7a8b8e） | H11.1 已集成；等待 t5 作业状态/输出/取消，再复核外部流控制和 SFTP |
+| G5c.2 按真实可用性发现 Mail 同步操作 | WIP | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidences/G1.1-action-inventory.md` · `packages/kernel/src/capabilities/define.ts`（首项文件版本 ca8290d0） | 逐项接 #8 Mail 同步及未入集成的 AI 能力，核对停用目录和授权 |
 | G5c.3 分开授权摘要读取与显式查看 | 待验证 | `packages/kernel/src/dispatcher.ts` · `plugins/safe/src/engine/index.ts`（首项文件版本 31d1379a） | 558af632 后用两个权限分别读摘要与显式值，Safe 锁定/撤权 |
 | G5c.4 卡片只读取已允许的业务数据 | 待验证 | `tests/e2e/workflows/acceptance.spec.ts` · `packages/kernel/src/capabilities/define.ts`（首项文件版本 558af632） | 核对 #10 Widget 定义与实际数据读取均服从授权，停用保留实例 |
-| G6.1 桌面启停 Web 并看到可用地址 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6.1-windows-listener.md` · `apps/engine/src/boot.ts`（首项文件版本 1e2aae3a） | 同包端口占用、网卡变化、停止不影响 Engine |
-| G6.2 打包工作台可在普通浏览器打开深链 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6.2-windows-http-intent.md` · `apps/desktop/src/renderer/main.tsx`（首项文件版本 6ebe3e04） | 包内 MIME、深链刷新、普通 HTTP 和宿主隔离 |
-| G6.3 重取同一邀请并让两台设备分别加入 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G6-windows-shared-workbench.md` · `apps/engine/src/boot.ts`（首项文件版本 aaea2a5f） | 三浏览器已有；补两台物理设备和外部网卡 |
+| G6.1 桌面启停 Web 并看到可用地址 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G6.1-windows-listener.md` · `apps/engine/src/boot.ts`（首项文件版本 1e2aae3a） | 同包端口占用、网卡变化、停止不影响 Engine |
+| G6.2 打包工作台可在普通浏览器打开深链 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G6.2-windows-http-intent.md` · `apps/desktop/src/renderer/main.tsx`（首项文件版本 6ebe3e04） | 包内 MIME、深链刷新、普通 HTTP 和宿主隔离 |
+| G6.3 重取同一邀请并让两台设备分别加入 | 已验收 | `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G6-windows-shared-workbench.md` · `apps/engine/src/boot.ts`（首项文件版本 aaea2a5f） | 三浏览器已有；补两台物理设备和外部网卡 |
 | G6.4 撤销邀请并断开它建立的会话 | 已验收 | `tests/e2e/workflows/web-share.spec.ts` · `apps/engine/src/boot.ts`（首项文件版本 dcc95e63） | 保留按邀请撤销和其他会话继续操作的实测 |
 | G6.5 两台设备看到同一任务版本 | 待验证 | `apps/engine/test/web-share.test.ts` · `packages/workbench/src/engine-client/client.ts`（首项文件版本 78aa04f2） | 两物理设备并发改同任务、陈旧 revision 与跨 Vault 隔离 |
 | G7.1 文件落在选择它的设备 | 待验证 | `tests/e2e/workflows/web-share.spec.ts` · `plugins/ssh/src/ui/FilesPanel.tsx`（首项文件版本 dcc95e63） | 浏览器附件已有，补异机下载落点、SFTP 与 LAN HTTP 剪贴板 |

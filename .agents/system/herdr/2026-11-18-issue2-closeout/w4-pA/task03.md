@@ -22,7 +22,7 @@
 ## 读写范围与产物
 
 - 可写业务范围：仅限该斜杠菜单用例文件，以及 `tests/e2e/helpers/**`（只增，不改）。
-- 预期产物：在分支上提交；把运行记录追加到 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md`。
+- 预期产物：在分支上提交；把运行记录追加到 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md`。
 
 ## 验收与验证
 

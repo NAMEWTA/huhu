@@ -22,16 +22,16 @@ B01 的 82 个归档行已逐行对照。72 行已验证，10 行待验收，0 �
 - `25d69dbb2934a333ba11716f54f4b623db047220` 补验文档绑定、块类型菜单和重命名。
 - `8298d2892077ed5bedf39324079d48de8a764851` 提交逐行矩阵和实际运行记录，补齐原子 JSX 键盘用例的选区同步等待。
 
-每行的测试文件、用例名或缺口，以及迁入测试分类记录在 [parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md)。命令、退出码、计数和重跑历史记录在 [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md)。
+每行的测试文件、用例名或缺口，以及迁入测试分类记录在 [parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md)。命令、退出码、计数和重跑历史记录在 [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md)。
 
 ## 验证
 
 | 验收要求 | 实际检查与结果 | 证据位置 |
 | --- | --- | --- |
-| B01 归档逐行核对 | 82 行号与归档目标集合一致。72 行已验证，10 行待验收。选择编辑器相关上游用例迁入，尚缺完整的上游 DOM 文件适用性清单。 | [parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md) |
+| B01 归档逐行核对 | 82 行号与归档目标集合一致。72 行已验证，10 行待验收。选择编辑器相关上游用例迁入，尚缺完整的上游 DOM 文件适用性清单。 | [parity-82.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md) |
 | H07 真实 Electron | 含 frontmatter、表格、列表、注释、引用定义和 100 段正文的笔记，两次单字替换均满足完整字节比较，关闭重开仍可见。独立重跑 3 次通过，最近一次全量中亦通过。 | [fidelity-local-edit.spec.ts](/home/wta/projects/huhu-wt-parity/tests/e2e/knowledge/fidelity-local-edit.spec.ts:33)，本机 `/tmp/huhu-parity-k9IJH3/h07-3.log` |
-| 类型、lint、构建、格式和依赖检查 | `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm format:check`、`pnpm knip` 均通过。最终新增的 JSX 测试调整另跑 oxfmt 和定向 Electron。 | [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md) |
-| 根单测、上游测试与补丁登记 | `pnpm test` 859 通过、1 跳过。 `pnpm test:vendor` 6,009 通过、4 跳过。迁入并运行的 122 个上游 app 套件中有 45 个 DOM 套件，39 个原样、6 个适配。补丁登记检查通过，193 项无缺漏或多余项。 | [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md) |
+| 类型、lint、构建、格式和依赖检查 | `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm format:check`、`pnpm knip` 均通过。最终新增的 JSX 测试调整另跑 oxfmt 和定向 Electron。 | [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md) |
+| 根单测、上游测试与补丁登记 | `pnpm test` 859 通过、1 跳过。 `pnpm test:vendor` 6,009 通过、4 跳过。迁入并运行的 122 个上游 app 套件中有 45 个 DOM 套件，39 个原样、6 个适配。补丁登记检查通过，193 项无缺漏或多余项。 | [runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md) |
 | 完整知识库 E2E | `xvfb-run -a pnpm e2e tests/e2e/knowledge` 为 46 通过、2 失败、1 跳过。失败项为原子 JSX 方向键和既有斜杠菜单逐项，分别单独重跑 3 次均通过。默认跳过的大 Vault 用例启用开关后另跑通过，覆盖 105,000 个文件。 | 本机 `/tmp/huhu-parity-k9IJH3/e2e-delivery.log`、`final-retries.log`、`huge-vault.log` |
 
 ## 阻碍与接续

@@ -1,5 +1,7 @@
 # G5b.3 按指定 Space 观察与恢复 Agent 会话
 
+[验收报告](../evidences/G5b.3-agent-sessions.md)
+
 上级交付 **G5b 任务、自动化与 Agent**。本片承接[规格 · 各业务归属与端到端样例](../spec.md#各业务归属与端到端样例)与[原 Issue A03、D03](../source.md)。[本组架构及对象归属](../design.md)
 
 **可见结果与边界**　Agent CLI 拥有 Space、会话、历史、输入仲裁与恢复；读取无启动副作用。

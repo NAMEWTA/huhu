@@ -4,7 +4,7 @@
 
 - 直接用浏览器打开 [prototype/index.html](prototype/index.html)。左栏切换工作区和待处理 Agent，中间操作标签与窗格，右侧查看现场、历史、文件及变更。底部「演示控制」可注入故障并复位。复位或刷新重建业务样例，复位保留当前外观选择。
 - 原型包共 6 个文件，SHA-256 为 `f8cdbb30afecde1ee492ebc44ffb2ab6349f74f24c5b1feed23d46aca6867d9c`。指纹由 `node .agents/skills/dev-prototype/scripts/fingerprint.mjs .agents/dev/archive/changes/implemented/feature_2026-11-19-issue-4-agent-cli/prototype` 生成。交付版本为本目录中的完整资源，当前工作树无本轮提交。
-- 依据为 [Issue 快照](source.md)、[规格](spec.md)、[设计](design.md)、[计划](plan.md)和 [本批上游版本](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)。上游核对了 herdr-app `317e673f1f15` 的布局、模型和镜像结构，herdr-core `c7517808d64f` 的会话协议，以及 ORCA `8bc232f5ed8b` 的新建入口组织。
+- 依据为 [Issue 快照](source.md)、[规格](spec.md)、[设计](design.md)、[计划](plan.md)和 [本批上游版本](../feature_2026-11-19-huhu-issues-3-10/sources.md)。上游核对了 herdr-app `317e673f1f15` 的布局、模型和镜像结构，herdr-core `c7517808d64f` 的会话协议，以及 ORCA `8bc232f5ed8b` 的新建入口组织。
 - Huhu 基线为 `feature/issue-fix@9f870c0`。继承 [工作台](../../../../../../packages/workbench/src/shell/AppShell.tsx)的窗口栏、模块栏与状态区，[Agent CLI](../../../../../../plugins/agent-cli/src/ui/AgentCliModule.tsx)的会话与工具层级，以及现有 [设计规范](../../../../notes/context/design-system.md)。资源包带有 Huhu 的主题令牌与品牌图标，默认 Claude 浅色，可切四套主题和明暗。
 
 ## 需求与场景覆盖

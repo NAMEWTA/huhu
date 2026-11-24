@@ -8,13 +8,13 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createOkParityRun, okParitySource } from "./ok-parity-paths.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const ED = join(ROOT, "packages/editor");
-const EV = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
 const r = JSON.parse(readFileSync(join(ED, "test-results/vendor.json"), "utf8"));
-const na = JSON.parse(readFileSync(join(EV, "vendor-tests-na.json"), "utf8"));
-const testsMan = JSON.parse(readFileSync(join(EV, "tests-manifest.json"), "utf8"));
+const na = JSON.parse(readFileSync(join(okParitySource, "vendor-tests-na.json"), "utf8"));
+const testsMan = JSON.parse(readFileSync(join(okParitySource, "tests-manifest.json"), "utf8"));
 const V = join(ED, "src/vendor/open-knowledge");
 const sha = (f) => createHash("sha256").update(readFileSync(f)).digest("hex");
 
@@ -70,5 +70,7 @@ ${[...byReason].map(([k, v]) => `- ${v} × ${k}`).join("\n")}
 
 ${na.map((x) => `- \`${x.file}\`：${x.reason}`).join("\n")}
 `;
-writeFileSync(join(EV, "vendor-test-results.md"), md);
+const report = join(createOkParityRun("ok-test-report"), "vendor-test-results.md");
+writeFileSync(report, md);
 console.log({ total, passAsIs: passAsIs.length, passAdapted: passAdapted.length, failed: failed.length, na: na.length, rate: rate + "%" });
+console.log(`报告 ${report}`);

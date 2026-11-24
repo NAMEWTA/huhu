@@ -1,5 +1,7 @@
 # W05-08 从版本卡查看当前 Vault 的 Git 状态
 
+[验收报告](../evidences/W05-08-git-widget.md)
+
 versioning 插件拥有分支/改动数和导航。仅查询现有 Git 状态。
 
 **规格范围**　ACC-DASH-08、ACC-DASH-09、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

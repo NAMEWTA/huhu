@@ -3,7 +3,7 @@
 ## 目标与验收
 
 - 目标：把 https://github.com/NAMEWTA/huhu/issues/2 推进到有可复查证据支持关闭的程度；只补 Issue #2 范围内的实际缺口。
-- 验收：Issue §14 A01–F10、spec §5.2 G01–G07 / H01–H07 在交付候选版本上逐项有证据；没有未解决阻断。台账：/home/wta/projects/huhu/.agents/dev/changes/2026-11-18-issue2-closeout/acceptance.md（Lead 维护）。
+- 验收：Issue §14 A01–F10、spec §5.2 G01–G07 / H01–H07 在交付候选版本上逐项有证据；没有未解决阻断。台账：.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/acceptance.md（Lead 维护）。
 - 约束：规格权威 = 归档 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md（§3 > issue 评论 > issue 正文），Q1–Q10 按 decisions.md OP-D19 已定；Windows/macOS 实机与真实输入法按 Q7 不作为关闭条件但如实登记；不推送、不合并（Lead 负责）。
 
 ## 共享位置与负责人

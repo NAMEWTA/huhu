@@ -1,5 +1,7 @@
 # S1b.1 离线写一封富文本并继续编辑
 
+[验收报告](../evidences/S1b.1-compose-draft.md)
+
 所属交付 S1b。本项承接 [Issue M-06、M-07、§7](../source.md)，行为规则见[工作台操作](../spec.md#workspace)，设计见[数据与提交顺序](../design.md#storage)。
 
 ## 交付与依赖

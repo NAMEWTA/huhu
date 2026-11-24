@@ -1,5 +1,7 @@
 # W05-03 从待处理捕获卡回到收件箱
 
+[验收报告](../evidences/W05-03-capture-widget.md)
+
 inbox 插件拥有待处理列表、数量和收件箱入口。卡片读取本 Vault 的数据。
 
 **规格范围**　ACC-DASH-09、ACC-DASH-13、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

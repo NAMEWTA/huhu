@@ -15,7 +15,7 @@
 | `packages/ui/src/components/TerminalView.tsx`、`apps/engine/src/boot.ts`、`packages/kernel/src/server/http-app.ts` | UI 用 xterm；boot 按 session 标识转交 SSH 或 Agent bridge，WS 受桌面身份限制。现有桥通往真实 shell。HomeWidget 可作 #10 的消费入口，挂载 Widget 不应主动建立连接。 |
 | `plugins/agent-cli/src/engine/herdr-core.ts`、`scripts/fetch-herdr.mjs`、`apps/desktop/scripts/before-pack.cjs` | 可参照固定版本、SHA-256、平台资产及缺件失败的交付流程。HerdrCore.dispose 的 detach 语义与 SSH 卸载不同。打包矩阵见 `apps/desktop/electron-builder.yml` 的 win32-x64、darwin-arm64、linux-x64。 |
 
-开发对照为本地 `temp/sources/motty` 的 `main`（origin/HEAD，`2daa9db582e16edf60a60b7ada26f47f808f973c`）。本次在该提交核对了 `internal/sftpclient/worker.go`、`internal/portforward/forward.go`、`internal/workbench/workspace_launch.go` 与 `go.mod`。Motty 的 go.mod 声明 Go 1.26.11，并通过 `replace github.com/vivaui/viva => ../viva` 使用同级 [Viva 源码](../../../../temp/sources/viva)。Viva 的完整工作树已检出，版本为 `main@a5da67aa63440ee836c37a5aa1c70e3eb317401c`，其中包含 [leaks 实现](../../../../temp/sources/viva/leaks/leaks.go)与[许可证](../../../../temp/sources/viva/LICENSE)。见[批次源码清单](../2026-11-19-huhu-issues-3-10/sources.md)。本次未构建或运行执行器。锁文件和第三方声明中，现有 ssh2 1.17.0、xterm 6.0.0 均标 MIT；优先保留 Huhu 的终端渲染、领域注册、Vault、事件与 UI 组件。Motty 固定 SHA 为 `102228261703d8f22c5eb98b1c500e2a24889dee`（v0.4.12）。下表固定链接保留上一轮来源追溯。H1.2 用这两份现有源码验证候选组件能否构建和运行，H12.2 核对实际分发文件及其许可。
+开发对照为本地 `temp/sources/motty` 的 `main`（origin/HEAD，`2daa9db582e16edf60a60b7ada26f47f808f973c`）。本次在该提交核对了 `internal/sftpclient/worker.go`、`internal/portforward/forward.go`、`internal/workbench/workspace_launch.go` 与 `go.mod`。Motty 的 go.mod 声明 Go 1.26.11，并通过 `replace github.com/vivaui/viva => ../viva` 使用同级 Viva 源码（历史位置 `../../../../temp/sources/viva`，本次未取得原件）。Viva 的完整工作树已检出，版本为 `main@a5da67aa63440ee836c37a5aa1c70e3eb317401c`，其中包含 leaks 实现（历史位置 `../../../../temp/sources/viva/leaks/leaks.go`，本次未取得原件）与许可证（历史位置 `../../../../temp/sources/viva/LICENSE`，本次未取得原件）。见[批次源码清单](../../archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)。本次未构建或运行执行器。锁文件和第三方声明中，现有 ssh2 1.17.0、xterm 6.0.0 均标 MIT；优先保留 Huhu 的终端渲染、领域注册、Vault、事件与 UI 组件。Motty 固定 SHA 为 `102228261703d8f22c5eb98b1c500e2a24889dee`（v0.4.12）。下表固定链接保留上一轮来源追溯。H1.2 用这两份现有源码验证候选组件能否构建和运行，H12.2 核对实际分发文件及其许可。
 
 | 来源样本 | 已核对的内容与实施落点 |
 | --- | --- |
@@ -58,7 +58,7 @@
 
 ## SSH 产品决定与待决范围
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 | 问题 | 选项与建议 | 前提与阻塞切片 |

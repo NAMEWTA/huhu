@@ -1,5 +1,7 @@
 # W02-03 核实并发或失联保存结果
 
+[验收报告](../evidences/W02-03-concurrent-save.md)
+
 在写锁内比对 baseRevision。同一保存请求复用在途结果/幂等键。回执丢失先重读确认结果，更新过的板须暴露冲突。
 
 **规格范围**　ACC-DASH-10、ACC-DASH-11、ACC-DASH-16。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

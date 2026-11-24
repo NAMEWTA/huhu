@@ -1,5 +1,7 @@
 # S1b-02 在 macOS 保留系统红黄绿
 
+[验收报告](../evidences/S1b-02-mac-decoration.md)
+
 平台层选择 hiddenInset/hidden 的实测配置，向标题内容提供可用区。生产外壳切换由 S4 整合。
 
 **规格范围**　TB-01、TB-05、TB-06、TB-10。[行为规格](../spec.md#可观察行为) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

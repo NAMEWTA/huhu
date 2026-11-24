@@ -14,7 +14,7 @@ Lead 授权你作为本轮共享会话层的唯一写入者，实现 C05：`pack
 
 ## 设计依据
 
-`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-session-identity-linux.md`「跨 Engine 重启恢复」，以及 t19 报告「重启后的 C05 对账」段。要点：
+`.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G-session-identity-linux.md`「跨 Engine 重启恢复」，以及 t19 报告「重启后的 C05 对账」段。要点：
 
 1. initialize 时向客户端另发一次高熵恢复凭据（与 transport 句柄分开），服务器只在当前 Vault 本机受保护运行态（`.huhu/runtime/<machine>/…` 下的现有 runtime 目录，不进 Vault 包、不进 Git）保存其摘要，绑定稳定 Vault 实例、稳定父凭据 ID、逻辑 clientSessionId、授权/撤销代、到期时间与失效状态。
 2. 重启后客户端以仍有效的原 Gateway 令牌 + 恢复凭据重新握手，恢复原逻辑会话主体；原子轮换恢复凭据与 transport 句柄，旧恢复凭据立即作废。只能查询既有回执与续用同一意图；结果缺失时保持 unknown，不重新执行。

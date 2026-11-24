@@ -17,7 +17,7 @@
 
 - 工作目录为 `/home/wta/projects/huhu-wt-parity`，分支为 `closeout/issue2-parity`。从 `c80391c` 接续，最终提交为 `16581bef17becbbdf72b5c0b2df0ac0fb3c6e2d4`，工作树干净。
 - 功能提交 `2abe8a2` 复用固定上游 `44a2e0a` 的选择器、标签弹窗和源码定位机制。原样迁入表情 DOM 用例，vendor 变更登记在 `PATCHES.md`。Frimousse 保持 0.3.0，离线字典钉到该版本声明的开发字典起始版本 16.0.2。笔记侧按 task02 的编辑器装配范围，在 `NoteDocument.tsx` 和 `NoteEditorSurface.tsx` 接入既有模式状态与标签索引。
-- `0fd2b55`、`aae8bc4`、`ecd9616` 分别修正目标标签重开、实时生效的 Embed 属性和系统文件选择器的验收夹具。最终证据同步到 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/` 下的 `shell-mounts.md`、`parity-82.md`、`runs.md`。
+- `0fd2b55`、`aae8bc4`、`ecd9616` 分别修正目标标签重开、实时生效的 Embed 属性和系统文件选择器的验收夹具。最终证据同步到 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/` 下的 `shell-mounts.md`、`parity-82.md`、`runs.md`。
 - 重启后核对了 Git 已提交和未提交状态、根 `test-results` 及 editor 上游 JSON。重启前没有 task04 提交，代码仍在工作树。缺终态的类型检查和上游单测已重跑并取得完整结果。
 
 ## 验证

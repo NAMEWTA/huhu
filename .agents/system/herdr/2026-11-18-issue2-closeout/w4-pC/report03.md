@@ -17,7 +17,7 @@ Engine 同时检查请求路径与真实目标，受保护项的索引回退仅�
 
 - 工作目录 /home/wta/projects/huhu-wt-session，分支 closeout/issue2-session。先合入集成分支 03dc93b，合并提交 4300e30。
 - 实现提交 8c5bf812b09857772fee6cfbf2b555654bc91de3，最终取证及 F04 测试驱动提交 b1474104fdfd4d4e59c1c5e5185fe8a90da18bef。工作区干净。
-- 证据在 .agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md 和 runs.md，来源及 PDF 生成命令在 docs/upstream/ledger.md。原始日志、trace 与运行状态在 /tmp/huhu-session-03/。
+- 证据在 .agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md 和 runs.md，来源及 PDF 生成命令在 docs/upstream/ledger.md。原始日志、trace 与运行状态在 /tmp/huhu-session-03/。
 
 ## 验证
 

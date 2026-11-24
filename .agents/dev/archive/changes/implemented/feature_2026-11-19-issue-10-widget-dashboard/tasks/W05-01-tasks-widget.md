@@ -1,5 +1,7 @@
 # W05-01 在两张任务卡按各自筛选完成任务
 
+[验收报告](../evidences/W05-01-tasks-widget.md)
+
 tasks 插件拥有我的/今日筛选、时区计数和行内完成。写入走 tasks.setStatus 与 expectedVersion，布局只保存实例筛选。
 
 **规格范围**　ACC-DASH-05、ACC-DASH-06、ACC-DASH-13、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

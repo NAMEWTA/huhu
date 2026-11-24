@@ -11,11 +11,11 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report07.md
 - 工作目录：/home/wta/projects/huhu-wt-layout（分支 closeout/issue2-layout，接着 60d7589）
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pB
-- 接续依据：/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity-ok/unaligned.md 与 /home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report06.md 中的 Lead 裁定
+- 接续依据：/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity-ok/unaligned.md 与 /home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pB/report06.md 中的 Lead 裁定
 
 ## 目标与输入
 
-1. **D02 边缘提示**：OK 在带评论的段落旁显示“打开评论”的边缘按钮（见 /home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity-ok/comments/ok-edge-marker.png），Huhu 没有。在上游 /home/wta/projects/huhu/temp/sources/open-knowledge/packages/app/src 中找到这个组件 / 装饰及其挂载点，整体复用到 Huhu 的知识库编辑器（vendor 已有的就接线，缺的按闭包复制，并登记 PATCHES.md、刷新重放清单）。行为要与 OK 一致：位置、点击打开对应线程、键盘可达、多条评论、窄窗口（详情栏开 / 关）下不与工具栏和正文重叠。加 e2e，并用你的 `tests/parity-ok/compare.spec.ts` 重新跑这一项对照，把 unaligned.md 中这一条改成“等价”，附新截图。
+1. **D02 边缘提示**：OK 在带评论的段落旁显示“打开评论”的边缘按钮（见 /home/wta/projects/huhu-wt-layout/temp/dev/2026-11-18-issue2-closeout/integration/legacy-7984bff4/parity-ok/comments/ok-edge-marker.png），Huhu 没有。在上游 /home/wta/projects/huhu/temp/sources/open-knowledge/packages/app/src 中找到这个组件 / 装饰及其挂载点，整体复用到 Huhu 的知识库编辑器（vendor 已有的就接线，缺的按闭包复制，并登记 PATCHES.md、刷新重放清单）。行为要与 OK 一致：位置、点击打开对应线程、键盘可达、多条评论、窄窗口（详情栏开 / 关）下不与工具栏和正文重叠。加 e2e，并用你的 `tests/parity-ok/compare.spec.ts` 重新跑这一项对照，把 unaligned.md 中这一条改成“等价”，附新截图。
 2. **Mod+K**（Lead 决定）：焦点在富文本编辑器（含有选区或光标在链接上）时，Mod+K 打开链接编辑（与 OK 一致：气泡工具栏里的 URL 输入）；焦点不在编辑器时仍然打开命令面板。改 `packages/workbench/src/command-palette/CommandPalette.tsx` 的全局监听，参照 Mod+T 在终端里的让位方式（编辑器声明自己接管 Mod+K，命令面板跳过），并在 `packages/workbench/src/shortcuts.ts` 登记（例如“Mod+K · 编辑器内：编辑链接”），设置页的快捷键列表会自动显示。e2e：编辑器内选中文字按 Mod+K 打开链接输入并能保存，编辑器外按 Mod+K 打开命令面板，源码模式下的行为也要说明并测试。重跑对照中的链接一项。
 
 先同步：`git merge --no-ff --no-edit closeout/issue2-integration`（如果集成分支有更新）。涉及前端时遵循 AGENTS.md。

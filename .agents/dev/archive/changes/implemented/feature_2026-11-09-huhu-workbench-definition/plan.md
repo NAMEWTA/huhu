@@ -1,7 +1,7 @@
 # 实施计划
 
 目标：交付 [product](product.md) §2 的全部模块，在三个目标平台产出可安装、通过 [quality](quality.md) §4 门槛的 1.0.0。
-任务格式与公共规则：[tasks/README](tasks/README.md)。
+任务格式与公共规则：[tasks/README](task-guide.md)。
 
 ## 1. 阶段与工作包
 

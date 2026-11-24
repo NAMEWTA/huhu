@@ -31,7 +31,7 @@
 | Engine | 为打开的 Vault 组装上述服务、插件实例、事件流和 listener；响应 start/stop/status 并返回实际监听地址、端口、范围、代次及失败原因。 | 控制 listener 继续供桌面/CLI/MCP。Web listener 独立启停，Socket 和 session 均关联 listener 与 Vault。Web 入口不转发 MCP。 |
 | 适配器与宿主 | MCP stdio/HTTP 和通用 API、CLI 只做认证、协议发现、参数/文件输入、输出和流适配。CLI 支持 list/describe、文件/stdin、JSON 和稳定 key。共享工作台经 DesktopHost / WebHost 做引导、文件选择、打开链接和复制。 | DesktopHost 使用现有 preload。WebHost 用同源引导和文件流，从真实来源推导 WS/API。工作台不持有业务副本。 |
 
-协议名称采用 canonical ID，注册时检查唯一性及协议命名约束；MCP 资源、prompt 与工具说明共用声明。schema 描述对象型 MCP 结果时，给已有数组或标量业务结果一个可逆的对象包装，并让声明和 structuredContent 一致。兼容文本内容从同一成功结果序列化。注解基于真实语义；具有重试 key 的操作也可能有副作用。锁文件及 notices 记录现有 MCP SDK 1.32.2、Hono 4.13.17、Zod 4.6.7 的 MIT 许可。沿用当前锁定依赖；上游源码按 `temp/sources` 实际默认分支检出和[批次来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)核对，历史 Issue 引用用于追溯。下方链接是原协议对照。[MCP 工具规范](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+协议名称采用 canonical ID，注册时检查唯一性及协议命名约束；MCP 资源、prompt 与工具说明共用声明。schema 描述对象型 MCP 结果时，给已有数组或标量业务结果一个可逆的对象包装，并让声明和 structuredContent 一致。兼容文本内容从同一成功结果序列化。注解基于真实语义；具有重试 key 的操作也可能有副作用。锁文件及 notices 记录现有 MCP SDK 1.32.2、Hono 4.13.17、Zod 4.6.7 的 MIT 许可。沿用当前锁定依赖；上游源码按 `temp/sources` 实际默认分支检出和[批次来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)核对，历史 Issue 引用用于追溯。下方链接是原协议对照。[MCP 工具规范](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 
 **消费边界。** #7 提供 SSH 主机、连接、等待项、文件和会话的 descriptor/handler；#8 提供 Mail 账户、消息及同步状态；#9 提供 Safe 锁定态、摘要和独立显式查看；#10 提供布局/实例，订阅其业务插件的授权快照。方向均为“领域向 Kernel 登记 → 宿主或适配器调用公共能力 → 所属领域执行业务”。Kernel 不导入这四个插件的具体实现。#4/#5 拥有会话、run、可信回执及恢复决策，#6 处理外部访问。按插件授权的内部业务委托与任意命令代理分别处理。raw 文件编辑须回到 KINDS 对应领域；目标版本、作者、归属和事件在语义写入处检查。
 
@@ -58,7 +58,7 @@
 
 ## 产品决定与待决范围
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 | 问题 | 选项、建议及代价 | 前提及阻塞范围 |

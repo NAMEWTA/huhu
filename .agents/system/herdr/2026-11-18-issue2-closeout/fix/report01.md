@@ -24,7 +24,7 @@
 | 9 · H04 | 应修 | 每个 Vault 用同一请求代次结算列表、加载状态和错误，合并同轮请求。定向用例覆盖失败与成功乱序、切标签、作用域隔离，以及重试后恢复磁盘已有线程。`packages/editor/test/host-feedback.test.tsx:430`、`tests/e2e/knowledge/comments-s4.spec.ts:595` |
 | 10 · H04/OP-D04 | 应修 | OK 根按组件和编辑器实例传递请求，严格按方法和路径分派。覆盖并挂根、卸载顺序、异步切换及未登记方法。桌面产物检查 43 个宿主签名、0 个待处理。`packages/editor/test/host-fetch-scope.test.tsx:35`、`packages/editor/build/check-host-endpoints.mjs:42` |
 | 11 · F03 | 应修 | 启动前写入 PDF，再从磁盘外改，断言旧页退出且恢复后显示新内容。断言等待覆盖原生监听和应用的轮询间隔，首轮本机通过，用例无条件跳过。`tests/e2e/workflows/viewers.spec.ts:332` |
-| 12 · Q8 | 应修 | 发布草稿明确 `notes.move` 非空目标目录须已存在，`notes.create.templatePath` 仅桌面端。`.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/s8/release-notes-draft.md` |
+| 12 · Q8 | 应修 | 发布草稿明确 `notes.move` 非空目标目录须已存在，`notes.create.templatePath` 仅桌面端。`.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/verification/s8/release-notes-draft.md` |
 | 13 · 差异空白 | 建议 | 清理审查指出的日志行尾。工作包 `git diff --check` 与集成差异检查通过，集成检查排除该 ProseMirror 补丁原有的空上下文行。 |
 
 ## 运行证据

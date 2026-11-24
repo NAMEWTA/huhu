@@ -8,22 +8,21 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { gzipSync, gunzipSync } from "node:zlib";
+import { okParitySource } from "./ok-parity-paths.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const V = join(ROOT, "packages/editor/src/vendor/open-knowledge");
-const ARCHIVE = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
-const man = JSON.parse(readFileSync(join(ARCHIVE, "closure-manifest.json"), "utf8"));
+const man = JSON.parse(readFileSync(join(okParitySource, "closure-manifest.json"), "utf8"));
 // 上游测试 / 助手 / fixtures（迁入 vendor、与被测源码同目录）：路径 → 上游 SHA-256；不在闭包清单里，单独一份清单。
 // 重新生成：OK_SRC=<上游工作副本> node scripts/ok-patches.mjs --write-tests-manifest（只收录与上游同路径的文件）
-const TESTS_MANIFEST = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence/tests-manifest.json");
+const TESTS_MANIFEST = join(okParitySource, "tests-manifest.json");
 const testsMan = existsSync(TESTS_MANIFEST) ? JSON.parse(readFileSync(TESTS_MANIFEST, "utf8")) : {};
 const hashBytes = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const sha = (f) => hashBytes(readFileSync(f));
 const rel = (p) => p.replace(/^packages\/(app|core)\//, "$1/");
 
-const REPLAY_DIR = join(ROOT, ".agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity");
-const REPLAY_MANIFEST = join(REPLAY_DIR, "vendor-replay.json");
-const REPLAY_PATCH = join(REPLAY_DIR, "vendor-replay.patch.gz");
+const REPLAY_MANIFEST = join(okParitySource, "vendor-replay.json");
+const REPLAY_PATCH = join(okParitySource, "vendor-replay.patch.gz");
 const PIN = "44a2e0a6acce5952da0764746e3693fded5025b4";
 
 function filePaths(root, dir = root) {
@@ -145,8 +144,8 @@ const ORCA = {
   root: join(ROOT, "plugins/notes/src/vendor/orca/pdf"),
   pin: "7041ea022826ec19d627cd3a129b665822e7bf0a",
   env: "ORCA_SRC",
-  manifest: join(ARCHIVE, "orca-replay.json"),
-  patch: join(ARCHIVE, "orca-replay.patch.gz"),
+  manifest: join(okParitySource, "orca-replay.json"),
+  patch: join(okParitySource, "orca-replay.patch.gz"),
   sourcePath(target, objects) {
     const path =
       {
@@ -246,7 +245,7 @@ function sourceCatalog(refresh) {
     console.log(`${origin.env}：固定点 ${files.length} 个文件，${sources.size} 条目标映射`);
   }
   const bytes = gzipSync(output.map((origin) => JSON.stringify(origin)).join("\n") + "\n", { level: 9 });
-  const file = join(ARCHIVE, "source-file-catalog.jsonl.gz");
+  const file = join(okParitySource, "source-file-catalog.jsonl.gz");
   if (refresh) writeFileSync(file, bytes);
   else if (!gunzipSync(readFileSync(file)).equals(gunzipSync(bytes))) throw new Error("上游逐文件清单过期");
 }

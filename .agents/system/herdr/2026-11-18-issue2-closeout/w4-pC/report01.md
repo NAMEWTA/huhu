@@ -17,7 +17,7 @@ E04 为真实保存竞态。两路 CPU 竞争下，基线有 4/20 次字段保�
 
 - 工作目录 `/home/wta/projects/huhu-wt-session`，分支 `closeout/issue2-session`，提交 `290e8f70f2a436223f41d465c17f321ed2b87ffe`。工作区干净。
 - 实现涉及知识库档案视图、文件查看器和 Vault 反链索引。新增黄金样本、会话、评论、文件树、档案附件和 PDF 的测试证据。
-- 三份证据位于 `/home/wta/projects/huhu-wt-session/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/`。原始日志和失败 trace 位于本机 `/tmp/huhu-issue2-session/`。
+- 三份证据位于 `/home/wta/projects/huhu-wt-session/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/`。原始日志和失败 trace 位于本机 `/tmp/huhu-issue2-session/`。
 
 ## 验证
 

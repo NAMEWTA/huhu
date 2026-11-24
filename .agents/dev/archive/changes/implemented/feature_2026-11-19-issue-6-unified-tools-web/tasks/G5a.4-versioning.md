@@ -1,5 +1,7 @@
 # G5a.4 外部提交、同步和恢复版本
 
+[验收报告](../evidences/G5a.4-versioning.md)
+
 上级交付 **G5a 通用业务**。本片承接[规格 · 各业务归属与端到端样例](../spec.md#各业务归属与端到端样例)与[原 Issue D08、D10](../source.md)。[本组架构及对象归属](../design.md)
 
 **可见结果与边界**　Versioning 管理历史、恢复、冲突、同步与 HTTPS 认证；SSH remote 的系统认证保持各自归属。

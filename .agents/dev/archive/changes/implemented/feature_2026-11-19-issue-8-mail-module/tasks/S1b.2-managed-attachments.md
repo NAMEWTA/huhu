@@ -1,5 +1,7 @@
 # S1b.2 添加、移除并恢复草稿附件
 
+[验收报告](../evidences/S1b.2-managed-attachments.md)
+
 所属交付 S1b。本项承接 [Issue M-06、§7.1](../source.md)，行为规则见[工作台操作](../spec.md#workspace)，设计见[数据与提交顺序](../design.md#storage)。
 
 ## 交付与依赖
@@ -21,7 +23,7 @@
 - [x] 选合成文件、重复添加、移走源文件再重开草稿，引用去重且受管字节哈希一致。移除后只清理无引用对象。
 - [x] 复制中断、超限或附件缺失时给出待处理项，原草稿仍可打开。取消选择不产生附件记录。
 
-在 Edge 的实际 Mail 组件和真实 Engine 中用合成宿主联验。取消未写附件，退出中断悬挂选择，重开同一草稿可继续编辑。原生选择由 Lead 接入现有桌面宿主后复验。 [验证结果与强类型宿主契约](../evidence/S1b.2-desktop-attachments.md)
+在 Edge 的实际 Mail 组件和真实 Engine 中用合成宿主联验。取消未写附件，退出中断悬挂选择，重开同一草稿可继续编辑。原生选择由 Lead 接入现有桌面宿主后复验。 [验证结果与强类型宿主契约](../verification/S1b.2-desktop-attachments.md)
 
 ## Windows Engine 阶段
 

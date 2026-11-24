@@ -17,7 +17,7 @@
 
 - 工作目录 `/home/wta/projects/huhu-wt-layout`，分支 `closeout/issue2-layout`。开工时集成 tip `9b143a4` 已在分支历史中。提交 `fbea0f6df5cfd6265a34d88d3377962f1f959087` 实现功能，`c43813e0853cbb66fa8bd28d7903e68273e63267` 完善快捷键登记，`f3c7747a7e660f18ecce9bf3ca9332f97bfd4cd6` 保存最终测试和证据。提交后工作树干净。
 - vendor 改动已在 `PATCHES.md` 登记，重放文件由脚本刷新。原 OK 工作树及归档测试清单未被修改。按用户追加授权，在 `NotesModule.tsx` 接入批注打开事件，在 `knip.json` 登记独立对照入口。选区同步与 flush 逻辑维持原样。
-- 新增 `tests/e2e/knowledge/comments-edge-rail.spec.ts`、`tests/e2e/knowledge/editor-link-shortcut.spec.ts`。实跑截图、DOM 和 Markdown 见 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity-ok/`，含 `README.md` 与 `unaligned.md`。验收及复跑记录见同级 `layout/runs.md`。
+- 新增 `tests/e2e/knowledge/comments-edge-rail.spec.ts`、`tests/e2e/knowledge/editor-link-shortcut.spec.ts`。实跑截图、DOM 和 Markdown 见 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity-ok/`，含 `README.md` 与 `unaligned.md`。验收及复跑记录见同级 `layout/runs.md`。
 
 ## 验证
 

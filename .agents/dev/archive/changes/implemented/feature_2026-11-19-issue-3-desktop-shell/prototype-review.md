@@ -5,7 +5,7 @@
 - 将 [index.html](prototype/index.html) 用浏览器打开即可操作。顶部是工作台，页尾的「原型演练」提供平台、场景、故障、主题和重置。资料及保存结果存在当前页面内存中。
 - 版本为当前 `prototype/` 的六个资源文件，SHA-256 为 `d220319a4d25e3cc0d4ddd17a013e354afc54d4c4118a787b1321ead6d73a02e`。以 `node .agents/skills/dev-prototype/scripts/fingerprint.mjs .agents/dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/prototype --expect <SHA-256>` 复核整个目录。
 - 以 Huhu `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10` 的 AppShell、BrandMark、LaunchPage、VaultMenu 和 CommandPalette 为基线。随原型保存了 Huhu 单色品牌图、语义主题和尺寸 token，字体使用设备上的系统回退。 [AppShell](../../../../../../packages/workbench/src/shell/AppShell.tsx) · [LaunchPage](../../../../../../packages/workbench/src/launch/LaunchPage.tsx) · [主题](../../../../../../packages/ui/src/styles/themes.generated.css)
-- 核对了 Open Knowledge 默认分支 `main@b2af296a73049ddd47f6d679b36774ecbdd3d19b` 的 `window-chrome.ts` 和 `menu.ts`，参考窗口按钮留位和按平台组织菜单。原型外观、文案、示例和状态均使用 Huhu 自有方案。 [批次源码](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md) · [Issue](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md)
+- 核对了 Open Knowledge 默认分支 `main@b2af296a73049ddd47f6d679b36774ecbdd3d19b` 的 `window-chrome.ts` 和 `menu.ts`，参考窗口按钮留位和按平台组织菜单。原型外观、文案、示例和状态均使用 Huhu 自有方案。 [批次源码](../feature_2026-11-19-huhu-issues-3-10/sources.md) · [Issue](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md)
 
 ## 需求与场景覆盖
 

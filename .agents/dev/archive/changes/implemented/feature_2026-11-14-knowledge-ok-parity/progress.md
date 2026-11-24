@@ -2,7 +2,7 @@
 
 ## S3 进展（2026-11-18，分支 `worktree-agent-a2680725404d11c91`）
 
-编辑器性能 F09 达标（1 MiB 打开 451 ms；5000 段输入 p95 ≈ 14 ms）、顶部属性面板、前导零保真、单行自适应工具栏、`/` 菜单 / 气泡菜单 / 撤销的 e2e。**B06/B07（选区 / 上下行 / IME 对照）与复刻矩阵逐项对照未完成。** 证据：[evidence/s3/verification.md](evidence/s3/verification.md)；补丁：PATCHES.md 的 P-S3-01～05。
+编辑器性能 F09 达标（1 MiB 打开 451 ms；5000 段输入 p95 ≈ 14 ms）、顶部属性面板、前导零保真、单行自适应工具栏、`/` 菜单 / 气泡菜单 / 撤销的 e2e。**B06/B07（选区 / 上下行 / IME 对照）与复刻矩阵逐项对照未完成。** 证据：[evidence/s3/verification.md](verification/s3/verification.md)；补丁：PATCHES.md 的 P-S3-01～05。
 
 ## 状态（2026-11-14，文档阶段结束）
 
@@ -10,16 +10,16 @@
 
 | 切片 | 状态 | 证据入口 / 下一步 |
 | --- | --- | --- |
-| 文档与设计（本 change） | 完成，顾问复核意见已吸收，待用户确认 Q1–Q10 | 本目录；[evidence/e0-source-survey.md](evidence/e0-source-survey.md) |
+| 文档与设计（本 change） | 完成，顾问复核意见已吸收，待用户确认 Q1–Q10 | 本目录；[evidence/e0-source-survey.md](verification/e0-source-survey.md) |
 | S0 来源冻结与闸门 | **部分完成**：闭包清单、端点矩阵（机械）、复刻矩阵、s0-facts、SP-1 / SP-2（部分）/ SP-3 / SP-5 / SP-6 有实测结论（S2a 在真实 Electron 里完成，见 `evidence/spikes/`）；**未做：rc.4 上用户问题（选区 / 上下行）的复现与 `rc4` 视觉基线**，SP-4 仅部分（22 个黄金样本全量、撤销栈未验）| [tasks/00-freeze-and-spikes.md](tasks/00-freeze-and-spikes.md)；**下一步** |
-| S1 资源目录、会话与标签契约 | **完成（2026-11-15，分支 `worktree-agent-adad71041bd4ce01a`）**；`vault.tree` / `notes.files` 的迁移与删除按计划留到 S5，其余偏差见契约冻结文档 §7 | [evidence/contracts-freeze.md](evidence/contracts-freeze.md)、[evidence/s1/verification.md](evidence/s1/verification.md) |
-| S2a（2a-1/2/3）/ S2b / S2c | **完成（有登记的缺口）**：vendor 闭包编译 / 构建 / 补丁登记、`LocalDocProvider`、Tailwind / Lingui、笔记切换到新编辑器、tasks / inbox 紧凑变体；app 的 jsdom dom 测试未迁入；`DocumentContext` / `provider-pool` 的 Huhu 侧替换约 630 行（阈值 1200） | [evidence/spikes/](evidence/spikes/)、[evidence/s2/s2b-verification.md](evidence/s2/s2b-verification.md) |
-| S3 编辑行为对等 | **基本完成，B06 不关闭**：F09 达标、属性面板、单行工具栏；B06 选区 / 上下行 e2e 通过且 rc.4 上未能复现原问题；B07 IME（CDP 合成）通过并修复“组合中写盘”；复刻矩阵 283 行逐行标注（已验证 170 / 不适用 31 / 未逐项验证 82）；F07 补 800 / 480 px 与 125–200% 缩放 | [evidence/s3/verification.md](evidence/s3/verification.md)、[evidence/s3/parity-closeout.md](evidence/s3/parity-closeout.md) |
-| S4 评论 | **完成（部分验收项登记为未验证）**：OK 评论 UI 接 `comments.*`（引用文字锚点、回复 / 解决 / 删除确认、整篇批注）；e2e D01–D06 9 passed；上游非 dom 评论测试 190 通过 | [evidence/s4/verification.md](evidence/s4/verification.md)、[comment-field-map.md](evidence/comment-field-map.md)、[parity/comments.md](evidence/parity/comments.md) |
-| S5 文件树与隐藏 | **完成（有登记的缺口）**：OK 文件树 + 菜单接 `vault.list`，隐藏仅视图，共享 `@` 与计数，`vault.tree` 更名 `vault.indexEntries`、`notes.files` 删除；上传未接、10 万文件未实测 | [evidence/s5/verification.md](evidence/s5/verification.md) |
-| S6 档案标签 | 完成（E01–E04 通过；E05“附件走统一查看器”待 S7） | [evidence/s6/verification.md](evidence/s6/verification.md) |
-| S7 查看器与图标 | **完成（有登记的缺口）**：JSON / TXT 编辑、PDF（ORCA 摘取）、HTML 隔离预览与 F05 安全用例；dev 模式 F05、DNS 预取、加密 PDF 未验证 | [evidence/s7/sp-7.md](evidence/s7/sp-7.md) |
-| S8 清理与全回归 | **清理 / 文档部分完成（2026-11-18）**：旧链路删除并有零引用证据、`test:vendor` 三分类、`ok-patches --check` 通过、台账 / 声明 / 设计系统 / demo Vault 已更新；**贯穿路径 e2e、`e2e:packaged`、`pnpm bench`、`visual:compare`、CI 三平台未做** | [evidence/s8/](evidence/s8/) |
+| S1 资源目录、会话与标签契约 | **完成（2026-11-15，分支 `worktree-agent-adad71041bd4ce01a`）**；`vault.tree` / `notes.files` 的迁移与删除按计划留到 S5，其余偏差见契约冻结文档 §7 | [evidence/contracts-freeze.md](verification/contracts-freeze.md)、[evidence/s1/verification.md](verification/s1/verification.md) |
+| S2a（2a-1/2/3）/ S2b / S2c | **完成（有登记的缺口）**：vendor 闭包编译 / 构建 / 补丁登记、`LocalDocProvider`、Tailwind / Lingui、笔记切换到新编辑器、tasks / inbox 紧凑变体；app 的 jsdom dom 测试未迁入；`DocumentContext` / `provider-pool` 的 Huhu 侧替换约 630 行（阈值 1200） | [evidence/spikes/](verification/spikes)、[evidence/s2/s2b-verification.md](verification/s2/s2b-verification.md) |
+| S3 编辑行为对等 | **基本完成，B06 不关闭**：F09 达标、属性面板、单行工具栏；B06 选区 / 上下行 e2e 通过且 rc.4 上未能复现原问题；B07 IME（CDP 合成）通过并修复“组合中写盘”；复刻矩阵 283 行逐行标注（已验证 170 / 不适用 31 / 未逐项验证 82）；F07 补 800 / 480 px 与 125–200% 缩放 | [evidence/s3/verification.md](verification/s3/verification.md)、[evidence/s3/parity-closeout.md](verification/s3/parity-closeout.md) |
+| S4 评论 | **完成（部分验收项登记为未验证）**：OK 评论 UI 接 `comments.*`（引用文字锚点、回复 / 解决 / 删除确认、整篇批注）；e2e D01–D06 9 passed；上游非 dom 评论测试 190 通过 | [evidence/s4/verification.md](verification/s4/verification.md)、[comment-field-map.md](verification/comment-field-map.md)、[parity/comments.md](verification/parity/comments.md) |
+| S5 文件树与隐藏 | **完成（有登记的缺口）**：OK 文件树 + 菜单接 `vault.list`，隐藏仅视图，共享 `@` 与计数，`vault.tree` 更名 `vault.indexEntries`、`notes.files` 删除；上传未接、10 万文件未实测 | [evidence/s5/verification.md](verification/s5/verification.md) |
+| S6 档案标签 | 完成（E01–E04 通过；E05“附件走统一查看器”待 S7） | [evidence/s6/verification.md](verification/s6/verification.md) |
+| S7 查看器与图标 | **完成（有登记的缺口）**：JSON / TXT 编辑、PDF（ORCA 摘取）、HTML 隔离预览与 F05 安全用例；dev 模式 F05、DNS 预取、加密 PDF 未验证 | [evidence/s7/sp-7.md](verification/s7/sp-7.md) |
+| S8 清理与全回归 | **清理 / 文档部分完成（2026-11-18）**：旧链路删除并有零引用证据、`test:vendor` 三分类、`ok-patches --check` 通过、台账 / 声明 / 设计系统 / demo Vault 已更新；**贯穿路径 e2e、`e2e:packaged`、`pnpm bench`、`visual:compare`、CI 三平台未做** | [evidence/s8/](verification/s8) |
 
 ## 本次文档阶段做了什么（可复核）
 
@@ -64,7 +64,7 @@
 
 ## S2b / S2c（2026-11-17）
 
-- S2b：`NoteDocument` 已切到 OK 编辑器（`packages/editor/src/rich`：`RichMarkdownEditor` / `ReadonlyMarkdown` / `SourceMarkdownEditor` / `OkRoot` / provider 池；`plugins/notes` 经动态 import 加载 `NoteEditorSurface`）。整合点通过：真实 Electron 打开—输入—保存—重开、无编辑不写盘、立即切换 / 关闭不丢最后字符、三视图切换、撤销。详见 [evidence/s2/s2b-verification.md](evidence/s2/s2b-verification.md)。
+- S2b：`NoteDocument` 已切到 OK 编辑器（`packages/editor/src/rich`：`RichMarkdownEditor` / `ReadonlyMarkdown` / `SourceMarkdownEditor` / `OkRoot` / provider 池；`plugins/notes` 经动态 import 加载 `NoteEditorSurface`）。整合点通过：真实 Electron 打开—输入—保存—重开、无编辑不写盘、立即切换 / 关闭不丢最后字符、三视图切换、撤销。详见 [evidence/s2/s2b-verification.md](verification/s2/s2b-verification.md)。
 - S2c：tasks / inbox 用紧凑变体；`@` 引用补全；P-S2c-01 补丁；Q4 成本数据入证据。
 - **未关闭**：F09（1 MiB 打开 6.6 s、5,000 行输入延迟用例超时）；格式化工具栏 / 属性面板 / 评论锚点装饰分别属于 S3 / S4（NoteDocument 已去掉旧格式按钮与 `comments` 装饰）；批注的源码偏移在富文本模式下按“选中文本在源码里唯一匹配”近似，S4 重做。
 

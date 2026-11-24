@@ -25,7 +25,7 @@ Lead 在 Linux 上对 `4d86c84b` 跑 `pnpm test`：1261 通过、15 失败、61 
 1. 生产保护：在 `@napi-rs/keyring` 支持的平台（至少 linux-x64、darwin-x64/arm64、win32-x64，按实际随包的原生绑定核对 `apps/desktop` 的打包配置与 `electron.vite.config.ts` 中 keyring 的处理）启用同一系统钥匙串保护。不允许明文或弱回退。后端缺失、会话锁定或 D-Bus 不可达时仍返回 `unavailable`，已有密文不得被新钥匙覆盖（保持现有 `create` 的“已存在即拒绝”语义）。类名改为不再暗示仅 Windows。
 2. 确定性测试：上述 15 项测试测的是 SSH/Engine 行为而不是系统钥匙串，在没有 Secret Service 的 CI 上也必须稳定。给 Engine 的受信装配加一个只供进程内测试使用的保护注入点（例如 `BootOptions` 中可选的 `moduleCredentialProtection`，类型为 `LocalCredentialProtection`），测试用 `packages/kernel/test/fixtures/credentials.ts` 的 `TestProtection` 或同等内存实现。这个注入点不能经 HTTP、CLI、MCP、环境变量或 renderer 触达，生产 desktop/CLI 启动路径不传它。改这 15 项及其共用夹具使用它。
 3. 真实平台验证：把 `apps/engine/test/module-credential-host.test.ts` 中仅 Windows 的真实钥匙串用例扩展为“当前平台真实后端可用时运行”（本机 Linux 有 gnome-keyring 的 `org.freedesktop.secrets`）。只用随机合成 keyId 与合成值，用例结束时删除它创建的每个条目，并在报告中列出验证清理的方式。另加一个用例覆盖“后端不可用 → unavailable、已有密文保留”。
-4. 记录矩阵：在 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P0.1-protection-platform-matrix.md` 写实测（本机 Linux）与未测平台（macOS、Windows 本轮未测，引用 Windows 旧证据但注明是旧提交）。
+4. 记录矩阵：在 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/verification/P0.1-protection-platform-matrix.md` 写实测（本机 Linux）与未测平台（macOS、Windows 本轮未测，引用 Windows 旧证据但注明是旧提交）。
 
 ## 读写范围与产物
 

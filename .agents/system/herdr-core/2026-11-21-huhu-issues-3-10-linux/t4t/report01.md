@@ -38,7 +38,7 @@
 
 ## 已知候选缺口与证据
 
-- H3.1 OpenSSH CA、用户证书和缺本机身份时的交互恢复。H3.2 批量路由。H3.3 全局出站代理继承、覆盖、ProxyCommand/ViaShell 和监控、转发路径展示。H3.4 同步只支持一个字面 Host 块，待验实际文件选择及 OpenSSH。H3.5 Linux 远端依赖 `ss`，夹具只验证 CONNECT 接受。H4.3 跨窗口移动与恢复、完整焦点路径。H5.1 IME、宽字符、备用屏、图像和键盘协议。H5.2 快捷库与工具栏操作。H5.3 实时搜索、时间轴与图像回放。H5.4 Windows WSL 和 macOS。H11.3 CLI/HTTP MCP 串联。参见成员 [H-remaining-linux.md](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md)。
+- H3.1 OpenSSH CA、用户证书和缺本机身份时的交互恢复。H3.2 批量路由。H3.3 全局出站代理继承、覆盖、ProxyCommand/ViaShell 和监控、转发路径展示。H3.4 同步只支持一个字面 Host 块，待验实际文件选择及 OpenSSH。H3.5 Linux 远端依赖 `ss`，夹具只验证 CONNECT 接受。H4.3 跨窗口移动与恢复、完整焦点路径。H5.1 IME、宽字符、备用屏、图像和键盘协议。H5.2 快捷库与工具栏操作。H5.3 实时搜索、时间轴与图像回放。H5.4 Windows WSL 和 macOS。H11.3 CLI/HTTP MCP 串联。参见成员 [H-remaining-linux.md](/home/wta/projects/huhu/temp/issue-worktrees/integration/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H-remaining-linux.md)。
 - 审查固定两个端点的 63 个文件，核查 `git show --cc ade79b58` 和 `git diff ade79b58 690e9097`。根 `AGENTS.md` 和 `.agents/{system,dev,dev/changes}/AGENTS.md` 适用。目标树在 apps/packages/plugins/tests 下无更深 AGENTS.md。`git diff --check cc671b5f 690e9097` 无输出。排除了并行任务的 #5 文档工作树改动。
 - 日志目录 `/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/`。`h7-merge-vitest.log` 记录 manager 20、外部资源 46、草稿及密钥等 8 项通过。`h7-wiring-static.log` 对应 SSH/Engine 定向类型检查、桥替身 3、目录 2、静态目录 2。 `h7-native-before.log` 记 0.1.19 拒绝过长名称，移除名称后的 `h7-native-after.log` 记 2 项通过，包括停用 Agent 后真实 Shell 打开、resize、同 PID 重挂、邀请浏览器收到 4404，及正常停用 SSH 后 PID 和 socket 消失。`h7-wiring-recheck.log` 对应 3 项桥测试、1 项真实 attach 和 E2E 语法检查。
 - `t71-cutover-690e9097.log` 的两项是 Agent 任务自动化派遣和恢复旧监督记录，48 项跳过包括既有 Agent 真 WS、SSH 真 WS 和回环令牌拒绝。此日志能佐证任务组合入口，不能充当终端路径的证据。

@@ -6,7 +6,7 @@
 
 沿用 Huhu 的 Claude 默认主题和工作台窗口栏、模块栏、标签条、面包屑，复用现有 Safe 的解锁卡片、条目列表与详情并列、描边卡片和密码遮罩。窄窗切为列表与详情逐层显示。 [AppShell](../../../../../../packages/workbench/src/shell/AppShell.tsx) · [Safe 界面](../../../../../../plugins/safe/src/ui/SafeModule.tsx) · [Safe 样式](../../../../../../plugins/safe/src/ui/safe.css) · [主题](../../../../../../packages/ui/src/styles/themes.generated.css)
 
-Huhu 检出为 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。核对 Motty 默认分支 `2daa9db582e16edf60a60b7ada26f47f808f973c` 的模块保护边界。历史来源和当前规格见下方文档。使用本轮已定的清洁安装与模块独立认证规则。 [来源](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md) · [批次来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)
+Huhu 检出为 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。核对 Motty 默认分支 `2daa9db582e16edf60a60b7ada26f47f808f973c` 的模块保护边界。历史来源和当前规格见下方文档。使用本轮已定的清洁安装与模块独立认证规则。 [来源](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md) · [批次来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 走查场景
 

@@ -19,7 +19,7 @@
 - 实现提交 `0f69158512323f0b816433919d1ee20ad03fea53`。B06 在原生编辑输入和命令处理之前，按 DOM 快照变化调用 ProseMirror 自有的选区同步入口，并避开 IME 组合。新增正文附件、图片、双链的目标菜单，接到 DocTab、文件树定位和剪贴板。
 - 本地模板导入使用 Vault 内同级的「模板」目录保存 Markdown 副本，保留源文件。已验证目标副本可以保存编辑、关闭和重开。导入读取已落盘内容，创建副本与保存内容分两步，保存中断时可能留下空白模板。
 - 新迁入 39 个上游 DOM 文件。适用性清单覆盖固定上游全部 596 个 DOM 文件，逐项给出目标路径或理由，包含 89 个集成基线的同名候选。最终合计 77 个原样迁入、8 个适配迁入、511 个不适用。
-- 证据位于 `/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/`。已更新 `parity-82.md` 和 `runs.md`，新增 `review-fixes.md`、`endpoint-matrix.md`、`dom-tests-applicability.md`、`vendor-replay.json` 和 `vendor-replay.patch.gz`。模板和双链打开后的正文等待修订见 `3ef9e63`。
+- 证据位于 `/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/`。已更新 `parity-82.md` 和 `runs.md`，新增 `review-fixes.md`、`endpoint-matrix.md`、`dom-tests-applicability.md`、`vendor-replay.json` 和 `vendor-replay.patch.gz`。模板和双链打开后的正文等待修订见 `3ef9e63`。
 
 ## 验证
 

@@ -2,10 +2,10 @@
 // S0：从闭包清单中提取 fetch('/api…') / WebSocket / okDesktop 调用点（机械提取，形状与映射需人工补）。
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createOkParityRun, okParitySource } from "./ok-parity-paths.mjs";
 const ROOT = resolve(import.meta.dirname, "..");
 const OK = join(ROOT, "temp/sources/open-knowledge");
-const CH = join(ROOT, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
-const man = JSON.parse(readFileSync(join(CH, "closure-manifest.json"), "utf8"));
+const man = JSON.parse(readFileSync(join(okParitySource, "closure-manifest.json"), "utf8"));
 const rows = [];
 for (const f of man.files) {
   if (!/\.(tsx?|mts)$/.test(f.upstream)) continue;
@@ -30,5 +30,7 @@ let out = `# 端点矩阵（机械提取）\n\n来源：\`scripts/ok-endpoints.m
   .map((e) => `- \`${e}\``)
   .join("\n")}\n\n## 调用点\n\n| 类型 | 文件:行 | 目标 | 代码 |\n|---|---|---|---|\n`;
 for (const r of rows) out += `| ${r[0]} | ${r[1].replace("packages/", "")}:${r[2]} | \`${r[3]}\` | \`${r[4].replace(/\|/g, "\\|").replace(/`/g, "'")}\` |\n`;
-writeFileSync(join(CH, "endpoint-matrix.md"), out);
+const report = join(createOkParityRun("ok-endpoints"), "endpoint-matrix.md");
+writeFileSync(report, out);
 console.log({ calls: rows.length, apiPaths: eps.size, desktop: dm.size });
+console.log(`报告 ${report}`);

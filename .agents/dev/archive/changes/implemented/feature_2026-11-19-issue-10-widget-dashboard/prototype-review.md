@@ -5,7 +5,7 @@
 - 将 [index.html](prototype/index.html) 用浏览器打开即可操作。在宽窗用「添加小组件」开目录，点「编辑布局」进入草稿，点小组件右侧菜单配置或调整。页尾「原型演练」提供保存故障、插件与只读状态、主题和重置。
 - 版本为当前 `prototype/` 的六个资源文件，SHA-256 为 `e05833795a1bea4a6d93a90396ee9da2b8d3070d79c5ba413217327ce0156342`。以 `node .agents/skills/dev-prototype/scripts/fingerprint.mjs .agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/prototype --expect <SHA-256>` 复核整个目录。
 - 沿用 Huhu `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10` 的 Shell、首页内容、贡献定义和 SSH／Git 小组件信息结构。原型包随附 Huhu 自有品牌及语义 token。 [HomeModule](../../../../../../packages/workbench/src/home/HomeModule.tsx) · [贡献注册](../../../../../../packages/workbench/src/contributions.ts) · [SSH 卡](../../../../../../plugins/ssh/src/ui/HomeWidget.tsx) · [Git 卡](../../../../../../plugins/versioning/src/ui/HomeWidget.tsx)
-- 对照 Homarr `dev@b440fdd574c9daa229f5cf64f7b2532770799664` 的几何、重排与就地编辑路径，核对 RGL、GridStack 与 dnd-kit 本地来源。独立 HTML 以格点 CSS 和小型状态模型展现交互，生产网格 PoC 由 W01 验证。 [批次源码](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md) · [Issue](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md)
+- 对照 Homarr `dev@b440fdd574c9daa229f5cf64f7b2532770799664` 的几何、重排与就地编辑路径，核对 RGL、GridStack 与 dnd-kit 本地来源。独立 HTML 以格点 CSS 和小型状态模型展现交互，生产网格 PoC 由 W01 验证。 [批次源码](../feature_2026-11-19-huhu-issues-3-10/sources.md) · [Issue](source.md) · [规格](spec.md) · [设计](design.md) · [实施计划](plan.md)
 
 ## 需求与场景覆盖
 

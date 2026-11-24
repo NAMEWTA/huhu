@@ -17,7 +17,7 @@ F07 和 F08 已实现并通过对应验证。H03 扫出 28 个白名单外的英
 
 - `784058e` 实现编辑区内的详情栏布局、窄栏操作收纳和 OK 主题映射，加入三项 Electron 验证及启动测量脚本。
 - `585b997` 隔离矩阵用例的 Electron 缩放状态。`f1cec8f` 映射文件树的操作按钮颜色。`34e7547` 收纳极窄布局的视图标签。`19a0ef0` 等待文件树颜色过渡结束再审计。`8168981` 为紧凑模式下拉留出文本空间。
-- `a842d06` 保存 [F07](</home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/f07-toolbar.md>)、[F08](</home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/f08-theme.md>)、[H03](</home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/h03-i18n.md>)、[G07](</home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md>) 和 [运行记录](</home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md>)。
+- `a842d06` 保存 [F07](</home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/f07-toolbar.md>)、[F08](</home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/f08-theme.md>)、[H03](</home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/h03-i18n.md>)、[G07](</home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md>) 和 [运行记录](</home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md>)。
 - rc.4 对照工作树保留在 `/home/wta/projects/huhu-wt-rc4`，detached HEAD 为 `913264045cee1818497a37a57715c664aa85a1ae`。
 
 ## 验证

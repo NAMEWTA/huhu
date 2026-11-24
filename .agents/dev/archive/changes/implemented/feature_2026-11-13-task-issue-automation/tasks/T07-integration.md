@@ -1,5 +1,7 @@
 # T07 整合、清理与交付
 
+[验收报告](../evidences/T07-integration.md)
+
 **规格**：[spec.md](../spec.md) §10、§11 全部、§14（Issue）完成定义；验收 D05、D06。
 
 **交付**：

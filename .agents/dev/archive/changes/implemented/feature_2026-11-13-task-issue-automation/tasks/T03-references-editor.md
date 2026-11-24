@@ -1,5 +1,7 @@
 # T03 `@` 引用补全、双链解析与改名改写
 
+[验收报告](../evidences/T03-references-editor.md)
+
 **规格**：[spec.md](../spec.md) 的 §3.2（代码围栏判定）、§3.4；TD-13。
 
 **交付**：

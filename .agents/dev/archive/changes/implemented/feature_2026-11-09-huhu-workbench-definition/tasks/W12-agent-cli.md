@@ -1,5 +1,7 @@
 # W12 Agent CLI
 
+[验收报告](../evidences/W12-agent-cli.md)
+
 ## W12.1 Herdr Core 打包与客户端
 
 - 目标：Engine 能启动私有 Herdr Core、运行终端、attach/detach、在 Engine 重启后重新连接，三平台通过。

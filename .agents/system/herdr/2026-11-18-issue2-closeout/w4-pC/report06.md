@@ -21,7 +21,7 @@ ACC-KN-04 草稿恢复和 ACC-KN-05 合并均通过。候选 `33e2113` 上，原
 
 - Workbench 将设置页往返的活动状态交给 NotesModule。DocumentSession 沿用真实保存队列，交付草稿并防止迟到读取覆盖后续输入。
 - `session-flush.spec.ts` 新增普通返回、切笔记、关闭标签三条手动模式回归。DocumentSession 单测覆盖重开读盘期间的待结算输入。原 `shell.spec.ts` 完整保留。
-- `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md` 和 `runs.md` 记录提交对照、定因及验证。原始日志和 trace 保存在 `/tmp/huhu-session-06/`。
+- `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md` 和 `runs.md` 记录提交对照、定因及验证。原始日志和 trace 保存在 `/tmp/huhu-session-06/`。
 
 ## 验证
 

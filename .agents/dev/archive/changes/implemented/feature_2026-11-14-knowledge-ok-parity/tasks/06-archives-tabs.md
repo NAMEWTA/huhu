@@ -1,5 +1,7 @@
 # 06 档案标签与侧栏切换（S6）
 
+[验收报告](../evidences/06-archives-tabs.md)
+
 规格：E01–E05；设计：[design.md](../design.md) §7；界面：[ui-design.md](../ui-design.md) §2；决定：OP-D12；复用：obsidian-huhu 的 target 驱动思路；现行档案规范 `notes/context/archives.md`。
 交付：用户角度——顶部分区顺序为“文件 / 星标 / 日记 / 标签 / 回收站 / 档案”；点“档案”打开（或聚焦）真实的档案首页标签；类型页、记录页同样是标签；活动档案标签使侧栏切到档案树，切回文件标签恢复文件树，两者展开状态各自记忆；普通目录点击只浏览；`Archives/` 在文件视图里仍是真实目录；同一 `index.md` 的 Markdown 视图与档案视图共享一个会话。
 依赖：S1（`DocTab`、`sidebarContext`、`DocumentSession`）。

@@ -1,7 +1,7 @@
 # 复用核对（CLAUDE.md“强制执行复用优先原则”）
 
 > 顺序：① Huhu 现有实现 → ② `temp/sources` → ③ 成熟开源依赖 → ④ GitHub 优秀项目 → ⑤ 小范围适配 → ⑥ 自行开发。
-> 每行：检查过的文件 / 符号 → 可复用部分 → 不足 → 适配边界 → 验证。检查证据见 [evidence/e0-source-survey.md](evidence/e0-source-survey.md)。**“未核实”是真未核实，S0 补。**
+> 每行：检查过的文件 / 符号 → 可复用部分 → 不足 → 适配边界 → 验证。检查证据见 [evidence/e0-source-survey.md](verification/e0-source-survey.md)。**“未核实”是真未核实，S0 补。**
 > `temp/sources/open-knowledge` 与 `temp/sources/orca` 均已核实在固定 SHA（`44a2e0a` / `7041ea02`），两者工作区只缺根 `LICENSE`（取 `git show HEAD:LICENSE`）。用户已决定：来源“复制复刻”，编辑器以 OK 为主。
 
 ## 1. 主编辑器与 Markdown 保真

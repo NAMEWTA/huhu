@@ -28,7 +28,7 @@
 
 ## 来源与适配
 
-先查 Huhu 的 Shell、VaultMenu、CommandPalette、主题、关闭流程及 [R-46 台账](../../../../../../docs/upstream/ledger.md)。[本批来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)登记了实际检出。本地只读参考为 `temp/sources/open-knowledge`，本批核对 `origin/main@b2af296a73049ddd47f6d679b36774ecbdd3d19b`。已有 OK vendor 是编辑器闭包。Electron 自带 BrowserWindow/Menu 已足够作为首选依赖，当前 Huhu 根许可为 GPL-3.0-or-later。下表对应上游默认分支的本地文件；Issue 固定 SHA 的历史出处保存在 [source.md](source.md)。只借用授权的源码职责、行为和信息结构，品牌、导航、控件与文案沿用 Huhu。实施时按实际复制部分保留版权、许可证与修改说明，补台账、用 `pnpm notices` 检查分发清单。
+先查 Huhu 的 Shell、VaultMenu、CommandPalette、主题、关闭流程及 [R-46 台账](../../../../../../docs/upstream/ledger.md)。[本批来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)登记了实际检出。本地只读参考为 `temp/sources/open-knowledge`，本批核对 `origin/main@b2af296a73049ddd47f6d679b36774ecbdd3d19b`。已有 OK vendor 是编辑器闭包。Electron 自带 BrowserWindow/Menu 已足够作为首选依赖，当前 Huhu 根许可为 GPL-3.0-or-later。下表对应上游默认分支的本地文件；Issue 固定 SHA 的历史出处保存在 [source.md](source.md)。只借用授权的源码职责、行为和信息结构，品牌、导航、控件与文案沿用 Huhu。实施时按实际复制部分保留版权、许可证与修改说明，补台账、用 `pnpm notices` 检查分发清单。
 
 | 已查上游 | Huhu 拟适配位置与限度 | 验证 |
 | --- | --- | --- |
@@ -38,7 +38,7 @@
 
 ## 待决选择
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 | 用户需决定的体验 | 选项、建议及代价 | 前置与影响 |

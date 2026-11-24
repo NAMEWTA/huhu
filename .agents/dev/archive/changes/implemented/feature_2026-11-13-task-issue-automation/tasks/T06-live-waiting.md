@@ -1,5 +1,7 @@
 # T06 运行中等待人工（Herdr 状态订阅）
 
+[验收报告](../evidences/T06-live-waiting.md)
+
 **规格**：[spec.md](../spec.md) §7（全部）；TD-07。
 
 **交付**：

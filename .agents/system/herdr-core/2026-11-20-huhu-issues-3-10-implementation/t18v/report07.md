@@ -23,7 +23,7 @@
 - 原型 SHA-256 为 0a890ec3a9f26bbedc304f7b61e9cb41975d8b48df4ca2a96a33ee05fb473d2b。按 fileView、conflictDialog 和 startTransfer 核对确认反馈。
 - 复用 H6 FileSessions、SshManager.withSftp、既有 SFTP 读写流／路径规范和 FilesPanel 的原生选取。本地 Motty main@2daa9db582e16edf60a60b7ada26f47f808f973c 的 internal/sftpclient/worker.go 与 write_protocol_test.go 用于核对队列、暂停、续传和发布恢复。
 - 实现位于 plugins/ssh。钉住的真机验证入口为 tests/e2e/workflows/ssh-workspaces.spec.ts。
-- 证据在 .agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence 下的 H7-transfer-reuse.md 和 H7-transfer-windows.md。
+- 证据在 .agents/dev/changes/2026-11-19-issue-7-ssh-module/verification 下的 H7-transfer-reuse.md 和 H7-transfer-windows.md。
 
 ## 验证
 

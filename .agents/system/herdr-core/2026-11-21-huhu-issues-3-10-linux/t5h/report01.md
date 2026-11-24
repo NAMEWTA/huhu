@@ -62,7 +62,7 @@
 | 第二项／脱离和重复清理 | 在真实 Shell 中启动夹具监听器，让其脱离 TTY、关闭标准 fd、清空环境并在父进程退出后继续响应随机挑战。先证明它独立存活、原 run scope 有成员；外部再起相同程序名的对照监听器。分别由显式关闭、Shell 自然结束、停用、换 Vault 及 Engine 崩溃复启触发清理，两次调用均收敛。回收后原组为空/消失、原出生实例消失、端口可重新绑定，对照仍回答自己的挑战。 |
 | 第二项／宿主和平台边界 | 模拟同名 unit 拥有新 InvocationID、停管后失联、管理器拒绝创建、shell 放行前 Engine 消失、cgroup 只读及无用户 bus。重用 PID 对照可通过注入过期出生身份确定性验证；不以等待系统偶然重用为唯一手段。缺能力时不启动宣称严格管理的 Shell；握手前失败没有遗留监听器；已运行但失去证据时不终止对照。Windows 原生/WSL 分开记录宿主 Job 与来宾监听器；macOS 先以清空环境的脱离夹具测出剩余边界。三平台均验前台作业控制、Ctrl-C、resize、自然退出及重新挂接。 |
 
-现有项目记录 `.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H-remaining-linux.md` 已有普通 Shell 的 PID、重挂、Web 拒绝、正常停用和 socket 目录验证。本报告仅交付设计以及上述本机只读证据，没有在真实 Vault、Core、系统服务或业务代码上做任何改动；未运行测试、构建或新建/停止服务。Linux 桌面 scope 的实际授权、15 秒内完成率、macOS 全覆盖及 Windows/WSL 行为仍待独立夹具验证。
+现有项目记录 `.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H-remaining-linux.md` 已有普通 Shell 的 PID、重挂、Web 拒绝、正常停用和 socket 目录验证。本报告仅交付设计以及上述本机只读证据，没有在真实 Vault、Core、系统服务或业务代码上做任何改动；未运行测试、构建或新建/停止服务。Linux 桌面 scope 的实际授权、15 秒内完成率、macOS 全覆盖及 Windows/WSL 行为仍待独立夹具验证。
 
 ## Lead 验收
 

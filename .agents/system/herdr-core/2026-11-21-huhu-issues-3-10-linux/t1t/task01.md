@@ -21,7 +21,7 @@
 2. `2a170094`（t10/report02.md，合并 `7344d3e5`）：#4 受控 Codex 派遣在 Linux。规格 `.agents/dev/changes/2026-11-19-issue-4-*`。重点：原生回执与 ACK 去重、POSIX 路径/进程语义、未知结果不重放、不写真实原生 Agent 历史。
 3. `f70f1a44`（合并 `4a9a7305`）：CLI 自启动 Engine 复用桌面模块凭据、无头 SSH 作业保活。重点：凭据复用的主体/Vault 绑定、保活不会让撤权/停用后的作业继续、Engine 退出回收。
 4. `decfca90`（POSIX 下清洗 Git 私有环境变量）、`cccaf2ea`（可移植 AI 设置拒绝 API Key）、`5021f54c`（Vault 独占创建发布后暂存清理失败不报假失败；`packages/vault/src/write.ts`）。
-5. `f7901b0a`（Mail AI 选择用例放开，及 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md` 末节）、`fc048b6b`（health.run 与外部布局读取不启动 Herdr Core；工作台调用者仍可为恢复布局拉起 Core）。
+5. `f7901b0a`（Mail AI 选择用例放开，及 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md` 末节）、`fc048b6b`（health.run 与外部布局读取不启动 Herdr Core；工作台调用者仍可为恢复布局拉起 Core）。
 
 ## 读写范围与产物
 

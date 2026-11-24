@@ -1,5 +1,7 @@
 # W07 批注
 
+[验收报告](../evidences/W07-comments.md)
+
 ## W07.1 批注数据与锚点
 
 - 目标：批注作为 `Comments/` Markdown 文件创建、回复、解决、重开、删除；文档保存后自动重定位。

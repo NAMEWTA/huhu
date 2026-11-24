@@ -30,7 +30,7 @@
 ## 读写范围与产物
 
 - 可写业务范围（仅在 /home/wta/projects/huhu-wt-session）：task01 的全部范围，**另加**：`plugins/notes/src/ui/NoteDocument.tsx`、`plugins/notes/src/ui/documents/**`、`packages/editor/src/rich/compact.tsx`、`packages/editor/src/rich/rich.d.ts`（只增加 onPort 声明）、`packages/editor/src/rich/RichMarkdownEditor.tsx`（只在确有必要时做最小改动，例如测试钩子，并说明理由）、`plugins/tasks/src/**`、`plugins/inbox/src/**`、`packages/workbench/src/state/**`、`tests/e2e/knowledge/**`（新增或修改 session / compact 相关用例；`compact-cost.spec.ts`、`editor-s2b.spec.ts` 可改）。不改 vendor 桥的调度参数，不改 CSS 与工具栏。
-- 预期产物：在 closeout/issue2-session 上提交；`/home/wta/projects/huhu-wt-session/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/c06-h05-fix.md`（判红 → 转绿的运行记录、修改的入口清单、F09 数据）；更新 `/home/wta/projects/huhu-wt-session/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/runs.md`。
+- 预期产物：在 closeout/issue2-session 上提交；`/home/wta/projects/huhu-wt-session/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/c06-h05-fix.md`（判红 → 转绿的运行记录、修改的入口清单、F09 数据）；更新 `/home/wta/projects/huhu-wt-session/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/runs.md`。
 
 ## 验收与验证
 

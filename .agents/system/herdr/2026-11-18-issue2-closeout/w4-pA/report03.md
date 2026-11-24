@@ -18,7 +18,7 @@
 在 `/home/wta/projects/huhu-wt-parity` 的 `closeout/issue2-parity` 分支提交 `c80391c8af496def8a17b728142ce46ad3521db3`。工作树干净。
 
 - 更新既有逐项用例，核对完整选项名称并为每次执行输出独立的 `slash-matrix.json)。[editor-s3-matrix.spec.ts](/home/wta/projects/huhu-wt-parity/tests/e2e/knowledge/editor-s3-matrix.spec.ts:126)
-- 追加原始失败、最终负载命令和全部结果。[runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md)
+- 追加原始失败、最终负载命令和全部结果。[runs.md](/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md)
 
 ## 验证
 

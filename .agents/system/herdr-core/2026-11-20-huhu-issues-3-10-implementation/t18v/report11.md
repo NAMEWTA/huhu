@@ -15,11 +15,11 @@
 
 | 提交 | 可核验结果 |
 | --- | --- |
-| `89d84e3d29c746b760350f587378fcc448d0a397` | H8 Remote 收到 `forwardIn` 成功回复后显示已确认的申请地址和端口，并说明实际绑定由服务器策略决定。Local、SOCKS5、HTTP CONNECT 通过 `server.address()` 显示实际绑定。四种转发通过真实的回环 TCP 验证。 [独立复核](<D:/Document/code/huhu/.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t1bh/report01.md>) · [H8 证据](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H8-runtime-windows.md>) |
+| `89d84e3d29c746b760350f587378fcc448d0a397` | H8 Remote 收到 `forwardIn` 成功回复后显示已确认的申请地址和端口，并说明实际绑定由服务器策略决定。Local、SOCKS5、HTTP CONNECT 通过 `server.address()` 显示实际绑定。四种转发通过真实的回环 TCP 验证。 [独立复核](<D:/Document/code/huhu/.agents/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t1bh/report01.md>) · [H8 证据](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H8-runtime-windows.md>) |
 | `ed7ef6f7011151ba6c92b2656c821a506d78abb2` | SSH 侧栏使用一个纵向滚动容器。标题、项目、页脚参与同一布局，960×600 仍可把完整项目滚到可点击区域。「并发版本」和「Mirror Copy」的公共用例分别通过。这个提交只改 SSH CSS。 |
 | `22e86fd3ce8fdb95ffaa1c27c27faeefebc4ce4f` | H10.1 在全局设置贡献 SSH 页。保存后应用标签方向、分栏工具栏、终端字体与局部字号缩放。按设备和 Vault 标识恢复之前选中的已有运行，断线由用户手动重连。 |
 | `f8f00159c8bb6ced65910799e387179f64eaa490` | H10.2 分开保存本机文件视图和 Vault 默认值。新拨号与同一拨号链读取同一份连接偏好，主机覆盖和显式 0 有效。文件表实际过滤点文件和改变默认排序，附着视图及双栏消费相应偏好。并发数用于实际传输队列调度。 |
-| `6ba3c6bddf7d59763643d86e07509c4177211f47` | H10.3 读取共享网关的修订、能力目录、stdio／HTTP 状态和 SSH 审计，复制的示例留空真实路径和令牌。SSH 当前没有可开放能力，工具选择仍由能力网关管理。 [H10 消费者与取证](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/evidence/H10-settings-windows.md>) |
+| `6ba3c6bddf7d59763643d86e07509c4177211f47` | H10.3 读取共享网关的修订、能力目录、stdio／HTTP 状态和 SSH 审计，复制的示例留空真实路径和令牌。SSH 当前没有可开放能力，工具选择仍由能力网关管理。 [H10 消费者与取证](<D:/Document/code/huhu/temp/issue-worktrees/task-cutover/.agents/dev/changes/2026-11-19-issue-7-ssh-module/verification/H10-settings-windows.md>) |
 
 ## 验证
 

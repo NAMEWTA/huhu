@@ -22,7 +22,7 @@
 
 #10 的窄屏顺序和尺寸写回同一布局，被动缩窗不写盘。切模块或关窗遇到未保存改动，提供保存、放弃、继续编辑，保存失败留在原处。#3 由 Main 等待离场结果，再决定是否允许关窗。#10 的 ACC-DASH-12 按新格式备份、恢复与损坏保护验收，旧 hidden/order 迁移只保留在原 Issue 历史出处。验证使用临时测试 Vault。[窄屏编辑](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/tasks/W04-05-narrow-layout.md) · [草稿离场](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/tasks/W04-07-leave-draft.md) · [应用退出](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-3-desktop-shell/tasks/S1a-03-quit-transaction.md) · [新格式恢复](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/tasks/W02-05-restore-board.md)
 
-#5 的规则与已入队任务归对应任务组，#10 自动化卡仅读取摘要。#6 的默认工具关闭及撤销后断开该邀请所建会话，已在 #10 的外部联验处引用。版本依据为本地默认分支及批次清单。UI 使用 Huhu 自有品牌、主题、导航及文案。两个 HTML 原型与其评审记录由平行组交付，本任务只读取和复核。[批次决定](../topic.md) · [来源清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)
+#5 的规则与已入队任务归对应任务组，#10 自动化卡仅读取摘要。#6 的默认工具关闭及撤销后断开该邀请所建会话，已在 #10 的外部联验处引用。版本依据为本地默认分支及批次清单。UI 使用 Huhu 自有品牌、主题、导航及文案。两个 HTML 原型与其评审记录由平行组交付，本任务只读取和复核。[批次决定](../topic.md) · [来源清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)
 
 ## 验证
 

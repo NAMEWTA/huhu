@@ -1,5 +1,7 @@
 # W05-07 按实例显示主机列表或指定主机
 
+[验收报告](../evidences/W05-07-ssh-widget.md)
+
 SSH 插件拥有 hostId 选择和卡体。用两份预置实例先验证数据独立，W03-02 承担目录添加流程。
 
 **规格范围**　ACC-DASH-05、ACC-DASH-08、ACC-DASH-09、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

@@ -2,7 +2,7 @@
 
 角色：具体实现（gpt-6.2-sol medium）。工作目录 `/home/wta/projects/huhu-wt-css`，分支 `closeout3/h02`（= `closeout2/final` f9f0186，含你的 5074745）。提交，不推送。
 
-依据：独立审查 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/reopened/independent-review.md` 第 1、2 条与「证据限制」H02 项；OP-D05（`decisions.md:55`）。
+依据：独立审查 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/reopened/independent-review.md` 第 1、2 条与「证据限制」H02 项；OP-D05（`decisions.md:55`）。
 
 ## 要求
 1. **守护口径**：A 集合必须包含 Huhu 在 `components`/`shell`/`modules` 及其**所有子层**（含 `modules.huhu-ok`）中的 CSS。修正守护器后报告严格集合。

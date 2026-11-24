@@ -8,7 +8,7 @@
 - 冷启动到「工作台可见且引擎就绪」(homeMs)：rc.4 p50/p95 1415.7/1489.5，候选 1509.4/1602.4；配对差中位 +56.5 ms，16/20 对候选更慢。
 - 收件箱：候选更快（配对中位 −11 ms）。首篇笔记 75 → 472 ms（知识库路径，规格只要求记录）。
 spec G07（归档 spec.md:79）要求首屏与非知识库模块冷启动对 rc.4 **无回退**；这是关闭 Issue #2 的阻断项。
-既往：pB 两轮（高负载）同方向（16/20，+108 ms）；其分阶段诊断见 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/g07-budget.md`（task02 定因与拆分；首屏 JS 已较 task01 减 22.9%，但 rc.4→交付的主进程 / 引擎阶段未定因），工具 `scripts/trace-notes-startup.mjs`。
+既往：pB 两轮（高负载）同方向（16/20，+108 ms）；其分阶段诊断见 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/g07-budget.md`（task02 定因与拆分；首屏 JS 已较 task01 减 22.9%，但 rc.4→交付的主进程 / 引擎阶段未定因），工具 `scripts/trace-notes-startup.mjs`。
 
 ## 要求
 1. 把 homeMs 拆成可归因阶段：Electron 主进程启动→app ready→窗口/导航→渲染首帧→工作台 DOM→引擎就绪（引擎进程启动、插件加载、Vault 索引 2,001 篇、评论/模板/表情等新增初始化）。确认额外的 ~60–110 ms 落在哪个阶段、由哪些提交 / 模块引入（`git log 9132640..cf882bd`，可二分；rc.4 之后 OK 移植在 `7edcaa8`）。

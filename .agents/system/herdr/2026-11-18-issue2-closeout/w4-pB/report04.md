@@ -19,7 +19,7 @@
 
 - 预览内页、共享 CSP、Electron 协议接线和 vendor 补丁登记。
 - 通过真实桌面编辑器验证六种预览及其安全边界。[新增 E2E](/home/wta/projects/huhu-wt-layout/tests/e2e/knowledge/preview-html.spec.ts)
-- 根因、隔离、复跑和 F04 对照结果。[html-preview.md](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/html-preview.md) · [runs.md](/home/wta/projects/huhu-wt-layout/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/layout/runs.md)
+- 根因、隔离、复跑和 F04 对照结果。[html-preview.md](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/html-preview.md) · [runs.md](/home/wta/projects/huhu-wt-layout/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/layout/runs.md)
 
 ## 验证
 

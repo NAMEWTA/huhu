@@ -1,5 +1,7 @@
 # W06-01 一次切换到单一首页并验收
 
+[验收报告](../evidences/W06-01-home-cutover.md)
+
 唯一装配者替换三页签和旧 hidden/order 写者、移除旧接口调用，更新 D-37 的卡体归属、来源台账与 notices。新板验收仅用临时新格式 Vault。
 
 **规格范围**　ACC-DASH-01、ACC-DASH-02、ACC-DASH-03、ACC-DASH-04、ACC-DASH-05、ACC-DASH-06、ACC-DASH-07、ACC-DASH-08、ACC-DASH-09、ACC-DASH-10、ACC-DASH-11、ACC-DASH-12、ACC-DASH-13、ACC-DASH-14、ACC-DASH-15、ACC-DASH-16、ACC-DASH-17、ACC-DASH-18。[行为规格](../spec.md#用户验收) · [设计与边界](../design.md) · [计划与运行环境](../plan.md#执行边界)

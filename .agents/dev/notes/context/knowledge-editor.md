@@ -21,3 +21,5 @@
 
 ## 有意不做（Q2 / OP-D19）
 OK 的 lint / audit 面板、Share、Open with AI、presence、history、云协作与账户、AI 派发 / 队列评论、`.okignore` 隐藏、外链预览（默认关闭）。
+
+相关历史交付见[归档验收](../../archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/evidence.md)。

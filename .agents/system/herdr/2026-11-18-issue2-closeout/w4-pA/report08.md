@@ -17,7 +17,7 @@
 - 业务提交 `4394d12ede0e0417d6d67db2232fab02bd8221f5`。查找快捷键在识别实际组合键后跳过无布局框或位于 inert 子树的编辑器。模板清单列出 Vault「模板」目录中的 Markdown，以相对路径区分同名项。文件树先收集最终名称再创建，避免用笔记改名流程生成文档。
 - 格式化提交 `8849864`，仅将新增模板回归的定位语句按仓库格式分行。
 - 验收证据提交及交付 HEAD 为 `6032ead6b06db05274919e0c0bf85bef8763fc55`。工作树无未提交改动。
-- 已更新 vendor 的 `PATCHES.md` 和重放产物。验收记录在 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/` 下的 `review-fixes.md`、`runs.md` 和 `endpoint-matrix.md`。
+- 已更新 vendor 的 `PATCHES.md` 和重放产物。验收记录在 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/` 下的 `review-fixes.md`、`runs.md` 和 `endpoint-matrix.md`。
 
 ## 验证
 

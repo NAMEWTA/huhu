@@ -33,7 +33,7 @@
 
 ## 布局选型与 PoC 决策记录
 
-先查 Huhu 的两列排版、@huhu/ui、React 19、ContributionRegistry、HomeStore。[本批来源清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)登记了实际检出。本批只读核对 `temp/sources` 的默认分支检出，实际依赖以 Huhu 锁文件为准。锁文件无 RGL/GridStack，`packages/editor/package.json` 已有 dnd-kit core 6.3.1、sortable 10.0.0。为二维拖拽、尺寸约束、可留空位、碰撞和键盘编辑，按下表拟先试 RGL。复用范围按具体职责描述。运行成本/交互等价性待同样输入实测。
+先查 Huhu 的两列排版、@huhu/ui、React 19、ContributionRegistry、HomeStore。[本批来源清单](../feature_2026-11-19-huhu-issues-3-10/sources.md)登记了实际检出。本批只读核对 `temp/sources` 的默认分支检出，实际依赖以 Huhu 锁文件为准。锁文件无 RGL/GridStack，`packages/editor/package.json` 已有 dnd-kit core 6.3.1、sortable 10.0.0。为二维拖拽、尺寸约束、可留空位、碰撞和键盘编辑，按下表拟先试 RGL。复用范围按具体职责描述。运行成本/交互等价性待同样输入实测。
 
 | 结构 | 能直接复用的部分与状态所有者 | 对 Huhu 的代价、验证重点 |
 | --- | --- | --- |
@@ -43,7 +43,7 @@
 
 **PoC 判据。** 用同一批真实定义、相同空隙/边界与一张含输入框的卡，比较 RGL、GridStack 和 Homarr 行为样本：跨列跨行、保留空位、碰撞让位、min/max、缩放、多次 save/reload、取消无写、键盘替代、正文不误拖。桌面与窄容器记录指针/焦点轨迹、序列化坐标、React commit 次数及交互长帧。登记复用/需改写的路径、卸载残留、版本与许可证。RGL 达标则只接它。失败须写出最小失败样例与同条件 GridStack 结果，择一。两者均未达标再估算 Homarr 局部适配。
 
-**决策。** 冻结对照共 32 项通过 30 项。RGL 2.3.0 与 Homarr 适配均为 8/8，GridStack 的越界回滚与 Huhu 原画布的键盘播报各失败一项。按规则选择 RGL。生产沿用 RGL 传感与格点定位，鼠标、触摸和键盘共用 Huhu 让位策略、草稿与成功播报。宽窄都使用原实例键，窄屏把同一组节点投影为常规文档流。对照运行使用的 npm 发布提交与本地参考提交各自记载。 [冻结结果与原件](evidence/W01-01-grid-comparison.md) · [生产适配](../../../../../../packages/workbench/src/home/DashboardGrid.tsx)
+**决策。** 冻结对照共 32 项通过 30 项。RGL 2.3.0 与 Homarr 适配均为 8/8，GridStack 的越界回滚与 Huhu 原画布的键盘播报各失败一项。按规则选择 RGL。生产沿用 RGL 传感与格点定位，鼠标、触摸和键盘共用 Huhu 让位策略、草稿与成功播报。宽窄都使用原实例键，窄屏把同一组节点投影为常规文档流。对照运行使用的 npm 发布提交与本地参考提交各自记载。 [冻结结果与原件](evidences/W01-01-grid-comparison.md) · [生产适配](../../../../../../packages/workbench/src/home/DashboardGrid.tsx)
 
 **窄窗。** 按 [ACC-DASH-14、15](spec.md#用户验收) 投影同一个逻辑网格。按 y、x、id 投影为窄列，宽度限于容器，内容由 compact/normal/expanded 布局呈现，页面只纵向滚动。被动 resize/reflow 只更新投影。窄屏显式前移/后移、改尺寸作用于同一草稿，计算合法格位、预览受影响的卡，再由保存提交一个 revision。窄屏不提供自由二维定位，持久模型只有一套 layout。查看/编辑均以同一坐标系测量，DPI、文本缩放及主题变化要重新量测。Frame 使用语义 token、shell- 前缀。插件样式仅在本插件作用域，第三方样式纳入 vendor 层。沿用 theme/tokens/base/vendor/components/shell/modules 层序、Radix、Lucide 与 MotionProvider。抬升、占位及让位反馈在 reduced-motion 下用静态边框/位置和读屏通知。容器尺寸查询已属 Web Baseline Widely available。Electron 44.9.1 自带 Chromium 152.0.7977.167，仍须实际验证库手势与缩放。按 handle 分离触摸/内部滚动，为键盘提供坐标与尺寸控件，视觉顺序同步可理解的 DOM 顺序。不把一维拖动指南当作二维布局库。[项目设计系统](../../../../notes/context/design-system.md) · [Electron 发布版本](https://releases.electronjs.org/release/v44.9.1) · [容器查询](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Containment/Container_queries)
 
@@ -59,7 +59,7 @@
 
 ## 待决选择
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 | 体验问题 | 选项与建议（待用户确认） | 前置 / 具体影响 |

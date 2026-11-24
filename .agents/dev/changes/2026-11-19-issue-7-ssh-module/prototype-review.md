@@ -6,7 +6,7 @@
 
 - Huhu 基线为 `feature/issue-fix@9f870c0fad0c1d0538b9783214d2f4a3a3278b10`。沿用 [Huhu 外壳](../../../../packages/workbench/src/shell/AppShell.tsx)、[主题及尺寸](../../../../packages/ui/src/styles/themes.generated.css)、[共享尺寸](../../../../packages/ui/src/styles/tokens.css)及[品牌图标](../../../../assets/brand/huhu-mark-mono.svg)。
 - 行为依据见[规格](spec.md)、[设计](design.md)、[原 Issue](source.md)、[实施切片](plan.md)及[本轮用户决定](../../../system/herdr-core/2026-11-19-huhu-prototypes-and-slices/topic.md)。
-- Huhu 的[主机、终端与文件入口](../../../../plugins/ssh/src/ui/SshModule.tsx)和[现有 SSH 样式](../../../../plugins/ssh/src/ui/ssh.css)决定模块外壳与密度。交互依据为[本批次来源清单](../2026-11-19-huhu-issues-3-10/sources.md)中的 Motty `main@2daa9db582e16edf60a60b7ada26f47f808f973c` 与 Viva `main@a5da67aa63440ee836c37a5aa1c70e3eb317401c`。抽查 Motty 的工作区预设与回滚、SFTP 传输状态、转发与监控周期。上游固定 Issue 版本保留出处。界面采用 Huhu 资源。
+- Huhu 的[主机、终端与文件入口](../../../../plugins/ssh/src/ui/SshModule.tsx)和[现有 SSH 样式](../../../../plugins/ssh/src/ui/ssh.css)决定模块外壳与密度。交互依据为[本批次来源清单](../../archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)中的 Motty `main@2daa9db582e16edf60a60b7ada26f47f808f973c` 与 Viva `main@a5da67aa63440ee836c37a5aa1c70e3eb317401c`。抽查 Motty 的工作区预设与回滚、SFTP 传输状态、转发与监控周期。上游固定 Issue 版本保留出处。界面采用 Huhu 资源。
 - 连接、文件、指纹、指标与 Shell 输出均为内置虚构样例。主机表单无需密码。模拟终端只生成预设文本。
 
 ## 需求与场景

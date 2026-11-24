@@ -20,7 +20,7 @@
 ## 产物与改动
 
 - 候选提交 `b039409e4a9b5f17698063aa1491434653bcded9`，父 `1c2f8089ac399c5660291b20f042318cc4abfe04`，工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-mail-safe`。临时索引生成候选，业务与测试文件同候选一致，分支 HEAD 仍在父提交。
-- 两份 Linux 证据在候选树的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/evidence/S2.3-S8.2-linux.md` 及 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/evidence/P3.4-P10-linux.md`。工作树 `.agents` 是只读挂载，证据副本可从本任务目录读取。
+- 两份 Linux 证据在候选树的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/verification/S2.3-S8.2-linux.md` 及 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/verification/P3.4-P10-linux.md`。工作树 `.agents` 是只读挂载，证据副本可从本任务目录读取。
 - `plugins/mail` 复用草稿条件写、受管对象和 MIME 解析。图片加载仅取当前邮件包含的 URL，验证 DNS 后固定出站地址并限制静态图像媒体类型、大小与时间，回传 `data:`。受管附件取消覆盖断流、句柄撤销和发布对象后 CAS 提交前的回收。
 - 单列宿主接线。`packages/kernel/src/server/web-share.ts` 增加 `POST /api/v1/mail/attachments/:handle`，沿用现有 Web 会话、Origin/Host 和转发头策略。`apps/engine/src/boot.ts` 向该端点提供 Mail 的上传服务和插件/Vault 状态检查。授权基于已通过能力入口登记的单次句柄。Web 只发送本机选择的文件字节，草稿中保存现有的受管引用。
 - `plugins/safe/src/ui/PersonalWorkspace.tsx` 复用账号敏感读取以及会话代取消。桌面复制后 30 秒只清理仍匹配的剪贴板内容，普通 LAN HTTP 无能力时提示显式显示后手动复制。SSH 路径进行了只读源码核对和一个临时回环夹具测试。

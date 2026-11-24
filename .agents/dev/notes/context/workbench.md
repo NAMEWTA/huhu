@@ -37,14 +37,14 @@ Huhu 是以本地 Vault（Markdown 为唯一事实来源）为根的桌面工作
 
 桌面和 Web 读取同一份 Vault 看板布局 `.huhu/home/widgets.json`。各工作台编辑各自的草稿，提交带基础 revision 和幂等键，收到保存回执后才接受新的布局。旧查询需在发布回执前结算，防止迟到的读取覆盖保存结果。桌面原生关窗结算看板和文档，保存失败或回执未确认时用户可保留窗口重试，也可按提示退出。 [看板能力](../../../../packages/kernel/src/capabilities/home-dashboard.ts) · [工作台看板](../../../../packages/workbench/src/home/useDashboard.ts) · [桌面退出](../../../../apps/desktop/src/main/index.ts)
 
-2026-11-23 同条件四候选对照后采用 `react-grid-layout@2.3.0`：公开传感器、坐标与尺寸约束负责手势，Huhu 保留草稿、提交修订与碰撞让位。键盘和指针共用布局变换；宽窄视图保持同一实例节点。RGL 的格位没有变化时可能跳过活跃卡渲染，公开 onDrag/onResize 回调负责刷新像素反馈；放置预览复用同一 compactor 结果，不能只依赖上游滞后一拍的占位节点。Escape 与 touchcancel 先标记领域回滚，再通过正常 stop 清理手势监听，不能靠重挂载销毁卡片。源码鼠标、触摸取消、单次跨格停住与键盘回归通过。[生产画布](../../../../packages/workbench/src/home/DashboardGrid.tsx) · [选型及冻结夹具](../../archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W01-01-grid-comparison.md)
+2026-11-23 同条件四候选对照后采用 `react-grid-layout@2.3.0`：公开传感器、坐标与尺寸约束负责手势，Huhu 保留草稿、提交修订与碰撞让位。键盘和指针共用布局变换；宽窄视图保持同一实例节点。RGL 的格位没有变化时可能跳过活跃卡渲染，公开 onDrag/onResize 回调负责刷新像素反馈；放置预览复用同一 compactor 结果，不能只依赖上游滞后一拍的占位节点。Escape 与 touchcancel 先标记领域回滚，再通过正常 stop 清理手势监听，不能靠重挂载销毁卡片。源码鼠标、触摸取消、单次跨格停住与键盘回归通过。[生产画布](../../../../packages/workbench/src/home/DashboardGrid.tsx) · [选型及冻结夹具](../../archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidences/W01-01-grid-comparison.md)
 
 ## 模块凭据与邮件通知
 
 - Safe 保存个人网站与应用账号，由主密码保护。Mail、Git HTTPS、Agent CLI、Automations 分别拥有运行凭据。Safe 锁定不阻断模块正常认证。桌面凭据宿主的本机密文在 Vault 之外，绑定本机 Vault 实例，通过系统凭据后端保护密钥，Linux 使用 Secret Service。Vault 包可恢复新版 Safe 密文和模块配置，模块认证须按所属模块重新配置。旧版从 Safe 引用运行凭据的约定已被替代，旧格式迁入不在本批范围。 [Safe 个人记录](../../../../plugins/safe/src/engine/personal.ts) · [桌面凭据宿主](../../../../apps/engine/src/module-credential-host.ts) · [模块装配](../../../../apps/engine/src/boot.ts)
 - Graph 中旧邮件回到 Inbox 时更新列表，用户不会再次收到新信通知。新信通知需要非首扫增量中的到达证据和未读状态。观察身份、待确认与延后通知随同步状态保存，翻页、缓存窗口替换和重启仍可区分旧信回流与新信到达。独立补列可更新列表，通知判断仍以增量为准。 [Graph 增量](../../../../plugins/mail/src/engine/graph-mail.ts) · [邮件缓存与通知](../../../../plugins/mail/src/engine/message-cache.ts)
 - Mail 账号行未读与联系人列表使用相同的邮件副本选择规则；可重建缓存损坏时保留账号定义和管理入口，不能把缓存故障显示成账号消失。账号栏和联系人栏宽度保存在 Vault settings 中，窄屏只改变显示投影。[副本选择](../../../../plugins/mail/src/engine/mail-copies.ts) · [账号摘要](../../../../plugins/mail/src/engine/message-cache.ts)
-- 模块只注册一个导航离场守卫，Mail 在其中依次结算草稿和分栏偏好。分栏写入必须等待写权限查询，离场时排空包括等待期间新增的写入；失败保留原目标值供重试。成功回执取消同 Vault 的旧设置读取后再更新缓存，避免重挂载恢复旧宽度。2026-11-23 的延迟与失败桌面回归已验证这条约束，最终发布包仍单独验收。[保存协调](../../../../plugins/mail/src/ui/useMailPaneWidths.ts) · [模块守卫](../../../../plugins/mail/src/ui/MailModule.tsx) · [本次证据](../../archive/changes/implemented/feature_2026-11-23-closeout-preview-release/evidence/mail-lifecycle.json)
+- 模块只注册一个导航离场守卫，Mail 在其中依次结算草稿和分栏偏好。分栏写入必须等待写权限查询，离场时排空包括等待期间新增的写入；失败保留原目标值供重试。成功回执取消同 Vault 的旧设置读取后再更新缓存，避免重挂载恢复旧宽度。2026-11-23 的延迟与失败桌面回归已验证这条约束，最终发布包仍单独验收。[保存协调](../../../../plugins/mail/src/ui/useMailPaneWidths.ts) · [模块守卫](../../../../plugins/mail/src/ui/MailModule.tsx) · 本次证据（本机原件 `temp/dev/feature_2026-11-23-closeout-preview-release/integration/legacy-7984bff4/mail-lifecycle.json`）
 
 ## 本轮交付的验证边界
 
@@ -55,3 +55,5 @@ Huhu 是以本地 Vault（Markdown 为唯一事实来源）为根的桌面工作
 - 三平台真机验证（Windows/macOS 实机，仅 CI 与 Linux 本机跑过）；8 小时 soak；KN-03 / SF-07 / AG-06 手动记录；VS-05 / VS-08 真实远端。
 - 编辑输入延迟 p95 ≤ 16 ms：非空闲机器上 13.0–16.4 ms，负载下 43.9 ms；需在空闲机器上正式测一次。
 - rc.2 草稿 Release 未发布；之后的两个提交（清除搜索索引等）未推送，不在 rc.2 中。
+
+相关历史交付见[归档验收](../../archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/evidence.md)。

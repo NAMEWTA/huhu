@@ -1,14 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { createOkParityRun, okParitySource } from "../../../scripts/ok-parity-paths.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
-const archive = join(root, ".agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/evidence");
-const parity = join(root, ".agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity");
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
-const adaptation = readJson(join(archive, "vendor-test-adaptation.json"));
-const reviewedOkTests = readJson(join(archive, "vendor-test-subject-review.json"));
-const [ok, orca] = gunzipSync(readFileSync(join(archive, "source-file-catalog.jsonl.gz")))
+const adaptation = readJson(join(okParitySource, "vendor-test-adaptation.json"));
+const reviewedOkTests = readJson(join(okParitySource, "vendor-test-subject-review.json"));
+const [ok, orca] = gunzipSync(readFileSync(join(okParitySource, "source-file-catalog.jsonl.gz")))
   .toString()
   .trim()
   .split("\n")
@@ -52,8 +51,8 @@ for (const file of process.argv.slice(4)) {
     }
   }
 }
-const known = new Map(readJson(join(archive, "vendor-tests-na.json")).map(({ file, reason }) => [`packages/${file}`, reason]));
-for (const line of readFileSync(join(parity, "dom-tests-applicability.md"), "utf8").split("\n")) {
+const known = new Map(readJson(join(okParitySource, "vendor-tests-na.json")).map(({ file, reason }) => [`packages/${file}`, reason]));
+for (const line of readFileSync(join(okParitySource, "dom-tests-applicability.md"), "utf8").split("\n")) {
   const decision = /^\| `([^`]+)` \| [^|]+ \| 不适用 \| (.+) \|$/.exec(line);
   if (decision) known.set(decision[1], decision[2]);
 }
@@ -285,8 +284,10 @@ const coverage = Object.fromEntries(
     return [source, { passed, denominator, conservativeDenominator, minimumFor70Percent, additional: Math.max(0, minimumFor70Percent - passed) }];
   }),
 );
-writeFileSync(join(archive, "vendor-test-catalog.json"), JSON.stringify({ summary, coverage, skips }, null, 2) + "\n");
-writeFileSync(join(archive, "vendor-test-files.jsonl.gz"), gzipSync(outcomes.map((entry) => JSON.stringify(entry)).join("\n") + "\n", { level: 9 }));
+const output = createOkParityRun("vendor-test-catalog");
+writeFileSync(join(output, "vendor-test-catalog.json"), JSON.stringify({ summary, coverage, skips }, null, 2) + "\n");
+writeFileSync(join(output, "vendor-test-files.jsonl.gz"), gzipSync(outcomes.map((entry) => JSON.stringify(entry)).join("\n") + "\n", { level: 9 }));
 console.log(summary);
 console.log(coverage);
 console.log(skips);
+console.log(`报告目录 ${output}`);

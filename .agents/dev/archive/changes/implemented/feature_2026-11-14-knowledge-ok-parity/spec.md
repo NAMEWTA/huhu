@@ -22,7 +22,7 @@
 | issue 评论（优先于正文的技术选型限制） | 直接复制 OK 编辑器并重构；CodeMirror 不再是必须保留的选型；不预先禁止 Yjs 等编辑器确实依赖的文档状态库；样式技术可随源码移植、需要时同变更内更新规范与检查；不保留旧编辑器兼容层 / 双运行链路 / 双写 / “试用新版”开关；磁盘文件仍是持久内容的事实来源；主笔记编辑器不再以 ORCA 或自研方案替换 OK 为基准。 |
 | 复用原则（CLAUDE.md） | Huhu 现有 → `temp/sources` → 成熟依赖 → GitHub 项目 → 小范围适配 → 自行开发；记录见 [reuse.md](reuse.md)。 |
 | 现行规范 | `.agents/dev/notes/context/{design-system,archives,workbench}.md`；样式层序、前缀、守护脚本按 design-system；档案规范按 archives（`Archives/<类型>/<名称>/index.md`，不恢复独立插件）。 |
-| 已核实事实 | 来源工作副本与固定 SHA 一致；Huhu 与 OK 同为 GPL-3.0-or-later，ORCA 为 MIT；OK 文档真源是 `Y.Text('source')`；ORCA 的 HTML 预览**入口**依赖内嵌浏览器标签页、不可单独抽出（其 `doc-preview-protocol` 与 Huhu 现有 `huhu-app` 协议处理能否复用：未核实，S7 SP-7 评估）；OK 的 Hide 是 `.okignore`；OK 有属性面板但 issue 没列；OK 评论是 REST + 文件而非 Yjs；`zh-Hans` 目录现成。详见 [evidence/e0-source-survey.md](evidence/e0-source-survey.md)。 |
+| 已核实事实 | 来源工作副本与固定 SHA 一致；Huhu 与 OK 同为 GPL-3.0-or-later，ORCA 为 MIT；OK 文档真源是 `Y.Text('source')`；ORCA 的 HTML 预览**入口**依赖内嵌浏览器标签页、不可单独抽出（其 `doc-preview-protocol` 与 Huhu 现有 `huhu-app` 协议处理能否复用：未核实，S7 SP-7 评估）；OK 的 Hide 是 `.okignore`；OK 有属性面板但 issue 没列；OK 评论是 REST + 文件而非 Yjs；`zh-Hans` 目录现成。详见 [evidence/e0-source-survey.md](verification/e0-source-survey.md)。 |
 | 未证实假设 | 用户报告的选区 / 上下行异常的根因（issue 只列排查点：装饰重算、异步保存 / 外部重载、编辑器实例与焦点生命周期）；**S0 先在 rc.4 上用真实 Electron 复现并存证**，被替换的编辑器是否一并消除问题，要在 B06 验收中证明，不能默认。 |
 
 ## 3. 对 issue 的订正与补充（调查结果）
@@ -129,4 +129,4 @@
 
 ## 10. 现状证据（实施前核对最新代码）
 
-见 [evidence/e0-source-survey.md](evidence/e0-source-survey.md) §7（F01–F10 逐条核对）。关键入口：`plugins/notes/src/ui/{NotesModule,NoteDocument,NoteExplorer,NoteInspector,CommentsPanel,FileCard}.tsx`、`plugins/notes/src/engine/{service,index}.ts`、`plugins/notes/src/engine/{comments,archives}/`、`packages/editor/src/{MarkdownEditor,MarkdownPreview}.tsx`、`packages/kernel/src/capabilities/vault.ts`、`packages/vault/src/{index/vault-index,watch/snapshot,semantic/frontmatter}.ts`、`packages/workbench/src/{engine-client/query,state/flushers}.ts`。
+见 [evidence/e0-source-survey.md](verification/e0-source-survey.md) §7（F01–F10 逐条核对）。关键入口：`plugins/notes/src/ui/{NotesModule,NoteDocument,NoteExplorer,NoteInspector,CommentsPanel,FileCard}.tsx`、`plugins/notes/src/engine/{service,index}.ts`、`plugins/notes/src/engine/{comments,archives}/`、`packages/editor/src/{MarkdownEditor,MarkdownPreview}.tsx`、`packages/kernel/src/capabilities/vault.ts`、`packages/vault/src/{index/vault-index,watch/snapshot,semantic/frontmatter}.ts`、`packages/workbench/src/{engine-client/query,state/flushers}.ts`。

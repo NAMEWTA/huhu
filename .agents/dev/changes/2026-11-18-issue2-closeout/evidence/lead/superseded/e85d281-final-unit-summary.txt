@@ -1,4 +1,0 @@
-test.log: Test Files  85 passed | 1 skipped (86)
-test.log:      Tests  1006 passed | 1 skipped (1007)
-test:vendor.log: Test Files  330 passed (330)
-test:vendor.log:      Tests  6391 passed | 4 skipped (6395)

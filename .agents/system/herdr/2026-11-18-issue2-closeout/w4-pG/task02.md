@@ -6,7 +6,7 @@
 `HUHU_PERF_STRICT=1 xvfb-run -a pnpm e2e tests/e2e/perf.spec.ts -g '编辑输入延迟' --retries=0`
 - rc.4（CodeMirror）：p95 14.8 ms，最大 25.8，样本 80 → 通过。日志 `/tmp/claude-1000/-home-wta-projects-huhu/c2410bfd-f61b-4b17-99f5-52f055b662c9/scratchpad/int9/f09-huhu-wt-rc4.log`
 - e85d281（OK 富文本）：p95 21.8 ms，最大 29.1 → 失败。日志 `/tmp/claude-1000/-home-wta-projects-huhu/c2410bfd-f61b-4b17-99f5-52f055b662c9/scratchpad/int9/f09-huhu-wt-int.log`；全量中 21.3 ms。
-- main 9f870c0 已有同水平（配对 22.4 vs 21.5，`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/f09-findreplace.md`），即回退随 OK 移植 7edcaa8 进入。
+- main 9f870c0 已有同水平（配对 22.4 vs 21.5，`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/f09-findreplace.md`），即回退随 OK 移植 7edcaa8 进入。
 - 项目质量目标：归档 `feature_2026-11-09-huhu-workbench-definition/quality.md:42` 编辑输入延迟 p95 ≤ 16 ms。Issue #2 F09 要求测量记录；Issue §14 末段允许「明确、审查过的预期变化」。
 
 ## 要求（有界：先定因再判断可行性）

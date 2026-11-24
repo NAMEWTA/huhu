@@ -25,4 +25,4 @@
 
 ## 验收
 
-Lead 已回读 t5–t8 四份终稿并逐组验收。八份来源身份、正文及评论数已与 GitHub 复核，八个 change 的四类文件及其本地链接已核对。实施顺序见 [规划总览](../../../dev/changes/2026-11-19-huhu-issues-3-10/program.md)。本轮只交付文档。
+Lead 已回读 t5–t8 四份终稿并逐组验收。八份来源身份、正文及评论数已与 GitHub 复核，八个 change 的四类文件及其本地链接已核对。实施顺序见 [规划总览](../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md)。本轮只交付文档。

@@ -1,5 +1,7 @@
 # S2b 去除 `!important`
 
+[验收报告](../evidences/02b-important.md)
+
 规格：[spec.md](../spec.md) §3.2（`!important` 两类例外）、DC-D5；DSC-05。
 交付：项目 CSS 中不带说明的 `!important` 为 0；保留的只属于“减少动效”“覆盖第三方内联样式”两类，并有描述性 disable 注释；渲染不变。
 依赖：S2a（样式已在层里，才能判断每个 `!important` 在新层序下是否还有必要）。

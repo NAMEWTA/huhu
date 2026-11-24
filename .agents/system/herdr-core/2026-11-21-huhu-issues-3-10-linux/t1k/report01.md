@@ -14,7 +14,7 @@ HTTP MCP 初始化后由父 Bearer 与 SDK 句柄共同认证，使用同一 Vau
 ## 产物与改动
 
 - 工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，分支 `impl/huhu-issues-3-10-g6-protocol`，候选 `438f4281a01094fd98a73af40d8a0ae09949be43`，唯一父提交 `f7901b0a6b86910f52d74efac8ec1f438b387a9d`。候选使用临时索引，分支和真实索引保持在基线。
-- 证据位于候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/G-session-identity-linux.md`。工作树内 `.agents` 为只读挂载，因此通过临时索引加入该文件，工作树业务文件与候选一致。证据副本和日志目录位于 `/tmp/huhu-g6-session-t1y.AThDMs`。
+- 证据位于候选的 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/G-session-identity-linux.md`。工作树内 `.agents` 为只读挂载，因此通过临时索引加入该文件，工作树业务文件与候选一致。证据副本和日志目录位于 `/tmp/huhu-g6-session-t1y.AThDMs`。
 - `packages/contracts/src/capability.ts` 定义会话身份。Kernel `server/mcp-http.ts` 管理与父凭据绑定的 SDK 会话，`dispatcher.ts` 把验证过的会话 subject 用于幂等、回执和能力上下文。SSH 沿用 `public-resources.ts` 到 job、attempt/prompt 和领域账本的 owner 路径。CLI 使用内层 SDK 会话连接 Engine，标准输入正常结束时显式终止该会话。 服务停用会使已绑定的 stdio 会话失效，重新启用后由新客户端进程建立会话。
 - 整合测试同步更新了旧的无握手 HTTP MCP 和未绑定的 stdio bootstrap 请求。范围包括 Engine、CLI、SSH 和直接依赖该入口的 Tasks、Automations、Mail、Safe、Agent CLI 测试，以及 SSH E2E 的请求夹具。其他插件业务代码无改动。Safe 夹具各自在普通 HTTP、HTTP MCP、stdio 入口取得其业务证明。
 

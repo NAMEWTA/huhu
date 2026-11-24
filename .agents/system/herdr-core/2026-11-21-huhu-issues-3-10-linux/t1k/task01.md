@@ -30,7 +30,7 @@
 
 ## 读写范围与产物
 
-- 可写业务范围 — `packages/contracts/**`、`packages/kernel/src/{dispatcher,operation-receipts,capabilities/define,capabilities/exposure}*` 及共享 policy、`packages/kernel/src/server/**` 与 MCP 适配器、`apps/cli/**`、`plugins/ssh/src/engine/public-*` 与 owner 相关文件、上述各自测试、#6 证据目录 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/evidence/`。实际文件名以代码为准，超出此范围前在报告说明理由。
+- 可写业务范围 — `packages/contracts/**`、`packages/kernel/src/{dispatcher,operation-receipts,capabilities/define,capabilities/exposure}*` 及共享 policy、`packages/kernel/src/server/**` 与 MCP 适配器、`apps/cli/**`、`plugins/ssh/src/engine/public-*` 与 owner 相关文件、上述各自测试、#6 证据目录 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/verification/`。实际文件名以代码为准，超出此范围前在报告说明理由。
 - 禁止改动 — 插件注册、Vault 包收集器、根 `package.json`/`pnpm-lock.yaml`、其他插件业务。不 push，不改其他分支，不启动子 agent。不碰真实 Vault、真实凭据。
 - 预期产物 — 候选提交（临时索引方式，父 `f7901b0a`）、证据 `evidence/G-session-identity-linux.md`、报告。
 
@@ -45,5 +45,5 @@
 2. 先查报告路径；已有身份匹配的终稿则仅打印路径。
 3. 只在给定范围内写业务产物；协作文件只写自己的报告和同目录临时稿。
 4. 提交方式：按 topic「决定与交接」第 2 条用临时索引生成候选提交，在报告给出 SHA，保持工作树与候选一致。测试前设 `XDG_RUNTIME_DIR="$(mktemp -d /tmp/hc-xdg.XXXXXX)"`。本机内存有限：vitest 加 `--maxWorkers=3`，不跑 e2e；另有一名实现者同时在跑测试。
-5. 2026-11-21 定案见 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`（含 Gateway 管理动作仅工作台、Mail AI 外部发送需工作台一次性批准）。
+5. 2026-11-21 定案见 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md`（含 Gateway 管理动作仅工作台、Mail AI 外部发送需工作台一次性批准）。
 6. 报告格式按 `/home/wta/projects/huhu/.agents/skills/system-herdr-core/assets/report.md`：先写同目录 `.tmp`，再 `ln` 发布并删除临时稿；发布后打印报告绝对路径并停下。

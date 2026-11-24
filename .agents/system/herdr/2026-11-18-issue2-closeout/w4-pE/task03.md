@@ -12,7 +12,7 @@
   4. 模板导入接入新建 → pB 提交
   5. 零重试气泡失败 → 471dfdf 全量零重试结果见 `/home/wta/projects/huhu/.agents/dev/changes/2026-11-18-issue2-closeout/e2e-full-471dfdf.log`（236 通过 / 2 失败 / 4 跳过）
 - 新增内容：D02 评论边缘栏 `CommentMarginRail`；富文本内 Mod+K 编辑链接（编辑器外与源码模式仍打开命令面板，Lead 的可逆产品决定，请评价是否与 Issue / spec / OK 冲突）；`patches/prosemirror-view@1.41.8.patch`（对齐上游 1.42.9 焦点回调）及其 THIRD_PARTY_NOTICES / ok-patches 登记；pB 的语言设置、表情、外壳挂载件。
-- 证据：`.agents/dev/changes/2026-11-18-issue2-closeout/evidence/` 各子目录（parity-ok/unaligned.md 中 D02、Mod+K 等价/差异的判断请独立核对，必要时对照 `temp/sources/open-knowledge`）。
+- 证据：`.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/` 各子目录（parity-ok/unaligned.md 中 D02、Mod+K 等价/差异的判断请独立核对，必要时对照 `temp/sources/open-knowledge`）。
 - 471dfdf 全量中的两处失败：`perf.spec.ts:148`（F09 16 ms 门槛，main 同样不达标，已按 Issue “测量并记录”登记）；`acceptance.spec.ts:618`（A07）。Lead 已定位为过期树行 + `service.moveEntry` 的 `mkdirSync(recursive)` 静默重建目标，已派 pC task08 修复，修好后会追加给你复核。
 
 ## 验收条件

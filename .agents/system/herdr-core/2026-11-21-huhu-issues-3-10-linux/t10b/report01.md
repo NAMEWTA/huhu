@@ -3,7 +3,7 @@
 - 状态：只读审查完成。固定候选仍有未完成的验收和已观察的失败。
 - 任务：Lead `t3p` → `t10b/task01.md`，`wta-ubuntu`。
 - 审查对象：`4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030`。集成工作树干净，`HEAD`、本地远端跟踪引用 `origin/main` 与 `origin/feature/issue-fix` 相同。本地 `main` 为 `7811141b`，主目录本地 `feature/issue-fix` 为 `47f190b1`。本次以固定提交为准，未重新查询服务器引用。
-- 源码链接以集成工作树为基准。规格依据为 `.agents/dev/changes/2026-11-19-huhu-issues-3-10/{program.md,decisions-2026-11-21.md,evidence/linux-final-gates.md}` 及七项各自的 `source.md`、`spec.md`、`plan.md` 和下列任务。运行日志位于 `/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/`。
+- 源码链接以集成工作树为基准。规格依据为 `.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/{program.md,decisions-2026-11-21.md,evidence/linux-final-gates.md}` 及七项各自的 `source.md`、`spec.md`、`plan.md` 和下列任务。运行日志位于 `/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/`。
 
 ## 规格轴
 

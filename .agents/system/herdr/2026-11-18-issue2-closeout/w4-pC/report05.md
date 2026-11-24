@@ -18,7 +18,7 @@
 在 `/home/wta/projects/huhu-wt-session` 的 `closeout/issue2-session` 分支提交 `db92ad12a1a5b147c0b761c6eb7f5104b5dfc88b`，工作区干净。生产代码沿用原有实现。
 
 - `tests/e2e/knowledge/journey.spec.ts` 等待最终精确文件内容，再检查「已保存」。完整文件比较同时核对原正文、链接、标题、`zip: 007` 和换行。前段批注写入后，通过两个已打开的文档标签切换，保留冷笔记字节与 mtime 不变的检查。
-- `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/review-fixes.md` 与 `runs.md` 记录根因、负载复跑和全量失败。原始日志和 trace 位于 `/tmp/huhu-session-05/`。
+- `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/review-fixes.md` 与 `runs.md` 记录根因、负载复跑和全量失败。原始日志和 trace 位于 `/tmp/huhu-session-05/`。
 
 ## 验证
 

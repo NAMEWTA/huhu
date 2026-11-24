@@ -20,7 +20,7 @@
 | #6 统一工具与 Web 工作台 | [33 份任务](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/tasks)、[规格](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/spec.md)、[设计](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-6-unified-tools-web/design.md)及上述计划。覆盖目录与可用性、批量策略、四个外部入口、领域接入、桌面服务、可重复邀请、设备端文件与工作台。 |
 | #7 SSH | [40 份任务](../../../../dev/changes/2026-11-19-issue-7-ssh-module/tasks)、[规格](../../../../dev/changes/2026-11-19-issue-7-ssh-module/spec.md)、[设计](../../../../dev/changes/2026-11-19-issue-7-ssh-module/design.md)及上述计划。覆盖 H1–H12 的主机/认证、工作区/Shell、文件/传输、路由、转发、监控、设置、公共对象与分发条件。本轮按离线夹具规划；生产协议、执行组件和平台证据属于后续交付。 |
 
-#6 的干净安装策略明确为全部工具关闭。G6.3/G6.4 分开验收邀请的重用、重取与独立撤销。撤销立即断开从它进入的会话及流，其他邀请及入口继续可用；停服务或换 Vault 则结束该服务代次。#5 的队列决定在 G5b.2 消费，#10 的共享布局及保存／放弃／继续编辑归属在 G5c.4 交接。#7 采用新路由及 SSH 自有凭据，保留新格式正常备份恢复；第三方格式的主动导入单独验收。基线和来源按[批次清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)核对。
+#6 的干净安装策略明确为全部工具关闭。G6.3/G6.4 分开验收邀请的重用、重取与独立撤销。撤销立即断开从它进入的会话及流，其他邀请及入口继续可用；停服务或换 Vault 则结束该服务代次。#5 的队列决定在 G5b.2 消费，#10 的共享布局及保存／放弃／继续编辑归属在 G5c.4 交接。#7 采用新路由及 SSH 自有凭据，保留新格式正常备份恢复；第三方格式的主动导入单独验收。基线和来源按[批次清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)核对。
 
 ## 验证
 

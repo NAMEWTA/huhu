@@ -1,5 +1,7 @@
 # W06 编辑器
 
+[验收报告](../evidences/W06-editor.md)
+
 ## W06.1 迁移实时预览扩展与 MarkdownEditor
 
 - 目标：Markdown 文档在实时预览、源码模式下可编辑，有行号与双侧留白，工具栏命令可用。

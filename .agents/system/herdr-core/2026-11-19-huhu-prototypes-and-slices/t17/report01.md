@@ -24,7 +24,7 @@
 | 验收要求 | 实际检查及结果 | 证据位置或复核方法 |
 | --- | --- | --- |
 | 身份与写入边界 | 读取 task、topic 与 manifest；环境 HC_TERMINAL_ID=t17，Core 启动参数、工作目录及清单当前指针相符。报告仅发布到同号路径。 | [任务](task01.md) · [主题](../topic.md) · [清单](../manifest.tsv) |
-| 开发基线 | 读取本机 Huhu 和上游源码，对四个参考项目比较 git rev-parse HEAD 与 git ls-remote --symref origin HEAD；one-mail main d1be24d5bb83、Motty main 2daa9db582e1、ORCA main 8bc232f5ed8b、herdr-core master c7517808d64f 与批次记录一致。 | [批次源码清单](../../../../dev/changes/2026-11-19-huhu-issues-3-10/sources.md)；两个 design 的复用和调用链章节 |
+| 开发基线 | 读取本机 Huhu 和上游源码，对四个参考项目比较 git rev-parse HEAD 与 git ls-remote --symref origin HEAD；one-mail main d1be24d5bb83、Motty main 2daa9db582e1、ORCA main 8bc232f5ed8b、herdr-core master c7517808d64f 与批次记录一致。 | [批次源码清单](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)；两个 design 的复用和调用链章节 |
 | 编号、索引、规格覆盖 | 从磁盘逐份解析 64 份规划，33 + 25 份任务名称和 H1 对齐，每项均在计划的索引及规格覆盖表中。核对任务内规格、设计、源码、具体原型区域、确认记录及两条以上可判定的验收。 | 两份 plan 的“规格覆盖”，各自 tasks 目录。 |
 | 本地链接与依赖 | 已解析 885 个已存在的本地链接及 180 个显式锚点，待发布的确认记录目标 2 个。58 个任务、93 条显式任务链接构成无环依赖图。再将阶段区间与整合验收展开复查，58 个节点、177 条边仍无环。 | 从两份 plan 的“切片索引与依赖”到任务“前置产物”；Python pathlib 解析相对路径，graphlib.TopologicalSorter 对依赖及整合区间排序。 |
 | 场景定位与实现环境 | 对照两份 index.html 的真实静态区域 ID 和故障选择，以及模拟脚本的工作台、设置、读写流程。每份任务含 HTML 区域、需走查的状态和确认记录指针。规划指明 Electron 44.9.1、宿主接口和 Web Baseline 条件；检索并读取 forms、validate-input-after-interaction、sanitize-untrusted-html、security 指南。 | [Mail 入口](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-8-mail-module/prototype/index.html) · [Safe 入口](../../../../dev/archive/changes/implemented/feature_2026-11-19-issue-9-safe-accounts/prototype/index.html)。原型与浏览器运行证据归 t14。 |

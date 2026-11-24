@@ -23,7 +23,7 @@
 - 可写业务范围 — `packages/workbench/src/home/**`、`packages/contracts/src/home.ts`（Widget 贡献合同的最小改动，报告单列）、`plugins/{tasks,notes,inbox,agent-cli}/src/ui/**` 与各自 `shared/` 中的 Widget 贡献、对应 manifest 的 contributes、`apps/desktop/src/renderer/main.tsx` 中首页入口、相关单测与 e2e（`tests/e2e/**`）、#10 证据目录。
 - 涉及 HTML/CSS/客户端 TS：先按 AGENTS.md 读取并执行 `.agents/skills/zh-modern-web-guidance/SKILL.md` 的 search 与 retrieve；桌面经 `window.huhuHost`，Web 按 Baseline Widely available；共享前端两端验证。
 - 禁止改动 — Engine 装配 `apps/engine/src/boot.ts`（需要时写清接线交 Lead；可在候选里改最少行并单列）、Kernel dispatcher/server/MCP、插件 engine 业务、Vault 包收集器、根锁文件。不 push，不启动子 agent，不碰真实 Vault。
-- 预期产物 — 候选提交（临时索引方式，父 `fc044713`）、证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/evidence/W05-W06-linux.md`、报告。
+- 预期产物 — 候选提交（临时索引方式，父 `fc044713`）、证据 `.agents/dev/archive/changes/implemented/feature_2026-11-19-issue-10-widget-dashboard/verification/W05-W06-linux.md`、报告。
 
 ## 验收与验证
 

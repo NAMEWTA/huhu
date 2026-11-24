@@ -17,7 +17,7 @@
 
 审查 `git diff main..03dc93b`（main = 9f870c0），**包括所有新增文件**（`git diff --name-status main..HEAD | grep ^A`），判断它是否正确补齐了 Issue #2 的关闭缺口，且没有引入回归。
 
-规格：Issue 验收 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/source-issue-2.md §14（A01–F10）；规格 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md §5（修订与 G/H）；已定决定 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/decisions.md OP-D19；Lead 台账 /home/wta/projects/huhu/.agents/dev/changes/2026-11-18-issue2-closeout/acceptance.md。证据在本工作目录 `.agents/dev/changes/2026-11-18-issue2-closeout/evidence/{parity,layout,session}/`。
+规格：Issue 验收 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/source-issue-2.md §14（A01–F10）；规格 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/spec.md §5（修订与 G/H）；已定决定 /home/wta/projects/huhu/.agents/dev/archive/changes/implemented/feature_2026-11-14-knowledge-ok-parity/decisions.md OP-D19；Lead 台账 .agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/acceptance.md。证据在本工作目录 `.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/{parity,layout,session}/`。
 
 两条轴（按 dev-review 的口径）：
 1. **规格轴**：每项改动对应的验收要求是否真的满足；证据（测试用例）是否真的断言了要求的行为（例如涉及保存时是否关闭并重开后回读，而不是只读内存；“判红”的回归用例在修复前是否确实会失败）；矩阵 82 行中“由 Huhu 等价物取代”的 5 行、不适用判定、H03 的“即时切换语言不适用”、G07 的判定，依据是否站得住。

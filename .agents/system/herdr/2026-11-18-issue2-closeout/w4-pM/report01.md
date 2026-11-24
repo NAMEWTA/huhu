@@ -19,7 +19,7 @@
 
 ## 产物
 
-ProseMirror 补丁将可信原生导航的端点快照用于 20 ms 聚焦回调和观察器的 200 ms 起点恢复窗口。核对了 npm 1.43.0 的聚焦端点比较和独立观察器回退。本地的观察器保护沿用这个端点比较原则。源码 `src/input.ts`、`src/domobserver.ts` 与发布版 ESM、CJS 一致，补丁和锁文件 SHA-256 为 `c7a17fe0b2d6de0729d661036b439747f79d5c66438d0a580b0863cafacdce05`。R-53、生成的 notices、回归文件和 pm-focus 证据均进入上述本地提交。工作树干净，提交未推送。 [跟踪证据](/home/wta/projects/huhu-wt-pm/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/pm-focus/README.md)
+ProseMirror 补丁将可信原生导航的端点快照用于 20 ms 聚焦回调和观察器的 200 ms 起点恢复窗口。核对了 npm 1.43.0 的聚焦端点比较和独立观察器回退。本地的观察器保护沿用这个端点比较原则。源码 `src/input.ts`、`src/domobserver.ts` 与发布版 ESM、CJS 一致，补丁和锁文件 SHA-256 为 `c7a17fe0b2d6de0729d661036b439747f79d5c66438d0a580b0863cafacdce05`。R-53、生成的 notices、回归文件和 pm-focus 证据均进入上述本地提交。工作树干净，提交未推送。 [跟踪证据](/home/wta/projects/huhu-wt-pm/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/pm-focus/README.md)
 
 ## 验证
 

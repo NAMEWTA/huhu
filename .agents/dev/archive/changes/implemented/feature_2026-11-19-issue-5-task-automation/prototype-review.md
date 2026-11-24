@@ -4,7 +4,7 @@
 
 - 直接用浏览器打开 [prototype/index.html](prototype/index.html)。左栏或功能栏可切「任务」和「自动化」。任务详情中的派遣、答复、运行与结果属于同一模拟任务。底部「演示控制」单独提供模拟时钟、故障和后台回执；复位或刷新重建业务样例，复位保留当前外观选择。
 - 原型包共 6 个文件，SHA-256 为 `a6b486784839e5ac3ef605d0b00e2ea6451b6f3efed43e1a71a3e90f08f8a846`。指纹由 `node .agents/skills/dev-prototype/scripts/fingerprint.mjs .agents/dev/archive/changes/implemented/feature_2026-11-19-issue-5-task-automation/prototype` 生成。交付版本为本目录中的完整资源，当前工作树无本轮提交。
-- 依据为 [Issue 快照](source.md)、[规格](spec.md)、[设计](design.md)、[计划](plan.md)、[本批上游版本](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md)与 [派发后用户决定](../../../../../system/herdr-core/2026-11-19-huhu-prototypes-and-slices/topic.md#派发后的用户决定)。核对 agent-autoloop `d1ec2d8e48de` 的回执、计时和投递行为来源，执行边界跟随 #4 与 herdr-core `c7517808d64f`。
+- 依据为 [Issue 快照](source.md)、[规格](spec.md)、[设计](design.md)、[计划](plan.md)、[本批上游版本](../feature_2026-11-19-huhu-issues-3-10/sources.md)与 [派发后用户决定](../../../../../system/herdr-core/2026-11-19-huhu-prototypes-and-slices/topic.md#派发后的用户决定)。核对 agent-autoloop `d1ec2d8e48de` 的回执、计时和投递行为来源，执行边界跟随 #4 与 herdr-core `c7517808d64f`。
 - Huhu 基线为 `feature/issue-fix@9f870c0`。遵循现行 [工作台](../../../../../../packages/workbench/src/shell/AppShell.tsx)、[任务模块](../../../../../../plugins/tasks/src/ui/TasksModule.tsx)、[任务详情](../../../../../../plugins/tasks/src/ui/TaskDetail.tsx)和 [自动化模块](../../../../../../plugins/automations/src/ui/AutomationsModule.tsx)的导航、看板、详情和列表结构，使用同一份 Huhu 主题令牌和品牌图标。
 
 ## 需求与场景覆盖

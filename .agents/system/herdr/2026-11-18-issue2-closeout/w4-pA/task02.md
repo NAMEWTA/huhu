@@ -11,7 +11,7 @@
 - 报告文件：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pA/report02.md
 - 工作目录：/home/wta/projects/huhu-wt-parity（分支 closeout/issue2-parity，接着 8298d28 继续）
 - pane 核对方式：`echo $HERDR_PANE_ID` 应为 w4:pA
-- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pA/task01.md、/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pA/report01.md（含 Lead 验收）、/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md
+- 接续依据：/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pA/task01.md、/home/wta/projects/huhu/.agents/system/herdr/2026-11-18-issue2-closeout/w4:pA/report01.md（含 Lead 验收）、/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md
 
 ## 目标与输入
 
@@ -21,11 +21,11 @@
    - 第 115 行 Embed：Q3 / OP-D19 已定为默认不联网。要验证外部 Embed 块在 Huhu 中给出明确、可理解的“已阻止 / 外部内容未加载”状态（不是空白或报错），源 Markdown 保真不丢。如果现在只是空白，就修成明确提示（优先复用上游的 PreviewBlockedNotice）。
    工具栏 / 布局 / CSS 归 w4:pB，本任务对这些只加测试、不改实现；需要改实现时写进报告，交给 Lead。
 2. 斜杠菜单偶发失败：在负载下（`stress -c 4` 或并行 e2e）重复 ≥ 20 次，查明根因（插入代码块后的复位与焦点、菜单列表缺失）。是产品缺陷就修并加回归；是测试节奏问题就按真实用户节奏修正测试，并说明依据。
-3. 在最终提交上完整运行 `xvfb-run -a pnpm e2e tests/e2e/knowledge`，以及 typecheck / lint / test / test:vendor / ok-patches --check / build / format:check / knip，全部记录在 `/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/runs.md`；同步更新 `/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/parity-82.md`，使 82 行全部为“已验证 / 由 Huhu 等价物取代且已验证 / 有效不适用”，没有待验收项。
+3. 在最终提交上完整运行 `xvfb-run -a pnpm e2e tests/e2e/knowledge`，以及 typecheck / lint / test / test:vendor / ok-patches --check / build / format:check / knip，全部记录在 `/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/runs.md`；同步更新 `/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/parity-82.md`，使 82 行全部为“已验证 / 由 Huhu 等价物取代且已验证 / 有效不适用”，没有待验收项。
 
 ## 读写范围与产物
 
-- 可写业务范围：同 task01（packages/editor/**、tests/e2e/knowledge/editor-parity-*、fidelity-*、tests/e2e/helpers/**（只增）、plugins/notes/src 中编辑器装配，仅用于修缺陷）、`/home/wta/projects/huhu-wt-parity/.agents/dev/changes/2026-11-18-issue2-closeout/evidence/parity/**`。**不改** `packages/editor/src/rich/RichMarkdownEditor*` 与 PM→Markdown 桥的推迟结算 / settleNow 逻辑（w4:pD 正在分析，相关结论另行派发），不改 notes.css 与工具栏布局实现。
+- 可写业务范围：同 task01（packages/editor/**、tests/e2e/knowledge/editor-parity-*、fidelity-*、tests/e2e/helpers/**（只增）、plugins/notes/src 中编辑器装配，仅用于修缺陷）、`/home/wta/projects/huhu-wt-parity/.agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/parity/**`。**不改** `packages/editor/src/rich/RichMarkdownEditor*` 与 PM→Markdown 桥的推迟结算 / settleNow 逻辑（w4:pD 正在分析，相关结论另行派发），不改 notes.css 与工具栏布局实现。
 - 预期产物：在 closeout/issue2-parity 上提交，更新 parity-82.md 与 runs.md。
 
 ## 验收与验证

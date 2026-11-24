@@ -11,7 +11,7 @@
 
 **已证明受信宿主可以在创建内层进程时交付选定环境。** 在固定 Herdr Core 0.1.19 与 Windows x64 上，独立 Node 测试程序的第一条业务语句直接读取 `process.env`。程序确认读到的合成值与预期 SHA-256 完全匹配，中文与非 BMP 字符保真，环境名称集合恰好等于白名单。它没有 Huhu 依赖、没有参与命名管道握手，也没有给自身设置环境。省略该变量后，同一入口报告缺失。[子程序入口](probe03/entry.cjs) · [宿主实现](probe03/main_windows.go)
 
-**真实 Pi 1.5.2 也通过这条创建路径完成了交互。** 在全新 HOME 和离线模式下，从外层 attach 输入内建命令 `/session`，收到 Pi 生成的 `Session Info` 面板；随后输入 `/quit`，内层 Pi 和外层宿主均以 0 退出。尺寸另由合成 CLI 实测，从初始 `120 × 32` 调整到 `94 × 27`。未向 Pi 提交模型提示，未调用 provider，未读取用户 CLI 配置。[首轮证据](probe03/result.json) · [独立复跑](probe03/repeat.json)
+**真实 Pi 1.5.2 也通过这条创建路径完成了交互。** 在全新 HOME 和离线模式下，从外层 attach 输入内建命令 `/session`，收到 Pi 生成的 `Session Info` 面板；随后输入 `/quit`，内层 Pi 和外层宿主均以 0 退出。尺寸另由合成 CLI 实测，从初始 `120 × 32` 调整到 `94 × 27`。未向 Pi 提交模型提示，未调用 provider，未读取用户 CLI 配置。首轮证据（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t192/task03/legacy-7984bff4/probe03/result.json`） · 独立复跑（本机原件 `temp/system/herdr-core/2026-11-20-huhu-issues-3-10-implementation/t192/task03/legacy-7984bff4/probe03/repeat.json`）
 
 ## 两轮验证结果
 

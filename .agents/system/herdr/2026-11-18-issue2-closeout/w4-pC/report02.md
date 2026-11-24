@@ -17,7 +17,7 @@ H05 的两个任务评论入口共用一次结算，按编辑器当下正文判�
 
 - 工作目录 /home/wta/projects/huhu-wt-session，分支 closeout/issue2-session，提交 eeb4413574b4f00065f11d2b7c2ff25be5903f68。工作区干净。未推送或合并。
 - 改动涵盖笔记会话及文档端口、Vault 切换、紧凑编辑器的 onPort 声明与透传、任务提交、档案正文，以及对应回归和独立 30 实例成本用例。
-- 证据文件 .agents/dev/changes/2026-11-18-issue2-closeout/evidence/session/c06-h05-fix.md、runs.md 位于该工作目录。原始日志、负载记录及失败 trace 位于 /tmp/huhu-issue2-session-02/。
+- 证据文件 .agents/dev/archive/changes/implemented/bug-fix_2026-11-18-issue2-closeout/verification/session/c06-h05-fix.md、runs.md 位于该工作目录。原始日志、负载记录及失败 trace 位于 /tmp/huhu-issue2-session-02/。
 
 ## 验证
 

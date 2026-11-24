@@ -2,7 +2,7 @@
 
 - **任务身份**　Lead `t3p` → `t15p/task01.md`，本机 Herdr Core，独立审查。共享任务根 `/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-21-huhu-issues-3-10-linux`。状态为审查报告交付。
 - **审查范围**　工作树 `/home/wta/projects/huhu/temp/issue-worktrees/agent-linux`，干净 HEAD `05a748b61eaa6dddaaa86aa648a2e68dd385d085`。以 `4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030` 为已运行旧候选对照。现有远端核对由 Lead 提供，本地跟踪引用相符，feature 指向当前候选，main 仍在旧候选。#7 SSH、其分支/change 及依赖 #7 的验收项保持暂停。
-- **依据**　逐项采用七个 change 的 `source.md`、`spec.md`、`plan.md` 和实测记录。原型确认取 `6da1b2ec`，范围变更和组合要求取 [program.md](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/program.md)、[11-21 定案](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md) 和任务指示。下文 `E` 表示项目主目录下的 `/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/`，无此前缀的运行日志在本报告同目录。旧候选 E2E 以 `E/e2e-4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030/{result.json,run.log}` 为准。
+- **依据**　逐项采用七个 change 的 `source.md`、`spec.md`、`plan.md` 和实测记录。原型确认取 `6da1b2ec`，范围变更和组合要求取 [program.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md)、[11-21 定案](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md) 和任务指示。下文 `E` 表示项目主目录下的 `/home/wta/projects/huhu/temp/issue-evidence/huhu-2026-11-22/`，无此前缀的运行日志在本报告同目录。旧候选 E2E 以 `E/e2e-4ae7e7e40eb3ffef39f2cf039124f9cf5cb6f030/{result.json,run.log}` 为准。
 
 ## 当前候选结论
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | 固定候选源码 | `combined-gates-05a748b6.log` 显示 lint、CSS 源文件检查、knip、格式、vendor 类型及全部工作区类型完成。脚本变更导致第 16 行 `-r: command not found`、退出 127，停止在 build 之前。t15k 的 `combined-build-05a748b6.log` 独立完成构建和桌面产物 CSS 检查，build-info 为 `05a748b`。 |
 | 固定候选制品 | `package-05a748b6.log` 的 Electron 44.9.1、Linux x64 AppImage SHA-256 为 `44eb01b894a4b81a17c27132b8aab29c98894f52340c5129036c1d5ae90c49d1`，deb 为 `bcf19efd240bcf81aabc19ace8685b905c932a0c12c32b6d8ece47ab0e96d05f`，均在本工作树 `apps/desktop/release/`。构建日志提示 desktop entry 与窗口关联可能受 `desktopName` 缺失影响，用户影响待原生桌面核对。 |
-| 前期全量 Vitest | t101 `349fd374` 原始结果 2056 通过、4 失败、11 跳过。两项 SSH 原失败属暂停范围。Engine 健康检查夹具明确使用不存在的 Core 后定向通过。CLI 同一 Engine 扩展卸载/复装 `ECONNRESET` 在原用例、完整文件（18/18）和 Engine+CLI（68/68）三次定向通过，原因仍未证明。见 [linux-final-gates.md](../../.agents/dev/changes/2026-11-19-huhu-issues-3-10/evidence/linux-final-gates.md)。 |
+| 前期全量 Vitest | t101 `349fd374` 原始结果 2056 通过、4 失败、11 跳过。两项 SSH 原失败属暂停范围。Engine 健康检查夹具明确使用不存在的 Core 后定向通过。CLI 同一 Engine 扩展卸载/复装 `ECONNRESET` 在原用例、完整文件（18/18）和 Engine+CLI（68/68）三次定向通过，原因仍未证明。见 [linux-final-gates.md](../../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/verification/linux-final-gates.md)。 |
 | 前期全量 E2E | t109 `4ae7e7e4` 为 351 通过、48 失败、18 跳过，另有 6 项测试外错误。运行层级混合，T7.2 和两项 Linux Agent 使用旧 AppImage，Web 分享由源码应用启动。旧包 SHA-256 为 `f497456baf7a6ea4146b3ec82694374ad3965cb51f3a747adcac5c4003d68d8a`。 |
 | 固定候选定向 E2E | t15n Notes **31 通过、1 失败**，Mail **9 通过、4 失败**。原非 SSH 失败集正在复验，收件正文/发表、紧凑命令、旧编码、1440px 工具栏及 B01 画板快照等已有通过行，整组以最终 JSON 为准。映射为 33 项源码选择和 1 项另行同包 `workspace`，`failed-source-selection.json` 仅是选择表。t15r 同锁排队单独复现 Notes 失败。t15q 包队列在等 t15n，同包结果尚无通过证据。 |
 

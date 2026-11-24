@@ -1,5 +1,7 @@
 # 02 OK 内核入场：vendor 编译、本地文档管线、样式 / i18n、切换（S2a-1/2/3 + S2b + S2c）
 
+[验收报告](../evidences/02-ok-editor-core.md)
+
 规格：G01–G04、G06、G07、H01–H07、B09、B10、C06（编辑器侧）、F09 / F10（首测）；设计：[design.md](../design.md) §2 / §3 / §4 / §12 / §13；决定：OP-D01 / D02 / D03 / D04 / D05 / D06 / D15 / D16 / D18。
 交付：用户角度——知识库里打开 Markdown 得到 OK 的富文本编辑器（可切源码 / 阅读），输入、保存、重开与此前一样可靠；任务描述与收件箱想法也用同一编辑器的紧凑变体。内部：OK core + app 编辑器闭包位于 `vendor/open-knowledge/`，补丁与来源可审计，`LocalDocProvider` + `host/` 就位。
 依赖：S0（SP-1、SP-4 通过）；S2b 另依赖 S1 的 `DocumentSession` / `EditorPort`。

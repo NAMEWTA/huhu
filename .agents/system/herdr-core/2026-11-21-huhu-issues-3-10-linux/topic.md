@@ -4,7 +4,7 @@
 
 ## 目标与验收
 
-- 目标 — 完成 [批次 Goal](../../../dev/changes/2026-11-19-huhu-issues-3-10/program.md) 的 #3–#10，交付同一组合版本的成员验收、三条联验、集成提交，合入 `feature/issue-fix` 并落地 `origin/main`。部署与发布不在范围。
+- 目标 — 完成 [批次 Goal](../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md) 的 #3–#10，交付同一组合版本的成员验收、三条联验、集成提交，合入 `feature/issue-fix` 并落地 `origin/main`。部署与发布不在范围。
 - 验收 — 在同一固定候选提交上运行 lint、knip、format:check、typecheck、test、build、e2e（xvfb）及可生成的包；逐 Issue 对照验收要求。未测项单列，不记为通过。
 - 约束 — 原型已确认（`6da1b2ec`）。保留 #2 已交付行为。隔离 Vault、回环夹具，不写真实凭据、真实 Vault 或原生 Agent 历史。Codex 不用 fast、不用权限绕过参数。最多 4 个本批次 worktree（主工作区 + 3）；`huhu-wt-int`、`huhu-wt-rc4` 为 #2 遗留，用户决定不计入、不动。
 
@@ -30,7 +30,7 @@
 
 ## 决定与交接
 
-- 2026-11-22 16:11（Asia/Taipei）在 `resume-linux` 一次性复原 `cc671b5f` 与 `53e516ca` 的合并。三阶段索引和三份工作文件均与原现场完全一致。原集成树继续实施，恢复副本保留为检查点。整批交付继续按 [批次 Goal](../../../dev/changes/2026-11-19-huhu-issues-3-10/program.md) 推进。
+- 2026-11-22 16:11（Asia/Taipei）在 `resume-linux` 一次性复原 `cc671b5f` 与 `53e516ca` 的合并。三阶段索引和三份工作文件均与原现场完全一致。原集成树继续实施，恢复副本保留为检查点。整批交付继续按 [批次 Goal](../../../dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/program.md) 推进。
 - 2026-11-22 #7 合并 `ade79b58`、接线 `690e9097` 已提交，Linux 原生 PTY 定向证据已保存。原候选 `t34/task01.md` 继续等待完整验收。装配分析 `t4k/task01.md` 已核对。规格审查 `t4v/task01.md` 与项目规范审查 `t4t/task01.md` 固定看 `690e9097`。录制回放由 `t4x/task01.md` 在独立工作树推进。
 - 2026-11-22 续工至 `ee599ce6`。录制回放已合入 `67d1f008`，外部 SSH 工作区布局和丢失本机 PTY 启动回复已有定向验证。恢复树留在原合并检查点。批量跳板由 `t4x/task02.md` 推进。接受 `t5h/report01.md` 的私有 Core 生命周期设计与 `t4v/report02.md` 的桌面、Web 和看板组合审查。OpenSSH CA 及用户证书选型见 `t5h/task02.md`。T7.1 接入已复验，W8.3 共同安装包尚未构建。
 
@@ -142,4 +142,4 @@ t180性能3pass/2fail/3扩展skip：1MiB444ms、输入11.6ms、滚动50ms和退�
 用户明确要求后续启动使用 `codex --no-daemon --dangerously-bypass-approvals-and-sandbox`，模型与推理级别沿用角色配置。此要求取代本批次此前不传权限绕过参数的用户侧约定。当前实现已冻结，不为更改参数重启现有代理。
 
 ## 最终交付回执
-2026-11-23：origin/main 与 origin/feature/issue-fix 回读同为 d056eb6383ae48411d808900c6094a48f772c07a；应用/驱动 f6c4e0d5684afa6e832340c4fbb4fd5445cf71b5。同包八组15项通过，历史源码UI两项通过，Graph16/16。集成工作树干净。证据见 integration/.agents/dev/changes/2026-11-19-huhu-issues-3-10/evidence/non-ssh-final-delivery.md；原始远端回执 integration/temp/final-audit/non-ssh-final-remote.txt。#7暂停，外部矩阵用户后测。
+2026-11-23：origin/main 与 origin/feature/issue-fix 回读同为 d056eb6383ae48411d808900c6094a48f772c07a；应用/驱动 f6c4e0d5684afa6e832340c4fbb4fd5445cf71b5。同包八组15项通过，历史源码UI两项通过，Graph16/16。集成工作树干净。证据见 integration/.agents/dev/archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/evidence.md；原始远端回执 integration/temp/final-audit/non-ssh-final-remote.txt。#7暂停，外部矩阵用户后测。

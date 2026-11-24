@@ -61,7 +61,7 @@
 
 ## 来源、许可与宿主
 
-Huhu 复用 VaultFiles/OperationLog、Markdown 区段写、ClaimStore.create、HoldStore、Croner 11.0.0（MIT）和任务 UI。claim 的 wx 回退或损坏记录须演练中断。agent-autoloop 本轮取默认分支 `main@d1ec2d8e48de`，本地 LICENSE 为 MIT。下表的 kernel/worker 路径按该 checkout 核对；Issue 固定提交保留历史出处。Core 源码、Huhu 打包锁与实际运行环境的区别见 [#4 设计](../feature_2026-11-19-issue-4-agent-cli/design.md)。[批次源码清单](../../../../changes/2026-11-19-huhu-issues-3-10/sources.md) · [Huhu 来源台账](../../../../../../docs/upstream/ledger.md)
+Huhu 复用 VaultFiles/OperationLog、Markdown 区段写、ClaimStore.create、HoldStore、Croner 11.0.0（MIT）和任务 UI。claim 的 wx 回退或损坏记录须演练中断。agent-autoloop 本轮取默认分支 `main@d1ec2d8e48de`，本地 LICENSE 为 MIT。下表的 kernel/worker 路径按该 checkout 核对；Issue 固定提交保留历史出处。Core 源码、Huhu 打包锁与实际运行环境的区别见 [#4 设计](../feature_2026-11-19-issue-4-agent-cli/design.md)。[批次源码清单](../feature_2026-11-19-huhu-issues-3-10/sources.md) · [Huhu 来源台账](../../../../../../docs/upstream/ledger.md)
 
 | 上游位置与职责 | Huhu 的移植单位及证据 |
 | --- | --- |
@@ -74,7 +74,7 @@ Huhu 复用 VaultFiles/OperationLog、Markdown 区段写、ClaimStore.create、H
 
 ## 待产品选择
 
-> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../../../../changes/2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
+> 2026-11-21 用户采纳本表全部推荐项，定案见[批次决定](../feature_2026-11-19-huhu-issues-3-10/decisions-2026-11-21.md)。
 
 
 以下两项仍待选择。规则停用与删除的确定行为见[时间规格](spec.md#何时自动派遣)，队列的单项取消由 Tasks 负责。
