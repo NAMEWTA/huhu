@@ -525,4 +525,137 @@ describe("多文件操作", () => {
     expect(res?.attention).toContain("a.md");
     expect(read(root, "a.md")).toBe("第三方修改");
   });
+
+  test.each(["write", "delete"] as const)("未受理的 %s 遇第三方同文或删除，只回滚本操作的前一步", async (action) => {
+    const { root, ops } = init();
+    const log = new OperationLog(new VaultFiles(root), ops);
+    const next = Buffer.from("same intended bytes");
+    await expect(
+      log.run(
+        "unaccepted",
+        "test",
+        [{ action: "write", path: "a.md", bytes: Buffer.from("own bytes") }, action === "write" ? { action, path: "b.md", bytes: next } : { action, path: "b.md" }],
+        {
+          afterStep: () => {
+            if (action === "write") writeFileSync(path.join(root, "b.md"), next);
+            else rmSync(path.join(root, "b.md"));
+            throw new Error("stop before second step");
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+    expect(read(root, "a.md")).toBe("A-old");
+    expect(read(root, "b.md")).toBe(action === "write" ? next.toString() : null);
+    expect(log.load("unaccepted")?.steps[1]).toMatchObject({ phase: "prepared", done: false });
+  });
+
+  test.each([0, 1, 2])("步骤 %i 发布后确认前进程退出，按原条目身份恢复", (crashAfter) => {
+    const { root, ops } = init();
+    const script = path.resolve(import.meta.dirname, "fixtures/crash-op.mjs");
+    const child = spawnSync(process.execPath, [tsxCli, script, root, ops, String(crashAfter), "afterPublish"], { encoding: "utf8" });
+    expect(child.status, child.stderr).toBe(7);
+    const reopened = new OperationLog(new VaultFiles(root), ops);
+    expect(reopened.load("op1")?.steps[crashAfter]).toMatchObject({ phase: "accepted", done: false });
+    expect(reopened.recover()).toMatchObject([{ state: "rolled_back" }]);
+    expect(new OperationLog(new VaultFiles(root), ops).recover()).toEqual([]);
+    expect(read(root, "a.md")).toBe("A-old");
+    expect(read(root, "b.md")).toBe("B-old");
+    expect(read(root, "c.md")).toBe("C-old");
+    expect(read(root, "d.md")).toBeNull();
+    expect(readdirSync(root).sort()).toEqual(["a.md", "b.md", "c.md", "e.md"]);
+  });
+
+  test.each(["same bytes", "removed"] as const)("同名替换结果被外部修改（%s）后保留现场与原条目", (change) => {
+    const { root, ops } = init();
+    const script = path.resolve(import.meta.dirname, "fixtures/crash-op.mjs");
+    const child = spawnSync(process.execPath, [tsxCli, script, root, ops, "0", "afterPublish"], { encoding: "utf8" });
+    expect(child.status, child.stderr).toBe(7);
+    fs.renameSync(path.join(root, "a.md"), path.join(root, "retained-by-external.md"));
+    if (change === "same bytes") writeFileSync(path.join(root, "a.md"), "A-new");
+    const reopened = new OperationLog(new VaultFiles(root), ops);
+    const retained = reopened.load("op1")?.steps[0]?.retained;
+    expect(retained).toBeDefined();
+    expect(reopened.recover()).toMatchObject([{ state: "needs_attention", attention: ["a.md"] }]);
+    expect(new OperationLog(new VaultFiles(root), ops).recover()).toEqual([]);
+    expect(read(root, "a.md")).toBe(change === "same bytes" ? "A-new" : null);
+    expect(read(root, `${retained!.dir}/original`)).toBe("A-old");
+  });
+
+  test("已删除的路径被占用时保留新条目与原文件，重复启动和重交不动两者", async () => {
+    const { root, ops } = init();
+    const script = path.resolve(import.meta.dirname, "fixtures/crash-op.mjs");
+    const child = spawnSync(process.execPath, [tsxCli, script, root, ops, "1", "afterPublish"], { encoding: "utf8" });
+    expect(child.status, child.stderr).toBe(7);
+    writeFileSync(path.join(root, "b.md"), "replacement");
+    const log = new OperationLog(new VaultFiles(root), ops);
+    const retained = log.load("op1")?.steps[1]?.retained;
+    expect(retained).toBeDefined();
+    expect(log.recover()).toMatchObject([{ state: "needs_attention", attention: ["b.md"] }]);
+    expect(log.recover()).toEqual([]);
+    await expect(log.run("op1", "test", [{ action: "delete", path: "b.md" }])).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { opId: "op1", state: "needs_attention" } });
+    expect(read(root, "b.md")).toBe("replacement");
+    expect(read(root, `${retained!.dir}/original`)).toBe("B-old");
+    expect(read(root, "a.md")).toBe("A-old");
+  });
+
+  test("回滚同路径多次修改时逐步核对并还原原条目", async () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const original = fs.statSync(path.join(root, "a.md")).ino;
+    await expect(
+      log.run(
+        "repeat-rollback",
+        "test",
+        [
+          { action: "write", path: "a.md", bytes: Buffer.from("middle") },
+          { action: "write", path: "a.md", bytes: Buffer.from("last") },
+        ],
+        {
+          afterPublish: (i) => {
+            if (i === 1) throw new Error("stop");
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+    expect(read(root, "a.md")).toBe("A-old");
+    expect(fs.statSync(path.join(root, "a.md")).ino).toBe(original);
+    expect(readdirSync(root).sort()).toEqual(["a.md", "b.md", "c.md", "e.md"]);
+  });
+
+  test("旧日志即使有相同内容的备份也不认领缺失文件", () => {
+    const { root, ops } = init();
+    mkdirSync(path.join(ops, "backups/legacy"), { recursive: true });
+    writeFileSync(path.join(ops, "backups/legacy/0"), "A-old");
+    rmSync(path.join(root, "a.md"));
+    writeFileSync(
+      path.join(ops, "legacy.json"),
+      JSON.stringify({
+        opId: "legacy",
+        kind: "test",
+        state: "prepared",
+        createdAt: new Date().toISOString(),
+        steps: [{ action: "delete", path: "a.md", beforeVersion: versionOf(Buffer.from("A-old")), afterVersion: null, done: true }],
+      }),
+    );
+    const log = new OperationLog(new VaultFiles(root), ops);
+    expect(log.recover()).toMatchObject([{ state: "needs_attention", attention: ["a.md"] }]);
+    expect(read(root, "a.md")).toBeNull();
+    expect(read(ops, "backups/legacy/0")).toBe("A-old");
+  });
+
+  test("事务移动带暂存文件的目录后，从实际落点清理本操作的暂存", async () => {
+    const { root, ops } = init();
+    mkdirSync(path.join(root, "old"));
+    writeFileSync(path.join(root, "old/note.md"), "original");
+    const log = new OperationLog(new VaultFiles(root), ops);
+    await expect(
+      log.run("move-during-op", "test", [
+        { action: "write", path: "old/note.md", bytes: Buffer.from("updated") },
+        { action: "rename", from: "old", path: "new" },
+      ]),
+    ).resolves.toMatchObject({ state: "committed" });
+    expect(readdirSync(path.join(root, "new"))).toEqual(["note.md"]);
+    expect(read(root, "new/note.md")).toBe("updated");
+  });
 });

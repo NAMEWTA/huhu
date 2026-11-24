@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { filesystemIdentity } from "../identity.js";
+import { CREATION_STAGE_PREFIX } from "../paths.js";
 
 export const IGNORED_DIRS = new Set([".git", "node_modules", ".huhu", ".agents"]);
 export const IGNORED_FILES = new Set([".DS_Store", "Thumbs.db"]);
@@ -18,7 +19,7 @@ export interface FileInfo {
 export function isIgnored(rel: string): boolean {
   const parts = rel.split("/");
   const last = parts[parts.length - 1] ?? "";
-  return IGNORED_FILES.has(last) || parts.slice(0, -1).some((p) => IGNORED_DIRS.has(p)) || IGNORED_DIRS.has(last);
+  return IGNORED_FILES.has(last) || parts.some((p) => IGNORED_DIRS.has(p) || p.startsWith(CREATION_STAGE_PREFIX));
 }
 
 export function infoOf(abs: string, withHash: boolean): FileInfo | null {
@@ -39,6 +40,7 @@ export function takeSnapshot(root: string, withHash = true): Map<string, FileInf
   const walk = (dir: string, rel: string) => {
     for (const ent of readdirSync(dir, { withFileTypes: true })) {
       const childRel = rel ? `${rel}/${ent.name}` : ent.name;
+      if (ent.name.startsWith(CREATION_STAGE_PREFIX)) continue;
       if (ent.isDirectory()) {
         if (!IGNORED_DIRS.has(ent.name)) walk(path.join(dir, ent.name), childRel);
       } else if (ent.isFile() && !IGNORED_FILES.has(ent.name)) {

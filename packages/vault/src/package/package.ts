@@ -4,10 +4,10 @@ import path from "node:path";
 import { errors, newVaultId } from "@huhu/contracts";
 import { Zip, ZipDeflate, unzipSync } from "fflate";
 import { z } from "zod";
-import { normalizeRelPath } from "../paths.js";
+import { CREATION_STAGE_PREFIX, normalizeRelPath } from "../paths.js";
 import { renameNoReplace } from "../rename.js";
 import { HUHU_DIR, VaultJsonSchema } from "../vault.js";
-import { CREATION_STAGE_PREFIX, VaultFiles } from "../write.js";
+import { VaultFiles } from "../write.js";
 
 export const PACKAGE_MANIFEST = "huhu-package.json";
 export const MAX_FILE_BYTES = 200 * 1024 * 1024;

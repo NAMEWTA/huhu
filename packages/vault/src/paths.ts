@@ -4,6 +4,9 @@ import { errors, type ProtectedKind } from "@huhu/contracts";
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
+/** Staging entries are reserved and must not enter workspace projections. */
+export const CREATION_STAGE_PREFIX = ".huhu-create-";
+
 const protectedNames = new Map<string, ProtectedKind>([
   [".huhu", "internal"],
   [".git", "git"],
@@ -13,6 +16,7 @@ const protectedNames = new Map<string, ProtectedKind>([
 
 export function protectedKindOf(rel: string): ProtectedKind | undefined {
   for (const segment of rel.split("/")) {
+    if (segment.startsWith(CREATION_STAGE_PREFIX)) return "internal";
     const kind = protectedNames.get(segment.toLowerCase());
     if (kind) return kind;
   }

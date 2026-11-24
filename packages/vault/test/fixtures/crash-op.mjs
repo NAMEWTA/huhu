@@ -1,7 +1,7 @@
-// 子进程：执行多文件操作，在第 N 步完成后以 process.exit 模拟崩溃。
+// 子进程：在指定步骤发布后或确认后以 process.exit 模拟崩溃。
 import { VaultFiles, OperationLog } from "../../src/index.ts";
 
-const [root, opsDir, crashAfter] = process.argv.slice(2);
+const [root, opsDir, crashAfter, timing = "afterStep"] = process.argv.slice(2);
 const files = new VaultFiles(root);
 const log = new OperationLog(files, opsDir);
 await log.run(
@@ -14,7 +14,7 @@ await log.run(
     { action: "write", path: "e.md", bytes: Buffer.from("E-new") },
   ],
   {
-    afterStep: (i) => {
+    [timing]: (i) => {
       if (i === Number(crashAfter)) process.exit(7);
     },
   },
