@@ -86,7 +86,8 @@ const marker = (file: string) => readFileSync(file, "utf8");
 
 test("停用插件后，迟到的启动对账不会重新安装 Cron", async () => {
   fixture.schedule = true;
-  const reconcile = Promise.withResolvers<void>();
+  let resolveReconcile!: () => void;
+  const reconcile = { promise: new Promise<void>((resolve) => (resolveReconcile = resolve)), resolve: () => resolveReconcile() };
   vi.spyOn(AutomationsService.prototype, "reconcileTerminals").mockReturnValue(reconcile.promise);
   const sync = vi.spyOn(Scheduler.prototype, "sync");
   const { engine } = await open();
