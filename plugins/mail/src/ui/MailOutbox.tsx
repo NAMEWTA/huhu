@@ -13,6 +13,20 @@ export const deliveryLabels = {
 
 const missingDraftMessage = "源草稿已丢弃，无法从这条记录创建重试。";
 
+export function RecipientDeliveryList({ recipients }: { recipients: Extract<Delivery, { recipients: unknown }>["recipients"] }) {
+  if (!recipients.length) return null;
+  return (
+    <ul aria-label="收件人投递结果">
+      {recipients.map(({ address, state, smtpCode }) => (
+        <li key={address}>
+          <span>{address}</span> · {deliveryLabels[state]}
+          {smtpCode && ` · SMTP ${smtpCode}`}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function MailOutbox({
   operationId,
   accounts,
@@ -124,16 +138,7 @@ export function MailOutbox({
         Message-ID <code>{row.messageId}</code>
       </p>
       {recheck && <p role="status">本机记录仍待核实。请核对服务商日志或向服务商提供上方的 Message-ID。</p>}
-      {!!recipients.length && (
-        <ul aria-label="收件人投递结果">
-          {recipients.map(({ address, state, smtpCode }) => (
-            <li key={address}>
-              <span>{address}</span> · {deliveryLabels[state]}
-              {smtpCode && ` · SMTP ${smtpCode}`}
-            </li>
-          ))}
-        </ul>
-      )}
+      <RecipientDeliveryList recipients={recipients} />
       {!!retryable.length && (
         <fieldset className="hu-mail-group" disabled={busy || readOnly}>
           <legend>选择明确未投递的收件人</legend>

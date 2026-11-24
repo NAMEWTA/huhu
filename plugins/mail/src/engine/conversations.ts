@@ -11,9 +11,10 @@ import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
 import { compareMailCopies, compareMailMessages, mailCopyIdentity, mailFolderRank, receivedMailDate } from "./mail-copies.js";
 import { cachedMailboxMessages, gmailSummary, graphSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
-import { operationIdSchema, OutboxStorage, type OutboxIntent, type OutboxRecord } from "./outbox-storage.js";
+import { operationIdSchema, OutboxStorage, type OutboxIntent } from "./outbox-storage.js";
 import { cachedPublicMail } from "./public-mail.js";
 import { makeMailSearchText, searchWords } from "./search-text.js";
+import { smtpResultSchema } from "./smtp.js";
 
 const accountId = imapSummary.shape.accountId;
 const conversationId = z.hash("sha256", { enc: "hex" });
@@ -27,10 +28,13 @@ const dateWindow = z.strictObject({ zone: z.string().min(1).max(100), from: z.is
 });
 const pageInput = z.strictObject({ accountId: accountId.optional(), time: dateWindow.optional(), offset: z.int().nonnegative().default(0), limit: z.int().min(1).max(100).default(20) });
 const pageOutput = z.strictObject({ total: z.int().nonnegative(), nextOffset: z.int().nonnegative().nullable() });
-const imapRow = imapSummary.extend({ source: z.literal("imap"), date: z.iso.datetime().nullable() });
-const gmailRow = gmailSummary.extend({ source: z.literal("gmail"), date: z.iso.datetime().nullable() });
-const graphRow = graphSummary.extend({ source: z.literal("graph"), date: z.iso.datetime().nullable() });
-const sentRow = z.strictObject({ source: z.literal("sent"), accountId, operationId: operationIdSchema, subject: z.string(), date: z.iso.datetime() });
+const publicRecipientResult = smtpResultSchema.shape.recipients.element.pick({ address: true, state: true });
+const delivery = z.strictObject({ operationId: operationIdSchema, recipients: z.array(publicRecipientResult) });
+const deliveryFields = { delivery: delivery.optional() };
+const imapRow = imapSummary.extend({ source: z.literal("imap"), date: z.iso.datetime().nullable(), ...deliveryFields });
+const gmailRow = gmailSummary.extend({ source: z.literal("gmail"), date: z.iso.datetime().nullable(), ...deliveryFields });
+const graphRow = graphSummary.extend({ source: z.literal("graph"), date: z.iso.datetime().nullable(), ...deliveryFields });
+const sentRow = z.strictObject({ source: z.literal("sent"), accountId, operationId: operationIdSchema, subject: z.string(), date: z.iso.datetime(), ...deliveryFields });
 const conversationMessage = z.discriminatedUnion("source", [imapRow, gmailRow, graphRow, sentRow]);
 const conversationSummary = z.strictObject({ conversationId, accountId, participants: z.array(draftRecipient).min(1), count: z.int().positive(), unread: z.int().nonnegative(), latest: conversationMessage });
 const listOutput = pageOutput.extend({ conversations: z.array(conversationSummary) });
@@ -50,13 +54,17 @@ export type MailSearchPage = z.infer<typeof searchOutput>;
 
 type SearchBody = { matches: boolean; excerpt: string };
 type Candidate = { message: ConversationMessage; addresses: string[]; senderNames?: string[]; internetId?: string; rank: number; body?: SearchBody };
-type VisibleMessage = Pick<Candidate, "message" | "body"> & { publicAddresses: Set<string>; senderNames: string[] };
+type VisibleMessage = Pick<Candidate, "message" | "body"> & { publicAddresses: Set<string>; senderNames: string[]; outgoingCopies?: ConversationMessage[] };
 type ConversationGroups = Map<string, { participants: string[]; entries: VisibleMessage[] }>;
 
-function isPublicSent(record: OutboxRecord): record is OutboxIntent {
-  if ("deleted" in record || !record.result) return false;
+function publicDelivery(record: OutboxIntent) {
   const published = new Set([...record.draft.to, ...record.draft.cc]);
-  return record.result.recipients.some(({ address, state }) => state === "accepted" && published.has(address));
+  const recipients = record.result?.recipients.flatMap(({ address, state }) => (published.has(address) ? [{ address, state }] : [])) ?? [];
+  return {
+    delivery: { operationId: record.operationId, recipients },
+    accepted: recipients.flatMap(({ address, state }) => (state === "accepted" ? [address] : [])),
+    from: record.from.toLowerCase(),
+  };
 }
 
 function paginate<T>(rows: T[], { offset, limit }: { offset: number; limit: number }) {
@@ -70,14 +78,23 @@ function bodyMatch(content: string, text: string): SearchBody {
   return { matches: at >= 0, excerpt: (start ? "…" : "") + content.slice(start, end) + (content.length > end ? "…" : "") };
 }
 
-function groupCandidates(candidates: Candidate[], own: ReadonlySet<string>, scope: string | undefined, time?: z.infer<typeof dateWindow>) {
+function groupCandidates(candidates: Candidate[], own: ReadonlySet<string>, outgoing: Map<string, ReturnType<typeof publicDelivery>>, scope: string | undefined, time?: z.infer<typeof dateWindow>) {
   candidates.sort(compareMailCopies);
   const unique = new Map<string, { entry: VisibleMessage; addresses: Set<string> }>();
   for (const candidate of candidates) {
-    const { message, addresses, body, senderNames } = candidate;
+    const { message, body, senderNames } = candidate;
     const key = mailCopyIdentity(candidate);
+    const sent = outgoing.get(key);
+    // A cached Sent header states the original intent. Only the corresponding delivery can establish acceptance.
+    if (sent && !sent.accepted.length) continue;
+    const addresses = sent ? [sent.from, ...sent.accepted] : candidate.addresses;
     let item = unique.get(key);
-    if (!item) unique.set(key, (item = { entry: { message, publicAddresses: new Set(), senderNames: senderNames ?? [], ...(body && { body }) }, addresses: new Set() }));
+    if (!item) {
+      const entry = { message, publicAddresses: new Set<string>(), senderNames: senderNames ?? [], ...(body && { body }) };
+      item = { entry: sent ? { ...entry, message: { ...message, delivery: sent.delivery }, outgoingCopies: [] } : entry, addresses: new Set() };
+      unique.set(key, item);
+    }
+    item.entry.outgoingCopies?.push(message);
     for (const address of addresses) {
       item.entry.publicAddresses.add(address);
       if (!own.has(address)) item.addresses.add(address);
@@ -222,17 +239,21 @@ export function registerConversations(
         }
       }
     }
+    const outgoing = new Map<string, ReturnType<typeof publicDelivery>>();
     for (const record of outbox.records()) {
       signal.throwIfAborted();
-      if (!isPublicSent(record) || !record.draft.accountId || !selectedVersions.has(record.draft.accountId)) continue;
+      if ("deleted" in record || !record.draft.accountId || !selectedVersions.has(record.draft.accountId)) continue;
       const { draft, operationId, messageId, result, claimedAt } = record;
       const message: ConversationMessage = { source: "sent", accountId: record.draft.accountId, operationId, subject: draft.subject, date: result?.finishedAt ?? claimedAt };
-      candidates.push({ message, addresses: [record.from.toLowerCase(), ...draft.to, ...draft.cc], internetId: messageId, rank: 3, ...(text && { body: bodyMatch(record.text.replace(/\s+/g, " ").trim(), text) }) });
+      const sent = publicDelivery(record);
+      outgoing.set(mailCopyIdentity({ message, internetId: messageId }), sent);
+      if (sent.accepted.length) candidates.push({ message, addresses: [], internetId: messageId, rank: 3, ...(text && { body: bodyMatch(record.text.replace(/\s+/g, " ").trim(), text) }) });
     }
     const active = await activeVersions(selectedVersions, signal);
     return groupCandidates(
       candidates.filter(({ message }) => active.has(message.accountId)),
       own,
+      outgoing,
       scope,
       time,
     );
@@ -291,7 +312,7 @@ export function registerConversations(
       const contacts = summarize(groups);
       for (const [index, contact] of contacts.entries()) {
         const entries = groups.get(contact.conversationId)!.entries;
-        const row = entries.findIndex(({ message }) => sameTarget(message, target));
+        const row = entries.findIndex(({ message, outgoingCopies }) => sameTarget(message, target) || outgoingCopies?.some((copy) => sameTarget(copy, target)));
         if (row !== -1) {
           return {
             conversationId: contact.conversationId,
@@ -316,9 +337,9 @@ export function registerConversations(
         removals.read(input.accountId) ||
         !rows.some(({ accountId }) => accountId === input.accountId) ||
         !record ||
-        !isPublicSent(record) ||
+        "deleted" in record ||
         record.draft.accountId !== input.accountId ||
-        ![...record.draft.to, ...record.draft.cc].some((address) => !own.has(address))
+        !publicDelivery(record).accepted.some((address) => !own.has(address))
       )
         throw errors.notFound("此邮件已不在公开对话中。");
       return { text: record.text };
