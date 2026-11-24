@@ -425,10 +425,10 @@ export class AutomationsService {
       .sort((a, b) => (b.scheduledFor as string).localeCompare(a.scheduledFor as string))[0];
     if (last?.scheduledFor) return new Date(last.scheduledFor);
     const rule = this.rules().find(({ id }) => id === ruleId)?.data;
+    // 无历史的 Agent（含默认任务扫描）和提醒等下一个在线触发。
+    // 终端规则在首次受理前中断时，可从启用/编辑时间之后按宽限补交。
     if (rule?.action.kind !== "terminal" || !rule.enabled) return null;
-    // 首个计划点还没有运行时，调度器从启用/编辑时间起按现有宽限补交。
-    const earliest = this.d.now().getTime() - rule.missedRunGraceMinutes * 60_000 - 1;
-    return new Date(Math.max(earliest, Date.parse(rule.updatedAt)));
+    return new Date(rule.updatedAt);
   }
 
   private writeActivation(r: ActivationRecord): void {

@@ -376,10 +376,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     },
     now,
   });
-  const sync = () =>
+  const scheduleLifetime = new AbortController();
+  const resync = () => {
+    if (opts.schedule === false || scheduleLifetime.signal.aborted) return;
     scheduler.sync(
       svc.rules().map((r) => ({
         id: r.id,
+        version: r.version,
         enabled: r.data.enabled && !hasLegacyTerminalEnvironment(r.data.action),
         cron: r.data.trigger.cron,
         zone: r.data.trigger.zone,
@@ -387,23 +390,19 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         updatedAt: r.data.updatedAt,
       })),
     );
+  };
   // 能力在启动对账完成后才开始服务；对账失败（例如 Vault 已关闭）只记录，不产生未处理拒绝
   const ready = svc
     .reconcileTerminals()
     .catch(() => 0)
-    .then(() => {
-      if (opts.schedule !== false) sync();
-    })
+    .then(resync)
     .catch(() => undefined);
   ctx.effect(() => () => {
+    scheduleLifetime.abort();
     scheduler.stop();
     svc.abortAll();
   }); // 停用 → 作业全部释放，运行中的脚本/Agent 被终止
-  const resync = () => {
-    if (opts.schedule !== false) sync();
-  };
-
-  // 服务提交规则（含专用任务扫描工具）或外部编辑规则文件后，统一重建 Cron。
+  // 服务提交规则（含专用任务扫描工具）或外部编辑规则文件后，增量更新 Cron。
   api.events.subscribe((e) => {
     const p = e.payload as { path?: string; kind?: string };
     if ((e.type === "vault.fileChanged" && p.path?.startsWith("Automations/")) || (e.type === "entity.changed" && p.kind === "automation-rule")) resync();

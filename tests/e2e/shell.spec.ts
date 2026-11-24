@@ -7,12 +7,14 @@ import path from "node:path";
 import type { CapabilityResult, TaskDto } from "../../packages/contracts/src/index.js";
 import { HerdrClient } from "../../packages/herdr-client/src/client.js";
 import { HerdrCore } from "../../packages/herdr-client/src/herdr-core.js";
+import { patchFrontmatter } from "../../packages/vault/src/semantic/frontmatter.js";
 import { machineId } from "../../packages/vault/src/vault.js";
 import { startCodexResponsesFixture } from "../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import type { RecentTaskRun } from "../../plugins/tasks/src/engine/dispatch-store.js";
 import { candidateEnvironment } from "./helpers/candidate-package.js";
 import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
+import { call, engineReady } from "./knowledge/session-slow-bridge.js";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
@@ -2763,6 +2765,58 @@ test("自动化：新 Vault 没有内置规则；新建任务扫描规则后预�
     await expect(page.getByTestId("notification-panel")).toContainText("该喝水了", { timeout: 10_000 });
   } finally {
     await app.close();
+    rmTree(vault);
+  }
+});
+
+test("自动化：每分钟规则离线 70 天后补跑，重启保留原计划点", async () => {
+  test.setTimeout(90_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app: ElectronApplication | undefined;
+  try {
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await engineReady(page);
+    const rule = await call<{ id: string; path: string }>(page, "automations.create", {
+      title: "每分钟检查",
+      trigger: { preset: "custom", cron: "* * * * *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "恢复定时检查", taskId: null },
+    });
+    await app.close();
+    app = undefined;
+
+    const last = new Date(Math.floor(Date.now() / 60_000) * 60_000 - 70 * 86_400_000).toISOString().replace(".000Z", "Z");
+    const rulePath = path.join(vault, rule.path);
+    writeFileSync(rulePath, patchFrontmatter(readFileSync(rulePath, "utf8"), { enabled: true, updatedAt: last }));
+    const activationsDir = path.join(vault, ".huhu", "automations", "activations");
+    mkdirSync(activationsDir, { recursive: true });
+    writeFileSync(path.join(activationsDir, `${last.slice(0, 7)}.ndjson`), JSON.stringify({
+      activationId: "act-f10-fixture", ruleId: rule.id, trigger: "schedule", scheduledFor: last,
+      startedAt: last, finishedAt: last, summary: { state: "succeeded" },
+    }) + "\n");
+
+    type Activation = { activationId: string; ruleId: string; scheduledFor: string | null };
+    const read = async (window: Page) => (await call<Activation[]>(window, "automations.activations", {}))
+      .filter((row) => row.ruleId === rule.id && row.scheduledFor && row.scheduledFor !== last);
+    const mostRecentBeforeOpen = Math.floor(Date.now() / 60_000) * 60_000;
+    app = await launch(vault);
+    const reopened = await app.firstWindow();
+    await engineReady(reopened);
+    await expect.poll(() => read(reopened)).not.toEqual([]);
+    const [recovered] = await read(reopened);
+    expect(Date.parse(recovered!.scheduledFor!)).toBeGreaterThanOrEqual(mostRecentBeforeOpen);
+    await reopened.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await reopened.getByRole("button", { name: "激活记录" }).click();
+    await expect(reopened.getByTestId("activation-row").filter({ hasText: "每分钟检查" }).first()).toBeVisible();
+
+    await app.close();
+    app = undefined;
+    app = await launch(vault);
+    const restarted = await app.firstWindow();
+    await engineReady(restarted);
+    expect((await read(restarted)).filter(({ scheduledFor }) => scheduledFor === recovered!.scheduledFor)).toEqual([recovered]);
+  } finally {
+    await app?.close();
     rmTree(vault);
   }
 });
