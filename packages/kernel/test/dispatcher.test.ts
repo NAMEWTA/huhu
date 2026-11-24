@@ -483,7 +483,7 @@ describe("F16 公共输出投影", () => {
     registry.register(defineCapability({
       name: "test.tree", plugin: "test", scope: "read", input: z.object({ invalid: z.boolean() }), output: item,
       exposable: true, defaultExposed: false,
-      handler: (_context, { invalid }) => invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children },
+      handler: (_context, { invalid }): Item => invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children },
     }));
     const dispatcher = new Dispatcher({
       registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),

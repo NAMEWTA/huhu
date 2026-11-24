@@ -190,7 +190,7 @@ test.skipIf(!bin)(
       expect(interrupts("held-interrupt")).toHaveLength(1);
       console.info(JSON.stringify({ phase: "original-interruption-after-engine-reopen", nativeInterrupts: 1, ownerActive: false, status: "stopped" }));
 
-      const projections = [];
+      const projections: { phase: string; id: string }[] = [];
       for (const phase of ["natural-before", "allowed-without-result", "failed-before", "failed-with-error", "external-interrupt"] as const) {
         const input = await run(phase);
         signalFixture(phase + ".finish");
