@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { OperationLog, SemanticRepository, VaultFiles, idFromFilename, sanitizeTitle, semanticFilename } from "../src/index.js";
+import { OperationLog, SemanticRepository, VaultFiles, idFromFilename, sanitizeTitle, semanticFilename, versionOf } from "../src/index.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -75,6 +75,72 @@ describe("SemanticRepository", () => {
     expect(p.path).toBe(`Tasks/新标题--${t.id}.md`);
     expect(readdirSync(path.join(root, "Tasks"))).toEqual([`新标题--${t.id}.md`]);
     expect(repo.read("task", t.id).data).toMatchObject({ title: "新标题" });
+  });
+  test.each([
+    ["坏 YAML", "---\nfield: [\n---\n外部内容"],
+    ["缺 ID", "---\nhuhu: { kind: task, schema: 2 }\n---\n外部内容"],
+    ["错误 kind", "---\nhuhu: { kind: capture, id: cap-zzzzz1, schema: 2 }\n---\n外部内容"],
+  ])("改名遇到占位文件（%s），返回冲突路径并保留双方", async (_label, placeholder) => {
+    const { repo, root } = setup();
+    const task = await repo.create("task", taskData("原名"), "原正文");
+    const target = `Tasks/${semanticFilename("目标", task.id)}`;
+    const original = readFileSync(path.join(root, task.path));
+    writeFileSync(path.join(root, target), placeholder);
+    await expect(repo.patch("task", task.id, { title: "目标" }, task.version)).rejects.toMatchObject({ code: "NAME_CONFLICT", details: { path: target } });
+    expect(readFileSync(path.join(root, target), "utf8")).toBe(placeholder);
+    expect(readFileSync(path.join(root, task.path))).toEqual(original);
+  });
+
+  test("排队期间出现字节与拟写内容相同的目标，保留外部条目和源文件", async () => {
+    const { files, repo, root } = setup();
+    const task = await repo.create("task", taskData("Original"), "body");
+    const target = `Tasks/${semanticFilename("Occupied", task.id)}`;
+    const original = readFileSync(path.join(root, task.path), "utf8");
+    const bytes = original.replace("title: Original", "title: Occupied");
+    const external = files.withCommit([target], () => writeFileSync(path.join(root, target), bytes, { flag: "wx" }));
+    const renamed = expect(repo.patch("task", task.id, { title: "Occupied" }, task.version)).rejects.toMatchObject({ code: "NAME_CONFLICT", details: { path: target } });
+    await external;
+    await renamed;
+    expect(readFileSync(path.join(root, target), "utf8")).toBe(bytes);
+    expect(readFileSync(path.join(root, task.path), "utf8")).toBe(original);
+  });
+
+  test("源在等待提交时被编辑，保留新版本并撤回本次创建的目标", async () => {
+    const { files, repo, root } = setup();
+    const task = await repo.create("task", taskData("Original"), "body");
+    const target = `Tasks/${semanticFilename("Renamed", task.id)}`;
+    const source = path.join(root, task.path);
+    const external = Buffer.concat([readFileSync(source), Buffer.from("\nexternal edit\n")]);
+    const blocker = files.withCommit([task.path], () => writeFileSync(source, external));
+    const rename = expect(repo.patch("task", task.id, { title: "Renamed" }, task.version)).rejects.toMatchObject({
+      code: "VERSION_CONFLICT",
+      details: { path: task.path, currentVersion: versionOf(external), state: "rolled_back" },
+    });
+    await blocker;
+    await rename;
+    expect(readFileSync(source)).toEqual(external);
+    expect(existsSync(path.join(root, target))).toBe(false);
+    await expect(repo.patch("task", task.id, { title: "Renamed" }, versionOf(external))).resolves.toMatchObject({ path: target, id: task.id });
+  });
+
+  test("只改标题大小写时提交新拼写并保留实体 ID 和正文", async () => {
+    const { repo, root } = setup();
+    const task = await repo.create("task", taskData("Readme"), "原正文");
+    const changed = await repo.patch("task", task.id, { title: "README" }, task.version);
+    expect(changed).toMatchObject({ path: `Tasks/README--${task.id}.md`, id: task.id, body: task.body });
+    expect(readdirSync(path.join(root, "Tasks"))).toEqual([path.basename(changed.path)]);
+    expect(repo.read("task", task.id).version).toBe(changed.version);
+  });
+
+  test("区分大小写的文件系统上，只改大小写仍保留不同目录项的占位文件", async ({ skip }) => {
+    const { repo, root } = setup();
+    const task = await repo.create("task", taskData("Readme"), "原正文");
+    const target = `Tasks/${semanticFilename("README", task.id)}`;
+    if (existsSync(path.join(root, target))) skip();
+    writeFileSync(path.join(root, target), "unowned bytes", { flag: "wx" });
+    await expect(repo.patch("task", task.id, { title: "README" }, task.version)).rejects.toMatchObject({ code: "NAME_CONFLICT", details: { path: target } });
+    expect(readFileSync(path.join(root, target), "utf8")).toBe("unowned bytes");
+    expect(repo.read("task", task.id).version).toBe(task.version);
   });
   test("坏 YAML / 缺 id / 模式不符 进入问题列表且不参与查询", async () => {
     const { repo, root } = setup();
