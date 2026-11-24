@@ -293,7 +293,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                 label="最早派遣时间"
                 id={availableField}
                 name="availableAt"
-                field={{ kind: "local-date-time", zone: scheduleZone ?? "", value: wall ? { local: wall } : null }}
+                field={{ kind: "local-date-time", zone: scheduleZone ?? "", value: wall ? { local: wall as `${string}T${string}` } : null }}
                 step={60}
                 disabled={!scheduleZone}
                 data-testid="task-available-at"
