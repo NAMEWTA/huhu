@@ -15,5 +15,9 @@ esac
 case "$(uname -m)" in aarch64|arm64) arch=arm64 ;; *) arch=x64 ;; esac
 export ELECTRON_RUN_AS_NODE=1
 export HUHU_ENGINE_ENTRY="${HUHU_ENGINE_ENTRY:-$res/app.asar/out/main/engine.js}"
+export HUHU_WEB_ASSETS_DIR="${HUHU_WEB_ASSETS_DIR:-$res/app.asar/out/web}"
+export HUHU_CODEX_DISPATCH_HELPER="${HUHU_CODEX_DISPATCH_HELPER:-$res/codex-dispatch/helper.cjs}"
+export HUHU_PROTECTED_LAUNCH_HELPER="${HUHU_PROTECTED_LAUNCH_HELPER:-$res/protected-launch/helper.cjs}"
 if [ -z "$HUHU_HERDR_BIN" ] && [ -x "$res/herdr/$os-$arch/herdr-core" ]; then export HUHU_HERDR_BIN="$res/herdr/$os-$arch/herdr-core"; fi
+if [ -z "$HUHU_AGENT_PTY_HOST" ] && [ -x "$res/agent-pty/huhu-agent-pty" ]; then export HUHU_AGENT_PTY_HOST="$res/agent-pty/huhu-agent-pty"; fi
 exec "$app" "$res/cli/cli.mjs" "$@"

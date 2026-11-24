@@ -1,8 +1,9 @@
 import { Command, CommanderError, Option } from "commander";
 import { callCapability, discoverCapabilities, readCallFile, readCapabilityOperation, render } from "./commands/call.js";
-import { ConnectError, connect, type Connection } from "./connect.js";
+import { ConnectError, connect, engineLifecycle, type Connection } from "./connect.js";
 import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityResult } from "@huhu/contracts";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
+import type { EngineMode } from "@huhu/vault";
 
 export const VERSION = "0.0.2-rc.1";
 
@@ -21,6 +22,26 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
     .exitOverride()
     .configureOutput({ writeOut: (s) => io.out(s.trimEnd()), writeErr: (s) => io.err(s.trimEnd()) });
   let code = 0;
+
+  const engine = program.command("engine").description("管理所选 Vault 的本机 Engine。计划只在机器和 Engine 在线时运行");
+  for (const [action, description] of [
+    ["start", "启动 Engine，默认常驻"], ["status", "查看 Engine 实际状态"], ["stop", "有序停止当前 Engine"],
+  ] as const) {
+    const command = engine.command(action).description(description).option("--vault <path>", "Vault 路径").option("--json", "输出 JSON");
+    if (action === "start") command.addOption(new Option("--mode <mode>", "选择临时或常驻模式").choices(["temporary", "resident"]).default("resident"));
+    command.action(async (options: { vault?: string; json?: boolean; mode?: EngineMode }) => {
+      try {
+        const result = await engineLifecycle(action, options.vault, options.mode);
+        io.out(options.json ? JSON.stringify(result) : result.state === "running"
+          ? `Engine 运行中（${result.mode === "resident" ? "常驻" : "临时"}，端口 ${result.port}，进程 ${result.pid}）`
+          : "Engine 已停止。离线期间的时点按各计划的补偿策略处理。");
+      } catch (error) {
+        if (!(error instanceof ConnectError)) throw error;
+        io.err(error.message);
+        code = error.exitCode;
+      }
+    });
+  }
 
   program
     .command("call <capability>")

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, renameSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import MailComposer from "nodemailer/lib/mail-composer";
 import SMTPConnection from "nodemailer/lib/smtp-connection";
@@ -51,7 +51,7 @@ import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { errors, HuhuError, PluginManifestSchema } from "@huhu/contracts";
 import { attachTerminal, HerdrCore } from "@huhu/herdr-client";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { directoryInstance, endpointRootBinding, machineId, OperationLog, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher } from "@huhu/vault";
+import { directoryInstance, endpointRootBinding, machineId, OperationLog, readEngineEndpoint, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher, type EngineEndpointRecord, type EngineMode } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -72,15 +72,9 @@ import * as tasks from "@huhu/plugin-tasks/engine";
 import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
 import { addDesktopMailAttachment } from "./mail-desktop-attachment.js";
 import { LocalMcpListener } from "./mcp-listener.js";
+import { startLocalControl } from "./local-control.js";
 
-export interface EndpointDescriptor {
-  pid: number;
-  port: number;
-  vaultId: string;
-  rootBinding: string;
-  cliToken: string;
-  startedAt: string;
-}
+export type EndpointDescriptor = EngineEndpointRecord;
 
 export interface BootOptions {
   vaultPath: string;
@@ -95,8 +89,7 @@ export interface BootOptions {
   moduleCredentialProtection?: LocalCredentialProtection;
   /** 当前桌面宿主的邮箱授权配置与可信浏览器入口。 */
   mailOAuth?: mail.MailOAuthRuntime;
-  /** 无界面模式：最后一个客户端离开后空闲这么久自行退出（毫秒，0 = 不自动退出）。 */
-  idleExitMs?: number;
+  lifecycle?: { mode: EngineMode; requestStop(): void };
 }
 
 export interface RunningEngine {
@@ -118,23 +111,14 @@ export interface RunningEngine {
   shutdown(): Promise<void>;
 }
 
-export function endpointPath(vault: Vault): string {
+export function endpointPath(vault: Pick<Vault, "runtimeDir">): string {
   return path.join(vault.runtimeDir, "engine.json");
 }
 
-/** 读取端点描述；进程已不存在时视为陈旧并删除。 */
+/** 读取端点描述；陈旧记录留给持有写者锁的进程替换。 */
 export function readLiveEndpoint(vault: Pick<Vault, "runtimeDir" | "root">): EndpointDescriptor | null {
-  const file = path.join(vault.runtimeDir, "engine.json");
-  if (!existsSync(file)) return null;
-  try {
-    const d = JSON.parse(readFileSync(file, "utf8")) as EndpointDescriptor;
-    if (!Number.isSafeInteger(d.pid) || d.pid <= 0) return null;
-    process.kill(d.pid, 0);
-    return d.rootBinding === endpointRootBinding(vault.root) ? d : null;
-  } catch {
-    rmSync(file, { force: true });
-    return null;
-  }
+  const local = readEngineEndpoint(vault.root, endpointPath(vault));
+  return local.state === "running" ? local.endpoint : null;
 }
 
 export async function boot(opts: BootOptions): Promise<RunningEngine> {
@@ -667,17 +651,13 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     );
   await exposure.initialize(registry.knownNames());
   const descriptorPath = endpointPath(vault);
-  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, startedAt: new Date().toISOString() };
-  if (!vault.readOnly) {
-    const temp = `${descriptorPath}.${process.pid}.tmp`;
-    try {
-      writeFileSync(temp, JSON.stringify(descriptor), { mode: 0o600 });
-      renameSync(temp, descriptorPath);
-    } finally {
-      rmSync(temp, { force: true });
-    }
-  }
-
+  const lifecycle = !vault.readOnly && process.getuid ? opts.lifecycle : undefined;
+  const descriptor: EndpointDescriptor = {
+    pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, startedAt: new Date().toISOString(),
+    mode: lifecycle?.mode ?? "temporary", ...(lifecycle && { instance: randomUUID() }),
+  };
+  let closeControl: (() => Promise<void>) | undefined;
+  let published = false;
   let closed: Promise<void> | undefined;
   const attachmentLifetime = new AbortController();
   const shutdown = () =>
@@ -686,6 +666,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       attachmentLifetime.abort();
       events.publish("engine.closing", {});
       try {
+        await closeControl?.();
         await watcher.close({ flush: true });
         await plugins.disposeAll();
       } finally {
@@ -696,14 +677,29 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
             await server.close();
           } finally {
             try {
-              await vault.close();
+              if (published) rmSync(descriptorPath, { force: true });
             } finally {
-              if (!vault.readOnly) rmSync(descriptorPath, { force: true });
+              await vault.close();
             }
           }
         }
       }
     })());
+
+  if (!vault.readOnly) {
+    const temp = `${descriptorPath}.${process.pid}.tmp`;
+    try {
+      if (lifecycle) closeControl = await startLocalControl(descriptor, rendererToken, lifecycle.requestStop);
+      writeFileSync(temp, JSON.stringify(descriptor), { mode: 0o600 });
+      renameSync(temp, descriptorPath);
+      published = true;
+    } catch (error) {
+      await shutdown().catch(() => undefined);
+      throw error;
+    } finally {
+      rmSync(temp, { force: true });
+    }
+  }
 
   return {
     vault,

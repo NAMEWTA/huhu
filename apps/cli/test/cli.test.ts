@@ -70,7 +70,7 @@ describe("CLI", () => {
     expect((await connect(source.vault.root)).baseUrl).toBe(`http://127.0.0.1:${source.port}`);
     vi.stubEnv("HUHU_ENGINE_ENTRY", undefined);
     try {
-      await expect(connect(copy)).rejects.toThrow("未配置引擎入口");
+      await expect(connect(copy)).rejects.toThrow("发现记录不属于所选 Vault");
     } finally {
       vi.unstubAllEnvs();
     }
@@ -511,7 +511,7 @@ describe("CLI", () => {
     const denied = await client.callTool({ name: "tasks_create", arguments: { title: "x" } });
     expect(denied.isError).toBe(true);
     const cap = await client.callTool({ name: "inbox_capture", arguments: { body: "来自 MCP", source: "quick" } });
-    expect(JSON.parse((cap.content as { text: string }[])[0]?.text ?? "{}").source).toBe("mcp"); // 身份来自令牌，输入里的 source 被忽略
+    expect(JSON.parse((cap.content as { text: string }[])[0]?.text ?? "{}").source).toBe("http"); // 身份来自令牌，输入里的 source 被忽略
     const res = await client.readResource({ uri: "huhu://vault/summary" });
     expect(JSON.parse((res.contents[0] as { text: string }).text)).toMatchObject({ id: e.vault.id });
     // 最近笔记、笔记模板与提示词（ACC-PL-05：资源/模板/提示词都经同一授权）

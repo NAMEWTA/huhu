@@ -132,13 +132,14 @@ describe("Engine 启动与关闭", () => {
     expect(existsSync(e.descriptorPath)).toBe(false);
     expect(readLiveEndpoint(e.vault)).toBeNull();
   });
-  test("陈旧端点描述（进程不存在）被清理", async () => {
+  test("发现忽略进程不存在的端点，写者退出时清理描述文件", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     const { writeFileSync } = await import("node:fs");
-    writeFileSync(e.descriptorPath, JSON.stringify({ pid: 999999, port: 1, vaultId: "x", cliToken: "t", startedAt: "" }));
+    writeFileSync(e.descriptorPath, JSON.stringify({ ...readLiveEndpoint(e.vault), pid: 2147483647 }));
     expect(readLiveEndpoint(e.vault)).toBeNull();
-    expect(existsSync(e.descriptorPath)).toBe(false);
+    expect(existsSync(e.descriptorPath)).toBe(true);
     await e.shutdown();
+    expect(existsSync(e.descriptorPath)).toBe(false);
   });
   test.skipIf(process.platform === "win32")(
     "子进程模式：报告 ready，收到 SIGTERM 后删除端点描述并退出 0",
@@ -1101,7 +1102,7 @@ describe("Engine 启动与关闭", () => {
     await call("plugins.setEnabled", { id: "tasks", enabled: true });
     expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
   }, 30_000);
-  test("MCP over HTTP：默认关闭(404)；开启后 mcp/http 令牌可用，桌面/cli 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
+  test("MCP over HTTP：默认关闭(404)；开启后网关令牌可用，桌面/CLI 令牌 403；工具列表遵守开放规则；经 Dispatcher 授权", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     const endpoint = `http://127.0.0.1:${e.port}/mcp`;
@@ -1134,8 +1135,8 @@ describe("Engine 启动与关闭", () => {
     expect(JSON.parse(info.content[0]?.text ?? "{}")).toMatchObject({ id: e.vault.id });
     expect((await callTool("tasks_create", { title: "x" })).isError).toBe(true);
     const cap = await callTool("inbox_capture", { body: "来自 MCP HTTP", source: "quick" });
-    expect(JSON.parse(cap.content[0]?.text ?? "{}").source).toBe("mcp");
-    // 网关令牌（http 身份）同样可用；关闭 MCP 后立即 404
+    expect(JSON.parse(cap.content[0]?.text ?? "{}").source).toBe("http");
+    // 另一网关令牌也可初始化。关闭 MCP 后立即 404。
     const tok = ((await call("gateway.tokens.create", { name: "mcp 客户端" })).data as { token: string }).token;
     const independent = await openMcpSession(endpoint, tok);
     expect((await mcpRequest(endpoint, tok, listRequest, independent)).status).toBe(200);

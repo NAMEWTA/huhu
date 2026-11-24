@@ -1,6 +1,7 @@
 import { app, MessageChannelMain, shell, utilityProcess, type UtilityProcess } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { probeEngine, readEngineEndpoint, type EngineEndpointRecord } from "@huhu/vault";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 
 const mailGoogleClientSecret = process.env["HUHU_MAIL_GOOGLE_CLIENT_SECRET"];
@@ -55,6 +56,8 @@ function mailAuthorizationUrl(value: string): URL | undefined {
 /** 监管 Engine utilityProcess：启动、崩溃通知、重启、有序关闭（最多等 15 秒）。 */
 export class EngineSupervisor {
   private child: UtilityProcess | null = null;
+  private attached: EngineEndpointRecord | null = null;
+  private statusTimer: NodeJS.Timeout | undefined;
   private state: EngineState = "stopped";
   private endpoint: EngineEndpoint | null = null;
   private waiters: ((e: EngineEndpoint) => void)[] = [];
@@ -121,7 +124,42 @@ export class EngineSupervisor {
     for (const l of this.listeners) l(s);
   }
 
+  private ready(port: number, token: string, vaultId: string): void {
+    this.endpoint = { baseUrl: `http://127.0.0.1:${port}`, token, vaultId };
+    this.set("ready");
+    for (const waiter of this.waiters.splice(0)) waiter(this.endpoint);
+  }
+
+  private attach(endpoint: EngineEndpointRecord, generation: number): void {
+    void probeEngine(endpoint, "attach").then(({ status, rendererToken }) => {
+      if (generation !== this.stopGeneration) return;
+      if (!rendererToken) throw new Error("Engine 未授予工作台连接");
+      this.attached = endpoint;
+      this.ready(status.port, rendererToken, status.vaultId);
+      const monitor = () => {
+        this.statusTimer = setTimeout(() => {
+          void probeEngine(endpoint).then(() => {
+            if (this.attached === endpoint) monitor();
+          }).catch(() => {
+            if (this.attached !== endpoint) return;
+            this.attached = null;
+            this.endpoint = null;
+            this.statusTimer = undefined;
+            this.set("crashed");
+          });
+        }, 2_000);
+        this.statusTimer.unref();
+      };
+      monitor();
+    }).catch(() => {
+      if (generation !== this.stopGeneration) return;
+      this.lastError = { code: "ENGINE_CONFLICT", message: "已有 Engine 但无法确认 Vault 连接，请在原宿主检查或停止它" };
+      this.set("crashed");
+    });
+  }
+
   start(): void {
+    if (this.child || this.attached || this.state === "starting") return;
     this.attachmentLifetime.abort();
     this.attachmentLifetime = new AbortController();
     this.stopGeneration++;
@@ -130,6 +168,18 @@ export class EngineSupervisor {
     this.endpoint = null;
     this.lastError = null;
     this.set("starting");
+    if (!this.flags.readOnly) {
+      const found = readEngineEndpoint(this.vaultPath);
+      if (found.state === "running") {
+        this.attach(found.endpoint, this.stopGeneration);
+        return;
+      }
+      if (found.state === "conflict") {
+        this.lastError = { code: "ENGINE_CONFLICT", message: found.message };
+        this.set("crashed");
+        return;
+      }
+    }
     const args = ["--vault", this.vaultPath, ...(this.flags.create ? ["--create"] : []), ...(this.flags.readOnly ? ["--read-only"] : [])];
     const protectedPtyName = process.platform === "win32" ? "huhu-agent-pty.exe" : "huhu-agent-pty";
     const protectedPty = app.isPackaged ? path.join(process.resourcesPath, "agent-pty", protectedPtyName) : (process.env["HUHU_AGENT_PTY_HOST"] ?? path.resolve(import.meta.dirname, "../../../../native/agent-pty/bin", protectedPtyName));
@@ -190,14 +240,19 @@ export class EngineSupervisor {
         return;
       }
       if (m.type !== "ready") return;
-      this.endpoint = { baseUrl: `http://127.0.0.1:${m.port}`, token: m.rendererToken, vaultId: m.vaultId };
-      this.set("ready");
-      for (const w of this.waiters.splice(0)) w(this.endpoint);
+      this.ready(m.port, m.rendererToken, m.vaultId);
     });
     child.on("exit", () => {
       if (this.child !== child) return;
       this.child = null;
       this.endpoint = null;
+      if (!this.stopping && !this.flags.readOnly && this.state === "starting") {
+        const found = readEngineEndpoint(this.vaultPath);
+        if (found.state === "running") {
+          this.attach(found.endpoint, this.stopGeneration);
+          return;
+        }
+      }
       this.set(this.stopping ? "stopped" : "crashed");
       if (this.restartWhenStopped) this.restart();
     });
@@ -246,7 +301,7 @@ export class EngineSupervisor {
   }
 
   restart(): void {
-    if (this.child) return; // 仍在运行时不重复启动
+    if (this.child || this.attached) return; // 仍在运行时不重复启动
     this.start();
   }
 
@@ -265,7 +320,14 @@ export class EngineSupervisor {
     const generation = ++this.stopGeneration;
     this.restartWhenStopped = false;
     const child = this.child;
-    if (!child) return generation;
+    if (!child) {
+      clearTimeout(this.statusTimer);
+      this.statusTimer = undefined;
+      this.attached = null;
+      this.endpoint = null;
+      if (this.state !== "stopped") this.set("stopped");
+      return generation;
+    }
     this.stopping = true;
     this.attachmentLifetime.abort();
     await new Promise<void>((resolve) => {
