@@ -1,6 +1,6 @@
 import { CompactMarkdownReader } from "@huhu/editor/reading";
 import type { RichEditorPort } from "@huhu/editor/rich";
-import { Badge, Button, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
+import { Badge, Button, DateTimePicker, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, Select } from "@huhu/ui";
 import { requestOpenPath, useCapability, useEngine, useQueryClient, useReferenceIndex, type ModuleProps } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
@@ -99,14 +99,14 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             />
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索收集内容…" />
-          <select aria-label="按来源筛选" value={source} onChange={(e) => setSource(e.target.value)}>
+          <Select aria-label="按来源筛选" value={source} onChange={(e) => setSource(e.target.value)}>
             <option value="">全部来源</option>
             {sources.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {checked.size > 0 ? (
           <div className="inbox-knowledge-inbox-bulk">
@@ -469,11 +469,11 @@ function EditDialog({ error, item, onClose, onSave }: { error: string | null; it
         </Field>
         {item ? null : (
           <Field label="来源">
-            <select aria-label="来源" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })}>
+            <Select aria-label="来源" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })}>
               {SOURCES.map((s) => (
                 <option key={s}>{s}</option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
       </div>
@@ -543,18 +543,18 @@ function ConvertDialog({
         </Field>
         {target === "task" ? (
           <Field label="截止日期">
-            <input type="date" aria-label="截止日期" value={due} onChange={(e) => setDue(e.target.value)} />
+            <DateTimePicker label="截止日期" field={{ kind: "date", value: due || null }} onChange={(next) => { if (next.kind === "date") setDue(next.value ?? ""); }} />
           </Field>
         ) : null}
         {target === "archive" ? (
           <Field label="档案类型">
-            <select aria-label="档案类型" value={type} onChange={(e) => setType(e.target.value)}>
+            <Select aria-label="档案类型" value={type} onChange={(e) => setType(e.target.value)}>
               {types.map((x) => (
                 <option key={x.path} value={x.path}>
                   {x.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         ) : null}
         {target === "task" ? (

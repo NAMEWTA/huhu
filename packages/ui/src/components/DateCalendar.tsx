@@ -1,0 +1,103 @@
+import * as Popover from "@radix-ui/react-popover";
+import { CalendarDays } from "lucide-react";
+import { useRef, useState } from "react";
+import { dismissChildOnEscape, invokerOverlayContainer } from "./host-ui.js";
+import { Button, IconButton, Select } from "./ui.js";
+
+interface DateParts {
+  year: number;
+  month: number;
+  day: number;
+}
+
+function today(): DateParts {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
+}
+
+function dateParts(value: string | null): DateParts {
+  if (!value) return today();
+  const [year, month, day] = value.split("-").map(Number);
+  return year && month && day ? { year, month, day } : today();
+}
+
+function dateValue({ year, month, day }: DateParts): string {
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  const last = new Date(0);
+  last.setUTCFullYear(year, month, 0);
+  return last.getUTCDate();
+}
+
+export function DateCalendar({ label, language, value, onChange }: {
+  label: string;
+  language: string;
+  value: string | null;
+  onChange(value: string): void;
+}) {
+  const [draft, setDraft] = useState(() => dateParts(value));
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const container = open && trigger.current ? invokerOverlayContainer(trigger.current) : null;
+  const dialog = container?.matches("dialog[open]") ? container : undefined;
+  const english = language.startsWith("en");
+  const title = english ? `Choose ${label}` : `选择${label}`;
+  const yearLabel = english ? "Year" : "年";
+  const monthLabel = english ? "Month" : "月";
+  const dayLabel = english ? "Day" : "日";
+  const validYear = Number.isInteger(draft.year) && draft.year >= 1 && draft.year <= 9999;
+  const days = daysInMonth(validYear ? draft.year : 2000, draft.month);
+  const monthName = new Intl.DateTimeFormat(language || undefined, { month: "long", timeZone: "UTC" });
+  const pick = (parts: DateParts) => {
+    onChange(dateValue(parts));
+    setOpen(false);
+  };
+  return (
+    <Popover.Root open={open} onOpenChange={(next) => {
+      if (next) setDraft(dateParts(value));
+      setOpen(next);
+    }}>
+      <Popover.Trigger asChild>
+        <IconButton ref={trigger} icon={CalendarDays} label={title} size={15} />
+      </Popover.Trigger>
+      {container ? (
+        <Popover.Portal container={container}>
+          <Popover.Content aria-label={title} className="hu-date-calendar" align="end" sideOffset={4} collisionBoundary={dialog ?? []} collisionPadding={8}
+            onEscapeKeyDown={(event) => {
+              if (event.isComposing || event.keyCode === 229) {
+                event.preventDefault();
+                return;
+              }
+              if (trigger.current) dismissChildOnEscape(event, trigger.current, () => setOpen(false));
+            }}>
+            <div className="hu-date-parts">
+              <label>
+                {yearLabel}
+                <input aria-label={yearLabel} type="number" min={1} max={9999} value={draft.year || ""} onChange={(event) => setDraft({ ...draft, year: Number(event.target.value) })} />
+              </label>
+              <label>
+                {monthLabel}
+                <Select aria-label={monthLabel} value={draft.month} onChange={(event) => setDraft({ ...draft, month: Number(event.target.value) })}>
+                  {Array.from({ length: 12 }, (_, index) => <option key={index} value={index + 1}>{monthName.format(Date.UTC(2000, index, 1))}</option>)}
+                </Select>
+              </label>
+              <label>
+                {dayLabel}
+                <Select aria-label={dayLabel} value={draft.day <= days ? draft.day : ""} onChange={(event) => setDraft({ ...draft, day: Number(event.target.value) })}>
+                  {draft.day > days ? <option value="" disabled /> : null}
+                  {Array.from({ length: days }, (_, index) => <option key={index} value={index + 1}>{index + 1}</option>)}
+                </Select>
+              </label>
+            </div>
+            <div className="hu-date-calendar-actions">
+              <Button variant="ghost" onClick={() => pick(today())}>{english ? "Today" : "今天"}</Button>
+              <Button variant="primary" disabled={!validYear || draft.day > days} onClick={() => pick(draft)}>{english ? "Apply" : "确定"}</Button>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      ) : null}
+    </Popover.Root>
+  );
+}

@@ -46,9 +46,89 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-inline-size: 100%;
 }
 .hu-datetime input {
   width: auto;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  color-scheme: inherit;
+}
+.hu-datetime input[type="date"]::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.hu-date-calendar {
+  box-sizing: border-box;
+  inline-size: min(19rem, var(--radix-popover-content-available-width, 19rem));
+  max-block-size: var(--radix-popover-content-available-height);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-popover);
+}
+.hu-date-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hu-date-parts label {
+  flex: 1 1 4.5rem;
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+}
+.hu-date-parts :is(input, select) {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+.hu-date-calendar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-block-start: 8px;
+}
+.hu-select {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  color-scheme: inherit;
+}
+@supports (appearance: base-select) {
+  .hu-select,
+  .hu-select::picker(select) {
+    appearance: base-select;
+  }
+  .hu-select::picker(select) {
+    max-inline-size: calc(100vi - 16px);
+    max-block-size: min(280px, 55dvh);
+    padding: 4px;
+    overscroll-behavior: contain;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-popover);
+  }
+  .hu-select option {
+    min-block-size: 30px;
+    padding: 4px 8px;
+    border-radius: var(--radius-control);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .hu-select option:checked {
+    background: var(--accent-soft);
+  }
+  .hu-select option:is(:hover, :focus-visible):not(:disabled) {
+    background: var(--muted-bg);
+  }
+  .hu-select option:disabled {
+    color: var(--muted);
+  }
 }
 .hu-hint-text {
   font-size: 12px;
@@ -58,8 +138,9 @@
 }
 .hu-combobox-list {
   z-index: 200;
-  max-height: 260px;
+  max-height: min(260px, var(--radix-popover-content-available-height, 260px));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
   background: var(--panel);
   border: 1px solid var(--line);

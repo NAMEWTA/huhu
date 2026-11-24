@@ -1,4 +1,4 @@
-import { Button, Field } from "@huhu/ui";
+import { Button, DateInput, Field, Select } from "@huhu/ui";
 import { Clock } from "lucide-react";
 import { useCapability } from "@huhu/workbench";
 import { useId, useState } from "react";
@@ -119,6 +119,7 @@ export function RuleEditor({
 
   return (
     <form
+      className="hu-form-columns"
       data-testid="rule-editor"
       aria-label={rule ? t.editRule : t.ruleEditor}
       onSubmit={(e) => {
@@ -126,19 +127,19 @@ export function RuleEditor({
         if (valid && !busy) void submit();
       }}
     >
-      <div className="hu-tw-editor-grid">
-        <div className="automations-editor-body">
+      <div className="hu-form-grid">
+        <div className="hu-form-primary">
           <Field label={t.ruleTitle}>
             <input autoFocus aria-label={t.ruleTitle} placeholder={t.ruleTitle} value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
           <div className="automations-action-fields">
             <Field label={t.actionKind}>
-              <select aria-label={t.actionKind} data-testid="rule-kind" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
+              <Select aria-label={t.actionKind} data-testid="rule-kind" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
                 <option value="agent_tasks">{t.kinds.agent_tasks}</option>
                 <option value="agent_prompt">{t.kinds.agent_prompt}</option>
                 <option value="terminal">{t.kinds.terminal}</option>
                 <option value="reminder">{t.kinds.reminder}</option>
-              </select>
+              </Select>
             </Field>
             {kind === "agent_tasks" ? (
               <>
@@ -158,11 +159,11 @@ export function RuleEditor({
             {kind === "reminder" ? (
               <>
                 <Field label={t.reminderMode}>
-                  <select aria-label={t.reminderMode} data-testid="rule-reminder-mode" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+                  <Select aria-label={t.reminderMode} data-testid="rule-reminder-mode" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
                     <option value="notification">{t.reminderModes.notification}</option>
                     <option value="task">{t.reminderModes.task}</option>
                     <option value="both">{t.reminderModes.both}</option>
-                  </select>
+                  </Select>
                 </Field>
                 <Field label={t.ruleText} description={!text.trim() ? "填写要发送的提醒内容。" : undefined}>
                   <input required aria-label={t.ruleText} placeholder={t.ruleText} value={text} onChange={(e) => setText(e.target.value)} />
@@ -172,17 +173,17 @@ export function RuleEditor({
             {kind === "agent_prompt" ? (
               <>
                 <Field label={t.space} description={!spaceId ? "请选择规则执行的工作区。" : undefined}>
-                  <select required aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                  <Select required aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
                     <option value="">{t.choose}</option>
                     {(spaces.data ?? []).map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field label={t.provider} description={!provider ? "请选择执行任务的 CLI。" : undefined}>
-                  <select required aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  <Select required aria-label={t.provider} data-testid="rule-provider" value={provider} onChange={(e) => setProvider(e.target.value)}>
                     <option value="">{t.choose}</option>
                     {found.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -194,7 +195,7 @@ export function RuleEditor({
                         {provider}（{t.unavailable}）
                       </option>
                     ) : null}
-                  </select>
+                  </Select>
                 </Field>
                 {found.length === 0 && providers.data ? <p className="tasks-hint">{t.noProvider}</p> : null}
                 <Field label={t.model}>
@@ -211,21 +212,21 @@ export function RuleEditor({
                   <textarea required className="automations-description-input" rows={3} aria-label={t.command} placeholder={t.commandPlaceholder} data-testid="rule-command" value={command} onChange={(e) => setCommand(e.target.value)} />
                 </Field>
                 <Field label={t.space}>
-                  <select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                  <Select aria-label={t.space} data-testid="rule-space" value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
                     <option value="">{t.vaultRoot}</option>
                     {(spaces.data ?? []).map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <p className="tasks-hint">在已保存规则的详情中设置受保护环境。</p>
               </>
             ) : null}
           </div>
         </div>
-        <aside className="automations-editor-aside">
+        <aside className="hu-form-aside">
           {rule?.data.legacyEnvironment ? (
             <label>
               <input type="checkbox" checked={replaceLegacy} onChange={(event) => setReplaceLegacy(event.target.checked)} />
@@ -237,7 +238,7 @@ export function RuleEditor({
             <strong>何时激活</strong>
           </div>
           <Field label={t.frequency}>
-            <select
+            <Select
               aria-label={t.frequency}
               data-testid="rule-preset"
               value={preset}
@@ -252,11 +253,11 @@ export function RuleEditor({
                   {t.presets[p.id]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           {PRESETS.find((p) => p.id === preset)?.time ? (
             <Field label={t.timeOfDay}>
-              <input type="time" aria-label={t.timeOfDay} value={time} onChange={(e) => setTime(e.target.value)} />
+              <DateInput type="time" label={t.timeOfDay} value={time || null} onChange={(next) => setTime(next ?? "")} />
             </Field>
           ) : null}
           <Field label={t.ruleCron}>{preset === "custom" ? <input aria-label={t.ruleCron} value={custom} onChange={(e) => setCustom(e.target.value)} /> : <code data-testid="rule-cron">{cron}</code>}</Field>
@@ -289,7 +290,7 @@ export function RuleEditor({
           <p className="tasks-hint">{start?.data.legacyEnvironment ? "保存并替换旧环境后暂停。" : start ? (start.data.enabled ? "保存后保持启用，后续触发采用新日程。已受理的派遣保留原设置。" : "保存后保持暂停。") : t.savedPaused}</p>
         </aside>
       </div>
-      <div className="automations-modal-actions">
+      <div className="hu-form-actions">
         {onCancel ? (
           <Button type="button" variant="ghost" onClick={onCancel}>
             {t.cancelEdit}

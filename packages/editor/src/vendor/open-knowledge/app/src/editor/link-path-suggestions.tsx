@@ -1,4 +1,5 @@
 import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom';
+import { dismissChildOnEscape, invokerOverlayContainer } from '@huhu/ui';
 import { isExternalHref } from '@inkeep/open-knowledge-core/utils/link-targets';
 import { useLingui } from '@lingui/react/macro';
 import {
@@ -143,6 +144,9 @@ export function LinkPathSuggestionInput({
     !loading &&
     !showSuggestionOptions;
   const showSuggestionPanel = showSuggestions || showNoMatches;
+  const container = showSuggestionPanel && inputRef.current
+    ? invokerOverlayContainer(inputRef.current)
+    : null;
   const activeIndex = Math.min(highlightedIndex, Math.max(suggestions.length - 1, 0));
   const activeId = showSuggestionOptions ? `${listId}-option-${activeIndex}` : undefined;
 
@@ -164,6 +168,9 @@ export function LinkPathSuggestionInput({
     if (!reference || !floating) return;
     const referenceElement = reference;
     const floatingElement = floating;
+    const collision = container?.matches('dialog[open]')
+      ? { boundary: container, padding: 8 }
+      : { padding: 8 };
 
     function updatePosition() {
       void computePosition(referenceElement, floatingElement, {
@@ -171,14 +178,14 @@ export function LinkPathSuggestionInput({
         strategy: 'fixed',
         middleware: [
           offset(4),
-          flip({ padding: 8 }),
-          shift({ padding: 8 }),
+          flip(collision),
+          shift(collision),
           size({
-            padding: 8,
+            ...collision,
             apply({ availableHeight, availableWidth, elements }) {
               Object.assign(elements.floating.style, {
-                width: `${Math.min(480, availableWidth)}px`,
-                maxHeight: `${Math.min(208, Math.max(96, availableHeight))}px`,
+                width: `${Math.max(0, Math.min(480, availableWidth))}px`,
+                maxHeight: `${Math.max(0, Math.min(208, availableHeight))}px`,
               });
             },
           }),
@@ -201,7 +208,7 @@ export function LinkPathSuggestionInput({
     const stop = autoUpdate(referenceElement, floatingElement, updatePosition);
     updatePosition();
     return stop;
-  }, [showSuggestionPanel]);
+  }, [container, showSuggestionPanel]);
 
   function setInputRef(node: HTMLInputElement | null) {
     inputRef.current = node;
@@ -219,6 +226,8 @@ export function LinkPathSuggestionInput({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (showSuggestionPanel && dismissChildOnEscape(event.nativeEvent, event.currentTarget, () => setDismissed(true))) return;
     if (showSuggestions && showSuggestionOptions) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -236,16 +245,6 @@ export function LinkPathSuggestionInput({
         if (active) selectSuggestion(active);
         return;
       }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setDismissed(true);
-        return;
-      }
-    }
-    if (showSuggestionPanel && event.key === 'Escape') {
-      event.preventDefault();
-      setDismissed(true);
-      return;
     }
     onKeyDown?.(event);
   }
@@ -340,7 +339,7 @@ export function LinkPathSuggestionInput({
         autoComplete="off"
         className={className}
       />
-      {suggestionPanel && createPortal(suggestionPanel, document.body)}
+      {suggestionPanel && container && createPortal(suggestionPanel, container)}
     </div>
   );
 }

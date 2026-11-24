@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import { dismissChildOnEscape, invokerOverlayContainer } from "./host-ui.js";
 
 export interface ComboboxOption {
   value: string;
@@ -27,6 +28,8 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
   const [query, setQuery] = useState<string | null>(null); // null：显示当前值；非 null：用户正在输入
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const container = open && input.current ? invokerOverlayContainer(input.current) : null;
+  const dialog = container?.matches("dialog[open]") ? container : undefined;
   const shown = query ?? options.find((o) => o.value === value)?.label ?? value;
   const matches = useMemo(() => {
     const q = (query ?? "").trim().toLowerCase();
@@ -66,6 +69,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
           }}
           onBlur={() => window.setTimeout(commit, 0)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
               e.preventDefault();
               if (!open) return setOpen(true);
@@ -79,25 +83,34 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
                 commit();
                 setOpen(false);
               }
-            } else if (e.key === "Escape" && open) {
-              e.preventDefault();
-              e.stopPropagation(); // 不要连带关闭外层对话框
-              setOpen(false);
-              setQuery(null);
             }
           }}
         />
       </Popover.Anchor>
-      <Popover.Portal>
+      {container ? <Popover.Portal container={container}>
         <Popover.Content
           className="hu-combobox-list"
           align="start"
           sideOffset={4}
+          collisionBoundary={dialog ?? []}
+          collisionPadding={8}
           onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => {
+            if (!input.current) return;
+            if (e.isComposing || e.keyCode === 229) {
+              e.preventDefault();
+              return;
+            }
+            dismissChildOnEscape(e, input.current, () => {
+              setOpen(false);
+              setQuery(null);
+            });
+          }}
           onInteractOutside={(e) => {
             if (e.target === input.current) e.preventDefault();
           }}
-          style={{ width: "var(--radix-popover-trigger-width)" }}
+          style={{ width: "var(--radix-popover-trigger-width)", maxWidth: "var(--radix-popover-content-available-width)" }}
         >
           <ul id={`${id}-list`} role="listbox" aria-label={label}>
             {matches.map((o, i) => (
@@ -122,7 +135,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
             ) : null}
           </ul>
         </Popover.Content>
-      </Popover.Portal>
+      </Popover.Portal> : null}
     </Popover.Root>
   );
 }

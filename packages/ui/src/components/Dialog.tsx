@@ -25,6 +25,7 @@ export function Dialog({ open, title, description, onClose, children, actions, t
   useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
+    const invoker = d.ownerDocument.activeElement;
     if (open && !d.open) {
       d.showModal();
       // 让第一个可编辑字段获得焦点。
@@ -32,6 +33,16 @@ export function Dialog({ open, title, description, onClose, children, actions, t
     }
     if (!open && d.open) d.close();
     setPresent(open);
+    return () => {
+      if (!open) return;
+      if (d.open) d.close();
+      // A conditionally mounted dialog can leave the document during the same commit.
+      queueMicrotask(() => {
+        const active = d.ownerDocument.activeElement;
+        if (!d.open && invoker instanceof HTMLElement && invoker.isConnected
+          && (active === d.ownerDocument.body || d.contains(active))) invoker.focus();
+      });
+    };
   }, [open]);
   if (!open && !present) return null;
   return (

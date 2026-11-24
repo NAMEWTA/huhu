@@ -7,9 +7,15 @@ export function overlayContainer(workbench: HTMLElement, invoker: HTMLElement): 
   return dialog && workbench.contains(dialog) ? dialog : workbench;
 }
 
+/** Standalone editor and UI entries have a document body in place of the workbench. */
+export function invokerOverlayContainer(invoker: HTMLElement): HTMLElement | null {
+  const workbench = invoker.closest<HTMLElement>(".hu-app") ?? invoker.ownerDocument.body;
+  return overlayContainer(workbench, invoker);
+}
+
 /** Wire this only while this child surface is open, in order from the inside out. */
 export function dismissChildOnEscape(event: KeyboardEvent, invoker: HTMLElement, dismiss: () => void): boolean {
-  if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return false;
+  if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229) return false;
   event.preventDefault();
   event.stopPropagation();
   dismiss();

@@ -5,7 +5,7 @@ export * from "./components/TerminalView.js";
 export * from "./components/Dialog.js";
 export * from "./components/Segmented.js";
 export * from "./components/DateTimePicker.js";
-export { dismissChildOnEscape, HostDateField, overlayContainer } from "./components/host-ui.js";
+export { dismissChildOnEscape, HostDateField, invokerOverlayContainer, overlayContainer } from "./components/host-ui.js";
 export * from "./components/datetime.js";
 export * from "./components/controls.js";
 export * from "./components/feedback.js";

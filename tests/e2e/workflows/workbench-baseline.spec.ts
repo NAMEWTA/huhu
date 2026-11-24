@@ -157,6 +157,123 @@ test("U0 快速捕获对话框的 slash 命中与层次", async ({ browserName }
   });
 });
 
+test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单行为", async ({ browserName }, info) => {
+  void browserName;
+  await runOnHosts(info, async (page, name) => {
+    const settings = page.getByRole("button", { name: "设置", exact: true }).first();
+    await settings.click();
+    await page.getByTestId("settings-nav-appearance").click();
+    await page.getByTestId("theme-vercel").click();
+    await page.getByRole("tab", { name: "深色" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
+
+    await page.getByRole("button", { name: "收件箱", exact: true }).first().click();
+    const capture = page.getByRole("button", { name: "快速捕获", exact: true });
+    await capture.click();
+    const inbox = page.getByRole("dialog", { name: "快速捕获" });
+    const editor = inbox.locator(".ProseMirror");
+    await editor.click();
+    await page.keyboard.type("/");
+    const slash = inbox.locator('[data-slash-command="heading2"]');
+    await expect(slash).toBeVisible();
+    await slash.click({ trial: true });
+    await page.keyboard.press("Escape");
+    await expect(slash).toHaveCount(0);
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type("/");
+    await slash.click();
+    await expect(editor.locator("h2")).toHaveCount(1);
+    await expect(editor).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(inbox).toBeHidden();
+    await expect(capture).toBeFocused();
+
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    const taskNew = page.getByTestId("task-new");
+    await taskNew.click();
+    const task = page.getByTestId("task-editor");
+    await expect(task).toBeVisible();
+    await expect(page.getByTestId("task-due")).toHaveValue("");
+    await task.getByTestId("task-project").focus();
+    await expect(task.getByRole("listbox", { name: "任务项目" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(task.getByRole("listbox", { name: "任务项目" })).toBeHidden();
+    await expect(task.getByTestId("task-project")).toBeFocused();
+
+    const dateButton = task.getByRole("button", { name: "选择截止日期" });
+    await dateButton.click();
+    let calendar = task.getByRole("dialog", { name: "选择截止日期" });
+    await expect(calendar.getByLabel("月", { exact: true }).locator('option[value="11"]')).toHaveText("十一月");
+    expect(await calendar.evaluate((element) => {
+      const probe = document.createElement("span");
+      probe.style.backgroundColor = "var(--panel)";
+      element.append(probe);
+      const themed = getComputedStyle(element).backgroundColor === getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return themed;
+    })).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(calendar).toBeHidden();
+    await expect(dateButton).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(task).toBeHidden();
+    await expect(taskNew).toBeFocused();
+
+    // Exercise the component with a host-provided document locale and with a narrow form on the same viewport.
+    await page.evaluate(() => { document.documentElement.lang = "en-US"; });
+    await taskNew.click();
+    await task.evaluate((dialog) => { dialog.style.width = "460px"; });
+    const taskAreas = task.locator(".hu-form-grid");
+    await expect.poll(() => taskAreas.evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(1);
+    const title = `${"包含较长名称且同时保留正文和截止日期的任务".repeat(3)} ${name}`;
+    await task.getByLabel("任务名称").fill(title);
+    await task.getByTestId("task-body").locator(".ProseMirror").fill("正文仍然可编辑");
+    await task.getByRole("button", { name: "Choose 截止日期" }).click();
+    calendar = task.getByRole("dialog", { name: "Choose 截止日期" });
+    await expect(calendar.getByLabel("Month", { exact: true }).locator('option[value="11"]')).toHaveText("November");
+    await calendar.getByLabel("Year", { exact: true }).fill("2028");
+    await calendar.getByLabel("Month", { exact: true }).selectOption("2");
+    await calendar.getByLabel("Day", { exact: true }).selectOption("29");
+    await calendar.getByRole("button", { name: "Apply" }).click();
+    const due = task.getByTestId("task-due");
+    await expect(due).toHaveValue("2028-02-29");
+    await task.getByRole("button", { name: "Clear 截止日期" }).click();
+    await expect(due).toHaveValue("");
+    await expect(due).toBeFocused();
+    await task.getByTestId("task-save").click();
+    await expect(task).toBeHidden();
+    const tasks = await call<{ title: string; due: string | null }[]>(page, "tasks.list", { category: "all" });
+    expect(tasks.find((row) => row.title === title)).toMatchObject({ due: null });
+    await page.evaluate(() => { document.documentElement.lang = "zh-CN"; });
+
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const ruleNew = page.getByTestId("rule-new");
+    await ruleNew.click();
+    const rule = page.getByTestId("rule-dialog");
+    await rule.evaluate((dialog) => { dialog.style.width = "460px"; });
+    await expect.poll(() => rule.locator(".hu-form-grid").evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(1);
+    const kind = rule.getByTestId("rule-kind");
+    await expect(kind.locator('option[value="terminal"]')).toHaveText("运行命令");
+    if (await kind.evaluate(() => CSS.supports("appearance", "base-select"))) {
+      await kind.click();
+      await expect.poll(() => kind.evaluate((select) => select.matches(":open"))).toBe(true);
+      await page.keyboard.press("Escape");
+      await expect.poll(() => kind.evaluate((select) => select.matches(":open"))).toBe(false);
+      await expect(rule).toBeVisible();
+      await expect(kind).toBeFocused();
+    }
+    await kind.selectOption("reminder");
+    await rule.getByLabel("规则名称").fill("按容器重排的提醒规则");
+    await rule.getByLabel("通知内容").fill("内容");
+    await expect(rule.getByTestId("rule-upcoming").locator("time")).toHaveCount(3);
+    await expect(rule.getByTestId("rule-save")).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(rule).toBeHidden();
+    await expect(ruleNew).toBeFocused();
+  });
+});
+
 async function showAgent(page: Page) {
   await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
   await expect(page.getByTestId("agent-cli-module")).toBeVisible();
