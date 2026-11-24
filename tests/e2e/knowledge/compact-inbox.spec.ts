@@ -1,4 +1,4 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
@@ -8,6 +8,55 @@ const captureBody = (page: Page) => page.locator(".inbox-knowledge-inbox-note");
 const captureRow = (page: Page, title: string) => page.getByTestId("capture-item").filter({ has: page.getByText(title, { exact: true }) });
 const openInbox = (page: Page) => page.getByRole("button", { name: "收件箱", exact: true }).first().click();
 const editCapture = (page: Page) => page.getByRole("button", { name: "编辑收集条目" }).click();
+
+test("桌面与 Web 将捕获的 Markdown 直接写入笔记并保留关联", async () => {
+  const { page, vault, close } = await openApp();
+  let browser: Browser | undefined;
+  const markdown = "正文第一段\n\n```js\nconst kept = 42\n```\n\n[[收集引用]]";
+  async function convert(host: Page, title: string, edited?: string) {
+    await captureRow(host, title).click();
+    await host.getByRole("button", { name: /转为笔记/ }).click();
+    const dialog = host.getByTestId("convert-dialog");
+    const body = dialog.getByLabel("内容", { exact: true });
+    await expect(body).toHaveValue(markdown);
+    if (edited !== undefined) await body.fill(edited);
+    await dialog.getByRole("button", { name: "创建笔记并完成处理" }).click();
+    await expect(dialog).toBeHidden();
+    expect(readFileSync(path.join(vault, `${title}.md`), "utf8")).toBe(edited ?? markdown);
+  }
+  try {
+    await engineReady(page);
+    const titles = ["从桌面转换", "从网页转换", "清空正文"];
+    const reference = await call<{ path: string }>(page, "notes.create", { name: "收集引用" });
+    for (const title of titles) await call(page, "inbox.capture", { title, body: markdown });
+
+    await openInbox(page);
+    await convert(page, titles[0]!);
+    expect(await call(page, "web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
+    const { links } = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await web.goto(links[0]!);
+    await openInbox(web);
+    await convert(web, titles[1]!, markdown.replace("正文第一段", "由 Web 编辑"));
+    await convert(web, titles[2]!, "");
+
+    const done = await call<{ title: string; body: string; result: { kind: string; id: string } }[]>(page, "inbox.list", { status: "processed" });
+    const notes = await call<{ path: string; id: string }[]>(page, "notes.list", {});
+    expect(done).toHaveLength(3);
+    for (const { title, body, result } of done) {
+      expect(body).toBe(markdown);
+      expect(result).toMatchObject({ kind: "note", id: notes.find(({ path: file }) => file === `${title}.md`)?.id });
+    }
+    expect(await call(page, "notes.backlinks", { path: reference.path })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: `${titles[0]}.md` }),
+      expect.objectContaining({ path: `${titles[1]}.md` }),
+    ]));
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
 
 async function copySelection(app: ElectronApplication, page: Page, body: Locator, selection: "all" | "inside" | "across" | "space" | "boundary" | "gap") {
   await body.evaluate((element, selection) => {

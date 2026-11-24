@@ -331,7 +331,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           target={dialog.target}
           types={types.data ?? []}
           onClose={() => setDialog(null)}
-          onSubmit={async (fields) => (await act("inbox.convert", { id: dialog.item.id, target: dialog.target, fields })) && (setDialog(null), true)}
+          onSubmit={async (fields) => (await act("inbox.convert", { id: dialog.item.id, expectedVersion: dialog.item.version, target: dialog.target, fields })) && (setDialog(null), true)}
         />
       ) : null}
       {dialog?.kind === "delete" ? (
@@ -502,9 +502,18 @@ function ConvertDialog({
   const label = TARGET_TEXT[target];
   const [name, setName] = useState(item.title);
   const [body, setBody] = useState(item.body);
+  const bodyId = useId();
   const [due, setDue] = useState("");
   const [type, setType] = useState(types[0]?.path ?? "");
   const { port, saving, failure, submit } = useDialogSubmit();
+
+  function convert(content: string) {
+    const title = name.trim();
+    if (target === "task") return onSubmit({ title, body: content, ...(due ? { due } : {}) });
+    if (target === "archive") return onSubmit({ name: title, type, body: content });
+    return onSubmit({ name: title, body: content });
+  }
+
   return (
     <Dialog
       open
@@ -524,7 +533,7 @@ function ConvertDialog({
             variant="primary"
             loading={saving}
             disabled={!name.trim()}
-            onClick={() => void submit(body, (body) => onSubmit(target === "task" ? { title: name.trim(), body, ...(due ? { due } : {}) } : target === "note" ? { name: name.trim(), template: "blank" } : { name: name.trim(), type, body }))}
+            onClick={() => void submit(body, convert)}
           >
             创建{label}并完成处理
           </Button>
@@ -551,20 +560,23 @@ function ConvertDialog({
             </select>
           </Field>
         ) : null}
-        {target !== "note" ? (
+        {target === "task" ? (
           <Field label="内容">
-            {target === "task" ? (
-              <CaptureBodyInput
-                value={body}
-                onPort={(editor) => {
-                  port.current = editor;
-                }}
-              />
-            ) : (
-              <textarea aria-label="内容" rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
-            )}
+            <CaptureBodyInput
+              value={body}
+              onPort={(editor) => {
+                port.current = editor;
+              }}
+            />
           </Field>
-        ) : null}
+        ) : (
+          <div className="hu-field">
+            <label className="hu-field-label" htmlFor={bodyId}>
+              内容
+            </label>
+            <textarea id={bodyId} rows={5} value={body} disabled={saving} onChange={(e) => setBody(e.target.value)} />
+          </div>
+        )}
       </div>
     </Dialog>
   );

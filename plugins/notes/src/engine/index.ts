@@ -77,7 +77,7 @@ const noteTools = {
     description: "创建笔记。",
     ...publicTool,
     scope: "write",
-    input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional() }),
+    input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional(), body: z.string().optional() }),
     output: z.object({ path: z.string(), id: z.string() }),
   }),
   templatesList: descriptor({
@@ -521,6 +521,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         ...(i.folder ? { folder: i.folder } : {}),
         ...(i.template ? { template: i.template } : {}),
         ...(i.templatePath !== undefined ? { templatePath: i.templatePath } : {}),
+        ...(i.body !== undefined ? { body: i.body } : {}),
       });
       changed(r.id, "created");
       return r;
