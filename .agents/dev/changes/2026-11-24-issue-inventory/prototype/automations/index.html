@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="claude" data-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Huhu 自动化中心</title>
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="huhu.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="module.css">
+</head>
+<body>
+  <a href="#surface" class="skip">跳到工作区</a>
+  <header class="window">
+    <div class="brand"><img src="huhu-mark.svg" alt=""><span>huhu <small>workbench</small></span></div>
+    <div class="vault">北岸研究室</div>
+    <div class="window-end"><button id="theme-toggle" type="button" class="quiet icon-only" aria-label="切换深色"></button></div>
+  </header>
+  <div class="workbench" id="workbench">
+    <nav class="rail" id="rail" aria-label="功能栏"></nav>
+    <aside class="sidebar" id="section-menu" aria-label="模块导航"></aside>
+    <div class="pane">
+      <nav class="tab-bar" id="workspace-tabs" aria-label="已打开的功能"></nav>
+      <div class="path-bar"><span>北岸研究室 / <strong id="crumb"></strong></span><span>本地工作台</span></div>
+      <main class="prototype-main" id="surface" tabindex="-1"></main>
+    </div>
+  </div>
+  <footer class="statusbar">
+    <span id="status-message" role="status" aria-live="polite"></span>
+    <details class="demo-controls">
+      <summary>原型演示</summary>
+      <div class="card stack">
+        <p>内置模拟数据。刷新或重置可恢复初始状态。</p>
+        <div class="stack" id="demo-fields"></div>
+        <button type="button" id="reset-demo">重置演示</button>
+      </div>
+    </details>
+  </footer>
+  <script src="icons.js"></script>
+  <script src="shell.js"></script>
+  <script src="fixtures.js"></script>
+  <script src="editor.js"></script>
+  <script src="prototype.js"></script>
+</body>
+</html>
