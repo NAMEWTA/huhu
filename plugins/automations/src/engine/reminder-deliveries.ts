@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { errors, HuhuError, isHuhuError } from "@huhu/contracts";
+import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
@@ -45,7 +45,7 @@ export class ReminderDeliveries {
     private readonly files: VaultFiles,
     private readonly vaultId: string,
     machine: string,
-    private readonly rules: Pick<AutomationsService, "rule">,
+    private readonly rules: Pick<AutomationsService, "rule" | "withRuleConfiguration">,
     private readonly tasks: () => TaskRuleDispatch | undefined,
     private readonly taskPath: (taskId: string) => string | undefined,
     private readonly notifications: ReminderNotifications,
@@ -87,6 +87,33 @@ export class ReminderDeliveries {
       const row = this.load(id);
       return row ? [this.view(row.data)] : [];
     });
+  }
+
+  readPlanOccurrence(id: string): PlanOccurrence | null {
+    if (!Id.safeParse(id).success) return null;
+    const row = this.load(id)?.data;
+    if (!row) return null;
+    const effects: PlanOccurrence["effects"] = [];
+    if (row.notification !== "disabled") {
+      const effectId = notificationId(id);
+      const state = row.notification === "sent" ? "completed" : row.notification === "pending" ? "not-accepted" : "unknown";
+      effects.push({ effectId, kind: "notification", target: { kind: "notification", id: effectId }, operationId: null, state, receiptId: state === "completed" ? effectId : null });
+    }
+    if (row.task !== "disabled") {
+      const taskId = reminderTaskId(id);
+      const state = row.task === "created" ? "completed" : row.task === "pending" ? "not-accepted" : "failed";
+      effects.push({ effectId: taskId, kind: "task-create", target: { kind: "task", id: taskId }, operationId: null, state, receiptId: state === "completed" ? taskId : null });
+    }
+    return {
+      occurrenceId: id,
+      plan: { planId: row.ruleId, revision: row.ruleVersion },
+      timing: row.scheduledFor ? { trigger: "scheduled", scheduledFor: row.scheduledFor } : { trigger: "manual" },
+      state: effects.some(({ state }) => state === "unknown") ? "unknown" : row.finishedAt ? "completed" : "accepted",
+      acceptedAt: row.startedAt,
+      frozenInput: { revision: row.ruleVersion, digest: digest([row.text, row.taskBody, row.notificationModule, ...effects.map(({ effectId }) => effectId)]) },
+      execution: null,
+      effects,
+    };
   }
 
   lastScheduledFor(ruleId: string): Date | null {
@@ -146,20 +173,21 @@ export class ReminderDeliveries {
     let row = this.load(id);
     if (row && trigger?.expectedVersion !== undefined) this.assertClaim(row.data, trigger);
     if (!row && trigger) {
-      const rule = this.rules.rule(trigger.ruleId);
-      const action = rule.data.action;
-      if (trigger.expectedVersion !== undefined) {
-        if (action.kind !== "reminder") throw errors.permissionDenied("外部立即运行只支持提醒规则");
-        if (rule.version !== trigger.expectedVersion) throw errors.versionConflict(rule.version);
-      } else if (action.kind !== "reminder") {
-        throw errors.invalidInput("当前规则不再是提醒规则");
-      }
-      if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
-      if (trigger.at && Date.parse(trigger.at) > this.now().getTime()) throw errors.invalidInput("提醒时间尚未到达");
-      if (!this.owner) throw errors.invalidInput("无法确认本机的提醒归属");
-      const reference = action.taskId ? `\n\n相关任务：[[${this.taskPath(action.taskId) ?? action.taskId}]]` : "";
-      row = await this.save(
-        {
+      row = await this.rules.withRuleConfiguration(async () => {
+        this.lifetime.signal.throwIfAborted();
+        const rule = this.rules.rule(trigger.ruleId);
+        const action = rule.data.action;
+        if (trigger.expectedVersion !== undefined) {
+          if (action.kind !== "reminder") throw errors.permissionDenied("外部立即运行只支持提醒规则");
+          if (rule.version !== trigger.expectedVersion) throw errors.versionConflict(rule.version);
+        } else if (action.kind !== "reminder") {
+          throw errors.invalidInput("当前规则不再是提醒规则");
+        }
+        if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
+        if (trigger.at && Date.parse(trigger.at) > this.now().getTime()) throw errors.invalidInput("提醒时间尚未到达");
+        if (!this.owner) throw errors.invalidInput("无法确认本机的提醒归属");
+        const reference = action.taskId ? `\n\n相关任务：[[${this.taskPath(action.taskId) ?? action.taskId}]]` : "";
+        return this.save({
           format: 1,
           id,
           vaultId: this.vaultId,
@@ -174,9 +202,9 @@ export class ReminderDeliveries {
           notificationModule: action.taskId ? "tasks" : "automations",
           notification: action.mode === "task" ? "disabled" : "pending",
           task: action.mode === "notification" ? "disabled" : "pending",
-        },
-        null,
-      );
+        }, null);
+      });
+      if (!row) return null;
       this.onChanged(this.view(row.data));
     }
     if (!row || row.data.finishedAt || row.data.owner !== this.owner || row.data.vaultId !== this.vaultId) return row?.data ?? null;

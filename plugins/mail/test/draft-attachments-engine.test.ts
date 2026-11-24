@@ -8,6 +8,11 @@ import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { MAIL_DRAFT_ATTACHMENTS_SERVICE, mailAttachmentPackagePaths, MAX_DRAFT_ATTACHMENT_BYTES, type MailAttachmentSource, type MailDraftAttachments } from "../src/engine/index.js";
 
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
+
 const shared = vi.hoisted(() => ({ services: new Map<string, MailDraftAttachments>(), beforeExport: new Map<string, () => Promise<void>>() }));
 vi.mock("@huhu/vault", async (original) => {
   const vault = await original<typeof import("@huhu/vault")>();
@@ -518,16 +523,21 @@ engineTest(
       const candidateDigest = hash(candidate);
       const candidateBlob = path.join(vaultPath, objects, candidateDigest);
       const atomicRename = fs.rename;
-      let failTarget = candidateBlob;
       const failure = vi.spyOn(fs, "rename").mockImplementation((from, to, callback) => {
-        if (to !== failTarget) return atomicRename(from, to, callback);
+        if (to !== candidateBlob) return atomicRename(from, to, callback);
         expect(existsSync(from)).toBe(true);
         callback(Object.assign(new Error("synthetic atomic failure"), { code: "EIO" }));
+      });
+      const replace = fs.renameSync;
+      const failSnapshot = vi.mocked(renameSync).mockImplementation((from, to) => {
+        if (to !== snapshot) return replace(from, to);
+        expect(existsSync(from)).toBe(true);
+        throw Object.assign(new Error("synthetic atomic snapshot failure"), { code: "EIO" });
       });
       try {
         await expect(managed.addAttachment(input, source("fail.bin", candidate))).rejects.toMatchObject({ details: { reason: "attachment-write-failed", digest: candidateDigest } });
         assertUnchanged();
-        failTarget = snapshot;
+        failure.mockRestore();
         await expect(managed.addAttachment(input, source("fail.bin", candidate))).rejects.toMatchObject({ details: { reason: "draft-write-failed" } });
         expect(readFileSync(snapshot)).toEqual(original);
         expect(readFileSync(blob)).toEqual(good);
@@ -538,6 +548,7 @@ engineTest(
         assertUnchanged();
       } finally {
         failure.mockRestore();
+        failSnapshot.mockReset();
       }
 
       renameSync(snapshot, `${snapshot}.moved`);

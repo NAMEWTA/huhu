@@ -430,6 +430,7 @@ export class Dispatcher {
       ...(delegatedBy && { delegatedBy }),
       ...(parentOperationId && { parentOperationId }),
       ...(req.idempotencyKey !== undefined && { idempotencyKey: req.idempotencyKey }),
+      ...(req.intentKey !== undefined && { intentKey: req.intentKey }),
     };
     this.contexts.set(context, { ...invocation, def, request: req });
     try {

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { CapabilityResultSchema } from "@huhu/contracts";
@@ -20,6 +20,12 @@ import { forwardSeed, newTopicSeed } from "../src/engine/prepare-forward.js";
 import { replySeed, type ReplySeed } from "../src/engine/prepare-reply.js";
 import { openImapFixture } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
+import { interceptReservedVaultWrite } from "./fixtures/vault-write.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
 
 const shared = vi.hoisted(() => ({ services: new Map<string, { outbox?: MailOutboxService; attachments?: MailDraftAttachments }>() }));
 vi.mock("@huhu/plugin-mail/engine", async (original) => {
@@ -340,13 +346,12 @@ engineTest(
       const write = target.vault.files.write.bind(target.vault.files);
       const writing = Promise.withResolvers<void>();
       const failWrite = Promise.withResolvers<void>();
-      const injected = vi.spyOn(target.vault.files, "write").mockImplementation(async (...args) => {
-        if (args[0] === ".huhu/mail/drafts.json") {
+      const injected = interceptReservedVaultWrite(target.vault.files, async (relative) => {
+        if (relative === ".huhu/mail/drafts.json") {
           writing.resolve();
           await failWrite.promise;
           throw new Error("synthetic draft write failure");
         }
-        return write(...args);
       });
       const interrupted = submit(selected, [first.accountId]);
       try {
@@ -549,10 +554,8 @@ engineTest("Mail 子集显式独立恢复第二账号失败后可使用原双选
     expect(initial.accounts).toMatchObject(rows.map(({ accountId }) => ({ accountId, state: "conflict", canKeepSeparate: true, existing: { accountId: existingId } })));
     const files = target.vault.files;
     const deliveryPath = `${outboxDir}/${operationId}.json`;
-    const write = files.write.bind(files);
-    const fail = vi.spyOn(files, "write").mockImplementation(async (...args) => {
-      if (args[0] === deliveryPath) throw new Error("synthetic second-account delivery write failure");
-      return write(...args);
+    const fail = interceptReservedVaultWrite(files, (relative) => {
+      if (relative === deliveryPath) throw new Error("synthetic second-account delivery write failure");
     });
     await expect(restore(target, initial.previewId).finally(() => fail.mockRestore())).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
     expect(files.exists(deliveryPath)).toBe(false);
@@ -644,11 +647,9 @@ engineTest.each([
     const ready = await preview(target);
     expect(ready.accounts).toMatchObject(accountIds.map((accountId) => ({ accountId, state: "ready" })));
     const files = target.vault.files;
-    const write = files.write.bind(files);
-    const failedSecond = vi.spyOn(files, "write").mockImplementation(async (...args) => {
-      if (args[0] === `.huhu/mail/read-overrides/${secondId}.json`) throw new Error("synthetic second-account write failure");
-      if (!occupied && args[0].includes("/mail-subset-confirmed/")) throw new Error("synthetic first-account confirmation write failure");
-      return write(...args);
+    const failedSecond = interceptReservedVaultWrite(files, (relative) => {
+      if (relative === `.huhu/mail/read-overrides/${secondId}.json`) throw new Error("synthetic second-account write failure");
+      if (!occupied && relative.includes("/mail-subset-confirmed/")) throw new Error("synthetic first-account confirmation write failure");
     });
     try {
       await expect(restore(target, ready.previewId)).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
@@ -862,9 +863,8 @@ engineTest("Mail 子集同地址须显式选择，独立 ID 与恢复结果可�
     const confirm = await preview();
     await expect(restore(confirm.previewId, [otherId])).rejects.toMatchObject({ name: "ZodError" });
     const write = target.vault.files.write.bind(target.vault.files);
-    const failedDraft = vi.spyOn(target.vault.files, "write").mockImplementation(async (...args) => {
-      if (args[0] === ".huhu/mail/drafts.json") throw new Error("synthetic draft write failure");
-      return write(...args);
+    const failedDraft = interceptReservedVaultWrite(target.vault.files, (relative) => {
+      if (relative === ".huhu/mail/drafts.json") throw new Error("synthetic draft write failure");
     });
     try {
       await expect(restore(confirm.previewId, [accountId])).rejects.toMatchObject({ code: "WRITE_PARTIAL" });
@@ -1732,12 +1732,12 @@ engineTest(
 
       smtp.configure("accept");
       const unwrittenDraft = await save(engine, accountId);
-      const atomicRename = fs.rename;
+      const atomicRename = fs.renameSync;
       let failedWrites = 0;
-      const failure = vi.spyOn(fs, "rename").mockImplementation((from, to, callback) => {
-        if (!String(to).startsWith(`${path.join(engine.vault.root, outboxDir)}${path.sep}`) || !existsSync(to)) return atomicRename(from, to, callback);
+      const failure = vi.mocked(renameSync).mockImplementation((from, to) => {
+        if (!String(to).startsWith(`${path.join(engine.vault.root, outboxDir)}${path.sep}`) || !existsSync(to)) return atomicRename(from, to);
         failedWrites++;
-        callback(Object.assign(new Error("synthetic result failure"), { code: "EIO" }));
+        throw Object.assign(new Error("synthetic result failure"), { code: "EIO" });
       });
       let unwritten: Awaited<ReturnType<MailOutboxService["submit"]>>;
       try {
@@ -1746,7 +1746,7 @@ engineTest(
         expect(failedWrites).toBe(1);
         expect(JSON.parse(readFileSync(path.join(engine.vault.root, outboxDir, `${unwritten.operationId}.json`), "utf8"))).toMatchObject({ result: null });
       } finally {
-        failure.mockRestore();
+        failure.mockReset();
       }
       await engine.shutdown();
       engine = await open();
@@ -1879,15 +1879,15 @@ engineTest(
       expect(mailAttachmentPackagePaths(engine.vault.files)).toEqual(new Set([attachmentPath]));
       const childFile = path.join(engine.vault.root, outboxDir, `${one.operationId}.json`);
       const fullRecord = readFileSync(childFile);
-      const rename = fs.rename;
-      const failure = vi.spyOn(fs, "rename").mockImplementation((from, to, callback) => {
-        if (to !== childFile) return rename(from, to, callback);
-        callback(Object.assign(new Error("synthetic local deletion failure"), { code: "EIO" }));
+      const rename = fs.renameSync;
+      const failure = vi.mocked(renameSync).mockImplementation((from, to) => {
+        if (to !== childFile) return rename(from, to);
+        throw Object.assign(new Error("synthetic local deletion failure"), { code: "EIO" });
       });
       try {
         await expect(outbox.deleteLocal(secondKey)).rejects.toMatchObject({ details: { reason: "outbox-write-failed" } });
       } finally {
-        failure.mockRestore();
+        failure.mockReset();
       }
       expect(readFileSync(childFile)).toEqual(fullRecord);
       expect(outbox.status(secondKey)).toMatchObject({ state: "accepted" });

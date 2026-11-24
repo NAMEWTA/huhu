@@ -14,6 +14,7 @@ export interface CapabilityContext {
   assertCapabilityCurrent?(): void;
   requestId: string;
   idempotencyKey?: string;
+  intentKey?: string;
   parentOperationId?: string;
   delegatedBy?: { pluginId: string; command: string; caller: string; subject: string; vaultInstance: string };
 }

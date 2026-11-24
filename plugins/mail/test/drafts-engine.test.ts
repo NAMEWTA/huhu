@@ -1,6 +1,6 @@
 import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,11 @@ import { assert, expect, test as engineTest, vi } from "vitest";
 import { boot, type RunningEngine } from "./fixtures/engine.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../src/engine/account-definition.js";
 import { openMailAccounts } from "../src/engine/accounts.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
 
 const draftsPath = ".huhu/mail/drafts.json";
 
@@ -255,19 +260,19 @@ engineTest(
       expect(initial.draftId).toBe(id);
       const file = path.join(vaultPath, draftsPath);
       const original = readFileSync(file);
-      const rename = fs.rename;
+      const rename = fs.renameSync;
       let failures = 0;
-      const fault = vi.spyOn(fs, "rename").mockImplementation((source, target, callback) => {
-        if (target !== file || failures > 0) return rename(source, target, callback);
+      const fault = vi.mocked(renameSync).mockImplementation((source, target) => {
+        if (target !== file || failures > 0) return rename(source, target);
         failures++;
         expect(existsSync(source)).toBe(true);
-        callback(Object.assign(new Error("synthetic atomic replacement failure"), { code: "EIO" }));
+        throw Object.assign(new Error("synthetic atomic replacement failure"), { code: "EIO" });
       });
       const input = { ...content, subject: "replacement fixture" };
       try {
         expect(await save(engine, id, initial.revision, input)).toMatchObject({ ok: false, error: { code: "INTERNAL", details: { reason: "draft-write-failed" } } });
       } finally {
-        fault.mockRestore();
+        fault.mockReset();
       }
       expect(failures).toBe(1);
       expect(readFileSync(file)).toEqual(original);

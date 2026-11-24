@@ -25,16 +25,23 @@ export class DefaultTaskScan implements DefaultTaskScanService {
     private readonly ruleCreated: (id: string) => void,
   ) {}
 
-  initializeAfterEnable(): Promise<Result> {
-    return this.run(() => this.ensure(false));
+  initializeAfterEnable(assertCurrent?: () => void): Promise<Result> {
+    return this.run(() => {
+      assertCurrent?.();
+      return this.ensure(false);
+    });
   }
 
-  restore(): Promise<Result> {
-    return this.run(() => this.ensure(true));
+  restore(assertCurrent?: () => void): Promise<Result> {
+    return this.run(() => {
+      assertCurrent?.();
+      return this.ensure(true);
+    });
   }
 
-  deleteRule(remove: () => Promise<void>): Promise<void> {
+  deleteRule(remove: () => Promise<void>, assertCurrent?: () => void): Promise<void> {
     return this.run(async () => {
+      assertCurrent?.();
       const marker = this.readMarker();
       // Complete the marker first so deletion after a partial install is still durable.
       if (marker?.state !== "initialized" && this.hasRule()) await this.writeMarker("initialized", marker?.version ?? null);
