@@ -5,7 +5,7 @@ import { requestOpenPath, useCapability, useEngine, useQueryClient, useReference
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
-import { takeOpenCapture } from "./open-capture.js";
+import { onOpenCaptureRequest } from "./open-capture.js";
 
 // 紧凑 OK 编辑器（S2c）按需加载：收件箱的首屏不带编辑器闭包
 const CompactView = lazy(() => import("@huhu/editor/rich").then((m) => ({ default: m.CompactMarkdownView })));
@@ -45,10 +45,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: "edit"; item: Capture | null } | { kind: "convert"; item: Capture; target: Target } | { kind: "delete"; item: Capture } | { kind: "undo"; item: Capture } | null>(null);
   const every = useCapability<Capture[]>("inbox.list", {});
-  useEffect(() => {
-    const requested = takeOpenCapture(engine);
-    if (requested) setSelected(requested);
-  }, [engine]);
+  useEffect(() => onOpenCaptureRequest(engine, setSelected), [engine]);
   const types = useCapability<ArchiveType[]>("archives.types.list", {});
   const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
   const all = every.data ?? [];

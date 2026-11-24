@@ -1,5 +1,5 @@
 /* oxlint-disable typescript/no-explicit-any */
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1768,6 +1768,117 @@ test("命令面板：搜索结果按来源分组（笔记 / 任务 / 档案 / �
     await expect(groups.filter({ hasText: "任务" })).toBeVisible();
     await page.getByTestId("palette-item").filter({ hasText: "分组测试任务" }).click();
     await expect(page.getByTestId("task-new")).toBeVisible(); // 在任务模块
+  } finally {
+    await close();
+  }
+});
+
+test("命令面板：桌面和 Web 按命中身份打开任务、收件项与带井号的笔记", async () => {
+  test.setTimeout(65_000);
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  const titles = ["定位任务甲", "定位任务乙", "定位收件甲", "定位收件乙"];
+  async function choose(view: Page, title: string) {
+    await view.getByTestId("window-titlebar").getByRole("button", { name: "搜索与命令", exact: true }).click();
+    const palette = view.getByTestId("command-palette");
+    await palette.getByRole("combobox").fill(title);
+    await palette.getByTestId("palette-item").filter({ hasText: title }).click();
+    await expect(palette).toBeHidden();
+  }
+  async function verify(view: Page) {
+    for (const title of titles.slice(0, 2)) {
+      await choose(view, title);
+      await expect(view.getByTestId("task-detail").getByRole("heading", { name: title })).toBeVisible();
+    }
+    for (const title of titles.slice(2)) {
+      await choose(view, title);
+      await expect(view.getByTestId("inbox-module").getByRole("heading", { name: title, exact: true })).toBeVisible();
+    }
+    await choose(view, "带井号");
+    await expect(view.getByTestId("markdown-editor")).toContainText("带井号#笔记");
+  }
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪");
+    const call = await caller(page);
+    for (const title of titles.slice(0, 2)) expect((await call("tasks.create", { title, type: "human" })).ok).toBe(true);
+    for (const title of titles.slice(2)) expect((await call("inbox.capture", { title, body: title })).ok).toBe(true);
+    expect((await call("notes.create", { name: "带井号#笔记" })).ok).toBe(true);
+    await verify(page);
+
+    expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ ok: true, data: { state: "running" } });
+    const invite = await call("web.invitations.create");
+    expect(invite.ok).toBe(true);
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await web.goto(invite.data.links[0]);
+    await verify(web);
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
+
+test("命令面板：清空或关闭后丢弃迟到结果，取消离场不残留目标请求", async () => {
+  const { page, close } = await openApp();
+  const palette = page.getByTestId("command-palette");
+  const input = palette.getByRole("combobox");
+  type SearchProbe = { f21Pending?: Record<string, () => boolean> };
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪");
+    const call = await caller(page);
+    expect((await call("tasks.create", { title: "取消导航目标", type: "human" })).ok).toBe(true);
+    await page.evaluate(() => {
+      const delayed: Record<string, () => boolean> = {};
+      (window as Window & SearchProbe).f21Pending = delayed;
+      const request = window.fetch.bind(window);
+      window.fetch = (url, init) => {
+        if (typeof url !== "string" || !url.endsWith("/api/v1/call")) return request(url, init);
+        const envelope = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const query = envelope?.input?.query;
+        if (envelope?.capability !== "vault.search" || !["延迟清空", "延迟关闭"].includes(query)) return request(url, init);
+        // Deliberately deliver a response even after cancellation.
+        return new Promise<Response>((resolve) => {
+          delayed[query] = () => {
+            resolve(Response.json({ ok: true, data: { indexing: false, hits: [{ path: "迟到响应.md", kind: "note", title: "迟到响应" }] } }));
+            return init?.signal?.aborted === true;
+          };
+        });
+      };
+    });
+    const open = () => page.keyboard.press("ControlOrMeta+k");
+    const waitForRequest = (query: string) => page.waitForFunction((q) => !!(window as Window & SearchProbe).f21Pending?.[q], query);
+    async function release(query: string) {
+      expect(await page.evaluate((q) => (window as Window & SearchProbe).f21Pending?.[q]?.(), query)).toBe(true);
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await expect(palette.getByText("迟到响应", { exact: true })).toHaveCount(0);
+    }
+    await open();
+    await input.fill("延迟清空");
+    await waitForRequest("延迟清空");
+    await input.clear();
+    await release("延迟清空");
+    await input.fill("延迟关闭");
+    await waitForRequest("延迟关闭");
+    await input.press("Escape");
+    await expect(palette).toBeHidden();
+    await open();
+    await expect(input).toHaveValue("");
+    await release("延迟关闭");
+    await input.press("Escape");
+
+    await page.getByTestId("home-customize").click();
+    await page.getByTestId("home-dashboard").locator('[data-instance-id="default-focus"]').getByRole("checkbox", { name: "隐藏" }).check();
+    await open();
+    await input.fill("取消导航目标");
+    await palette.getByTestId("palette-item").filter({ hasText: "取消导航目标" }).click();
+    const guard = page.getByRole("dialog", { name: "离开前处理看板草稿" });
+    await guard.getByRole("button", { name: "继续编辑" }).click();
+    await expect(guard).toBeHidden();
+    await expect(page.getByTestId("home-module")).toBeVisible();
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await guard.getByRole("button", { name: "放弃并离开" }).click();
+    await expect(page.getByTestId("task-new")).toBeVisible();
+    await expect(page.getByTestId("task-detail")).toHaveCount(0);
   } finally {
     await close();
   }

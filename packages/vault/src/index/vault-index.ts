@@ -164,7 +164,8 @@ export class VaultIndex {
     }
     const fm = parseFrontmatter(text);
     const body = splitDocument(text).body;
-    const huhuKind = (fm.data["huhu"] as { kind?: string } | undefined)?.kind;
+    const meta = fm.data["huhu"] as { kind?: unknown; id?: unknown } | undefined;
+    const huhuKind = typeof meta?.kind === "string" ? meta.kind : undefined;
     // 文件夹笔记（文件夹里的 index.md）没有显式标题时，以文件夹名为标题（不取 H1）
     const folder = folderNoteDir(rel);
     const title = typeof fm.data["title"] === "string" ? (fm.data["title"] as string) : folder !== null ? path.posix.basename(folder) : (/^#\s+(.+)$/m.exec(body)?.[1] ?? base);
@@ -172,7 +173,8 @@ export class VaultIndex {
     const tags = [...new Set([...fmTags, ...parseTags(body)])];
     const links = parseWikiLinks(body);
     if (!huhuKind) notes.set(rel, { path: rel, title, tags, links });
-    search.upsert({ path: rel, kind: huhuKind ?? "note", title, body, tags: tags.join(" ") });
+    const id = (huhuKind === "task" || huhuKind === "capture") && typeof meta?.id === "string" ? meta.id : undefined;
+    search.upsert({ path: rel, kind: huhuKind ?? "note", title, body, tags: tags.join(" "), ...(id && { id }) });
   }
 
   /**

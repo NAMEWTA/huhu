@@ -1,6 +1,11 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { localExitRequest, type ExitParticipant } from "./exit-participants.js";
 
+interface ModuleOpen {
+  onOpen(): void;
+  isCurrent?(): boolean;
+}
+
 export interface UiState {
   activeModule: string | null;
   openTabs: string[];
@@ -12,7 +17,7 @@ export interface UiState {
   /** 各模块当前分区（外壳导航 / 顶部标签用）。 */
   sections: Record<string, string>;
   setSection(module: string, id: string): void;
-  openModule(id: string): boolean | Promise<boolean>;
+  openModule(id: string, request?: ModuleOpen): boolean | Promise<boolean>;
   closeTab(id: string): void;
   toggleSidebar(): void;
   setSidebarWidth(w: number): void;
@@ -43,9 +48,9 @@ export function registerModuleLeaveGuard(store: StoreApi<UiState>, module: strin
  * 点击当前已选模块切换侧栏折叠；每个模块最多一个标签。
  */
 export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s: UiPersisted) => void): StoreApi<UiState> {
-  const leave = (from: string | null, action: () => void) => {
+  const leave = (from: string | null, action: () => void, isCurrent?: () => boolean) => {
     const proceed = (allowed: boolean) => {
-      if (!allowed || store.getState().activeModule !== from) return false;
+      if (!allowed || store.getState().activeModule !== from || isCurrent?.() === false) return false;
       action();
       return true;
     };
@@ -62,16 +67,19 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
     paletteOpen: false,
     sections: {},
     setSection: (module, id) => set({ sections: { ...get().sections, [module]: id } }),
-    openModule: (id) => {
+    openModule: (id, request) => {
       const s = get();
+      if (request?.isCurrent?.() === false) return false;
       if (s.activeModule === id) {
-        set({ sidebarCollapsed: !s.sidebarCollapsed });
+        if (request) request.onOpen();
+        else set({ sidebarCollapsed: !s.sidebarCollapsed });
         return true;
       }
       return leave(s.activeModule, () => {
         const { openTabs } = get();
         set({ activeModule: id, openTabs: openTabs.includes(id) ? openTabs : [...openTabs, id], detailOpen: false });
-      });
+        request?.onOpen();
+      }, request?.isCurrent);
     },
     closeTab: (id) => {
       const s = get();

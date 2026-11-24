@@ -4,7 +4,7 @@ import { appearanceController } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
-import { contributions as inboxUi } from "@huhu/plugin-inbox/ui";
+import { contributions as inboxUi, requestOpenCapture } from "@huhu/plugin-inbox/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
@@ -19,6 +19,8 @@ import {
   HealthModule,
   HomeModule,
   CommandPalette,
+  type CommandPaletteProps,
+  type PaletteSearchHit,
   requestOpenPath,
   requestOpenTask,
   QuickCapture,
@@ -33,11 +35,12 @@ import {
   SettingsModule,
   systemSettingsPages,
   useCapability,
+  useEngine,
   createUiStore,
   type EngineEndpoint,
 } from "@huhu/workbench";
 import { Activity, Bell, Blocks, HeartPulse, House, Monitor, Plug, Search, Server, Settings, ShieldCheck, SquareTerminal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { browserLocation } from "./web-host.js";
 
 export type EngineState = "starting" | "ready" | "stopped" | "crashed";
@@ -49,6 +52,34 @@ function PluginFilter({ registry }: { registry: ContributionRegistry }) {
     if (plugins.data) registry.setEnabledPlugins(plugins.data.filter((p) => p.state === "active").map((p) => p.id));
   }, [plugins.data, registry]);
   return null;
+}
+
+function WorkbenchCommandPalette({ registry, ui }: Pick<CommandPaletteProps, "registry" | "ui">) {
+  const client = useEngine();
+  const current = useRef<EngineClient | null>(null);
+  useLayoutEffect(() => {
+    current.current = client;
+    return () => {
+      current.current = null;
+    };
+  }, [client]);
+
+  const onOpenResult = useCallback(({ kind, id, path }: PaletteSearchHit) => {
+    const open = (module: string, onOpen: () => void) =>
+      ui.getState().openModule(module, {
+        onOpen,
+        isCurrent: () => current.current === client && registry.getSnapshot().modules.some(({ id }) => id === module),
+      });
+    if (kind === "task") {
+      if (id) void open("tasks", () => requestOpenTask(id));
+    } else if (kind === "capture") {
+      if (id) void open("inbox", () => requestOpenCapture(client, id));
+    } else {
+      void open("notes", () => requestOpenPath(path, true));
+    }
+  }, [client, registry, ui]);
+
+  return <CommandPalette registry={registry} ui={ui} client={client} onOpenResult={onOpenResult} />;
 }
 
 interface AppProps {
@@ -239,17 +270,7 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
       {endpoint ? <QuickCapture /> : null}
       {endpoint ? <FocusPauseOnClose /> : null}
       {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
-      <CommandPalette
-        registry={registry}
-        ui={ui}
-        client={client}
-        onOpenResult={(r) => {
-          if (r.kind === "task") return ui.getState().openModule("tasks");
-          if (r.kind === "capture") return ui.getState().openModule("inbox");
-          requestOpenPath(r.path); // 笔记与档案（档案是 Archives/ 下的文件夹笔记）：笔记模块打开对应文件
-          ui.getState().openModule("notes");
-        }}
-      />
+      <WorkbenchCommandPalette registry={registry} ui={ui} />
     </>
   );
   return endpoint ? (

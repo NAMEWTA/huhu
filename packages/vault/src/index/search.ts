@@ -35,6 +35,7 @@ export function tokenize(text: string): string[] {
 export interface SearchDoc {
   path: string;
   kind: string;
+  id?: string;
   title: string;
   body: string;
   tags: string;
@@ -43,6 +44,7 @@ export interface SearchDoc {
 export interface SearchHit {
   path: string;
   kind: string;
+  id?: string;
   title: string;
   score: number;
 }
@@ -59,7 +61,7 @@ export class SearchIndex {
 
   private static open(): DatabaseSync {
     const db = new DatabaseSync(":memory:");
-    db.exec(`CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, kind UNINDEXED, title UNINDEXED, ftitle, fbody, ftags, fpath, tokenize = 'unicode61 remove_diacritics 0')`);
+    db.exec(`CREATE VIRTUAL TABLE docs USING fts5(path UNINDEXED, kind UNINDEXED, title UNINDEXED, entity_id UNINDEXED, ftitle, fbody, ftags, fpath, tokenize = 'unicode61 remove_diacritics 0')`);
     return db;
   }
 
@@ -71,8 +73,8 @@ export class SearchIndex {
   upsert(doc: SearchDoc): void {
     this.removePath(doc.path);
     const r = this.db
-      .prepare("INSERT INTO docs(path, kind, title, ftitle, fbody, ftags, fpath) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(doc.path, doc.kind, doc.title, SearchIndex.words(doc.title), SearchIndex.words(doc.body), SearchIndex.words(doc.tags), SearchIndex.words(doc.path));
+      .prepare("INSERT INTO docs(path, kind, title, entity_id, ftitle, fbody, ftags, fpath) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(doc.path, doc.kind, doc.title, doc.id ?? null, SearchIndex.words(doc.title), SearchIndex.words(doc.body), SearchIndex.words(doc.tags), SearchIndex.words(doc.path));
     this.ids.set(doc.path, Number(r.lastInsertRowid));
   }
 
@@ -106,8 +108,8 @@ export class SearchIndex {
     // 每个词：双引号包住（词里的双引号翻倍），加 * 表示前缀；词之间是 AND
     const match = toks.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" AND ");
     const rows = this.db
-      .prepare(`SELECT path, kind, title, -bm25(docs, 0, 0, 0, 3.0, 1.0, 2.0, 1.0) AS score FROM docs WHERE docs MATCH ?${opts.kind ? " AND kind = ?" : ""} ORDER BY score DESC LIMIT ?`)
-      .all(match, ...(opts.kind ? [opts.kind] : []), opts.limit ?? 50) as { path: string; kind: string; title: string; score: number }[];
-    return rows.map((r) => ({ path: r.path, kind: r.kind, title: r.title, score: r.score }));
+      .prepare(`SELECT path, kind, title, entity_id, -bm25(docs, 0, 0, 0, 0, 3.0, 1.0, 2.0, 1.0) AS score FROM docs WHERE docs MATCH ?${opts.kind ? " AND kind = ?" : ""} ORDER BY score DESC LIMIT ?`)
+      .all(match, ...(opts.kind ? [opts.kind] : []), opts.limit ?? 50) as { path: string; kind: string; title: string; score: number; entity_id: string | null }[];
+    return rows.map(({ entity_id, ...row }) => entity_id === null ? row : { ...row, id: entity_id });
   }
 }

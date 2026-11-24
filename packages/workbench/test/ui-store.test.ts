@@ -61,6 +61,31 @@ describe("ui-store", () => {
     expect(saved.length).toBe(2);
     expect(createUiStore({ sidebarWidth: 300 }).getState().sidebarWidth).toBe(300);
   });
+  test("命中请求等待离场许可，失效后取消，已打开模块直接接收后续请求", async () => {
+    const store = createUiStore({ activeModule: "home", openTabs: ["home"] });
+    const opened: string[] = [];
+    let decide!: (allowed: boolean) => void;
+    registerModuleLeaveGuard(store, "home", () => new Promise<boolean>((resolve) => { decide = resolve; }));
+    let current = true;
+    const open = (id: string) => store.getState().openModule("inbox", { onOpen: () => opened.push(id), isCurrent: () => current });
+    const declined = open("first");
+    expect(opened).toEqual([]);
+    decide(false);
+    await expect(declined).resolves.toBe(false);
+    const stale = open("second");
+    current = false;
+    decide(true);
+    await expect(stale).resolves.toBe(false);
+    expect(store.getState().activeModule).toBe("home");
+    expect(opened).toEqual([]);
+    current = true;
+    const allowed = open("third");
+    decide(true);
+    await expect(allowed).resolves.toBe(true);
+    expect(open("fourth")).toBe(true);
+    expect(opened).toEqual(["third", "fourth"]);
+    expect(store.getState()).toMatchObject({ activeModule: "inbox", sidebarCollapsed: false });
+  });
 });
 
 describe("ContributionRegistry", () => {

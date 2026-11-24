@@ -1,6 +1,6 @@
 import { FileIcon, IconButton } from "@huhu/ui";
 import { ArrowUpRight, Command, Search, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import type { ContributionRegistry } from "../contributions.js";
@@ -9,13 +9,15 @@ import type { UiState } from "../state/ui-store.js";
 import { runExternalCommand, type ExternalCommandRef } from "../plugins/run-command.js";
 import { LatestOnly, rankItems, type PaletteItem } from "./palette-model.js";
 
+export type PaletteSearchHit = { path: string; kind: string; title: string; id?: string; archive?: boolean };
+
 export interface CommandPaletteProps {
   registry: ContributionRegistry;
   ui: StoreApi<UiState>;
   /** 用于 vault.search；缺省时只有模块与命令。 */
   client?: EngineClient | null;
   /** 搜索结果被选中时的处理（例如在知识库里打开）。 */
-  onOpenResult?(r: { path: string; kind: string; title: string; archive?: boolean }): void;
+  onOpenResult?(r: PaletteSearchHit): void;
 }
 
 /** 搜索结果按来源分组（规格：最近、命令、笔记、任务、档案、收件箱）。 */
@@ -52,6 +54,18 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
   const latest = useRef(new LatestOnly());
   const input = useRef<HTMLInputElement>(null);
   const [recents, setRecents] = useState<string[]>(readRecents);
+  const resetSearch = useCallback(() => {
+    latest.current.cancel();
+    setResults([]);
+    setSearching(false);
+    setSel(0);
+  }, []);
+
+  useLayoutEffect(() => ui.subscribe((state, previous) => {
+    if (state.paletteOpen === previous.paletteOpen) return;
+    resetSearch();
+    setQ("");
+  }), [resetSearch, ui]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,19 +74,13 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
         if (e.target instanceof Element && e.target.closest('[data-editor-link-shortcut] .ProseMirror[contenteditable="true"]')) return;
         e.preventDefault();
         setOpen(!ui.getState().paletteOpen);
-        setQ("");
-        setSel(0);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  useEffect(() => {
-    if (open) {
-      input.current?.focus();
-      setQ(""); // 每次打开从空白开始（侧栏按钮、标签条“+”等入口也是）
-      setSel(0);
-    }
+  }, [setOpen, ui]);
+  useLayoutEffect(() => {
+    if (open) input.current?.focus();
   }, [open]);
 
   // 外部扩展注册的命令：打开面板时读取（扩展启停后下次打开即更新）
@@ -89,19 +97,20 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     };
   }, [open, client]);
 
-  // 搜索：200ms 去抖；输入已变化的旧请求结果被丢弃
-  useEffect(() => {
+  // Invalidate the previous generation before painting, including empty queries and replacement clients.
+  useLayoutEffect(() => {
     if (!open || !client || q.trim().length < 2) {
       setResults([]);
       setSearching(false);
       return;
     }
-    const isLatest = latest.current.next();
+    const request = latest.current.next();
+    const isLatest = () => request.isCurrent() && ui.getState().paletteOpen;
     setSearching(true);
-    setResults([]); // 查询变了：旧结果不再显示
+    setResults([]);
     const timer = setTimeout(() => {
       client
-        .call<{ indexing: boolean; hits: { path: string; kind: string; title: string; archive?: boolean }[] }>("vault.search", { query: q.trim(), limit: 8 })
+        .call<{ indexing: boolean; hits: PaletteSearchHit[] }>("vault.search", { query: q.trim(), limit: 8 }, { signal: request.signal })
         .then((r) => {
           if (!isLatest()) return;
           const mapped = r.hits.map((h) => ({
@@ -113,6 +122,7 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
               title: h.title || h.path,
               hint: h.path,
               icon: <FileIcon name={h.path} dir={h.kind === "dir"} size={18} />,
+              isCurrent: isLatest,
               run: () => onOpenResult?.(h),
             },
           }));
@@ -125,8 +135,11 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
           if (isLatest()) setSearching(false);
         });
     }, 200);
-    return () => clearTimeout(timer);
-  }, [q, open, client, onOpenResult]);
+    return () => {
+      clearTimeout(timer);
+      latest.current.cancel();
+    };
+  }, [q, open, client, onOpenResult, ui]);
 
   const base = useMemo<PaletteItem[]>(
     () => [
@@ -144,12 +157,9 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
     [modules, commands, pluginCommands, client, s],
   );
   const items = useMemo(() => [...rankItems(base, q, recents), ...results], [base, q, recents, results]);
-  useEffect(() => {
-    setSel(0);
-  }, [q]);
-
   if (!open) return null;
   const run = (it: PaletteItem) => {
+    if (it.isCurrent?.() === false) return;
     const next = [it.id, ...recents.filter((r) => r !== it.id)].slice(0, 8);
     setRecents(next);
     try {
@@ -181,7 +191,10 @@ export function CommandPalette({ registry, ui, client, onOpenResult }: CommandPa
             aria-label="搜索模块、命令和内容"
             placeholder="搜索笔记、任务、功能，或输入命令…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              resetSearch();
+              setQ(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Escape" && !e.nativeEvent.isComposing) {
                 e.preventDefault();

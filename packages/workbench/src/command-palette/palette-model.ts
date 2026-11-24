@@ -8,6 +8,7 @@ export interface PaletteItem {
   title: string;
   hint?: string;
   icon?: ReactNode;
+  isCurrent?(): boolean;
   run(): void;
 }
 
@@ -45,9 +46,17 @@ export function rankItems(items: readonly PaletteItem[], query: string, recents:
 
 /** 搜索请求去抖后的"过期结果丢弃"：只有最新一次请求的结果会被采纳。 */
 export class LatestOnly {
-  private n = 0;
-  next(): () => boolean {
-    const mine = ++this.n;
-    return () => mine === this.n;
+  private request: AbortController | undefined;
+
+  next(): { signal: AbortSignal; isCurrent(): boolean } {
+    this.cancel();
+    const request = new AbortController();
+    this.request = request;
+    return { signal: request.signal, isCurrent: () => !request.signal.aborted };
+  }
+
+  cancel(): void {
+    this.request?.abort();
+    this.request = undefined;
   }
 }

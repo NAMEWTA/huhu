@@ -8,6 +8,8 @@ import { inboxHomeWidget } from "../shared/home-widget.js";
 import { InboxHomeWidget } from "./HomeWidget.js";
 import { t } from "./i18n.js";
 
+export { requestOpenCapture } from "./open-capture.js";
+
 export const contributions = {
   modules: [{ id: "inbox", plugin: "inbox", title: t.title, group: "primary", order: 50, icon: <Inbox size={18} aria-hidden />, component: InboxModule }] satisfies ModuleContribution[],
   homeWidgets: [defineHomeWidgetContribution(inboxHomeWidget, 12, InboxHomeWidget)],
