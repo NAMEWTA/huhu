@@ -253,6 +253,13 @@ export class McpSessions {
       { once: true },
     );
     const { dispatcher } = this.deps;
+    const externalPrincipal = (): McpSessionPrincipal => {
+      const request = requestSignal.getStore();
+      return {
+        identity, signal: request ? AbortSignal.any([signal, request]) : signal,
+        ...(session.recovered && { recovered: true as const }),
+      };
+    };
     const call = async (capability: string, input: unknown, intentKey?: string) => {
       if (!this.current(session)) return closed();
       const result = await dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, requestSignal.getStore(), session);
@@ -267,6 +274,19 @@ export class McpSessions {
         },
         call,
         operation: (lookup) => (this.current(session) ? dispatcher.readOperation(caller, session, lookup) : closed()),
+        ...(this.deps.externalMcpTools && {
+          external: {
+            list: async () => {
+              if (!this.current(session)) return [];
+              const result = await this.deps.externalMcpTools?.()?.list(externalPrincipal()) ?? [];
+              return this.current(session) ? result : [];
+            },
+            call: async (name, input) => {
+              if (!this.current(session) || this.resolveTool(name)) return undefined;
+              return this.deps.externalMcpTools?.()?.call(externalPrincipal(), name, input);
+            },
+          },
+        }),
       },
       "0.0.1",
     );

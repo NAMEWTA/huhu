@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityOperationLookup, type CapabilityResult } from "@huhu/contracts";
+import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, isHuhuError, type CapabilityOperationLookup, type CapabilityResult, type McpSessionPrincipal } from "@huhu/contracts";
 import { mcpToolName } from "./capabilities/define.js";
 
 export interface McpBackend {
@@ -11,6 +11,16 @@ export interface McpBackend {
   /** 资源依赖的 canonical 能力同样经 Dispatcher 授权。 */
   call(capability: string, input: unknown): Promise<CapabilityResult<unknown>>;
   operation?(lookup: CapabilityOperationLookup): CapabilityResult<unknown> | Promise<CapabilityResult<unknown>>;
+  external?: {
+    list(): Promise<Tool[]>;
+    call(name: string, input: unknown): Promise<CallToolResult | undefined>;
+  };
+}
+
+export interface ExternalMcpTools {
+  list(principal: McpSessionPrincipal): Promise<Tool[]>;
+  call(principal: McpSessionPrincipal, name: string, input: unknown): Promise<CallToolResult>;
+  subscribe(listener: () => void): () => void;
 }
 
 type McpCapability = { name: string; plugin: string; scope: string; input: unknown; output: unknown; durableIntent?: true | undefined; intentRequired?: true | undefined };
@@ -45,15 +55,23 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
 export function createMcpServer(backend: McpBackend, version: string): Server {
   const server = new Server({ name: "huhu", version }, { capabilities: { tools: {}, resources: {}, prompts: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: (await backend.list()).map((c) => ({
+    tools: [...(await backend.list()).map((c) => ({
       name: mcpToolName(c.name),
       description: `${c.name}（${c.plugin} · ${c.scope}）`,
       inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
       outputSchema: structuredOutput(c.output),
       ...(c.durableIntent && { _meta: { [intentField]: c.intentRequired ? "required" : "optional" } }),
-    })),
+    })), ...(await backend.external?.list() ?? [])],
   }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    try {
+      const external = await backend.external?.call(req.params.name, req.params.arguments ?? {});
+      if (external) return external;
+    } catch (error) {
+      if (!isHuhuError(error)) throw error;
+      const invalid = error.code === "INVALID_INPUT" || error.code === "CAPABILITY_NOT_FOUND";
+      throw new McpError(invalid ? ErrorCode.InvalidParams : -32000, error.message, error.toJSON());
+    }
     const key = CapabilityIntentKeySchema.optional().safeParse(req.params._meta?.[intentField]);
     const r = key.success ? await backend.callTool(req.params.name, req.params.arguments ?? {}, key.data) : { ok: false as const, error: errors.invalidInput("MCP 执行意图不符合要求", key.error.issues).toJSON() };
     if (!r.ok) return { isError: true, content: [{ type: "text", text: JSON.stringify(r.error) }] };

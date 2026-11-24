@@ -21,6 +21,10 @@ import {
   ExposureStore,
   ExternalPlugins,
   GatewayTokens,
+  MCP_SOURCES_SERVICE,
+  createMcpSourcePlugin,
+  mcpSourceDescriptors,
+  type ExternalMcpTools,
   registerHealthCapabilities,
   type HealthCheck,
   type LocalCredentialProtection,
@@ -151,6 +155,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registry.declareDescriptors("automations", Object.values(automations.automationToolDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.terminalEnvironmentDescriptors));
   registry.declareDescriptors("automations", Object.values(automations.taskScanToolDescriptors));
+  registry.declareDescriptors("mcp", mcpSourceDescriptors);
 
   const vault = await Vault.open(opts.vaultPath, { ...(opts.create !== undefined ? { create: opts.create } : {}), ...(opts.readOnly !== undefined ? { readOnly: opts.readOnly } : {}) });
   const moduleCredentialHost = opts.desktopUserData ? createModuleCredentialHost(vault, opts.desktopUserData, opts.moduleCredentialProtection) : undefined;
@@ -169,6 +174,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   };
   mkdirSync(runtime, { recursive: true });
   const rootIdentity = directoryInstance(vault.root);
+  const mcpVaultInstance = rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id;
   const tokens = new TokenTable();
   const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
   let mcpListener: LocalMcpListener;
@@ -259,6 +265,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const serverRef: { current?: RunningServer } = {};
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
   const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
+  plugins.register(createMcpSourcePlugin({
+    vaultInstance: mcpVaultInstance,
+    hostId: machineId(),
+    ...(!vault.readOnly && rootIdentity && { approvalPath: path.relative(vault.root, path.join(runtime, "mcp-source-approvals.json")) }),
+    publishSignal: () => mcpListener.enabled() && plugins.isEnabled("mcp") ? gatewayTokens.mcpSignal() : undefined,
+    isBuiltinName: (name) => registry.knownNames().some((capability) => capability.replaceAll(".", "_") === name),
+    audit: (row) => gatewayAudit.add(row),
+  }));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
   const settingsFile = path.join(vault.stateDir, "settings.json");
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
@@ -457,8 +471,12 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     {
       tokens: gatewayTokens,
       mcp: {
-        status: () => mcpListener.status(),
+        status: () => {
+          const status = mcpListener.status();
+          return { ...status, enabled: status.enabled && plugins.isEnabled("mcp") };
+        },
         update: (settings) => {
+          if (settings.enabled && !plugins.isEnabled("mcp")) throw errors.pluginDisabled("mcp");
           const status = mcpListener.update(settings);
           events.publish("entity.changed", { kind: "gateway", id: "mcp", op: "updated" });
           return status;
@@ -609,9 +627,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   let server: RunningServer | undefined;
   try {
     server = await startEngineServer({
-      mcpHttp: { enabled: () => mcpListener.enabled() },
+      mcpHttp: { enabled: () => mcpListener.enabled() && plugins.isEnabled("mcp") },
+      externalMcpTools: () => plugins.isEnabled("mcp") ? getService<ExternalMcpTools>(MCP_SOURCES_SERVICE) : undefined,
       mcpSignal: () => gatewayTokens.mcpSignal(),
-      vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
+      vaultInstance: mcpVaultInstance,
       ...(!vault.files.readOnly && rootIdentity && { mcpRecovery: { directory: runtime, generation: () => gatewayTokens.mcpRecoveryGeneration() } }),
       terminal,
       dispatcher: real,

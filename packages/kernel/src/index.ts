@@ -19,6 +19,7 @@ export * from "./exposure.js";
 export * from "./capabilities/health.js";
 export * from "./gateway-tokens.js";
 export * from "./mcp.js";
+export { MCP_SOURCES_SERVICE, createMcpSourcePlugin, mcpSourceDescriptors } from "./mcp-sources/index.js";
 export * from "./event-log.js";
 export * from "./plugins/external.js";
 export * from "./capabilities/external-plugins.js";
