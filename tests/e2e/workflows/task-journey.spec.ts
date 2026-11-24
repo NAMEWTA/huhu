@@ -218,8 +218,22 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(task.execution).toMatchObject({ provider: "codex", spaceId: space!.id, target: { mode: "resume", nativeSessionId: b.id, history: { spaceId: space!.id } } });
     expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
     expect(responses.requests).toHaveLength(sourceRequests.length);
+
+    // Add newer rollouts outside the frozen target's Space after its selection.
+    const other = path.join(privateHome, "other-workdir");
+    const unrelated = path.join(privateHome, "sessions", "2099", "01", "01");
+    await mkdir(other);
+    await mkdir(unrelated, { recursive: true });
+    for (let i = 0; i < 2001; i++) {
+      const id = randomUUID();
+      await writeFile(path.join(unrelated, `rollout-2099-01-01T00-00-00-${id}.jsonl`),
+        JSON.stringify({ type: "session_meta", payload: { id, cwd: other } }) + "\n");
+    }
     const detail = await openTask(page, title);
-    await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    const [submitted] = await Promise.all([
+      page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch"),
+      detail.getByRole("button", { name: "立即派遣", exact: true }).click(),
+    ]);
     const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
     await expect.poll(questions, { timeout: 45_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting" }]);
     const [run] = await listDispatches(call, task.id);
@@ -228,6 +242,10 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const [session] = sessions;
     expect(session).toMatchObject({ id: run!.session!.id, nativeSessionId: b.id, cwd });
     expect(await questions()).toMatchObject([{ runId: run!.runId, sessionId: session!.id, status: "awaiting" }]);
+    // The active provider has appended to the file. Replaying the accepted dispatch still returns the original run.
+    expect(await call("tasks.dispatch", submitted.postDataJSON().input)).toMatchObject({ dispatchId: run!.dispatchId, runId: run!.runId });
+    expect(await listDispatches(call, task.id)).toHaveLength(1);
+    expect(responses.requests).toHaveLength(sourceRequests.length + 1);
     const managed = detail.getByTestId("managed-task-run");
     await managed.getByRole("button", { name: "展开结果" }).click();
     await managed.getByRole("radio", { name: "Circle" }).check();

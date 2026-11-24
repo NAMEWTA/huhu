@@ -8,7 +8,7 @@ import path from "node:path";
 import { z } from "zod";
 import { mainAgentDescriptors, type HistoryLaunchInput, type HistoryReference, type HistoryScope, type SessionSelection } from "./capabilities.js";
 import { HerdrCore } from "./herdr-core.js";
-import { historyProfileKey, isUuidHistoryId, isValidNativeId, isWithin, nativeHistoryCandidates, nativeHistoryProfile, nativeHistorySourceMatches, readSelectedHistory, scanHistory, type HistoryEntry } from "./history/scanner.js";
+import { HistoryProjection, historyProfileKey, isUuidHistoryId, isValidNativeId, isWithin, nativeHistoryCandidates, nativeHistoryProfile, nativeHistorySourceMatches, readHistoryEntry, readSelectedHistory, type HistoryEntry } from "./history/scanner.js";
 import { readTranscript } from "./history/transcript.js";
 import { reviewDiff } from "./review.js";
 import { PinStore } from "./pins.js";
@@ -542,10 +542,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (!spaceCanLaunch(sp)) throw new HuhuError("SPACE_INVALID", "请先绑定 Space 工作目录");
     return sp;
   };
-  // 列表请求很频繁（打开面板、切换 Space），短时间内复用结果；恢复时总是重新扫描
   const pins = new PinStore(path.join(api.vault.stateDir, "agent-cli", "pins.json"));
   const resuming = new Map<string, { requestId: string; count: number }>();
-  const cache = new Map<string, { at: number; r: ReturnType<typeof scanHistory> }>();
+  const historyProjection = new HistoryProjection(lifetime.signal);
   const historyRoots = (i: z.infer<typeof HistoryScope>) => {
     const sp = spaceOf(i.spaceId);
     return i.allSpaces
@@ -559,15 +558,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         ].sort()
       : [sp.root];
   };
-  const scanCached = (roots: string[], env: NodeJS.ProcessEnv) => {
-    const key = JSON.stringify([roots, env["CLAUDE_CONFIG_DIR"], env["CODEX_HOME"]]);
-    const hit = cache.get(key);
-    if (hit && Date.now() - hit.at < 3000) return hit.r;
-    const r = scan(roots, env);
-    for (const [old, snapshot] of cache) if (Date.now() - snapshot.at >= 3000) cache.delete(old);
-    cache.set(key, { at: Date.now(), r });
-    return r;
-  };
   function historyScanEnvironment() {
     const settings = settingsStore.get();
     const env = { ...(opts.history?.env ?? process.env) };
@@ -576,9 +566,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       const configured = entryOf(settings, provider).env?.[key];
       if (configured !== undefined) env[key] = configured;
     }
+    for (const key of ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]) {
+      const configured = entryOf(settings, "pi").env?.[key];
+      if (configured !== undefined) env[key] = configured;
+    }
     return env;
   }
-  const scan = (roots: string[], env = historyScanEnvironment()) => scanHistory({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), env });
+  const historyScope = (roots: string[], env = historyScanEnvironment()) => ({ roots, ...(opts.history?.home ? { home: opts.history.home } : {}), env });
   const nativeKey = (e: Pick<HistoryEntry, "provider" | "nativeSessionId">) => `${e.provider}:${e.nativeSessionId}`;
   const liveHistoryKey = (provider: SessionRecord["provider"], id: string) => `${provider}:${provider === "codex" ? id.toLowerCase() : id}`;
   const matchesHistory = (session: SessionRecord, e: HistoryEntry) => session.provider === e.provider && session.nativeSessionId === e.nativeSessionId && session.historyId === e.historyId;
@@ -629,14 +623,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     const forkId = entry.provider === "pi" ? `huhu-${hash}` : entry.provider === "claude" ? `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}` : undefined;
     return { ...source, mode: "fork", ...(forkId && { forkId }) };
   }
-  function dispatchHistory(space: Space, profile: string): HistoryEntry[] {
-    return scanHistory({ roots: [space.root], home: profile, env: { CODEX_HOME: profile }, providers: ["codex"] }).entries.filter((entry) => {
-      try {
-        return isUuidHistoryId(entry.nativeSessionId) && vaultWorkspaceDirectory(space.root, entry.cwd) === entry.cwd;
-      } catch {
-        return false;
-      }
-    });
+  function inDispatchSpace(space: Space, entry: HistoryEntry): boolean {
+    try {
+      return isUuidHistoryId(entry.nativeSessionId) && vaultWorkspaceDirectory(space.root, entry.cwd) === entry.cwd;
+    } catch {
+      return false;
+    }
   }
   function resumeLaunchInput(space: Space, profile: string, entry: HistoryEntry, dispatchId: string) {
     return {
@@ -652,9 +644,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   async function resumeTargets(space: Space, snapshot: boolean) {
     const profile = codex?.historyProfile;
     if (!profile || !spaceCanLaunch(space)) return [];
-    const rows = dispatchHistory(space, profile);
+    const projected = await historyProjection.scan({ roots: [space.root], env: { CODEX_HOME: profile }, providers: ["codex"] });
+    const rows = projected.entries.filter((entry) => inDispatchSpace(space, entry));
     if (rows.length === 0) return [];
-    const candidates = nativeHistoryCandidates("codex", profile) ?? new Map();
+    const candidates = projected.candidates.get("codex") ?? new Map();
     const local = sessions.list().filter((session) => session.provider === "codex" && (session.nativeSessionId || session.historyLaunch));
     const records = snapshot || api.vault.files.readOnly ? local : await sessions.observeHistorySessions(local);
     return Promise.all(
@@ -703,8 +696,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     const sp = spaces.validateForLaunch(target.spaceId, history.spaceRevision);
     const profile = codex?.historyProfile;
     if (!profile) throw new HuhuError("HEADLESS_UNSUPPORTED", "当前没有受控 Codex 历史资料目录");
-    const entry = dispatchHistory(sp, profile).find((item) => item.nativeSessionId === target.nativeSessionId && item.historyId === history.historyId && item.revision === history.historyRevision);
-    if (!entry || historySourceBlocked(entry, profile)) throw errors.notFound("原生历史来源已变化，请重新选择");
+    const source = nativeHistoryCandidates("codex", profile)?.get(target.nativeSessionId.toLowerCase());
+    const entry = source && isWithin(path.join(profile, "sessions"), source) ? readHistoryEntry("codex", source) : undefined;
+    if (!entry || entry.nativeSessionId !== target.nativeSessionId || entry.historyId !== history.historyId ||
+        entry.revision !== history.historyRevision || !inDispatchSpace(sp, entry)) {
+      throw errors.notFound("原生历史来源已变化，请重新选择");
+    }
     await sessions.reconcile();
     signal.throwIfAborted();
     const id = await claimHistory<string | null>(
@@ -787,16 +784,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       return error instanceof HuhuError ? error.message : "原生历史启动配置无效";
     }
   }
-  function historyReference(c: CapabilityContext, i: z.infer<typeof HistoryReference>, launch?: { sent: boolean }) {
-    if (isAgentTool(c.caller) && (!i.historyId || !i.historyRevision || i.allSpaces)) throw errors.invalidInput("请选择指定 Space 内的历史记录及其版本");
-    if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
-    const matches = scan(historyRoots(i)).entries.filter((e) => e.provider === i.provider && e.nativeSessionId === i.nativeSessionId);
-    const selected = i.historyId ? matches.find((e) => e.historyId === i.historyId) : matches.length === 1 ? matches[0] : undefined;
-    if (!selected) throw errors.notFound(matches.length > 1 ? "会话标识不唯一，请重新选择历史记录" : "历史文件或其原工作目录已不可用，请重新查询");
+  async function historyReference(c: CapabilityContext, i: z.infer<typeof HistoryReference>, launch?: { sent: boolean }, fresh = false) {
     const external = isAgentTool(c.caller);
+    if (external && (!i.historyId || !i.historyRevision || i.allSpaces)) throw errors.invalidInput("请选择指定 Space 内的历史记录及其版本");
+    if (!isValidNativeId(i.nativeSessionId)) throw errors.invalidInput("会话 id 无效");
+    const { selected, matches } = await historyProjection.resolve(historyScope(historyRoots(i)), i, fresh);
+    c.signal.throwIfAborted();
+    if (!selected) throw errors.notFound(matches > 1 ? "会话标识不唯一，请重新选择历史记录" : "历史文件或其原工作目录已不可用，请重新查询");
+    if (!historyRoots(i).some((root) => isWithin(root, selected.cwd))) throw errors.notFound("历史会话已不在所选 Space，请重新查询");
     if ((external || launch) && !launch?.sent && selected.revision !== i.historyRevision) throw errors.versionConflict(selected.revision);
     if (external) vaultWorkspaceDirectory(spaceOf(i.spaceId).root, selected.cwd);
-    return { selected, unique: matches.length === 1 };
+    return { selected, unique: matches === 1 };
   }
   async function launchHistory<T>(c: CapabilityContext, input: z.infer<typeof HistoryLaunchInput>, operation: "direct" | "workspace", launch: (input: LaunchInput) => Promise<T>): Promise<T> {
     writable();
@@ -807,7 +805,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     if (replay) return launch(replay);
     const sp = spaceOf(i.spaceId);
     const sent = sessions.hasLaunchAttempt(i.requestId);
-    const { selected: hit } = historyReference(c, i, { sent });
+    const { selected: hit } = await historyReference(c, i, { sent });
     const profile = hit.provider !== "pi" ? nativeHistoryProfile(hit.provider, historyScanEnvironment(), opts.history?.home) : undefined;
     const sourceBlocked = historySourceBlocked(hit, profile);
     if (sourceBlocked) throw errors.invalidInput(sourceBlocked);
@@ -824,11 +822,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return result;
   }
   api.defineCapability(
-    bindCapability(mainAgentDescriptors.historyList, async ({ caller }, i) => {
+    bindCapability(mainAgentDescriptors.historyList, async ({ caller, signal }, i) => {
       const external = isAgentTool(caller);
       if (external && i.allSpaces) throw errors.invalidInput("请选择一个 Space 来查询历史");
       const roots = historyRoots(i);
-      const targetRoot = spaceOf(i.spaceId).root;
       if (!external) await sessions.reconcile();
       const live = new Map<string, SessionRecord[]>();
       for (const session of sessions.list()) {
@@ -840,61 +837,59 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         live.set(key, matches);
       }
       const env = historyScanEnvironment();
-      const r = scanCached(roots, env);
+      const r = await historyProjection.scan({ ...historyScope(roots, env), ...(i.provider && { providers: [i.provider] }) });
+      signal.throwIfAborted();
       const pinned = pins.list(i.spaceId);
       const available = !external && r.entries.some((entry) => entry.provider === "pi" || isUuidHistoryId(entry.nativeSessionId)) ? await detector.detect() : detector.snapshot();
+      if (JSON.stringify(historyRoots(i)) !== JSON.stringify(roots)) throw errors.notFound("Space 目录已变化，请重新查询历史");
+      const targetRoot = spaceOf(i.spaceId).root;
       const profiles = { claude: nativeHistoryProfile("claude", env, opts.history?.home), codex: nativeHistoryProfile("codex", env, opts.history?.home) };
-      const historyFiles = {
-        claude: (profiles.claude && nativeHistoryCandidates("claude", profiles.claude)) || new Map<string, string | null>(),
-        codex: (profiles.codex && nativeHistoryCandidates("codex", profiles.codex)) || new Map<string, string | null>(),
-      };
       const counts = new Map<string, number>();
       for (const entry of r.entries) counts.set(nativeKey(entry), (counts.get(nativeKey(entry)) ?? 0) + 1);
       const query = i.query.normalize("NFC").toLowerCase();
-      const all = r.entries
+      const matching = r.entries
         .filter(({ cwd }) => !external || !protectedKindOf(cwd.split(path.sep).join("/")))
-        .filter((e) => (!i.provider || e.provider === i.provider) && (!query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query))))
-        .map((entry) => {
-          const { file: _file, legacyHistoryId, ...e } = entry;
-          const key = nativeKey(e);
-          const candidates = live.get(liveHistoryKey(e.provider, e.nativeSessionId)) ?? [];
-          const active = !external && candidates.filter((session) => session.state === "running" && matchesHistory(session, entry)).length === 1;
-          const possiblyActive = !active && historyBusy(entry, candidates);
-          const profile = e.provider === "pi" ? undefined : profiles[e.provider];
-          const files = e.provider === "pi" ? undefined : historyFiles[e.provider];
-          const detected = available.find(({ id }) => id === e.provider);
-          const commonBlock = active ? "此会话正在运行，可前往原分栏" : possiblyActive ? "可能已在运行，请从会话列表核对" : historySourceBlocked(entry, profile, files ?? undefined);
-          const resumeBlocked = commonBlock ?? historyActionBlocked(entry, "resume", targetRoot, detected, profile);
-          const forkBlocked = commonBlock ?? historyActionBlocked(entry, "fork", targetRoot, detected, profile);
-          return {
-            ...e,
-            active,
-            possiblyActive,
-            canResume: resumeBlocked === null,
-            canFork: forkBlocked === null,
-            resumeBlocked,
-            forkBlocked,
-            pinned: pinned.has(e.historyId) || pinned.has(legacyHistoryId) || (counts.get(key) === 1 && pinned.has(key)),
-          };
-        })
-        .filter((e) => i.filter === "all" || (i.filter === "active" ? e.active : e.canResume));
-      const ordered = [...all.filter((e) => e.pinned), ...all.filter((e) => !e.pinned)];
+        .filter((e) => !query || [e.title, e.nativeSessionId, e.cwd].some((text) => text.normalize("NFC").toLowerCase().includes(query)));
+      const liveMatches = (e: HistoryEntry) => live.get(liveHistoryKey(e.provider, e.nativeSessionId)) ?? [];
+      const isActive = (e: HistoryEntry) => !external && liveMatches(e).filter((session) => session.state === "running" && matchesHistory(session, e)).length === 1;
+      const isPinned = (e: HistoryEntry) => pinned.has(e.historyId) || pinned.has(e.legacyHistoryId) || (counts.get(nativeKey(e)) === 1 && pinned.has(nativeKey(e)));
+      const ordered = [...matching.filter(isPinned), ...matching.filter((e) => !isPinned(e))];
+      const noCandidates = new Map<string, string | null>();
+      const view = (entry: HistoryEntry) => {
+        const { file: _file, legacyHistoryId: _legacy, ...e } = entry;
+        const active = isActive(entry);
+        const possiblyActive = !active && historyBusy(entry, liveMatches(entry));
+        const profile = e.provider === "pi" ? undefined : profiles[e.provider];
+        const files = r.candidates.get(e.provider) ?? noCandidates;
+        const detected = available.find(({ id }) => id === e.provider);
+        const commonBlock = active ? "此会话正在运行，可前往原分栏" : possiblyActive ? "可能已在运行，请从会话列表核对" : historySourceBlocked(entry, profile, files);
+        const resumeBlocked = commonBlock ?? historyActionBlocked(entry, "resume", targetRoot, detected, profile);
+        const forkBlocked = commonBlock ?? historyActionBlocked(entry, "fork", targetRoot, detected, profile);
+        return { ...e, active, possiblyActive, canResume: resumeBlocked === null, canFork: forkBlocked === null, resumeBlocked, forkBlocked, pinned: isPinned(entry) };
+      };
       const end = i.offset + i.limit;
-      return { entries: ordered.slice(i.offset, end), skipped: r.skipped, total: ordered.length, nextOffset: end < ordered.length ? end : null, limitedProviders: r.limitedProviders };
+      const page = (entries: ReturnType<typeof view>[], total: number) => ({ entries, skipped: r.skipped, total, nextOffset: end < total ? end : null, limitedProviders: r.limitedProviders });
+      signal.throwIfAborted();
+      if (i.filter === "resumable") {
+        const resumable = ordered.map(view).filter(({ canResume }) => canResume);
+        return page(resumable.slice(i.offset, end), resumable.length);
+      }
+      const visible = i.filter === "active" ? ordered.filter(isActive) : ordered;
+      return page(visible.slice(i.offset, end).map(view), visible.length);
     }),
   );
   api.defineCapability(
-    bindCapability(mainAgentDescriptors.historyRead, (c, i) => {
-      const { selected: hit } = historyReference(c, i);
-      const transcript = readSelectedHistory(hit.provider, hit.file, hit.nativeSessionId, hit.historyId, (fd) => readTranscript(hit.provider, fd));
+    bindCapability(mainAgentDescriptors.historyRead, async (c, i) => {
+      const { selected: hit } = await historyReference(c, i);
+      const transcript = readSelectedHistory(hit.provider, hit.file, hit.nativeSessionId, hit.historyId, (fd) => readTranscript(hit.provider, fd), isAgentTool(c.caller) ? hit.revision : undefined, hit.cwd);
       if (!transcript) throw errors.notFound("历史文件已变化，请重新选择");
       return transcript;
     }),
   );
   api.defineCapability(
-    bindCapability(mainAgentDescriptors.historyPin, (c, i) => {
+    bindCapability(mainAgentDescriptors.historyPin, async (c, i) => {
       writable();
-      const { selected, unique } = historyReference(c, i);
+      const { selected, unique } = await historyReference(c, i, undefined, true);
       const legacyKeys = [selected.legacyHistoryId];
       if (unique) legacyKeys.push(nativeKey(selected));
       pins.set(i.spaceId, selected.historyId, i.pinned, legacyKeys);
@@ -905,7 +900,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(bindCapability(mainAgentDescriptors.historyWorkspaceLaunch, (c, i) => launchHistory(c, i, "workspace", (input) => workspaceLayout.launch(input, i.target, i.baseVersion, c.signal))));
   api.defineCapability(
     bindCapability(mainAgentDescriptors.historyLocate, async (c, i) => {
-      const { selected } = historyReference(c, i);
+      const { selected } = await historyReference(c, i);
       const external = isAgentTool(c.caller);
       const observer = external ? core.connected : undefined;
       if (observer === null) throw new HuhuError("HERDR_UNAVAILABLE", "当前连接无法核对原历史会话的分栏");

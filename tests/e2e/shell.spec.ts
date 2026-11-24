@@ -1,7 +1,7 @@
-import { _electron as electron, chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, TaskDto } from "../../packages/contracts/src/index.js";
@@ -1321,6 +1321,73 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   } finally {
     await app.close();
     for (const d of [vault, cfg, cx]) rmTree(d);
+  }
+});
+
+test("Agent CLI 历史：Codex 和 Pi 在大量其他 Space 记录中分页并预览旧会话", async () => {
+  test.setTimeout(60_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-e2e-history-"));
+  const profile = path.join(fixture, "codex");
+  const codex = path.join(profile, "sessions", "2026", "09", "01");
+  const pi = path.join(fixture, "pi");
+  const cwd = realpathSync(vault);
+  const outside = realpathSync(fixture);
+  const jsonl = (...rows: unknown[]) => rows.map((row) => JSON.stringify(row) + "\n").join("");
+  let app: ElectronApplication | undefined;
+  let browser: Browser | undefined;
+  async function checkHistory(page: Page) {
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByRole("heading", { name: "共 52 条记录，显示第 1–50 条" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("history-item")).toHaveCount(50);
+    await page.getByRole("group", { name: "历史分页" }).getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByRole("heading", { name: "共 52 条记录，显示第 51–52 条" })).toBeVisible();
+    for (const title of ["Codex 原有记录", "Pi 原有记录"]) {
+      await page.getByRole("button", { name: `查看记录 ${title}`, exact: true }).click();
+      const dialog = page.getByTestId("history-transcript");
+      await expect(dialog.getByTestId("transcript-message")).toContainText(title);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    }
+  }
+  try {
+    mkdirSync(codex, { recursive: true });
+    mkdirSync(pi);
+    const old = new Date("2026-09-01T00:00:00Z");
+    const original = path.join(codex, "rollout-2026-09-01T00-00-00-f09-codex.jsonl");
+    writeFileSync(original, jsonl(
+      { type: "session_meta", payload: { id: "f09-codex", cwd } },
+      { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 原有记录" }] } },
+    ));
+    const originalPi = path.join(pi, "original.jsonl");
+    const writePi = (file: string, id: string, dir: string, title: string) => writeFileSync(file, jsonl(
+      { type: "session", version: 3, id, cwd: dir },
+      { type: "message", message: { role: "user", content: title } },
+    ));
+    writePi(originalPi, "f09-pi", cwd, "Pi 原有记录");
+    utimesSync(original, old, old);
+    utimesSync(originalPi, old, old);
+    for (let i = 0; i < 2001; i++) {
+      writeFileSync(path.join(codex, `rollout-outside-${i}.jsonl`), jsonl({ type: "session_meta", payload: { id: `outside-${i}`, cwd: outside } }));
+      writePi(path.join(pi, `outside-${i}.jsonl`), `outside-${i}`, outside, "不相关记录");
+    }
+    for (let i = 0; i < 50; i++) writePi(path.join(pi, `inside-${i}.jsonl`), `inside-${i}`, cwd, `较新记录 ${i}`);
+
+    app = await launch(vault, { CODEX_HOME: profile, PI_CODING_AGENT_SESSION_DIR: pi, CLAUDE_CONFIG_DIR: path.join(fixture, "empty") });
+    const page = await app.firstWindow();
+    await engineReady(page);
+    await checkHistory(page);
+    expect(await call(page, "web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
+    const { links } = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await web.goto(links[0]!);
+    await checkHistory(web);
+  } finally {
+    await browser?.close();
+    await app?.close();
+    rmTree(vault);
+    rmTree(fixture);
   }
 });
 

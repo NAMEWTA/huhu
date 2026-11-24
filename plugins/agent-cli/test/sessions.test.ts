@@ -15,7 +15,7 @@ import { InteractiveEnvironment } from "../src/engine/interactive-environment.js
 import type { AgentEnvironmentProfile } from "../src/engine/launch-environment.js";
 import type { BrokerOutcome, NativePtyBroker } from "../src/engine/native-pty.js";
 import type { SessionRecord } from "../src/engine/sessions.js";
-import { scanHistory } from "../src/engine/history/scanner.js";
+import { readHistoryEntry } from "../src/engine/history/scanner.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -140,7 +140,7 @@ describe("原生历史启动", () => {
     const file = path.join(projects, `${nativeId}.jsonl`);
     const row = JSON.stringify({ type: "user", cwd: work, message: { role: "user", content: "source" } }) + "\n";
     writeFileSync(file, row);
-    const [entry] = scanHistory({ roots: [work], env: { CLAUDE_CONFIG_DIR: profile } }).entries;
+    const entry = readHistoryEntry("claude", file);
     return { file, projects, profile, row, history: { nativeId, file, profile, sourceId: entry!.historyId, revision: entry!.revision, sourceCwd: entry!.cwd } };
   }
 
