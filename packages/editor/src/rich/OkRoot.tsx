@@ -58,6 +58,13 @@ async function openDesktopExternal(url: string): Promise<void> {
 
 let lastPoolKey: string | undefined;
 
+export function releaseDocumentProviders(poolKey: string): void {
+  if (lastPoolKey !== poolKey) return;
+  lastPoolKey = undefined;
+  resetInternalDocPreviewCache();
+  resetProviderPool();
+}
+
 /** Huhu 用 html[data-mode="dark|light"] 表示明暗；OK 的 dark 变体是 `.dark *`，这里把两者接起来。 */
 function useHuhuDarkClass(): boolean {
   const read = () => document.documentElement.getAttribute("data-mode") === "dark";
@@ -109,10 +116,7 @@ export function OkRoot({ children, locale, host, routes, config, poolKey, commen
   useLayoutEffect(() => {
     // 没有 poolKey 的 OkRoot（如详情栏的批注页）不参与池的所有权：否则它挂载就会把另一处正在编辑的编辑器销毁
     if (poolKey === undefined) return;
-    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) {
-      resetInternalDocPreviewCache();
-      resetProviderPool();
-    }
+    if (lastPoolKey !== undefined && lastPoolKey !== poolKey) releaseDocumentProviders(lastPoolKey);
     lastPoolKey = poolKey;
   }, [poolKey]);
   useEffect(() => {

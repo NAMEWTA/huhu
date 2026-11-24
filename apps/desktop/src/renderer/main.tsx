@@ -42,20 +42,32 @@ function DesktopApp() {
   }, []);
 
   useEffect(() => {
-    const off = window.huhuHost.onEngineState((s) => {
-      setState(s);
-      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
-      if (s === "crashed" || s === "stopped") setEndpoint(null);
+    let generation = 0;
+    let disposed = false;
+    const update = (state: EngineState) => {
+      const current = ++generation;
+      setState(state);
+      if (state !== "ready") {
+        setEndpoint(null);
+        return;
+      }
+      void window.huhuHost.engine().then(
+        (endpoint) => {
+          if (!disposed && generation === current) setEndpoint(endpoint);
+        },
+        () => {
+          if (!disposed && generation === current) setEndpoint(null);
+        },
+      );
+    };
+    const off = window.huhuHost.onEngineState(update);
+    void window.huhuHost.engineState().then((state) => {
+      if (!disposed && generation === 0) update(state);
     });
-    void window.huhuHost.engineState().then((s) => {
-      setState(s);
-      if (s === "ready") void window.huhuHost.engine().then(setEndpoint);
-    });
-    void window.huhuHost.engine().then((e) => {
-      setEndpoint(e);
-      setState("ready");
-    });
-    return off;
+    return () => {
+      disposed = true;
+      off();
+    };
   }, []);
 
   return <WorkbenchApp endpoint={endpoint} state={state} version={version} onRestartEngine={() => void window.huhuHost.restartEngine()} />;

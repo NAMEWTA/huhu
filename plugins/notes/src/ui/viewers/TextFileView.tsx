@@ -110,7 +110,14 @@ function TextEditorBody({ path, language, toolbarLead, sidecar }: { path: string
                     <Button variant="primary" data-testid="note-merge" onClick={() => void session.merge()}>
                       {v.merge}
                     </Button>
-                    <Button data-testid="note-view-diff" onClick={() => void session.readDisk().then(setDiffOf)}>
+                    <Button
+                      data-testid="note-view-diff"
+                      onClick={() => {
+                        void session.readDisk().then(setDiffOf, (error: unknown) => {
+                          if ((error as { name?: string })?.name !== "AbortError") session.setError(String(error));
+                        });
+                      }}
+                    >
                       {v.viewDiff}
                     </Button>
                     <Button data-testid="note-keep-mine" onClick={() => void session.keepMine()}>

@@ -129,6 +129,7 @@ export interface OkRootProps {
 }
 export function OkRoot(props: OkRootProps): ReactElement | null;
 export function dropProvider(docName: string): void;
+export function releaseDocumentProviders(poolKey: string): void;
 
 export interface ReferenceCandidate {
   path: string;

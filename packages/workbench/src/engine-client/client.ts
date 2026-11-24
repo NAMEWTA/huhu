@@ -33,8 +33,12 @@ export class CapabilityError extends Error {
   }
 }
 
+let nextConnectionGeneration = 0;
+
 /** Engine HTTP 客户端：调用能力；业务错误抛 CapabilityError。 */
 export class EngineClient {
+  readonly connectionGeneration = ++nextConnectionGeneration;
+
   constructor(
     readonly endpoint: EngineEndpoint,
     private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),

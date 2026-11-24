@@ -20,7 +20,7 @@ import { hasProtectedSegment, MAX_ATTACH_BYTES } from "../../shared/attachments.
 import { attachFile } from "../attach.js";
 import { useCommentsBridge } from "../comments/useCommentsBridge.js";
 import { useKnowledgeLocale } from "../useKnowledgeLocale.js";
-import { documentSessions } from "./useDocumentSession.js";
+import { documentProviderScope, documentSessions } from "./useDocumentSession.js";
 import type { MarkdownEquivalence } from "./DocumentSession.js";
 
 /** 编辑面所需的最小笔记引用（来自 notes.list；不依赖 NoteExplorer 的类型，避免循环）。 */
@@ -261,7 +261,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
   );
 
   return (
-    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} localReferences={localReferences} poolKey={engine.vaultId} commentScope={engine.vaultId} style={{ height: "100%" }}>
+    <OkRoot acceptSidebarDrop {...(config ? { config } : {})} locale={locale} routes={routes} documentHost={documentHost} localReferences={localReferences} poolKey={documentProviderScope(engine)} commentScope={engine.vaultId} style={{ height: "100%" }}>
       <RichMarkdownEditor
         referenceSearch={refs.search as (q: string) => readonly ReferenceCandidate[]}
         docName={docNameOf(props.path)}

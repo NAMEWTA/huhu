@@ -30,7 +30,7 @@ class FakeEngine implements SessionEngine {
     const f = this.files.get(p)!;
     this.files.set(p, { text, version: f.version + 1 });
   }
-  async call<T>(cap: string, input: unknown): Promise<T> {
+  async call<T>(cap: string, input: unknown, _options?: { signal?: AbortSignal; write?: boolean }): Promise<T> {
     this.calls.push(cap);
     const i = input as { path: string; text?: string; expectedVersion?: string; baseVersion?: string; outcome?: "unknown"; withVersion?: boolean; writeId?: string };
     if (cap === "notes.read") {
@@ -920,7 +920,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     const saving = session.flush();
     try {
       await vi.advanceTimersByTimeAsync(0);
-      expect(call).toHaveBeenCalledWith("notes.save", { path, text: "A", expectedVersion: "1", writeId: expect.any(String) }, { write: true });
+      expect(call).toHaveBeenCalledWith("notes.save", { path, text: "A", expectedVersion: "1", writeId: expect.any(String) }, { write: true, signal: expect.any(AbortSignal) });
       expect(eng.disk(path)).toBe("X");
 
       session.setText("X");
@@ -2599,5 +2599,120 @@ describe("DocumentSessionRegistry：按 (vaultId, path) 引用计数", () => {
     expect(off).not.toHaveBeenCalled();
     await b.release();
     expect(off).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("F19 引擎连接代次", () => {
+  const make = (engine: SessionEngine) => (id: DocumentSession["id"]) => new DocumentSession({ id, engine, pollMs: 0 });
+
+  test("连续重连取消旧读取，打开和停放的笔记使用新端点，同路径的另一个 Vault 保持独立", async () => {
+    const registry = new DocumentSessionRegistry();
+    const original = new FakeEngine({ "open.md": "base", "parked.md": "parked base" });
+    const other = new FakeEngine({ "open.md": "other Vault" });
+    const teardown = vi.fn();
+    const disconnect = registry.bindVault("v", 1, () => ({ engine: original }));
+    const lease = await registry.acquire("v", "open.md", make(original), () => teardown);
+    const parked = await registry.acquire("v", "parked.md", make(original), () => teardown);
+    const otherLease = await registry.acquire("other", "open.md", make(other));
+    await Promise.all([lease.session.load(), parked.session.load(), otherLease.session.load()]);
+    const releasePark = registry.retainForPark(parked.session);
+    await parked.release();
+    lease.session.attachDrainer(() => lease.session.setText("latest buffer"));
+    disconnect();
+
+    const signals: AbortSignal[] = [];
+    const abandoned: SessionEngine = {
+      call<T>(_capability: string, _input: unknown, options?: { signal?: AbortSignal }): Promise<T> {
+        const signal = options!.signal!;
+        signals.push(signal);
+        return new Promise<T>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    };
+    const disconnectAgain = registry.bindVault("v", 2, () => ({ engine: abandoned }));
+    await Promise.resolve();
+    expect(signals).toHaveLength(2);
+    disconnectAgain();
+    expect(signals.every(({ aborted }) => aborted)).toBe(true);
+
+    const newest = new FakeEngine({ "open.md": "external edit", "parked.md": "external parked edit" });
+    const onSaved = vi.fn();
+    const end = registry.bindVault("v", 3, () => ({ engine: newest, onSaved }));
+    const resumed = await registry.acquire("v", "parked.md", make(newest));
+    await lease.session.waitForConnection();
+    expect(resumed.session).toBe(parked.session);
+    expect(resumed.session.getSnapshot()).toMatchObject({ text: "external parked edit", state: "saved" });
+    expect(lease.session.getSnapshot()).toMatchObject({ text: "latest buffer", state: "conflict" });
+    expect(otherLease.session.currentText()).toBe("other Vault");
+    expect(await lease.session.flush()).toBe(false);
+    expect(newest.disk("open.md")).toBe("external edit");
+
+    await lease.session.keepMine();
+    expect(await lease.session.flush()).toBe(true);
+    resumed.session.setText("updated from parked editor");
+    expect(await resumed.session.flushForExit()).toBe("file");
+    expect(newest.disk("open.md")).toBe("latest buffer");
+    expect(newest.disk("parked.md")).toBe("updated from parked editor");
+    expect(original.calls).not.toContain("notes.save");
+    expect(onSaved).toHaveBeenCalledTimes(2);
+
+    await Promise.all([lease.release(), resumed.release(), otherLease.release()]);
+    await releasePark();
+    end();
+    expect(registry.size).toBe(0);
+    expect(teardown).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([true, false])("首笔回执丢失时读回磁盘（已落盘 %s），保留写入之后的编辑", async (committed) => {
+    let deliverReceipt!: () => void;
+    const original = new FakeEngine({ "a.md": "base" });
+    original.saveReceiptGate = new Promise<void>((resolve) => { deliverReceipt = resolve; });
+    const session = mk(original);
+    await session.load();
+    session.setText("submitted");
+    const outgoing = session.save();
+    session.setText("later input");
+    session.disconnect();
+
+    const newest = new FakeEngine({ "a.md": "base" });
+    newest.externalWrite("a.md", committed ? original.disk("a.md") : "external");
+    await session.rebind({ engine: newest });
+    expect(session.getSnapshot()).toMatchObject({ text: "later input", state: committed ? "dirty" : "conflict" });
+    deliverReceipt();
+    expect(await outgoing).toBe(false);
+    expect(session.currentText()).toBe("later input");
+
+    if (committed) {
+      expect(await session.flushForExit()).toBe("file");
+      expect(newest.disk("a.md")).toBe("later input");
+    } else {
+      expect(await session.flushForExit()).toBe("draft");
+      expect(newest.disk("a.md")).toBe("external");
+      expect(newest.drafts.get("a.md")).toMatchObject({ text: "later input", outcome: "unknown" });
+    }
+    await session.dispose();
+  });
+
+  test("断线时最后一个引用释放会保留脏缓冲，重连后结算并注销", async () => {
+    const registry = new DocumentSessionRegistry();
+    const original = new FakeEngine({ "a.md": "base" });
+    const disconnect = registry.bindVault("v", 1, () => ({ engine: original }));
+    const teardown = vi.fn();
+    const lease = await registry.acquire("v", "a.md", (id) => new DocumentSession({ id, engine: original, autosave: () => false, pollMs: 0 }), () => teardown);
+    await lease.session.load();
+    lease.session.setText("unsaved");
+    disconnect();
+    await lease.release();
+    expect(registry.refs("v", "a.md")).toBe(0);
+    expect(teardown).not.toHaveBeenCalled();
+
+    const replacement = new FakeEngine({ "a.md": "base" });
+    const end = registry.bindVault("v", 2, () => ({ engine: replacement }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(replacement.drafts.get("a.md")).toMatchObject({ text: "unsaved" });
+    expect(registry.size).toBe(0);
+    expect(teardown).toHaveBeenCalledOnce();
+    end();
   });
 });

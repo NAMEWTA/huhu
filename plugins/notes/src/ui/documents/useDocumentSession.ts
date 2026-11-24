@@ -1,12 +1,45 @@
 import { queryKey, registerDirtyDoc, registerFlusher, useEngine, useQueryClient } from "@huhu/workbench";
 import { browserNoteDraft } from "./browser-note-draft.js";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { archiveNoteRoute } from "../archives/route.js";
-import { DocumentSession, type SessionSnapshot } from "./DocumentSession.js";
+import { DocumentSession, type SessionConnection, type SessionSnapshot } from "./DocumentSession.js";
 import { DocumentSessionRegistry, type SessionLease } from "./DocumentSessionRegistry.js";
 
 /** 进程内唯一的会话登记表：会话生命周期长于组件（同一文件的多个标签 / park 的编辑器共用）。 */
 export const documentSessions = new DocumentSessionRegistry();
+
+function bindDocument(engine: ReturnType<typeof useEngine>, qc: ReturnType<typeof useQueryClient>, path: string): SessionConnection {
+  const archive = archiveNoteRoute(path);
+  return {
+    engine,
+    autosave: () => qc.getQueryData<{ editor: { autosave: boolean } }>(queryKey(engine.vaultId, "settings.get"))?.editor.autosave,
+    onSaved: () => {
+      void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
+      if (archive?.kind === "archive") void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "archives.read", { path: archive.path }) });
+    },
+  };
+}
+
+export function documentProviderScope(engine: ReturnType<typeof useEngine>): string {
+  return `${engine.vaultId}:${engine.connectionGeneration}`;
+}
+
+/** Owns the desktop transport even when the Notes module is hidden. */
+export function DocumentSessionConnection() {
+  const engine = useEngine();
+  const qc = useQueryClient();
+  useLayoutEffect(() => {
+    const { vaultId, connectionGeneration } = engine;
+    const disconnect = documentSessions.bindVault(vaultId, connectionGeneration, (path) => bindDocument(engine, qc, path));
+    return () => {
+      disconnect();
+      void import("@huhu/editor/rich").then(({ releaseDocumentProviders }) => {
+        if (!documentSessions.isBound(vaultId, connectionGeneration)) releaseDocumentProviders(documentProviderScope(engine));
+      });
+    };
+  }, [engine, qc]);
+  return null;
+}
 
 const EMPTY: SessionSnapshot = {
   loaded: false,
@@ -43,18 +76,16 @@ export function useDocumentSession(path: string, autosave: boolean): { session: 
       .acquire(
         engine.vaultId,
         path,
-        (id) =>
-          new DocumentSession({
+        (id) => {
+          const binding = bindDocument(engine, qc, path);
+          return new DocumentSession({
             id,
-            engine: { call: (cap, input, opts) => engine.call(cap, input, opts) },
+            engine: binding.engine,
             ...(browserDraft && { browserDraft }),
-            // 同一会话可以移交到另一个视图。读共享设置缓存，使旧视图卸载后仍能读取最新偏好。
-            autosave: () => qc.getQueryData<{ editor: { autosave: boolean } }>(queryKey(engine.vaultId, "settings.get"))?.editor.autosave ?? autosaveRef.current,
-            onSaved: () => {
-              void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "notes.backlinks", { path }) });
-              if (archive?.kind === "archive") void qc.invalidateQueries({ queryKey: queryKey(engine.vaultId, "archives.read", { path: archive.path }) });
-            },
-          }),
+            ...(binding.onSaved && { onSaved: binding.onSaved }),
+            autosave: () => binding.autosave?.() ?? autosaveRef.current,
+          });
+        },
         (s) => {
           // 退出前落盘 / 切换 Vault 前的未保存文档：每个会话只注册一次，随会话销毁注销
           const offFlush = registerFlusher(() => s.flushForExit());

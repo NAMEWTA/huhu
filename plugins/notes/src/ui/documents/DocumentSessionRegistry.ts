@@ -1,4 +1,4 @@
-import { DocumentSession, type SessionOptions } from "./DocumentSession.js";
+import { DocumentSession, type SessionConnection, type SessionOptions } from "./DocumentSession.js";
 
 export interface SessionLease {
   readonly session: DocumentSession;
@@ -22,15 +22,47 @@ interface Entry {
 export class DocumentSessionRegistry {
   private readonly map = new Map<string, Entry>();
   private epoch = 0;
+  private readonly connections = new Map<string, number>();
+
+  bindVault(vaultId: string, generation: number, binding: (path: string) => SessionConnection): () => void {
+    this.connections.set(vaultId, generation);
+    for (const [key, entry] of this.map) {
+      if (entry.session.id.vaultId !== vaultId) continue;
+      void entry.session
+        .rebind(binding(entry.session.id.path))
+        .then(async () => {
+          await entry.settling?.catch(() => undefined);
+          if (this.connections.get(vaultId) === generation && this.map.get(key) === entry && entry.refs <= entry.parkedRefs && !entry.settling) {
+            await this.settle(key, entry);
+          }
+        })
+        .catch((error: unknown) => entry.session.setError(error instanceof Error ? error.message : String(error)));
+    }
+    return () => {
+      if (this.connections.get(vaultId) !== generation) return;
+      this.connections.delete(vaultId);
+      for (const { session } of this.map.values()) {
+        if (session.id.vaultId === vaultId) session.disconnect();
+      }
+    };
+  }
+
+  isBound(vaultId: string, generation: number): boolean {
+    return this.connections.get(vaultId) === generation;
+  }
 
   private static key(vaultId: string, path: string): string {
     return `${vaultId}\u0000${path}`;
   }
 
   private settle(key: string, entry: Entry): Promise<void> {
+    if (entry.session.needsConnection) return Promise.resolve();
     const dispose = entry.refs === 0;
     entry.settling = (async () => {
       try {
+        const reconnecting = entry.session.waitForConnection();
+        if (reconnecting) await reconnecting;
+        if (entry.session.needsConnection) return;
         if (dispose) {
           await entry.session.dispose();
           if (this.map.get(key) === entry) this.map.delete(key);
@@ -90,6 +122,7 @@ export class DocumentSessionRegistry {
     const entry = e;
     const resuming = entry.parkedRefs > 0 && entry.refs === entry.parkedRefs && entry.session.getSnapshot().loaded;
     entry.refs++;
+    for (let pending = entry.session.waitForConnection(); pending; pending = entry.session.waitForConnection()) await pending;
     // 停放期间文档视图可能已卸载，错过的文件事件在第一个活动引用恢复时补一次核对。
     if (resuming) entry.session.notifyExternalChange();
     let released = false;

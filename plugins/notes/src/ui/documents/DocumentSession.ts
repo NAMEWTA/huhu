@@ -12,7 +12,7 @@ export const AUTOSAVE_MS = 800;
 const MAX_PENDING_SAVE_NOTICES = 1000;
 
 export interface SessionEngine {
-  call<T>(capability: string, input: unknown, opts?: { write?: boolean }): Promise<T>;
+  call<T>(capability: string, input: unknown, opts?: { write?: boolean; signal?: AbortSignal }): Promise<T>;
 }
 
 export interface SessionDraft {
@@ -84,6 +84,12 @@ export interface SessionOptions {
   browserDraft?: BrowserNoteDraft;
 }
 
+export interface SessionConnection {
+  engine: SessionEngine;
+  autosave?: () => boolean | undefined;
+  onSaved?: () => void;
+}
+
 interface NoteFile {
   path: string;
   text: string;
@@ -114,12 +120,14 @@ interface LateWriteConflict {
 interface ActiveFileWrite {
   writeId?: string;
   submittedText?: string;
+  submitted?: boolean;
+  received?: boolean;
   ownNoticeReceived?: boolean;
   reconciliation?: Promise<void>;
   externalChange?: { generation: number; loadSeq: number };
 }
 
-type SubmitFieldUpdate = (update: () => Promise<unknown>) => Promise<void>;
+type SubmitFieldUpdate = (update: (signal: AbortSignal) => Promise<unknown>) => Promise<void>;
 
 function isUnconfirmedWriteError(error: unknown): boolean {
   const result = error as { name?: string; details?: { outcome?: string } } | null;
@@ -143,11 +151,15 @@ function mergeText(base: string, mine: string, theirs: string): { text: string; 
 export class DocumentSession {
   readonly id: SessionOptions["id"];
   readonly kind: DocumentKind;
-  private readonly engine: SessionEngine;
-  private readonly autosave: () => boolean;
+  private engine: SessionEngine;
+  private connection: AbortController | null = new AbortController();
+  private reconnecting: Promise<void> | null = null;
+  private disconnectDrain: Promise<void> | null = null;
+  private interruptedWrite: { text?: string } | null = null;
+  private autosave: () => boolean;
   private readonly autosaveMs: number;
   private readonly pollMs: number;
-  private readonly onSaved: (() => void) | undefined;
+  private onSaved: (() => void) | undefined;
   private readonly browserDraft: BrowserNoteDraft | undefined;
   private browserCheckpoint: { content: SessionDraft; version: string } | undefined;
 
@@ -197,6 +209,96 @@ export class DocumentSession {
     this.snap = this.build();
   }
 
+  /** Stop the outgoing generation while retaining the last confirmed file and the edit buffer. */
+  disconnect(): void {
+    const previous = this.connection;
+    if (!previous || this.disposed) return;
+    const draining = this.drainEditors().catch(() => undefined);
+    this.disconnectDrain = this.disconnectDrain ? Promise.all([this.disconnectDrain, draining]).then(() => undefined) : draining;
+    const write = this.activeFileWrite;
+    if (write?.submitted && !write.received) {
+      this.interruptedWrite = write.submittedText === undefined ? {} : { text: write.submittedText };
+    }
+    this.connection = null;
+    this.reconnecting = null;
+    this.baselineGeneration++;
+    this.activeFileWrite = null;
+    this.inflight = null;
+    this.pendingSaveNotices.clear();
+    this.deferredExternalCheck = null;
+    this.clearAutosave();
+    previous.abort();
+    this.state = this.lateWriteConflict ? "conflict" : this.hasUnsavedText() ? "dirty" : "saved";
+    this.emit();
+  }
+
+  rebind(binding: SessionConnection): Promise<void> {
+    if (this.disposed) return Promise.resolve();
+    this.disconnect();
+    const connection = new AbortController();
+    this.connection = connection;
+    const autosave = this.autosave();
+    this.engine = binding.engine;
+    this.onSaved = binding.onSaved;
+    this.autosave = () => binding.autosave?.() ?? autosave;
+    const pending = this.verifyReconnection(connection);
+    this.reconnecting = pending;
+    return pending;
+  }
+
+  private async verifyReconnection(connection: AbortController): Promise<void> {
+    // Establish the new generation before publishing or running a new request.
+    await Promise.resolve();
+    if (connection !== this.connection) return;
+    try {
+      if (!this.loaded) return;
+      const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
+      await this.disconnectDrain;
+      if (connection !== this.connection) return;
+
+      if (this.interruptedWrite && file.text === this.interruptedWrite.text) {
+        // Matching bytes confirm the intended effect. Input received after submission stays dirty.
+        this.acceptBaseline(file);
+        this.format = detectTextFormat(file.text);
+        this.state = this.text === file.text ? "saved" : "dirty";
+      } else if (this.interruptedWrite || this.lateWriteConflict) {
+        this.acceptReconciledDisk(file, this.interruptedWrite !== null, null);
+      } else if (!this.hasUnsavedText()) {
+        if (!this.matchesSavedFile(file)) this.adoptLoadedFile(file);
+        this.flushError = null;
+      } else if (!this.matchesSavedFile(file)) {
+        this.acceptReconciledDisk(file, false, null);
+      } else {
+        this.flushError = null;
+      }
+      this.interruptedWrite = null;
+    } catch (error) {
+      if (connection !== this.connection) return;
+      if (this.hasUnsavedText()) this.acceptReconciledDisk(null, this.interruptedWrite !== null, String(error));
+      else this.flushError = String(error);
+    } finally {
+      if (connection === this.connection) {
+        this.disconnectDrain = null;
+        this.reconnecting = null;
+        if (this.state === "dirty") this.armAutosave();
+        this.emit();
+      }
+    }
+  }
+
+  get needsConnection(): boolean {
+    return !this.connection && this.hasUnsavedText();
+  }
+
+  waitForConnection(): Promise<void> | undefined {
+    return this.reconnecting ?? undefined;
+  }
+
+  private request<T>(capability: string, input: unknown, opts?: { write?: boolean }): Promise<T> {
+    if (!this.connection) return Promise.reject(new Error("引擎尚未连接"));
+    return this.engine.call<T>(capability, input, { ...opts, signal: this.connection.signal });
+  }
+
   // ---- 订阅 ----
   subscribe = (fn: Listener): (() => void) => {
     this.listeners.add(fn);
@@ -224,7 +326,7 @@ export class DocumentSession {
   }
 
   private hasUnsavedText(): boolean {
-    return this.lateWriteConflict?.unknown === true || (this.savedText !== null && this.text !== this.savedText);
+    return this.interruptedWrite !== null || this.lateWriteConflict?.unknown === true || (this.savedText !== null && this.text !== this.savedText);
   }
 
   private currentDraft(): SessionDraft {
@@ -272,7 +374,7 @@ export class DocumentSession {
 
   // ---- 载入 ----
   private isBaselineCurrent(generation: number): boolean {
-    return !this.disposed && generation === this.baselineGeneration;
+    return !this.disposed && this.connection !== null && !this.reconnecting && generation === this.baselineGeneration;
   }
 
   private acceptBaseline(file: NoteFile): void {
@@ -283,6 +385,7 @@ export class DocumentSession {
     this.savedVersion = file.version;
     this.savedText = file.text;
     this.lateWriteConflict = null;
+    this.interruptedWrite = null;
     this.equivalentMarkdown = undefined;
     this.flushError = null;
   }
@@ -322,7 +425,7 @@ export class DocumentSession {
       let draftError: string | null = null;
       try {
         [file, draft] = await Promise.all([
-          this.engine.call<NoteFile>("notes.read", { path: this.id.path }),
+          this.request<NoteFile>("notes.read", { path: this.id.path }),
           this.readDraft().catch((error: unknown) => {
             if (expectedRevision !== undefined || discardEdits) throw error;
             draftError = `读取草稿失败：${error instanceof Error ? error.message : String(error)}`;
@@ -424,7 +527,7 @@ export class DocumentSession {
   }
   private armAutosave(): void {
     this.clearAutosave();
-    if (!this.autosave()) return;
+    if (!this.connection || this.reconnecting || !this.autosave()) return;
     const generation = this.baselineGeneration;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -470,9 +573,11 @@ export class DocumentSession {
     try {
       while (write.externalChange) await this.checkDeferredExternalChange(write);
     } finally {
-      this.activeFileWrite = null;
-      if (this.state === "dirty" && this.text === this.savedText && !this.flushError && !this.lateWriteConflict) this.state = "saved";
-      this.emit();
+      if (this.activeFileWrite === write) {
+        this.activeFileWrite = null;
+        if (this.state === "dirty" && this.text === this.savedText && !this.flushError && !this.lateWriteConflict) this.state = "saved";
+        this.emit();
+      }
     }
   }
 
@@ -484,7 +589,7 @@ export class DocumentSession {
     if (!canCheck()) return;
     let file: NoteFile;
     try {
-      file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+      file = await this.request<NoteFile>("notes.read", { path: this.id.path });
     } catch {
       // 文件通知是尽力核对。正文保存和未确认写入分别由原回执及对账处理。
       return;
@@ -524,6 +629,7 @@ export class DocumentSession {
       return true;
     }
     const writeId = createRequestId();
+    const connection = this.connection;
     const write: ActiveFileWrite = { writeId, submittedText: body };
     let outcome: "unsubmitted" | "unknown" | "acknowledged" | "rejected" = "unsubmitted";
     let writeUnconfirmed = false;
@@ -531,8 +637,11 @@ export class DocumentSession {
       this.beginFileWrite(write);
       if (!this.isBaselineCurrent(baselineGeneration)) return false;
       outcome = "unknown";
-      const r = await this.engine.call<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version, writeId }, { write: true });
+      write.submitted = true;
+      const r = await this.request<{ version: string }>("notes.save", { path: this.id.path, text: body, expectedVersion: this.version, writeId }, { write: true });
       outcome = "acknowledged";
+      write.received = true;
+      if (connection !== this.connection) return false;
       // 旧基线收到成功回执时，迟到的自身通知仍需要认领。
       if (!write.ownNoticeReceived) {
         this.pendingSaveNotices.add(writeId);
@@ -562,7 +671,10 @@ export class DocumentSession {
     } catch (e) {
       writeUnconfirmed = isUnconfirmedWriteError(e);
       const conflict = !writeUnconfirmed && (e as { code?: string })?.code === "VERSION_CONFLICT";
-      if (outcome === "unknown" && conflict) outcome = "rejected";
+      if (outcome === "unknown" && conflict) {
+        outcome = "rejected";
+        write.received = true;
+      }
       if (!this.isBaselineCurrent(baselineGeneration)) return false;
       this.state = conflict ? "conflict" : "dirty";
       this.flushError = conflict ? null : e instanceof Error ? e.message : String(e);
@@ -571,11 +683,13 @@ export class DocumentSession {
     } finally {
       try {
         const crossedBaseline = !this.isBaselineCurrent(baselineGeneration);
-        if (outcome === "rejected") {
-          // 条件写拒绝已证明版本不同；未接纳的读数必须重新取样。
-          this.diskRevision++;
-        } else if (outcome === "unknown" || (outcome === "acknowledged" && crossedBaseline)) {
-          await this.reconcileWrite(write, outcome === "unknown" && (crossedBaseline || writeUnconfirmed));
+        if (connection === this.connection) {
+          if (outcome === "rejected") {
+            // 条件写拒绝已证明版本不同；未接纳的读数必须重新取样。
+            this.diskRevision++;
+          } else if (outcome === "unknown" || (outcome === "acknowledged" && crossedBaseline)) {
+            await this.reconcileWrite(write, outcome === "unknown" && (crossedBaseline || writeUnconfirmed));
+          }
         }
       } finally {
         await this.finishFileWrite(write);
@@ -593,14 +707,15 @@ export class DocumentSession {
     if (this.disposed) return;
     // 已发写入可能比正在读取的重载或合并更晚落盘。
     this.diskRevision++;
-    while (!this.disposed) {
+    const connection = this.connection;
+    while (!this.disposed && connection && connection === this.connection) {
       const generation = this.baselineGeneration;
       const diskRevision = this.diskRevision;
       const seq = this.loadSeq;
       const canReconcile = () => this.isBaselineCurrent(generation) && seq === this.loadSeq && diskRevision === this.diskRevision;
       let file: NoteFile;
       try {
-        file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+        file = await this.request<NoteFile>("notes.read", { path: this.id.path });
       } catch (error) {
         if (!canReconcile()) continue;
         this.acceptReconciledDisk(null, true, error instanceof Error ? error.message : String(error));
@@ -672,7 +787,10 @@ export class DocumentSession {
   }
 
   /** 档案字段与正文共用队列。预检结束后用 submit 包住实际更新请求。 */
-  async writeFields(write: (version: string, submit: SubmitFieldUpdate) => Promise<unknown>): Promise<boolean> {
+  async writeFields(write: (version: string, submit: SubmitFieldUpdate, signal: AbortSignal) => Promise<unknown>): Promise<boolean> {
+    if (this.reconnecting) await this.reconnecting;
+    const connection = this.connection;
+    if (!connection) return false;
     const generation = this.baselineGeneration;
     const isCurrent = () => this.isBaselineCurrent(generation);
     try {
@@ -697,12 +815,14 @@ export class DocumentSession {
           this.beginFileWrite(activity);
           if (!isCurrent()) return;
           submitted = true;
-          await update();
+          activity.submitted = true;
+          await update(connection.signal);
           acknowledged = true;
-          this.diskRevision++;
-        });
+          // Keep the write pending until the new field values have been read back.
+          if (connection === this.connection) this.diskRevision++;
+        }, connection.signal);
         if (!submitted || !isCurrent()) return false;
-        const file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+        const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
         if (!isCurrent()) return false;
         const merged = this.text === before ? { text: file.text, conflicts: 0 } : mergeText(before, this.text, file.text);
         if (merged.conflicts) {
@@ -741,7 +861,7 @@ export class DocumentSession {
       } finally {
         try {
           const crossedBaseline = !isCurrent();
-          if (submitted && (!adoptedRead || crossedBaseline)) {
+          if (connection === this.connection && submitted && (!adoptedRead || crossedBaseline)) {
             await this.reconcileWrite(activity, !acknowledged && (crossedBaseline || writeUnconfirmed));
           }
         } finally {
@@ -764,7 +884,7 @@ export class DocumentSession {
           this.draftVersionForBuffer = version;
           return true;
         }
-        const saved = await this.engine.call<{ version?: string }>(
+        const saved = await this.request<{ version?: string }>(
           "notes.draft.save",
           {
             path: this.id.path,
@@ -806,6 +926,7 @@ export class DocumentSession {
 
   /** 显式保存前结算编辑。手动保存以本次写入的回执为准，需要结清全文的操作可继续排空。 */
   async flush({ untilClean = this.autosave() }: { untilClean?: boolean } = {}): Promise<boolean> {
+    if (this.reconnecting) await this.reconnecting;
     const generation = this.baselineGeneration;
     while (this.isBaselineCurrent(generation)) {
       try {
@@ -829,8 +950,16 @@ export class DocumentSession {
   async flushForExit(): Promise<"file" | "draft" | undefined> {
     const initialWrites = this.fileWrites;
     while (!this.disposed) {
+      if (this.reconnecting) {
+        await this.reconnecting;
+        continue;
+      }
       const generation = this.baselineGeneration;
       await this.drainForWrite(generation);
+      if (!this.connection) {
+        if (this.hasUnsavedText()) throw new Error("引擎尚未连接，未保存的编辑仍留在当前会话");
+        break;
+      }
       while (this.inflight && this.isBaselineCurrent(generation)) await this.inflight;
       if (!this.isBaselineCurrent(generation)) continue;
       if (this.hasUnsavedText() && (!this.autosave() || !(await this.flush({ untilClean: true })))) {
@@ -846,8 +975,16 @@ export class DocumentSession {
   /** 切换 Vault 前“保留草稿”。 */
   async keepDraft(): Promise<void> {
     while (!this.disposed) {
+      if (this.reconnecting) {
+        await this.reconnecting;
+        continue;
+      }
       const generation = this.baselineGeneration;
       await this.drainForWrite(generation);
+      if (!this.connection) {
+        if (this.hasUnsavedText()) throw new Error("引擎尚未连接，未保存的编辑仍留在当前会话");
+        break;
+      }
       if (!this.isBaselineCurrent(generation)) continue;
       await this.preserveDraft(generation);
       if (this.isBaselineCurrent(generation)) return;
@@ -894,7 +1031,7 @@ export class DocumentSession {
 
   /** 收到磁盘变更通知后刷新干净缓冲，或先复读磁盘确认冲突。 */
   notifyExternalChange(change?: string, writeId?: string): void {
-    if (this.disposed) return;
+    if (this.disposed || !this.connection || this.reconnecting) return;
     if (change === "deleted") {
       this.loadSeq++;
       const generation = this.baselineGeneration;
@@ -937,7 +1074,7 @@ export class DocumentSession {
     const canCheck = () => this.isBaselineCurrent(generation) && loadSeq === this.loadSeq && diskRevision === this.diskRevision && checkSeq === this.externalCheckSeq && !this.activeFileWrite && !this.lateWriteConflict;
     let file: NoteFile;
     try {
-      file = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+      file = await this.request<NoteFile>("notes.read", { path: this.id.path });
     } catch {
       // 后续通知或脏缓冲轮询仍会核对磁盘，保留原保存状态和错误。
       return;
@@ -953,14 +1090,13 @@ export class DocumentSession {
   }
 
   private syncPoll(): void {
-    const want = this.state === "dirty" && !this.activeFileWrite && this.pollMs > 0 && !this.disposed;
+    const want = this.connection && !this.reconnecting && this.state === "dirty" && !this.activeFileWrite && this.pollMs > 0 && !this.disposed;
     if (want && !this.poll) {
       this.poll = setInterval(() => {
         if (this.state !== "dirty" || this.activeFileWrite) return;
         const generation = this.baselineGeneration;
         const diskRevision = this.diskRevision;
-        void this.engine
-          .call<NoteFile>("notes.read", { path: this.id.path })
+        void this.request<NoteFile>("notes.read", { path: this.id.path })
           .then((f) => {
             if (this.isBaselineCurrent(generation) && this.diskRevision === diskRevision && !this.activeFileWrite && this.state === "dirty" && f.version !== this.version && f.text !== this.text) {
               this.state = "conflict";
@@ -977,7 +1113,10 @@ export class DocumentSession {
 
   /** 读出磁盘版本，供“查看差异”。 */
   async readDisk(): Promise<string> {
-    return (await this.engine.call<NoteFile>("notes.read", { path: this.id.path })).text;
+    const signal = this.connection?.signal;
+    const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
+    signal?.throwIfAborted();
+    return file.text;
   }
   private fail(e: unknown): void {
     this.flushError = e instanceof Error ? e.message : String(e);
@@ -1013,7 +1152,7 @@ export class DocumentSession {
       const diskRevision = this.diskRevision;
       let theirs: NoteFile;
       try {
-        theirs = await this.engine.call<NoteFile>("notes.read", { path: this.id.path });
+        theirs = await this.request<NoteFile>("notes.read", { path: this.id.path });
       } catch (error) {
         if (!canResolve()) return -1;
         if (diskRevision !== this.diskRevision) {
@@ -1087,12 +1226,12 @@ export class DocumentSession {
 
   private async readDraft(): Promise<(SessionDraft & { version?: string }) | null> {
     if (this.browserDraft) return this.browserDraft.read();
-    return this.engine.call("notes.draft.get", { path: this.id.path, withVersion: true });
+    return this.request("notes.draft.get", { path: this.id.path, withVersion: true });
   }
 
   private async discardDraftVersion(expectedVersion: string): Promise<unknown> {
     if (this.browserDraft) return this.browserDraft.discard(expectedVersion);
-    return this.engine.call("notes.draft.discard", { path: this.id.path, expectedVersion }, { write: true });
+    return this.request("notes.draft.discard", { path: this.id.path, expectedVersion }, { write: true });
   }
 
   /** 最后一次落盘的内容（冲突横幅判断“是否有我的修改”用）。 */
@@ -1111,6 +1250,11 @@ export class DocumentSession {
       this.poll = null;
     }
     this.disposed = true;
+    const connection = this.connection;
+    this.connection = null;
+    this.reconnecting = null;
+    this.disconnectDrain = null;
+    connection?.abort();
     this.deferredExternalCheck = null;
     this.listeners.clear();
     for (const { unsubscribe } of this.drainers) unsubscribe?.();
