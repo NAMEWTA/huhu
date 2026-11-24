@@ -154,6 +154,10 @@ export class VaultSync {
     this.lifetime.abort();
   }
 
+  async idle(): Promise<void> {
+    await this.tail;
+  }
+
   private signal(signal?: AbortSignal): AbortSignal {
     return signal ? AbortSignal.any([this.lifetime.signal, signal]) : this.lifetime.signal;
   }

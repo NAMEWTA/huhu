@@ -562,10 +562,11 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     bind(noteTools.save, async (c, i) => {
       writePath(c, i.path);
       const r = await svc.save(i.path, i.text, i.expectedVersion);
+      api.service<{ saved(path: string, bytes: Uint8Array): void }>("versioningHistory")?.saved(i.path, Buffer.from(i.text));
       const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
       await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
       // Watcher 会过滤本 Engine 的写入回声；其他工作台仍需接收已提交正文的路径通知。
-      api.events.publish("vault.fileChanged", { path: normalizeRelPath(i.path), change: "modified", ...(workbench(c) && i.writeId && { writeId: i.writeId }) });
+      api.events.publish("vault.fileChanged", { path: normalizeRelPath(i.path), change: "modified", version: r.version, ...(workbench(c) && i.writeId && { writeId: i.writeId }) });
       changed(svc.noteId(i.path), "updated");
       return { version: r.version };
     }),

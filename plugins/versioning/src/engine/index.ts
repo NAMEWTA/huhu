@@ -6,6 +6,7 @@ import { bindCapability, ExposureStore, OperationReceipts, toolSelection, type C
 import { AutoSync } from "./auto-sync.js";
 import { versioningTools as caps } from "./descriptors.js";
 import { FileHistory } from "./history.js";
+import { PendingHistory } from "./pending-history.js";
 import { allowToolPath, assertToolPath, VaultGit, type RepositoryBaseline } from "./repo.js";
 import { GitRemoteCredentials, httpTarget, type GitAuthSummary, type GitCredentialHost } from "./remote-auth.js";
 import type { SafeGitSnapshots } from "./safe-git.js";
@@ -22,6 +23,7 @@ export interface VersioningOptions {
   debounceMs?: number;
   credentialHost?: GitCredentialHost;
   safeSnapshots?: SafeGitSnapshots;
+  notifyHistoryFailure?: (id: string, title: string) => void;
   /** 恢复任务文件后通知 automations：该输入不应被重复处理（缺省时从 `automations` 服务取）。 */
   holdRestoredInput?: (taskId: string, inputHash: string) => void;
 }
@@ -68,29 +70,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     return value;
   };
   const historyPath = (context: CapabilityContext, rel: string) => (external(context) ? assertToolPath(files.root, rel, true) : rel);
-  const pending = new Map<string, ReturnType<typeof setTimeout>>();
-
-  // HUHU 自己的写入与外部修改都会触发 entity/vault 事件；统一在去抖后记录
-  const schedule = (rel: string, source: "edit" | "external") => {
-    if (files.readOnly || !history.recordable(rel)) return;
-    clearTimeout(pending.get(rel));
-    pending.set(
-      rel,
-      setTimeout(() => {
-        pending.delete(rel);
-        void history.record(rel, source).catch(() => undefined);
-      }, opts.debounceMs ?? DEBOUNCE_MS),
-    );
-  };
+  const pending = new PendingHistory(files, api.vault.stateDir, history, opts.debounceMs ?? DEBOUNCE_MS, (id, title) => opts.notifyHistoryFailure?.(id, title));
+  api.provide("versioningHistory", { saved: (rel: string, bytes: Uint8Array) => pending.observe(rel, "edit", bytes) });
   api.events.subscribe((e) => {
     if (e.type === "vault.fileChanged") {
-      const p = e.payload as { path: string; change: string };
-      if (p.change !== "deleted") schedule(p.path, "external");
+      const p = e.payload as { path: string; change: string; version?: string };
+      // A notes.save notification follows the already captured bytes.
+      if (p.change !== "deleted" && p.version === undefined) pending.observe(p.path, "external");
     }
-  });
-  ctx.effect(() => () => {
-    for (const t of pending.values()) clearTimeout(t);
-    pending.clear();
   });
 
   api.defineCapability(
@@ -112,14 +99,20 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     }),
   );
   api.defineCapability(
-    bindCapability(caps.historyCheckpoint, (c, i) => {
+    bindCapability(caps.historyCheckpoint, async (c, i) => {
       if (external(c) && [...i.title].some((character) => character < " " || character === "\u007f" || character === "|")) throw errors.invalidInput("检查点标题必须是单行文本");
-      return history.record(historyPath(c, i.path), "checkpoint", i.title, required(c, i.expectedVersion, "expectedVersion"), () => check(c, caps.historyCheckpoint.name));
+      const rel = historyPath(c, i.path);
+      const expectedVersion = required(c, i.expectedVersion, "expectedVersion");
+      check(c, caps.historyCheckpoint.name);
+      await pending.drainPath(rel);
+      return history.record(rel, "checkpoint", i.title, expectedVersion, () => check(c, caps.historyCheckpoint.name));
     }),
   );
   api.defineCapability(
     bindCapability(caps.historyRestore, async (c, i) => {
       const rel = historyPath(c, i.path);
+      check(c, caps.historyRestore.name);
+      await pending.drainPath(rel);
       const r = await history.restore(rel, i.entryId, i.expectedCurrentVersion, {
         beforeWrite: () => check(c, caps.historyRestore.name),
         transform: (restored, current, entry) => {
@@ -218,7 +211,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       // 覆盖前给每个冲突文件留一个可恢复的检查点（规格总则 8）
       // 失败则中止解决，此时还没有覆盖任何文件
       beforeOverwrite: async (paths) => {
-        for (const p of paths) await history.record(p, "checkpoint", "解决冲突前");
+        for (const p of paths) {
+          await pending.drainPath(p);
+          await history.record(p, "checkpoint", "解决冲突前");
+        }
       },
       // 带 frontmatter 的文件，解决后必须仍能解析（语义文件的 kind 校验由各插件在读取时再次把关）
       validateResolved: (_p, text) => {
@@ -249,9 +245,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     const paused = auto.state().pausedReason;
     api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0, ...(paused ? { pausedReason: paused } : {}) });
   };
-  ctx.effect(() => () => {
+  ctx.effect(() => async () => {
     auto.stop();
     sync.dispose();
+    await sync.idle();
+    await pending.close();
   });
   api.events.subscribe((e) => {
     if (e.type === "engine.closing") sync.dispose();

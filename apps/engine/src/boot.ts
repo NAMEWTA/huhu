@@ -486,6 +486,9 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     apply: (ctx, api) =>
       void versioning.apply(ctx, api, {
         safeSnapshots: safe.safeGitSnapshots(api.vault.files),
+        notifyHistoryFailure: (id, title) => {
+          notifications.create({ title, module: "versioning", body: "请检查本机 Git 和存储。保留的版本会自动重试，也可重新启用「版本与同步」后重试。" }, id);
+        },
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
       }),
   });
@@ -656,7 +659,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       attachmentLifetime.abort();
       events.publish("engine.closing", {});
       try {
-        await watcher.close();
+        await watcher.close({ flush: true });
         await plugins.disposeAll();
       } finally {
         try {

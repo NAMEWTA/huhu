@@ -224,7 +224,8 @@ export class VaultWatcher {
     }
   }
 
-  async close(): Promise<void> {
+  async close({ flush = false } = {}): Promise<void> {
+    if (flush) this.flush(true);
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     if (this.holdTimer) clearTimeout(this.holdTimer);
