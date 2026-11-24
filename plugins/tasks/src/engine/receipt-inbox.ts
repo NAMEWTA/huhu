@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { errors, ExecutionReceiptSchema, HuhuError, isHuhuError, TasksReceiptConsumptionSchema, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck } from "@huhu/contracts";
 import { createExecutionReceiptAck, validateExecutionReceipt } from "@huhu/contracts/execution-receipt/engine";
+import { nativeTerminalCodes } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { fingerprint, type TaskRunSummary } from "./dispatch-store.js";
@@ -13,7 +14,7 @@ const RecordSchema = z.strictObject({
   receipt: ExecutionReceiptSchema,
   consumption: TasksReceiptConsumptionSchema,
   at: z.iso.datetime(),
-  status: z.enum(["pending", "delivered", "target_missing"]),
+  status: z.enum(["pending", "delivered", "target_missing", "superseded"]),
 });
 type DeliveryRecord = z.infer<typeof RecordSchema>;
 export const TaskQuestionView = z.strictObject({
@@ -29,7 +30,17 @@ export const TaskQuestionView = z.strictObject({
 });
 type QuestionView = z.infer<typeof TaskQuestionView>;
 type StoredQuestion = { view: QuestionView; receipt: Extract<ExecutionReceipt, { kind: "question" }>; payloadHash: string };
-export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string; result: NonNullable<TaskRunSummary["result"]> } | { state: "unknown"; finishedAt: null };
+export type RunOutcome = { state: "succeeded" | "failed"; finishedAt: string; result: NonNullable<TaskRunSummary["result"]> } | { state: "unknown" | "interrupted" | "cancelled"; finishedAt: string | null };
+
+const nativeTerminalStates = new Map<string, "unknown" | "interrupted" | "cancelled">([
+  [nativeTerminalCodes.unconfirmed, "unknown"],
+  [nativeTerminalCodes.interrupted, "interrupted"],
+  [nativeTerminalCodes.stopped, "cancelled"],
+]);
+
+function hasResultMessage(receipt: ExecutionReceipt): receipt is Extract<ExecutionReceipt, { kind: "result" | "failed" }> {
+  return receipt.kind === "result" || (receipt.kind === "failed" && !nativeTerminalStates.has(receipt.payload.code));
+}
 
 function encode(record: DeliveryRecord): Buffer {
   return Buffer.from(JSON.stringify(record) + "\n");
@@ -38,7 +49,7 @@ function encode(record: DeliveryRecord): Buffer {
 /** Only the explicitly selected synthetic dispatch participates in packaged fault injection. */
 function fixtureGate(input: ExecutionReceipt): string | undefined {
   const gate = process.env["HUHU_E2E_TASK_RECEIPT_ACK_GATE"];
-  if (!gate || !path.isAbsolute(gate) || input.kind !== "result") return;
+  if (!gate || !path.isAbsolute(gate) || (input.kind !== "result" && input.kind !== "failed")) return;
   try {
     return readFileSync(path.join(gate, "dispatch-id"), "utf8") === input.execution.dispatchId ? gate : undefined;
   } catch (error) {
@@ -96,7 +107,7 @@ export class TaskReceiptInbox {
     return `${DIRECTORY}/${fingerprint(receiptId)}.json`;
   }
 
-  async consume(input: ExecutionReceipt, expected: ExecutionBinding, signal: AbortSignal) {
+  async consume(input: ExecutionReceipt, expected: ExecutionBinding, signal: AbortSignal, superseded: boolean) {
     this.files.assertWritable();
     signal.throwIfAborted();
     const file = this.file(input.receiptId);
@@ -111,7 +122,7 @@ export class TaskReceiptInbox {
         receipt: result.receipt,
         consumption: { execution: expected, delivery: { receipt: result.identity, deliveryId: `delivery-${key}`, messageId: `receipt-${key}` } },
         at: this.now().toISOString(),
-        status: "pending",
+        status: superseded ? "superseded" : "pending",
       };
       try {
         await this.files.write(file, encode(record), { expectedVersion: null });
@@ -167,7 +178,7 @@ export class TaskReceiptInbox {
         if (!value) continue;
         const { receipt, at, status } = value.record;
         const { execution } = receipt;
-        if (execution.taskId !== taskId || !bound(execution)) continue;
+        if (status === "superseded" || execution.taskId !== taskId || !bound(execution)) continue;
         if (receipt.kind !== "question") {
           if (receipt.kind !== "progress") {
             const payloadHash = fingerprint([receipt.kind, receipt.payload]);
@@ -175,7 +186,11 @@ export class TaskReceiptInbox {
             if (previous && previous.payloadHash !== payloadHash) {
               terminal.set(execution.dispatchId, { payloadHash: "", outcome: { state: "unknown", finishedAt: null } });
             } else if (!previous || (previous.outcome.finishedAt && at < previous.outcome.finishedAt)) {
-              terminal.set(execution.dispatchId, { payloadHash, outcome: { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } } });
+              const state = receipt.kind === "failed" ? nativeTerminalStates.get(receipt.payload.code) : undefined;
+              const outcome: RunOutcome = state
+                ? { state, finishedAt: at }
+                : { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } };
+              terminal.set(execution.dispatchId, { payloadHash, outcome });
             }
           }
           continue;
@@ -216,7 +231,8 @@ export class TaskReceiptInbox {
         const { receipt, consumption } = record;
         if (!bound(receipt.execution)) continue;
         let status: DeliveryRecord["status"] = "delivered";
-        if (receipt.kind === "result" || receipt.kind === "failed") {
+        const hasMessage = hasResultMessage(receipt);
+        if (hasMessage) {
           try {
             await tasks.addComment(receipt.execution.taskId, {
               id: consumption.delivery.messageId,
@@ -235,7 +251,7 @@ export class TaskReceiptInbox {
         }
         if (!signal.aborted) {
           await this.files.write(file, encode({ ...record, status }), { expectedVersion: previous.version });
-          if (receipt.kind === "result" || receipt.kind === "failed") this.changed(receipt.execution.runId);
+          if (hasMessage) this.changed(receipt.execution.runId);
         }
       } catch (error) {
         onError?.(error);

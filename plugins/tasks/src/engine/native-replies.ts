@@ -6,6 +6,7 @@ import type { TaskDispatchExecutor } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
 import type { TaskReceiptInbox } from "./receipt-inbox.js";
 import type { TasksService } from "./service.js";
+import { ResponseActor, responseCommentActor, sameResponseActor } from "./response-actor.js";
 
 const DIRECTORY = "tasks/replies";
 const Id = z.string().min(1).max(256).regex(/\S/);
@@ -54,6 +55,7 @@ const Entry = z.strictObject({
   input: TaskReplyInput,
   execution: ExecutionBindingSchema,
   nativeRequestId: z.string().regex(/\S/),
+  actor: ResponseActor.optional(),
   acceptedAt: z.iso.datetime(),
   status: TaskReplyView.shape.status,
 });
@@ -106,9 +108,9 @@ export class TaskNativeReplies {
     return this.files.write(file, Buffer.from(JSON.stringify({ format: 1, entries }) + "\n"), { expectedVersion: version });
   }
 
-  readReply(input: Lookup, bound: (execution: ExecutionBinding) => boolean): View {
+  readReply(input: Lookup, bound: (execution: ExecutionBinding) => boolean, readerOwner?: string): View {
     this.tasks.read(input.taskId);
-    const entry = this.read(this.file(input.taskId)).entries.find(({ input: prior, execution }) => prior.replyId === input.replyId && sameQuestion(prior, input) && bound(execution));
+    const entry = this.read(this.file(input.taskId)).entries.find(({ input: prior, execution, actor }) => prior.replyId === input.replyId && sameQuestion(prior, input) && bound(execution) && (!readerOwner || !actor || actor.owner === readerOwner));
     if (!entry) throw errors.notFound("没有这条任务回答记录");
     return view(entry);
   }
@@ -119,16 +121,18 @@ export class TaskNativeReplies {
       .map(view);
   }
 
-  async accept(input: Input, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal): Promise<View> {
+  async accept(input: Input, actor: ResponseActor, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability, signal: AbortSignal, authorize: () => void): Promise<View> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       signal.throwIfAborted();
+      authorize();
       const task = this.tasks.read(input.taskId);
       const file = this.file(task.id);
       const { entries, version } = this.read(file);
       const prior = entries.find((entry) => entry.input.replyId === input.replyId);
       if (prior) {
+        if (!bound(prior.execution)) throw errors.notFound("没有这条任务回答记录");
+        if (!sameResponseActor(prior.actor, actor)) throw errors.idempotencyMismatch();
         if (fingerprint(prior.input) !== fingerprint(input)) throw errors.idempotencyMismatch();
-        if (!bound(prior.execution)) throw new HuhuError("VERSION_CONFLICT", "原任务执行绑定已失效");
         return view(prior);
       }
       this.files.assertWritable();
@@ -142,7 +146,7 @@ export class TaskNativeReplies {
       if (input.messageIds?.length) throw errors.invalidInput("原生问题只接收原问题的选项");
       if (availability(execution) !== "open") throw new HuhuError("VERSION_CONFLICT", "原任务运行正在停止或已经结束");
       if (!payload.options.includes(input.answer)) throw errors.invalidInput("回答必须匹配原问题的选项");
-      const entry: Entry = { input, execution, nativeRequestId: payload.nativeRequestId, acceptedAt: this.now().toISOString(), status: "pending" };
+      const entry: Entry = { input, execution, actor, nativeRequestId: payload.nativeRequestId, acceptedAt: this.now().toISOString(), status: "pending" };
       await this.write(file, [...entries, entry], version);
       return this.readReply(input, bound);
     });
@@ -191,12 +195,16 @@ export class TaskNativeReplies {
     const { taskId, runId, requestId, requestVersion, sessionId, replyId, answer } = input;
     const pending = status === "pending";
     if (pending) {
+      const currentStatus = this.pendingStatus(entry, bound, availability);
+      if (currentStatus !== "ready") {
+        if (currentStatus === "expired") await this.change(file, entry, signal, () => "expired");
+        return;
+      }
       try {
         await this.tasks.addComment(taskId, {
           id: `reply-${fingerprint([taskId, replyId])}`,
           at: acceptedAt,
-          source: "human",
-          author: "我",
+          ...responseCommentActor(entry.actor),
           run: runId,
           session: sessionId,
           ask: requestId,
@@ -209,24 +217,8 @@ export class TaskNativeReplies {
         return;
       }
       const sending = await this.change(file, entry, signal, () => {
-        const route = availability(execution);
-        if (route === "stopping") return "pending";
-        if (route === "closed") return "expired";
-        try {
-          if (this.tasks.read(taskId).status === "completed") return "expired";
-        } catch (error) {
-          if (isHuhuError(error) && error.code === "NOT_FOUND") return "expired";
-          throw error;
-        }
-        const question = this.inbox.question(taskId, runId, requestId, bound);
-        if (
-          question?.view.status !== "awaiting" ||
-          question.view.requestVersion !== requestVersion ||
-          question.receipt.payload.mode !== "native_deferred" ||
-          question.receipt.payload.nativeRequestId !== nativeRequestId ||
-          fingerprint(question.receipt.execution) !== fingerprint(execution)
-        )
-          return "expired";
+        const currentStatus = this.pendingStatus(entry, bound, availability);
+        if (currentStatus !== "ready") return currentStatus;
         if (!this.executor?.answer) return "unsupported";
         return takeSlot(execution) ? "sending" : "pending";
       });
@@ -242,6 +234,23 @@ export class TaskNativeReplies {
     }
     const current = pending ? { ...entry, status: "sending" as const } : entry;
     await this.change(file, current, signal, () => (outcome === "stale" ? "expired" : outcome));
+  }
+
+  private pendingStatus(entry: Entry, bound: (execution: ExecutionBinding) => boolean, availability: (execution: ExecutionBinding) => ReplyAvailability): "pending" | "expired" | "ready" {
+    const { input: { taskId, runId, requestId, requestVersion }, execution, nativeRequestId } = entry;
+    const route = availability(execution);
+    if (route === "stopping") return "pending";
+    if (route === "closed") return "expired";
+    try {
+      if (this.tasks.read(taskId).status === "completed") return "expired";
+    } catch (error) {
+      if (isHuhuError(error) && error.code === "NOT_FOUND") return "expired";
+      throw error;
+    }
+    const question = this.inbox.question(taskId, runId, requestId, bound);
+    if (question?.view.status !== "awaiting" || question.view.requestVersion !== requestVersion || question.receipt.payload.mode !== "native_deferred" ||
+      question.receipt.payload.nativeRequestId !== nativeRequestId || fingerprint(question.receipt.execution) !== fingerprint(execution)) return "expired";
+    return "ready";
   }
 
   private change(file: string, entry: Entry, signal: AbortSignal, decide: () => Entry["status"]): Promise<Entry["status"] | undefined> {

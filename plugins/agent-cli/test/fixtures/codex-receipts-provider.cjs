@@ -19,8 +19,8 @@ function stopEvent(event, fields = {}) {
   appendFileSync(path.join(directory, stopScenario + ".jsonl"), JSON.stringify({ event, ...fields }) + "\n");
 }
 
-function finishTurn(thread, turn, status) {
-  send({ method: "turn/completed", params: { threadId: thread, turn: { id: turn, status } } });
+function finishTurn(thread, turn, status, error) {
+  send({ method: "turn/completed", params: { threadId: thread, turn: { id: turn, status, error } } });
 }
 
 function waitFor(file, fn) {
@@ -44,8 +44,10 @@ if (process.argv.includes("--version")) {
       stopEvent("turn-start", { threadId, turnId });
       send({ id: message.id, result: { turn: { id: turnId } } });
       waitFor(stopScenario + ".finish", () => {
-        const status = stopScenario === "held-interrupt" || stopScenario === "workbench-stop" ? "interrupted" : stopScenario === "failed-before" ? "failed" : "completed";
-        finishTurn(threadId, turnId, status);
+        const status = ["held-interrupt", "workbench-stop", "external-interrupt"].includes(stopScenario) ? "interrupted" : stopScenario.startsWith("failed-") ? "failed" : "completed";
+        const error = stopScenario === "failed-with-error" ? { message: "Synthetic structured provider reason", codexErrorInfo: "serverOverloaded" } : undefined;
+        finishTurn(threadId, turnId, status, error);
+        finishTurn(threadId, turnId, status, error);
         stopEvent("terminal", { status });
       });
     } else if (stopFixture && stopScenario && message.method === "turn/interrupt") {
@@ -102,6 +104,7 @@ if (process.argv.includes("--version")) {
       waitFor("allow-turn-ack", () => send({ id: message.id, result: { turn: { id: turnId } } }));
       if (answerFixture) {
         waitFor("ask-canceled", () => send({ id: "canceled", method: "item/tool/requestUserInput", params: { ...ask, itemId: "canceled-question", questions: [{ ...question, question: "Canceled fixture question" }] } }));
+        waitFor("ask-lost", () => send({ id: "lost", method: "item/tool/requestUserInput", params: { ...ask, itemId: "lost-question", questions: [{ ...question, question: "Lost process fixture question" }] } }));
         waitFor("cancel-question", () => {
           send({ method: "serverRequest/resolved", params: { threadId, requestId: "canceled" } });
           log("canceled-question-resolved");

@@ -79,7 +79,7 @@ export const t = {
     answerPlaceholder: "输入你的回答",
     answered: "已回答",
     started: "开始",
-    runState: { queued: "排队中", running: "运行中", waiting_input: "等你回答", succeeded: "已完成", failed: "失败", cancelled: "已取消", unknown: "结果未知" } as Record<string, string>,
+    runState: { queued: "排队中", running: "运行中", waiting_input: "等你回答", succeeded: "已完成", failed: "失败", cancelled: "已取消", interrupted: "外部中断", unknown: "结果未知" } as Record<string, string>,
     targetAgent: (space: string, provider: string) => `Agent · ${space} · ${provider}`,
   },
   editor: {

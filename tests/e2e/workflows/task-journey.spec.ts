@@ -1,11 +1,11 @@
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
+import type { CapabilityResult, ExecutionReceipt, ExecutionReceiptAck, TaskDto, TaskHistorySelection, TasksReceiptConsumption } from "../../../packages/contracts/src/index.js";
 import { HerdrCore } from "../../../packages/herdr-client/src/herdr-core.js";
 import { machineId } from "../../../packages/vault/src/vault.js";
 import type { AgentSettingsFile } from "../../../plugins/agent-cli/src/shared/settings.js";
@@ -148,7 +148,51 @@ test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目�
   }
 });
 
-test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答", async ({ browserName }, testInfo) => {
+test("TW1 已受理的 Codex 失败显示在原任务且业务任务仍打开", async ({ browserName }) => {
+  void browserName;
+  test.setTimeout(120_000);
+  const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  test.skip(process.platform !== "linux" || !binary, "需要 Linux 上受控派遣白名单中的固定 Codex 二进制。");
+  const provider = await realpath(binary!);
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-task-terminal-")));
+  const failure = "Huhu isolated provider failure";
+  const responses = await startCodexResponsesFixture({ failedTurn: failure });
+  let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  try {
+    await writeFile(path.join(home, "config.toml"), responses.config, { mode: 0o600 });
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: home, HUHU_CODEX_DISPATCH_BIN: provider });
+    const { page } = desktop;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = caller(page);
+    await pauseRules(call);
+    const [space] = await call<{ id: string }[]>("agent.spaces.list");
+    const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
+    await call("agent.settings.update", {
+      ...settings,
+      expectedRevision: settings.revision,
+      agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: home } } },
+    });
+    const task = await call<TaskDto>("tasks.create", { title: "保留失败轮次的任务", body: "Run one isolated turn.", type: "agent", execution: { spaceId: space!.id, provider: "codex" } });
+    const detail = await openTask(page, task.title);
+    await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    await expect.poll(() => listDispatches(call, task.id), { timeout: 20_000 }).toHaveLength(1);
+    const [run] = await listDispatches(call, task.id);
+    await expect.poll(() => call("tasks.runs", { id: task.id }), { timeout: 45_000 }).toMatchObject([{ id: run!.runId, state: "failed", finishedAt: expect.any(String) }]);
+    const managed = detail.getByTestId("managed-task-run");
+    await managed.getByRole("button", { name: "展开结果" }).click();
+    await expect(managed.getByTestId("managed-run-result")).toContainText(failure);
+    expect(await call<TaskDto>("tasks.read", { id: task.id })).toMatchObject({ status: "in_progress" });
+    expect(responses.requests).toHaveLength(1);
+  } finally {
+    await withFixtureCleanup(async () => {}, [
+      ["关闭桌面", () => desktop?.close()],
+      ["停止本地模型夹具", () => responses.close()],
+      ["清理受控资料目录", () => rmTree(home)],
+    ]);
+  }
+});
+
+test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答（TW3 Engine 重开与 Web）", async ({ browserName }, testInfo) => {
   void browserName;
   test.setTimeout(180_000);
   const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
@@ -168,6 +212,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     return { device: String(stat.dev), inode: String(stat.ino), birthTime: String(stat.birthtimeNs) };
   };
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  let browser: Browser | undefined;
   try {
     await writeFile(path.join(privateHome, "config.toml"), responses.config, { mode: 0o600 });
     desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider });
@@ -198,6 +243,29 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const sourceRequests = responses.requests.slice();
     expect(sourceRequests).toHaveLength(2);
     expect(sourceRequests.map(({ input }) => [titleA, titleB].filter((marker) => JSON.stringify(input).includes(marker)))).toEqual([[titleA], [titleB]]);
+
+    const previousEndpoint = await page.evaluate(async () => (await window.huhuHost.engine()).baseUrl);
+    await page.getByRole("button", { name: "切换 Vault" }).click();
+    await page.getByRole("menuitem", { name: "关闭 Vault" }).click();
+    await page.getByTestId("svault-switch-confirm").click();
+    await expect(page.getByTestId("vault-launch")).toBeVisible();
+    await expect.poll(async () => fetch(`${previousEndpoint}/healthz`).then(() => true, () => false)).toBe(false);
+    await page.getByTestId("vault-recent").filter({ hasText: path.basename(desktop.vault) }).click();
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    expect(await call("agent.sessions.list", { spaceId: space!.id })).toEqual([]);
+    expect(responses.requests).toHaveLength(sourceRequests.length);
+
+    const targets = () => call<{ mode: string; nativeSessionId?: string; history?: TaskHistorySelection; available: boolean; reason?: string }[]>("tasks.dispatch.targets", { spaceId: space!.id });
+    const sourceA = (await targets()).find((entry) => entry.mode === "resume" && entry.nativeSessionId === a.id);
+    expect(sourceA).toMatchObject({ available: true, history: { historyRevision: expect.any(String) } });
+    const changedA = oldA + "\n";
+    await writeFile(a.file, changedA);
+    await expect(call("tasks.create", {
+      title: "过期物理历史选择", body: "This must not start a turn.", type: "agent",
+      execution: { spaceId: space!.id, provider: "codex", target: { mode: "resume", nativeSessionId: a.id, history: sourceA!.history } },
+    })).rejects.toThrow("INVALID_INPUT");
+    expect(responses.requests).toHaveLength(sourceRequests.length);
+
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
     const editor = page.getByTestId("task-editor");
@@ -241,18 +309,33 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(sessions).toHaveLength(1);
     const [session] = sessions;
     expect(session).toMatchObject({ id: run!.session!.id, nativeSessionId: b.id, cwd });
+    await expect.poll(async () => (await targets()).find((entry) => entry.mode === "resume" && entry.nativeSessionId === b.id)).toMatchObject({ available: false, reason: "input_owned" });
     expect(await questions()).toMatchObject([{ runId: run!.runId, sessionId: session!.id, status: "awaiting" }]);
     // The active provider has appended to the file. Replaying the accepted dispatch still returns the original run.
     expect(await call("tasks.dispatch", submitted.postDataJSON().input)).toMatchObject({ dispatchId: run!.dispatchId, runId: run!.runId });
     expect(await listDispatches(call, task.id)).toHaveLength(1);
     expect(responses.requests).toHaveLength(sourceRequests.length + 1);
-    const managed = detail.getByTestId("managed-task-run");
-    await managed.getByRole("button", { name: "展开结果" }).click();
+    const [question] = await questions();
+    await call("tasks.comments.add", { taskId: task.id, body: "Circle" });
+    await expect(call("tasks.reply", {
+      taskId: task.id, runId: run!.runId, sessionId: session!.id, requestId: question!.requestId,
+      requestVersion: question!.requestVersion + 1, replyId: randomUUID(), answer: "Circle",
+    })).rejects.toThrow("VERSION_CONFLICT");
+    expect(responses.requests).toHaveLength(sourceRequests.length + 1);
+    expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
+    const { links } = await call<{ links: string[] }>("web.invitations.create");
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await web.goto(links[0]!);
+    const managed = await openRun(web, title);
     await managed.getByRole("radio", { name: "Circle" }).check();
     await managed.getByRole("button", { name: "发送回答" }).click();
     await expect
       .poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "result"), { timeout: 45_000 })
       .toMatchObject([{ run: run!.runId, session: session!.id, body: responses.result }]);
+    expect((await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer")).toMatchObject([
+      { source: "human", author: "Web", run: run!.runId, session: session!.id, ask: question!.requestId, body: "Circle" },
+    ]);
     const taskRequests = responses.requests.slice(sourceRequests.length);
     expect(taskRequests).toHaveLength(2);
     expect(JSON.stringify(taskRequests[0]!.input)).toContain(taskMarker);
@@ -261,7 +344,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     const answers = taskRequests.flatMap(({ input }) => input.filter(({ type, call_id }) => type === "function_call_output" && call_id === responses.callId));
     expect(answers).toHaveLength(1);
     expect(JSON.stringify(answers[0]!.output)).toContain("Circle");
-    expect(await readFile(a.file, "utf8")).toBe(oldA);
+    expect(await readFile(a.file, "utf8")).toBe(changedA);
     expect(await fileIdentity(b.file)).toEqual(identityB);
     const appended = await readFile(b.file, "utf8");
     expect(appended.startsWith(oldB)).toBe(true);
@@ -281,6 +364,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     });
   } finally {
     await withFixtureCleanup(async () => {}, [
+      ["关闭独立浏览器", () => browser?.close()],
       ["关闭桌面", () => desktop?.close()],
       ["停止本地模型夹具", () => responses.close()],
       ["清理受控资料目录", () => rmTree(privateHome)],

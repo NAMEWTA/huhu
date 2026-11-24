@@ -40,7 +40,18 @@ const LaunchConfiguration = z.object({
   configStamp: Digest.nullable(),
 });
 const Launch = z.looseObject({ secret: Digest, attempt: Id, vaultId: Id, machineId: Id, sessionId: Id, coreId: Id, resume: Resume.optional() });
-const Completion = z.strictObject({ threadId: Id, turnId: Id, status: z.enum(["completed", "failed", "interrupted"]).optional() });
+const Completion = z.strictObject({
+  threadId: Id,
+  turnId: Id,
+  status: z.enum(["completed", "failed", "interrupted"]).optional(),
+  error: z.strictObject({ message: z.string().max(8_000).regex(/\S/), code: Id.optional() }).optional(),
+  withoutFinal: z.enum(["allowed", "unconfirmed"]).optional(),
+});
+export const nativeTerminalCodes = {
+  interrupted: "codex_terminal_interrupted",
+  stopped: "codex_terminal_user_stop",
+  unconfirmed: "codex_terminal_result_unconfirmed",
+} as const;
 const AnswerAck = z.strictObject({ fingerprint: Digest });
 const StopWrite = z.strictObject({ fingerprint: Digest, threadId: Id, turnId: Id });
 const Item = z.strictObject({ threadId: Id, turnId: Id, itemId: Id });
@@ -308,7 +319,7 @@ export class CodexDispatch {
     return { proof, finished, terminalStatus: finished ? completed.status : undefined };
   }
 
-  *reports(execution: ExecutionBinding, session: BoundSession, inputSha256: string): Iterable<PendingReport> {
+  *reports(execution: ExecutionBinding, session: BoundSession, inputSha256: string, resultMode: "allow_no_update" | undefined, stopIntent: () => string | null): Iterable<PendingReport> {
     const bound = this.forSession(execution.vaultId, execution.sessionBinding.machineId, session);
     if (!bound || bound.thread.threadId !== execution.sessionBinding.nativeSessionId) return;
     const { control } = bound;
@@ -322,11 +333,38 @@ export class CodexDispatch {
       const { source, receipt } = report;
       if (receipt.receiptId !== match[1] || receipt.kind !== source.kind || source.threadId !== bound.thread.threadId || source.turnId !== proof.nativeTurnId || launchHash(receipt.execution) !== launchHash(execution)) continue;
       if (receipt.kind === "question" && receipt.payload.mode !== "native_deferred") continue;
-      const ackName = "agent-ack-" + receipt.receiptId;
-      const ack = signedFile(control, ackName, ExecutionReceiptAckSchema);
-      if (validateExecutionReceiptAck(ack, "agent_received", executionReceiptIdentity(receipt))) continue;
-      yield { receipt, acknowledge: (acknowledgement) => this.acknowledgeReport(control, ackName, acknowledgement) };
+      const pending = this.pendingReport(control, receipt);
+      if (pending) yield pending;
     }
+    const completion = signedFile(control, runArtifact(execution, "completed", bound.thread.protocol), Completion);
+    if (completion?.threadId !== bound.thread.threadId || completion.turnId !== proof.nativeTurnId) return;
+    const receipt = this.terminalReceipt(execution, session, completion, resultMode, stopIntent);
+    const pending = receipt && this.pendingReport(control, receipt);
+    if (pending) yield pending;
+  }
+
+  private terminalReceipt(execution: ExecutionBinding, session: BoundSession, completion: z.infer<typeof Completion>, resultMode: "allow_no_update" | undefined, stopIntent: () => string | null): ExecutionReceipt | undefined {
+    const { threadId, turnId, status, error, withoutFinal } = completion;
+    const receiptId = "codex-" + launchHash(["terminal", execution, threadId, turnId]);
+    const base = { version: 1, receiptId, execution } as const;
+    if (status === "failed") {
+      return { ...base, kind: "failed", payload: { code: error?.code ? `codex_error_${error.code}` : "codex_failed", message: error?.message ?? "原生执行失败，未提供原因" } };
+    }
+    if (status === "interrupted") {
+      const stopId = stopIntent();
+      const stopped = stopId !== null && this.stopWritten({ execution, stopId }, session, turnId);
+      return { ...base, kind: "failed", payload: stopped ? { code: nativeTerminalCodes.stopped, message: "用户已停止原生执行" } : { code: nativeTerminalCodes.interrupted, message: "原生执行被外部中断" } };
+    }
+    if (status !== "completed" || !withoutFinal) return;
+    if (withoutFinal === "allowed" && resultMode === "allow_no_update") return { ...base, kind: "no_update", payload: {} };
+    return { ...base, kind: "failed", payload: { code: nativeTerminalCodes.unconfirmed, message: "原生执行已结束，结果待核实" } };
+  }
+
+  private pendingReport(control: Control, receipt: ExecutionReceipt): PendingReport | undefined {
+    const ackName = "agent-ack-" + receipt.receiptId;
+    const ack = signedFile(control, ackName, ExecutionReceiptAckSchema);
+    if (validateExecutionReceiptAck(ack, "agent_received", executionReceiptIdentity(receipt))) return;
+    return { receipt, acknowledge: (acknowledgement) => this.acknowledgeReport(control, ackName, acknowledgement) };
   }
 
   acknowledgeReport(control: Control, name: string, ack: ExecutionReceiptAck): void {
@@ -373,13 +411,13 @@ export class CodexDispatch {
     };
   }
 
-  async connect(execution: ExecutionBinding, session: BoundSession, signal: AbortSignal): Promise<{ submit(input: string): void; close(): void } | null> {
+  async connect(execution: ExecutionBinding, session: BoundSession, signal: AbortSignal): Promise<{ submit(input: string, resultMode?: "allow_no_update"): void; close(): void } | null> {
     const connection = await this.open(execution, session, signal);
     if (!connection) return null;
     const { socket, nonce, secret } = connection;
     return {
-      submit(input) {
-        const data = { execution, input };
+      submit(input, resultMode) {
+        const data = { execution, input, resultMode };
         socket.end(JSON.stringify({ data, mac: signature(secret, "input", [nonce, data]) }) + "\n");
       },
       close: () => socket.destroy(),

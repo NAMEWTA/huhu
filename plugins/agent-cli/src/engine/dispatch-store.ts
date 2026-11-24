@@ -48,6 +48,7 @@ export const DispatchInput = DispatchLookup.extend({
   inputSnapshotRef: Id,
   inputSnapshotHash: Fingerprint,
   input: z.string().min(1).max(64_000).refine(isInputText),
+  resultMode: z.literal("allow_no_update").optional(),
   target: DispatchTarget,
 });
 export type DispatchLookup = z.infer<typeof DispatchLookup>;
@@ -70,6 +71,7 @@ const StoredDispatch = z
     inputSha256: Fingerprint,
     adapterId: Id,
     transport: z.literal("native").optional(),
+    resultMode: DispatchInput.shape.resultMode,
     acceptedAt: z.iso.datetime(),
     execution: ExecutionBindingSchema.nullable(),
     ownerActive: z.boolean(),
@@ -196,13 +198,13 @@ export class AgentDispatchStore {
     return key.vaultId === this.scope.vaultId && key.machineId === this.scope.machineId;
   }
 
-  *nativeInputs(): Iterable<{ execution: NonNullable<StoredDispatch["execution"]>; inputSha256: string }> {
+  *nativeInputs() {
     for (const file of this.jsonFiles(this.directory)) {
       try {
         const entry = this.readFile(file);
         if (!this.local(entry.key) || entry.transport !== "native" || entry.write === "not_sent") continue;
         const record = this.read(entry.key.dispatchId);
-        if (record?.execution) yield { execution: record.execution, inputSha256: record.inputSha256 };
+        if (record?.execution) yield { execution: record.execution, inputSha256: record.inputSha256, resultMode: record.resultMode };
       } catch {
         // Unverified input records cannot authorize reports.
       }

@@ -9,6 +9,7 @@ import { machineId } from "@huhu/vault";
 import { expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { CodexDispatch } from "../src/engine/codex-dispatch.js";
+import { AgentDispatch } from "../src/engine/dispatch.js";
 import { InputOwnership } from "../src/engine/input-ownership.js";
 import { launchHash } from "../src/engine/launch-binding.js";
 import type { NativeStop, NativeStopStatus } from "../src/engine/native-stop.js";
@@ -17,17 +18,19 @@ import { TestProtection } from "../../../packages/kernel/test/fixtures/credentia
 import { fixtureCoreCli } from "./fixtures/core-cli.js";
 
 const bin = process.env["HUHU_AGENT_LAUNCH_TEST_BIN"];
-const fixture = vi.hoisted(() => ({ directory: "" }));
+const fixture = vi.hoisted(() => ({ directory: "", root: "" }));
 vi.mock("@huhu/plugin-agent-cli/engine", async (original) => {
   const agent = await original<typeof import("@huhu/plugin-agent-cli/engine")>();
   return {
     ...agent,
-    apply: ((ctx, api, opts) =>
-      agent.apply(ctx, api, {
+    apply: ((ctx, api, opts) => {
+      if (opts?.codexDispatch) fixture.root = opts.codexDispatch.root;
+      return agent.apply(ctx, api, {
         ...opts,
         history: { home: fixture.directory, env: {} },
         ...(opts?.codexDispatch && { codexDispatch: { ...opts.codexDispatch, fixtureArgs: [path.join(import.meta.dirname, "fixtures", "codex-receipts-provider.cjs"), fixture.directory] } }),
-      })) satisfies typeof agent.apply,
+      });
+    }) satisfies typeof agent.apply,
   };
 });
 
@@ -44,7 +47,7 @@ async function call<T = unknown>(engine: RunningEngine, capability: string, inpu
 }
 
 type Event = { event: string; threadId?: string; turnId?: string; params?: { threadId: string; turnId: string } };
-type Phase = "held-interrupt" | "workbench-stop" | "natural-before" | "failed-before" | "raced-natural" | "reused-pending" | "reused-unsent";
+type Phase = "held-interrupt" | "workbench-stop" | "natural-before" | "allowed-without-result" | "failed-before" | "failed-with-error" | "external-interrupt" | "raced-natural" | "reused-pending" | "reused-unsent";
 
 test.skipIf(!bin)(
   "Engine sends one native interrupt and reconciles only the original turn across races and Core replacement",
@@ -58,13 +61,20 @@ test.skipIf(!bin)(
     };
     const vaultPath = makeDir("vault");
     const desktopUserData = makeDir("desktop");
+    const ackGate = makeDir("receipt-ack");
+    writeFileSync(path.join(ackGate, "dispatch-id"), "fixture-failed-with-error");
     const protection = new TestProtection(desktopUserData);
     vi.stubEnv("HUHU_HERDR_BIN", bin!);
     vi.stubEnv("HUHU_NODE_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", process.execPath);
     vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", makeDir("provider-home"));
     vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
+    vi.stubEnv("HUHU_E2E_TASK_RECEIPT_ACK_GATE", ackGate);
     const detect = vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
+    const dispatch = AgentDispatch.prototype.dispatch;
+    const resultContract = vi.spyOn(AgentDispatch.prototype, "dispatch").mockImplementation(function (this: AgentDispatch, input, signal) {
+      return dispatch.call(this, input.dispatchId === "fixture-allowed-without-result" ? { ...input, resultMode: "allow_no_update" } : input, signal);
+    });
     let engine!: RunningEngine;
     let stopCore: (() => void) | undefined;
     const gate = createFixtureGate();
@@ -180,14 +190,17 @@ test.skipIf(!bin)(
       expect(interrupts("held-interrupt")).toHaveLength(1);
       console.info(JSON.stringify({ phase: "original-interruption-after-engine-reopen", nativeInterrupts: 1, ownerActive: false, status: "stopped" }));
 
-      for (const phase of ["natural-before", "failed-before"] as const) {
+      const projections = [];
+      for (const phase of ["natural-before", "allowed-without-result", "failed-before", "failed-with-error", "external-interrupt"] as const) {
         const input = await run(phase);
         signalFixture(phase + ".finish");
-        await expect.poll(() => stop(input, true), { timeout: 10_000 }).toEqual(status("completed"));
-        expect(await stop(input)).toEqual(status("completed"));
-        expect(dispatchRecord(input).ownerActive).toBe(false);
+        const expected = phase === "external-interrupt" ? "stale" : "completed";
+        await expect.poll(() => stop(input, true), { timeout: 10_000 }).toEqual(status(expected));
+        expect(await stop(input)).toEqual(status(expected));
+        await expect.poll(() => dispatchRecord(input).ownerActive, { timeout: 10_000 }).toBe(false);
         expect(existsSync(dispatchFile(input, "dispatch-stop-intents"))).toBe(false);
         expect(interrupts(phase)).toHaveLength(0);
+        projections.push({ phase, id: input.execution.taskId });
       }
       const raced = await run("raced-natural");
       expect(await stop(raced)).toEqual(status("unknown"));
@@ -215,6 +228,22 @@ test.skipIf(!bin)(
       expect(await call(engine, "tasks.read", { id: taskId })).toMatchObject({ status: "in_progress" });
       expect(interrupts("workbench-stop")).toHaveLength(1);
       console.info(JSON.stringify({ phase: "workbench-original-stop", nativeInterrupts: 1, originalRun: runId, taskStatus: "in_progress", stopStatus: "stopped" }));
+
+      await expect.poll(() => existsSync(path.join(ackGate, "held.json")), { timeout: 10_000 }).toBe(true);
+      writeFileSync(path.join(ackGate, "release"), "");
+      await expect.poll(async () => Promise.all(projections.map(async ({ phase, id }) => {
+        const [runs, task] = await Promise.all([call(engine, "tasks.runs", { id }), call<TaskDto>(engine, "tasks.read", { id })]);
+        return { phase, runs, comments: task.comments.filter(({ event }) => event === "failed" || event === "result").map(({ body }) => body), taskStatus: task.status };
+      })), { timeout: 10_000 }).toMatchObject([
+        { phase: "natural-before", runs: [{ state: "unknown", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
+        { phase: "allowed-without-result", runs: [{ state: "succeeded", finishedAt: expect.any(String), result: { kind: "no_update", delivery: "delivered" } }], comments: [], taskStatus: "in_progress" },
+        { phase: "failed-before", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["原生执行失败，未提供原因"], taskStatus: "in_progress" },
+        { phase: "failed-with-error", runs: [{ state: "failed", finishedAt: expect.any(String) }], comments: ["Synthetic structured provider reason"], taskStatus: "in_progress" },
+        { phase: "external-interrupt", runs: [{ state: "interrupted", finishedAt: expect.any(String) }], taskStatus: "in_progress" },
+      ]);
+      const originalAck = JSON.parse(readFileSync(path.join(ackGate, "held.json"), "utf8")) as { receipt: { receiptId: string } };
+      const receipts = path.join(fixture.root, "agent-receipts");
+      await expect.poll(() => existsSync(path.join(receipts, launchHash(originalAck.receipt.receiptId) + ".json.tasks-ack")), { timeout: 10_000 }).toBe(true);
 
       const pending = await run("reused-pending");
       const unsent = await run("reused-unsent");
@@ -264,7 +293,8 @@ test.skipIf(!bin)(
         } finally {
           connectSpy.mockRestore();
           coreSpy.mockRestore();
-          detect.mockRestore();
+      detect.mockRestore();
+      resultContract.mockRestore();
           vi.unstubAllEnvs();
           if (path.dirname(sandbox) === realpathSync(tmpdir()) && path.basename(sandbox).startsWith("huhu-native-stop-")) rmSync(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
         }

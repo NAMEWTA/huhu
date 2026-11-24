@@ -1359,9 +1359,9 @@ export class SessionsService {
     return this.d.codex?.evidence(execution, owner) ?? null;
   }
 
-  nativeReports(execution: ExecutionBinding, inputSha256: string) {
+  nativeReports(execution: ExecutionBinding, inputSha256: string, resultMode: "allow_no_update" | undefined, stopIntent: () => string | null) {
     const owner = this.nativeOwner(execution);
-    return owner && this.d.codex ? this.d.codex.reports(execution, owner, inputSha256) : [];
+    return owner && this.d.codex ? this.d.codex.reports(execution, owner, inputSha256, resultMode, stopIntent) : [];
   }
 
   async answerNative(input: NativeAnswer, send: boolean, signal: AbortSignal, ownsInput: () => boolean): Promise<NativeAnswerStatus> {
@@ -1382,14 +1382,28 @@ export class SessionsService {
 
     const { sessionId } = execution.sessionBinding;
     const session = this.list().find(({ id }) => id === sessionId);
-    if (session?.state !== "running" || !ownsInput()) return "stale";
+    if (!session || session.state === "exited" || !ownsInput() || codex.evidence(execution, owner)?.finished) return "stale";
+    const verifyOriginal = async () => {
+      try {
+        const { terminal } = await this.verifiedTerminal(session);
+        return terminal.state === "finished" || terminal.finished_ms != null || !this.nativeOwner(execution) || !ownsInput() ? "stale" : "live";
+      } catch (error) {
+        const reason = error instanceof HuhuError && error.details?.reason;
+        return reason === "core_changed" || reason === "binding_lost" ? "stale" : "unknown";
+      }
+    };
+    if (session.state !== "running") return (await verifyOriginal()) === "stale" ? "stale" : "unknown";
     const inspect = await codex.connectAnswer(input, owner, signal);
-    if (!inspect) return persisted() ?? "unknown";
+    if (!inspect) {
+      const verification = await verifyOriginal();
+      signal.throwIfAborted();
+      return persisted() ?? (verification === "stale" ? "stale" : "unknown");
+    }
     let observed: NativeAnswerStatus;
     try {
-      const terminal = await this.verifiedTerminal(session).catch(() => null);
+      const verification = await verifyOriginal();
       signal.throwIfAborted();
-      if (!terminal || terminal.terminal.state === "finished" || terminal.terminal.finished_ms != null || !ownsInput()) return persisted() ?? "stale";
+      if (verification !== "live") return persisted() ?? verification;
       observed = await inspect.exchange("inspect");
     } finally {
       inspect.close();
@@ -1402,10 +1416,9 @@ export class SessionsService {
     const submit = await codex.connectAnswer(input, owner, signal);
     if (!submit) return persisted() ?? "unknown";
     try {
-      const terminal = await this.verifiedTerminal(session).catch(() => null);
+      const verification = await verifyOriginal();
       signal.throwIfAborted();
-      if (!terminal || terminal.terminal.state === "finished" || terminal.terminal.finished_ms != null || !ownsInput()) return persisted() ?? "stale";
-      if (!this.nativeOwner(execution)) return persisted() ?? "stale";
+      if (verification !== "live") return persisted() ?? verification;
       // There is no await between the Vault intent and the first possible socket write.
       if (!answerIntents.claim(input)) return persisted() ?? "unknown";
       const result = await submit.exchange("submit");
@@ -1463,7 +1476,7 @@ export class SessionsService {
     }
   }
 
-  async writeExecutionInput(execution: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
+  async writeExecutionInput(execution: ExecutionBinding, text: string, signal: AbortSignal, claim: () => boolean, resultMode?: "allow_no_update"): Promise<"core_written" | "not_sent" | "unknown" | "busy"> {
     signal.throwIfAborted();
     const { sessionBinding: binding } = execution;
     const previous = this.list().find(({ id }) => id === binding.sessionId);
@@ -1486,7 +1499,7 @@ export class SessionsService {
       if (!claim()) return "busy";
       try {
         if (channel) {
-          channel.submit(text);
+          channel.submit(text, resultMode);
           nativeSubmitted = true;
           return "unknown";
         }

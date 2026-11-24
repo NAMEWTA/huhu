@@ -12,7 +12,7 @@ const question = {
     { label: "Square", description: "Four corners" },
   ],
 };
-export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle." }: { seedReply?: string; seedReplies?: readonly string[]; result?: string } = {}) {
+export async function startCodexResponsesFixture({ seedReply, seedReplies = seedReply === undefined ? [] : [seedReply], result = "You chose Circle.", failedTurn }: { seedReply?: string; seedReplies?: readonly string[]; result?: string; failedTurn?: string } = {}) {
   const requests: { path: string | undefined; tools: { name?: string }[]; input: { type?: string; call_id?: string; output?: unknown }[] }[] = [];
   const questionRequest = seedReplies.length + 1;
   const server = createServer(async (req, res) => {
@@ -23,6 +23,10 @@ export async function startCodexResponsesFixture({ seedReply, seedReplies = seed
       requests.push({ path: req.url, tools, input });
       if (req.method !== "POST" || req.url !== "/v1/responses" || requests.length > questionRequest + 1) {
         res.writeHead(400).end();
+        return;
+      }
+      if (failedTurn && requests.length === questionRequest) {
+        res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: { type: "invalid_request_error", message: failedTurn } }));
         return;
       }
       const ask = requests.length === questionRequest;
