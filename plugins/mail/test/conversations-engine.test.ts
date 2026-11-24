@@ -10,7 +10,8 @@ import { accountTargets, mailAccountDefinitionSchema } from "../src/engine/accou
 import { openMailAccounts } from "../src/engine/accounts.js";
 import type { ConversationMessagesPage, ConversationsPage, LocatedMessage, MailSearchPage } from "../src/engine/conversations.js";
 import { mailDayWindow } from "../src/mail-calendar.js";
-import { operationIdFor, OutboxStorage } from "../src/engine/outbox-storage.js";
+import { operationIdFor, OutboxStorage, retryOperationIdFor, retryRecipientKey } from "../src/engine/outbox-storage.js";
+import type { MailSmtpResult } from "../src/engine/smtp.js";
 import { openImapFixture, type FixtureImapMessage } from "./fixtures/imap.js";
 import { loopbackSmtp } from "./fixtures/smtp.js";
 
@@ -49,7 +50,8 @@ engineTest(
     };
     const folders = Object.keys(mailboxes).map((path) => ({ path, flags: ["\\HasNoChildren", ...(path === "Waste" ? ["\\Trash"] : path === "Sent" ? ["\\Sent"] : path === "Confidential" ? ["\\Hidden"] : [])] }));
     const inbox = { uidValidity: 12, messages: [mailboxes.INBOX] };
-    const imapA = await openImapFixture({ mailboxes, windows: { INBOX: inbox }, folders });
+    const sentWindow = { uidValidity: 12, messages: [mailboxes.Sent] };
+    const imapA = await openImapFixture({ mailboxes, windows: { INBOX: inbox, Sent: sentWindow }, folders });
     const bSource = fixtureMail("B canonical", 42, 3, [`From: Beta Sender <${alice}>`, `To: ${bEmail}`, `Cc: ${bob}`, "Content-Type: text/html; charset=utf-8"], sharedId);
     bSource.source = bSource.source.replace("Body for B canonical", '<p>Body for B canonical, blue folder &amp; text.</p><script>blocked-search-script</script><img src="https://never-fetch.invalid/pixel">');
     const imapB = await openImapFixture({ message: bSource });
@@ -110,16 +112,25 @@ engineTest(
       expect(await distinct({ ...fixtureMail("Deleted latest", 46, 13, [`From: ${hidden}`, `To: ${aEmail}`]), deleted: true })).toMatchObject({ message: { uid: 45 } });
       for (const name of Object.keys(mailboxes).filter((name) => name !== "INBOX")) await refresh(a, name);
 
-      const outbox = new OutboxStorage(engine.vault.files);
-      async function seedSent(subject: string, to: string[], cc: string[], bcc: string[], messageId = `<${randomUUID()}@huhu.local>`) {
-        const draftId = randomUUID();
+      async function seedSent(subject: string, to: string[], cc: string[], bcc: string[], options: {
+        messageId?: string;
+        states?: MailSmtpResult["recipients"][number]["state"][];
+        retry?: { operationId: string; messageId: string };
+        draftId?: string;
+      } = {}) {
+        assert(engine);
+        const outbox = new OutboxStorage(engine.vault.files);
+        const { messageId = `<${randomUUID()}@huhu.local>`, states, retry } = options;
+        const draftId = options.draftId ?? randomUUID();
         const revision = randomUUID();
-        const operationId = operationIdFor(draftId, revision);
+        const addresses = [...to, ...cc, ...bcc];
+        const operationId = retry ? retryOperationIdFor(retry.operationId, draftId, revision, addresses.map((address) => retryRecipientKey(retry.operationId, address))) : operationIdFor(draftId, revision);
         const finishedAt = "2026-11-07T00:00:00.000Z";
         await outbox.write(
           {
             format: 1,
             operationId,
+            ...(retry && { retry: { parentOperationId: retry.operationId, parentMessageId: retry.messageId, originalOperationId: retry.operationId, originalMessageId: retry.messageId } }),
             draftId,
             revision,
             messageId,
@@ -129,13 +140,13 @@ engineTest(
             smtp: { host: "127.0.0.1", port: smtp.port, security: "none" },
             draft: { accountId: a, to, cc, bcc, subject, body: { type: "doc" } },
             text: `Local body for ${subject}`,
-            result: { finishedAt, stage: "data", smtpCode: 250, recipients: [...to, ...cc, ...bcc].map((address) => ({ address, state: "accepted", smtpCode: 250 })) },
+            result: { finishedAt, stage: "data", smtpCode: 250, recipients: addresses.map((address, index) => ({ address, state: states?.[index] ?? "accepted" })) },
           },
           null,
         );
         return operationId;
       }
-      await seedSent("Cached counterpart", [alice], [bob], [blind], mirroredId);
+      await seedSent("Cached counterpart", [alice], [bob], [blind], { messageId: mirroredId });
       const sentOnly = await seedSent("Only local sent", [alice], [bob], []);
       const privateOnly = await seedSent("Exclusively Bcc", [], [], [blind]);
       await call("mail.drafts.save", { draftId: randomUUID(), expectedRevision: null, draft: { accountId: a, to: [hidden], cc: [], bcc: [], subject: "Unsent draft", body: { type: "doc" } } });
@@ -213,6 +224,45 @@ engineTest(
       expect(await call("mail.conversations.findMessage", { target: oldest })).toBeNull();
       expect(await call("mail.messages.loadBody", key(sibling))).toMatchObject({ state: "ready" });
       expect(smtp.counts.data).toBe(0);
+
+      const accepted = "accepted@example.invalid";
+      const declined = "declined@example.invalid";
+      const unknown = "uncertain@example.invalid";
+      const onlyBlind = "blind-public-intent@example.invalid";
+      const mixedId = `<${randomUUID()}@huhu.local>`;
+      const blindId = `<${randomUUID()}@huhu.local>`;
+      const uncertainId = `<${randomUUID()}@huhu.local>`;
+      const draftId = randomUUID();
+      const mixed = await seedSent("Mixed outcome", [accepted, declined], [unknown], [blind], { messageId: mixedId, states: ["accepted", "not-delivered", "unknown", "accepted"], draftId });
+      const blindAccepted = await seedSent("Bcc accepted", [onlyBlind], [], [blind], { messageId: blindId, states: ["not-delivered", "accepted"] });
+      const uncertain = await seedSent("Only unknown", [unknown], [], [], { messageId: uncertainId, states: ["unknown"] });
+      const results = [{ address: accepted, state: "accepted" }, { address: declined, state: "not-delivered" }, { address: unknown, state: "unknown" }];
+      const mixedTarget = { source: "sent", accountId: a, operationId: mixed };
+      expect(await call("mail.conversations.findMessage", { target: mixedTarget })).toMatchObject({ message: { source: "sent", delivery: { recipients: results } } });
+      const retry = await seedSent("Retry declined", [declined], [], [], { retry: { operationId: mixed, messageId: mixedId }, draftId });
+
+      sentWindow.messages.push(
+        fixtureMail("Mixed cached", 43, 7, [`From: ${aEmail}`, `To: ${accepted}, ${declined}`, `Cc: ${unknown}`, `Bcc: ${blind}`], mixedId),
+        fixtureMail("Bcc cached", 44, 8, [`From: ${aEmail}`, `To: ${onlyBlind}`, `Bcc: ${blind}`], blindId),
+        fixtureMail("Unknown cached", 45, 9, [`From: ${aEmail}`, `To: ${unknown}`], uncertainId),
+      );
+      await refresh(a, "Sent");
+      const { conversations } = await call<ConversationsPage>("mail.conversations.list", { accountId: a });
+      const partialGroup = conversations.find(({ participants }) => participants.includes(accepted));
+      expect(partialGroup).toMatchObject({ participants: [accepted], count: 1, latest: { source: "imap", subject: "Mixed cached", delivery: { operationId: mixed, recipients: results } } });
+      const retryGroup = conversations.find(({ participants }) => participants.includes(declined));
+      expect(retryGroup).toMatchObject({ participants: [declined], count: 1, latest: { source: "sent", operationId: retry } });
+      const participants = conversations.flatMap((conversation) => conversation.participants);
+      expect(participants).not.toContain(onlyBlind);
+      expect(participants).not.toContain(unknown);
+      expect(await call("mail.conversations.messages", { accountId: a, conversationId: partialGroup!.conversationId })).toMatchObject({ messages: [partialGroup!.latest] });
+      expect(await call("mail.conversations.findMessage", { target: mixedTarget })).toMatchObject({ conversationId: partialGroup!.conversationId, message: partialGroup!.latest });
+      expect(await call("mail.conversations.search", { accountId: a, text: declined })).toMatchObject({ hits: [{ target: { operationId: retry }, participants: [declined] }] });
+      for (const operationId of [blindAccepted, uncertain]) {
+        await expect(call("mail.conversations.sentBody", { accountId: a, operationId })).rejects.toThrow("NOT_FOUND");
+      }
+      expect(await call("mail.outbox.status", { operationId: mixed })).toMatchObject({ state: "unknown", retryableRecipients: [] });
+      expect(await call("mail.outbox.status", { operationId: uncertain })).toMatchObject({ state: "unknown", recipients: [{ address: unknown, state: "unknown" }] });
     } finally {
       try {
         if (engine?.moduleCredentialHost) {

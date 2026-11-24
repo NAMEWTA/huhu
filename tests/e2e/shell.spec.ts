@@ -1,18 +1,20 @@
-import { _electron as electron, chromium, expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityResult, TaskDto } from "../../packages/contracts/src/index.js";
 import { HerdrClient } from "../../packages/herdr-client/src/client.js";
 import { HerdrCore } from "../../packages/herdr-client/src/herdr-core.js";
+import { patchFrontmatter } from "../../packages/vault/src/semantic/frontmatter.js";
 import { machineId } from "../../packages/vault/src/vault.js";
 import { startCodexResponsesFixture } from "../../plugins/agent-cli/test/fixtures/codex-responses.js";
 import type { RecentTaskRun } from "../../plugins/tasks/src/engine/dispatch-store.js";
 import { candidateEnvironment } from "./helpers/candidate-package.js";
 import { rmTree, USER_DATA_ARG } from "./helpers/launch.js";
 import { treeFolder, treeItem, treeMenu, treeRename } from "./helpers/tree.js";
+import { call, engineReady } from "./knowledge/session-slow-bridge.js";
 
 const root = path.resolve(import.meta.dirname, "../../apps/desktop");
 
@@ -1319,6 +1321,73 @@ test("Agent CLI 历史：列出 Space 目录下 Claude 与 Codex 的原生历史
   } finally {
     await app.close();
     for (const d of [vault, cfg, cx]) rmTree(d);
+  }
+});
+
+test("Agent CLI 历史：Codex 和 Pi 在大量其他 Space 记录中分页并预览旧会话", async () => {
+  test.setTimeout(60_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-e2e-history-"));
+  const profile = path.join(fixture, "codex");
+  const codex = path.join(profile, "sessions", "2026", "09", "01");
+  const pi = path.join(fixture, "pi");
+  const cwd = realpathSync(vault);
+  const outside = realpathSync(fixture);
+  const jsonl = (...rows: unknown[]) => rows.map((row) => JSON.stringify(row) + "\n").join("");
+  let app: ElectronApplication | undefined;
+  let browser: Browser | undefined;
+  async function checkHistory(page: Page) {
+    await page.getByRole("button", { name: "Agent CLI" }).first().click();
+    await expect(page.getByRole("heading", { name: "共 52 条记录，显示第 1–50 条" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("history-item")).toHaveCount(50);
+    await page.getByRole("group", { name: "历史分页" }).getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByRole("heading", { name: "共 52 条记录，显示第 51–52 条" })).toBeVisible();
+    for (const title of ["Codex 原有记录", "Pi 原有记录"]) {
+      await page.getByRole("button", { name: `查看记录 ${title}`, exact: true }).click();
+      const dialog = page.getByTestId("history-transcript");
+      await expect(dialog.getByTestId("transcript-message")).toContainText(title);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    }
+  }
+  try {
+    mkdirSync(codex, { recursive: true });
+    mkdirSync(pi);
+    const old = new Date("2026-09-01T00:00:00Z");
+    const original = path.join(codex, "rollout-2026-09-01T00-00-00-f09-codex.jsonl");
+    writeFileSync(original, jsonl(
+      { type: "session_meta", payload: { id: "f09-codex", cwd } },
+      { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Codex 原有记录" }] } },
+    ));
+    const originalPi = path.join(pi, "original.jsonl");
+    const writePi = (file: string, id: string, dir: string, title: string) => writeFileSync(file, jsonl(
+      { type: "session", version: 3, id, cwd: dir },
+      { type: "message", message: { role: "user", content: title } },
+    ));
+    writePi(originalPi, "f09-pi", cwd, "Pi 原有记录");
+    utimesSync(original, old, old);
+    utimesSync(originalPi, old, old);
+    for (let i = 0; i < 2001; i++) {
+      writeFileSync(path.join(codex, `rollout-outside-${i}.jsonl`), jsonl({ type: "session_meta", payload: { id: `outside-${i}`, cwd: outside } }));
+      writePi(path.join(pi, `outside-${i}.jsonl`), `outside-${i}`, outside, "不相关记录");
+    }
+    for (let i = 0; i < 50; i++) writePi(path.join(pi, `inside-${i}.jsonl`), `inside-${i}`, cwd, `较新记录 ${i}`);
+
+    app = await launch(vault, { CODEX_HOME: profile, PI_CODING_AGENT_SESSION_DIR: pi, CLAUDE_CONFIG_DIR: path.join(fixture, "empty") });
+    const page = await app.firstWindow();
+    await engineReady(page);
+    await checkHistory(page);
+    expect(await call(page, "web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
+    const { links } = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await web.goto(links[0]!);
+    await checkHistory(web);
+  } finally {
+    await browser?.close();
+    await app?.close();
+    rmTree(vault);
+    rmTree(fixture);
   }
 });
 
@@ -2763,6 +2832,58 @@ test("自动化：新 Vault 没有内置规则；新建任务扫描规则后预�
     await expect(page.getByTestId("notification-panel")).toContainText("该喝水了", { timeout: 10_000 });
   } finally {
     await app.close();
+    rmTree(vault);
+  }
+});
+
+test("自动化：每分钟规则离线 70 天后补跑，重启保留原计划点", async () => {
+  test.setTimeout(90_000);
+  const vault = mkdtempSync(path.join(tmpdir(), "huhu-e2e-"));
+  let app: ElectronApplication | undefined;
+  try {
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await engineReady(page);
+    const rule = await call<{ id: string; path: string }>(page, "automations.create", {
+      title: "每分钟检查",
+      trigger: { preset: "custom", cron: "* * * * *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "恢复定时检查", taskId: null },
+    });
+    await app.close();
+    app = undefined;
+
+    const last = new Date(Math.floor(Date.now() / 60_000) * 60_000 - 70 * 86_400_000).toISOString().replace(".000Z", "Z");
+    const rulePath = path.join(vault, rule.path);
+    writeFileSync(rulePath, patchFrontmatter(readFileSync(rulePath, "utf8"), { enabled: true, updatedAt: last }));
+    const activationsDir = path.join(vault, ".huhu", "automations", "activations");
+    mkdirSync(activationsDir, { recursive: true });
+    writeFileSync(path.join(activationsDir, `${last.slice(0, 7)}.ndjson`), JSON.stringify({
+      activationId: "act-f10-fixture", ruleId: rule.id, trigger: "schedule", scheduledFor: last,
+      startedAt: last, finishedAt: last, summary: { state: "succeeded" },
+    }) + "\n");
+
+    type Activation = { activationId: string; ruleId: string; scheduledFor: string | null };
+    const read = async (window: Page) => (await call<Activation[]>(window, "automations.activations", {}))
+      .filter((row) => row.ruleId === rule.id && row.scheduledFor && row.scheduledFor !== last);
+    const mostRecentBeforeOpen = Math.floor(Date.now() / 60_000) * 60_000;
+    app = await launch(vault);
+    const reopened = await app.firstWindow();
+    await engineReady(reopened);
+    await expect.poll(() => read(reopened)).not.toEqual([]);
+    const [recovered] = await read(reopened);
+    expect(Date.parse(recovered!.scheduledFor!)).toBeGreaterThanOrEqual(mostRecentBeforeOpen);
+    await reopened.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await reopened.getByRole("button", { name: "激活记录" }).click();
+    await expect(reopened.getByTestId("activation-row").filter({ hasText: "每分钟检查" }).first()).toBeVisible();
+
+    await app.close();
+    app = undefined;
+    app = await launch(vault);
+    const restarted = await app.firstWindow();
+    await engineReady(restarted);
+    expect((await read(restarted)).filter(({ scheduledFor }) => scheduledFor === recovered!.scheduledFor)).toEqual([recovered]);
+  } finally {
+    await app?.close();
     rmTree(vault);
   }
 });

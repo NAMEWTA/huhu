@@ -949,6 +949,19 @@ test("受保护终端保留已完成结果和待释放义务，重开仅释放�
   expect(calls).toEqual([{ capability: "agent.sessions.release", input: { id: "sess-1", requestId: `autorun-${run.id}` }, key: `autorelease-${run.id}` }]);
 });
 
+test("首次计划点：Agent 和提醒无历史时等待在线触发，终端从启用时间计算宽限", async () => {
+  const now = new Date("2026-11-10T11:56:00Z");
+  const { svc } = setup({ now: () => now });
+  const reminder = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "休息", taskId: null } });
+  const agent = await svc.create({ title: "提示词", trigger: every5, action: promptAction, body: "检查状态" });
+  const terminal = await terminalRule(svc);
+  await svc.setEnabled(reminder.id, true);
+  await svc.setEnabled(agent.id, true);
+  expect(svc.lastActivatedFor(reminder.id)).toBeNull();
+  expect(svc.lastActivatedFor(agent.id)).toBeNull();
+  expect(svc.lastActivatedFor(terminal.id)).toEqual(now);
+});
+
 test("定时终端在原计划点的运行写入前中断，重启从启用时刻补回该计划点", async () => {
   let now = new Date("2026-11-10T11:56:00Z");
   const { svc, repo, open, calls } = setup({ now: () => now });

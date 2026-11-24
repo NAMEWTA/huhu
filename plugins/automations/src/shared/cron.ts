@@ -29,14 +29,13 @@ export function nextRuns(cron: string, zone: string, n: number, from: Date = new
 export function missedRun(cron: string, zone: string, lastActivatedFor: Date | null, now: Date, graceMinutes: number): Date | null {
   if (!lastActivatedFor) return null;
   const job = new Cron(cron, { timezone: zone, paused: true });
-  let latest: Date | null = null;
-  let t: Date | null = job.nextRun(lastActivatedFor);
-  let guard = 0;
-  while (t && t.getTime() <= now.getTime() && guard++ < 100_000) {
-    latest = t;
-    t = job.nextRun(t);
+  const end = now.getTime();
+  // Croner searches strictly before the reference and truncates to whole seconds.
+  const reference = new Date(Math.floor(end / 1000) * 1000 + 1000);
+  try {
+    const [latest] = job.previousRuns(1, reference);
+    return latest && latest > lastActivatedFor && latest <= now && end - latest.getTime() <= graceMinutes * 60_000 ? latest : null;
+  } finally {
+    job.stop();
   }
-  job.stop();
-  if (!latest) return null;
-  return now.getTime() - latest.getTime() <= graceMinutes * 60_000 ? latest : null;
 }

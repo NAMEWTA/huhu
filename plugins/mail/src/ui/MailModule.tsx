@@ -17,7 +17,7 @@ import { MailAiApprovals } from "./MailAiApprovals.js";
 import { MailAiSettings } from "./MailAiSettings.js";
 import { MailComposer } from "./MailComposer.js";
 import { MailReader, type MessageSummary, type RelatedDraft } from "./MailReader.js";
-import { deliveryLabels, MailOutbox } from "./MailOutbox.js";
+import { deliveryLabels, MailOutbox, RecipientDeliveryList } from "./MailOutbox.js";
 import { MailPaneSeparator, useMailColumn } from "./MailPaneSeparator.js";
 import { MailSearch } from "./MailSearch.js";
 import { MailSyncSettings, type SyncState } from "./MailSyncSettings.js";
@@ -413,9 +413,13 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     }
   }
 
-  function showDelivery(id: string) {
+  function openDelivery(id: string) {
     setOperationId(id);
     setTab("outbox");
+  }
+
+  function showDelivery(id: string) {
+    openDelivery(id);
     changed("投递请求已受理，请查看逐收件人结果。", "info");
   }
 
@@ -593,6 +597,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
               externalSyncing={account ? !!isSyncing(account.accountId) : false}
               onFolderSync={setSync}
               onCompose={composeFromMessage}
+              onCheckDelivery={openDelivery}
               onReading={setReadingMessage}
               remembered={rememberedConversations.current.get(selectionKey)}
               onConversation={(selection) => rememberedConversations.current.set(selectionKey, selection)}
@@ -776,6 +781,7 @@ function Mailbox({
   remembered,
   onConversation,
   onCompose,
+  onCheckDelivery,
   onAccountAction,
   contactWidth,
   onContactWidth,
@@ -797,6 +803,7 @@ function Mailbox({
   remembered?: ConversationSelection | undefined;
   onConversation(selection: ConversationSelection): void;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
+  onCheckDelivery(operationId: string): void;
   onAccountAction?(kind: MailAccountAction, trigger: HTMLButtonElement): void;
   contactWidth: number;
   onContactWidth(width: number): void;
@@ -1085,6 +1092,7 @@ function Mailbox({
               opened={activeMessage}
               readOnly={readOnly}
               onCompose={onCompose}
+              onCheckDelivery={onCheckDelivery}
               onRefresh={refresh}
               onChanged={list.refetch}
               onRevoked={revokeOpened}
@@ -1133,6 +1141,7 @@ function ConversationTimeline({
   opened,
   readOnly,
   onCompose,
+  onCheckDelivery,
   onRefresh,
   onChanged,
   onOpen,
@@ -1146,6 +1155,7 @@ function ConversationTimeline({
   opened: ConversationMessage | null;
   readOnly: boolean;
   onCompose(draft: RelatedDraft, quote: string, trigger: HTMLElement | null): void;
+  onCheckDelivery(operationId: string): void;
   onRefresh(folder: string, accountId: string): Promise<void>;
   onChanged(): Promise<unknown>;
   onOpen(message: ConversationMessage | null, trigger: HTMLButtonElement): void;
@@ -1163,6 +1173,7 @@ function ConversationTimeline({
   const page = useCapability<ConversationMessagesPage>("mail.conversations.messages", { ...(accountId && { accountId }), ...(time && { time }), conversationId: conversation.conversationId, offset, limit: conversationPageSize });
   const current = opened && conversationMessageKey(opened);
   const reader = current ? page.data?.messages.find((message) => conversationMessageKey(message) === current) : null;
+  const readerDelivery = reader?.delivery;
   const latest = conversationMessageKey(conversation.latest);
   const isTarget = !!reader && !!location && current === conversationMessageKey(location.message);
 
@@ -1291,6 +1302,14 @@ function ConversationTimeline({
       {reader && (
         <div ref={targetReader} {...(isTarget && { tabIndex: -1, role: "group", "aria-label": "已定位邮件", "data-mail-highlighted": highlighted })}>
           {isTarget && reader.source !== "sent" && <h3>{reader.subject || "无主题"}</h3>}
+          {readerDelivery && (
+            <>
+              <RecipientDeliveryList recipients={readerDelivery.recipients} />
+              {readerDelivery.recipients.some(({ state }) => state === "unknown") && (
+                <Button onClick={() => onCheckDelivery(readerDelivery.operationId)}>在发件箱核对投递</Button>
+              )}
+            </>
+          )}
           {reader.source !== "sent" ? (
             <MailReader
               key={current}

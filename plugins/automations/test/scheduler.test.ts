@@ -21,6 +21,30 @@ describe("cron", () => {
     expect(missedRun("* * * * *", "UTC", null, now, 30)).toBeNull();
     expect(missedRun("0 12 * * *", "UTC", last, now, 30)).toBeNull();
   });
+  test("每分钟和每秒规则离线 70 天，仍找到最近的计划点", () => {
+    const last = new Date("2026-08-25T00:00:00Z");
+    const now = new Date("2026-11-03T00:00:12.555Z");
+    expect(missedRun("* * * * *", "UTC", last, now, 30)).toEqual(new Date("2026-11-03T00:00:00Z"));
+    expect(missedRun("* * * * * *", "UTC", last, now, 30)).toEqual(new Date("2026-11-03T00:00:12Z"));
+  });
+  test("宽限下界包含等号，受理/修订时刻排除等号", () => {
+    const cron = "0 9 * * *";
+    const slot = new Date("2026-11-10T09:00:00Z");
+    const before = new Date(slot.getTime() - 1);
+    expect(missedRun(cron, "UTC", before, new Date("2026-11-10T09:30:00Z"), 30)).toEqual(slot);
+    expect(missedRun(cron, "UTC", before, new Date("2026-11-10T09:30:00.001Z"), 30)).toBeNull();
+    expect(missedRun(cron, "UTC", before, slot, 0)).toEqual(slot);
+    expect(missedRun(cron, "UTC", slot, slot, 0)).toBeNull();
+  });
+  test.each([
+    ["30 2 * * *", "2026-03-08T00:00:00Z", "2026-03-08T07:12:00Z", "2026-03-08T07:00:00Z"],
+    ["30 1 * * *", "2026-11-01T00:00:00Z", "2026-11-01T06:40:00Z", "2026-11-01T05:30:00Z"],
+  ])("恢复与在线 Croner 的 DST 计划一致（%s）", (cron, start, end, slot) => {
+    const zone = "America/New_York";
+    const last = new Date(start);
+    expect(nextRuns(cron, zone, 1, last)).toEqual([new Date(slot).toISOString()]);
+    expect(missedRun(cron, zone, last, new Date(end), 90)).toEqual(new Date(slot));
+  });
 });
 
 describe("Scheduler", () => {
@@ -60,6 +84,31 @@ describe("Scheduler", () => {
     await new Promise((r) => setTimeout(r, 20));
     s.stop();
     expect(calls).toEqual([["m", "2026-11-10T09:00:00.000Z"]]);
+  });
+  test("重复收到相同规则不重建；禁用、启用和重启保留已受理计划点", () => {
+    const saved = rule("m", { cron: "* * * * *" });
+    const slot = new Date("2026-11-10T09:00:00Z");
+    let last = new Date("2026-11-10T06:00:00Z");
+    const history = vi.fn(() => last);
+    const activate = vi.fn((_id: string, at: Date) => { last = at; });
+    const start = () => new Scheduler({ activate, lastActivatedFor: history, now: () => slot });
+    const first = start();
+    const restarted = start();
+    try {
+      first.sync([saved]);
+      first.sync([{ ...saved }]);
+      expect(history).toHaveBeenCalledTimes(1);
+      first.sync([{ ...saved, enabled: false }]);
+      expect(first.active()).toEqual([]);
+      first.sync([saved]);
+      expect(first.active()).toEqual(["m"]);
+      first.stop();
+      restarted.sync([saved]);
+      expect(activate).toHaveBeenCalledExactlyOnceWith("m", slot, "schedule");
+    } finally {
+      first.stop();
+      restarted.stop();
+    }
   });
   test("编辑 / 启用规则之后：只补编辑时间之后错过的计划，不会立刻补跑改动之前的“错过”", async () => {
     const calls: string[] = [];

@@ -9,10 +9,11 @@ import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { AgentDetector } from "../../agent-cli/src/engine/detect.js";
 import { DEFAULT_TASK_SCAN_RULE_ID as ruleId, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "../src/engine/default-task-scan.js";
 import { Scheduler } from "../src/engine/scheduler.js";
+import { AutomationsService } from "../src/engine/service.js";
 
 const markerPath = "automations/default-task-scan.json";
 const at = (clock: string) => new Date(`2030-02-02T${clock}Z`);
-const fixture = { now: at("01:00:00"), defaults: undefined as DefaultTaskScanService | undefined };
+const fixture = { now: at("01:00:00"), defaults: undefined as DefaultTaskScanService | undefined, schedule: false };
 const engines: RunningEngine[] = [];
 const dirs: string[] = [];
 
@@ -30,13 +31,14 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             if (name === DEFAULT_TASK_SCAN_SERVICE) fixture.defaults = service as DefaultTaskScanService;
           },
         },
-        { ...opts, now: () => fixture.now, schedule: false },
+        { ...opts, now: () => fixture.now, schedule: fixture.schedule },
       )) satisfies typeof automations.apply,
   };
 });
 
 beforeEach(() => {
   fixture.now = at("01:00:00");
+  fixture.schedule = false;
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
 
@@ -81,6 +83,21 @@ const list = (engine: RunningEngine) => call<Rule[]>(engine, "automations.list",
 const read = (engine: RunningEngine) => call<Rule>(engine, "automations.read", { id: ruleId });
 const zone = (engine: RunningEngine, value: string) => call(engine, "settings.update", { patch: { dateTime: { zone: value } } });
 const marker = (file: string) => readFileSync(file, "utf8");
+
+test("停用插件后，迟到的启动对账不会重新安装 Cron", async () => {
+  fixture.schedule = true;
+  const reconcile = Promise.withResolvers<void>();
+  vi.spyOn(AutomationsService.prototype, "reconcileTerminals").mockReturnValue(reconcile.promise);
+  const sync = vi.spyOn(Scheduler.prototype, "sync");
+  const { engine } = await open();
+  try {
+    await call(engine, "plugins.setEnabled", { id: "automations", enabled: false });
+  } finally {
+    reconcile.resolve();
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(sync).not.toHaveBeenCalled();
+});
 
 test("首次显式启用只创建一条默认规则，重开尊重设置、编辑、停用和删除，显式恢复使用同一 ID", async () => {
   const first = await open();

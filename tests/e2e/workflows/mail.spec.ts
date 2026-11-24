@@ -9,6 +9,7 @@ import { ModuleCredentials } from "../../../packages/kernel/src/credentials/modu
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { accountPasswordPurpose, accountTargets, mailAccountDefinitionSchema } from "../../../plugins/mail/src/engine/account-definition.js";
 import { createMailOAuth, oauthMailEndpoints, type SealedOAuthToken } from "../../../plugins/mail/src/engine/oauth-provider.js";
+import { operationIdFor, OutboxStorage } from "../../../plugins/mail/src/engine/outbox-storage.js";
 import { createMailArchive } from "../../../plugins/mail/src/engine/subset-archive.js";
 import { graphFixture, graphScopes } from "../../../plugins/mail/test/fixtures/graph.js";
 import { openImapFixture, type FixtureImapMessage } from "../../../plugins/mail/test/fixtures/imap.js";
@@ -203,6 +204,7 @@ async function openGraphWorkbench() {
       close,
       email,
       accountId,
+      firstLabel,
       call,
       secondLabel,
       renewals,
@@ -214,6 +216,24 @@ async function openGraphWorkbench() {
       },
       holdDelta: () => (held = deltaGate()),
       expectCached: (nativeId: string) => expect.poll(() => call("mail.messages.latest", mailbox)).toMatchObject({ message: { nativeId } }),
+      seedMixedDelivery: async () => {
+        const draftId = randomUUID();
+        const revision = randomUUID();
+        const operationId = operationIdFor(draftId, revision);
+        const messageId = `<${randomUUID()}@huhu.local>`;
+        const at = new Date().toISOString();
+        const to = ["accepted-f13@example.test", "refused-f13@example.test", "unknown-f13@example.test"];
+        const bcc = ["blind-f13@example.test"];
+        const subject = "逐收件人核对";
+        const states = ["accepted", "not-delivered", "unknown", "accepted"] as const;
+        await new OutboxStorage(running.vault.files).write({
+          format: 1, operationId, draftId, revision, messageId, claimedAt: at, from: email, auth: "oauth2",
+          smtp: oauthMailEndpoints("outlook", email, false).smtp,
+          draft: { accountId, to, cc: [], bcc, subject, body: { type: "doc" } }, text: "投递结果测试。",
+          result: { stage: "data", graphStatus: 202, finishedAt: at, recipients: [...to, ...bcc].map((address, index) => ({ address, state: states[index]! })) },
+        }, null);
+        return { messageId, subject, to, blind: bcc[0]! };
+      },
       restoreSending: async () => {
         const account = ModuleCredentials.readPortableDefinition(running.vault.files, "mail", mailAccountDefinitionSchema, accountId);
         if (!account) throw new Error("Graph fixture account is missing");
@@ -226,6 +246,31 @@ async function openGraphWorkbench() {
     throw error;
   }
 }
+
+test("Web 邮件往来按接受者分组，逐地址显示结果并回到原投递记录", async () => {
+  const workbench = await openGraphWorkbench();
+  const { page } = workbench;
+  try {
+    const { messageId, subject, to, blind } = await workbench.seedMixedDelivery();
+    await page.reload();
+    await page.getByRole("button", { name: "邮件", exact: true }).first().click();
+    await page.getByRole("button", { name: workbench.firstLabel, exact: true }).click();
+    await page.getByRole("combobox", { name: "时间", exact: true }).selectOption("all");
+    const contacts = page.getByRole("complementary", { name: "联系人对话" });
+    await contacts.getByRole("button", { name: /accepted-f13@example\.test.*逐收件人核对/ }).click();
+    await expect(contacts).not.toContainText(to[1]!);
+    await expect(contacts).not.toContainText(to[2]!);
+    await page.getByRole("region", { name: "往来邮件" }).getByRole("button", { name: subject, exact: true }).click();
+    const results = page.getByRole("list", { name: "收件人投递结果" });
+    await expect(results.getByRole("listitem")).toHaveText([`${to[0]} · 服务端已接受`, `${to[1]} · 明确未投递`, `${to[2]} · 待核实`]);
+    await expect(results).not.toContainText(blind);
+    await page.getByRole("button", { name: "在发件箱核对投递", exact: true }).click();
+    await expect(page.getByText(messageId, { exact: true })).toBeVisible();
+    await expect(page.getByText("待核实", { exact: true })).toBeVisible();
+  } finally {
+    await workbench.close();
+  }
+});
 
 test("工作台手动同步触发 Graph 降权后继续读取并停用该邮箱的发信入口", async () => {
   const workbench = await openGraphWorkbench();

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type BigIntStats } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync, statSync, type BigIntStats, type Dirent } from "node:fs";
+import { lstat, readdir, realpath, stat } from "node:fs/promises";
 import { filesystemIdentity } from "@huhu/vault";
 import os from "node:os";
 import path from "node:path";
@@ -25,7 +26,6 @@ export interface ScanOptions {
   roots: string[];
   home?: string;
   env?: NodeJS.ProcessEnv;
-  limit?: number;
   providers?: HistoryEntry["provider"][];
 }
 
@@ -38,7 +38,7 @@ export interface ScanResult {
 /** 每个文件最多读取的头部字节与行数：标题与 cwd 都在会话开头附近。 */
 const HEAD_BYTES = 512 * 1024;
 const HEAD_LINES = 400;
-const MAX_FILES = 2000;
+const PROJECTION_MAX_AGE_MS = 3000;
 const TITLE_CHARS = 120;
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -87,9 +87,9 @@ function within(root: string, cwd: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-function headLines(fd: number): string[] {
-  const buf = Buffer.alloc(HEAD_BYTES);
-  const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+function headLines(fd: number, size: number): string[] {
+  const buf = Buffer.alloc(Math.min(size, HEAD_BYTES));
+  const n = readSync(fd, buf, 0, buf.length, 0);
   const lines = buf.subarray(0, n).toString("utf8").split("\n");
   if (n === HEAD_BYTES) lines.pop(); // 最后一行可能被截断
   return lines.slice(0, HEAD_LINES);
@@ -133,10 +133,10 @@ interface Parsed {
   title: string | null;
 }
 
-function parseClaude(fd: number): Parsed {
+function parseClaude(lines: string[]): Parsed {
   let cwd: string | null = null;
   let title: string | null = null;
-  for (const line of headLines(fd)) {
+  for (const line of lines) {
     const r = parse(line);
     if (!r) continue;
     cwd ??= str(r["cwd"]);
@@ -150,11 +150,11 @@ function parseClaude(fd: number): Parsed {
   return { id: null, cwd, title }; // claude 的会话 id 以文件名为准：恢复出来的会话文件里会带着旧会话的 sessionId
 }
 
-function parseCodex(fd: number): Parsed {
+function parseCodex(lines: string[]): Parsed {
   let id: string | null = null;
   let cwd: string | null = null;
   let title: string | null = null;
-  for (const line of headLines(fd)) {
+  for (const line of lines) {
     const r = parse(line);
     if (!r) continue;
     const p = obj(r["payload"]);
@@ -173,8 +173,8 @@ function parseCodex(fd: number): Parsed {
   return { id, cwd, title };
 }
 
-function parsePi(fd: number): Parsed {
-  const [first = "", ...entries] = headLines(fd);
+function parsePi(lines: string[]): Parsed {
+  const [first = "", ...entries] = lines;
   const header = parse(first);
   const cwd = header?.["type"] === "session" ? str(header["cwd"]) : null;
   const id = cwd && path.isAbsolute(cwd) ? str(header?.["id"]) : null;
@@ -198,7 +198,7 @@ function sourceStamp(stat: BigIntStats) {
   if (!fileId) throw new Error("Native history file identity is unavailable");
   const physical = `${fileId}:${stat.birthtimeNs}`;
   const revision = createHash("sha256").update([physical, stat.size, stat.mtimeNs, stat.ctimeNs].map(String).join(":")).digest("hex");
-  return { physical, revision, updatedAt: stat.mtime.toISOString() };
+  return { physical, revision, updatedAt: stat.mtime.toISOString(), size: Number(stat.size) };
 }
 
 function useHistorySource<T>(file: string, inspect: (fd: number, stamp: ReturnType<typeof sourceStamp>) => T, expectedRevision?: string): T {
@@ -228,7 +228,7 @@ export function readSelectedHistory<T>(provider: HistoryEntry["provider"], file:
     return useHistorySource(
       file,
       (fd, stamp) => {
-        const parsed = parsers[provider](fd);
+        const parsed = parsers[provider](headLines(fd, stamp.size));
         const id = parsed.id ?? (provider === "claude" ? path.basename(file, ".jsonl") : null);
         if (!parsed.cwd || id !== nativeId) return undefined;
         const cwd = expectedCwd ? realpathSync(parsed.cwd) : real(parsed.cwd);
@@ -247,7 +247,23 @@ export function isPiHistoryFile(file: string, nativeId: string, historyId: strin
   return readSelectedHistory("pi", file, nativeId, historyId, () => true, expectedRevision) === true;
 }
 
-/** Browse is capped by Space and age. UUID lookups must also account for candidates the CLI can see outside that list. */
+function uuidStores(provider: UuidHistoryProvider, profile: string) {
+  return provider === "claude" ? [{ dir: path.join(profile, "projects"), depth: 1, optional: false }] : [
+    { dir: path.join(profile, "sessions"), depth: 3, optional: false },
+    { dir: path.join(profile, "archived_sessions"), depth: 0, optional: true },
+  ];
+}
+
+function recordUuidCandidate(provider: UuidHistoryProvider, depth: number, entry: Dirent, location: string, candidates: Map<string, string | null>): void {
+  const { name } = entry;
+  if (!name.toLowerCase().endsWith(".jsonl")) return;
+  const id = provider === "claude" && depth === 0 ? name.slice(0, -".jsonl".length) : provider === "codex" && name.startsWith("rollout-") ? CODEX_FILE_ID.exec(name)?.[1] : undefined;
+  if (!id || !isUuidHistoryId(id)) return;
+  const key = id.toLowerCase();
+  candidates.set(key, !candidates.has(key) && entry.isFile() ? location : null);
+}
+
+/** UUID lookups also account for candidates outside the selected Space, including archived files. */
 export function nativeHistoryCandidates(provider: UuidHistoryProvider, profile: string): ReadonlyMap<string, string | null> | undefined {
   if (!path.isAbsolute(profile)) return undefined;
   const candidates = new Map<string, string | null>();
@@ -267,22 +283,47 @@ export function nativeHistoryCandidates(provider: UuidHistoryProvider, profile: 
         continue;
       }
       if (depth > 0 && entry.isSymbolicLink() && statSync(location, { throwIfNoEntry: false })?.isDirectory()) throw new Error("Aliased history directory");
-      const name = provider === "claude" && depth === 0 ? entry.name.replace(/\.jsonl$/i, "") : provider === "codex" && entry.name.startsWith("rollout-") ? CODEX_FILE_ID.exec(entry.name)?.[1] : undefined;
-      if (name && entry.name.toLowerCase().endsWith(".jsonl") && isUuidHistoryId(name)) {
-        const id = name.toLowerCase();
-        candidates.set(id, !candidates.has(id) && entry.isFile() ? location : null);
-      }
+      recordUuidCandidate(provider, depth, entry, location, candidates);
     }
   };
   try {
     if (realpathSync(profile) !== profile) return undefined;
-    if (provider === "claude") visit(path.join(profile, "projects"), 1);
-    else {
-      visit(path.join(profile, "sessions"), 3);
-      visit(path.join(profile, "archived_sessions"), 0, true);
-    }
+    for (const { dir, depth, optional } of uuidStores(provider, profile)) visit(dir, depth, optional);
     return candidates;
   } catch {
+    return undefined;
+  }
+}
+
+function absent(error: unknown): undefined {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  return undefined;
+}
+
+/** The browse projection refreshes the same candidate set without a synchronous directory walk. */
+async function projectedUuidCandidates(provider: UuidHistoryProvider, profile: string, signal?: AbortSignal): Promise<ReadonlyMap<string, string | null> | undefined> {
+  const candidates = new Map<string, string | null>();
+  const visit = async (dir: string, depth: number, optional = false): Promise<void> => {
+    signal?.throwIfAborted();
+    const canonical = await realpath(dir).catch(absent);
+    if (!canonical && optional && !(await lstat(dir).catch(absent))) return;
+    if (canonical !== dir) throw new Error("Noncanonical history directory");
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const location = path.join(dir, entry.name);
+      if (depth > 0 && entry.isDirectory()) {
+        await visit(location, depth - 1);
+        continue;
+      }
+      if (depth > 0 && entry.isSymbolicLink() && (await stat(location).catch(absent))?.isDirectory()) throw new Error("Aliased history directory");
+      recordUuidCandidate(provider, depth, entry, location, candidates);
+    }
+  };
+  try {
+    if (await realpath(profile) !== profile) return undefined;
+    for (const { dir, depth, optional } of uuidStores(provider, profile)) await visit(dir, depth, optional);
+    return candidates;
+  } catch {
+    signal?.throwIfAborted();
     return undefined;
   }
 }
@@ -305,7 +346,7 @@ export function codexHistoryChild(file: string, id: string, cwd: string): string
 function historyChild(provider: UuidHistoryProvider, file: string, id: string, cwd: string): string | undefined {
   try {
     return useHistorySource(file, (fd, stamp) => {
-      const parsed = parsers[provider](fd);
+      const parsed = parsers[provider](headLines(fd, stamp.size));
       if (!parsed.cwd || path.relative(realpathSync(parsed.cwd), cwd) !== "" || (provider === "codex" && parsed.id !== id)) return undefined;
       return historyIdentity(provider, id, file, parsed.cwd, real(parsed.cwd), stamp.physical);
     });
@@ -326,116 +367,176 @@ function piRoot(env: NodeJS.ProcessEnv, home: string): string {
   return env["PI_CODING_AGENT_SESSION_DIR"] || path.join(env["PI_CODING_AGENT_DIR"] || path.join(home, ".pi", "agent"), "sessions");
 }
 
-/** claude 按 cwd 把非字母数字字符替换为 - 作为 projects 下的目录名。 */
-function encodeClaudeBucket(cwd: string): string {
-  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
+type Provider = HistoryEntry["provider"];
+type SourceStamp = ReturnType<typeof sourceStamp>;
+
+function parseSource(provider: Provider, file: string) {
+  return useHistorySource(file, (fd, stamp) => {
+    const parsed = parsers[provider](headLines(fd, stamp.size));
+    const id = parsed.id ?? (provider === "claude" ? path.basename(file, ".jsonl") : null);
+    return { parsed, id, stamp };
+  });
 }
 
-/** 目录读取失败（权限、不是目录）不中断扫描。 */
-function readdirSafe(dir: string): import("node:fs").Dirent[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-function* walkHistory(dir: string, accepts: (name: string) => boolean, depth: number): Generator<string> {
-  if (depth < 0 || !existsSync(dir)) return;
-  for (const e of readdirSafe(dir)) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) yield* walkHistory(p, accepts, depth - 1);
-    else if (e.isFile() && e.name.endsWith(".jsonl") && accepts(e.name)) yield p;
-  }
-}
-
-/** 扫描原生历史会话；解析失败的文件计入 skipped。 */
-export function scanHistory(o: ScanOptions): ScanResult {
-  const env = o.env ?? process.env;
-  const home = o.home ?? os.homedir();
-  const roots = o.roots.map(real);
-  const entries: HistoryEntry[] = [];
-  const limitedProviders: HistoryEntry["provider"][] = [];
-  const seen = new Set<string>();
-  let skipped = 0;
-  const accept = (provider: HistoryEntry["provider"], fallbackId: string | null, file: string, store: string) => {
-    const location = real(file);
-    if (!within(store, location)) return;
-    const [p, stamp] = useHistorySource(location, (fd, source) => [parsers[provider](fd), source] as const);
-    const id = p.id ?? fallbackId;
-    if (!id || !p.cwd || !isValidNativeId(id)) {
-      skipped++;
-      return;
-    }
-    const cwd = real(p.cwd);
-    if (!roots.some((r) => within(r, cwd))) return;
-    if (!existsSync(cwd)) return; // 目录已被删除：无法在原处恢复，不列出
-    const historyId = historyIdentity(provider, id, location, p.cwd, cwd, stamp.physical);
-    if (seen.has(historyId)) return;
-    seen.add(historyId);
-    const legacyHistoryId = createHash("sha256")
-      .update(JSON.stringify([provider, id, location, cwd]))
-      .digest("hex");
-    entries.push({ provider, historyId, legacyHistoryId, revision: stamp.revision, nativeSessionId: id, cwd, title: p.title ?? "（无标题）", updatedAt: stamp.updatedAt, file: location });
+function historyEntry(provider: Provider, file: string, id: string, rawCwd: string, cwd: string, title: string | null, stamp: SourceStamp): HistoryEntry {
+  return {
+    provider,
+    historyId: historyIdentity(provider, id, file, rawCwd, cwd, stamp.physical),
+    legacyHistoryId: createHash("sha256").update(JSON.stringify([provider, id, file, cwd])).digest("hex"),
+    revision: stamp.revision,
+    nativeSessionId: id,
+    cwd,
+    title: title ?? "（无标题）",
+    updatedAt: stamp.updatedAt,
+    file,
   };
+}
 
-  // claude：只看目录名以某个 root（含未解析的原始路径，Claude 可能经符号链接启动）的编码开头的 bucket；按修改时间取最近的若干文件
-  const cRoot = claudeRoot(env, home);
-  if ((!o.providers || o.providers.includes("claude")) && existsSync(cRoot)) {
-    const store = real(cRoot);
-    const prefixes = [...new Set([...o.roots, ...roots].map(encodeClaudeBucket))];
-    const cFiles: { file: string; id: string; mtime: Date }[] = [];
-    for (const b of readdirSafe(cRoot)) {
-      if (!b.isDirectory()) continue;
-      // 超长路径的 bucket 名被截断并附带哈希，无法按前缀过滤时逐个解析
-      if (b.name.length < 200 && !prefixes.some((p) => b.name.startsWith(p))) continue;
-      const dir = path.join(cRoot, b.name);
-      for (const f of readdirSafe(dir)) {
-        if (!f.isFile() || !f.name.endsWith(".jsonl")) continue;
-        const file = path.join(dir, f.name);
-        try {
-          cFiles.push({ file, id: f.name.slice(0, -".jsonl".length), mtime: statSync(file).mtime });
-        } catch {
-          skipped++;
-        }
-      }
+/** Opens a specific file and checks its current physical identity and recorded working directory. */
+export function readHistoryEntry(provider: Provider, file: string): HistoryEntry | undefined {
+  try {
+    const { parsed, id, stamp } = parseSource(provider, file);
+    if (id && isValidNativeId(id) && parsed.cwd) {
+      return historyEntry(provider, file, id, parsed.cwd, realpathSync(parsed.cwd), parsed.title, stamp);
     }
-    cFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
-    if (cFiles.length > MAX_FILES) limitedProviders.push("claude");
-    for (const { file, id } of cFiles.slice(0, MAX_FILES)) {
-      try {
-        accept("claude", id, file, store);
-      } catch {
-        skipped++;
-      }
-    }
+  } catch {
+    // A history file or its original directory may have been removed.
+  }
+  return undefined;
+}
+
+async function* walkHistory(dir: string, accepts: (name: string) => boolean, depth: number): AsyncGenerator<string> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const file = path.join(dir, entry.name);
+    if (depth > 0 && entry.isDirectory()) yield* walkHistory(file, accepts, depth - 1);
+    else if (entry.isFile() && entry.name.endsWith(".jsonl") && accepts(entry.name)) yield file;
+  }
+}
+
+const stores = {
+  claude: { root: claudeRoot, depth: 1, accepts: () => true },
+  codex: { root: codexRoot, depth: 5, accepts: (name: string) => name.startsWith("rollout-") },
+  pi: { root: piRoot, depth: 1, accepts: () => true },
+};
+type CachedSource = ReturnType<typeof parseSource>;
+type Snapshot = {
+  at: number;
+  skipped: number;
+  sources: Map<string, CachedSource>;
+  byCwd: Map<string, HistoryEntry[]>;
+  byNativeId: Map<string, HistoryEntry[]>;
+  candidates: ReadonlyMap<string, string | null> | undefined;
+};
+type HistoryReference = { provider: Provider; nativeSessionId: string; historyId?: string | undefined };
+
+/** Rebuildable provider/profile metadata shared by all Space queries within one Engine. */
+export class HistoryProjection {
+  private readonly snapshots = new Map<string, Snapshot>();
+  private readonly pending = new Map<string, Promise<Snapshot>>();
+
+  constructor(private readonly signal?: AbortSignal, private readonly now = Date.now) {}
+
+  async scan(o: ScanOptions): Promise<ScanResult & { candidates: Map<Provider, Snapshot["candidates"]> }> {
+    const env = o.env ?? process.env;
+    const home = o.home ?? os.homedir();
+    const roots = o.roots.map(real);
+    const providers = o.providers ?? (Object.keys(stores) as Provider[]);
+    const snapshots = await Promise.all(providers.map((provider) => this.snapshot(provider, env, home, false)));
+    const entries = snapshots.flatMap(({ byCwd }) => [...byCwd].flatMap(([cwd, rows]) => roots.some((root) => within(root, cwd)) ? rows : []));
+    entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.historyId.localeCompare(b.historyId));
+    return {
+      entries,
+      skipped: snapshots.reduce((count, item) => count + item.skipped, 0),
+      limitedProviders: [],
+      candidates: new Map<Provider, Snapshot["candidates"]>(providers.map((provider, index) => [provider, snapshots[index]?.candidates])),
+    };
   }
 
-  const nativeStores = [
-    { provider: "codex" as const, root: real(codexRoot(env, home)), accepts: (name: string) => name.startsWith("rollout-"), depth: 5 },
-    { provider: "pi" as const, root: real(piRoot(env, home)), accepts: () => true, depth: 1 },
-  ];
-  for (const store of nativeStores) {
-    if (o.providers && !o.providers.includes(store.provider)) continue;
-    const files: { file: string; mtime: Date }[] = [];
-    for (const file of walkHistory(store.root, store.accepts, store.depth)) {
-      try {
-        files.push({ file, mtime: statSync(file).mtime });
-      } catch {
-        skipped++;
-      }
-    }
-    files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime() || a.file.localeCompare(b.file));
-    if (files.length > MAX_FILES) limitedProviders.push(store.provider);
-    for (const { file } of files.slice(0, MAX_FILES)) {
-      try {
-        accept(store.provider, null, file, store.root);
-      } catch {
-        skipped++;
-      }
-    }
+  async resolve(o: ScanOptions, reference: HistoryReference, fresh = false) {
+    const { provider, nativeSessionId, historyId } = reference;
+    const roots = o.roots.map(real);
+    const select = async (refresh: boolean) => {
+      const snapshot = await this.snapshot(provider, o.env ?? process.env, o.home ?? os.homedir(), refresh);
+      const matches = (snapshot.byNativeId.get(nativeSessionId) ?? []).filter(({ cwd }) => roots.some((root) => within(root, cwd)));
+      const hit = historyId ? matches.find((entry) => entry.historyId === historyId) : matches.length === 1 ? matches[0] : undefined;
+      // A projection locates candidates. Selection always opens the source again.
+      const current = hit && readHistoryEntry(provider, hit.file);
+      const selected = current && current.historyId === hit?.historyId && roots.some((root) => within(root, current.cwd)) ? current : undefined;
+      return { selected, matches: matches.length };
+    };
+    const refreshFirst = fresh || !historyId;
+    const located = await select(refreshFirst);
+    return located.selected || refreshFirst ? located : select(true);
   }
 
-  entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.historyId.localeCompare(b.historyId));
-  return { entries: o.limit ? entries.slice(0, o.limit) : entries, skipped, limitedProviders };
+  private snapshot(provider: Provider, env: NodeJS.ProcessEnv, home: string, fresh: boolean): Promise<Snapshot> {
+    this.signal?.throwIfAborted();
+    const store = stores[provider];
+    const root = real(store.root(env, home));
+    const key = JSON.stringify([provider, root]);
+    const existing = this.snapshots.get(key);
+    const pending = this.pending.get(key);
+    if (pending) return pending;
+    const now = this.now();
+    if (!fresh && existing && now - existing.at < PROJECTION_MAX_AGE_MS) return Promise.resolve(existing);
+    for (const [other, snapshot] of this.snapshots) {
+      if (other !== key && now - snapshot.at >= 60_000) this.snapshots.delete(other);
+    }
+    const refresh = this.refresh(provider, root, store, existing, env, home).then((next) => {
+      this.snapshots.set(key, next);
+      return next;
+    }).finally(() => this.pending.delete(key));
+    this.pending.set(key, refresh);
+    return refresh;
+  }
+
+  private async refresh(provider: Provider, root: string, store: (typeof stores)[Provider], prior: Snapshot | undefined, env: NodeJS.ProcessEnv, home: string): Promise<Snapshot> {
+    const sources = new Map<string, CachedSource>();
+    const byCwd = new Map<string, HistoryEntry[]>();
+    const byNativeId = new Map<string, HistoryEntry[]>();
+    const canonical = new Map<string, Promise<string | undefined>>();
+    let skipped = 0;
+    for await (const file of walkHistory(root, store.accepts, store.depth)) {
+      this.signal?.throwIfAborted();
+      let source: CachedSource;
+      try {
+        const revision = sourceStamp(await lstat(file, { bigint: true })).revision;
+        const cached = prior?.sources.get(file);
+        source = cached?.stamp.revision === revision ? cached : parseSource(provider, file);
+        sources.set(file, source);
+      } catch {
+        skipped++;
+        continue;
+      }
+      const { parsed: { cwd: rawCwd, title }, id, stamp } = source;
+      if (!rawCwd || !id || !isValidNativeId(id)) {
+        skipped++;
+        continue;
+      }
+      let resolved = canonical.get(rawCwd);
+      if (!resolved) {
+        resolved = realpath(rawCwd).catch(() => undefined);
+        canonical.set(rawCwd, resolved);
+      }
+      const cwd = await resolved;
+      if (!cwd) continue;
+      const entry = historyEntry(provider, file, id, rawCwd, cwd, title, stamp);
+      for (const [index, key] of [[byCwd, cwd], [byNativeId, id]] as const) {
+        const rows = index.get(key);
+        if (rows) rows.push(entry);
+        else index.set(key, [entry]);
+      }
+    }
+    this.signal?.throwIfAborted();
+    const profile = provider === "pi" ? undefined : nativeHistoryProfile(provider, env, home);
+    const candidates = provider !== "pi" && profile ? await projectedUuidCandidates(provider, profile, this.signal) : undefined;
+    this.signal?.throwIfAborted();
+    return { sources, byCwd, byNativeId, skipped, candidates, at: this.now() };
+  }
 }
