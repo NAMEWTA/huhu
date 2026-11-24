@@ -5,6 +5,7 @@ import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { storedDraftContent, uuid, type StoredDraftContent } from "./draft-content.js";
 import { smtpResultSchema, type MailSmtpResult } from "./smtp.js";
+import { mailSourceStamp, readMailProjection, removeMailProjections, saveMailProjection } from "./mail-projection.js";
 
 const outboxDirectory = ".huhu/mail/outbox";
 export const outboxRecordPath = (operationId: string) => `${outboxDirectory}/${operationId}.json`;
@@ -81,6 +82,37 @@ export function deleteDetails({ format, operationId, draftId, revision, messageI
   };
 }
 
+const visibleDelivery = z.strictObject({
+  message: z.strictObject({ source: z.literal("sent"), accountId: uuid, operationId: operationIdSchema, subject: z.string(), date: z.iso.datetime() }),
+  internetId: messageId,
+  delivery: z.strictObject({ operationId: operationIdSchema, recipients: z.array(smtpResultSchema.shape.recipients.element.pick({ address: true, state: true })) }),
+  accepted: z.array(z.string()),
+  from: z.string(),
+});
+export type VisibleDelivery = z.infer<typeof visibleDelivery>;
+
+export function publicDelivery(record: OutboxIntent) {
+  const published = new Set([...record.draft.to, ...record.draft.cc]);
+  const recipients = record.result?.recipients.flatMap(({ address, state }) => (published.has(address) ? [{ address, state }] : [])) ?? [];
+  return {
+    delivery: { operationId: record.operationId, recipients },
+    accepted: recipients.flatMap(({ address, state }) => (state === "accepted" ? [address] : [])),
+    from: record.from.toLowerCase(),
+  };
+}
+
+function indexDelivery(record: OutboxRecord): VisibleDelivery | null {
+  if ("deleted" in record || !record.draft.accountId) return null;
+  return {
+    ...publicDelivery(record),
+    message: {
+      source: "sent", accountId: record.draft.accountId, operationId: record.operationId, subject: record.draft.subject,
+      date: record.result?.finishedAt ?? record.claimedAt,
+    },
+    internetId: record.messageId,
+  };
+}
+
 export class OutboxStorage {
   constructor(private readonly files: HuhuApi["vault"]["files"]) {}
 
@@ -93,20 +125,69 @@ export class OutboxStorage {
     return [...digests];
   }
 
-  *records(onBytes?: (path: string, bytes: Buffer) => void): IterableIterator<OutboxRecord> {
+  private operationIds(): string[] {
     let names: string[];
     try {
       names = readdirSync(this.files.abs(outboxDirectory));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw this.readFailure();
     }
-    for (const name of names) {
+    return names.flatMap((name) => {
       const operationId = name.endsWith(".json") && name.slice(0, -5);
-      if (!operationId || !operationIdSchema.safeParse(operationId).success) continue;
+      return operationId && operationIdSchema.safeParse(operationId).success ? [operationId] : [];
+    });
+  }
+
+  *records(onBytes?: (path: string, bytes: Buffer) => void): IterableIterator<OutboxRecord> {
+    for (const operationId of this.operationIds()) {
       const stored = this.read(operationId, onBytes);
       if (!stored) throw this.readFailure();
       yield stored.record;
+    }
+  }
+
+  async *conversationMetadata(signal: AbortSignal): AsyncIterableIterator<{ stamp: string; value: VisibleDelivery }> {
+    for (const operationId of this.operationIds()) {
+      signal.throwIfAborted();
+      const source = outboxRecordPath(operationId);
+      const stamp = mailSourceStamp(this.files, source);
+      if (!stamp) continue;
+      const cached = readMailProjection(this.files, source, "sent", visibleDelivery.nullable());
+      if (cached?.stamp === stamp && (!cached.value || cached.value.message.operationId === operationId)) {
+        if (cached.value && mailSourceStamp(this.files, source) === stamp) yield { stamp, value: cached.value };
+        continue;
+      }
+      let stored: ReturnType<OutboxStorage["read"]>;
+      try {
+        stored = this.read(operationId);
+      } catch {
+        // Keep one damaged delivery from hiding all other conversations.
+        continue;
+      }
+      if (!stored || mailSourceStamp(this.files, source) !== stamp) continue;
+      const value = indexDelivery(stored.record);
+      await saveMailProjection(this.files, source, "sent", stamp, value);
+      if (value) yield { stamp, value };
+    }
+  }
+
+  async searchText(operationId: string, stamp: string, signal: AbortSignal, remember: boolean): Promise<string> {
+    const source = outboxRecordPath(operationId);
+    if (mailSourceStamp(this.files, source) !== stamp) return "";
+    const cached = readMailProjection(this.files, source, "sent-search", z.string());
+    if (cached?.stamp === stamp && mailSourceStamp(this.files, source) === stamp) return cached.value;
+    try {
+      const record = this.read(operationId)?.record;
+      if (!record || "deleted" in record || mailSourceStamp(this.files, source) !== stamp) return "";
+      const text = record.text.replace(/\s+/g, " ").trim();
+      signal.throwIfAborted();
+      if (remember) await saveMailProjection(this.files, source, "sent-search", stamp, text, signal);
+      signal.throwIfAborted();
+      return text;
+    } catch {
+      signal.throwIfAborted();
+      return "";
     }
   }
 
@@ -125,7 +206,18 @@ export class OutboxStorage {
 
   async write(record: OutboxRecord, expectedVersion: string | null): Promise<{ version: string }> {
     try {
-      return await this.files.write(outboxRecordPath(record.operationId), Buffer.from(JSON.stringify(record) + "\n"), { expectedVersion });
+      const source = outboxRecordPath(record.operationId);
+      const result = await this.files.write(source, Buffer.from(JSON.stringify(record) + "\n"), { expectedVersion });
+      try {
+        const stamp = mailSourceStamp(this.files, source);
+        if (stamp && this.files.currentVersion(source) === result.version) {
+          await saveMailProjection(this.files, source, "sent", stamp, indexDelivery(record));
+          if ("deleted" in record) removeMailProjections(this.files, source, ["sent-search"]);
+        }
+      } catch {
+        // No projection failure changes the authoritative delivery receipt.
+      }
+      return result;
     } catch {
       throw new HuhuError("INTERNAL", "无法保存邮件投递记录", { details: { reason: "outbox-write-failed" } });
     }

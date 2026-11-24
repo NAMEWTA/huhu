@@ -9,10 +9,9 @@ import { isPublicMailFolder } from "../mail-folder-visibility.js";
 import type { AccountRemovals } from "./account-removals.js";
 import type { openMailAccounts } from "./accounts.js";
 import { draftRecipient } from "./draft-content.js";
-import { compareMailCopies, compareMailMessages, mailCopyIdentity, mailFolderRank, receivedMailDate } from "./mail-copies.js";
-import { cachedMailboxMessages, gmailSummary, graphSummary, imapSummary, receivedLocation, receivedTarget } from "./message-cache.js";
-import { operationIdSchema, OutboxStorage, type OutboxIntent } from "./outbox-storage.js";
-import { cachedPublicMail } from "./public-mail.js";
+import { compareMailCopies, compareMailMessages, mailCopyIdentity, mailFolderRank } from "./mail-copies.js";
+import { gmailSummary, graphSummary, imapSummary, readMailboxMetadata, readMailboxSearch, receivedLocation, receivedTarget } from "./message-cache.js";
+import { operationIdSchema, OutboxStorage, publicDelivery } from "./outbox-storage.js";
 import { makeMailSearchText, searchWords } from "./search-text.js";
 import { smtpResultSchema } from "./smtp.js";
 
@@ -56,16 +55,6 @@ type SearchBody = { matches: boolean; excerpt: string };
 type Candidate = { message: ConversationMessage; addresses: string[]; senderNames?: string[]; internetId?: string; rank: number; body?: SearchBody };
 type VisibleMessage = Pick<Candidate, "message" | "body"> & { publicAddresses: Set<string>; senderNames: string[]; outgoingCopies?: ConversationMessage[] };
 type ConversationGroups = Map<string, { participants: string[]; entries: VisibleMessage[] }>;
-
-function publicDelivery(record: OutboxIntent) {
-  const published = new Set([...record.draft.to, ...record.draft.cc]);
-  const recipients = record.result?.recipients.flatMap(({ address, state }) => (published.has(address) ? [{ address, state }] : [])) ?? [];
-  return {
-    delivery: { operationId: record.operationId, recipients },
-    accepted: recipients.flatMap(({ address, state }) => (state === "accepted" ? [address] : [])),
-    from: record.from.toLowerCase(),
-  };
-}
 
 function paginate<T>(rows: T[], { offset, limit }: { offset: number; limit: number }) {
   return { rows: rows.slice(offset, offset + limit), total: rows.length, nextOffset: offset + limit < rows.length ? offset + limit : null };
@@ -141,12 +130,37 @@ function targetOf(message: ConversationMessage): MailLocationTarget {
   return receivedLocation(message);
 }
 
-function sameTarget(message: ConversationMessage, target: MailLocationTarget) {
-  if (message.accountId !== target.accountId) return false;
-  if (target.source === "sent") return message.source === "sent" && message.operationId === target.operationId;
-  if (message.source === "sent" || message.localMessageId !== target.localMessageId || message.folder !== target.folder) return false;
-  if (target.source !== "imap") return message.source === target.source && message.nativeId === target.nativeId;
-  return message.source === "imap" && message.uidValidity === target.uidValidity && message.uid === target.uid;
+function targetKey(target: MailLocationTarget): string {
+  if (target.source === "sent") return JSON.stringify([target.source, target.accountId, target.operationId]);
+  const namespace = [target.source, target.accountId, target.folder, target.localMessageId];
+  return target.source === "imap" ? JSON.stringify([...namespace, target.uidValidity, target.uid]) : JSON.stringify([...namespace, target.nativeId]);
+}
+
+type LocationIndex = { contactIndex: number; row: number; message: ConversationMessage };
+const groupViews = new WeakMap<ConversationGroups, { contacts: ReturnType<typeof summarize>; locations?: Map<string, LocationIndex> }>();
+
+function conversationView(groups: ConversationGroups) {
+  const existing = groupViews.get(groups);
+  if (existing) return existing;
+  const view = { contacts: summarize(groups) };
+  groupViews.set(groups, view);
+  return view;
+}
+
+function locationsOf(groups: ConversationGroups): Map<string, LocationIndex> {
+  const view = conversationView(groups);
+  if (view.locations) return view.locations;
+  const locations = new Map<string, LocationIndex>();
+  for (const [contactIndex, contact] of view.contacts.entries()) {
+    for (const [row, { message, outgoingCopies }] of groups.get(contact.conversationId)!.entries.entries()) {
+      for (const copy of [message, ...(outgoingCopies ?? [])]) {
+        const index = targetKey(targetOf(copy));
+        if (!locations.has(index)) locations.set(index, { contactIndex, row, message });
+      }
+    }
+  }
+  view.locations = locations;
+  return locations;
 }
 
 export const conversationsDescriptors = {
@@ -203,6 +217,7 @@ export function registerConversations(
 ) {
   const files = api.vault.files;
   const outbox = new OutboxStorage(files);
+  const grouped = new Map<string, { stamp: string; groups: ConversationGroups }>();
   function authorize(caller: string, capability: string) {
     requireMailCaller(caller, capability);
   }
@@ -214,20 +229,21 @@ export function registerConversations(
     const selected = rows.filter(({ accountId }) => !scope || scope === accountId);
     const selectedVersions = new Map(selected.map(({ accountId, revision }) => [accountId, revision]));
     const candidates: Candidate[] = [];
+    const stamps: unknown[] = rows.map(({ accountId, revision }) => [accountId, revision]);
     let indexed = 0;
     for (const account of selected) {
       for (const folder of account.definition.folders.filter(isPublicMailFolder)) {
         signal.throwIfAborted();
+        const mailbox = { accountId: account.accountId, folder: folder.path };
         const rank = mailFolderRank(folder);
-        for (const entry of cachedMailboxMessages(files, { accountId: account.accountId, folder: folder.path })) {
-          const info = await cachedPublicMail(entry, !!text);
-          if (!info) continue;
-          const date = receivedMailDate(entry, info);
-          const summary = entry.summary;
+        const projection = await readMailboxMetadata(files, mailbox);
+        stamps.push([mailbox, projection.stamp]);
+        const bodies = text ? await readMailboxSearch(files, mailbox, projection.stamp, searchText, signal, remember) : undefined;
+        for (const { summary, publicMail: info, date } of projection.entries) {
           const message: ConversationMessage = summary.transport === "imap" ? { ...summary, source: "imap", date } : summary.transport === "gmail" ? { ...summary, source: "gmail", date } : { ...summary, source: "graph", date };
           if (text && ++indexed % 16 === 0) await setImmediate(undefined, { signal });
           signal.throwIfAborted();
-          const body = text ? bodyMatch(await searchText.read(entry.source, signal, remember), text) : undefined;
+          const body = text ? bodyMatch(bodies?.get(summary.localMessageId) ?? "", text) : undefined;
           candidates.push({
             message,
             addresses: info.participants,
@@ -240,23 +256,28 @@ export function registerConversations(
       }
     }
     const outgoing = new Map<string, ReturnType<typeof publicDelivery>>();
-    for (const record of outbox.records()) {
-      signal.throwIfAborted();
-      if ("deleted" in record || !record.draft.accountId || !selectedVersions.has(record.draft.accountId)) continue;
-      const { draft, operationId, messageId, result, claimedAt } = record;
-      const message: ConversationMessage = { source: "sent", accountId: record.draft.accountId, operationId, subject: draft.subject, date: result?.finishedAt ?? claimedAt };
-      const sent = publicDelivery(record);
-      outgoing.set(mailCopyIdentity({ message, internetId: messageId }), sent);
-      if (sent.accepted.length) candidates.push({ message, addresses: [], internetId: messageId, rank: 3, ...(text && { body: bodyMatch(record.text.replace(/\s+/g, " ").trim(), text) }) });
+    for await (const { stamp, value } of outbox.conversationMetadata(signal)) {
+      const { message, internetId, ...sent } = value;
+      if (!selectedVersions.has(message.accountId)) continue;
+      stamps.push([message.operationId, stamp]);
+      outgoing.set(mailCopyIdentity({ message, internetId }), sent);
+      if (sent.accepted.length) {
+        const body = text ? bodyMatch(await outbox.searchText(message.operationId, stamp, signal, remember), text) : undefined;
+        candidates.push({ message, addresses: [], internetId, rank: 3, ...(body && { body }) });
+      }
     }
     const active = await activeVersions(selectedVersions, signal);
-    return groupCandidates(
-      candidates.filter(({ message }) => active.has(message.accountId)),
-      own,
-      outgoing,
-      scope,
-      time,
-    );
+    const key = JSON.stringify([scope, time]);
+    const stamp = JSON.stringify([...stamps, [...active]]);
+    const cached = text ? undefined : grouped.get(key);
+    if (cached?.stamp === stamp) return cached.groups;
+    const groups = groupCandidates(candidates.filter(({ message }) => active.has(message.accountId)), own, outgoing, scope, time);
+    if (!text) {
+      grouped.delete(key);
+      if (grouped.size >= 8) grouped.delete(grouped.keys().next().value!);
+      grouped.set(key, { stamp, groups });
+    }
+    return groups;
   }
 
   async function activeVersions(versions: ReadonlyMap<string, string>, signal: AbortSignal) {
@@ -269,7 +290,7 @@ export function registerConversations(
     bindCapability(conversationsDescriptors.conversationsList, async ({ caller, signal }, input) => {
       authorize(caller, "mail.conversations.list");
       const groups = await readGroups(input, signal);
-      const { rows, ...page } = paginate(summarize(groups), input);
+      const { rows, ...page } = paginate(conversationView(groups).contacts, input);
       return { ...page, conversations: rows };
     }),
   );
@@ -309,20 +330,14 @@ export function registerConversations(
     bindCapability(conversationsDescriptors.conversationsFindMessage, async ({ caller, signal }, { target, limit }) => {
       authorize(caller, "mail.conversations.findMessage");
       const groups = await readGroups({ accountId: target.accountId }, signal);
-      const contacts = summarize(groups);
-      for (const [index, contact] of contacts.entries()) {
-        const entries = groups.get(contact.conversationId)!.entries;
-        const row = entries.findIndex(({ message, outgoingCopies }) => sameTarget(message, target) || outgoingCopies?.some((copy) => sameTarget(copy, target)));
-        if (row !== -1) {
-          return {
-            conversationId: contact.conversationId,
-            contactOffset: Math.floor(index / limit) * limit,
-            messageOffset: Math.floor(row / limit) * limit,
-            message: entries[row]!.message,
-          };
-        }
-      }
-      return null;
+      const match = locationsOf(groups).get(targetKey(target));
+      if (!match) return null;
+      return {
+        conversationId: conversationView(groups).contacts[match.contactIndex]!.conversationId,
+        contactOffset: Math.floor(match.contactIndex / limit) * limit,
+        messageOffset: Math.floor(match.row / limit) * limit,
+        message: match.message,
+      };
     }),
   );
   api.defineCapability(
