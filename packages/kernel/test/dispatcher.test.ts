@@ -431,3 +431,75 @@ describe("F15 Dispatcher 取消边界", () => {
     expect(executions).toBe(1);
   });
 });
+
+describe("F16 公共输出投影", () => {
+  test("普通调用、命中旧缓存和回执查询都使用同一输出规则", async () => {
+    const { dir } = setup();
+    const { d, calls } = setup({ exposure: true, extraField: true });
+    const reqLegacy = req("tasks.create", { title: "AB" }, "legacy-output-key");
+    const expected = { ok: true, data: { n: 3 } };
+    for (const caller of ["desktop", "web:fixture", "cli", "mcp", "http"] as const) {
+      const result = await d.call(caller, reqLegacy);
+      expect(result).toEqual({ ok: true, data: { n: 2 + calls() } });
+      expect(await d.call(caller, reqLegacy)).toEqual(result);
+    }
+    expect(calls()).toBe(5);
+
+    const vaultInstance = "vault-for-output";
+    const ledger = new OperationReceipts(path.join(dir, "output-receipts.ndjson"));
+    const owner = JSON.stringify([vaultInstance, "http", "http"]);
+    const { entry } = ledger.claim(owner, reqLegacy.capability, "old-public-result", reqLegacy.input);
+    if (entry.phase !== "accepted") throw new Error("expected fresh test receipt");
+    ledger.complete(entry, "completed", { ok: true, data: { n: 3, privateKey: "discard-me" }, opId: entry.operationId });
+    const replay = setup({ exposure: true, operations: { vaultInstance, ledger } });
+    expect(await replay.d.call("http", { ...reqLegacy, intentKey: "old-public-result" })).toEqual({ ...expected, opId: entry.operationId });
+    const receipt = replay.d.readOperation("http", "http", { operationId: entry.operationId });
+    expect(receipt).toMatchObject({ ok: true, data: { state: "completed", result: expected } });
+    expect(JSON.stringify(receipt)).not.toContain("privateKey");
+    expect(replay.calls()).toBe(0);
+  });
+
+  test("普通写入返回坏 DTO 时副作用只执行一次，缓存和重启也返回待核实", async () => {
+    const { d, calls, dir } = setup({ invalidOutput: true });
+    const request = req("tasks.create", { title: "fixture" }, "bad-output-key");
+    const first = await d.call("desktop", request);
+    expect(first).toMatchObject({ ok: false, error: { code: "INTERNAL", retryable: false, details: { verification: "invalid-output", outcome: "unknown" } } });
+    expect(await d.call("desktop", request)).toEqual(first);
+    expect(calls()).toBe(1);
+    const saved = new IdempotencyStore(path.join(dir, "idem.ndjson")).lookup("desktop", "tasks.create", "bad-output-key", request.input);
+    expect(saved).toMatchObject({ hit: true, result: first });
+    expect(JSON.stringify(saved)).not.toContain("wrong-output-fixture");
+  });
+
+  test("高频递归联合输出每次调用只处理一遍，读错误返回可重试 INTERNAL", async () => {
+    type Item = { kind: "leaf"; value: number } | { kind: "branch"; children: Item[] };
+    let leaves = 0;
+    const item: z.ZodType<Item> = z.lazy(() => z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("leaf"), value: z.number().refine(() => { leaves++; return true; }) }),
+      z.object({ kind: z.literal("branch"), children: z.array(item) }),
+    ]));
+    const registry = new CapabilityRegistry();
+    const children = Array.from({ length: 200 }, (_, value) => ({ kind: "leaf" as const, value, internal: true }));
+    registry.register(defineCapability({
+      name: "test.tree", plugin: "test", scope: "read", input: z.object({ invalid: z.boolean() }), output: item,
+      exposable: true, defaultExposed: false,
+      handler: (_context, { invalid }) => invalid ? { kind: "leaf", value: "bad" as unknown as number } : { kind: "branch", children },
+    }));
+    const dispatcher = new Dispatcher({
+      registry, audit: new GatewayAudit(), idempotency: new IdempotencyStore(),
+      isPluginEnabled: () => true, toolAccess: () => ({ state: "ready", revision: 0, choices: { "test.tree": true } }),
+      pluginOrigin: () => "builtin", grantedPermissions: () => [],
+    });
+    const started = performance.now();
+    for (let run = 0; run < 100; run++) {
+      const result = await dispatcher.call("desktop", req("test.tree", { invalid: false }));
+      expect(result.ok).toBe(true);
+      if (run === 0) expect(result).toEqual({ ok: true, data: { kind: "branch", children: children.map(({ value, kind }) => ({ kind, value })) } });
+    }
+    console.info(`F16 投影测量，100 次调用 / 20,000 个叶节点，${(performance.now() - started).toFixed(1)} ms`);
+    expect(leaves).toBe(20_000);
+    expect(await dispatcher.call("http", req("test.tree", { invalid: true }))).toMatchObject({
+      ok: false, error: { code: "INTERNAL", retryable: true, details: { verification: "invalid-output" } },
+    });
+  });
+});

@@ -616,11 +616,13 @@ describe("Engine 启动与关闭", () => {
     expect(cp.error, JSON.stringify(cp.error)).toBeUndefined();
     const saved2 = (await call("notes.save", { path: note.path, text: "# 历史笔记\n\n第二版\n", expectedVersion: saved.version })).data as { version: string };
     await call("history.checkpoint", { path: note.path, title: "第二版" });
-    const tl = (await call("history.timeline", { path: note.path })).data as { id: string; title: string | null }[];
-    expect(tl.map((t) => t.title).slice(0, 2)).toEqual(["第二版", "第一版"]);
-    expect(((await call("history.read", { path: note.path, entryId: tl[1]?.id })).data as { text: string }).text).toContain("第一版");
-    expect((await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: "wrong" })).error?.code).toBe("VERSION_CONFLICT");
-    const rest = await call("history.restore", { path: note.path, entryId: tl[1]?.id, expectedCurrentVersion: saved2.version });
+    const tl = (await call("history.timeline", { path: note.path })).data as { id: string; source: string; title: string | null }[];
+    const named = tl.filter(({ source }) => source === "checkpoint");
+    expect(named.map((entry) => entry.title).slice(0, 2)).toEqual(["第二版", "第一版"]);
+    const firstId = named[1]!.id;
+    expect(((await call("history.read", { path: note.path, entryId: firstId })).data as { text: string }).text).toContain("第一版");
+    expect((await call("history.restore", { path: note.path, entryId: firstId, expectedCurrentVersion: "wrong" })).error?.code).toBe("VERSION_CONFLICT");
+    const rest = await call("history.restore", { path: note.path, entryId: firstId, expectedCurrentVersion: saved2.version });
     expect(rest.error, JSON.stringify(rest.error)).toBeUndefined();
     expect(((await call("notes.read", { path: note.path })).data as { text: string }).text).toContain("第一版");
     for (const directory of ["Automation Runs", "Task Runs"]) {
