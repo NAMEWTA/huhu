@@ -1,6 +1,6 @@
 import net from "node:net";
 import { HuhuError } from "@huhu/contracts";
-import { FrameDecoder, FrameKind, creditFrame, encodeFrame, resizeFrame, type Frame } from "./frames.js";
+import { FrameDecoder, FrameKind, MAX_PAYLOAD, creditFrame, encodeFrame, resizeFrame, type Frame } from "./frames.js";
 
 export interface RpcError {
   code: number;
@@ -21,7 +21,10 @@ export class HerdrError extends Error {
 interface Pending {
   resolve(v: unknown): void;
   reject(e: unknown): void;
+  switchToFramed: boolean;
 }
+
+const MAX_PLAIN_LINE_BYTES = MAX_PAYLOAD;
 
 export interface HerdrClientOptions {
   /** Unix socket 路径或 Windows 命名管道名。 */
@@ -40,7 +43,9 @@ export class HerdrClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private framed = false;
-  private lineBuf = "";
+  private readonly plainUtf8 = new TextDecoder("utf-8", { fatal: true });
+  private lineBuffer = Buffer.alloc(0);
+  private lineLength = 0;
   private decoder = new FrameDecoder();
   private streams = new Map<number, (f: Frame) => void>();
   /** attach 回复之后、订阅注册之前到达的流帧先缓存，避免丢首屏。 */
@@ -73,6 +78,9 @@ export class HerdrClient {
         s.on("error", () => undefined); // 连接建立后的错误（ECONNRESET 等）由 close 事件处理，不能变成未捕获异常
         s.on("close", () => {
           for (const p of this.pending.values()) p.reject(new HuhuError("HERDR_UNAVAILABLE", "与 Herdr Core 的连接已断开"));
+          this.clearPlainLine();
+          this.framed = false;
+          this.decoder = new FrameDecoder();
           this.socket = null;
           this.o.onClose?.();
         });
@@ -88,29 +96,49 @@ export class HerdrClient {
     try {
       this.handleData(d);
     } catch {
-      this.socket?.destroy(); // 帧格式异常：断开连接（挂起的调用被拒绝），不让异常冒泡到进程
+      this.socket?.destroy(); // 协议数据异常：关闭连接并拒绝挂起的调用。
     }
   }
 
-  private handleData(d: Buffer): void {
-    if (!this.framed) {
-      this.lineBuf += d.toString("utf8");
-      let i: number;
-      while ((i = this.lineBuf.indexOf("\n")) >= 0) {
-        const line = this.lineBuf.slice(0, i).trim();
-        this.lineBuf = this.lineBuf.slice(i + 1);
-        if (line) this.onMessage(line);
-        if (this.framed) {
-          // 切换后剩余字节按帧解析
-          const rest = Buffer.from(this.lineBuf, "utf8");
-          this.lineBuf = "";
-          if (rest.length) this.dispatchFrames(this.decoder.push(rest));
-          return;
-        }
-      }
-      return;
+  private bufferPlainBytes(part: Buffer): void {
+    const length = this.lineLength + part.length;
+    if (length > this.lineBuffer.length) {
+      const capacity = Math.max(length, Math.min(MAX_PLAIN_LINE_BYTES, this.lineBuffer.length * 2));
+      const grown = Buffer.allocUnsafe(capacity);
+      this.lineBuffer.copy(grown, 0, 0, this.lineLength);
+      this.lineBuffer = grown;
     }
-    this.dispatchFrames(this.decoder.push(d));
+    part.copy(this.lineBuffer, this.lineLength);
+    this.lineLength = length;
+  }
+
+  private clearPlainLine(): void {
+    this.lineBuffer = Buffer.alloc(0);
+    this.lineLength = 0;
+  }
+
+  private handleData(d: Buffer): void {
+    let start = 0;
+    while (!this.framed && start < d.length) {
+      const newline = d.indexOf(0x0a, start);
+      const part = d.subarray(start, newline < 0 ? d.length : newline);
+      if (this.lineLength + part.length > MAX_PLAIN_LINE_BYTES) throw new RangeError("Herdr JSON-RPC 行超过 16 MiB");
+      if (newline < 0) {
+        this.bufferPlainBytes(part);
+        return;
+      }
+      let bytes = part;
+      if (this.lineLength) {
+        this.bufferPlainBytes(part);
+        bytes = this.lineBuffer.subarray(0, this.lineLength);
+        this.clearPlainLine();
+      }
+      const line = this.plainUtf8.decode(bytes).trim();
+      if (line) this.onMessage(line);
+      start = newline + 1;
+    }
+    // hello 回执之后同一块的剩余内容已经是帧，原字节直接交给帧解码器。
+    if (start < d.length) this.dispatchFrames(this.decoder.push(d.subarray(start)));
   }
 
   private dispatchFrames(frames: Frame[]): void {
@@ -135,12 +163,19 @@ export class HerdrClient {
       const p = this.pending.get(msg.id);
       if (!p) return;
       if (msg.error) p.reject(new HerdrError(msg.error));
-      else p.resolve(msg.result);
+      else {
+        if (p.switchToFramed) this.framed = true;
+        p.resolve(msg.result);
+      }
     } else if (msg.method === "event" && msg.params) this.o.onEvent?.(msg.params);
     else if (msg.method) this.o.onNotify?.(msg.method, msg.params);
   }
 
   call<T = unknown>(method: string, params: unknown = {}, signal?: AbortSignal): Promise<T> {
+    return this.request(method, params, signal, false);
+  }
+
+  private request<T>(method: string, params: unknown, signal: AbortSignal | undefined, switchToFramed: boolean): Promise<T> {
     if (signal?.aborted) return Promise.reject(signal.reason);
     const s = this.socket;
     if (!s) return Promise.reject(new HuhuError("HERDR_UNAVAILABLE", "尚未连接 Herdr Core"));
@@ -159,6 +194,7 @@ export class HerdrClient {
       const onAbort = () => fail(signal?.reason);
       const timer = setTimeout(() => fail(new HuhuError("HERDR_UNAVAILABLE", `Herdr 调用超时：${method}`)), this.o.timeoutMs ?? 10_000);
       this.pending.set(id, {
+        switchToFramed,
         resolve: (value) => {
           cleanup();
           resolve(value as T);
@@ -176,10 +212,8 @@ export class HerdrClient {
   }
 
   /** 切换到 framed 模式（attach 需要）。 */
-  async hello(signal?: AbortSignal): Promise<unknown> {
-    const r = await this.call("hello", { framed: true }, signal);
-    this.framed = true;
-    return r;
+  hello(signal?: AbortSignal): Promise<unknown> {
+    return this.request("hello", { framed: true }, signal, true);
   }
 
   onStream(channel: number, fn: (f: Frame) => void): () => void {
