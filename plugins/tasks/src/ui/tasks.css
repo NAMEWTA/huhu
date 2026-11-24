@@ -244,6 +244,7 @@
     min-height: 180px;
     max-height: 360px;
     overflow: auto;
+    padding: 12px;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-control);
     background: var(--panel);

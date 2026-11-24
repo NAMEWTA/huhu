@@ -1,7 +1,7 @@
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { normalizeTag, type TaskDto, type TaskHistorySelection } from "@huhu/contracts";
-import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton } from "@huhu/ui";
+import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton, Select } from "@huhu/ui";
 import { createRequestId, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
 import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
 import { useId, useMemo, useRef, useState } from "react";
@@ -61,7 +61,7 @@ function DispatchTargetSelect({ spaceId, target, error, onChange }: { spaceId: s
       <label className="hu-field-label" htmlFor={field}>
         会话目标
       </label>
-      <select
+      <Select
         id={field}
         name="executionTarget"
         value={value}
@@ -92,7 +92,7 @@ function DispatchTargetSelect({ spaceId, target, error, onChange }: { spaceId: s
             ))}
           </optgroup>
         ) : null}
-      </select>
+      </Select>
       {message ? (
         <p id={`${field}-error`} className="hu-field-error">
           {message}
@@ -217,18 +217,19 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   return (
     <Dialog open wide testId="task-editor" title={task ? t.editor.editTitle : t.editor.newTitle} description={t.editor.description} onClose={requestClose}>
       <form
+        className="hu-form-columns"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
         }}
       >
-        <div className="hu-tw-editor-grid">
-          <div className="automations-editor-body">
+        <div className="hu-form-grid">
+          <div className="hu-form-primary">
             <Field label={t.editor.name} error={err("title")}>
               <input autoFocus aria-label={t.editor.name} aria-invalid={problems.includes("title") || undefined} value={draft.title} maxLength={200} onChange={(e) => set("title", e.target.value)} placeholder={t.editor.namePlaceholder} />
             </Field>
             <Field label={t.editor.body}>
-              <div className="automations-description-input tasks-body-editor" data-testid="task-body">
+              <div className="tasks-body-editor" data-testid="task-body">
                 <TaskMarkdownInput id={`task-body-${start?.id ?? "new"}`} value={draft.body} onChange={(v) => set("body", v)} onPort={setBodyPort} refs={refs} placeholder={t.editor.bodyLabel} />
               </div>
               <p className="tasks-hint">{t.editor.bodyHint}</p>
@@ -269,7 +270,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
             </Field>
             <div className="tasks-two-fields">
               <Field label={t.editor.due}>
-                <DateTimePicker label={t.editor.due} mode="date" value={draft.due} onChange={(v) => set("due", v)} testId="task-due" />
+                <DateTimePicker label={t.editor.due} field={{ kind: "date", value: draft.due }} onChange={(next) => { if (next.kind === "date") set("due", next.value); }} data-testid="task-due" />
               </Field>
               <Field label={t.editor.project}>
                 <Combobox
@@ -288,17 +289,19 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
               <label className="hu-field-label" htmlFor={availableField}>
                 最早派遣时间
               </label>
-              <input
+              <DateTimePicker
+                label="最早派遣时间"
                 id={availableField}
                 name="availableAt"
-                type="datetime-local"
-                value={wall}
+                field={{ kind: "local-date-time", zone: scheduleZone ?? "", value: wall ? { local: wall } : null }}
+                step={60}
                 disabled={!scheduleZone}
                 data-testid="task-available-at"
                 aria-invalid={Boolean(availableError) || undefined}
                 aria-describedby={`${availableField}-hint${availableError ? ` ${availableField}-error` : ""}`}
-                onChange={(event) => {
-                  setWallOverride(event.target.value);
+                onChange={(next) => {
+                  if (next.kind !== "local-date-time") return;
+                  setWallOverride(next.value?.local.slice(0, 16) ?? "");
                   setInstantChoice("");
                   setAvailableError("");
                 }}
@@ -335,13 +338,13 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
               ) : null}
             </div>
           </div>
-          <aside className="automations-editor-aside">
+          <aside className="hu-form-aside">
             <div className="tasks-execution-fields">
               <Field label={t.editor.type}>
-                <select aria-label={t.editor.type} value={draft.type} onChange={(e) => set("type", e.target.value === "agent" ? "agent" : "human")} data-testid="task-type">
+                <Select aria-label={t.editor.type} value={draft.type} onChange={(e) => set("type", e.target.value === "agent" ? "agent" : "human")} data-testid="task-type">
                   <option value="human">{t.editor.human}</option>
                   <option value="agent">{t.editor.agent}</option>
-                </select>
+                </Select>
               </Field>
               {draft.type === "agent" ? (
                 <div className="tasks-execution-fields" data-testid="task-agent-fields">
@@ -349,14 +352,14 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                     {spaces.data && spaces.data.length === 0 ? (
                       <p className="tasks-hint">{t.editor.spaceEmpty}</p>
                     ) : (
-                      <select aria-label={t.editor.space} value={draft.spaceId ?? ""} onChange={(e) => chooseSpace(e.target.value || null)}>
+                      <Select aria-label={t.editor.space} value={draft.spaceId ?? ""} onChange={(e) => chooseSpace(e.target.value || null)}>
                         <option value="">{t.editor.spaceNone}</option>
                         {(spaces.data ?? []).map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name} · {s.root}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     )}
                     {host()?.pickOpenPath ? (
                       <Button icon={FolderOpen} data-testid="task-pick-dir" onClick={() => void chooseLocalDir()}>
@@ -381,35 +384,35 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                         {providers.data && usable.length === 0 ? (
                           <p className="tasks-hint">{t.editor.cliEmpty}</p>
                         ) : (
-                          <select aria-label={t.editor.cliLabel} value={draft.provider ?? ""} onChange={(e) => setDraft((d) => ({ ...d, provider: e.target.value || null, model: null, effort: null }))}>
+                          <Select aria-label={t.editor.cliLabel} value={draft.provider ?? ""} onChange={(e) => setDraft((d) => ({ ...d, provider: e.target.value || null, model: null, effort: null }))}>
                             <option value="">{t.editor.cliNone}</option>
                             {usable.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.displayName}
                               </option>
                             ))}
-                          </select>
+                          </Select>
                         )}
                       </Field>
                       <Field label={t.editor.model}>
-                        <select aria-label={t.editor.model} value={draft.model ?? ""} disabled={models.length === 0} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value || null, effort: null }))}>
+                        <Select aria-label={t.editor.model} value={draft.model ?? ""} disabled={models.length === 0} onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value || null, effort: null }))}>
                           <option value="">{t.editor.modelDefault}</option>
                           {models.map((m) => (
                             <option key={m.id} value={m.id}>
                               {m.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </Field>
                       <Field label={t.editor.effort}>
-                        <select aria-label={t.editor.effort} value={draft.effort ?? ""} disabled={!model || model.efforts.length === 0} onChange={(e) => set("effort", e.target.value || null)}>
+                        <Select aria-label={t.editor.effort} value={draft.effort ?? ""} disabled={!model || model.efforts.length === 0} onChange={(e) => set("effort", e.target.value || null)}>
                           <option value="">{t.editor.effortDefault}</option>
                           {(model?.efforts ?? []).map((x) => (
                             <option key={x} value={x}>
                               {x}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </Field>
                       {canFast ? (
                         <label className="row">
@@ -434,14 +437,14 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
               {draft.reminders.map((r, i) => (
                 <div key={r.id} className="hu-tw-reminder-config" data-testid="reminder-row">
                   <div>
-                    <select aria-label={t.editor.reminderChannel(i + 1)} value="in_app" onChange={() => undefined}>
+                    <Select aria-label={t.editor.reminderChannel(i + 1)} value="in_app" onChange={() => undefined}>
                       <option value="in_app">{t.editor.channelInApp}</option>
                       {t.editor.channelUnsupported.map((c) => (
                         <option key={c} disabled>
                           {c}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                     <IconButton
                       icon={X}
                       label={t.editor.removeReminder(i + 1)}
@@ -455,15 +458,12 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                   </div>
                   <DateTimePicker
                     label={t.editor.reminderAt(i + 1)}
-                    mode="datetime"
-                    value={r.at}
+                    field={{ kind: "instant", value: r.at }}
                     clearable={false}
-                    onChange={(v) =>
-                      set(
-                        "reminders",
-                        draft.reminders.map((x) => (x.id === r.id ? { ...x, at: v, deliveredAt: null } : x)),
-                      )
-                    }
+                    onChange={(next) => {
+                      if (next.kind !== "instant") return;
+                      set("reminders", draft.reminders.map((x) => (x.id === r.id ? { ...x, at: next.value, deliveredAt: null } : x)));
+                    }}
                   />
                   {r.deliveredAt ? <small>{t.editor.delivered}</small> : null}
                 </div>
@@ -481,7 +481,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
             {t.editor.saveFailed}：{failure}
           </p>
         ) : null}
-        <div className="automations-modal-actions">
+        <div className="hu-form-actions">
           {discard ? (
             <>
               <span role="alert">{t.editor.discardTitle}</span>

@@ -1,5 +1,6 @@
 import type { MiddlewareState } from '@floating-ui/dom';
 import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom';
+import { invokerOverlayContainer } from '@huhu/ui';
 import type { Editor } from '@tiptap/core';
 import type { SuggestionProps } from '@tiptap/suggestion';
 import {
@@ -32,19 +33,32 @@ export function suggestionHasSelectableItem(view: object): boolean {
 
 const SUGGESTION_TWO_COLUMN_MIN_PX = 488;
 
-function buildMiddleware(popup: HTMLDivElement, editor: Editor | undefined) {
+function buildMiddleware(popup: HTMLDivElement, editor: Editor | undefined, dialog: HTMLElement | undefined) {
   const applySize = {
-    apply({ availableHeight }: { availableHeight: number }) {
+    apply({ availableHeight, availableWidth }: { availableHeight: number; availableWidth: number }) {
       if (popup.isConnected) {
         popup.style.setProperty(
           '--suggestion-menu-max-height',
-          `${Math.min(availableHeight, window.innerHeight * 0.4)}px`,
+          `${Math.max(0, Math.min(availableHeight, window.innerHeight * 0.4))}px`,
         );
+        if (dialog) popup.style.maxWidth = `${Math.max(0, availableWidth)}px`;
       }
     },
   };
-  if (!editor) {
-    return [offset(SUGGESTION_ANCHOR_GAP_PX), flip(), shift({ padding: 8 }), size(applySize)];
+  if (!editor || dialog) {
+    const collision = dialog ? { boundary: dialog, padding: 8 } : { padding: 8 };
+    return [
+      offset(SUGGESTION_ANCHOR_GAP_PX),
+      flip(collision),
+      shift(collision),
+      size({
+        ...collision,
+        apply(state) {
+          applySize.apply(state);
+          if (dialog) applyColumnCount(popup, Math.max(0, state.availableWidth));
+        },
+      }),
+    ];
   }
   const clipOptions = deriveEditorClipOptions(editor);
   const capWidth = deriveEditorSizeOptions(editor);
@@ -56,7 +70,7 @@ function buildMiddleware(popup: HTMLDivElement, editor: Editor | undefined) {
       const regionWidth = editorRegionWidthPx(editor);
       return {
         ...clipOptions(),
-        apply(state: MiddlewareState & { availableHeight: number }) {
+        apply(state: MiddlewareState & { availableHeight: number; availableWidth: number }) {
           applyWidthCap(state);
           applySize.apply(state);
           applyColumnCount(popup, regionWidth);
@@ -89,14 +103,18 @@ export function createSuggestionPopup(
   startAutoUpdate: () => () => void;
   reveal: () => void;
 } {
-  const popup = document.createElement('div');
+  const invoker = getCurrentProps()?.editor.view.dom;
+  const owner = invoker?.ownerDocument ?? document;
+  const container = invoker ? invokerOverlayContainer(invoker) : owner.body;
+  const dialog = container?.matches('dialog[open]') ? container : undefined;
+  const popup = owner.createElement('div');
   popup.className = 'ok-root editor-ok-portal';
   popup.dataset.suggestionPopup = label;
   if (clipToEditorPane) popup.dataset.suggestionClipped = '';
   popup.style.position = 'fixed';
   popup.style.zIndex = '70';
   popup.style.visibility = 'hidden';
-  document.body.appendChild(popup);
+  container?.appendChild(popup);
 
   const virtualEl = {
     getBoundingClientRect: () => getCurrentProps()?.clientRect?.() ?? new DOMRect(),
@@ -114,7 +132,8 @@ export function createSuggestionPopup(
     const editor = clipToEditorPane ? getCurrentProps()?.editor : undefined;
     computePosition(virtualEl, popup, {
       placement: 'bottom-start',
-      middleware: buildMiddleware(popup, editor),
+      strategy: 'fixed',
+      middleware: buildMiddleware(popup, editor, dialog),
     })
       .then(({ x, y }) => {
         if (popup.isConnected) {

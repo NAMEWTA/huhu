@@ -232,6 +232,14 @@ dialog.hu-modal {
   color: inherit;
   margin: auto;
 }
+dialog.hu-modal[open]:has(> .hu-modal-body > .hu-form-columns) {
+  display: flex;
+  flex-direction: column;
+}
+.hu-modal-body:has(> .hu-form-columns) {
+  display: flex;
+  min-block-size: 0;
+}
 dialog.hu-modal::backdrop {
   background: var(--overlay-scrim);
   backdrop-filter: blur(3px);

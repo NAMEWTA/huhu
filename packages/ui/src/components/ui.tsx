@@ -1,5 +1,10 @@
 import { CheckCircle2, Circle, Loader2, Search, X, type LucideIcon } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, ReactNode, Ref } from "react";
+
+/** Native select semantics, shared workbench styling for the control and its picker. */
+export function Select({ className = "", ...props }: ComponentProps<"select">) {
+  return <select {...props} className={`hu-select ${className}`.trimEnd()} />;
+}
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -29,6 +34,7 @@ export function Button({ variant = "secondary", loading = false, icon: Icon, dis
 }
 
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
+  ref?: Ref<HTMLButtonElement>;
   icon: LucideIcon;
   /** 无障碍名称，同时作为悬停提示。 */
   label: string;

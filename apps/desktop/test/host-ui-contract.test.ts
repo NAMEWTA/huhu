@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { afterEach, expect, test, vi } from "vitest";
-import { dismissChildOnEscape, HostDateField, overlayContainer } from "../../../packages/ui/src/components/host-ui.js";
+import { dismissChildOnEscape, HostDateField, invokerOverlayContainer, overlayContainer } from "../../../packages/ui/src/components/host-ui.js";
+import { isoToLocalInput, localInputToIso } from "../../../packages/ui/src/components/datetime.js";
 
 afterEach(() => document.body.replaceChildren());
 
@@ -51,6 +52,20 @@ test("编辑器的普通文档使用主题工作台，内嵌编辑器使用最�
   expect(overlayContainer(workbench, editor)).toBeNull();
 });
 
+test("按实际触发项区分工作台和独立挂载，关闭的子对话框不会取得浮层", () => {
+  const { workbench, dialog, field, editor } = showWorkbench();
+  workbench.classList.add("hu-app");
+  expect(invokerOverlayContainer(editor)).toBe(workbench);
+  const nested = document.createElement("dialog");
+  nested.append(field);
+  dialog.append(nested);
+  expect(invokerOverlayContainer(field)).toBe(dialog);
+  nested.open = true;
+  expect(invokerOverlayContainer(field)).toBe(nested);
+  document.body.append(editor);
+  expect(invokerOverlayContainer(editor)).toBe(document.body);
+});
+
 test("命令菜单让进行中的输入法组合保留 Escape，也允许上层处理无子菜单的事件", () => {
   const { editor } = showWorkbench();
   const close = vi.fn();
@@ -71,5 +86,25 @@ test("编辑器日期、Automation 排程和无日期值按三类输入落地", 
   expect(HostDateField.parse(repeated)).toEqual(repeated);
   expect(HostDateField.parse({ ...repeated, value: null })).toEqual({ kind: "local-date-time", zone: repeated.zone, value: null });
   expect(HostDateField.safeParse({ ...repeated, value: { local: "2026-11-01T01:30:00Z" } }).success).toBe(false);
+  expect(HostDateField.safeParse({ ...repeated, value: { local: "2026-11-01T01:30" } }).success).toBe(true);
   expect(HostDateField.safeParse({ ...repeated, zone: "fake-zone" }).success).toBe(false);
+});
+
+test("绝对时刻编辑保留非零秒，拒绝归一化后的无效日期与时间", () => {
+  const instant = "2026-11-24T01:30:10Z";
+  expect(isoToLocalInput(instant)).toMatch(/:10$/);
+  expect(localInputToIso(isoToLocalInput(instant))).toBe(instant);
+  expect(localInputToIso("2026-02-30T02:15")).toBe("");
+  expect(localInputToIso("")).toBe("");
+});
+
+test("本地时钟无法唯一表示绝对时刻时必须由用户重新选择", () => {
+  vi.stubEnv("TZ", "America/New_York");
+  try {
+    expect(localInputToIso("2026-03-08T02:30")).toBe("");
+    expect(localInputToIso("2026-11-01T01:30")).toBe("");
+    expect(localInputToIso("2026-11-01T02:30:10")).toBe("2026-11-01T07:30:10Z");
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

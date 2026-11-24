@@ -1,12 +1,5 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
-  .automations-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 16px 24px;
-    border-top: 1px solid var(--line);
-  }
   .hu-module-layout.hu-tw-workbench {
     display: flex;
     height: 100%;
@@ -116,29 +109,6 @@
     font-size: 13px;
     font-weight: 550;
     margin: 20px 0 12px;
-  }
-  .hu-tw-editor-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
-    min-height: 0;
-    max-height: calc(100dvh - 200px);
-    overflow: auto;
-  }
-  .automations-editor-body {
-    display: flex;
-    flex-direction: column;
-    gap: 19px;
-    min-width: 0;
-    padding: 24px;
-  }
-  .automations-editor-aside {
-    display: flex;
-    flex-direction: column;
-    gap: 19px;
-    min-width: 0;
-    padding: 24px 20px;
-    border-left: 1px solid var(--line);
-    background: var(--bg);
   }
   .automations-description-input {
     min-height: 220px;
@@ -282,11 +252,6 @@
     }
   }
   @media (max-width: 1000px) {
-    .hu-tw-editor-grid {
-      grid-template-columns: minmax(0, 1fr) 270px;
-    }
-  }
-  @media (max-width: 1000px) {
     .hu-tw-heading {
       padding: 18px 16px;
     }
@@ -309,17 +274,6 @@
     }
   }
   @media (max-width: 780px) {
-    .hu-tw-editor-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-  @media (max-width: 780px) {
-    .automations-editor-aside {
-      border-left: 0;
-      border-top: 1px solid var(--line);
-    }
-  }
-  @media (max-width: 780px) {
     .hu-tw-search {
       flex: 1;
     }
@@ -336,8 +290,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
-    .hu-tw-workbench *,
-    .hu-tw-editor-grid * {
+    .hu-tw-workbench * {
       animation: none !important;
       transition: none !important;
     }
@@ -349,14 +302,6 @@
   .hu-btn-ghost:hover:not(:disabled) {
     background: var(--muted-bg);
     color: var(--text);
-  }
-  .automations-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 16px 0 0;
-    margin-top: 16px;
-    border-top: 1px solid var(--line);
   }
   .hu-tw-workbench .hu-btn-danger {
     color: var(--danger-fg);

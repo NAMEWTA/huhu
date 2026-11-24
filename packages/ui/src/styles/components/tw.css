@@ -220,15 +220,68 @@
   font-size: 11px;
   margin-top: 12px;
 }
-.hu-tw-editor-grid .hu-field {
+.hu-form-columns {
+  container: hu-form / inline-size;
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  min-block-size: 0;
+}
+.hu-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-block-size: 0;
+  overflow: auto;
+}
+.hu-form-primary,
+.hu-form-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 19px;
+  min-inline-size: 0;
+  padding: clamp(10px, 4cqi, 24px);
+  overflow-wrap: anywhere;
+}
+.hu-form-aside {
+  border-block-start: 1px solid var(--line);
+  background: var(--bg);
+}
+@container hu-form (min-width: 660px) {
+  .hu-form-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 38%);
+  }
+  .hu-form-aside {
+    border-block-start: 0;
+    border-inline-start: 1px solid var(--line);
+  }
+}
+.hu-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-block-start: 16px;
+  margin-block-start: 16px;
+  border-block-start: 1px solid var(--line);
+}
+.hu-form-grid .hu-field {
   margin: 0;
   min-width: 0;
 }
-.hu-tw-editor-grid input,
-.hu-tw-editor-grid select,
-.hu-tw-editor-grid textarea {
+.hu-form-grid input:not([type="radio"], [type="checkbox"]),
+.hu-form-grid select,
+.hu-form-grid textarea {
   font-size: 12px;
   width: 100%;
+  min-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* stylelint-disable declaration-no-important -- 减少动效：必须压过组件自己的动画 / 过渡声明 */
+  .hu-form-grid * {
+    animation: none !important;
+    transition: none !important;
+  }
+  /* stylelint-enable declaration-no-important */
 }
 .hu-tw-section-label > .hu-btn {
   margin-left: auto;

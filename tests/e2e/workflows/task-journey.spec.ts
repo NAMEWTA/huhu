@@ -269,8 +269,8 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     await editor.getByTestId("task-type").selectOption("agent");
     await editor.getByRole("combobox", { name: "工作目录（Space）" }).selectOption(space!.id);
     const select = editor.getByRole("combobox", { name: "会话目标" });
-    const selected = select.getByRole("option", { name: /SELECTED-HISTORY-B/ });
-    await expect(select.getByRole("option", { name: /OLDER-HISTORY-A/ })).toBeEnabled();
+    const selected = select.locator("option").filter({ hasText: "SELECTED-HISTORY-B" });
+    await expect(select.locator("option").filter({ hasText: "OLDER-HISTORY-A" })).toBeEnabled();
     await expect(selected).toBeEnabled();
     await select.selectOption((await selected.getAttribute("value")) ?? "");
     await editor.getByTestId("task-save").click();
