@@ -27,7 +27,7 @@ export class Trash {
   }
 
   moveIn(rel: string, noteId: string | null = null): TrashMeta {
-    this.files.assertWritable();
+    this.files.guardSynchronousCommit([rel]);
     const abs = this.files.abs(rel);
     if (!existsSync(abs)) throw errors.notFound(`文件不存在：${rel}`);
     const trashId = `trash-${this.now().getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -61,6 +61,7 @@ export class Trash {
     const meta = this.list().find((m) => m.trashId === trashId);
     if (!meta) throw errors.notFound("回收站条目不存在");
     const target = newPath ?? meta.originalPath;
+    this.files.guardSynchronousCommit([`${HUHU_DIR}/trash/${trashId}`, target]);
     if (existsSync(this.files.abs(target))) throw errors.nameConflict(target);
     mkdirSync(path.dirname(this.files.abs(target)), { recursive: true });
     renameSync(path.join(this.dir(), trashId, path.basename(meta.originalPath)), this.files.abs(target));
@@ -71,6 +72,7 @@ export class Trash {
   deletePermanent(trashId: string): void {
     this.files.assertWritable();
     assertTrashId(trashId);
+    this.files.guardSynchronousCommit([`${HUHU_DIR}/trash/${trashId}`]);
     rmSync(path.join(this.dir(), trashId), { recursive: true, force: true });
   }
 }

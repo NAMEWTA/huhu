@@ -5,7 +5,7 @@ import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { exportPackage, OperationLog, ReceiptLog, VaultFiles, versionOf } from "../src/index.js";
+import { exportPackage, OperationLog, ReceiptLog, Trash, VaultFiles, versionOf } from "../src/index.js";
 import * as moves from "../src/rename.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -244,6 +244,118 @@ describe("VaultFiles", () => {
 const read = (root: string, f: string) => (existsSync(path.join(root, f)) ? readFileSync(path.join(root, f), "utf8") : null);
 
 describe("多文件操作", () => {
+  test.each(["write", "delete", "rename"] as const)("在途条件写先于多文件 %s 提交，旧版本不得同时成功", async (action) => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(new VaultFiles(root), ops);
+    const old = versionOf(Buffer.from("A-old"));
+    const accepted = files.write("a.md", Buffer.from("first"), { expectedVersion: old });
+    const step =
+      action === "write"
+        ? { action, path: "a.md", bytes: Buffer.from("stale") }
+        : action === "rename"
+          ? { action, from: "a.md", path: "moved.md" }
+          : { action, path: "a.md" };
+    const stale = expect(log.run("stale", action, [step])).rejects.toMatchObject({
+      code: "VERSION_CONFLICT",
+      details: { path: "a.md", currentVersion: versionOf(Buffer.from("first")) },
+    });
+    await expect(accepted).resolves.toEqual({ version: versionOf(Buffer.from("first")) });
+    await stale;
+    expect(read(root, "a.md")).toBe("first");
+    expect(read(root, "moved.md")).toBeNull();
+  });
+
+  test.each(["delete", "rename"] as const)("先排队的 %s 提交后迟到的旧写入不能复生原路径", async (action) => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const expectedVersion = files.currentVersion("a.md")!;
+    const step = action === "rename" ? { action, from: "a.md", path: "A.md", caseOnly: true as const } : { action, path: "a.md" };
+    const moved = log.run("move-first", action, [step]);
+    const stale = files.write("./a.md", Buffer.from("stale"), { expectedVersion });
+    const insensitive = action === "rename" && existsSync(path.join(root, "A.md"));
+    if (insensitive) {
+      // A case alias still addresses the same published entry and its current version.
+      await expect(stale).resolves.toEqual({ version: versionOf(Buffer.from("stale")) });
+    } else {
+      await expect(stale).rejects.toMatchObject({ code: "NOT_FOUND" });
+    }
+    await expect(moved).resolves.toMatchObject({ state: "committed", steps: [{ done: true }] });
+    expect(readdirSync(root)).not.toContain("a.md");
+    if (action === "rename") expect(read(root, "A.md")).toBe(insensitive ? "stale" : "A-old");
+  });
+
+  test("在真正发布前重新比较版本，保留暂存期间到达的外部改动", async () => {
+    const { root } = init();
+    const files = new VaultFiles(root);
+    const expectedVersion = files.currentVersion("a.md")!;
+    await expect(
+      files.write("a.md", Buffer.from("mine"), {
+        expectedVersion,
+        beforeCommit: () => writeFileSync(path.join(root, "a.md"), "outside"),
+      }),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT", details: { currentVersion: versionOf(Buffer.from("outside")) } });
+    expect(read(root, "a.md")).toBe("outside");
+    expect(files.receipts.consume("a.md", versionOf(Buffer.from("mine")))).toBe(false);
+  });
+
+  test("外部更新在队列等待期间落盘，两个等待的旧版本操作都拒绝提交", async () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const blocker = files.withCommit(["a.md"], () => writeFileSync(path.join(root, "a.md"), "outside"));
+    const old = versionOf(Buffer.from("A-old"));
+    const staleWrite = files.write("a.md", Buffer.from("stale"), { expectedVersion: old });
+    const staleDelete = log.run("stale-delete", "delete", [{ action: "delete", path: "a.md", expectedVersion: old }]);
+    const errors = [staleWrite, staleDelete].map((result) => expect(result).rejects.toMatchObject({ code: "VERSION_CONFLICT", details: { currentVersion: versionOf(Buffer.from("outside")) } }));
+    await blocker;
+    await Promise.all(errors);
+    expect(read(root, "a.md")).toBe("outside");
+  });
+
+  test("目录移动与后代条件写共用预留边界，旧目录不会被重建", async () => {
+    const { root, ops } = init();
+    mkdirSync(path.join(root, "folder"));
+    writeFileSync(path.join(root, "folder/note.md"), "old");
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const moved = log.run("folder", "rename", [{ action: "rename", from: "folder", path: "next" }]);
+    await expect(files.write("folder/note.md", Buffer.from("late"), { expectedVersion: versionOf(Buffer.from("old")) })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await moved).state).toBe("committed");
+    expect(existsSync(path.join(root, "folder"))).toBe(false);
+    expect(read(root, "next/note.md")).toBe("old");
+  });
+
+  test("同步回收站与在途写入冲突时拒绝搬移，重试可回收已提交版本", async () => {
+    const { root } = init();
+    const files = new VaultFiles(root);
+    const trash = new Trash(files);
+    const writing = files.write("a.md", Buffer.from("saved"));
+    expect(() => trash.moveIn("a.md")).toThrow(expect.objectContaining({ code: "VERSION_CONFLICT" }));
+    await writing;
+    const { trashId } = trash.moveIn("a.md");
+    expect(read(root, "a.md")).toBeNull();
+    expect(read(root, `.huhu/trash/${trashId}/a.md`)).toBe("saved");
+  });
+
+  test("后续步骤按同一规范路径的中间版本检查并保留各步回执", async () => {
+    const { root, ops } = init();
+    const files = new VaultFiles(root);
+    const log = new OperationLog(files, ops);
+    const middle = Buffer.from("middle");
+    const final = Buffer.from("final");
+    const result = await log.run("repeat", "repeat", [
+      { action: "write", path: "./a.md", bytes: middle, expectedVersion: files.currentVersion("a.md") },
+      { action: "write", path: "a.md", bytes: final, expectedVersion: versionOf(middle) },
+    ]);
+    expect(result.steps).toMatchObject([
+      { done: true, path: "a.md", afterVersion: versionOf(middle) },
+      { done: true, path: "a.md", beforeVersion: versionOf(middle), afterVersion: versionOf(final) },
+    ]);
+    expect(files.read("a.md")).toMatchObject({ bytes: final, version: versionOf(final) });
+  });
+
   test("正常提交", async () => {
     const { root, ops } = init();
     const log = new OperationLog(new VaultFiles(root), ops);

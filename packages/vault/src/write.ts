@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { link, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
 import writeFileAtomic from "write-file-atomic";
+import { guardSynchronousCommit, queueCommit } from "./commit-queue.js";
 import { filesystemIdentity } from "./identity.js";
 import { resolveInVault, resolveReadableAsset } from "./paths.js";
 import { renameNoReplace } from "./rename.js";
@@ -31,8 +32,6 @@ export function fileIdentity(file: string): string | null {
   const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
   return info ? filesystemIdentity(info) : null;
 }
-
-const pendingWrites = new Map<string, Promise<{ version: string }>>();
 
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
 export class VaultFiles {
@@ -71,6 +70,7 @@ export class VaultFiles {
    */
   replaceRecoverably(rel: string, inspected: Buffer, converted: Buffer, limit: number, stateDir: string): string {
     this.assertWritable();
+    this.guardSynchronousCommit([rel]);
     const target = resolveReadableAsset(this.root, rel);
     if (!lstatSync(this.abs(rel)).isFile()) throw errors.invalidInput(`请打开符号链接的实际文件再转换编码：${rel}`);
     const recoveryRoot = path.join(stateDir, "operations", "encoding-recovery");
@@ -111,32 +111,44 @@ export class VaultFiles {
 
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
     this.assertWritable();
-    const dest = this.abs(rel);
-    const key = process.platform === "win32" ? dest.toLowerCase() : dest;
+    const target = this.abs(rel);
     const content = Buffer.from(bytes);
     const options = { ...opts };
-    // 原子替换自带写入排队，版本检查也需要和同一路径的替换一起排队。
-    const next = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => this.writeChecked(rel, content, options));
-    pendingWrites.set(key, next);
-    try {
-      return await next;
-    } finally {
-      if (pendingWrites.get(key) === next) pendingWrites.delete(key);
+    return queueCommit([target], () => this.writeChecked(rel, content, options));
+  }
+
+  /** OperationLog retains the same reservation until all steps and any rollback finish. */
+  withCommit<T>(paths: readonly string[], work: (write: VaultFiles["write"]) => T | Promise<T>): Promise<T> {
+    this.assertWritable();
+    const members = new Set(paths.map((rel) => this.abs(rel)));
+    return queueCommit([...members], () =>
+      work((rel, bytes, opts = {}) => {
+        if (!members.has(this.abs(rel))) throw new Error("Write path is outside the reserved commit");
+        return this.writeChecked(rel, Buffer.from(bytes), opts);
+      }),
+    );
+  }
+
+  guardSynchronousCommit(paths: readonly string[]): void {
+    this.assertWritable();
+    guardSynchronousCommit(paths.map((rel) => this.abs(rel)));
+  }
+
+  private checkVersion(rel: string, expectedVersion: string | null | undefined): void {
+    if (expectedVersion === null) {
+      if (this.exists(rel)) throw errors.nameConflict(rel);
+    } else if (expectedVersion !== undefined) {
+      const current = this.currentVersion(rel);
+      if (current !== expectedVersion) throw current === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(current);
     }
   }
 
   private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit, creationStage }: WriteOptions): Promise<{ version: string }> {
     const p = this.abs(rel);
-    if (expectedVersion === null) {
-      if (this.exists(rel)) throw errors.nameConflict(rel);
-    } else if (expectedVersion !== undefined) {
-      const cur = this.currentVersion(rel);
-      if (cur !== expectedVersion) {
-        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(cur);
-      }
-    }
+    this.checkVersion(rel, expectedVersion);
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
+    if (typeof expectedVersion === "string") return this.replaceChecked(rel, p, bytes, version, expectedVersion, beforeCommit);
     beforeCommit?.();
     this.receipts.record(rel, version);
     let untrackTemporaryFile: (() => void) | undefined;
@@ -162,6 +174,45 @@ export class VaultFiles {
       untrackTemporaryFile?.();
     }
     return { version };
+  }
+
+  private async replaceChecked(rel: string, absolute: string, bytes: Buffer, version: string, expectedVersion: string, beforeCommit?: () => void): Promise<{ version: string }> {
+    const target = realpathSync(absolute);
+    const previous = statSync(target);
+    const stage = path.join(path.dirname(target), `${CREATION_STAGE_PREFIX}${randomUUID()}`);
+    const untrack = this.receipts.trackTemporaryFile(path.relative(realpathSync(this.root), stage).split(path.sep).join("/"));
+    let ownsStage = false;
+    try {
+      const file = await open(stage, "wx", previous.mode);
+      ownsStage = true;
+      try {
+        await file.writeFile(bytes);
+        if (process.getuid && (previous.uid !== process.getuid() || previous.gid !== process.getgid?.())) {
+          await file.chown(previous.uid, previous.gid).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "EPERM" && error.code !== "EINVAL") throw error;
+          });
+        }
+        await file.chmod(previous.mode);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      beforeCommit?.();
+      this.checkVersion(rel, expectedVersion);
+      if (realpathSync(this.abs(rel)) !== target) throw errors.versionConflict(expectedVersion);
+      this.receipts.record(rel, version);
+      try {
+        renameSync(stage, target);
+        ownsStage = false;
+      } catch (error) {
+        this.receipts.forget(rel, version);
+        throw error;
+      }
+      return { version };
+    } finally {
+      if (ownsStage) await rm(stage, { force: true }).catch(() => undefined);
+      untrack();
+    }
   }
 
   /** 独占创建：先写暂存，再硬链接到目标；卷不支持硬链接时以不覆盖方式改名。 */
