@@ -93,8 +93,8 @@ HUHU MCP 只把本应用的能力提供给外部客户端。服务管理在「�
 
 ## 接入顺序
 
-1. 在 HUHU 里启用 MCP，选择 stdio 或 Streamable HTTP。
-2. 从服务页复制连接配置到所用客户端；配置只包含 HUHU 服务。
+1. 在「能力网关 → MCP」启用 Streamable HTTP，核对生效的本机 \`/mcp\` 地址。修改端口后重启 Engine。
+2. 从服务页复制 HTTP 客户端配置。在「服务端」创建入站令牌，填入配置的 Authorization 请求头。回环地址只能从同一台机器访问。
 3. 初始化后读取 tools/list、resources/list、resources/templates/list 与 prompts/list。
 4. 对照实际开放的能力调用；模块停用后其工具不可调用，即使客户端缓存了旧列表。
 

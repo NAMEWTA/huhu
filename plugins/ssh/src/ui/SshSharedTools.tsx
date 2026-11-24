@@ -1,9 +1,9 @@
-import type { CapabilityCatalogEntry, ToolAccessSnapshot } from "@huhu/contracts";
+import type { CapabilityCatalogEntry, GatewayMcpStatus, ToolAccessSnapshot } from "@huhu/contracts";
 import { Button, SearchBox } from "@huhu/ui";
-import { host, useCapability, useEngine } from "@huhu/workbench";
+import { host, useCapability } from "@huhu/workbench";
 import { useState } from "react";
 
-type Gateway = { mcp: { enabled: boolean; transport: "stdio" | "http" }; toolAccess: ToolAccessSnapshot };
+type Gateway = { mcp: GatewayMcpStatus; toolAccess: ToolAccessSnapshot };
 type Activity = { at: string; entry: string; capability: string; code: string };
 
 const reasons: Record<CapabilityCatalogEntry["availability"], string> = {
@@ -24,7 +24,6 @@ function toolStatus(tool: CapabilityCatalogEntry, policy: ToolAccessSnapshot, mc
 export function SshSharedTools() {
   const bridge = host();
   const desktop = Boolean(bridge);
-  const engine = useEngine();
   const gateway = useCapability<Gateway>("gateway.get", {}, { enabled: desktop });
   const catalog = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true }, { enabled: desktop });
   const audit = useCapability<Activity[]>("gateway.audit.list", {}, { enabled: desktop });
@@ -39,8 +38,7 @@ export function SshSharedTools() {
   const matches = ssh.filter(({ name, title }) => `${name} ${title ?? ""}`.toLowerCase().includes(filter.trim().toLowerCase()));
   const active = ssh.some(({ availability }) => availability === "active");
   const recent = (audit.data ?? []).filter(({ capability }) => capability.startsWith("ssh.") || capability.startsWith("ssh_")).slice(0, 10);
-  const stdio = JSON.stringify({ mcpServers: { huhu: { command: "huhu", args: ["mcp", "--vault", "<当前库路径>"] } } }, null, 2);
-  const http = JSON.stringify({ mcpServers: { huhu: { url: `${engine.endpoint.baseUrl}/mcp`, headers: { Authorization: "Bearer <在能力网关创建的令牌>" } } } }, null, 2);
+  const http = mcp.url ? JSON.stringify({ mcpServers: { huhu: { url: mcp.url, headers: { Authorization: "Bearer <在能力网关创建的令牌>" } } } }, null, 2) : null;
 
   async function copy(text: string) {
     try {
@@ -64,10 +62,8 @@ export function SshSharedTools() {
       )}
       <p>{!active ? "SSH 插件当前不可用。" : !ssh.some(({ exposable }) => exposable) ? "当前没有可开放的 SSH 工具。" : "在能力网关的 MCP 工具目录更改可开放工具的选择。"}</p>
       <dl aria-label="MCP 服务状态">
-        <dt>MCP stdio</dt>
-        <dd>{mcp.enabled ? "已启用" : "已关闭"}</dd>
         <dt>MCP Streamable HTTP</dt>
-        <dd>{mcp.enabled && mcp.transport === "http" ? "端点已启用，需要服务端令牌" : "端点已关闭"}</dd>
+        <dd>{mcp.enabled ? "端点已启用，需要服务端令牌" : "端点已关闭"}</dd>
       </dl>
       <details>
         <summary>SSH 能力目录（{ssh.length}）</summary>
@@ -86,13 +82,10 @@ export function SshSharedTools() {
       </details>
       <details>
         <summary>客户端配置示例</summary>
-        <p>复制后填写库路径或服务端令牌。</p>
-        <h3>stdio</h3>
-        <pre>{stdio}</pre>
-        <Button onClick={() => void copy(stdio)}>复制 stdio 示例</Button>
+        <p>复制后填写服务端令牌。</p>
         <h3>Streamable HTTP</h3>
         <pre>{http}</pre>
-        <Button onClick={() => void copy(http)}>复制 HTTP 示例</Button>
+        <Button disabled={!mcp.enabled || http === null} onClick={() => { if (http) void copy(http); }}>复制 HTTP 示例</Button>
         {notice === "copied" && <p role="status">已复制配置示例。</p>}
         {notice === "failed" && <p role="alert">无法复制配置示例。</p>}
       </details>

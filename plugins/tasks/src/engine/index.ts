@@ -514,7 +514,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(
     bindCapability(taskToolDescriptors.questionsList, (c, { taskId }) => {
       if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务请求");
-      return dispatch.questions(taskId, toolOwner(c), c.caller === "mcp" && c.session !== undefined);
+      return dispatch.questions(taskId, toolOwner(c));
     }),
   );
   api.defineCapability(

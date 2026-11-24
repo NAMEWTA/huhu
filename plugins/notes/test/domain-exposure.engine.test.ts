@@ -41,7 +41,7 @@ async function fixture(entry: Entry) {
     if (!reply.ok) throw new Error(`${capability}: ${reply.error.code} ${reply.error.message}`);
     return reply.data;
   };
-  await callDesktop("gateway.mcp.update", { enabled: true, transport: "http" });
+  await callDesktop("gateway.mcp.update", { enabled: true });
   const gateway = z.object({ id: z.string(), token: z.string() }).parse(await callDesktop("gateway.tokens.create", { name: "isolated domain fixture" }));
   const endpoint = () => `http://127.0.0.1:${engine.port}/mcp`;
   let session = entry === "mcp" ? await openRecoverableMcpSession(endpoint(), gateway.token) : undefined;

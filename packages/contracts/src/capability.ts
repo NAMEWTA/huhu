@@ -8,8 +8,8 @@ export type Caller = (typeof CALLER_KINDS)[number] | `plugin:${string}` | Workbe
 
 /** Supplied by the authenticated Engine transport. Never decoded from capability input. */
 export interface McpSessionIdentity {
-  readonly caller: "mcp" | "http";
-  readonly entry: "mcp-http" | "mcp-stdio";
+  readonly caller: "http";
+  readonly entry: "mcp-http";
   readonly credentialId: string;
   readonly clientSessionId: string;
   readonly vaultInstance: string;
@@ -31,6 +31,26 @@ export function mcpSessionSubject(session: McpSessionIdentity): string {
 export function isWorkbenchCaller(caller: string): caller is WorkbenchCaller {
   return caller === "desktop" || caller.startsWith("web:");
 }
+
+export const MCP_HTTP_PATH = "/mcp";
+export const ENGINE_PORT_CONFLICT_EXIT = 4;
+// 端口 0 仍可交给系统分配。已分配端口按 Fetch 的 HTTP(S) 限制检查。
+// https://fetch.spec.whatwg.org/#port-blocking
+const blockedHttpPorts = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540,
+  548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+]);
+
+export const isBlockedHttpPort = (port: number): boolean => blockedHttpPorts.has(port);
+export const McpLocalPortSchema = z.int().min(1).max(65_535).refine((port) => !isBlockedHttpPort(port), "此端口被浏览器禁止用于 HTTP");
+export const GatewayMcpStatusSchema = z.strictObject({
+  enabled: z.boolean(),
+  url: z.url().nullable(),
+  activePort: McpLocalPortSchema.nullable(),
+  configuredPort: McpLocalPortSchema.nullable(),
+  restartRequired: z.boolean(),
+});
+export type GatewayMcpStatus = z.infer<typeof GatewayMcpStatusSchema>;
 export const CAPABILITY_SCOPES = ["read", "write", "execute", "admin"] as const;
 export type CapabilityScope = (typeof CAPABILITY_SCOPES)[number];
 export const CAPABILITY_RISKS = ["normal", "high"] as const;

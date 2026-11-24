@@ -1,4 +1,4 @@
-import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { openFixtureMcp } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,12 +45,11 @@ test("邮件 AI 仅使用当次确认，拒绝重放、换 Vault 和旧目的地
     },
   ];
 
-  async function call(capability: string, input: unknown = {}, { client = engine, token = client.rendererToken, signal, session }: { client?: RunningEngine; token?: string; signal?: AbortSignal; session?: string } = {}) {
+  async function call(capability: string, input: unknown = {}, { client = engine, token = client.rendererToken, signal }: { client?: RunningEngine; token?: string; signal?: AbortSignal } = {}) {
     const response = await fetch(`http://127.0.0.1:${client.port}/api/v1/call`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${token}`,
-        ...(session && { "mcp-session-id": session }),
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -83,9 +82,9 @@ test("邮件 AI 仅使用当次确认，拒绝重放、换 Vault 和旧目的地
     };
     const initial = await data<{ revision: string }>(save, settings);
     expect(first.requests).toHaveLength(1);
-    await data("gateway.mcp.update", { enabled: true, transport: "stdio" });
-    const session = await openMcpSession(`http://127.0.0.1:${engine.port}/api/v1/mcp`, engine.mcpToken);
-    expect(await call(prepare, {}, { token: engine.mcpToken, session })).toMatchObject({
+    await data("gateway.mcp.update", { enabled: true });
+    const mcp = await openFixtureMcp(engine);
+    expect(await mcp.call(prepare)).toMatchObject({
       ok: false,
       error: { code: "CAPABILITY_NOT_EXPOSED" },
     });

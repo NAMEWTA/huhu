@@ -1260,18 +1260,32 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
   }
 });
 
-test("能力网关 MCP：配置传输（对话框）、复制客户端配置、管理所属插件", async () => {
-  const { page, close } = await openApp();
+test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置、管理所属插件", async () => {
+  const { app, page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
     await page.getByTestId("gateway-mcp-config").click();
     const dialog = page.getByTestId("gateway-mcp-dialog");
-    await dialog.getByLabel("传输方式").selectOption("http");
-    await expect(page.getByText("Streamable HTTP · 能力按模块授权")).toBeVisible();
-    await dialog.getByRole("button", { name: "完成" }).click();
+    const port = dialog.getByLabel("本机端口");
+    const save = dialog.getByRole("button", { name: "保存端口" });
+    const { baseUrl } = await page.evaluate(() => window.huhuHost.engine());
+    const activePort = new URL(baseUrl).port;
+    const nextPort = activePort === "42001" ? "42002" : "42001";
+    await expect(port).toHaveValue(activePort);
+    await port.fill("6000");
+    await save.click();
+    await expect(port).toBeFocused();
+    await expect(port).toHaveAttribute("aria-invalid", "true");
+    await port.fill(nextPort);
+    await save.click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("status").filter({ hasText: `重启 Engine 后将使用端口 ${nextPort}` })).toBeVisible();
+    await page.getByRole("switch", { name: "启用 MCP 服务" }).click();
     await page.getByTestId("gateway-mcp-copy").click();
     await expect(page.getByRole("status").filter({ hasText: "客户端配置已复制" })).toBeVisible();
+    const configuration = JSON.parse(await app.evaluate(({ clipboard }) => clipboard.readText()));
+    expect(configuration).toEqual({ mcpServers: { huhu: { url: `${baseUrl}/mcp`, headers: { Authorization: expect.stringContaining("Bearer <") } } } });
     await page.getByRole("button", { name: "管理所属插件" }).click();
     await expect(page.getByTestId("plugin-center")).toBeVisible();
   } finally {

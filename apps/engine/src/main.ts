@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
+import { ENGINE_PORT_CONFLICT_EXIT } from "@huhu/contracts";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
 import { createMailOAuth } from "@huhu/plugin-mail/engine";
 import { boot } from "./boot.js";
@@ -143,5 +144,5 @@ async function main(): Promise<void> {
 main().catch((e) => {
   const err = e as { code?: string; message?: string };
   process.stderr.write(JSON.stringify({ type: "error", code: err.code ?? "INTERNAL", message: err.message ?? String(e) }) + "\n");
-  process.exit(1);
+  process.exit(err.code === "EADDRINUSE" ? ENGINE_PORT_CONFLICT_EXIT : 1);
 });

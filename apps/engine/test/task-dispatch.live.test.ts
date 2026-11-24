@@ -1,4 +1,4 @@
-import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { openFixtureMcp } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,10 +36,10 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
 });
 
 const request = (capability: string, input: unknown) => ({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
-async function post(engine: RunningEngine, capability: string, input: unknown, token = engine.rendererToken, session?: string) {
+async function post(engine: RunningEngine, capability: string, input: unknown, token = engine.rendererToken) {
   const reply = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(session && { "mcp-session-id": session }) },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(request(capability, input)),
   });
   return (await reply.json()) as CapabilityResult<unknown>;
@@ -89,11 +89,11 @@ test("Tasks production dispatch keeps providers without acceptance evidence unsu
       });
       expect(await engine.dispatcher.call("plugin:automations", request("agent.targets.list", scope))).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       expect(await post(engine, "agent.targets.list", scope)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
-      await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" });
-      const session = await openMcpSession(`http://127.0.0.1:${engine.port}/api/v1/mcp`, engine.mcpToken);
-      for (const token of [engine.cliToken, engine.mcpToken]) {
-        expect(await post(engine, "agent.targets.list", scope, token, token === engine.mcpToken ? session : undefined)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
-      }
+      await call(engine, "gateway.mcp.update", { enabled: true });
+      const mcp = await openFixtureMcp(engine);
+      const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+      expect(await post(engine, "agent.targets.list", scope, engine.cliToken)).toMatchObject(denied);
+      expect(await mcp.call("agent.targets.list", scope)).toMatchObject(denied);
       const task = await create(engine, "new", space!.id, { mode: "new" });
       const receipt = await call<DispatchReceipt>(engine, "tasks.dispatch", intent(task, "new"));
       await pollReceipt(engine, receipt, { state: "blocked", reason: "target_unsupported" });

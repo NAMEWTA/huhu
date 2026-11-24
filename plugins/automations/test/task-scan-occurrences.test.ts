@@ -1,7 +1,6 @@
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CapabilityCatalogEntry, TaskDto } from "@huhu/contracts";
@@ -310,7 +309,7 @@ test("专用规则启用后触发真实计划，保护默认规则、已启用�
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 15_000);
 
-test("同一 MCP HTTP 会话重交手动意图，Engine 重开后的新 stdio 会话无法认领", async () => {
+test("同一 MCP HTTP 会话重交手动意图，Engine 重开后的新 HTTP 会话无法认领", async () => {
   const first = await start();
   let { engine } = first;
   const task = await createTask(engine, "唯一应执行的合成任务");
@@ -319,9 +318,8 @@ test("同一 MCP HTTP 会话重交手动意图，Engine 重开后的新 stdio �
   const tool = scanTools.runNow.replaceAll(".", "_");
   const endpoint = () => `http://127.0.0.1:${engine.port}/mcp`;
   const { token } = await invoke<{ token: string }>(engine, "gateway.tokens.create", { name: "task-scan MCP fixture" });
-  const setMcp = (transport: "http" | "stdio") => invoke(engine, "gateway.mcp.update", { enabled: true, transport });
-  await setMcp("http");
-  const session = await openMcpSession(endpoint(), token);
+  await invoke(engine, "gateway.mcp.update", { enabled: true });
+  let session = await openMcpSession(endpoint(), token);
   const http = async (method: string, params: unknown) => {
     const response = await mcpRequest(endpoint(), token, mcpRpc(method, params), session);
     expect(response.status).toBe(200);
@@ -358,27 +356,13 @@ test("同一 MCP HTTP 会话重交手动意图，Engine 重开后的新 stdio �
   await stop(engine);
   ({ engine } = await start(root));
   expect((await mcpRequest(endpoint(), token, mcpRpc("tools/list"), session)).status).toBe(404);
-  await setMcp("stdio");
-  const cliRequire = createRequire(new URL("../../../apps/cli/package.json", import.meta.url));
-  const { Client } = cliRequire("@modelcontextprotocol/sdk/client/index.js");
-  const { StdioClientTransport } = cliRequire("@modelcontextprotocol/sdk/client/stdio.js");
-  const client = new Client({ name: "task-scan-fixture", version: "1" });
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [cliRequire.resolve("tsx/cli"), path.resolve(import.meta.dirname, "../../../apps/cli/src/bin.ts"), "mcp", "--vault", root],
-  });
-  try {
-    await client.connect(transport);
-    const { tools } = (await client.listTools()) as { tools: { name: string; inputSchema: unknown; outputSchema: unknown }[] };
-    const stdioTool = tools.find(({ name }) => name === tool);
-    expect(stdioTool?.inputSchema).toEqual(httpTool?.inputSchema);
-    expect(stdioTool?.outputSchema).toEqual(httpTool?.outputSchema);
-    expect(await client.callTool(callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("NOT_FOUND") })] });
-    await invoke(engine, "gateway.update", { capability: scanTools.runNow, exposed: false });
-    expect(await client.callTool(callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") })] });
-  } finally {
-    await client.close();
-  }
+  session = await openMcpSession(endpoint(), token);
+  const reopenedTool = (await http("tools/list", {})).tools?.find(({ name }) => name === tool);
+  expect(reopenedTool?.inputSchema).toEqual(httpTool?.inputSchema);
+  expect(reopenedTool?.outputSchema).toEqual(httpTool?.outputSchema);
+  expect(await http("tools/call", callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("NOT_FOUND") })] });
+  await invoke(engine, "gateway.update", { capability: scanTools.runNow, exposed: false });
+  expect(await http("tools/call", callParams)).toMatchObject({ isError: true, content: [expect.objectContaining({ text: expect.stringContaining("CAPABILITY_NOT_EXPOSED") })] });
   expect(fixture.accept).toHaveBeenCalledTimes(1);
   expect(await cli(engine, "automations.activations.dispatches", { ruleId: rule.id, activationId })).toMatchObject({
     ok: true,
@@ -1060,7 +1044,7 @@ test("停用期间不补扫，既受理任务可单独取消，启用后只补�
 
 async function toolsFor(entry: ExternalEntry, engine: RunningEngine) {
   const { token } = await invoke<{ token: string }>(engine, "gateway.tokens.create", { name: "automations-domain-fixture" });
-  await invoke(engine, "gateway.mcp.update", { enabled: true, transport: "http" });
+  await invoke(engine, "gateway.mcp.update", { enabled: true });
   return { external: await externalToolEntry(entry, engine, token), token };
 }
 

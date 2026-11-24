@@ -45,7 +45,7 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
       if (!result.ok) throw Error(`${capability}: ${result.error.code}`);
       return result.data;
     };
-    await success("gateway.mcp.update", { enabled: true, transport: "http" });
+    await success("gateway.mcp.update", { enabled: true });
     const { token } = z.object({ token: z.string() }).parse(await success("gateway.tokens.create", { name: "SSH settings fixture" }));
     const endpoint = () => `http://127.0.0.1:${engine!.port}/mcp`;
     let session = entry === "mcp" ? await openRecoverableMcpSession(endpoint(), token) : undefined;

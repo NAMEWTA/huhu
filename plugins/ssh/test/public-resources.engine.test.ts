@@ -1,4 +1,4 @@
-import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -236,7 +236,7 @@ async function fixture() {
 
 async function externalTool(f: Awaited<ReturnType<typeof fixture>>, entry: "cli" | "mcp") {
   if (entry === "cli") return f.cli;
-  await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+  await f.desktop("gateway.mcp.update", { enabled: true });
   const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "SSH tool fixture" });
   const session = await openMcpSession(f.mcpEndpoint(), token);
   return async (id: string, args: object) => {
@@ -495,7 +495,7 @@ test.each(["cli", "mcp"] as const)("%s selects and revokes SSH hosts across all 
     await move(b.hostId, hidden, placed.version);
     await f.chooseHosts([]);
 
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "resource matrix" });
     let session = entry === "mcp" ? await openRecoverableMcpSession(f.mcpEndpoint(), token) : undefined;
     const name = (id: string) => (entry === "mcp" ? id.replaceAll(".", "_") : id);
@@ -654,7 +654,7 @@ test.each(["cli", "mcp"] as const)("%s confines host edits, copies, directory ch
     const placedTarget = await place(target.hostId, visibleId, withGroup);
     const placedHidden = await place(hidden.hostId, hiddenId, placedTarget.version);
 
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "host mutation fixture" });
     let session = entry === "mcp" ? await openRecoverableMcpSession(f.mcpEndpoint(), token) : undefined;
     const invoke = async (id: string, args: object = {}): Promise<CapabilityResult<unknown>> => {
@@ -817,14 +817,15 @@ test("only authorized Engine, CLI and MCP resolve the same portable SSH host and
     const jump = await f.host("jump fixture");
     const target = await f.host("target fixture", [jump.hostId]);
     const { hostId } = target;
-    const { cliToken, mcpToken } = f.engine;
+    const { cliToken } = f.engine;
+    const mcpToken = await issueMcpCredential(f.engine);
     expect(await f.call(cliToken, hostGet, { hostId })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     const enabled = await f.allow(hostGet);
     expect(enabled).toMatchObject({ exposed: true });
     await f.chooseHosts([target.hostId]);
     expect(await f.cli(hostGet, { hostId })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     await f.chooseHosts([jump.hostId, target.hostId]);
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     const using = vi.spyOn(ModuleCredentials.prototype, "use");
     const checking = vi.spyOn(ModuleCredentials.prototype, "list");
     try {
@@ -951,7 +952,7 @@ test("first trust stays with the original attempt, route and external subject th
       expect(await f.call(a.token, trustDecide, { ...reply, ...invalid })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     }
     expect(await f.call(a.token, trustDecide, { ...reply, remember: true })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     expect(await f.mcp(a.token, "tools/call", { name: "ssh_resources_connection_get", arguments: key })).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("NOT_FOUND") }] });
     await f.allow(trustDecide, false);
     const idempotencyKey = randomUUID();
@@ -1025,7 +1026,7 @@ test.each(["cli", "mcp"] as const)("%s reads current SSH connection, known host 
     const target = await f.host("metadata target", [jump.hostId]);
     const { hostId } = target;
     const { routeRevision } = await f.desktop<z.infer<typeof ResourceHost>>(hostGet, { hostId });
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "metadata fixture" });
     const session = await openMcpSession(f.mcpEndpoint(), token);
     const otherSession = await openMcpSession(f.mcpEndpoint(), token);
@@ -1139,7 +1140,7 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
     const draft = { name: "fixture monitor", note: "", hostIds: [target.hostId], interval: 2, retention: 15 };
     const panel = await f.desktop<MonitorPanel>(save, draft);
     const binding = { id: panel.id, expectedRevision: panel.revision };
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     const { token } = await f.desktop<{ token: string }>("gateway.tokens.create", { name: "monitor fixture" });
     const session = entry === "mcp" ? await openMcpSession(f.mcpEndpoint(), token) : undefined;
     const invoke = async (id: string, args: object = {}) => {
@@ -2286,7 +2287,7 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
         return true;
       },
     });
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     await allowJobs(f);
     await f.allow(probeList);
     await f.allow(execCancel);
@@ -2454,9 +2455,9 @@ test("HTTP MCP isolates SSH owners under one token and never replays a job after
     await f.chooseHosts([hostId]);
     expect(await invokeRestored(jobStart, start)).toMatchObject({ isError: true, content: [{ text: expect.stringContaining('"outcome":"unknown"') }] });
     expect(commands).toEqual([prepare.command]);
-    await f.desktop("gateway.mcp.update", { enabled: false, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: false });
     expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
-    await f.desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await f.desktop("gateway.mcp.update", { enabled: true });
     expect((await mcpRequest(f.mcpEndpoint(), a.token, mcpRpc("tools/list"), afterRestart)).status).toBe(404);
     await f.restart();
     expect((await mcpRequest(f.mcpEndpoint(), a.token, recoveryInitialize(restored.recovery))).status).toBe(403);

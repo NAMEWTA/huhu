@@ -14,7 +14,6 @@ import type { EngineServerDeps } from "./http-app.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN } from "./ingress.js";
 import type { TokenTable } from "./tokens.js";
 
-type Entry = McpSessionIdentity["entry"];
 type Credential = NonNullable<ReturnType<TokenTable["principal"]>>;
 type Session = McpSessionPrincipal & {
   credential: Credential;
@@ -144,12 +143,12 @@ export class McpSessions {
     if (deps.mcpRecovery && deps.vaultInstance) this.recovery = new McpRecoveryStore(deps.mcpRecovery.directory);
   }
 
-  enabled(entry: Entry): boolean {
-    return entry === "mcp-http" ? this.deps.mcpHttp?.enabled() === true : this.deps.mcpStdioEnabled?.() === true;
+  enabled(): boolean {
+    return this.deps.mcpHttp?.enabled() === true;
   }
 
   private current(session: Session): boolean {
-    if (session.expires() || !this.enabled(session.identity.entry)) session.close();
+    if (session.expires() || !this.enabled()) session.close();
     return !session.signal.aborted;
   }
 
@@ -158,10 +157,10 @@ export class McpSessions {
     return !!session && session.identity.caller === caller && this.current(session);
   }
 
-  find(entry: Entry, handle: string, credential: Credential): Session | undefined {
+  private find(handle: string, credential: Credential): Session | undefined {
     if (!/^[A-Za-z0-9_-]{43}$/.test(handle)) return undefined;
     const session = this.byHandle.get(hash(handle));
-    if (!session || session.identity.entry !== entry || session.credential.signal !== credential.signal || !this.current(session)) return undefined;
+    if (!session || session.credential.signal !== credential.signal || !this.current(session)) return undefined;
     session.touch();
     return session;
   }
@@ -170,7 +169,7 @@ export class McpSessions {
     this.shutdown.abort();
   }
 
-  reserve(credential: Credential, session?: McpSessionPrincipal): (() => void) | undefined {
+  private reserve(credential: Credential, session?: McpSessionPrincipal): (() => void) | undefined {
     const parent = credential.signal;
     const child = session?.signal;
     const parentCount = this.inflight.get(parent) ?? 0;
@@ -190,18 +189,18 @@ export class McpSessions {
     else this.inflight.delete(key);
   }
 
-  private recoveryBinding(entry: Entry, credential: Credential): RecoveryBinding | undefined {
-    if (entry !== "mcp-http" || credential.caller !== "http" || !this.recovery || !this.deps.vaultInstance) return undefined;
+  private recoveryBinding(credential: Credential): RecoveryBinding | undefined {
+    if (!this.recovery || !this.deps.vaultInstance) return undefined;
     const generation = this.deps.mcpRecovery?.generation();
     return generation ? { generation, vaultInstance: this.deps.vaultInstance, credentialId: credential.credentialId } : undefined;
   }
 
-  private create(entry: Entry, credential: Credential, service: AbortSignal | undefined, binding: RecoveryBinding | undefined, previous: RecoveryRecord | undefined): Session {
+  private create(credential: Credential, service: AbortSignal | undefined, binding: RecoveryBinding | undefined, previous: RecoveryRecord | undefined): Session {
     const { caller, credentialId } = credential;
-    if (caller !== "mcp" && caller !== "http") throw new Error("Invalid MCP credential");
+    if (caller !== "http") throw new Error("Invalid MCP credential");
     const identity: McpSessionIdentity = {
       caller,
-      entry,
+      entry: "mcp-http",
       credentialId,
       clientSessionId: previous?.clientSessionId ?? randomUUID(),
       vaultInstance: this.deps.vaultInstance ?? this.generation,
@@ -286,7 +285,7 @@ export class McpSessions {
     return session;
   }
 
-  async handle(entry: Entry, credential: Credential, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async handle(credential: Credential, req: IncomingMessage, res: ServerResponse): Promise<void> {
     res.setHeader("cache-control", "no-store");
     const send = (status: number, message: string, code = -32000) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -295,7 +294,7 @@ export class McpSessions {
     if (req.method !== "POST" && req.method !== "GET" && req.method !== "DELETE") return send(405, "方法不受支持");
     const raw = req.headers["mcp-session-id"];
     if (Array.isArray(raw)) return send(400, "Mcp-Session-Id 无效");
-    let session = raw === undefined ? undefined : this.find(entry, raw, credential);
+    let session = raw === undefined ? undefined : this.find(raw, credential);
     if (raw !== undefined && !session) return send(404, "MCP 会话不存在", -32001);
     const release = this.reserve(credential, session);
     if (!release) return send(429, "并发调用过多");
@@ -321,7 +320,7 @@ export class McpSessions {
         return send(400, "请求不是合法 JSON", -32700);
       }
     }
-    if (credential.signal.aborted || service?.aborted || this.shutdown.signal.aborted || !this.enabled(entry)) return send(401, "MCP 会话已关闭");
+    if (credential.signal.aborted || service?.aborted || this.shutdown.signal.aborted || !this.enabled()) return send(401, "MCP 会话已关闭");
     const initializing = !session;
     let binding: RecoveryBinding | undefined;
     let previous: RecoveryRecord | undefined;
@@ -329,17 +328,17 @@ export class McpSessions {
       if (!isJSONRPCRequest(body) || !isInitializeRequest(body)) return send(400, "请先初始化 MCP 会话");
       const siblings = [...this.bySubject.values()].filter((item) => item.credential.signal === credential.signal).length;
       if (siblings >= maxSessionsPerCredential || this.bySubject.size >= maxSessions) return send(429, "MCP 会话数量已达上限");
-      binding = this.recoveryBinding(entry, credential);
+      binding = this.recoveryBinding(credential);
       const { [recoveryMeta]: proof, ...rest } = body.params._meta ?? {};
       if (proof !== undefined) {
         if (!binding || typeof proof !== "string" || !recoverySecret.test(proof)) return send(403, "MCP 会话无法恢复");
         previous = this.recovery?.lookup(binding, proof);
         if (!previous) return send(403, "MCP 会话无法恢复");
-        const subject = mcpSessionSubject({ ...binding, entry, caller: "http", clientSessionId: previous.clientSessionId, serviceGeneration: this.generation });
+        const subject = mcpSessionSubject({ ...binding, entry: "mcp-http", caller: "http", clientSessionId: previous.clientSessionId, serviceGeneration: this.generation });
         if (this.bySubject.has(subject)) return send(403, "MCP 会话无法恢复");
         body = { ...body, params: { ...body.params, _meta: rest } };
       }
-      session = this.create(entry, credential, service, binding, previous);
+      session = this.create(credential, service, binding, previous);
     }
     if (!session || !this.current(session)) return send(404, "MCP 会话不存在", -32001);
     const admitted = session;

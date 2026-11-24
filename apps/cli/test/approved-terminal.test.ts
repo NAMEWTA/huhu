@@ -1,4 +1,4 @@
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -9,9 +9,6 @@ import { promisify } from "node:util";
 import { CapabilityResultSchema } from "@huhu/contracts";
 import { boot, type RunningEngine } from "@huhu/engine";
 import { exportPackage, importPackage } from "@huhu/vault";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { assert, expect, test, vi } from "vitest";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
@@ -100,8 +97,9 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       }
     };
     let session: string;
+    let token: string;
     const mcp = async (method: string, params: unknown) => {
-      const response = await mcpRequest(`http://127.0.0.1:${e!.port}/mcp`, e!.mcpToken, mcpRpc(method, params), session);
+      const response = await mcpRequest(`http://127.0.0.1:${e!.port}/mcp`, token, mcpRpc(method, params), session);
       expect(response.status).toBe(200);
       return ((await response.json()) as { result: { isError?: boolean; content?: { text: string }[]; tools?: { name: string }[] } }).result;
     };
@@ -131,8 +129,9 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       const rule = await create("仅用于授权测试");
       const other = await create("另一条未批准规则");
       const id = { ruleId: rule.id };
-      await desktop("gateway.mcp.update", { enabled: true, transport: "http" });
-      session = await openMcpSession(`http://127.0.0.1:${e!.port}/mcp`, e!.mcpToken);
+      await desktop("gateway.mcp.update", { enabled: true });
+      token = await issueMcpCredential(e);
+      session = await openMcpSession(`http://127.0.0.1:${e!.port}/mcp`, token);
       expect((await mcp("tools/list", {})).tools).toEqual([]);
       expect(await cli("status", id)).toMatchObject(denied("CAPABILITY_NOT_EXPOSED"));
       for (const op of ["run", "save", "status"]) await setAccess(op, true);
@@ -225,7 +224,7 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
         expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } });
         await e.shutdown();
         e = await boot({ vaultPath: vault, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
-        session = await openMcpSession(`http://127.0.0.1:${e.port}/mcp`, e.mcpToken);
+        session = await openMcpSession(`http://127.0.0.1:${e.port}/mcp`, token);
         expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, activationId: first.activationId, state: "succeeded" } });
         expect(count()).toBe(1);
       }
@@ -266,21 +265,8 @@ test.skipIf(!(linux || (process.platform === "win32" && process.arch === "x64"))
       await e.shutdown();
       e = await boot({ vaultPath: vault, desktopUserData: userData, ...(moduleCredentialProtection && { moduleCredentialProtection }) });
       expect(await cli("run", intent)).toMatchObject({ ok: true, data: { runId: first.runId, state: "succeeded" } });
-      await desktop("gateway.mcp.update", { enabled: true, transport: "stdio" });
-      const stdio = new Client({ name: "approved-terminal-test", version: "1" });
-      await stdio.connect(
-        new StdioClientTransport({
-          command: process.execPath,
-          args: [...cliEntry, "mcp", "--vault", vault],
-        }),
-      );
-      try {
-        const same = CallToolResultSchema.parse(await stdio.callTool({ name: mcpName("run"), arguments: mcpIntent }));
-        expect(same.isError).toBeFalsy();
-        expect(same.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(mcpRun.data.runId) });
-      } finally {
-        await stdio.close();
-      }
+      session = await openMcpSession(`http://127.0.0.1:${e.port}/mcp`, token);
+      expect(await tool("run", mcpIntent)).toMatchObject({ ok: true, data: { runId: mcpRun.data.runId } });
       const cleared = await cli("save", { ...expected, expectedRevision: mcpIntent.expectedRevision, changes: [{ name: variable, action: "clear" }] });
       expect(cleared).toMatchObject({ ok: true, data: { states: { [variable]: "unconfigured" } } });
       assert(cleared.ok);

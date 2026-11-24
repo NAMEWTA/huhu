@@ -162,7 +162,7 @@ test.each(entries)(
       const desktop = asWorkbench(engine);
       const changeAccess = async (capability: string, exposed: boolean) => unwrap(await desktop("gateway.update", { capability, exposed }));
       const { token } = unwrap(await desktop<{ token: string }>("gateway.tokens.create", { name: "临时包测试" }));
-      unwrap(await desktop("gateway.mcp.update", { enabled: true, transport: "http" }));
+      unwrap(await desktop("gateway.mcp.update", { enabled: true }));
       const tool = await external(entry, engine, token);
       expect(await tool.list()).not.toContain("mail.sync.refresh");
       expect(await tool.call("mail.accounts.list")).toMatchObject(closed);
@@ -348,7 +348,7 @@ test.each(entries)(
       engine.events.subscribe((event) => events.push(event));
       let desktop = asWorkbench(engine);
       const { token } = unwrap(await desktop<{ token: string }>("gateway.tokens.create", { name: "Mail matrix" }));
-      unwrap(await desktop("gateway.mcp.update", { enabled: true, transport: "http" }));
+      unwrap(await desktop("gateway.mcp.update", { enabled: true }));
       let tool = await external(entry, engine, token);
       const configure = async (capability: string, exposed: boolean) => unwrap(await desktop<{ revision: number }>("gateway.update", { capability, exposed }));
       const catalog = unwrap(await desktop<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true })).filter(({ plugin }) => plugin === "mail");

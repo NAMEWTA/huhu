@@ -75,7 +75,6 @@ function hasParent(source: DispatchSource): source is ContinuationSource {
 
 const normalDispatchId = ({ taskId, replyId }: ReplyLookup) => `reply-${fingerprint([taskId, replyId])}`;
 const supplementDispatchId = ({ taskId, supplementId }: SupplementLookup) => `supplement-${fingerprint([taskId, supplementId])}`;
-const hostCliOwner = fingerprint(["cli", "cli"]);
 
 function continuationStatus(receipt: DispatchReceipt): ReplyView["status"] {
   const statusByState: Record<DispatchReceipt["state"], ReplyView["status"]> = {
@@ -449,13 +448,9 @@ export class TaskDispatch {
     return "open";
   };
 
-  questions(taskId: string, readerOwner?: string, hostMcp = false) {
+  questions(taskId: string, readerOwner?: string) {
     this.tasks.read(taskId);
-    const records = this.recordsFor(taskId).filter((record) => {
-      const { source } = record.snapshot;
-      // The built-in host MCP session can view questions from the host CLI. Mutations still check the exact dispatch owner.
-      return this.visibleDispatch(record, readerOwner) || (hostMcp && source.kind === "tool" && source.owner === hostCliOwner);
-    });
+    const records = this.recordsFor(taskId).filter((record) => this.visibleDispatch(record, readerOwner));
     return this.history(taskId, records).questions;
   }
 

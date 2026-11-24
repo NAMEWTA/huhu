@@ -115,7 +115,7 @@ async function external(entry: Entry, engine: RunningEngine, token: string, reco
 async function gateway(engine: RunningEngine, entry: Entry) {
   const manage = desktop(engine);
   const { token } = unwrap(await manage<{ token: string }>("gateway.tokens.create", { name: "agent-tools-fixture" }));
-  unwrap(await manage("gateway.mcp.update", { enabled: true, transport: "http" }));
+  unwrap(await manage("gateway.mcp.update", { enabled: true }));
   const tool = await external(entry, engine, token);
   const configure = async (capability: string, exposed: boolean) => unwrap(await manage<{ revision: number }>("gateway.update", { capability, exposed }));
   const receipts = new Map<string, { input: unknown; key: string; completion: CapabilityResult<unknown> }>();

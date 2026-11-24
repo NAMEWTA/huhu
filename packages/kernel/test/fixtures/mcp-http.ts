@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
+import { CapabilityResultSchema, type CapabilityResult } from "@huhu/contracts";
 
 const version = "2025-11-25";
 
@@ -54,4 +55,45 @@ export async function openRecoverableMcpSession(url: string, token: string, prev
 
 export function recoveryInitialize(previous?: string) {
   return previous === undefined ? initializeMcp : { ...initializeMcp, params: { ...initializeMcp.params, _meta: { [recoveryMeta]: previous } } };
+}
+
+type RunningMcpEngine = { port: number; rendererToken: string };
+
+export async function issueMcpCredential(engine: RunningMcpEngine): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${engine.rendererToken}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      capability: "gateway.tokens.create",
+      input: { name: "MCP test fixture" },
+      requestId: randomUUID(),
+      idempotencyKey: randomUUID(),
+    }),
+  });
+  assert.equal(response.status, 200);
+  const result = CapabilityResultSchema.parse(await response.json());
+  assert.ok(result.ok && typeof result.data === "object" && result.data !== null && "token" in result.data && typeof result.data.token === "string");
+  return result.data.token;
+}
+
+export async function openFixtureMcp(engine: RunningMcpEngine) {
+  const endpoint = `http://127.0.0.1:${engine.port}/mcp`;
+  const token = await issueMcpCredential(engine);
+  const session = await openMcpSession(endpoint, token);
+  const rpc = (method: string, params: unknown = {}) => mcpRequest(endpoint, token, mcpRpc(method, params), session);
+  return {
+    endpoint, token, session, rpc,
+    async call(capability: string, input: object = {}, intentKey?: string): Promise<CapabilityResult<unknown>> {
+      const response = await rpc("tools/call", {
+        name: capability.replaceAll(".", "_"),
+        arguments: input,
+        ...(intentKey && { _meta: { "huhu.dev/intent-key": intentKey } }),
+      });
+      assert.equal(response.status, 200);
+      const { result } = await response.json() as { result: { isError?: boolean; content: { text: string }[]; structuredContent?: object } };
+      return CapabilityResultSchema.parse(result.isError
+        ? { ok: false, error: JSON.parse(result.content[0]!.text) }
+        : { ok: true, ...result.structuredContent });
+    },
+  };
 }
