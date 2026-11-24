@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { PlainTextEditor, type PlainTextEditorHandle, BOM, detectPlainFormat, diagnoseJson, formatJsonText, isValidUtf8, lineSeparatorFor, restoreBom, stripBom } from "../src/index.js";
 import { EditorView } from "@codemirror/view";
+import { undo } from "@codemirror/commands";
 
 afterEach(cleanup);
 
@@ -43,6 +44,35 @@ describe("plain-text-format（F02：字节保真）", () => {
     }
     const tabbed = formatJsonText('{\n\t"a": 1\n}\n');
     expect(tabbed.ok && tabbed.text).toBe('{\n\t"a": 1\n}\n');
+  });
+
+  test("格式化仅调整 token 之间的空白，保留成员顺序、重复键和原始字面值", () => {
+    const input = String.raw`{"2":9007199254740993,"1":1e+309,"2":-0,"a":[1E-999,{"s":"  [ , } :  \u0061\t \/ ","\u006b":true},null,false,[],{}]}`;
+    const output = [
+      "{",
+      '  "2": 9007199254740993,',
+      '  "1": 1e+309,',
+      '  "2": -0,',
+      '  "a": [',
+      "    1E-999,",
+      "    {",
+      String.raw`      "s": "  [ , } :  \u0061\t \/ ",`,
+      String.raw`      "\u006b": true`,
+      "    },",
+      "    null,",
+      "    false,",
+      "    [],",
+      "    {}",
+      "  ]",
+      "}",
+    ].join("\r\n");
+    expect(formatJsonText(`${BOM}${input}\r\n`)).toEqual({ ok: true, text: `${BOM}${output}\r\n` });
+    expect(formatJsonText(" \t-0  ")).toEqual({ ok: true, text: "-0" });
+    expect(formatJsonText("{\r \"a\": 1\r}\r")).toEqual({ ok: true, text: "{\r \"a\": 1\r}\r" });
+  });
+
+  test.each(["01", '{"a":1,}', String.raw`{"a":"\x41"}`, '{"a":1}\r\n\n', "[".repeat(3_000) + "0" + "]".repeat(3_000)])("无法无损格式化时给出原因", (source) => {
+    expect(formatJsonText(source)).toEqual({ ok: false, message: expect.any(String) });
   });
 });
 
@@ -87,5 +117,19 @@ describe("PlainTextEditor", () => {
     const bad = ref.current!.formatJson();
     expect(bad.ok).toBe(false);
     expect(viewOf(container).state.doc.toString()).toBe('{"a": 1,}');
+  });
+
+  test("一次撤销恢复格式化前的完整文本，前一笔编辑仍可单独撤销", () => {
+    const ref = createRef<PlainTextEditorHandle>();
+    const onChange = vi.fn();
+    const source = `${BOM}{"n":9007199254740993,"n":-0,"s":"  a  "}\r\n`;
+    const { container } = render(<PlainTextEditor ref={ref} documentId="j" value={source} language="json" ariaLabel="x" onChange={onChange} />);
+    const view = viewOf(container);
+    view.dispatch({ changes: { from: 0, insert: " " }, userEvent: "input.type" });
+    expect(ref.current!.formatJson().ok).toBe(true);
+    expect(undo(view)).toBe(true);
+    expect(onChange).toHaveBeenLastCalledWith(`${BOM} ${stripBom(source)}`);
+    expect(undo(view)).toBe(true);
+    expect(onChange).toHaveBeenLastCalledWith(source);
   });
 });

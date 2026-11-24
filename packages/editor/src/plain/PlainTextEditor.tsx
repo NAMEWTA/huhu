@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import { json, jsonParseLinter } from "@codemirror/lang-json";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { linter, lintGutter } from "@codemirror/lint";
@@ -134,11 +134,12 @@ export const PlainTextEditor = forwardRef<PlainTextEditorHandle, PlainTextEditor
       formatJson: () => {
         const view = viewRef.current;
         if (!view) return { ok: false, message: "编辑器未就绪" };
+        if (view.state.readOnly) return { ok: false, message: "编辑器当前处于只读状态" };
         const current = restoreBom(view.state.sliceDoc(), bomRef.current);
         const r = formatJsonText(current);
-        if (!r.ok) return r;
+        if (!r.ok || r.text === current) return r;
         const next = stripBom(r.text);
-        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next }, userEvent: "input.format" });
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next }, annotations: isolateHistory.of("full"), userEvent: "input.format" });
         return r;
       },
     }),
