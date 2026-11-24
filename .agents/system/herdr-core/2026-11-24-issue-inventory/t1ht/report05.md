@@ -41,3 +41,5 @@
 
 ## Lead 验收
 
+
+- Lead 2026-11-24：TW3 通过；U1 E2E 失败，转 t1hs task07 返工。清单转 task06。

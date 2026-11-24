@@ -23,3 +23,4 @@
 - 2026-11-24 回收 11-23 旧验收遗留进程（用户批准），保留 `/tmp/huhu-closeout-native-history.*` 目录。
 - worker 在各自分支提交；Lead 审查、跑定向验证后 `--no-ff` 合入 main，worker 随后在新 task 前将分支快进到 main。
 - 验证名额：本机所有定向单测、E2E、类型检查等重任务统一用 `flock /home/wta/projects/huhu/temp/dev/verify.lock <命令>` 串行，Lead 与 worker 共用。
+- E2E 环境：本机会话为 Wayland，Electron 在 xvfb 下需 `env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 xvfb-run -a ...`。真实 Codex 用例用 `HUHU_CODEX_DISPATCH_BIN=/home/wta/projects/huhu/temp/dev/codex-0.170.0/codex-x86_64-unknown-linux-musl`（官方 0.170.0，SHA-256 880819aa…2971）。
