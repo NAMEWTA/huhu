@@ -59,6 +59,19 @@
 
 Motty v0.4.12 源码适配的条目沿用 Copyright 2026 Motty contributors。 [固定提交](https://github.com/t8y2/motty/commit/102228261703d8f22c5eb98b1c500e2a24889dee) · [LICENSE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/LICENSE) · [NOTICE](https://github.com/t8y2/motty/blob/102228261703d8f22c5eb98b1c500e2a24889dee/NOTICE)
 
+## 账本来源与领域合同（#11 L0a）
+
+HomiBook 固定为 v1.2.4 `5d3d71713de805c95245378408b73f101f69659a`，完整提交已获取到 `temp/sources/homibook`。根 LICENSE 为 MIT，版权为 saaangxy（2026）。本阶段复用行为与边界样例，Huhu 合同独立实现。基线为 Huhu `825b0c0327954680c1133a4307730db5e94b33ca`。 [固定提交](https://github.com/saaangxy/HomiBook/commit/5d3d71713de805c95245378408b73f101f69659a) · [LICENSE](https://github.com/saaangxy/HomiBook/blob/5d3d71713de805c95245378408b73f101f69659a/LICENSE)
+
+| 固定源文件 | Huhu 适配与责任 |
+| --- | --- |
+| `backend/prisma/schema.prisma` 的 `AccountBook`、`Account`、`BalanceAdjustment`、`Record` 与 `RecordAttachment` | `packages/contracts/src/ledger.ts` 冻结账本、账户、余额基准、流水、转账、平账组及两条提交输入样例。JSON 金额使用最小单位整数字符串，加减用 BigInt。不同币种分别出账，两个转账端点独立保存。以首批合同中固定的币种精度表校验，未知币种进入待决。 |
+| `backend/src/services/balance.ts`、`backend/src/lib/date-time.ts` | 保留期初/校准与真实资金变动关系。将上游浮点舍入替换成精确整数，账本自带 IANA 时区。以半开业务日区间归集，明确处理重复或不存在的来源壁钟时刻。 |
+| `backend/src/services/offset-match.ts`、`backend/src/services/backup/{export,import}.ts` | 平账/恢复交互参照上游。后续 `plugins/ledger/src/domain/offset.ts` 复用候选排序的行为，Engine 复核组成员和版本。归档或缺失的凭证/知识资源保留可辨认状态，历史流水保持可读。迁入旧 `offsetAt` 时复核缺失关系，不捏造组身份。 |
+| `backend/src/services/scheduler.ts`、`backend/src/routes/recurring.ts`、`frontend/src/pages/BooksPage.tsx` | UI 模块承接建账、流水、导入和报表。固定收支接 Automations 唯一 planId/revision，贷款历史显式确认。账本 owner 保存期次和入账关系，经现有 VaultFiles/OperationLog 做一致提交与恢复。 |
+
+合同放在已装配且可单独验证的 `@huhu/contracts`，沿用 `CapabilityIntentKeySchema`。L1 建立插件时由账本 owner 消费此共享输入及本地提交约定。`packages/contracts/test/ledger.test.ts` 的固定样例验证宽金额、校准、时区、异常引用和受控导入确认输入。样例不代表 SQLite、Vault 写入或业务能力已经注册。
+
 ## 安装包依赖
 
 | 依赖 | 来源与许可 | 用途 |
