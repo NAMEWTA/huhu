@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { isHuhuError, type McpExternalRoute, type McpSessionPrincipal, type McpSource, type McpSourceCatalog } from "@huhu/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema, ErrorCode, McpError, ToolListChangedNotificationSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { canonicalJson } from "../idempotency.js";
 import type { ExternalMcpTools } from "../mcp.js";
 import { createMcpRouting, mcpRouteError } from "../mcp-routing.js";
-import { discoverTools, publicToolName } from "./catalog.js";
+import { discoverTools, projectTool, publicToolName } from "./catalog.js";
 import { McpSourceStore } from "./store.js";
+import { remoteAuthFailure, sourceTransport } from "./transport.js";
 
 const initializeMs = 6_000;
 const discoverMs = 8_000;
@@ -16,21 +16,14 @@ const callMs = 30_000;
 const argumentsSchema = z.record(z.string(), z.unknown());
 
 type Catalog = { fingerprint: string; catalogRevision: number; tools: Tool[]; state: McpSourceCatalog["state"]; checkedAt: string; diagnostic: string | null };
-type Connection = { fingerprint: string; lifetime: AbortSignal; close(): Promise<void>; ready: Promise<Client>; refresh?: Promise<Catalog> };
+type Connection = { fingerprint: string; lifetime: AbortSignal; close(): Promise<void>; ready: Promise<Client>; refresh?: Promise<Catalog>; refreshAgain?: true };
 
 export interface McpSourceRuntimeOptions {
   vaultInstance: string;
   publishSignal(): AbortSignal | undefined;
+  endpoint?(): string | null;
   isBuiltinName(name: string): boolean;
   audit?(row: { at: string; entry: string; capability: string; code: string; ms: number }): void;
-}
-
-function readEnvironment(references: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(references).map(([name, reference]) => {
-    const value = process.env[reference];
-    if (value === undefined) throw mcpRouteError("authentication-required");
-    return [name, value];
-  }));
 }
 
 export class McpSourceRuntime implements ExternalMcpTools {
@@ -39,6 +32,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
   private readonly checks = new Map<string, AbortController>();
   private readonly closing = new Set<Promise<void>>();
   private readonly catalogs = new Map<string, Catalog>();
+  private readonly probes = new Map<string, object>();
   private readonly listeners = new Set<() => void>();
   private revision = 0;
 
@@ -67,17 +61,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
   private connect(source: McpSource, lifetime: AbortSignal, changed?: () => void): Connection {
     lifetime.throwIfAborted();
     this.requireApproved(source);
-    const configuration = source.configuration;
-    if (configuration.transport !== "stdio") throw mcpRouteError("protocol-incompatible", { sourceId: source.sourceId });
-
-    const transport = new StdioClientTransport({
-      command: configuration.command,
-      args: configuration.args,
-      ...(configuration.cwd !== undefined && { cwd: configuration.cwd }),
-      env: readEnvironment(configuration.environment),
-      stderr: "pipe",
-    });
-    transport.stderr?.resume();
+    const transport = sourceTransport(source, () => this.options.endpoint?.());
     const client = new Client({ name: "huhu", version: "0.0.1" });
     let closed: Promise<void> | undefined;
     const abort = () => { void close(); };
@@ -93,13 +77,21 @@ export class McpSourceRuntime implements ExternalMcpTools {
     lifetime.addEventListener("abort", abort, { once: true });
     if (changed) client.setNotificationHandler(ToolListChangedNotificationSchema, changed);
     const ready = (async () => {
+      const handshake = AbortSignal.any([lifetime, AbortSignal.timeout(initializeMs)]);
+      let rejectWait: () => void = () => {};
       try {
-        await client.connect(transport, { signal: lifetime, timeout: initializeMs });
+        const deadline = new Promise<never>((_resolve, reject) => {
+          rejectWait = () => reject(handshake.reason);
+          handshake.addEventListener("abort", rejectWait, { once: true });
+        });
+        await Promise.race([client.connect(transport, { signal: handshake, timeout: initializeMs }), deadline]);
         lifetime.throwIfAborted();
         return client;
       } catch (error) {
         await close();
         throw error;
+      } finally {
+        handshake.removeEventListener("abort", rejectWait);
       }
     })();
     return { fingerprint: this.store.fingerprint(source), lifetime, close, ready };
@@ -125,6 +117,10 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   private failed(source: McpSource, error: unknown): Catalog {
     const previous = this.catalogs.get(source.sourceId)?.tools ?? [];
+    if (remoteAuthFailure(error)) return this.catalog(source, previous, "auth-required", "上游拒绝了认证");
+    if (error instanceof Error && /Unsupported protocol version/i.test(error.message)) {
+      return this.catalog(source, previous, "incompatible", "上游 MCP 协议版本不兼容");
+    }
     const reason = isHuhuError(error) ? error.details?.reason : undefined;
     switch (reason) {
       case "approval-required": return this.catalog(source, previous, "approval-required", "需要本机执行许可");
@@ -143,7 +139,9 @@ export class McpSourceRuntime implements ExternalMcpTools {
     if (existing) void existing.close();
     const lifetime = AbortSignal.any([this.lifetime.signal, service]);
     const connection = this.connect(source, lifetime, () => {
-      if (this.connections.get(id) === connection) void this.refreshLive(source, connection).catch(() => undefined);
+      if (this.connections.get(id) !== connection) return;
+      if (connection.refresh) connection.refreshAgain = true;
+      else void this.refreshLive(source, connection).catch(() => undefined);
     });
     this.connections.set(id, connection);
     void connection.ready.then((client) => {
@@ -165,23 +163,32 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   private refreshLive(source: McpSource, connection: Connection): Promise<Catalog> {
     if (connection.refresh) return connection.refresh;
+    const probe = {};
+    this.probes.set(source.sourceId, probe);
     const action = (async () => {
       try {
         this.assertCurrent(source, connection.fingerprint, connection.lifetime);
         const tools = await this.fetchCatalog(connection);
         this.assertCurrent(source, connection.fingerprint, connection.lifetime);
-        if (this.connections.get(source.sourceId) !== connection) throw mcpRouteError("stale-route");
+        if (this.connections.get(source.sourceId) !== connection || this.probes.get(source.sourceId) !== probe) throw mcpRouteError("stale-route");
         return this.catalog(source, tools, "ready", null);
       } catch (error) {
-        if (this.connections.get(source.sourceId) !== connection || connection.lifetime.aborted) throw error;
+        if (this.connections.get(source.sourceId) !== connection || connection.lifetime.aborted || this.probes.get(source.sourceId) !== probe) throw error;
         this.connections.delete(source.sourceId);
         await connection.close();
         this.assertCurrent(source, connection.fingerprint, connection.lifetime);
+        if (this.probes.get(source.sourceId) !== probe) throw mcpRouteError("stale-route");
         return this.failed(source, error);
       }
     })();
     connection.refresh = action;
-    void action.finally(() => { delete connection.refresh; }).catch(() => undefined);
+    void action.finally(() => {
+      delete connection.refresh;
+      if (connection.refreshAgain && this.connections.get(source.sourceId) === connection && !connection.lifetime.aborted) {
+        delete connection.refreshAgain;
+        void this.refreshLive(source, connection).catch(() => undefined);
+      }
+    }).catch(() => undefined);
     return action;
   }
 
@@ -195,15 +202,19 @@ export class McpSourceRuntime implements ExternalMcpTools {
     this.checks.set(id, controller);
     const lifetime = AbortSignal.any([signal, controller.signal, this.lifetime.signal, ...(service ? [service] : []), AbortSignal.timeout(initializeMs + discoverMs)]);
     let connection: Connection | undefined;
+    const probe = {};
     try {
       if (useLive && service && source.enabled) return await this.refreshLive(source, this.live(source));
+      this.probes.set(id, probe);
       connection = this.connect(source, lifetime);
       fingerprint = connection.fingerprint;
       const tools = await this.fetchCatalog(connection);
       this.assertCurrent(source, fingerprint, lifetime);
+      if (this.probes.get(id) !== probe) throw mcpRouteError("stale-route");
       return this.catalog(source, tools, "ready", null);
     } catch (error) {
       lifetime.throwIfAborted();
+      if (!useLive && this.probes.get(id) !== probe) throw mcpRouteError("stale-route");
       if (this.store.fingerprint(this.store.source(id)) !== fingerprint) throw mcpRouteError("stale-route");
       return this.failed(source, error);
     } finally {
@@ -213,6 +224,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
   }
 
   invalidate(sourceId: string, remove = false) {
+    this.probes.delete(sourceId);
     const pending = this.checks.get(sourceId);
     this.checks.delete(sourceId);
     pending?.abort();
@@ -241,7 +253,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
     const data = this.store.read().data;
     await Promise.all(data.sources.filter((source) => source.enabled).map(async (source) => {
       if (publicKey && !data.policy.selected.some((entry) => entry.sourceId === source.sourceId && entry.kind === "tool" &&
-        publicToolName(source.namespace, entry.upstreamIdentity, this.options.isBuiltinName) === publicKey)) return;
+        this.publicKey(source, entry.upstreamIdentity, data) === publicKey)) return;
       const catalog = this.catalogs.get(source.sourceId);
       const active = this.connections.get(source.sourceId);
       if (catalog?.fingerprint === this.store.fingerprint(source) && catalog.state === "ready" && active && !active.lifetime.aborted) return;
@@ -249,6 +261,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
       try { await this.refreshLive(source, this.live(source)); }
       catch (error) {
         if (principal.signal.aborted || !this.options.publishSignal()) return;
+        if (isHuhuError(error) && error.details?.reason === "stale-route") return;
         const latest = this.store.read().data.sources.find(({ sourceId }) => sourceId === source.sourceId);
         if (latest?.enabled && this.store.fingerprint(latest) === this.store.fingerprint(source)) this.failed(source, error);
       }
@@ -271,12 +284,21 @@ export class McpSourceRuntime implements ExternalMcpTools {
         const catalog = this.catalogs.get(source.sourceId);
         if (!catalog || catalog.fingerprint !== this.store.fingerprint(source) || catalog.state !== "ready") return [];
         return catalog.tools.map((tool) => ({
-          sourceId: source.sourceId, upstreamIdentity: tool.name, publicKey: publicToolName(source.namespace, tool.name, this.options.isBuiltinName),
+          sourceId: source.sourceId, upstreamIdentity: tool.name, publicKey: this.publicKey(source, tool.name, data),
           selected: data.policy.selected.some((item) => item.sourceId === source.sourceId && item.kind === "tool" && item.upstreamIdentity === tool.name),
           description: tool.description ?? "",
         }));
       }),
     };
+  }
+
+  private publicKey(source: McpSource, name: string, data: ReturnType<McpSourceStore["read"]>["data"]): string {
+    return data.publicKeys[JSON.stringify([source.sourceId, name])] ?? publicToolName(source.namespace, name, this.options.isBuiltinName);
+  }
+
+  ownsName(name: string): boolean {
+    try { return Object.values(this.store.read().data.publicKeys).includes(name); }
+    catch { return false; }
   }
 
   private routing(principal: McpSessionPrincipal) {
@@ -294,7 +316,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
             state: view.state, complete: !!catalog && view.state === "ready", entries: [],
           });
           for (const tool of catalog?.tools ?? []) {
-            const publicKey = publicToolName(source.namespace, tool.name, this.options.isBuiltinName);
+            const publicKey = this.publicKey(source, tool.name, data);
             if (!this.options.isBuiltinName(publicKey)) routes.push({
               origin: "external", kind: "tool", sourceId: source.sourceId, upstreamIdentity: tool.name, publicKey,
               configRevision: source.revision, authenticationRevision: 0, catalogRevision,
@@ -317,9 +339,9 @@ export class McpSourceRuntime implements ExternalMcpTools {
           const current = this.connections.get(source.sourceId);
           if (current !== connection || connection.lifetime.aborted) throw mcpRouteError("stale-route");
           try {
-            return CallToolResultSchema.parse(await client.callTool({ name: route.upstreamIdentity, arguments: args.data }, CallToolResultSchema, {
+            return await client.request({ method: "tools/call", params: { name: route.upstreamIdentity, arguments: args.data } }, CallToolResultSchema, {
               signal: AbortSignal.any([signal, connection.lifetime]), timeout: callMs,
-            }));
+            });
           } catch (error) {
             if (error instanceof McpError && error.code === ErrorCode.InvalidParams) throw mcpRouteError("invalid-arguments");
             throw mcpRouteError("upstream-result-unknown", { sourceId: source.sourceId, correlationId: randomUUID() });
@@ -334,7 +356,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
     return this.routing(principal).list(principal, "tool").flatMap((route) => {
       if (route.origin !== "external") return [];
       const tool = this.catalogs.get(route.sourceId)?.tools.find(({ name }) => name === route.upstreamIdentity);
-      return tool ? [{ ...tool, name: route.publicKey }] : [];
+      return tool ? [projectTool(tool, route.publicKey)] : [];
     });
   }
 

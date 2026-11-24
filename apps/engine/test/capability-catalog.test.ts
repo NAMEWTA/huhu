@@ -16,7 +16,7 @@ async function call(engine: RunningEngine, capability: string, input: unknown = 
   const reply = await fetch("http://127.0.0.1:" + engine.port + "/api/v1/call", {
     method: "POST",
     headers: { authorization: "Bearer " + token, "content-type": "application/json" },
-    body: JSON.stringify({ capability, input, requestId: randomUUID(), ...(intentKey && { intentKey }) }),
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }),
   });
   expect(reply.status).toBe(200);
   return CapabilityResultSchema.parse(await reply.json());
@@ -217,3 +217,33 @@ test("Web 名称目录沿用会话权限，邀请撤销后拒绝原 cookie", asy
     }
   }
 }, 60_000);
+
+test("MCP 来源管理按插件生命周期加载，显式停用关闭唯一 HTTP 出口", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-mcp-plugin-"));
+  let engine: RunningEngine | undefined;
+  try {
+    engine = await boot({ vaultPath: dir, create: true });
+    expect((await directory(engine, true)).find(({ name }) => name === "mcp.sources.create")).toMatchObject({
+      plugin: "mcp", availability: "active", exposed: false, risk: "high",
+    });
+    expect(await call(engine, "mcp.sources.create", {
+      displayName: "示例",
+      namespace: "fixture",
+      configuration: { transport: "stdio", command: "fixture-never-starts", args: [], environment: {} },
+    })).toMatchObject({ ok: true, data: { enabled: false } });
+    expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true, data: { enabled: true } });
+    const endpoint = `http://127.0.0.1:${engine.port}/mcp`;
+    const token = await issueMcpCredential(engine);
+    const handle = await openMcpSession(endpoint, token);
+    expect(await call(engine, "plugins.setEnabled", { id: "mcp", enabled: false })).toMatchObject({ ok: true, data: { state: "disabled" } });
+    expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), handle)).status).toBe(404);
+    expect(await call(engine, "mcp.sources.list")).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+    expect((await directory(engine, true)).find(({ name }) => name === "mcp.sources.create")).toMatchObject({ availability: "plugin-disabled", exposed: false });
+    expect(await call(engine, "plugins.setEnabled", { id: "mcp", enabled: true })).toMatchObject({ ok: true, data: { state: "active" } });
+    expect(await call(engine, "gateway.get")).toMatchObject({ ok: true, data: { mcp: { enabled: false } } });
+    expect(await call(engine, "mcp.sources.list")).toMatchObject({ ok: true, data: { sources: [{ source: { namespace: "fixture", enabled: false } }] } });
+  } finally {
+    await engine?.shutdown();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

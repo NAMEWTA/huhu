@@ -24,6 +24,7 @@ import {
   MCP_SOURCES_SERVICE,
   createMcpSourcePlugin,
   mcpSourceDescriptors,
+  mcpToolName,
   type ExternalMcpTools,
   registerHealthCapabilities,
   type HealthCheck,
@@ -270,7 +271,8 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     hostId: machineId(),
     ...(!vault.readOnly && rootIdentity && { approvalPath: path.relative(vault.root, path.join(runtime, "mcp-source-approvals.json")) }),
     publishSignal: () => mcpListener.enabled() && plugins.isEnabled("mcp") ? gatewayTokens.mcpSignal() : undefined,
-    isBuiltinName: (name) => registry.knownNames().some((capability) => capability.replaceAll(".", "_") === name),
+    endpoint: () => mcpListener.status().url,
+    isBuiltinName: (name) => registry.knownNames().some((capability) => mcpToolName(capability) === name),
     audit: (row) => gatewayAudit.add(row),
   }));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）

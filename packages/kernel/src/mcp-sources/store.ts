@@ -12,11 +12,12 @@ const dataSchema = z.strictObject({
   sources: z.array(McpSourceSchema),
   namespaces: z.record(z.string(), z.string()),
   connectionRevisions: z.record(z.string(), z.int().nonnegative()),
+  publicKeys: z.record(z.string(), z.string()).default({}),
   policy: McpPublishPolicySchema,
 });
 type Data = z.infer<typeof dataSchema>;
 
-const emptyData = (): Data => ({ format: 1, revision: 0, sources: [], namespaces: {}, connectionRevisions: {}, policy: { revision: 0, catalogRevision: 0, selected: [] } });
+const emptyData = (): Data => ({ format: 1, revision: 0, sources: [], namespaces: {}, connectionRevisions: {}, publicKeys: {}, policy: { revision: 0, catalogRevision: 0, selected: [] } });
 
 const approvalFile = z.strictObject({ format: z.literal(1), approvals: z.array(McpExecutionApprovalSchema) });
 
@@ -29,9 +30,9 @@ export class McpSourceStore {
   constructor(readonly files: VaultFiles, private readonly local: { path: string; vaultInstance: string; hostId: string } | undefined) {}
 
   read(): { data: Data; version: string | null } {
-    const saved = this.files.read(sourceFile);
-    if (!saved) return { data: emptyData(), version: null };
     try {
+      const saved = this.files.read(sourceFile);
+      if (!saved) return { data: emptyData(), version: null };
       return { data: dataSchema.parse(JSON.parse(saved.bytes.toString("utf8"))), version: saved.version };
     } catch {
       throw errors.invalidInput("MCP 来源配置无法读取");

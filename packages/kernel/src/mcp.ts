@@ -14,12 +14,14 @@ export interface McpBackend {
   external?: {
     list(): Promise<Tool[]>;
     call(name: string, input: unknown): Promise<CallToolResult | undefined>;
+    ownsName(name: string): boolean;
   };
 }
 
 export interface ExternalMcpTools {
   list(principal: McpSessionPrincipal): Promise<Tool[]>;
   call(principal: McpSessionPrincipal, name: string, input: unknown): Promise<CallToolResult>;
+  ownsName(name: string): boolean;
   subscribe(listener: () => void): () => void;
 }
 
@@ -53,16 +55,21 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
 
 /** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。 */
 export function createMcpServer(backend: McpBackend, version: string): Server {
-  const server = new Server({ name: "huhu", version }, { capabilities: { tools: {}, resources: {}, prompts: {} } });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [...(await backend.list()).map((c) => ({
+  const server = new Server({ name: "huhu", version }, { capabilities: { tools: backend.external ? { listChanged: true } : {}, resources: {}, prompts: {} } });
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const external = await backend.external?.list().catch((error: unknown) => {
+      if (isHuhuError(error) && error.code === "INVALID_INPUT") return [];
+      throw error;
+    }) ?? [];
+    const builtins = (await backend.list()).filter((cap) => !backend.external?.ownsName(mcpToolName(cap.name)));
+    return { tools: [...builtins.map((c) => ({
       name: mcpToolName(c.name),
       description: `${c.name}（${c.plugin} · ${c.scope}）`,
       inputSchema: (c.input && typeof c.input === "object" ? c.input : { type: "object" }) as { type: "object" },
       outputSchema: structuredOutput(c.output),
       ...(c.durableIntent && { _meta: { [intentField]: c.intentRequired ? "required" : "optional" } }),
-    })), ...(await backend.external?.list() ?? [])],
-  }));
+    })), ...external] };
+  });
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
       const external = await backend.external?.call(req.params.name, req.params.arguments ?? {});

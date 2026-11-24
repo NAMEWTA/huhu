@@ -9,6 +9,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { CancelledNotificationSchema, isInitializeRequest, isJSONRPCRequest, type RequestId } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createMcpServer } from "../mcp.js";
+import { mcpRouteError } from "../mcp-routing.js";
 import { discoverCapabilities, unknownTool } from "./capability-http.js";
 import type { EngineServerDeps } from "./http-app.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN } from "./ingress.js";
@@ -282,9 +283,15 @@ export class McpSessions {
               return this.current(session) ? result : [];
             },
             call: async (name, input) => {
-              if (!this.current(session) || this.resolveTool(name)) return undefined;
-              return this.deps.externalMcpTools?.()?.call(externalPrincipal(), name, input);
+              if (!this.current(session)) return undefined;
+              const upstream = this.deps.externalMcpTools?.();
+              if (this.resolveTool(name)) {
+                if (upstream?.ownsName(name)) throw mcpRouteError("ambiguous-entry");
+                return undefined;
+              }
+              return upstream?.call(externalPrincipal(), name, input);
             },
+            ownsName: (name: string) => this.deps.externalMcpTools?.()?.ownsName(name) ?? false,
           },
         }),
       },
@@ -296,6 +303,19 @@ export class McpSessions {
       if (params.requestId !== undefined) session.requests.get(params.requestId)?.abort();
     });
     mcp.onclose = session.close;
+    if (this.deps.externalMcpTools) {
+      let initialized = false;
+      mcp.oninitialized = () => {
+        if (initialized || !this.current(session)) return;
+        initialized = true;
+        const notify = () => { if (this.current(session)) void mcp.sendToolListChanged().catch(() => undefined); };
+        const detachTools = this.deps.externalMcpTools?.()?.subscribe(notify);
+        const detachEvents = this.deps.events.subscribe((event) => {
+          if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "tool-access")) notify();
+        });
+        signal.addEventListener("abort", () => { detachTools?.(); detachEvents(); }, { once: true });
+      };
+    }
     void mcp.connect(transport).catch(session.close);
     const onMessage = transport.onmessage;
     transport.onmessage = (message, extra) => {

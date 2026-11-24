@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { errors } from "@huhu/contracts";
 import { Vault } from "@huhu/vault";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import {
   CapabilityRegistry, Dispatcher, EventBus, GatewayAudit, IdempotencyStore, MCP_SOURCES_SERVICE, PluginManager, TokenTable,
@@ -11,6 +12,7 @@ import {
   type ExternalMcpTools,
 } from "../src/index.js";
 import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
+import { localUpstream } from "./fixtures/mcp-upstream.js";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -79,7 +81,7 @@ async function fixture(directory: string, readOnly = false) {
   }
   const endpoint = `http://127.0.0.1:${server.port}/mcp`;
   return {
-    call, invoke, endpoint, token, close, plugins,
+    call, invoke, endpoint, token, close, plugins, vault,
     setPublishing(enabled: boolean) { service?.abort(); service = enabled ? new AbortController() : undefined; },
     async client() {
       const handle = await openMcpSession(endpoint, token);
@@ -176,4 +178,163 @@ test("cached stdio routes are immediately denied after revocation", async () => 
   expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
   expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "blocked" } })).error.data).toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
   expect(writes(journal).filter(({ type }) => type === "call")).toHaveLength(0);
+});
+
+type ImportPreview = {
+  previewId: string; sourcesRevision: number;
+  entries: { entryId: string; namespace: string; state: string; sourceId?: string; sourceRevision?: number }[];
+};
+
+test("JSON import previews without execution, redacts secrets and retries an atomic commit", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const { source: existing, journal } = await addStdio(f, directory, "repo");
+  const create = { command: process.execPath, args: [path.resolve("tests/fixtures/mcp-stdio.cjs"), journal], env: { EXAMPLE: "${TEST_EXTERNAL_ENV_REFERENCE}" } };
+  const text = JSON.stringify({ mcpServers: {
+    repo: create,
+    new_source: { ...create, name: "Local addition" },
+    remote: { type: "http", url: "https://fixture.invalid/mcp", headers: { Authorization: "${UPSTREAM_FIXTURE_AUTH}" } },
+    secret_header: { url: "https://fixture.invalid/mcp", headers: { Authorization: "Bearer synthetic-hidden-secret" } },
+    secret_env: { ...create, env: { KEY: "synthetic-hidden-secret" } },
+    secret_url: { url: "https://fixture.invalid/mcp?key=synthetic-hidden-secret" },
+    invalid: { command: "unused", args: 7 },
+    conflicting: { ...create, url: "https://fixture.invalid/mcp" },
+  } });
+  expect(await f.invoke("mcp.sources.importPreview", { text: "bad JSON" })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  const preview = await f.call<ImportPreview>("mcp.sources.importPreview", { text });
+  expect(preview.entries.map(({ state }) => state)).toEqual(["conflict", "ready", "ready", "blocked", "blocked", "blocked", "invalid", "invalid"]);
+  expect(JSON.stringify(preview)).not.toContain("synthetic-hidden-secret");
+  expect(existsSync(journal)).toBe(false);
+  expect(await f.call("mcp.sources.list")).toMatchObject({ sources: [{ source: { sourceId: existing.sourceId } }] });
+  const selection = {
+    previewId: preview.previewId, sourcesRevision: preview.sourcesRevision,
+    selections: [{ action: "create", entryId: preview.entries[1]!.entryId }, { action: "create", entryId: preview.entries[2]!.entryId }],
+  };
+  expect(await f.invoke("mcp.sources.importCommit", {
+    ...selection, selections: [{ action: "create", entryId: preview.entries[3]!.entryId }],
+  })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  const write = vi.spyOn(f.vault.files, "write").mockRejectedValueOnce(errors.invalidInput("模拟保存失败"));
+  expect(await f.invoke("mcp.sources.importCommit", selection)).toMatchObject({ ok: false, error: { message: "模拟保存失败" } });
+  write.mockRestore();
+  expect(await f.call("mcp.sources.list")).toMatchObject({ sources: [{ source: { sourceId: existing.sourceId } }] });
+  expect(await f.call("mcp.sources.importCommit", selection)).toMatchObject({ sources: [{ namespace: "new_source", enabled: false }, { namespace: "remote", enabled: false }] });
+  const exported = await f.call<{ mcpServers: Record<string, unknown> }>("mcp.sources.export");
+  expect(exported.mcpServers["remote"]).toMatchObject({ authentication: { kind: "environment", name: "UPSTREAM_FIXTURE_AUTH" } });
+  expect(JSON.stringify(exported)).not.toContain("synthetic-hidden-secret");
+  const updated = await f.call<ImportPreview>("mcp.sources.importPreview", { text: JSON.stringify(exported) });
+  expect(updated.entries.every(({ state }) => state === "conflict")).toBe(true);
+  expect(existsSync(journal)).toBe(false);
+  const stale = await f.call<ImportPreview>("mcp.sources.importPreview", { text: JSON.stringify({ mcpServers: { next_source: create } }) });
+  await f.call("mcp.sources.delete", sourceRef(existing));
+  expect(await f.invoke("mcp.sources.importCommit", {
+    previewId: stale.previewId, sourcesRevision: stale.sourcesRevision, selections: [{ action: "create", entryId: stale.entries[0]!.entryId }],
+  })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await f.call("mcp.sources.list")).toMatchObject({ sources: [{ source: { namespace: "new_source" } }, { source: { namespace: "remote" } }] });
+  const anotherVault = await fixture(root());
+  expect(await anotherVault.call("mcp.sources.list")).toEqual({ revision: 0, sources: [] });
+});
+
+test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP and legacy SSE", async () => {
+  const directory = root();
+  const streamable = await localUpstream("streamable-http", { authorization: "Bearer fixture-only" });
+  cleanup.push(() => streamable.close());
+  const sse = await localUpstream("sse");
+  cleanup.push(() => sse.close());
+  const resources = await localUpstream("streamable-http", { resourcesOnly: true });
+  cleanup.push(() => resources.close());
+  const f = await fixture(directory);
+  const { source: local } = await addStdio(f, directory);
+  await approve(f, local);
+  vi.stubEnv("HUHU_TEST_MCP_AUTH_HEADER", "Bearer fixture-only");
+  cleanup.unshift(() => vi.unstubAllEnvs());
+  const remote = (namespace: string, transport: "streamable-http" | "sse", url: string, useEnv = false) => f.call<Source>("mcp.sources.create", {
+    displayName: namespace, namespace, configuration: { transport, url, headers: {}, authentication: useEnv
+      ? { kind: "environment", name: "HUHU_TEST_MCP_AUTH_HEADER", header: "Authorization" } : { kind: "none" } },
+  });
+  const wrong = await remote("bad_auth", "streamable-http", streamable.url);
+  expect(await f.call("mcp.sources.check", sourceRef(wrong))).toMatchObject({ state: "auth-required" });
+  const missing = await f.call<Source>("mcp.sources.create", {
+    displayName: "Missing command", namespace: "missing",
+    configuration: { transport: "stdio", command: path.join(directory, "missing-binary"), args: [], environment: {} },
+  });
+  await approve(f, missing);
+  expect(await f.call("mcp.sources.check", sourceRef(missing))).toMatchObject({ state: "offline", toolCount: 0 });
+  const onlyResources = await remote("resources_only", "streamable-http", resources.url);
+  expect(await f.call("mcp.sources.check", sourceRef(onlyResources))).toMatchObject({ state: "ready", toolCount: 0 });
+  expect(resources.listRequests).toBe(0);
+  const remoteHttp = await remote("remote", "streamable-http", streamable.url, true);
+  const legacySse = await remote("legacy", "sse", sse.url);
+  for (const source of [local, remoteHttp, legacySse]) {
+    expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready", toolCount: 1 });
+    await exposure(f, source, "echo", true);
+    await f.call("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  }
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo", "remote__echo", "legacy__echo"]);
+  expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "local" } })).result.structuredContent).toEqual({ value: "local" });
+  expect((await rpc("tools/call", { name: "remote__echo", arguments: { value: "first" } })).result).toMatchObject({
+    structuredContent: { transport: "streamable-http", value: "first" },
+    content: [{ type: "text" }, { type: "image" }, { type: "audio" }, { type: "resource_link" }],
+  });
+  expect((await rpc("tools/call", { name: "legacy__echo", arguments: { value: "fail" } })).result).toMatchObject({
+    structuredContent: { transport: "sse", value: "fail" }, isError: true,
+  });
+  await exposure(f, remoteHttp, "echo", false);
+  expect((await rpc("tools/call", { name: "remote__echo", arguments: { value: "must not reach" } })).error.data.code).toBe("CAPABILITY_NOT_EXPOSED");
+  expect(streamable.calls).toEqual([{ name: "echo", input: { value: "first" } }]);
+  expect(sse.calls).toEqual([{ name: "echo", input: { value: "fail" } }]);
+});
+
+test("complete paging and definition changes preserve exact names and isolate cursor failure", async () => {
+  const directory = root();
+  const definition = path.join(directory, "source.json");
+  const names = ["echo", "with__separator", "汉字", "a".repeat(160), "-echo", "汉 字"];
+  writeFileSync(definition, JSON.stringify({ names, pageSize: 2 }));
+  const f = await fixture(directory);
+  const { source, journal } = await addStdio(f, directory, "repo", definition);
+  await approve(f, source);
+  expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({ toolCount: 6 });
+  const catalog = await f.call<Catalog>("mcp.catalog.list", { sourceId: source.sourceId });
+  const keys = Object.fromEntries(catalog.entries.map((entry) => [entry.upstreamIdentity, entry.publicKey]));
+  expect(Object.values(keys).every((key) => key.length <= 128)).toBe(true);
+  expect(new Set(Object.values(keys)).size).toBe(names.length);
+  expect(keys["with__separator"]).toBe("repo__with__separator");
+  await f.call("mcp.policy.update", {
+    expectedCatalogRevision: catalog.catalogRevision, expectedPolicyRevision: catalog.policyRevision,
+    choices: names.map((upstreamIdentity) => ({ sourceId: source.sourceId, upstreamIdentity, selected: true })),
+  });
+  let enabled = await f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result.tools).toHaveLength(7);
+  expect((await rpc("tools/call", { name: keys["汉字"], arguments: { value: "original identity" } })).result.structuredContent).toEqual({ value: "original identity" });
+  expect(writes(journal).at(-1)?.name).toBe("汉字");
+  const liveStarts = writes(journal).filter(({ type }) => type === "start").length;
+  const { source: saved } = await f.call<{ source: { configuration: unknown } }>("mcp.sources.get", { sourceId: source.sourceId });
+  enabled = await f.call<Source>("mcp.sources.update", { ...sourceRef(enabled), displayName: "Renamed repo", configuration: saved.configuration });
+  expect((await rpc("tools/list")).result.tools).toHaveLength(7);
+  expect(writes(journal).filter(({ type }) => type === "start")).toHaveLength(liveStarts);
+  const liveCatalog = await f.call<Catalog>("mcp.catalog.list", {});
+  const stream = new AbortController();
+  const handle = await openMcpSession(f.endpoint, f.token);
+  const events = await mcpRequest(f.endpoint, f.token, undefined, handle, { method: "GET", signal: AbortSignal.any([stream.signal, AbortSignal.timeout(2_000)]) });
+  const reader = events.body!.getReader();
+  writeFileSync(definition, JSON.stringify({ names: [...names].reverse(), pageSize: 2, minLength: 1, description: "Updated schema" }));
+  try {
+    await f.call("mcp.sources.refresh", sourceRef(enabled));
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("notifications/tools/list_changed");
+  } finally {
+    stream.abort();
+    await reader.cancel().catch(() => undefined);
+  }
+  const newCatalog = await f.call<Catalog>("mcp.catalog.list", {});
+  expect(newCatalog.catalogRevision).toBeGreaterThan(liveCatalog.catalogRevision);
+  expect(Object.fromEntries(newCatalog.entries.map((entry) => [entry.upstreamIdentity, entry.publicKey]))).toEqual(keys);
+  expect((await rpc("tools/list")).result.tools.find(({ name }: { name: string }) => name === keys["echo"])).toMatchObject({
+    description: "Updated schema", outputSchema: { properties: { value: { minLength: 1 } } },
+  });
+  writeFileSync(definition, JSON.stringify({ names, pageSize: 2, repeatCursor: true }));
+  expect(await f.call("mcp.sources.refresh", sourceRef(enabled))).toMatchObject({ state: "offline", diagnostic: "上游目录返回重复游标", toolCount: 0 });
+  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
 });

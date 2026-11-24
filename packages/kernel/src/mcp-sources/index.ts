@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { errors, MCP_MANAGEMENT_ACCESS, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, PluginManifestSchema } from "@huhu/contracts";
+import { errors, MCP_MANAGEMENT_ACCESS, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, PluginManifestSchema } from "@huhu/contracts";
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityContext } from "../capabilities/define.js";
 import type { PluginEntry } from "../plugin-manager.js";
 import { canonicalJson } from "../idempotency.js";
 import { McpSourceRuntime, type McpSourceRuntimeOptions } from "./runtime.js";
 import { McpSourceStore } from "./store.js";
+import { MAX_MCP_SOURCES, McpSourceImport, mcpImportPreview, sourceNamespace } from "./import.js";
+import { validateSourceConfiguration } from "./transport.js";
 
 export const MCP_SOURCES_SERVICE = "mcpSources";
 
@@ -14,7 +16,9 @@ const id = z.string().min(1);
 const revision = z.int().nonnegative();
 const sourceId = z.strictObject({ sourceId: id });
 const sourceRevision = sourceId.extend({ expectedRevision: revision });
-const sourceInput = McpSourceSchema.pick({ displayName: true, namespace: true, configuration: true });
+const sourceInput = McpSourceSchema.pick({ displayName: true, namespace: true, configuration: true }).extend({
+  displayName: z.string().trim().min(1).max(128), namespace: sourceNamespace,
+});
 const state = McpSourceCatalogSchema.shape.state;
 const sourceView = z.strictObject({ source: McpSourceSchema, state, approved: z.boolean(), checkedAt: z.string().nullable(), diagnostic: z.string().nullable() });
 const health = z.strictObject({ state, checkedAt: z.string(), diagnostic: z.string().nullable(), toolCount: revision });
@@ -44,6 +48,9 @@ const descriptors = {
   update: descriptor("mcp.sources.update", "更新 MCP 来源配置", sourceRevision.extend(sourceInput.omit({ namespace: true }).shape), McpSourceSchema),
   delete: descriptor("mcp.sources.delete", "删除 MCP 来源", sourceRevision, sourceId),
   setEnabled: descriptor("mcp.sources.setEnabled", "启用或停用 MCP 来源", sourceRevision.extend({ enabled: z.boolean() }), McpSourceSchema),
+  importPreview: descriptor("mcp.sources.importPreview", "预览导入 MCP 配置", z.strictObject({ text: z.string().min(1).max(128 * 1024) }), mcpImportPreview),
+  importCommit: descriptor("mcp.sources.importCommit", "提交 MCP 配置导入", McpImportConfirmationSchema.refine((input) => input.selections.length <= MAX_MCP_SOURCES), z.strictObject({ revision, sources: z.array(McpSourceSchema) })),
+  export: descriptor("mcp.sources.export", "脱敏导出 MCP 配置", none, z.strictObject({ mcpServers: z.record(z.string(), z.record(z.string(), z.unknown())) })),
   check: descriptor("mcp.sources.check", "临时检查 MCP 来源", sourceRevision, health),
   reconnect: descriptor("mcp.sources.reconnect", "重新连接 MCP 来源", sourceRevision, health),
   refresh: descriptor("mcp.sources.refresh", "刷新 MCP 目录", sourceRevision, health),
@@ -77,6 +84,12 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
       ctx.effect(() => () => runtime.dispose());
       api.provide(MCP_SOURCES_SERVICE, runtime);
       const emit = (id: string, op: "created" | "updated" | "deleted" = "updated") => api.events.publish("entity.changed", { kind: "mcp-source", id, op });
+      const importer = new McpSourceImport(store, (sources) => {
+        for (const source of sources) {
+          runtime.invalidate(source.sourceId);
+          emit(source.sourceId, source.revision === 1 ? "created" : "updated");
+        }
+      });
       const getChecked = ({ sourceId, expectedRevision }: z.infer<typeof sourceRevision>) => {
         const source = store.source(sourceId);
         if (source.revision !== expectedRevision) throw errors.versionConflict(String(source.revision));
@@ -92,9 +105,6 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         emit(source.sourceId);
         return { state: result.state, checkedAt: result.checkedAt, diagnostic: result.diagnostic, toolCount: result.state === "ready" ? result.tools.length : 0 };
       };
-      function validateConfig(configuration: z.infer<typeof sourceInput>["configuration"]) {
-        if (configuration.transport !== "stdio") throw errors.invalidInput("当前仅支持 stdio 来源");
-      }
       const preview = (input: z.infer<typeof sourceRevision>) => {
         const source = getChecked(input);
         if (source.configuration.transport !== "stdio") throw errors.invalidInput("仅 stdio 来源需要本机执行许可");
@@ -107,7 +117,7 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         emit(input.sourceId);
         return { ...current, approved };
       };
-      const nextPolicy = (data: ReturnType<McpSourceStore["read"]>["data"], input: z.infer<typeof policyInput>) => {
+      const nextPolicy = (data: ReturnType<McpSourceStore["read"]>["data"], input: z.infer<typeof policyInput>, reserveNames = false) => {
         const catalog = runtime.catalogView();
         if (data.policy.revision !== input.expectedPolicyRevision) throw errors.versionConflict(String(data.policy.revision));
         if (catalog.catalogRevision !== input.expectedCatalogRevision) throw errors.versionConflict(String(catalog.catalogRevision));
@@ -118,7 +128,12 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
           if (seen.has(key)) throw errors.invalidInput("发布选择包含重复工具");
           seen.add(key);
           if (selected) {
-            if (!catalog.entries.some((entry) => entry.sourceId === sourceId && entry.upstreamIdentity === upstreamIdentity)) throw errors.notFound("当前目录中没有该工具");
+            const entry = catalog.entries.find((item) => item.sourceId === sourceId && item.upstreamIdentity === upstreamIdentity);
+            if (!entry) throw errors.notFound("当前目录中没有该工具");
+            if (options.isBuiltinName(entry.publicKey) || Object.entries(data.publicKeys).some(([owner, name]) => owner !== key && name === entry.publicKey)) {
+              throw errors.nameConflict(entry.publicKey);
+            }
+            if (reserveNames) data.publicKeys[key] = entry.publicKey;
             index.set(key, { sourceId, upstreamIdentity, kind: "tool" });
           } else index.delete(key);
         }
@@ -131,10 +146,10 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
       api.defineCapability(bindCapability(descriptors.get, (_context, input) => runtime.view(store.source(input.sourceId))));
       api.defineCapability(bindCapability(descriptors.diagnostics, (_context, input) => runtime.view(store.source(input.sourceId))));
       api.defineCapability(bindCapability(descriptors.create, async (context, input) => {
-        validateConfig(input.configuration);
-        if (!/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(input.namespace)) throw errors.invalidInput("命名空间须以字母开头，以字母或数字分隔各段");
+        validateSourceConfiguration(input.configuration);
         const source = { ...input, sourceId: randomUUID(), enabled: false, revision: 1 };
         await store.change(context, (data) => {
+          if (data.sources.length >= MAX_MCP_SOURCES) throw errors.invalidInput("MCP 来源总数已达上限");
           if (Object.hasOwn(data.namespaces, source.namespace) || data.sources.some(({ displayName }) => displayName === source.displayName)) {
             throw errors.nameConflict(source.namespace);
           }
@@ -145,7 +160,7 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         return source;
       }));
       api.defineCapability(bindCapability(descriptors.update, async (context, input) => {
-        validateConfig(input.configuration);
+        validateSourceConfiguration(input.configuration);
         const previous = getChecked(input);
         const changed = canonicalJson(previous.configuration) !== canonicalJson(input.configuration);
         const next = { ...previous, displayName: input.displayName, configuration: input.configuration, revision: previous.revision + 1 };
@@ -180,12 +195,15 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         return next;
       }));
       api.defineCapability(bindCapability(descriptors.check, (context, input) => probe(context, input, false, false)));
+      api.defineCapability(bindCapability(descriptors.importPreview, (context, input) => importer.preview(context, input.text)));
+      api.defineCapability(bindCapability(descriptors.importCommit, (context, input) => importer.commit(context, input)));
+      api.defineCapability(bindCapability(descriptors.export, () => importer.export()));
       api.defineCapability(bindCapability(descriptors.refresh, (context, input) => probe(context, input, false, true)));
       api.defineCapability(bindCapability(descriptors.reconnect, (context, input) => probe(context, input, true, true)));
       api.defineCapability(bindCapability(descriptors.catalog, (_context, input) => runtime.catalogView(input.sourceId)));
       api.defineCapability(bindCapability(descriptors.previewPolicy, (_context, input) => nextPolicy(store.read().data, input)));
       api.defineCapability(bindCapability(descriptors.updatePolicy, async (context, input) => {
-        const written = await store.change(context, (data) => { data.policy = nextPolicy(data, input); }, () => {
+        const written = await store.change(context, (data) => { data.policy = nextPolicy(data, input, true); }, () => {
           if (input.expectedCatalogRevision !== runtime.catalogRevision) throw errors.versionConflict(String(runtime.catalogRevision));
         });
         runtime.publicationChanged();
