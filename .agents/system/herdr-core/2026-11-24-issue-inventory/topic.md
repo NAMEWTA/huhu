@@ -1,0 +1,25 @@
+# 2026-11-24 Issue Inventory 实施
+
+由 Lead 填写。交接时更新负责人、连接上下文和接续依据。
+
+## 目标与验收
+
+- 目标 — 完成 `.agents/dev/changes/2026-11-24-issue-inventory` 的 134 张票（#7/#11/#12/#13/#14/#16/#17，#15 统筹），合入 main 并推送 origin/main。
+- 验收 — 每票按 `tasks/<票>.md` 验收条目在 Linux 与独立 Web 上取得真实证据，Lead 回写 `evidences/<票>.md`；组合验收 J01–J22 在同一候选执行。
+- 约束 — 用户 2026-11-24 决定：Windows 和 macOS 不做验证，只验证 Linux 与 Web。项目资源限制见根 `AGENTS.md`：1 Lead + 2 worker，3 个检出，同机 1 项重验证。worker 只跑定向单测（一次一个文件），E2E 只写不跑。
+
+## 共享位置与负责人
+
+- Lead — Claude Code，本机默认 Core 终端 `t1hr`
+- Core 连接 — 本机默认 herdr-core（hc 0.1.22），无远端
+- 共享根 — `/home/wta/projects/huhu/.agents/system/herdr-core/2026-11-24-issue-inventory`
+- 目录规则 — `encodeURIComponent(terminal_address)`
+- 协调项目根 — `/home/wta/projects/huhu`，Change `.agents/dev/changes/2026-11-24-issue-inventory`
+- worker 代码目录 — `/home/wta/projects/huhu/.agents/dev/worktree/inv-w1`（分支 `inv/w1`）、`/home/wta/projects/huhu/.agents/dev/worktree/inv-w2`（分支 `inv/w2`）
+- Issue 快照 — `/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/integration/20261124T094741Z/<NN>.md`
+
+## 决定与交接
+
+- 2026-11-24 回收 11-23 旧验收遗留进程（用户批准），保留 `/tmp/huhu-closeout-native-history.*` 目录。
+- worker 在各自分支提交；Lead 审查、跑定向验证后 `--no-ff` 合入 main，worker 随后在新 task 前将分支快进到 main。
+- 验证名额：本机所有定向单测、E2E、类型检查等重任务统一用 `flock /home/wta/projects/huhu/temp/dev/verify.lock <命令>` 串行，Lead 与 worker 共用。
