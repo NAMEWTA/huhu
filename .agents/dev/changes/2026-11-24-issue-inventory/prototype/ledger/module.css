@@ -1,0 +1,19 @@
+.book-toolbar { align-items:end; border-block-end:1px solid var(--line); padding-block-end:10px; }
+.book-toolbar .field { inline-size:min(46%,330px); min-inline-size:150px; }
+.book-toolbar .field > span,.record-filters .field > span { color:var(--muted); font-size:.84em; }
+.metric-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.metric { display:grid; align-content:start; gap:7px; min-width:0; }
+.metric strong { font-size:clamp(16px,2.3cqi,28px); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.record-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,138px),1fr)); gap:9px; align-items:end; }
+.record-filters label { min-inline-size:0; }
+.directory-head { margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+.record-list > li:first-child,.import-list > li:first-child { padding-block-start:8px; }
+.record-list .meta { margin:0; }
+.empty-state { min-height:190px; align-content:center; }
+.sidebar-link { margin:12px 6px; font-size:.86em; }
+.dialog-body .notice { margin-block-start:8px; }
+.modal .field { min-inline-size:0; }
+@container surface (max-width:550px) {
+  .metric-grid { grid-template-columns:minmax(0,1fr); }
+  .record-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
