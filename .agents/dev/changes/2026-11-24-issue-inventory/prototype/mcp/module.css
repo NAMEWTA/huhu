@@ -1,0 +1,23 @@
+.service-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.service-list, .directory-list { margin: 0; padding: 0; list-style: none; }
+.service-list li + li, .directory-list li + li { border-top: 1px solid var(--line); }
+.service-row, .directory-row, .definition-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .65rem; padding: .8rem 0; }
+.service-copy { flex: 1 1 13rem; min-width: 0; }
+.service-copy > * + *, .catalog-title > * + * { margin-top: .25rem; }
+.service-copy p, .catalog-title p { margin-bottom: 0; }
+.catalog-title { flex: 1 1 15rem; min-width: 0; }
+.source-address, .definition-row dd, .directory-row code { overflow-wrap: anywhere; }
+.definition-row { border-bottom: 1px solid var(--line); }
+.definition-row dd { margin: 0; max-inline-size: 100%; }
+.action-strip { display: flex; gap: .4rem; flex-wrap: wrap; }
+.inline-note { margin: 0; }
+.source-form { display: grid; gap: .75rem; }
+.source-form textarea { min-block-size: 4rem; }
+.source-form .form-error { margin: 0; }
+.status-summary { display: flex; gap: .4rem; flex-wrap: wrap; }
+.config-sample { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.import-table { padding: 0; margin: 0; list-style: none; }
+.import-table li { padding-block: .65rem; border-bottom: 1px solid var(--line); }
+@container surface (max-width: 680px) {
+  .service-row, .directory-row, .definition-row { align-items: start; }
+}

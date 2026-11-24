@@ -13,3 +13,4 @@ export * from "./archives.js";
 export * from "./resources.js";
 export * from "./automation-plan.js";
 export * from "./ledger.js";
+export * from "./mcp-routing.js";
