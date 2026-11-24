@@ -772,7 +772,60 @@ test("普通回答重开后只派发一轮到原会话，保留父运行和明�
   );
   expect(await call(reopened, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ id: nextRun, parentRunId: run.runId, state: "running" })]) });
   const { data: saved } = await call<TaskDto>(reopened, "tasks.read", { id: task.id });
-  expect(saved.comments.filter(({ event }) => event === "answer")).toMatchObject([{ run: run.runId, session: ask.sessionId, body: "明确答复" }]);
+  expect(saved.comments.filter(({ event }) => event === "answer")).toMatchObject([{ run: run.runId, session: ask.sessionId, body: "明确答复", source: "human", author: "我" }]);
+});
+
+test.each(["normal", "native_deferred"] as const)("%s 回答只消费授权主体和当前问题版本，并持久保存认证主体", async (mode) => {
+  const { engine, fake } = await startBoundRun();
+  const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockResolvedValue({ status: "accepted" });
+  fake.answer = answer;
+  const task = await createDispatchable(engine, "受主体约束的回答");
+  for (const capability of ["tasks.dispatch", "tasks.reply", "tasks.reply.read", "tasks.questions.list", "tasks.comments.add"]) {
+    expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
+  }
+  const external = (subject: string, capability: string, input: unknown) =>
+    engine.dispatcher.call("http", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }, undefined, subject);
+  const owner = "fixture-owner";
+  const other = "fixture-other-subject";
+  const dispatch = await external(owner, "tasks.dispatch", intent(task));
+  expect(dispatch).toMatchObject({ ok: true });
+  if (!dispatch.ok) throw new Error(dispatch.error.code);
+  const run = dispatch.data as DispatchReceipt;
+  await waitDispatch(engine, run, { state: "running" });
+  const execution = recordOf(engine, run).boundExecution!;
+  const envelope = { version: 1, kind: "question", receiptId: "actor-question" } as const;
+  const payload = { requestId: "versioned-ask", requestVersion: 2, text: "请确认", options: ["选项"] };
+  const question: ExecutionReceipt = mode === "normal"
+    ? { ...envelope, execution, payload: { ...payload, mode } }
+    : { ...envelope, execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } }, payload: { ...payload, mode, nativeRequestId: "actor-native-route" } };
+  expect(await submitReceipt(engine, question)).toMatchObject({ ok: true });
+  const list = { taskId: task.id };
+  expect(await external(owner, "tasks.questions.list", list)).toMatchObject({ ok: true, data: [{ requestId: "versioned-ask", status: "awaiting" }] });
+  expect(await external(other, "tasks.questions.list", list)).toMatchObject({ ok: true, data: [] });
+  expect(await external(other, "tasks.comments.add", { ...list, body: "选项" })).toMatchObject({ ok: true });
+  const lookup = { ...list, requestId: "versioned-ask", requestVersion: 2, runId: run.runId, sessionId: execution.sessionBinding.sessionId, replyId: "actor-answer" };
+  const reply = { ...lookup, answer: "选项" };
+  expect(await external(other, "tasks.reply", reply)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await external(owner, "tasks.reply", { ...reply, requestVersion: 1 })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  expect(await external(owner, "tasks.reply", { ...reply, actor: other })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+  expect(answer).not.toHaveBeenCalled();
+  const results = await Promise.all([external(owner, "tasks.reply", reply), external(owner, "tasks.reply", { ...reply, replyId: "other-answer-id" })]);
+  expect(results.filter(({ ok }) => ok)).toHaveLength(1);
+  const winningReply = results[0]!.ok ? reply : { ...reply, replyId: "other-answer-id" };
+  const { answer: _answer, ...winningLookup } = winningReply;
+  expect(await external(owner, "tasks.reply", winningReply)).toMatchObject({ ok: true });
+  expect(await external(other, "tasks.reply.read", winningLookup)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  if (mode === "normal") {
+    expect(await submitReceipt(engine, { version: 1, kind: "no_update", receiptId: "actor-parent-finished", execution, payload: {} })).toMatchObject({ ok: true });
+  }
+  await expect.poll(() => external(owner, "tasks.reply.read", winningLookup)).toMatchObject({ ok: true, data: { status: "accepted" } });
+  const timeline = (await call<TaskDto>(engine, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "answer");
+  expect(timeline).toMatchObject([{ body: "选项", source: "external", author: "http", ask: lookup.requestId }]);
+  const folder = path.join(engine.vault.stateDir, "tasks", mode === "normal" ? "dispatches" : "replies");
+  const saved = readdirSync(folder).filter((file) => file.endsWith(".json")).map((file) => JSON.parse(readFileSync(path.join(folder, file), "utf8")) as { snapshot?: { source: { actor?: unknown } }; entries?: { actor?: unknown }[] });
+  const actors = saved.flatMap(({ snapshot, entries }) => entries?.map(({ actor }) => actor) ?? [snapshot?.source.actor]);
+  expect(actors).toContainEqual(expect.objectContaining({ caller: "http", subject: owner }));
+  expect(answer).toHaveBeenCalledTimes(mode === "normal" ? 0 : 1);
 });
 
 test("只派发显式选择的补充，忙时重开仍只发送一次，丢失确认后只核对", { timeout: 60_000 }, async () => {

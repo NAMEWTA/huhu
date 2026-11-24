@@ -31,6 +31,7 @@ import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, RetryDispatch, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
+import { ResponseActor } from "./response-actor.js";
 import { agentDispatchBlocker, TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
@@ -388,6 +389,10 @@ function toolOwner({ caller, subject }: CapabilityContext, desktopOnly = false):
   if (!isExternalTool(caller) || !subject) throw errors.permissionDenied("需要已认证的任务工具调用者");
   return fingerprint([caller, subject]);
 }
+
+function responseActor(context: CapabilityContext): ResponseActor {
+  return ResponseActor.parse({ caller: context.caller, subject: context.subject ?? context.caller, owner: toolOwner(context) });
+}
 function agentWriteResult(caller: string, task: TaskDto, includesAgentInput = task.type === "agent"): TaskDto {
   if (!isExternalTool(caller) || !includesAgentInput) return task;
   return { ...task, body: "", comments: [], references: [] };
@@ -507,29 +512,32 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.questionsList, ({ caller }, { taskId }) => {
-      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务请求");
-      return dispatch.questions(taskId);
+    bindCapability(taskToolDescriptors.questionsList, (c, { taskId }) => {
+      if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务请求");
+      return dispatch.questions(taskId, toolOwner(c), c.caller === "mcp" && c.session !== undefined);
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.reply, async ({ caller, signal }, input) => {
-      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("回答任务请求");
-      const reply = await dispatch.reply(input, signal);
+    bindCapability(taskToolDescriptors.reply, async (c, input) => {
+      if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("回答任务请求");
+      const reply = await dispatch.reply(input, responseActor(c), c.signal, () => {
+        c.assertCapabilityCurrent?.();
+        assertStillExposed(c, taskToolDescriptors.reply.name);
+      });
       void dispatch.check();
       return reply;
     }),
   );
   api.defineCapability(
-    bindCapability(taskToolDescriptors.replyRead, ({ caller }, input) => {
-      if (!isTaskToolCaller(caller)) throw errors.permissionDenied("查看任务回答");
-      return dispatch.readReply(input);
+    bindCapability(taskToolDescriptors.replyRead, (c, input) => {
+      if (!isTaskToolCaller(c.caller)) throw errors.permissionDenied("查看任务回答");
+      return dispatch.readReply(input, toolOwner(c));
     }),
   );
 
   api.defineCapability(
     bindCapability(taskToolDescriptors.supplement, async (c, input) => {
-      const accepted = await dispatch.acceptSupplement(input, c.signal, toolOwner(c), () => assertStillExposed(c, taskToolDescriptors.supplement.name));
+      const accepted = await dispatch.acceptSupplement(input, responseActor(c), c.signal, () => assertStillExposed(c, taskToolDescriptors.supplement.name));
       void dispatch.check();
       return accepted;
     }),

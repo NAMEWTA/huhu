@@ -41,6 +41,7 @@ import {
   type TaskSupplementView,
 } from "./native-replies.js";
 import { WriteQueue } from "./write-queue.js";
+import { responseCommentActor, sameResponseActor, type ResponseActor } from "./response-actor.js";
 import type { z } from "zod";
 
 export type TaskDispatchWork = Readonly<{
@@ -74,6 +75,7 @@ function hasParent(source: DispatchSource): source is ContinuationSource {
 
 const normalDispatchId = ({ taskId, replyId }: ReplyLookup) => `reply-${fingerprint([taskId, replyId])}`;
 const supplementDispatchId = ({ taskId, supplementId }: SupplementLookup) => `supplement-${fingerprint([taskId, supplementId])}`;
+const hostCliOwner = fingerprint(["cli", "cli"]);
 
 function continuationStatus(receipt: DispatchReceipt): ReplyView["status"] {
   const statusByState: Record<DispatchReceipt["state"], ReplyView["status"]> = {
@@ -211,15 +213,20 @@ export class TaskDispatch {
     });
   }
 
-  reply(input: ReplyInput, signal: AbortSignal): Promise<ReplyView> {
+  reply(input: ReplyInput, actor: ResponseActor, signal: AbortSignal, authorize: () => void): Promise<ReplyView> {
     const stopped = AbortSignal.any([signal, this.abort.signal]);
-    const prior = this.store.read(eventIdOf(normalDispatchId(input)));
-    const question = this.receipts.question(input.taskId, input.runId, input.requestId, this.matchesExecution);
-    if (prior || question?.receipt.payload.mode === "normal") return this.acceptNormalReply(input, stopped);
-    return this.replies.accept(input, this.matchesExecution, this.replyAvailability, stopped);
+    const normalEvent = eventIdOf(normalDispatchId(input));
+    const bound = (execution: ExecutionBinding) => this.readableExecution(execution, actor.owner);
+    const prior = this.store.read(normalEvent);
+    const question = this.receipts.question(input.taskId, input.runId, input.requestId, bound);
+    if (prior || question?.receipt.payload.mode === "normal") return this.acceptNormalReply(input, actor, stopped, authorize);
+    return this.replies.accept(input, actor, bound, this.replyAvailability, stopped, () => {
+      authorize();
+      if (this.store.read(normalEvent)) throw errors.idempotencyMismatch();
+    });
   }
 
-  readReply(input: ReplyLookup): ReplyView {
+  readReply(input: ReplyLookup, readerOwner?: string): ReplyView {
     this.tasks.read(input.taskId);
     const record = this.store.read(eventIdOf(normalDispatchId(input)))?.record;
     const normal = record && normalReplyView(record);
@@ -227,6 +234,8 @@ export class TaskDispatch {
       normal &&
       record &&
       record.snapshot.source.kind === "reply" &&
+      (!readerOwner || !record.snapshot.source.actor || record.snapshot.source.actor.owner === readerOwner) &&
+      this.readableExecution(record.snapshot.source.parent, readerOwner) &&
       this.store.owns(record) &&
       normal.runId === input.runId &&
       normal.sessionId === input.sessionId &&
@@ -234,13 +243,14 @@ export class TaskDispatch {
       normal.requestVersion === input.requestVersion
     )
       return normal;
-    return this.replies.readReply(input, this.matchesExecution);
+    return this.replies.readReply(input, (execution) => this.readableExecution(execution, readerOwner), readerOwner);
   }
 
-  acceptSupplement(input: SupplementInput, outer: AbortSignal, toolOwner?: string, authorize?: () => void): Promise<SupplementView> {
+  acceptSupplement(input: SupplementInput, actor: ResponseActor, outer: AbortSignal, authorize: () => void): Promise<SupplementView> {
+    const toolOwner = actor.owner;
     return this.tasks.withTaskWrite(input.taskId, async () => {
       AbortSignal.any([outer, this.abort.signal]).throwIfAborted();
-      authorize?.();
+      authorize();
       const task = this.tasks.read(input.taskId);
       const dispatchId = supplementDispatchId(input);
       const prior = this.store.read(eventIdOf(dispatchId))?.record;
@@ -249,6 +259,7 @@ export class TaskDispatch {
         const view = supplementView(prior);
         if (!view || source.kind !== "supplement" || !this.store.owns(prior)) throw new HuhuError("VERSION_CONFLICT", "补充轮次的归属不匹配");
         if (toolOwner !== undefined && source.toolOwner !== toolOwner) throw errors.notFound("没有这条任务补充记录");
+        if (!sameResponseActor(source.actor, actor)) throw errors.idempotencyMismatch();
         if (view.runId !== input.runId || view.sessionId !== input.sessionId || source.text !== input.text || fingerprint(source.messageIds) !== fingerprint(input.messageIds)) throw errors.idempotencyMismatch();
         return view;
       }
@@ -260,7 +271,7 @@ export class TaskDispatch {
       const execution = parent?.boundExecution;
       if (!parent || !execution || execution.sessionBinding.sessionId !== input.sessionId || !this.matchesExecution(execution)) throw new HuhuError("RUN_UNKNOWN", "无法确认补充信息的原会话");
       this.assertContinuationSlot(task, records, parent.receipt.dispatchId);
-      const source = SupplementSource.parse({ kind: "supplement", parent: execution, supplementId: input.supplementId, ...(toolOwner && { toolOwner }), text: input.text, messageIds: input.messageIds });
+      const source = SupplementSource.parse({ kind: "supplement", parent: execution, supplementId: input.supplementId, ...(toolOwner && { toolOwner }), actor, text: input.text, messageIds: input.messageIds });
       const body = selectedInput(task, input.text, input.messageIds);
       return supplementView(await this.saveContinuation(task, parent, source, dispatchId, body))!;
     });
@@ -274,9 +285,10 @@ export class TaskDispatch {
     return view;
   }
 
-  private acceptNormalReply(input: ReplyInput, signal: AbortSignal): Promise<ReplyView> {
+  private acceptNormalReply(input: ReplyInput, actor: ResponseActor, signal: AbortSignal, authorize: () => void): Promise<ReplyView> {
     return this.tasks.withTaskWrite(input.taskId, async () => {
       signal.throwIfAborted();
+      authorize();
       const task = this.tasks.read(input.taskId);
       const dispatchId = normalDispatchId(input);
       const eventId = eventIdOf(dispatchId);
@@ -285,12 +297,14 @@ export class TaskDispatch {
       if (prior) {
         const source = prior.snapshot.source;
         if (source.kind !== "reply" || !this.store.owns(prior)) throw new HuhuError("VERSION_CONFLICT", "后续任务轮次的归属不匹配");
+        if (!this.readableExecution(source.parent, actor.owner)) throw errors.notFound("没有这条任务回答记录");
         const previous = normalReplyView(prior)!;
         if (
           previous.runId !== input.runId ||
           previous.sessionId !== input.sessionId ||
           previous.requestId !== input.requestId ||
           previous.requestVersion !== input.requestVersion ||
+          !sameResponseActor(source.actor, actor) ||
           source.answer !== input.answer ||
           fingerprint(source.messageIds) !== fingerprint(messageIds)
         )
@@ -299,7 +313,7 @@ export class TaskDispatch {
       }
       this.store.assertWritable();
       if (this.replies.list(task.id, this.matchesExecution).some(({ replyId }) => replyId === input.replyId)) throw errors.idempotencyMismatch();
-      const question = this.receipts.question(task.id, input.runId, input.requestId, this.matchesExecution);
+      const question = this.receipts.question(task.id, input.runId, input.requestId, (execution) => this.readableExecution(execution, actor.owner));
       if (
         task.type !== "agent" ||
         task.status === "completed" ||
@@ -319,7 +333,7 @@ export class TaskDispatch {
       }
       this.assertContinuationSlot(task, records, parent.receipt.dispatchId);
       const body = selectedInput(task, input.answer, messageIds);
-      const source = ReplySource.parse({ kind: "reply", parent: question.receipt.execution, requestId: input.requestId, requestVersion: input.requestVersion, replyId: input.replyId, answer: input.answer, messageIds });
+      const source = ReplySource.parse({ kind: "reply", parent: question.receipt.execution, requestId: input.requestId, requestVersion: input.requestVersion, replyId: input.replyId, answer: input.answer, messageIds, actor });
       return normalReplyView(await this.saveContinuation(task, parent, source, dispatchId, body))!;
     });
   }
@@ -420,6 +434,13 @@ export class TaskDispatch {
     return expected !== undefined && fingerprint(expected) === fingerprint(execution);
   };
 
+  private readableExecution(execution: ExecutionBinding, readerOwner?: string): boolean {
+    if (!this.matchesExecution(execution)) return false;
+    if (readerOwner === undefined) return true;
+    const record = this.store.read(eventIdOf(execution.dispatchId))?.record;
+    return !!record && this.visibleDispatch(record, readerOwner);
+  }
+
   private replyAvailability = (execution: ExecutionBinding): ReplyAvailability => {
     if (this.store.read(eventIdOf(retryDispatchId(execution.dispatchId)))) return "closed";
     const status = this.store.read(eventIdOf(execution.dispatchId))?.record.stop?.status;
@@ -428,15 +449,22 @@ export class TaskDispatch {
     return "open";
   };
 
-  questions(taskId: string) {
+  questions(taskId: string, readerOwner?: string, hostMcp = false) {
     this.tasks.read(taskId);
-    return this.history(taskId).questions;
+    const records = this.recordsFor(taskId).filter((record) => {
+      const { source } = record.snapshot;
+      // The built-in host MCP session can view questions from the host CLI. Mutations still check the exact dispatch owner.
+      return this.visibleDispatch(record, readerOwner) || (hostMcp && source.kind === "tool" && source.owner === hostCliOwner);
+    });
+    return this.history(taskId, records).questions;
   }
 
   private history(taskId: string, records = this.recordsFor(taskId)) {
     const normal = records.filter((record) => this.store.owns(record)).flatMap((record) => normalReplyView(record) ?? []);
-    const replies = [...this.replies.list(taskId, this.matchesExecution), ...normal];
-    const history = this.receipts.history(taskId, (execution) => this.matchesExecution(execution) && !this.store.read(eventIdOf(retryDispatchId(execution.dispatchId))), this.onError);
+    const visible = new Set(records.map(({ receipt }) => receipt.dispatchId));
+    const bound = (execution: ExecutionBinding) => visible.has(execution.dispatchId) && this.matchesExecution(execution);
+    const replies = [...this.replies.list(taskId, bound), ...normal];
+    const history = this.receipts.history(taskId, (execution) => bound(execution) && !this.store.read(eventIdOf(retryDispatchId(execution.dispatchId))), this.onError);
     const superseded = new Set(records.flatMap(({ retryOf }) => (retryOf ? [retryOf.intent.dispatchId] : [])));
     const closed = new Set(records.filter(({ receipt, stop }) => !superseded.has(receipt.dispatchId) && (stop?.status === "stopped" || stop?.status === "completed")).map(({ receipt }) => receipt.runId));
     const questions = history.questions.map((question) => {
@@ -716,6 +744,7 @@ export class TaskDispatch {
     const { source } = record.snapshot;
     if (source.kind === "tool") return source.owner === toolOwner;
     if (source.kind === "supplement") return source.toolOwner === toolOwner;
+    if (source.kind === "reply" && source.actor) return source.actor.owner === toolOwner;
     return true;
   }
 
@@ -904,12 +933,10 @@ export class TaskDispatch {
   private async projectContinuation(record: OwnedRecord, source: ContinuationSource): Promise<void> {
     const { receipt } = record;
     try {
-      const external = source.kind === "supplement" && source.toolOwner !== undefined;
       await this.tasks.addComment(receipt.taskId, {
         id: receipt.dispatchId,
         at: receipt.acceptedAt,
-        source: source.kind === "follow-up" ? "system" : external ? "external" : "human",
-        ...(source.kind !== "follow-up" && !external && { author: "我" }),
+        ...(source.kind === "follow-up" ? { source: "system" as const } : responseCommentActor(source.actor, source.kind === "supplement" && source.toolOwner !== undefined)),
         run: source.parent.runId,
         session: source.parent.sessionBinding.sessionId,
         ...(source.kind === "reply" ? { ask: source.requestId, event: "answer", body: source.answer } : source.kind === "supplement" ? { event: "supplement", body: record.snapshot.body } : { event: "follow-up", body: "按计划跟进" }),

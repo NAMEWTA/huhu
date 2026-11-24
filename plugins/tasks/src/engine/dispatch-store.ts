@@ -5,6 +5,7 @@ import { AgentDispatchTargetSchema, AgentNativeStopInputSchema, AgentNativeStopS
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
+import { ResponseActor } from "./response-actor.js";
 
 const Id = z.string().trim().min(1).max(256);
 const Instant = z.iso.datetime();
@@ -40,6 +41,7 @@ export const ReplySource = z.strictObject({
   replyId: Id,
   answer: z.string().min(1).max(20_000),
   messageIds: z.array(Id).max(32),
+  actor: ResponseActor.optional(),
 });
 export const SupplementSource = z.strictObject({
   kind: z.literal("supplement"),
@@ -48,6 +50,7 @@ export const SupplementSource = z.strictObject({
   toolOwner: Digest.optional(),
   text: z.string().max(20_000).optional(),
   messageIds: z.array(Id).max(32),
+  actor: ResponseActor.optional(),
 });
 export const FollowUpDispatch = InputIdentity.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
 export const FollowUpSource = FollowUpDispatch.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });

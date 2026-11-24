@@ -104,6 +104,7 @@ if (process.argv.includes("--version")) {
       waitFor("allow-turn-ack", () => send({ id: message.id, result: { turn: { id: turnId } } }));
       if (answerFixture) {
         waitFor("ask-canceled", () => send({ id: "canceled", method: "item/tool/requestUserInput", params: { ...ask, itemId: "canceled-question", questions: [{ ...question, question: "Canceled fixture question" }] } }));
+        waitFor("ask-lost", () => send({ id: "lost", method: "item/tool/requestUserInput", params: { ...ask, itemId: "lost-question", questions: [{ ...question, question: "Lost process fixture question" }] } }));
         waitFor("cancel-question", () => {
           send({ method: "serverRequest/resolved", params: { threadId, requestId: "canceled" } });
           log("canceled-question-resolved");

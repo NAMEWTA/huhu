@@ -683,7 +683,7 @@ test.skipIf(!bin).each(["CLI-only", "HTTP MCP-only"] as const)("%s creates, edit
     signalFixture("allow-turn-end");
     const timeline = async () => (await readTask()).comments.filter(({ event }) => event === "answer" || event === "result");
     await expect.poll(timeline, { timeout: 15_000 }).toMatchObject([
-      { event: "answer", run: runId, session: sessionId, ask: requestId, body: reply.answer },
+      { event: "answer", run: runId, session: sessionId, ask: requestId, body: reply.answer, source: "external", author: origin.caller },
       { event: "result", run: runId, session: sessionId, body: "Synthetic result from the original turn." },
     ]);
     const originalTimeline = await timeline();
@@ -865,9 +865,14 @@ test.skipIf(!bin)(
       signalFixture("cancel-question");
       await expect.poll(() => answer(canceled, true)).toEqual(status("stale"));
       expect(await answer(canceled)).toEqual(status("stale"));
-      signalFixture("allow-turn-end");
-      await expect.poll(events).toContain("turn-ended");
+      signalFixture("ask-lost");
+      await expect.poll(() => evidence(/^report-.*\.json$/)).toHaveLength(4);
+      const lost = { ...inputFor("Lost process fixture question"), replyId: "lost-process-reply" };
+      expect(await answer(lost, true)).toEqual(status("not_sent"));
+      expect(cli("kill", original.execution.sessionBinding.coreAddress).status).toBe(0);
+      await expect.poll(() => answer(lost)).toEqual(status("stale"));
       expect(await answer(chosen, true)).toEqual(status("accepted"));
+      expect(intents()).toHaveLength(1);
       expect(nativeAnswers()).toHaveLength(1);
       expect(events().filter((event) => event === "turn-input")).toHaveLength(1);
       const info = JSON.parse(cli("server", "status").stdout) as { version: string };
