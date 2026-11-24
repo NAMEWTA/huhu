@@ -159,6 +159,19 @@ export class TaskReceiptInbox {
     };
   }
 
+  schedulingHistory(bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void) {
+    const { outcomes, questions } = this.currentHistory(null, bound, onError);
+    const nativeWaits = new Map<string, QuestionView[]>();
+    for (const { view, receipt } of questions) {
+      if (view.status !== "awaiting" || view.mode !== "native_deferred") continue;
+      const { dispatchId } = receipt.execution;
+      const waits = nativeWaits.get(dispatchId) ?? [];
+      waits.push(view);
+      nativeWaits.set(dispatchId, waits);
+    }
+    return { outcomes, nativeWaits };
+  }
+
   confirmedFailure(execution: ExecutionBinding): boolean {
     return this.currentHistory(execution.taskId, (candidate) => fingerprint(candidate) === fingerprint(execution)).outcomes.get(execution.dispatchId)?.state === "failed";
   }
@@ -169,7 +182,7 @@ export class TaskReceiptInbox {
       .sort((a, b) => b.receipt.execution.attempt - a.receipt.execution.attempt)[0];
   }
 
-  private currentHistory(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void) {
+  private currentHistory(taskId: string | null, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void) {
     const questions = new Map<string, StoredQuestion>();
     const terminal = new Map<string, { outcome: RunOutcome; payloadHash: string }>();
     for (const file of this.filesInInbox()) {
@@ -178,7 +191,7 @@ export class TaskReceiptInbox {
         if (!value) continue;
         const { receipt, at, status } = value.record;
         const { execution } = receipt;
-        if (status === "superseded" || execution.taskId !== taskId || !bound(execution)) continue;
+        if (status === "superseded" || (taskId !== null && execution.taskId !== taskId) || !bound(execution)) continue;
         if (receipt.kind !== "question") {
           if (receipt.kind !== "progress") {
             const payloadHash = fingerprint([receipt.kind, receipt.payload]);

@@ -1,5 +1,6 @@
 import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto, type TaskExecution } from "@huhu/contracts";
 import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
+import type { DeviceDispatchBudget } from "@huhu/vault";
 import {
   DispatchInput,
   DispatchLookup,
@@ -9,6 +10,7 @@ import {
   ReplySource,
   RuleSource,
   SupplementSource,
+  dispatchSnapshotText,
   eventIdOf,
   fingerprint,
   holdsTask,
@@ -60,6 +62,9 @@ type NativeStopInput = z.infer<typeof AgentNativeStopInputSchema>;
 type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
 type StopRecord = NonNullable<OwnedRecord["stop"]>;
 type RuleSlots = Map<string, Set<string>>;
+type Occupancy = "active" | "none" | { waitingSince: string };
+const noBacklog = () => ({ pending: 0, active: 0, waitingNative: 0, unknown: 0, oldestPendingAt: null as string | null, oldestNativeWaitAt: null as string | null, oldestUnknownAt: null as string | null });
+const earlier = (previous: string | null, next: string) => previous === null || next < previous ? next : previous;
 type ReplyInput = z.infer<typeof TaskReplyInput>;
 type ReplyLookup = z.infer<typeof TaskReplyLookup>;
 type ReplyView = z.infer<typeof TaskReplyView>;
@@ -183,6 +188,7 @@ export class TaskDispatch {
   private checking = false;
   private receiptCheckQueued = false;
   private receiptCheckImmediate: NodeJS.Immediate | undefined;
+  private resourceCounts = noBacklog();
 
   constructor(
     private readonly tasks: TasksService,
@@ -193,7 +199,17 @@ export class TaskDispatch {
     private readonly machineId: string,
     private readonly executor?: TaskDispatchExecutor,
     private readonly onError?: (error: unknown) => void,
+    private readonly readArtifact?: (path: string) => { version: string; text: string } | null,
+    private readonly budget?: DeviceDispatchBudget,
   ) {}
+
+  resources(retained: number | null) {
+    const unconfigured = { limit: null, occupied: null };
+    return {
+      vault: { ...this.resourceCounts, retained },
+      device: { active: this.budget?.status("active") ?? unconfigured, retained: this.budget?.status("retained") ?? unconfigured },
+    };
+  }
 
   async close(): Promise<void> {
     this.abort.abort();
@@ -567,11 +583,14 @@ export class TaskDispatch {
         this.store.assertWritable();
         const task = this.tasks.read(input.taskId);
         const acceptedAt = this.now();
+        if ((input.newRound || input.context) && source.kind !== "desktop") throw errors.permissionDenied("在工作台选取上下文或明确开始新轮次");
+        if (input.newRound && (task.status !== "in_progress" || (task.execution?.target?.mode ?? "new") !== "new")) throw errors.invalidInput("新轮次需要进行中的任务和新会话目标");
         const { outcomes } = this.receipts.history(task.id, this.matchesExecution, this.onError);
-        const existing = this.store.list().find((record) => record.receipt.taskId === task.id && holdsRun(record, outcomes, task));
+        const priorRuns = this.recordsFor(task.id);
+        const existing = priorRuns.find((record) => holdsRun(record, outcomes, task));
         if (existing) rejectDispatch("task_occupied", "该任务已有待派或活动运行", existing.receipt);
         if (!sameInput(task, input)) rejectDispatch("stale_input", "任务输入已变化，请重新读取任务");
-        const execution = this.dispatchable(task);
+        const execution = this.dispatchable(task, input.newRound);
         if (!execution) rejectDispatch("task_unavailable", "只有配置齐全且未开始的 Agent 任务可以派遣");
         const early = !isTaskAvailable(task.availableAt, acceptedAt);
         if (early && (source.kind !== "desktop" || input.allowEarly !== true)) rejectDispatch("not_due", "尚未到最早派遣时间");
@@ -579,6 +598,7 @@ export class TaskDispatch {
           if (source.notBefore && Date.parse(source.notBefore) > acceptedAt.getTime()) rejectDispatch("not_due", "派遣时刻尚未到达");
           if (source.expiresAt && Date.parse(source.expiresAt) <= acceptedAt.getTime()) rejectDispatch("expired", "派遣窗口已结束");
         }
+        const parent = input.newRound ? priorRuns.filter((record) => this.store.owns(record) && outcomes.get(record.receipt.dispatchId)?.finishedAt).sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt))[0] : undefined;
         const snapshot: DispatchSnapshot = {
           taskId: task.id,
           expectedVersion: input.expectedVersion,
@@ -590,7 +610,11 @@ export class TaskDispatch {
           references: task.references.filter((ref) => ref.from === "task").map((ref) => ref.path),
           source,
           ...(input.allowEarly !== undefined && { allowEarly: input.allowEarly }),
+          ...(input.newRound && { newRound: input.newRound }),
+          ...(parent && { previousRunId: parent.receipt.runId }),
+          ...(input.context && { context: this.freezeContext(task, input.context) }),
         };
+        if (snapshot.context && !AgentDispatchInputSchema.shape.input.safeParse(dispatchSnapshotText(snapshot)).success) throw errors.invalidInput("任务与所选上下文超出可派遣输入范围");
         const receipt: DispatchReceipt = {
           taskId: task.id,
           dispatchId: input.dispatchId,
@@ -601,12 +625,35 @@ export class TaskDispatch {
           state: "pending",
           reason: null,
           cancelRequested: false,
+          ...(parent && { parentRunId: parent.receipt.runId }),
           ...(early && task.availableAt && { overriddenAvailableAt: task.availableAt }),
         };
         // 只要求旧版本的执行输入仍一致。评论或不参与执行的字段可在新文件版本上受理。
         return (await this.store.create({ receipt, requestHash, snapshot, snapshotHash: fingerprint(snapshot), claim: null, startedAt: null, finishedAt: null })).receipt;
       }),
     );
+  }
+
+  private freezeContext(task: TaskDto, selection: NonNullable<DispatchInput["context"]>): NonNullable<DispatchSnapshot["context"]> {
+    const { messageIds, artifacts } = selection;
+    const selectedIds = new Set(messageIds);
+    if (selectedIds.size !== messageIds.length || new Set(artifacts.map(({ path }) => path)).size !== artifacts.length) throw errors.invalidInput("上下文中有重复的消息或产物");
+    const messages = messageIds.map((id) => {
+      const comment = task.comments.find((item) => item.id === id);
+      if (!comment || comment.body.length > 8_000) throw errors.invalidInput("所选消息不存在或超过 8000 字符");
+      return { id, body: comment.body };
+    });
+    const referenced = new Set(task.references.filter((ref) => ref.kind === "file" && (ref.from === "task" || selectedIds.has(ref.from))).map(({ path }) => path));
+    return {
+      messages,
+      artifacts: artifacts.map(({ path, expectedVersion }) => {
+        if (!referenced.has(path) || !/\.(md|markdown|txt)$/i.test(path)) throw errors.invalidInput("只能选取任务正文或所选消息关联的文本产物");
+        const current = this.readArtifact?.(path);
+        if (!current) throw errors.invalidInput("所选产物不存在或超出读取范围");
+        if (expectedVersion !== undefined && expectedVersion !== current.version) throw errors.versionConflict(current.version);
+        return { path, ...current, ...(expectedVersion !== undefined && { expectedVersion }) };
+      }),
+    };
   }
 
   async retry(input: RetryDispatch, signal: AbortSignal): Promise<DispatchReceipt> {
@@ -805,32 +852,40 @@ export class TaskDispatch {
     this.receiptCheckQueued = false;
     try {
       await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
-      const events = this.store
-        .list((error) => this.onError?.(error))
+      const records = this.store.list((error) => this.onError?.(error));
+      const owned = records.filter((record): record is OwnedRecord => this.store.owns(record));
+      const events = records
         .filter(({ receipt }) => holdsTask(receipt))
         .sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
+      const { occupancy, refreshReplies } = this.schedulingOccupancy(owned);
+      const budgetReady = this.refreshResources(owned, occupancy);
+      const takeActive = ({ receipt }: DispatchRecord) => !this.budget || (budgetReady && this.budget.claim("active", receipt.eventId));
       const slots: RuleSlots = new Map();
-      for (const event of events) this.updateRuleSlots(slots, event);
+      for (const event of owned) this.updateRuleSlots(slots, event, occupancy);
+      const replayed = new Set<string>();
       await this.replies.replay(
         this.matchesExecution,
         this.replyAvailability,
         (execution) => {
           const stored = this.store.read(eventIdOf(execution.dispatchId));
-          return stored !== null && this.takeRuleSlot(slots, stored.record);
+          if (!stored || !this.takeRuleSlot(slots, stored.record) || !takeActive(stored.record)) return false;
+          replayed.add(execution.taskId);
+          return true;
         },
         this.abort.signal,
         this.onError,
       );
+      for (const taskId of replayed) refreshReplies(taskId);
       for (const event of events) {
         if (this.abort.signal.aborted) break;
         try {
-          await this.advance(event, slots);
+          await this.advance(event, slots, takeActive);
         } catch (error) {
           if (!this.abort.signal.aborted) this.onError?.(error);
         } finally {
           if (event.snapshot.source.kind === "automation") {
             const latest = this.store.read(event.receipt.eventId);
-            if (latest) this.updateRuleSlots(slots, latest.record);
+            if (latest && this.store.owns(latest.record)) this.updateRuleSlots(slots, latest.record, occupancy);
           }
         }
       }
@@ -842,35 +897,71 @@ export class TaskDispatch {
     }
   }
 
-  private updateRuleSlots(slots: RuleSlots, record: DispatchRecord): void {
+  private refreshResources(records: OwnedRecord[], occupancy: (record: OwnedRecord) => Occupancy): boolean {
+    const counts = noBacklog();
+    const held = new Set<string>();
+    const released = new Set<string>();
+    for (const record of records) {
+      const { receipt, stop } = record;
+      if (receipt.state === "pending" || receipt.state === "claimed") {
+        counts.pending++;
+        counts.oldestPendingAt = earlier(counts.oldestPendingAt, receipt.acceptedAt);
+      }
+      if (receipt.state === "unknown" || (receipt.state === "running" && stop?.status === "unknown")) {
+        counts.unknown++;
+        counts.oldestUnknownAt = earlier(counts.oldestUnknownAt, stop?.status === "unknown" ? stop.updatedAt : receipt.acceptedAt);
+      }
+      const occupied = occupancy(record);
+      if (occupied === "active" && receipt.state !== "claimed") held.add(receipt.eventId);
+      else released.add(receipt.eventId);
+      if (typeof occupied === "object") {
+        counts.waitingNative++;
+        counts.oldestNativeWaitAt = earlier(counts.oldestNativeWaitAt, occupied.waitingSince);
+      }
+    }
+    counts.active = held.size;
+    this.resourceCounts = counts;
+    return this.budget?.sync("active", held, released) ?? true;
+  }
+
+  private updateRuleSlots(slots: RuleSlots, record: OwnedRecord, occupancy: (record: OwnedRecord) => Occupancy): void {
     const { source } = record.snapshot;
-    if (source.kind !== "automation" || !this.store.owns(record)) return;
+    if (source.kind !== "automation") return;
     const active = slots.get(source.ruleId) ?? new Set<string>();
     const { eventId } = record.receipt;
-    let occupied = true;
-    try {
-      occupied = this.usesRuleSlot(record);
-    } catch (error) {
-      this.onError?.(error);
-    }
-    if (occupied) active.add(eventId);
+    if (occupancy(record) === "active") active.add(eventId);
     else active.delete(eventId);
     slots.set(source.ruleId, active);
   }
 
-  private usesRuleSlot({ receipt, stop }: OwnedRecord): boolean {
-    const { state, taskId, runId, dispatchId } = receipt;
-    if (state === "claimed" || state === "sending" || state === "unknown") return true;
-    if (state !== "running" || stop?.status === "stopped" || stop?.status === "completed") return false;
-    const { questions, outcomes } = this.receipts.history(taskId, (execution) => execution.dispatchId === dispatchId && this.matchesExecution(execution), this.onError);
-    if (outcomes.get(dispatchId)?.finishedAt) return false;
-    if (stop?.status === "unknown") return true;
-    const paused = questions.filter((question) => question.runId === runId && question.mode === "native_deferred" && question.status === "awaiting");
-    if (!paused.length) return true;
-    const replies = this.replies.list(taskId, this.matchesExecution);
-    return paused.some((question) =>
-      replies.some((reply) => reply.runId === runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion && (reply.status === "sending" || reply.status === "unknown" || reply.status === "accepted")),
-    );
+  private schedulingOccupancy(records: OwnedRecord[]) {
+    const bindings = new Map<string, string>();
+    for (const { receipt, claim, boundExecution } of records) {
+      if (receipt.state === "running" && claim?.machineId === this.machineId && boundExecution) bindings.set(receipt.dispatchId, fingerprint(boundExecution));
+    }
+    const matches = (execution: ExecutionBinding) => bindings.get(execution.dispatchId) === fingerprint(execution);
+    const { outcomes, nativeWaits } = this.receipts.schedulingHistory(matches, (error) => this.onError?.(error));
+    const repliesByTask = new Map<string, ReturnType<TaskNativeReplies["list"]>>();
+    const occupancy = ({ receipt, stop }: OwnedRecord): Occupancy => {
+      const { state, taskId, runId, dispatchId } = receipt;
+      if (state === "claimed" || state === "sending" || state === "unknown") return "active";
+      if (state !== "running" || stop?.status === "stopped" || stop?.status === "completed" || outcomes.get(dispatchId)?.finishedAt) return "none";
+      const waits = nativeWaits.get(dispatchId);
+      if (stop?.status === "unknown" || !waits?.length) return "active";
+      try {
+        let replies = repliesByTask.get(taskId);
+        if (!replies) {
+          replies = this.replies.list(taskId, matches);
+          repliesByTask.set(taskId, replies);
+        }
+        if (waits.some((question) => replies.some((reply) => reply.runId === runId && reply.requestId === question.requestId && reply.requestVersion === question.requestVersion && ["sending", "unknown", "accepted"].includes(reply.status)))) return "active";
+        return { waitingSince: waits.reduce((oldest, question) => earlier(oldest, question.at), waits[0]!.at) };
+      } catch (error) {
+        this.onError?.(error);
+        return "active";
+      }
+    };
+    return { occupancy, refreshReplies: (taskId: string) => repliesByTask.delete(taskId) };
   }
 
   private takeRuleSlot(slots: RuleSlots, record: DispatchRecord): boolean {
@@ -896,9 +987,9 @@ export class TaskDispatch {
     return { record, version };
   }
 
-  private dispatchable(task: TaskDto): DispatchSnapshot["execution"] | null {
+  private dispatchable(task: TaskDto, newRound = false): DispatchSnapshot["execution"] | null {
     const config = task.execution;
-    if (!config || agentDispatchBlocker(task)) return null;
+    if (!config || agentDispatchBlocker(task, newRound)) return null;
     return { ...config, target: config.target ?? { mode: "new" } };
   }
 
@@ -941,7 +1032,7 @@ export class TaskDispatch {
     }
   }
 
-  private async advance(event: DispatchRecord, slots: RuleSlots): Promise<void> {
+  private async advance(event: DispatchRecord, slots: RuleSlots, takeActive: (record: DispatchRecord) => boolean): Promise<void> {
     if (!this.store.owns(event)) return;
     const current = this.current(event);
     if (!current) return;
@@ -968,6 +1059,10 @@ export class TaskDispatch {
       const ready = await executor.ready(work, signal);
       if (!(await this.prepare(record, ready))) return;
       const prepared = !work.agentTarget && typeof ready === "object" ? { ...work, agentTarget: ready.target } : work;
+      if (!takeActive(record)) {
+        await this.prepare(record, "busy");
+        return;
+      }
       if (prepared.agentTarget?.mode === "resume" && executor.prepareResume) {
         const nativeReady = await executor.prepareResume(prepared, signal);
         if (!(await this.prepare(record, nativeReady))) return;
@@ -1040,7 +1135,7 @@ export class TaskDispatch {
       else if (!record.retryOf && source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) Object.assign(next, { state: "expired", reason: null });
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
       else if (continuation === "stale" || (!record.retryOf && validateInput && task && !sameInput(task, snapshot))) Object.assign(next, { state: "stale_input", reason: null });
-      else if (!task || (record.retryOf ? !this.retryTaskOpen(task) : continuation === null ? !this.dispatchable(task) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
+      else if (!task || (record.retryOf ? !this.retryTaskOpen(task) : continuation === null ? !this.dispatchable(task, snapshot.newRound) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (!this.retrySourceSafe(record)) next.reason = "awaiting_confirmation";
       else if (continuation === "waiting") next.reason = "waiting_resource";
       else if (validateInput && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
@@ -1072,7 +1167,7 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const source = record.snapshot.source;
       if (!task) return false;
-      if (record.retryOf ? !this.retryTaskOpen(task) : hasParent(source) ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !this.dispatchable(task)) return false;
+      if (record.retryOf ? !this.retryTaskOpen(task) : hasParent(source) ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !this.dispatchable(task, record.snapshot.newRound)) return false;
       if (!this.retrySourceSafe(record)) return false;
       const validateInput = record.retryOf !== undefined || !hasParent(source) || source.kind === "follow-up";
       const now = this.now();

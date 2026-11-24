@@ -4,7 +4,7 @@ import type { HuhuApi } from "@huhu/kernel";
 import { AgentDispatchInputSchema, AgentDispatchResponseSchema, AgentDispatchTargetInfoSchema, AgentDispatchTargetSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import { z } from "zod";
 import type { TaskDispatchExecutor, TaskDispatchReadiness, TaskDispatchResult, TaskDispatchWork } from "./dispatch.js";
-import { fingerprint } from "./dispatch-store.js";
+import { dispatchSnapshotText, fingerprint } from "./dispatch-store.js";
 import { AgentReplyResult } from "./native-replies.js";
 
 const Targets = z.array(AgentDispatchTargetInfoSchema);
@@ -20,7 +20,7 @@ function executionText(body: string, instructions?: string): string {
 }
 
 function textOf({ snapshot }: TaskDispatchWork): string {
-  return executionText(snapshot.body, snapshot.source.kind === "automation" ? snapshot.source.instructions : undefined);
+  return dispatchSnapshotText(snapshot);
 }
 
 function errorCode(error: unknown): unknown {

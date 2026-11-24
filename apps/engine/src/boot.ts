@@ -51,7 +51,7 @@ import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { errors, HuhuError, PluginManifestSchema } from "@huhu/contracts";
 import { attachTerminal, HerdrCore } from "@huhu/herdr-client";
 import type { PrivateMailAttachmentRequest, SelectDraftAttachmentResult } from "@huhu/plugin-mail/desktop-attachments";
-import { directoryInstance, endpointRootBinding, machineId, OperationLog, readEngineEndpoint, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher, type EngineEndpointRecord, type EngineMode } from "@huhu/vault";
+import { directoryInstance, endpointRootBinding, loadDeviceDispatchBudget, machineId, OperationLog, readEngineEndpoint, SemanticRepository, Trash, Vault, VaultIndex, VaultWatcher, type DeviceDispatchBudget, type EngineEndpointRecord, type EngineMode } from "@huhu/vault";
 import * as agentCli from "@huhu/plugin-agent-cli/engine";
 import * as agentGuide from "@huhu/plugin-agent-guide/engine";
 import * as automations from "@huhu/plugin-automations/engine";
@@ -156,8 +156,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const tokens = new TokenTable();
   const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
   let mcpListener: LocalMcpListener;
+  let dispatchBudget: DeviceDispatchBudget | undefined;
   try {
     mcpListener = new LocalMcpListener(vault, gatewayTokens);
+    if (!vault.readOnly && process.getuid) dispatchBudget = loadDeviceDispatchBudget(vault.root);
   } catch (error) {
     await vault.close();
     throw error;
@@ -248,7 +250,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
-    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n), zone: settingsZone }),
+    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n), zone: settingsZone, ...(dispatchBudget && { dispatchBudget }) }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(notesManifest),
@@ -289,6 +291,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     apply: (ctx, api) =>
       void agentCli.apply(ctx, api, {
         notify: (n) => void notifications.create(n),
+        ...(dispatchBudget && { dispatchBudget }),
         ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
         ...(moduleCredentialHost && {
           credentialHost: { ...moduleCredentialHost, vault },

@@ -20,11 +20,11 @@ import {
 } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
-import { machineId, VaultFiles } from "@huhu/vault";
+import { machineId, resolveReadableAsset, VaultFiles, versionOf, type DeviceDispatchBudget } from "@huhu/vault";
 import { newId } from "@huhu/contracts";
 import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
@@ -54,6 +54,8 @@ const Id = z.object({ id: z.string() });
 const ListInput = z.object({ category: TaskCategorySchema.default("all"), status: z.array(TaskStatusSchema).optional(), type: TaskTypeSchema.optional(), tags: z.array(z.string()).optional(), query: z.string().optional() });
 
 const Versioned = Id.extend({ expectedVersion: z.string() });
+const count = z.int().nonnegative();
+const capacity = z.object({ limit: count.nullable(), occupied: count.nullable() });
 
 export const taskToolDescriptors = {
   list: defineCapabilityDescriptor({
@@ -191,6 +193,19 @@ export const taskToolDescriptors = {
     title: "查看派遣目标",
     description: "查看指定 Space 可选的 Agent 与会话目标。",
     risk: "normal",
+  }),
+  dispatchResources: defineCapabilityDescriptor({
+    name: "tasks.dispatch.resources", plugin: "tasks", scope: "read", exposable: false, defaultExposed: false, risk: "normal",
+    title: "查看派遣资源",
+    description: "读取本 Vault 的派遣积压和本机已配置的执行、保留进程名额。",
+    input: z.strictObject({}),
+    output: z.object({
+      vault: z.object({
+        pending: count, active: count, waitingNative: count, unknown: count, retained: count.nullable(),
+        oldestPendingAt: z.iso.datetime().nullable(), oldestNativeWaitAt: z.iso.datetime().nullable(), oldestUnknownAt: z.iso.datetime().nullable(),
+      }),
+      device: z.object({ active: capacity, retained: capacity }),
+    }),
   }),
   dispatchList: defineCapabilityDescriptor({
     name: "tasks.dispatch.list",
@@ -407,6 +422,7 @@ export interface TasksOptions {
   reminderCheckMs?: number;
   dispatchCheckMs?: number;
   dispatchExecutor?: TaskDispatchExecutor | null;
+  dispatchBudget?: DeviceDispatchBudget;
   /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
   notify?: (n: { title: string; module: string; body?: string }) => void;
   onError?: (e: unknown) => void;
@@ -439,7 +455,19 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   const executor = opts.dispatchExecutor === undefined ? createAgentDispatchExecutor(api, machine) : opts.dispatchExecutor;
   const inbox = new TaskReceiptInbox(files, now, publishRun);
   const replies = new TaskNativeReplies(files, svc, inbox, now, executor ?? undefined);
-  const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError);
+  const dispatch: TaskDispatch = new TaskDispatch(svc, store, inbox, replies, now, machine, executor ?? undefined, opts.onError, (rel) => {
+    try {
+      const abs = resolveReadableAsset(api.vault.files.root, rel);
+      const stat = statSync(abs);
+      if (!stat.isFile() || stat.size > 32_000) return null;
+      const bytes = readFileSync(abs);
+      if (bytes.length > 32_000) return null;
+      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      return text.length <= 8_000 ? { version: versionOf(bytes), text } : null;
+    } catch {
+      return null;
+    }
+  }, opts.dispatchBudget);
 
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const validateAgentTarget = (execution: TaskExecution | null | undefined) => {
@@ -575,6 +603,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return targets.map(({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }) => ({ mode, provider, sessionId, nativeSessionId, history, historyTitle, available, reason, profile, capabilities }));
     }),
   );
+  api.defineCapability(bindCapability(taskToolDescriptors.dispatchResources, ({ caller }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看本机派遣资源");
+    const retained = api.service<{ dispatchRetained(): number }>("agentCli")?.dispatchRetained();
+    return dispatch.resources(retained ?? null);
+  }));
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchList, (c, { taskId }) => dispatch.list(taskId, toolOwner(c))));
   api.defineCapability(
     bindCapability(taskToolDescriptors.dispatchRetry, async ({ caller, signal }, input) => {

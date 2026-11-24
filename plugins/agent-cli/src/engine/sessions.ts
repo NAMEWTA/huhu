@@ -14,6 +14,7 @@ import { hasLaunchLabels, identifyCore, launchHash, launchLabels, processBinding
 import type { SpaceStore } from "./spaces.js";
 import type { InputOwnership } from "./input-ownership.js";
 import type { CodexDispatch } from "./codex-dispatch.js";
+import type { DeviceDispatchBudget } from "@huhu/vault";
 import type { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import type { NativeStop, NativeStopStatus } from "./native-stop.js";
 import type { AgentEnvironmentApproval, AgentEnvironmentSelection, InteractiveEnvironment, InteractiveNativePlan } from "./interactive-environment.js";
@@ -33,6 +34,7 @@ export interface SessionRecord {
   historyLaunch?: { history: NonNullable<LaunchInput["history"]>; spaceRevision: number; selection: string; cwd: string; codex?: CodexHistoryReceipt; dispatch?: { id: string; configurationId: string } };
   controlled?: "codex";
   writableDispatch?: true;
+  dispatchOwned?: true;
   terminalId: string | null;
   name: string;
   cwd: string;
@@ -52,7 +54,7 @@ export interface SessionRecord {
   error?: string;
 }
 
-export function publicSession({ launchReceipt: _launchReceipt, historyLaunch: _historyLaunch, controlled: _controlled, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "historyLaunch" | "controlled"> {
+export function publicSession({ launchReceipt: _launchReceipt, historyLaunch: _historyLaunch, controlled: _controlled, writableDispatch: _writableDispatch, dispatchOwned: _dispatchOwned, ...session }: SessionRecord): Omit<SessionRecord, "launchReceipt" | "historyLaunch" | "controlled" | "writableDispatch" | "dispatchOwned"> {
   if (!session.waiting) return session;
   const { ownerDispatchId: _, ...waiting } = session.waiting;
   return { ...session, waiting };
@@ -219,11 +221,38 @@ export interface SessionsDeps {
   interactiveEnvironment?: InteractiveEnvironment;
   nativeBroker?: (helper: NativeDelivery["helper"], signal?: AbortSignal) => NativeBroker;
   signal?: AbortSignal;
+  dispatchBudget?: DeviceDispatchBudget;
 }
 
 /** 交互会话：先持久化记录，再 terminal.run；响应丢失时按 huhu.launch 标签找回，绝不重复 run。 */
 export class SessionsService {
   constructor(private readonly d: SessionsDeps) {}
+
+  private retainedDispatches() {
+    return this.list().filter(({ controlled, dispatchOwned }) => controlled || dispatchOwned);
+  }
+
+  dispatchRetained(): number {
+    return this.retainedDispatches().filter(({ state }) => state === "launching" || state === "running" || state === "unknown").length;
+  }
+
+  private syncRetainedDispatches(): boolean {
+    const budget = this.d.dispatchBudget;
+    if (!budget) return true;
+    const retained = new Set<string>();
+    const released = new Set<string>();
+    for (const { requestId, state } of this.retainedDispatches()) {
+      if (["launching", "running", "unknown"].includes(state)) retained.add(requestId);
+      else released.add(requestId);
+    }
+    return budget.sync("retained", retained, released);
+  }
+
+  async reconcileDispatchResources(): Promise<void> {
+    if (this.d.dispatchBudget?.status("retained").limit == null) return;
+    await this.reconcile();
+    this.syncRetainedDispatches();
+  }
 
   private file(id: string): string {
     return path.join(this.d.dir, `${id}.json`);
@@ -466,6 +495,10 @@ export class SessionsService {
       const sameIntent = intent.resolvedHash === null ? running.intent.literalHash === intent.literalHash : running.intent.resolvedHash === intent.resolvedHash;
       if (!sameIntent || (executionHash && running.executionHash && executionHash !== running.executionHash)) throw errors.idempotencyMismatch();
       if (native || !running.signal?.aborted) return running.result;
+    }
+    const reserved = input.expectedConfigurationId !== undefined && !previous?.launchReceipt?.attempt;
+    if (reserved && this.d.dispatchBudget && (!this.syncRetainedDispatches() || !this.d.dispatchBudget.claim("retained", input.requestId))) {
+      throw new HuhuError("RUN_UNKNOWN", "本机保留进程已达上限，请关闭不用的会话", { details: { reason: "retained_process_limit" } });
     }
     const result = this.doLaunch(input, intent, executionHash, prepared, signal, native).finally(() => {
       if (this.inflight.get(input.requestId)?.result === result) this.inflight.delete(input.requestId);
@@ -725,6 +758,7 @@ export class SessionsService {
       ...(history?.mode === "resume" && nativeSessionId ? { historyId: history.sourceId } : {}),
       ...(input.controlled ? { controlled: input.controlled } : {}),
       ...(input.profile === "workspace-write" && { writableDispatch: true as const }),
+      ...(input.expectedConfigurationId && { dispatchOwned: true as const }),
       launchReceipt: receipt,
     };
     this.recordLaunchRequest(session, receipt);

@@ -21,6 +21,9 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
   const home = path.join(root, "provider");
   const workspace = path.join(root, "workspace");
   for (const dir of [vaultPath, desktopUserData, home, workspace]) mkdirSync(dir, { mode: 0o700 });
+  const config = path.join(root, "config");
+  mkdirSync(path.join(config, "huhu"), { recursive: true });
+  writeFileSync(path.join(config, "huhu", "dispatch-limits.json"), JSON.stringify({ active: 1, retained: 1 }));
   const outside = path.join(root, "denied.txt");
   const responses = await startCodexResponsesFixture({
     workspaceCommand: { command: `printf 'approved' > proof.txt; if printf 'outside' > '${outside}'; then exit 5; fi; printf 'workspace-only'`, cwd: workspace },
@@ -36,6 +39,7 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     vi.stubEnv("HUHU_CODEX_DISPATCH_BIN", codexBin);
     vi.stubEnv("HUHU_CODEX_DISPATCH_HOME", home);
     vi.stubEnv("HUHU_CODEX_DISPATCH_HELPER", path.resolve(import.meta.dirname, "../src/engine/codex-dispatch-helper.cjs"));
+    vi.stubEnv("XDG_CONFIG_HOME", config);
     engine = await boot({ vaultPath, desktopUserData, create: true, moduleCredentialProtection: new TestProtection(desktopUserData) });
     const mid = machineId();
     core = new HerdrCore({ bin: coreBin!, vaultId: engine.vault.id, machineId: mid, runtimeDir: path.join(engine.vault.runtimeDir, "herdr") });
@@ -58,9 +62,12 @@ test.skipIf(process.platform !== "linux" || process.arch !== "x64" || !coreBin |
     expect(readFileSync(path.join(workspace, "proof.txt"), "utf8")).toBe("approved");
     expect(existsSync(outside)).toBe(false);
     expect(responses.requests[1]?.input).toEqual(expect.arrayContaining([expect.objectContaining({ type: "function_call_output", output: expect.stringContaining("workspace-only") })]));
+    const resources = () => call("tasks.dispatch.resources", {});
+    await expect.poll(resources, { timeout: 7_000 }).toMatchObject({ vault: { active: 0, retained: 1 }, device: { active: { occupied: 0, limit: 1 }, retained: { occupied: 1, limit: 1 } } });
     await call("agent.spaces.dispatchWriteApproval", { ...approval, allowed: false });
     expect(await rows()).toEqual(expect.arrayContaining([expect.objectContaining({ provider: "codex", mode: "new", available: false, reason: "workspace_write_approval_required" })]));
     await expect.poll(() => call("agent.sessions.list", { spaceId: space.id }), { timeout: 6_000 }).toMatchObject([{ state: "exited" }]);
+    await expect.poll(resources, { timeout: 7_000 }).toMatchObject({ vault: { retained: 0 }, device: { retained: { occupied: 0, limit: 1 } } });
   } finally {
     try {
       await engine?.shutdown();
