@@ -621,7 +621,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       if (!workbench(c) || i.expectedVersion !== undefined) checkVersion(c, i.expectedVersion, noteVersion(rel));
       const currentId = svc.noteId(rel);
       if (!workbench(c) && currentId !== (i.noteId ?? null)) throw errors.invalidInput("笔记 ID 与当前路径不符");
-      const r = await svc.trash(rel);
+      const r = await svc.trash(rel, i.expectedVersion);
       changed(null, "deleted");
       return r;
     }),
@@ -629,8 +629,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(
     bind(noteTools.restore, async (c, i) => {
       trashEntry(c, i.trashId);
-      const p = await svc.restore(i.trashId, i.newName, (rel) => writePath(c, rel));
-      await comments.syncPath(p).catch(() => undefined);
+      const p = await svc.restore(i.trashId, i.newName, (rel) => writePath(c, rel), (documents) => comments.trashProjection(documents, "restore"));
       changed(null, "created");
       return { path: p };
     }),
@@ -639,9 +638,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     bind(noteTools.deletePermanent, async (c, i) => {
       if (!workbench(c) && !i.confirmed) throw errors.invalidInput("必须确认永久删除指定回收站条目");
       const meta = trashEntry(c, i.trashId);
-      await svc.deletePermanent(i.trashId);
+      await svc.deletePermanent(i.trashId, (documents) => comments.trashProjection(documents, "purge"));
       if (meta) {
-        await comments.deleteForDocument(meta.noteId, meta.originalPath).catch(() => undefined);
         changed(meta.noteId, "deleted");
       }
       return { ok: true as const };

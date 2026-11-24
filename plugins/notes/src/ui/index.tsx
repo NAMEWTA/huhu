@@ -13,3 +13,5 @@ export const contributions = {
   homeWidgets: [defineHomeWidgetContribution(recentNotesHomeWidget, 11, RecentNotesHomeWidget)],
   homeWidgetSource: PluginManifestSchema.parse(manifest),
 };
+
+export { DocumentSessionConnection } from "./documents/useDocumentSession.js";

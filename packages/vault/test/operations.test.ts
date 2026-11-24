@@ -327,16 +327,17 @@ describe("多文件操作", () => {
     expect(read(root, "next/note.md")).toBe("old");
   });
 
-  test("同步回收站与在途写入冲突时拒绝搬移，重试可回收已提交版本", async () => {
+  test("回收站与在途写入冲突时拒绝搬移，重试可回收已提交版本", async () => {
     const { root } = init();
     const files = new VaultFiles(root);
     const trash = new Trash(files);
     const writing = files.write("a.md", Buffer.from("saved"));
-    expect(() => trash.moveIn("a.md")).toThrow(expect.objectContaining({ code: "VERSION_CONFLICT" }));
+    const stale = expect(trash.moveIn("a.md")).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
     await writing;
-    const { trashId } = trash.moveIn("a.md");
+    await stale;
+    const { trashId } = await trash.moveIn("a.md");
     expect(read(root, "a.md")).toBeNull();
-    expect(read(root, `.huhu/trash/${trashId}/a.md`)).toBe("saved");
+    expect(read(root, `.huhu/trash/${trashId}/payload/entry`)).toBe("saved");
   });
 
   test("后续步骤按同一规范路径的中间版本检查并保留各步回执", async () => {

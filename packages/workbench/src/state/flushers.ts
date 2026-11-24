@@ -27,12 +27,67 @@ export interface DirtyDoc {
   save(): Promise<boolean>;
   /** 只保留为草稿，不改文件。 */
   keepDraft(): Promise<void>;
+  /** Browser-only local checkpoint, performed while the current page is still alive. */
+  checkpoint?(): void;
+  subscribe?(changed: () => void): () => void;
 }
 const dirtyDocs = new Set<DirtyDoc>();
+const dirtyListeners = new Set<() => void>();
+
+function notifyDirtyDocs(): void {
+  for (const listener of dirtyListeners) listener();
+}
 
 export function registerDirtyDoc(doc: DirtyDoc): () => void {
   dirtyDocs.add(doc);
-  return () => dirtyDocs.delete(doc);
+  const off = doc.subscribe?.(notifyDirtyDocs);
+  notifyDirtyDocs();
+  return () => {
+    off?.();
+    dirtyDocs.delete(doc);
+    notifyDirtyDocs();
+  };
+}
+
+export function installBrowserDraftGuard(win: Window = window, doc: Document = document): () => void {
+  const currentDocs = () => [...dirtyDocs].filter((item) => item.checkpoint);
+  const checkpoint = () => {
+    for (const item of currentDocs()) item.checkpoint?.();
+  };
+  const unload = (event: BeforeUnloadEvent) => {
+    checkpoint();
+    if (currentDocs().some((item) => item.isDirty())) {
+      event.preventDefault();
+      event.returnValue = "有未保存内容";
+    }
+  };
+  let listening = false;
+  const watch = (needed: boolean) => {
+    if (needed === listening) return;
+    listening = needed;
+    if (needed) win.addEventListener("beforeunload", unload);
+    else win.removeEventListener("beforeunload", unload);
+  };
+  const sync = () => watch(currentDocs().some((item) => item.isDirty()));
+  // A rich editor can still be holding input in its source bridge.
+  const onInput = (event: Event) => {
+    if ((event.target as Element | null)?.closest?.("[contenteditable]") && currentDocs().length) watch(true);
+  };
+  const hidden = () => {
+    if (doc.visibilityState === "hidden") checkpoint();
+  };
+  dirtyListeners.add(sync);
+  doc.addEventListener("input", onInput, true);
+  doc.addEventListener("visibilitychange", hidden);
+  win.addEventListener("pagehide", checkpoint);
+  sync();
+  return () => {
+    dirtyListeners.delete(sync);
+    doc.removeEventListener("input", onInput, true);
+    doc.removeEventListener("visibilitychange", hidden);
+    win.removeEventListener("pagehide", checkpoint);
+    watch(false);
+  };
 }
 
 export async function collectDirtyDocs(): Promise<DirtyDoc[]> {

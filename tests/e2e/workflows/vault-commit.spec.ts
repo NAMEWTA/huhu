@@ -1,6 +1,6 @@
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { CapabilityResult, TaskDto } from "../../../packages/contracts/src/index.js";
 import { openApp } from "../helpers/launch.js";
@@ -92,5 +92,28 @@ test("F03 桌面与独立 Web 改名均保留异常目标，清除冲突后保�
     expect(renamed).toMatchObject({ ok: true, data: { id: task.id, path: target, body: task.body, version: versionOf(readFileSync(destination)) } });
     expect(existsSync(source)).toBe(false);
     expect(await call(desktop, "tasks.read", { id: task.id })).toMatchObject({ id: task.id, path: target });
+  });
+});
+
+test("F04 独立 Web 回收和桌面恢复 meta.json 文件与目录", async () => {
+  await withWorkbench(async (desktop, web, vault) => {
+    const file = "meta.json";
+    const directory = "container/meta.json";
+    const source = Buffer.from('{"fixture":"原字节"}\r\n');
+    writeFileSync(path.join(vault, file), source);
+    mkdirSync(path.join(vault, directory, "empty"), { recursive: true });
+    writeFileSync(path.join(vault, directory, "note.md"), "后代原文");
+    for (const rel of [file, directory]) {
+      const result = await invoke<{ trashId: string }>(web, "notes.trash", { path: rel });
+      if (!result.ok) throw new Error(result.error.message);
+      expect(existsSync(path.join(vault, rel))).toBe(false);
+      const { trashId } = result.data;
+      expect(await call(desktop, "notes.list", { filter: "trash" })).toEqual(expect.arrayContaining([expect.objectContaining({ path: rel, trashId })]));
+      expect(await call(desktop, "notes.restore", { trashId })).toEqual({ path: rel });
+      expect(await invoke(web, "notes.list", { filter: "trash" })).toMatchObject({ ok: true, data: [] });
+    }
+    expect(readFileSync(path.join(vault, file))).toEqual(source);
+    expect(readFileSync(path.join(vault, directory, "note.md"), "utf8")).toBe("后代原文");
+    expect(readdirSync(path.join(vault, directory, "empty"))).toEqual([]);
   });
 });

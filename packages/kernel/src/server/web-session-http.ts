@@ -42,7 +42,7 @@ export function webSessionRoutes(options: WebSessionHttpOptions) {
   app.get("/api/v1/bootstrap", (c) => {
     const session = options.invitations()?.authenticate(getCookie(c, WEB_SESSION_COOKIE));
     if (!session) return c.json({ error: "会话不可用" }, 401);
-    return c.json({ vaultId: session.vaultId, generation: session.generation });
+    return c.json({ vaultId: session.vaultId, generation: session.generation, sessionId: session.id });
   });
 
   return app;

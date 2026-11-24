@@ -6,7 +6,7 @@ import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as inboxUi, requestOpenCapture } from "@huhu/plugin-inbox/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
-import { contributions as notesUi } from "@huhu/plugin-notes/ui";
+import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
@@ -265,6 +265,7 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
   );
   const withFilter = (
     <>
+      {endpoint?.token ? <DocumentSessionConnection /> : null}
       {shell}
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}

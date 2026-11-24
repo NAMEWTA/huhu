@@ -138,9 +138,9 @@ export class InboxService {
   }
 
   /** 只删除原始记录（进回收站）；转化生成的内容保留。 */
-  delete(id: string): void {
+  async delete(id: string): Promise<void> {
     const cur = this.read(id);
-    this.d.trash.moveIn(cur.path, cur.id);
+    await this.d.trash.moveIn(cur.path, cur.id, { expectedVersion: cur.version });
     this.d.publish("entity.changed", { kind: "capture", id, op: "deleted" });
   }
 }

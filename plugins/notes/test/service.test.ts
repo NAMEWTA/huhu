@@ -1,9 +1,10 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listDir, OperationLog, Trash, VaultFiles, VaultIndex, versionOf } from "@huhu/vault";
+import { listDir, OperationLog, SemanticRepository, Trash, VaultFiles, VaultIndex, versionOf } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { NotesService } from "../src/engine/service.js";
+import { CommentsService } from "../src/engine/comments/service.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -23,11 +24,92 @@ async function setup(files: Record<string, string> = {}, draftMoveSteps?: Constr
   const index = new VaultIndex(root);
   await index.build();
   const ops = new OperationLog(vf, path.join(d, "ops"));
-  const svc = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash: new Trash(vf), now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC", ...(draftMoveSteps ? { draftMoveSteps } : {}) });
+  const trash = new Trash(vf, undefined, ops);
+  const svc = new NotesService({ files: vf, stateDir: path.join(vf.root, ".huhu"), ops, index, trash, now: () => new Date("2026-11-10T12:00:00Z"), zone: () => "UTC", ...(draftMoveSteps ? { draftMoveSteps } : {}) });
   const rebuild = () => index.build();
-  return { svc, root, rebuild, vf, ops };
+  return { svc, root, rebuild, vf, ops, trash };
 }
 const rd = (root: string, p: string) => readFileSync(path.join(root, p), "utf8");
+
+describe("F04 回收站操作", () => {
+  test("meta.json 文件与同名目录分别保留原始字节、空目录和元数据", async () => {
+    const { svc, root, trash, ops } = await setup({ "meta.json": "{原始文件}", "tree/meta.json/inside.md": "原始目录" });
+    mkdirSync(path.join(root, "tree/meta.json/empty"));
+    for (const rel of ["meta.json", "tree/meta.json"]) {
+      const { trashId } = await svc.trash(rel);
+      const entry = `.huhu/trash/${trashId}`;
+      expect(JSON.parse(rd(root, `${entry}/meta.json`))).toMatchObject({ trashId, originalPath: rel, layout: 2 });
+      expect(ops.load(trashId)?.state).toBe("committed");
+      expect(trash.list()).toMatchObject([{ trashId }]);
+      expect(await svc.restore(trashId)).toBe(rel);
+      expect(trash.list()).toEqual([]);
+      expect(existsSync(path.join(root, entry))).toBe(false);
+    }
+    expect(rd(root, "meta.json")).toBe("{原始文件}");
+    expect(rd(root, "tree/meta.json/inside.md")).toBe("原始目录");
+    expect(readdirSync(path.join(root, "tree/meta.json/empty"))).toEqual([]);
+  });
+
+  test.each([0, 1, 2, 3])("回收步骤 %i 发布后失败时还原全部原数据与身份", async (failAfter) => {
+    const { svc, root, ops, trash } = await setup({ "tree/note.md": "original" });
+    await svc.createFolder("tree/empty");
+    const noteId = await svc.ensureId("tree/note.md");
+    const run = ops.run.bind(ops);
+    vi.spyOn(ops, "run").mockImplementationOnce((id, kind, steps) =>
+      run(id, kind, steps, { afterPublish: (index) => {
+        if (index === failAfter) throw new Error("injected publication failure");
+      } }),
+    );
+    await expect(svc.trash("tree")).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+    expect(trash.list()).toEqual([]);
+    expect(rd(root, "tree/note.md")).toBe("original");
+    expect(svc.noteId("tree/note.md")).toBe(noteId);
+    expect(svc.folders()).toContain("tree/empty");
+    expect(ops.recover()).toEqual([]);
+  });
+
+  test("换名恢复原批注、星标和空目录，永久删除只清理原身份", async () => {
+    const { svc, root, vf, ops, trash } = await setup({ "tree/note.md": "original" });
+    const comments = new CommentsService({
+      repo: new SemanticRepository(vf, ops), files: vf, ensureId: (rel) => svc.ensureId(rel), noteId: (rel) => svc.noteId(rel), publish: () => undefined,
+      now: () => new Date("2026-11-10T12:00:00Z"),
+    });
+    const create = (file: string, text: string) => comments.create({ path: file, target: "file", text, author: "fixture" });
+    await svc.createFolder("tree/empty");
+    await svc.setFavorite("tree/note.md", true);
+    const original = await create("tree/note.md", "old");
+    const { trashId } = await svc.trash("tree");
+    const replacement = await svc.create({ name: "note", folder: "tree" });
+    const replacementComment = await create(replacement.path, "replacement");
+    await expect(svc.restore(trashId)).rejects.toMatchObject({ code: "NAME_CONFLICT", details: { path: "tree" } });
+    const project = (documents: ReadonlyMap<string, string>) => comments.trashProjection(documents, "restore");
+    const run = ops.run.bind(ops);
+    vi.spyOn(ops, "run").mockImplementationOnce((id, kind, steps) =>
+      run(id, kind, steps, { afterPublish: (index) => {
+        if (index === steps.length - 2) throw new Error("restore interrupted after payload move");
+      } }),
+    );
+    await expect(svc.restore(trashId, "recovered", undefined, project)).rejects.toMatchObject({ code: "WRITE_PARTIAL", details: { state: "rolled_back" } });
+    expect(trash.list()).toMatchObject([{ trashId }]);
+    expect(svc.noteId("recovered/note.md")).toBeNull();
+    expect(comments.list().find(({ id }) => id === original.id)?.documentPath).toBe("tree/note.md");
+    expect(existsSync(path.join(root, "recovered/note.md"))).toBe(false);
+
+    await expect(svc.restore(trashId, "recovered", undefined, project)).resolves.toBe("recovered");
+    expect(svc.noteId("recovered/note.md")).toBe(original.documentId);
+    expect(svc.favorites()).toContain(original.documentId);
+    expect(svc.folders()).toContain("recovered/empty");
+    expect(comments.list("recovered/note.md")).toMatchObject([{ id: original.id, documentPath: "recovered/note.md" }]);
+    expect(comments.list(replacement.path)).toMatchObject([{ id: replacementComment.id }]);
+    const purging = await svc.trash("recovered");
+    await svc.deletePermanent(purging.trashId, (documents) => comments.trashProjection(documents, "purge"));
+    expect(comments.list().map(({ id }) => id)).toEqual([replacementComment.id]);
+    expect(svc.favorites()).not.toContain(original.documentId);
+    expect(trash.list()).toEqual([]);
+    new Trash(vf, undefined, ops).cleanupRetired();
+    expect(ops.recover()).toEqual([]);
+  });
+});
 
 test("改名提交撞名后保留两份笔记及原有双链", async () => {
   const { root, svc, vf, ops } = await setup({ "source.md": "source", "links.md": "[[source]]" });

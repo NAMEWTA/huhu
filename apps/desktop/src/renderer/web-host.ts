@@ -1,15 +1,15 @@
 import type { EngineEndpoint } from "@huhu/workbench";
 
-export type BrowserEndpoint = EngineEndpoint & { generation: string };
+export type BrowserEndpoint = EngineEndpoint & { generation: string; browserSessionId: string };
 
 export async function browserEndpoint(signal = AbortSignal.timeout(5_000)): Promise<BrowserEndpoint | null> {
   // 绝对同源 URL 避开编辑器对供应商相对 /api 路由的拦截。
   const response = await fetch(new URL("/api/v1/bootstrap", location.origin), { signal });
   if (response.status === 401) return null;
   if (!response.ok) throw new Error("无法连接工作台");
-  const { vaultId, generation } = (await response.json()) as Partial<BrowserEndpoint>;
-  if (typeof vaultId !== "string" || typeof generation !== "string") throw new Error("无法读取工作台会话");
-  return { baseUrl: location.origin, vaultId, generation };
+  const { vaultId, generation, sessionId } = (await response.json()) as { vaultId?: unknown; generation?: unknown; sessionId?: unknown };
+  if (typeof vaultId !== "string" || typeof generation !== "string" || typeof sessionId !== "string" || !sessionId) throw new Error("无法读取工作台会话");
+  return { baseUrl: location.origin, vaultId, generation, browserSessionId: sessionId };
 }
 
 export async function joinBrowserWorkbench(signal: AbortSignal): Promise<BrowserEndpoint | null> {

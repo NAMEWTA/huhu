@@ -17,8 +17,8 @@ import { TypeEditorDialog } from "./TypeEditorDialog.js";
 function useArchiveCall() {
   const engine = useEngine();
   const qc = useQueryClient();
-  return async <T,>(capability: string, input: unknown): Promise<T> => {
-    const r = await engine.call<T>(capability, input, { write: true });
+  return async <T,>(capability: string, input: unknown, signal?: AbortSignal): Promise<T> => {
+    const r = await engine.call<T>(capability, input, { write: true, ...(signal && { signal }) });
     await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
     return r;
   };
@@ -377,16 +377,16 @@ export function ArchiveView({
   const save = async (patch: { fields?: Record<string, unknown>; removeKeys?: string[] }) => {
     try {
       setError(null);
-      return await session.writeFields(async (version, submit) => {
+      return await session.writeFields(async (version, submit, signal) => {
         const expectedVersion = version || d.version;
         if (d.version && expectedVersion !== d.version) {
           // 正文保存可以推进版本。若正在编辑的字段也被改动，仍交给用户处理冲突。
-          const current = await engine.call<ArchiveDetailDto>("archives.read", { path: d.path });
+          const current = await engine.call<ArchiveDetailDto>("archives.read", { path: d.path }, { signal });
           if (current.version !== expectedVersion || patch.removeKeys?.length || Object.keys(patch.fields ?? {}).some((key) => !Object.is(current.fields[key], d.fields[key]))) {
             throw new Error("档案字段已被修改，请重新确认后保存");
           }
         }
-        await submit(() => rawCall("archives.update", { path: d.path, ...(expectedVersion ? { expectedVersion } : {}), ...patch }));
+        await submit((signal) => rawCall("archives.update", { path: d.path, ...(expectedVersion ? { expectedVersion } : {}), ...patch }, signal));
       });
     } catch (e) {
       setError(message(e));

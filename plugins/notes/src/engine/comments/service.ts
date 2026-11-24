@@ -1,5 +1,6 @@
 import { errors, type CommentFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
-import type { Entity, SemanticRepository, VaultFiles } from "@huhu/vault";
+import { patchFrontmatter, type Entity, type OpStep, type SemanticRepository, type VaultFiles } from "@huhu/vault";
+import { requireUtf8 } from "../text-encoding.js";
 import { bestByContext, createAnchor, refind, type Anchor, type Span } from "./anchor.js";
 import { findAllPassages } from "./passage-match.js";
 
@@ -266,11 +267,30 @@ export class CommentsService {
     }
   }
 
-  /** 笔记从回收站恢复后，按稳定 id 同步批注里的路径。 */
-  async syncPath(rel: string): Promise<void> {
-    const id = this.d.noteId(rel);
-    if (!id) return;
-    for (const c of this.d.repo.list("comment").map(toDto)) if (c.documentId === id && c.documentPath !== rel) await this.patchQuiet(c, { documentPath: rel });
+  /** Keep comment changes in the same operation as the restored or purged documents. */
+  trashProjection(documents: ReadonlyMap<string, string>, action: "restore" | "purge"): { steps: OpStep[]; publish(): void } {
+    const steps: OpStep[] = [];
+    const ids: string[] = [];
+    for (const item of this.d.repo.list("comment")) {
+      const comment = toDto(item);
+      const target = documents.get(comment.documentId);
+      if (target === undefined) continue;
+      if (action === "purge") {
+        steps.push({ action: "delete", path: item.path, expectedVersion: item.version });
+      } else {
+        if (comment.documentPath === target) continue;
+        if (item.readOnly) throw errors.invalidInput(`无法更新只读批注：${item.path}`);
+        const file = this.d.files.read(item.path);
+        if (!file) throw errors.notFound(item.path);
+        if (file.version !== item.version) throw errors.versionConflict(file.version);
+        const text = patchFrontmatter(requireUtf8(file.bytes), { documentPath: target, updatedAt: iso(this.d.now()) });
+        steps.push({ action: "write", path: item.path, bytes: Buffer.from(text), expectedVersion: file.version });
+      }
+      ids.push(comment.id);
+    }
+    return { steps, publish: () => {
+      for (const id of ids) this.d.publish("entity.changed", { kind: "comment", id, op: action === "purge" ? "deleted" : "updated" });
+    } };
   }
 
   /** 永久删除笔记时一并删除它的批注。 */

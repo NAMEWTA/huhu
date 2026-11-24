@@ -424,9 +424,9 @@ export class TasksService {
   }
 
   /** 移入回收站；关联派遣记录留待恢复。 */
-  delete(id: string): void {
+  async delete(id: string): Promise<void> {
     const cur = this.read(id);
-    this.d.trash.moveIn(cur.path, cur.id);
+    await this.d.trash.moveIn(cur.path, cur.id, { expectedVersion: cur.version });
     this.d.publish("entity.changed", { kind: "task", id, op: "deleted" });
   }
 

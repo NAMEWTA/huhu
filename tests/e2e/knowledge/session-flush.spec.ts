@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
@@ -1539,6 +1539,83 @@ test("TB-15 启动页资源加载失败且无 Vault 时可关闭", async () => {
       await win.loadURL("data:text/html,Startup%20failure%20fixture");
     });
     await Promise.all([app.waitForEvent("close"), app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())]);
+  } finally {
+    await close();
+  }
+});
+
+test("F19 桌面同 Vault 连续重启后恢复打开和停放的笔记，并向新引擎保存", async () => {
+  const parkedName = "重启时停放.md";
+  const { app, page, vault, close } = await openApp({}, (directory) => {
+    writeFileSync(path.join(directory, name), original);
+    writeFileSync(path.join(directory, parkedName), "# 停放笔记\n\n停放正文\n");
+  });
+  const runtime = path.join(vault, ".huhu/runtime");
+  const crashEngine = async () => {
+    const endpoint = await page.evaluate(async () => {
+      const { baseUrl, vaultId } = await window.huhuHost.engine();
+      return { port: Number(new URL(baseUrl).port), vaultId };
+    });
+    const descriptors = readdirSync(runtime).map((machine) => JSON.parse(readFileSync(path.join(runtime, machine, "engine.json"), "utf8")) as { pid: number; port: number; vaultId: string });
+    const engine = descriptors.find(({ port, vaultId }) => port === endpoint.port && vaultId === endpoint.vaultId);
+    expect(engine?.pid).toBeGreaterThan(1);
+    process.kill(engine!.pid, "SIGKILL");
+    await expect(page.getByText("工作台引擎未连接")).toBeVisible({ timeout: 10_000 });
+    return endpoint.vaultId;
+  };
+  const restartEngine = async (vaultId: string) => {
+    await page.getByRole("button", { name: "重启引擎" }).click();
+    await engineReady(page);
+    expect(await page.evaluate(async () => (await window.huhuHost.engine()).vaultId)).toBe(vaultId);
+  };
+  const input = async (bytes: string) => {
+    await prose(page).click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText(bytes);
+    await expect(prose(page)).toContainText(bytes);
+  };
+  try {
+    await engineReady(page);
+    await manualSave(page);
+    await openNote(page);
+    await treeItem(page, parkedName).click();
+    await expect(prose(page)).toContainText("停放正文");
+    await treeItem(page, name).click();
+    await input("重启前未保存正文");
+
+    const vaultId = await crashEngine();
+    writeFileSync(path.join(vault, parkedName), "# 停放笔记\n\n第一次外部改写\n");
+    await restartEngine(vaultId);
+    await expect(prose(page)).toContainText("重启前未保存正文");
+
+    expect(await crashEngine()).toBe(vaultId);
+    writeFileSync(path.join(vault, parkedName), "# 停放笔记\n\n第二次外部改写\n");
+    await restartEngine(vaultId);
+    await expect(prose(page)).toContainText("重启前未保存正文");
+    await page.getByTestId("note-save").click();
+    await expect.poll(() => readFileSync(path.join(vault, name), "utf8")).toContain("重启前未保存正文");
+
+    await page.getByTestId("document-tabs").getByTitle(parkedName, { exact: true }).click();
+    await expect(prose(page)).toContainText("第二次外部改写");
+    await input("新端点最后输入");
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    await expect.poll(() => readFileSync(path.join(vault, parkedName), "utf8")).toContain("第二次外部改写新端点最后输入");
+
+    await input("退出时保留的正文");
+    await app.evaluate(({ Notification }) => {
+      Notification.isSupported = () => false;
+    });
+    await app.close();
+    const reopened = await openApp({ HUHU_VAULT: vault });
+    try {
+      await engineReady(reopened.page);
+      const draft = await call<{ text: string }>(reopened.page, "notes.draft.get", { path: parkedName });
+      expect(draft.text).toContain("退出时保留的正文");
+      expect(readFileSync(path.join(vault, parkedName), "utf8")).not.toContain("退出时保留的正文");
+    } finally {
+      await reopened.close();
+    }
   } finally {
     await close();
   }

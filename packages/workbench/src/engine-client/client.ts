@@ -5,6 +5,8 @@ export interface EngineEndpoint {
   /** 桌面使用回环令牌，浏览器由同源会话 cookie 鉴权。 */
   token?: string;
   vaultId: string;
+  /** Scope for local drafts. This identifier does not authenticate requests. */
+  browserSessionId?: string;
 }
 
 /** 同一工作台也会运行在普通 LAN HTTP，`randomUUID` 在那里不可用。 */
@@ -31,8 +33,12 @@ export class CapabilityError extends Error {
   }
 }
 
+let nextConnectionGeneration = 0;
+
 /** Engine HTTP 客户端：调用能力；业务错误抛 CapabilityError。 */
 export class EngineClient {
+  readonly connectionGeneration = ++nextConnectionGeneration;
+
   constructor(
     readonly endpoint: EngineEndpoint,
     private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
