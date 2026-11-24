@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { KINDS, errors, isId, newId, type IdPrefix, type KindName } from "@huhu/contracts";
+import { HuhuError, KINDS, errors, isId, newId, type IdPrefix, type KindName } from "@huhu/contracts";
 import { stringify } from "yaml";
-import { OperationLog } from "../operations.js";
+import { OperationLog, type OpStep } from "../operations.js";
 import type { VaultFiles } from "../write.js";
 import { versionOf } from "../write.js";
 import { semanticFilename } from "./filename.js";
@@ -158,10 +159,24 @@ export class SemanticRepository {
       this.onWritten?.([cur.path]);
       return { ...cur, version, data: check.data as Record<string, unknown>, body: splitDocument(next).body };
     }
-    await this.ops.run(`ren-${id}-${Date.now().toString(36)}`, `rename-${kind}`, [
-      { action: "write", path: wantPath, bytes },
-      { action: "delete", path: cur.path },
-    ]);
+    const caseOnly = cur.path.normalize("NFC").toLowerCase() === wantPath.normalize("NFC").toLowerCase();
+    const steps: OpStep[] = caseOnly
+      ? [
+          { action: "rename", from: cur.path, path: wantPath, caseOnly: true, expectedVersion },
+          { action: "write", path: wantPath, bytes, expectedVersion },
+        ]
+      : [
+          { action: "write", path: wantPath, bytes, expectedVersion: null },
+          { action: "delete", path: cur.path, expectedVersion },
+        ];
+    try {
+      await this.ops.run(`ren-${id}-${randomUUID()}`, `rename-${kind}`, steps);
+    } catch (error) {
+      if (error instanceof HuhuError && error.code === "WRITE_PARTIAL" && error.details?.["state"] === "rolled_back" && "currentVersion" in error.details) {
+        throw new HuhuError("VERSION_CONFLICT", error.message, { details: error.details });
+      }
+      throw error;
+    }
     this.onWritten?.([cur.path, wantPath]);
     return { ...cur, path: wantPath, version: versionOf(bytes), data: check.data as Record<string, unknown>, body: splitDocument(next).body };
   }
@@ -169,7 +184,7 @@ export class SemanticRepository {
   async delete(kind: KindName, id: string, expectedVersion: string): Promise<void> {
     const cur = this.read(kind, id);
     if (cur.version !== expectedVersion) throw errors.versionConflict(cur.version);
-    await this.ops.run(`del-${id}-${Date.now().toString(36)}`, `delete-${kind}`, [{ action: "delete", path: cur.path }]);
+    await this.ops.run(`del-${id}-${randomUUID()}`, `delete-${kind}`, [{ action: "delete", path: cur.path, expectedVersion }]);
     this.onWritten?.([cur.path]);
   }
 

@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { link, open, rm } from "node:fs/promises";
 import path from "node:path";
 import { errors, HuhuError } from "@huhu/contracts";
 import writeFileAtomic from "write-file-atomic";
+import { guardSynchronousCommit, queueCommit } from "./commit-queue.js";
 import { filesystemIdentity } from "./identity.js";
-import { resolveInVault, resolveReadableAsset } from "./paths.js";
+import { CREATION_STAGE_PREFIX, normalizeRelPath, resolveInVault, resolveReadableAsset } from "./paths.js";
 import { renameNoReplace } from "./rename.js";
 import { readAsset } from "./read-asset.js";
 import { ReceiptLog } from "./receipts.js";
@@ -22,17 +23,20 @@ export interface WriteOptions {
   beforeCommit?: () => void;
   /** 由 OperationLog 保留暂存条目的身份，供重启恢复识别本次创建的文件。 */
   creationStage?: { path: string; recordIdentity(identity: string): void };
+  /** OperationLog records publication evidence while it holds the write reservation. */
+  publishReplacement?: (stage: string, target: string, retainStage: () => void) => void;
 }
-
-/** 独占创建的暂存条目名前缀（Vault 保留，任何收集器都不得把它当作用户文件）。 */
-export const CREATION_STAGE_PREFIX = ".huhu-create-";
 
 export function fileIdentity(file: string): string | null {
   const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
   return info ? filesystemIdentity(info) : null;
 }
 
-const pendingWrites = new Map<string, Promise<{ version: string }>>();
+/** File birth time also guards against reuse of a previously released inode. */
+export function publicationIdentity(info: Parameters<typeof filesystemIdentity>[0] & { birthtimeNs: bigint }): string | null {
+  const file = filesystemIdentity(info);
+  return file ? `${file}:${info.birthtimeNs}` : null;
+}
 
 /** Vault 内文件读写：路径守卫 + 版本校验 + 原子写 + 自写回执。 */
 export class VaultFiles {
@@ -71,6 +75,7 @@ export class VaultFiles {
    */
   replaceRecoverably(rel: string, inspected: Buffer, converted: Buffer, limit: number, stateDir: string): string {
     this.assertWritable();
+    this.guardSynchronousCommit([rel]);
     const target = resolveReadableAsset(this.root, rel);
     if (!lstatSync(this.abs(rel)).isFile()) throw errors.invalidInput(`请打开符号链接的实际文件再转换编码：${rel}`);
     const recoveryRoot = path.join(stateDir, "operations", "encoding-recovery");
@@ -111,32 +116,45 @@ export class VaultFiles {
 
   async write(rel: string, bytes: Uint8Array, opts: WriteOptions = {}): Promise<{ version: string }> {
     this.assertWritable();
-    const dest = this.abs(rel);
-    const key = process.platform === "win32" ? dest.toLowerCase() : dest;
+    const target = this.abs(rel);
     const content = Buffer.from(bytes);
     const options = { ...opts };
-    // 原子替换自带写入排队，版本检查也需要和同一路径的替换一起排队。
-    const next = (pendingWrites.get(key) ?? Promise.resolve()).catch(() => undefined).then(() => this.writeChecked(rel, content, options));
-    pendingWrites.set(key, next);
-    try {
-      return await next;
-    } finally {
-      if (pendingWrites.get(key) === next) pendingWrites.delete(key);
-    }
+    return queueCommit([target], () => this.writeChecked(rel, content, options));
   }
 
-  private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit, creationStage }: WriteOptions): Promise<{ version: string }> {
-    const p = this.abs(rel);
+  /** OperationLog retains the same reservation until all steps and any rollback finish. */
+  withCommit<T>(paths: readonly string[], work: (write: VaultFiles["write"]) => T | Promise<T>): Promise<T> {
+    this.assertWritable();
+    const members = new Set(paths.map((rel) => this.abs(rel)));
+    return queueCommit([...members], () =>
+      work((rel, bytes, opts = {}) => {
+        if (!members.has(this.abs(rel))) throw new Error("Write path is outside the reserved commit");
+        return this.writeChecked(rel, Buffer.from(bytes), opts);
+      }),
+    );
+  }
+
+  guardSynchronousCommit(paths: readonly string[]): void {
+    this.assertWritable();
+    const root = realpathSync(this.root);
+    guardSynchronousCommit(paths.map((rel) => path.resolve(root, normalizeRelPath(rel))));
+  }
+
+  private checkVersion(rel: string, expectedVersion: string | null | undefined): void {
     if (expectedVersion === null) {
       if (this.exists(rel)) throw errors.nameConflict(rel);
     } else if (expectedVersion !== undefined) {
-      const cur = this.currentVersion(rel);
-      if (cur !== expectedVersion) {
-        throw cur === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(cur);
-      }
+      const current = this.currentVersion(rel);
+      if (current !== expectedVersion) throw current === null ? errors.notFound(`文件不存在：${rel}`) : errors.versionConflict(current);
     }
+  }
+
+  private async writeChecked(rel: string, bytes: Buffer, { expectedVersion, beforeCommit, creationStage, publishReplacement }: WriteOptions): Promise<{ version: string }> {
+    const p = this.abs(rel);
+    this.checkVersion(rel, expectedVersion);
     mkdirSync(path.dirname(p), { recursive: true });
     const version = versionOf(bytes);
+    if (typeof expectedVersion === "string") return this.replaceChecked(rel, p, bytes, version, expectedVersion, { beforeCommit, publishReplacement });
     beforeCommit?.();
     this.receipts.record(rel, version);
     let untrackTemporaryFile: (() => void) | undefined;
@@ -164,6 +182,57 @@ export class VaultFiles {
     return { version };
   }
 
+  private async replaceChecked(
+    rel: string,
+    absolute: string,
+    bytes: Buffer,
+    version: string,
+    expectedVersion: string,
+    hooks: { beforeCommit: WriteOptions["beforeCommit"]; publishReplacement: WriteOptions["publishReplacement"] },
+  ): Promise<{ version: string }> {
+    const target = realpathSync(absolute);
+    const previous = statSync(target);
+    const stage = path.join(path.dirname(target), `${CREATION_STAGE_PREFIX}${randomUUID()}`);
+    const untrack = this.receipts.trackTemporaryFile(path.relative(realpathSync(this.root), stage).split(path.sep).join("/"));
+    let ownsStage = false;
+    try {
+      const file = await open(stage, "wx", previous.mode);
+      ownsStage = true;
+      try {
+        await file.writeFile(bytes);
+        if (process.getuid && (previous.uid !== process.getuid() || previous.gid !== process.getgid?.())) {
+          await file.chown(previous.uid, previous.gid).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "EPERM" && error.code !== "EINVAL") throw error;
+          });
+        }
+        await file.chmod(previous.mode);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      hooks.beforeCommit?.();
+      this.checkVersion(rel, expectedVersion);
+      if (realpathSync(this.abs(rel)) !== target) throw errors.versionConflict(expectedVersion);
+      this.receipts.record(rel, version);
+      try {
+        if (hooks.publishReplacement) {
+          hooks.publishReplacement(stage, target, () => {
+            ownsStage = false;
+          });
+        }
+        else renameSync(stage, target);
+        ownsStage = false;
+      } catch (error) {
+        this.receipts.forget(rel, version);
+        throw error;
+      }
+      return { version };
+    } finally {
+      if (ownsStage) await rm(stage, { force: true }).catch(() => undefined);
+      untrack();
+    }
+  }
+
   /** 独占创建：先写暂存，再硬链接到目标；卷不支持硬链接时以不覆盖方式改名。 */
   private async createExclusive(rel: string, p: string, bytes: Buffer, creationStage: WriteOptions["creationStage"]): Promise<void> {
     const stage = creationStage?.path ?? path.posix.join(path.posix.dirname(rel), `${CREATION_STAGE_PREFIX}${randomUUID()}`);
@@ -178,8 +247,9 @@ export class VaultFiles {
       const file = await open(absoluteStage, "wx");
       ownsStage = true;
       try {
-        const identity = filesystemIdentity(await file.stat({ bigint: true }));
-        stageIdentity = identity;
+        const stat = await file.stat({ bigint: true });
+        const identity = publicationIdentity(stat);
+        stageIdentity = filesystemIdentity(stat);
         if (creationStage) {
           if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
           creationStage.recordIdentity(identity);
@@ -231,8 +301,9 @@ export class VaultFiles {
       const fd = openSync(absoluteStage, "wx");
       ownsStage = true;
       try {
-        const identity = filesystemIdentity(fstatSync(fd, { bigint: true }));
-        stageIdentity = identity;
+        const stat = fstatSync(fd, { bigint: true });
+        const identity = publicationIdentity(stat);
+        stageIdentity = filesystemIdentity(stat);
         if (creationStage) {
           if (!identity) throw errors.invalidInput(`目标所在卷无法提供稳定文件身份，无法安全创建副本：${rel}`);
           creationStage.recordIdentity(identity);
