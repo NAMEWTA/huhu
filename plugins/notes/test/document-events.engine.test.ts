@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
+import type { NoteIndexDelta, VaultIndexSnapshot } from "@huhu/contracts";
 import { boot } from "../../../apps/engine/src/boot.js";
 import { DocumentSession, type SessionEngine } from "../src/ui/documents/DocumentSession.js";
 
@@ -22,10 +23,12 @@ test.each(["shared.md", "shared.html"])("保存 %s 通知同库其他编辑会�
   const clean = new DocumentSession({ ...options, engine: writer, id: { vaultId: running.vault.id, path: file, epoch: 1 } });
   const dirty = new DocumentSession({ ...options, id: { vaultId: running.vault.id, path: file, epoch: 2 } });
   const events: { path: string; writeId?: string }[] = [];
+  const deltas: NoteIndexDelta[] = [];
   let deferredDelivery: (() => void)[] | undefined;
   const unsubscribe = running.events.subscribe((event) => {
     if (event.type !== "vault.fileChanged" || !("path" in event.payload) || event.payload.path !== file) return;
     const writeId = "writeId" in event.payload ? event.payload.writeId : undefined;
+    if ("noteIndex" in event.payload && event.payload.noteIndex) deltas.push(event.payload.noteIndex);
     events.push({ path: file, ...(writeId && { writeId }) });
     if (deferredDelivery) deferredDelivery.push(() => clean.notifyExternalChange("modified", writeId));
     else clean.notifyExternalChange("modified", writeId);
@@ -37,9 +40,13 @@ test.each(["shared.md", "shared.html"])("保存 %s 通知同库其他编辑会�
     const version = clean.getSnapshot().baseVersion;
     dirty.setText("my unsaved input");
     const otherWriteId = randomUUID();
+    const baseline = await client.call<VaultIndexSnapshot>("vault.indexSnapshot", {});
     await client.call("notes.save", { path: `./${file}`, text: "from another workbench", expectedVersion: version, writeId: otherWriteId });
     expect(readFileSync(path.join(root, file), "utf8")).toBe("from another workbench");
     expect(events).toEqual([{ path: file, writeId: otherWriteId }]);
+    const current = await client.call<VaultIndexSnapshot>("vault.indexSnapshot", {});
+    expect(deltas).toEqual([{ before: baseline.revision, revision: current.revision, entry: current.entries.find(({ path }) => path === file), tagsChanged: false }]);
+    expect(current.revision).toBe(baseline.revision + 1);
     await expect.poll(() => clean.currentText()).toBe("from another workbench");
     await expect.poll(dirty.getSnapshot).toMatchObject({ text: "my unsaved input", state: "conflict", hasUnsaved: true });
     await expect(client.call("notes.save", { path: file, text: "stale", expectedVersion: version })).rejects.toThrow("VERSION_CONFLICT");

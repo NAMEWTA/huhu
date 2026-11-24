@@ -319,8 +319,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   );
   const RecentNote = z.object({ path: z.string(), title: z.string(), folder: z.string(), updatedAt: z.string(), snippet: z.string() });
   const recentNotes = async (notes: { path: string; title: string }[], readText: (relative: string) => Promise<string>) => {
-    const mtimes = new Map(index.entries("").map((entry) => [entry.path, entry.mtimeMs]));
-    const updated = (relative: string) => mtimes.get(relative) ?? 0;
+    const updated = (relative: string) => index.entry(relative)?.mtimeMs ?? 0;
     const recent = [...notes].sort((left, right) => updated(right.path) - updated(left.path)).slice(0, 4);
     return Promise.all(
       recent.map(async ({ path: relative, title }) => ({

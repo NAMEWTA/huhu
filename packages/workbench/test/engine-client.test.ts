@@ -105,15 +105,15 @@ describe("EventStream", () => {
 
 const fileChanged = { type: "vault.fileChanged", payload: { path: "Tasks/task.md", change: "modified" } } as const;
 
-function watchVersion(qc: QueryClient, key: ReturnType<typeof queryKey>, read: () => number, cached = true) {
-  const requests: { version: number; signal: AbortSignal; finish(): void; fail(): void }[] = [];
+function watchVersion<T>(qc: QueryClient, key: ReturnType<typeof queryKey>, read: () => T, cached = true) {
+  const requests: { version: T; signal: AbortSignal; finish(): void; fail(): void }[] = [];
   if (cached) qc.setQueryData(key, read());
   const observer = new QueryObserver(qc, {
     queryKey: key,
     staleTime: Infinity,
     queryFn: ({ signal }) => {
       const version = read();
-      return new Promise<number>((resolve, reject) => {
+      return new Promise<T>((resolve, reject) => {
         requests.push({ version, signal, finish: () => resolve(version), fail: () => reject(new Error("Engine read failed")) });
       });
     },
@@ -544,4 +544,83 @@ describe("通知与自动化事件失效", () => {
     await invalidateForEvent(qc, "v", { type: "automation.activated", payload: { ruleId: "r", activationId: "a", trigger: "manual" } });
     expect(qc.getQueryState(queryKey("v", "automations.activations"))?.isInvalidated).toBe(true);
   });
+});
+
+test("F23 正文保存按修订更新原位元信息，不请求完整路径树", async () => {
+  const qc = new QueryClient();
+  const key = queryKey("v", "vault.indexSnapshot");
+  const entry = { path: "dir/A.md", type: "file" as const, size: 10, mtimeMs: 10 };
+  const original = { revision: 1, entries: [{ path: "dir", type: "dir", size: 0, mtimeMs: 0 }, entry] };
+  qc.setQueryData(key, original);
+  const other = queryKey("other", "vault.indexSnapshot");
+  qc.setQueryData(other, original);
+  let server = original;
+  const watch = watchVersion(qc, key, () => server);
+  const body = queryKey("v", "notes.read", { path: entry.path });
+  const unrelated = queryKey("v", "notes.read", { path: "another.md" });
+  const tags = queryKey("v", "notes.list", { filter: { tag: "note" } });
+  for (const k of [body, unrelated, tags]) qc.setQueryData(k, {});
+  const commit = (before: number, revision: number, size: number, tagsChanged = false) =>
+    invalidateForEvent(qc, "v", {
+      type: "vault.fileChanged",
+      payload: { path: entry.path, change: "modified", noteIndex: { before, revision, entry: { ...entry, size }, tagsChanged } },
+    });
+  try {
+    await commit(1, 2, 25);
+    await commit(1, 2, 25);
+    expect(watch.requests).toHaveLength(0);
+    expect(qc.getQueryData(key)).toEqual({ revision: 2, entries: [original.entries[0], { ...entry, size: 25 }] });
+    expect(qc.getQueryData(other)).toEqual(original);
+    expect(qc.getQueryState(body)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(unrelated)?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(tags)?.isInvalidated).toBe(false);
+
+    await commit(2, 3, 30, true);
+    expect(qc.getQueryState(tags)?.isInvalidated).toBe(true);
+    server = { ...original, revision: 5 };
+    const missed = commit(4, 5, 99);
+    await expect.poll(() => watch.requests.length).toBe(1);
+    watch.requests[0]!.finish();
+    await missed;
+    expect(qc.getQueryData(key)).toMatchObject({ revision: 5 });
+  } finally {
+    watch.stop();
+    qc.clear();
+  }
+});
+
+test("F23 5,000 条路径比较旧保存事件组合与增量缓存的查询次数和数据量", async () => {
+  const qc = new QueryClient();
+  const vault = "fixture";
+  const entries = Array.from({ length: 5000 }, (_, i) => ({ path: `notes/${String(i).padStart(4, "0")}.md`, type: "file" as const, size: 10, mtimeMs: 1 }));
+  const before = { revision: 1, entries };
+  const entry = { ...entries[200]!, size: 20, mtimeMs: 2 };
+  const changed = { type: "vault.fileChanged", payload: { path: entry.path, change: "modified" } } as const;
+  const after = { revision: 2, entries: entries.with(200, entry) };
+  const legacy = watchVersion(qc, queryKey(vault, "vault.indexEntries"), () => after.entries);
+  try {
+    const first = invalidateForEvent(qc, vault, changed);
+    const second = invalidateForEvent(qc, vault, { type: "entity.changed", payload: { kind: "note", id: "fixture", op: "updated" } });
+    expect(legacy.requests).toHaveLength(1);
+    legacy.requests[0]!.finish();
+    await expect.poll(() => legacy.requests.length).toBe(2);
+    legacy.requests[1]!.finish();
+    await Promise.all([first, second]);
+  } finally {
+    legacy.stop();
+    qc.clear();
+  }
+
+  const next = watchVersion(qc, queryKey(vault, "vault.indexSnapshot"), () => before);
+  const delta = { before: 1, revision: 2, entry, tagsChanged: false };
+  try {
+    await invalidateForEvent(qc, vault, { ...changed, payload: { ...changed.payload, noteIndex: delta } });
+    expect(next.requests).toHaveLength(0);
+    expect(qc.getQueryData(queryKey(vault, "vault.indexSnapshot"))).toEqual(after);
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    console.info(`F23 5,000 项合成缓存：旧路径树 ${legacy.requests.length} 次 / ${legacy.requests.length * bytes(after.entries)} B，新快照 ${next.requests.length} 次，增量 ${bytes(delta)} B`);
+  } finally {
+    next.stop();
+    qc.clear();
+  }
 });

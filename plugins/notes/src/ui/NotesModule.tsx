@@ -1,5 +1,5 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
-import type { EventPayload } from "@huhu/contracts";
+import type { EventPayload, VaultIndexSnapshot } from "@huhu/contracts";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
@@ -187,11 +187,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   }, [commentsVisible]);
   const flushForComments = (): Promise<boolean> => (flushRef.current ? flushRef.current() : Promise.resolve(true));
   const q = query.trim().toLowerCase();
-  // 非 Markdown 文件的元信息来自索引（vault.indexEntries）：只用于搜索结果、FileViewer 与标签存活判断；树本身直接列举文件系统
-  const indexEntries = useCapability<{ path: string; type: "file" | "dir"; size?: number; mtimeMs?: number }[]>("vault.indexEntries", {});
+  // 非 Markdown 文件的元信息来自索引（vault.indexSnapshot）：只用于搜索结果、FileViewer 与标签存活判断；树本身直接列举文件系统
+  const indexEntries = useCapability<VaultIndexSnapshot>("vault.indexSnapshot");
   const fileRefs: NoteRef[] = useMemo(
     () =>
-      (indexEntries.data ?? [])
+      (indexEntries.data?.entries ?? [])
         .filter((e) => e.type === "file" && !/\.md$/i.test(e.path) && !e.path.split("/").some((seg) => seg.startsWith(".")))
         .map((f) => ({ path: f.path, id: null, title: f.path.split("/").at(-1) ?? f.path, file: { size: f.size ?? 0, mtimeMs: f.mtimeMs ?? 0 } })),
     [indexEntries.data],
@@ -200,14 +200,17 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const current = (every.data ?? []).find((x) => x.path === selected) ?? null;
   const restrictedFile = tab?.kind === "file" && (tab.view === "viewer" || hasProtectedSegment(tab.path));
   const selectedFile = tab?.kind === "file" && !restrictedFile ? (fileRefs.find((f) => f.path === tab.path) ?? null) : null;
-  const folderOptions = ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort();
+  const folderOptions = useMemo(
+    () => ["", ...new Set([...(folders.data ?? []), ...(every.data ?? []).flatMap((x) => (x.path.includes("/") ? [x.path.slice(0, x.path.lastIndexOf("/"))] : []))])].sort(),
+    [folders.data, every.data],
+  );
   // 知识库界面出现就预载编辑器块（F09：打开第一篇笔记不再等块下载与求值）
   useEffect(() => preloadEditorSurface(), []);
 
   // 打开的文档标签（DocTab 联合标签）；文件已不存在（回收 / 永久删除 / 改名后）的文件标签自动消失。
   // 只在两份列表都已加载后才裁剪（否则恢复出来的标签会在加载前被清空）。
   const listsReady = every.data !== undefined && indexEntries.data !== undefined;
-  const aliveKey = listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null;
+  const aliveKey = useMemo(() => listsReady ? [...(every.data ?? []).map((x) => x.path), ...fileRefs.map((f) => f.path)].sort().join("\n") : null, [listsReady, every.data, fileRefs]);
   const pathsBeingMoved = useRef(new Set<string[]>());
   const notesMain = useRef<HTMLDivElement>(null);
   const [moveRevision, setMoveRevision] = useState(0);

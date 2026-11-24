@@ -567,8 +567,13 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
       await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
       // Watcher 会过滤本 Engine 的写入回声；其他工作台仍需接收已提交正文的路径通知。
-      api.events.publish("vault.fileChanged", { path: normalizeRelPath(i.path), change: "modified", version: r.version, ...(workbench(c) && i.writeId && { writeId: i.writeId }) });
-      changed(svc.noteId(i.path), "updated");
+      api.events.publish("vault.fileChanged", {
+        path: normalizeRelPath(i.path),
+        change: "modified",
+        version: r.version,
+        ...(workbench(c) && i.writeId && { writeId: i.writeId }),
+        ...(r.noteIndex && { noteIndex: r.noteIndex }),
+      });
       return { version: r.version };
     }),
   );

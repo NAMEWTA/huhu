@@ -9,7 +9,7 @@ import { machineId } from "../../packages/vault/src/vault.js";
 import { fixtureProcessRunning } from "../../plugins/agent-cli/test/fixtures/core-cli.js";
 import { createScaleVault } from "../perf/scale-vault.js";
 import { withFixtureCleanup, withFixtureDeadline } from "./helpers/candidate-desktop.js";
-import { rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
+import { openApp, rmTree, root, USER_DATA_ARG } from "./helpers/launch.js";
 import { observeTaskPerformance, observeTaskQuit, observeTerminalFlood, observeTerminalFloodBridge, readTerminalFloodTail } from "./helpers/perf-diagnostics.js";
 import { observePluginPerformance } from "./helpers/plugin-perf-diagnostics.js";
 import { treeFileRows, treeFolder, treeItem, treeSettled } from "./helpers/tree.js";
@@ -742,3 +742,79 @@ for (const scenario of noteScenarios) {
     }
   });
 }
+
+
+test("F23 大库正文保存记录路径树 RPC、字节和交互耗时", async () => {
+  const testInfo = test.info();
+  test.setTimeout(90_000);
+  const name = "F23-measure.md";
+  const note = "# 测量\n\n原始正文\n";
+  const fixture = await openApp({}, (directory) => {
+    writeFileSync(path.join(directory, name), note);
+    for (let folder = 0; folder < 50; folder++) {
+      const dir = path.join(directory, `批量${folder}`);
+      mkdirSync(dir);
+      for (let n = 0; n < 100; n++) writeFileSync(path.join(dir, `笔记${n}.md`), note);
+    }
+  });
+  const { page, vault, close } = fixture;
+  const requestCaps = new Set(["vault.indexEntries", "vault.indexSnapshot"]);
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    await page.getByTestId("settings-nav-editor").click();
+    const autosave = page.getByRole("switch", { name: "自动保存" });
+    if (await autosave.isChecked()) await autosave.click();
+    await expect(autosave).not.toBeChecked();
+    const initialTree = page.waitForResponse((response) => {
+      if (!response.url().endsWith("/api/v1/call")) return false;
+      const sent = response.request().postDataJSON() as { capability?: string } | undefined;
+      return !!sent?.capability && requestCaps.has(sent.capability);
+    });
+    await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+    await (await initialTree).finished();
+    await page.getByTestId("notes-section-all").click();
+    await treeItem(page, name).click();
+    const editor = page.getByTestId("markdown-editor").locator(".ProseMirror");
+    await expect(editor).toContainText("原始正文");
+    const mainThread = await page.evaluateHandle(() => {
+      const samples: number[] = [];
+      const observer = PerformanceObserver.supportedEntryTypes.includes("longtask") ? new PerformanceObserver((entries) => samples.push(...entries.getEntries().map(({ duration }) => duration))) : null;
+      observer?.observe({ type: "longtask" });
+      return {
+        read: () => {
+          if (!observer) return null;
+          samples.push(...observer.takeRecords().map(({ duration }) => duration));
+          observer.disconnect();
+          return samples;
+        },
+      };
+    });
+    let indexCalls = 0;
+    const responses: Promise<number>[] = [];
+    page.on("response", (response) => {
+      if (!response.url().endsWith("/api/v1/call")) return;
+      const sent = response.request().postDataJSON() as { capability?: string } | undefined;
+      if (!sent?.capability || !requestCaps.has(sent.capability)) return;
+      indexCalls++;
+      responses.push(response.body().then((body) => body.byteLength));
+    });
+    const started = performance.now();
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.insertText("F23 保存证据");
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("已保存");
+    expect(readFileSync(path.join(vault, name), "utf8")).toContain("F23 保存证据");
+    const journeyMs = performance.now() - started;
+    // 固定观察窗保留事件补刷，交互耗时在保存确认时已经结算。
+    await page.waitForTimeout(500);
+    const bytes = (await Promise.all(responses)).reduce((sum, value) => sum + value, 0);
+    const longTasksMs = await mainThread.evaluate((measure) => measure.read());
+    await mainThread.dispose();
+    await testInfo.attach("f23-save-journey", { body: JSON.stringify({ fixtureNotes: 5001, indexCalls, bytes, journeyMs, longTasksMs, observationMs: 500 }), contentType: "application/json" });
+    if (process.env["HUHU_F23_BASELINE"] !== "1") expect(indexCalls).toBe(0);
+  } finally {
+    await close();
+  }
+});
