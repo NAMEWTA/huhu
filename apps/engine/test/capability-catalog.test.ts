@@ -6,7 +6,7 @@ import { CapabilityCatalogEntrySchema, CapabilityDiscoveryEntrySchema, Capabilit
 import sshManifest from "@huhu/plugin-ssh/manifest" with { type: "json" };
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { boot, type RunningEngine } from "../src/boot.js";
 
 const capabilitiesPath = "/api/v1/capabilities";
@@ -150,17 +150,17 @@ test("任务插件停用时可预配置静态工具，重开与启用沿用相�
     const created = await call(engine, capability, input, engine.cliToken, "static-catalog-create");
     expect(created, JSON.stringify(created)).toMatchObject({ ok: true, data: input });
 
-    expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+    expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
     const origin = `http://127.0.0.1:${engine.port}`;
-    const stdioSession = await openMcpSession(`${origin}/api/v1/mcp`, engine.mcpToken);
-    const mcpHeaders = { authorization: `Bearer ${engine.mcpToken}`, "mcp-session-id": stdioSession };
+    const externalToken = await issueMcpCredential(engine);
+    const mcpHeaders = { authorization: `Bearer ${externalToken}` };
     const full = await discover(`${origin}${capabilitiesPath}`, mcpHeaders);
     expect(full).toEqual([expect.objectContaining({ name: capability, input: entry.input, output: entry.output, durableIntent: true })]);
     expect(await discover(`${origin}${namesPath}`, mcpHeaders)).toEqual(full);
 
     const mcpUrl = `${origin}/mcp`;
-    const httpSession = await openMcpSession(mcpUrl, engine.mcpToken);
-    const reply = await mcpRequest(mcpUrl, engine.mcpToken, mcpRpc("tools/list"), httpSession);
+    const httpSession = await openMcpSession(mcpUrl, externalToken);
+    const reply = await mcpRequest(mcpUrl, externalToken, mcpRpc("tools/list"), httpSession);
     expect(reply.status).toBe(200);
     expect(await reply.json()).toMatchObject({
       result: { tools: [{ name: "tasks_create", inputSchema: entry.input, outputSchema: { type: "object", properties: { data: expect.any(Object) } }, _meta: { "huhu.dev/intent-key": "optional" } }] },

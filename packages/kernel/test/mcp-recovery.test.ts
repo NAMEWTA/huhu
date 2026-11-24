@@ -109,7 +109,7 @@ test("HTTP MCP recovers a logical owner after the listener and Dispatcher restar
   await first.stop();
 
   const second = await f.boot();
-  const endpoint = second.url("/api/v1/mcp");
+  const endpoint = second.url();
   expect((await mcpRequest(second.url(), f.token, mcpRpc("tools/list"), original.handle)).status).toBe(404);
   const stranger = await openMcpSession(second.url(), f.token);
   expect(await f.operation(second.url(), stranger, operationId)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
@@ -139,9 +139,7 @@ test("HTTP MCP recovery is bound to the parent credential and rotates once", asy
   await first.stop();
   const second = await f.boot();
   expect((await mcpRequest(second.url(), f.otherToken, recoveryInitialize(original.recovery))).status).toBe(403);
-  const bootstrap = await mcpRequest(second.url(), second.bootstrapToken, recoveryInitialize());
-  expect(bootstrap.status).toBe(200);
-  expect((await rpcResult(bootstrap, InitializeResultSchema))._meta?.[recoveryMeta]).toBeUndefined();
+  expect((await mcpRequest(second.url(), second.bootstrapToken, recoveryInitialize())).status).toBe(403);
   expect((await mcpRequest(second.url(), second.bootstrapToken, recoveryInitialize(original.recovery))).status).toBe(403);
   const attempts = await Promise.all([mcpRequest(second.url(), f.token, recoveryInitialize(original.recovery)), mcpRequest(second.url(), f.token, recoveryInitialize(original.recovery))]);
   expect(attempts.map((response) => response.status).sort()).toEqual([200, 403]);

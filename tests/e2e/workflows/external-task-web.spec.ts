@@ -47,7 +47,7 @@ test("D09 同包 CLI 创建与 MCP 修改的同一任务刷新到桌面和 Web",
     const initial = { title: "CLI 原始任务", type: "human", body: "CLI 创建的正文" };
     expect(await cli("tasks.create", initial)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     const token = await call<{ id: string; token: string }>(page, "gateway.tokens.create", { name: "D09 合成外部调用" });
-    await call(page, "gateway.mcp.update", { enabled: true, transport: "http" });
+    await call(page, "gateway.mcp.update", { enabled: true });
     const url = `${endpoint.baseUrl}/mcp`;
     const session = await openMcpSession(url, token.token);
     const mcp = async (capability: string, input: unknown) => {

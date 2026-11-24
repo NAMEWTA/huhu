@@ -1,4 +1,4 @@
-import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -1495,11 +1495,12 @@ test("外部调用、只读受理及损坏记录都无法开始执行", { timeou
   for (const [capability, args] of Object.entries(dispatchCapabilities)) {
     expect(await call(engine, capability, args, engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
   }
-  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
   const endpoint = `http://127.0.0.1:${engine.port}/mcp`;
-  const session = await openMcpSession(endpoint, engine.mcpToken);
+  const token = await issueMcpCredential(engine);
+  const session = await openMcpSession(endpoint, token);
   const mcp = async (method: string, params: unknown) => {
-    const response = await mcpRequest(endpoint, engine.mcpToken, mcpRpc(method, params), session);
+    const response = await mcpRequest(endpoint, token, mcpRpc(method, params), session);
     expect(response.status).toBe(200);
     return ((await response.json()) as { result: { tools?: { name: string }[]; isError?: boolean } }).result;
   };
@@ -1762,7 +1763,7 @@ test.each(externalEntries)("%s 逐项开放、撤销和重查任务的派遣、�
   const {
     data: { token },
   } = await call<{ token: string }>(engine, "gateway.tokens.create", { name: "domain-test" });
-  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
   const external = await externalToolEntry(entry, engine, token);
   const ids = {
     list: "tasks.dispatch.list",
@@ -1880,7 +1881,7 @@ test.each(externalEntries)("%s 逐项开放和撤销 Tasks 目标快照，冷与
   const {
     data: { token },
   } = await call<{ token: string }>(engine, "gateway.tokens.create", { name: "target-snapshot" });
-  expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
   const external = await externalToolEntry(entry, engine, token);
   const id = "tasks.dispatch.targets";
   const input = { spaceId: space!.id };

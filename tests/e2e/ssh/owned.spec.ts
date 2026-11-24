@@ -99,7 +99,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       const { hostId: targetHostId } = await saveHost("外部传输目标夹具", target.port);
       const { routeRevision } = await desktopCall<{ routeRevision: string }>(page, "ssh.resources.host.get", { hostId });
       const binding = { hostId, routeRevision };
-      await desktopCall(page, "gateway.mcp.update", { enabled: true, transport: "http" });
+      await desktopCall(page, "gateway.mcp.update", { enabled: true });
       const { token } = await desktopCall<{ token: string }>(page, "gateway.tokens.create", { name: "外部终端验收" });
       const endpoint = await page.evaluate(async () => (await (window as unknown as { huhuHost: { engine(): Promise<{ baseUrl: string }> } }).huhuHost.engine()).baseUrl + "/mcp");
       expect(new URL(endpoint).hostname).toBe("127.0.0.1");

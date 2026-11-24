@@ -170,9 +170,8 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     await mcp.click();
     await expect(mcp).toBeChecked();
     await gateway.getByTestId("gateway-mcp-config").click();
-    await page.getByTestId("gateway-mcp-dialog").getByLabel("传输方式").selectOption("http");
-    await expect(page.getByTestId("gateway-mcp-dialog").getByLabel("传输方式")).toHaveValue("http");
-    await page.getByTestId("gateway-mcp-dialog").getByRole("button", { name: "完成" }).click();
+    await expect(page.getByTestId("gateway-mcp-dialog").getByLabel("本机端口")).toHaveValue(new URL(url).port);
+    await page.getByTestId("gateway-mcp-dialog").getByRole("button", { name: "保存端口" }).click();
     const changes = [
       { capability: "notes.list", exposed: true },
       { capability: resource, exposed: true },
@@ -190,9 +189,6 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
     expect(JSON.parse(copied)).toEqual({ mcpServers: { huhu: { url, headers: { Authorization: "Bearer <在能力网关创建的令牌>" } } } });
     expect(copied.includes(token)).toBe(false);
-    await shared.getByRole("button", { name: "复制 stdio 示例" }).click();
-    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toContain("<当前库路径>");
-    expect((await app.evaluate(({ clipboard }) => clipboard.readText())).includes(vault)).toBe(false);
 
     session = await openMcpSession(url, token);
     const listed = await rpc("tools/list");
@@ -210,10 +206,10 @@ test("SSH settings reflect the shared gateway policy and provide redacted client
     expect(cliRead.stdout).not.toContain(password);
     const resolveSdk = createRequire(cli).resolve;
     const { Client } = await import(pathToFileURL(resolveSdk("@modelcontextprotocol/sdk/client/index.js")).href);
-    const { StdioClientTransport } = await import(pathToFileURL(resolveSdk("@modelcontextprotocol/sdk/client/stdio.js")).href);
+    const { StreamableHTTPClientTransport } = await import(pathToFileURL(resolveSdk("@modelcontextprotocol/sdk/client/streamableHttp.js")).href);
     const client = new Client({ name: "ssh-settings-fixture", version: "1" });
     try {
-      await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp", "--vault", vault] }));
+      await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${token}` } } }));
       expect(await client.listTools()).toMatchObject({ tools: expect.arrayContaining([expect.objectContaining({ name: tool })]) });
       expect(await client.callTool({ name: tool, arguments: { hostId } })).toMatchObject({ structuredContent: { data: host } });
     } finally {

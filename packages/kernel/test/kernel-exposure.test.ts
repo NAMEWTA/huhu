@@ -122,7 +122,7 @@ async function setup(entry: Entry) {
 
   const desktopToken = tokens.issue("desktop");
   const externalToken = entry === "http" ? tokens.issue("cli") : gateway.create("kernel-test").token;
-  gateway.setMcp({ enabled: true, transport: "http" });
+  gateway.setMcp(true);
   const serve = async (current: Dispatcher) => {
     const running = await startEngineServer({ dispatcher: current, registry, tokens, events, mcpHttp: { enabled: () => true }, vaultInstance: vault.id });
     cleanup.push(() => running.close());

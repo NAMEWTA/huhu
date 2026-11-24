@@ -1133,6 +1133,9 @@
   .hu-palette-search input:focus-visible {
     outline: 0;
   }
+  .hu-command-palette > .hu-modal-body {
+    padding: 0;
+  }
   .shell-command-results {
     max-height: 480px;
     overflow: auto;

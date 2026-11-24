@@ -1,4 +1,4 @@
-import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { openFixtureMcp } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,16 +171,11 @@ engineTest(
     await live.client.call("plugins.setEnabled", { id: "safe", enabled: false }, { write: true });
     expect(await connect(live.client, live.engine, saved.hostId)).toBe("OK");
 
-    await live.client.call("gateway.mcp.update", { enabled: true, transport: "stdio" }, { write: true });
-    const session = await openMcpSession(`${live.client.endpoint.baseUrl}/api/v1/mcp`, live.engine.mcpToken);
-    for (const token of [live.engine.cliToken, live.engine.mcpToken]) {
-      const caller = new EngineClient({ ...live.client.endpoint, token }, (url, init) => {
-        const headers = new Headers(init?.headers);
-        if (token === live.engine.mcpToken) headers.set("mcp-session-id", session);
-        return fetch(url, { ...init, headers });
-      });
-      expect(await code(caller.call("ssh.hosts.configure", input))).toBe("CAPABILITY_NOT_EXPOSED");
-    }
+    await live.client.call("gateway.mcp.update", { enabled: true }, { write: true });
+    const mcp = await openFixtureMcp(live.engine);
+    const cli = new EngineClient({ ...live.client.endpoint, token: live.engine.cliToken });
+    expect(await code(cli.call("ssh.hosts.configure", input))).toBe("CAPABILITY_NOT_EXPOSED");
+    expect(await mcp.call("ssh.hosts.configure", input)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     const web = await live.engine.dispatcher.call("web:synthetic", { capability: "ssh.hosts.configure", requestId: randomUUID(), input });
     expect(web).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     const catalog = await live.client.call<unknown[]>("capabilities.list");

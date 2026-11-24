@@ -4,6 +4,8 @@ import {
   CAPABILITY_AVAILABILITIES,
   CAPABILITY_SCOPES,
   CapabilityCatalogEntrySchema,
+  GatewayMcpStatusSchema,
+  McpLocalPortSchema,
   ToolAccessResourcesSchema,
   ToolAccessSnapshotSchema,
   errors,
@@ -13,6 +15,7 @@ import {
   type CapabilityAvailability,
   type CapabilityCatalogEntry,
   type CapabilityRisk,
+  type GatewayMcpStatus,
   type ToolAccessResources,
 } from "@huhu/contracts";
 import { z } from "zod";
@@ -73,12 +76,14 @@ export function registerSystemCapabilities(
   gateway?: {
     hasSavedSshHosts?(ids: readonly string[]): boolean;
     audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
+    mcp?: {
+      status(): GatewayMcpStatus;
+      update(settings: { enabled: boolean; port?: number }): GatewayMcpStatus;
+    };
     tokens: {
       list(): { id: string; name: string; createdAt: string }[];
       create(name: string): { id: string; token: string };
       revoke(id: string): boolean;
-      mcp(): { enabled: boolean; transport: "stdio" | "http" };
-      setMcp(c: { enabled: boolean; transport: "stdio" | "http" }): void;
     };
   },
 ): () => void {
@@ -226,11 +231,12 @@ export function registerSystemCapabilities(
       exposable: true,
       defaultExposed: false,
       input: z.object({}),
-      output: z.object({ mcp: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }), tokens: z.number(), toolAccess: ToolAccessSnapshotSchema }),
+      output: z.object({ mcp: GatewayMcpStatusSchema, tokens: z.number(), toolAccess: ToolAccessSnapshotSchema }),
       handler: ({ caller }) => {
         const policy = exposure.snapshot();
         const toolAccess = policy.state === "ready" && !isWorkbenchCaller(caller) ? { state: policy.state, revision: policy.revision, choices: policy.choices } : policy;
-        return { mcp: gateway?.tokens.mcp() ?? { enabled: false, transport: "stdio" as const }, tokens: gateway?.tokens.list().length ?? 0, toolAccess };
+        const mcp = gateway?.mcp?.status() ?? { enabled: false, url: null, activePort: null, configuredPort: null, restartRequired: false };
+        return { mcp, tokens: gateway?.tokens.list().length ?? 0, toolAccess };
       },
     }),
     registerKernelCapability(registry, {
@@ -240,11 +246,12 @@ export function registerSystemCapabilities(
       risk: "high",
       exposable: false,
       defaultExposed: false,
-      input: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }),
-      output: z.object({ enabled: z.boolean(), transport: z.enum(["stdio", "http"]) }),
-      handler: (_c, i) => {
-        gateway?.tokens.setMcp(i);
-        return i;
+      input: z.strictObject({ enabled: z.boolean(), port: McpLocalPortSchema.optional() }),
+      output: GatewayMcpStatusSchema,
+      handler: ({ signal }, { enabled, port }) => {
+        signal.throwIfAborted();
+        if (!gateway?.mcp) throw errors.invalidInput("MCP 监听器不可用");
+        return gateway.mcp.update({ enabled, ...(port !== undefined && { port }) });
       },
     }),
     registerKernelCapability(registry, {
@@ -422,7 +429,7 @@ export function registerSystemCapabilities(
           availability,
           identities: (["cli", "mcp", "http"] as const).map((identity) => ({
             identity,
-            ...(identity === "mcp" && v.allowed && gateway?.tokens.mcp().enabled !== true ? { allowed: false, reason: "MCP 服务已关闭" } : v),
+            ...(identity === "mcp" && v.allowed && gateway?.mcp?.status().enabled !== true ? { allowed: false, reason: "MCP 服务已关闭" } : v),
           })),
         };
       },

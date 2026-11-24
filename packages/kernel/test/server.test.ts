@@ -50,7 +50,7 @@ test("MCP 运行时主体跟随会话撤销和过期，调用取消保留会话"
       output: z.unknown(),
       exposable: true,
       defaultExposed: false,
-      handler: ({ caller, subject, session }) => ({ caller, subject, session, current: !!subject && caller === "mcp" && server.hasMcpPrincipal(caller, subject) }),
+      handler: ({ caller, subject, session }) => ({ caller, subject, session, current: !!subject && caller === "http" && server.hasMcpPrincipal(caller, subject) }),
     }),
   );
   let arrived!: () => void;
@@ -73,13 +73,14 @@ test("MCP 运行时主体跟随会话撤销和过期，调用取消保留会话"
     }),
   );
   const endpoint = base + "/mcp";
-  const token = tokens.issue("mcp");
+  const token = "persistent-fixture-token";
+  tokens.addHash(TokenTable.hashHex(token), "http", "mcp-fixture");
   const first = await openMcpSession(endpoint, token);
   const second = await openMcpSession(endpoint, token);
   const identity = async (handle: string) => {
     const response = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "fixture_session" }), handle);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { result: { structuredContent: { data: { caller: "mcp"; subject: string; current: boolean; session: unknown } } } };
+    const body = (await response.json()) as { result: { structuredContent: { data: { caller: "http"; subject: string; current: boolean; session: unknown } } } };
     return body.result.structuredContent.data;
   };
   const a = await identity(first);
@@ -113,7 +114,7 @@ test("MCP 运行时主体跟随会话撤销和过期，调用取消保留会话"
   expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), fresh)).status).toBe(404);
   const replacement = await openMcpSession(endpoint, token);
   const live = await identity(replacement);
-  tokens.revokeCaller("mcp");
+  tokens.removeHash(TokenTable.hashHex(token));
   expect(server.hasMcpPrincipal(live.caller, live.subject)).toBe(false);
   expect((await mcpRequest(endpoint, token, mcpRpc("tools/list"), replacement)).status).toBe(401);
 });

@@ -1,7 +1,7 @@
-import type { CapabilityCatalogEntry, ToolAccessSnapshot } from "@huhu/contracts";
+import { McpLocalPortSchema, type CapabilityCatalogEntry, type GatewayMcpStatus, type ToolAccessSnapshot } from "@huhu/contracts";
 import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
 import type { ModuleProps } from "../contributions.js";
 import { CapabilityError } from "../engine-client/client.js";
@@ -48,7 +48,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
   const engine = useEngine();
   const qc = useQueryClient();
   const caps = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true });
-  const gw = useCapability<{ mcp: { enabled: boolean; transport: "stdio" | "http" }; tokens: number; toolAccess: ToolAccessSnapshot }>("gateway.get", {});
+  const gw = useCapability<{ mcp: GatewayMcpStatus; tokens: number; toolAccess: ToolAccessSnapshot }>("gateway.get", {});
   const tokens = useCapability<{ id: string; name: string; createdAt: string }[]>("gateway.tokens.list", {});
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
@@ -72,16 +72,28 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
       return null;
     }
   }
-  const mcp = gw.data?.mcp ?? { enabled: false, transport: "stdio" as const };
-  const location = useCapability<{ root: string }>("vault.location", {});
+  const mcp = gw.data?.mcp;
   const [configOpen, setConfigOpen] = useState(false);
+  const [portDraft, setPortDraft] = useState("");
+  const [invalidPort, setInvalidPort] = useState(false);
+  const portId = useId();
+  const portInput = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
-  /** 复制外部 MCP 客户端的配置片段：stdio 用 `huhu mcp --vault <目录>`，HTTP 用本机端点（令牌在“服务端”里创建）。 */
+  async function configurePort(): Promise<void> {
+    if (!mcp) return;
+    const port = McpLocalPortSchema.safeParse(Number(portDraft));
+    if (!port.success) {
+      setInvalidPort(true);
+      setError("请输入 1–65535 范围内且浏览器允许的 HTTP 端口。");
+      portInput.current?.focus();
+      return;
+    }
+    const status = await act<GatewayMcpStatus>("gateway.mcp.update", { enabled: mcp.enabled, port: port.data });
+    if (status) setConfigOpen(false);
+  }
   async function copyClientConfig() {
-    const cfg =
-      mcp.transport === "stdio"
-        ? { mcpServers: { huhu: { command: "huhu", args: ["mcp", "--vault", location.data?.root ?? ""] } } }
-        : { mcpServers: { huhu: { url: `${engine.endpoint.baseUrl}/mcp`, headers: { Authorization: "Bearer <在“服务端”里创建的令牌>" } } } };
+    if (!mcp?.enabled || !mcp.url) return;
+    const cfg = { mcpServers: { huhu: { url: mcp.url, headers: { Authorization: "Bearer <在“服务端”里创建的令牌>" } } } };
     const text = JSON.stringify(cfg, null, 2);
     const host = (window as unknown as { huhuHost?: { copyText?(v: string): Promise<void> } }).huhuHost;
     try {
@@ -390,19 +402,26 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   </span>
                   <div className="hu-flex-fill">
                     <h2>MCP Server</h2>
-                    <p>当前Vault · {mcp.transport === "stdio" ? "stdio" : "Streamable HTTP"} · 能力按模块授权</p>
+                    <p>当前 Vault · Streamable HTTP · 能力按模块授权</p>
                   </div>
                   <Badge tone={open ? "success" : "neutral"}>{`可调用工具 ${open}/${eligible}`}</Badge>
-                  <ChoiceSwitch checked={mcp.enabled} label={g.mcpEnabled} onChange={(v) => void act("gateway.mcp.update", { enabled: v, transport: mcp.transport })} />
+                  <ChoiceSwitch checked={mcp?.enabled ?? false} label={g.mcpEnabled} onChange={(enabled) => void act("gateway.mcp.update", { enabled })} />
                 </div>
                 <p className="small muted">
-                  CLI 使用工具开放策略。MCP stdio {mcp.enabled ? "已启用" : "已关闭"}。MCP over HTTP {mcp.enabled && mcp.transport === "http" ? "端点已启用，连接需要服务端令牌。" : "端点当前关闭。"}
+                  {mcp?.enabled ? "本机端点已启用。请从运行 Engine 的机器使用服务端令牌连接。" : "MCP 服务当前关闭。"}
+                  {mcp?.url && <> <code>{mcp.url}</code></>}
                 </p>
+                {mcp?.restartRequired && <p role="status" className="small muted">重启 Engine 后将使用端口 {mcp.configuredPort}。</p>}
                 <div className="shell-gateway-meta">
-                  <button type="button" data-testid="gateway-mcp-config" onClick={() => setConfigOpen(true)}>
-                    <Settings size={14} aria-hidden /> 配置传输
+                  <button type="button" data-testid="gateway-mcp-config" disabled={!mcp} onClick={() => {
+                    setPortDraft(String(mcp?.configuredPort ?? mcp?.activePort ?? ""));
+                    setInvalidPort(false);
+                    setError(null);
+                    setConfigOpen(true);
+                  }}>
+                    <Settings size={14} aria-hidden /> 配置本机端点
                   </button>
-                  <button type="button" data-testid="gateway-mcp-copy" disabled={mcp.transport === "stdio" && !location.data?.root} onClick={() => void copyClientConfig()}>
+                  <button type="button" data-testid="gateway-mcp-copy" disabled={!mcp?.enabled || !mcp.url} onClick={() => void copyClientConfig()}>
                     <Copy size={14} aria-hidden /> 复制客户端配置
                   </button>
                   <button type="button" onClick={() => ui.getState().openModule("plugins")}>
@@ -415,13 +434,20 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                   </p>
                 ) : null}
               </section>
-              <Dialog open={configOpen} title="MCP 配置" description="选择外部客户端连接 HUHU 的方式。" onClose={() => setConfigOpen(false)} testId="gateway-mcp-dialog" actions={<Button onClick={() => setConfigOpen(false)}>完成</Button>}>
-                <Field label={g.transport}>
-                  <select aria-label={g.transport} value={mcp.transport} onChange={(e) => (setCopied(null), void act("gateway.mcp.update", { enabled: mcp.enabled, transport: e.target.value }))}>
-                    <option value="stdio">{g.stdio}</option>
-                    <option value="http">{g.http}</option>
-                  </select>
-                </Field>
+              <Dialog open={configOpen} title="MCP 配置" description="端口设置在 Engine 下次启动时生效。" error={error} onClose={() => setConfigOpen(false)} testId="gateway-mcp-dialog" actions={<Button type="submit" form={portId}>保存端口</Button>}>
+                <form id={portId} className="hu-field" noValidate onSubmit={(event) => {
+                  event.preventDefault();
+                  void configurePort();
+                }}>
+                  <label className="hu-field-label" htmlFor={`${portId}-value`}>本机端口</label>
+                  <input id={`${portId}-value`} ref={portInput} type="number" required min={1} max={65535} step={1} aria-invalid={invalidPort || undefined} value={portDraft} onChange={(event) => {
+                    setPortDraft(event.target.value);
+                    if (invalidPort) {
+                      setInvalidPort(false);
+                      setError(null);
+                    }
+                  }} />
+                </form>
               </Dialog>
               <div className="hu-capabilities-toolbar">
                 <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />

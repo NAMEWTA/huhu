@@ -21,6 +21,7 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
   let browser: Browser | undefined;
   const results: unknown[] = [];
+  const failures: string[] = [];
   try {
     desktop = await openApp({ XDG_RUNTIME_DIR: runtime }, prepare, artifacts);
     await engineReady(desktop.page);
@@ -52,13 +53,14 @@ async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" 
         fontSize: getComputedStyle(document.body).fontSize,
       }));
       const attempt = await sample(page, name, desktop.vault).then(() => ({ sampled: true }), (error: unknown) => ({ sampled: false, error: error instanceof Error ? error.message : String(error) }));
+      if ("error" in attempt) failures.push(`${name}: ${attempt.error}`);
       results.push({ name, geometry, errors, ...attempt });
     }
     await info.attach("environment", {
       body: JSON.stringify({ linux: release(), desktop: JSON.parse(readFileSync(path.join(artifacts, "out/build-info.json"), "utf8")), electron, webChromium: browser.version(), results }, null, 2),
       contentType: "application/json",
     });
-    expect(results).toMatchObject([{ sampled: true }, { sampled: true }]);
+    expect(results, failures.join("\n\n")).toMatchObject([{ sampled: true }, { sampled: true }]);
   } finally {
     await browser?.close();
     await desktop?.close();
@@ -271,6 +273,58 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await page.keyboard.press("Escape");
     await expect(rule).toBeHidden();
     await expect(ruleNew).toBeFocused();
+  });
+});
+
+test("F22 命令面板隔离键盘焦点并在关闭或执行后恢复导航", async ({ browserName }, info) => {
+  void browserName;
+  await runOnHosts(info, async (page) => {
+    const opener = page.getByTestId("window-titlebar").getByRole("button", { name: "搜索与命令", exact: true });
+    const palette = page.getByRole("dialog", { name: "命令面板" });
+    const search = palette.getByRole("combobox");
+    await opener.click();
+    await expect(search).toBeFocused();
+    expect(await palette.evaluate((element) => element.matches(":modal"))).toBe(true);
+
+    await page.keyboard.press("Shift+Tab");
+    const close = palette.getByRole("button", { name: "关闭" });
+    await expect(close).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(search).toBeFocused();
+    for (const key of ["F6", "Shift+F6"]) {
+      await page.keyboard.press(key);
+      await expect(search).toBeFocused();
+    }
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await expect(opener).toBeFocused();
+
+    await page.getByRole("button", { name: "收件箱", exact: true }).first().click();
+    await page.getByRole("button", { name: "快速捕获", exact: true }).click();
+    const outer = page.getByRole("dialog", { name: "快速捕获" });
+    const title = outer.getByRole("textbox", { name: "标题" });
+    await expect(title).toBeFocused();
+    await page.keyboard.press("Control+k");
+    await expect(search).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(palette).toBeHidden();
+    await expect(outer).toBeVisible();
+    await expect(title).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(outer).toBeHidden();
+
+    await opener.click();
+    await search.fill("任务");
+    for (const key of ["Escape", "Enter"]) {
+      await search.dispatchEvent("keydown", { key, isComposing: true, bubbles: true, cancelable: true });
+      await expect(search).toBeFocused();
+    }
+    await page.keyboard.press("Enter");
+    await expect(palette).toBeHidden();
+    const destination = page.getByRole("navigation", { name: "已打开的功能" }).getByRole("button", { name: "任务", exact: true });
+    await expect(destination).toHaveAttribute("aria-current", "page");
+    await expect(destination).toBeFocused();
   });
 });
 

@@ -15,6 +15,7 @@ import {
   AppShell,
   ContributionRegistry,
   EngineProvider,
+  focusOpenedModule,
   FocusPauseOnClose,
   HealthModule,
   HomeModule,
@@ -67,7 +68,10 @@ function WorkbenchCommandPalette({ registry, ui }: Pick<CommandPaletteProps, "re
   const onOpenResult = useCallback(({ kind, id, path }: PaletteSearchHit) => {
     const open = (module: string, onOpen: () => void) =>
       ui.getState().openModule(module, {
-        onOpen,
+        onOpen: () => {
+          onOpen();
+          focusOpenedModule(ui, module);
+        },
         isCurrent: () => current.current === client && registry.getSnapshot().modules.some(({ id }) => id === module),
       });
     if (kind === "task") {

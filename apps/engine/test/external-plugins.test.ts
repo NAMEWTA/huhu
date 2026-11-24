@@ -356,7 +356,7 @@ test.each(["cli", "http"] as const)("G3.4 %s 原主体、逐项转发、撤销�
   const source = fixture(id, grants, code, declared(...definitions));
   expect(await call(e, "plugins.install", { source, grants })).toMatchObject({ ok: true });
   const token = (await call(e, "gateway.tokens.create", { name: "G3.4 fixture" })).data.token as string;
-  expect(await call(e, "gateway.mcp.update", { enabled: true, transport: "http" })).toMatchObject({ ok: true });
+  expect(await call(e, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
   const endpoint = (engine: RunningEngine) => `http://127.0.0.1:${engine.port}/mcp`;
   let handle = entry === "http" ? await openMcpSession(endpoint(e), token) : undefined;
   type ExternalReply = { data?: unknown; opId?: string; error?: { code: string; details?: Record<string, unknown> } };

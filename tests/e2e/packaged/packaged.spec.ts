@@ -271,7 +271,7 @@ test("打包后：CLI 与 HTTP MCP 逐项授权，Safe 锁定期间读取邮件�
     const url = `${ep.baseUrl}/mcp`;
     const { token } = await desktop(source, "gateway.tokens.create", { name: "候选包本机夹具" });
     expect((await mcpRequest(url, token, mcpRpc("tools/list"))).status).toBe(404);
-    await desktop(source, "gateway.mcp.update", { enabled: true, transport: "http" });
+    await desktop(source, "gateway.mcp.update", { enabled: true });
     const session = await openMcpSession(url, token);
     const rpc = async (method: string, input: unknown = {}) => {
       const response = await mcpRequest(url, token, mcpRpc(method, input), session);

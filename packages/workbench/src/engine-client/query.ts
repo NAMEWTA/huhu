@@ -21,6 +21,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "ssh-shortcuts": ["ssh.shortcuts."],
   "home-dashboard": ["home.dashboard.get"],
   "tool-access": ["gateway.get", "capabilities.list"],
+  gateway: ["gateway.get"],
   "automation-activation": ["automations.activations", "automations.plans."],
   "mail-ai-settings": ["mail.ai.getSettings"],
 };

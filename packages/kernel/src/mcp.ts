@@ -2,7 +2,6 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourceTemplatesRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityOperationLookup, type CapabilityResult } from "@huhu/contracts";
 import { mcpToolName } from "./capabilities/define.js";
-import { canonicalJson } from "./idempotency.js";
 
 export interface McpBackend {
   /** 对当前调用者可见（已对外开放）的能力。 */
@@ -42,38 +41,9 @@ export function resolveMcpToolName(known: readonly string[], name: string): stri
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-/** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。stdio 与 HTTP 共用。 */
-export function createMcpServer(
-  backend: McpBackend,
-  version: string,
-  opts: { /** 有长连接（stdio）时按这个间隔检查对外开放的工具表，变了就发 notifications/tools/list_changed；HTTP 客户端按需刷新，不开启。 */ watchToolsMs?: number } = {},
-): Server {
-  const server = new Server({ name: "huhu", version }, { capabilities: { tools: { listChanged: opts.watchToolsMs !== undefined }, resources: {}, prompts: {} } });
-  if (opts.watchToolsMs !== undefined) {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    let last: string | null = null;
-    const signature = async () => (await backend.list()).map(canonicalJson).sort().join("\n");
-    server.oninitialized = () => {
-      void signature().then(
-        (s) => (last = s),
-        () => undefined,
-      );
-      timer = setInterval(() => {
-        void signature().then(
-          (s) => {
-            if (last !== null && s !== last) void server.sendToolListChanged().catch(() => undefined);
-            last = s;
-          },
-          () => undefined, // Engine 暂时连不上：下一轮再看
-        );
-      }, opts.watchToolsMs);
-      timer.unref();
-    };
-    server.onclose = () => {
-      if (timer) clearInterval(timer);
-      timer = null;
-    };
-  }
+/** 把对外开放的能力映射为 MCP 工具，并提供资源（概览、最近笔记）、模板（`huhu://notes/{id}`）与提示词（daily-review、knowledge-synthesis）。 */
+export function createMcpServer(backend: McpBackend, version: string): Server {
+  const server = new Server({ name: "huhu", version }, { capabilities: { tools: {}, resources: {}, prompts: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: (await backend.list()).map((c) => ({
       name: mcpToolName(c.name),

@@ -71,6 +71,7 @@ import * as safe from "@huhu/plugin-safe/engine";
 import * as tasks from "@huhu/plugin-tasks/engine";
 import { createModuleCredentialHost, type ModuleCredentialHost } from "./module-credential-host.js";
 import { addDesktopMailAttachment } from "./mail-desktop-attachment.js";
+import { LocalMcpListener } from "./mcp-listener.js";
 
 export interface EndpointDescriptor {
   pid: number;
@@ -78,7 +79,6 @@ export interface EndpointDescriptor {
   vaultId: string;
   rootBinding: string;
   cliToken: string;
-  mcpToken: string;
   startedAt: string;
 }
 
@@ -104,7 +104,6 @@ export interface RunningEngine {
   port: number;
   rendererToken: string;
   cliToken: string;
-  mcpToken: string;
   descriptorPath: string;
   server: RunningServer;
   index: VaultIndex;
@@ -170,6 +169,15 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   };
   mkdirSync(runtime, { recursive: true });
   const rootIdentity = directoryInstance(vault.root);
+  const tokens = new TokenTable();
+  const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
+  let mcpListener: LocalMcpListener;
+  try {
+    mcpListener = new LocalMcpListener(vault, gatewayTokens);
+  } catch (error) {
+    await vault.close();
+    throw error;
+  }
 
   const index = new VaultIndex(vault.root);
   registerVaultCapabilities(registry, vault, index);
@@ -241,7 +249,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   const safeRef: { current?: { status(): { corrupt: boolean; initialized: boolean; locked: boolean } } } = {};
-  const tokens = new TokenTable();
   const plugins = new PluginManager(cordisRoot, facade, events);
   plugins.onRegister = (m, pendingInstall) => {
     if (m.origin === "external") external.declare(m, pendingInstall);
@@ -250,7 +257,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.onInstallConfirmed = (id) => registry.confirmPluginInstall(id);
   plugins.onUnregister = (id) => registry.forgetPlugin(id);
   const serverRef: { current?: RunningServer } = {};
-  const gatewayTokens = new GatewayTokens(path.join(vault.stateDir, "gateways.json"), tokens);
   const gatewayAudit = new GatewayAudit(path.join(runtime, "gateway-audit.ndjson"));
   const exposure = new ExposureStore(vault.files, path.join(vault.stateDir, "plugins.json"));
   // 设置里的时区实时生效：每次取“今天”时读取 settings.json（文件很小）
@@ -448,7 +454,19 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
       setPluginEnabled: (id, v) => (external.has(id) ? external.setEnabled(id, v) : exposure.setPluginEnabled(id, v)),
       publishPolicyChange: () => events.publish("entity.changed", { kind: "tool-access", id: "policy", op: "updated" }),
     },
-    { tokens: gatewayTokens, audit: gatewayAudit, hasSavedSshHosts: (ids) => ssh.hasSavedSshHosts(vault.files, ids) },
+    {
+      tokens: gatewayTokens,
+      mcp: {
+        status: () => mcpListener.status(),
+        update: (settings) => {
+          const status = mcpListener.update(settings);
+          events.publish("entity.changed", { kind: "gateway", id: "mcp", op: "updated" });
+          return status;
+        },
+      },
+      audit: gatewayAudit,
+      hasSavedSshHosts: (ids) => ssh.hasSavedSshHosts(vault.files, ids),
+    },
   );
   plugins.register({
     manifest: PluginManifestSchema.parse(automationsManifest),
@@ -574,7 +592,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
 
   const rendererToken = tokens.issue("desktop");
   const cliToken = tokens.issue("cli");
-  const mcpToken = tokens.issue("mcp");
   const terminal: NonNullable<Parameters<typeof startEngineServer>[0]["terminal"]> = (id, ws, options) => {
     const bridge = getService<(i: string, w: typeof ws, x: typeof options) => Promise<boolean>>(id.startsWith("ssh-") ? "terminalBridge:ssh" : "terminalBridge:agent");
     return bridge ? bridge(id, ws, options) : false;
@@ -588,19 +605,32 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   registerWebShareCapabilities(registry, webShare);
   // 所有插件启用、Web 分享能力登记之后再补写 / 升级指南：能力表取决于完整的注册表
   await guideRef.current?.maintain().catch(() => undefined);
-  const server = await startEngineServer({
-    mcpHttp: { enabled: () => gatewayTokens.mcp().enabled && gatewayTokens.mcp().transport === "http" },
-    mcpStdioEnabled: () => gatewayTokens.mcp().enabled,
-    mcpSignal: () => gatewayTokens.mcpSignal(),
-    vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
-    ...(!vault.files.readOnly && rootIdentity && { mcpRecovery: { directory: runtime, generation: () => gatewayTokens.mcpRecoveryGeneration() } }),
-    terminal,
-    dispatcher: real,
-    registry,
-    tokens,
-    events,
-    ...(opts.port !== undefined ? { port: opts.port } : {}),
-  });
+  const port = mcpListener.port ?? opts.port;
+  let server: RunningServer | undefined;
+  try {
+    server = await startEngineServer({
+      mcpHttp: { enabled: () => mcpListener.enabled() },
+      mcpSignal: () => gatewayTokens.mcpSignal(),
+      vaultInstance: rootIdentity ? JSON.stringify([vault.id, ...rootIdentity]) : vault.id,
+      ...(!vault.files.readOnly && rootIdentity && { mcpRecovery: { directory: runtime, generation: () => gatewayTokens.mcpRecoveryGeneration() } }),
+      terminal,
+      dispatcher: real,
+      registry,
+      tokens,
+      events,
+      ...(port !== undefined ? { port } : {}),
+    });
+    mcpListener.bound(server.port);
+  } catch (error) {
+    await server?.close().catch(() => undefined);
+    await plugins.disposeAll().catch(() => undefined);
+    await webShare.stop().catch(() => undefined);
+    await vault.close();
+    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      throw Object.assign(new Error(`Engine 无法使用本机端口 ${port}，该端口已被占用`, { cause: error }), { code: "EADDRINUSE" });
+    }
+    throw error;
+  }
 
   const watcher = new VaultWatcher({
     root: vault.root,
@@ -637,7 +667,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     );
   await exposure.initialize(registry.knownNames());
   const descriptorPath = endpointPath(vault);
-  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, mcpToken, startedAt: new Date().toISOString() };
+  const descriptor: EndpointDescriptor = { pid: process.pid, port: server.port, vaultId: vault.id, rootBinding: endpointRootBinding(vault.root), cliToken, startedAt: new Date().toISOString() };
   if (!vault.readOnly) {
     const temp = `${descriptorPath}.${process.pid}.tmp`;
     try {
@@ -680,7 +710,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     port: server.port,
     rendererToken,
     cliToken,
-    mcpToken,
     descriptorPath,
     server,
     index,

@@ -142,7 +142,7 @@ test("Linux 桌面批准 sh，CLI 和 MCP 配置及运行沿用原请求", async
     }
     await checkRun(original.runId, marker, rotated);
 
-    await desktop("gateway.mcp.update", { enabled: true, transport: "http" });
+    await desktop("gateway.mcp.update", { enabled: true });
     const token = await desktop<{ id: string; token: string }>("gateway.tokens.create", { name: "Linux 自动化验收" });
     tokenId = token.id;
     const url = await page.evaluate(async () => `${(await window.huhuHost.engine()).baseUrl}/mcp`);

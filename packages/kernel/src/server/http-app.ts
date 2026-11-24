@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { errors, type Caller } from "@huhu/contracts";
+import { MCP_HTTP_PATH, type Caller } from "@huhu/contracts";
 import { Hono } from "hono";
 import { getRequestListener } from "@hono/node-server";
 import type { CapabilityRegistry } from "../capabilities/define.js";
@@ -24,10 +24,8 @@ export interface EngineServerDeps {
    * （Agent 会话 → Herdr attach；`ssh-` 前缀 → SSH shell）。返回 false 表示会话不存在。
    */
   terminal?: TerminalBridge;
-  /** MCP Streamable HTTP（`/mcp`）：未启用时返回 404。令牌身份必须是 mcp 或 http。 */
+  /** MCP Streamable HTTP（`/mcp`）：未启用时返回 404，使用持久 HTTP 授权。 */
   mcpHttp?: { enabled(): boolean };
-  /** stdio 适配器每次经控制端点读目录、调用或取资源时核对当前开关。 */
-  mcpStdioEnabled?(): boolean;
   /** Lifetime of the admitted MCP service configuration. */
   mcpSignal?(): AbortSignal;
   /** Stable Vault binding, when available. A listener still owns one Vault without it. */
@@ -86,29 +84,17 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       const verdict = checkIngress(c.env.incoming.headers, port);
       if (!verdict.ok) return c.json({ error: verdict.reason }, verdict.status);
       const principal = d.tokens.principal(bearerFrom(c.req.header("authorization")));
-      if (principal?.caller === "mcp" && d.mcpStdioEnabled?.() === false) {
-        if (c.req.method === "GET" && c.req.path === "/api/v1/capabilities") return c.json([]);
-        return c.json({ ok: false, error: errors.permissionDenied("MCP 服务已关闭").toJSON() });
-      }
       if (!principal) return c.json({ error: "未授权" }, 401);
-      const handle = c.req.header("mcp-session-id");
-      if (handle !== undefined) {
-        const session = sessions.find("mcp-stdio", handle, principal);
-        if (!session) return c.json({ ok: false, error: errors.permissionDenied("MCP 会话已关闭").toJSON() }, 401);
-        return { caller: principal.caller, signal: session.signal, session, reserve: () => sessions.reserve(principal, session) };
-      }
-      if (principal.caller === "mcp") return c.json({ ok: false, error: errors.permissionDenied("请先初始化 MCP 会话").toJSON() }, 401);
       return principal;
     },
     inflight,
-    resolveTool,
   );
 
   const listener = getRequestListener(app.fetch);
   const server = createServer((req, res) => {
     lastActivity = Date.now();
     const path = req.url?.split("?")[0];
-    if (path !== "/mcp" && path !== "/api/v1/mcp") {
+    if (path !== MCP_HTTP_PATH) {
       void listener(req, res);
       return;
     }
@@ -116,15 +102,13 @@ export async function startEngineServer(d: EngineServerDeps): Promise<RunningSer
       res.writeHead(status, { "cache-control": "no-store", "content-type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     };
-    if (!sessions.enabled("mcp-http") && (path === "/mcp" || !sessions.enabled("mcp-stdio"))) return refuse(404, "MCP 服务未启用");
+    if (!sessions.enabled()) return refuse(404, "MCP 服务未启用");
     const verdict = checkIngress(req.headers, port);
     if (!verdict.ok) return refuse(verdict.status, verdict.reason);
     const credential = d.tokens.principal(bearerFrom(req.headers["authorization"]));
     if (!credential) return refuse(401, "未授权");
-    if (credential.caller !== "mcp" && credential.caller !== "http") return refuse(403, "该令牌身份不能使用 MCP 服务");
-    const entry = path === "/mcp" || credential.caller === "http" ? "mcp-http" : "mcp-stdio";
-    if (!sessions.enabled(entry)) return refuse(404, "MCP 服务未启用");
-    void sessions.handle(entry, credential, req, res).catch(() => {
+    if (credential.caller !== "http") return refuse(403, "该令牌身份不能使用 MCP 服务");
+    void sessions.handle(credential, req, res).catch(() => {
       if (!res.headersSent && !res.destroyed) refuse(500, "MCP 请求失败");
     });
   });

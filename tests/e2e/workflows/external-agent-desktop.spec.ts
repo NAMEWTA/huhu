@@ -69,7 +69,7 @@ function cliTool(desktop: Desktop): Tool {
 }
 
 async function mcpTool({ page, baseUrl }: Desktop): Promise<Tool> {
-  await call(page, "gateway.mcp.update", { enabled: true, transport: "http" });
+  await call(page, "gateway.mcp.update", { enabled: true });
   const { token } = await call<{ token: string }>(page, "gateway.tokens.create", { name: "独立外部 Agent 同包验收" });
   const url = `${baseUrl}/mcp`;
   const session = await openMcpSession(url, token);

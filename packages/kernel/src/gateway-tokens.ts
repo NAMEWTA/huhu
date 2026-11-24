@@ -13,7 +13,8 @@ export interface HttpToken {
 
 interface StoredMcp {
   enabled: boolean;
-  transport: "stdio" | "http";
+  /** Read only for an existing installation. Saving an HTTP setting drops this field. */
+  transport?: "stdio" | "http";
   generation?: string;
 }
 
@@ -46,12 +47,12 @@ export class GatewayTokens {
   }
 
   /** MCP 服务配置：与令牌同在 gateways.json；默认关闭。 */
-  mcp(): { enabled: boolean; transport: "stdio" | "http" } {
+  mcp(): { enabled: boolean } {
     try {
       const m = this.load().mcp;
-      return { enabled: m?.enabled === true, transport: m?.transport === "http" ? "http" : "stdio" };
+      return { enabled: m?.enabled === true && (m.transport === undefined || m.transport === "http") };
     } catch {
-      return { enabled: false, transport: "stdio" };
+      return { enabled: false };
     }
   }
 
@@ -59,7 +60,7 @@ export class GatewayTokens {
   mcpRecoveryGeneration(): string | undefined {
     try {
       const mcp = this.load().mcp;
-      if (mcp?.enabled !== true || mcp.transport !== "http") return undefined;
+      if (mcp?.enabled !== true || (mcp.transport !== undefined && mcp.transport !== "http")) return undefined;
       if (mcp.generation === undefined) return "legacy";
       return typeof mcp.generation === "string" && mcp.generation ? mcp.generation : undefined;
     } catch {
@@ -67,12 +68,12 @@ export class GatewayTokens {
     }
   }
 
-  setMcp(cfg: { enabled: boolean; transport: "stdio" | "http" }): void {
+  setMcp(enabled: boolean): void {
     const all = this.load();
     const prior = this.mcp();
-    const changed = prior.enabled !== cfg.enabled || prior.transport !== cfg.transport;
+    const changed = prior.enabled !== enabled;
     const generation = changed ? randomUUID() : (all.mcp?.generation ?? "legacy");
-    this.write({ ...all, mcp: { ...cfg, generation } });
+    this.write({ ...all, mcp: { enabled, generation } });
     if (changed) {
       const lifetime = this.mcpLifetime;
       this.mcpLifetime = new AbortController();

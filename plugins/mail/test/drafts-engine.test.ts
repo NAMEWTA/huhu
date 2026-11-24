@@ -1,4 +1,4 @@
-import { openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { openFixtureMcp } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -80,10 +80,10 @@ async function withFixture(run: (fixture: { root: string; vaultPath: string; ope
   }
 }
 
-async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken, session?: string) {
+async function call(engine: RunningEngine, capability: string, input: unknown = {}, token = engine.rendererToken) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(session && { "mcp-session-id": session }) },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
   });
   expect(response.status).toBe(200);
@@ -205,9 +205,9 @@ engineTest(
         });
         const routed = await engine.dispatcher.call("web:mail-draft-fixture", { capability: "mail.drafts.get", input: { draftId: id }, requestId: randomUUID() });
         expect(routed).toEqual({ ok: true, data: { draft: switched } });
-        expect(await call(engine, "gateway.mcp.update", { enabled: true, transport: "stdio" })).toMatchObject({ ok: true });
-        const session = await openMcpSession(`http://127.0.0.1:${engine.port}/api/v1/mcp`, engine.mcpToken);
-        expect(await call(engine, "mail.drafts.get", { draftId: id }, engine.mcpToken, session)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+        expect(await call(engine, "gateway.mcp.update", { enabled: true })).toMatchObject({ ok: true });
+        const mcp = await openFixtureMcp(engine);
+        expect(await mcp.call("mail.drafts.get", { draftId: id })).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
         expect(await call(engine, "mail.drafts.save", saveInput(id, switched.revision), engine.cliToken)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
         const privateRuntimeFile = path.join(engine.vault.runtimeDir, "idempotency.ndjson");
         if (existsSync(privateRuntimeFile)) expect(readFileSync(privateRuntimeFile, "utf8")).not.toMatch(/mail\.drafts\.|blind@example\.test/);

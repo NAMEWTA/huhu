@@ -1,3 +1,4 @@
+import { issueMcpCredential } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,7 +60,7 @@ engineTest(
     try {
       engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection, create: true });
       expect(await read()).toEqual({ available: true, revision: null, enabled: false, endpoint: "", model: "", keyState: "unconfigured" });
-      expect(await call(verify, input, { token: engine.mcpToken })).toMatchObject({ ok: false });
+      expect(await call(verify, input, { token: await issueMcpCredential(engine) })).toMatchObject({ ok: false });
       expect(await call(verify, input, { intentKey: randomUUID() })).toMatchObject({ ok: false });
       expect(secure.requests).toHaveLength(0);
       expect(await call(verify, input)).toEqual({ ok: true, data: { verified: true } });

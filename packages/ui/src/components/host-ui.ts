@@ -13,6 +13,12 @@ export function invokerOverlayContainer(invoker: HTMLElement): HTMLElement | nul
   return overlayContainer(workbench, invoker);
 }
 
+/** Lets editor key handlers ask the host to close without bypassing its cancel policy. */
+export function requestDialogClose(dialog: HTMLDialogElement): void {
+  if (typeof dialog.requestClose === "function") dialog.requestClose();
+  else if (dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) dialog.close();
+}
+
 /** Wire this only while this child surface is open, in order from the inside out. */
 export function dismissChildOnEscape(event: KeyboardEvent, invoker: HTMLElement, dismiss: () => void): boolean {
   if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229) return false;

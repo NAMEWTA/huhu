@@ -1,10 +1,8 @@
-import { finished } from "node:stream/promises";
 import { Command, CommanderError, Option } from "commander";
 import { callCapability, discoverCapabilities, readCallFile, readCapabilityOperation, render } from "./commands/call.js";
 import { ConnectError, connect, type Connection } from "./connect.js";
 import { CapabilityIntentKeySchema, CapabilityOperationLookupSchema, errors, type CapabilityResult } from "@huhu/contracts";
 import { buildGuideFiles, guideManual } from "@huhu/plugin-agent-guide/shared";
-import { createMcpServer } from "./mcp.js";
 
 export const VERSION = "0.0.2-rc.1";
 
@@ -60,7 +58,7 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
       }
       try {
         const conn = await connect(o.vault);
-        const r = render(await callCapability(conn, capability, input, undefined, intent.data), o.json === true);
+        const r = render(await callCapability(conn, capability, input, intent.data), o.json === true);
         io.out(r.out);
         code = r.code;
       } catch (e) {
@@ -190,31 +188,6 @@ export async function run(argv: string[], io: { out: (s: string) => void; err: (
       }
     });
   shortcut(program.command("inbox").description("收件箱").command("capture").requiredOption("--title <t>").option("--body <text>"), "inbox.capture", (o) => ({ title: o["title"], body: (o["body"] as string | undefined) ?? o["title"] }));
-
-  // stdio MCP：stdout 只输出协议帧，日志写 stderr
-  program
-    .command("mcp")
-    .description("以 stdio 方式运行 MCP 服务器")
-    .option("--vault <path>")
-    .action(async (o: { vault?: string }) => {
-      try {
-        const conn = await connect(o.vault, { role: "mcp" }); // 身份为 mcp，而不是 cli
-        const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
-        const server = createMcpServer(conn, VERSION);
-        await server.connect(new StdioServerTransport());
-        try {
-          await finished(process.stdin, { writable: false, cleanup: true });
-        } finally {
-          await server.close();
-          await server.closeSession();
-        }
-      } catch (e) {
-        if (e instanceof ConnectError) {
-          io.err(e.message);
-          code = e.exitCode;
-        } else throw e;
-      }
-    });
 
   try {
     await program.parseAsync(argv, { from: "user" });

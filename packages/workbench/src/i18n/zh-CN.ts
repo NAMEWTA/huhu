@@ -152,9 +152,6 @@ export const tGateway = {
   title: "能力网关",
   mcp: "MCP 服务",
   mcpEnabled: "启用 MCP 服务",
-  transport: "传输方式",
-  stdio: "stdio（huhu mcp）",
-  http: "HTTP（POST /mcp）",
   tokens: "HTTP 服务令牌",
   tokenName: "令牌名称",
   createToken: "创建令牌",
@@ -190,6 +187,6 @@ export const tCli = {
   devOnly: "开发运行时没有打包好的命令行启动脚本；请使用安装版 HUHU。",
   hostOnly: "命令行安装只在桌面应用里可用",
   quick: "常用命令",
-  cheat: ["huhu --help", "huhu call vault.info --vault <Vault 路径>", "huhu call tasks.list --vault <Vault 路径> --json", "huhu mcp --vault <Vault 路径>"],
+  cheat: ["huhu --help", "huhu call vault.info --vault <Vault 路径>", "huhu call tasks.list --vault <Vault 路径> --json"],
   done: "已完成",
 } as const;

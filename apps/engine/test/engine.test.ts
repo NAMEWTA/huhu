@@ -1,4 +1,4 @@
-import { initializeMcp, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import { initializeMcp, issueMcpCredential, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1078,18 +1078,19 @@ describe("Engine 启动与关闭", () => {
   test("ACC-PL-01 停用 tasks：MCP 工具列表不再含 tasks_*，已缓存工具的调用得到 PLUGIN_DISABLED，重新启用后恢复", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
+    const mcpToken = await issueMcpCredential(e);
     let session: string;
     const endpoint = `http://127.0.0.1:${e.port}/mcp`;
-    const rpc = (body: unknown) => mcpRequest(endpoint, e.mcpToken, body, session).then((r) => r.json() as Promise<{ result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }>);
+    const rpc = (body: unknown) => mcpRequest(endpoint, mcpToken, body, session).then((r) => r.json() as Promise<{ result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }>);
     const call = (capability: string, input: unknown) =>
       fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
       }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
-    await call("gateway.mcp.update", { enabled: true, transport: "http" });
+    await call("gateway.mcp.update", { enabled: true });
     await allowTools(e, "tasks.list");
-    session = await openMcpSession(endpoint, e.mcpToken);
+    session = await openMcpSession(endpoint, mcpToken);
     const tools = async () => ((await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).result.tools ?? []).map((t) => t.name);
     expect((await tools()).some((n) => n.startsWith("tasks_"))).toBe(true);
     await call("plugins.setEnabled", { id: "tasks", enabled: false });
@@ -1104,21 +1105,22 @@ describe("Engine 启动与关闭", () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
     const endpoint = `http://127.0.0.1:${e.port}/mcp`;
-    expect((await mcpRequest(endpoint, e.mcpToken, initializeMcp)).status).toBe(404); // 默认关闭
+    const mcpToken = await issueMcpCredential(e);
+    expect((await mcpRequest(endpoint, mcpToken, initializeMcp)).status).toBe(404); // 默认关闭
     const call = (capability: string, input: unknown) =>
       fetch(`http://127.0.0.1:${e.port}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${e.rendererToken}`, "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }),
       }).then((r) => r.json() as Promise<{ ok: boolean; data: unknown }>);
-    expect((await call("gateway.mcp.update", { enabled: true, transport: "http" })).ok).toBe(true);
+    expect((await call("gateway.mcp.update", { enabled: true })).ok).toBe(true);
     expect((await mcpRequest(endpoint, null, initializeMcp)).status).toBe(401);
     expect((await mcpRequest(endpoint, e.rendererToken, initializeMcp)).status).toBe(403);
     expect((await mcpRequest(endpoint, e.cliToken, initializeMcp)).status).toBe(403);
     const listRequest = mcpRpc("tools/list");
-    expect((await mcpRequest(endpoint, e.mcpToken, listRequest)).status).toBe(400);
-    const session = await openMcpSession(endpoint, e.mcpToken);
-    const rpc = (body: unknown) => mcpRequest(endpoint, e.mcpToken, body, session);
+    expect((await mcpRequest(endpoint, mcpToken, listRequest)).status).toBe(400);
+    const session = await openMcpSession(endpoint, mcpToken);
+    const rpc = (body: unknown) => mcpRequest(endpoint, mcpToken, body, session);
     expect(await (await rpc(listRequest)).json()).toMatchObject({ result: { tools: [] } });
     await allowTools(e, "vault.info", "tasks.list", "inbox.capture");
     const list = (await (await rpc(listRequest)).json()) as { result: { tools: { name: string }[] } };
@@ -1137,7 +1139,7 @@ describe("Engine 启动与关闭", () => {
     const tok = ((await call("gateway.tokens.create", { name: "mcp 客户端" })).data as { token: string }).token;
     const independent = await openMcpSession(endpoint, tok);
     expect((await mcpRequest(endpoint, tok, listRequest, independent)).status).toBe(200);
-    await call("gateway.mcp.update", { enabled: false, transport: "http" });
+    await call("gateway.mcp.update", { enabled: false });
     expect((await rpc(listRequest)).status).toBe(404);
   }, 30_000);
   test("审计回归：外部入口即使被开放 automations.create/update/setEnabled，也不能创建或启用会启动 Agent / 运行命令的规则", async () => {
@@ -1400,10 +1402,11 @@ describe("Engine 启动与关闭", () => {
   test("审计回归：/mcp 受单令牌并发上限约束（超过 32 个同时进行的请求得到 429）", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);
-    await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true, transport: "http" }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });
+    await post(e, e.rendererToken, { capability: "gateway.mcp.update", input: { enabled: true }, requestId: "r", idempotencyKey: "key-mcp-enable-1" });
     const endpoint = `http://127.0.0.1:${e.port}/mcp`;
-    const sessions = await Promise.all(Array.from({ length: 8 }, () => openMcpSession(endpoint, e.mcpToken)));
-    const slow = (index = 0) => mcpRequest(endpoint, e.mcpToken, mcpRpc("tools/list"), sessions[index % sessions.length]).then((r) => r.status);
+    const mcpToken = await issueMcpCredential(e);
+    const sessions = await Promise.all(Array.from({ length: 8 }, () => openMcpSession(endpoint, mcpToken)));
+    const slow = (index = 0) => mcpRequest(endpoint, mcpToken, mcpRpc("tools/list"), sessions[index % sessions.length]).then((r) => r.status);
     const statuses = await Promise.all(Array.from({ length: 80 }, (_, index) => slow(index)));
     expect(statuses.every((s) => s === 200 || s === 429)).toBe(true);
     // 引擎仍然健康，并且并发回落后可以再次正常使用
