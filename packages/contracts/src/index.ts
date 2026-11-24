@@ -11,3 +11,4 @@ export * from "./tags.js";
 export * from "./home.js";
 export * from "./archives.js";
 export * from "./resources.js";
+export * from "./automation-plan.js";
