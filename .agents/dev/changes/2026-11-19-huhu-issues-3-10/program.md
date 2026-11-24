@@ -117,7 +117,7 @@ Provider 实程已在 `6a510e6f` 组合通过：`t9j` 五项真实 PTY；`t9n` �
 
 ## 实施与验证分工
 
-Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vault 备份收集器和根锁文件。各实施者按 Herdr Core 任务所列范围修改业务代码及用例，定向验证使用单个 Vitest 文件。固定候选的重型验证、E2E 和打包由 Lead 串行运行。 [项目指令](../../../../AGENTS.md) · [角色配置](../../context/model-roles.md)
+Lead 持有公共契约入口、Engine 与 Renderer 装配、插件登记、Vault 备份收集器和根锁文件。各实施者按 Herdr Core 任务所列范围修改业务代码及用例，定向验证使用单个 Vitest 文件。固定候选的重型验证、E2E 和打包由 Lead 串行运行。 [项目指令](../../../../AGENTS.md) · [角色配置](../../context/team/huhu-development.md)
 
 ## 实施前先核对的事项
 

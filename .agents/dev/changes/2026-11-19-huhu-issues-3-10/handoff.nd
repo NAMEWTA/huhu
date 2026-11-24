@@ -6,7 +6,7 @@
 
 - [批次 Goal 与成员导航](program.md)链接 #3 桌面外壳、#4 Agent CLI、#5 Tasks/Automations、#6 统一工具/Web、#7 SSH、#8 Mail、#9 Safe、#10 看板的 Issue 快照、规格、设计、任务、原型与确认记录。[实施记录](progress.md)和各成员证据只适用于注明的提交与环境。Issue 来源用[项目配置](../../project/issue-automation/README.md)。
 - 用户已确认全部八份原型。`6da1b2ec` 记录各 HTML 资源指纹、确认范围及场景；原型及其本地资源在对应 `prototype/` 内。按 Change 和 Issue 推进，不再要求确认原型。确认原型不是实际应用验收。
-- 使用 [Herdr Core](../../../skills/system-herdr-core/SKILL.md) 和 [团队角色](../../context/model-roles.md) 派发与独立复核。最多四个 worktree；共享 Engine/Renderer 装配、静态目录、备份收集器和根锁文件由 Lead 管理。在新机器运行 `hc --skill` 后重新登记实际终端地址，不重用旧会话。原轮仅在 Windows 验证；macOS/Linux 未验。用隔离 Vault、回环夹具或明确授权的服务。
+- 使用 [Herdr Core](../../../skills/system-herdr-core/SKILL.md) 和 [团队角色](../../context/team/huhu-development.md) 派发与独立复核。最多四个 worktree；共享 Engine/Renderer 装配、静态目录、备份收集器和根锁文件由 Lead 管理。在新机器运行 `hc --skill` 后重新登记实际终端地址，不重用旧会话。原轮仅在 Windows 验证；macOS/Linux 未验。用隔离 Vault、回环夹具或明确授权的服务。
 
 ## 代码与证据从哪里取
 

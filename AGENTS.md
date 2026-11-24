@@ -1,24 +1,31 @@
 # Huhu 项目指令
 
-##  编排规则
+## 编排规则
 
-使用 Herdr Core 编排，按 `.agents/skills/system-herdr-core/SKILL.md`、`.agents/dev/context/model-roles.md` 和本机 `hc --skill` 操作。主会话沿用启动模型；疑难分析用 `gpt-6.2-astra / high`，实现用 `gpt-6.2-sol / high`，独立审查用 `gpt-6.2-sol / xhigh`。Codex 使用 `--no-daemon`，不用 fast，不传 `-c service_tier=fast`，也不从旧模板继承 fast 或权限绕过参数。最多保留 4 个 worktree。
+使用 Herdr Core 编排，按 `.agents/skills/system-herdr-core/SKILL.md` 和本机 `hc --skill` 操作。分工、前端实现和同一 Bug 两次修复失败后的升级，按[模型角色分工](.agents/dev/context/team/huhu-development.md)执行。Codex 使用 `--no-daemon`，不用 fast，不传 `-c service_tier=fast`，也不从旧模板继承 fast 或权限绕过参数。
 
-## 测试与内存约束
+## 本机资源硬限制
 
-- 开发过程中只运行自己改动涉及的测试（如 `pnpm vitest run <路径>`），不跑全量套件。
-- 全量测试只在全部改动完成、收尾时统一跑一次；同一时刻只允许一个 worktree 跑全量测试。
-- 并发由根目录 `vitest.config.ts` 限制为 `maxWorkers: 3`，不要用命令行参数调高。
-- 起因：多个 worktree 并行跑测试曾耗尽内存，被 systemd-oomd 整体杀掉 hc 的所有智能体。
+本机有 8 个逻辑 CPU、约 30 GiB 内存。2026-11-22，类型检查、E2E 和打包叠加，内存峰值约 27 GiB，`systemd-oomd` 终止了整个 Herdr Core 任务组。以下上限由 Lead 在本机所有 Huhu 任务间统一执行，不按分支、worktree 或 CLI 分别计算。
 
-## 实施者（worker）职责边界
+- **最多 3 个 Git worktree：主检出 + 2 个额外检出。** 集成、复现、空闲和保留检出都计数。用 `git worktree list --porcelain` 核对；到上限就复用或排队，不为只读审查另开检出。
+- **最多 3 个同时存活的 Agent CLI 会话：1 个 Lead + 最多 2 个 worker。** Codex、Claude Code、Pi 等合计，顾问、空闲会话和后台会话也占名额。启动前用 `hc ls` 和进程列表核对本项目会话，包括 Core 外的会话。worker 不得自行再派发。不能确认有空位时，不新开会话。
+- **同机一次只运行 1 项验证或重负载任务。** 单测、E2E、类型检查、构建、打包、依赖批量安装和独立开发服务器共用同一名额。E2E 自带的服务计入该项任务，并随测试退出。禁止通过脚本并行启动这些任务；根目录 `pnpm typecheck` 使用了 `--parallel`，需要全仓类型检查时由 Lead 逐包串行执行。
+- **启动前检查内存和磁盘。** 创建 worktree、启动 Agent 或运行定向单测前，系统 `MemAvailable` 至少为 12 GiB。启动 E2E、开发服务器、构建、打包、批量安装或全仓检查前，至少为 20 GiB。实际任务及各级父 cgroup 存在有限的 `memory.high` 或 `memory.max` 时，该组的剩余量也须达到同一门槛，不把 swap 算作可用内存。用 `free -h` 或 `/proc/meminfo` 检查内存，并用 `df -h`、`df -i` 检查仓库、产物目录、依赖缓存和临时目录所在卷。每个相关卷至少有 40 GiB 可用空间，且磁盘和 inode 使用率分别不超过 85% 和 90%。预计写入后会跌破门槛就不启动。
+- **资源不足时停派。** 启动门槛不满足就等待或回收本任务已完成的资源，不能调高并发。运行重负载任务期间复查内存和磁盘。可用内存降到 6 GiB 以下、出现 OOM 告警或磁盘跌破上述门槛时，Lead 停止本任务的高负载进程，保留日志与改动，重新满足启动门槛后再继续。不得为腾资源终止其他任务或删除他人的文件。
 
-起因：2026-11-22 07:39 systemd-oomd 因 typecheck、e2e、打包叠加（峰值 27.4G）杀掉整个 hc-hold，第四次中断全部智能体。实施者只负责写代码和对应的 E2E 用例，重型验证全部由 Lead 收尾统一执行。
+### 验收后必须回收
 
-- **只做**：编写业务代码；编写与本次改动对应的单元测试和 E2E 用例（Playwright spec）；只跑自己改动涉及的单个 vitest 文件（`pnpm exec vitest run <路径>`）。
-- **E2E 只写不跑**：新增或修改的 E2E spec 保证能通过 `tsc` 类型检查且在代码层面自洽即可，不在 worker 里启动 Electron/Playwright。需要真跑的 E2E 在报告中列出文件与用例名，由 Lead 串行执行。
-- **禁止**：`pnpm build`、electron-builder/打包、安装包检查、全量 `pnpm test`、`pnpm typecheck`（全仓）、`pnpm knip`、`pnpm lint` 全仓、视觉截图取证。
-- 报告须单列“未运行的验证”（E2E、打包、全仓类型检查等），不记为通过。
+1. 临时 worker 验收后，Lead 关闭无需复用的 Agent CLI，回收它的 Herdr Core 终端，并确认测试、Electron、浏览器和开发服务器没有残留进程。任务结束时不留本任务的空闲 worker。
+2. 确认改动已合入或有可恢复的提交，保全需要的验收证据。检查 worktree 中的未提交、未跟踪和忽略文件，只清理本任务可再生成的依赖副本、构建产物、测试输出和临时目录，然后用 `git worktree remove <路径>` 回收本任务的额外检出。不得强删有未保存改动、仍在使用或归属不明的检出，也不得删除共享缓存。
+3. 用 `git worktree list --porcelain`、`hc ls --all` 和 `df -h`、`df -i` 复核回收结果。无法安全回收时，报告保留的路径、占用和原因；保留项仍计入上限。
+
+## 测试范围与职责
+
+- **开发阶段只跑受改动影响的用例，不跑全量单测或全量 E2E。** 单测用 `pnpm exec vitest run <测试文件>`。需要 E2E 时，由 Lead 按 spec 路径运行，必要时用 `-g` 缩到具体用例，例如 `pnpm e2e <spec 路径> -g '<用例名>'`。
+- **只有最终验收才运行全量套件。** Lead 先回收已完成的 worker，再在一个验收 worktree 中按交付要求对整合版本串行运行完整套件。每个套件在同一候选版本上集中跑一次，不在全量验证期间另行派发。Vitest 的 `maxWorkers` 不得超过根配置的 3；Playwright E2E 固定为 1 个 worker。
+- **实施者只运行定向单测，每次一个文件。** 实施者编写业务代码、单测和对应的 Playwright spec。E2E 只写不跑，报告中列出需由 Lead 执行的 spec 和用例名。实施者不得运行构建、打包、安装包检查、全仓类型检查、全仓 lint、`pnpm knip` 或视觉截图取证。
+- 报告须单列未运行的验证，不得将其记为通过。
 
 ## 获取项目 Issue
 
