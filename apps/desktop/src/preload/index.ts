@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld("huhuHost", {
   revealVault: (): Promise<void> => ipcRenderer.invoke("huhu:revealVault"),
   openVaultFile: (rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed"> => ipcRenderer.invoke("huhu:openVaultFile", rel, reveal === true),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("huhu:openExternal", url),
+  sshExternalEditor: {
+    open: (name, text) => ipcRenderer.invoke("huhu:ssh-external-editor:open", name, text),
+    read: (id) => ipcRenderer.invoke("huhu:ssh-external-editor:read", id),
+    release: (id) => ipcRenderer.invoke("huhu:ssh-external-editor:release", id),
+  } satisfies import("@huhu/plugin-ssh/shared").SshExternalEditorHost,
   externalLinkPreview: (url: string): Promise<unknown> => ipcRenderer.invoke("huhu:externalLinkPreview", url),
   /** HTML 预览：为 Vault 内的文件签发一次一页的预览 URL（主进程校验路径）；标签关闭 / 换文件时撤销。 */
   previewGrant: (rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }> => ipcRenderer.invoke("huhu:previewGrant", rel),

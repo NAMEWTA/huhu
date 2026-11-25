@@ -1,9 +1,63 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
+
+test("A09 external editor copies text locally and writes back through the original SFTP revision", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { app, page, vault } = fixture;
+    const local = path.join(vault, "test-external-copy.txt");
+    const source = "/home/test/draft.txt";
+    server.fs.files.set(source, Buffer.from("original text"));
+    server.fs.permissions.set(source, 0o640);
+    await app.evaluate(({ dialog, shell }, output) => {
+      dialog.showSaveDialog = (async () => ({ canceled: false, filePath: output })) as typeof dialog.showSaveDialog;
+      shell.openPath = async (file) => file === output ? "" : "unexpected editor target";
+    }, local);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "外部编辑回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await desktopCall(page, "ssh.workspace.runs.start", { name: "外部编辑工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /外部编辑工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    await run.getByTestId("files-panel").getByRole("button", { name: "编辑 draft.txt" }).click();
+    const editor = page.getByRole("dialog", { name: "编辑远端文本" });
+    await editor.getByRole("button", { name: "保存并用外部编辑器打开" }).click();
+    await expect(editor.getByRole("status")).toContainText("已打开本机副本");
+    expect(await readFile(local, "utf8")).toBe("original text");
+    await writeFile(local, "saved by the external editor");
+    await editor.getByRole("button", { name: "读取本机副本" }).click();
+    await expect(editor.getByLabel("正文")).toHaveValue("saved by the external editor");
+    expect(server.fs.files.get(source)?.toString()).toBe("original text");
+    await editor.getByRole("button", { name: "保存远端文件" }).click();
+    await expect.poll(() => server.fs.files.get(source)?.toString()).toBe("saved by the external editor");
+    expect(server.fs.permissions.get(source)).toBe(0o640);
+
+    await writeFile(local, "another external edit");
+    server.fs.files.set(source, Buffer.from("concurrent remote edit"));
+    await editor.getByRole("button", { name: "读取本机副本" }).click();
+    await editor.getByRole("button", { name: "保存远端文件" }).click();
+    await expect(editor.getByRole("button", { name: "读取远端新版本" })).toBeVisible();
+    expect(server.fs.files.get(source)?.toString()).toBe("concurrent remote edit");
+    expect(await readFile(local, "utf8")).toBe("another external edit");
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
 
 test("A08 Linux desktop creates, lists and extracts a ZIP over the bound SFTP connection", async () => {
   test.skip(process.platform !== "linux" || !existsSync("/usr/bin/python3"), "Linux system Python 3 is required");

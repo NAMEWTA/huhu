@@ -1,13 +1,18 @@
 import { Button, Dialog } from "@huhu/ui";
 import { CapabilityError, useEngine } from "@huhu/workbench";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { SshExternalEditorHost } from "../shared/external-editor.js";
 import { EDIT_MAX_BYTES, type FileDocument, type FileSession } from "../shared/files.js";
 
 const editable = (text: string) => text.replace(/\r\n|\r/g, "\n");
+const externalEditor = () => (globalThis as { huhuHost?: { sshExternalEditor?: SshExternalEditorHost } }).huhuHost?.sshExternalEditor;
 
 export function RemoteTextEditor({ session, initial, onClose }: { session: FileSession; initial: FileDocument; onClose: () => void }) {
   const engine = useEngine();
   const field = useRef<HTMLTextAreaElement>(null);
+  const external = externalEditor();
+  const externalScope = useRef<{ id?: string } | undefined>(undefined);
+  const [hasExternalCopy, setHasExternalCopy] = useState(false);
   const formId = useId();
   const [document, setDocument] = useState(initial);
   const [draft, setDraft] = useState(editable(initial.text));
@@ -21,6 +26,55 @@ export function RemoteTextEditor({ session, initial, onClose }: { session: FileS
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const ready = session.state === "ready";
+
+  useEffect(() => {
+    const scope: { id?: string } = {};
+    externalScope.current = scope;
+    return () => {
+      externalScope.current = undefined;
+      if (scope.id) void external?.release(scope.id).catch(() => undefined);
+    };
+  }, [external]);
+
+  async function openExternalCopy() {
+    const scope = externalScope.current;
+    if (!external || !scope || busy) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const copy = await external.open(document.path.split("/").at(-1) ?? "SSH", draft);
+      if (!copy) return;
+      if (externalScope.current !== scope) {
+        await external.release(copy.id);
+        return;
+      }
+      scope.id = copy.id;
+      setHasExternalCopy(true);
+      setNote(copy.opened ? "已打开本机副本。保存外部修改后，可读取副本并回写远端。" : "本机副本已保存。系统未能打开编辑器，可手动打开该副本。");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "无法打开本机副本。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function readExternalCopy() {
+    const id = externalScope.current?.id;
+    if (!external || !id || busy) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setDraft(editable(await external.read(id)));
+      select(0, 0);
+      setNote("已读取本机副本。确认后使用「保存远端文件」回写。");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "无法读取本机副本。");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function select(start: number, end = start) {
     setPosition(start);
@@ -123,6 +177,15 @@ export function RemoteTextEditor({ session, initial, onClose }: { session: FileS
           {session.name} · <code>{document.path}</code> · 权限 <code>{document.mode}</code>
         </p>
         {!ready && <p role="status">原连接已断开，草稿可复制</p>}
+        {external && (
+          <div className="ssh-workspace-controls">
+            {hasExternalCopy ? (
+              <Button type="button" disabled={busy} onClick={() => void readExternalCopy()}>读取本机副本</Button>
+            ) : (
+              <Button type="button" disabled={busy} onClick={() => void openExternalCopy()}>保存并用外部编辑器打开</Button>
+            )}
+          </div>
+        )}
         <div className="ssh-workspace-controls">
           <label>
             查找 <input value={finding} onChange={(event) => setFinding(event.target.value)} />
