@@ -554,6 +554,9 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
       };
     });
     const drag = async (target: Locator, cells: number) => {
+      // A handle can be visible at the edge of the scroller, where Chromium
+      // autoscrolls during a drag and changes the gesture's grid coordinates.
+      await target.evaluate((element) => element.scrollIntoView({ block: "center", inline: "nearest" }));
       await target.scrollIntoViewIfNeeded();
       const bounds = (await target.boundingBox())!;
       const stride = await board.locator(".hu-dashboard-grid").evaluate((grid) => (grid.getBoundingClientRect().width + 12) / 6);
@@ -567,6 +570,7 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
       } finally {
         await page.mouse.up();
       }
+      await expect(board.locator(".hu-dashboard-drop-preview, .placeholder-resizing")).toBeHidden();
     };
     try {
       expect(initial.layout).toEqual(expect.arrayContaining([
@@ -579,12 +583,15 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
       await expect.poll(() => renderedPlacement(notes)).toMatchObject({ x: 2, y: 2, w: 3 });
       await expect.poll(() => renderedPlacement(tasks)).toMatchObject({ y: 5, h: 3 });
       await drag(notes.locator(".react-resizable-handle-se"), 1);
-      await expect.poll(() => renderedPlacement(notes)).toMatchObject({ x: 2, y: 2, w: 4 });
+      await expect(board.getByRole("status").filter({ hasText: "最近笔记，" })).toContainText("第 3 列，第 3 行，4 × 3。");
+      await expect.poll(() => renderedPlacement(notes)).toEqual({ x: 2, y: 2, w: 4, h: 3 });
+      const beforeKeyboard = { x: 0, y: 5, w: 3, h: 3 };
+      await expect.poll(() => renderedPlacement(tasks)).toEqual(beforeKeyboard);
       const taskMove = tasks.getByRole("button", { name: "移动 我的任务", exact: true });
       await taskMove.press("Shift+ArrowDown");
       await expect(taskMove).toBeFocused();
-      await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("3 × 4");
-      await expect.poll(() => renderedPlacement(tasks)).toMatchObject({ y: 5, h: 4 });
+      await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("第 1 列，第 6 行，3 × 4。");
+      await expect.poll(() => renderedPlacement(tasks)).toEqual({ ...beforeKeyboard, h: 4 });
       expect((await read()).board.revision).toBe(initial.revision);
       await board.getByTestId("home-dashboard-save").click();
       await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
