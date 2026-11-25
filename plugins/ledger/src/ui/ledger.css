@@ -117,4 +117,20 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-card);
   }
+  .ledger-activity-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: 12px;
+  }
+  .ledger-activity-card {
+    display: flex;
+    min-inline-size: 0;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+  }
+  .ledger-activity-card > :last-child {
+    margin-block-start: auto;
+    padding-block-start: 4px;
+  }
 }

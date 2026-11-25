@@ -961,3 +961,87 @@ test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账�
     await close();
   }
 });
+
+test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并反映新流水", async ({}) => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "总览活动账本", "银行");
+    const byCard = (title: string) => ledger.getByRole("article").filter({ has: desktop.getByRole("heading", { name: title, exact: true }) });
+    await expect(byCard("当月预算")).toContainText("本月暂无预算。");
+    await expect(byCard("固定收支下一期")).toContainText("暂无已排定的下一期。");
+    await expect(byCard("贷款补记")).toContainText("暂无贷款。");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const accounts = () => call<{ businessDate: string; book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+    const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
+    const { businessDate, accounts: [account] } = await accounts();
+    const currentMonth = businessDate.slice(0, 7);
+    await call(desktop, "ledger.budgets.saveBatch", { ...await version(), budgets: [
+      { definition: { type: "fixed", month: currentMonth, name: "当月材料", currency: "TWD", limitMinor: "35000", direction: "expense", categoryIds: [] } },
+      { definition: { type: "fixed", month: currentMonth, name: "美元收入", currency: "USD", limitMinor: "22000", direction: "income", categoryIds: [] } },
+    ] });
+    await call(desktop, "ledger.loans.create", { ...await version(),
+      definition: { name: "工位设备贷款", method: "equal-principal", principalMinor: "20000", currency: "TWD",
+        annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: account!.id },
+    });
+    const nextDay = new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10);
+    await call(desktop, "ledger.recurring.create", { ...await version(), rule: {
+      id: randomUUID(), title: "工作室固定支出", type: "expense", accountId: account!.id,
+      currency: "TWD", amountMinor: "7500", startOn: nextDay, frequency: "monthly", memo: null,
+    } });
+    await desktop.getByTestId("ledger-nav-recurring").click();
+    const fixedRow = ledger.getByTestId("ledger-recurring-row").filter({ hasText: "工作室固定支出" });
+    await fixedRow.getByRole("button", { name: "启用计划" }).click();
+    await expect(fixedRow).toContainText(nextDay);
+    await desktop.getByTestId("ledger-nav-overview").click();
+    await expect(byCard("固定收支下一期").locator("time")).toHaveAttribute("datetime", ledgerBusinessDayRange(nextDay, "Asia/Taipei").from);
+
+    const url = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(url);
+    const webLedger = await enterLedger(page);
+    const card = (title: string) => webLedger.getByRole("article").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+    const budgetCard = card("当月预算");
+    await expect(budgetCard).toContainText("TWD 0.00 / TWD 350.00");
+    await expect(budgetCard).toContainText("USD 0.00 / USD 220.00");
+    await budgetCard.getByRole("button", { name: "查看本月预算" }).click();
+    await expect(webLedger.getByLabel("预算年份")).toHaveValue(currentMonth.slice(0, 4));
+    await expect(webLedger.getByLabel("预算月份")).toHaveValue(currentMonth.slice(5));
+    await expect(webLedger.getByLabel("预算币种")).toHaveValue("");
+    await expect(webLedger.getByText("当月材料", { exact: true })).toBeVisible();
+
+    const overview = page.getByTestId("ledger-nav-overview");
+    await overview.click();
+    const recurringCard = card("固定收支下一期");
+    await expect(recurringCard).toContainText("1 项启用 · 0 期需处理");
+    await recurringCard.getByRole("button", { name: "查看固定收支" }).click();
+    await expect(webLedger.getByRole("heading", { name: "固定收支", exact: true })).toBeFocused();
+    await expect(webLedger.getByTestId("ledger-recurring-row").filter({ hasText: "工作室固定支出" })).toBeVisible();
+
+    await overview.click();
+    const loan = card("贷款补记");
+    await expect(loan).toContainText("已补记 0 / 2 期");
+    await loan.getByRole("button", { name: "查看贷款补记" }).click();
+    await expect(webLedger.getByRole("heading", { name: "贷款", exact: true })).toBeFocused();
+    const loanRow = webLedger.getByRole("article").filter({ has: page.getByRole("heading", { name: "工位设备贷款", exact: true }) });
+    await loanRow.getByRole("button", { name: "预览贷款历史补记" }).click();
+    const preview = page.getByRole("dialog", { name: "预览贷款历史补记" });
+    await preview.getByRole("checkbox", { name: "补记第 1 期 2024-02-29" }).check();
+    await preview.getByRole("button", { name: "确认所选期次" }).click();
+    await expect(preview.getByText("已确认 1 个所选期次。")).toBeVisible();
+    await preview.getByRole("button", { name: "取消", exact: true }).click();
+    await overview.click();
+    await expect(loan).toContainText("已补记 1 / 2 期");
+    await expect(byCard("贷款补记")).toContainText("已补记 1 / 2 期");
+    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
+      total: 1, rows: [{ businessDate: "2024-02-29", record: { type: "expense" } }],
+    });
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await close();
+  }
+});

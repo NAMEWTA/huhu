@@ -10,6 +10,7 @@ import type { CsvResult } from "../shared/imports.js";
 import { defaultCards, type ReportCards } from "../shared/reports.js";
 import { FinancialNotesButton } from "./FinancialNotes.js";
 import { ImportWizard } from "./ImportWizard.js";
+import { OverviewActivityCards, type CycleTarget } from "./OverviewActivity.js";
 import { ReconciliationDialog, type ReconciliationTarget } from "./ReconciliationDialog.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
 import { bookVersion, currencies, displayMoney, downloadFile, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
@@ -265,8 +266,9 @@ function LinkedRecord({ book, recordId, close }: { book: Book; recordId: string;
 
 const cardLabels = { summary: "本月汇总", recent: "最近流水", balances: "账户余额" };
 
-export function Overview({ book, readOnly, openResource, onSection, onRecord }: {
-  book: Book; readOnly: boolean; openResource(path: string): void; onSection(section: string): void; onRecord(): void;
+export function Overview({ book, readOnly, openResource, onSection, onRecord, onCycle }: {
+  book: Book; readOnly: boolean; openResource(path: string): void; onSection(section: string): void;
+  onRecord(): void; onCycle(target: CycleTarget): void;
 }) {
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
   const prefs = useCapability<{ revision: string; cards: ReportCards }>("ledger.reports.preferences", { bookId: book.id });
@@ -317,6 +319,7 @@ export function Overview({ book, readOnly, openResource, onSection, onRecord }: 
       {id === "balances" && accounts.data ? <ul>{accounts.data.accounts.map((account) =>
         <li key={account.id}>{account.name} · {displayMoney(account.balanceMinor, account.currency)}</li>)}</ul> : null}
     </section>)}
+    <OverviewActivityCards book={book} openBudgets={() => onSection("budgets")} openCycles={onCycle} />
     {draft ? <Dialog open title="调整总览卡片" error={action.error} onClose={() => { if (!action.working) setDraft(null); }}
       actions={<Button loading={action.working} onClick={() => void save()}>保存卡片</Button>}>
       <ul>{draft.cards.map(({ id, visible }, index) => <li key={id} className="hu-toolbar">

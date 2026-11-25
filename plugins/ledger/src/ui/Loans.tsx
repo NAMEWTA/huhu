@@ -1,17 +1,19 @@
 import { Button, DataTable, Dialog, Select } from "@huhu/ui";
 import { useCapability } from "@huhu/workbench";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import type { Book } from "../shared/books.js";
 import type { AccountsView } from "../shared/entries.js";
 import type { Loan, LoanHistory, LoanList, LoanPayment } from "../shared/loans.js";
 import { displayMoney, LedgerField, useLedgerAction } from "./primitives.js";
 
-export function LedgerLoans({ book, readOnly, onRecord }: { book: Book; readOnly: boolean; onRecord(recordId: string): void }) {
+export function LedgerLoans({ book, readOnly, onRecord, headingRef }: {
+  book: Book; readOnly: boolean; onRecord(recordId: string): void; headingRef: RefObject<HTMLHeadingElement | null> | undefined;
+}) {
   const list = useCapability<LoanList>("ledger.loans.list", { bookId: book.id });
   const [preview, setPreview] = useState<Loan>();
   return (
     <section className="hu-stack" aria-label="贷款">
-      <h2>贷款</h2>
+      <h2 ref={headingRef} tabIndex={-1}>贷款</h2>
       {list.isPending ? <p role="status">正在读取贷款…</p> : null}
       {list.error ? <p role="alert">{list.error.message}</p> : null}
       {list.data?.rows.length === 0 ? <p>还没有贷款。</p> : null}

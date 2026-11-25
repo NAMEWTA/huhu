@@ -9,6 +9,7 @@ import { Overview, RecordsSection } from "./Records.js";
 import { LedgerCalendar, LedgerReports } from "./Reports.js";
 import { LedgerRecurringPage } from "./Recurring.js";
 import { LedgerLoans } from "./Loans.js";
+import type { CycleTarget } from "./OverviewActivity.js";
 import { LedgerBackupsSection } from "./Backups.js";
 import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
 
@@ -33,11 +34,15 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
   const [ephemeralBook, setEphemeralBook] = useState("");
   const [source, setSource] = useState<{ bookId: string; planId: string }>();
   const [linkedRecord, setLinkedRecord] = useState<{ bookId: string; recordId: string }>();
+  const [cycleJump, setCycleJump] = useState<{ bookId: string; target: CycleTarget }>();
+  const cycleHeading = useRef<HTMLHeadingElement>(null);
   const [editor, setEditor] = useState<Editor>();
   const [confirmedName, setConfirmedName] = useState("");
   const [notice, setNotice] = useState("");
   const cancel = useRef<HTMLButtonElement>(null);
   const formId = useId();
+  const selectedBookId = source?.bookId ?? (list.data?.readOnly && ephemeralBook ? ephemeralBook : list.data?.activeBookId);
+  const target = cycleJump && cycleJump.bookId === selectedBookId ? cycleJump.target : undefined;
   useEffect(() => {
     if (section !== "recurring") return;
     const requested = takeAutomationSource(vaultId, "ledger");
@@ -45,10 +50,16 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
       setSource({ bookId: requested.source.object.id, planId: requested.planId });
     }
   }, [vaultId, section]);
+  useEffect(() => {
+    const header = cycleHeading.current;
+    if (section !== "recurring" || !target || !header) return;
+    header.focus({ preventScroll: true });
+    header.scrollIntoView({ block: "start" });
+    setCycleJump(undefined);
+  }, [section, target]);
   if (list.isPending) return <p role="status">正在读取账本…</p>;
   if (list.isError) return <p role="alert">{list.error.message}</p>;
-  const { books, activeBookId, readOnly } = list.data;
-  const selectedBookId = source?.bookId ?? (readOnly && ephemeralBook ? ephemeralBook : activeBookId);
+  const { books, readOnly } = list.data;
   const current = books.find(({ id }) => id === selectedBookId);
   const locked = readOnly || working;
   const openResource = (path: string) => {
@@ -136,13 +147,16 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
         : section === "calendar" ? <LedgerCalendar key={current.id} book={current} readOnly={readOnly} />
         : section === "reports" ? <LedgerReports key={current.id} book={current} readOnly={readOnly} openResource={openResource} />
         : section === "recurring" ? <div key={current.id} className="hu-stack">
-          <LedgerRecurringPage book={current} readOnly={readOnly} onNavigate={onNavigate} linkedPlanId={source?.planId} />
-          <LedgerLoans book={current} readOnly={readOnly} onRecord={(recordId) => {
+          <LedgerRecurringPage book={current} readOnly={readOnly} onNavigate={onNavigate} linkedPlanId={source?.planId}
+            headingRef={target === "fixed" ? cycleHeading : undefined} />
+          <LedgerLoans book={current} readOnly={readOnly} headingRef={target === "loan" ? cycleHeading : undefined} onRecord={(recordId) => {
             setLinkedRecord({ bookId: current.id, recordId });
             onSection("records");
           }} />
         </div>
-        : <Overview key={current.id} book={current} readOnly={readOnly} openResource={openResource} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
+        : <Overview key={current.id} book={current} readOnly={readOnly} openResource={openResource} onSection={onSection}
+          onRecord={() => { quick.set(true); onSection("records"); }}
+          onCycle={(target) => { setCycleJump({ bookId: current.id, target }); onSection("recurring"); }} />)}
     </div>
     {editor && <Dialog open title={editor.mode === "create" ? "创建账本" : editor.mode === "rename" ? "重命名账本" : "删除账本"}
       onClose={() => { if (!working) setEditor(undefined); }} error={error}
