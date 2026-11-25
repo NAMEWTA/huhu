@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Browser, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
@@ -442,4 +442,66 @@ printf '\\033[%s;%sH#\\033[%s;%sH' "$rows" "$cols" "$rows" "$cols"
 read -r answer
 printf '\\033[?1049l'
 `), { width: 1180, height: 940 });
+});
+
+test("UX09 全局会话行与 Space 树定位同一终端，切换及刷新保留布局", async ({ browserName }, info) => {
+  void browserName;
+  test.setTimeout(120_000);
+  const otherName = "UX09 第二工作区";
+  await runOnHosts(info, async (page, name, vault) => {
+    if (name === "web") await page.reload();
+    await showAgent(page);
+    const panes = page.getByTestId("workspace-pane");
+    const top = page.getByRole("navigation", { name: "全局会话" });
+    const items = top.getByTestId("session-tab");
+    if (name === "electron") {
+      const start = async (count: number) => {
+        await page.getByTestId(count === 1 ? "workspace-pane-launch" : "workspace-split-down").first().click();
+        await page.getByTestId("launch-shell").click();
+        await expect(panes.getByTestId("terminal-view")).toHaveCount(count);
+      };
+      await start(1);
+      await start(2);
+      await page.getByTestId("space-new").click();
+      await page.getByLabel("Space 名称").fill(otherName);
+      await page.getByLabel("工作目录", { exact: true }).fill(path.join(vault, "ux09-other"));
+      await page.getByTestId("space-save").click();
+      await expect(page.getByTestId("agent-space-item").filter({ hasText: otherName })).toHaveAttribute("aria-pressed", "true");
+      await start(1);
+      await start(2);
+    }
+    type Entry = { id: string; spaceId: string; terminalId: string | null };
+    const list = () => call<Entry[]>(page, "agent.sessions.list", {});
+    await expect(top).toHaveCount(1);
+    await expect(items).toHaveCount(4);
+    const before = await list();
+    expect(new Set(before.map(({ spaceId }) => spaceId)).size).toBe(2);
+    const left = before[0]!;
+    const right = before.find(({ spaceId }) => spaceId !== left.spaceId)!;
+    const bySession = (id: string) => page.locator(`[data-session-id="${id}"]`);
+    const verify = async (entry: Entry, source: "session-tab" | "space-session") => {
+      await page.getByTestId(source).and(bySession(entry.id)).click();
+      await expect(items.and(bySession(entry.id))).toHaveAttribute("aria-current", "true");
+      const treeItem = page.getByTestId("space-session").and(bySession(entry.id));
+      await expect(treeItem).toHaveAttribute("aria-current", "true");
+      await expect(treeItem.locator("img")).toHaveAttribute("src", (await items.and(bySession(entry.id)).locator("img").getAttribute("src"))!);
+      await expect(panes.and(bySession(entry.id))).toHaveAttribute("data-active", "true");
+      await expect(panes.and(bySession(entry.id)).getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+      await expect(panes).toHaveCount(2);
+    };
+    await verify(left, "session-tab");
+    await verify(right, "space-session");
+    await verify(left, "space-session");
+    await verify(right, "session-tab");
+    const toggle = page.getByRole("button", { name: `收起 ${otherName}`, exact: true });
+    await toggle.click();
+    await expect(page.getByRole("button", { name: `展开 ${otherName}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(items).toHaveCount(4);
+    await page.reload();
+    await showAgent(page);
+    await verify(left, "session-tab");
+    await verify(right, "space-session");
+    expect((await list()).map(({ id, spaceId, terminalId }) => ({ id, spaceId, terminalId }))).toEqual(before.map(({ id, spaceId, terminalId }) => ({ id, spaceId, terminalId })));
+    await info.attach(`${name}-session-navigation`, { body: JSON.stringify(before), contentType: "application/json" });
+  }, (vault) => mkdirSync(path.join(vault, "ux09-other")), { width: 1340, height: 950 });
 });
