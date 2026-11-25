@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,7 @@ import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { EngineClient } from "../../../packages/workbench/src/engine-client/client.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND, WINDOWS_SAMPLE } from "../src/engine/monitor-sample.js";
-import { CONTAINER_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
+import { CONTAINER_LIST, IMAGE_LIST, PROCESS_LIST } from "../src/engine/monitor-tools.js";
 import type { MonitorPanel, MonitorPanelRun, MonitorSession, MonitorTool, MonitorToolResult, SaveMonitorPanel } from "../src/shared/monitoring.js";
 import type { ConnectionStatus, HostKeyPrompt } from "../src/shared/trust.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
@@ -35,10 +36,11 @@ async function fixture() {
       const server = await startFakeSsh({
         onExec(command) {
           if (command === PLATFORM_COMMAND) return platform === "linux" ? { stdout: "Linux" } : { stderr: "command not found", code: 127 };
-          if (command !== (platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE)) return tools?.(command);
+          const reply = tools?.(command);
+          if (reply || command !== (platform === "linux" ? LINUX_SAMPLE : WINDOWS_SAMPLE)) return reply;
           reads++;
           if (denied) return { stdout: "denied" };
-          const linux = `cpu ${readCount(25)} ${readCount(100)}\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet ${readCount(80)} ${readCount(50)}\ndisk 40960 20480\n`;
+          const linux = `cpu ${readCount(25)} ${readCount(100)}\ncpu0 ${readCount(20)} ${readCount(40)}\ncpu1 100 ${readCount(60)}\niface eth0 ${readCount(80)} ${readCount(50)}\niface reset0 ${100 - reads} ${100 - reads}\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet ${readCount(80)} ${readCount(50)}\ndisk 40960 20480\n`;
           return { stdout: platform === "linux" ? linux : JSON.stringify(windows) };
           function readCount(unit: number) {
             return (reads + 10) * unit;
@@ -123,12 +125,13 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     const { client } = f;
     const a = await f.host("Tool A", "linux", (command) => {
       if (command === PROCESS_LIST) return { stdout: "23 tool-a" };
-      if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
+      if (command === CONTAINER_LIST || command === IMAGE_LIST) return { stderr: "docker: not found", code: 127 };
     });
     let restricted = false;
     const b = await f.host("Tool B", "linux", (command) => {
       if (command === PROCESS_LIST) return { stdout: "31 tool-b" };
       if (command === CONTAINER_LIST) return restricted ? { stderr: "permission denied", code: 1 } : { stdout: "abcdef123456|fixture-b|fixture/image|running" };
+      if (command === IMAGE_LIST) return { stdout: "abcdef123456|fixture/image:stable|10MB\nabcdef123456|fixture/image:latest|10MB\nmalformed row" };
     });
     const left = await shell(client, a.id);
     const right = await shell(client, b.id);
@@ -142,6 +145,11 @@ test("server tools use only read-only commands on the selected Pane", { timeout:
     await expect(client.call("ssh.monitor.tools.read", { hostId: a.id, shellId: left, tool: "processes", command: "echo fixture" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(await read(a.id, left, "containers")).toMatchObject({ state: "unsupported", rows: [] });
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "ready", rows: [{ id: "abcdef123456", name: "fixture-b", detail: "fixture/image · running" }] });
+    expect(await read(a.id, left, "images")).toMatchObject({ state: "unsupported", rows: [] });
+    expect(await read(b.id, right, "images")).toMatchObject({ connectionId: rightResult.connectionId, state: "ready", rows: [
+      { id: "abcdef123456", name: "fixture/image:stable", detail: "10MB" },
+      { id: "abcdef123456", name: "fixture/image:latest", detail: "10MB" },
+    ] });
     restricted = true;
     expect(await read(b.id, right, "containers")).toMatchObject({ state: "denied", rows: [] });
     await client.call("ssh.disconnect", { hostId: a.id }, opts);
@@ -168,10 +176,18 @@ test("Pane monitor binds the original shell and separates Linux counters, Window
       expect((await readPane(client, a.id)).host).toMatchObject({
         state: "running",
         platform: "linux",
-        latest: { sample: { cpu: 25, memory: { total: 8192, available: 4096 }, network: { received: expect.any(Number), sent: expect.any(Number) } } },
+        latest: { sample: {
+          cpu: 25, cores: [{ index: 0, percent: 50 }, { index: 1, percent: 0 }],
+          memory: { total: 8192, available: 4096 }, network: { received: expect.any(Number), sent: expect.any(Number) },
+          interfaces: [{ name: "eth0", received: expect.any(Number), sent: expect.any(Number) }],
+        } },
       });
       expect((await readPane(client, b.id)).host).toMatchObject({ state: "running", platform: "windows", latest: { sample: windows } });
     }, wait);
+    for (const { sample } of (await readPane(client, a.id)).host.history) {
+      expect(sample).not.toHaveProperty("cores");
+      expect(sample).not.toHaveProperty("interfaces");
+    }
     expect((await paneAction(client, a.id, "pause")).host).toMatchObject({ state: "paused", history: expect.arrayContaining([{ at: expect.any(Number), sample: null }]) });
     const before = linux.reads();
     await delay(1150);
@@ -189,6 +205,26 @@ test("Pane monitor binds the original shell and separates Linux counters, Window
     await paneAction(client, b.id, "close");
     expect(await client.call("ssh.shells.list", { hostId: win.id })).toContainEqual(expect.objectContaining({ id: right, state: "running" }));
     await expect(readPane(client, b.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  } finally {
+    await f.close();
+  }
+});
+
+test.skipIf(process.platform !== "linux")("Pane monitor parses the native Linux procfs probe over an original SSH connection", { timeout: 20_000 }, async () => {
+  const f = await fixture();
+  try {
+    const { client } = f;
+    const { id } = await f.host("Linux procfs fixture", "linux", (command) => {
+      if (command === LINUX_SAMPLE) return { stdout: execFileSync("/bin/sh", ["-c", LINUX_SAMPLE], { encoding: "utf8", timeout: 3000 }) };
+    });
+    const session = await pane(client, id, await shell(client, id));
+    await vi.waitFor(async () => {
+      const latest = (await readPane(client, session.id)).host.latest?.sample;
+      expect(latest?.cpu).toBeGreaterThanOrEqual(0);
+      expect(latest?.cores).toContainEqual({ index: 0, percent: expect.any(Number) });
+      expect(latest?.memory?.total).toBeGreaterThan(0);
+      expect(latest?.disk?.mount).toBe("/");
+    }, wait);
   } finally {
     await f.close();
   }
@@ -237,6 +273,11 @@ test("dashboards share fastest sampling, isolate host failures and keep configur
     expect(await readPanel(client, fast.id)).toMatchObject({ plan: { planId: paused.planId, revision: paused.revision }, state: "paused" });
     expect((await readPanel(client, fast.id))?.hosts[1]).toMatchObject({ state: "paused", history: expect.arrayContaining([{ sample: null, at: expect.any(Number) }]) });
     expect((await readPanel(client, slow.id))?.hosts[0]).toMatchObject({ state: "running", interval: 5, subscribers: 2 });
+    const activeSlow = (await readPanel(client, slow.id))!.plan!;
+    const slower = await updatePlan(client, activeSlow, { change: "reschedule", trigger: { kind: "interval", every: 10, unit: "seconds" } });
+    expect(await readPanel(client, slow.id)).toMatchObject({ state: "running", plan: { planId: slower.planId, revision: slower.revision }, hosts: [{ interval: 10, subscribers: 2 }] });
+    expect(linux.server.conns).toHaveLength(1);
+    await updatePlan(client, slower, { change: "reschedule", trigger: { kind: "interval", every: 5, unit: "seconds" } });
     await change(client, fast, "continue");
     await updatePlan(client, (await readPanel(client, fast.id))!.plan!, { change: "delete" });
     await vi.waitFor(() => expect(win.server.closed()).toBe(1), wait);

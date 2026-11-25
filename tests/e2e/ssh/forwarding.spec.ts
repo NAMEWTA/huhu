@@ -50,13 +50,24 @@ async function dial(port: number) {
   return socket;
 }
 
-test("Workbench saves four modes and opens and releases a real listener only on explicit actions", async () => {
+async function readExactly(socket: net.Socket, length: number): Promise<Buffer> {
+  const signal = AbortSignal.timeout(5000);
+  for (;;) {
+    const bytes = socket.read(length) as Buffer | null;
+    if (bytes) return bytes;
+    if (socket.destroyed || socket.readableEnded) throw new Error("loopback socket closed during read");
+    await once(socket, "readable", { signal });
+  }
+}
+
+test("A10 Workbench forwards bytes in all four modes and releases each loopback listener", async () => {
+  test.setTimeout(60_000);
   const password = randomUUID();
   const ssh = await startFakeSsh({ password, remoteForwarding: true });
   const upstream = net.createServer((socket) => socket.pipe(socket));
   const targetPort = await bind(upstream);
   const fixture = await openApp();
-  let active: net.Socket | undefined;
+  const sockets = new Set<net.Socket>();
   try {
     const { page } = fixture;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -108,19 +119,60 @@ test("Workbench saves four modes and opens and releases a real listener only on 
     await expect(remote).toContainText(`已确认的远端请求 ${FORWARD_BIND}:${remotePort}`);
     await expect(remote).toContainText("实际绑定地址由服务端策略");
     await expect(remote).not.toContainText("实际绑定 127.0.0.1");
-    (await dial(remotePort)).destroy();
+    const bytes = Buffer.from("Workbench forward");
+    async function connect(port: number) {
+      const socket = await dial(port);
+      sockets.add(socket);
+      return socket;
+    }
+    async function exchange(socket: net.Socket) {
+      socket.write(bytes);
+      expect(await readExactly(socket, bytes.length)).toEqual(bytes);
+    }
+    await exchange(await connect(remotePort));
+    await expect(remote).toContainText(`活动 1 · 累计 1 · 上传 ${bytes.length} B · 下载 ${bytes.length} B`);
     await remote.getByRole("button", { name: "停止", exact: true }).click();
     await expect(remote.getByRole("status")).toHaveText("已停止");
     await expect(dial(remotePort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
-    active = await dial(localPort);
-    const bytes = Buffer.from("Workbench forward");
-    const received = once(active, "data", { signal: AbortSignal.timeout(5000) });
-    active.write(bytes);
-    expect((await received)[0]).toEqual(bytes);
+    await exchange(await connect(localPort));
     await expect(local).toContainText(`活动 1 · 累计 1 · 上传 ${bytes.length} B · 下载 ${bytes.length} B`);
+
+    const socks = rules.filter({ has: page.getByText("测试 SOCKS5", { exact: true }) });
+    const socksPort = ports.get("socks5")!;
+    await socks.getByRole("button", { name: "启动" }).click();
+    await expect(socks.getByRole("status")).toHaveText("监听中");
+    const socksSocket = await connect(socksPort);
+    socksSocket.write(Buffer.from([5, 1, 0]));
+    expect(await readExactly(socksSocket, 2)).toEqual(Buffer.from([5, 0]));
+    socksSocket.write(Buffer.from([5, 1, 0, 1, 127, 0, 0, 1, targetPort >>> 8, targetPort & 255]));
+    expect((await readExactly(socksSocket, 10))[1]).toBe(0);
+    await exchange(socksSocket);
+    await expect(socks).toContainText(`上传 ${bytes.length} B · 下载 ${bytes.length} B`);
+
+    const http = rules.filter({ has: page.getByText("测试 HTTP CONNECT", { exact: true }) });
+    const httpPort = ports.get("http-connect")!;
+    await http.getByRole("button", { name: "启动" }).click();
+    await expect(http.getByRole("status")).toHaveText("监听中");
+    const httpSocket = await connect(httpPort);
+    const authority = `${FORWARD_BIND}:${targetPort}`;
+    httpSocket.write(`CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`);
+    const confirmed = Buffer.from("HTTP/1.1 200 Connection Established\r\n\r\n");
+    expect(await readExactly(httpSocket, confirmed.length)).toEqual(confirmed);
+    await exchange(httpSocket);
+    await expect(http).toContainText(`上传 ${bytes.length} B · 下载 ${bytes.length} B`);
+    expect(ssh.conns).toHaveLength(1);
+
     await local.getByRole("button", { name: "停止", exact: true }).click();
     await expect(local.getByRole("status")).toHaveText("已停止");
     await expect(dial(localPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+    await exchange(socksSocket);
+    await exchange(httpSocket);
+    for (const [row, listenPort] of [[socks, socksPort], [http, httpPort]] as const) {
+      await row.getByRole("button", { name: "停止", exact: true }).click();
+      await expect(row.getByRole("status")).toHaveText("已停止");
+      await expect(dial(listenPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+    }
+    await expect.poll(() => ssh.closed()).toBe(1);
     await local.getByRole("button", { name: "启动", exact: true }).click();
     await expect(local.getByRole("status")).toHaveText("监听中");
     (await dial(localPort)).destroy();
@@ -128,7 +180,7 @@ test("Workbench saves four modes and opens and releases a real listener only on 
     await expect(local.getByRole("status")).toHaveText("已停止");
     await expect(dial(localPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
   } finally {
-    active?.destroy();
+    for (const socket of sockets) socket.destroy();
     await fixture.close();
     await Promise.all([ssh.close(), close(upstream)]);
   }

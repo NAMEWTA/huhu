@@ -1,6 +1,6 @@
 import { Button, Dialog } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
-import { useId, useState } from "react";
+import { useEngine } from "@huhu/workbench";
+import { useEffect, useId, useState } from "react";
 import type { ArchiveRequest, ArchiveResult, ArchiveSupport } from "../shared/archives.js";
 import type { FileEntry } from "../shared/files.js";
 
@@ -20,7 +20,8 @@ export function ArchiveTools(props: Props) {
 
 function Actions({ side, directory, entries, id, ready, refresh, device }: Props & { device: string }) {
   const engine = useEngine();
-  const support = useCapability<ArchiveSupport>("ssh.archives.support", { fileSessionId: id });
+  const [support, setSupport] = useState<ArchiveSupport>();
+  const [supportError, setSupportError] = useState("");
   const options = entries.filter(({ name, type }) => type === "dir" || (type === "file" && name.toLowerCase().endsWith(".zip")));
   const [name, choose] = useState("");
   const [dialog, setDialog] = useState<Operation>();
@@ -30,9 +31,24 @@ function Actions({ side, directory, entries, id, ready, refresh, device }: Props
   const [result, setResult] = useState<ArchiveResult>();
   const formId = useId();
   const active = options.find((entry) => entry.name === name);
-  const capability = support.data?.[side];
+  const capability = support?.[side];
   const disabled = !directory || !ready || !capability?.zip || !active || busy;
   const endpoint: ArchiveRequest["directory"] = side === "local" ? { kind: "local", path: directory } : { kind: "remote", fileSessionId: id, path: directory };
+
+  useEffect(() => {
+    const request = new AbortController();
+    setSupport(undefined);
+    setSupportError("");
+    void engine.call<ArchiveSupport>("ssh.archives.support", { fileSessionId: id }, { write: true, signal: request.signal }).then(
+      (value) => {
+        if (!request.signal.aborted) setSupport(value);
+      },
+      (error: unknown) => {
+        if (!request.signal.aborted) setSupportError(error instanceof Error ? error.message : String(error));
+      },
+    );
+    return () => request.abort();
+  }, [engine, id, ready]);
 
   function confirm(operation: Operation) {
     setError("");
@@ -69,15 +85,13 @@ function Actions({ side, directory, entries, id, ready, refresh, device }: Props
 
   return (
     <section aria-label={`${device}归档能力`}>
-      {support.error && <p role="alert">{support.error.message}</p>}
-      {capability && (
+      {supportError && <p role="alert">{supportError}</p>}
+      <p role="status">
+        {capability && `${capability.zip && ready ? "ZIP 可用" : "ZIP 不可用"} · ${ready ? capability.reason : "原 SSH 连接已断开"}`}
+      </p>
+      {support && (
         <p>
-          {capability.zip && ready ? "ZIP 可用" : "ZIP 不可用"} · {ready ? capability.reason : "原 SSH 连接已断开"}
-        </p>
-      )}
-      {support.data && (
-        <p>
-          {support.data.otherFormats} {side === "local" && support.data.nativeSelection}
+          {support.otherFormats} {side === "local" && support.nativeSelection}
         </p>
       )}
       <div className="ssh-workspace-controls">

@@ -5,6 +5,8 @@ import { HostKeyPrompt } from "./trust.js";
 export const SESSION_INTERVALS = [1, 2, 5] as const;
 export const PANEL_INTERVALS = [2, 5, 10, 30, 60] as const;
 export const RETENTION_MINUTES = [15, 60, 360, 1440] as const;
+export const MONITOR_CORE_LIMIT = 64;
+export const MONITOR_INTERFACE_LIMIT = 16;
 export const SessionInterval = z.literal(SESSION_INTERVALS);
 export const PanelInterval = z.literal(PANEL_INTERVALS);
 export const Retention = z.literal(RETENTION_MINUTES);
@@ -37,11 +39,15 @@ export const MonitorPanelChange = z.discriminatedUnion("action", [
   MonitorPanelRevision.extend({ action: z.literal("retry"), hostId: z.string().min(1), ...planRevision }),
 ]);
 
+const CpuPercent = z.number().min(0).max(100);
+const NetworkRate = z.object({ received: z.number().nonnegative(), sent: z.number().nonnegative() });
 export const MonitorSample = z.object({
-  cpu: z.number().min(0).max(100).optional(),
+  cpu: CpuPercent.optional(),
+  cores: z.array(z.object({ index: z.number().int().nonnegative(), percent: CpuPercent })).max(MONITOR_CORE_LIMIT).optional(),
   memory: z.object({ total: z.number().positive(), available: z.number().nonnegative() }).optional(),
   disk: z.object({ mount: z.string().max(100), total: z.number().positive(), available: z.number().nonnegative() }).optional(),
-  network: z.object({ received: z.number().nonnegative(), sent: z.number().nonnegative() }).optional(),
+  network: NetworkRate.optional(),
+  interfaces: z.array(NetworkRate.extend({ name: z.string().min(1).max(64) })).max(MONITOR_INTERFACE_LIMIT).optional(),
   uptimeSec: z.number().nonnegative().optional(),
   load: z.number().nonnegative().optional(),
 });
@@ -66,7 +72,7 @@ export type MonitorSession = z.infer<typeof MonitorSession>;
 export const MonitorPanelRun = z.object({ id: z.uuid(), revision: z.uuid(), state: z.enum(["running", "paused", "stopped"]), hosts: z.array(MonitorHost), plan: PlanSummarySchema.optional() });
 export type MonitorPanelRun = z.infer<typeof MonitorPanelRun>;
 
-export const MonitorTool = z.enum(["processes", "containers"]);
+export const MonitorTool = z.enum(["processes", "containers", "images"]);
 export type MonitorTool = z.infer<typeof MonitorTool>;
 export const MonitorToolRequest = MonitorSessionOpen.omit({ interval: true }).extend({ tool: MonitorTool });
 export const MonitorToolResult = z.object({

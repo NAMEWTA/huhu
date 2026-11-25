@@ -32,7 +32,7 @@ export function ProxySharePanel({ hosts, connections, onBack }: { hosts: Managed
     setMessage("");
     try {
       const input = operation === "detect" ? { port: Number(local) } : operation === "start" ? { ...selection, localPort: Number(local), remotePort: Number(remote) } : {};
-      await engine.call(`ssh.proxyShare.${operation}`, input);
+      await engine.call(`ssh.proxyShare.${operation}`, input, { write: true });
       if (operation === "detect") setMessage("本机代理端口已响应。");
       await status.refetch();
     } catch (reason) {

@@ -1,7 +1,7 @@
 import { HuhuError } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import { captureSshCommand, RemoteCommandError } from "./ssh-exec.js";
-import { MonitorSample, type MonitorSample as Sample } from "../shared/monitoring.js";
+import { MONITOR_CORE_LIMIT, MONITOR_INTERFACE_LIMIT, MonitorSample, type MonitorSample as Sample } from "../shared/monitoring.js";
 
 export const PLATFORM_COMMAND = "uname -s";
 // Fixed probes. Follow Motty remotestats' procfs counters and Windows CIM split.
@@ -11,11 +11,11 @@ if [ ! -r /proc/stat ] && [ ! -r /proc/meminfo ]; then
   if [ -e /proc/stat ]; then printf 'denied\n'; else printf 'unsupported\n'; fi
   exit 0
 fi
-awk '/^cpu / {for(i=2;i<=9;i++) total+=$i; printf "cpu %.0f %.0f\n",total-$5-$6,total; exit}' /proc/stat 2>/dev/null
+awk '$1=="cpu" || ($1 ~ /^cpu[0-9]+$/ && ++cores<=${MONITOR_CORE_LIMIT}) {total=0; for(i=2;i<=9;i++) total+=$i; printf "%s %.0f %.0f\n",$1,total-$5-$6,total}' /proc/stat 2>/dev/null
 awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {m=$2; found=1} END {if(t>0 && found) printf "memory %.0f %.0f\n",t*1024,m*1024}' /proc/meminfo 2>/dev/null
 awk 'NR==1 {print "uptime",$1}' /proc/uptime 2>/dev/null
 awk 'NR==1 {print "load",$1}' /proc/loadavg 2>/dev/null
-awk -F: 'NR>2 && $1 !~ /^ *lo *$/ {split($2,a," "); rx+=a[1]; tx+=a[9]; n++} END{if(n) printf "net %.0f %.0f\n",rx,tx}' /proc/net/dev 2>/dev/null
+awk -F: 'NR>2 && $1 !~ /^ *lo *$/ {split($2,a," "); rx+=a[1]; tx+=a[9]; if (++n<=${MONITOR_INTERFACE_LIMIT}) {name=$1; gsub(/^ +| +$/, "", name); printf "iface %s %.0f %.0f\n",name,a[1],a[9]}} END{if(n) printf "net %.0f %.0f\n",rx,tx}' /proc/net/dev 2>/dev/null
 df -Pk / 2>/dev/null | awk 'NR==2 && $2>0 {printf "disk %.0f %.0f\n",$2*1024,$4*1024}'
 `;
 
@@ -90,14 +90,33 @@ export async function detectPlatform(client: Client, signal: AbortSignal): Promi
   throw new SampleError("unsupported", "当前系统没有可用的监控采样器");
 }
 
-export type Counters = { at: number; cpu?: [number, number]; net?: [number, number] };
+type Pair = [number, number];
+export type Counters = { at: number; cpu?: Pair; net?: Pair; cores: Map<number, Pair>; interfaces: Map<string, Pair> };
 const safe = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
 
+function cpuPercent(current: Pair, previous: Pair) {
+  const busy = current[0] - previous[0];
+  const total = current[1] - previous[1];
+  if (total > 0 && busy >= 0 && busy <= total) return (busy / total) * 100;
+}
+
+function networkRate(current: Pair, previous: Pair, elapsed: number) {
+  const received = current[0] - previous[0];
+  const sent = current[1] - previous[1];
+  if (elapsed > 0 && received >= 0 && sent >= 0) return { received: (received * 1000) / elapsed, sent: (sent * 1000) / elapsed };
+}
+
 function linux(text: string, at: number, previous?: Counters) {
-  const counters: Counters = { at };
+  const counters: Counters = { at, cores: new Map(), interfaces: new Map() };
   const sample: Sample = {};
   for (const row of text.split(/\r?\n/)) {
-    const [field, a, b] = row.split(/\s+/);
+    const [field, a, b, c] = row.split(/\s+/);
+    if (field === "iface") {
+      const received = b === undefined ? undefined : Number(b);
+      const sent = c === undefined ? undefined : Number(c);
+      if (a && /^[\w.@-]{1,64}$/.test(a) && safe(received) && safe(sent) && counters.interfaces.size < MONITOR_INTERFACE_LIMIT) counters.interfaces.set(a, [received, sent]);
+      continue;
+    }
     const first = a === undefined ? undefined : Number(a);
     const second = b === undefined ? undefined : Number(b);
     if (!safe(first)) continue;
@@ -105,21 +124,30 @@ function linux(text: string, at: number, previous?: Counters) {
     if (field === "load") sample.load = first;
     if (!safe(second)) continue;
     if (field === "cpu" && first <= second) counters.cpu = [first, second];
+    const core = field?.match(/^cpu(\d{1,6})$/);
+    if (core && first <= second && counters.cores.size < MONITOR_CORE_LIMIT) counters.cores.set(Number(core[1]), [first, second]);
     if (field === "net") counters.net = [first, second];
     if (field === "memory" && first > 0 && second <= first) sample.memory = { total: first, available: second };
     if (field === "disk" && first > 0 && second <= first) sample.disk = { mount: "/", total: first, available: second };
   }
-  if (previous?.cpu && counters.cpu) {
-    const busy = counters.cpu[0] - previous.cpu[0];
-    const total = counters.cpu[1] - previous.cpu[1];
-    if (total > 0 && busy >= 0 && busy <= total) sample.cpu = (busy / total) * 100;
+  if (previous) {
+    const elapsed = at - previous.at;
+    if (counters.cpu && previous.cpu) sample.cpu = cpuPercent(counters.cpu, previous.cpu);
+    if (counters.net && previous.net) sample.network = networkRate(counters.net, previous.net, elapsed);
+    const cores = [...counters.cores].flatMap(([index, current]) => {
+      const prior = previous.cores.get(index);
+      const percent = prior && cpuPercent(current, prior);
+      return percent === undefined ? [] : [{ index, percent }];
+    });
+    const interfaces = [...counters.interfaces].flatMap(([name, current]) => {
+      const prior = previous.interfaces.get(name);
+      const rate = prior && networkRate(current, prior, elapsed);
+      return rate ? [{ name, ...rate }] : [];
+    });
+    if (cores.length) sample.cores = cores;
+    if (interfaces.length) sample.interfaces = interfaces;
   }
-  if (previous?.net && counters.net && at > previous.at) {
-    const received = counters.net[0] - previous.net[0];
-    const sent = counters.net[1] - previous.net[1];
-    if (received >= 0 && sent >= 0) sample.network = { received: (received * 1000) / (at - previous.at), sent: (sent * 1000) / (at - previous.at) };
-  }
-  if (!Object.keys(sample).length && !counters.cpu && !counters.net) throw new SampleError("unsupported", "系统未返回可用监控指标");
+  if (!Object.keys(sample).length && !counters.cpu && !counters.net && !counters.cores.size && !counters.interfaces.size) throw new SampleError("unsupported", "系统未返回可用监控指标");
   return { sample, counters };
 }
 

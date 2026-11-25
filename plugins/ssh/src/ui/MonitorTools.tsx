@@ -38,13 +38,16 @@ export function MonitorTools({ hostId, shellId, name, onClose }: { hostId: strin
           <Button aria-pressed={tool === "containers"} onClick={() => read("containers")}>
             容器
           </Button>
+          <Button aria-pressed={tool === "images"} onClick={() => read("images")}>
+            镜像
+          </Button>
         </div>
         {current?.message && <p role="alert">{current.message}</p>}
         {current?.state === "ready" && current.rows.length === 0 && <p role="status">没有可读取的条目</p>}
         {current?.rows.length ? (
           <ul>
             {current.rows.map((row) => (
-              <li key={row.id}>
+              <li key={`${row.id}:${row.name}`}>
                 <code>{row.id}</code> {row.name}
                 {row.detail && ` · ${row.detail}`}
               </li>
