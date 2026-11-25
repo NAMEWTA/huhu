@@ -178,7 +178,7 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
           </search>
           <label className="hu-field">
             批量跳板
-            <select value={batchJump} onChange={(event) => setBatchJump(event.currentTarget.value)}>
+            <select aria-label="批量跳板" value={batchJump} onChange={(event) => setBatchJump(event.currentTarget.value)}>
               <option value="">选择直接跳板</option>
               {batchJump && !chosenJump && (
                 <option value={batchJump} disabled>

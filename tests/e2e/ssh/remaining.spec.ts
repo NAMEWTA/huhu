@@ -88,7 +88,7 @@ test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", 
     await openSsh(page);
     const a = await saveHost(page, "左侧夹具", left.port, password);
     const b = await saveHost(page, "右侧夹具", right.port, password);
-    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "分栏验收", layout: { kind: "two" }, panes: [a, b] });
+    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "分栏验收", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
     await approve(page, a.hostId);
     await approve(page, b.hostId);
     await expect.poll(async () => (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list"))[0]?.panes.map((pane) => pane.phase)).toEqual(["ready", "ready"]);
@@ -155,7 +155,7 @@ test("H5.3 回放已停止的录制，可暂停并按时间定位，切换 Shell
     await openSsh(page);
     const a = await saveHost(page, "录制甲", left.port, password);
     const b = await saveHost(page, "录制乙", right.port, password);
-    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "会话录制夹具", layout: { kind: "two" }, panes: [a, b] });
+    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "会话录制夹具", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
     await approve(page, a.hostId);
     await approve(page, b.hostId);
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -304,7 +304,7 @@ test("H3.2 路由页批量关联、覆盖与启停，旧 Shell 保留原连接�
     };
     await expect(checkbox("批量目标甲")).toBeChecked();
     await expect(checkbox("批量目标乙")).toBeChecked();
-    const candidate = page.getByLabel("批量跳板");
+    const candidate = page.getByRole("combobox", { name: "批量跳板", exact: true });
     await expect(candidate.getByRole("option", { name: /批量目标乙.*自身/ })).toBeDisabled();
     await expect(page.getByRole("button", { name: "批量启用", exact: true })).toBeDisabled();
     const targetSearch = page.getByRole("textbox", { name: "筛选目标主机…" });
@@ -393,7 +393,11 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     const first = await saveHost(page, "目标甲", target.port, password);
     const different = await saveHost(page, "另一目标", other.port, password);
     const alias = await saveHost(page, "目标甲别名", target.port, password);
-    const start = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "本机布局夹具", layout: { kind: "tabs" }, panes: [first, different, alias] });
+    const start = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "本机布局夹具",
+      layout: { kind: "tabs" },
+      panes: [first, different, alias].map(({ hostId }) => ({ hostId })),
+    });
     await approve(page, first.hostId);
     await approve(page, different.hostId);
     const aliasState = async () => (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find(({ hostId }) => hostId === alias.hostId)?.state;

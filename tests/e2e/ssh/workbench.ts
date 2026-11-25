@@ -1,4 +1,5 @@
 import { chromium, expect, type Page } from "@playwright/test";
+import type { CapabilityResult } from "@huhu/contracts";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -29,10 +30,14 @@ export async function desktopCall<T>(page: Page, capability: string, input: unkn
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
       });
-      return res.json() as Promise<{ ok: true; data: unknown } | { ok: false; error: { code: string } }>;
+      return res.json() as Promise<CapabilityResult<T>>;
     },
     { capability, input },
   );
-  if (!response.ok) throw new Error(`${capability}: ${response.error.code}`);
-  return response.data as T;
+  if (!response.ok) {
+    const issues = response.error.details?.issues;
+    const validation = Array.isArray(issues) ? issues.map(({ path, code, keys }) => ({ path, code, keys })) : undefined;
+    throw new Error(`${capability}: ${response.error.code}: ${response.error.message}${validation ? ` ${JSON.stringify(validation)}` : ""}`);
+  }
+  return response.data;
 }

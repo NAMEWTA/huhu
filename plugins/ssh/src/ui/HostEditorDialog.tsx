@@ -146,7 +146,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await engine.call<DraftConnectionResult>("ssh.hosts.testDraft", { ...input, name: input.name || input.host }, { signal: run.signal });
+      const result = await engine.call<DraftConnectionResult>("ssh.hosts.testDraft", { ...input, name: input.name || input.host }, { write: true, signal: run.signal });
       if (draftRun.current === run) setTestResult(result);
     } catch (reason) {
       if (draftRun.current === run) setTestResult({ state: "failed", message: reason instanceof Error ? reason.message : "测试连接失败。" });

@@ -1,7 +1,7 @@
-import { Badge, Button, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented, Select } from "@huhu/ui";
+import { Badge, Button, Dialog, EmptyState, Field, PageHead, Popover, SearchBox, Segmented, Select } from "@huhu/ui";
 import { useEngine } from "@huhu/workbench";
 import { Server } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import type { z } from "zod";
 import type { DirectoryUpdate, DirectoryView } from "../engine/directory-schema.js";
 import { maxRouteEditTargets } from "../engine/route-edits.js";
@@ -13,8 +13,15 @@ import { isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 
 type Directory = z.output<typeof DirectoryView>;
 type Operation = z.input<typeof DirectoryUpdate>["operation"];
-type DirectoryDialog = { kind: "create-group" | "move-hosts"; version: string } |
+type DirectoryEntry = Directory["hosts"][number];
+type DirectoryDialog = { kind: "create-group"; version: string } |
+  { kind: "move-hosts"; version: string; ids: string[] } |
   { kind: "rename-group" | "move-group" | "delete-group"; version: string; groupId: string };
+const sortModes = {
+  "name-asc": "名称升序",
+  "name-desc": "名称降序",
+  manual: "手动排序",
+} satisfies Record<Directory["sort"], string>;
 const dialogTitle: Record<DirectoryDialog["kind"], string> = {
   "create-group": "新建主机分组",
   "move-hosts": "移动所选主机",
@@ -43,6 +50,10 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
   const [layout, setLayout] = useState<"list" | "grid">("list");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [dialog, setDialog] = useState<DirectoryDialog>();
+  const [menuHostId, setMenuHostId] = useState<string>();
+  const [removing, setRemoving] = useState<ManagedHost[]>();
+  const dragging = useRef<{ entry: DirectoryEntry; version: string }>(undefined);
+  const working = useRef(false);
   const [groupName, setGroupName] = useState("");
   const [destination, setDestination] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,10 +72,12 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
     return !scope || (entry.groupId !== null && scope.has(entry.groupId));
   });
   const selected = entries.filter(({ hostId }) => checked.has(hostId)).map(({ hostId }) => hostId);
+  const selectedPinned = selected.length > 0 && entries.filter(({ hostId }) => checked.has(hostId)).every(({ pinned }) => pinned);
   const visibleIds = new Set(visible.map(({ hostId }) => hostId));
   const hiddenSelected = selected.filter((hostId) => !visibleIds.has(hostId)).length;
   const selectedManaged = selected.length > 0 && selected.every((hostId) => isManagedHost(hostById.get(hostId)!));
   const canStart = selectedManaged && selected.length <= MAX_WORKSPACE_PANES;
+  const canReorder = directory?.sort === "manual" && terms.length === 0 && !busy;
   const managedGroup = dialog && "groupId" in dialog ? groupById.get(dialog.groupId) : undefined;
   const groupNameField = dialog?.kind === "create-group" || dialog?.kind === "rename-group";
   const destinationField = dialog?.kind === "create-group" || dialog?.kind === "move-group" || dialog?.kind === "move-hosts";
@@ -79,30 +92,34 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
     });
   }
 
-  function open(kind: DirectoryDialog["kind"]) {
+  function open(kind: DirectoryDialog["kind"], ids = selected) {
     if (!directory) return;
     setError("");
     setGroupName(kind === "rename-group" ? currentGroup?.name ?? "" : "");
     setDestination(kind === "create-group" ? currentGroup?.groupId ?? "" : kind === "move-group" ? currentGroup?.parentId ?? "" : "");
-    if (kind === "create-group" || kind === "move-hosts") {
+    if (kind === "move-hosts") {
+      setDialog({ kind, version: directory.version, ids });
+    } else if (kind === "create-group") {
       setDialog({ kind, version: directory.version });
     } else if (currentGroup) {
       setDialog({ kind, version: directory.version, groupId: currentGroup.groupId });
     }
   }
 
-  async function organize(operation: Operation) {
-    if (!dialog || busy) return;
+  async function organize(operation: Operation, expectedVersion = directory?.version) {
+    if (!expectedVersion || working.current) return;
+    working.current = true;
     setBusy(true);
     setError("");
     try {
-      await engine.call("ssh.hosts.organize", { expectedVersion: dialog.version, operation }, { write: true });
+      await engine.call("ssh.hosts.organize", { expectedVersion, operation }, { write: true });
       setDialog(undefined);
       if (operation.type === "group.delete") setGroup("all");
       await onChanged();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
@@ -116,11 +133,52 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
     const parentId = destination || null;
     const name = groupName.trim();
     switch (dialog.kind) {
-      case "create-group": return organize({ type: "group.create", parentId, name });
-      case "rename-group": return organize({ type: "group.rename", groupId: dialog.groupId, name });
-      case "move-group": return organize({ type: "group.move", groupId: dialog.groupId, parentId });
-      case "delete-group": return organize({ type: "group.delete", groupId: dialog.groupId });
-      case "move-hosts": return organize({ type: "hosts.move", hostIds: selected, groupId: parentId });
+      case "create-group": return organize({ type: "group.create", parentId, name }, dialog.version);
+      case "rename-group": return organize({ type: "group.rename", groupId: dialog.groupId, name }, dialog.version);
+      case "move-group": return organize({ type: "group.move", groupId: dialog.groupId, parentId }, dialog.version);
+      case "delete-group": return organize({ type: "group.delete", groupId: dialog.groupId }, dialog.version);
+      case "move-hosts": return organize({ type: "hosts.move", hostIds: dialog.ids, groupId: parentId }, dialog.version);
+    }
+  }
+
+  function reorder(from: DirectoryEntry, to: DirectoryEntry, expectedVersion: string) {
+    if (!canReorder || from.groupId !== to.groupId || from.pinned !== to.pinned || from.hostId === to.hostId || !directory) return;
+    const ids = directory.hosts.filter(({ groupId }) => groupId === from.groupId).map(({ hostId }) => hostId);
+    const toIndex = ids.indexOf(to.hostId);
+    const fromIndex = ids.indexOf(from.hostId);
+    if (toIndex < 0 || fromIndex < 0) return;
+    ids.splice(fromIndex, 1);
+    ids.splice(toIndex, 0, from.hostId);
+    void organize({ type: "hosts.reorder", groupId: from.groupId, hostIds: ids }, expectedVersion);
+  }
+
+  function confirmRemoval(ids: string[]) {
+    setError("");
+    setRemoving(ids.map((id) => hostById.get(id)).filter((host): host is ManagedHost => !!host && isManagedHost(host)));
+  }
+
+  async function removeHosts() {
+    if (!removing || working.current) return;
+    working.current = true;
+    setBusy(true);
+    const removed = new Set<string>();
+    const errors: string[] = [];
+    try {
+      for (const host of removing) {
+        try {
+          await engine.call("ssh.hosts.remove", { hostId: host.id, expectedRevision: host.revision }, { write: true });
+          removed.add(host.id);
+        } catch (cause) {
+          errors.push(`${host.name}：${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      setChecked((current) => new Set([...current].filter((id) => !removed.has(id))));
+      setRemoving(undefined);
+      setError(errors.length ? `已删除 ${removed.size} 台。请核对其余主机：${errors.join("；")}` : "");
+      await onChanged();
+    } finally {
+      working.current = false;
+      setBusy(false);
     }
   }
 
@@ -138,6 +196,9 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
           <option value="">未分组</option>
           {groupOptions()}
         </Select>
+        <Select aria-label="主机排序" value={directory?.sort ?? "name-asc"} disabled={!directory || busy} onChange={(event) => void organize({ type: "sort.set", sort: event.currentTarget.value as Directory["sort"] })}>
+          {Object.entries(sortModes).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        </Select>
         <Segmented<"list" | "grid"> label="主机视图" value={layout} onChange={setLayout} options={[{ value: "list", label: "列表" }, { value: "grid", label: "网格" }]} />
       </div>
       <div className="ssh-directory-controls row">
@@ -150,22 +211,51 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
             <Button onClick={() => open("delete-group")}>删除分组</Button>
           </>
         ) : null}
-        <Button disabled={!selected.length} onClick={() => open("move-hosts")}>移动所选</Button>
+        <Button disabled={!selected.length || busy} onClick={() => open("move-hosts")}>移动所选</Button>
+        <Button disabled={!selected.length || busy} onClick={() => void organize({ type: "hosts.pin", hostIds: selected, pinned: !selectedPinned })}>
+          {selectedPinned ? "取消置顶所选" : "置顶所选"}
+        </Button>
         <Button disabled={!canStart} onClick={() => onWorkspace(selected, true)}>连接所选</Button>
         <Button disabled={!canStart} onClick={() => onWorkspace(selected, false)}>从选择建立工作区</Button>
         {onRoute ? <Button disabled={!selectedManaged || selected.length > maxRouteEditTargets} onClick={() => onRoute(selected)}>为所选关联跳板</Button> : null}
+        {onHostAction ? <Button disabled={!selectedManaged || busy} onClick={() => confirmRemoval(selected)}>删除所选</Button> : null}
       </div>
+      {error && !dialog && !removing ? <p role="alert">{error}</p> : null}
       {visible.length ? (
         <ul className="ssh-directory-hosts" data-layout={layout} role="list" aria-label="主机">
           {visible.map((entry) => {
             const host = hostById.get(entry.hostId)!;
             const state = statuses.get(host.id)?.state;
             const openConnection = state === "connected" || state === "connecting" || state === "waiting" || state === "auth-waiting" || state === "key-changed";
+            const menuIds = checked.has(host.id) ? selected : [host.id];
+            const menuManaged = menuIds.every((id) => isManagedHost(hostById.get(id)!));
+            const one = menuIds.length === 1;
+            const pin = entries.some(({ hostId, pinned }) => menuIds.includes(hostId) && !pinned);
+            const neighbors = canReorder ? visible.filter((candidate) => candidate.groupId === entry.groupId && candidate.pinned === entry.pinned) : [];
+            const index = neighbors.indexOf(entry);
+            const menuAction = (action: () => void) => () => { setMenuHostId(undefined); action(); };
             return (
-              <li key={host.id} className="ssh-directory-host">
+              <li key={host.id} className="ssh-directory-host"
+                onContextMenu={(event) => { event.preventDefault(); setMenuHostId(host.id); }}
+                onDragOver={(event) => {
+                  const from = dragging.current?.entry;
+                  if (canReorder && from && from.groupId === entry.groupId && from.pinned === entry.pinned && from.hostId !== entry.hostId) {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                onDrop={(event) => {
+                  const from = dragging.current;
+                  if (!from || !event.dataTransfer.types.includes("application/x-huhu-ssh-host")) return;
+                  event.preventDefault();
+                  dragging.current = undefined;
+                  reorder(from.entry, entry, from.version);
+                }}
+              >
                 <div className="row">
                   <input type="checkbox" aria-label={`选择 ${host.name}`} checked={checked.has(host.id)} onChange={(event) => toggle(host.id, event.target.checked)} />
                   <strong>{host.name}</strong>
+                  {entry.pinned ? <Badge>已置顶</Badge> : null}
                   {openConnection ? <Badge>{state === "connected" ? "已连接" : "连接待处理"}</Badge> : null}
                 </div>
                 <code>{host.user}@{hostEndpoint(host)}</code>
@@ -176,13 +266,40 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
                 <div className="row">
                   <Button variant="ghost" aria-label={`打开主机详情 ${host.name}`} onClick={() => onOpen(host)}>详情</Button>
                   {!openConnection && isManagedHost(host) ? <Button variant="ghost" aria-label={`连接 ${host.name}`} onClick={() => onConnect(host)}>连接</Button> : null}
-                  {onHostAction && isManagedHost(host) ? (
-                    <>
-                      <Button variant="ghost" aria-label={`编辑 ${host.name}`} onClick={() => onHostAction("edit", host)}>编辑</Button>
-                      <Button variant="ghost" aria-label={`复制 ${host.name}`} onClick={() => onHostAction("copy", host)}>复制</Button>
-                      <Button variant="ghost" aria-label={`删除 ${host.name}`} onClick={() => onHostAction("remove", host)}>删除</Button>
-                    </>
+                  {neighbors.length > 1 && directory ? (
+                    <Button variant="ghost" draggable aria-label={`拖动 ${host.name}`}
+                      onDragStart={(event) => {
+                        dragging.current = { entry, version: directory.version };
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("application/x-huhu-ssh-host", entry.hostId);
+                      }}
+                      onDragEnd={() => { dragging.current = undefined; }}
+                    >拖动排序</Button>
                   ) : null}
+                  <Popover.Root open={menuHostId === host.id} onOpenChange={(shown) => setMenuHostId((current) => shown ? host.id : current === host.id ? undefined : current)}>
+                    <Popover.Trigger asChild><Button variant="ghost" aria-label={`更多操作 ${host.name}`}>更多操作</Button></Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${host.name}的操作`}>
+                        <Button variant="ghost" disabled={!one} onClick={menuAction(() => onOpen(host))}>详情</Button>
+                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES || one && openConnection} onClick={menuAction(() => one ? onConnect(host) : onWorkspace(menuIds, true))}>连接</Button>
+                        <Button variant="ghost" disabled={busy} onClick={menuAction(() => open("move-hosts", menuIds))}>移动分组</Button>
+                        <Button variant="ghost" disabled={busy} onClick={menuAction(() => { void organize({ type: "hosts.pin", hostIds: menuIds, pinned: pin }); })}>
+                          {pin ? "置顶" : "取消置顶"}
+                        </Button>
+                        <Button variant="ghost" disabled={!menuManaged || menuIds.length > MAX_WORKSPACE_PANES} onClick={menuAction(() => onWorkspace(menuIds, false))}>建立工作区</Button>
+                        {onRoute && <Button variant="ghost" disabled={!menuManaged || menuIds.length > maxRouteEditTargets} onClick={menuAction(() => onRoute(menuIds))}>关联跳板</Button>}
+                        {directory && neighbors.length > 1 && <>
+                          <Button variant="ghost" disabled={!one || index < 1} onClick={menuAction(() => reorder(entry, neighbors[index - 1]!, directory.version))}>上移</Button>
+                          <Button variant="ghost" disabled={!one || index === neighbors.length - 1} onClick={menuAction(() => reorder(entry, neighbors[index + 1]!, directory.version))}>下移</Button>
+                        </>}
+                        {onHostAction && isManagedHost(host) && <>
+                          <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("edit", host))}>编辑</Button>
+                          <Button variant="ghost" disabled={!one} onClick={menuAction(() => onHostAction("copy", host))}>复制</Button>
+                          <Button variant="ghost" disabled={!menuManaged || busy} onClick={menuAction(() => one ? onHostAction("remove", host) : confirmRemoval(menuIds))}>删除</Button>
+                        </>}
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
                 </div>
               </li>
             );
@@ -196,7 +313,7 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
           onClose={() => { if (!busy) setDialog(undefined); }}
           actions={<>
             <Button disabled={busy} onClick={() => setDialog(undefined)}>取消</Button>
-            <Button type="submit" form={formId} loading={busy} disabled={groupNameField && !groupName.trim() || dialog.kind === "move-hosts" && !selected.length}>
+            <Button type="submit" form={formId} loading={busy} disabled={groupNameField && !groupName.trim()}>
               {dialog.kind === "delete-group" ? "确认删除" : "保存"}
             </Button>
           </>}
@@ -216,6 +333,17 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
             ) : null}
             {dialog.kind === "delete-group" ? <p>删除「{managedGroup?.name}」前请移出该分组的主机与子分组。</p> : null}
           </form>
+        </Dialog>
+      ) : null}
+      {removing ? (
+        <Dialog open title="删除所选主机" onClose={() => { if (!busy) setRemoving(undefined); }}
+          actions={<>
+            <Button autoFocus disabled={busy} onClick={() => setRemoving(undefined)}>取消</Button>
+            <Button variant="danger" loading={busy} onClick={() => void removeHosts()}>确认删除</Button>
+          </>}
+        >
+          <p>删除以下主机配置和本机认证资料。仍被引用的主机会保留。</p>
+          <ul>{removing.map((host) => <li key={host.id}>{host.name} · {hostEndpoint(host)}</li>)}</ul>
         </Dialog>
       ) : null}
     </section>

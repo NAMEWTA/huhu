@@ -83,7 +83,7 @@ test("快捷文本排序持久化，预览仅向显式选定的可输入分栏�
 
     const a = await saveHost(page, "左侧夹具", left.port, password);
     const b = await saveHost(page, "右侧夹具", right.port, password);
-    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "快捷文本验收", layout: { kind: "two" }, panes: [a, b] });
+    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "快捷文本验收", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
     await trustHost(page, a.hostId);
     await trustHost(page, b.hostId);
     await page.getByRole("button", { name: "工作区", exact: true }).click();
