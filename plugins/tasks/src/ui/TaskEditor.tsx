@@ -110,6 +110,8 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const refs = useReferenceIndex();
   const [tagInput, setTagInput] = useState("");
+  const composingTag = useRef(false);
+  const formId = useId();
   const providers = useCapability<Detected[]>("agent.catalog.detect", {});
   const start = useRef(task).current; // 打开时的快照：保存用它的 version 做冲突检测，不受后台刷新影响
   const [draft, setDraft] = useState<TaskDraft>(() => (start ? draftFromTask(start) : emptyDraft(initial)));
@@ -185,7 +187,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   }
 
   async function save() {
-    if (savingRef.current || bodyPort?.isComposing()) return;
+    if (savingRef.current || composingTag.current || bodyPort?.isComposing()) return;
     savingRef.current = true;
     setSaving(true);
     setFailure(null);
@@ -213,9 +215,38 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
   const err = (k: string): string | null => (problems.includes(k) ? (t.editor.errors[k] ?? null) : null);
 
   return (
-    <Dialog open wide testId="task-editor" title={task ? t.editor.editTitle : t.editor.newTitle} description={t.editor.description} onClose={requestClose}>
+    <Dialog
+      open
+      wide
+      testId="task-editor"
+      title={task ? t.editor.editTitle : t.editor.newTitle}
+      description={t.editor.description}
+      error={failure ? `${t.editor.saveFailed}：${failure}` : null}
+      onClose={requestClose}
+      actions={
+        discard ? (
+          <>
+            <span role="alert">{t.editor.discardTitle}</span>
+            <Button onClick={() => setDiscard(false)}>{t.editor.discardKeep}</Button>
+            <Button variant="danger" onClick={onClose}>
+              {t.editor.discardDo}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={requestClose}>
+              {t.editor.cancel}
+            </Button>
+            <Button type="submit" form={formId} icon={FileText} loading={saving} data-testid="task-save">
+              {t.editor.save}
+            </Button>
+          </>
+        )
+      }
+    >
       <form
-        className="hu-form-columns"
+        id={formId}
+        className="hu-form-columns tasks-editor-form"
         onSubmit={(e) => {
           e.preventDefault();
           void save();
@@ -255,14 +286,21 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                   aria-label={t.editor.tags}
                   value={tagInput}
                   placeholder={t.editor.tagPlaceholder}
-                  onChange={(e) => (e.target.value.endsWith(",") ? addTag(e.target.value.slice(0, -1)) : setTagInput(e.target.value))}
+                  onCompositionStart={() => { composingTag.current = true; }}
+                  onCompositionEnd={() => { composingTag.current = false; }}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (!composingTag.current && /[,，]$/.test(next)) addTag(next.slice(0, -1));
+                    else setTagInput(next);
+                  }}
                   onKeyDown={(e) => {
+                    if (composingTag.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                     if (e.key === "Enter" && tagInput.trim()) {
                       e.preventDefault();
                       addTag(tagInput);
                     } else if (e.key === "Backspace" && tagInput === "" && draft.tags.length > 0) set("tags", draft.tags.slice(0, -1));
                   }}
-                  onBlur={() => tagInput.trim() && addTag(tagInput)}
+                  onBlur={() => { if (!composingTag.current && tagInput.trim()) addTag(tagInput); }}
                 />
               </div>
             </Field>
@@ -336,7 +374,7 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
               ) : null}
             </div>
           </div>
-          <aside className="hu-form-aside">
+          <aside className="hu-form-aside" aria-label={t.editor.type}>
             <div className="tasks-execution-fields">
               <Field label={t.editor.type}>
                 <Select aria-label={t.editor.type} value={draft.type} onChange={(e) => set("type", e.target.value === "agent" ? "agent" : "human")} data-testid="task-type">
@@ -424,31 +462,6 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
               ) : null}
             </div>
           </aside>
-        </div>
-        {failure ? (
-          <p className="tasks-form-error" role="alert">
-            {t.editor.saveFailed}：{failure}
-          </p>
-        ) : null}
-        <div className="hu-form-actions">
-          {discard ? (
-            <>
-              <span role="alert">{t.editor.discardTitle}</span>
-              <Button onClick={() => setDiscard(false)}>{t.editor.discardKeep}</Button>
-              <Button variant="danger" onClick={onClose}>
-                {t.editor.discardDo}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={requestClose}>
-                {t.editor.cancel}
-              </Button>
-              <Button type="submit" icon={FileText} loading={saving} data-testid="task-save">
-                {t.editor.save}
-              </Button>
-            </>
-          )}
         </div>
       </form>
     </Dialog>

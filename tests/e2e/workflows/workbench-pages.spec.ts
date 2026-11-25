@@ -47,3 +47,60 @@ test("F07：丢失转换响应后重开工作台，三类转换只返回原目�
     await close();
   }
 });
+
+test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，保存后可重新打开", async () => {
+  const { app, page, vault, close } = await openApp();
+  const title = "长中文任务标题用于核对窄窗口中名称和正文仍然获得可编辑的空间";
+  const text = "第一段需要保留完整中文。第二段用于再次打开时验证。";
+  const tags = ["准备阶段", "跨团队复核", "必须保留同一个任务"];
+  try {
+    await engineReady(page);
+    const space = await call<{ id: string }>(page, "agent.spaces.save", { name: "窄栏任务工作区", root: vault });
+    await page.route("**/api/v1/call", async (route) => {
+      if (route.request().postDataJSON()?.capability !== "agent.catalog.detect") return route.continue();
+      return route.fulfill({ json: { ok: true, data: [{ id: "codex", displayName: "Codex", headless: true, installed: true }] } });
+    });
+    await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]!;
+      win.setMinimumSize(400, 560);
+      win.setContentSize(460, 640);
+    });
+    await navigate(page, "任务");
+    await page.getByTestId("task-new").click();
+    const dialog = page.getByTestId("task-editor");
+    const type = dialog.getByTestId("task-type");
+    await expect(type.locator("option:checked")).toHaveText("个人待办");
+    await dialog.getByLabel("任务名称").fill(title);
+    const body = dialog.getByTestId("task-body").locator(".ProseMirror");
+    await body.fill(text);
+    const label = dialog.getByRole("textbox", { name: "标签" });
+    for (const tag of tags) {
+      await label.fill(tag);
+      await label.press("Enter");
+    }
+    await dialog.getByTestId("task-due").fill("2026-12-18");
+    await type.selectOption("agent");
+    await dialog.getByRole("combobox", { name: "工作目录（Space）" }).selectOption(space.id);
+    await dialog.getByRole("combobox", { name: "任务Agent CLI" }).selectOption("codex");
+    await expect.poll(() => dialog.locator(".hu-form-grid").evaluate((grid) => {
+      const primary = grid.querySelector(".hu-form-primary")!.getBoundingClientRect();
+      const aside = grid.querySelector(".hu-form-aside")!.getBoundingClientRect();
+      return { stacked: aside.top >= primary.bottom, noHorizontalScroll: grid.scrollWidth <= grid.clientWidth + 1 };
+    })).toEqual({ stacked: true, noHorizontalScroll: true });
+    const save = dialog.getByTestId("task-save");
+    await expect(save).toBeInViewport();
+    await save.click();
+    await expect(dialog).toBeHidden();
+    const tasks = await call<{ id: string; title: string }[]>(page, "tasks.list", { category: "all" });
+    const task = tasks.find((row) => row.title === title)!;
+    await expect.poll(() => call(page, "tasks.read", { id: task.id })).toMatchObject({
+      title, body: text, tags, due: "2026-12-18", type: "agent", execution: { provider: "codex", spaceId: space.id },
+    });
+    await page.getByRole("button", { name: `打开任务 ${title}` }).click();
+    await page.getByTestId("detail-edit").click();
+    await expect(dialog.getByLabel("任务名称")).toHaveValue(title);
+    await expect(body).toHaveText(text);
+  } finally {
+    await close();
+  }
+});
