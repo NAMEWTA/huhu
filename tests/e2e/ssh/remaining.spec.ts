@@ -292,13 +292,18 @@ test("H3.2 路由页批量关联、覆盖与启停，旧 Shell 保留原连接�
     });
     expect(await desktopCall(page, "safe.status")).toMatchObject({ initialized: false });
 
-    await page.getByRole("button", { name: "跳板路由", exact: true }).click();
+    await page.getByRole("button", { name: "主机目录", exact: true }).click();
+    for (const name of ["批量目标甲", "批量目标乙"]) {
+      await page.getByRole("checkbox", { name: `选择 ${name}`, exact: true }).check();
+    }
+    await page.getByRole("button", { name: "为所选关联跳板", exact: true }).click();
     const checkbox = (name: string) => page.getByRole("checkbox", { name, exact: true });
     const selectBatch = async () => {
       await checkbox("批量目标甲").check();
       await checkbox("批量目标乙").check();
     };
-    await selectBatch();
+    await expect(checkbox("批量目标甲")).toBeChecked();
+    await expect(checkbox("批量目标乙")).toBeChecked();
     const candidate = page.getByLabel("批量跳板");
     await expect(candidate.getByRole("option", { name: /批量目标乙.*自身/ })).toBeDisabled();
     await expect(page.getByRole("button", { name: "批量启用", exact: true })).toBeDisabled();

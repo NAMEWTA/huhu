@@ -9,7 +9,7 @@ export async function localWebLink(page: Page) {
   await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
   await page.getByRole("tab", { name: "服务端" }).click();
   const share = page.getByTestId("web-share-panel");
-  await expect(share.getByRole("combobox", { name: "分享范围" })).toHaveValue("local");
+  await share.getByRole("combobox", { name: "分享范围" }).selectOption("local");
   await share.getByRole("button", { name: "启动分享" }).click();
   await expect(share.getByText("运行中", { exact: true })).toBeVisible();
   await share.getByRole("button", { name: "创建邀请" }).click();

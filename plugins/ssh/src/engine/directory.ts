@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import type { z } from "zod";
+import { groupsInScope, hostSearchTerms, matchesHostSearch } from "../shared/host-directory.js";
 import { DirectoryState, type DirectoryQuery, type DirectoryUpdate, type DirectoryView } from "./directory-schema.js";
 import type { HostRecord } from "./host-configurations.js";
 
@@ -42,19 +43,6 @@ function validateGroupTree(groups: ReadonlyMap<string, Group>) {
   }
 }
 
-function groupsInScope(groups: Group[], groupId: string): Set<string> {
-  const children = new Map<string, string[]>();
-  for (const group of groups) {
-    if (group.parentId === null) continue;
-    const siblings = children.get(group.parentId) ?? [];
-    siblings.push(group.groupId);
-    children.set(group.parentId, siblings);
-  }
-  const ids = new Set([groupId]);
-  for (const id of ids) for (const child of children.get(id) ?? []) ids.add(child);
-  return ids;
-}
-
 function compareHosts(a: HostRecord, b: HostRecord): number {
   return a.name.localeCompare(b.name) || a.user.localeCompare(b.user) || a.host.localeCompare(b.host) || a.port - b.port || a.id.localeCompare(b.id);
 }
@@ -62,7 +50,7 @@ function compareHosts(a: HostRecord, b: HostRecord): number {
 function projectDirectory(state: State, hosts: HostRecord[], query: Query): View {
   const placements = new Map(state.placements.map((placement) => [placement.hostId, placement]));
   const ranks = new Map(state.manualOrder.map((id, index) => [id, index]));
-  const words = query.query?.trim().toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+  const words = hostSearchTerms(query.query ?? "");
   const groupId = query.groupId;
   if (typeof groupId === "string" && !state.groups.some((group) => group.groupId === groupId)) throw errors.notFound("分组不存在");
   const scope = typeof groupId === "string" ? groupsInScope(state.groups, groupId) : null;
@@ -71,10 +59,7 @@ function projectDirectory(state: State, hosts: HostRecord[], query: Query): View
     .filter((host) => {
       const group = placements.get(host.id)?.groupId ?? null;
       if (scope ? group === null || !scope.has(group) : groupId === null && group !== null) return false;
-      if (words.length === 0) return true;
-      const address = host.host.includes(":") ? `[${host.host}]:${host.port}` : `${host.host}:${host.port}`;
-      const fields = [host.name, host.user, host.host, address, `${host.user}@${address}`, ...(host.tags ?? [])].map((field) => field.toLowerCase());
-      return words.every((word) => fields.some((field) => field.includes(word)));
+      return matchesHostSearch(host, words);
     })
     .sort((a, b) => {
       const pinned = Number(placements.get(b.id)?.pinned ?? false) - Number(placements.get(a.id)?.pinned ?? false);

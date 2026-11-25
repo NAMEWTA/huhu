@@ -74,7 +74,13 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
   );
 }
 
-export function WorkspaceLibrary({ onHosts, onFiles, shown, connections }: { onHosts: () => void; onFiles: (session?: FileSession) => void; shown: boolean; connections: readonly ConnectionStatus[] }) {
+export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }: {
+  onHosts: () => void;
+  onFiles: (session?: FileSession) => void;
+  shown: boolean;
+  connections: readonly ConnectionStatus[];
+  seed?: { ids: string[]; temporary: boolean } | undefined;
+}) {
   const engine = useEngine();
   const qc = useQueryClient();
   const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
@@ -88,7 +94,13 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections }: { onH
     rememberWorkspace(engine.vaultId, id);
   };
   const [templateName, setTemplateName] = useState<string>();
-  const [draft, setDraft] = useState<Editor>();
+  const [draft, setDraft] = useState<Editor | undefined>(() => seed && ({
+    name: "",
+    panes: seed.ids.map((hostId) => ({ hostId })),
+    layout: { kind: "two" },
+    temporary: seed.temporary,
+    rebindHostIds: [],
+  }));
   const [deleting, setDeleting] = useState<WorkspaceTemplate>();
   const [hostToAdd, chooseHost] = useState("");
   const [error, setError] = useState<string>();
