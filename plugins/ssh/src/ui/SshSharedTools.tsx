@@ -13,6 +13,38 @@ const reasons: Record<CapabilityCatalogEntry["availability"], string> = {
   "handler-missing": "能力处理函数尚未注册",
 };
 
+const capabilityCategories: Record<string, string> = {
+  hosts: "主机与认证",
+  keys: "主机与认证",
+  auth: "主机与认证",
+  authentication: "主机与认证",
+  hostKey: "主机与认证",
+  knownHosts: "主机与认证",
+  resources: "主机与连接",
+  connections: "主机与连接",
+  connect: "主机与连接",
+  disconnect: "主机与连接",
+  workspace: "工作区",
+  shells: "终端与作业",
+  jobs: "终端与作业",
+  exec: "终端与作业",
+  local: "终端与作业",
+  recordings: "终端与作业",
+  shortcuts: "终端与作业",
+  fileSessions: "文件与传输",
+  sftp: "文件与传输",
+  archives: "文件与传输",
+  transfers: "文件与传输",
+  routes: "路由与出站代理",
+  outboundProxies: "路由与出站代理",
+  configSync: "路由与出站代理",
+  forwarding: "转发",
+  proxyShare: "转发",
+  monitor: "监控",
+  settings: "设置与审计",
+  audit: "设置与审计",
+};
+
 function toolStatus(tool: CapabilityCatalogEntry, policy: ToolAccessSnapshot, mcpEnabled: boolean) {
   if (tool.availability !== "active") return reasons[tool.availability];
   if (!tool.exposable) return "仅供工作台使用";
@@ -23,26 +55,33 @@ function toolStatus(tool: CapabilityCatalogEntry, policy: ToolAccessSnapshot, mc
 
 export function SshSharedTools() {
   const bridge = host();
-  const desktop = Boolean(bridge);
-  const gateway = useCapability<Gateway>("gateway.get", {}, { enabled: desktop });
-  const catalog = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true }, { enabled: desktop });
-  const audit = useCapability<Activity[]>("gateway.audit.list", {}, { enabled: desktop });
+  const gateway = useCapability<Gateway>("gateway.get", {});
+  const catalog = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true });
+  const audit = useCapability<Activity[]>("gateway.audit.list", {});
   const [notice, setNotice] = useState<"copied" | "failed">();
   const [filter, setFilter] = useState("");
 
-  if (!desktop) return <p>在桌面应用的能力网关中管理工具权限与服务。</p>;
   if (gateway.isError || catalog.isError) return <p role="alert">无法读取公共工具策略或能力目录。</p>;
   if (!gateway.data || !catalog.data) return <p role="status">正在读取能力网关…</p>;
   const { mcp, toolAccess } = gateway.data;
   const ssh = catalog.data.filter(({ plugin }) => plugin === "ssh");
-  const matches = ssh.filter(({ name, title }) => `${name} ${title ?? ""}`.toLowerCase().includes(filter.trim().toLowerCase()));
+  const query = filter.trim().toLowerCase();
+  const groups = new Map<string, CapabilityCatalogEntry[]>();
+  for (const tool of ssh) {
+    const category = capabilityCategories[tool.name.split(".")[1] ?? ""] ?? "其他能力";
+    if (!`${tool.name} ${tool.title ?? ""} ${category}`.toLowerCase().includes(query)) continue;
+    const tools = groups.get(category) ?? [];
+    tools.push(tool);
+    groups.set(category, tools);
+  }
   const active = ssh.some(({ availability }) => availability === "active");
   const recent = (audit.data ?? []).filter(({ capability }) => capability.startsWith("ssh.") || capability.startsWith("ssh_")).slice(0, 10);
   const http = mcp.url ? JSON.stringify({ mcpServers: { huhu: { url: mcp.url, headers: { Authorization: "Bearer <在能力网关创建的令牌>" } } } }, null, 2) : null;
 
   async function copy(text: string) {
     try {
-      await bridge!.copyText(text);
+      if (bridge) await bridge.copyText(text);
+      else await navigator.clipboard.writeText(text);
       setNotice("copied");
     } catch {
       setNotice("failed");
@@ -68,14 +107,19 @@ export function SshSharedTools() {
       <details>
         <summary>SSH 能力目录（{ssh.length}）</summary>
         <SearchBox value={filter} onChange={setFilter} placeholder="搜索 SSH 能力" />
-        {matches.length ? (
-          <ul>
-            {matches.map((tool) => (
-              <li key={tool.name}>
-                {tool.title ?? tool.name} <code>{tool.name}</code> · {toolStatus(tool, toolAccess, mcp.enabled)}
-              </li>
-            ))}
-          </ul>
+        {groups.size ? (
+          [...groups].map(([category, tools]) => (
+            <div key={category}>
+              <h3>{category}</h3>
+              <ul>
+                {tools.map((tool) => (
+                  <li key={tool.name}>
+                    {tool.title ?? tool.name} <code>{tool.name}</code> · {toolStatus(tool, toolAccess, mcp.enabled)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
         ) : (
           <p>没有匹配的 SSH 能力。</p>
         )}

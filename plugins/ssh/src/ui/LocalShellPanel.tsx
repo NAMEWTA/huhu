@@ -3,13 +3,17 @@ import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu
 import { useState, type FormEvent } from "react";
 import type { LocalEnvironment, LocalSession, OpenLocalShell } from "../shared/local-shell.js";
 import { SshTerminal } from "./SshTerminal.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 export function LocalShellPanel({ onBack }: { onBack(): void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const environments = useCapability<LocalEnvironment[]>("ssh.local.environments", {});
   const sessions = useCapability<LocalSession[]>("ssh.local.list", {});
-  const [environment, setEnvironment] = useState("");
+  const { localShellEnvironment } = useDevicePreferences();
+  const [chosenEnvironment, setEnvironment] = useState<string>();
+  const preferredEnvironment = chosenEnvironment ?? localShellEnvironment;
+  const environment = environments.data?.some(({ id }) => id === preferredEnvironment) ? preferredEnvironment : "";
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -65,7 +69,7 @@ export function LocalShellPanel({ onBack }: { onBack(): void }) {
             ))}
           </select>
         </label>
-        <Button type="submit" variant="primary" loading={busy} disabled={!environments.data?.length}>
+        <Button type="submit" variant="primary" loading={busy} disabled={!environment}>
           打开终端
         </Button>
         <Button type="button" disabled={busy} onClick={() => void environments.refetch()}>

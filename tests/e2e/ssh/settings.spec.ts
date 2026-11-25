@@ -43,6 +43,11 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await search.clear();
     await settings.getByLabel("工作区标签方向").selectOption("left");
     await settings.getByLabel("分栏工具栏位置").selectOption("bottom");
+    await settings.getByLabel("工具栏顺序").selectOption("monitor-first");
+    await settings.getByLabel("纵向标签按同目标分组").check();
+    await search.fill("工具栏尺寸");
+    await settings.getByLabel("工具栏尺寸").selectOption("large");
+    await search.clear();
     await settings.getByLabel("打开工作区时恢复上次视图").check();
     await save.click();
     await expect(settings.getByRole("status")).toHaveText("已保存到本机。");
@@ -71,12 +76,27 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(font).toHaveValue("13");
     await font.fill("18");
     await settings.getByLabel("终端字体").selectOption("system");
+    await settings.getByLabel("终端行距").selectOption("roomy");
+    const cursor = settings.getByLabel("终端光标样式");
+    await cursor.selectOption("underline");
+    await settings.getByLabel("终端光标闪烁").uncheck();
+    const scrollback = settings.getByLabel("终端回滚行数");
+    await scrollback.selectOption("10000");
+    const [localShell] = await desktopCall<{ id: string }[]>(page, "ssh.local.environments");
+    expect(localShell).toBeDefined();
+    await search.fill("本地 shell");
+    await settings.getByLabel("默认本地 Shell").selectOption(localShell!.id);
+    await search.clear();
     await save.click();
     await expect(settings.getByRole("status")).toHaveText("已保存到本机。");
     await settings.getByRole("button", { name: "恢复本类默认" }).click();
     await expect(font).toHaveValue("13");
+    await expect(cursor).toHaveValue("block");
+    await expect(scrollback).toHaveValue("5000");
     await settings.getByRole("button", { name: "取消修改" }).click();
     await expect(font).toHaveValue("18");
+    await expect(cursor).toHaveValue("underline");
+    await expect(scrollback).toHaveValue("10000");
     await desktopCall(page, "ssh.workspace.runs.start", { name: "设备布局验收", layout: { kind: "tabs" }, panes: [{ hostId }] });
     await ssh.click();
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -86,12 +106,18 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(run.locator("[data-tab-side]")).toHaveAttribute("data-tab-side", "left");
     const tools = run.getByTestId("ssh-pane-tools");
     await expect(tools).toHaveAttribute("data-position", "bottom");
+    await expect(tools).toHaveAttribute("data-size", "large");
+    await expect(tools.getByRole("group").getByRole("button")).toHaveText(["分栏监控", "分栏文件"]);
     const terminal = run.getByTestId("terminal-view");
     await expect(terminal).toHaveAttribute("data-state", "open");
     const scale = run.getByTestId("ssh-terminal-preferences").locator("[data-font]");
     expect(await scale.evaluate((el) => Number.parseFloat(getComputedStyle(el).zoom))).toBeCloseTo(18 / 13);
     await expect(scale).toHaveAttribute("data-font", "system");
     expect(await terminal.evaluate((el) => getComputedStyle(el).getPropertyValue("--font-mono"))).toContain("Consolas");
+    await terminal.locator(".xterm-helper-textarea").focus();
+    const activeCursor = terminal.locator(".xterm-cursor");
+    await expect(activeCursor).toHaveClass(/xterm-cursor-underline/);
+    await expect(activeCursor).not.toHaveClass(/xterm-cursor-blink/);
     const remoteTable = run.getByRole("table", { name: "远端目录项目" });
     await expect(remoteTable.getByRole("button", { name: "z-large", exact: true })).toBeVisible();
     await expect(remoteTable.getByRole("button", { name: ".hidden", exact: true })).toHaveCount(0);
@@ -112,6 +138,10 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(independent.locator(".ssh-file-columns > section").first().getByRole("table", { name: "远端目录项目" })).toBeVisible();
     await independent.getByRole("button", { name: "交换左右位置" }).click();
     await expect(independent.locator(".ssh-file-columns > section").last().getByRole("table", { name: "远端目录项目" })).toBeVisible();
+    await independent.getByRole("button", { name: "返回 SSH" }).click();
+    await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
+    await page.getByRole("button", { name: "本地终端", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
   } finally {
     await fixture.close();
     await server.close();
@@ -279,6 +309,26 @@ test("SSH host grants are editable from desktop and invited browser workbenches"
     await save(page);
     await expect(checkbox(web)).not.toBeChecked();
     expect(await desktopCall(page, "gateway.get")).toMatchObject({ toolAccess: { resources: { "ssh.hosts": [] } } });
+
+    const shared = async (view: typeof page) => {
+      await view.getByRole("button", { name: "远程连接", exact: true }).first().click();
+      await view.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+      await view.getByTestId("ssh-settings").getByRole("button", { name: "MCP 与共享工具权限" }).click();
+      const section = view.getByTestId("ssh-shared-tools");
+      await section.getByText(/^SSH 能力目录/).click();
+      await section.getByRole("textbox", { name: "搜索 SSH 能力" }).fill("ssh.resources.host.get");
+      return section;
+    };
+    expect(await web.evaluate(() => "huhuHost" in window)).toBe(false);
+    const desktopTools = await shared(page);
+    const webTools = await shared(web);
+    const tool = (section: typeof webTools) => section.getByRole("listitem").filter({ hasText: "ssh.resources.host.get" });
+    await expect(tool(webTools)).toContainText("工具未开放");
+    const changed = await desktopCall<{ revision: number }>(page, "gateway.update", { capability: "ssh.resources.host.get", exposed: true });
+    for (const section of [desktopTools, webTools]) {
+      await expect(section.getByTestId("ssh-tool-policy-revision")).toHaveText(String(changed.revision));
+      await expect(tool(section)).toContainText("已开放，MCP 已关闭");
+    }
   } finally {
     await browser?.close();
     await close();
