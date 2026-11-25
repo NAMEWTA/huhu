@@ -442,6 +442,7 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
     const dialog = page.getByTestId("rule-dialog");
     await expect(dialog.getByRole("alert")).toContainText("文件已被修改");
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("dialog", { name: "放弃未保存的更改？" }).getByRole("button", { name: "放弃更改" }).click();
     await expect(dialog).toBeHidden();
     expect(await call("automations.read", { id: rule.id })).toMatchObject({ version: concurrent.version, data: { enabled: true, title: "其他窗口已保存" } });
   } finally {

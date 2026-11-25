@@ -93,6 +93,19 @@ test("停用插件后，迟到的启动对账不会重新安装 Cron", async () 
   expect(sync).not.toHaveBeenCalled();
 });
 
+test("工作台可以读取规则草稿预览，预览不会创建规则或初始化标记", async () => {
+  const { engine, marker: markerFile } = await open();
+  const result = await call<{ at: string; next: string[] }>(engine, "automations.plans.previewRuleDraft", {
+    trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+    action: { kind: "agent", input: { source: "tasks", tags: [], maxConcurrent: 1 } },
+    body: "",
+  });
+  expect(result.at).toBe(fixture.now.toISOString());
+  expect(result.next).toEqual([at("01:15:00"), at("01:30:00"), at("01:45:00")].map((time) => time.toISOString()));
+  expect(await list(engine)).toEqual([]);
+  expect(existsSync(markerFile)).toBe(false);
+});
+
 test("首次显式启用只创建一条默认规则，重开尊重设置、编辑、停用和删除，显式恢复使用同一 ID", async () => {
   const first = await open();
   expect(await list(first.engine)).toEqual([]);

@@ -17,7 +17,7 @@ const storedPlan = PlanRefSchema.extend({
 const Store = z.array(storedPlan);
 type TaskReminderPlan = z.infer<typeof storedPlan>;
 
-export const TaskReminderPlanInput = z.strictObject({ taskId: z.string().min(1), scheduledFor: z.iso.datetime(), intentId: z.uuidv4() });
+export const TaskReminderPlanInput = z.strictObject({ taskId: z.string().min(1), scheduledFor: z.iso.datetime(), intentId: z.uuidv4(), startPaused: z.boolean().optional() });
 
 export class TaskReminderPlans {
   private tickInFlight: Promise<void> | undefined;
@@ -96,7 +96,7 @@ export class TaskReminderPlans {
     return plan ? this.summary(plan) : null;
   }
 
-  async create({ taskId, scheduledFor, intentId }: z.infer<typeof TaskReminderPlanInput>, signal: AbortSignal): Promise<PlanSummary> {
+  async create({ taskId, scheduledFor, intentId, startPaused }: z.infer<typeof TaskReminderPlanInput>, signal: AbortSignal): Promise<PlanSummary> {
     const result = await this.rules.withRuleConfiguration(async () => {
       const { plans, version } = this.load();
       const planId = `task-reminder-${intentId}`;
@@ -110,7 +110,7 @@ export class TaskReminderPlans {
       const stamp = this.now().toISOString();
       const plan: TaskReminderPlan = {
         planId, revision: randomUUID(), taskId, title: `任务提醒：${task.title}`, scheduledFor: new Date(scheduledFor).toISOString(),
-        intent: "enabled", createdAt: stamp, updatedAt: stamp,
+        intent: startPaused ? "paused" : "enabled", createdAt: stamp, updatedAt: stamp,
       };
       await this.save([...plans, plan], version, signal);
       this.changed(taskId);

@@ -932,6 +932,14 @@ describe("agent 动作：任务输入", () => {
     ]);
     expect((await svc.preview(rule.id)).next).toEqual(preview.next);
     expect(svc.rule(rule.id).version).toBe(rule.version);
+    const draft = await svc.previewDraft(trigger, { kind: "agent", input: { ...coreInput,
+      window: { kind: "today" }, includeOverdue: true, includeUnscheduled: false,
+    } }, "");
+    expect(draft.next).toEqual(preview.next);
+    expect(draft.candidates.map(({ taskId }) => taskId)).toEqual(["yesterday", "today"]);
+    expect(svc.rule(rule.id).version).toBe(rule.version);
+    expect(readdirSync(d).sort()).toEqual(before);
+
     expect(svc.lastActivatedFor(rule.id)).toBeNull();
   });
 
@@ -1093,8 +1101,9 @@ test("暂停的终端规则可以手动运行，定时经过时不会创建会�
   const { svc, calls } = setup({ terminal: { exitCode: 0 } });
   const rule = await svc.create({ title: "暂停的终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
   expect((await svc.activateTerminal(rule.id, "schedule", new Date("2026-11-10T11:00:00Z"))).summary).toEqual({ state: "paused" });
+  expect(() => svc.activateTerminal(rule.id, "manual", null, "stale-revision")).toThrow("文件已被修改");
   expect(calls).toEqual([]);
-  expect((await svc.activateTerminal(rule.id, "manual")).summary).toEqual({ state: "succeeded" });
+  expect((await svc.activateTerminal(rule.id, "manual", null, rule.version)).summary).toEqual({ state: "succeeded" });
   expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
 });
 

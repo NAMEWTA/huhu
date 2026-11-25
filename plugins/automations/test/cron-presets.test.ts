@@ -20,6 +20,14 @@ describe("触发预设与 cron", () => {
     expect(presetOf("61 9 * * *").preset).toBe("custom");
     expect(presetOf("0 24 * * *").preset).toBe("custom");
   });
+  test("任意周几保持等价，高级表达式保真", () => {
+    const expression = cronFor("weekly", "09:20", "", [5, 1, 3]);
+    expect(expression).toBe("20 9 * * 1,3,5");
+    expect(presetOf(expression)).toEqual({ preset: "weekly", time: "09:20", days: [1, 3, 5] });
+    expect(cronFor("weekly", "09:20", "", [])).toBe("");
+    expect(presetOf("20 9 1 * MON#2").preset).toBe("custom");
+    expect(cronFor("custom", "09:20", "20 9 1 * MON#2")).toBe("20 9 1 * MON#2");
+  });
   test("往返：预设生成的 cron 再还原得到同一预设与时刻", () => {
     for (const p of ["daily", "weekdays", "monday"] as const) {
       const c = cronFor(p, "07:45", "");

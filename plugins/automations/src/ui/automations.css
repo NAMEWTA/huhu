@@ -545,3 +545,178 @@
     }
   }
 }
+
+@layer modules {
+  .plan-center {
+    container: automation-center / inline-size;
+    padding: 1.25rem clamp(.75rem, 3%, 1.75rem);
+    min-inline-size: 0;
+  }
+
+  .plan-center[hidden] { display: none; }
+
+  .plan-heading,
+  .plan-facts {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+  }
+
+  .plan-heading h1,
+  .plan-history h1 {
+    margin: 0;
+    font-size: 1.5rem;
+  }
+
+  .plan-heading .row,
+  .plan-inspector .row { flex-wrap: wrap; }
+
+  .plan-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    margin-block-start: 1rem;
+  }
+
+  .plan-columns.plan-has-detail {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .85fr);
+  }
+
+  .plan-list-panel,
+  .plan-inspector,
+  .plan-template-grid article {
+    min-inline-size: 0;
+    border: 1px solid var(--line);
+    border-radius: .625rem;
+    padding: .875rem;
+    overflow-wrap: anywhere;
+  }
+
+  .plan-filters {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+
+  .plan-filters > :first-child { flex: 1 1 100%; }
+  .plan-filters > * { min-inline-size: 0; max-inline-size: 100%; }
+  .plan-filters label { margin: 0; }
+  .plan-page-status { color: var(--muted); font-size: .8125rem; }
+
+  .plan-rows { list-style: none; margin: 0; padding: 0; }
+
+  .plan-rows li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    border-block-start: 1px solid var(--line);
+    gap: .375rem;
+  }
+
+  .plan-row-selected { background: var(--accent-soft); }
+
+  .plan-row-main {
+    display: grid;
+    width: 100%;
+    gap: .25rem;
+    padding: .75rem .5rem;
+    border: 0;
+    background: transparent;
+    text-align: start;
+    color: inherit;
+    overflow-wrap: anywhere;
+  }
+
+  .plan-row-main:hover { background: var(--muted-bg); }
+  .plan-row-main small, .plan-inspector small { color: var(--muted); }
+
+  .plan-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: start;
+    gap: .25rem;
+    padding-block-start: .5rem;
+  }
+
+  .plan-inspector { display: grid; align-content: start; gap: .65rem; }
+  .plan-inspector > * { margin-block: 0; }
+  .plan-inspector h2 { font-size: 1.25rem; }
+  .plan-facts > div { display: grid; justify-items: start; gap: .25rem; }
+  .plan-detail-section { border-block-start: 1px solid var(--line); padding-block-start: .75rem; }
+  .plan-detail-section > :first-child { margin-block-start: 0; }
+
+  .plan-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    gap: .75rem;
+  }
+
+  .plan-template-grid article { display: grid; align-content: start; gap: .625rem; }
+  .plan-template-grid article :is(h3, p) { margin: 0; }
+  .plan-history { padding: 1rem; }
+
+  @container automation-center (max-width: 46rem) {
+    .plan-columns.plan-has-detail { grid-template-columns: minmax(0, 1fr); }
+    .plan-has-detail .plan-list-panel { display: none; }
+  }
+}
+
+@layer modules {
+  .automation-editor-fields {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-inline-size: 0;
+  }
+
+  .automation-editor-fields .hu-form-primary h3 { margin: 0; }
+  .automation-editor-fields :is(.hu-form-primary, .hu-form-aside) > :is(p, details, fieldset) { margin: 0; }
+
+  .plan-weekdays {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    min-inline-size: 0;
+  }
+
+  .automation-conflict {
+    margin-block-end: .75rem;
+    overflow-wrap: anywhere;
+  }
+
+  .automation-conflict pre { white-space: pre-wrap; }
+}
+
+@layer modules {
+  .automation-center-host {
+    container: automation-workbench / inline-size;
+    height: 100%;
+    min-width: 0;
+  }
+
+  .tw-automation .automations-automation-main { overflow: auto; }
+
+  @container automation-workbench (max-width: 42rem) {
+    .tw-automation { flex-direction: column; }
+
+    .tw-automation .hu-tw-navigation {
+      flex: 0 0 auto;
+      inline-size: auto;
+      border-inline-end: 0;
+      border-block-end: 1px solid var(--line);
+      padding: .25rem .5rem;
+      flex-flow: row wrap;
+      align-items: center;
+    }
+
+    .tw-automation .hu-tw-nav-title,
+    .tw-automation .hu-tw-nav-bottom { display: none; }
+
+    .tw-automation .hu-tw-navigation nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+  }
+}

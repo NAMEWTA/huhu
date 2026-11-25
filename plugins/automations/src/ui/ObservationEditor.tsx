@@ -1,8 +1,10 @@
 import { Button, Dialog } from "@huhu/ui";
-import { CapabilityError, useCapability, useEngine } from "@huhu/workbench";
-import { useId, useState, type FormEvent } from "react";
+import { CapabilityError, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
+import { useId, useRef, useState, type FormEvent } from "react";
 import type { ObservationConfiguration } from "../engine/observations.js";
 import { planIntentId } from "./PlanScheduleControls.js";
+import { uncertainPlanWrite } from "./plan-write.js";
+import { useDraftDismissal } from "./use-draft-dismissal.js";
 
 type Target = { kind: "task" | "agent-session"; id: string };
 type Condition = { kind: "change" } | { kind: "threshold"; status: string; seconds: number };
@@ -11,24 +13,30 @@ type Observation = {
   repeat: boolean; stopAtTerminal: boolean; effect: string; intentId: string;
 };
 
-export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): void; onSaved(): Promise<unknown>; initial?: ObservationConfiguration }) {
+export function ObservationEditor({ onClose, onSaved, initial, targetKind, registerLeaveGuard }: { onClose(): void; onSaved(): Promise<unknown>; initial?: ObservationConfiguration; targetKind?: Target["kind"]; registerLeaveGuard?: ModuleProps["registerLeaveGuard"] }) {
   const engine = useEngine();
   const id = useId();
   const [original] = useState(initial);
-  const [kind, setKind] = useState<Target["kind"]>(original?.target.kind ?? "task");
+  const [kind, setKind] = useState<Target["kind"]>(original?.target.kind ?? targetKind ?? "task");
   const [threshold, setThreshold] = useState(original?.condition.kind === "threshold");
   const [unit, setUnit] = useState(original && original.everySeconds % 60 !== 0 ? "seconds" : "minutes");
   const initialInterval = original ? original.everySeconds / (original.everySeconds % 60 === 0 ? 60 : 1) : 1;
+  const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pending, setPending] = useState<Observation | null>(null);
+  const [current, setCurrent] = useState<ObservationConfiguration | null>(null);
+  const [revision, setRevision] = useState(original?.revision);
+  const submitted = useRef(false);
+  const { dismiss, confirmation } = useDraftDismissal({ dirty, locked: busy || pending !== null, close: onClose, registerLeaveGuard });
   const tasks = useCapability<{ id: string; title: string }[]>("tasks.list", {}, { enabled: kind === "task" });
   const agents = useCapability<{ id: string; name: string }[]>("agent.sessions.list", {}, { enabled: kind === "agent-session" });
   const targets = kind === "task" ? tasks.data : agents.data?.map(({ id, name }) => ({ id, title: name }));
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (submitted.current || current) return;
+    submitted.current = true;
     const data = new FormData(event.currentTarget);
     const input: Observation = pending ?? {
       title: String(data.get("title")),
@@ -45,15 +53,23 @@ export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): vo
     setError("");
     try {
       await engine.call(original ? "automations.plans.updateObservation" : "automations.plans.createObservation",
-        { ...input, ...(original && { planId: original.planId, expectedRevision: original.revision }) },
+        { ...input, ...(original ? { planId: original.planId, expectedRevision: revision } : { startPaused: true }) },
         { write: true, intentKey: input.intentId, idempotencyKey: input.intentId },
       );
       await onSaved();
       onClose();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "暂时无法确认状态观察是否已保存。");
-      if (failure instanceof CapabilityError && !["INTERNAL", "UNAUTHENTICATED", "WRITE_PARTIAL"].includes(failure.code)) setPending(null);
+      if (!uncertainPlanWrite(failure)) setPending(null);
+      if (original && failure instanceof CapabilityError && failure.code === "VERSION_CONFLICT") {
+        try {
+          setCurrent(await engine.call<ObservationConfiguration | null>("automations.plans.readObservation", { planId: original.planId }));
+        } catch {
+          setError("观察计划已更新，暂时无法读取当前配置。");
+        }
+      }
     } finally {
+      submitted.current = false;
       setBusy(false);
     }
   }
@@ -61,9 +77,9 @@ export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): vo
   const originalTarget = original?.target.kind === kind ? original.target.id : "";
   const initialThreshold = original?.condition.kind === "threshold" ? original.condition : undefined;
   return (
-    <Dialog open title={original ? "编辑状态观察" : "新建状态观察"} onClose={() => { if (!busy) onClose(); }} error={error}
-      actions={<Button type="submit" form={id} disabled={busy || (!pending && !targets?.length && !originalTarget)} variant="primary">{pending ? "核对原观察" : "保存观察"}</Button>}>
-      <form id={id} onSubmit={(event) => void save(event)}>
+    <Dialog open title={original ? "编辑状态观察" : "新建状态观察"} onClose={dismiss} dismissOnBackdrop error={error}
+      actions={<Button type="submit" form={id} disabled={busy || Boolean(current) || (!pending && !targets?.length && !originalTarget)} variant="primary">{pending ? "核对原观察" : "保存观察"}</Button>}>
+      <form id={id} onChange={() => setDirty(true)} onSubmit={(event) => void save(event)}>
         <fieldset disabled={busy || pending !== null}>
           <label>计划名称 <input name="title" defaultValue={original?.title} required maxLength={200} /></label>
           <label>观察类型 <select value={kind} onChange={(event) => setKind(event.target.value === "task" ? "task" : "agent-session")}>
@@ -94,6 +110,13 @@ export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): vo
           <label><input type="checkbox" name="stop" defaultChecked={original?.stopAtTerminal ?? true} /> 到达终态后停止观察</label>
         </fieldset>
       </form>
+      {current ? <section aria-label="当前观察配置">
+        <p>当前观察「{current.title}」每 {current.everySeconds} 秒检查对象 {current.target.id}。</p>
+        <Button onClick={() => { setRevision(current.revision); setCurrent(null); setError("再次保存将使用当前版本提交此草稿。"); }}>
+          保留草稿并采用当前修订
+        </Button>
+      </section> : null}
+      {confirmation}
     </Dialog>
   );
 }

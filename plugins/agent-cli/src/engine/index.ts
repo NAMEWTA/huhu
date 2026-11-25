@@ -313,7 +313,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   api.defineCapability(
     bindCapability(mainAgentDescriptors.catalogDetect, ({ caller }) => {
       const snapshot = detector.cached();
-      if (isWorkbenchCaller(caller)) return snapshot;
+      if (isWorkbenchCaller(caller)) return snapshot.map((entry) => ({
+        ...entry, models: agentById(entry.id)?.options.models ?? [],
+      }));
       return snapshot.map(({ id, displayName, installed, skipped, headless, detectedAt }) => ({ id, displayName, installed, skipped, headless, detectedAt }));
     }),
   );

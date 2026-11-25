@@ -18,8 +18,8 @@ const Settings = z.strictObject({
   repeat: z.boolean().default(false), stopAtTerminal: z.boolean().default(true),
   effect: z.enum(["notification", "task", "both", "comment"]).default("notification"),
 });
-export const ObservationInput = Settings.extend({ intentId: z.uuidv4() });
-export const ObservationUpdateInput = ObservationInput.extend({
+export const ObservationInput = Settings.extend({ intentId: z.uuidv4(), startPaused: z.boolean().optional() });
+export const ObservationUpdateInput = ObservationInput.omit({ startPaused: true }).extend({
   planId: PlanRefSchema.shape.planId, expectedRevision: PlanRefSchema.shape.revision,
 });
 export const ObservationEditView = Settings.extend(PlanRefSchema.shape);
@@ -110,7 +110,7 @@ export class ObservationPlans {
     return { planId, revision, title, target, everySeconds, condition, repeat, stopAtTerminal, effect };
   }
 
-  async create({ intentId, ...input }: z.output<typeof ObservationInput>, signal: AbortSignal): Promise<PlanSummary> {
+  async create({ intentId, startPaused, ...input }: z.output<typeof ObservationInput>, signal: AbortSignal): Promise<PlanSummary> {
     return this.rules.withRuleConfiguration(async () => {
       const { plans, version } = this.load();
       const planId = `observation-${intentId}`;
@@ -121,7 +121,7 @@ export class ObservationPlans {
       const stamp = this.instant();
       const plan: Observation = {
         ...input, planId, revision: randomUUID(), createdAt: stamp, updatedAt: stamp, nextAt: stamp,
-        intent: "enabled", stopped: false, machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
+        intent: startPaused ? "paused" : "enabled", stopped: false, machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
         status: null, since: null, alerted: false, lastOccurrenceId: null,
       };
       await this.save([...plans, plan], version, signal);
