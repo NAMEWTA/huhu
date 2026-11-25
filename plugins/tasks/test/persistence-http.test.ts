@@ -2251,12 +2251,37 @@ test.each(["echo", "list", "none"] as const)("TW5 GitHub 丢失 POST 回包（%s
     engine = await start(root);
     expect(await submitReceipt(engine, result)).toMatchObject({ ok: true });
     expect(await deliver(github, huhu(), request)).toMatchObject({ state: expectedState, deliveryId: delivered.deliveryId });
-    expect(await call(engine, "tasks.github.deliveries.read", key, connector.token)).toMatchObject({ ok: true, data: { state: expectedState } });
+    const readDelivery = await call(engine, "tasks.github.deliveries.read", key, connector.token);
+    expect(readDelivery).toMatchObject({ ok: true, data: { state: expectedState, deliveryId: delivered.deliveryId } });
     expect(posts).toBe(1);
     expect(fake.dispatch).toHaveBeenCalledTimes(dispatches);
     const { data: saved } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
     expect(saved.comments.filter(({ event }) => event === "result")).toHaveLength(1);
     expect(saved.comments.filter(({ event }) => event === "github-comment")).toHaveLength(evidence === "none" ? 1 : 2);
+
+    if (evidence === "none") {
+      // The archive preserves the original evidence without transferring the connector credential.
+      const archive = path.join(tempVault(), "task-history.zip");
+      const targetDir = tempVault();
+      const eventPath = path.join("tasks", "github", connector.sourceId, "events", "20101.json");
+      const originalEvent = readFileSync(path.join(engine.vault.stateDir, eventPath));
+      const originalDispatch = readFileSync(recordFile(engine, run.eventId));
+      expect(await call(engine, "vault.exportPackage", { dest: archive, includeAttachments: false })).toMatchObject({ ok: true });
+      const imported = await call<{ vaultId: string }>(engine, "vault.importPackage", { zipPath: archive, targetDir });
+      expect(imported).toMatchObject({ ok: true, data: { vaultId: expect.any(String) } });
+      expect(imported.data.vaultId).not.toBe(engine.vault.id);
+      const restored = await start(targetDir);
+      expect(restored.vault.id).toBe(imported.data.vaultId);
+      expect(await call(restored, "tasks.read", { id: taskId })).toMatchObject({
+        ok: true, data: { id: taskId, body: saved.body, origin: saved.origin, comments: saved.comments },
+      });
+      expect(await call(restored, "tasks.github.deliveries.read", key)).toEqual(readDelivery);
+      expect(await call(restored, "tasks.github.deliveries.read", key, connector.token)).toEqual({ error: "未授权" });
+      expect(readFileSync(path.join(restored.vault.stateDir, eventPath))).toEqual(originalEvent);
+      expect(readFileSync(recordFile(restored, run.eventId))).toEqual(originalDispatch);
+      expect(fake.dispatch).toHaveBeenCalledTimes(dispatches);
+      expect(posts).toBe(1);
+    }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
