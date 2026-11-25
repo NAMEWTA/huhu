@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import type { ServerChannel } from "ssh2";
 
-export function localPosixRelayShell(channel: ServerChannel) {
-  const process = spawn("/bin/sh", [], { env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" } });
+export function localPosixCommand(channel: ServerChannel, command?: string) {
+  const process = spawn("/bin/sh", command === undefined ? [] : ["-c", command], { env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8" } });
   channel.pipe(process.stdin);
   process.stdout.pipe(channel, { end: false });
   process.stderr.resume();
@@ -15,6 +15,8 @@ export function localPosixRelayShell(channel: ServerChannel) {
   });
   channel.once("close", () => process.kill());
 }
+
+export const localPosixRelayShell = (channel: ServerChannel) => localPosixCommand(channel);
 
 export function relayToLoopback(port: number) {
   return (channel: ServerChannel) => {

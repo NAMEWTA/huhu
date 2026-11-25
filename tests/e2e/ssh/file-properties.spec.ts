@@ -1,11 +1,62 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import { localPosixCommand } from "../../../plugins/ssh/test/shell-relay-fixture.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
+
+test("A09 desktop offers verified SCP single-file download when SFTP is unavailable", async () => {
+  test.skip(process.platform !== "linux" || !existsSync("/usr/bin/scp"), "Linux OpenSSH scp is required");
+  const password = randomUUID();
+  const server = await startFakeSsh({
+    password,
+    noSftp: true,
+    onInteractiveExec: (command, channel) => {
+      if (command !== "command -v scp >/dev/null 2>&1" && !command.includes("exec scp -f -- ")) return false;
+      localPosixCommand(channel, command);
+      return true;
+    },
+  });
+  const fixture = await openApp();
+  try {
+    const { app, page, vault } = fixture;
+    const name = "only-scp.bin";
+    const remote = path.join(vault, name);
+    const destination = path.join(vault, "downloads");
+    const data = Buffer.from([0xff, 0x00, 0x11]);
+    await mkdir(destination);
+    await writeFile(remote, data);
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [directory] })) as typeof dialog.showOpenDialog;
+    }, destination);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "SCP 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await desktopCall(page, "ssh.workspace.runs.start", { name: "SCP 工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /SCP 工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    const panel = run.getByRole("region", { name: "SCP 单文件下载" });
+    await expect(panel.getByRole("status")).toHaveText("原连接支持 SCP 下载");
+    await panel.getByLabel("远端文件绝对路径").fill(remote);
+    await panel.getByRole("button", { name: "选择本机目录" }).click();
+    await panel.getByRole("button", { name: "下载文件" }).click();
+    await expect(panel.getByText("已下载 3 字节", { exact: false })).toBeVisible();
+    expect(await readFile(path.join(destination, name))).toEqual(data);
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
 
 test("A09 external editor copies text locally and writes back through the original SFTP revision", async () => {
   const password = randomUUID();

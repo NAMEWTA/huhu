@@ -54,6 +54,7 @@ import { registerSshProxyShare } from "./proxy-share.js";
 import { registerShortcuts } from "./shortcuts.js";
 import { registerSshTerminalBridge } from "./terminal-bridge.js";
 import { registerSshRecordings } from "./terminal-recordings.js";
+import { registerScp } from "./scp-capabilities.js";
 import { registerSshWorkspacePanes } from "./workspace-pane-capability.js";
 import * as sftp from "./sftp.js";
 
@@ -141,6 +142,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
   const publicTransfers = new PublicTransfers(publicFiles, manager, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const files = new FileSessions(manager);
+  registerScp(api, files, manager);
   const archives = new Archives(files, manager);
   const publicArchives = new PublicArchives(publicFiles);
   const transfers = new Transfers(

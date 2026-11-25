@@ -662,7 +662,7 @@ export class SshManager {
     };
   }
 
-  proxyShareTransport(hostId: string, connectionId: string): Client {
+  boundTransport(hostId: string, connectionId: string): Client {
     const connection = this.conns.get(hostId);
     if (!connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "请选择仍然在线的原 SSH 连接");
     return connection.target;

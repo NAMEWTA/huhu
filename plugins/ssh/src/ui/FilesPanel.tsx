@@ -10,6 +10,7 @@ import { FilePropertiesDialog } from "./FilePropertiesDialog.js";
 import { CreateFileEntryDialog } from "./CreateFileEntryDialog.js";
 import { useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
+import { ScpDownloadPanel } from "./ScpDownloadPanel.js";
 import { t } from "./i18n.js";
 import { saveDevicePreferences, useDevicePreferences } from "./device-preferences.js";
 import { shownFileEntries } from "./file-preferences.js";
@@ -334,8 +335,9 @@ export function FilesPanel({
       )}
       <details>
         <summary>文件后端</summary>
-        <p>文件操作使用当前 SSH 账户的 SFTP 权限。SCP 回退和独立的文件 sudo 后端当前不可用。</p>
+        <p>浏览、编辑和队列传输需要原 SSH 连接提供 SFTP。文件操作沿用当前 SSH 账户权限。</p>
       </details>
+      {connected && sftpUnavailable && <ScpDownloadPanel fileSessionId={fileSessionId} />}
       {propertyPath && <FilePropertiesDialog session={session} path={propertyPath} onClose={() => setPropertyPath(undefined)} onSaved={() => void load(cwd)} />}
       {creating && (
         <CreateFileEntryDialog
