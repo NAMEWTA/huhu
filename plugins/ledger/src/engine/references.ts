@@ -56,7 +56,7 @@ export function removeReference(state: BookState, owner: ReferenceOwner, id: str
 
 function safeMarkdown(text: string) {
   return text.replace(/\s+/gu, " ").replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;")
-    .replace(/[\\`*_~\[\]#|]/gu, "\\$&");
+    .replace(/[\\`*_~[\]#|]/gu, "\\$&");
 }
 
 export function draftReview(state: BookState, input: z.infer<typeof ReportQuery>) {

@@ -79,6 +79,7 @@ export class LedgerBackups {
     const { files, name } = stateAndFiles;
     const entries = [...files].map(([path, bytes]) => ({ name: path, size: bytes.length, sha256: digest(bytes) }));
     files.set(manifestName, json({ format: "huhu-ledger", version: 1, modules, files: entries }));
+    // eslint-disable-next-line no-control-regex -- Replace control characters that cannot appear in the download filename.
     return { fileName: (name.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "_") || "ledger") + ".zip",
       base64: Buffer.from(writeBoundedZip(files, limits)).toString("base64") };
   }

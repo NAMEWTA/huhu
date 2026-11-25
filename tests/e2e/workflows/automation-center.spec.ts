@@ -16,7 +16,7 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
     await expect(center).toContainText("尚无计划");
     const templates = center.getByRole("button", { name: "从模板新建" });
     await expect.poll(() => templates.evaluate((control) => {
-      const host = control.closest(".automation-center-host")!;
+      const host = control.closest(".automations-center-host")!;
       const surface = host.parentElement!;
       const box = control.getBoundingClientRect();
       const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
@@ -243,7 +243,7 @@ test("AW4 AU16 专注来源与中心共享计划修订和下次时间", async ()
   }
 });
 
-test("AW6 AU16 AU17 获邀 Web 在任务来源管理原提醒，停用来源时中心显示准确状态", async ({}) => {
+test("AW6 AU16 AU17 获邀 Web 在任务来源管理原提醒，停用来源时中心显示准确状态", async ({ browserName: _browserName }) => {
   const { page: desktop, close } = await openApp();
   let browser: Browser | undefined;
   try {

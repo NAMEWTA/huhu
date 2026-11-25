@@ -80,7 +80,7 @@ export function RuleDraftDialog({ rule, template, onClose, onSaved, registerLeav
 
   return (
     <Dialog open wide title={rule ? "编辑自动化" : "新建自动化"} onClose={dismiss} dismissOnBackdrop error={error} testId="rule-dialog">
-      {current ? <section className="automation-conflict" aria-label="当前计划版本">
+      {current ? <section className="automations-conflict" aria-label="当前计划版本">
         <p>当前版本「{current.data.title}」· {current.data.trigger.cron} · {current.data.trigger.zone}</p>
         <details><summary>查看当前配置</summary><pre>{JSON.stringify(current.data.action, null, 2)}{current.body ? `\n${current.body}` : ""}</pre></details>
         <Button onClick={() => {

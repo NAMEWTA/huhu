@@ -1208,7 +1208,7 @@ async function dragFileBatch(page: Page, handle: Locator, evidence: { geometry?:
   }
 }
 
-test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃逸", async ({}, testInfo) => {
+test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃逸", async ({ browserName: _browserName }, testInfo) => {
   test.setTimeout(90_000);
   const password = randomUUID();
   const first = await startFakeSsh({ password });

@@ -1,4 +1,4 @@
-import { LedgerConfirmImport, LedgerCurrency, LedgerTimeZone } from "@huhu/contracts";
+import { LedgerConfirmImport, LedgerTimeZone } from "@huhu/contracts";
 import { z } from "zod";
 import { BookId, BookName, BookRef, BookVersion } from "./books.js";
 import { EntryId, RecordFilters, RecordKind } from "./entries.js";

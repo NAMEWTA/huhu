@@ -34,6 +34,7 @@ export const maxAttachmentBytes = 2 * 1024 * 1024;
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 export const Attachment = z.strictObject({
   id: EntryId,
+  // eslint-disable-next-line no-control-regex -- An attachment filename cannot contain ASCII control characters.
   fileName: z.string().trim().min(1).max(180).regex(/^[^/\\\x00-\x1f\x7f]+$/),
   mediaType: z.string().max(100).regex(/^[\w.+-]+\/[\w.+-]+$/),
   size: z.int().positive().max(maxAttachmentBytes),

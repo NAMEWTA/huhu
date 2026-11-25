@@ -749,7 +749,7 @@ test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async (
   }
 });
 
-test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲突", async ({}) => {
+test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲突", async ({ browserName: _browserName }) => {
   const { page: desktop, close } = await openApp();
   let browser: Browser | undefined;
   try {
@@ -847,7 +847,7 @@ test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲�
   }
 });
 
-test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账和预览复盘", async ({}) => {
+test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账和预览复盘", async ({ browserName: _browserName }) => {
   const { page: desktop, close } = await openApp();
   let browser: Browser | undefined;
   try {
@@ -962,7 +962,7 @@ test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账�
   }
 });
 
-test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并反映新流水", async ({}) => {
+test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并反映新流水", async ({ browserName: _browserName }) => {
   const { page: desktop, close } = await openApp();
   let browser: Browser | undefined;
   try {

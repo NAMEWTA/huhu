@@ -69,11 +69,9 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
   for (const closed of [0, 1_000, 10_000]) {
     const root = mkdtempSync(path.join(tmpdir(), "huhu-f11-activity-"));
     let engine: RunningEngine | undefined;
-    let runtime: TaskDispatch | undefined;
     let startup: Promise<void> | undefined;
     const realCheck = TaskDispatch.prototype.check;
     const check = vi.spyOn(TaskDispatch.prototype, "check").mockImplementation(function (this: TaskDispatch) {
-      runtime = this;
       return (startup = realCheck.call(this));
     });
     try {
@@ -86,6 +84,7 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
       startup = undefined;
       engine = await boot({ vaultPath: root });
       await startup;
+      const runtime = check.mock.contexts.at(-1);
       assert(runtime);
       const warmStart = performance.now();
       await realCheck.call(runtime);

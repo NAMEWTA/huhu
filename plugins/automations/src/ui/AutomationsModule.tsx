@@ -20,8 +20,8 @@ function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: Modu
   const [historyPlan, setHistoryPlan] = useState<string | null>(null);
 
   return (
-    <div className="automation-center-host">
-      <div className="hu-module-layout hu-tw-workbench tw-automation" data-testid="automations-module">
+    <div className="automations-center-host">
+      <div className="hu-module-layout hu-tw-workbench automations-workbench" data-testid="automations-module">
         <aside className="hu-tw-navigation" aria-label={t.title}>
           <div className="hu-tw-nav-title"><Workflow size={16} aria-hidden /><strong>{t.title}</strong></div>
           <nav aria-label="自动化导航">
@@ -42,7 +42,7 @@ function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: Modu
           <PlanDirectory active={view === "plans"} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}
             onOpenRuns={(plan) => { setHistoryPlan(plan); setView("activations"); }} />
           {view === "activations" ? <OccurrenceHistory key={historyPlan ?? ""} planId={historyPlan} back={() => setView("plans")} onNavigate={onNavigate} /> : null}
-          {view === "runs" ? <div className="automations-task-content plan-history">
+          {view === "runs" ? <div className="automations-task-content automations-plan-history">
             <h1>运行记录</h1>
             <RunsPanel {...(onNavigate && { onNavigate })} />
           </div> : null}

@@ -6,6 +6,7 @@ export type ZipLimits = { archiveBytes: number; entryBytes: number; totalBytes: 
 const invalid = (message: string) => errors.invalidInput("ZIP 数据包无效：" + message);
 
 function requirePath(name: string) {
+  // eslint-disable-next-line no-control-regex -- ZIP entry paths cannot contain ASCII control characters.
   if (name.length > 512 || /[\u0000-\u001f\u007f]/u.test(name) || name.split("/").includes("__proto__") || normalizeRelPath(name) !== name) {
     throw invalid("文件路径不规范");
   }
