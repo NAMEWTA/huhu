@@ -41,7 +41,7 @@ const MAX_HABITS = 20;
 const MAX_TITLE = 60;
 const Deadline = PlanRefSchema.extend({
   scheduledFor: z.iso.datetime(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
-  state: z.enum(["enabled", "paused", "completed", "deleted"]),
+  state: z.enum(["enabled", "paused", "completed", "deleted", "skipped"]),
 });
 export type FocusDeadline = z.infer<typeof Deadline>;
 type Settlement = { plan: FocusDeadline; occurrenceId: string };
@@ -50,6 +50,7 @@ export interface FocusDeadlinePort {
   settled(): Settlement | undefined;
   change(write: PlanWrite): FocusDeadline;
   settle(plan: Pick<FocusDeadline, "planId" | "revision" | "scheduledFor">, occurrenceId: string): boolean;
+  skip(plan: Pick<FocusDeadline, "planId" | "revision" | "scheduledFor">): void;
 }
 
 const FocusStateWithRevision = FocusStateSchema.extend({
@@ -176,6 +177,16 @@ export class HomeStore {
       settled: () => this.loadFocus().settledDeadline,
       change: (write) => this.changeDeadline(write),
       settle: (plan, occurrenceId) => this.settleDeadline(plan, occurrenceId),
+      skip: (plan) => {
+        const state = this.loadFocus();
+        const deadline = state.deadline;
+        if (deadline?.state !== "enabled" || deadline.planId !== plan.planId || deadline.revision !== plan.revision
+          || deadline.scheduledFor !== plan.scheduledFor || this.remaining(state) > 0) return;
+        this.saveFocus({
+          ...state, deadline: { ...deadline, state: "skipped", revision: randomUUID(), updatedAt: this.d.now().toISOString() },
+          running: false, startedAt: null, remainingSec: FOCUS_SECONDS,
+        });
+      },
     };
   }
 
@@ -193,8 +204,9 @@ export class HomeStore {
       const scheduledFor = new Date(write.trigger.scheduledFor).toISOString();
       const remainingSec = Math.max(0, Math.ceil((Date.parse(scheduledFor) - Date.parse(stamp)) / 1_000));
       if (remainingSec <= 0) throw errors.invalidInput("专注截止时间需要晚于当前时间");
-      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, scheduledFor };
-      this.saveFocus({ ...state, deadline, remainingSec, startedAt: state.running ? stamp : null });
+      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, scheduledFor, state: plan.state === "skipped" ? "enabled" as const : plan.state };
+      const running = deadline.state === "enabled";
+      this.saveFocus({ ...state, deadline, running, remainingSec, startedAt: running ? stamp : null });
       return deadline;
     }
     if (write.change === "delete") {

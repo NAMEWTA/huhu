@@ -11,6 +11,7 @@ import type { PeriodicPlans } from "./periodic-plans.js";
 import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsService } from "./service.js";
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
 import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
+import { ScheduleGateView, type ScheduleGate } from "./schedule-gate.js";
 
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
@@ -26,6 +27,15 @@ const ListPlans = z.strictObject({
 const PlanPage = z.strictObject({ plans: z.array(PlanSummarySchema), nextCursor: identifier.nullable() });
 const workbench = { plugin: "automations", exposable: false, defaultExposed: false } as const;
 export const planDescriptors = {
+  automationState: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.automationState", scope: "read", input: z.strictObject({}), output: ScheduleGateView,
+    title: "查看自动运行状态", description: "读取当前 Vault 的自动运行开关与修订。", risk: "normal",
+  }),
+  setAutomationState: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.setAutomationState", scope: "write", idempotency: "durable",
+    input: z.strictObject({ paused: z.boolean(), expectedRevision: identifier }), output: ScheduleGateView,
+    title: "暂停或恢复自动运行", description: "更新当前 Vault 的自动触发开关。", risk: "high",
+  }),
   list: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.list", scope: "read", input: ListPlans, output: PlanPage,
     title: "计划目录", description: "枚举当前 Vault 的计划，可按来源对象筛选。", risk: "normal",
@@ -90,6 +100,8 @@ type CatalogueDeps = {
   now(): Date;
   activations(): ActivationRecord[];
   readCronOccurrence(id: string): PlanOccurrence | null;
+  gate: ScheduleGate;
+  scheduleChanged(): void;
   deleteRule(ruleId: string, expectedVersion: string, assertCurrent: () => void): Promise<void>;
 };
 type ReadDirectory = Pick<PlanDirectory, "list" | "read" | "readOccurrence">;
@@ -213,6 +225,28 @@ async function changeRule(rule: Rule, change: PlanWrite, deps: CatalogueDeps, ap
 }
 
 export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
+  function withAvailableSchedule(plan: PlanSummary | null): PlanSummary | null {
+    if (plan?.nextAt && (deps.gate.view().paused || (plan.trigger.kind === "once" && !deps.gate.allows(plan.nextAt)))) {
+      return { ...plan, nextAt: null };
+    }
+    return plan;
+  }
+
+  api.defineCapability(bindCapability(planDescriptors.automationState, ({ caller, signal }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看自动运行状态");
+    signal.throwIfAborted();
+    return deps.gate.view();
+  }));
+  api.defineCapability(bindCapability(planDescriptors.setAutomationState, ({ caller, signal }, { paused, expectedRevision }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("修改自动运行状态");
+    return deps.rules.withRuleConfiguration(async () => {
+      const before = deps.gate.view().revision;
+      const state = await deps.gate.set(paused, expectedRevision, signal);
+      if (before !== state.revision) deps.scheduleChanged();
+      return state;
+    });
+  }));
+
   function catalogue(source?: PlanSource, includeRuleHistory = true): PlanSummary[] {
     const now = deps.now();
     const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
@@ -224,7 +258,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       ...deps.periodic.list(),
       ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
       ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
-    ].filter((plan) => !source || matchesSource(plan.source, source));
+    ].filter((plan) => !source || matchesSource(plan.source, source)).map((plan) => withAvailableSchedule(plan)!);
   }
   const directory: ReadDirectory & { list(input: z.output<typeof ListPlans>, signal: AbortSignal): Promise<z.output<typeof PlanPage>> } = {
     async list(input: z.output<typeof ListPlans>, signal) {
@@ -239,8 +273,8 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       await deps.periodic.importReady();
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
-      if (!rule) return deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);
-      return rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId));
+      if (!rule) return withAvailableSchedule(deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId));
+      return withAvailableSchedule(rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId)));
     },
     async readOccurrence(occurrenceId, signal) {
       signal.throwIfAborted();

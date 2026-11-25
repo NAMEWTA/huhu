@@ -1,4 +1,5 @@
 import { OccurrenceDetail } from "./OccurrenceDetail.js";
+import { AutomaticRunControl } from "./AutomaticRunControl.js";
 import type { PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, Select } from "@huhu/ui";
 import {
@@ -258,6 +259,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       <div className="automations-plan-heading">
         <h1>计划</h1>
         <div className="row">
+          <AutomaticRunControl />
           <IconButton icon={RefreshCw} label="刷新目录" disabled={plans.isFetching} onClick={() => void refresh()} />
           <Button icon={Layers} disabled={!canCreate && !canObserve} onClick={() => openSheet({ kind: "templates" })}>从模板新建</Button>
           <Button icon={Plus} disabled={!canObserve} onClick={() => openSheet({ kind: "observation" })}>新建状态观察</Button>

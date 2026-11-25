@@ -552,6 +552,32 @@ async function createReminder(engine: RunningEngine, text: string, mode: "notifi
   return invoke<Rule>(engine, "automations.setEnabled", { id: rule.id, enabled: true });
 }
 
+test("全局暂停跨 Engine 重启保留，恢复时跳过旧排期并保留原计划修订", async () => {
+  type State = { revision: string; paused: boolean };
+  const state = (engine: RunningEngine) => invoke<State>(engine, "automations.plans.automationState", {});
+  const set = (engine: RunningEngine, paused: boolean, expectedRevision: string) =>
+    call<State>(engine, "automations.plans.setAutomationState", { paused, expectedRevision }, false, randomUUID());
+  const first = await start();
+  const rule = await createReminder(first.engine, "全局暂停的原规则", "notification");
+  const initial = await state(first.engine);
+  const paused = await set(first.engine, true, initial.revision);
+  expect(paused).toMatchObject({ ok: true, data: { paused: true } });
+  expect(paused.data.revision).not.toBe(initial.revision);
+  expect(await set(first.engine, false, initial.revision)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  fixture.now = at("01:15:00");
+  expect(await first.reminders.activate(rule.id, fixture.now)).toBeNull();
+  expect(await first.reminders.activate(rule.id, null)).toMatchObject({ summary: { notification: "sent" } });
+  await stop(first.engine);
+  const reopened = await start(first.engine.vault.files.root);
+  expect(await state(reopened.engine)).toEqual(paused.data);
+  fixture.now = at("01:20:00");
+  expect(await set(reopened.engine, false, paused.data.revision)).toMatchObject({ ok: true, data: { paused: false } });
+  expect(await reopened.reminders.activate(rule.id, at("01:15:00"))).toBeNull();
+  fixture.now = at("01:30:00");
+  expect(await reopened.reminders.activate(rule.id, fixture.now)).toMatchObject({ summary: { notification: "sent" } });
+  expect(await invoke(reopened.engine, "automations.read", { id: rule.id })).toMatchObject({ version: rule.version, data: { enabled: true } });
+});
+
 test("三种提醒效果对同一发生各自至多一次，重启保持任务、通知及发生关联", async () => {
   const { engine, reminders } = await start();
   const rules = await Promise.all([createReminder(engine, "仅通知", "notification"), createReminder(engine, "仅建任务", "task"), createReminder(engine, "两种提醒", "both")]);

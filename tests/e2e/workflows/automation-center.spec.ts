@@ -4,6 +4,27 @@ import type { PlanSummary } from "../../../packages/contracts/src/automation-pla
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { openApp } from "../helpers/launch.js";
 
+test("AU15 全局暂停从中心写入并在设置中恢复", async ({ browserName: _browserName }) => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const control = page.getByTestId("automatic-run-control");
+    await control.getByRole("button", { name: "暂停自动运行" }).click();
+    await page.getByRole("dialog", { name: "暂停自动运行" }).getByRole("button", { name: "暂停自动运行" }).click();
+    await expect(control.getByRole("status")).toHaveText("自动运行已全局暂停");
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    const settings = page.getByTestId("settings-module");
+    await page.getByTestId("settings-nav-automations").click();
+    await expect(settings.getByTestId("automatic-run-control").getByRole("status")).toHaveText("自动运行已全局暂停");
+    await settings.getByRole("button", { name: "恢复自动运行" }).click();
+    await page.getByRole("dialog", { name: "恢复自动运行" }).getByRole("button", { name: "恢复自动运行" }).click();
+    await expect(settings.getByTestId("automatic-run-control").getByRole("status")).toHaveText("自动运行已开启");
+  } finally {
+    await close();
+  }
+});
+
 test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", async () => {
   const { page, close } = await openApp();
   try {

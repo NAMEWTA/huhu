@@ -66,6 +66,7 @@ export class FollowUps {
     private readonly dispatch: () => TaskFollowUpDispatch | undefined,
     private readonly now: () => Date,
     private readonly onChanged: (taskId: string) => void,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {
     const root = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(root);
@@ -426,7 +427,7 @@ export class FollowUps {
   allowsDispatch(taskId: string, followUpId: string, scheduledFor: string): boolean {
     if (this.lifetime.signal.aborted) return false;
     const data = this.load(this.pathname(taskId))?.value;
-    return Boolean(data && this.isLocal(data) && data.followUpId === followUpId && data.scheduledFor === scheduledFor
+    return Boolean(this.allowsSchedule(scheduledFor) && data && this.isLocal(data) && data.followUpId === followUpId && data.scheduledFor === scheduledFor
       && (data.state === "scheduled" || data.state === "accepted") && data.plan.intent === "enabled" && !data.plan.blockedDispatch);
   }
 
@@ -434,6 +435,10 @@ export class FollowUps {
     const stored = this.load(path);
     const data = stored?.value;
     if (!stored || !data || data.state !== "scheduled" || data.plan.intent !== "enabled" || !this.isLocal(data) || Date.parse(data.scheduledFor) > this.now().getTime()) return;
+    if (!this.allowsSchedule(data.scheduledFor)) {
+      await this.save({ ...data, state: "skipped", reason: "global-pause", revision: randomUUID() }, stored.version);
+      return;
+    }
     const dispatch = this.dispatch();
     if (!dispatch) return;
     const { taskId, followUpId, scheduledFor, inputHash, inputRevision } = data;

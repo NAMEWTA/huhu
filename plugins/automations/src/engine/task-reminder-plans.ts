@@ -32,6 +32,7 @@ export class TaskReminderPlans {
     private readonly deliveries: () => ReminderDeliveries | undefined,
     private readonly now: () => Date,
     private readonly changed: (taskId: string) => void,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {}
 
   private load() {
@@ -87,7 +88,7 @@ export class TaskReminderPlans {
       source: { plugin: "tasks", object }, owner: { scope: "vault", vaultId: this.vaultId },
       trigger: { kind: "once", scheduledFor: plan.scheduledFor },
       action: { capability: "notifications.create", object, summary: "递送任务提醒" },
-      nextAt: plan.intent === "enabled" && availability.state === "ready" && !occurrence ? plan.scheduledFor : null,
+      nextAt: plan.intent === "enabled" && availability.state === "ready" && !occurrence && this.allowsSchedule(plan.scheduledFor) ? plan.scheduledFor : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, at: occurrence.acceptedAt ?? plan.scheduledFor, state: occurrence.state } : null,
     };
   }
@@ -182,7 +183,7 @@ export class TaskReminderPlans {
         for (const taskId of new Set(imported.map((plan) => plan.taskId))) this.changed(taskId);
       }
       this.readLegacy = true;
-      return next.filter((plan) => plan.intent === "enabled" && plan.scheduledFor <= stamp);
+      return next.filter((plan) => plan.intent === "enabled" && plan.scheduledFor <= stamp && this.allowsSchedule(plan.scheduledFor));
     });
     for (const plan of due) {
       if (this.closed) break;

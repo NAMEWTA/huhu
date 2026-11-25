@@ -73,6 +73,7 @@ export class ReminderDeliveries {
     private readonly observationCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
     private readonly writeComment?: (taskId: string, commentId: string, body: string) => Promise<unknown>,
     private readonly focus?: Pick<FocusDeadlinePlans, "current" | "settle">,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -217,6 +218,7 @@ export class ReminderDeliveries {
   }
 
   private current(data: ReminderRecord): boolean {
+    if (data.scheduledFor && !this.allowsSchedule(data.scheduledFor)) return false;
     if (data.source && data.scheduledFor) return this.sourceCurrent(data.source, data.ruleId, data.ruleVersion, data.scheduledFor, data.targetTask);
     if (data.targetTask && !this.taskAvailable(data.targetTask)) return false;
     if (!data.scheduledFor) return true;
@@ -293,6 +295,7 @@ export class ReminderDeliveries {
     if (!row && trigger) {
       row = await this.rules.withRuleConfiguration(async () => {
         this.lifetime.signal.throwIfAborted();
+        if (trigger.at && !this.allowsSchedule(trigger.at)) return null;
         if (trigger.plan && trigger.at) {
           const { revision, title, taskId, source, effect } = trigger.plan;
           const current = this.sourceCurrent(source, trigger.ruleId, revision, trigger.at, taskId);

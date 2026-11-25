@@ -5,6 +5,7 @@ import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { PeriodicOccurrences } from "./periodic-occurrences.js";
 import type { AutomationsService } from "./service.js";
+import type { ScheduleGate } from "./schedule-gate.js";
 
 const file = "automations/periodic-plans.json";
 const journal = "automations/periodic-occurrences";
@@ -40,6 +41,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
     private readonly findSource: (plugin: string) => PeriodicPlanSource | undefined,
     private readonly clock: Clock,
     private readonly changed: (planId: string, plugin: string, kind: "periodic-plan" | "periodic-occurrence") => void,
+    private readonly gate?: ScheduleGate,
   ) {
     this.occurrences = new PeriodicOccurrences(files);
   }
@@ -86,11 +88,25 @@ export class PeriodicPlans implements PeriodicPlanControl {
       ...(plan.businessSchedule && { businessSchedule: plan.businessSchedule }),
       ...(plan.bounds && { intervalBounds: plan.bounds }),
       action, intent, availability, actions, createdAt, updatedAt,
-      nextAt: intent === "enabled" && availability.state === "ready"
-        ? plan.catchUp ? this.findSource(source.plugin)?.nextDue?.(plan, plan.enabledWindows ?? []) ?? null : new Date(next).toISOString()
+      nextAt: intent === "enabled" && availability.state === "ready" && !this.gate?.view().paused
+        ? plan.catchUp ? this.findSource(source.plugin)?.nextDue?.(plan, this.windows(plan)) ?? null : new Date(next).toISOString()
         : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, state: occurrence.state, at: occurrence.acceptedAt ?? updatedAt } : null,
     };
+  }
+
+  private windows(plan: StoredPlan) {
+    const windows = plan.enabledWindows ?? [];
+    return this.gate?.calendarWindows(windows) ?? windows;
+  }
+
+  scheduleChanged(): void {
+    this.wakeups.clear();
+    for (const [id, job] of this.jobs) {
+      if (job.running) {
+        void job.running.finally(() => { if (this.jobs.get(id) === job) this.jobs.delete(id); });
+      } else this.jobs.delete(id);
+    }
   }
 
   private dueAt(job: Job): number {
@@ -126,7 +142,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
   }
 
   wake(plan: { planId: string; revision: string }, delayMs: number): void {
-    if (this.closed || this.files.readOnly || !Number.isFinite(delayMs)) return;
+    if (this.closed || this.files.readOnly || this.gate?.view().paused || !Number.isFinite(delayMs)) return;
     const current = this.load().store.plans.find(({ planId }) => planId === plan.planId);
     if (!current || current.intent !== "enabled" || current.owner !== this.owner.instance || current.revision !== plan.revision) return;
     const at = this.clock.now() + Math.max(0, Math.min(86_400_000, delayMs));
@@ -280,7 +296,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
 
   private async sweep(): Promise<void> {
     await this.importSources();
-    if (this.closed) return;
+    if (this.closed || this.gate?.view().paused) return;
     const rows = this.load().store.plans;
     const eligible = new Set<string>();
     const now = this.clock.now();
@@ -305,7 +321,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
       const wake = this.wakeups.get(plan.planId);
       if (plan.catchUp && !job.running && Number.isNaN(job.next)) {
         if (this.availability(plan).state !== "ready") continue;
-        const next = source.nextDue?.(plan, plan.enabledWindows ?? []);
+        const next = source.nextDue?.(plan, this.windows(plan));
         job.next = next ? Date.parse(next) : Infinity;
       }
       if (wake?.revision === plan.revision && !job.running) {
@@ -331,9 +347,11 @@ export class PeriodicPlans implements PeriodicPlanControl {
 
   private async run(plan: StoredPlan, job: Job, scheduledFor: string, id: string): Promise<void> {
     const { planId, revision, action } = plan;
+    const scheduleRevision = this.gate?.view().revision;
     const life = () => !this.closed && !job.signal.aborted && this.findSource(plan.source.plugin) === job.source;
     const current = () => {
       if (!life()) return false;
+      if (this.gate && (this.gate.view().paused || this.gate.view().revision !== scheduleRevision || (!plan.catchUp && !this.gate.allows(scheduledFor)))) return false;
       const actual = this.load().store.plans.find((entry) => entry.planId === planId);
       return actual?.intent === "enabled" && actual.revision === revision && this.availability(actual).state === "ready";
     };
@@ -357,7 +375,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
       const now = this.clock.now.bind(this.clock);
       const execute = async () => job.source.run(plan, {
         planId, revision, occurrenceId: id, signal: job.signal, scheduledFor, observedAt: acceptedAt,
-        enabledWindows: plan.enabledWindows ?? [], isCurrent: current,
+        enabledWindows: this.windows(plan), isCurrent: current,
         wake(delay) {
           if (!current() || !Number.isFinite(delay)) return;
           const date = now() + Math.max(1_000, Math.min(86_400_000, delay));
