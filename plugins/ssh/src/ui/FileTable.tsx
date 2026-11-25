@@ -1,6 +1,7 @@
-import { useId, useState, type DragEvent, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { GripVertical } from "lucide-react";
 import type { FileEntry } from "../shared/files.js";
+import type { FileBatchSelection } from "./FileBatch.js";
 import { useDevicePreferences } from "./device-preferences.js";
 import { t } from "./i18n.js";
 
@@ -28,7 +29,7 @@ export function FileTable({
   actions?: (entry: FileEntry) => ReactNode;
   current?: string | null;
   disabled?: boolean;
-  selection?: { names: string[]; disabled: boolean; canDrag: boolean; toggle: (name: string) => void; start: (name: string, event: DragEvent) => void; end: () => void } | undefined;
+  selection?: FileBatchSelection | undefined;
 }) {
   const captionId = useId();
   const { fileSort } = useDevicePreferences();
@@ -70,9 +71,8 @@ export function FileTable({
                           aria-hidden="true"
                           className="ssh-file-drag-handle"
                           data-testid="ssh-file-drag-handle"
-                          draggable={selection.canDrag}
-                          onDragStart={(event) => selection.start(entry.name, event)}
-                          onDragEnd={selection.end}
+                          data-drag-enabled={selection.canDrag}
+                          {...selection.handle(entry.name)}
                         >
                           <GripVertical size={14} />
                         </span>
