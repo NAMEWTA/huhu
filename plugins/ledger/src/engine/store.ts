@@ -6,6 +6,7 @@ import { z } from "zod";
 import { BookId, type Book, type BookList, type CreateBook, type RemovalPreview } from "../shared/books.js";
 import { AccountLabels, Attachment, DictionaryItem, EntryId } from "../shared/entries.js";
 import { ImportMapping, ImportReceipt } from "../shared/imports.js";
+import { RecordReference } from "../shared/reconciliation.js";
 
 const directory = ".huhu/ledger";
 const indexPath = directory + "/books.json";
@@ -31,6 +32,7 @@ export const stateSchema = z.strictObject({
   importReceipts: z.array(ImportReceipt).default([]),
   mappingRevision: z.string().default("0"),
   mappings: z.array(ImportMapping).default([]),
+  recordReferences: z.array(RecordReference).default([]),
 });
 
 type BookIndex = z.infer<typeof indexSchema>;

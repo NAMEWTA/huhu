@@ -247,3 +247,80 @@ test("L2 收入、支出与转账得到 95/125，带凭证流水重开后可编�
     rmTree(sandbox);
   }
 });
+
+test("L4 跨账户平账保持资金余额，撤销后恢复统计并可预览合并重复流水", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-reconcile-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  try {
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "对账账本", "银行", "CNY");
+    await page.getByTestId("ledger-nav-accounts").click();
+    await ledger.getByRole("button", { name: "新增账户" }).click();
+    const account = page.getByRole("dialog", { name: "新增资金账户" });
+    await account.getByLabel("账户名称").fill("钱包");
+    await account.getByRole("button", { name: "保存账户" }).click();
+    await expect(account).toBeHidden();
+    const recordsTab = page.getByTestId("ledger-nav-records");
+    await recordsTab.click();
+    const add = async (title: string, type: "income" | "expense", amount: string, name: string) => {
+      await ledger.getByRole("button", { name: "记一笔", exact: true }).click();
+      const entry = page.getByRole("dialog", { name: "记一笔" });
+      await entry.getByLabel("事项").fill(title);
+      await entry.getByLabel("交易类型").selectOption(type);
+      await entry.getByLabel("资金账户").selectOption({ label: name + " · CNY" });
+      await entry.getByLabel("金额", { exact: true }).fill(amount);
+      await entry.getByRole("button", { name: "保存流水" }).click();
+      await expect(entry).toBeHidden();
+    };
+    await add("原支出", "expense", "100", "银行");
+    await add("退款 60", "income", "60", "钱包");
+    await add("退款 40", "income", "40", "钱包");
+    const sums = ledger.getByRole("list", { name: "筛选汇总" });
+    await expect(sums).toContainText("收入 CNY 100.00");
+    await expect(sums).toContainText("支出 CNY 100.00");
+    await ledger.getByRole("button", { name: "平账 原支出", exact: true }).click();
+    const offset = page.getByRole("dialog", { name: "流水平账" });
+    await offset.getByRole("button", { name: "查找候选" }).click();
+    await offset.getByRole("button", { name: "选择平账组" }).click();
+    await offset.getByRole("button", { name: "预览确认" }).click();
+    await expect(offset).toContainText("平账金额 CNY 100.00");
+    await expect(offset.getByRole("button", { name: "取消" })).toBeFocused();
+    await offset.getByRole("button", { name: "确认平账" }).click();
+    await expect(offset).toBeHidden();
+    await expect(sums).toHaveCount(0);
+    await page.getByTestId("ledger-nav-accounts").click();
+    const balances = ledger.getByRole("table", { name: "资金账户" });
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "银行", exact: true }) })).toContainText("CNY -100.00");
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "钱包", exact: true }) })).toContainText("CNY 100.00");
+    await recordsTab.click();
+    await ledger.getByRole("button", { name: "撤销平账 原支出" }).click();
+    const undo = page.getByRole("dialog", { name: "撤销整组平账" });
+    await expect(undo).toContainText("这 3 笔流水");
+    await undo.getByRole("button", { name: "确认撤销" }).click();
+    await expect(sums).toContainText("收入 CNY 100.00");
+
+    await add("原重复记账", "expense", "7", "银行");
+    await add("另一来源记账", "expense", "7", "银行");
+    await ledger.getByRole("button", { name: "去重", exact: true }).click();
+    const merge = page.getByRole("dialog", { name: "去重与合并" });
+    await merge.getByRole("button", { name: "查找候选" }).click();
+    await merge.getByRole("button", { name: "选择合并组" }).click();
+    const label = await merge.getByRole("option", { name: /^原重复记账/ }).textContent();
+    await merge.getByLabel("保留流水", { exact: true }).selectOption({ label: label! });
+    await merge.getByRole("button", { name: "预览确认" }).click();
+    await expect(merge).toContainText("合并迁移");
+    await merge.getByRole("button", { name: "确认合并" }).click();
+    await expect(merge).toBeHidden();
+    await expect(ledger.getByRole("cell", { name: "原重复记账", exact: true })).toBeVisible();
+    await expect(ledger.getByRole("cell", { name: "另一来源记账", exact: true })).toHaveCount(0);
+  } finally {
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});

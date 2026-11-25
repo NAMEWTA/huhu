@@ -8,6 +8,7 @@ import type { Book } from "../shared/books.js";
 import type { AccountsView, BatchPreview, InputBatch, RecordFilters, RecordsPage, RecordView } from "../shared/entries.js";
 import type { CsvResult } from "../shared/imports.js";
 import { ImportWizard } from "./ImportWizard.js";
+import { ReconciliationDialog, type ReconciliationTarget } from "./ReconciliationDialog.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
 import { bookVersion, currencies, displayMoney, downloadFile, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
@@ -32,6 +33,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
   const [editor, setEditor] = useState<Editor>();
   const [attachment, setAttachment] = useState<string>();
   const [importOpen, setImportOpen] = useState(false);
+  const [reconciliation, setReconciliation] = useState<ReconciliationTarget>();
   const [selection, setSelection] = useState<RecordView[]>([]);
   const [batchAction, setBatchAction] = useState<"update" | "delete">();
   const [batch, setBatch] = useState<Batch>();
@@ -137,6 +139,8 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
     <div className="hu-toolbar"><h2>流水</h2>
       <Button disabled={locked} onClick={() => setImportOpen(true)}>导入账单</Button>
       <Button disabled={action.working} onClick={() => void exportSelection()}>导出筛选 CSV</Button>
+      <Button disabled={locked} onClick={() => setReconciliation({ mode: "merge" })}>去重</Button>
+      <Button disabled={locked} onClick={() => setReconciliation({ mode: "offset" })}>查找平账</Button>
       <Button icon={Plus} variant="primary" disabled={locked || !view.accounts.some(({ status }) => status === "active")} onClick={() => setEditor({ book: view.book })}>记一笔</Button>
     </div>
     <form key={formVersion} className="hu-stack" aria-label="筛选流水" onSubmit={applyFilters}>
@@ -182,7 +186,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
         {" · 净收入 "}{displayMoney(total.netMinor, total.currency)} · 转入 {displayMoney(total.transferInMinor, total.currency)} · 转出 {displayMoney(total.transferOutMinor, total.currency)}
       </li>)}</ul>}
       <DataTable label="流水明细" rows={data.rows} rowKey={(row) => row.record.id} empty={<p>没有匹配的流水。</p>} columns={[
-        { id: "select", header: "选择", cell: (row) => <input type="checkbox" aria-label={`选择 ${row.title}`} disabled={locked || row.offset}
+        { id: "select", header: "选择", cell: (row) => <input type="checkbox" aria-label={`选择 ${row.title}`} disabled={locked}
           checked={selection.some(({ record }) => record.id === row.record.id)} onChange={(event) => setSelection(
             event.currentTarget.checked ? [...selection, row] : selection.filter(({ record }) => record.id !== row.record.id),
           )} /> },
@@ -195,13 +199,15 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
         } },
         { id: "amount", header: "金额", cell: ({ record }) => amount(record) },
         { id: "actions", header: "操作", cell: (row) => <div className="hu-toolbar">
-          <Button disabled={locked || row.offset} aria-label={`编辑 ${row.title}`} onClick={() => setEditor({ book: data.book, row })}>编辑</Button>
+          <Button disabled={locked} aria-label={`编辑 ${row.title}`} onClick={() => setEditor({ book: data.book, row })}>编辑</Button>
           <Button disabled={locked || action.working} aria-label={`复制 ${row.title}`} onClick={() => void action.run("ledger.records.clone", {
             ...bookVersion(data.book), recordId: row.record.id, recordRevision: row.record.revision,
           })}>复制</Button>
           <Button aria-label={`凭证 ${row.title}`} onClick={() => setAttachment(row.record.id)}>
             凭证{row.attachments.some(({ missing }) => missing) ? " · 缺失" : row.attachments.length ? ` ${row.attachments.length}` : ""}
           </Button>
+          {row.record.type !== "transfer" && <Button disabled={locked} aria-label={`${row.offset ? "撤销平账" : "平账"} ${row.title}`}
+            onClick={() => setReconciliation({ mode: row.offset ? "undo" : "offset", recordId: row.record.id })}>{row.offset ? "撤销平账" : "平账"}</Button>}
         </div> },
       ]} />
       <div className="hu-toolbar" aria-label="分页">
@@ -212,6 +218,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
     </>}
     {editor && <RecordEditor book={editor.book} view={view} {...(editor.row && { row: editor.row })} onClose={() => setEditor(undefined)} />}
     {importOpen && <ImportWizard view={view} onClose={() => setImportOpen(false)} />}
+    {reconciliation && <ReconciliationDialog view={view} target={reconciliation} filters={filters} onClose={() => setReconciliation(undefined)} />}
     {attachment && <AttachmentsDialog book={data?.book ?? view.book} recordId={attachment} readOnly={locked} onClose={() => setAttachment(undefined)} />}
     {batchAction && <Dialog open title={batchAction === "delete" ? "批量删除流水" : "批量编辑流水"} error={action.error}
       onClose={() => { if (!action.working) setBatchAction(undefined); }} initialFocusRef={cancel}

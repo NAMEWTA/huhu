@@ -1,4 +1,4 @@
-import { errors, LedgerAccount, LedgerBalanceBase, LedgerBook, LedgerRecord } from "@huhu/contracts";
+import { errors, LedgerAccount, LedgerBalanceBase, LedgerBook, LedgerOffsetGroup, LedgerRecord } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor as descriptor, durableExternal, type CapabilityContext, type PluginEntry } from "@huhu/kernel";
 import type { OpStep } from "@huhu/vault";
 import { z } from "zod";
@@ -15,6 +15,10 @@ import { LedgerStore, type BookState } from "./store.js";
 import { ConfirmImport, CsvResult, ExportCsv, ImportFile, ImportPreview, ImportReference, ImportResult, MappingList, ResolveImport, SaveMapping } from "../shared/imports.js";
 import { LedgerImports } from "./imports.js";
 import { exportCsv } from "./csv-export.js";
+import { CandidateGroups, ConfirmMerge, ConfirmOffset, DuplicateSearch, MergeInput, MergePreview, MergeResult,
+  OffsetGroupView, OffsetInput, OffsetPreview, OffsetSearch, UndoOffset } from "../shared/reconciliation.js";
+import { duplicateCandidates, offsetCandidates } from "./reconciliation-matches.js";
+import { addOffset, groupView, merge, previewMerge, previewOffset, undoOffset } from "./reconciliation.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
@@ -58,6 +62,14 @@ const descriptors = {
   mappings: descriptor({ ...read, name: "ledger.mappings.list", title: "列出账单映射", description: "列出本账本的来源账户和分类规则", input: BookRef, output: MappingList }),
   saveMappings: descriptor({ ...write, name: "ledger.mappings.save", title: "保存账单映射", description: "保存来源和条件的归一化映射", input: SaveMapping, output: MappingList }),
   exportCsv: descriptor({ ...read, risk: "high", name: "ledger.exports.csv", title: "导出筛选后的流水", description: "按流水明细同一筛选返回完整 CSV", input: ExportCsv, output: CsvResult }),
+  duplicates: descriptor({ ...read, name: "ledger.reconciliation.duplicates", title: "查找重复流水候选", description: "按当前范围、时间精度和匹配条件分组", input: DuplicateSearch, output: CandidateGroups }),
+  previewMerge: descriptor({ ...read, name: "ledger.reconciliation.previewMerge", title: "预览合并流水", description: "核对留存行、分类、账户和关联", input: MergeInput, output: MergePreview }),
+  confirmMerge: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.confirmMerge", title: "确认合并流水", description: "按预览版本迁移关联并合并流水", input: ConfirmMerge, output: MergeResult }),
+  offsetCandidates: descriptor({ ...read, name: "ledger.reconciliation.offsetCandidates", title: "查找平账候选", description: "查找同币种等额反向的流水组合", input: OffsetSearch, output: CandidateGroups }),
+  previewOffset: descriptor({ ...read, name: "ledger.reconciliation.previewOffset", title: "预览平账组", description: "核对选定成员与平账金额", input: OffsetInput, output: OffsetPreview }),
+  confirmOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.confirmOffset", title: "确认整组平账", description: "记录版本化平账组，保留原资金流水", input: ConfirmOffset, output: LedgerOffsetGroup }),
+  offsetGroup: descriptor({ ...read, name: "ledger.reconciliation.offsetGroup", title: "查看平账组", description: "按组员查看整组和平账版本", input: RecordRef, output: OffsetGroupView }),
+  undoOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.undoOffset", title: "撤销整组平账", description: "按组版本恢复成员的收支统计", input: UndoOffset, output: z.strictObject({ restored: z.int().positive() }) }),
 };
 
 export const ledgerCapabilityDescriptors = Object.values(descriptors);
@@ -130,4 +142,12 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
   }));
   api.defineCapability(bindCapability(descriptors.saveMappings, (context, input) => imports.saveMappings(context, input)));
   api.defineCapability(bindCapability(descriptors.exportCsv, async (_context, { bookId, filters }) => exportCsv(await snapshot(bookId), filters)));
+  api.defineCapability(bindCapability(descriptors.duplicates, async (_context, input) => duplicateCandidates(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.previewMerge, async (_context, input) => previewMerge(await currentSnapshot(input), input)));
+  api.defineCapability(bindCapability(descriptors.confirmMerge, (context, input) => change(context, input, (state) => merge(state, input))));
+  api.defineCapability(bindCapability(descriptors.offsetCandidates, async (_context, input) => offsetCandidates(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.previewOffset, async (_context, input) => previewOffset(await currentSnapshot(input), input)));
+  api.defineCapability(bindCapability(descriptors.confirmOffset, (context, input) => change(context, input, (state) => addOffset(state, input))));
+  api.defineCapability(bindCapability(descriptors.offsetGroup, async (_context, { bookId, recordId }) => groupView(await snapshot(bookId), recordId)));
+  api.defineCapability(bindCapability(descriptors.undoOffset, (context, input) => change(context, input, (state) => undoOffset(state, input))));
 };

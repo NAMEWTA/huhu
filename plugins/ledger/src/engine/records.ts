@@ -52,7 +52,11 @@ export function saveRecord(state: BookState, input: Input, title: string, previo
     id: previous?.id ?? randomUUID(), bookId: state.book.id, revision: randomUUID(),
   });
   if (previous) {
-    requireNoOffset(state, previous);
+    if (offsets(state).has(previous.id) && (row.type === "transfer" || previous.type === "transfer" || row.type !== previous.type ||
+        row.amountMinor !== previous.amountMinor || row.accountId !== previous.accountId || row.currency !== previous.currency ||
+        Date.parse(row.occurredAt) !== Date.parse(previous.occurredAt))) {
+      throw errors.invalidInput("修改已平账流水的金额、账户或日期前，须先撤销整组平账");
+    }
     state.records[state.records.indexOf(previous)] = row;
   } else state.records.push(row);
   state.recordTitles[row.id] = title;
@@ -118,6 +122,7 @@ export function recordsPage(store: LedgerStore, state: BookState, { filters, pag
   const sums = new Map<Currency, Record<MoneyLeg["column"], bigint>>();
   const matching = filteredRecords(state, filters);
   for (const row of matching) {
+    if (offsetRows.has(row.id)) continue;
     for (const { currency, amount, column } of legs(row)) {
       if (filters.currency && currency !== filters.currency) continue;
       const sum = sums.get(currency) ?? { incomeMinor: 0n, expenseMinor: 0n, transferOutMinor: 0n, transferInMinor: 0n };
@@ -147,8 +152,10 @@ export function duplicateRecord(state: BookState, original: LedgerRecord) {
 export function previewBatch(state: BookState, input: z.infer<typeof InputBatch>) {
   const selection = input.selection.map(({ recordId, recordRevision }) => findRecord(state, recordId, recordRevision));
   for (const row of selection) {
-    requireNoOffset(state, row);
-    if (input.action.kind === "update") {
+    if (input.action.kind === "delete") {
+      requireNoOffset(state, row);
+      if (state.recordReferences.some(({ recordId }) => recordId === row.id)) throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
+    } else {
       const { patch } = input.action;
       validateDimensions(state, { categoryId: patch.categoryId === undefined ? row.categoryId : patch.categoryId, tagIds: patch.tagIds ?? row.tagIds }, row);
     }

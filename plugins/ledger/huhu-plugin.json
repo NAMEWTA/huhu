@@ -40,7 +40,15 @@
       "ledger.imports.status",
       "ledger.mappings.list",
       "ledger.mappings.save",
-      "ledger.exports.csv"
+      "ledger.exports.csv",
+      "ledger.reconciliation.duplicates",
+      "ledger.reconciliation.previewMerge",
+      "ledger.reconciliation.confirmMerge",
+      "ledger.reconciliation.offsetCandidates",
+      "ledger.reconciliation.previewOffset",
+      "ledger.reconciliation.confirmOffset",
+      "ledger.reconciliation.offsetGroup",
+      "ledger.reconciliation.undoOffset"
     ]
   }
 }
