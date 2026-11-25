@@ -317,7 +317,7 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
     let rotate = false;
     let starts = 0;
     const name = "HUHU_RULE_SECRET_LEASE";
-    const observe = vi.spyOn(AutomationsService.prototype, "activateNonAgent");
+    const observe = vi.spyOn(AutomationsService.prototype, "activateTerminal");
     const actualCall = HerdrClient.prototype.call;
     const count = vi.spyOn(HerdrClient.prototype, "call").mockImplementation(async function <T>(this: HerdrClient, method: string, params?: unknown) {
       if (method === "terminal.run") starts++;
@@ -372,10 +372,10 @@ test.skipIf(process.platform !== "win32" || process.arch !== "x64" || !coreBinar
       const slot = new Date();
       const beforeSchedule = revision;
       rotate = true;
-      const scheduled = await service.activateNonAgent(rule.id, "schedule", slot);
+      const scheduled = await service.activateTerminal(rule.id, "schedule", slot);
       expect(scheduled.summary).toEqual({ state: "failed" });
       expect(revision).not.toBe(beforeSchedule);
-      expect(await service.activateNonAgent(rule.id, "schedule", slot)).toEqual(scheduled);
+      expect(await service.activateTerminal(rule.id, "schedule", slot)).toEqual(scheduled);
       await service.reconcileTerminals();
       await service.idle();
       expect(starts).toBe(0);
