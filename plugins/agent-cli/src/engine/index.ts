@@ -343,7 +343,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
           }
         }
       }
-      const out = settingsStore.write({ defaultAgent: i.defaultAgent, ...(i.waitingTasks !== undefined ? { waitingTasks: i.waitingTasks } : {}), agents: i.agents }, i.expectedRevision);
+      const out = settingsStore.write({ defaultAgent: i.defaultAgent, agents: i.agents }, i.expectedRevision);
       detector.invalidate(); // command / enabled 可能变了，旧检测结果不再可信
       detector.snapshot();
       return external || parentOperationId ? summarizeSettings(out) : out;

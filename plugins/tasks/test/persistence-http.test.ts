@@ -444,10 +444,13 @@ test("最早派遣按显式时区保存，只有工作台可以提前派遣当�
   const shifted = await call<TaskDto>(engine, "tasks.update", { id: task.id, expectedVersion: task.version, patch: { availableAt: "2026-11-21T18:00:00+08:00" } });
   expect(shifted).toMatchObject({ ok: true, data: { availableAt: "2026-11-21T10:00:00.000Z", inputHash: task.inputHash, inputRevision: task.inputRevision } });
   ready.mockResolvedValue("ready");
-  await waitDispatch(engine, early.data, { state: "pending", reason: "waiting_schedule" });
+  await waitDispatch(engine, early.data, { state: "stale_input", reason: "waiting_schedule" });
+  expect(await call(engine, "plugins.setEnabled", { id: "automations", enabled: false })).toMatchObject({ ok: true });
   expect(fake.dispatch).not.toHaveBeenCalled();
   fixture.now = new Date("2026-11-21T10:00:00Z");
-  await waitDispatch(engine, early.data, { state: "running", reason: null });
+  await waitDispatch(engine, early.data, { state: "stale_input", reason: "waiting_schedule" });
+  const immediate = await acceptDispatch(engine, intent(shifted.data));
+  await waitDispatch(engine, immediate, { state: "running", reason: null });
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
 
   const later = await create(engine, "2026-11-23T09:00:00+08:00");

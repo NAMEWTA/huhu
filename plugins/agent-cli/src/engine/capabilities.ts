@@ -1,6 +1,6 @@
 import { defineCapabilityDescriptor, durableExternal } from "@huhu/kernel";
 import { z } from "zod";
-import { AgentSettingsEntry } from "../shared/settings.js";
+import { AgentSettingsEntry, AgentSettingsFile } from "../shared/settings.js";
 import { SpaceSchema } from "../shared/space.js";
 import { WorkspaceLaunchViewSchema, WorkspaceTargetSchema } from "../shared/workspace-layout.js";
 import { agentEnvironmentDescriptors } from "./launch-environment.js";
@@ -22,7 +22,7 @@ const DetectOut = z.object({
   models: z.array(z.object({ id: z.string(), label: z.string(), efforts: z.array(z.string()), fast: z.boolean() })).optional(),
 });
 const SettingsOut = z.object({
-  settings: z.object({ schema: z.literal(1), revision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
+  settings: AgentSettingsFile,
   warning: z.string().optional(),
 });
 const LaunchTarget = z.object({
@@ -216,7 +216,7 @@ export const mainAgentDescriptors = {
     title: "更新 Agent 设置",
     description: "按版本更新 Agent CLI 设置。",
     ...durableExternal,
-    input: z.object({ expectedRevision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),
+    input: z.object({ expectedRevision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), agents: z.record(z.string(), AgentSettingsEntry) }),
     output: SettingsOut.shape.settings,
   }),
   launchEnvironmentsPreview: defineCapabilityDescriptor({

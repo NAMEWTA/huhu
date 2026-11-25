@@ -4,10 +4,10 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDefinition, type CapabilityDescriptor, type FocusDeadlinePort, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
-import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
+import type { TaskFollowUpDispatch, TaskScheduleAdmission } from "../../../tasks/src/engine/index.js";
 import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, periodicPlanSourceService, type PeriodicPlanSource, type TaskActivityQuery } from "@huhu/contracts";
 import { z } from "zod";
-import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
+import { DEFAULT_TASK_SCAN_RULE_ID, DefaultTaskScan } from "./default-task-scan.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { FocusDeadlinePlans } from "./focus-deadline.js";
@@ -25,7 +25,7 @@ import { registerTaskScanTools, TaskScanAction, taskScanAuthorization, taskScanT
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
 export { AutomationsService } from "./service.js";
-export { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "./default-task-scan.js";
+export { DEFAULT_TASK_SCAN_RULE_ID } from "./default-task-scan.js";
 export { Scheduler } from "./scheduler.js";
 export { taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 export { terminalEnvironmentDescriptors } from "./terminal-environment.js";
@@ -339,6 +339,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     (taskId) => api.events.publish("entity.changed", { kind: "task-follow-up", id: taskId, op: "updated" }),
   );
   api.provide("taskFollowUps", followUps);
+  api.provide("taskScheduleAdmission", ((source, taskId) => source.kind === "follow-up"
+    ? followUps.allowsDispatch(taskId, source.followUpId, source.scheduledFor)
+    : scans.allowsDispatch(source.ruleId, source.ruleVersion, source.occurrenceId)) satisfies TaskScheduleAdmission);
   const taskReminders = new TaskReminderPlans(
     stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
@@ -416,7 +419,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     };
   });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
-  api.provide(DEFAULT_TASK_SCAN_SERVICE, defaults);
   ctx.effect(() => () => defaults.close());
 
   const activate = async (ruleId: string, at: Date | null): Promise<ActivationRecord | null> => {
@@ -425,8 +427,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       const occurrence = at ? await scans.scheduled(ruleId, at) : await scans.invoke(ruleId);
       return occurrence ? scans.activation(occurrence) : null;
     }
-    if (action.kind === "reminder" && reminders) return reminders.activate(ruleId, at);
-    return svc.activateNonAgent(ruleId, at ? "schedule" : "manual", at);
+    if (action.kind === "reminder") {
+      if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
+      return reminders.activate(ruleId, at);
+    }
+    return svc.activateTerminal(ruleId, at ? "schedule" : "manual", at);
   };
   const scheduler = new Scheduler({
     activate: async (ruleId, at) => {
@@ -559,7 +564,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
           const occurrence = await scans.invokeWorkbench({ ruleId: id, expectedVersion, intentId }, principal, signal);
           a = scans.activation(occurrence);
         } else if (currentAction === "terminal") {
-          a = await svc.activateNonAgent(id, "manual", null, expectedVersion);
+          a = await svc.activateTerminal(id, "manual", null, expectedVersion);
         } else {
           if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
           a = await reminders.activateManual(id, expectedVersion, caller, intentId);

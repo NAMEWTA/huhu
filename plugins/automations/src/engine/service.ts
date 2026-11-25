@@ -444,38 +444,28 @@ export class AutomationsService {
     appendFileSync(path.join(this.d.activationsDir, `${iso(this.d.now()).slice(0, 7)}.ndjson`), JSON.stringify(r) + "\n");
   }
 
-  activateNonAgent(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null, expectedVersion?: string): Promise<ActivationRecord> {
+  activateTerminal(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null, expectedVersion?: string): Promise<ActivationRecord> {
     const rule = this.rule(ruleId);
     if (expectedVersion !== undefined && rule.version !== expectedVersion) throw errors.versionConflict(rule.version);
-    if (rule.data.action.kind === "agent") throw errors.invalidInput("Agent 规则由 Tasks 接受派遣");
-    if (hasLegacyTerminalEnvironment(rule.data.action)) throw errors.invalidInput("旧规则需要重新配置受保护环境");
-    return this.activateRule(rule, trigger, scheduledFor);
-  }
-
-  private async activateRule(rule: ReturnType<AutomationsService["rule"]>, trigger: "schedule" | "manual", scheduledFor: Date | null): Promise<ActivationRecord> {
-    const ruleId = rule.id;
-    // 定时触发只对已启用的规则生效（规则被恢复/外部修改为暂停后，内存里的作业可能还没重建）
-    if (trigger === "schedule" && !rule.data.enabled) return { activationId: "skipped", ruleId, trigger, scheduledFor: null, startedAt: iso(this.d.now()), summary: { state: "paused" } };
-    const slot = scheduledFor ? iso(scheduledFor) : null;
     const a = rule.data.action;
-    if (trigger === "schedule" && slot && a.kind === "terminal") return this.activateScheduledTerminal(rule, a, slot);
+    if (a.kind !== "terminal") throw errors.invalidInput("规则不是终端动作");
+    if (hasLegacyTerminalEnvironment(a)) throw errors.invalidInput("旧规则需要重新配置受保护环境");
+    if (trigger === "schedule" && !rule.data.enabled) return Promise.resolve({ activationId: "skipped", ruleId, trigger, scheduledFor: null, startedAt: iso(this.d.now()), summary: { state: "paused" } });
+    const slot = scheduledFor ? iso(scheduledFor) : null;
+    if (trigger === "schedule" && slot) return this.activateScheduledTerminal(rule, a, slot);
     return this.withRule(ruleId, async () => {
       const rec: ActivationRecord = { activationId: newId("cap").replace("cap", "act"), ruleId, trigger, scheduledFor: slot, startedAt: iso(this.d.now()) };
       this.writeActivation(rec);
       this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger });
-      let summary: ActivationRecord["summary"];
-      if (a.kind === "terminal") {
-        let revision: string | null = null;
-        let failure = "";
-        try {
-          revision = this.terminalEnvironment(ruleId)?.revision ?? null;
-        } catch {
-          failure = "无法冻结规则的受保护环境修订。";
-        }
-        const run = await this.createTerminalRun(rec, { failure });
-        summary = failure ? { state: "failed" } : await this.runTerminalAction(run, rule.data.title, a, undefined, revision);
-      } else if (a.kind === "reminder") summary = await this.runReminderAction(rule.data.title, a);
-      else summary = { state: "unsupported" };
+      let revision: string | null = null;
+      let failure = "";
+      try {
+        revision = this.terminalEnvironment(ruleId)?.revision ?? null;
+      } catch {
+        failure = "无法冻结规则的受保护环境修订。";
+      }
+      const run = await this.createTerminalRun(rec, { failure });
+      const summary = failure ? { state: "failed" } : await this.runTerminalAction(run, rule.data.title, a, undefined, revision);
       const pending = "state" in summary && (summary.state === "running" || summary.state === "unknown");
       const done = { ...rec, ...(pending ? {} : { finishedAt: iso(this.d.now()) }), summary };
       this.writeActivation(done);
@@ -862,29 +852,6 @@ export class AutomationsService {
     const run = this.d.repo.read("automation-run", runId);
     if (run.data["terminalOwner"] === this.d.terminalOwner && run.data["sessionId"] === sessionId && run.data["terminalReleasePending"] === true) {
       await this.d.repo.patch("automation-run", runId, { terminalReleasePending: false }, run.version);
-    }
-  }
-
-  /** reminder 动作：发站内通知，或新建一个人工任务（引用可选的关联任务），或两者都做。 */
-  private async runReminderAction(ruleTitle: string, a: { mode: "notification" | "task" | "both"; text: string; taskId: string | null }): Promise<{ state: string }> {
-    const ref = a.taskId ? `\n\n相关任务：[[${this.taskPath(a.taskId) ?? a.taskId}]]` : "";
-    if (a.mode === "notification" || a.mode === "both") this.d.notify({ title: a.text, module: a.taskId ? "tasks" : "automations" });
-    if (a.mode === "task" || a.mode === "both") {
-      try {
-        await this.d.call("tasks.create", { title: a.text.slice(0, 200), type: "human", body: `${a.text}${ref}\n\n（由自动化「${ruleTitle}」创建）` }, newId("cap"));
-      } catch (e) {
-        this.d.notify({ title: `自动化「${ruleTitle}」创建任务失败：${e instanceof Error ? e.message : String(e)}`, module: "automations" });
-        return { state: "failed" };
-      }
-    }
-    return { state: "succeeded" };
-  }
-
-  private taskPath(taskId: string): string | null {
-    try {
-      return this.d.taskQuery()?.snapshot(taskId).path ?? null;
-    } catch {
-      return null;
     }
   }
 

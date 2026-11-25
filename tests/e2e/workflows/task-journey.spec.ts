@@ -651,7 +651,6 @@ test("T7.2 候选安装包：后台到期、原生问题同会话继续、一次
         await call("agent.settings.update", {
           expectedRevision: settings.revision,
           defaultAgent: settings.defaultAgent,
-          ...(settings.waitingTasks === undefined ? {} : { waitingTasks: settings.waitingTasks }),
           agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider!, enabled: true } },
         });
         const available = await call<{ id: string; installed: boolean; headless: boolean; path?: string }[]>("agent.catalog.refresh");
