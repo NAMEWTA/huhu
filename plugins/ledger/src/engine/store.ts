@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { errors, HuhuError, LedgerAccount, LedgerBalanceBase, LedgerBook, LedgerRecord, ledgerBusinessDate } from "@huhu/contracts";
+import { errors, HuhuError, LedgerAccount, LedgerBalanceBase, LedgerBook, LedgerOffsetGroup, LedgerRecord, ledgerBusinessDate } from "@huhu/contracts";
 import type { CapabilityContext, EventBus } from "@huhu/kernel";
 import { OperationLog, type OpStep, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { BookId, type Book, type BookList, type CreateBook, type RemovalPreview } from "../shared/books.js";
+import { AccountLabels, Attachment, DictionaryItem, EntryId } from "../shared/entries.js";
 
 const directory = ".huhu/ledger";
 const indexPath = directory + "/books.json";
 export const bookDirectory = (id: string) => directory + "/books/" + BookId.parse(id);
 const bookPath = (id: string) => bookDirectory(id) + "/state.json";
+export const attachmentPath = (bookId: string, id: string) => bookDirectory(bookId) + "/attachments/" + EntryId.parse(id);
 const indexSchema = z.strictObject({
   format: z.literal(1),
   ids: z.array(BookId),
@@ -19,6 +21,11 @@ export const stateSchema = z.strictObject({
   accounts: z.array(LedgerAccount),
   bases: z.array(LedgerBalanceBase),
   records: z.array(LedgerRecord),
+  accountLabels: z.record(EntryId, AccountLabels).default({}),
+  dictionary: z.array(DictionaryItem).default([]),
+  recordTitles: z.record(EntryId, z.string().min(1).max(150)).default({}),
+  attachments: z.array(Attachment).default([]),
+  offsets: z.array(LedgerOffsetGroup).default([]),
 });
 
 type BookIndex = z.infer<typeof indexSchema>;
@@ -89,6 +96,8 @@ export class LedgerStore {
 
   snapshot(bookId: string): BookState { return this.state(bookId).data; }
 
+  businessDate(book: Book): string { return ledgerBusinessDate(this.now().toISOString(), book.timeZone); }
+
   list(): BookList {
     const { data } = this.index();
     return { books: data.ids.map((id) => this.snapshot(id).book), activeBookId: data.activeBookId, readOnly: this.files.readOnly };
@@ -127,7 +136,7 @@ export class LedgerStore {
       const base = LedgerBalanceBase.parse({
         bookId: book.id, accountId: account.id, effectiveBusinessDate: ledgerBusinessDate(this.now().toISOString(), timeZone), balanceMinor: "0", revision: randomUUID(),
       });
-      const state: BookState = { book, accounts: [account], bases: [base], records: [] };
+      const state = stateSchema.parse({ book, accounts: [account], bases: [base], records: [] });
       const next: BookIndex = { format: 1, ids: [...index.data.ids, book.id], activeBookId: book.id };
       await this.transaction(context, "ledger-book-create", [
         write(bookPath(book.id), state, null),
@@ -151,14 +160,20 @@ export class LedgerStore {
     });
   }
 
-  change<T>(context: Context, bookId: string, expectedRevision: string, update: (state: BookState) => T): Promise<T> {
+  change<T>(context: Context, bookId: string, expectedRevision: string, update: (state: BookState, steps: OpStep[]) => T): Promise<T> {
     return this.enqueue(context, async () => {
       const prior = this.state(bookId);
       this.assertRevision(prior.data.book, expectedRevision);
-      prior.data.book.revision = randomUUID();
-      const result = update(prior.data);
-      const state = stateSchema.parse(prior.data);
-      await this.files.write(bookPath(bookId), bytes(state), { expectedVersion: prior.version, beforeCommit: () => this.requireWrite(context) });
+      const draft = structuredClone(prior.data);
+      draft.book.revision = randomUUID();
+      const steps: OpStep[] = [];
+      const result = update(draft, steps);
+      const state = stateSchema.parse(draft);
+      if (steps.length > 0) {
+        await this.transaction(context, "ledger-book-change", [...steps, write(bookPath(bookId), state, prior.version)], { index: this.index(), bookId, state: prior });
+      } else {
+        await this.files.write(bookPath(bookId), bytes(state), { expectedVersion: prior.version, beforeCommit: () => this.requireWrite(context) });
+      }
       this.emit(bookId, "updated");
       return result;
     });
@@ -184,8 +199,8 @@ export class LedgerStore {
   }
 
   previewRemoval(bookId: string): RemovalPreview {
-    const { book, accounts, records } = this.snapshot(bookId);
-    return { book, accounts: accounts.length, records: records.length, attachments: 0 };
+    const { book, accounts, records, attachments } = this.snapshot(bookId);
+    return { book, accounts: accounts.length, records: records.length, attachments: attachments.length };
   }
 
   remove(context: Context, bookId: string, revision: string, confirmedName: string) {
@@ -197,9 +212,15 @@ export class LedgerStore {
       if (book.name !== confirmedName) throw errors.invalidInput("请输入要删除的账本完整名称");
       const ids = index.data.ids.filter((id) => id !== bookId);
       const activeBookId = index.data.activeBookId === bookId ? (ids[0] ?? null) : index.data.activeBookId;
+      const attachments = state.data.attachments.flatMap(({ id }): OpStep[] => {
+        const target = attachmentPath(bookId, id);
+        const expectedVersion = this.files.currentVersion(target);
+        return expectedVersion === null ? [] : [{ action: "delete", path: target, expectedVersion }];
+      });
       await this.transaction(context, "ledger-book-remove", [
         { action: "delete", path: bookPath(bookId), expectedVersion: state.version },
         write(indexPath, { ...index.data, ids, activeBookId }, index.version),
+        ...attachments,
       ], { index, bookId, state });
       this.emit(bookId, "deleted");
       return { ok: true as const };

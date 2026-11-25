@@ -96,3 +96,79 @@ test("L1 独立 Web 工作台建账，桌面打开同一 Vault 的账本", async
     rmTree(sandbox);
   }
 });
+
+test("L2 收入、支出与转账得到 95/125，带凭证流水重开后可编辑", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-entries-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  try {
+    app = await launch(vault);
+    let page = await app.firstWindow();
+    await engineReady(page);
+    let ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "闭环账本", "银行");
+    await page.getByTestId("ledger-nav-accounts").click();
+    await ledger.getByRole("button", { name: "校准余额 银行" }).click();
+    const calibration = page.getByRole("dialog", { name: "校准余额" });
+    await calibration.getByLabel("日初校准余额").fill("100");
+    await calibration.getByRole("button", { name: "预览校准" }).click();
+    await expect(calibration).toContainText("TWD 100.00");
+    await calibration.getByRole("button", { name: "确认校准" }).click();
+    await expect(calibration).toBeHidden();
+
+    await ledger.getByRole("button", { name: "新增账户" }).click();
+    const account = page.getByRole("dialog", { name: "新增资金账户" });
+    await account.getByLabel("账户名称").fill("钱包");
+    await account.getByLabel("账户类型", { exact: true }).selectOption("wallet");
+    await account.getByLabel("期初余额").fill("100");
+    await account.getByRole("button", { name: "保存账户" }).click();
+    await expect(account).toBeHidden();
+    await page.getByTestId("ledger-nav-records").click();
+
+    for (const [type, title, amount] of [["income", "收入", "30"], ["expense", "支出", "10"], ["transfer", "转账", "25"]] as const) {
+      await ledger.getByRole("button", { name: "记一笔", exact: true }).click();
+      const entry = page.getByRole("dialog", { name: "记一笔" });
+      await entry.getByLabel("事项").fill(title);
+      await entry.getByLabel("交易类型").selectOption(type);
+      await entry.getByLabel(type === "transfer" ? "转出账户" : "资金账户").selectOption({ label: "银行 · TWD" });
+      if (type === "transfer") await entry.getByLabel("转入账户").selectOption({ label: "钱包 · TWD" });
+      await entry.getByLabel("金额", { exact: true }).fill(amount);
+      await entry.getByRole("button", { name: "保存流水" }).click();
+      await expect(entry).toBeHidden();
+    }
+    const summary = ledger.getByRole("list", { name: "筛选汇总" });
+    await expect(summary).toContainText("收入 TWD 30.00");
+    await expect(summary).toContainText("支出 TWD 10.00");
+    await ledger.getByRole("button", { name: "凭证 支出" }).click();
+    const receipts = page.getByRole("dialog", { name: "流水凭证" });
+    await receipts.getByLabel("选择凭证文件").setInputFiles({
+      name: "receipt.txt", mimeType: "text/plain", buffer: Buffer.from("账本验收凭证"),
+    });
+    await receipts.getByRole("button", { name: "上传凭证" }).click();
+    await expect(receipts.getByRole("button", { name: "下载 receipt.txt" })).toBeVisible();
+    await receipts.getByRole("button", { name: "完成" }).click();
+    await page.getByTestId("ledger-nav-accounts").click();
+    const balances = ledger.getByRole("table", { name: "资金账户" });
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "银行", exact: true }) })).toContainText("TWD 95.00");
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "钱包", exact: true }) })).toContainText("TWD 125.00");
+    await app.close();
+
+    app = await launch(vault);
+    page = await app.firstWindow();
+    await engineReady(page);
+    ledger = await enterLedger(page);
+    await page.getByTestId("ledger-nav-records").click();
+    await ledger.getByRole("button", { name: "编辑 支出" }).click();
+    const edit = page.getByRole("dialog", { name: "编辑流水" });
+    await edit.getByLabel("事项").fill("重开后编辑");
+    await edit.getByRole("button", { name: "保存流水" }).click();
+    await expect(edit).toBeHidden();
+    await ledger.getByRole("button", { name: "凭证 重开后编辑" }).click();
+    await expect(page.getByRole("dialog", { name: "流水凭证" }).getByRole("button", { name: "下载 receipt.txt" })).toBeVisible();
+  } finally {
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});

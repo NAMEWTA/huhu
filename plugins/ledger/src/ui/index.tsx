@@ -1,48 +1,27 @@
 import { Button, Dialog, Select } from "@huhu/ui";
-import { useCapability, useEngine, useQueryClient, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
+import { useCapability, useEngine, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
 import { BookOpen, Plus } from "lucide-react";
-import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { Book, BookList, RemovalPreview } from "../shared/books.js";
+import { AccountsSection } from "./Accounts.js";
+import { Overview, RecordsSection } from "./Records.js";
+import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
 
-export const currencies = ["CNY", "TWD", "USD", "JPY"];
 const zones = ["Asia/Taipei", "Asia/Shanghai", "America/New_York", "UTC"];
-
-export function LedgerField({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="hu-field"><span className="hu-field-label">{label}</span>{children}</label>;
-}
-
-export function useLedgerAction() {
-  const engine = useEngine();
-  const queries = useQueryClient();
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState<string>();
-  async function run<T>(capability: string, input: unknown, write = true): Promise<T | undefined> {
-    setError(undefined);
-    setWorking(true);
-    try {
-      const reply = await engine.call<T>(capability, input, { write });
-      if (write) await queries.invalidateQueries({ predicate: ({ queryKey: [vault, name] }) =>
-        vault === engine.vaultId && typeof name === "string" && name.startsWith("ledger.") });
-      return reply;
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "账本操作失败");
-      return undefined;
-    } finally {
-      setWorking(false);
-    }
-  }
-  return { run, working, error, clearError: () => setError(undefined) };
-}
-
-const version = (book: Book) => ({ bookId: book.id, expectedRevision: book.revision });
 type Editor = { mode: "create" } | { mode: "rename"; book: Book } | { mode: "remove"; preview: RemovalPreview };
 
-function LedgerModule(props: ModuleProps) {
+interface QuickEntry {
+  subscribe(listener: () => void): () => void;
+  get(): boolean;
+  set(pending: boolean): void;
+}
+function LedgerModule(props: ModuleProps & { quick: QuickEntry }) {
   const engine = useEngine();
   return <LedgerPage key={engine.vaultId} {...props} />;
 }
 
-function LedgerPage({ section, onSection }: ModuleProps) {
+function LedgerPage({ section, onSection, quick }: ModuleProps & { quick: QuickEntry }) {
+  const quickEntry = useSyncExternalStore(quick.subscribe, quick.get);
   const list = useCapability<BookList>("ledger.books.list", {});
   const { run, working, error, clearError } = useLedgerAction();
   const [ephemeralBook, setEphemeralBook] = useState("");
@@ -73,7 +52,7 @@ function LedgerPage({ section, onSection }: ModuleProps) {
         firstAccount: { name: form.get("account") },
       });
       if (!book) return;
-      onSection("overview");
+      onSection(quickEntry ? "records" : "overview");
       setNotice("账本已创建。");
     } else if (editor.mode === "rename") {
       if (!await run("ledger.books.update", { ...version(editor.book), name: form.get("name") })) return;
@@ -123,10 +102,9 @@ function LedgerPage({ section, onSection }: ModuleProps) {
             }}>预览删除</Button>
           </div>
         </article>)}
-      </section> : current && <section className="hu-stack" aria-label="账本总览">
-        <h2>{current.name}</h2>
-        <p>默认币种 {current.defaultCurrency} · 业务时区 {current.timeZone}{current.status === "archived" ? " · 已归档" : ""}</p>
-      </section>}
+      </section> : current && (section === "accounts" ? <AccountsSection key={current.id} book={current} readOnly={readOnly} />
+        : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)} />
+        : <Overview book={current} readOnly={readOnly} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
     </div>
     {editor && <Dialog open title={editor.mode === "create" ? "创建账本" : editor.mode === "rename" ? "重命名账本" : "删除账本"}
       onClose={() => { if (!working) setEditor(undefined); }} error={error}
@@ -156,10 +134,28 @@ function LedgerPage({ section, onSection }: ModuleProps) {
   </div>;
 }
 
-const module: ModuleContribution = {
-  id: "ledger", plugin: "ledger", title: "账本", group: "primary", order: 55,
-  icon: <BookOpen size={18} aria-hidden />, component: LedgerModule, nav: "shell",
-  sections: [{ id: "overview", label: "总览" }, { id: "books", label: "账本设置" }],
-};
-
-export const contributions = { modules: [module] };
+export function createLedgerContributions(openRecords: () => void) {
+  let requested = false;
+  const listeners = new Set<() => void>();
+  const quick: QuickEntry = {
+    get: () => requested,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    set: (value) => {
+      if (requested === value) return;
+      requested = value;
+      for (const listener of listeners) listener();
+    },
+  };
+  const module: ModuleContribution = {
+    id: "ledger", plugin: "ledger", title: "账本", group: "primary", order: 55,
+    icon: <BookOpen size={18} aria-hidden />, component: (props) => <LedgerModule {...props} quick={quick} />, nav: "shell",
+    sections: [
+      { id: "overview", label: "总览" }, { id: "records", label: "流水" },
+      { id: "accounts", label: "账户" }, { id: "books", label: "账本设置" },
+    ],
+  };
+  return { modules: [module], commands: [{ id: "ledger.record", plugin: "ledger", title: "记一笔", run: () => { quick.set(true); openRecords(); } }] };
+}

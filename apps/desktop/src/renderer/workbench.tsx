@@ -5,7 +5,7 @@ import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
 import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as inboxUi, requestOpenCapture } from "@huhu/plugin-inbox/ui";
-import { contributions as ledgerUi } from "@huhu/plugin-ledger/ui";
+import { createLedgerContributions } from "@huhu/plugin-ledger/ui";
 import { createMailContributions, requestMailNotification } from "@huhu/plugin-mail/ui";
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
@@ -119,7 +119,11 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
     r.register(notesUi);
     r.register(tasksUi);
     r.register(inboxUi);
-    r.register(ledgerUi);
+    r.register(createLedgerContributions(() => {
+      const state = ui.getState();
+      state.setSection("ledger", "records");
+      state.openModule("ledger");
+    }));
     r.register(createMailContributions(() => ui.getState().openModule("mail")));
     r.register(safeUi);
     r.register(agentCliUi);

@@ -7,6 +7,7 @@
   "activation": "vault-open",
   "contributes": {
     "modules": ["ledger"],
+    "commands": ["ledger.record"],
     "capabilities": [
       "ledger.books.list",
       "ledger.books.create",
@@ -15,7 +16,23 @@
       "ledger.books.archive",
       "ledger.books.restore",
       "ledger.books.previewRemoval",
-      "ledger.books.remove"
+      "ledger.books.remove",
+      "ledger.accounts.list",
+      "ledger.accounts.create",
+      "ledger.accounts.update",
+      "ledger.accounts.setStatus",
+      "ledger.accounts.previewBalance",
+      "ledger.accounts.confirmBalance",
+      "ledger.dictionaries.save",
+      "ledger.records.list",
+      "ledger.records.get",
+      "ledger.records.create",
+      "ledger.records.update",
+      "ledger.records.clone",
+      "ledger.records.previewBatch",
+      "ledger.records.confirmBatch",
+      "ledger.attachments.upload",
+      "ledger.attachments.read"
     ]
   }
 }
