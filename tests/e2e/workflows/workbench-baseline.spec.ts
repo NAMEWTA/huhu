@@ -1,7 +1,9 @@
 import { chromium, expect, test, type Browser, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
@@ -302,6 +304,62 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await expect(rule).toBeHidden();
     await expect(ruleNew).toBeFocused();
   });
+});
+
+test("UX15 同步表单按容器重排，保存后从原计划继续管理", async ({ browserName }, info) => {
+  void browserName;
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ux15-"));
+  try {
+    const repository = path.join(fixture, `remote-${"long-repository-path-".repeat(5)}sync.git`);
+    execFileSync("git", ["init", "--bare", repository]);
+    const remote = pathToFileURL(repository).href;
+    await runOnHosts(info, async (page, name) => {
+      const mode = name === "electron" ? "full" : "follow";
+      const branch = `ux15/${name}`;
+      const rules = ["私有草稿/**", "scratch/**/*.tmp", "generated/"];
+      const rail = page.locator('[data-region="rail"]');
+      const settings = page.getByTestId("sync-settings");
+      const grid = settings.locator(".hu-sync-settings-grid");
+      const save = settings.getByTestId("sync-save");
+      const openSettings = async () => {
+        await rail.getByRole("button", { name: "设置", exact: true }).click();
+        await page.getByTestId("settings-nav-versioning").click();
+        await expect(settings).toBeVisible();
+      };
+      const columns = () => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+      await page.setViewportSize({ width: 1600, height: 930 });
+      await openSettings();
+      await expect.poll(columns).toBe(2);
+      await page.setViewportSize({ width: 480, height: 800 });
+      await expect.poll(columns).toBe(1);
+      await settings.getByTestId("sync-remote").fill(remote);
+      await settings.getByTestId("sync-branch").fill(branch);
+      await settings.getByTestId(`sync-mode-${mode}`).click();
+      await settings.getByTestId("sync-pull-sec").fill("3600");
+      if (mode === "full") await settings.getByTestId("sync-push-sec").fill("3600");
+      await settings.getByTestId("sync-exclude").fill(rules.join("\n"));
+      await expect.poll(() => settings.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      const button = await save.boundingBox();
+      expect(button?.height).toBeLessThan(60);
+      await save.click();
+      await expect(settings.getByTestId("sync-message")).toHaveText("已保存");
+      const persisted = await call<{ remote: string; branch: string; mode: string; exclude: string[]; periodics: { pull: { planId: string }; sync: { planId: string } } }>(page, "sync.get", {});
+      expect(persisted).toMatchObject({ remote, branch, mode, exclude: rules });
+      const plan = mode === "full" ? persisted.periodics.sync : persisted.periodics.pull;
+      await settings.getByRole("button", { name: mode === "full" ? "管理 Git 同步计划" : "管理 Git 拉取计划" }).click();
+      await expect(page.getByTestId("plan-directory")).toBeVisible();
+      await expect.poll(() => new URL(page.url()).searchParams.get("automation-plan")).toBe(plan.planId);
+      await page.setViewportSize({ width: 1600, height: 930 });
+      await openSettings();
+      await expect(settings.getByTestId("sync-remote")).toHaveValue(remote);
+      await expect(settings.getByTestId("sync-branch")).toHaveValue(branch);
+      await expect(settings.getByTestId("sync-exclude")).toHaveValue(rules.join("\n"));
+      await expect(settings.getByTestId(`sync-mode-${mode}`)).toBeChecked();
+      await expect(save).toBeDisabled();
+    });
+  } finally {
+    rmTree(fixture);
+  }
 });
 
 test("F22 命令面板隔离键盘焦点并在关闭或执行后恢复导航", async ({ browserName }, info) => {
