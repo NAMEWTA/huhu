@@ -519,3 +519,52 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     rmTree(sandbox);
   }
 });
+
+test("AW4 AU01 AU15 AU16 账本与中心双向定位同一计划且删除后插件重开不复活", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "计划来源账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
+    const { book, accounts, businessDate } = await call<{ book: { revision: string }; accounts: { id: string }[]; businessDate: string }>(page, "ledger.accounts.list", { bookId });
+    const startOn = new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10);
+    const { plan } = await call<{ plan: { planId: string; revision: string } }>(page, "ledger.recurring.create", {
+      bookId, expectedRevision: book.revision,
+      rule: { id: randomUUID(), title: "原账本计划", type: "expense", accountId: accounts[0]!.id,
+        currency: "TWD", amountMinor: "7500", startOn, frequency: "monthly", memo: null },
+    });
+    await ledger.getByRole("button", { name: "新建账本" }).click();
+    await createBook(page, "另一个账本", "现金");
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const center = page.getByTestId("plan-directory");
+    await center.getByTestId("rule-row").filter({ hasText: "原账本计划" }).click();
+    const inspector = center.getByTestId("rule-detail");
+    await inspector.getByRole("button", { name: "打开账本" }).click();
+    const row = ledger.getByTestId("ledger-recurring-row");
+    await expect(row.getByRole("heading", { name: "原账本计划" })).toBeFocused();
+    await expect(ledger.getByLabel("当前账本")).toHaveValue(bookId);
+    await expect(row).toHaveAttribute("data-plan-id", plan.planId);
+    await row.getByRole("button", { name: "启用计划" }).click();
+    const read = () => call<{ planId: string; revision: string; intent: string; nextAt: string | null }>(page, "automations.plans.read", { planId: plan.planId });
+    await expect.poll(read).toMatchObject({ planId: plan.planId, intent: "enabled", nextAt: ledgerBusinessDayRange(startOn, "Asia/Taipei").from });
+    expect((await read()).revision).not.toBe(plan.revision);
+    await row.getByRole("button", { name: "在自动化中心管理计划" }).click();
+    await expect(inspector.getByRole("heading", { name: "原账本计划" })).toBeFocused();
+    await inspector.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect.poll(read).toMatchObject({ planId: plan.planId, intent: "paused", nextAt: null });
+    await inspector.getByRole("button", { name: "打开账本" }).click();
+    await row.getByRole("button", { name: "删除计划" }).click();
+    const remove = page.getByRole("dialog", { name: "删除固定收支计划" });
+    await expect(remove.getByRole("button", { name: "取消" })).toBeFocused();
+    await remove.getByRole("button", { name: "删除计划" }).click();
+    await expect.poll(read).toMatchObject({ planId: plan.planId, intent: "deleted" });
+    await call(page, "plugins.setEnabled", { id: "ledger", enabled: false });
+    await call(page, "plugins.setEnabled", { id: "ledger", enabled: true });
+    await expect.poll(read).toMatchObject({ planId: plan.planId, intent: "deleted", nextAt: null });
+    expect(await call(page, "ledger.records.list", { bookId })).toMatchObject({ total: 0 });
+  } finally {
+    await close();
+  }
+});

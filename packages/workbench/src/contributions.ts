@@ -71,7 +71,7 @@ export interface SettingsPageContribution {
   icon: ReactNode;
   /** 同组内排序，越小越靠前。 */
   order: number;
-  component: ComponentType;
+  component: ComponentType<Pick<ModuleProps, "onNavigate">>;
 }
 
 export interface CommandContribution {

@@ -203,3 +203,32 @@ test("AW5：筛选原发生和逐项效果，重新读取不会再次发送通�
     await close();
   }
 });
+
+test("AW4 AU16 专注来源与中心共享计划修订和下次时间", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const focus = page.getByTestId("card-focus");
+    await focus.getByTestId("focus-start").click();
+    const readFocus = () => call<{ running: boolean; endsAt: string | null; plan: { planId: string; revision: string } }>(page, "home.focus.get", {});
+    await expect.poll(readFocus).toMatchObject({ running: true, plan: { planId: expect.any(String) } });
+    const source = await readFocus();
+    const read = () => call<PlanSummary>(page, "automations.plans.read", { planId: source.plan.planId });
+    expect(await read()).toMatchObject({ ...source.plan, intent: "enabled", nextAt: source.endsAt });
+    const eligible = await call<{ plans: PlanSummary[] }>(page, "automations.plans.list", { state: "enabled", order: "next", limit: 1 });
+    const summary = await call<{ next: PlanSummary | null }>(page, "automations.plans.summary", {});
+    expect(summary.next).toMatchObject({ planId: eligible.plans[0]?.planId, revision: eligible.plans[0]?.revision, nextAt: eligible.plans[0]?.nextAt });
+    await focus.getByRole("button", { name: "在自动化中心管理计划" }).click();
+    const inspector = page.getByTestId("rule-detail");
+    await expect(inspector.getByRole("heading", { name: "专注计时" })).toBeVisible();
+    await inspector.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect.poll(read).toMatchObject({ planId: source.plan.planId, intent: "paused", nextAt: null });
+    expect(await readFocus()).toMatchObject({ running: false, plan: { planId: source.plan.planId, revision: (await read()).revision } });
+    await inspector.getByRole("button", { name: "打开专注" }).click();
+    await expect(focus.getByTestId("focus-start")).toBeVisible();
+    await focus.getByTestId("focus-start").click();
+    await expect.poll(read).toMatchObject({ planId: source.plan.planId, intent: "enabled" });
+  } finally {
+    await close();
+  }
+});

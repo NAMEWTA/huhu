@@ -1,6 +1,6 @@
 import type { TaskDto } from "@huhu/contracts";
 import { Button, Dialog } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
+import { AutomationPlanLink, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useId, useMemo, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { FollowUpView } from "../../../automations/src/engine/follow-ups.js";
@@ -23,7 +23,7 @@ const skipReasons: Record<string, string> = {
   target_unavailable: "原会话当前无法接收跟进。",
 };
 
-export function TaskFollowUp({ task, zone }: { task: TaskDto; zone: string | undefined }) {
+export function TaskFollowUp({ task, zone, onNavigate }: { task: TaskDto; zone: string | undefined; onNavigate: ModuleProps["onNavigate"] }) {
   const engine = useEngine();
   const followUp = useCapability<FollowUp | null>("automations.followUps.get", { taskId: task.id });
   const [editor, setEditor] = useState<{ open: boolean; generation: number; zone: string; initial: string | number } | null>(null);
@@ -82,6 +82,7 @@ export function TaskFollowUp({ task, zone }: { task: TaskDto; zone: string | und
       <p role="status">{notice}</p>
       {followUp.error ? <p role="alert">{followUp.error.message}</p> : null}
       <div className="row">
+        {row?.planId && <AutomationPlanLink planId={row.planId} onNavigate={onNavigate} label="管理原跟进计划" />}
         {canSchedule ? <Button onClick={() => showDialog("edit")}>{row?.state === "scheduled" ? "改期" : row?.state === "needs_confirmation" ? "重新确认跟进" : "安排一次性跟进"}</Button> : null}
         {canChange && active ? <Button onClick={() => showDialog("cancel")}>取消跟进</Button> : null}
       </div>

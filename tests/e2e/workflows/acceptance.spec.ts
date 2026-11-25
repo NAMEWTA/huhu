@@ -944,7 +944,7 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
       action: { kind: "reminder", mode: "notification", text: "看板验收", taskId: null },
     });
     expect(rule.ok, JSON.stringify(rule.error)).toBe(true);
-    const rules = (await call("automations.list")).data as { data: { enabled: boolean } }[];
+    const plans = (await call("automations.plans.list")).data as { plans: { intent: string; nextAt: string | null }[] };
     const before = (await call("automations.runs.list")).data;
     const metrics = page.getByTestId("home-dashboard").locator('[data-instance-id="default-metrics"]');
     await expect(metrics.getByRole("alert")).toHaveText("无法读取卡片数据");
@@ -960,8 +960,8 @@ test("首页看板：概览读取失败由卡片重试，近期笔记、专注�
     await page.getByRole("button", { name: "添加 自动化摘要", exact: true }).click();
     await page.getByTestId("home-dashboard-save").click();
     const summary = page.getByTestId("card-automations-summary");
-    await expect(summary.getByTestId("automation-widget-rule-count")).toHaveText(`已启用 ${rules.filter(({ data }) => data.enabled).length} 条规则`);
-    await expect(summary.getByText("暂无运行记录")).toBeVisible();
+    await expect(summary.getByTestId("automation-widget-plan-count")).toHaveText(`已启用 ${plans.plans.filter(({ intent }) => intent === "enabled").length} 条计划`);
+    if (plans.plans.every(({ nextAt }) => nextAt === null)) await expect(summary.getByText("暂无待执行的计划")).toBeVisible();
     const board = path.join(vault, ".huhu", "home", "widgets.json");
     const saved = readFileSync(board);
     expect((await call("automations.runs.list")).data).toEqual(before);

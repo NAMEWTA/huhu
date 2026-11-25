@@ -93,12 +93,12 @@ function relatedDraft(draft: RelatedDraft, original: string): DraftContent {
   return { ...empty, ...seed, body: { type: "doc", content: [...writing, ...quoted] } };
 }
 
-export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
+export function MailModule({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "registerLeaveGuard" | "onNavigate">) {
   const engine = useEngine();
-  return <MailWorkspace key={engine.vaultId} {...(registerLeaveGuard && { registerLeaveGuard })} />;
+  return <MailWorkspace key={engine.vaultId} {...(registerLeaveGuard && { registerLeaveGuard })} {...(onNavigate && { onNavigate })} />;
 }
 
-function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
+function MailWorkspace({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "registerLeaveGuard" | "onNavigate">) {
   const engine = useEngine();
   const query = useQueryClient();
   const access = useCapability<{ readOnly: boolean }>("vault.info");
@@ -459,7 +459,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </>
         }
       />
-      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} settings={syncSettings} />
+      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} settings={syncSettings} onNavigate={onNavigate} />
       <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
       <MailCacheSettings readOnly={readOnly} />
       <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />

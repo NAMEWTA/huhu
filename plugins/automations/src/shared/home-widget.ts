@@ -5,7 +5,7 @@ export const automationSummaryWidget = defineHomeWidget({
   owner: "automations",
   id: "summary",
   title: "自动化摘要",
-  description: "查看启用的规则与最近一次运行。",
+  description: "查看各来源的启用计划、受阻数量和下次执行。",
   defaultSize: { w: 3, h: 3 },
   minSize: { w: 2, h: 2 },
   maxSize: { w: 6, h: 6 },
@@ -13,7 +13,6 @@ export const automationSummaryWidget = defineHomeWidget({
   configSchema: z.strictObject({}),
   defaultConfig: {},
   capabilities: [
-    { name: "automations.list", required: true },
-    { name: "automations.runs.list", required: false },
+    { name: "automations.plans.summary", required: true },
   ],
 });

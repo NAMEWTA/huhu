@@ -71,7 +71,7 @@ function HomeDashboard({ ui, registry }: HomeProps) {
       case "widget:kernel:metrics":
         return <MetricsCard title={instance.title} onNavigate={navigate} />;
       case "widget:kernel:focus":
-        return <FocusCard />;
+        return <FocusCard onNavigate={navigate} />;
       case "widget:kernel:habits":
         return (
           <section className="hu-card-alt">

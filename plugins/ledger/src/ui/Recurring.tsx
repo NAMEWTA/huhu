@@ -1,32 +1,38 @@
 import { ledgerBusinessDate, ledgerDecimalToMinor, type PlanSummary, type PlanWrite, type PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, Select } from "@huhu/ui";
-import { useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
-import { useId, useState, type FormEvent } from "react";
+import { useCapability, useEngine, writeAutomationPlanLink, type ModuleProps } from "@huhu/workbench";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { Book } from "../shared/books.js";
 import type { AccountsView } from "../shared/entries.js";
 import { RecurringInput, recurringLabels, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRow } from "../shared/recurring.js";
 import { displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
-export function LedgerRecurringPage({ book, readOnly, onNavigate }: { book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"] }) {
+export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId }: { book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"]; linkedPlanId: string | undefined }) {
   const engine = useEngine();
   const result = useCapability<RecurringList>("ledger.recurring.list", { bookId: book.id });
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
   const [draft, setDraft] = useState<{ id: string; revision: string } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [pending, setPending] = useState<PlanWrite | null>(null);
+  const [deleting, setDeleting] = useState<PlanSummary>();
   const [feedback, setFeedback] = useState("");
   const action = useLedgerAction();
   const createForm = useId();
+  const linkedHeading = useRef<HTMLHeadingElement>(null);
+  const keepPlan = useRef<HTMLButtonElement>(null);
+  const linkedRow = result.data?.rows.find(({ rule }) => rule.planId === linkedPlanId)?.rule.id;
+  useEffect(() => {
+    if (!linkedRow) return;
+    linkedHeading.current?.focus({ preventScroll: true });
+    linkedHeading.current?.scrollIntoView({ block: "nearest" });
+  }, [linkedRow]);
   const writable = !readOnly && book.status === "active";
   const formAccounts = accounts.data?.accounts.filter(({ status }) => status === "active") ?? [];
   const day = accounts.data?.businessDate;
 
   function center(plan: PlanSummary) {
     if (!onNavigate) return;
-    const url = new URL(location.href);
-    url.searchParams.set("automation-plan", plan.planId);
-    url.searchParams.set("automation-vault", engine.vaultId);
-    history.replaceState(history.state, "", url);
+    writeAutomationPlanLink(engine.vaultId, plan.planId);
     onNavigate("automations");
   }
 
@@ -63,7 +69,10 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate }: { book: Book
     if (!reply || reply.outcome === "unknown") return;
     setPending(null);
     if (reply.outcome === "not-accepted") action.setError(reply.error.message);
-    else setFeedback(reply.plan.intent === "enabled" ? "原计划已启用。" : "原计划已暂停。");
+    else {
+      setDeleting(undefined);
+      setFeedback(reply.plan.intent === "enabled" ? "原计划已启用。" : reply.plan.intent === "deleted" ? "原计划已删除。" : "原计划已暂停。");
+    }
   }
 
   async function retry(ruleId: string, periodId: string) {
@@ -91,16 +100,16 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate }: { book: Book
       <p>业务时区 {book.timeZone}</p>
       {feedback ? <p role="status">{feedback}</p> : null}
       {result.isPending ? <p role="status">正在读取固定收支…</p> : null}
-      {result.error || (!draft && action.error) ? <p role="alert">{result.error?.message ?? action.error}</p> : null}
-      {pending ? (
+      {result.error || (!draft && !deleting && action.error) ? <p role="alert">{result.error?.message ?? action.error}</p> : null}
+      {pending && !deleting ? (
         <Button disabled={action.working} onClick={() => void writePlan(pending)}>
           核对原计划操作
         </Button>
       ) : null}
       {result.data?.rows.length === 0 ? <p>还没有固定收支。</p> : null}
       {result.data?.rows.map(({ rule, plan, periods }: RecurringRow) => (
-        <article key={rule.id} className="hu-stack" data-testid="ledger-recurring-row">
-          <h3>{rule.title}</h3>
+        <article key={rule.id} className="hu-stack" data-testid="ledger-recurring-row" data-plan-id={rule.planId}>
+          <h3 ref={rule.id === linkedRow ? linkedHeading : undefined} tabIndex={rule.id === linkedRow ? -1 : undefined}>{rule.title}</h3>
           <p>
             {recurringLabels[rule.frequency]} · {rule.startOn} 起 · {displayMoney(rule.amountMinor, rule.currency)}
           </p>
@@ -115,6 +124,10 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate }: { book: Book
                 核对并补全原计划
               </Button>
             ) : null}
+            {writable && plan?.actions.includes("delete") ? <Button disabled={action.working || !!pending} onClick={() => {
+              action.clearError();
+              setDeleting(plan);
+            }}>删除计划</Button> : null}
             {writable && plan && (plan.actions.includes("pause") || plan.actions.includes("resume")) ? (
               <Button
                 disabled={action.working || !!pending}
@@ -152,6 +165,16 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate }: { book: Book
         </article>
       ))}
       {previewId ? <Preview bookId={book.id} ruleId={previewId} close={() => setPreviewId(null)} /> : null}
+      {deleting ? <Dialog open title="删除固定收支计划" error={action.error} initialFocusRef={keepPlan}
+        onClose={() => { if (!action.working && !pending) setDeleting(undefined); }}
+        actions={<>
+          <Button ref={keepPlan} disabled={action.working || !!pending} onClick={() => setDeleting(undefined)}>取消</Button>
+          <Button variant="danger" disabled={action.working} onClick={() => void writePlan(pending ?? {
+            change: "delete", planId: deleting.planId, expectedRevision: deleting.revision, intentId: crypto.randomUUID(),
+          })}>{pending ? "核对原删除请求" : "删除计划"}</Button>
+        </>}>
+        <p>删除「{deleting.title}」的未来计划，保留已生成的流水和期次回执。</p>
+      </Dialog> : null}
       {draft ? (
         <Dialog
           open

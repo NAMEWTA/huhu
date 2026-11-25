@@ -71,6 +71,7 @@ const RunRow = z.object({
 
 export const automationToolDescriptors = {
   plansList: planDescriptors.list,
+  plansSummary: planDescriptors.summary,
   plansRead: planDescriptors.read,
   plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,

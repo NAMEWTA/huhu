@@ -21,7 +21,7 @@ export function useSettingsData(): SettingsData {
 }
 
 /** 设置（原型 Preferences）：页面由外壳左侧导航选择（系统页 + 插件页，见注册表）；修改立即生效，随当前 Vault 独立保存。 */
-export function SettingsModule({ section }: ModuleProps) {
+export function SettingsModule({ section, onNavigate }: ModuleProps) {
   const pages = useSettingsPages();
   const page = pages.find((p) => p.id === section);
   const Page = page?.component;
@@ -60,7 +60,7 @@ export function SettingsModule({ section }: ModuleProps) {
               {error}
             </div>
           ) : null}
-          <SettingsDataContext.Provider value={{ s, update }}>{Page ? <Page /> : null}</SettingsDataContext.Provider>
+          <SettingsDataContext.Provider value={{ s, update }}>{Page ? <Page {...(onNavigate && { onNavigate })} /> : null}</SettingsDataContext.Provider>
         </div>
       </div>
     </div>

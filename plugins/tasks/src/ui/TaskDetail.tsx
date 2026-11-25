@@ -1,7 +1,7 @@
 import type { RichEditorPort } from "@huhu/editor/rich";
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
-import { requestOpenPath, useCapability, useEngine } from "@huhu/workbench";
+import { requestOpenPath, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
 import { AlertTriangle, Copy, FileText, Pencil, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { t } from "./i18n.js";
@@ -37,6 +37,7 @@ export function TaskDetail({
   onChanged,
   onOpenNotes,
   onOpenAgent,
+  onNavigate,
 }: {
   task: TaskDto;
   pending: boolean;
@@ -49,6 +50,7 @@ export function TaskDetail({
   onChanged(): void;
   onOpenNotes(): void;
   onOpenAgent(): void;
+  onNavigate?: ModuleProps["onNavigate"];
 }) {
   const [source, setSource] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -169,8 +171,8 @@ export function TaskDetail({
             ))}
           </section>
         ) : null}
-        <TaskReminderPlans task={task} />
-        {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} /> : null}
+        <TaskReminderPlans task={task} onNavigate={onNavigate} />
+        {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} onNavigate={onNavigate} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
         {agent ? <RunRecords task={task} zone={zone} onOpenAgent={onOpenAgent} /> : null}
         <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />

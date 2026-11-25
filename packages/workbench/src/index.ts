@@ -27,5 +27,7 @@ export { browserDraftStorage, switchBrowserDraftScope } from "./state/browser-dr
 export * from "./state/exit-participants.js";
 export * from "./settings/system-pages.js";
 export * from "./state/open-request.js";
+export * from "./state/automation-navigation.js";
+export { AutomationPlanLink } from "./AutomationPlanLink.js";
 export * from "./resources/index.js";
 export * from "./resources/useReferenceIndex.js";

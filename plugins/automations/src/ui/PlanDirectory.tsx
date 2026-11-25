@@ -2,7 +2,7 @@ import { OccurrenceDetail } from "./OccurrenceDetail.js";
 import type { PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, Select } from "@huhu/ui";
 import {
-  requestOpenTask, useCapability, useDiscoveredCapabilities,
+  readAutomationPlanLink, requestAutomationSource, requestOpenAgentSession, requestOpenTask, useCapability, useDiscoveredCapabilities, writeAutomationPlanLink,
   useEngine, useModuleIcons, useQueryClient, type ModuleProps,
 } from "@huhu/workbench";
 import { ArrowLeft, ArrowUpRight, Ellipsis, Layers, Pause, Pencil, Play, Plus, RefreshCw, Workflow } from "lucide-react";
@@ -43,6 +43,7 @@ const actionOptions = {
   "sync.run": "同步 Git",
   "ssh.monitor.panels.run": "采样监控",
   "home.focus.update": "结算专注",
+  "ledger.recurring.generate": "生成固定收支",
 };
 const sourceOptions = ["automations", "tasks", "agent-cli", "mail", "versioning", "ssh", "kernel", "ledger"];
 
@@ -54,11 +55,6 @@ const templates = [
 ] as const;
 
 let returnState: { vaultId: string; filter: Filter; cursors: string[] } | undefined;
-
-function linkedPlan(vaultId: string): string | null {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("automation-vault") === vaultId ? params.get("automation-plan") : null;
-}
 
 export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard }: {
   active: boolean;
@@ -73,7 +69,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
   const vault = useCapability<{ readOnly: boolean }>("vault.info");
   const [filter, setFilter] = useState(() => returnState?.vaultId === engine.vaultId ? returnState.filter : initialFilter);
   const [cursors, setCursors] = useState<string[]>(() => returnState?.vaultId === engine.vaultId ? returnState.cursors : []);
-  const [selected, setSelected] = useState(() => linkedPlan(engine.vaultId));
+  const [selected, setSelected] = useState(() => readAutomationPlanLink(engine.vaultId));
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [error, setError] = useState("");
   const [write, setWrite] = useState<PlanWrite | null>(null);
@@ -82,7 +78,8 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
   const detailRef = useRef<HTMLHeadingElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const origin = useRef<HTMLElement | null>(null);
-  const focusDetail = useRef(false);
+  const sourceLookup = useRef<AbortController | null>(null);
+  const focusDetail = useRef(selected !== null);
   const scrollBeforeDetail = useRef(0);
   const cursor = cursors.at(-1);
   const plans = useCapability<Page>("automations.plans.list", {
@@ -106,18 +103,11 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
     detailRef.current?.scrollIntoView({ block: "nearest" });
     focusDetail.current = false;
   }, [selectedPlan]);
+  useEffect(() => () => sourceLookup.current?.abort(), [active, selected]);
 
   function select(planId: string | null) {
     setSelected(planId);
-    const url = new URL(window.location.href);
-    if (planId) {
-      url.searchParams.set("automation-plan", planId);
-      url.searchParams.set("automation-vault", engine.vaultId);
-    } else {
-      url.searchParams.delete("automation-plan");
-      url.searchParams.delete("automation-vault");
-    }
-    window.history.replaceState(window.history.state, "", url);
+    writeAutomationPlanLink(engine.vaultId, planId);
   }
 
   function back() {
@@ -218,11 +208,38 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       intent: plan.intent === "enabled" ? "paused" : "enabled" });
   }
 
-  function openSource(plan: PlanSummary) {
+  async function openSource(plan: PlanSummary) {
     const { plugin, object } = plan.source;
+    setError("");
+    if (plugin === "agent-cli" && object.kind === "agent-session") {
+      sourceLookup.current?.abort();
+      const lookup = new AbortController();
+      sourceLookup.current = lookup;
+      try {
+        const sessions = await engine.call<{ id: string; spaceId: string }[]>("agent.sessions.list", {}, { signal: lookup.signal });
+        if (lookup.signal.aborted || readAutomationPlanLink(engine.vaultId) !== plan.planId) return;
+        const sourceSession = sessions.find(({ id }) => id === object.id);
+        if (!sourceSession) throw new Error("原 Agent 会话已不可用。");
+        requestOpenAgentSession({ vaultId: engine.vaultId, spaceId: sourceSession.spaceId, sessionId: sourceSession.id });
+      } catch (failure) {
+        if (!lookup.signal.aborted) setError(failure instanceof Error ? failure.message : "无法打开原 Agent 会话。");
+        return;
+      } finally {
+        if (sourceLookup.current === lookup) sourceLookup.current = null;
+      }
+    }
     if (plugin === "tasks" && object.kind === "task") requestOpenTask(object.id);
     returnState = { vaultId: engine.vaultId, filter, cursors };
-    onNavigate?.(plugin === "kernel" ? "home" : plugin);
+    if (plugin === "ledger" && object.kind === "ledger-book") {
+      requestAutomationSource(engine.vaultId, plan);
+      onNavigate?.("ledger", "recurring");
+    } else if (plugin === "versioning") onNavigate?.("settings", "versioning");
+    else {
+      if (plugin === "mail" || (plugin === "ssh" && !engine.endpoint.browserSessionId && object.kind === "ssh-monitor-panel")) {
+        requestAutomationSource(engine.vaultId, plan);
+      }
+      onNavigate?.(plugin === "kernel" ? "home" : plugin);
+    }
   }
 
   const allEmpty = plans.data && rows.length === 0 && !cursor && (!filter.query && !filter.plugin && !filter.action && !filter.state || empty.data?.plans.length === 0);
@@ -310,8 +327,9 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                   onEdit={() => void openEditor(selectedPlan)} onToggle={() => toggle(selectedPlan)}
                   onMenu={() => openSheet({ kind: "menu", plan: selectedPlan })}
                   onOccurrence={(id) => openSheet({ kind: "occurrence", id, plan: selectedPlan })}
-                  onSource={onNavigate && selectedPlan.source.plugin !== "automations" && modules[selectedPlan.source.plugin === "kernel" ? "home" : selectedPlan.source.plugin]
-                    ? () => openSource(selectedPlan) : undefined}
+                  onSource={onNavigate && selectedPlan.source.plugin !== "automations" && (selectedPlan.source.plugin !== "ssh" || !engine.endpoint.browserSessionId)
+                    && (selectedPlan.source.plugin === "kernel" || modules[selectedPlan.source.plugin])
+                    ? () => void openSource(selectedPlan) : undefined}
                   refresh={refresh} registerLeaveGuard={registerLeaveGuard} />
               </>
             ) : null}

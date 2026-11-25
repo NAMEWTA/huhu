@@ -1,7 +1,7 @@
 import type { PlanSummary } from "@huhu/contracts";
 import { Button } from "@huhu/ui";
-import { type useCapability, useEngine } from "@huhu/workbench";
-import { useState } from "react";
+import { AutomationPlanLink, takeAutomationSource, type useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
+import { useEffect, useRef, useState } from "react";
 
 export type SyncState = {
   minutes: number;
@@ -12,11 +12,19 @@ export type SyncState = {
 };
 const phases = { refreshing: "正在刷新", ready: "刷新完成", retrying: "暂时无法刷新，稍后重试" };
 
-export function MailSyncSettings({ readOnly, accountNames, settings }: { readOnly: boolean; accountNames: ReadonlyMap<string, string>; settings: ReturnType<typeof useCapability<SyncState>> }) {
+export function MailSyncSettings({ readOnly, accountNames, settings, onNavigate }: { readOnly: boolean; accountNames: ReadonlyMap<string, string>; settings: ReturnType<typeof useCapability<SyncState>>; onNavigate: ModuleProps["onNavigate"] }) {
   const engine = useEngine();
   const [draft, setDraft] = useState<{ value: string; revision: string | null }>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const details = useRef<HTMLDetailsElement>(null);
+  const heading = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (takeAutomationSource(engine.vaultId, "mail") && details.current) {
+      details.current.open = true;
+      heading.current?.focus();
+    }
+  }, [engine.vaultId]);
   const value = draft?.value ?? String(settings.data?.minutes ?? "");
   const plan = settings.data?.plan;
   const disabled = readOnly || busy || !settings.data?.available;
@@ -38,8 +46,8 @@ export function MailSyncSettings({ readOnly, accountNames, settings }: { readOnl
   }
 
   return (
-    <details>
-      <summary>邮件同步设置</summary>
+    <details ref={details}>
+      <summary ref={heading}>邮件同步设置</summary>
       <form
         className="hu-mail-row"
         onSubmit={(event) => {
@@ -66,6 +74,7 @@ export function MailSyncSettings({ readOnly, accountNames, settings }: { readOnl
           保存刷新周期
         </Button>
       </form>
+      {plan && plan.intent !== "deleted" && <AutomationPlanLink planId={plan.planId} onNavigate={onNavigate} />}
       <div role="status">
         {feedback && <p>{feedback}</p>}
         {settings.isError && <p>无法读取同步状态。</p>}

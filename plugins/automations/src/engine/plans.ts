@@ -1,7 +1,7 @@
 import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { filterPlanPage, planOrders, planStates } from "../shared/plan-directory.js";
+import { filterPlanPage, PlanHomeSummary, planOrders, planStates, summarizePlans } from "../shared/plan-directory.js";
 import { historyPage, HistoryInput, HistoryPage, type HistoryRow } from "../shared/occurrence-history.js";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import type { DefaultTaskScan } from "./default-task-scan.js";
@@ -29,6 +29,10 @@ export const planDescriptors = {
   list: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.list", scope: "read", input: ListPlans, output: PlanPage,
     title: "计划目录", description: "枚举当前 Vault 的计划，可按来源对象筛选。", risk: "normal",
+  }),
+  summary: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.summary", scope: "read", input: z.strictObject({}), output: PlanHomeSummary,
+    title: "计划摘要", description: "读取各来源的启用、受阻和最近安排。", risk: "normal",
   }),
   read: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.read", scope: "read", input: PlanRefSchema.pick({ planId: true }), output: PlanSummarySchema.nullable(),
@@ -207,25 +211,26 @@ async function changeRule(rule: Rule, change: PlanWrite, deps: CatalogueDeps, ap
 }
 
 export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
+  function catalogue(source?: PlanSource, includeRuleHistory = true): PlanSummary[] {
+    const now = deps.now();
+    const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
+    const recent = includeRuleHistory && rules.length > 0 ? latestActivation(deps.activations()) : undefined;
+    return [
+      ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
+      ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
+      ...deps.observations.list(),
+      ...deps.periodic.list(),
+      ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
+      ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
+    ].filter((plan) => !source || matchesSource(plan.source, source));
+  }
   const directory: ReadDirectory & { list(input: z.output<typeof ListPlans>, signal: AbortSignal): Promise<z.output<typeof PlanPage>> } = {
     async list(input: z.output<typeof ListPlans>, signal) {
       const { source } = input;
       signal.throwIfAborted();
       await (source ? deps.periodic.importSource(source.plugin) : deps.periodic.importReady());
       signal.throwIfAborted();
-      const now = deps.now();
-      const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
-      const recent = rules.length > 0 ? latestActivation(deps.activations()) : undefined;
-      const matches = (plan: PlanSummary) => !source || matchesSource(plan.source, source);
-      const candidates = [
-        ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
-        ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
-        ...deps.observations.list(),
-        ...deps.periodic.list(),
-        ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
-        ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
-      ].filter(matches);
-      return filterPlanPage(candidates, input);
+      return filterPlanPage(catalogue(source), input);
     },
     async read(planId, signal) {
       signal.throwIfAborted();
@@ -241,6 +246,11 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     },
   };
   api.defineCapability(bindCapability(planDescriptors.list, (context, input) => directory.list(input, context.signal)));
+  api.defineCapability(bindCapability(planDescriptors.summary, ({ caller, signal }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台计划摘要");
+    signal.throwIfAborted();
+    return summarizePlans(catalogue(undefined, false));
+  }));
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
