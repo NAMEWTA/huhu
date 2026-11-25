@@ -43,6 +43,10 @@ export class TaskJournalIndex {
     this.groups.get(group)?.delete(file);
   }
 
+  has(group: string): boolean {
+    return Boolean(this.groups.get(group)?.size);
+  }
+
   paths(group: string, onError?: (error: unknown) => void): string[] {
     return this.pathsFor([group], onError);
   }

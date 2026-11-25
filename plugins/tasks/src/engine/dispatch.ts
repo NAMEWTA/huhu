@@ -63,6 +63,7 @@ type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
 type StopRecord = NonNullable<OwnedRecord["stop"]>;
 type RuleSlots = Map<string, Set<string>>;
 type Occupancy = "active" | "none" | { waitingSince: string };
+export type TaskScheduleAdmission = (source: Extract<DispatchSource, { kind: "automation" | "follow-up" }>, taskId: string) => boolean;
 const noBacklog = () => ({ pending: 0, active: 0, waitingNative: 0, unknown: 0, oldestPendingAt: null as string | null, oldestNativeWaitAt: null as string | null, oldestUnknownAt: null as string | null });
 const earlier = (previous: string | null, next: string) => previous === null || next < previous ? next : previous;
 type ReplyInput = z.infer<typeof TaskReplyInput>;
@@ -189,6 +190,8 @@ export class TaskDispatch {
   private checking = false;
   private receiptCheckQueued = false;
   private receiptCheckImmediate: NodeJS.Immediate | undefined;
+  private recoveryTimer: NodeJS.Timeout | undefined;
+  private recoveryDelay: number | undefined;
   private resourceCounts = noBacklog();
 
   constructor(
@@ -202,6 +205,7 @@ export class TaskDispatch {
     private readonly onError?: (error: unknown) => void,
     private readonly readArtifact?: (path: string) => { version: string; text: string } | null,
     private readonly budget?: DeviceDispatchBudget,
+    private readonly scheduleAdmission?: TaskScheduleAdmission,
   ) {
     this.store.watch(() => this.wakeAfterReceipt());
     this.receipts.watch(() => this.wakeAfterReceipt());
@@ -219,6 +223,7 @@ export class TaskDispatch {
   async close(): Promise<void> {
     this.abort.abort();
     clearImmediate(this.receiptCheckImmediate);
+    clearTimeout(this.recoveryTimer);
     this.store.close();
     this.receipts.close();
     this.replies.close();
@@ -555,6 +560,12 @@ export class TaskDispatch {
     return this.accept(DispatchInput.parse(input), RuleSource.parse(source));
   }
 
+  readAcceptedRule(input: DispatchInput, source: RuleSource): DispatchReceipt | null {
+    const record = this.store.read(eventIdOf(input.dispatchId))?.record;
+    if (!record || !this.store.owns(record) || record.requestHash !== fingerprint({ input: DispatchInput.parse(input), source: RuleSource.parse(source) })) return null;
+    return record.receipt;
+  }
+
   async acceptFollowUp(raw: FollowUpInput): Promise<DispatchReceipt> {
     const input = FollowUpDispatch.parse(raw);
     const { taskId, followUpId, scheduledFor } = input;
@@ -861,6 +872,21 @@ export class TaskDispatch {
     this.scheduleReceiptCheck();
   }
 
+  startRecovery(delay: number): void {
+    this.recoveryDelay = delay;
+    this.wakeAfterReceipt();
+  }
+
+  private scheduleRecovery(): void {
+    if (this.recoveryDelay === undefined || this.recoveryTimer || this.abort.signal.aborted
+      || !(this.store.hasActive() || this.receipts.hasPending() || this.replies.hasPending())) return;
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = undefined;
+      void this.check();
+    }, this.recoveryDelay);
+    this.recoveryTimer.unref();
+  }
+
   private scheduleReceiptCheck(): void {
     if (!this.receiptCheckQueued || this.receiptCheckImmediate || this.checking || this.abort.signal.aborted) return;
     // The receipt ACK can return before replay reads the inbox synchronously.
@@ -873,6 +899,8 @@ export class TaskDispatch {
   /** 受理成功后与重开都走相同的领取路径。 */
   async check(): Promise<void> {
     if (this.store.readOnly || this.checking || this.abort.signal.aborted) return;
+    clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = undefined;
     this.checking = true;
     this.receiptCheckQueued = false;
     try {
@@ -932,6 +960,7 @@ export class TaskDispatch {
     } finally {
       this.checking = false;
       this.scheduleReceiptCheck();
+      this.scheduleRecovery();
     }
   }
 
@@ -1109,7 +1138,7 @@ export class TaskDispatch {
       }
       // claimed 独立落盘。进程在此中断时，可以证明尚未开始派遣。
       if (!(await this.beginSending(record))) return;
-      await this.finishSending(record, () => executor.dispatch(prepared, signal));
+      await this.finishSending(record, () => this.scheduleAllows(record) ? executor.dispatch(prepared, signal) : Promise.resolve("not_sent"));
       return;
     }
     if (executor && (receipt.state === "sending" || receipt.state === "unknown")) await this.finishSending(record, () => executor.inspect(work, signal));
@@ -1172,6 +1201,7 @@ export class TaskDispatch {
       let agentTarget = record.agentTarget;
       const state = typeof readiness === "object" ? readiness.state : readiness;
       if (receipt.cancelRequested) Object.assign(next, { state: "cancelled", reason: null });
+      else if (!this.scheduleAllows(record)) Object.assign(next, { state: "stale_input", reason: "waiting_schedule" });
       else if (!record.retryOf && source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) Object.assign(next, { state: "expired", reason: null });
       else if (task?.status === "completed") Object.assign(next, { state: "cancelled", reason: "task_closed" });
       else if (continuation === "stale" || (!record.retryOf && validateInput && task && !sameInput(task, snapshot))) Object.assign(next, { state: "stale_input", reason: null });
@@ -1207,15 +1237,25 @@ export class TaskDispatch {
       const task = this.task(taskId);
       const source = record.snapshot.source;
       if (!task) return false;
+      if (!this.scheduleAllows(record)) return false;
       if (record.retryOf ? !this.retryTaskOpen(task) : hasParent(source) ? task.type !== "agent" || task.status === "completed" || this.continuation(source) !== "ready" : !this.dispatchable(task, record.snapshot.newRound)) return false;
       if (!this.retrySourceSafe(record)) return false;
       const validateInput = record.retryOf !== undefined || !hasParent(source) || source.kind === "follow-up";
       const now = this.now();
       if (validateInput && ((!record.retryOf && !sameInput(task, record.snapshot)) || !maySend(task, record.receipt, now))) return false;
       if (!record.retryOf && source.kind === "automation" && source.expiresAt && Date.parse(source.expiresAt) <= now.getTime()) return false;
-      await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version);
+      await this.store.write({ ...record, receipt: { ...record.receipt, state: "sending" } }, version, () => {
+        this.abort.signal.throwIfAborted();
+        if (!this.scheduleAllows(record)) throw errors.versionConflict(version);
+      });
       return !this.abort.signal.aborted;
     });
+  }
+
+  private scheduleAllows(record: OwnedRecord): boolean {
+    const { source } = record.snapshot;
+    if (record.retryOf || (source.kind !== "follow-up" && (source.kind !== "automation" || !source.occurrenceId.startsWith("occ-")))) return true;
+    return this.scheduleAdmission?.(source, record.receipt.taskId) ?? false;
   }
 
   private async finishSending(event: OwnedRecord, send: () => Promise<TaskDispatchResult>): Promise<void> {
@@ -1247,6 +1287,9 @@ export class TaskDispatch {
         receipt.state = receipt.cancelRequested ? "cancelled" : "blocked";
         receipt.reason = receipt.cancelRequested ? null : "target_unsupported";
         return this.store.write({ ...record, receipt, finishedAt: now }, version);
+      }
+      if (result === "not_sent" && !this.scheduleAllows(record)) {
+        return this.store.write({ ...record, receipt: { ...receipt, state: "stale_input", reason: "waiting_schedule" }, finishedAt: now }, version);
       }
       receipt.state = result === "not_sent" ? "claimed" : "unknown";
       receipt.reason = result === "not_sent" ? "waiting_resource" : "awaiting_confirmation";

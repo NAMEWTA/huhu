@@ -246,6 +246,10 @@ export class DispatchStore {
     return this.selected("active", onError);
   }
 
+  hasActive(): boolean {
+    return this.index.has("active") || this.released.size > 0;
+  }
+
   watch(onChange: () => void): void {
     this.index.onChange = onChange;
   }
@@ -396,16 +400,16 @@ export class DispatchStore {
     return this.writeSealed({ ...record, identityHash: identityOf(record) }, key, null);
   }
 
-  async write({ seal: _priorSeal, ...record }: OwnedRecord, expectedVersion: string): Promise<OwnedRecord> {
+  async write({ seal: _priorSeal, ...record }: OwnedRecord, expectedVersion: string, beforeCommit?: () => void): Promise<OwnedRecord> {
     const key = this.ownerKey(record);
     if (!key) throw new HuhuError("WRITE_PARTIAL", "无法验证任务派遣存储所有者");
-    return this.writeSealed(record, key, expectedVersion);
+    return this.writeSealed(record, key, expectedVersion, beforeCommit);
   }
 
-  private async writeSealed(unsigned: UnsealedRecord, key: Buffer, expectedVersion: string | null): Promise<OwnedRecord> {
+  private async writeSealed(unsigned: UnsealedRecord, key: Buffer, expectedVersion: string | null, beforeCommit?: () => void): Promise<OwnedRecord> {
     const record = { ...unsigned, seal: seal(unsigned, key) };
     const location = this.path(record.receipt.eventId);
-    await this.files.write(location, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion });
+    await this.files.write(location, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion, ...(beforeCommit && { beforeCommit }) });
     this.index.replace(location, this.groups(record));
     this.changed?.(record.receipt, expectedVersion === null ? "created" : "updated");
     return record;

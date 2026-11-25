@@ -16,7 +16,7 @@ import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
 import { externalEntries, externalToolEntry, type ExternalEntry } from "../../tasks/test/external-tool-entry.js";
 import type { TaskRuleDispatch } from "../../tasks/src/engine/index.js";
-import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, type DefaultTaskScanService } from "../src/engine/default-task-scan.js";
+import { DEFAULT_TASK_SCAN_RULE_ID } from "../src/engine/default-task-scan.js";
 import { AutomationsService } from "../src/engine/service.js";
 import { Scheduler } from "../src/engine/scheduler.js";
 import { taskScanToolDescriptors } from "../src/engine/task-scan-tools.js";
@@ -29,7 +29,6 @@ const fixture = {
   schedule: false,
   scheduler: undefined as Scheduler | undefined,
   repo: undefined as HuhuApi["vault"]["repo"] | undefined,
-  defaults: undefined as DefaultTaskScanService | undefined,
   hold: undefined as ((taskId: string, inputHash: string) => void) | undefined,
   scans: undefined as TaskScanOccurrences | undefined,
   reminders: undefined as ReminderDeliveries | undefined,
@@ -54,7 +53,6 @@ vi.mock("@huhu/plugin-automations/engine", async (original) => {
             api.provide(name, service);
             if (name === "taskScanOccurrences") fixture.scans = service as TaskScanOccurrences;
             if (name === "automationReminderDeliveries") fixture.reminders = service as ReminderDeliveries;
-            if (name === DEFAULT_TASK_SCAN_SERVICE) fixture.defaults = service as DefaultTaskScanService;
             if (name === "automations") fixture.hold = (service as { holdRestoredInput: typeof fixture.hold }).holdRestoredInput;
           },
         },
@@ -126,7 +124,6 @@ afterEach(async () => {
   fixture.scans = undefined;
   fixture.reminders = undefined;
   fixture.scheduler = undefined;
-  fixture.defaults = undefined;
   fixture.hold = undefined;
   vi.restoreAllMocks();
 });
@@ -255,7 +252,7 @@ test("专用规则启用后触发真实计划，保护默认规则、已启用�
   fixture.schedule = true;
   const { engine, scans } = await start();
   const scheduler = fixture.scheduler!;
-  await fixture.defaults!.initializeAfterEnable();
+  await invoke(engine, "automations.plans.defaultTaskScan", { action: "create" });
   const defaultRule = await invoke<Rule>(engine, "automations.read", { id: DEFAULT_TASK_SCAN_RULE_ID });
   const existing = await createRule(engine, "原已启用规则");
   const originalJobs = [DEFAULT_TASK_SCAN_RULE_ID, existing.id].sort();
@@ -469,7 +466,7 @@ test("外部手动受理在派遣前丢失确认，重开仅补原名单", async
   expect(fixture.refresh).toHaveBeenCalledTimes(1);
 }, 20_000);
 
-test("公开扫描明细按授权给出原派遣身份，停用或删除后仍可单项取消", async () => {
+test("公开扫描明细保留停用或删除前的派遣身份，未提交的原派遣失效", async () => {
   const { engine, scans } = await start();
   const task = await createTask(engine, "实测待派任务");
   const rule = await createRule(engine, "挂起扫描");
@@ -494,9 +491,9 @@ test("公开扫描明细按授权给出原派遣身份，停用或删除后仍�
   expect(await cli("automations.delete", { id: rule.id, expectedVersion: rule.version })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
   expect(await cli("automations.delete", { id: rule.id, expectedVersion: paused.data.version })).toMatchObject({ ok: true });
   expect(await cli("automations.activations.dispatches", identity)).toEqual(result);
-  expect(await cli("tasks.dispatch.read", target)).toMatchObject({ ok: true, data: { state: "pending" } });
+  await vi.waitFor(async () => expect(await cli("tasks.dispatch.read", target)).toMatchObject({ ok: true, data: { state: "stale_input" } }));
   const cancelled = await cli("tasks.dispatch.cancel", target);
-  expect(cancelled).toMatchObject({ ok: true, data: { state: "cancelled" } });
+  expect(cancelled).toMatchObject({ ok: true, data: { state: "stale_input" } });
   expect(await cli("tasks.dispatch.cancel", target)).toEqual(cancelled);
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 20_000);
@@ -673,14 +670,6 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   await vi.waitFor(() => expect(dispatchRecords(engine)[0]?.receipt).toMatchObject({ state: "pending", reason: "waiting_resource" }));
   expect(fixture.dispatch).not.toHaveBeenCalled();
 
-  fixture.now = at("01:16:00");
-  const edited = await invoke<Rule>(engine, "automations.update", { id: a.id, expectedVersion: a.version, patch: {}, body: "第二版补充指令" });
-  expect(edited.body).toBe("第二版补充指令");
-  const added = await createTask(engine, "下一次才入选");
-  expect(await scans.scheduled(a.id, slot)).toEqual(first);
-  expect(first).toMatchObject({ ruleVersion: a.version, rule: { instructions: "第一版补充指令" } });
-  expect(first?.items.map((item) => item.taskId)).toEqual([task.id]);
-
   // Dispatch acceptance completes independently of the eventual task execution.
   fixture.dispatch.mockImplementation(
     async () =>
@@ -692,10 +681,42 @@ test("真实两规则和工作台争同一任务，重交沿用原版本，运�
   fixture.ready.mockResolvedValue("ready");
   try {
     await vi.waitFor(() => expect(fixture.dispatch).toHaveBeenCalledTimes(1));
+    fixture.now = at("01:16:00");
+    const edited = await invoke<Rule>(engine, "automations.update", { id: a.id, expectedVersion: a.version, patch: {}, body: "第二版补充指令" });
+    expect(edited.body).toBe("第二版补充指令");
+    const added = await createTask(engine, "下一次才入选");
+    expect(await scans.scheduled(a.id, slot)).toEqual(first);
+    expect(first).toMatchObject({ ruleVersion: a.version, rule: { instructions: "第一版补充指令" } });
+    expect(first?.items.map((item) => item.taskId)).toEqual([task.id]);
     expect(scans.read(first!.id)).toEqual(first);
     expect(scans.read(first!.id)?.items.some((item) => item.taskId === added.id)).toBe(false);
   } finally {
     releaseDispatch?.();
+  }
+});
+
+test("写入发送边界时停用计划，原派遣从未调用 Agent", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "发送边界计划");
+  await createTask(engine, "发送边界任务");
+  fixture.now = at("01:15:00");
+  fixture.ready.mockResolvedValue("ready");
+  let interrupted = false;
+  const write = VaultFiles.prototype.write;
+  const gate = vi.spyOn(VaultFiles.prototype, "write").mockImplementation(async function (this: VaultFiles, rel, bytes, options) {
+    if (!interrupted && rel.startsWith("tasks/dispatches/") && Buffer.from(bytes).includes('"state": "sending"')) {
+      interrupted = true;
+      await invoke(engine, "automations.setEnabled", { id: rule.id, expectedVersion: rule.version, enabled: false });
+    }
+    return write.call(this, rel, bytes, options);
+  });
+  try {
+    expect((await scans.scheduled(rule.id, fixture.now))?.items).toMatchObject([{ state: "accepted" }]);
+    await vi.waitFor(() => expect(dispatchRecords(engine)[0]?.receipt).toMatchObject({ state: "stale_input" }));
+    expect(interrupted).toBe(true);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  } finally {
+    gate.mockRestore();
   }
 });
 
@@ -832,7 +853,7 @@ test("刷新未完成时保留扫描资格，冻结完成后重交不再刷新",
   expect(fixture.accept).toHaveBeenCalledTimes(1);
 });
 
-test("模板派遣在任务文件落盘后中断，恢复使用原任务和模板，各计划点有独立身份", async () => {
+test("模板任务落盘后改期，恢复保留原任务并由新时点派遣新模板", async () => {
   const first = await start();
   const [space] = await invoke<{ id: string }[]>(first.engine, "agent.spaces.list", {});
   const created = await invoke<Rule>(first.engine, "automations.create", {
@@ -868,16 +889,14 @@ test("模板派遣在任务文件落盘后中断，恢复使用原任务和模�
   const reopened = await start(first.engine.vault.root);
   await reopened.scans.recover();
   expect(await invoke<TaskDto[]>(reopened.engine, "tasks.list", {})).toHaveLength(1);
-  const firstRun = dispatchRecords(reopened.engine)[0]!;
-  expect(firstRun.snapshot).toMatchObject({ taskId: task!.id, body: "第一版模板正文", source: { ruleVersion: rule.version, occurrenceId: frozen!.id } });
-  expect(firstRun.snapshot.source).not.toHaveProperty("instructions");
-  expect(await reopened.scans.scheduled(rule.id, slot)).toMatchObject({ items: [{ taskId: task!.id, state: "accepted", eventId: firstRun.receipt.eventId, runId: firstRun.receipt.runId }] });
+  expect(dispatchRecords(reopened.engine)).toEqual([]);
+  expect(await reopened.scans.scheduled(rule.id, slot)).toMatchObject({ items: [], template: { taskId: task!.id, issue: "schedule-revoked" } });
 
   fixture.now = at("01:30:00");
   const next = await reopened.scans.scheduled(rule.id, fixture.now);
   expect(next?.template?.taskId).not.toBe(task!.id);
   expect(next).toMatchObject({ ruleVersion: changed.version, items: [{ state: "accepted", taskId: next?.template?.taskId }] });
-  expect(dispatchRecords(reopened.engine)).toHaveLength(2);
+  expect(dispatchRecords(reopened.engine)).toHaveLength(1);
   expect(dispatchRecords(reopened.engine).find(({ receipt }) => receipt.taskId === next?.template?.taskId)?.snapshot.body).toBe("第二版模板正文");
 });
 
@@ -895,7 +914,7 @@ test("模板预检失败保存原因，且不会创建任务或运行", async ()
   expect(dispatchRecords(engine)).toEqual([]);
 });
 
-test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中断后重开，从原名单收尾", async (stage) => {
+test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中断后停用，重开只核对已受理项", async (stage) => {
   const first = await start();
   const rule = await createRule(first.engine, "带恢复的扫描");
   const a = await createTask(first.engine, "候选甲");
@@ -952,10 +971,10 @@ test.each(["occurrence", "acceptance", "finish"] as const)("%s 写入边界中�
   expect(completed).toMatchObject({ ruleVersion: rule.version, rule: frozen!.rule, scheduledForUTC: slot.toISOString(), finishedAt: expect.any(String) });
   expect(completed.items.map(({ taskId, dispatchId }) => ({ taskId, dispatchId }))).toEqual(frozen!.items.map(({ taskId, dispatchId }) => ({ taskId, dispatchId })));
   expect(completed.items.some((item) => item.taskId === added.id)).toBe(false);
-  expect(fixture.accept).toHaveBeenCalledTimes(stage === "finish" ? 0 : 2);
+  expect(fixture.accept).not.toHaveBeenCalled();
   const after = dispatchRecords(reopened.engine);
-  expect(after).toHaveLength(stage === "occurrence" ? 1 : 2);
-  if (stage === "occurrence") expect(completed.items.find((item) => item.taskId === a.id)).toMatchObject({ state: "skipped", reason: "stale_input" });
+  expect(after).toHaveLength(before.length);
+  if (stage === "occurrence") expect(completed.items.find((item) => item.taskId === a.id)).toMatchObject({ state: "skipped", reason: "schedule-revoked" });
   for (const record of after) {
     const { receipt, snapshot } = record;
     expect(snapshot.source).toMatchObject({ ruleId: rule.id, ruleVersion: rule.version, instructions: "第一版补充指令", occurrenceId: completed.id });
@@ -1005,7 +1024,7 @@ test.each([false, true])("还原的扫描名单双份 Vault ID 策略下都仅�
   expect(fixture.accept).not.toHaveBeenCalled();
 });
 
-test("停用期间不补扫，既受理任务可单独取消，启用后只补最近一轮且手动有独立身份", async () => {
+test("停用期间撤回未提交的派遣，启用后只补最近一轮且手动有独立身份", async () => {
   const { engine, scans } = await start();
   const rule = await createRule(engine, "可启停的扫描");
   const first = await createTask(engine, "首轮任务");
@@ -1018,8 +1037,7 @@ test("停用期间不补扫，既受理任务可单独取消，启用后只补�
   fixture.now = at("02:00:00");
   expect(await scans.scheduled(rule.id, at("01:30:00"))).toBeNull();
   expect(scans.lastScheduledFor(rule.id)).toEqual(at("01:15:00"));
-  expect(await invoke<DispatchReceipt>(engine, "tasks.dispatch.read", { taskId: first.id, dispatchId: accepted?.dispatchId })).toMatchObject({ state: "pending" });
-  expect(await invoke<DispatchReceipt>(engine, "tasks.dispatch.cancel", { taskId: first.id, dispatchId: accepted?.dispatchId })).toMatchObject({ state: "cancelled" });
+  await vi.waitFor(async () => expect(await invoke<DispatchReceipt>(engine, "tasks.dispatch.read", { taskId: first.id, dispatchId: accepted?.dispatchId })).toMatchObject({ state: "stale_input" }));
 
   fixture.now = at("02:01:00");
   await invoke(engine, "automations.setEnabled", { id: rule.id, enabled: true });

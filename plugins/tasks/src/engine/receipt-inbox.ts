@@ -119,6 +119,10 @@ export class TaskReceiptInbox {
     this.index.onChange = onChange;
   }
 
+  hasPending(): boolean {
+    return this.index.has("pending");
+  }
+
   close(): void {
     this.index.close();
   }

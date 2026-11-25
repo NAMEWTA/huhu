@@ -43,6 +43,7 @@ const PlanMetadata = z.strictObject({
   intent: z.enum(["enabled", "paused", "deleted"]),
   machineId: ID.optional(),
   acceptance: z.strictObject({ at: Instant, revision: Version }).optional(),
+  blockedDispatch: z.literal(true).optional(),
 });
 const StoredSchedule = Schedule.extend({
   toolOwner: Hash.optional(),
@@ -281,7 +282,7 @@ export class FollowUps {
           ...data,
           revision: randomUUID(),
           state: intent === "deleted" && data.state === "scheduled" ? "cancelled" : data.state,
-          plan: { ...data.plan, intent, updatedAt: this.now().toISOString() },
+          plan: { ...data.plan, intent, updatedAt: this.now().toISOString(), ...(data.state === "accepted" && intent !== "enabled" && { blockedDispatch: true as const }) },
         };
       } else {
         throw errors.invalidInput("任务跟进按计划时间触发");
@@ -416,6 +417,13 @@ export class FollowUps {
     } finally {
       this.checking = false;
     }
+  }
+
+  allowsDispatch(taskId: string, followUpId: string, scheduledFor: string): boolean {
+    if (this.lifetime.signal.aborted) return false;
+    const data = this.load(this.pathname(taskId))?.value;
+    return Boolean(data && this.isLocal(data) && data.followUpId === followUpId && data.scheduledFor === scheduledFor
+      && (data.state === "scheduled" || data.state === "accepted") && data.plan.intent === "enabled" && !data.plan.blockedDispatch);
   }
 
   private async advance(path: string): Promise<void> {

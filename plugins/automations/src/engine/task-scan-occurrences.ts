@@ -242,6 +242,23 @@ export class TaskScanOccurrences {
     await Promise.allSettled(this.active.values());
   }
 
+  allowsDispatch(ruleId: string, revision: string, occurrenceId: string): boolean {
+    const row = this.load(occurrenceId)?.occurrence;
+    return Boolean(row && this.owns(row) && row.ruleId === ruleId && row.ruleVersion === revision && this.currentSchedule(row));
+  }
+
+  private currentSchedule(row: Occurrence): boolean {
+    if (this.shutdown.signal.aborted) return false;
+    if (row.scheduledForUTC === null) return true;
+    try {
+      const rule = this.rules.rule(row.ruleId);
+      return rule.version === row.ruleVersion && rule.data.enabled && rule.data.action.kind === "agent";
+    } catch (error) {
+      if (isHuhuError(error) && error.code === "NOT_FOUND") return false;
+      throw error;
+    }
+  }
+
   private ids(): string[] {
     let names: string[];
     try {
@@ -328,7 +345,11 @@ export class TaskScanOccurrences {
 
     const row = stored.occurrence;
     if (row.template && !row.template.issue && row.items.length === 0) {
-      await this.createTemplateTask(row, row.template);
+      const template = row.template;
+      await this.rules.withRuleConfiguration(async () => {
+        if (this.currentSchedule(row)) await this.createTemplateTask(row, template);
+        else template.issue = "schedule-revoked";
+      });
       signal.throwIfAborted();
       stored = await this.persist(row, stored.version);
     }
@@ -420,24 +441,26 @@ export class TaskScanOccurrences {
     const tasks = this.taskDispatch();
     if (!tasks) throw errors.pluginDisabled("tasks");
     const { taskId, dispatchId, expectedVersion, inputRevision, inputHash } = item;
-    let receipt: Acceptance;
+    let receipt: Acceptance | null;
+    const input = { taskId, dispatchId, expectedVersion, inputRevision, inputHash };
+    const source = {
+      kind: "automation" as const,
+      ruleId: row.ruleId,
+      ruleVersion: row.ruleVersion,
+      occurrenceId: row.id,
+      ...(!row.template && { instructions: row.rule.instructions }),
+      ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }),
+    };
     try {
-      receipt = await tasks.acceptRule(
-        { taskId, dispatchId, expectedVersion, inputRevision, inputHash },
-        {
-          kind: "automation",
-          ruleId: row.ruleId,
-          ruleVersion: row.ruleVersion,
-          occurrenceId: row.id,
-          ...(!row.template && { instructions: row.rule.instructions }),
-          ...(row.maxConcurrent !== undefined && { maxConcurrent: row.maxConcurrent }),
-        },
-      );
+      receipt = await this.rules.withRuleConfiguration(() => this.currentSchedule(row)
+        ? tasks.acceptRule(input, source)
+        : tasks.readAcceptedRule?.(input, source) ?? null);
     } catch (error) {
       const skipped = rejection(error);
       if (!skipped) throw error;
       return { ...item, ...skipped, state: "skipped" };
     }
+    if (!receipt) return { ...item, state: "skipped", reason: "schedule-revoked", detail: "原计划已改期、停用或删除" };
     return { ...item, state: "accepted", eventId: receipt.eventId, runId: receipt.runId, acceptedAt: receipt.acceptedAt };
   }
 }
