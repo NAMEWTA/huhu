@@ -110,7 +110,7 @@ export class SemanticRepository {
   }
 
   /** 新建语义文件；由仓储写入 huhu 头。需要恢复的调用者可以提供预留的 ID。 */
-  async create(kind: KindName, data: Record<string, unknown>, body = "", reservedId?: string): Promise<Entity> {
+  async create(kind: KindName, data: Record<string, unknown>, body = "", reservedId?: string, beforeCommit?: () => void): Promise<Entity> {
     const spec = KINDS[kind];
     const prefix = ID_PREFIX[kind];
     if (reservedId !== undefined && !isId(reservedId, prefix)) throw errors.invalidInput("预留的对象 ID 不符合文件类型");
@@ -123,7 +123,7 @@ export class SemanticRepository {
     const rel = `${spec.dir}/${semanticFilename(title, id)}`;
     const yamlText = stringify(full, { lineWidth: 0 });
     const text = joinDocument({ bom: "", eol: "\n", yaml: yamlText, body: body.length && !body.startsWith("\n") ? `\n${body}` : body });
-    const { version } = await this.files.write(rel, Buffer.from(text), { expectedVersion: null });
+    const { version } = await this.files.write(rel, Buffer.from(text), { expectedVersion: null, ...(beforeCommit && { beforeCommit }) });
     this.onWritten?.([rel]);
     return { kind, id, path: rel, version, data: parsed.data as Record<string, unknown>, body: splitDocument(text).body, readOnly: false };
   }

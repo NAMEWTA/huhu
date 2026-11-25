@@ -221,7 +221,7 @@ export class TasksService {
   }
 
   /** 文件级问题列表（健康中心）：schema 1、缺少 type / status 等由仓储按 kind 报告。 */
-  async create(input: TaskWritable, origin: TaskOrigin, reservedId?: string): Promise<TaskDto> {
+  async create(input: TaskWritable, origin: TaskOrigin, reservedId?: string, beforeCommit?: () => void): Promise<TaskDto> {
     const now = iso(this.d.now());
     const data = {
       title: input.title,
@@ -238,7 +238,7 @@ export class TasksService {
       createdAt: now,
       updatedAt: now,
     };
-    const e = await this.d.repo.create("task", data, buildTaskBody(input.body), reservedId);
+    const e = await this.d.repo.create("task", data, buildTaskBody(input.body), reservedId, beforeCommit);
     this.d.publish("entity.changed", { kind: "task", id: e.id, op: "created" });
     return this.dto(e);
   }
@@ -391,12 +391,12 @@ export class TasksService {
   }
 
   /** 追加评论：按 id 去重（已存在就视为成功）；区段级条件写，最多重试 3 次。 */
-  async addComment(taskId: string, c: NewComment): Promise<{ comment: TaskComment; added: boolean }> {
+  async addComment(taskId: string, c: NewComment, beforeCommit?: () => void): Promise<{ comment: TaskComment; added: boolean }> {
     return this.withRetriedTaskWrite(taskId, async () => {
       const entity = this.d.repo.read("task", taskId);
       const next = appendComment(entity.body, c);
       if (!next.added) return { comment: this.dto(entity).comments.find((x) => x.id === c.id)!, added: false };
-      const e = await this.d.repo.patch("task", taskId, {}, entity.version, next.body);
+      const e = await this.d.repo.patch("task", taskId, {}, entity.version, next.body, beforeCommit);
       this.d.publish("entity.changed", { kind: "task", id: taskId, op: "updated" });
       return { comment: this.dto(e).comments.find((x) => x.id === c.id)!, added: true };
     });

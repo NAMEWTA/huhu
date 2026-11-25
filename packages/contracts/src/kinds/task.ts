@@ -53,7 +53,16 @@ export const TaskOriginSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("automation"), ruleId: z.string().optional(), activationId: z.string().optional() }),
   z.object({ kind: z.literal("session"), sessionId: z.string().optional() }),
   z.object({ kind: z.literal("plugin"), id: z.string() }),
-  z.object({ kind: z.literal("external"), caller: z.string() }),
+  z.object({
+    kind: z.literal("external"),
+    caller: z.string(),
+    github: z.object({
+      sourceId: z.uuidv4(),
+      repositoryId: z.int().positive(),
+      issueId: z.int().positive(),
+      eventId: z.string(),
+    }).optional(),
+  }),
 ]);
 export type TaskOrigin = z.infer<typeof TaskOriginSchema>;
 

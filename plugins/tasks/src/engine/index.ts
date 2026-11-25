@@ -30,6 +30,7 @@ import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
 import { TaskDispatch, type TaskDispatchExecutor, type TaskScheduleAdmission } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, RetryDispatch, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
+import { GitHubSources, githubSourceDescriptors } from "./github-sources.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
 import { ResponseActor } from "./response-actor.js";
@@ -59,6 +60,7 @@ const count = z.int().nonnegative();
 const capacity = z.object({ limit: count.nullable(), occupied: count.nullable() });
 
 export const taskToolDescriptors = {
+  ...githubSourceDescriptors,
   list: defineCapabilityDescriptor({
     name: "tasks.list",
     plugin: "tasks",
@@ -464,6 +466,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return null;
     }
   }, opts.dispatchBudget, (source, taskId) => api.service<TaskScheduleAdmission>("taskScheduleAdmission")?.(source, taskId) ?? false);
+  const githubSources = new GitHubSources(files, svc, dispatch, now);
+  api.defineCapability(bindCapability(taskToolDescriptors.githubCreate, (c, input) => githubSources.create(c, input)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubRetire, (c, { sourceId }) => githubSources.retire(c, sourceId)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubAllowReply, (c, input) => githubSources.allowReply(c, input)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubAccept, (c, input) => githubSources.accept(c, input)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubRead, (c, input) => githubSources.readEvent(c, input)));
 
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const validateAgentTarget = (execution: TaskExecution | null | undefined) => {
@@ -653,7 +661,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   });
   ctx.effect(() => {
     dispatch.startRecovery(opts.dispatchCheckMs ?? 5_000);
-    return () => dispatch.close();
+    return async () => {
+      await githubSources.drain();
+      await dispatch.close();
+    };
   });
 
   api.defineCapability(

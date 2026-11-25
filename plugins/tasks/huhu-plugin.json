@@ -38,7 +38,12 @@
       "tasks.reply",
       "tasks.reply.read",
       "tasks.supplement",
-      "tasks.supplement.read"
+      "tasks.supplement.read",
+      "tasks.github.source.create",
+      "tasks.github.source.retire",
+      "tasks.github.question.allow",
+      "tasks.github.events.accept",
+      "tasks.github.events.read"
     ],
     "fileKinds": ["task"]
   }

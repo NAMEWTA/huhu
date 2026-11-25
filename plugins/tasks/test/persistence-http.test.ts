@@ -22,6 +22,7 @@ import { TaskReceiptInbox } from "../src/engine/receipt-inbox.js";
 import { externalEntries, externalToolEntry } from "./external-tool-entry.js";
 import { TasksService } from "../src/engine/service.js";
 import { dispatchSnapshotText } from "../src/engine/dispatch-store.js";
+import { githubAuthor, githubCommentEvent, githubIssue, githubIssueEvent, githubRepository } from "./github-fixture.js";
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
@@ -2050,4 +2051,86 @@ test("包验收先阻止接收，停用后恢复只丢一次 ACK，重交沿用�
   expect(await submitReceipt(engine, input)).toEqual({ ok: true, data: held });
   expect(records()).toHaveLength(1);
   await vi.waitFor(async () => expect((await call<TaskDto>(engine, "tasks.read", { id: task.id })).data.comments.filter(({ event }) => event === "result")).toHaveLength(1));
+});
+
+async function bindGitHubFixture(engine: RunningEngine, replyActorIds: number[] = []) {
+  const token = await call<{ id: string; token: string }>(engine, "gateway.tokens.create", { name: "github-connector-fixture" });
+  expect(token.ok).toBe(true);
+  const config = await call<{ sourceId: string }>(engine, "tasks.github.source.create", {
+    connectorId: token.data.id, repositoryId: githubRepository.id, repository: githubRepository.name, replyActorIds,
+  });
+  expect(config.ok).toBe(true);
+  for (const capability of ["tasks.github.events.accept", "tasks.github.events.read"]) {
+    expect(await call(engine, "gateway.update", { capability, exposed: true })).toMatchObject({ ok: true });
+  }
+  return { ...token.data, ...config.data };
+}
+
+test("TW4 GitHub 事件重投、冲突、乱序和来源归并经过实际 HTTP 认证与持久化", async () => {
+  const root = tempVault();
+  let engine = await start(root, true);
+  const first = await bindGitHubFixture(engine);
+  const second = await bindGitHubFixture(engine);
+  const accept = (raw: unknown, connection = first, sourceId = connection.sourceId) =>
+    call<{ taskId: string; state: string }>(engine, "tasks.github.events.accept", { sourceId, raw }, connection.token);
+  const created = await accept(githubIssueEvent());
+  expect(created).toMatchObject({ ok: true, data: { state: "created", taskId: expect.any(String) } });
+  const id = created.data.taskId;
+  expect(await accept(githubIssueEvent(), second, first.sourceId)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await accept(githubIssueEvent(), second)).toMatchObject({ ok: true, data: { state: "created", taskId: expect.not.stringMatching(id) } });
+  expect(await accept(githubIssueEvent("20101", { title: "同 ID 异内容" }))).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  expect(await accept({ ...githubIssueEvent("20106"), repo: { ...githubRepository, id: 999 } })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  expect(await accept(githubIssueEvent("20102", { updated_at: "2026-11-24T10:01:00Z", body: "较新的 Issue" }))).toMatchObject({ ok: true, data: { state: "updated", taskId: id } });
+  expect(await accept(githubIssueEvent("20103", { updated_at: "2026-11-24T09:59:00Z" }))).toMatchObject({ ok: true, data: { state: "stale", taskId: id } });
+  expect(await accept(githubCommentEvent("20104", "同一 Issue 的评论"))).toMatchObject({ ok: true, data: { state: "discussion", taskId: id } });
+
+  await stop(engine);
+  engine = await start(root);
+  expect(await accept(githubIssueEvent())).toEqual(created);
+  expect(await accept(githubCommentEvent("20104", "同一 Issue 的评论"))).toMatchObject({ ok: true, data: { state: "discussion", taskId: id } });
+  const task = (await call<TaskDto>(engine, "tasks.read", { id })).data;
+  expect(task.origin).toMatchObject({ kind: "external", github: { sourceId: first.sourceId, issueId: githubIssue.id, eventId: "20101" } });
+  expect(task.comments.map(({ event }) => event)).toEqual(["github-issue-updated", "github-comment"]);
+  expect(await call(engine, "tasks.github.events.read", { sourceId: first.sourceId, eventId: "20104" }, first.token)).toMatchObject({
+    ok: true, data: { raw: githubCommentEvent("20104", "同一 Issue 的评论"), connectorId: first.id, actor: githubAuthor, taskId: id },
+  });
+  expect(await call(engine, "tasks.github.source.retire", { sourceId: first.sourceId })).toMatchObject({ ok: true });
+  expect(await accept(githubIssueEvent())).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+});
+
+test("TW4 GitHub 已认证事件仍按真实作者、原对象及当前版本消费原生问题一次", async () => {
+  const { fake, engine } = await startBoundRun();
+  const connector = await bindGitHubFixture(engine, [githubAuthor.id]);
+  const submit = (raw: unknown) => call<{ taskId: string; reply: unknown }>(engine, "tasks.github.events.accept", { sourceId: connector.sourceId, raw }, connector.token);
+  const { data: { taskId } } = await submit(githubIssueEvent());
+  const { data: original } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
+  const { data: spaces } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const { data: task } = await call<TaskDto>(engine, "tasks.update", {
+    id: taskId, expectedVersion: original.version, patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
+  });
+  const run = await acceptDispatch(engine, intent(task));
+  await waitDispatch(engine, run, { state: "running" });
+  const execution = recordOf(engine, run).boundExecution!;
+  const question = { taskId, runId: run.runId, sessionId: execution.sessionBinding.sessionId, requestId: "github-ask", requestVersion: 2 };
+  const answer = vi.fn<NonNullable<TaskDispatchExecutor["answer"]>>().mockResolvedValue({ status: "accepted" });
+  fake.answer = answer;
+  expect(await submitReceipt(engine, {
+    version: 1, kind: "question", receiptId: "github-question",
+    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: "fixture-thread" } },
+    payload: { mode: "native_deferred", requestId: question.requestId, requestVersion: 2, text: "选择结果", options: ["明确答复"], nativeRequestId: "gh-native" },
+  })).toMatchObject({ ok: true });
+  expect(await call(engine, "tasks.github.question.allow", { ...question, sourceId: connector.sourceId, issueId: githubIssue.id })).toMatchObject({ ok: true });
+  const body = (version: number) => `/huhu answer ${question.runId} ${question.sessionId} ${question.requestId} ${version}\n明确答复`;
+  expect(await submit(githubCommentEvent("20102", "只是讨论"))).toMatchObject({ ok: true, data: { state: "discussion" } });
+  expect(await submit(githubCommentEvent("20103", body(2), { id: 88, login: "other-author" }))).toMatchObject({ ok: true, data: { state: "reply-denied" } });
+  expect(await submit(githubCommentEvent("20104", body(1)))).toMatchObject({ ok: true, data: { state: "reply-denied" } });
+  expect(answer).not.toHaveBeenCalled();
+
+  const accepted = await submit(githubCommentEvent("20105", body(2)));
+  expect(accepted).toMatchObject({ ok: true, data: { state: "reply-accepted", reply: question } });
+  expect(await submit(githubCommentEvent("20105", body(2)))).toEqual(accepted);
+  expect(await submit(githubCommentEvent("20106", body(2)))).toMatchObject({ ok: true, data: { state: "reply-rejected" } });
+  await expect.poll(() => call(engine, "tasks.reply.read", accepted.data.reply)).toMatchObject({ ok: true, data: { status: "accepted" } });
+  await expect.poll(async () => (await call<TaskDto>(engine, "tasks.read", { id: taskId })).data.comments.filter(({ event }) => event === "answer")).toMatchObject([{ author: "GitHub @issue-author", body: "明确答复" }]);
+  expect(answer).toHaveBeenCalledTimes(1);
 });
