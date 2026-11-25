@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ledgerBusinessDayRange } from "../../../packages/contracts/src/ledger.js";
+import type { Loan, LoanHistory } from "../../../plugins/ledger/src/shared/loans.js";
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -488,7 +489,7 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     await createBook(desktop, "贷款账本", "银行");
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const { book, accounts } = await call<{ book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
-    await call(desktop, "ledger.loans.create", {
+    const loan = await call<Loan>(desktop, "ledger.loans.create", {
       bookId, expectedRevision: book.revision,
       definition: { name: "设备贷款", method: "equal-principal", principalMinor: "20000",
         currency: "TWD", annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: accounts[0]!.id },
@@ -499,7 +500,10 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     await page.goto(url);
     const webLedger = await enterLedger(page);
     await page.getByTestId("ledger-nav-recurring").click();
-    await webLedger.getByRole("button", { name: "预览贷款历史补记" }).click();
+    const loanCard = webLedger.getByRole("article").filter({
+      has: page.getByRole("heading", { name: loan.definition.name, exact: true }),
+    });
+    await loanCard.getByRole("button", { name: "预览贷款历史补记" }).click();
     const preview = page.getByRole("dialog", { name: "预览贷款历史补记" });
     await expect(preview.getByRole("table", { name: "还款计划" })).toContainText("2024-02-29");
     await expect(preview.getByRole("button", { name: "确认所选期次" })).toBeDisabled();
@@ -508,11 +512,18 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
     await preview.getByRole("button", { name: "确认所选期次" }).click();
     await expect(preview.getByRole("status").filter({ hasText: "已确认 1 个所选期次" })).toBeVisible();
     await expect(preview.getByRole("checkbox", { name: "补记第 2 期 2024-03-31" })).not.toBeChecked();
+    const history = await call<LoanHistory>(page, "ledger.loans.previewHistory", { bookId, loanId: loan.id });
+    expect(history.installments).toMatchObject([
+      { number: 1, status: "generated", recordId: expect.any(String) },
+      { number: 2, status: "due", recordId: null },
+    ]);
     await preview.getByRole("button", { name: "查看第 1 期流水" }).click();
     const record = page.getByRole("dialog", { name: "查看流水" });
     await expect(record).toContainText("2024-02-29");
-    await expect(record).toContainText("设备贷款");
-    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({ total: 1 });
+    await expect(record.getByRole("heading", { name: loan.definition.name, exact: true })).toBeVisible();
+    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
+      total: 1, rows: [{ businessDate: "2024-02-29", record: { id: history.installments[0]!.recordId } }],
+    });
   } finally {
     await browser?.close().catch(() => undefined);
     await app?.close().catch(() => undefined);
