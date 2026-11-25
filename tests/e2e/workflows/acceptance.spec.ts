@@ -1316,9 +1316,16 @@ test("能力网关：逐项和批量选择先预览，旧版本保留草稿并�
     await page.getByRole("checkbox", { name: "选择 notes.read", exact: true }).check();
     await filter.fill("notes.list");
     await page.getByRole("checkbox", { name: "选择 notes.list", exact: true }).check();
-    await page.getByRole("button", { name: "开启所选" }).click();
+    const openSelected = page.getByRole("button", { name: "开启所选" });
+    await openSelected.click();
     const bulk = page.getByRole("dialog", { name: "开启所选" });
     await expect(bulk.getByRole("listitem")).toHaveCount(2);
+    await page.keyboard.press("Escape");
+    await expect(bulk).toBeHidden();
+    await expect(openSelected).toBeFocused();
+    expect(readPolicy().revision).toBe(0);
+
+    await openSelected.click();
     await expect(bulk).toContainText("策略版本 0");
     expect((await call("gateway.update", { capability: "vault.info", exposed: true })).ok).toBe(true);
     await bulk.getByRole("button", { name: "保存选择" }).click();

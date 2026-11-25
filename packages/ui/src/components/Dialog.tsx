@@ -13,6 +13,7 @@ export interface DialogProps {
   /** 底部操作区（按钮）。 */
   actions?: ReactNode;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   testId?: string;
   className?: string;
   wide?: boolean;
@@ -22,14 +23,15 @@ export interface DialogProps {
 }
 
 /** 模态对话框（原型 .modal 结构）：基于原生 <dialog>，焦点陷阱、Esc、背景惰性由浏览器提供。 */
-export function Dialog({ open, title, ariaLabel, description, onClose, children, actions, initialFocusRef, testId, className, wide = false, dismissOnBackdrop = false, error }: DialogProps) {
+export function Dialog({ open, title, ariaLabel, description, onClose, children, actions, initialFocusRef, returnFocusRef, testId, className, wide = false, dismissOnBackdrop = false, error }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [present, setPresent] = useState(open);
   useLayoutEffect(() => {
     const d = ref.current;
     if (!d) return;
-    const invoker = d.ownerDocument.activeElement;
+    const previousFocus = d.ownerDocument.activeElement;
+    const invoker = returnFocusRef?.current ?? previousFocus;
     if (open && !d.open) {
       d.showModal();
       const initial = initialFocusRef?.current ??
@@ -41,14 +43,16 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
     return () => {
       if (!open) return;
       if (d.open) d.close();
-      // A conditionally mounted dialog can leave the document during the same commit.
+      // Native focus return can miss a dialog removed in this commit or an async invoker that lost focus before showModal().
       queueMicrotask(() => {
         const active = d.ownerDocument.activeElement;
         if (!d.open && invoker instanceof HTMLElement && invoker.isConnected
-          && (active === d.ownerDocument.body || d.contains(active))) invoker.focus();
+          && active !== invoker && (active === d.ownerDocument.body || active === previousFocus || d.contains(active))) {
+          invoker.focus();
+        }
       });
     };
-  }, [open, initialFocusRef]);
+  }, [open, initialFocusRef, returnFocusRef]);
   if (!open && !present) return null;
   return (
     <dialog

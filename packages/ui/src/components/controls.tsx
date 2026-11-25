@@ -112,9 +112,17 @@ export function ChoiceSegmented({ items, value, onChange, className = "", label 
   );
 }
 
-export function ChoiceSwitch({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void; label: string; disabled?: boolean }) {
+export function ChoiceSwitch({ checked, onChange, label, disabled = false }: { checked: boolean; onChange: (checked: boolean, trigger: HTMLButtonElement) => void; label: string; disabled?: boolean }) {
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
-    <Switch.Root checked={!!checked} onCheckedChange={onChange} aria-label={label} disabled={disabled} className={`toggle hu-switch ${checked ? "is-on" : ""}`}>
+    <Switch.Root
+      ref={trigger}
+      checked={!!checked}
+      onCheckedChange={(next) => { if (trigger.current) onChange(next, trigger.current); }}
+      aria-label={label}
+      disabled={disabled}
+      className={`toggle hu-switch ${checked ? "is-on" : ""}`}
+    >
       <Switch.Thumb />
     </Switch.Root>
   );

@@ -56,6 +56,7 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
   const [error, setError] = useState<{ message: string; refresh: boolean } | null>(null);
   const [notice, setNotice] = useState("");
   const cancel = useRef<HTMLButtonElement>(null);
+  const previewTrigger = useRef<HTMLButtonElement>(null);
   const query = filter.trim().toLocaleLowerCase();
   const list = (entries ?? []).filter((entry) => [entry.name, entry.title, entry.description].some((text) => text?.toLocaleLowerCase().includes(query)));
   const exposable = (entries ?? []).filter((entry) => entry.exposable);
@@ -78,8 +79,9 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
     });
   }
 
-  async function showPreview(title: string, changes: Change[]) {
+  async function showPreview(title: string, changes: Change[], trigger?: HTMLButtonElement) {
     if (busy || !editable || changes.length === 0) return;
+    if (trigger) previewTrigger.current = trigger;
     setNotice("");
     setError(null);
     setBusy(true);
@@ -187,10 +189,11 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
           <div className="hu-gateway-grant-actions">
             <Button
               disabled={!openPicked.length}
-              onClick={() =>
+              onClick={(event) =>
                 void showPreview(
                   "开启所选",
                   openPicked.map(({ name }) => ({ capability: name, exposed: true })),
+                  event.currentTarget,
                 )
               }
             >
@@ -198,10 +201,11 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
             </Button>
             <Button
               disabled={!revokePicked.length}
-              onClick={() =>
+              onClick={(event) =>
                 void showPreview(
                   "关闭所选",
                   revokePicked.map(({ name }) => ({ capability: name, exposed: false })),
+                  event.currentTarget,
                 )
               }
             >
@@ -226,7 +230,7 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
                 ))}
               </Select>
             </Field>
-            <Button disabled={batchDraft.length === 0} onClick={() => void showPreview(batchTitle, batchDraft)}>预览批量操作</Button>
+            <Button disabled={batchDraft.length === 0} onClick={(event) => void showPreview(batchTitle, batchDraft, event.currentTarget)}>预览批量操作</Button>
           </div>
         </fieldset>
         <p role="status">{busy && !draft ? "正在更新工具选择…" : notice}</p>
@@ -259,7 +263,7 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
               width: 110,
               cell: (c) =>
                 c.exposable ? (
-                  <ChoiceSwitch disabled={!editable || busy || !canChoose(c)} checked={c.selected === true} label={`暴露 ${c.name}`} onChange={(exposed) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }])} />
+                  <ChoiceSwitch disabled={!editable || busy || !canChoose(c)} checked={c.selected === true} label={`暴露 ${c.name}`} onChange={(exposed, trigger) => void showPreview(exposed ? "开放工具" : "关闭工具", [{ capability: c.name, exposed }], trigger)} />
                 ) : (
                   <span className="small muted">{g.never}</span>
                 ),
@@ -273,6 +277,7 @@ export function ToolPolicyCatalog({ entries, catalogFailed, filter, policy, rest
         onClose={closePreview}
         error={draft ? error?.message : null}
         initialFocusRef={cancel}
+        returnFocusRef={previewTrigger}
         wide
         actions={
           <>
