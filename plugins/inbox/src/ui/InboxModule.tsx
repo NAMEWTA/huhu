@@ -1,7 +1,8 @@
+import type { TaskAttention } from "@huhu/contracts";
 import { CompactMarkdownReader } from "@huhu/editor/reading";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { Badge, Button, DateTimePicker, Dialog, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented, Select } from "@huhu/ui";
-import { requestOpenPath, useCapability, useEngine, useQueryClient, useReferenceIndex, type ModuleProps } from "@huhu/workbench";
+import { requestOpenMailDelivery, requestOpenPath, requestOpenTask, useCapability, useEngine, useQueryClient, useReferenceIndex, type ModuleProps } from "@huhu/workbench";
 import { Archive, ArrowRight, ArrowUpRight, Check, CircleCheck, FileText, Inbox, Pencil, Plus, RotateCcw, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { Suspense, lazy, useEffect, useId, useRef, useState } from "react";
 import { t } from "./i18n.js";
@@ -18,6 +19,7 @@ export interface Capture {
   source: string;
   status: "pending" | "processed" | "dismissed";
   result: { kind: string; id: string } | null;
+  pendingConversion?: Target | null;
   version: string;
   createdAt?: string;
 }
@@ -28,7 +30,65 @@ interface ArchiveType {
 type Target = "task" | "note" | "archive";
 type Status = Capture["status"];
 
-const SOURCES = ["快速捕获", "笔记摘录", "Agent CLI", "手动导入"];
+const SOURCES = {
+  quick: "快速捕获",
+  "note-excerpt": "笔记摘录",
+  "agent-cli": "Agent CLI",
+  import: "手动导入",
+} as const;
+const ATTENTION_TEXT: Record<TaskAttention["state"], string> = {
+  pending: "待处理任务",
+  blocked: "任务受阻",
+  awaiting: "等待回答",
+  "answer-unconfirmed": "回答待核实",
+  "answer-failed": "回答未送达",
+  "run-unknown": "运行待核实",
+  "run-failed": "运行失败",
+};
+const DELIVERY_TEXT = { unknown: "投递结果待核实", "not-delivered": "投递未送达", "partially-accepted": "部分送达" } as const;
+type DeliveryState = keyof typeof DELIVERY_TEXT | "accepted" | "sending";
+
+function InboxAttention({ onNavigate }: { onNavigate: ModuleProps["onNavigate"] }) {
+  const engine = useEngine();
+  const tasks = useCapability<TaskAttention[]>("tasks.attention", {});
+  const mail = useCapability<{ operations: { operationId: string; subject: string; state: DeliveryState; retained?: boolean }[] }>("mail.outbox.list", {});
+  const taskRows = tasks.data ?? [];
+  const deliveryRows = (mail.data?.operations ?? []).filter((entry): entry is typeof entry & { state: keyof typeof DELIVERY_TEXT } => entry.state !== "accepted" && entry.state !== "sending");
+  return (
+    <details className="inbox-attention">
+      <summary>待处理事项 <span>{taskRows.length + deliveryRows.length}</span></summary>
+      {tasks.error || mail.error ? <p role="status" className="muted small">{tasks.error ? "暂时无法查看任务摘要。" : ""}{mail.error ? "暂时无法查看投递摘要。" : ""}</p> : null}
+      {taskRows.length || deliveryRows.length ? (
+        <ul>
+          {taskRows.map((task) => (
+            <li key={`${task.taskId}:${task.questionId ?? task.runId ?? ""}`}>
+              <Button variant="ghost" onClick={() => {
+                requestOpenTask(task.taskId, task.runId ? { runId: task.runId, questionId: task.questionId } : undefined);
+                onNavigate?.("tasks");
+              }}>
+                <Badge>{ATTENTION_TEXT[task.state]}</Badge>
+                <span>{task.title}</span>
+              </Button>
+            </li>
+          ))}
+          {deliveryRows.map(({ operationId, subject, state, retained }) => (
+            <li key={operationId}>
+              <Button variant="ghost" onClick={() => {
+                requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
+                onNavigate?.("mail");
+              }}>
+                <Badge>{DELIVERY_TEXT[state]}</Badge>
+                <span>{retained ? "保留的投递记录" : subject || "未填写主题"}</span>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted small">{tasks.isPending || mail.isPending ? "正在读取待处理事项…" : "暂无待处理任务、问题或待核实投递。"}</p>
+      )}
+    </details>
+  );
+}
 const TARGET_TEXT: Record<Target, string> = { task: "任务", note: "笔记", archive: "档案" };
 const shortDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("zh-CN") : "");
 
@@ -69,10 +129,12 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
       await refresh();
       return true;
     } catch (e) {
+      if (capability === "inbox.convert") await refresh();
       setError(e instanceof Error ? e.message : String(e));
       return false;
     }
   }
+  const liveConvert = dialog?.kind === "convert" ? all.find(({ id }) => id === dialog.item.id) : undefined;
   const noTypes = (types.data ?? []).length === 0;
 
   return (
@@ -213,6 +275,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
             {error}
           </div>
         ) : null}
+        {status === "pending" ? <InboxAttention onNavigate={onNavigate} /> : null}
         {cur ? (
           <article className="inbox-knowledge-inbox-detail">
             <div className="hu-knowledge-inbox-detail-meta">
@@ -234,7 +297,16 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                 }}
               />
             </div>
-            {cur.status === "pending" ? (
+            {cur.status === "pending" && cur.pendingConversion ? (
+              <div className="hu-knowledge-dismissed-result">
+                <p role="status">转为{TARGET_TEXT[cur.pendingConversion]}的结果待核实。</p>
+                <Button variant="primary" onClick={() => {
+                  const target = cur.pendingConversion;
+                  if (target) setDialog({ kind: "convert", item: cur, target });
+                }}>核实原转换</Button>
+              </div>
+            ) : null}
+            {cur.status === "pending" && !cur.pendingConversion ? (
               <>
                 <div className="inbox-knowledge-processing-heading">
                   <h3>{t.next}</h3>
@@ -328,7 +400,14 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
           target={dialog.target}
           types={types.data ?? []}
           onClose={() => setDialog(null)}
-          onSubmit={async (fields) => (await act("inbox.convert", { id: dialog.item.id, expectedVersion: dialog.item.version, target: dialog.target, fields })) && (setDialog(null), true)}
+          checking={liveConvert?.pendingConversion === dialog.target || liveConvert?.result?.kind === dialog.target}
+          onSubmit={async (fields, resume) => (await act("inbox.convert", {
+            id: dialog.item.id,
+            expectedVersion: liveConvert?.version ?? dialog.item.version,
+            target: dialog.target,
+            fields,
+            ...(resume && { resume: true }),
+          })) && (setDialog(null), true)}
         />
       ) : null}
       {dialog?.kind === "delete" ? (
@@ -398,7 +477,7 @@ function CaptureBodyInput({ value, onPort }: { value: string; onPort(port: RichE
   const id = useId();
   const refs = useReferenceIndex();
   return (
-    <div className="inbox-compact-input">
+    <div className="inbox-compact-input" data-testid="capture-body-input">
       <Suspense fallback={null}>
         <CompactInput id={`inbox-draft-${id}`} value={value} onChange={() => {}} onPort={onPort} pages={refs.pages} referenceSearch={refs.search} ariaLabel="内容" />
       </Suspense>
@@ -433,12 +512,13 @@ function useDialogSubmit() {
 }
 
 function EditDialog({ error, item, onClose, onSave }: { error: string | null; item: Capture | null; onClose(): void; onSave(v: { title: string; body: string; source: string }): Promise<boolean | undefined> }) {
-  const [v, setV] = useState({ title: item?.title ?? "", source: item?.source ?? SOURCES[0]! });
+  const [v, setV] = useState({ title: item?.title ?? "", source: item?.source ?? "quick" });
   const { port, saving, failure, submit } = useDialogSubmit();
   return (
     <Dialog
       open
       error={failure ?? error}
+      testId={item ? "edit-capture-dialog" : "quick-capture-dialog"}
       title={item ? "编辑收集条目" : "快速捕获"}
       description="先把想法放进来，稍后再决定它应该去哪里。"
       onClose={() => {
@@ -470,8 +550,8 @@ function EditDialog({ error, item, onClose, onSave }: { error: string | null; it
         {item ? null : (
           <Field label="来源">
             <Select aria-label="来源" value={v.source} onChange={(e) => setV({ ...v, source: e.target.value })}>
-              {SOURCES.map((s) => (
-                <option key={s}>{s}</option>
+              {Object.entries(SOURCES).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
               ))}
             </Select>
           </Field>
@@ -486,6 +566,7 @@ function ConvertDialog({
   item,
   target,
   types,
+  checking,
   onClose,
   onSubmit,
 }: {
@@ -493,8 +574,9 @@ function ConvertDialog({
   item: Capture;
   target: Target;
   types: ArchiveType[];
+  checking: boolean;
   onClose(): void;
-  onSubmit(fields: Record<string, unknown>): Promise<boolean | undefined>;
+  onSubmit(fields: Record<string, unknown>, resume?: boolean): Promise<boolean | undefined>;
 }) {
   const label = TARGET_TEXT[target];
   const [name, setName] = useState(item.title);
@@ -516,7 +598,7 @@ function ConvertDialog({
       open
       error={failure ?? error}
       title={`转为${label}`}
-      description="原始收集记录会保留在已处理列表，并记录生成内容的关联。"
+      description={checking ? "核对已受理的原目标，确认后完成这条收集记录。" : "原始收集记录会保留在已处理列表，并记录生成内容的关联。"}
       onClose={() => {
         if (!saving) onClose();
       }}
@@ -529,52 +611,54 @@ function ConvertDialog({
           <Button
             variant="primary"
             loading={saving}
-            disabled={!name.trim()}
-            onClick={() => void submit(body, convert)}
+            disabled={!checking && !name.trim()}
+            onClick={() => void (checking ? submit("", () => onSubmit({}, true)) : submit(body, convert))}
           >
-            创建{label}并完成处理
+            {checking ? "核实原转换" : `创建${label}并完成处理`}
           </Button>
         </>
       }
     >
-      <div className="hu-form-body">
-        <Field label={`${label}名称`}>
-          <input autoFocus aria-label={`${label}名称`} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        {target === "task" ? (
-          <Field label="截止日期">
-            <DateTimePicker label="截止日期" field={{ kind: "date", value: due || null }} onChange={(next) => { if (next.kind === "date") setDue(next.value ?? ""); }} />
+      {!checking ? (
+        <div className="hu-form-body">
+          <Field label={`${label}名称`}>
+            <input autoFocus aria-label={`${label}名称`} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-        ) : null}
-        {target === "archive" ? (
-          <Field label="档案类型">
-            <Select aria-label="档案类型" value={type} onChange={(e) => setType(e.target.value)}>
-              {types.map((x) => (
-                <option key={x.path} value={x.path}>
-                  {x.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
-        {target === "task" ? (
-          <Field label="内容">
-            <CaptureBodyInput
-              value={body}
-              onPort={(editor) => {
-                port.current = editor;
-              }}
-            />
-          </Field>
-        ) : (
-          <div className="hu-field">
-            <label className="hu-field-label" htmlFor={bodyId}>
-              内容
-            </label>
-            <textarea id={bodyId} rows={5} value={body} disabled={saving} onChange={(e) => setBody(e.target.value)} />
-          </div>
-        )}
-      </div>
+          {target === "task" ? (
+            <Field label="截止日期">
+              <DateTimePicker label="截止日期" field={{ kind: "date", value: due || null }} onChange={(next) => { if (next.kind === "date") setDue(next.value ?? ""); }} />
+            </Field>
+          ) : null}
+          {target === "archive" ? (
+            <Field label="档案类型">
+              <Select aria-label="档案类型" value={type} onChange={(e) => setType(e.target.value)}>
+                {types.map((x) => (
+                  <option key={x.path} value={x.path}>
+                    {x.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          {target === "task" ? (
+            <Field label="内容">
+              <CaptureBodyInput
+                value={body}
+                onPort={(editor) => {
+                  port.current = editor;
+                }}
+              />
+            </Field>
+          ) : (
+            <div className="hu-field">
+              <label className="hu-field-label" htmlFor={bodyId}>
+                内容
+              </label>
+              <textarea id={bodyId} rows={5} value={body} disabled={saving} onChange={(e) => setBody(e.target.value)} />
+            </div>
+          )}
+        </div>
+      ) : null}
     </Dialog>
   );
 }

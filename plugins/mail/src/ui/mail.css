@@ -11,6 +11,32 @@
     padding: 16px;
   }
 
+  .hu-mail-settings {
+    display: grid;
+    gap: 10px;
+    min-inline-size: 0;
+  }
+
+  .hu-mail-settings > details {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    overflow-wrap: anywhere;
+  }
+
+  .hu-mail-settings > details > summary {
+    padding-block: 4px;
+    cursor: pointer;
+  }
+
+  .hu-mail-reading-empty {
+    display: none;
+    min-inline-size: 0;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+  }
+
   .hu-mail-row {
     display: flex;
     align-items: center;
@@ -473,6 +499,10 @@
       column-gap: 0;
     }
 
+    .hu-mail-account-columns[data-empty="true"] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .hu-mail-account-columns > .hu-mail-pane-separator {
       display: block;
     }
@@ -485,7 +515,6 @@
   @container (max-width: 580px) {
     .hu-mail-account-columns[data-account-view="mailbox"] > .hu-mail-account-sidebar,
     .hu-mail-account-columns[data-account-view="accounts"] > .hu-mail-account-detail,
-    .hu-mail-account-overview,
     .hu-mail-account-detail[data-reading="true"] .hu-mail-mailbox-nav,
     .hu-mail-account-detail[data-reading="true"] .hu-mail-mailbox-toolbar {
       display: none;
@@ -501,6 +530,11 @@
       grid-template-columns: var(--mail-contact-width, 208px) 12px minmax(0, 1fr);
       column-gap: 0;
       align-items: start;
+    }
+
+    .hu-mail-reading-empty {
+      display: grid;
+      gap: 8px;
     }
 
     .hu-mail-contact-columns > .hu-mail-pane-separator {

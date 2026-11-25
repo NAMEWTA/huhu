@@ -54,6 +54,36 @@
     outline: 2px solid var(--tag-4);
     outline-offset: 2px;
   }
+  .inbox-attention {
+    margin-block: 8px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    overflow-wrap: anywhere;
+  }
+  .inbox-attention > summary {
+    cursor: pointer;
+  }
+  .inbox-attention > summary span {
+    margin-inline-start: 4px;
+    color: var(--muted);
+  }
+  .inbox-attention ul {
+    display: grid;
+    gap: 2px;
+    max-block-size: 18rem;
+    padding: 4px;
+    overflow: auto;
+    list-style: none;
+  }
+  .inbox-attention li > button {
+    display: flex;
+    flex-wrap: wrap;
+    inline-size: 100%;
+    justify-content: flex-start;
+    white-space: normal;
+    text-align: start;
+  }
   .hu-knowledge-resource-footer {
     display: flex;
     align-items: center;

@@ -1,7 +1,7 @@
 import type { RichEditorPort } from "@huhu/editor/rich";
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
-import { requestOpenPath, useCapability, useEngine } from "@huhu/workbench";
+import { requestOpenPath, useCapability, useEngine, type TaskDestination } from "@huhu/workbench";
 import { AlertTriangle, Copy, FileText, Pencil, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { t } from "./i18n.js";
@@ -27,6 +27,7 @@ const fmt = (v: string | null, zone?: string): string => (v ? new Date(v).toLoca
  */
 export function TaskDetail({
   task,
+  destination,
   pending,
   onStatus,
   onEdit,
@@ -39,6 +40,7 @@ export function TaskDetail({
   onOpenAgent,
 }: {
   task: TaskDto;
+  destination?: TaskDestination | undefined;
   pending: boolean;
   onStatus(task: TaskDto, next: TaskStatus): void;
   onEdit(): void;
@@ -172,7 +174,7 @@ export function TaskDetail({
         <TaskReminderPlans task={task} />
         {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
-        {agent ? <RunRecords task={task} zone={zone} onOpenAgent={onOpenAgent} /> : null}
+        {agent ? <RunRecords task={task} zone={zone} destination={destination} onOpenAgent={onOpenAgent} /> : null}
         <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />
       </div>
       {confirmDelete ? (
@@ -280,8 +282,8 @@ function CommentComposer({ task, refs, onChanged, onMessage }: { task: TaskDto; 
   );
 }
 
-function RunRecords({ task, zone, onOpenAgent }: { task: TaskDto; zone: string | undefined; onOpenAgent(): void }) {
+function RunRecords({ task, zone, onOpenAgent, destination }: { task: TaskDto; zone: string | undefined; onOpenAgent(): void; destination?: TaskDestination | undefined }) {
   const runs = useCapability<TaskRunSummary[]>("tasks.runs", { id: task.id });
   const managed = useCapability<TaskDispatchView[]>("tasks.dispatch.list", { taskId: task.id });
-  return <TaskDispatchPanel task={task} zone={zone} runs={runs.data ?? []} rows={managed.data} readError={managed.error ?? runs.error} onNavigate={onOpenAgent} />;
+  return <TaskDispatchPanel task={task} zone={zone} destination={destination} runs={runs.data ?? []} rows={managed.data} readError={managed.error ?? runs.error} onNavigate={onOpenAgent} />;
 }

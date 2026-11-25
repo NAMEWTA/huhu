@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { HuhuHeaderSchema, IsoTime, dateLike } from "./common.js";
 
+const CaptureConversion = z.object({
+  id: z.string(),
+  target: z.enum(["task", "note", "archive"]),
+  sourceVersion: z.string(),
+  sourceHash: z.string(),
+  inputHash: z.string(),
+});
+export type CaptureConversion = z.infer<typeof CaptureConversion>;
+
 export const CaptureFrontmatterSchema = z.object({
   huhu: HuhuHeaderSchema("capture"),
   title: z.string().min(1),
@@ -8,6 +17,7 @@ export const CaptureFrontmatterSchema = z.object({
   status: z.enum(["pending", "processed", "dismissed"]),
   createdAt: dateLike(IsoTime),
   processedAt: dateLike(IsoTime).nullable().default(null),
+  conversion: CaptureConversion.optional(),
   result: z
     .object({ kind: z.enum(["task", "note", "archive"]), id: z.string() })
     .nullable()

@@ -78,7 +78,7 @@ export const archiveCapabilityDescriptors = {
     description: "创建档案。",
     ...publicTool,
     scope: "write",
-    input: z.object({ type: z.string(), name: z.string(), fields: Fields.optional(), body: z.string().optional() }),
+    input: z.object({ type: z.string(), name: z.string(), fields: Fields.optional(), body: z.string().optional(), inboxConversionId: z.uuid().optional() }),
     output: z.union([ArchiveDtoSchema, ArchiveRef]),
   }),
   update: descriptor({
@@ -150,7 +150,8 @@ export function registerArchiveCapabilities(api: HuhuApi, svc: ArchivesService, 
   api.defineCapability(bind(archiveCapabilityDescriptors.read, (_c, i) => svc.read(i.path)));
   api.defineCapability(
     bind(archiveCapabilityDescriptors.create, async (c, i) => {
-      const result = await svc.create(i);
+      if (i.inboxConversionId && (c.caller !== "plugin:inbox" || c.delegatedBy)) throw errors.permissionDenied("收件转换标识");
+      const result = await svc.create(i, i.inboxConversionId);
       return c.caller === "plugin:inbox" || c.parentOperationId ? ArchiveRef.parse(result) : result;
     }),
   );

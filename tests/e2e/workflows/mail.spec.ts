@@ -449,7 +449,8 @@ test("工作台重开后续跑同地址 Mail 原批次并保留未完成邮箱�
     const list = () => call<{ accounts: { accountId: string; revision: string }[] }>("mail.accounts.list");
     const preflight = async () => {
       await page.getByRole("button", { name: "邮件", exact: true }).first().click();
-      await page.getByText("邮件备份和恢复", { exact: true }).click();
+      await page.getByRole("button", { name: "邮件设置", exact: true }).click();
+      await page.getByRole("dialog", { name: "邮件设置", exact: true }).getByText("邮件备份和恢复", { exact: true }).click();
       await page.getByRole("button", { name: "预检并恢复" }).click();
       const dialog = page.getByRole("dialog", { name: "预检邮件备份" });
       await dialog.getByLabel("Huhu Mail 子集 ZIP（必填）").setInputFiles({ name: "original.zip", mimeType: "application/zip", buffer });

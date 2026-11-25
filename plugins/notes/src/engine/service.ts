@@ -5,7 +5,7 @@ import path from "node:path/posix";
 import { errors, isId, KINDS, newId, type NoteIndexDelta } from "@huhu/contracts";
 import { z } from "zod";
 import { dailyNotePath } from "../shared/daily.js";
-import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
+import { folderNoteDir, inboxDocumentReceiptPath, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
 import { renderTemplate, validateName, type NoteTemplate } from "../shared/templates.js";
@@ -285,7 +285,7 @@ export class NotesService {
     return { path: rel };
   }
 
-  async create(input: { name: string; folder?: string; template?: NoteTemplate; templatePath?: string; body?: string }): Promise<{ path: string; id: string }> {
+  async create(input: { name: string; folder?: string; template?: NoteTemplate; templatePath?: string; body?: string }, conversionId?: string): Promise<{ path: string; id: string }> {
     const nameErr = validateName(input.name.replace(/\.md$/i, ""));
     if (nameErr) throw errors.invalidInput(nameErr);
     const base = input.name.replace(/\.md$/i, "").trim();
@@ -301,8 +301,31 @@ export class NotesService {
     let bytes = templatePath === undefined ? Buffer.from(renderTemplate(template, base)) : this.readTemplateSource(templatePath);
     if (input.body !== undefined && templatePath === undefined && template === "blank") bytes = Buffer.from(input.body);
     else if (input.body) bytes = Buffer.concat([bytes, Buffer.from(`\n\n${input.body}`)]);
+    if (conversionId !== undefined) return { path: rel, id: await this.createConversionDocument(rel, bytes, conversionId) };
     await this.writeNewNote(rel, bytes);
     return { path: rel, id: await this.ensureId(rel) };
+  }
+
+  /** 来源转换的正文、稳定 ID 和目标凭据共同提交。 */
+  async createConversionDocument(rel: string, bytes: Uint8Array, conversionId: string, archivePath?: string): Promise<string> {
+    if (this.creationPathTaken(rel)) throw errors.nameConflict("这个文件夹中已有同名文件");
+    const key = rel.toLowerCase();
+    this.pendingCreations.add(key);
+    try {
+      const before = this.d.files.read(IDENTITIES);
+      const identities = before ? JSON.parse(before.bytes.toString("utf8")) as Record<string, string> : {};
+      const id = newId("note");
+      identities[rel] = id;
+      await this.d.ops.run(`inbox-convert-${conversionId}`, "inbox-document", [
+        { action: "write", path: rel, bytes, expectedVersion: null },
+        { action: "write", path: IDENTITIES, bytes: Buffer.from(JSON.stringify(identities, null, 2)), expectedVersion: before?.version ?? null },
+        { action: "write", path: inboxDocumentReceiptPath(conversionId), bytes: Buffer.from(JSON.stringify({ id: archivePath ?? id, path: rel })), expectedVersion: null },
+      ]);
+      this.d.index.refreshPaths([rel]);
+      return id;
+    } finally {
+      this.pendingCreations.delete(key);
+    }
   }
 
   /**
