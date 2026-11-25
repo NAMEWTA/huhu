@@ -524,10 +524,13 @@ test("UX10 按需启动器支持模型搜索、键盘返回和窄窗启动", asy
   void browserName;
   test.setTimeout(120_000);
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-ux10-"));
+  const argvFile = path.join(bin, "claude.argv");
+  const readArgv = () => existsSync(argvFile) ? readFileSync(argvFile, "utf8").trimEnd().split("\n") : [];
   writeFileSync(
     path.join(bin, "claude"),
     `#!/bin/sh
 if [ "$1" = "--version" ]; then printf '2.1.0 (Claude Code)\\n'; exit 0; fi
+printf '%s\\n' "$@" > "$0.argv"
 printf 'UX10-ARGV:%s\\n' "$@"
 while IFS= read -r line; do :; done
 `,
@@ -588,13 +591,16 @@ while IFS= read -r line; do :; done
         expect(bounds.top).toBeGreaterThanOrEqual(0);
         expect(bounds.right).toBeLessThanOrEqual(bounds.viewport.width);
         expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewport.height);
-        await setup.getByRole("button", { name: "启动", exact: true }).click();
+        const pane = await launchWorkspacePane(page, setup.getByRole("button", { name: "启动", exact: true }));
         await expect(menu).toHaveCount(0);
-        const rows = page.getByTestId("terminal-view").locator(".xterm-rows");
-        await expect(rows).toContainText(`UX10-ARGV:${prompt}`);
-        await expect(rows).toContainText("UX10-ARGV:opus");
-        await expect(rows).toContainText("UX10-ARGV:high");
-        await info.attach(`${name}-launcher-geometry`, { body: JSON.stringify({ compact, bounds }), contentType: "application/json" });
+        await expect.poll(readArgv).toContain(prompt);
+        const argv = readArgv();
+        for (const [flag, value] of [["--model", "opus"], ["--effort", "high"]] as const) {
+          const index = argv.indexOf(flag);
+          expect(argv.slice(index, index + 2)).toEqual([flag, value]);
+        }
+        await expect(pane.locator(".xterm-rows")).toContainText(`UX10-ARGV:${prompt}`);
+        await info.attach(`${name}-launcher-geometry`, { body: JSON.stringify({ compact, bounds, argv }), contentType: "application/json" });
       },
       undefined,
       { width: 1050, height: 800 },
