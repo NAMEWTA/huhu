@@ -34,6 +34,13 @@ export function paneCount(tree: SplitTree): number {
   return tree.kind === "pane" ? 1 : paneCount(tree.first) + paneCount(tree.second);
 }
 
+export function resizeSplit(tree: SplitTree, path: readonly ("first" | "second")[], percent: number): SplitTree {
+  if (tree.kind === "pane") return tree;
+  const [branch, ...next] = path;
+  if (branch) return { ...tree, [branch]: resizeSplit(tree[branch], next, percent) };
+  return { ...tree, firstPercent: Math.max(10, Math.min(90, Math.round(percent))) };
+}
+
 export function removePaneAt(tree: SplitTree, index: number): SplitTree | undefined {
   if (tree.kind === "pane") return undefined;
   const firstCount = paneCount(tree.first);

@@ -47,6 +47,56 @@ async function configureLoopback(page: Page, name: string, port: number, passwor
   return result.data;
 }
 
+test("A06 dragging and keyboard resizing a running workspace retain the original shells", async () => {
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "左侧回环", first.port, password);
+    const b = await configureLoopback(page, "右侧回环", second.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "分隔线回环",
+      layout: { kind: "custom", tree: { kind: "split", axis: "row", firstPercent: 50, first: { kind: "pane" }, second: { kind: "pane" } } },
+      panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /分隔线回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    for (const label of ["左侧回环", "右侧回环"]) {
+      await run.getByRole("article", { name: label }).getByRole("button", { name: "信任并连接" }).click();
+    }
+    const panes = run.getByTestId("ssh-workspace-run-pane");
+    await expect(run.locator('[data-phase="ready"]')).toHaveCount(2);
+    const sessions = await panes.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-session-id")));
+    const thumb = run.getByRole("separator", { name: "调整 左侧回环 的分隔线" });
+    await thumb.scrollIntoViewIfNeeded();
+    const rect = (await thumb.boundingBox())!;
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + Math.min(rect.height / 2, 45);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 60, y, { steps: 7 });
+    await expect(thumb).not.toHaveAttribute("aria-valuenow", "50");
+    await page.mouse.up();
+    await expect.poll(async () => {
+      const rows = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
+      const layout = rows.find(({ id }) => id === started.data.id)?.layout;
+      return layout?.kind === "custom" && layout.tree.kind === "split" && layout.tree.firstPercent;
+    }).toBeGreaterThan(50);
+    await expect(thumb).toHaveAttribute("aria-disabled", "false");
+    await thumb.press("Home");
+    await expect(thumb).toHaveAttribute("aria-valuenow", "10");
+    expect(await panes.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-session-id")))).toEqual(sessions);
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";

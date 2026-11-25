@@ -68,12 +68,12 @@ export function WorkspaceRunView({
       return false;
     }
   }
-  async function apply(change: ChangeWorkspaceRun["change"]) {
+  async function apply(change: ChangeWorkspaceRun["change"], revision = run.layoutRevision ?? run.id) {
     if (saving) return;
     setSaving(true);
     setLayoutError("");
     try {
-      const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: run.layoutRevision ?? run.id, change }, { write: true });
+      const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: revision, change }, { write: true });
       qc.setQueryData<WorkspaceRun[]>(query, (value) => value?.map((item) => (item.id === next.id ? next : item)));
     } catch (error) {
       setLayoutError(error instanceof Error ? error.message : "无法保存分栏布局。");
@@ -215,8 +215,11 @@ export function WorkspaceRunView({
             tabs={tabs}
             groupVerticalTabs={groupVerticalTabs}
             connections={connections}
+            layoutRevision={run.layoutRevision ?? run.id}
+            resizingDisabled={saving}
             onActive={setActive}
             onSwap={swap}
+            onResize={(tree, revision) => apply({ action: "layout", layout: { kind: "custom", tree }, paneIds: run.panes.map(({ paneId }) => paneId) }, revision)}
             render={(pane, visible) => {
               const prompt = pane.prompt;
               const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
