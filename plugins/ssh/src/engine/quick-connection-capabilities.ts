@@ -18,6 +18,7 @@ export const sshQuickConnectionDescriptors = {
     description: "打开一次性 SSH 终端。输入的认证信息只用于此次拨号。",
     scope: "execute",
     risk: "high",
+    idempotency: "handler",
     input: target.extend({ endpoint: z.string().min(1).max(400), password: z.string().max(4096).optional() }),
     output: z.strictObject({ hostId: z.string() }),
   }),
@@ -45,12 +46,22 @@ export const sshQuickConnectionDescriptors = {
 
 export function registerQuickConnections(api: HuhuApi, manager: SshManager) {
   const descriptors = sshQuickConnectionDescriptors;
-  api.defineCapability(bindCapability(descriptors.quickConnectionStart, ({ signal }, { id, endpoint, password }) => {
+  const assertDesktop = (caller: string) => {
+    if (caller !== "desktop") throw errors.permissionDenied("临时 SSH 连接");
+  };
+  api.defineCapability(bindCapability(descriptors.quickConnectionStart, ({ caller, signal }, { id, endpoint, password }) => {
+    assertDesktop(caller);
     const address = parseQuickEndpoint(endpoint);
     if (!address || (address.host.includes(":") && isIP(address.host) !== 6)) throw errors.invalidInput("请输入 user@host[:port] 格式的 SSH 目标");
     signal.throwIfAborted();
     return manager.startQuick(id, address, password);
   }));
-  api.defineCapability(bindCapability(descriptors.quickConnectionStatus, (_context, { id }) => manager.quickStatus(id)));
-  api.defineCapability(bindCapability(descriptors.quickConnectionClose, (_context, { id }) => ({ closed: manager.closeQuick(id) })));
+  api.defineCapability(bindCapability(descriptors.quickConnectionStatus, ({ caller }, { id }) => {
+    assertDesktop(caller);
+    return manager.quickStatus(id);
+  }));
+  api.defineCapability(bindCapability(descriptors.quickConnectionClose, ({ caller }, { id }) => {
+    assertDesktop(caller);
+    return { closed: manager.closeQuick(id) };
+  }));
 }

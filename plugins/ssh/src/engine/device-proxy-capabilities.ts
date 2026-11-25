@@ -36,6 +36,7 @@ export const sshDeviceProxyDescriptors = {
     description: "在本机批准指定路由使用一个程序及其参数。",
     scope: "admin",
     risk: "high",
+    idempotency: "handler",
     input: target.extend({ routeRevision: z.string(), expectedRevision: revision.nullable(), command: CommandTemplate }),
     output: state,
   }),
@@ -52,6 +53,9 @@ export const sshDeviceProxyDescriptors = {
 };
 
 export function registerDeviceProxies(api: HuhuApi, proxies: DeviceProxies | undefined) {
+  const assertDesktop = (caller: string) => {
+    if (caller !== "desktop") throw errors.permissionDenied("本机 SSH ProxyCommand 批准");
+  };
   function read(hostId: string): z.infer<typeof state> {
     const { chain, view } = readResourceRoute(api.vault.files, hostId);
     const { name, host, port, user } = chain[0]!;
@@ -64,9 +68,13 @@ export function registerDeviceProxies(api: HuhuApi, proxies: DeviceProxies | und
     };
   }
 
-  api.defineCapability(bindCapability(sshDeviceProxyDescriptors.deviceProxyRead, (_context, { hostId }) => read(hostId)));
+  api.defineCapability(bindCapability(sshDeviceProxyDescriptors.deviceProxyRead, ({ caller }, { hostId }) => {
+    assertDesktop(caller);
+    return read(hostId);
+  }));
   api.defineCapability(
-    bindCapability(sshDeviceProxyDescriptors.deviceProxyApprove, ({ signal }, input) => {
+    bindCapability(sshDeviceProxyDescriptors.deviceProxyApprove, ({ caller, signal }, input) => {
+      assertDesktop(caller);
       const { hostId, expectedRevision, routeRevision, command } = input;
       if (!proxies || process.platform !== "linux") throw errors.invalidInput("本机 SSH ProxyCommand 仅在受支持的 Linux 桌面可用");
       api.vault.files.assertWritable();
@@ -78,7 +86,8 @@ export function registerDeviceProxies(api: HuhuApi, proxies: DeviceProxies | und
     }),
   );
   api.defineCapability(
-    bindCapability(sshDeviceProxyDescriptors.deviceProxyRevoke, ({ signal }, { hostId, expectedRevision }) => {
+    bindCapability(sshDeviceProxyDescriptors.deviceProxyRevoke, ({ caller, signal }, { hostId, expectedRevision }) => {
+      assertDesktop(caller);
       if (!proxies) throw errors.invalidInput("本机 SSH ProxyCommand 批准目录不可用");
       api.vault.files.assertWritable();
       signal.throwIfAborted();
