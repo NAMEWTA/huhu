@@ -24,15 +24,17 @@ test.skipIf(!process.getuid)("常驻 Engine 在无页面时运行计划，CLI �
     if (record.state !== "running") throw new Error(`expected live Engine, got ${record.state}`);
     const { status, rendererToken } = await probeEngine(record.endpoint, "attach");
     const baseUrl = `http://127.0.0.1:${status.port}`;
-    const call = async (capability: string, input: unknown = {}) => {
+    const call = async <T = unknown>(capability: string, input: unknown = {}): Promise<T> => {
       const response = await fetch(`${baseUrl}/api/v1/call`, {
         method: "POST",
         headers: { authorization: `Bearer ${rendererToken}`, "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
       });
       const reply = await response.json();
-      expect(reply, capability).toMatchObject({ ok: true });
-      return reply.data;
+      if (!reply || typeof reply !== "object" || !("ok" in reply) || reply.ok !== true || !("data" in reply)) {
+        throw new Error(`Engine call failed: ${capability} ${JSON.stringify(reply)}`);
+      }
+      return reply.data as T;
     };
     return { status, baseUrl, call };
   };
@@ -59,7 +61,7 @@ test.skipIf(!process.getuid)("常驻 Engine 在无页面时运行计划，CLI �
 
     const online = new Date(Date.now() + 3_000);
     const cron = [online.getUTCSeconds(), online.getUTCMinutes(), online.getUTCHours(), online.getUTCDate(), online.getUTCMonth() + 1, "*"].join(" ");
-    const rule = await host.call("automations.create", { title: "在线", trigger: { preset: "custom", cron, zone: "UTC" }, action: { kind: "reminder", mode: "notification", text: "在线" } });
+    const rule = await host.call<{ id: string; version: string }>("automations.create", { title: "在线", trigger: { preset: "custom", cron, zone: "UTC" }, action: { kind: "reminder", mode: "notification", text: "在线" } });
     await host.call("automations.setEnabled", { id: rule.id, expectedVersion: rule.version, enabled: true });
     await expect.poll(() => host.call("notifications.list"), { timeout: 7_000 }).toMatchObject([{ title: "在线" }]);
     const addReminder = (title: string, at: string, enabled = true) => host.call("tasks.create", { title, type: "human", reminders: [{ id: "rem-1", channel: "in_app", at, enabled }] });
@@ -75,7 +77,7 @@ test.skipIf(!process.getuid)("常驻 Engine 在无页面时运行计划，CLI �
     host = await attach();
     expect(host.baseUrl).toBe(firstUrl);
     const check = async () => {
-      const notifications = (await host.call("notifications.list")) as { title: string }[];
+      const notifications = await host.call<{ title: string }[]>("notifications.list");
       expect(notifications.map(({ title }) => title).sort()).toEqual(["任务提醒：停机期间到点", "在线"].sort());
     };
     await expect.poll(async () => {

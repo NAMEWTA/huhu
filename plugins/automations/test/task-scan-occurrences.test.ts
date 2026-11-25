@@ -706,6 +706,8 @@ test("扫描预览与发生共同使用 Tasks 的原生历史资格", async () =
   const existingTarget = { mode: "existing", sessionId: "synthetic-session" } as const;
   const history = { machineId: machineId(), spaceId: space!.id, spaceRevision: space!.revision, historyId: "b".repeat(64), historyRevision: "c".repeat(64) };
   const resumeTarget = { mode: "resume", nativeSessionId: randomUUID(), history } as const;
+  const available = { state: "available" } as const;
+  const unsupported = { state: "unsupported", reason: "fixture" } as const;
   const targetInfo = {
     ...resumeTarget,
     provider: "codex",
@@ -715,10 +717,13 @@ test("扫描预览与发生共同使用 Tasks 的原生历史资格", async () =
     configurationId: "d".repeat(64),
     available: true,
     reason: null,
-    structuredReply: false,
-    structuredResult: false,
-    cancel: false,
-  };
+    profile: "read-only",
+    capabilities: {
+      interactive: available, dispatch: available, liveSession: unsupported, coldResume: available,
+      structuredReply: unsupported, structuredResult: unsupported, stop: unsupported,
+      workspaceRead: unsupported, workspaceWrite: unsupported, command: unsupported, mcp: unsupported,
+    },
+  } satisfies Awaited<ReturnType<AgentDispatch["targets"]>>[number];
   const targets = vi.spyOn(AgentDispatch.prototype, "targets").mockResolvedValue([targetInfo]);
   const create = (title: string, execution: Omit<NonNullable<TaskDto["execution"]>, "spaceId" | "model" | "effort" | "fast">) =>
     invoke<TaskDto>(engine, "tasks.create", { title, body: title, type: "agent", tags: ["match"], execution: { spaceId: space!.id, ...execution } });
