@@ -124,7 +124,7 @@ test("A01 SSH 目录右键保留选区，手动排序与部分删除可回读", 
     const gamma = await saveHost("Gamma", [alpha.hostId]);
     await moduleView(page).getByRole("button", { name: "主机目录", exact: true }).click();
     const view = page.getByRole("region", { name: "SSH 主机目录" });
-    const row = (name: string) => view.getByRole("listitem").filter({ has: view.getByRole("checkbox", { name: `选择 ${name}`, exact: true }) });
+    const row = (name: string) => view.getByRole("listitem").filter({ has: page.getByRole("checkbox", { name: `选择 ${name}`, exact: true }) });
     const menu = (name: string) => page.getByRole("dialog", { name: `${name}的操作` });
     await row("Alpha").getByRole("checkbox").check();
     await row("Beta").getByRole("checkbox").check();

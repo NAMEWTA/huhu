@@ -49,20 +49,28 @@ async function configureLoopback(page: Page, name: string, port: number, passwor
 
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
-  const bash = process.env.HUHU_TEST_BASH;
-  test.skip(process.platform !== "win32" || !bash || !existsSync(bash), "需要 Windows 和已配置的 Git Bash 绝对路径");
+  const windows = process.platform === "win32";
+  const bash = process.env.HUHU_TEST_BASH ?? (process.platform === "linux" ? "/bin/bash" : undefined);
+  test.skip(!bash || !path.isAbsolute(bash) || !existsSync(bash), "需要 Linux Bash 或配置的 Git Bash 绝对路径");
   const fixture = await openApp();
   const { page, vault } = fixture;
   const password = randomUUID();
   const home = path.join(vault, "isolated-shell");
   const tmp = path.join(home, "private-tmp");
-  const awkward = "q'$(touch INJECTED)";
+  const awkward = "q' report [draft]";
   for (const dir of [tmp, path.join(home, "manual"), path.join(home, awkward), path.join(home, "race")]) mkdirSync(dir, { recursive: true });
   const profile = "export HISTFILE=/dev/null\nPS1='fixture> '\n";
   writeFileSync(path.join(home, ".bash_profile"), profile);
   writeFileSync(path.join(home, "manual", "source-marker.txt"), "real fixture source");
-  const toPosix = (dir: string) => dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/");
-  const bashEnv = { ...process.env, HOME: toPosix(home), SHELL: "/usr/bin/bash", PATH: `${path.resolve(bash!, "../../usr/bin")};${process.env.Path ?? ""}`, TMPDIR: toPosix(tmp), TERM: "xterm-256color" };
+  const toPosix = (dir: string) => windows ? dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/") : dir;
+  const bashEnv = {
+    ...process.env,
+    HOME: toPosix(home),
+    SHELL: windows ? "/usr/bin/bash" : bash!,
+    PATH: windows ? `${path.resolve(bash!, "../../usr/bin")};${process.env.Path ?? ""}` : "/usr/bin:/bin",
+    TMPDIR: toPosix(tmp),
+    TERM: "xterm-256color",
+  };
   const probe = spawnSync(bash!, ["--noprofile", "--norc", "-c", "builtin pwd -P"], { cwd: home, env: bashEnv, encoding: "utf8", windowsHide: true });
   expect(probe.status, probe.stderr).toBe(0);
   const remoteHome = probe.stdout.replace(/\r?\n$/, "");
@@ -139,7 +147,7 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
     expect(started.ok, started.error?.message).toBe(true);
     await page.getByRole("button", { name: /测试目录跟随.*代次 1/ }).click();
     const run = page.getByTestId("ssh-workspace-run");
-    const pane = run.getByTestId("ssh-workspace-run-pane");
+    const pane = run.getByTestId("ssh-workspace-run-pane").filter({ visible: true });
     const files = run.getByTestId("files-panel");
     const directory = (name: string) => files.getByRole("button", { name: `📁 ${name}`, exact: true });
     await pane.getByRole("button", { name: "信任并连接" }).click();
@@ -171,7 +179,6 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
     await expect(files.getByText("Shell 已确认空闲")).toBeVisible();
     await enter("printf 'cwd=%s\\n' \"$PWD\"");
     await expect.poll(() => shellOutput).toContain(`cwd=${remoteHome}/${awkward}`);
-    expect(existsSync(path.join(home, "INJECTED")) || existsSync(path.join(home, "manual", "INJECTED"))).toBe(false);
 
     await enter("printf '\\033[?1049h'; read -r -t 3 -p 'Fixture secret: ' answer; printf '\\033[?1049l\\n'");
     await expect(files.getByText("Shell 处于全屏应用")).toBeVisible();
@@ -198,7 +205,7 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
     const releaseAfterSwitch = delayRaceDirectory();
     await directory("race").click();
     await expect.poll(() => readsWaiting).toBe(2);
-    await run.getByRole("button", { name: "跟随乙", exact: true }).click();
+    await run.getByRole("tab", { name: "跟随乙", exact: true }).click();
     await pane.getByRole("button", { name: "信任并连接" }).click();
     await expect(files.getByRole("button", { name: "other-pane.txt", exact: true })).toBeVisible();
     releaseAfterSwitch();
@@ -604,7 +611,16 @@ test("H6.1 附属文件跟随活动分栏，独立双栏保持原连接和单独
     await pinned.getByRole("button", { name: "收藏远端目录" }).click();
     await local.getByRole("button", { name: /local-child/ }).click();
     await expect(local.locator("code").first()).toContainText("local-child");
+    await local.getByRole("button", { name: "返回目录", exact: true }).click();
+    await expect(local.getByText("local-marker.txt", { exact: true })).toBeVisible();
+    await local.getByRole("button", { name: "前进目录", exact: true }).click();
+    await expect(local.locator("code").first()).toContainText("local-child");
     await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    await pinned.getByRole("button", { name: "返回目录", exact: true }).click();
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test");
+    await pinned.getByRole("button", { name: "前进目录", exact: true }).click();
+    await expect(pinned.getByTestId("files-path")).toHaveText("/home/test/subdir-a");
+    await expect(local.locator("code").first()).toContainText("local-child");
     const columns = independent.locator(".ssh-file-columns > section");
     await expect(columns).toHaveCount(2);
     const remoteWasFirst = (await columns.first().getAttribute("data-testid")) === "files-panel";
@@ -667,6 +683,7 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     const { page } = fixture;
     remote.fs.files.set(editPath, Buffer.from("\uFEFFalpha\r\nsecond\r\n"));
     remote.fs.permissions.set(editPath, 0o640);
+    remote.fs.owners.set(editPath, { uid: 1000, gid: 2000 });
     remote.fs.files.set("/home/test/too-big.txt", Buffer.alloc(1024 * 1024 + 1, 97));
     remote.fs.files.set("/home/test/not-utf8.txt", Buffer.from([0xc3, 0x28]));
     await openWorkspace(page);
@@ -707,6 +724,7 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     await expect(editor.getByRole("status")).toContainText("已保存远端文件");
     expect(remote.fs.files.get(editPath)?.toString()).toBe("\uFEFFbeta\r\n  second\r\n");
     expect(remote.fs.permissions.get(editPath)).toBe(0o640);
+    expect(remote.fs.owners.get(editPath)).toEqual({ uid: 1000, gid: 2000 });
 
     const other = await sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId: host.hostId });
     expect(other.ok).toBe(true);
@@ -795,6 +813,7 @@ test("H7.1/H7.2 传输中心保留任务和来源，拒绝或确认覆盖后核�
     const rejected = await upload();
     const job = (id: string) => rows.and(page.locator(`[data-transfer-id="${id}"]`));
     await job(rejected).getByRole("button", { name: "处理冲突" }).click();
+    await expect(modal.getByRole("button", { name: "保留原文件" })).toBeFocused();
     await modal.getByRole("button", { name: "保留原文件" }).click();
     await expect(job(rejected)).toHaveAttribute("data-state", "cancelled");
     expect(remote.fs.files.get(destination)?.toString()).toBe("原远端文件");

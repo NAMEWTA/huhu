@@ -1,6 +1,6 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
 import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TransferJob, TransferLocation, TransferOrigin, TransferQueue } from "../shared/transfers.js";
 
 const labels: Record<TransferJob["state"], string> = {
@@ -26,6 +26,7 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
   const qc = useQueryClient();
   const queue = useCapability<TransferQueue>("ssh.transfers.list");
   const [selection, select] = useState<TransferJob>();
+  const keepOriginal = useRef<HTMLButtonElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -174,12 +175,13 @@ export function TransferCenter({ onOrigin }: { onOrigin: (session: TransferLocat
           open
           title={selection.directory ? "已存在同名目录" : "已存在同名文件"}
           error={error}
+          initialFocusRef={keepOriginal}
           onClose={() => {
             if (!saving) select(undefined);
           }}
           actions={
             <>
-              <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "reject" }, () => select(undefined))}>
+              <Button ref={keepOriginal} disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "reject" }, () => select(undefined))}>
                 {selection.directory ? "保留原目录" : "保留原文件"}
               </Button>
               <Button disabled={saving} onClick={() => void action("ssh.transfers.decide", { transferId: selection.transferId, choice: "skip" }, () => select(undefined))}>

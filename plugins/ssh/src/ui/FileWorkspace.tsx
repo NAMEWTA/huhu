@@ -9,6 +9,7 @@ import { FileBatchProvider, useFileBatch } from "./FileBatch.js";
 import { ArchiveTools } from "./ArchiveTools.js";
 import { useDevicePreferences } from "./device-preferences.js";
 import { shownFileEntries } from "./file-preferences.js";
+import { recordDirectoryMove, type DirectoryHistory, type DirectoryMove } from "./file-history.js";
 import "./files.css";
 
 interface LocalBridge {
@@ -97,6 +98,7 @@ function LocalFiles({ id }: { id: string }) {
   const preferences = useDevicePreferences();
   const [parts, setParts] = useState<string[]>([]);
   const [where, setWhere] = useState<FileDirectory>();
+  const [history, setHistory] = useState<DirectoryHistory<string[]>>({ back: [], forward: [] });
   const [bookmarks, setBookmarks] = useState<{ path: string; parts: string[] }[]>([]);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
@@ -104,14 +106,20 @@ function LocalFiles({ id }: { id: string }) {
   const picker = localPicker();
   const shown = shownFileEntries(where?.entries ?? [], filter, preferences);
   const batch = useFileBatch("local", where?.path ?? "", shown, loading);
-  async function navigate(next: string[], root?: string) {
+  async function navigate(next: string[], root?: string, direction: DirectoryMove = "open") {
     setLoading(true);
     setError("");
     try {
-      setWhere(await engine.call<FileDirectory>("ssh.fileSessions.localList", { fileSessionId: id, parts: next, ...(root ? { root } : {}) }));
+      const directory = await engine.call<FileDirectory>("ssh.fileSessions.localList", { fileSessionId: id, parts: next, ...(root ? { root } : {}) });
+      setWhere(directory);
       setParts(next);
       setFilter("");
-      if (root) setBookmarks([]);
+      if (root) {
+        setBookmarks([]);
+        setHistory({ back: [], forward: [] });
+      } else if (where && (where.path !== directory.path || direction !== "open")) {
+        setHistory((current) => recordDirectoryMove(current, parts, direction));
+      }
     } catch (error) {
       if (error instanceof Error) setError(error.message);
     } finally {
@@ -137,6 +145,12 @@ function LocalFiles({ id }: { id: string }) {
               }
             >
               选择本机目录
+            </Button>
+            <Button disabled={loading || history.back.length === 0} onClick={() => void navigate(history.back.at(-1)!, undefined, "back")}>
+              返回目录
+            </Button>
+            <Button disabled={loading || history.forward.length === 0} onClick={() => void navigate(history.forward.at(-1)!, undefined, "forward")}>
+              前进目录
             </Button>
             <Button disabled={loading || parts.length === 0} onClick={() => void navigate(parts.slice(0, -1))}>
               返回上级
