@@ -1,5 +1,5 @@
 {
-  "说明": "历史遗留的不符合前缀的类名：改名会破坏动态拼接（数据驱动）或需要先做同义类合并。分组写明原因；新增的不符合类名会让 scripts/check-css-classes.mjs 失败。",
+  "说明": "历史遗留或第三方集成需要保留的不符合前缀的类名。分组写明原因；未登记的不符合类名会让 scripts/check-css-classes.mjs 失败。",
   "classes": {
     "ui｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": [
       "accepted",
@@ -36,6 +36,7 @@
     "notes｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["knowledge-task-detail"],
     "ssh｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["execution-fault-control"],
     "tasks｜原因：数据驱动 / 与数据字符串同名 / 同义类待合并（card、row、segmented、spin 与已有的 hu- 类并存）": ["board-blue", "board-card", "board-card-drag", "board-dot", "board-green", "board-links", "board-note-link", "board-purple"],
-    "editor｜原因：第三方（OK / ProseMirror）编辑器自带的类名，宿主 CSS 只在 .editor-ok-surface 作用域内按它们覆盖变量与字号，无法改名": ["tiptap-editor", "ProseMirror"]
+    "editor｜原因：第三方（OK / ProseMirror）编辑器自带的类名，宿主 CSS 只在 .editor-ok-surface 作用域内按它们覆盖变量与字号，无法改名": ["tiptap-editor", "ProseMirror"],
+    "Open Knowledge 样式作用域｜原因：编辑器与浮层共用的根类，宿主基础样式引用该边界以免覆盖 OK 内容": ["ok-root"]
   }
 }
