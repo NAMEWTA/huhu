@@ -1,7 +1,9 @@
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { localUpstream } from "../../../packages/kernel/test/fixtures/mcp-upstream.js";
 import { loopbackOAuth } from "../../../packages/kernel/test/fixtures/mcp-oauth.js";
@@ -176,6 +178,59 @@ test("P1 Gateway 添加本地 stdio、检查并开放 echo，重开 Vault 后公
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
+  }
+});
+
+test("L11 同一 MCP 目录保留外部工具，账本按授权开放、撤权与停用", async () => {
+  const { page, vault, close } = await openApp();
+  let upstream: Awaited<ReturnType<typeof localUpstream>> | undefined;
+  try {
+    await gateway(page);
+    const { id: bookId } = await call<{ id: string }>(page, "ledger.books.create", {
+      name: "能力目录账本", defaultCurrency: "TWD", timeZone: "Asia/Taipei", firstAccount: { name: "银行" },
+    });
+    const input = { bookId };
+    const desktop = await call(page, "ledger.records.list", input);
+
+    upstream = await localUpstream("streamable-http");
+    const source = await fromWorkbench<Source>(page, "mcp.sources.create", {
+      displayName: "账本联合验收来源", namespace: "ledger_fixture",
+      configuration: { transport: "streamable-http", url: upstream.url },
+    });
+    expect(await fromWorkbench(page, "mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready" });
+    const catalog = await fromWorkbench<Catalog>(page, "mcp.catalog.list", { sourceId: source.sourceId });
+    await publication(page, catalog, source.sourceId, "echo", true);
+    await fromWorkbench(page, "mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+    await call(page, "gateway.mcp.update", { enabled: true });
+    const { token } = await call<{ token: string }>(page, "gateway.tokens.create", { name: "账本联合验收" });
+    const rpc = await openClient(page, token);
+    const tool = "ledger_records_list";
+    const echo = "ledger_fixture__echo";
+    const listed = async () => (await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name);
+    const view = () => rpc("tools/call", { name: tool, arguments: input });
+    const selectLedger = (exposed: boolean) => call(page, "gateway.update", { capability: "ledger.records.list", exposed });
+    expect(await listed()).toContain(echo);
+    expect(await listed()).not.toContain(tool);
+
+    await selectLedger(true);
+    expect(await listed()).toEqual(expect.arrayContaining([tool, echo]));
+    expect((await view()).result.structuredContent.data).toEqual(desktop);
+    const cli = path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs");
+    const { stdout } = await promisify(execFile)(process.execPath, [cli, "call", "ledger.records.list", "--vault", vault, "--input-json", JSON.stringify(input), "--json"]);
+    expect(JSON.parse(stdout)).toEqual({ ok: true, data: desktop });
+
+    await selectLedger(false);
+    expect(await listed()).not.toContain(tool);
+    expect((await view()).result).toMatchObject({ isError: true });
+    await selectLedger(true);
+    await call(page, "plugins.setEnabled", { id: "ledger", enabled: false });
+    expect(await listed()).not.toContain(tool);
+    expect((await view()).result).toMatchObject({ isError: true });
+    expect((await rpc("tools/call", { name: echo, arguments: { value: "独立来源" } })).result.structuredContent)
+      .toEqual({ value: "独立来源", transport: "streamable-http" });
+  } finally {
+    try { await close(); }
+    finally { await upstream?.close(); }
   }
 });
 

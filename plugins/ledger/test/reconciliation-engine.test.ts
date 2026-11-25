@@ -3,10 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ledgerBusinessDayRange, type LedgerRecord } from "@huhu/contracts";
+import { csvParseRows } from "d3-dsv";
 import { afterEach, expect, test } from "vitest";
 import { bookDirectory, stateSchema } from "../src/engine/store.js";
 import type { Book } from "../src/shared/books.js";
 import type { AccountsView, Attachment, DictionaryItem, RecordsPage } from "../src/shared/entries.js";
+import type { BudgetOverview } from "../src/shared/budgets.js";
+import type { ImportPreview } from "../src/shared/imports.js";
 import type { CandidateGroups, MergePreview, OffsetGroupView, OffsetPreview } from "../src/shared/reconciliation.js";
 import { ledgerEngine } from "./fixture.js";
 
@@ -86,6 +89,57 @@ test("100 expense and 60+40 refunds form one cross-account group; rollback resto
   })).toEqual({ restored: 3 });
   expect((await f.records()).totals).toEqual(original.totals);
   expect((await f.accounts()).accounts.map(({ balanceMinor }) => balanceMinor)).toEqual(balances);
+});
+
+test("L11 导入、平账、预算、总览、报表与 CSV 共用业务日和流水集合", async () => {
+  const f = await setup();
+  const { call } = f.engine;
+  const bookId = f.book.id;
+  const { businessDate } = await f.accounts();
+  const period = { from: businessDate, to: businessDate };
+  const budgetQuery = { bookId, year: businessDate.slice(0, 4), month: businessDate.slice(5, 7) };
+  const preview = await call<ImportPreview>("ledger.imports.preview", {
+    bookId, fileName: "一条账单.csv", source: "csv", sourceTimeZone: f.book.timeZone,
+    base64: Buffer.from(`日期,事项,金额,类型,账户,交易单号\n${businessDate} 00:00:00,报销支出,100.00,支出,银行,upstream-charge\n`).toString("base64"),
+  });
+  expect(preview.rows[0]).toMatchObject({ businessDate, state: "ready" });
+  await call("ledger.imports.confirm", {
+    ...await f.version(), previewId: preview.previewId, inputDigest: preview.inputDigest,
+    mappingRevision: preview.mappingRevision, intentKey: randomUUID(), selectedRowIds: [preview.rows[0]!.rowId],
+  });
+  const charge = (await f.records()).rows[0]!.record;
+  const refund = await f.create("报销退款", f.input("income", f.second.id, "10000"));
+  const { id: yen } = await call<{ id: string }>("ledger.accounts.create", {
+    ...await f.version(), openingMinor: "0", effectiveBusinessDate: businessDate,
+    account: { name: "日元账户", currency: "JPY", type: "bank", labels: { accountTypeId: null, bankId: null } },
+  });
+  const deposit = await f.create("日元收入", { ...f.input("income", yen, "750"), currency: "JPY" });
+  await call("ledger.budgets.saveBatch", {
+    ...await f.version(), budgets: [{ definition: { type: "fixed", name: "报销预算", month: businessDate.slice(0, 7),
+      currency: "CNY", direction: "expense", categoryIds: [], limitMinor: "15000" } }],
+  });
+  const budgets = () => call<BudgetOverview>("ledger.budgets.list", budgetQuery);
+  expect((await budgets()).totals).toMatchObject([{ currency: "CNY", actualMinor: "10000", remainingMinor: "5000" }]);
+  const before = (await f.accounts()).accounts.map(({ id, balanceMinor }) => [id, balanceMinor]);
+  const offset = { ...await f.version(), members: selection([charge, refund]) };
+  const group = await call<OffsetPreview>("ledger.reconciliation.previewOffset", offset);
+  await call("ledger.reconciliation.confirmOffset", { ...offset, previewId: group.previewId });
+
+  expect((await f.accounts()).accounts.map(({ id, balanceMinor }) => [id, balanceMinor])).toEqual(before);
+  const monthly = await budgets();
+  expect(monthly.totals).toMatchObject([{ currency: "CNY", actualMinor: "0", remainingMinor: "15000" }]);
+  expect(await call("ledger.overview.activity", { bookId })).toMatchObject({ businessDate, revision: monthly.revision, budgetTotals: monthly.totals });
+  const report = await call("ledger.reports.query", { bookId, ...period });
+  expect(report).toMatchObject({ series: [
+    { currency: "CNY", incomeMinor: "0", expenseMinor: "0", count: 0 },
+    { currency: "JPY", incomeMinor: "750", expenseMinor: "0", count: 1 },
+  ]});
+  const filters = { ...period, offset: false };
+  const page = await call<RecordsPage>("ledger.records.list", { bookId, filters });
+  expect(page.rows.map(({ record }) => record.id)).toEqual([deposit.id]);
+  const csv = await call<{ count: number; csv: string }>("ledger.exports.csv", { bookId, filters });
+  expect(csv.count).toBe(page.total);
+  expect(csvParseRows(csv.csv.slice(1)).slice(1).map(([id]) => id)).toEqual([deposit.id]);
 });
 
 test("merge checks current member versions, resolves account/category conflicts and migrates real attachments and contract references", async () => {

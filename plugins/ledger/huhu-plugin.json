@@ -20,6 +20,7 @@
       "ledger.books.remove",
       "ledger.accounts.list",
       "ledger.reports.query",
+      "ledger.overview.activity",
       "ledger.references.list",
       "ledger.references.open",
       "ledger.references.link",

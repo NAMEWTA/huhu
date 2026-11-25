@@ -11,8 +11,8 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "automation-rule": ["automations.list", "automations.read", "automations.plans."],
   "agent-session": ["agent.sessions.list", "agent.history.list"],
   "agent-workspace": ["agent.workspace.get"],
-  note: ["notes.", "vault.", "archives."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
-  archive: ["archives.", "notes.", "vault."],
+  note: ["notes.", "vault.", "archives.", "ledger.references."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新
+  archive: ["archives.", "notes.", "vault.", "ledger.references."],
   capture: ["inbox."],
   comment: ["comments."],
   "ssh-host": ["ssh.hosts.", "ssh.outboundProxies.preview"],
@@ -31,7 +31,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "mail-ai-settings": ["mail.ai.getSettings"],
 };
 const PERIODIC_SOURCE_CAPS: Record<string, string[]> = {
-  ledger: ["ledger.recurring."],
+  ledger: ["ledger.recurring.", "ledger.overview.activity"],
   mail: ["mail.sync.settings"],
   versioning: ["sync.get"],
   ssh: ["ssh.monitor.panels.list", "ssh.monitor.panels.run"],
@@ -163,11 +163,12 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
     if (periodic && typeof p["sourcePlugin"] === "string" && Object.hasOwn(PERIODIC_SOURCE_CAPS, p["sourcePlugin"])) {
       prefixes.push(...PERIODIC_SOURCE_CAPS[p["sourcePlugin"]]!);
     }
-  } else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表
+  } else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes.", "ledger.references.");
   else if (e.type === "task.statusChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
-  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
+  else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives.", "ledger.references.");
   else if (e.type === "plugin.stateChanged") {
     prefixes.push("plugins.", "capabilities.");
+    if (p["id"] === "notes") prefixes.push("ledger.references.");
     if (p["id"] === "ssh") prefixes.push("ssh.hosts.");
     if (p["id"] === "mcp") prefixes.push("mcp.", "gateway.get");
     if (p["id"] === "automations") prefixes.push("automations.plans.", ...Object.values(PERIODIC_SOURCE_CAPS).flat());

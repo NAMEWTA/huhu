@@ -677,6 +677,39 @@ test("L10 独立 Web 关联财务笔记并保存期间复盘，桌面可读取�
   }
 });
 
+test("L11 桌面切换 Vault 后使用各自的账本身份，回到原库仍可读取", async () => {
+  const { page, vault, close } = await openApp();
+  const second = mkdtempSync(path.join(tmpdir(), "huhu-ledger-second-vault-"));
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "日常账本", "甲库银行");
+    const original = await call<BookList>(page, "ledger.books.list", {});
+
+    expect(await page.evaluate((target) => window.huhuHost.vault.open(target, { kind: "new" }), second)).toMatchObject({ ok: true });
+    await page.reload();
+    await engineReady(page);
+    await enterLedger(page);
+    expect(await call<BookList>(page, "ledger.books.list", {})).toMatchObject({ books: [], activeBookId: null });
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "日常账本", "乙库银行");
+    const other = await call<BookList>(page, "ledger.books.list", {});
+    expect(other.activeBookId).not.toBe(original.activeBookId);
+    await expect(ledger.getByLabel("当前账本")).toHaveValue(other.activeBookId!);
+
+    expect(await page.evaluate((target) => window.huhuHost.vault.open(target), vault)).toMatchObject({ ok: true });
+    await page.reload();
+    await engineReady(page);
+    await enterLedger(page);
+    expect(await call<BookList>(page, "ledger.books.list", {})).toEqual(original);
+    await expect(ledger.getByLabel("当前账本")).toHaveValue(original.activeBookId!);
+  } finally {
+    try { await close(); }
+    finally { rmTree(second); }
+  }
+});
+
 test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async () => {
   const { page, close } = await openApp();
   const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-vault-package-e2e-"));

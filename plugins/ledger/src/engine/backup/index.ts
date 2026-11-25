@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, isWorkbenchCaller } from "@huhu/contracts";
+import { errors } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import { readBoundedZip, writeBoundedZip } from "@huhu/vault";
 import { z } from "zod";
@@ -26,10 +26,8 @@ export type PreparedBackup = {
   sourceBooks: BackupPreview["sourceBooks"];
   modules: BackupPreview["modules"];
 };
-const caller = (context: CapabilityContext) => {
-  if (!isWorkbenchCaller(context.caller)) throw errors.permissionDenied("账本备份");
-  return digest(canonicalJson([context.caller, context.subject ?? null]));
-};
+const caller = (context: CapabilityContext) =>
+  digest(canonicalJson([context.caller, context.subject ?? null, ...(context.delegatedBy ? [context.delegatedBy] : [])]));
 
 function nativeBackup(files: FileSet, rawManifest: unknown): PreparedBackup {
   const parsed = manifestSchema.safeParse(rawManifest);
@@ -49,7 +47,10 @@ function nativeBackup(files: FileSet, rawManifest: unknown): PreparedBackup {
   validateBookRelations(state);
   const attachments = new Map(state.attachments.map((item) => [item.id, requireAttachment(files.get("attachments/" + item.id), item)]));
   if (files.size !== attachments.size + 2) throw errors.invalidInput("附件清单和账本引用不一致");
-  return { state, issues: [], attachments, sourceBooks: [{ id: state.book.id, name: state.book.name }], modules };
+  const warnings = state.resourceReferences.length
+    ? ["账本包保留财务笔记与档案关联。若要备份笔记正文，请使用全 Vault 备份。"]
+    : [];
+  return { state, issues: [], attachments, sourceBooks: [{ id: state.book.id, name: state.book.name }], modules, warnings };
 }
 
 export class LedgerBackups {
@@ -61,9 +62,9 @@ export class LedgerBackups {
   }
 
   async export(context: CapabilityContext, { bookId, modules }: z.infer<typeof ExportBackup>) {
-    caller(context);
     const stateAndFiles = await withLedgerSnapshot(this.store.files, () => {
       context.signal.throwIfAborted();
+      context.assertCapabilityCurrent?.();
       const state = selectModules(this.store.snapshot(bookId), modules);
       validateBookRelations(state);
       const files = new Map<string, Uint8Array>([[stateName, json(state)]]);
@@ -119,6 +120,7 @@ export class LedgerBackups {
   async status(context: CapabilityContext, previewId: string) {
     const owner = caller(context);
     await this.store.idle();
+    context.assertCapabilityCurrent?.();
     return this.store.restoredBook(previewId, owner);
   }
 

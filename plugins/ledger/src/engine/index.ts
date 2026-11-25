@@ -34,13 +34,14 @@ import {
   OpenReference, Reference, ReferenceList, ReferenceQuery, ReferenceView, RemoveReference, ReviewDraft, ReviewNote, SaveReview, SetReference,
 } from "../shared/references.js";
 import { draftReview, LedgerReferences, referencesFor, removeReference, saveReference } from "./references.js";
+import { OverviewActivity } from "../shared/overview.js";
 export { ledgerPackageSelection, validateLedgerPackage } from "./backup/snapshot.js";
 export { withLedgerSnapshot } from "./store.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
 const write = { ...publicTool, scope: "write", ...durableExternal } as const;
-const backupRead = { ...read, risk: "high", exposable: false } as const;
+const backupRead = { ...read, risk: "high" } as const;
 const descriptors = {
   list: descriptor({ ...read, name: "ledger.books.list", title: "列出账本", description: "列出当前 Vault 的账本及当前选择", input: z.strictObject({}), output: BookList }),
   create: descriptor({ ...write, name: "ledger.books.create", title: "创建账本", description: "创建账本及其首个资金账户", input: CreateBook, output: LedgerBook }),
@@ -55,6 +56,7 @@ const descriptors = {
   }),
   accounts: descriptor({ ...read, name: "ledger.accounts.list", title: "列出账户和余额", description: "查询账户、余额基准和字典", input: BookRef, output: AccountsView }),
   report: descriptor({ ...read, name: "ledger.reports.query", title: "查询账本报表", description: "按业务日期、币种和平账口径查询收支与余额。", input: ReportQuery, output: ReportView }),
+  overviewActivity: descriptor({ ...read, name: "ledger.overview.activity", title: "查看账本预算、固定收支与贷款总览", description: "按同一账本版本查询当月预算、同一计划来源和已补记贷款期次。", input: BookRef, output: OverviewActivity }),
   references: descriptor({ ...read, name: "ledger.references.list", title: "查看财务笔记关联", description: "读取账本、预算或流水的笔记与档案关联及可打开状态。", input: ReferenceQuery, output: ReferenceList }),
   openReference: descriptor({ ...read, name: "ledger.references.open", title: "定位财务笔记", description: "按关联 ID 返回当前 Vault 中的资源路径或缺失状态。", input: OpenReference, output: ReferenceView }),
   setReference: descriptor({ ...write, name: "ledger.references.link", title: "关联财务笔记或档案", description: "将已有资源关联到指定账本、预算或流水，也可修复原关联。", input: SetReference, output: Reference }),
@@ -162,6 +164,29 @@ export function apply(
     return accountsView(state, store.businessDate(state.book));
   }));
   api.defineCapability(bindCapability(descriptors.report, async (_context, input) => report(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.overviewActivity, async (_context, { bookId }) => {
+    const state = await snapshot(bookId);
+    const loans = loanList(store, state);
+    const businessDate = loans.businessDate;
+    const budgetTotals = budgetOverview(state, { bookId, year: businessDate.slice(0, 4), month: businessDate.slice(5, 7) }).totals;
+    const schedules = recurring.list(state).rows;
+    const enabled = schedules.flatMap(({ plan }) => plan?.intent === "enabled" ? [plan] : []);
+    const nextTimes = enabled.flatMap(({ availability, nextAt }) => availability.state === "ready" && nextAt ? [nextAt] : []).sort();
+    return {
+      revision: state.book.revision,
+      businessDate,
+      budgetTotals,
+      recurring: {
+        rules: schedules.length, enabled: enabled.length, nextAt: nextTimes[0] ?? null,
+        failedPeriods: schedules.reduce((count, { periods }) => count + periods.filter(({ state }) => state === "failed").length, 0),
+      },
+      loans: {
+        count: loans.rows.length,
+        installments: loans.rows.reduce((count, loan) => count + loan.definition.months, 0),
+        generated: loans.rows.reduce((count, loan) => count + loan.generated, 0),
+      },
+    };
+  }));
   api.defineCapability(bindCapability(descriptors.references, async (context, { bookId, owner }) => {
     const state = await snapshot(bookId);
     return { revision: state.book.revision, rows: await references.resolve(context, referencesFor(state, owner)) };
@@ -195,7 +220,7 @@ export function apply(
   api.defineCapability(bindCapability(descriptors.saveBudgets, (context, input) => change(context, input, (state) => saveBudgets(state, input))));
   api.defineCapability(bindCapability(descriptors.removeBudget, (context, input) => change(context, input, (state) => removeBudget(state, input.budgetId))));
   api.defineCapability(bindCapability(descriptors.copyBudgets, (context, input) => change(context, input, (state) => copyBudgets(state, input))));
-  api.defineCapability(bindCapability(descriptors.recurring, async (_context, { bookId }) => { await store.idle(); return recurring.list(bookId); }));
+  api.defineCapability(bindCapability(descriptors.recurring, async (_context, { bookId }) => recurring.list(await snapshot(bookId))));
   api.defineCapability(bindCapability(descriptors.createRecurring, (context, input) => recurring.create(context, input)));
   api.defineCapability(bindCapability(descriptors.ensureRecurring, (context, { bookId, ruleId }) => recurring.ensure(context, bookId, ruleId)));
   api.defineCapability(bindCapability(descriptors.previewRecurring, async (_context, { bookId, ruleId }) => { await store.idle(); return recurring.preview(bookId, ruleId); }));

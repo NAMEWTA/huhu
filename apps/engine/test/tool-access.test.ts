@@ -261,3 +261,60 @@ test("home.notes.recent 默认关闭；开放后仍逐次复核 notes.list / not
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("L11 账本默认关闭，选择开放后读取和恢复使用实时策略及原预览主体", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "huhu-ledger-access-"));
+  let engine: RunningEngine | undefined;
+  try {
+    const e = engine = await boot({ vaultPath: dir, create: true });
+    const desktop = (capability: string, input = {}) => call(e, capability, input, e.rendererToken, randomUUID());
+    const describe = async () => (await directory(e)).filter(({ plugin }) => plugin === "ledger");
+    const active = await describe();
+    expect(active.length).toBeGreaterThan(0);
+    expect(active.every(({ exposable, exposed, availability }) => exposable && !exposed && availability === "active")).toBe(true);
+    const { id: bookId, revision } = z.object({ id: z.string(), revision: z.string() }).parse(await data(desktop("ledger.books.create", {
+      name: "网关账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "钱包" },
+    })));
+    const note = z.object({ path: z.string() }).parse(await data(desktop("notes.create", { name: "账本说明" })));
+    const owner = { kind: "book" };
+    const linked = z.object({ id: z.string() }).parse(await data(desktop("ledger.references.link", {
+      bookId, expectedRevision: revision, owner, resource: { kind: "note", path: note.path },
+    })));
+    const selected = (capability: string, exposed = true) => data(desktop("gateway.update", { capability, exposed }));
+    const denied = { ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } };
+    const external = await issueMcpCredential(e);
+    expect(await names(e, e.cliToken)).not.toContain("ledger.records.list");
+    expect(await call(e, "ledger.records.list", { bookId }, external)).toMatchObject(denied);
+    const reference = { bookId, owner, referenceId: linked.id };
+    await selected("ledger.references.open");
+    expect(await call(e, "ledger.references.open", reference, e.cliToken)).toMatchObject(denied);
+    await selected("notes.list");
+    expect(await call(e, "ledger.references.open", reference, e.cliToken)).toMatchObject({ ok: true, data: { status: "available" } });
+    await selected("notes.list", false);
+    expect(await call(e, "ledger.references.open", reference, e.cliToken)).toMatchObject(denied);
+
+    for (const capability of ["ledger.records.list", "ledger.backups.export", "ledger.backups.preview", "ledger.backups.status", "ledger.backups.confirm"]) {
+      await selected(capability);
+    }
+    const ledger = await call(e, "ledger.records.list", { bookId });
+    expect(await call(e, "ledger.records.list", { bookId }, e.cliToken)).toEqual(ledger);
+    expect(await call(e, "ledger.records.list", { bookId }, external)).toEqual(ledger);
+    const modules = ["accounts", "records"];
+    const { base64 } = z.object({ base64: z.string() }).parse(await data(call(e, "ledger.backups.export", { bookId, modules }, external)));
+    const { previewId } = z.object({ previewId: z.string() }).parse(await data(call(e, "ledger.backups.preview", { base64 }, external)));
+    const input = { previewId, name: "授权恢复账本", modules };
+    expect(await call(e, "ledger.backups.confirm", input, e.cliToken, randomUUID())).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+    const restored = await call(e, "ledger.backups.confirm", input, external, randomUUID());
+    expect(restored).toMatchObject({ ok: true, data: { id: expect.any(String), name: input.name } });
+    expect(await call(e, "ledger.backups.status", { previewId }, external)).toEqual(restored);
+    expect(await call(e, "ledger.backups.confirm", input, external, randomUUID())).toEqual(restored);
+    await selected("ledger.records.list", false);
+    expect(await call(e, "ledger.records.list", { bookId }, external)).toMatchObject(denied);
+    await data(desktop("plugins.setEnabled", { id: "ledger", enabled: false }));
+    expect((await describe()).map(({ availability }) => availability)).toEqual(active.map(() => "plugin-disabled"));
+    expect(await call(e, "ledger.backups.status", { previewId }, external)).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+  } finally {
+    try { await engine?.shutdown(); }
+    finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+});
