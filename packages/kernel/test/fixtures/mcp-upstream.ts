@@ -5,14 +5,22 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-export async function localUpstream(transport: "streamable-http" | "sse", options: { authorization?: string; authorize?: (header: string | undefined, url: string | undefined) => boolean; resourcesOnly?: boolean } = {}) {
+export async function localUpstream(transport: "streamable-http" | "sse", options: {
+  authorization?: string;
+  authorize?: (header: string | undefined, url: string | undefined) => boolean;
+  resourcesOnly?: boolean;
+  requiresSampling?: boolean;
+} = {}) {
   const calls: { name: string; input: unknown }[] = [];
   const admissions: { authorization: string | undefined; url: string | undefined }[] = [];
   const sse = new Map<string, SSEServerTransport>();
   const clients = new Set<Server>();
   let listRequests = 0;
   function endpoint() {
-    const server = new Server({ name: transport, version: "1" }, { capabilities: options.resourcesOnly ? { resources: {} } : { tools: {} } });
+    const server = new Server({ name: transport, version: "1" }, {
+      capabilities: options.resourcesOnly ? { resources: {} } : { tools: {} },
+      ...(options.requiresSampling && { enforceStrictCapabilities: true }),
+    });
     clients.add(server);
     server.onclose = () => { clients.delete(server); };
     if (options.resourcesOnly) {
@@ -21,6 +29,9 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
     } else {
       server.setRequestHandler(ListToolsRequestSchema, async () => {
         listRequests++;
+        if (options.requiresSampling) {
+          await server.createMessage({ messages: [{ role: "user", content: { type: "text", text: "fixture" } }], maxTokens: 1 });
+        }
         return { tools: [{ name: "echo", description: "Local " + transport, inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
       });
       server.setRequestHandler(CallToolRequestSchema, async ({ params }): Promise<CallToolResult> => {

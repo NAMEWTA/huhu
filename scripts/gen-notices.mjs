@@ -83,6 +83,9 @@ const fontLicense = (pkg) => {
 };
 const fonts = FONTS.map(([pkg, family]) => ({ family, pkg, ...fontLicense(pkg) }));
 const oflText = fonts[0].text.slice(fonts[0].text.indexOf("SIL OPEN FONT LICENSE")).trim();
+const mcpSdk = path.join(root, "packages", "kernel", "node_modules", "@modelcontextprotocol", "sdk");
+const mcpSdkVersion = JSON.parse(readFileSync(path.join(mcpSdk, "package.json"), "utf8")).version;
+const mcpSdkLicense = readFileSync(path.join(mcpSdk, "LICENSE"), "utf8").trim();
 
 const ledger = readFileSync(path.join(root, "docs/upstream/ledger.md"), "utf8");
 const rootLedger = ledger.trim().replace(/\]\(([^\s)#]+)(#[^\s)]*)?\)/g, (link, target, anchor = "") => {
@@ -109,6 +112,14 @@ const lines = [
   "",
   "```text",
   oflText,
+  "```",
+  "",
+  "## Model Context Protocol TypeScript SDK",
+  "",
+  `随包 SDK @modelcontextprotocol/sdk@${mcpSdkVersion} 的许可证如下。`,
+  "",
+  "```text",
+  mcpSdkLicense,
   "```",
   "",
   "## 复制或改造的源码（`docs/upstream/ledger.md`）",
