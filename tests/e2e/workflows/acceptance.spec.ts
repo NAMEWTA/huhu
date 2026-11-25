@@ -1769,6 +1769,36 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
   }
 });
 
+test("F28：关联任务的周期提醒在任务来源和中心使用同一计划", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const task = await call("tasks.create", { title: "核对周期提醒" });
+    expect(task.ok).toBe(true);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-new").click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("规则名称").fill("周期校对提醒");
+    await editor.getByLabel("关联任务").selectOption(task.data.id);
+    await editor.getByLabel("通知内容").fill("检查校对记录");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+    const source = { plugin: "tasks", object: { kind: "task", id: task.data.id } };
+    await expect.poll(async () => (await call("automations.plans.list", { source })).data.plans.length).toBe(1);
+    const linked = (await call("automations.plans.list", { source })).data.plans[0];
+    expect(linked).toMatchObject({ planId: expect.any(String), revision: expect.any(String), trigger: { kind: "cron" } });
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    await expect(page.getByTestId("plan-directory").locator(`[data-plan-id="${linked.planId}"]`)).toContainText("周期校对提醒");
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByRole("button", { name: /^全部任务/ }).click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "列表" }).click();
+    await page.locator(`[data-task-id="${task.data.id}"]`).getByRole("button", { name: /核对周期提醒/ }).click();
+    await expect(page.getByTestId("detail-reminders").locator(`[data-plan-id="${linked.planId}"]`)).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
 test("F32：桌面和两个获邀 Web 页面切离专注卡片后由 Engine 到点结算", async () => {
   test.setTimeout(120_000);
   const { page, close } = await openApp();

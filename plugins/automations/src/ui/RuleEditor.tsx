@@ -61,9 +61,11 @@ export function RuleEditor({
   const [custom, setCustom] = useState(rule?.data.trigger.cron ?? "*/5 * * * *");
   const [tz, setTz] = useState(rule?.data.trigger.zone ?? zone);
   const [kind, setKind] = useState<FormKind>(formKindOf(a));
+  const tasks = useCapability<{ id: string; title: string }[]>("tasks.list", {}, { enabled: kind === "reminder" });
   const prompt0 = a?.kind === "agent" && a.input.source === "prompt" ? a.input : null;
   const [text, setText] = useState(a?.kind === "reminder" ? a.text : "");
   const [mode, setMode] = useState<"notification" | "task" | "both">(a?.kind === "reminder" ? a.mode : "notification");
+  const [taskId, setTaskId] = useState(a?.kind === "reminder" ? a.taskId ?? "" : "");
   const [spaceId, setSpaceId] = useState(prompt0?.spaceId ?? (a?.kind === "terminal" ? (a.spaceId ?? "") : ""));
   const [provider, setProvider] = useState(prompt0?.provider ?? "");
   const [model, setModel] = useState(prompt0?.model ?? "");
@@ -102,7 +104,7 @@ export function RuleEditor({
       .filter(Boolean);
     const action: Record<string, unknown> =
       kind === "reminder"
-        ? { kind: "reminder", mode, text: text.trim(), taskId: a?.kind === "reminder" ? a.taskId : null }
+        ? { kind: "reminder", mode, text: text.trim(), taskId: taskId || null }
         : kind === "agent_prompt"
           ? { kind: "agent", input: { source: "prompt", spaceId, provider, model: model.trim() || null, effort: prompt0?.effort ?? null, fast: prompt0?.fast ?? false } }
           : kind === "agent_tasks"
@@ -163,6 +165,13 @@ export function RuleEditor({
                     <option value="notification">{t.reminderModes.notification}</option>
                     <option value="task">{t.reminderModes.task}</option>
                     <option value="both">{t.reminderModes.both}</option>
+                  </Select>
+                </Field>
+                <Field label="关联任务">
+                  <Select aria-label="关联任务" value={taskId} onChange={(event) => setTaskId(event.target.value)}>
+                    <option value="">无关联任务</option>
+                    {taskId && !tasks.data?.some(({ id }) => id === taskId) ? <option value={taskId}>当前任务暂不可用</option> : null}
+                    {tasks.data?.map(({ id, title }) => <option key={id} value={id}>{title}</option>)}
                   </Select>
                 </Field>
                 <Field label={t.ruleText} description={!text.trim() ? "填写要发送的提醒内容。" : undefined}>
