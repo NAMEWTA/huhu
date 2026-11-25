@@ -168,6 +168,7 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
   else if (e.type === "plugin.stateChanged") {
     prefixes.push("plugins.", "capabilities.");
+    if (p["id"] === "ssh") prefixes.push("ssh.hosts.");
     if (p["id"] === "mcp") prefixes.push("mcp.", "gateway.get");
     if (p["id"] === "automations") prefixes.push("automations.plans.", ...Object.values(PERIODIC_SOURCE_CAPS).flat());
     else if (typeof p["id"] === "string" && Object.hasOwn(PERIODIC_SOURCE_CAPS, p["id"])) {

@@ -5,7 +5,7 @@ import path from "node:path";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { localUpstream } from "../../../packages/kernel/test/fixtures/mcp-upstream.js";
 import { loopbackOAuth } from "../../../packages/kernel/test/fixtures/mcp-oauth.js";
-import { root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
+import { openApp, root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -56,6 +56,84 @@ function events(journal: string): { type: string; name?: string; args?: object }
 function launch(vault: string) {
   return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
 }
+
+test("UX14 工具授权区分可用操作，撤销后同一 MCP 会话拒绝缓存工具名", async () => {
+  const { page, vault, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await gateway(page);
+    const filter = page.getByRole("textbox", { name: "筛选能力" });
+    const policy = page.getByRole("region", { name: "工具开放策略" });
+    await filter.fill("ux14-no-matching-capability");
+    await expect(policy.getByText("没有匹配的能力", { exact: true })).toBeVisible();
+    await expect(policy.getByRole("checkbox", { name: "选择全部匹配项" })).toBeDisabled();
+    const capabilities = ["notes.list", "notes.read"];
+    for (const capability of capabilities) {
+      await filter.fill(capability);
+      await policy.getByRole("checkbox", { name: `选择 ${capability}`, exact: true }).check();
+    }
+    await expect(policy.getByRole("status").filter({ hasText: "选中 2 项" })).toBeVisible();
+    await expect(policy.getByRole("button", { name: "关闭所选" })).toBeDisabled();
+    await policy.getByRole("button", { name: "开启所选" }).click();
+    const grant = page.getByRole("dialog", { name: "开启所选" });
+    await expect(grant.getByRole("listitem")).toHaveCount(2);
+    await grant.getByRole("button", { name: "保存选择" }).click();
+    await expect(policy.getByRole("status").filter({ hasText: "已保存 2 项工具选择" })).toBeVisible();
+    await expect(policy.locator('[data-cap="notes.read"]')).toContainText("服务已关闭");
+
+    await call(page, "gateway.mcp.update", { enabled: true });
+    const { token } = await call<{ token: string }>(page, "gateway.tokens.create", { name: "UX14 fixture" });
+    const rpc = await openClient(page, token);
+    const { result: listed } = await rpc("tools/list");
+    const cached = listed.tools.find(({ name }: { name: string }) => name === "notes_list");
+    expect(cached).toBeDefined();
+    expect((await rpc("tools/call", { name: cached.name, arguments: {} })).result.structuredContent.data).toEqual(expect.any(Array));
+
+    await call(page, "web.share.start", { mode: "local", port: 0 });
+    const { links } = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    await web.goto(links[0]!);
+    await web.getByRole("button", { name: "能力网关", exact: true }).click();
+    await web.getByRole("textbox", { name: "筛选能力" }).fill("notes.list");
+    const webPolicy = web.getByRole("region", { name: "工具开放策略" });
+    await expect(webPolicy.getByText(/请在桌面工作台更改授权/)).toBeVisible();
+    const webGrant = webPolicy.getByRole("switch", { name: "暴露 notes.list" });
+    await expect(webGrant).toBeChecked();
+    await expect(webGrant).toBeDisabled();
+    await browser.close();
+    browser = undefined;
+
+    const revokeButton = policy.getByRole("button", { name: "关闭所选" });
+    await revokeButton.click();
+    const revoke = page.getByRole("dialog", { name: "关闭所选" });
+    await expect(revoke.getByRole("button", { name: "取消" })).toBeFocused();
+    await expect(revoke.getByRole("listitem")).toHaveCount(2);
+    await revoke.getByRole("button", { name: "保存选择" }).click();
+    await expect(revoke).toBeHidden();
+    const denied = (await rpc("tools/call", { name: cached.name, arguments: {} })).result;
+    expect(denied.isError).toBe(true);
+    expect(JSON.parse(denied.content[0].text)).toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
+    expect((await rpc("tools/list")).result.tools).not.toContainEqual(expect.objectContaining({ name: cached.name }));
+
+    await call(page, "plugins.setEnabled", { id: "ssh", enabled: false });
+    await filter.fill("ssh.hosts.list");
+    const unavailable = policy.locator('[data-cap="ssh.hosts.list"]');
+    await expect(unavailable).toContainText("模块已停用");
+    await expect(unavailable.getByRole("switch")).toBeDisabled();
+    await expect(page.getByRole("form", { name: "允许外部工具访问的 SSH 主机" })).toContainText("SSH 模块已停用。");
+
+    expect(await page.evaluate((location) => window.huhuHost.vault.open(location, { kind: "open", readOnly: true }), vault)).toMatchObject({ ok: true });
+    await page.reload();
+    await gateway(page);
+    await expect(policy.getByText(/Vault 以只读方式打开/)).toBeVisible();
+    await filter.fill("notes.list");
+    await expect(policy.getByRole("switch", { name: "暴露 notes.list" })).toBeDisabled();
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
 
 test("P1 Gateway 添加本地 stdio、检查并开放 echo，重开 Vault 后公开名稳定", async () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-mcp-e2e-"));
