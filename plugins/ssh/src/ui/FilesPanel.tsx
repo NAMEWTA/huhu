@@ -277,7 +277,7 @@ export function FilesPanel({
     <section data-testid="files-panel" aria-label={title} {...batch.drop}>
       <h2>{title}</h2>
       {batch.controls}
-      {queuedTransfers ? <ArchiveTools side="remote" directory={cwd} entries={entries ?? []} id={fileSessionId} ready={ready} refresh={() => void load(cwd)} /> : <p>ZIP 后端和本机路径选取可在 Windows 桌面应用中使用。</p>}
+      {queuedTransfers ? <ArchiveTools side="remote" directory={cwd} entries={entries ?? []} id={fileSessionId} ready={ready} refresh={() => void load(cwd)} /> : <p>ZIP 归档和本机路径选取可在支持的桌面应用中使用。</p>}
       <div className="ssh-workspace-controls">
         <Button disabled={!ready} onClick={() => void navigate("")}>
           {t.files.home}

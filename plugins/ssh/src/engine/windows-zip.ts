@@ -3,18 +3,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { errors } from "@huhu/contracts";
 
-export const ZIP_MAX_BYTES = 16 * 1024 * 1024;
-export const ZIP_MAX_ENTRIES = 128;
-export interface NativeZipEntry {
-  index: number;
-  name: string;
-  directory: boolean;
-  size: number;
-  mtime: number;
-  sha256?: string | undefined;
-  attributes?: number;
-}
-
 // The native library sees only files in a private Windows staging directory.
 // Extraction writes numbered payloads. Archive member names never become OS paths here.
 const script = String.raw`

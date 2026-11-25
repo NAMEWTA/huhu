@@ -10,7 +10,7 @@ import { TargetRevision, type PublicFileSessions } from "./public-files.js";
 import { remoteArchiveScript } from "./remote-archive-script.js";
 import { captureSshCommand, RemoteCommandError } from "./ssh-exec.js";
 import { safeTreeName } from "./transfer-tree.js";
-import { ZIP_MAX_BYTES } from "./windows-zip.js";
+import { ZIP_MAX_BYTES } from "./native-zip.js";
 
 const ArchiveFormat = z.enum(["tar", "tar.gz", "zip"]);
 const Formats = z.array(ArchiveFormat).max(3);

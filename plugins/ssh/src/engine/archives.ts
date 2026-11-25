@@ -12,7 +12,7 @@ import type { FileSessions } from "./file-sessions.js";
 import type { SshManager } from "./manager.js";
 import { fingerprint, localTransferFile, remoteTransferFile, removeTemp, sameSnapshot, transferChanged, type Snapshot, type TransferFile } from "./transfer-io.js";
 import { localTree, remoteTree, safeTreeName, scanTree, type TransferTree } from "./transfer-tree.js";
-import { windowsZip, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, type NativeZipEntry } from "./windows-zip.js";
+import { nativeZip, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, type NativeZipEntry } from "./native-zip.js";
 
 type Device = { tree: TransferTree; file: (parts: readonly string[]) => TransferFile };
 type Member = NativeZipEntry & { parts: string[] };
@@ -112,7 +112,7 @@ export class Archives {
   async support(id: string, signal: AbortSignal): Promise<ArchiveSupport> {
     const session = this.sessions.get(id);
     const native = await this.available();
-    const local = { zip: native, reason: native ? "本机 Windows .NET ZIP 后端" : "本机 Windows .NET ZIP 后端不可用" };
+    const local = { zip: native, reason: native ? nativeZip.label : `${nativeZip.label}不可用` };
     let remote = { zip: false, reason: !native ? "依赖的本机 ZIP 后端不可用" : "原 SSH 连接已断开" };
     if (native && session.state === "ready") {
       try {
@@ -137,7 +137,7 @@ export class Archives {
     }
     this.busy = true;
     try {
-      if (!(await this.available())) throw errors.invalidInput("Windows 原生 ZIP 后端不可用");
+      if (!(await this.available())) throw errors.invalidInput(`${nativeZip.label}不可用`);
       return await this.withDevice(request.directory, signal, (device, active) => this.inWorkspace(device, request, zip, active));
     } finally {
       this.busy = false;
@@ -145,7 +145,7 @@ export class Archives {
   }
 
   private available() {
-    this.nativeProbe ??= windowsZip("probe", "").then(
+    this.nativeProbe ??= nativeZip.run("probe", "").then(
       (result) => result === "zip",
       () => false,
     );
@@ -183,7 +183,7 @@ export class Archives {
       const original = await readRequired(boundZip, signal);
       await writeChecked(boundZip, stagedZip, original, signal);
       if (!sameSnapshot(original, await fingerprint(boundZip, signal))) throw transferChanged("ZIP 文件");
-      const results = members(await windowsZip("read", stage, signal));
+      const results = members(await nativeZip.run("read", stage, signal));
       if (request.operation === "extract") {
         await this.extract(device, request.output!, results, stage, signal);
       }
@@ -216,7 +216,7 @@ export class Archives {
       entries.push({ ...row, sha256: original.hash });
     }
     await writeFile(path.join(stage, "entries.json"), JSON.stringify(entries), "utf8");
-    await windowsZip("create", stage, signal);
+    await nativeZip.run("create", stage, signal);
     const archive = await readRequired(stagedZip, signal);
     const temp = boundZip.sibling(`.huhu-zip-${randomUUID()}.part`);
     await writeChecked(stagedZip, temp, archive, signal);

@@ -1,8 +1,58 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
+
+test("A08 Linux desktop creates, lists and extracts a ZIP over the bound SFTP connection", async () => {
+  test.skip(process.platform !== "linux" || !existsSync("/usr/bin/python3"), "Linux system Python 3 is required");
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const app = await openApp();
+  try {
+    const { page } = app;
+    const source = "/home/test/project";
+    const content = Buffer.from("ZIP fixture from Linux");
+    server.fs.dirs.add(source);
+    server.fs.files.set(`${source}/report.txt`, content);
+    server.fs.timestamps.set(`${source}/report.txt`, 1_700_000_001);
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "ZIP 回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await desktopCall(page, "ssh.workspace.runs.start", { name: "ZIP 工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /ZIP 工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    const files = run.getByTestId("files-panel");
+    await files.getByText("远端 ZIP 归档", { exact: true }).click();
+    const archive = files.getByRole("region", { name: "远端归档能力" });
+    const pick = archive.getByLabel("归档项目");
+    await expect(archive.getByRole("status")).toContainText("ZIP 可用");
+    await pick.selectOption("project");
+    await archive.getByRole("button", { name: "生成 ZIP", exact: true }).click();
+    await page.getByRole("dialog", { name: "生成 ZIP 归档" }).getByRole("button", { name: "确认", exact: true }).click();
+    await expect.poll(() => server.fs.files.has("/home/test/project.zip")).toBe(true);
+    await pick.selectOption("project.zip");
+    await archive.getByRole("button", { name: "查看 ZIP 清单", exact: true }).click();
+    await expect(archive.getByTestId("ssh-archive-result")).toContainText("project/report.txt");
+    await archive.getByRole("button", { name: "解压至新目录", exact: true }).click();
+    const extract = page.getByRole("dialog", { name: "解压 ZIP 到新目录" });
+    await extract.getByLabel("新目录名称").fill("unpacked");
+    await extract.getByRole("button", { name: "确认", exact: true }).click();
+    const unpacked = "/home/test/unpacked/project/report.txt";
+    await expect.poll(() => server.fs.files.get(unpacked)).toEqual(content);
+    expect(server.fs.timestamps.get(unpacked)).toBe(1_700_000_001);
+  } finally {
+    await app.close();
+    await server.close();
+  }
+});
 
 test("H6.2 工作台展示实际属性并在原 SFTP 会话中修改、移动和创建链接", async () => {
   const password = randomUUID();
