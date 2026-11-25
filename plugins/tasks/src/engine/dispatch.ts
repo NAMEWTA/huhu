@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskDto, type TaskExecution } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskActivity, type TaskDto, type TaskExecution } from "@huhu/contracts";
 import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import type { DeviceDispatchBudget } from "@huhu/vault";
 import {
@@ -524,6 +524,23 @@ export class TaskDispatch {
         },
       ];
     });
+  }
+
+  activity(task: TaskDto): TaskActivity {
+    const records = this.recordsFor(task.id).filter((record) => this.store.owns(record));
+    const latest = records.toSorted((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt) || b.receipt.eventId.localeCompare(a.receipt.eventId))[0];
+    const binding = latest?.boundExecution;
+    let execution: TaskActivity["execution"] = { state: "none" };
+    if (latest && binding && this.matchesExecution(binding)) {
+      const state = this.runs(task.id, records).find(({ id }) => id === latest.receipt.runId)?.state;
+      const { coreAddress: _, ...sessionBinding } = binding.sessionBinding;
+      execution = {
+        state: state === "succeeded" ? "completed" : state === "waiting_input" ? "waiting-input"
+          : state === "running" || state === "failed" ? state : "unknown",
+        identity: { ...binding, sessionBinding },
+      };
+    }
+    return { taskId: task.id, inputRevision: task.inputRevision, inputHash: task.inputHash, status: task.status, observedAt: this.now().toISOString(), execution };
   }
 
   acceptRule(input: DispatchInput, source: RuleSource): Promise<DispatchReceipt> {
@@ -1138,7 +1155,10 @@ export class TaskDispatch {
       else if (!task || (record.retryOf ? !this.retryTaskOpen(task) : continuation === null ? !this.dispatchable(task, snapshot.newRound) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (!this.retrySourceSafe(record)) next.reason = "awaiting_confirmation";
       else if (continuation === "waiting") next.reason = "waiting_resource";
-      else if (validateInput && !maySend(task, receipt, now)) next.reason = "waiting_schedule";
+      else if (validateInput && !maySend(task, receipt, now)) {
+        if (source.kind === "automation" || source.kind === "follow-up") Object.assign(next, { state: "stale_input", reason: "waiting_schedule" });
+        else next.reason = "waiting_schedule";
+      }
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
         if (typeof readiness === "object") agentTarget ??= readiness.target;

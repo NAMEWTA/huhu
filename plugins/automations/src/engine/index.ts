@@ -5,12 +5,13 @@ import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDefinition, type CapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
-import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller } from "@huhu/contracts";
+import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller, type TaskActivityQuery } from "@huhu/contracts";
 import { z } from "zod";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, FollowUpView } from "./follow-ups.js";
 import { HoldStore } from "./holds.js";
+import { ObservationPlans, type ObservationStatus } from "./observations.js";
 import { planDescriptors, registerPlanCatalogue } from "./plans.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
@@ -66,6 +67,7 @@ export const automationToolDescriptors = {
   plansReadOccurrence: planDescriptors.occurrence,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
+  plansCreateObservation: planDescriptors.observationCreate,
   plansDefaultTaskScan: planDescriptors.defaultTaskScan,
   followUpsGet: defineCapabilityDescriptor({
     name: "automations.followUps.get",
@@ -328,6 +330,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
   );
+  type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };
+  type AgentObservation = { status(id: string): Promise<ObservationStatus> };
+  const observations = new ObservationPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid }, svc, () => reminders,
+    async ({ kind, id }, signal) => {
+      if (kind === "agent-session") return await api.service<AgentObservation>("agentObservation")?.status(id) ?? "unknown";
+      const task = await api.service<TaskActivityQuery>("taskActivity")?.readTaskActivity(id, signal);
+      if (!task) return "unknown";
+      if (task.status === "completed") return "completed";
+      if (task.execution.state === "none") return task.status === "not_started" ? "not_started" : "unknown";
+      return task.execution.state === "waiting-input" ? "waiting_input" : task.execution.state;
+    }, now, (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }));
   const reminders: ReminderDeliveries | undefined = opts.reminderNotifications
     ? new ReminderDeliveries(
         stateFiles,
@@ -347,6 +360,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         publishActivation,
         (id) => taskReminders.taskAvailable(id),
         (id, revision, at) => taskReminders.current(id, revision, at),
+        (id, revision, at) => observations.current(id, revision, at),
+        async (taskId, id, body) => {
+          const tasks = api.service<TaskObservation>("taskObservation");
+          if (!tasks) throw errors.pluginDisabled("tasks");
+          return tasks.comment(taskId, id, body);
+        },
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
@@ -360,10 +379,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     };
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
+    const observationTimer = opts.schedule === false ? undefined : setInterval(() => void observations.tick(), 1_000);
     return () => {
       clearInterval(timer);
+      clearInterval(observationTimer);
       followUps.close();
-      return Promise.all([taskReminders.close(), reminders?.close()]).then(() => undefined);
+      return Promise.all([taskReminders.close(), observations.close(), reminders?.close()]).then(() => undefined);
     };
   });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
@@ -468,7 +489,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   };
   const activations = () => [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])];
   const readCronOccurrence = (id: string) => scans.readPlanOccurrence(id) ?? reminders?.readPlanOccurrence(id) ?? null;
-  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, defaults, now, activations, readCronOccurrence, deleteRule });
+  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, defaults, now, activations, readCronOccurrence, deleteRule });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {

@@ -1343,6 +1343,19 @@ export class SessionsService {
     return client;
   }
 
+  async observeStatus(id: string): Promise<"running" | "waiting_input" | "completed" | "failed" | "unknown"> {
+    const session = this.list().find((record) => record.id === id);
+    if (!session) return "unknown";
+    if (session.state === "failed") return "failed";
+    if (session.state === "exited" && !session.error && session.exitedAt) return session.exitCode ? "failed" : "completed";
+    const current = await this.verifiedTerminal(session).catch(() => null);
+    if (!current) return "unknown";
+    const { terminal } = current;
+    if (terminal.state === "finished" || terminal.finished_ms != null) return terminal.exit_code ? "failed" : "completed";
+    if (terminal.state !== "live") return "unknown";
+    return this.get(id).waiting?.active ? "waiting_input" : "running";
+  }
+
   async executionSession(id: string, observer?: HerdrClient): Promise<{ binding: ExecutionBinding["sessionBinding"]; finished: boolean; spaceId: string; nativeExisting?: boolean } | null> {
     const session = this.list().find((item) => item.id === id);
     if (!session?.terminalId || session.provider === "shell") return null;
@@ -1687,7 +1700,7 @@ export class SessionsService {
   private lastReconcile = 0;
 
   /**
-   * 用只读快照查回未确定的启动，并核对已绑定进程的退出。列表打开时调用，2 秒内只查一次。
+   * 用只读快照查回未确定的启动，并核对已绑定进程的退出。2 秒内只查一次。
    */
   async reconcile(): Promise<void> {
     const mine = this.list().filter(
@@ -1713,7 +1726,8 @@ export class SessionsService {
         const t = snapshot.kind === "available" ? snapshot.terminals.find((x) => x.address === current.terminalId && hasLaunchLabels(x, launchLabels(this.d.vaultId, current))) : undefined;
         if (t && t.state !== "finished" && t.finished_ms == null) continue;
         const at = t?.finished_ms ? new Date(t.finished_ms).toISOString() : this.d.now().toISOString();
-        this.save({ ...current, state: "exited", exitCode: t?.exit_code ?? null, exitedAt: at, ...(t ? {} : { error: "终端已不存在（Herdr Core 没有在运行，或已重启过）" }) });
+        if (t) this.save({ ...current, state: "exited", exitCode: t.exit_code ?? null, exitedAt: at });
+        else this.save({ ...current, state: "unknown", error: "无法核对原终端是否已退出" });
       } catch {
         /* 单条记录读写失败不影响其他会话和列表 */
       }

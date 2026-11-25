@@ -7,6 +7,7 @@ import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
 import { RunsPanel } from "./RunsPanel.js";
 import { PlanScheduleControls } from "./PlanScheduleControls.js";
+import { ObservationEditor } from "./ObservationEditor.js";
 import { TerminalEnvironment } from "./TerminalEnvironment.js";
 
 type Rule = EditableRule;
@@ -352,14 +353,18 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
 
 function PlansPanel() {
   const [cursor, setCursor] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const plans = useCapability<{ plans: PlanSummary[]; nextCursor: string | null }>("automations.plans.list", { ...(cursor && { cursor }), limit: 30 });
   return (
     <div className="automations-task-content" data-testid="plan-directory">
       {plans.error ? <p role="alert">{plans.error.message}</p> : null}
+      <Button icon={Plus} onClick={() => setCreating(true)}>新建状态观察</Button>
+      {creating ? <ObservationEditor onClose={() => setCreating(false)} onSaved={() => plans.refetch()} /> : null}
       {plans.data?.plans.map((plan) => (
         <section key={plan.planId} className="hu-tw-detail-section" data-plan-id={plan.planId}>
           <h3>{plan.title}</h3>
           {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time> : null}
+          {plan.trigger.kind === "observe" ? <p>每 {plan.trigger.everySeconds} 秒检查</p> : null}
           <p>{plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
           {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
           <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />

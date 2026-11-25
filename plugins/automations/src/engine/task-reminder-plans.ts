@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { errors, isHuhuError, PlanRefSchema, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import { taskReminderOccurrenceId, type ReminderDeliveries } from "./reminder-deliveries.js";
+import { planReminderOccurrenceId, type ReminderDeliveries } from "./reminder-deliveries.js";
 import type { AutomationsService, TaskQueryLike } from "./service.js";
 
 const file = "automations/task-reminder-plans.json";
@@ -69,7 +69,7 @@ export class TaskReminderPlans {
     const availability: PlanSummary["availability"] = readOnly ? { state: "blocked", reason: "read-only" }
       : !task || task.status === "completed" ? { state: "blocked", reason: "target-unavailable" }
       : !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
-    const occurrence = this.deliveries()?.readPlanOccurrence(taskReminderOccurrenceId(plan));
+    const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
     const actions: PlanSummary["actions"] = readOnly || plan.intent === "deleted" ? [] : ["reschedule", "delete"];
     if (actions.length > 0 && !occurrence?.effects.some(({ state }) => state === "completed" || state === "unknown")) {
       if (plan.intent === "enabled") actions.push("pause");
@@ -129,7 +129,7 @@ export class TaskReminderPlans {
       const replacement = { ...plan, revision: randomUUID(), updatedAt: this.now().toISOString() };
       if (write.change === "reschedule" && write.trigger.kind === "once") replacement.scheduledFor = new Date(write.trigger.scheduledFor).toISOString();
       else if (write.change === "set-intent") {
-        const occurrence = this.deliveries()?.readPlanOccurrence(taskReminderOccurrenceId(plan));
+        const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
         if (occurrence?.effects.some(({ state }) => state === "completed" || state === "unknown")) throw errors.invalidInput("已递送或待核实的提醒须先改期");
         if (write.intent === "enabled" && !this.taskAvailable(plan.taskId)) throw errors.invalidInput("当前任务无法设置提醒");
         replacement.intent = write.intent;
@@ -182,7 +182,7 @@ export class TaskReminderPlans {
     for (const plan of due) {
       if (this.closed) break;
       if (!this.current(plan.planId, plan.revision, plan.scheduledFor)) continue;
-      if (deliveries.readPlanOccurrence(taskReminderOccurrenceId(plan))) continue;
+      if (deliveries.readPlanOccurrence(planReminderOccurrenceId(plan))) continue;
       await deliveries.activateTaskReminder(plan);
     }
   }

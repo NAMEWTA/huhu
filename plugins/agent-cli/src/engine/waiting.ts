@@ -30,6 +30,7 @@ export class WaitingWatcher {
   private sub: EventSubscription | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconcileTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly pendingBindings = new Map<string, number>();
   private readonly handling = new Set<string>();
   private stopped = true;
@@ -55,6 +56,8 @@ export class WaitingWatcher {
     this.timer = null;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if (this.reconcileTimer) clearTimeout(this.reconcileTimer);
+    this.reconcileTimer = null;
     this.pendingBindings.clear();
     this.retryDelay = this.range.min;
     this.sub?.close();
@@ -94,6 +97,7 @@ export class WaitingWatcher {
         this.delay = this.range.min;
         this.d.document?.changed();
         await this.reconcile(sub.snapshot.terminals as TerminalRecord[]); // 订阅之后读快照：断线期间发生的 blocked 在这里补上
+        this.reconcileSessions();
       },
       () => this.schedule(),
     );
@@ -120,6 +124,14 @@ export class WaitingWatcher {
   private expire(sessionId: string) {
     this.pendingBindings.delete(sessionId);
     if (this.d.sessions.expireWaiting(sessionId)) this.d.onChanged?.(sessionId);
+  }
+
+  private reconcileSessions(): void {
+    if (this.stopped || this.reconcileTimer) return;
+    this.reconcileTimer = setTimeout(() => {
+      this.reconcileTimer = null;
+      if (!this.stopped) void this.d.sessions.reconcile().catch(() => undefined);
+    }, 2_000);
   }
 
   private retryBindings() {
@@ -165,7 +177,7 @@ export class WaitingWatcher {
     try {
       const r = this.d.sessions.applyStatus(sessionId, status);
       const w = r.session.waiting;
-      // 进入 blocked，或上次处理失败（handled 落后于 n）：重试。onBlocked 内部的评论 / 任务都是幂等的
+      // 进入 blocked，或上次未完成原执行关联时重试。
       if (status?.state === "blocked" && w?.active && w.handled !== w.n) {
         await this.deliver(r.session);
       } else if (r.transition) {
@@ -189,6 +201,9 @@ export class WaitingWatcher {
     if (e.type === "status") {
       const data = e.data as { status?: ProgramStatus | null } | undefined;
       await this.apply(sess.id, data?.status ?? null);
-    } else if (e.type === "finished" || e.type === "removed") this.expire(sess.id);
+    } else if (e.type === "finished" || e.type === "removed") {
+      this.expire(sess.id);
+      this.reconcileSessions();
+    }
   }
 }

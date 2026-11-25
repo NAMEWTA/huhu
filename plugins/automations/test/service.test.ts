@@ -13,7 +13,8 @@ import { SpaceStore } from "../../agent-cli/src/engine/spaces.js";
 import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
-import { ReminderDeliveries, taskReminderOccurrenceId } from "../src/engine/reminder-deliveries.js";
+import { ReminderDeliveries, planReminderOccurrenceId } from "../src/engine/reminder-deliveries.js";
+import { ObservationPlans, type ObservationStatus } from "../src/engine/observations.js";
 import { AutomationsService } from "../src/engine/service.js";
 import { TaskReminderPlans } from "../src/engine/task-reminder-plans.js";
 import { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
@@ -150,6 +151,61 @@ const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
 const terminalAction = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null } as const;
 const terminalSlot = new Date("2026-11-10T12:00:00Z");
 
+test("观察断线后继续，评论写入回执丢失时沿用原发生和评论 ID", async () => {
+  let time = Date.parse("2026-11-10T12:00:00Z");
+  let status: ObservationStatus = "unknown";
+  const now = () => new Date(time);
+  const { svc, root } = setup({ now });
+  const comments = new Map<string, string>();
+  const writeComment = vi.fn(async (_taskId: string, id: string, body: string) => { comments.set(id, body); });
+  const observed = vi.fn(async () => status);
+  const open = (files: VaultFiles) => {
+    const plans = new ObservationPlans(files, { vaultId: "vault", machineId: "machine" }, svc,
+      (): ReminderDeliveries => deliveries, observed, now, () => undefined);
+    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => undefined, {
+      send: () => undefined, has: () => false,
+    }, now, () => undefined, () => true, () => false, (id, revision, at) => plans.current(id, revision, at), writeComment);
+    return { plans, deliveries };
+  };
+  const files = new VaultFiles(root);
+  const first = open(files);
+  const plan = await first.plans.create({ title: "核对源任务", target: { kind: "task", id: "task-source" }, everySeconds: 1, condition: { kind: "change" },
+    repeat: false, stopAtTerminal: true, effect: "comment", intentId: randomUUID(),
+  }, new AbortController().signal);
+  await first.plans.tick();
+  expect(first.plans.read(plan.planId)).toMatchObject({ intent: "enabled", lastOccurrence: null });
+  expect(writeComment).not.toHaveBeenCalled();
+  status = "running";
+  time += 1_000;
+  await Promise.all([first.plans.tick(), first.plans.tick()]);
+  expect(observed).toHaveBeenCalledTimes(2);
+
+  const original = files.write.bind(files);
+  vi.spyOn(files, "write").mockImplementation(async (rel, data, opts) => {
+    if (rel.startsWith("automations/reminder-deliveries/") && Buffer.from(data).includes('"comment":"written"')) throw new Error("检查点丢失");
+    return original(rel, data, opts);
+  });
+  status = "completed";
+  time += 1_000;
+  await first.plans.tick();
+  expect(comments.size).toBe(1);
+  expect(writeComment).toHaveBeenCalledTimes(1);
+  await first.plans.close();
+  await first.deliveries.close();
+
+  const restarted = open(new VaultFiles(root));
+  await restarted.deliveries.recover();
+  await restarted.plans.tick();
+  const updated = restarted.plans.read(plan.planId);
+  expect(updated).toMatchObject({ intent: "paused", nextAt: null, lastOccurrence: { state: "completed" } });
+  expect(writeComment).toHaveBeenCalledTimes(2);
+  expect(writeComment.mock.calls[0]).toEqual(writeComment.mock.calls[1]);
+  expect(comments.size).toBe(1);
+  expect(restarted.deliveries.readPlanOccurrence(updated!.lastOccurrence!.occurrenceId)).toMatchObject({ effects: [{ kind: "task-comment", state: "completed" }] });
+  await restarted.plans.close();
+  await restarted.deliveries.close();
+});
+
 test("改期排在提醒选中与副作用之间时，旧发生取消且重开只递送新发生", async () => {
   let time = new Date("2026-11-10T12:00:00Z");
   const now = () => time;
@@ -191,7 +247,7 @@ test("改期排在提醒选中与副作用之间时，旧发生取消且重开�
   }, new AbortController().signal);
   release();
   const [moved] = await Promise.all([move, tick]);
-  expect(first.deliveries.readPlanOccurrence(taskReminderOccurrenceId({ ...plan, scheduledFor }))).toMatchObject({ state: "cancelled" });
+  expect(first.deliveries.readPlanOccurrence(planReminderOccurrenceId({ ...plan, scheduledFor }))).toMatchObject({ state: "cancelled" });
   expect(notification.send).not.toHaveBeenCalled();
   expect(moved.planId).toBe(plan.planId);
   expect(moved.revision).not.toBe(plan.revision);

@@ -306,7 +306,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse(agentCliManifest),
     apply: (ctx, api) =>
       void agentCli.apply(ctx, api, {
-        notify: (n) => void notifications.create(n),
         ...(dispatchBudget && { dispatchBudget }),
         ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
         ...(moduleCredentialHost && {

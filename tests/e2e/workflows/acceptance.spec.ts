@@ -1769,6 +1769,40 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
   }
 });
 
+test("F31：自动化中心建立、改期、暂停和删除任务观察", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const task = await call("tasks.create", { title: "待观察的编辑任务" });
+    expect(task.ok).toBe(true);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    const plans = page.getByTestId("plan-directory");
+    await plans.getByRole("button", { name: "新建状态观察" }).click();
+    const editor = page.getByRole("dialog", { name: "新建状态观察" });
+    await editor.getByLabel("计划名称").fill("编辑任务状态观察");
+    await editor.getByLabel("观察对象").selectOption(task.data.id);
+    await editor.getByLabel("检查间隔").fill("1");
+    await editor.getByLabel("间隔单位").selectOption("seconds");
+    await editor.getByRole("button", { name: "保存观察" }).click();
+    const row = plans.locator("[data-plan-id]").filter({ hasText: "编辑任务状态观察" });
+    await expect(row).toContainText("每 1 秒检查");
+    await row.getByRole("button", { name: "改期" }).click();
+    const revise = page.getByRole("dialog", { name: "更改计划时间" });
+    await revise.getByLabel("检查间隔（秒）").fill("2");
+    await revise.getByRole("button", { name: "保存" }).click();
+    await expect(row).toContainText("每 2 秒检查");
+    await row.getByRole("button", { name: "暂停" }).click();
+    await expect(row).toContainText("已暂停");
+    await row.getByRole("button", { name: "删除" }).click();
+    await page.getByRole("dialog", { name: "删除计划" }).getByRole("button", { name: "删除计划" }).click();
+    await expect(row).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
 test("命令面板：搜索结果按来源分组（笔记 / 任务 / 档案 / 收件箱），选中任务结果跳到任务模块", async () => {
   const { page, close } = await openApp();
   try {

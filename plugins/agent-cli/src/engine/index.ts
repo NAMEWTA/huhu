@@ -65,7 +65,6 @@ export interface AgentCliOptions {
   /** herdr-core 可执行文件；缺省读 HUHU_HERDR_BIN，再退回应用资源目录。 */
   herdrBin?: string;
   /** 站内通知（程序在会话里等人工时）。 */
-  notify?: (n: { title: string; module: string }) => void;
   /** 测试用：缩短订阅的重连间隔。 */
   waitingBackoffMs?: { min: number; max: number };
   /** Engine-owned provider protocols. Omit a provider that cannot prove input acceptance. */
@@ -203,38 +202,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       lifetime.signal.throwIfAborted();
       const w = sess.waiting;
       if (!w) return;
-      const what = w.kind === "permission" ? "需要批准" : w.kind === "question" ? "有问题要回答" : w.kind === "auth" ? "需要登录授权" : "需要你操作";
       const dispatchId = dispatchStore.owner(sess.id);
-      if (dispatchId) {
-        if (!sessions.pinWaitingOwner(sess.id, w.n, dispatchId)) return;
-        const execution = dispatchStore.read(dispatchId)?.execution;
-        const current = await sessions.executionSession(sess.id);
-        if (!execution || !current || current.finished || launchHash(execution.sessionBinding) !== launchHash(current.binding) || dispatchStore.owner(sess.id) !== dispatchId) {
-          throw new HuhuError("RUN_UNKNOWN", "无法核对等待信号的原会话与任务");
-        }
-        if (sessions.setWaitingTaskRun(sess.id, w.n, { taskId: execution.taskId, runId: execution.runId })) {
-          opts.notify?.({ title: `${sess.name}：${what}`, module: "agent-cli" });
-        }
+      if (!dispatchId) {
+        if (sess.controlled && !w.ownerDispatchId) throw new HuhuError("RUN_UNKNOWN", "受控会话的任务运行尚未核对");
         return;
       }
-      if (w.ownerDispatchId) return;
-      if (sess.controlled) throw new HuhuError("RUN_UNKNOWN", "受控会话的任务运行尚未核对");
-      opts.notify?.({ title: `${sess.name}：${what}${w.msg ? `（${w.msg}）` : ""}`, module: "agent-cli" });
-      if (settingsStore.get().waitingTasks === false) return;
-      // 独立会话：在为它自动建立的 human 任务上追加评论（任务按会话 id 幂等创建，评论 id 由发生标识派生）
-      const created = w.taskId
-        ? { id: w.taskId }
-        : ((await api.call(
-            "tasks.create",
-            { title: `${sess.name} 需要你操作`, type: "human", body: `终端会话「${sess.name}」里的程序在等你处理。\n\n在 Agent CLI 模块里点“前往处理”回到原终端。` },
-            { idempotencyKey: `session-task-${sess.id}` },
-          )) as { id: string });
-      if (!w.taskId) sessions.setWaitingTask(sess.id, created.id);
-      lifetime.signal.throwIfAborted();
-      const commentId = `session-${sess.id}-w-${w.n}`;
-      await api.call("tasks.comments.add", { taskId: created.id, id: commentId, source: "agent", author: sess.name, session: sess.id, event: "waiting", body: `${what}${w.msg ? `：${w.msg}` : ""}` }, { idempotencyKey: commentId });
+      if (!sessions.pinWaitingOwner(sess.id, w.n, dispatchId)) return;
+      const execution = dispatchStore.read(dispatchId)?.execution;
+      const current = await sessions.executionSession(sess.id);
+      if (!execution || !current || current.finished || launchHash(execution.sessionBinding) !== launchHash(current.binding) || dispatchStore.owner(sess.id) !== dispatchId) {
+        throw new HuhuError("RUN_UNKNOWN", "无法核对等待信号的原会话与任务");
+      }
+      sessions.setWaitingTaskRun(sess.id, w.n, { taskId: execution.taskId, runId: execution.runId });
     },
   });
+  api.provide("agentObservation", { status: (id: string) => sessions.observeStatus(id) });
   waiting.start();
   ctx.effect(() => () => waiting.stop()); // 停用时关闭订阅连接；重新启用后 apply 再次运行，重连并用快照补齐期间的 blocked
   const workspaceLayout = registerWorkspaceLayout(api, {
@@ -472,11 +454,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     }),
   );
   api.defineCapability(
-    bindCapability(mainAgentDescriptors.sessionsList, async (c, i) => {
-      if (!isAgentTool(c.caller)) {
-        await sessions.reconcile();
-        return sessions.list(i.spaceId).map(publicSession);
-      }
+    bindCapability(mainAgentDescriptors.sessionsList, (c, i) => {
+      if (!isAgentTool(c.caller)) return sessions.list(i.spaceId).map(publicSession);
       if (i.spaceId) spaces.get(i.spaceId);
       const known = new Map(
         spaces
@@ -839,7 +818,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       const external = isAgentTool(caller);
       if (external && i.allSpaces) throw errors.invalidInput("请选择一个 Space 来查询历史");
       const roots = historyRoots(i);
-      if (!external) await sessions.reconcile();
       const live = new Map<string, SessionRecord[]>();
       for (const session of sessions.list()) {
         const id = session.nativeSessionId ?? session.historyLaunch?.history.nativeId;

@@ -756,5 +756,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return executor.resumeEligibility(task.execution, task.body, instructions, signal);
     },
   } satisfies TaskQuery);
+  api.provide("taskObservation", {
+    comment(taskId: string, id: string, body: string) {
+      return svc.addComment(taskId, { id, at: now().toISOString(), source: "system", event: "observation", body });
+    },
+  });
+  api.provide("taskActivity", {
+    async readTaskActivity(taskId: string, signal: AbortSignal) {
+      signal.throwIfAborted();
+      try {
+        return dispatch.activity(svc.read(taskId));
+      } catch (error) {
+        if (error instanceof HuhuError && error.code === "NOT_FOUND") return null;
+        throw error;
+      }
+    },
+  });
 
 }

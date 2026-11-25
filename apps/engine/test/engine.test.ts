@@ -839,14 +839,14 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", type: "agent", body: "x", execution: { spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
   }, 30_000);
   test.skipIf(!existsSync(REAL_HERDR) || process.platform === "win32")(
-    "B04a/B07 会话里的程序经 OSC 7501 上报 blocked：不退出也在几秒内出现“需要你操作”（独立会话自动建 human 任务 + 评论），同一次只记一条，解除后提示取消；再次 blocked 只追加评论",
+    "B04a/B07：同一会话的等待状态继续显示，显式观察计划在无页面时递送",
     async () => {
       process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
       const dir = tmp();
       const e = await boot({ vaultPath: dir, create: true });
       engines.push(e);
       type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
-      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      const call = (capability: string, input: unknown, intentKey?: string): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: intentKey ?? randomUUID(), intentKey }) as unknown as Promise<R>;
       const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
       const { machineId } = await import("@huhu/vault");
       const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
@@ -855,22 +855,25 @@ describe("Engine 启动与关闭", () => {
         const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-wait-1234" })).data as { id: string; terminalId: string };
         const client = await core.ensure();
         const osc = (state: string) => client.call("terminal.send", { terminal: s.terminalId, force: true, text: `printf '\\033]7501;state=${state}:kind=permission:app=e2e\\033\\\\'` });
-        const task = async () => ((await call("tasks.list", {})).data as { id: string; title: string; origin: { kind: string }; comments: { id: string; event?: string }[] }[]).find((t) => t.title.includes("需要你操作"));
+        const reminders = async () => ((await call("notifications.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
+        const waiting = async () => ((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean; n: number } }[])[0]?.waiting;
         await osc("blocked");
-        await expect.poll(async () => (await task())?.comments.length, { timeout: 15_000 }).toBe(1);
-        const t1 = (await task())!;
-        expect(t1.origin.kind).toBe("session");
-        expect(t1.comments[0]).toMatchObject({ id: `session-${s.id}-w-1`, event: "waiting" });
-        expect(((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean; n: number } }[])[0]?.waiting).toMatchObject({ active: true, n: 1 });
-        // 解除：程序离开 blocked → 提示取消；任务与评论保留
+        await expect.poll(waiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1 });
+        expect(await reminders()).toEqual([]);
+        const intentId = randomUUID();
+        const result = await call("automations.plans.createObservation", {
+          title: "需要核对原会话", target: { kind: "agent-session", id: s.id }, everySeconds: 1,
+          condition: { kind: "threshold", status: "waiting_input", seconds: 1 }, stopAtTerminal: true, effect: "both", intentId,
+        }, intentId);
+        expect(result).toMatchObject({ ok: true, data: { trigger: { kind: "observe", everySeconds: 1 } } });
+        await expect.poll(reminders, { timeout: 12_000 }).toEqual([{ title: "需要核对原会话：等待输入", id: expect.any(String), module: "automations", at: expect.any(String), read: false }]);
+        const tasks = async () => ((await call("tasks.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
+        await expect.poll(async () => (await tasks()).map(({ title }) => title)).toEqual(["需要核对原会话：等待输入"]);
+        for (let i = 0; i < 6; i++) await Promise.all([waiting(), waiting(), waiting()]);
         await osc("working");
-        await expect.poll(async () => ((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean } }[])[0]?.waiting?.active, { timeout: 15_000 }).toBe(false);
-        // 再次 blocked：同一个任务上只追加评论
-        await osc("blocked");
-        await expect.poll(async () => (await task())?.comments.length, { timeout: 15_000 }).toBe(2);
-        expect((await task())!.id).toBe(t1.id);
-        expect(((await call("tasks.list", {})).data as { title: string }[]).filter((t) => t.title.includes("需要你操作"))).toHaveLength(1);
-        expect((await task())!.comments[1]?.id).toBe(`session-${s.id}-w-2`);
+        await expect.poll(waiting, { timeout: 15_000 }).toMatchObject({ active: false });
+        expect(await reminders()).toHaveLength(1);
+        expect(await tasks()).toHaveLength(1);
       } finally {
         await core.stop();
         delete process.env["HUHU_HERDR_BIN"];
