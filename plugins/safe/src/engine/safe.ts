@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, type EventPayload, type EventType } from "@huhu/contracts";
 import { checkMatches, deriveKek, keyCheck, newDataKey, newKdf, open, seal, SealError } from "./crypto.js";
-import type { CreateEntry, CreateTag, DeleteAccount, DeleteEntry, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
+import type { CreateAccount, CreateEntry, CreateTag, DeleteAccount, DeleteEntry, DeleteTag, EditTarget, SafeSession, StoredEntry, Tag, TagFields, UpdateAccount, UpdateEntry, UpdateTag } from "./personal.js";
 import { AUTO_LOCK_MINUTES, SAFE_FORMAT, authenticateManifest, corruptStore, SafeStore, wrappingContext, type CurrentSafe, type EntryPrecondition, type Keyring, type LoadedSafe, type SafeFiles } from "./store.js";
 
 export interface SafeAccess {
@@ -27,6 +27,7 @@ export interface AuditEntry {
     | "change-password"
     | "create-entry"
     | "update-entry"
+    | "create-account"
     | "update-account"
     | "delete-account"
     | "delete-entry"
@@ -404,7 +405,7 @@ export class Safe {
     }
   }
 
-  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "update-account" | "delete-account"; itemId: string }, newTags?: TagFields[]) {
+  private editEntry(input: EditTarget, access: SafeAccess, update: (entry: StoredEntry, now: string) => StoredEntry, audit: { action: "update-entry" | "create-account" | "update-account" | "delete-account"; itemId: string }, newTags?: TagFields[]) {
     return this.withPersonalSession(input.session, access, async (store, dk, guard) => {
       const currentRevision = store.manifest.entries[input.entryId];
       if (currentRevision === undefined) throw errors.notFound("条目不存在");
@@ -426,6 +427,21 @@ export class Safe {
       input.newTags,
     );
     return { entryId, revision };
+  }
+
+  async createAccount(input: CreateAccount, access: SafeAccess) {
+    const { account, password, phone, email, note } = input;
+    const accountId = randomUUID();
+    const { entryId, revision } = await this.editEntry(
+      input,
+      access,
+      (entry, now) => ({
+        ...entry,
+        accounts: [...entry.accounts, { accountId, account, password, phone, email, note, createdAt: now, updatedAt: now }],
+      }),
+      { action: "create-account", itemId: accountId },
+    );
+    return { entryId, accountId, revision, hasPassword: password.length > 0 };
   }
 
   async updateAccount(input: UpdateAccount, access: SafeAccess) {

@@ -32,14 +32,35 @@
   .hu-safe-locked > span code {
     font-size: 12px;
   }
+  .safe-layout {
+    container: safe-workspace / inline-size;
+  }
   .safe-grid {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    gap: 22px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
   .safe-grid > .hu-card-alt {
+    display: none;
     min-width: 0;
     align-self: start;
+    margin: 0;
+  }
+  .safe-grid[data-view="entries"] > .safe-list,
+  .safe-grid[data-view="accounts"] > .safe-summary,
+  .safe-grid[data-view="detail"] > .hu-safe-detail {
+    display: block;
+  }
+  @container safe-workspace (min-width: 48rem) {
+    .safe-grid {
+      grid-template-columns: minmax(11rem, .85fr) minmax(13rem, 1fr) minmax(18rem, 1.25fr);
+    }
+    .safe-grid > .hu-card-alt {
+      display: block;
+    }
+    .safe-grid .safe-back {
+      display: none;
+    }
   }
   .safe-secret-row {
     display: flex;
@@ -63,7 +84,9 @@
     flex: none;
   }
   .safe-secret-row > span,
+  .safe-summary h2,
   .hu-safe-detail h2,
+  .safe-account-row,
   .safe-account-head h3 {
     min-inline-size: 0;
     overflow-wrap: anywhere;
@@ -72,6 +95,7 @@
     padding: 0 22px 22px;
   }
   .hu-safe-detail .shell-card-head,
+  .safe-summary .shell-card-head,
   .safe-account-head {
     display: flex;
     align-items: center;
@@ -79,16 +103,43 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  .hu-safe-detail .safe-back {
-    display: none;
+  .safe-panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .safe-account-list {
+    display: grid;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .safe-account-row {
+    display: grid;
+    gap: 3px;
+    inline-size: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    padding: 8px 10px;
+    text-align: start;
+  }
+  .safe-account-row small {
+    color: var(--muted);
+  }
+  .safe-account-row:hover,
+  .safe-account-row[aria-pressed="true"] {
+    background: var(--accent-soft);
+  }
+  .safe-account-row[aria-pressed="true"] {
+    border-color: var(--accent);
   }
   .safe-account-card {
     min-inline-size: 0;
     margin: 0;
     padding: 12px;
   }
-  .safe-account-card select,
-  .hu-safe-detail select {
+  .safe-account-card select {
     max-inline-size: 100%;
     min-inline-size: 0;
   }
@@ -216,6 +267,7 @@
     color: var(--faint);
     margin-top: 5px;
   }
+  .safe-summary h2,
   .hu-safe-detail h2 {
     font-size: 18px;
     margin-top: 12px;
@@ -228,23 +280,5 @@
     font-size: 12px;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
-  }
-  @media (max-width: 1250px) {
-    .safe-grid {
-      grid-template-columns: 230px minmax(0, 1fr);
-    }
-  }
-  @media (max-width: 760px) {
-    .safe-grid {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 10px;
-    }
-    .safe-grid[data-view="list"] .hu-safe-detail,
-    .safe-grid[data-view="detail"] .safe-list {
-      display: none;
-    }
-    .hu-safe-detail .safe-back {
-      display: inline-flex;
-    }
   }
 }

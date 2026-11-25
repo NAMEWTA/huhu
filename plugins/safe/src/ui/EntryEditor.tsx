@@ -12,15 +12,15 @@ type PasswordMode = UpdateAccount["password"]["kind"];
 type AccountDraft = Pick<Account, "account" | "phone" | "email" | "note"> & { password: string; passwordMode: PasswordMode; key: number };
 type Fields = { name: string; url: string; accounts: AccountDraft[]; tagIds: string[]; newTags: TagFields[] };
 type SaveFeedback = "failed" | "conflict" | "uncertain" | "verified" | "reload-failed";
-export type EditTarget = { kind: "create"; revision: number } | { kind: "entry"; entry: PersonalEntry } | { kind: "account"; entry: PersonalEntry; account: Account };
-export type SaveReceipt = z.output<typeof UpdateEntryReceipt>;
+export type EditTarget = { kind: "create"; revision: number } | { kind: "entry"; entry: PersonalEntry } | { kind: "add-account"; entry: PersonalEntry } | { kind: "account"; entry: PersonalEntry; account: Account };
+export type SaveReceipt = z.output<typeof UpdateEntryReceipt> & { accountId?: string };
 
 const blankAccount = (key: number): AccountDraft => ({ key, account: "", phone: "", email: "", note: "", password: "", passwordMode: "keep" });
 
 function fieldsFor(target: EditTarget): Fields {
   if (target.kind === "create") return { name: "", url: "", accounts: [blankAccount(0)], tagIds: [], newTags: [] };
   const { name, url, tagIds } = target.entry;
-  if (target.kind === "entry") return { name, url, tagIds, newTags: [], accounts: [] };
+  if (target.kind !== "account") return { name, url, tagIds, newTags: [], accounts: target.kind === "add-account" ? [blankAccount(0)] : [] };
   const { account, phone, email, note } = target.account;
   return { name, url, tagIds, newTags: [], accounts: [{ ...blankAccount(0), account, phone, email, note }] };
 }
@@ -49,6 +49,9 @@ async function write(engine: EngineClient, session: SafeSession, target: EditTar
     return engine.call<SaveReceipt>("safe.entries.update", input, options);
   }
   const account = fields.accounts[0]!;
+  if (target.kind === "add-account") {
+    return engine.call<SaveReceipt>("safe.accounts.create", { ...base, ...accountFields(account), password: account.password }, options);
+  }
   const password = account.passwordMode === "set" ? { kind: "set" as const, value: account.password } : { kind: account.passwordMode };
   const input: UpdateAccount = { ...base, accountId: target.account.accountId, ...accountFields(account), password };
   return engine.call<SaveReceipt>("safe.accounts.update", input, options);
@@ -78,7 +81,7 @@ export function EntryEditor({
   session: SafeSession;
   getSessionSignal(): AbortSignal | undefined;
   reload(signal: AbortSignal): Promise<{ revision: number; entries: PersonalEntry[]; tags: Tag[] }>;
-  onSaved(receipt: SaveReceipt, accountId?: string): void;
+  onSaved(receipt: SaveReceipt): void;
   onClose(): void;
   onLock(): void;
   onError(error: unknown): boolean;
@@ -102,7 +105,8 @@ export function EntryEditor({
   const status = useRef<HTMLParagraphElement>(null);
   const continueButton = useRef<HTMLButtonElement>(null);
   const focusNew = useRef<number | null>(null);
-  const title = base.kind === "create" ? "新建条目" : base.kind === "entry" ? "编辑条目" : "编辑账号";
+  const title = { create: "新建条目", entry: "编辑条目", "add-account": "新增账号", account: "编辑账号" }[base.kind];
+  const editsEntry = base.kind === "create" || base.kind === "entry";
 
   useLayoutEffect(() => {
     if (confirm) continueButton.current?.focus();
@@ -166,7 +170,7 @@ export function EntryEditor({
       const receipt = await write(engine, session, base, fields, signal);
       if (signal.aborted) return;
       root.current?.closest("dialog")?.close();
-      onSaved(receipt, base.kind === "account" ? base.account.accountId : undefined);
+      onSaved(receipt);
     } catch (error) {
       if (signal.aborted || onError(error)) return;
       if (error instanceof CapabilityError && error.code === "VERSION_CONFLICT") {
@@ -209,7 +213,8 @@ export function EntryEditor({
         const accountId = base.kind === "account" ? base.account.accountId : undefined;
         const account = entry.accounts.find((item) => item.accountId === accountId);
         if (accountId && !account) throw new Error("Missing account");
-        const next = account ? { kind: "account" as const, entry, account } : { kind: "entry" as const, entry };
+        const next = account ? { kind: "account" as const, entry, account }
+          : { kind: base.kind === "add-account" ? "add-account" as const : "entry" as const, entry };
         setBase(next);
         setFields(fieldsFor(next));
         setDirty(false);
@@ -269,13 +274,13 @@ export function EntryEditor({
             }}
           >
             <fieldset className="safe-editor-fields" disabled={busy !== null}>
-              {base.kind !== "account" ? (
+              {editsEntry ? (
                 <div className="safe-form-pair">
                   <FormField label="名称（必填）">{(id) => <input id={id} required pattern={String.raw`.*\S.*`} value={fields.name} onChange={(event) => update({ ...fields, name: event.target.value })} />}</FormField>
                   <FormField label="网址">{(id) => <input id={id} type="url" pattern="[Hh][Tt][Tt][Pp][Ss]?://.+" value={fields.url} onChange={(event) => update({ ...fields, url: event.target.value })} />}</FormField>
                 </div>
               ) : null}
-              {base.kind !== "account" ? (
+              {editsEntry ? (
                 <fieldset className="hu-card-alt safe-tag-editor">
                   <legend>标签</legend>
                   <div className="safe-tag-strip">
@@ -320,7 +325,7 @@ export function EntryEditor({
               {fields.accounts.map((account, index) => (
                 <fieldset className="hu-card-alt hu-stack safe-account-card" key={account.key} data-account-key={account.key}>
                   <legend>{base.kind === "create" ? `账号 ${index + 1}` : "账号信息"}</legend>
-                  <AccountFields draft={account} creating={base.kind === "create"} onChange={(next) => update({ ...fields, accounts: fields.accounts.map((item) => (item.key === next.key ? next : item)) })} />
+                  <AccountFields draft={account} creating={base.kind !== "account"} onChange={(next) => update({ ...fields, accounts: fields.accounts.map((item) => (item.key === next.key ? next : item)) })} />
                   {base.kind === "create" && fields.accounts.length > 1 ? (
                     <Button
                       variant="ghost"

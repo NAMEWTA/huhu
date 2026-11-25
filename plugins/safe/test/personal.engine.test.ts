@@ -19,7 +19,7 @@ const engines: RunningEngine[] = [];
 
 class SafeTestClient extends EngineClient {
   override call<T>(capability: string, input?: unknown, opts: CallOptions = {}) {
-    const write = /^safe\.(entries\.(create|update|delete)|accounts\.(update|delete)|tags\.(create|update|delete))$/.test(capability);
+    const write = /^safe\.(entries\.(create|update|delete)|accounts\.(create|update|delete)|tags\.(create|update|delete))$/.test(capability);
     return super.call<T>(capability, input, { write, ...opts });
   }
 }
@@ -79,6 +79,31 @@ function blockManifestPublish(engine: RunningEngine, publicationsReady = () => t
   });
   return { mock, intercepted: () => intercepted };
 }
+
+test("向已有条目新增账号按会话和修订写入一次，摘要不含密码", async () => {
+  const { client } = await openEngine();
+  const data = fixture();
+  await client.call("safe.setup", { password: data.password });
+  const scope = await session(client);
+  const initial = await client.call<Receipt>("safe.entries.create", { session: scope, expectedRevision: 0, name: data.name, accounts: data.accounts.slice(0, 1) });
+  const request = { session: scope, entryId: initial.entryId, expectedRevision: initial.revision, ...data.accounts[2]! };
+  const writes = await Promise.allSettled([
+    client.call<UpdatedAccount>("safe.accounts.create", request),
+    client.call<UpdatedAccount>("safe.accounts.create", request),
+  ]);
+  const saved = writes.find((write) => write.status === "fulfilled");
+  const rejected = writes.find((write) => write.status === "rejected");
+  expect(saved?.value).toMatchObject({ entryId: initial.entryId, accountId: expect.any(String), hasPassword: true });
+  expect(rejected?.reason).toMatchObject({ code: "VERSION_CONFLICT" });
+  const { accountId, revision } = saved!.value;
+  const target = { session: scope, entryId: initial.entryId };
+  const summary = await client.call<Detail>("safe.entries.get", target);
+  expect(summary.accounts.map((account) => account.accountId)).toEqual([...initial.accountIds, accountId]);
+  expect(summary.accounts.every((account) => !Object.hasOwn(account, "password"))).toBe(true);
+  expect(await client.call("safe.accounts.reveal", { ...target, accountId })).toEqual({ password: request.password });
+  await client.call("safe.lock", { session: scope });
+  await expect(client.call("safe.accounts.create", { ...request, expectedRevision: revision })).rejects.toMatchObject({ code: "SAFE_LOCKED" });
+});
 
 test("删除按条目、账号 ID 和修订生效，保留另一条目和共享标签", async () => {
   const { engine, client, root, current } = await openEngine();

@@ -1,7 +1,9 @@
 import { chromium, expect, test, type Browser, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
@@ -301,6 +303,208 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await page.getByRole("dialog", { name: "放弃未保存的更改？" }).getByRole("button", { name: "放弃更改" }).click();
     await expect(rule).toBeHidden();
     await expect(ruleNew).toBeFocused();
+  });
+});
+
+test("UX15 同步表单按容器重排，保存后从原计划继续管理", async ({ browserName }, info) => {
+  void browserName;
+  const fixture = mkdtempSync(path.join(tmpdir(), "huhu-ux15-"));
+  try {
+    const repository = path.join(fixture, `remote-${"long-repository-path-".repeat(5)}sync.git`);
+    execFileSync("git", ["init", "--bare", repository]);
+    const remote = pathToFileURL(repository).href;
+    await runOnHosts(info, async (page, name) => {
+      const mode = name === "electron" ? "full" : "follow";
+      const branch = `ux15/${name}`;
+      const rules = ["私有草稿/**", "scratch/**/*.tmp", "generated/"];
+      const rail = page.locator('[data-region="rail"]');
+      const settings = page.getByTestId("sync-settings");
+      const grid = settings.locator(".hu-sync-settings-grid");
+      const save = settings.getByTestId("sync-save");
+      const openSettings = async () => {
+        await rail.getByRole("button", { name: "设置", exact: true }).click();
+        await page.getByTestId("settings-nav-versioning").click();
+        await expect(settings).toBeVisible();
+      };
+      const columns = () => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+      await page.setViewportSize({ width: 1600, height: 930 });
+      await openSettings();
+      await expect.poll(columns).toBe(2);
+      await page.setViewportSize({ width: 480, height: 800 });
+      await expect.poll(columns).toBe(1);
+      await settings.getByTestId("sync-remote").fill(remote);
+      await settings.getByTestId("sync-branch").fill(branch);
+      await settings.getByTestId(`sync-mode-${mode}`).click();
+      await settings.getByTestId("sync-pull-sec").fill("3600");
+      if (mode === "full") await settings.getByTestId("sync-push-sec").fill("3600");
+      await settings.getByTestId("sync-exclude").fill(rules.join("\n"));
+      await expect.poll(() => settings.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      const button = await save.boundingBox();
+      expect(button?.height).toBeLessThan(60);
+      await save.click();
+      await expect(settings.getByTestId("sync-message")).toHaveText("已保存");
+      const persisted = await call<{ remote: string; branch: string; mode: string; exclude: string[]; periodics: { pull: { planId: string }; sync: { planId: string } } }>(page, "sync.get", {});
+      expect(persisted).toMatchObject({ remote, branch, mode, exclude: rules });
+      const plan = mode === "full" ? persisted.periodics.sync : persisted.periodics.pull;
+      await settings.getByRole("button", { name: mode === "full" ? "管理 Git 同步计划" : "管理 Git 拉取计划" }).click();
+      await expect(page.getByTestId("plan-directory")).toBeVisible();
+      await expect.poll(() => new URL(page.url()).searchParams.get("automation-plan")).toBe(plan.planId);
+      await page.setViewportSize({ width: 1600, height: 930 });
+      await openSettings();
+      await expect(settings.getByTestId("sync-remote")).toHaveValue(remote);
+      await expect(settings.getByTestId("sync-branch")).toHaveValue(branch);
+      await expect(settings.getByTestId("sync-exclude")).toHaveValue(rules.join("\n"));
+      await expect(settings.getByTestId(`sync-mode-${mode}`)).toBeChecked();
+      await expect(save).toBeDisabled();
+    });
+  } finally {
+    rmTree(fixture);
+  }
+});
+
+test("UX16 Safe 三栏按账号取用明文，窄窗逐级返回并清理", async ({ browserName }, info) => {
+  void browserName;
+  const password = "UX16 synthetic fixture master";
+  const accountSecret = "UX16 synthetic second password";
+  type Session = { instanceId: string; generation: number; locked: boolean };
+  await runOnHosts(info, async (page, name) => {
+    if (name === "electron") {
+      const initial = await call<Session>(page, "safe.status", {});
+      await call(page, "safe.setup", { password, session: { instanceId: initial.instanceId, generation: initial.generation } });
+      const status = await call<Session>(page, "safe.status", {});
+      const session = { instanceId: status.instanceId, generation: status.generation };
+      const first = await call<{ revision: number }>(page, "safe.entries.create", {
+        session, expectedRevision: 0, name: "UX16 三账号站点", url: "https://three.example.test",
+        accounts: [
+          { account: "账号甲", password: "UX16 synthetic first password" },
+          { account: "账号乙", password: accountSecret, email: "ux16-second@example.test" },
+          { account: "账号丙", password: "UX16 synthetic third password" },
+        ],
+      });
+      await call(page, "safe.entries.create", { session, expectedRevision: first.revision, name: "UX16 另一个站点", accounts: [{ account: "另一个站点的账号" }] });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator('[data-region="rail"]').getByRole("button", { name: "保险箱", exact: true }).click();
+    if ((await call<Session>(page, "safe.status", {})).locked) {
+      await page.getByLabel("主密码", { exact: true }).fill(password);
+      await page.getByRole("button", { name: "解锁保险箱" }).click();
+    }
+    const grid = page.getByTestId("safe-unlocked");
+    const entry = grid.getByTestId("safe-item").filter({ hasText: "UX16 三账号站点" });
+    const summary = grid.getByTestId("safe-accounts");
+    const accountRows = summary.getByTestId("safe-account-row");
+    const second = accountRows.filter({ hasText: "账号乙" });
+    const detail = grid.getByTestId("safe-account-detail");
+    const secret = detail.getByTestId("secret-value");
+    const reveals: string[] = [];
+    page.on("request", (request) => {
+      if (!request.url().endsWith("/api/v1/call") || request.method() !== "POST") return;
+      const body = request.postDataJSON();
+      if (body?.capability === "safe.accounts.reveal") reveals.push(body.input.accountId);
+    });
+    await entry.click();
+    await expect.poll(() => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+    await expect(accountRows).toHaveCount(3);
+    await expect(entry).toBeVisible();
+    await expect(summary).toBeVisible();
+    await expect(detail).toBeVisible();
+    await second.press("Enter");
+    await expect(detail.getByRole("heading", { name: "账号乙", exact: true })).toBeFocused();
+    await expect(detail).toContainText("ux16-second@example.test");
+    await expect(secret).toHaveText("••••••••");
+    expect(reveals).toEqual([]);
+    await detail.getByRole("button", { name: "显示密码", exact: true }).click();
+    await expect(secret).toHaveText(accountSecret);
+    expect(reveals).toEqual([await second.getAttribute("data-account-id")]);
+
+    await page.setViewportSize({ width: 490, height: 830 });
+    await expect(summary).toBeHidden();
+    await detail.getByRole("button", { name: "返回账号" }).click();
+    await expect(second).toBeFocused();
+    await expect(detail).toBeHidden();
+    await expect(secret).toHaveText("••••••••");
+    await summary.getByRole("button", { name: "返回条目" }).click();
+    await expect(entry).toBeFocused();
+    await entry.click();
+    await expect(second).toHaveAttribute("aria-pressed", "true");
+    const addedName = `UX16 新增账号 ${name}`;
+    await summary.getByRole("button", { name: "新增账号", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "新增账号" });
+    await editor.getByLabel("账号（必填）").fill(addedName);
+    await editor.getByLabel("密码", { exact: true }).fill("UX16 synthetic new password");
+    await editor.getByTestId("safe-save").click();
+    await expect(detail.getByRole("heading", { name: addedName, exact: true })).toBeFocused();
+    await expect(secret).toHaveText("••••••••");
+    expect(reveals).toHaveLength(1);
+    await detail.getByRole("button", { name: "删除账号", exact: true }).click();
+    await page.getByTestId("safe-remove-confirmation").getByRole("button", { name: "确认删除账号" }).click();
+    await expect(accountRows).toHaveCount(3);
+    await summary.getByRole("button", { name: "返回条目" }).click();
+    await grid.getByTestId("safe-item").filter({ hasText: "UX16 另一个站点" }).click();
+    await accountRows.filter({ hasText: "另一个站点的账号" }).click();
+    await expect(detail.getByRole("heading", { name: "另一个站点的账号" })).toBeVisible();
+    await expect(secret).toHaveText("未设置");
+    await page.getByRole("button", { name: "手动锁定" }).click();
+    await expect(page.getByTestId("safe-locked")).toBeVisible();
+    await expect(secret).toHaveCount(0);
+  });
+});
+
+test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", async ({ browserName }, info) => {
+  void browserName;
+  await runOnHosts(info, async (page, name) => {
+    const openAppearance = async () => {
+      await page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true }).click();
+      await page.getByTestId("settings-nav-appearance").click();
+      await expect(page.getByTestId("settings-appearance")).toBeVisible();
+    };
+    const appearance = page.getByTestId("settings-appearance");
+    const grid = appearance.getByRole("group", { name: "主题", exact: true });
+    const root = page.locator("html");
+    const metrics = () => grid.evaluate((element) => {
+      const scroll = element.closest<HTMLElement>(".shell-settings-content")!;
+      const options = [...element.querySelectorAll("button")].map((card) => card.getBoundingClientRect());
+      const bounds = scroll.getBoundingClientRect();
+      return {
+        columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        scrollFillsWidth: Math.abs(bounds.width - scroll.parentElement!.clientWidth) <= 1,
+        pageFits: scroll.scrollWidth <= scroll.clientWidth + 1,
+        viewport: [window.innerWidth, window.innerHeight],
+        width: element.clientWidth,
+        lastColumnFillsGrid: Math.abs(options.at(-1)!.right - element.getBoundingClientRect().right) <= 1,
+        fontSize: getComputedStyle(document.documentElement).getPropertyValue("--font-size"),
+      };
+    });
+    await page.setViewportSize({ width: 1920, height: 940 });
+    await openAppearance();
+    await expect(grid.getByRole("button")).toHaveCount(4);
+    await expect.poll(metrics).toMatchObject({ columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
+    const firstWide = await metrics();
+    await page.setViewportSize({ width: 1200, height: 850 });
+    await expect.poll(metrics).toMatchObject({ columns: 2, pageFits: true, lastColumnFillsGrid: true });
+    await page.setViewportSize({ width: 490, height: 830 });
+    await expect.poll(metrics).toMatchObject({ columns: 1, pageFits: true });
+    const theme = name === "electron" ? "vercel" : "notion";
+    const mode = name === "electron" ? "dark" : "light";
+    await appearance.getByTestId(`theme-${theme}`).click();
+    await expect(root).toHaveAttribute("data-theme", theme);
+    await appearance.getByRole("tab", { name: mode === "dark" ? "深色" : "浅色", exact: true }).click();
+    await expect(root).toHaveAttribute("data-mode", mode);
+    const font = appearance.getByRole("slider", { name: "界面字号", exact: true });
+    await font.press("Home");
+    await expect.poll(metrics).toMatchObject({ fontSize: "12px" });
+    await font.press("End");
+    await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 1, pageFits: true });
+    const narrow = await metrics();
+    expect(await call(page, "settings.get", {})).toMatchObject({ appearance: { theme, mode, fontSize: 18 } });
+    await page.setViewportSize({ width: 1920, height: 940 });
+    await page.reload();
+    await openAppearance();
+    await expect(root).toHaveAttribute("data-theme", theme);
+    await expect(root).toHaveAttribute("data-mode", mode);
+    await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
+    await info.attach(`${name}-appearance-reflow`, { body: JSON.stringify({ firstWide, narrow, reopened: await metrics(), theme, mode }), contentType: "application/json" });
   });
 });
 

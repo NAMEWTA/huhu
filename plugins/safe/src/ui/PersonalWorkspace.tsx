@@ -2,7 +2,7 @@ import { EVENT_PAYLOADS } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, SearchBox } from "@huhu/ui";
 import { CapabilityError, host, useEngine, useEngineEvents, type EngineClient } from "@huhu/workbench";
 import { ArrowLeft, ChevronRight, Copy, Eye, EyeOff, KeyRound, Plus } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { EntryDetail, EntryIndex, SafeSession, Tag, TagList } from "../engine/personal.js";
 import { EntryEditor, type EditTarget, type SaveReceipt } from "./EntryEditor.js";
@@ -11,8 +11,9 @@ import { TagBadge, TagManager } from "./SafeTags.js";
 export type PersonalEntry = z.output<typeof EntryDetail>;
 type Catalog = { revision: number; entries: PersonalEntry[]; tags: Tag[] };
 type Selection = { entryId: string; accountId?: string };
-type RemoveTarget = Exclude<EditTarget, { kind: "create" }>;
+type RemoveTarget = Extract<EditTarget, { kind: "entry" | "account" }>;
 type TagFilter = string[] | null;
+type Pane = "entries" | "accounts" | "detail";
 
 function matchesTags(entry: PersonalEntry, filter: TagFilter): boolean {
   return filter === null ? entry.tagIds.length === 0 : filter.every((id) => entry.tagIds.includes(id));
@@ -59,16 +60,18 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   const [tagFilter, setTagFilter] = useState<TagFilter>([]);
   const [managingTags, setManagingTags] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const [pane, setPane] = useState<Pane>("entries");
   const [editor, setEditor] = useState<EditTarget | null>(null);
   const [removal, setRemoval] = useState<RemoveTarget | null>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const search = useRef<HTMLDivElement>(null);
-  const heading = useRef<HTMLHeadingElement>(null);
+  const entryHeading = useRef<HTMLHeadingElement>(null);
+  const accountHeading = useRef<HTMLHeadingElement>(null);
+  const selectedAccount = useRef<HTMLButtonElement>(null);
   const returnTo = useRef<string | null>(null);
-  const focusDetail = useRef(false);
-  const accountSelectId = useId();
+  const focusWithin = useRef<"entry-heading" | "account-heading" | "account-row" | null>(null);
 
   function endSession() {
     lifetime.current?.abort();
@@ -119,6 +122,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     setTagFilter([]);
     setManagingTags(false);
     setSelection(null);
+    setPane("entries");
     setEditor(null);
     setRemoval(null);
     setRemoving(false);
@@ -134,6 +138,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
 
   const entry = catalog?.entries.find((item) => item.entryId === selection?.entryId && matchesTags(item, tagFilter));
   const account = entry?.accounts.find((item) => item.accountId === selection?.accountId) ?? entry?.accounts[0];
+  const view = entry ? pane : "entries";
   const tags = catalog?.tags ?? [];
   const tagsById = new Map(tags.map((tag) => [tag.tagId, tag]));
   const tagCounts = new Map<string, number>();
@@ -142,16 +147,18 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   }
 
   useLayoutEffect(() => {
-    if (focusDetail.current && entry) {
-      focusDetail.current = false;
-      heading.current?.focus();
+    if (focusWithin.current && entry) {
+      const target = focusWithin.current === "entry-heading" ? entryHeading.current
+        : focusWithin.current === "account-heading" ? accountHeading.current : selectedAccount.current;
+      focusWithin.current = null;
+      target?.focus();
     }
     if (returnTo.current !== null) {
       const row = rows.current.get(returnTo.current);
       returnTo.current = null;
       (row ?? search.current?.querySelector("input"))?.focus();
     }
-  }, [selection, entry]);
+  }, [selection, entry, view]);
 
   const term = query.trim().toLowerCase();
   const matches = (value: string) => value.toLowerCase().includes(term);
@@ -164,7 +171,10 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   });
 
   function filterTags(filter: TagFilter) {
-    if (entry && !matchesTags(entry, filter)) setSelection(null);
+    if (entry && !matchesTags(entry, filter)) {
+      setSelection(null);
+      setPane("entries");
+    }
     setTagFilter(filter);
   }
 
@@ -175,9 +185,10 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     });
   }
 
-  function select(next: Selection) {
-    focusDetail.current = true;
+  function select(next: Selection, nextPane: "accounts" | "detail") {
+    focusWithin.current = nextPane === "accounts" ? "entry-heading" : "account-heading";
     setSelection(next);
+    setPane(nextPane);
   }
 
   function openEditor(target: EditTarget) {
@@ -185,7 +196,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     setEditor(target);
   }
 
-  function finishSave(receipt: SaveReceipt, accountId?: string) {
+  function finishSave(receipt: SaveReceipt) {
     const signal = lifetime.current?.signal;
     if (!signal || signal.aborted) return;
     setEditor(null);
@@ -193,7 +204,10 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
     setQuery("");
     setTagFilter([]);
     setCatalog(null);
-    select({ entryId: receipt.entryId, ...(accountId ? { accountId } : {}) });
+    const sameEntry = entry?.entryId === receipt.entryId;
+    const accountId = receipt.accountId ?? (sameEntry ? account?.accountId : undefined);
+    const nextPane = receipt.accountId || (sameEntry && pane === "detail") ? "detail" : "accounts";
+    select({ entryId: receipt.entryId, ...(accountId ? { accountId } : {}) }, nextPane);
     load(signal);
   }
 
@@ -220,8 +234,9 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
       if (removal.kind === "entry") {
         returnTo.current = target.entryId;
         setSelection(null);
+        setPane("entries");
       } else {
-        select({ entryId: target.entryId });
+        select({ entryId: target.entryId }, "accounts");
       }
       setCatalog(null);
       setRemoval(null);
@@ -240,14 +255,14 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
   const lastAccount = removal?.kind === "account" && removal.entry.accounts.length === 1;
 
   return (
-    <>
+    <div className="safe-layout">
       <div className="safe-workspace-actions">
         <Button disabled={!catalog} onClick={() => setManagingTags(true)}>
           标签管理
         </Button>
         <div role="status">{saved ? "已保存到保险箱" : null}</div>
       </div>
-      <div className="safe-grid" data-view={entry ? "detail" : "list"} data-testid="safe-unlocked">
+      <div className="safe-grid" data-view={view} data-testid="safe-unlocked">
         <section className="hu-card-alt safe-list">
           <div className="shell-card-head">
             <h2>
@@ -306,7 +321,10 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
               className={`safe-secret-row ${item.entryId === entry?.entryId ? "active" : ""}`}
               aria-current={item.entryId === entry?.entryId || undefined}
               data-testid="safe-item"
-              onClick={() => select({ entryId: item.entryId, ...(hit ? { accountId: hit.accountId } : {}) })}
+              onClick={() => {
+                const accountId = hit?.accountId ?? (selection?.entryId === item.entryId ? selection.accountId : undefined);
+                select({ entryId: item.entryId, ...(accountId ? { accountId } : {}) }, hit ? "detail" : "accounts");
+              }}
             >
               <KeyRound size={18} aria-hidden />
               <span className="hu-flex-fill">
@@ -325,8 +343,8 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
             </button>
           ))}
         </section>
-        <section className="hu-card-alt hu-safe-detail">
-          {entry && account ? (
+        <section className="hu-card-alt safe-summary" aria-label="条目和账号" data-testid="safe-accounts">
+          {entry ? (
             <>
               <div className="shell-card-head">
                 <Button
@@ -335,15 +353,15 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
                   icon={ArrowLeft}
                   onClick={() => {
                     returnTo.current = entry.entryId;
-                    setSelection(null);
+                    setPane("entries");
                   }}
                 >
                   返回条目
                 </Button>
-                <h2 ref={heading} tabIndex={-1}>
+                <h2 ref={entryHeading} tabIndex={-1}>
                   {entry.name}
                 </h2>
-                <div className="row">
+                <div className="safe-panel-actions">
                   <Button onClick={() => openEditor({ kind: "entry", entry })}>编辑条目</Button>
                   <Button variant="ghost" onClick={() => confirmRemove({ kind: "entry", entry })}>
                     删除条目
@@ -353,52 +371,64 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
               <div className="hu-stack hu-safe-detail-body">
                 <div className="safe-read-value">{entry.url || "未填网址"}</div>
                 {entry.tagIds.length ? <div className="safe-tag-strip">{renderTags(entry)}</div> : null}
-                <div className="hu-field">
-                  <label className="hu-field-label" htmlFor={accountSelectId}>
-                    账号
-                  </label>
-                  <select id={accountSelectId} value={account.accountId} onChange={(event) => setSelection({ entryId: entry.entryId, accountId: event.target.value })}>
-                    {entry.accounts.map((item, index) => (
-                      <option key={item.accountId} value={item.accountId}>
-                        {index + 1}. {item.account}
-                      </option>
-                    ))}
-                  </select>
+                <div className="safe-account-head">
+                  <h3>账号 <Badge>{entry.accounts.length}</Badge></h3>
+                  <Button icon={Plus} onClick={() => openEditor({ kind: "add-account", entry })}>新增账号</Button>
                 </div>
-                <div className="hu-card-alt hu-stack safe-account-card">
-                  <div className="safe-account-head">
-                    <h3>{account.account}</h3>
-                    <div className="row">
-                      <Button onClick={() => openEditor({ kind: "account", entry, account })}>编辑账号</Button>
-                      <Button variant="ghost" onClick={() => confirmRemove({ kind: "account", entry, account })}>
-                        删除账号
-                      </Button>
-                    </div>
-                  </div>
-                  <Field label="手机号">
-                    <div className="safe-read-value">{account.phone || "未设置"}</div>
-                  </Field>
-                  <Field label="邮箱">
-                    <div className="safe-read-value">{account.email || "未设置"}</div>
-                  </Field>
-                  <Field label="备注">
-                    <div className="safe-read-value">{account.note || "未填写"}</div>
-                  </Field>
-                  <Field label="密码">
-                    <PasswordValue
-                      key={`${entry.entryId}:${account.accountId}:${editor !== null || managingTags || removal !== null}`}
-                      hasPassword={account.hasPassword}
-                      getSessionSignal={() => lifetime.current?.signal}
-                      onSessionEnded={endSession}
-                      request={(signal) => engine.call("safe.accounts.reveal", { session, entryId: entry.entryId, accountId: account.accountId }, { signal })}
-                    />
-                  </Field>
-                </div>
+                <ul className="safe-account-list" aria-label="账号列表">
+                  {entry.accounts.map((item, index) => (
+                    <li key={item.accountId}>
+                      <button
+                        type="button"
+                        className="safe-account-row"
+                        ref={item.accountId === account?.accountId ? selectedAccount : undefined}
+                        aria-pressed={item.accountId === account?.accountId}
+                        data-testid="safe-account-row"
+                        data-account-id={item.accountId}
+                        onClick={() => select({ entryId: entry.entryId, accountId: item.accountId }, "detail")}
+                      >
+                        <strong>{index + 1}. {item.account}</strong>
+                        <small>{item.hasPassword ? "密码 · ••••••••" : "未设置密码"}</small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </>
           ) : (
             <EmptyState icon={KeyRound} title="选择一个条目查看账号" />
           )}
+        </section>
+        <section className="hu-card-alt hu-safe-detail" aria-label="账号详情" data-testid="safe-account-detail">
+          {entry && account ? (
+            <>
+              <div className="shell-card-head">
+                <Button className="safe-back" variant="ghost" icon={ArrowLeft} onClick={() => {
+                  focusWithin.current = "account-row";
+                  setPane("accounts");
+                }}>返回账号</Button>
+                <h2 ref={accountHeading} tabIndex={-1}>{account.account}</h2>
+                <div className="safe-panel-actions">
+                  <Button onClick={() => openEditor({ kind: "account", entry, account })}>编辑账号</Button>
+                  <Button variant="ghost" onClick={() => confirmRemove({ kind: "account", entry, account })}>删除账号</Button>
+                </div>
+              </div>
+              <div className="hu-stack hu-safe-detail-body">
+                <Field label="密码">
+                  <PasswordValue
+                    key={`${entry.entryId}:${account.accountId}:${view}:${editor !== null || managingTags || removal !== null}`}
+                    hasPassword={account.hasPassword}
+                    getSessionSignal={() => lifetime.current?.signal}
+                    onSessionEnded={endSession}
+                    request={(signal) => engine.call("safe.accounts.reveal", { session, entryId: entry.entryId, accountId: account.accountId }, { signal })}
+                  />
+                </Field>
+                <Field label="手机号"><div className="safe-read-value">{account.phone || "未设置"}</div></Field>
+                <Field label="邮箱"><div className="safe-read-value">{account.email || "未设置"}</div></Field>
+                <Field label="备注"><div className="safe-read-value">{account.note || "未填写"}</div></Field>
+              </div>
+            </>
+          ) : <EmptyState icon={KeyRound} title="选择一个账号查看详情" />}
         </section>
       </div>
       {managingTags && catalog ? (
@@ -445,7 +475,7 @@ export function PersonalWorkspace({ instanceId, generation, onSessionEnded, onLo
           )}
         </Dialog>
       ) : null}
-    </>
+    </div>
   );
 }
 

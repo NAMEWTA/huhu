@@ -45,7 +45,7 @@ export function AppearancePage() {
   }, []);
   const mode = resolveMode(a.mode, dark);
   return (
-    <div data-testid="settings-appearance">
+    <div className="shell-appearance" data-testid="settings-appearance">
       <section className="hu-settings-section hu-card-alt">
         <h2>主题与色彩</h2>
         <p>四套主题都有浅色和深色，统一列表、编辑器、日历和弹层的色彩、字体与形状。</p>
