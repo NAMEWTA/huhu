@@ -1,5 +1,5 @@
 import { Button } from "@huhu/ui";
-import { useId, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { ConnectionStatus } from "../shared/trust.js";
 import type { SplitTree, WorkspaceLayout, WorkspaceRunPane } from "../shared/workspace.js";
 import { groupWorkspaceTabs } from "./workspace-tab-groups.js";
@@ -92,6 +92,7 @@ export function WorkspaceCanvas({
   const refocus = useRef<{ id: string; order: string } | undefined>(undefined);
   const focusedTab = useRef<HTMLButtonElement | undefined>(undefined);
   const tabPrefix = useId();
+  const tabbed = layout.kind === "tabs" && !maximized;
   const order = panes.map((pane) => pane.paneId).join(",");
   const tabGroups = tabs === "left" && groupVerticalTabs ? groupWorkspaceTabs(panes, connections) : panes.map((pane) => ({ key: pane.paneId, label: undefined, panes: [pane] }));
   const tabOrder = tabGroups.flatMap((group) => group.panes.map(({ paneId }) => paneId)).join(",");
@@ -118,6 +119,19 @@ export function WorkspaceCanvas({
     next.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
+  function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    const previous = tabs === "left" ? "ArrowUp" : "ArrowLeft";
+    const next = tabs === "left" ? "ArrowDown" : "ArrowRight";
+    if (![previous, next, "Home", "End"].includes(event.key)) return;
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    const current = buttons.findIndex((button) => button === event.target);
+    if (current < 0) return;
+    const index = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === next ? 1 : -1) + buttons.length) % buttons.length;
+    event.preventDefault();
+    buttons[index]?.focus();
+  }
+
   return (
     <>
       {layout.kind !== "tabs" && !maximized && panes.length > 1 && (
@@ -129,12 +143,14 @@ export function WorkspaceCanvas({
           ))}
         </div>
       )}
-      <div className={layout.kind === "tabs" && !maximized ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
-        {layout.kind === "tabs" && !maximized && (
+      <div className={tabbed ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
+        {tabbed && (
           <div
             className="ssh-workspace-tabstrip"
-            role="group"
+            role="tablist"
             aria-label="内部标签"
+            aria-orientation={tabs === "left" ? "vertical" : "horizontal"}
+            onKeyDown={navigateTabs}
             onFocusCapture={(event) => {
               if (event.target instanceof HTMLButtonElement) focusedTab.current = event.target;
             }}
@@ -146,12 +162,16 @@ export function WorkspaceCanvas({
               const heading = group.label && group.panes.length > 1 ? `${tabPrefix}-${group.panes[0]!.paneId}` : undefined;
               return [
                 heading && (
-                  <span key={group.key} id={heading} className="ssh-workspace-tab-group" data-testid="ssh-workspace-tab-group">
+                  <span key={group.key} id={heading} aria-hidden="true" className="ssh-workspace-tab-group" data-testid="ssh-workspace-tab-group">
                     {group.label}
                   </span>
                 ),
                 ...group.panes.map((pane) => (
-                  <button type="button" key={pane.paneId} aria-pressed={pane.paneId === active} aria-describedby={heading} data-grouped={Boolean(heading)} onClick={() => onActive(pane.paneId)}>
+                  <button type="button" role="tab" id={`${tabPrefix}-tab-${pane.paneId}`} key={pane.paneId}
+                    aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}
+                    data-grouped={Boolean(heading)}
+                    onFocus={() => onActive(pane.paneId)} onClick={() => onActive(pane.paneId)}
+                  >
                     {pane.label}
                   </button>
                 )),
@@ -168,11 +188,13 @@ export function WorkspaceCanvas({
               <div
                 key={pane.paneId}
                 className="ssh-workspace-spot"
+                role={tabbed ? "tabpanel" : undefined}
+                aria-labelledby={tabbed ? `${tabPrefix}-tab-${pane.paneId}` : undefined}
                 data-workspace-spot={pane.paneId}
                 data-active={pane.paneId === active}
                 style={style}
                 hidden={!visible}
-                tabIndex={-1}
+                tabIndex={tabbed && visible && (pane.phase === "failed" || pane.phase === "ended" || pane.phase === "connecting" || pane.phase === "reconnect") ? 0 : -1}
                 onFocusCapture={(event) => {
                   if (!(event.target instanceof HTMLElement) || !event.target.closest("[data-pane-layout-control]")) onActive(pane.paneId);
                 }}

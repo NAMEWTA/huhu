@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import ssh2 from "ssh2";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { Vault } from "../../../packages/vault/src/index.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
 import { ConfigureHost } from "../src/engine/auth-profile.js";
@@ -12,6 +12,7 @@ import { HostConfigurations } from "../src/engine/host-configurations.js";
 import { HostStore } from "../src/engine/hosts.js";
 import { KnownHosts } from "../src/engine/known-hosts.js";
 import { SshManager } from "../src/engine/manager.js";
+import { appendPane, MAX_WORKSPACE_PANES, paneCount, removePaneAt, WorkspaceLayout, type SplitTree } from "../src/shared/workspace.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
@@ -227,6 +228,17 @@ test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", 
   expect(manager.isConnected(hostId)).toBe(true);
 });
 
+test("自定义模板增减主机保留其他分割，十二个分栏仍可保存", () => {
+  const leaf = { kind: "pane" } as const;
+  const original = { kind: "split", axis: "column", firstPercent: 69, first: leaf, second: leaf } as const;
+  let tree: SplitTree = original;
+  for (let count = 2; count < MAX_WORKSPACE_PANES; count++) tree = appendPane(tree);
+  expect(paneCount(tree)).toBe(MAX_WORKSPACE_PANES);
+  expect(WorkspaceLayout.parse({ kind: "custom", tree })).toMatchObject({ kind: "custom", tree: { axis: "column", firstPercent: 69, first: leaf } });
+  for (let index = MAX_WORKSPACE_PANES - 1; index >= 2; index--) tree = removePaneAt(tree, index)!;
+  expect(tree).toEqual(original);
+});
+
 test("工作区交换和关闭分栏保留原 Shell，拒绝过时或非法布局", async () => {
   const { WorkspaceRuns } = await import("../src/engine/workspace-runs.js");
   const { WorkspaceTemplates } = await import("../src/engine/workspace-templates.js");
@@ -234,9 +246,11 @@ test("工作区交换和关闭分栏保留原 Shell，拒绝过时或非法布�
   const signal = new AbortController().signal;
   const credentials = [{ action: "replace" as const, purpose: "password" as const, value: "pw" }];
   const hostIds: string[] = [];
+  const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
   for (const name of ["first", "second", "third"]) {
     const hostKey = genHostKey();
     const server = await startFakeSsh({ hostKey });
+    servers.push(server);
     cleanups.push(server.close);
     await remember(server.port, hostKey);
     hostIds.push((await hosts.configure({ ...configuration(server.port), name, credentials }, signal)).hostId);
@@ -244,7 +258,16 @@ test("工作区交换和关闭分栏保留原 Shell，拒绝过时或非法布�
   const templates = new WorkspaceTemplates(vault.files, hosts);
   const runs = new WorkspaceRuns(vault.files, hosts, templates, manager, () => undefined);
   cleanups.push(() => runs.dispose());
-  const opened = await runs.start({ name: "fixture", panes: hostIds.map((hostId) => ({ hostId })), layout: { kind: "three" } }, signal);
+  const draft = { name: "fixture", panes: hostIds.map((hostId) => ({ hostId })), layout: { kind: "three" } } as const;
+  const write = vi.spyOn(vault.files, "write").mockRejectedValueOnce(new Error("fixture binding write failure"));
+  try {
+    await expect(runs.start(draft, signal)).rejects.toThrow("fixture binding write failure");
+    expect(runs.list()).toEqual([]);
+    expect(servers.map(({ conns }) => conns.length)).toEqual([0, 0, 0]);
+  } finally {
+    write.mockRestore();
+  }
+  const opened = await runs.start(draft, signal);
   await expect.poll(() => runs.list()[0]?.panes.map(({ phase }) => phase)).toEqual(["ready", "ready", "ready"]);
   const [a, b, c] = runs.list()[0]!.panes;
   const binding = { id: opened.id, expectedLayoutRevision: opened.id };

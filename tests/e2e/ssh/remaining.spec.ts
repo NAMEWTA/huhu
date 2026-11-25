@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ManagedHost } from "../../../plugins/ssh/src/ui/host-record.js";
@@ -7,7 +7,7 @@ import type { ConnectionStatus } from "../../../plugins/ssh/src/shared/trust.js"
 import type { WorkspaceRun } from "../../../plugins/ssh/src/shared/workspace.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
-import { desktopCall } from "./workbench.js";
+import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
 async function openSsh(page: Page) {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -88,7 +88,7 @@ test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", 
     await openSsh(page);
     const a = await saveHost(page, "左侧夹具", left.port, password);
     const b = await saveHost(page, "右侧夹具", right.port, password);
-    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "分栏验收", layout: { kind: "two" }, panes: [a, b] });
+    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "分栏验收", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
     await approve(page, a.hostId);
     await approve(page, b.hostId);
     await expect.poll(async () => (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list"))[0]?.panes.map((pane) => pane.phase)).toEqual(["ready", "ready"]);
@@ -155,7 +155,7 @@ test("H5.3 回放已停止的录制，可暂停并按时间定位，切换 Shell
     await openSsh(page);
     const a = await saveHost(page, "录制甲", left.port, password);
     const b = await saveHost(page, "录制乙", right.port, password);
-    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "会话录制夹具", layout: { kind: "two" }, panes: [a, b] });
+    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "会话录制夹具", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }] });
     await approve(page, a.hostId);
     await approve(page, b.hostId);
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -304,7 +304,7 @@ test("H3.2 路由页批量关联、覆盖与启停，旧 Shell 保留原连接�
     };
     await expect(checkbox("批量目标甲")).toBeChecked();
     await expect(checkbox("批量目标乙")).toBeChecked();
-    const candidate = page.getByLabel("批量跳板");
+    const candidate = page.getByRole("combobox", { name: "批量跳板", exact: true });
     await expect(candidate.getByRole("option", { name: /批量目标乙.*自身/ })).toBeDisabled();
     await expect(page.getByRole("button", { name: "批量启用", exact: true })).toBeDisabled();
     const targetSearch = page.getByRole("textbox", { name: "筛选目标主机…" });
@@ -393,7 +393,11 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     const first = await saveHost(page, "目标甲", target.port, password);
     const different = await saveHost(page, "另一目标", other.port, password);
     const alias = await saveHost(page, "目标甲别名", target.port, password);
-    const start = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "本机布局夹具", layout: { kind: "tabs" }, panes: [first, different, alias] });
+    const start = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "本机布局夹具",
+      layout: { kind: "tabs" },
+      panes: [first, different, alias].map(({ hostId }) => ({ hostId })),
+    });
     await approve(page, first.hostId);
     await approve(page, different.hostId);
     const aliasState = async () => (await desktopCall<ConnectionStatus[]>(page, "ssh.connections.status")).find(({ hostId }) => hostId === alias.hostId)?.state;
@@ -455,13 +459,24 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await page.mouse.up();
     await expect(firstToolbar).toHaveAttribute("data-position", "top");
 
-    const tabs = run.getByRole("group", { name: "内部标签" });
-    await tabs.getByRole("button", { name: "目标甲别名", exact: true }).click();
+    const tabs = run.getByRole("tablist", { name: "内部标签" });
+    const aliasTab = tabs.getByRole("tab", { name: "目标甲别名", exact: true });
+    await expect(tabs).toHaveAttribute("aria-orientation", "horizontal");
+    await tabs.getByRole("tab", { name: "目标甲", exact: true }).press("End");
+    await expect(aliasTab).toBeFocused();
+    await expect(aliasTab).toHaveAttribute("aria-selected", "true");
     await run.getByText("本机布局偏好", { exact: true }).click();
     await run.getByLabel("工作区标签方向").selectOption("left");
     await run.getByRole("checkbox", { name: "纵向标签按同目标分组" }).check();
     await expect(tabs.getByTestId("ssh-workspace-tab-group")).toHaveText(`fixture@127.0.0.1:${target.port}`);
-    await expect(tabs.getByRole("button")).toHaveText(["目标甲", "目标甲别名", "另一目标"]);
+    await expect(tabs).toHaveAttribute("aria-orientation", "vertical");
+    await expect(tabs.getByRole("tab")).toHaveText(["目标甲", "目标甲别名", "另一目标"]);
+    await aliasTab.press("ArrowDown");
+    const otherTab = tabs.getByRole("tab", { name: "另一目标", exact: true });
+    await expect(otherTab).toBeFocused();
+    await expect(run.getByRole("tabpanel", { name: "另一目标", exact: true })).toBeVisible();
+    await otherTab.press("ArrowUp");
+    await expect(aliasTab).toBeFocused();
     await expect(activeSpot).toHaveAttribute("data-workspace-spot", originalPanes[2]!.paneId);
     const aliasToolbar = panes.last().getByTestId("ssh-pane-tools");
     await run.getByLabel("工具栏顺序").selectOption("monitor-first");
@@ -508,5 +523,63 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await fixture.close();
     await other.close();
     await target.close();
+  }
+});
+
+test("A06 独立 Web 通过键盘切换 SSH 标签，保留桌面原分栏会话", async () => {
+  test.skip(!browserBinary, "需要 Playwright Chromium");
+  test.setTimeout(60_000);
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  let browser: Browser | undefined;
+  try {
+    const { page } = fixture;
+    await openSsh(page);
+    const left = await saveHost(page, "键盘左栏", first.port, password);
+    const right = await saveHost(page, "键盘右栏", second.port, password);
+    const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "浏览器键盘工作区", layout: { kind: "tabs" }, panes: [left, right].map(({ hostId }) => ({ hostId })),
+    });
+    await approve(page, left.hostId);
+    await approve(page, right.hostId);
+    const currentRun = async () => (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === started.id)!;
+    await expect.poll(async () => (await currentRun()).panes.map(({ phase }) => phase)).toEqual(["ready", "ready"]);
+    const original = (await currentRun()).panes.map(({ paneId, sessionId }) => ({ paneId, sessionId }));
+    const link = await localWebLink(page);
+    browser = await chromium.launch({ executablePath: browserBinary });
+    const web = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+    await web.goto(link);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    await web.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await web.getByTestId("ssh-module").getByRole("button", { name: "工作区", exact: true }).click();
+    await web.getByRole("button", { name: /浏览器键盘工作区.*代次 1/ }).click();
+    const run = web.getByTestId("ssh-workspace-run");
+    await expect(run).toHaveAttribute("data-run-id", started.id);
+    const firstTab = run.getByRole("tab", { name: "键盘左栏", exact: true });
+    const secondTab = run.getByRole("tab", { name: "键盘右栏", exact: true });
+    const leftPanel = run.getByRole("tabpanel", { name: "键盘左栏", exact: true });
+    const rightPanel = run.getByRole("tabpanel", { name: "键盘右栏", exact: true });
+    await expect(leftPanel.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-session-id", original[0]!.sessionId!);
+    await firstTab.press("ArrowRight");
+    await expect(secondTab).toBeFocused();
+    await expect(secondTab).toHaveAttribute("aria-selected", "true");
+    await expect(leftPanel).toBeHidden();
+    await expect(rightPanel.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-session-id", original[1]!.sessionId!);
+    await run.getByText("本机布局偏好", { exact: true }).click();
+    await run.getByLabel("工作区标签方向").selectOption("left");
+    await secondTab.press("ArrowUp");
+    await expect(firstTab).toBeFocused();
+    await expect(leftPanel.getByTestId("ssh-workspace-run-pane")).toHaveAttribute("data-session-id", original[0]!.sessionId!);
+    expect((await currentRun()).panes.map(({ paneId, sessionId }) => ({ paneId, sessionId }))).toEqual(original);
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      await fixture.close();
+      await Promise.all([first.close(), second.close()]);
+    }
   }
 });

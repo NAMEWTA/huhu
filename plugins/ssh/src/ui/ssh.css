@@ -32,6 +32,21 @@
   .ssh-directory-host > .row {
     flex-wrap: wrap;
   }
+  .ssh-directory-actions {
+    display: grid;
+    min-inline-size: 9rem;
+    max-block-size: var(--radix-popover-content-available-height);
+    padding: 4px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+    box-shadow: var(--shadow-popover);
+    z-index: 40;
+  }
+  .ssh-directory-actions > button {
+    justify-content: flex-start;
+  }
   dialog:modal:has(.ssh-host-key) {
     inline-size: min(42rem, calc(100vw - 32px));
     overscroll-behavior: contain;
@@ -1004,6 +1019,12 @@
 
   .ssh-workspace-tabstrip [aria-pressed="true"] {
     font-weight: 700;
+  }
+
+  .ssh-workspace-tabstrip [aria-selected="true"] {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
   }
 
   .ssh-workspace-tab-group {

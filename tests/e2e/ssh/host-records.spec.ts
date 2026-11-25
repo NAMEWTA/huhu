@@ -51,8 +51,8 @@ test("A01 SSH 主机目录在桌面和 Web 按账号标签筛选，网格保留�
   let browser: Browser | undefined;
   try {
     await openSsh(page);
-    await desktopCall(page, "ssh.hosts.configure", { name: "构建节点", host: "build.example.test", port: 2222, user: "builder", tags: ["编译"], authKind: "agent" });
-    await desktopCall(page, "ssh.hosts.configure", { name: "审阅节点", host: "review.example.test", port: 22, user: "reviewer", tags: ["审阅"], authKind: "agent" });
+    await desktopCall(page, "ssh.hosts.configure", { name: "构建节点", host: "build.example.test", port: 2222, user: "builder", tags: ["编译"], authKind: "agent", expectedRevision: null });
+    await desktopCall(page, "ssh.hosts.configure", { name: "审阅节点", host: "review.example.test", port: 22, user: "reviewer", tags: ["审阅"], authKind: "agent", expectedRevision: null });
     const link = await localWebLink(page);
     browser = await chromium.launch({ executablePath: browserBinary });
     const web = await browser.newPage({ viewport: { width: 900, height: 820 } });
@@ -109,6 +109,48 @@ test("A01 SSH 主机目录在桌面和 Web 按账号标签筛选，网格保留�
     } finally {
       await close();
     }
+  }
+});
+
+test("A01 SSH 目录右键保留选区，手动排序与部分删除可回读", async () => {
+  const { page, close } = await openApp();
+  try {
+    await openSsh(page);
+    const saveHost = (name: string, jumpHostIds: string[] = []) => desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name, host: `${name.toLowerCase()}.example.test`, user: "fixture", authKind: "agent", expectedRevision: null, jumpHostIds,
+    });
+    const alpha = await saveHost("Alpha");
+    const beta = await saveHost("Beta");
+    const gamma = await saveHost("Gamma", [alpha.hostId]);
+    await moduleView(page).getByRole("button", { name: "主机目录", exact: true }).click();
+    const view = page.getByRole("region", { name: "SSH 主机目录" });
+    const row = (name: string) => view.getByRole("listitem").filter({ has: view.getByRole("checkbox", { name: `选择 ${name}`, exact: true }) });
+    const menu = (name: string) => page.getByRole("dialog", { name: `${name}的操作` });
+    await row("Alpha").getByRole("checkbox").check();
+    await row("Beta").getByRole("checkbox").check();
+
+    await row("Gamma").click({ button: "right" });
+    await expect(menu("Gamma").getByRole("button", { name: "编辑", exact: true })).toBeEnabled();
+    await menu("Gamma").getByRole("button", { name: "置顶", exact: true }).click();
+    await expect.poll(async () => (await directory(page)).hosts.filter(({ pinned }) => pinned).map(({ hostId }) => hostId)).toEqual([gamma.hostId]);
+    await expect(view.getByRole("status")).toHaveText("已选 2 台");
+    const trigger = row("Beta").getByRole("button", { name: "更多操作 Beta", exact: true });
+    await trigger.click();
+    await expect(menu("Beta").getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+    await view.getByRole("combobox", { name: "主机排序", exact: true }).selectOption("manual");
+    await row("Beta").getByRole("button", { name: "拖动 Beta", exact: true }).dragTo(row("Alpha"));
+    await expect.poll(async () => (await directory(page)).hosts.map(({ hostId }) => hostId)).toEqual([gamma.hostId, beta.hostId, alpha.hostId]);
+    await view.getByRole("button", { name: "删除所选", exact: true }).click();
+    const confirmation = page.getByRole("dialog", { name: "删除所选主机", exact: true });
+    await expect(confirmation.getByRole("listitem")).toHaveCount(2);
+    await confirmation.getByRole("button", { name: "确认删除", exact: true }).click();
+    await expect(view.getByRole("alert")).toContainText(/已删除 1 台.*Alpha/);
+    await expect(view.getByRole("status")).toHaveText("已选 1 台");
+    expect((await list(page)).map(({ id }) => id).sort()).toEqual([alpha.hostId, gamma.hostId].sort());
+  } finally {
+    await close();
   }
 });
 

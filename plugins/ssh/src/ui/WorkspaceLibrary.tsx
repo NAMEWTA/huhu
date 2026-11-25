@@ -1,20 +1,15 @@
-import { Button, Dialog, PageHead } from "@huhu/ui";
+import { Button, Dialog, PageHead, SearchBox, Select } from "@huhu/ui";
 import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useId, useState } from "react";
-import { layoutProblem, MAX_WORKSPACE_PANES, paneCount, splitTree, type SplitTree, type WorkspaceLayout as Layout, type WorkspacePane, type WorkspaceRun, type WorkspaceRunPane, type WorkspaceTemplate } from "../shared/workspace.js";
+import type { z } from "zod";
+import type { DirectoryView } from "../engine/directory-schema.js";
+import { directoryGroupPath, groupsInScope, hostSearchTerms, matchesHostSearch } from "../shared/host-directory.js";
+import { appendPane, layoutProblem, MAX_WORKSPACE_PANES, paneCount, removePaneAt, splitTree, type SplitTree, type WorkspaceLayout as Layout, type WorkspacePane, type WorkspaceRun, type WorkspaceRunPane, type WorkspaceTemplate } from "../shared/workspace.js";
 import { LAYOUT_LABELS, WorkspaceLayout } from "./WorkspaceLayout.js";
 import { WorkspaceRunView } from "./WorkspaceRunView.js";
 import type { FileSession } from "../shared/files.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { lastWorkspace, rememberWorkspace, useDevicePreferences } from "./device-preferences.js";
-
-export interface WorkspaceHost {
-  hostId: string;
-  name: string;
-  user: string;
-  host: string;
-  port: number;
-}
 
 interface Editor {
   temporary: boolean;
@@ -83,7 +78,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
 }) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const directory = useCapability<{ hosts: WorkspaceHost[] }>("ssh.hosts.directory", {});
+  const directory = useCapability<z.output<typeof DirectoryView>>("ssh.hosts.directory", {});
   const templates = useCapability<WorkspaceTemplate[]>("ssh.workspace.templates.list", {});
   const runs = useCapability<WorkspaceRun[]>("ssh.workspace.runs.list", {});
   const [selected, select] = useState("");
@@ -103,13 +98,27 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
   }));
   const [deleting, setDeleting] = useState<WorkspaceTemplate>();
   const [hostToAdd, chooseHost] = useState("");
+  const [hostSearch, setHostSearch] = useState("");
+  const [hostGroup, setHostGroup] = useState("all");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const formId = useId();
   const saveRunFormId = useId();
+  const templateSummaryId = useId();
   const current = templates.data?.find(({ id }) => id === selected);
   const run = runs.data?.find(({ id }) => id === runId);
   const hosts = directory.data?.hosts ?? [];
+  const groups = directory.data?.groups ?? [];
+  const groupById = new Map(groups.map((group) => [group.groupId, group]));
+  const groupScope = groupById.has(hostGroup) ? groupsInScope(groups, hostGroup) : undefined;
+  const terms = hostSearchTerms(hostSearch);
+  const matchingHosts = draft ? hosts.filter((host) => {
+    if (hostGroup === "" && host.groupId !== null) return false;
+    if (groupScope && (host.groupId === null || !groupScope.has(host.groupId))) return false;
+    return matchesHostSearch(host, terms);
+  }) : [];
+  const canAdd = !!draft && matchingHosts.some(({ hostId }) => hostId === hostToAdd)
+    && draft.panes.length < MAX_WORKSPACE_PANES && !draft.panes.some(({ hostId }) => hostId === hostToAdd);
   const name = (hostId: string) => hosts.find((host) => host.hostId === hostId)?.name ?? `已移除的主机（${hostId}）`;
 
   useEngineEvents((event) => {
@@ -121,14 +130,15 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
   function edit(previous?: WorkspaceTemplate, temporary = false) {
     setError(undefined);
     chooseHost("");
+    setHostSearch("");
+    setHostGroup("all");
     const panes = previous?.panes.map(({ hostId, loginCommand }) => ({ hostId, ...(loginCommand === undefined ? {} : { loginCommand }) })) ?? [];
     setDraft({ temporary, ...(previous ? { previous } : {}), name: previous?.name ?? "", panes, layout: previous?.layout ?? { kind: "two" }, rebindHostIds: [] });
   }
 
-  function changePanes(panes: WorkspacePane[]) {
+  function changePanes(panes: WorkspacePane[], tree?: SplitTree) {
     if (!draft) return;
-    const layout = draft.layout.kind === "custom" && draft.panes.length !== panes.length ? { kind: "custom" as const, tree: splitTree(panes.length) } : draft.layout;
-    setDraft({ ...draft, panes, layout });
+    setDraft({ ...draft, panes, layout: tree ? { kind: "custom", tree } : draft.layout });
   }
 
   function move(panes: WorkspacePane[], index: number, offset: number) {
@@ -273,19 +283,22 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
             </button>
           ))}
           <div className="ssh-list-label">模板</div>
-          {templates.data?.map(({ id, name: title }) => (
+          {templates.data?.map(({ id, name: title, panes, layout }) => (
             <button
               className={`ssh-resource-row${id === selected ? " active" : ""}`}
               type="button"
               key={id}
               aria-current={id === selected}
+              aria-label={title}
+              aria-describedby={`${templateSummaryId}-${id}`}
               onClick={() => {
                 select(id);
                 selectRun("");
                 setError(undefined);
               }}
             >
-              {title}
+              <strong>{title}</strong>
+              <span id={`${templateSummaryId}-${id}`}>{panes.length} 台 · {LAYOUT_LABELS[layout.kind]}</span>
             </button>
           ))}
         </div>
@@ -400,11 +413,19 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
               {draft.temporary ? "工作区名称" : "模板名称"} <input value={draft.name} required maxLength={100} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </label>
             <div className="ssh-workspace-controls">
+              <SearchBox value={hostSearch} onChange={(value) => { setHostSearch(value); chooseHost(""); }} placeholder="筛选工作区主机…" />
+              <Select aria-label="工作区主机分组" value={hostGroup === "" || groupScope ? hostGroup : "all"} onChange={(event) => { setHostGroup(event.currentTarget.value); chooseHost(""); }}>
+                <option value="all">全部分组</option>
+                <option value="">未分组</option>
+                {groups.map(({ groupId }) => <option value={groupId} key={groupId}>{directoryGroupPath(groupById, groupId)}</option>)}
+              </Select>
+            </div>
+            <div className="ssh-workspace-controls">
               <label>
                 从主机目录选择
-                <select value={hostToAdd} onChange={(event) => chooseHost(event.target.value)}>
+                <select value={canAdd ? hostToAdd : ""} onChange={(event) => chooseHost(event.target.value)}>
                   <option value="">选择主机</option>
-                  {hosts.map(({ hostId, name: title, host, user, port }) => (
+                  {matchingHosts.map(({ hostId, name: title, host, user, port }) => (
                     <option key={hostId} value={hostId} disabled={draft.panes.some((pane) => pane.hostId === hostId)}>
                       {title}（{user}@{host}:{port}）
                     </option>
@@ -412,9 +433,10 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
                 </select>
               </label>
               <Button
-                disabled={!hostToAdd || draft.panes.length >= MAX_WORKSPACE_PANES}
+                disabled={!canAdd}
                 onClick={() => {
-                  changePanes([...draft.panes, { hostId: hostToAdd }]);
+                  const tree = draft.layout.kind === "custom" && draft.panes.length > 0 ? appendPane(draft.layout.tree) : undefined;
+                  changePanes([...draft.panes, { hostId: hostToAdd }], tree);
                   chooseHost("");
                 }}
               >
@@ -435,7 +457,10 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
                     <button type="button" disabled={index === draft.panes.length - 1} aria-label={`下移 ${name(pane.hostId)}`} onClick={() => move(draft.panes, index, 1)}>
                       下移
                     </button>
-                    <button type="button" aria-label={`移除 ${name(pane.hostId)}`} onClick={() => changePanes(draft.panes.filter((_, i) => i !== index))}>
+                    <button type="button" aria-label={`移除 ${name(pane.hostId)}`} onClick={() => {
+                      const tree = draft.layout.kind === "custom" ? removePaneAt(draft.layout.tree, index) : undefined;
+                      changePanes(draft.panes.filter((_, i) => i !== index), tree);
+                    }}>
                       移除
                     </button>
                   </div>
