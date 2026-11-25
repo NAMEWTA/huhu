@@ -46,7 +46,7 @@
 | `packages/kernel/test/mcp-recovery.test.ts` | 3 项通过 · `final-mcp-recovery.log` |
 | `apps/engine/test/capability-catalog.test.ts` | 4 项通过 · `final-capability-catalog.log` |
 | `packages/kernel/test/mcp-routing.test.ts` | 14 项通过 · `final-mcp-routing.log` |
-| `packages/workbench/test/engine-client.test.ts` | __ENGINE_CLIENT_RESULT__ 项通过 · `final-engine-client.log` |
+| `packages/workbench/test/engine-client.test.ts` | 34 项通过 · `final-engine-client.log` |
 
 ### Lead Playwright 验收入口
 
@@ -61,3 +61,5 @@
 - OAuth 已验证动态注册授权服务器。真实外部 OAuth、无动态注册的提供方和跨设备浏览器授权未验收。当前授权回调绑定 Engine 主机回环端口，界面提示在运行 Engine 的设备上打开授权页。
 
 ## Lead 验收
+
+- Lead 2026-11-25：P3/P4 合入；3 条 E2E 失败经 f18f6e5a 修复，main 3a71409f 上 mcp-aggregation 5/5 通过。清单转 task10。
