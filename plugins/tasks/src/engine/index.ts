@@ -97,7 +97,7 @@ export const taskToolDescriptors = {
     exposable: true,
     defaultExposed: false,
     idempotency: "durable",
-    input: TaskWritableSchema,
+    input: TaskWritableSchema.extend({ inboxConversionId: z.string().min(1).optional() }),
     output: z.union([TaskDtoSchema, Id]),
   }),
   questionsList: defineCapabilityDescriptor({
@@ -688,13 +688,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
   api.defineCapability(
     bindCapability(taskToolDescriptors.create, async (c, i) => {
+      if (i.inboxConversionId && (c.caller !== "plugin:inbox" || c.delegatedBy)) throw errors.permissionDenied("收件转换标识");
       if (!isWorkbenchCaller(c.caller) && (i.type === "agent" || i.execution)) {
         authorizeAgentEdit(c);
         if (i.type !== "agent") throw errors.permissionDenied("人工任务不能设置 Agent 执行目标");
         validateAgentTarget(i.execution);
       }
       if (i.type === "agent") await validateExecutionSelection(c, i.execution);
-      const task = await svc.create(i, originOf(c.caller));
+      const task = await svc.create(i, originOf(c.caller), i.inboxConversionId, () => c.signal.throwIfAborted());
       // 受信 Inbox 转换只需要任务 ID：不让下游幂等账本持久化任务正文
       if (c.caller === "plugin:inbox" && !c.delegatedBy) return { id: task.id };
       return agentWriteResult(c.caller, task);

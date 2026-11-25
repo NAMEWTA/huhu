@@ -78,7 +78,7 @@ const noteTools = {
     description: "创建笔记。",
     ...publicTool,
     scope: "write",
-    input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional(), body: z.string().optional() }),
+    input: z.object({ name: z.string(), folder: z.string().optional(), template: z.enum(["blank", "meeting", "project", "daily"]).optional(), templatePath: z.string().optional(), body: z.string().optional(), inboxConversionId: z.uuid().optional() }),
     output: z.object({ path: z.string(), id: z.string() }),
   }),
   templatesList: descriptor({
@@ -499,6 +499,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
   api.defineCapability(bind(notesReadDescriptor, (c, i) => svc.read(readPath(c, i.path))));
   api.defineCapability(
     bind(noteTools.create, async (c, i) => {
+      if (i.inboxConversionId && (c.caller !== "plugin:inbox" || c.delegatedBy)) throw errors.permissionDenied("收件转换标识");
       if (i.templatePath !== undefined && !isWorkbenchCaller(c.caller)) throw errors.permissionDenied("Vault 本地模板（仅工作台可用）");
       if (i.folder) writePath(c, i.folder);
       const r = await svc.create({
@@ -507,7 +508,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
         ...(i.template ? { template: i.template } : {}),
         ...(i.templatePath !== undefined ? { templatePath: i.templatePath } : {}),
         ...(i.body !== undefined ? { body: i.body } : {}),
-      });
+      }, i.inboxConversionId);
       changed(r.id, "created");
       return r;
     }),

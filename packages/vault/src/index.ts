@@ -1,6 +1,7 @@
 export * from "./operations.js";
 export * from "./paths.js";
 export * from "./receipts.js";
+export { InboxDocumentReceipt, inboxDocumentReceiptPath } from "./inbox-conversion.js";
 export * from "./write.js";
 export * from "./vault.js";
 export * from "./semantic/filename.js";
