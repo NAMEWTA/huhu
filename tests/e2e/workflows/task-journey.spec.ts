@@ -144,7 +144,7 @@ test("T7.2 AU13 Linux 定时与手动运行共享 Tasks 派遣，待处理可定
     await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByRole("button", { name: "激活记录", exact: true }).click();
-    await page.getByLabel("发生状态", { exact: true }).selectOption("attention");
+    await page.getByRole("combobox", { name: /^发生状态/ }).selectOption("attention");
     const attention = page.getByTestId("activation-row").filter({ hasText: "任务旅程定时规则" });
     await expect(attention).toContainText("子运行待处理");
     await attention.getByRole("button", { name: "任务旅程定时规则" }).click();

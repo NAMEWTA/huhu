@@ -568,7 +568,7 @@ test("AW4 AU16 账本与中心双向改期同一计划且删除后插件重开�
     const changedStart = new Date(Date.parse(startOn) + 86_400_000).toISOString().slice(0, 10);
     await inspector.getByRole("button", { name: "改期" }).click();
     const calendar = page.getByRole("dialog", { name: "更改计划时间" });
-    await calendar.getByLabel("周期", { exact: true }).selectOption("weekly");
+    await calendar.getByRole("combobox", { name: /^周期/ }).selectOption("weekly");
     await calendar.getByLabel("起始日期").fill(changedStart);
     await calendar.getByRole("button", { name: "保存" }).click();
     await expect(calendar).toBeHidden();
@@ -579,7 +579,7 @@ test("AW4 AU16 账本与中心双向改期同一计划且删除后插件重开�
     await inspector.getByRole("button", { name: "打开账本" }).click();
     await expect(row).toContainText(`每周 · ${changedStart} 起`);
     await row.getByRole("button", { name: "改期" }).click();
-    await calendar.getByLabel("周期", { exact: true }).selectOption("daily");
+    await calendar.getByRole("combobox", { name: /^周期/ }).selectOption("daily");
     await calendar.getByRole("button", { name: "保存" }).click();
     await expect(calendar).toBeHidden();
     await row.getByRole("button", { name: "在自动化中心管理计划" }).click();
