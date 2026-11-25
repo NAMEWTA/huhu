@@ -484,11 +484,11 @@ test.skipIf(process.platform !== "linux")("Linux sh 外部批准固定映像、�
     launcherAvailable = false;
     const ordinary = await svc.create({ title: "普通终端", trigger: every5, action: terminalAction });
     await expect(invoke("approval.review", { ruleId: ordinary.id })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
-    await svc.activateNonAgent(ordinary.id, "manual");
+    await svc.activateTerminal(ordinary.id, "manual");
     expect(terminalLaunches(calls)).toHaveLength(1);
     expect(terminalLaunches(calls)[0]?.input).toMatchObject({ shell: "default", command: terminalAction.command });
     const ordinarySh = await svc.create({ title: "普通 sh 终端", trigger: every5, action: { ...terminalAction, shell: "sh" } });
-    await svc.activateNonAgent(ordinarySh.id, "manual");
+    await svc.activateTerminal(ordinarySh.id, "manual");
     expect(terminalLaunches(calls)).toHaveLength(2);
     expect(terminalLaunches(calls)[1]?.input).toMatchObject({ shell: "sh", command: terminalAction.command });
   } finally {
@@ -953,12 +953,17 @@ describe("agent 动作：任务输入", () => {
   });
 
   test("tasks 插件停用：扫描跳过（预览标注）；reminder 规则正常通知", async () => {
-    const { svc, notes } = setup({ tasksEnabled: false });
+    const { svc, root, notes } = setup({ tasksEnabled: false });
     const scanId = await scanRule(svc);
     expect((await svc.preview(scanId)).tasksDisabled).toBe(true);
     const n = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "该休息了", taskId: null } });
-    await svc.setEnabled(n.id, true);
-    expect((await svc.activateNonAgent(n.id, "schedule", new Date("2026-11-10T11:55:00Z"))).summary).toEqual({ state: "succeeded" });
+    const notifications = new Set<string>();
+    const deliveries = new ReminderDeliveries(new VaultFiles(root), "vault", "machine", svc, () => undefined, () => undefined, {
+      send: ({ id, title }) => { notifications.add(id); notes.push(title); },
+      has: (id) => notifications.has(id),
+    }, () => new Date("2026-11-10T12:00:00Z"), () => undefined);
+    expect(() => svc.activateTerminal(n.id, "manual")).toThrow("规则不是终端动作");
+    expect((await deliveries.activate(n.id, null))?.summary).toMatchObject({ state: "succeeded" });
     expect(notes).toEqual(["该休息了"]);
   });
 
@@ -970,42 +975,42 @@ describe("agent 动作：任务输入", () => {
 
   test("激活记录：start+finish 合并为一条，lastActivatedFor 取最近计划时间", async () => {
     const { svc } = setup();
-    const { id } = await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode: "notification", text: "休息", taskId: null } });
+    const { id } = await terminalRule(svc);
     await svc.setEnabled(id, true);
-    await svc.activateNonAgent(id, "schedule", new Date("2026-11-10T11:55:00Z"));
-    await svc.activateNonAgent(id, "manual");
+    await svc.activateTerminal(id, "schedule", new Date("2026-11-10T12:05:00Z"));
+    await svc.activateTerminal(id, "manual");
     const acts = svc.activations();
     expect(acts).toHaveLength(2);
     expect(acts.every((a) => a.finishedAt)).toBe(true);
-    expect(svc.lastActivatedFor(id)?.toISOString()).toBe("2026-11-10T11:55:00.000Z");
+    expect(svc.lastActivatedFor(id)?.toISOString()).toBe("2026-11-10T12:05:00.000Z");
   });
 });
 
 describe("agent 动作：提示词输入 / terminal / reminder", () => {
-  test("reminder：通知 / 新建人工任务（引用关联任务）/ 两者都做；建任务失败要提示", async () => {
-    const { svc, calls, notes } = setup({ tasks: [task("a")] });
-    const mk = async (mode: "notification" | "task" | "both", taskId: string | null) => (await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode, text: "复盘周报", taskId } })).id;
-    expect((await svc.activateNonAgent(await mk("notification", null), "manual")).summary).toEqual({ state: "succeeded" });
-    expect(notes).toEqual(["复盘周报"]);
-    expect(calls).toEqual([]);
-    expect((await svc.activateNonAgent(await mk("both", "a"), "manual")).summary).toEqual({ state: "succeeded" });
-    const create = calls.find((c) => c.capability === "tasks.create")!;
-    expect(create.input).toMatchObject({ title: "复盘周报", type: "human" });
-    expect(String(create.input["body"])).toContain("[[Tasks/a.md]]");
-    expect(notes).toEqual(["复盘周报", "复盘周报"]);
-    // 建任务失败（tasks 停用等）
-    (svc as unknown as { d: { call: unknown } }).d.call = async () => {
-      throw new Error("tasks 未启用");
-    };
-    expect((await svc.activateNonAgent(await mk("task", null), "manual")).summary).toEqual({ state: "failed" });
-    expect(notes.at(-1)).toContain("创建任务失败");
+  test("持久提醒分别记录通知和建任务，建任务不可用时保留失败结果", async () => {
+    const { svc, root } = setup({ tasks: [task("a")] });
+    const send = vi.fn();
+    const createFromRule = vi.fn(async (input: { taskId: string }) => task(input.taskId));
+    const deliveries = new ReminderDeliveries(new VaultFiles(root), "vault", "machine", svc,
+      () => ({ createFromRule, acceptRule: vi.fn() }),
+      (id) => `Tasks/${id}.md`, { send, has: () => true },
+      () => new Date("2026-11-10T12:00:00Z"), () => undefined);
+    const make = async (mode: "notification" | "task" | "both", taskId: string | null) =>
+      (await svc.create({ title: "提醒", trigger: every5, action: { kind: "reminder", mode, text: "复盘周报", taskId } })).id;
+    expect((await deliveries.activate(await make("notification", null), null))?.summary).toMatchObject({ state: "succeeded", notification: "sent" });
+    expect(createFromRule).not.toHaveBeenCalled();
+    expect((await deliveries.activate(await make("both", "a"), null))?.summary).toMatchObject({ state: "succeeded", notification: "sent", task: "created" });
+    expect(createFromRule).toHaveBeenCalledWith(expect.objectContaining({ title: "复盘周报", execution: null, body: expect.stringContaining("[[Tasks/a.md]]") }));
+    expect(send).toHaveBeenCalledTimes(2);
+    createFromRule.mockRejectedValueOnce(new HuhuError("NOT_FOUND", "任务不可用"));
+    expect((await deliveries.activate(await make("task", null), null))?.summary).toMatchObject({ state: "failed", task: "unavailable" });
   });
 
   test("terminal：经 agent-cli 的 Herdr 会话运行（launch 带 command / shell / Space），automation-run 记录 sessionId，输出与退出码写入运行记录", async () => {
     const ctx = setup({ terminal: { exitCode: 0, output: "hello-terminal" } });
     const { svc, calls } = ctx;
     const ok = await svc.create({ title: "打招呼", trigger: every5, action: { kind: "terminal", command: "echo hello-terminal", shell: "sh", spaceId: null, envRefs: {} } });
-    expect((await svc.activateNonAgent(ok.id, "manual")).summary).toEqual({ state: "succeeded" });
+    expect((await svc.activateTerminal(ok.id, "manual")).summary).toEqual({ state: "succeeded" });
     const launch = calls.find((c) => c.capability === "agent.sessions.launch")!;
     expect(launch.input).toMatchObject({ provider: "shell", command: "echo hello-terminal", shell: "sh", spaceId: "space-1" });
     expect(launch.input).not.toHaveProperty("envRefs");
@@ -1016,7 +1021,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     // 非零退出码 → failed
     const bad = setup({ terminal: { exitCode: 3 } });
     const r2 = await bad.svc.create({ title: "失败", trigger: every5, action: { kind: "terminal", command: "exit 3", shell: "default", spaceId: null, envRefs: {} } });
-    expect((await bad.svc.activateNonAgent(r2.id, "manual")).summary).toEqual({ state: "failed" });
+    expect((await bad.svc.activateTerminal(r2.id, "manual")).summary).toEqual({ state: "failed" });
   });
 
   test("旧环境待重新配置，不创建旧引用、不启动、不改历史规则", async () => {
@@ -1024,7 +1029,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const action = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null, envRefs: { FIXTURE: "safe://old-fixture" } } as const;
     await expect(svc.create({ title: "新规则", trigger: every5, action })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     const old = await repo.create("automation-rule", { title: "旧规则", enabled: true, action, trigger: every5, createdAt: "2026-11-10T12:00:00Z", updatedAt: "2026-11-10T12:00:00Z" }, "");
-    expect(() => svc.activateNonAgent(old.id, "manual")).toThrow("旧规则需要重新配置");
+    expect(() => svc.activateTerminal(old.id, "manual")).toThrow("旧规则需要重新配置");
     await expect(svc.setEnabled(old.id, true)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(svc.rule(old.id).data.action).toEqual(action);
     expect(calls).toHaveLength(0);
@@ -1039,7 +1044,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const ctx = setup({ terminal: { stayRunning: true, output: "partial" } });
     const { svc, calls } = ctx;
     const r = await svc.create({ title: "长任务", trigger: every5, action: { kind: "terminal", command: "sleep 100", shell: "default", spaceId: null, envRefs: {} } });
-    const p = svc.activateNonAgent(r.id, "manual");
+    const p = svc.activateTerminal(r.id, "manual");
     for (let i = 0; i < 100 && !calls.some((c) => c.capability === "agent.sessions.launch"); i++) await new Promise((x) => setTimeout(x, 5));
     svc.cancel(r.id);
     await p;
@@ -1050,7 +1055,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const rec = setup({ terminal: { exitCode: 0, output: "done-after-restart" } });
     const rule = await rec.svc.create({ title: "重启对账", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null, envRefs: {} } });
     const d = rec.svc as unknown as { d: { repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } };
-    await rec.svc.activateNonAgent(rule.id, "manual"); // 先产生一个 session（sess-1，已结束）
+    await rec.svc.activateTerminal(rule.id, "manual"); // 先产生一个 session（sess-1，已结束）
     const stuck = await d.d.repo.create("automation-run", { ruleId: rule.id, actionKind: "terminal", trigger: "manual", state: "running", startedAt: "2026-11-10T11:00:00Z", sessionId: "sess-1", terminalOwner }, "");
     rec.sessions.get("sess-1")!.requestId = `autorun-${stuck.id}`;
     await rec.svc.reconcileTerminals();
@@ -1063,7 +1068,7 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
     const ctx = setup({ terminal: { exitCode: 0, output: "token=***", hasEnv: true } });
     const { svc, calls } = ctx;
     const rule = await svc.create({ title: "带密钥", trigger: every5, action: { kind: "terminal", command: "echo", shell: "default", spaceId: null } });
-    await svc.activateNonAgent(rule.id, "manual");
+    await svc.activateTerminal(rule.id, "manual");
     calls.length = 0;
     await svc.delete(rule.id); // 规则没了：对账不能再靠规则推断是否带过密钥
     const repo = (svc as unknown as { d: { repo: { create(k: string, d: unknown, b: string): Promise<{ id: string }> } } }).d.repo;
@@ -1087,9 +1092,9 @@ describe("agent 动作：提示词输入 / terminal / reminder", () => {
 test("暂停的终端规则可以手动运行，定时经过时不会创建会话", async () => {
   const { svc, calls } = setup({ terminal: { exitCode: 0 } });
   const rule = await svc.create({ title: "暂停的终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
-  expect((await svc.activateNonAgent(rule.id, "schedule", new Date("2026-11-10T11:00:00Z"))).summary).toEqual({ state: "paused" });
+  expect((await svc.activateTerminal(rule.id, "schedule", new Date("2026-11-10T11:00:00Z"))).summary).toEqual({ state: "paused" });
   expect(calls).toEqual([]);
-  expect((await svc.activateNonAgent(rule.id, "manual")).summary).toEqual({ state: "succeeded" });
+  expect((await svc.activateTerminal(rule.id, "manual")).summary).toEqual({ state: "succeeded" });
   expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
 });
 
@@ -1097,7 +1102,7 @@ test("受保护终端保留已完成结果和待释放义务，重开仅释放�
   let unavailable = true;
   const { svc, open, calls } = setup({ terminal: { hasEnv: true, output: "原结果", releaseUnavailable: () => unavailable } });
   const rule = await terminalRule(svc);
-  await svc.activateNonAgent(rule.id, "manual");
+  await svc.activateTerminal(rule.id, "manual");
   const run = svc.runs()[0]!;
   const before = svc.runDetail(run.id);
   expect(before.data).toMatchObject({ state: "succeeded", exitCode: 0, finishedAt: expect.any(String), sessionId: "sess-1", terminalReleasePending: true });
@@ -1140,12 +1145,12 @@ test("定时终端在原计划点的运行写入前中断，重启从启用时�
   const rule = await terminalRule(svc);
   now = terminalSlot;
   const interruptedWrite = vi.spyOn(repo, "create").mockRejectedValueOnce(new Error("运行持久写入前中断"));
-  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("运行持久写入前中断");
+  await expect(svc.activateTerminal(rule.id, "schedule", terminalSlot)).rejects.toThrow("运行持久写入前中断");
   const restarted = open().svc;
   expect(restarted.activations()).toEqual([]);
   expect(terminalLaunches(calls)).toHaveLength(0);
 
-  const activate = vi.fn((id: string, at: Date) => restarted.activateNonAgent(id, "schedule", at).then(() => undefined));
+  const activate = vi.fn((id: string, at: Date) => restarted.activateTerminal(id, "schedule", at).then(() => undefined));
   const scheduler = new Scheduler({ activate, lastActivatedFor: (id) => restarted.lastActivatedFor(id), now: () => now });
   try {
     scheduler.sync([{ id: rule.id, enabled: true, cron: every5.cron, zone: every5.zone, missedRunGraceMinutes: 30, updatedAt: rule.data.updatedAt }]);
@@ -1164,7 +1169,7 @@ test("运行已经写入且能证明尚未提交时，重启继续原运行和 r
   const { svc, repo, open, calls, d } = setup();
   const rule = await terminalRule(svc);
   vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
-  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  await expect(svc.activateTerminal(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
   expect(terminalLaunches(calls)).toHaveLength(0);
   expect(existsSync(path.join(d, "act"))).toBe(false);
   const restarted = open().svc;
@@ -1191,7 +1196,7 @@ test.each(["规则", "规则停用", "Space", "受保护配置"])("尚未提交�
     files.write(file, Buffer.from(JSON.stringify({ format: 1, entries: [{ entityId: rule.id, revision: randomUUID(), definition: { format: 1, names: ["FIXTURE"], fingerprint: "a".repeat(64) }, configured: [] }] })));
   if (changed === "受保护配置") await writeEnvironment();
   vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
-  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  await expect(svc.activateTerminal(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
   const runId = svc.runs()[0]!.id;
   if (changed === "规则") await svc.update(rule.id, rule.version, { action: { ...terminalAction, command: "echo changed" } });
   if (changed === "规则停用") await svc.setEnabled(rule.id, false);
@@ -1222,7 +1227,7 @@ test.each([false, true])("确认边界后的中断只核对原请求（Core 已�
     if (!coreAccepted && changes["terminalLaunch"]) svc.abortAll();
     return persisted;
   });
-  const first = await svc.activateNonAgent(rule.id, "schedule", terminalSlot);
+  const first = await svc.activateTerminal(rule.id, "schedule", terminalSlot);
   const runId = svc.runs()[0]!.id;
   const requestId = `autorun-${runId}`;
   expect(svc.runDetail(runId).data).toMatchObject({ state: "running", sessionId: null, terminalLaunch: { submittedAt: expect.any(String) } });
@@ -1236,7 +1241,7 @@ test.each([false, true])("确认边界后的中断只核对原请求（Core 已�
   await restarted.idle();
   const state = coreAccepted ? "succeeded" : "unknown";
   expect(restarted.runDetail(runId).data).toMatchObject({ state, sessionId: coreAccepted ? "sess-1" : null });
-  expect(await restarted.activateNonAgent(rule.id, "schedule", terminalSlot)).toMatchObject({ activationId: first.activationId, summary: { state } });
+  expect(await restarted.activateTerminal(rule.id, "schedule", terminalSlot)).toMatchObject({ activationId: first.activationId, summary: { state } });
   expect(restarted.runs()).toHaveLength(1);
   expect(terminalLaunches(calls)).toHaveLength(Number(coreAccepted));
 });
@@ -1255,7 +1260,7 @@ test("历史 NDJSON 的孤立发生和中断半行仍可查询，同一计划点
   expect(restarted.lastActivatedFor(rule.id)).toEqual(terminalSlot);
   const unknown = { ...previous, summary: { state: "unknown" } };
   expect(restarted.activations()).toEqual([unknown]);
-  expect(await restarted.activateNonAgent(rule.id, "schedule", terminalSlot)).toEqual(unknown);
+  expect(await restarted.activateTerminal(rule.id, "schedule", terminalSlot)).toEqual(unknown);
   expect(restarted.runs()).toHaveLength(0);
   expect(calls).toEqual([]);
   expect(readFileSync(file, "utf8")).toBe(bytes);
@@ -1279,10 +1284,10 @@ test("同槽并发共用持久运行，跨服务保留同一个运行和原请�
     await releasing;
     return create(...args);
   });
-  const first = svc.activateNonAgent(rule.id, "schedule", terminalSlot);
+  const first = svc.activateTerminal(rule.id, "schedule", terminalSlot);
   await entering;
-  const duplicate = svc.activateNonAgent(rule.id, "schedule", terminalSlot);
-  const other = await open().svc.activateNonAgent(rule.id, "schedule", terminalSlot).finally(release);
+  const duplicate = svc.activateTerminal(rule.id, "schedule", terminalSlot);
+  const other = await open().svc.activateTerminal(rule.id, "schedule", terminalSlot).finally(release);
   const results = await Promise.all([first, duplicate]);
   expect(results).toEqual([other, other]);
   expect(svc.activations()).toEqual([other]);
@@ -1295,7 +1300,7 @@ test.each([false, true])("其他 Vault 的同一计划点不重启也不认领�
   const { svc, repo, open, calls, sessions, root } = setup();
   const rule = await terminalRule(svc);
   vi.spyOn(repo, "patch").mockRejectedValueOnce(new Error("提交标记写入前中断"));
-  await expect(svc.activateNonAgent(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
+  await expect(svc.activateTerminal(rule.id, "schedule", terminalSlot)).rejects.toThrow("提交标记写入前中断");
   const pending = repo.list("automation-run")[0]!;
   const launch = pending.data["terminalLaunch"] as { fingerprint: string };
   const original = submitted ? await repo.patch("automation-run", pending.id, { sessionId: "copied", terminalLaunch: { ...launch, submittedAt: terminalSlot.toISOString() } }, pending.version) : pending;
@@ -1308,7 +1313,7 @@ test.each([false, true])("其他 Vault 的同一计划点不重启也不认领�
   await copied.idle();
   expect(copied.runDetail(original.id).data).toMatchObject({ state: "unknown", sessionId: null });
   expect(copied.runs()).toEqual([expect.objectContaining({ id: original.id, state: "unknown", live: false })]);
-  expect(await copied.activateNonAgent(rule.id, "schedule", terminalSlot)).toEqual(copied.activations()[0]);
+  expect(await copied.activateTerminal(rule.id, "schedule", terminalSlot)).toEqual(copied.activations()[0]);
   expect(calls).toEqual([]);
   expect(readFileSync(file)).toEqual(bytes);
 });
@@ -1321,21 +1326,21 @@ test.each([new HuhuError("RUN_UNKNOWN", "终端启动回执未收到"), new Huhu
     const rule = await svc.create({ title: "原终端规则", trigger: every5, action: { kind: "terminal", command: "echo local", shell: "default", spaceId: null, envRefs: {} } });
     await svc.setEnabled(rule.id, true);
     const slot = new Date("2026-11-10T12:00:00Z");
-    const first = await svc.activateNonAgent(rule.id, "schedule", slot);
+    const first = await svc.activateTerminal(rule.id, "schedule", slot);
     expect(first.summary).toEqual({ state: "unknown" });
     expect(first.finishedAt).toBeUndefined();
     const run = svc.runs()[0]!;
     expect(svc.runDetail(run.id).data).toMatchObject({ state: "unknown", sessionId: null, finishedAt: null, terminalOwner });
     await svc.reconcileTerminals();
     expect(svc.runDetail(run.id).data["state"]).toBe("unknown");
-    expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toEqual(first);
+    expect(await svc.activateTerminal(rule.id, "schedule", slot)).toEqual(first);
     disconnected = false;
     sessions.set("unrelated", { id: "unrelated", requestId: "other", state: "running", exitCode: null });
     await svc.reconcileTerminals();
     await svc.idle();
     expect(svc.runDetail(run.id)).toMatchObject({ data: { state: "succeeded", sessionId: "sess-1" } });
     expect(svc.runDetail(run.id).body).toContain("原命令已完成");
-    expect(await svc.activateNonAgent(rule.id, "schedule", slot)).toMatchObject({ activationId: first.activationId, summary: { state: "succeeded" }, finishedAt: expect.any(String) });
+    expect(await svc.activateTerminal(rule.id, "schedule", slot)).toMatchObject({ activationId: first.activationId, summary: { state: "succeeded" }, finishedAt: expect.any(String) });
     expect(calls.filter(({ capability }) => capability === "agent.sessions.launch")).toHaveLength(1);
     expect(calls.filter(({ capability }) => capability === "agent.sessions.kill")).toHaveLength(0);
   },

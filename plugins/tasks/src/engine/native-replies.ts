@@ -1,9 +1,9 @@
-import { readdirSync } from "node:fs";
 import { errors, ExecutionBindingSchema, HuhuError, isHuhuError, type ExecutionBinding } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskDispatchExecutor } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
+import { TaskJournalIndex } from "./journal-index.js";
 import type { TaskReceiptInbox } from "./receipt-inbox.js";
 import type { TasksService } from "./service.js";
 import { ResponseActor, responseCommentActor, sameResponseActor } from "./response-actor.js";
@@ -76,13 +76,33 @@ function sameQuestion(a: Lookup, b: Lookup): boolean {
 
 /** 先受理原回答，再投影评论并继续原生请求。发送边界一旦划过，仅对账。 */
 export class TaskNativeReplies {
+  private readonly index: TaskJournalIndex;
+
   constructor(
     private readonly files: VaultFiles,
     private readonly tasks: TasksService,
     private readonly inbox: TaskReceiptInbox,
     private readonly now: () => Date,
     private readonly executor?: TaskDispatchExecutor,
-  ) {}
+  ) {
+    this.index = new TaskJournalIndex(files, DIRECTORY, /^[a-f0-9]{64}\.json$/, (file) => this.groups(this.read(file).entries));
+  }
+
+  private groups(entries: Entry[]): string[] {
+    return entries.some(({ status }) => status === "pending" || status === "sending" || status === "unknown") ? ["pending"] : [];
+  }
+
+  watch(onChange: () => void): void {
+    this.index.onChange = onChange;
+  }
+
+  hasPending(): boolean {
+    return this.index.has("pending");
+  }
+
+  close(): void {
+    this.index.close();
+  }
 
   private file(taskId: string): string {
     return `${DIRECTORY}/${fingerprint(taskId)}.json`;
@@ -104,8 +124,10 @@ export class TaskNativeReplies {
     }
   }
 
-  private write(file: string, entries: Entry[], version: string | null) {
-    return this.files.write(file, Buffer.from(JSON.stringify({ format: 1, entries }) + "\n"), { expectedVersion: version });
+  private async write(file: string, entries: Entry[], version: string | null) {
+    const saved = await this.files.write(file, Buffer.from(JSON.stringify({ format: 1, entries }) + "\n"), { expectedVersion: version });
+    this.index.replace(file, this.groups(entries));
+    return saved;
   }
 
   readReply(input: Lookup, bound: (execution: ExecutionBinding) => boolean, readerOwner?: string): View {
@@ -152,17 +174,6 @@ export class TaskNativeReplies {
     });
   }
 
-  private filesInLedger(): string[] {
-    try {
-      return readdirSync(this.files.abs(DIRECTORY))
-        .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
-        .map((file) => `${DIRECTORY}/${file}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-  }
-
   async replay(
     bound: (execution: ExecutionBinding) => boolean,
     availability: (execution: ExecutionBinding) => ReplyAvailability,
@@ -170,7 +181,7 @@ export class TaskNativeReplies {
     signal: AbortSignal,
     onError?: (error: unknown) => void,
   ): Promise<void> {
-    for (const file of this.filesInLedger()) {
+    for (const file of this.index.paths("pending", onError)) {
       if (signal.aborted) return;
       try {
         for (const entry of this.read(file).entries) {

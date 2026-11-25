@@ -20,8 +20,6 @@ export const AgentSettingsFile = z.object({
   /** 条件写用的版本号。 */
   revision: z.number().int().min(0),
   defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(),
-  /** 独立会话里的程序上报“等人工”时，自动建一个 human 任务提醒（缺省开）。 */
-  waitingTasks: z.boolean().optional(),
   agents: z.record(z.string(), AgentSettingsEntry),
 });
 export type AgentSettingsFile = z.infer<typeof AgentSettingsFile>;

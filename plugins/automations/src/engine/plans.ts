@@ -269,6 +269,6 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   }));
   api.defineCapability(bindCapability(planDescriptors.defaultTaskScan, (context, { action }) => {
     const assertCurrent = () => context.signal.throwIfAborted();
-    return action === "restore" ? deps.defaults.restore(assertCurrent) : deps.defaults.initializeAfterEnable(assertCurrent);
+    return action === "restore" ? deps.defaults.restore(assertCurrent) : deps.defaults.create(assertCurrent);
   }));
 }

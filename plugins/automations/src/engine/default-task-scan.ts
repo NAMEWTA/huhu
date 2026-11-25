@@ -4,15 +4,12 @@ import { z } from "zod";
 import { PRESETS, validateSchedule } from "../shared/cron.js";
 
 export const DEFAULT_TASK_SCAN_RULE_ID = "rule-defaulttaskscan";
-export const DEFAULT_TASK_SCAN_SERVICE = "automations.defaultTaskScan";
 const markerPath = "automations/default-task-scan.json";
 const Marker = z.strictObject({ schema: z.literal(1), ruleId: z.literal(DEFAULT_TASK_SCAN_RULE_ID), state: z.enum(["pending", "initialized"]) });
 type MarkerState = z.infer<typeof Marker>["state"];
 type Result = { ruleId: typeof DEFAULT_TASK_SCAN_RULE_ID; state: "created" | "existing" | "deleted" };
 
-export type DefaultTaskScanService = Pick<DefaultTaskScan, "initializeAfterEnable" | "restore">;
-
-export class DefaultTaskScan implements DefaultTaskScanService {
+export class DefaultTaskScan {
   private tail: Promise<unknown> = Promise.resolve();
   private closed = false;
 
@@ -25,7 +22,7 @@ export class DefaultTaskScan implements DefaultTaskScanService {
     private readonly ruleCreated: (id: string) => void,
   ) {}
 
-  initializeAfterEnable(assertCurrent?: () => void): Promise<Result> {
+  create(assertCurrent?: () => void): Promise<Result> {
     return this.run(() => {
       assertCurrent?.();
       return this.ensure(false);

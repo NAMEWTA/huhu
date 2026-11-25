@@ -28,7 +28,7 @@ import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
-import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
+import { TaskDispatch, type TaskDispatchExecutor, type TaskScheduleAdmission } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, RetryDispatch, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
 import { TaskQuestionView, TaskReceiptInbox } from "./receipt-inbox.js";
@@ -37,7 +37,8 @@ import { agentDispatchBlocker, TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
 export type { TaskDispatchExecutor } from "./dispatch.js";
-export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule"> & Pick<TasksService, "createFromRule">;
+export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule"> & Partial<Pick<TaskDispatch, "readAcceptedRule">> & Pick<TasksService, "createFromRule">;
+export type { TaskScheduleAdmission } from "./dispatch.js";
 export type TaskFollowUpDispatch = Pick<TaskDispatch, "acceptFollowUp">;
 
 /** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
@@ -462,7 +463,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     } catch {
       return null;
     }
-  }, opts.dispatchBudget);
+  }, opts.dispatchBudget, (source, taskId) => api.service<TaskScheduleAdmission>("taskScheduleAdmission")?.(source, taskId) ?? false);
 
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
   const validateAgentTarget = (execution: TaskExecution | null | undefined) => {
@@ -629,6 +630,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(bindCapability(taskToolDescriptors.dispatchStopRead, (c, input) => dispatch.readStop(input, toolOwner(c, true))));
   api.provide("taskDispatch", {
     createFromRule: (input) => svc.createFromRule(input),
+    readAcceptedRule: (input, source) => dispatch.readAcceptedRule(input, source),
     acceptRule: async (input, source) => {
       const receipt = await dispatch.acceptRule(input, source);
       void dispatch.check();
@@ -644,13 +646,14 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     },
   } satisfies TaskFollowUpDispatch);
 
+  api.events.subscribe((event) => {
+    const payload = event.payload as { kind?: string; id?: string };
+    if ((event.type === "plugin.stateChanged" && payload.id === "automations")
+      || (event.type === "entity.changed" && ["automation-rule", "task-follow-up"].includes(payload.kind ?? ""))) dispatch.wakeAfterReceipt();
+  });
   ctx.effect(() => {
-    void dispatch.check();
-    const timer = setInterval(() => void dispatch.check(), opts.dispatchCheckMs ?? 5_000);
-    return () => {
-      clearInterval(timer);
-      return dispatch.close();
-    };
+    dispatch.startRecovery(opts.dispatchCheckMs ?? 5_000);
+    return () => dispatch.close();
   });
 
   api.defineCapability(
