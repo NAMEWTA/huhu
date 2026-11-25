@@ -4,6 +4,7 @@ import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contr
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
+import type { FocusDeadlinePlans } from "./focus-deadline.js";
 import type { ActivationRecord, AutomationsService } from "./service.js";
 
 const directory = "automations/reminder-deliveries";
@@ -22,18 +23,34 @@ const RecordSchema = z.strictObject({
   finishedAt: Instant.nullable(),
   text: z.string().min(1),
   taskBody: z.string(),
-  notificationModule: z.enum(["tasks", "automations"]),
+  notificationModule: z.enum(["tasks", "automations", "home"]),
   notification: z.enum(["disabled", "pending", "sending", "sent", "unknown"]),
   task: z.enum(["disabled", "pending", "created", "unavailable"]),
+  source: z.enum(["task-reminder", "observation", "focus-deadline"]).optional(),
+  targetTask: z.string().optional(),
+  comment: z.enum(["pending", "written", "unavailable"]).optional(),
+  focusSettled: z.literal(true).optional(),
+  cancelled: z.boolean().optional(),
 });
 type ReminderRecord = z.infer<typeof RecordSchema>;
 type Stored = { data: ReminderRecord; version: string };
-type ReminderTrigger = { ruleId: string; at: string | null; expectedVersion?: string };
-type Notification = { id: string; title: string; module: string };
+type PlanReminder = {
+  planId: string; revision: string; scheduledFor: string; source: NonNullable<ReminderRecord["source"]>;
+  title: string; taskId?: string; effect: "notification" | "task" | "both" | "comment";
+};
+type ReminderTrigger = {
+  ruleId: string;
+  at: string | null;
+  expectedVersion?: string;
+  plan?: PlanReminder;
+};
+type Notification = { id: string; title: string; module: string; body?: string };
 export type ReminderNotifications = { send(notification: Notification): void; has(id: string): boolean };
-const scheduledId = (ruleId: string, at: string) => `rem-${digest([ruleId, at])}`;
+const scheduledId = (ruleId: string, at: string, revision?: string) => `rem-${digest(revision ? [ruleId, revision, at] : [ruleId, at])}`;
+export const planReminderOccurrenceId = (plan: { planId: string; revision: string; scheduledFor: string }) => scheduledId(plan.planId, plan.scheduledFor, plan.revision);
 const reminderTaskId = (id: string) => `task-${digest(["reminder", id]).slice(0, 32)}`;
 const notificationId = (id: string) => `ntf-${digest(["reminder", id])}`;
+const commentId = (id: string) => `c-${digest(["observation", id])}`;
 
 /** A reminder occurrence has two separately checkpointed effects. */
 export class ReminderDeliveries {
@@ -51,6 +68,11 @@ export class ReminderDeliveries {
     private readonly notifications: ReminderNotifications,
     private readonly now: () => Date,
     private readonly onChanged: (activation: ActivationRecord) => void,
+    private readonly taskAvailable: (taskId: string) => boolean = () => true,
+    private readonly reminderPlanCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
+    private readonly observationCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
+    private readonly writeComment?: (taskId: string, commentId: string, body: string) => Promise<unknown>,
+    private readonly focus?: Pick<FocusDeadlinePlans, "current" | "settle">,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -77,6 +99,14 @@ export class ReminderDeliveries {
     return this.view(data);
   }
 
+  async activateTaskReminder(plan: { planId: string; revision: string; taskId: string; title: string; scheduledFor: string }): Promise<void> {
+    await this.activatePlanReminder({ ...plan, source: "task-reminder", effect: "notification" });
+  }
+
+  async activatePlanReminder(plan: PlanReminder): Promise<void> {
+    await this.run(planReminderOccurrenceId(plan), { ruleId: plan.planId, at: plan.scheduledFor, plan });
+  }
+
   async recover(): Promise<void> {
     if (this.files.readOnly) return;
     await Promise.allSettled(this.ids().map((id) => this.run(id)));
@@ -94,6 +124,12 @@ export class ReminderDeliveries {
     const row = this.load(id)?.data;
     if (!row) return null;
     const effects: PlanOccurrence["effects"] = [];
+    if (row.source === "focus-deadline") {
+      effects.push({
+        effectId: `focus-${id}`, kind: "focus-settlement", target: { kind: "focus-session", id: row.ruleId }, operationId: null,
+        state: row.focusSettled ? "completed" : "not-accepted", receiptId: row.focusSettled ? id : null,
+      });
+    }
     if (row.notification !== "disabled") {
       const effectId = notificationId(id);
       const state = row.notification === "sent" ? "completed" : row.notification === "pending" ? "not-accepted" : "unknown";
@@ -104,11 +140,17 @@ export class ReminderDeliveries {
       const state = row.task === "created" ? "completed" : row.task === "pending" ? "not-accepted" : "failed";
       effects.push({ effectId: taskId, kind: "task-create", target: { kind: "task", id: taskId }, operationId: null, state, receiptId: state === "completed" ? taskId : null });
     }
+    if (row.comment && row.targetTask) {
+      const effectId = commentId(id);
+      const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted" : "failed";
+      effects.push({ effectId, kind: "task-comment", target: { kind: "task", id: row.targetTask }, operationId: null, state, receiptId: state === "completed" ? effectId : null });
+    }
     return {
       occurrenceId: id,
       plan: { planId: row.ruleId, revision: row.ruleVersion },
       timing: row.scheduledFor ? { trigger: "scheduled", scheduledFor: row.scheduledFor } : { trigger: "manual" },
-      state: effects.some(({ state }) => state === "unknown") ? "unknown" : row.finishedAt ? "completed" : "accepted",
+      state: effects.some(({ state }) => state === "unknown") ? "unknown" : row.cancelled ? "cancelled"
+        : row.finishedAt ? (effects.some(({ state }) => state === "failed") ? "failed" : "completed") : "accepted",
       acceptedAt: row.startedAt,
       frozenInput: { revision: row.ruleVersion, digest: digest([row.text, row.taskBody, row.notificationModule, ...effects.map(({ effectId }) => effectId)]) },
       execution: null,
@@ -142,7 +184,7 @@ export class ReminderDeliveries {
     if (!stored) return null;
     try {
       const data = RecordSchema.parse(JSON.parse(stored.bytes.toString("utf8")));
-      if (data.id !== id || (data.scheduledFor && scheduledId(data.ruleId, data.scheduledFor) !== id)) throw new Error("Reminder identity mismatch");
+      if (data.id !== id || (data.scheduledFor && scheduledId(data.ruleId, data.scheduledFor, data.source ? data.ruleVersion : undefined) !== id)) throw new Error("Reminder identity mismatch");
       return { data, version: stored.version };
     } catch {
       throw new HuhuError("WRITE_PARTIAL", "自动化提醒记录损坏", { details: { id } });
@@ -168,6 +210,81 @@ export class ReminderDeliveries {
     if (data.ruleId !== ruleId || data.ruleVersion !== expectedVersion || data.scheduledFor !== null) throw errors.idempotencyMismatch();
   }
 
+  private sourceCurrent(source: PlanReminder["source"], id: string, revision: string, scheduledFor: string, taskId: string | undefined): boolean {
+    if (source === "focus-deadline") return this.focus?.current(id, revision, scheduledFor) === true;
+    if (source === "observation") return this.observationCurrent(id, revision, scheduledFor);
+    return Boolean(taskId && this.taskAvailable(taskId) && this.reminderPlanCurrent(id, revision, scheduledFor));
+  }
+
+  private current(data: ReminderRecord): boolean {
+    if (data.source && data.scheduledFor) return this.sourceCurrent(data.source, data.ruleId, data.ruleVersion, data.scheduledFor, data.targetTask);
+    if (data.targetTask && !this.taskAvailable(data.targetTask)) return false;
+    if (!data.scheduledFor) return true;
+    try {
+      const rule = this.rules.rule(data.ruleId);
+      return rule.version === data.ruleVersion && rule.data.enabled && rule.data.action.kind === "reminder";
+    } catch (error) {
+      if (isHuhuError(error) && error.code === "NOT_FOUND") return false;
+      throw error;
+    }
+  }
+
+  private async advanceEffects(row: Stored): Promise<ReminderRecord> {
+    const { id } = row.data;
+    const stableNotification = notificationId(id);
+    if (row.data.notification === "pending" && this.current(row.data)) {
+      const source = row.data;
+      if (source.source === "focus-deadline" && source.scheduledFor && !this.focus?.settle(source.ruleId, source.ruleVersion, source.scheduledFor, id)) return source;
+      row = await this.save({ ...row.data, notification: "sending", ...(source.source === "focus-deadline" && { focusSettled: true }) }, row.version);
+      this.lifetime.signal.throwIfAborted();
+      if (this.current(row.data)) {
+        try {
+          this.notifications.send({ id: stableNotification, title: row.data.text, module: row.data.notificationModule,
+            ...(row.data.source === "task-reminder" && { body: `提醒时间 ${row.data.scheduledFor}` }),
+          });
+        } catch {
+          // Check the same identity even if its acknowledgement was lost.
+        }
+      } else {
+        row = await this.save({ ...row.data, notification: "pending", cancelled: true }, row.version);
+      }
+    }
+    if (row.data.notification === "sending") {
+      row = await this.save({ ...row.data, notification: this.notifications.has(stableNotification) ? "sent" : "unknown" }, row.version);
+    }
+    if (row.data.task === "pending" && this.current(row.data)) {
+      const tasks = this.tasks();
+      if (!tasks) return row.data;
+      const data = row.data;
+      this.lifetime.signal.throwIfAborted();
+      let task: "created" | "unavailable";
+      try {
+        await tasks.createFromRule({ taskId: reminderTaskId(id), ruleId: data.ruleId, occurrenceId: id, title: data.text.slice(0, 200), body: data.taskBody, execution: null });
+        task = "created";
+      } catch (error) {
+        if (!isHuhuError(error) || (error.code !== "NOT_FOUND" && error.code !== "VERSION_CONFLICT")) throw error;
+        task = "unavailable";
+      }
+      row = await this.save({ ...row.data, task }, row.version);
+    }
+    if (row.data.comment === "pending" && row.data.targetTask && this.current(row.data)) {
+      if (!this.writeComment) return row.data;
+      let comment: "written" | "unavailable";
+      try {
+        await this.writeComment(row.data.targetTask, commentId(id), row.data.text);
+        comment = "written";
+      } catch (error) {
+        if (!isHuhuError(error) || !["NOT_FOUND", "READ_ONLY_VAULT"].includes(error.code)) throw error;
+        comment = "unavailable";
+      }
+      row = await this.save({ ...row.data, comment }, row.version);
+    }
+    const cancelled = row.data.cancelled || ((row.data.notification === "pending" || row.data.task === "pending" || row.data.comment === "pending") && !this.current(row.data));
+    const completed = (await this.save({ ...row.data, ...(cancelled && { cancelled }), finishedAt: this.now().toISOString() }, row.version)).data;
+    this.onChanged(this.view(completed));
+    return completed;
+  }
+
   private async advance(id: string, trigger?: ReminderTrigger): Promise<ReminderRecord | null> {
     this.lifetime.signal.throwIfAborted();
     let row = this.load(id);
@@ -175,6 +292,20 @@ export class ReminderDeliveries {
     if (!row && trigger) {
       row = await this.rules.withRuleConfiguration(async () => {
         this.lifetime.signal.throwIfAborted();
+        if (trigger.plan && trigger.at) {
+          const { revision, title, taskId, source, effect } = trigger.plan;
+          const current = this.sourceCurrent(source, trigger.ruleId, revision, trigger.at, taskId);
+          if (!this.owner || !current) return null;
+          return this.save({
+            format: 1, id, vaultId: this.vaultId, owner: this.owner, ruleId: trigger.ruleId, ruleVersion: revision,
+            scheduledFor: trigger.at, startedAt: this.now().toISOString(), finishedAt: null, text: title,
+            taskBody: taskId ? `${title}\n\n相关任务：[[${this.taskPath(taskId) ?? taskId}]]` : title,
+            notificationModule: source === "task-reminder" ? "tasks" : source === "focus-deadline" ? "home" : "automations",
+            notification: effect === "notification" || effect === "both" ? "pending" : "disabled",
+            task: effect === "task" || effect === "both" ? "pending" : "disabled",
+            ...(effect === "comment" && { comment: "pending" }), source, ...(taskId && { targetTask: taskId }),
+          }, null);
+        }
         const rule = this.rules.rule(trigger.ruleId);
         const action = rule.data.action;
         if (trigger.expectedVersion !== undefined) {
@@ -184,6 +315,7 @@ export class ReminderDeliveries {
           throw errors.invalidInput("当前规则不再是提醒规则");
         }
         if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
+        if (action.taskId && !this.taskAvailable(action.taskId)) return null;
         if (trigger.at && Date.parse(trigger.at) > this.now().getTime()) throw errors.invalidInput("提醒时间尚未到达");
         if (!this.owner) throw errors.invalidInput("无法确认本机的提醒归属");
         const reference = action.taskId ? `\n\n相关任务：[[${this.taskPath(action.taskId) ?? action.taskId}]]` : "";
@@ -202,6 +334,7 @@ export class ReminderDeliveries {
           notificationModule: action.taskId ? "tasks" : "automations",
           notification: action.mode === "task" ? "disabled" : "pending",
           task: action.mode === "notification" ? "disabled" : "pending",
+          ...(action.taskId && { targetTask: action.taskId }),
         }, null);
       });
       if (!row) return null;
@@ -209,42 +342,12 @@ export class ReminderDeliveries {
     }
     if (!row || row.data.finishedAt || row.data.owner !== this.owner || row.data.vaultId !== this.vaultId) return row?.data ?? null;
     this.files.assertWritable();
-    const idempotentNotification = notificationId(id);
-    if (row.data.notification === "pending") {
-      row = await this.save({ ...row.data, notification: "sending" }, row.version);
-      this.lifetime.signal.throwIfAborted();
-      try {
-        this.notifications.send({ id: idempotentNotification, title: row.data.text, module: row.data.notificationModule });
-      } catch {
-        // Check the same notification identity even if its acknowledgement was lost.
-      }
-    }
-    if (row.data.notification === "sending") {
-      row = await this.save({ ...row.data, notification: this.notifications.has(idempotentNotification) ? "sent" : "unknown" }, row.version);
-    }
-    if (row.data.task === "pending") {
-      const tasks = this.tasks();
-      if (!tasks) return row.data;
-      const data = row.data;
-      this.lifetime.signal.throwIfAborted();
-      let task: "created" | "unavailable";
-      try {
-        await tasks.createFromRule({ taskId: reminderTaskId(id), ruleId: data.ruleId, occurrenceId: id, title: data.text.slice(0, 200), body: data.taskBody, execution: null });
-        task = "created";
-      } catch (error) {
-        if (!isHuhuError(error) || (error.code !== "NOT_FOUND" && error.code !== "VERSION_CONFLICT")) throw error;
-        task = "unavailable";
-      }
-      row = await this.save({ ...row.data, task }, row.version);
-    }
-    const completed = (await this.save({ ...row.data, finishedAt: this.now().toISOString() }, row.version)).data;
-    this.onChanged(this.view(completed));
-    return completed;
+    return this.rules.withRuleConfiguration(() => this.advanceEffects(row!));
   }
 
   private view(data: ReminderRecord): ActivationRecord {
     const { id, ruleId, startedAt, finishedAt, scheduledFor, task, notification } = data;
-    const state = !finishedAt ? "pending" : notification === "unknown" ? "unknown" : task === "unavailable" ? "failed" : "succeeded";
+    const state = !finishedAt ? "pending" : notification === "unknown" ? "unknown" : data.cancelled ? "cancelled" : task === "unavailable" || data.comment === "unavailable" ? "failed" : "succeeded";
     const summary = { state, notification, task, ...(notification === "sent" && { notificationId: notificationId(id) }), ...(task === "created" && { taskId: reminderTaskId(id) }) };
     return {
       activationId: id,

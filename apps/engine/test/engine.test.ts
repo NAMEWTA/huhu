@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { OperationLog, SemanticRepository } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -683,14 +684,17 @@ describe("Engine 启动与关闭", () => {
       await srv.close();
     }
   }, 60_000);
-  test("ACC-TK-07：已到点的提醒在引擎启动时投递为站内通知；deliveredAt 写入；任务状态不变", async () => {
+  test("ACC-TK-07：到点提醒重启后仍使用同一计划和发生，任务状态不变", async () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> =>
-      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    const t = (await call(e1, "tasks.create", { title: "到点提醒", type: "human", reminders: [{ id: "rem-1", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }] })).data as { id: string };
-    await e1.shutdown(); // 模拟"应用关闭期间到点"：下次启动时补发
+    const call = (e: RunningEngine, capability: string, input: unknown, intentKey?: string): Promise<R> =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: intentKey ?? randomUUID(), intentKey }) as unknown as Promise<R>;
+    const t = (await call(e1, "tasks.create", { title: "到点提醒", type: "human" })).data as { id: string };
+    const intentId = randomUUID();
+    const reminder = await call(e1, "automations.plans.createTaskReminder", { taskId: t.id, scheduledFor: "2020-01-01T00:00:00Z", intentId }, intentId);
+    expect(reminder.ok).toBe(true);
+    await e1.shutdown();
     const e2 = await boot({ vaultPath: dir });
     engines.push(e2);
     let list: { title: string; module: string }[] = [];
@@ -700,12 +704,50 @@ describe("Engine 启动与关闭", () => {
       await new Promise((r) => setTimeout(r, 50));
     }
     expect(list.map((n) => [n.title, n.module])).toEqual([["任务提醒：到点提醒", "tasks"]]);
-    const task = (await call(e2, "tasks.read", { id: t.id })).data as { status: string; reminders: { deliveredAt: string | null }[] };
-    expect(task.status).toBe("not_started");
-    expect(task.reminders[0]?.deliveredAt).toBeTruthy();
+    expect((await call(e2, "tasks.read", { id: t.id })).data).toMatchObject({ status: "not_started", reminders: [] });
+    const { planId, revision } = reminder.data as { planId: string; revision: string };
+    await expect.poll(async () => (await call(e2, "automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.id } } })).data)
+      .toMatchObject({ plans: [{ planId, revision, nextAt: null, lastOccurrence: { state: "completed" } }] });
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
   }, 30_000);
+  test("F32：专注截止随同一计划改期，Engine 重开无页面仍结算一次", async () => {
+    const dir = tmp();
+    const original = await boot({ vaultPath: dir, create: true });
+    engines.push(original);
+    const call = (engine: RunningEngine, capability: string, input: unknown, intentKey?: string) =>
+      post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: intentKey ?? randomUUID(), intentKey });
+    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: false })).ok).toBe(true);
+    expect(await call(original, "home.focus.update", { action: "start" })).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+    expect((await call(original, "home.focus.get", {})).data).toMatchObject({ running: false, endsAt: null, completedToday: 0 });
+    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: true })).ok).toBe(true);
+
+    const started = await call(original, "home.focus.update", { action: "start" });
+    expect(started).toMatchObject({ ok: true, data: { plan: { planId: expect.any(String), revision: expect.any(String) }, running: true } });
+    const { planId, revision } = (started.data as unknown as { plan: { planId: string; revision: string } }).plan;
+    const intentId = randomUUID();
+    const scheduledFor = new Date(Date.now() + 3_000).toISOString();
+    const moved = await call(original, "automations.plans.submit", {
+      planId, expectedRevision: revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
+    }, intentId);
+    expect(moved).toMatchObject({ ok: true, data: { outcome: "completed", plan: { planId, revision: expect.any(String) } } });
+    const updated = await call(original, "home.focus.get", {});
+    const ref = (updated.data as unknown as { plan: { planId: string; revision: string } }).plan;
+    expect(ref.revision).not.toBe(revision);
+    expect(updated.data).toMatchObject({ plan: ref, endsAt: scheduledFor });
+    await original.shutdown();
+    engines.splice(engines.indexOf(original), 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(scheduledFor) - Date.now() + 50)));
+    const reopened = await boot({ vaultPath: dir });
+    engines.push(reopened);
+    await expect.poll(async () => (await call(reopened, "home.focus.get", {})).data).toMatchObject({ running: false, completedToday: 1, plan: ref });
+    await expect.poll(async () => (await call(reopened, "automations.plans.read", { planId })).data)
+      .toMatchObject({ ...ref, nextAt: null, lastOccurrence: { state: "completed" } });
+    const notices = (await call(reopened, "notifications.list", {})).data as unknown as { id: string; title: string }[];
+    expect(notices.filter(({ title }) => title === "专注完成")).toHaveLength(1);
+    const reads = await Promise.all(Array.from({ length: 3 }, () => call(reopened, "home.focus.get", {})));
+    expect(reads.every(({ data }) => (data as unknown as { completedToday: number }).completedToday === 1)).toBe(true);
+  }, 15_000);
   test("plugins.setEnabled：停用后其能力不可用并持久化；级联停用依赖者；重启保持；kernel 不可停用", async () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
@@ -834,14 +876,14 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "tasks.create", { title: "桌面 Agent", type: "agent", body: "x", execution: { spaceId: "space-1", provider: "codex" } })).ok).toBe(true);
   }, 30_000);
   test.skipIf(!existsSync(REAL_HERDR) || process.platform === "win32")(
-    "B04a/B07 会话里的程序经 OSC 7501 上报 blocked：不退出也在几秒内出现“需要你操作”（独立会话自动建 human 任务 + 评论），同一次只记一条，解除后提示取消；再次 blocked 只追加评论",
+    "B04a/B07：同一会话的等待状态继续显示，显式观察计划在无页面时递送",
     async () => {
       process.env["HUHU_HERDR_BIN"] = REAL_HERDR;
       const dir = tmp();
       const e = await boot({ vaultPath: dir, create: true });
       engines.push(e);
       type R = { ok: boolean; data: any; error?: { code: string } }; // eslint-disable-line
-      const call = (capability: string, input: unknown): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
+      const call = (capability: string, input: unknown, intentKey?: string): Promise<R> => post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: intentKey ?? randomUUID(), intentKey }) as unknown as Promise<R>;
       const { HerdrCore } = await import("@huhu/plugin-agent-cli/engine");
       const { machineId } = await import("@huhu/vault");
       const core = new HerdrCore({ bin: REAL_HERDR, vaultId: e.vault.id, machineId: machineId(), runtimeDir: path.join(dir, ".huhu", "runtime", machineId(), "herdr") });
@@ -850,22 +892,25 @@ describe("Engine 启动与关闭", () => {
         const s = (await call("agent.sessions.launch", { spaceId: sp.id, spaceRevision: sp.revision, provider: "shell", requestId: "req-wait-1234" })).data as { id: string; terminalId: string };
         const client = await core.ensure();
         const osc = (state: string) => client.call("terminal.send", { terminal: s.terminalId, force: true, text: `printf '\\033]7501;state=${state}:kind=permission:app=e2e\\033\\\\'` });
-        const task = async () => ((await call("tasks.list", {})).data as { id: string; title: string; origin: { kind: string }; comments: { id: string; event?: string }[] }[]).find((t) => t.title.includes("需要你操作"));
+        const reminders = async () => ((await call("notifications.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
+        const waiting = async () => ((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean; n: number } }[])[0]?.waiting;
         await osc("blocked");
-        await expect.poll(async () => (await task())?.comments.length, { timeout: 15_000 }).toBe(1);
-        const t1 = (await task())!;
-        expect(t1.origin.kind).toBe("session");
-        expect(t1.comments[0]).toMatchObject({ id: `session-${s.id}-w-1`, event: "waiting" });
-        expect(((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean; n: number } }[])[0]?.waiting).toMatchObject({ active: true, n: 1 });
-        // 解除：程序离开 blocked → 提示取消；任务与评论保留
+        await expect.poll(waiting, { timeout: 15_000 }).toMatchObject({ active: true, n: 1 });
+        expect(await reminders()).toEqual([]);
+        const intentId = randomUUID();
+        const result = await call("automations.plans.createObservation", {
+          title: "需要核对原会话", target: { kind: "agent-session", id: s.id }, everySeconds: 1,
+          condition: { kind: "threshold", status: "waiting_input", seconds: 1 }, stopAtTerminal: true, effect: "both", intentId,
+        }, intentId);
+        expect(result).toMatchObject({ ok: true, data: { trigger: { kind: "observe", everySeconds: 1 } } });
+        await expect.poll(reminders, { timeout: 12_000 }).toEqual([{ title: "需要核对原会话：等待输入", id: expect.any(String), module: "automations", at: expect.any(String), read: false }]);
+        const tasks = async () => ((await call("tasks.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
+        await expect.poll(async () => (await tasks()).map(({ title }) => title)).toEqual(["需要核对原会话：等待输入"]);
+        for (let i = 0; i < 6; i++) await Promise.all([waiting(), waiting(), waiting()]);
         await osc("working");
-        await expect.poll(async () => ((await call("agent.sessions.list", {})).data as { waiting?: { active: boolean } }[])[0]?.waiting?.active, { timeout: 15_000 }).toBe(false);
-        // 再次 blocked：同一个任务上只追加评论
-        await osc("blocked");
-        await expect.poll(async () => (await task())?.comments.length, { timeout: 15_000 }).toBe(2);
-        expect((await task())!.id).toBe(t1.id);
-        expect(((await call("tasks.list", {})).data as { title: string }[]).filter((t) => t.title.includes("需要你操作"))).toHaveLength(1);
-        expect((await task())!.comments[1]?.id).toBe(`session-${s.id}-w-2`);
+        await expect.poll(waiting, { timeout: 15_000 }).toMatchObject({ active: false });
+        expect(await reminders()).toHaveLength(1);
+        expect(await tasks()).toHaveLength(1);
       } finally {
         await core.stop();
         delete process.env["HUHU_HERDR_BIN"];

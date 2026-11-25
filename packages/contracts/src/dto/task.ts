@@ -45,6 +45,7 @@ export const TaskDtoSchema = z.object({
   project: z.string().nullable(),
   origin: TaskOriginSchema,
   execution: TaskExecutionSchema.nullable(),
+  /** 旧任务文档的提醒数据，仅供迁移。 */
   reminders: z.array(TaskReminderSchema),
   inputRevision: z.number().int(),
   inputHash: z.string(),
@@ -76,7 +77,8 @@ const TaskFields = z.strictObject({
   availableAt: TaskAvailableAtSchema.nullable().optional(),
   project: z.string().nullable(),
   execution: TaskExecutionSchema.nullable(),
-  reminders: z.array(TaskReminderSchema.omit({ deliveredAt: true }).extend({ deliveredAt: z.string().nullable().default(null) })),
+  // Older clients may still send an empty array. Scheduling only accepts plan writes.
+  reminders: z.array(z.never()).max(0).optional(),
 });
 
 export const TaskWritableSchema = TaskFields.extend({
@@ -86,7 +88,6 @@ export const TaskWritableSchema = TaskFields.extend({
   due: TaskFields.shape.due.default(null),
   project: TaskFields.shape.project.default(null),
   execution: TaskFields.shape.execution.default(null),
-  reminders: TaskFields.shape.reminders.default([]),
 });
 export type TaskWritable = z.infer<typeof TaskWritableSchema>;
 

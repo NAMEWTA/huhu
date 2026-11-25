@@ -3,7 +3,6 @@ import {
   HuhuError,
   isHuhuError,
   matchesTags,
-  newId,
   normalizeTags,
   TaskExecutionSchema,
   TaskWritableSchema,
@@ -135,10 +134,10 @@ export function toDto(e: Entity, pathKind: TasksDeps["pathKind"] = () => null): 
     ...(d.availableAt && { availableAt: d.availableAt }),
     project: d.project ?? null,
     execution: d.execution ?? null,
-    reminders: d.reminders,
   };
   return {
     ...editable,
+    reminders: d.reminders,
     availableAt: d.availableAt ?? null,
     id: e.id,
     path: e.path,
@@ -235,7 +234,6 @@ export class TasksService {
       project: input.project,
       origin,
       execution: executionWithDefault(input.type, input.execution),
-      reminders: input.reminders.map((r) => ({ ...r, id: r.id || newId("cap").replace("cap", "rem"), deliveredAt: null })),
       inputRevision: 1,
       createdAt: now,
       updatedAt: now,
@@ -302,7 +300,6 @@ export class TasksService {
       if (patch.due !== undefined) changes["due"] = patch.due;
       if (patch.availableAt !== undefined) changes["availableAt"] = patch.availableAt === null ? null : new Date(patch.availableAt).toISOString();
       if (patch.project !== undefined) changes["project"] = patch.project;
-      if (patch.reminders !== undefined) changes["reminders"] = patch.reminders;
       let nextExec = cur.execution;
       if (patch.execution !== undefined || (patch.type !== undefined && patch.type !== cur.type)) {
         const requested = patch.execution === undefined ? cur.execution : patch.execution;
@@ -418,7 +415,6 @@ export class TasksService {
         availableAt: cur.availableAt ?? null,
         project: cur.project,
         execution: cur.execution,
-        reminders: cur.reminders.map((r) => ({ ...r, deliveredAt: null })),
       },
       origin,
     );
@@ -429,20 +425,5 @@ export class TasksService {
     const cur = this.read(id);
     await this.d.trash.moveIn(cur.path, cur.id, { expectedVersion: cur.version });
     this.d.publish("entity.changed", { kind: "task", id, op: "deleted" });
-  }
-
-  /** 到点未投递的提醒（调度由插件作用域内的定时器驱动）。 */
-  dueReminders(): { taskId: string; reminderId: string; title: string; at: string }[] {
-    const now = this.d.now().getTime();
-    return this.all().flatMap((t) => t.reminders.filter((r) => r.enabled && !r.deliveredAt && new Date(r.at).getTime() <= now).map((r) => ({ taskId: t.id, reminderId: r.id, title: t.title, at: r.at })));
-  }
-
-  async markReminderDelivered(taskId: string, reminderId: string): Promise<void> {
-    return this.withTaskWrite(taskId, async () => {
-      const cur = this.read(taskId);
-      const reminders = cur.reminders.map((r) => (r.id === reminderId ? { ...r, deliveredAt: iso(this.d.now()) } : r));
-      await this.d.repo.patch("task", taskId, { reminders }, cur.version);
-      this.d.publish("reminder.due", { taskId, reminderId, title: cur.title });
-    });
   }
 }

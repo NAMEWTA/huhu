@@ -414,21 +414,16 @@ function agentWriteResult(caller: string, task: TaskDto, includesAgentInput = ta
   return { ...task, body: "", comments: [], references: [] };
 }
 
-const REMINDER_CHECK_MS = 30_000;
-
 export interface TasksOptions {
   zone?: () => string;
   now?: () => Date;
-  reminderCheckMs?: number;
   dispatchCheckMs?: number;
   dispatchExecutor?: TaskDispatchExecutor | null;
   dispatchBudget?: DeviceDispatchBudget;
-  /** 站内通知：提醒到点时调用（通知中心属于 kernel）。 */
-  notify?: (n: { title: string; module: string; body?: string }) => void;
   onError?: (e: unknown) => void;
 }
 
-/** tasks 插件入口（architecture.md §5）：注册能力、提醒检查；资源随作用域释放。 */
+/** tasks 插件入口（architecture.md §5）：注册任务能力；资源随作用域释放。 */
 export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void {
   const now = opts.now ?? (() => new Date());
   const svc = new TasksService({
@@ -761,30 +756,21 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       return executor.resumeEligibility(task.execution, task.body, instructions, signal);
     },
   } satisfies TaskQuery);
-
-  // 提醒：启动时与每 30 秒检查；应用关闭期间到点的在下次启动补发一次
-  let checking = false;
-  const check = async () => {
-    if (checking) return;
-    checking = true;
-    try {
-      for (const r of svc.dueReminders()) {
-        try {
-          await svc.markReminderDelivered(r.taskId, r.reminderId);
-          opts.notify?.({ title: `任务提醒：${r.title}`, module: "tasks", body: `提醒时间 ${r.at}` });
-        } catch (e) {
-          // 单个任务无法写入（只读文件、版本冲突）不得影响其他提醒，也不得让进程崩溃
-          opts.onError?.(e);
-        }
-      }
-    } finally {
-      checking = false;
-    }
-  };
-  ctx.effect(() => {
-    const run = () => check().catch((e) => opts.onError?.(e));
-    void run();
-    const t = setInterval(() => void run(), opts.reminderCheckMs ?? REMINDER_CHECK_MS);
-    return () => clearInterval(t);
+  api.provide("taskObservation", {
+    comment(taskId: string, id: string, body: string) {
+      return svc.addComment(taskId, { id, at: now().toISOString(), source: "system", event: "observation", body });
+    },
   });
+  api.provide("taskActivity", {
+    async readTaskActivity(taskId: string, signal: AbortSignal) {
+      signal.throwIfAborted();
+      try {
+        return dispatch.activity(svc.read(taskId));
+      } catch (error) {
+        if (error instanceof HuhuError && error.code === "NOT_FOUND") return null;
+        throw error;
+      }
+    },
+  });
+
 }

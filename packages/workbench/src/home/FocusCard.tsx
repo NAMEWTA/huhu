@@ -1,6 +1,6 @@
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { Flame, Pause, Play, RotateCcw } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import { WidgetReadStatus } from "./WidgetReadStatus.js";
@@ -14,17 +14,16 @@ interface FocusView {
 
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
-/** 专注计时：状态在引擎里（startedAt + 剩余秒数），界面只负责每秒显示；到零时让引擎结算（记一次完成并发通知）。 */
+/** 专注计时：状态在引擎里（startedAt + 剩余秒数），界面只负责每秒显示，到期由自动化计划结算。 */
 export function FocusCard({ children }: { children?: ReactNode }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const focus = useCapability<FocusView>("home.focus.get", {});
   const [now, setNow] = useState(() => Date.now());
-  const settling = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const v = focus.data;
 
-  async function act(action: "start" | "pause" | "reset" | "sync") {
+  async function act(action: "start" | "pause" | "reset") {
     setError(null);
     try {
       await engine.call("home.focus.update", { action }, { write: true });
@@ -41,15 +40,6 @@ export function FocusCard({ children }: { children?: ReactNode }) {
   }, [v?.running]);
 
   const remaining = v ? (v.running && v.endsAt ? Math.max(0, Math.ceil((Date.parse(v.endsAt) - now) / 1000)) : v.remainingSec) : 0;
-  useEffect(() => {
-    if (v?.running && remaining === 0 && !settling.current) {
-      settling.current = true;
-      void act("sync").finally(() => {
-        settling.current = false;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v?.running, remaining]);
 
   if (!v || focus.isError)
     return (

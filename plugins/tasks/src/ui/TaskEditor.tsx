@@ -1,9 +1,9 @@
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { normalizeTag, type TaskDto, type TaskHistorySelection } from "@huhu/contracts";
-import { Button, Combobox, DateTimePicker, Dialog, Field, IconButton, Select } from "@huhu/ui";
-import { createRequestId, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { Bell, FileText, FolderOpen, Plus, X } from "lucide-react";
+import { Button, Combobox, DateTimePicker, Dialog, Field, Select } from "@huhu/ui";
+import { host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { FileText, FolderOpen, X } from "lucide-react";
 import { useId, useMemo, useRef, useState } from "react";
 import { draftFromTask, draftToWritable, emptyDraft, validateDraft, type TaskDraft } from "../shared/draft.js";
 import { followUpInstants, followUpWallTime } from "../shared/follow-up-time.js";
@@ -22,8 +22,6 @@ interface Detected {
   installed: boolean;
   headless: boolean;
 }
-
-const newId = (): string => `rem-${createRequestId()}`;
 
 type DispatchTarget = { mode: "new" | "existing" | "resume"; provider: string; sessionId?: string; nativeSessionId?: string; history?: TaskHistorySelection; historyTitle?: string; available: boolean; reason: string | null };
 
@@ -425,55 +423,6 @@ export function TaskEditor({ task, initial, projects, onClose, onSaved }: { task
                 </div>
               ) : null}
             </div>
-            <section className="hu-tw-reminders-editor">
-              <div className="hu-tw-section-label">
-                <Bell size={14} aria-hidden />
-                <strong>{t.editor.reminders}</strong>
-                <Button variant="ghost" icon={Plus} onClick={() => set("reminders", [...draft.reminders, { id: newId(), at: null, enabled: true, deliveredAt: null }])}>
-                  {t.editor.addReminder}
-                </Button>
-              </div>
-              <p className="tasks-hint">{t.editor.remindersHint}</p>
-              {draft.reminders.map((r, i) => (
-                <div key={r.id} className="hu-tw-reminder-config" data-testid="reminder-row">
-                  <div>
-                    <Select aria-label={t.editor.reminderChannel(i + 1)} value="in_app" onChange={() => undefined}>
-                      <option value="in_app">{t.editor.channelInApp}</option>
-                      {t.editor.channelUnsupported.map((c) => (
-                        <option key={c} disabled>
-                          {c}
-                        </option>
-                      ))}
-                    </Select>
-                    <IconButton
-                      icon={X}
-                      label={t.editor.removeReminder(i + 1)}
-                      onClick={() =>
-                        set(
-                          "reminders",
-                          draft.reminders.filter((x) => x.id !== r.id),
-                        )
-                      }
-                    />
-                  </div>
-                  <DateTimePicker
-                    label={t.editor.reminderAt(i + 1)}
-                    field={{ kind: "instant", value: r.at }}
-                    clearable={false}
-                    onChange={(next) => {
-                      if (next.kind !== "instant") return;
-                      set("reminders", draft.reminders.map((x) => (x.id === r.id ? { ...x, at: next.value, deliveredAt: null } : x)));
-                    }}
-                  />
-                  {r.deliveredAt ? <small>{t.editor.delivered}</small> : null}
-                </div>
-              ))}
-              {err("reminder") ? (
-                <p role="alert" className="hu-field-error">
-                  {err("reminder")}
-                </p>
-              ) : null}
-            </section>
           </aside>
         </div>
         {failure ? (

@@ -272,7 +272,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
-    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n), zone: settingsZone, ...(dispatchBudget && { dispatchBudget }) }),
+    apply: (ctx, api) => tasks.apply(ctx, api, { zone: settingsZone, ...(dispatchBudget && { dispatchBudget }) }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(notesManifest),
@@ -312,7 +312,6 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse(agentCliManifest),
     apply: (ctx, api) =>
       void agentCli.apply(ctx, api, {
-        notify: (n) => void notifications.create(n),
         ...(dispatchBudget && { dispatchBudget }),
         ...(process.env["HUHU_HERDR_BIN"] ? { herdrBin: process.env["HUHU_HERDR_BIN"] } : {}),
         ...(moduleCredentialHost && {
@@ -445,9 +444,14 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerNotificationAndSettings(registry, notifications, settingsFile);
+  const home = new HomeStore({
+    dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone,
+    deadlineAvailable: () => !vault.readOnly && plugins.isEnabled("automations") && getService<boolean>("focusDeadlines") === true,
+    focusChanged: () => events.publish("entity.changed", { kind: "home-focus", id: "focus", op: "updated" }),
+  });
   registerHomeCapabilities(
     registry,
-    new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => new Date(), zone: settingsZone, notify: (n) => void notifications.create(n) }),
+    home,
     vault,
     [sshHostsWidget, gitHomeWidget, automationSummaryWidget, tasksHomeWidget, recentNotesHomeWidget, inboxHomeWidget, agentEntryHomeWidget],
     () => {
@@ -506,6 +510,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
         },
         notify: (n) => void notifications.create(n),
         reminderNotifications: { send: ({ id, ...notification }) => void notifications.create(notification, id), has: (id) => notifications.has(id) },
+        focusDeadline: home.focusDeadline(),
       });
     },
   });

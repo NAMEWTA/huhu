@@ -2,7 +2,7 @@ import type { RichEditorPort } from "@huhu/editor/rich";
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { requestOpenPath, useCapability, useEngine } from "@huhu/workbench";
-import { AlertTriangle, Bell, Copy, FileText, Pencil, Trash2, X } from "lucide-react";
+import { AlertTriangle, Copy, FileText, Pencil, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { TaskMarkdownInput, TaskMarkdownView } from "./compact.js";
@@ -11,6 +11,7 @@ import { StatusSelect } from "./TaskViews.js";
 import type { TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import { TaskDispatchPanel } from "./TaskDispatchPanel.js";
 import { TaskFollowUp } from "./TaskFollowUp.js";
+import { TaskReminderPlans } from "./TaskReminderPlans.js";
 
 interface Space {
   id: string;
@@ -168,21 +169,7 @@ export function TaskDetail({
             ))}
           </section>
         ) : null}
-        {task.reminders.length > 0 ? (
-          <section className="hu-tw-detail-section" data-testid="detail-reminders">
-            <h3>
-              <Bell size={14} aria-hidden />
-              {t.detail.reminders}
-            </h3>
-            {task.reminders.map((r) => (
-              <div key={r.id} className="tasks-reminder-read">
-                <span>{t.detail.reminderChannel}</span>
-                <time>{fmt(r.at, zone)}</time>
-                <small>{!r.enabled ? t.detail.reminderOff : r.deliveredAt ? t.detail.reminderDelivered : t.detail.reminderPending}</small>
-              </div>
-            ))}
-          </section>
-        ) : null}
+        <TaskReminderPlans key={task.id} task={task} />
         {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
         {agent ? <RunRecords task={task} zone={zone} onOpenAgent={onOpenAgent} /> : null}

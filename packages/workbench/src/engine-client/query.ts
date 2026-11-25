@@ -20,6 +20,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "ssh-outbound-proxy": ["ssh.outboundProxies.", "ssh.hosts.list"],
   "ssh-shortcuts": ["ssh.shortcuts."],
   "home-dashboard": ["home.dashboard.get"],
+  "home-focus": ["home.focus.get", "automations.plans."],
   "tool-access": ["gateway.get", "capabilities.list", "mcp.catalog."],
   "mcp-source": ["mcp.sources.", "mcp.catalog.", "mcp.diagnostics."],
   gateway: ["gateway.get"],

@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,21 +8,21 @@ import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 import { treeFileRows, treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
-type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
+type Call = (capability: string, input?: unknown, intentKey?: string) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
 
 async function caller(page: Page): Promise<Call> {
   const ep = await page.evaluate(() => window.huhuHost.engine());
-  return (capability, input = {}) =>
+  return (capability, input = {}, intentKey) =>
     page.evaluate(
-      async ([e, cap, inp]) => {
+      async ([e, cap, inp, intentKey]) => {
         const r = await fetch(`${e.baseUrl}/api/v1/call`, {
           method: "POST",
           headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: intentKey ?? crypto.randomUUID(), intentKey }),
         });
         return r.json();
       },
-      [ep, capability, input] as const,
+      [ep, capability, input, intentKey] as const,
     );
 }
 
@@ -1743,10 +1743,13 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
       due: null,
       project: null,
       type: "human",
-      reminders: [{ id: "rem-e2e", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }],
     });
     expect(t.ok).toBe(true);
-    // 到点检查每 30 秒一轮
+    const intentId = randomUUID();
+    const plan = await call("automations.plans.createTaskReminder", { taskId: t.data.id, scheduledFor: "2020-01-01T00:00:00Z", intentId }, intentId);
+    expect(plan.ok).toBe(true);
+    const taskPlans = await call("automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.data.id } } });
+    expect(taskPlans.data.plans).toEqual([expect.objectContaining({ planId: plan.data.planId, revision: plan.data.revision })]);
     const toast = page.locator("[data-sonner-toast]").filter({ hasText: "任务提醒：到点提醒任务" });
     await expect(toast).toBeVisible({ timeout: 50_000 });
     await page.waitForTimeout(4500); // 持久：过了普通提示的消失时间仍在
@@ -1761,6 +1764,129 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
     await expect(page.getByTestId("task-detail").or(page.getByTestId("task-new"))).toBeVisible(); // 跳到任务模块
     await page.getByTestId("bell").click();
     await expect(page.getByTestId("notice-item").filter({ hasText: "到点提醒任务" })).toHaveAttribute("data-read", "true");
+  } finally {
+    await close();
+  }
+});
+
+test("F28：关联任务的周期提醒在任务来源和中心使用同一计划", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const task = await call("tasks.create", { title: "核对周期提醒" });
+    expect(task.ok).toBe(true);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-new").click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("规则名称").fill("周期校对提醒");
+    await editor.getByLabel("关联任务").selectOption(task.data.id);
+    await editor.getByLabel("通知内容").fill("检查校对记录");
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+    const source = { plugin: "tasks", object: { kind: "task", id: task.data.id } };
+    await expect.poll(async () => (await call("automations.plans.list", { source })).data.plans.length).toBe(1);
+    const linked = (await call("automations.plans.list", { source })).data.plans[0];
+    expect(linked).toMatchObject({ planId: expect.any(String), revision: expect.any(String), trigger: { kind: "cron" } });
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    await expect(page.getByTestId("plan-directory").locator(`[data-plan-id="${linked.planId}"]`)).toContainText("周期校对提醒");
+    await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await page.getByRole("button", { name: /^全部任务/ }).click();
+    await page.getByTestId("task-views").getByRole("tab", { name: "列表" }).click();
+    await page.locator(`[data-task-id="${task.data.id}"]`).getByRole("button", { name: /核对周期提醒/ }).click();
+    await expect(page.getByTestId("detail-reminders").locator(`[data-plan-id="${linked.planId}"]`)).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("F32：桌面和两个获邀 Web 页面切离专注卡片后由 Engine 到点结算", async () => {
+  test.setTimeout(120_000);
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ ok: true, data: { state: "running" } });
+    browser = await chromium.launch();
+    const clients = [page];
+    for (let i = 0; i < 2; i++) {
+      const invite = await call("web.invitations.create");
+      expect(invite.ok).toBe(true);
+      const context = await browser.newContext();
+      const web = await context.newPage();
+      await web.goto(invite.data.links[0]);
+      await expect(web.getByTestId("home-dashboard")).toBeVisible();
+      clients.push(web);
+    }
+    await page.getByTestId("focus-start").click();
+    const view = await call("home.focus.get");
+    expect(view.data).toMatchObject({ running: true, plan: { planId: expect.any(String), revision: expect.any(String) } });
+    const { planId, revision } = view.data.plan;
+    const rows = [];
+    for (const client of clients) {
+      await client.getByRole("button", { name: "自动化", exact: true }).first().click();
+      await expect(client.getByTestId("card-focus")).toHaveCount(0);
+      await client.getByRole("button", { name: "计划", exact: true }).click();
+      const row = client.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`);
+      await expect(row).toContainText("专注计时");
+      rows.push(row);
+    }
+    const intentId = randomUUID();
+    const reschedule = await call("automations.plans.submit", { planId, expectedRevision: revision, intentId, change: "reschedule",
+      trigger: { kind: "once", scheduledFor: new Date(Date.now() + 1_500).toISOString() },
+    }, intentId);
+    expect(reschedule.data).toMatchObject({ outcome: "completed", plan: { planId } });
+    await expect.poll(async () => (await call("home.focus.get")).data).toMatchObject({ running: false, completedToday: 1 });
+    await expect.poll(async () => (await call("notifications.list")).data.filter(({ title }: { title: string }) => title === "专注完成").length).toBe(1);
+    for (const row of rows) await expect(row).toContainText("最近一次已完成");
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
+
+test("F31：自动化中心建立、改期、暂停和删除任务观察", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const task = await call("tasks.create", { title: "待观察的编辑任务" });
+    const nextTask = await call("tasks.create", { title: "替换观察对象" });
+    expect(task.ok).toBe(true);
+    expect(nextTask.ok).toBe(true);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    const plans = page.getByTestId("plan-directory");
+    await plans.getByRole("button", { name: "新建状态观察" }).click();
+    const editor = page.getByRole("dialog", { name: "新建状态观察" });
+    await editor.getByLabel("计划名称").fill("编辑任务状态观察");
+    await editor.getByLabel("观察对象").selectOption(task.data.id);
+    await editor.getByLabel("检查间隔").fill("1");
+    await editor.getByLabel("间隔单位").selectOption("seconds");
+    await editor.getByRole("button", { name: "保存观察" }).click();
+    const row = plans.locator("[data-plan-id]").filter({ hasText: "编辑任务状态观察" });
+    await expect(row).toContainText("每 1 秒检查");
+    const planId = await row.getAttribute("data-plan-id");
+    await row.getByRole("button", { name: "编辑观察" }).click();
+    const change = page.getByRole("dialog", { name: "编辑状态观察" });
+    await change.getByLabel("观察对象").selectOption(nextTask.data.id);
+    await change.getByLabel("触发条件").selectOption("threshold");
+    await change.getByLabel("持续秒数").fill("20");
+    await change.getByLabel("条件持续满足时重复递送").check();
+    await change.getByRole("button", { name: "保存观察" }).click();
+    await expect(change).toBeHidden();
+    await expect(row).toHaveAttribute("data-plan-id", planId!);
+    expect((await call("automations.plans.readObservation", { planId })).data).toMatchObject({ target: { id: nextTask.data.id }, condition: { kind: "threshold", seconds: 20 }, repeat: true });
+    await row.getByRole("button", { name: "改期" }).click();
+    const revise = page.getByRole("dialog", { name: "更改计划时间" });
+    await revise.getByLabel("检查间隔（秒）").fill("2");
+    await revise.getByRole("button", { name: "保存" }).click();
+    await expect(row).toContainText("每 2 秒检查");
+    await row.getByRole("button", { name: "暂停" }).click();
+    await expect(row).toContainText("已暂停");
+    await row.getByRole("button", { name: "删除" }).click();
+    await page.getByRole("dialog", { name: "删除计划" }).getByRole("button", { name: "删除计划" }).click();
+    await expect(row).toHaveCount(0);
   } finally {
     await close();
   }

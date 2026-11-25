@@ -136,20 +136,6 @@ export function AgentSettingsPage() {
             ))}
           </select>
         </label>
-        <label className="hu-setting-row">
-          <div>
-            <strong>独立会话等人工时建任务</strong>
-            <p>终端里的程序（需支持 OSC 7501 状态上报）停下来等你批准或回答时，自动建一个任务并追加评论；关闭后只发通知。</p>
-          </div>
-          <input
-            type="checkbox"
-            aria-label="独立会话等人工时建任务"
-            data-testid="agent-waiting-tasks"
-            checked={settings.waitingTasks !== false}
-            disabled={busy}
-            onChange={(e) => void save({ defaultAgent: settings.defaultAgent, agents: settings.agents, waitingTasks: e.target.checked })}
-          />
-        </label>
         <div className="agent-rows">
           {AGENT_CATALOG.map((e) => (
             <AgentRow

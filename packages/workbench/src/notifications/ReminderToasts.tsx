@@ -8,9 +8,11 @@ import { useEngineEvents } from "../engine-client/react.js";
 export function ReminderToasts({ onOpenTasks }: { onOpenTasks(): void }) {
   const feedback = useWorkbenchFeedback("reminders");
   useEngineEvents((e) => {
-    if (e.type !== "reminder.due") return;
-    const p = e.payload as { title?: string };
-    feedback(`任务提醒：${p.title ?? ""}`, "info", { duration: Number.POSITIVE_INFINITY, action: { label: "打开任务", onClick: onOpenTasks }, cancel: { label: "知道了", onClick: () => undefined } });
+    if (e.type !== "notification.created") return;
+    const { title, module } = e.payload as { title?: string; module?: string };
+    if (module === "tasks" && title?.startsWith("任务提醒：")) {
+      feedback(title, "info", { duration: Number.POSITIVE_INFINITY, action: { label: "打开任务", onClick: onOpenTasks }, cancel: { label: "知道了", onClick: () => undefined } });
+    }
   });
   return <WorkbenchToaster scope="reminders" />;
 }
