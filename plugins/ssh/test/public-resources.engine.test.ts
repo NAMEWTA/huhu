@@ -47,6 +47,108 @@ type Waiting = Extract<Probe, { prompt: unknown }>;
 type JobStatus = z.infer<typeof ExecJobStatus>;
 type OutputPage = z.infer<typeof ExecOutputPage>;
 
+test.each(["cli", "mcp"] as const)("%s edits SSH routes with versioned grants and durable receipts", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  const capability = "ssh.routes.edit";
+  try {
+    const jump = await f.host("authorized route jump");
+    const target = await f.host("authorized route target");
+    const invoke = await externalTool(f, entry);
+    await f.allow(capability);
+    const connection = await connectOwned(f, invoke, target.hostId);
+    const jumpBinding = await f.desktop<ResourceHost>(hostGet, { hostId: jump.hostId });
+    const edit = {
+      targets: [{ hostId: target.hostId, expectedRevision: target.revision }],
+      change: { action: "associate", jumpHostId: jump.hostId, ifExists: "replace" },
+      bindings: [
+        { hostId: jump.hostId, routeRevision: jumpBinding.routeRevision },
+        { hostId: target.hostId, routeRevision: connection.routeRevision },
+      ],
+      intentKey: randomUUID(),
+    };
+    await f.chooseHosts([target.hostId]);
+    expect(await invoke(capability, edit)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    await f.chooseHosts([target.hostId, jump.hostId]);
+    const saved = await invoke(capability, edit);
+    expect(saved).toMatchObject({ ok: true, data: { updated: [target.hostId], skipped: [] } });
+    expect(await invoke(capability, edit)).toEqual(saved);
+    expect(await invoke(capability, { ...edit, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const route = await f.desktop<ResourceHost>(hostGet, { hostId: target.hostId });
+    expect(route.route.map(({ hostId }) => hostId)).toEqual([jump.hostId, target.hostId]);
+    expect(route.routeRevision).not.toBe(connection.routeRevision);
+    await vi.waitFor(() => expect(target.server.closed()).toBe(1));
+    expect(await invoke("ssh.connect", { hostId: target.hostId, routeRevision: connection.routeRevision, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    const disable = {
+      targets: [{ hostId: target.hostId, expectedRevision: route.revision }],
+      change: { action: "setEnabled", enabled: false },
+      bindings: [{ hostId: target.hostId, routeRevision: route.routeRevision }],
+      intentKey: randomUUID(),
+    };
+    expect(await invoke(capability, disable)).toMatchObject({ ok: true, data: { updated: [target.hostId] } });
+    const direct = await f.desktop<ResourceHost>(hostGet, { hostId: target.hostId });
+    expect(direct.route.map(({ hostId }) => hostId)).toEqual([target.hostId]);
+    const enable = {
+      targets: [{ hostId: target.hostId, expectedRevision: direct.revision }],
+      change: { action: "setEnabled", enabled: true },
+      bindings: [{ hostId: target.hostId, routeRevision: direct.routeRevision }],
+      intentKey: randomUUID(),
+    };
+    expect(await invoke(capability, enable)).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
+    expect(await invoke(capability, { ...enable, bindings: [...enable.bindings, edit.bindings[0]!] })).toMatchObject({ ok: true, data: { updated: [target.hostId] } });
+    await f.chooseHosts([target.hostId]);
+    expect(await invoke(capability, edit)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+  } finally {
+    await f.close();
+  }
+});
+
+test.each(["cli", "mcp"] as const)("%s edits SSH routes only while the prospective jump is still authorized at commit", { timeout: 30_000 }, async (entry) => {
+  const f = await fixture();
+  try {
+    const jump = await f.host("commit boundary jump");
+    const target = await f.host("commit boundary target");
+    const capability = "ssh.routes.edit";
+    const invoke = await externalTool(f, entry);
+    await f.allow(capability);
+    const bindings = await Promise.all([jump, target].map(async ({ hostId }) => {
+      const { routeRevision } = await f.desktop<ResourceHost>(hostGet, { hostId });
+      return { hostId, routeRevision };
+    }));
+    const files = f.engine.vault.files;
+    const write = files.write.bind(files);
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+    let release!: () => void;
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const pause = vi.spyOn(files, "write").mockImplementation(async (relative, bytes, options) => {
+      if (relative.startsWith(".huhu/module-credentials/")) {
+        markEntered();
+        await resume;
+      }
+      return write(relative, bytes, options);
+    });
+    const changing = invoke(capability, {
+      targets: [{ hostId: target.hostId, expectedRevision: target.revision }],
+      change: { action: "associate", jumpHostId: jump.hostId, ifExists: "replace" },
+      bindings,
+      intentKey: randomUUID(),
+    });
+    try {
+      expect(await Promise.race([entered.then(() => "held"), changing.then(() => "returned")])).toBe("held");
+      await f.chooseHosts([target.hostId]);
+    } finally {
+      release();
+      pause.mockRestore();
+    }
+    const result = await changing;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(["PERMISSION_DENIED", "VERSION_CONFLICT"]).toContain(result.error.code);
+    expect(await f.desktop<ResourceHost>(hostGet, { hostId: target.hostId })).toMatchObject({ revision: target.revision, route: [{ hostId: target.hostId }] });
+  } finally {
+    await f.close();
+  }
+});
+
 test.each(["cli", "mcp"] as const)("%s isolates monitor subscriptions and keeps active query output out of receipts", { timeout: 30_000 }, async (entry) => {
   const f = await fixture();
   let queries = 0;

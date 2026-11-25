@@ -14,7 +14,7 @@ import { sshLocalShellDescriptors } from "./local-shell.js";
 import { sshOutboundProxyDescriptors } from "./outbound-proxy-capabilities.js";
 import { sshDeviceProxyDescriptors } from "./device-proxy-capabilities.js";
 import { sshProxyShareDescriptors } from "./proxy-share.js";
-import { EditHostRoutes, HostRouteEditResult } from "./route-edits.js";
+import { EditHostRoutes, EditOwnedRoutes, HostRouteEditResult } from "./route-edits.js";
 import { sshShortcutDescriptors } from "./shortcuts.js";
 import { sshRecordingDescriptors } from "./terminal-recordings.js";
 import { sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
@@ -93,13 +93,14 @@ export const sshCapabilityDescriptors = {
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
   routesEdit: defineCapabilityDescriptor({
-    ...ssh,
+    ...resource,
     name: "ssh.routes.edit",
     title: "批量编辑 SSH 跳板路由",
-    description: "按主机版本批量关联直接跳板或启停路由，工作台已打开的连接保留建立时的路径。",
+    description: "按版本批量关联直接跳板或启停路由。CLI／HTTP MCP 需要目标及新跳板的路由绑定和意图键。",
     scope: "write",
     risk: "high",
-    input: EditHostRoutes,
+    idempotency: "handler",
+    input: z.union([EditOwnedRoutes, EditHostRoutes]),
     output: HostRouteEditResult,
   }),
   jobsPrepare: defineCapabilityDescriptor({

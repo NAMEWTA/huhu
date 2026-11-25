@@ -282,7 +282,7 @@ test("定义编辑拒绝携带凭据目标变化的更新", async () => {
   expect((await credentials.list())[0]).toMatchObject({ revision, definition });
 });
 
-test("Engine 工作台批量编辑同一主机配置目录，外部入口未开放此工作台动作", async () => {
+test("Engine 工作台批量编辑同一主机配置目录，外部入口默认关闭", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-engine-route-edits-"));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const vaultPath = path.join(root, "vault");

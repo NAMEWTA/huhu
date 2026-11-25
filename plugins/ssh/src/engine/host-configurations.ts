@@ -226,7 +226,7 @@ export class HostConfigurations {
     });
   }
 
-  editRoutes(input: EditHostRoutes, signal: AbortSignal): Promise<HostRouteEditResult> {
+  editRoutes(input: EditHostRoutes, signal: AbortSignal, assertCurrent?: () => void): Promise<HostRouteEditResult> {
     return this.mutate(async () => {
       const parsed = EditHostRoutes.safeParse(input);
       if (!parsed.success) throw errors.invalidInput("批量路由需要 1–100 个不同的有效主机、预期版本和有效操作", parsed.error.issues);
@@ -234,6 +234,7 @@ export class HostConfigurations {
       const updated = await this.credentials().editDefinitions(
         targets.map(({ hostId, expectedRevision }) => ({ entityId: hostId, expectedRevision })),
         (entries) => {
+          assertCurrent?.();
           const graph = new Map(entries.filter(({ entityId }) => OwnedHostId.safeParse(entityId).success).map(({ entityId, definition }) => [entityId, definition]));
           const next = new Map<string, HostDefinition>();
           if (change.action === "associate" && !graph.has(change.jumpHostId)) throw errors.notFound("所选 SSH 跳板不存在或需要修复");
@@ -275,6 +276,7 @@ export class HostConfigurations {
           return next;
         },
         signal,
+        routeCommitGuard(assertCurrent).isCurrent,
       );
       const changed = new Set(updated);
       return { updated, skipped: targets.map(({ hostId }) => hostId).filter((id) => !changed.has(id)) };

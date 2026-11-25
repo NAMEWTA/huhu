@@ -280,7 +280,7 @@ export class ModuleCredentials<T> {
   }
 
   /** Atomically edit existing definitions with identical credential targets. The planner sees only portable data. */
-  async editDefinitions(targets: readonly DefinitionRevision[], prepare: (entries: readonly PortableDefinition<T>[]) => ReadonlyMap<string, T>, signal?: AbortSignal): Promise<string[]> {
+  async editDefinitions(targets: readonly DefinitionRevision[], prepare: (entries: readonly PortableDefinition<T>[]) => ReadonlyMap<string, T>, signal?: AbortSignal, isCurrent?: () => boolean): Promise<string[]> {
     this.#vault.assertWritable();
     const requested = parse(z.array(z.strictObject({ entityId: entityIdSchema, expectedRevision: generation })).min(1), targets, "invalid-input");
     assertUnique(
@@ -341,6 +341,7 @@ export class ModuleCredentials<T> {
           entries.map((entry) => next.get(entry.entityId) ?? entry),
           version,
           signal,
+          isCurrent,
         );
         return { updated: [...next.keys()] };
       } finally {

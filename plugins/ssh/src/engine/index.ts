@@ -41,6 +41,7 @@ import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
 import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, readResourceRoute, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
 import { connectionIdentity } from "./workspace-target.js";
+import { HostRouteEditResult, type EditHostRoutes } from "./route-edits.js";
 import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
@@ -582,11 +583,42 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.routesEdit, async ({ caller, signal }, input) => {
-      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshCapabilityDescriptors.routesEdit.name);
-      const result = await hosts.editRoutes(input, signal);
-      for (const id of result.updated) api.events.publish("entity.changed", { kind: "ssh-host", id, op: "updated" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.routesEdit, (context, input) => {
+      const { caller, signal } = context;
+      const apply = async (edit: EditHostRoutes, assertCurrent?: () => void) => {
+        const result = await hosts.editRoutes(edit, signal, assertCurrent);
+        for (const id of result.updated) api.events.publish("entity.changed", { kind: "ssh-host", id, op: "updated" });
+        return result;
+      };
+      if (isWorkbenchCaller(caller)) return apply({ targets: input.targets, change: input.change });
+      if (!hostIntents || !("intentKey" in input)) throw errors.invalidInput("外部 SSH 路由编辑需要原路由绑定与意图键");
+      const { targets, change, bindings, intentKey } = input;
+      const ids = targets.map(({ hostId }) => hostId);
+      const authorize = () => {
+        const routes = boundSshRoutes(api.vault.files, context, bindings);
+        const required = new Set(ids);
+        if (change.action === "associate") required.add(change.jumpHostId);
+        for (const { hostId, expectedRevision } of targets) {
+          const current = routes.get(hostId);
+          if (!current) throw errors.invalidInput("每个目标都需要原路由绑定");
+          if (current.revision !== expectedRevision) throw errors.versionConflict(current.revision);
+        }
+        if (change.action === "setEnabled" && change.enabled) {
+          for (const { jumpHostIds } of readPortableHosts(api.vault.files, required)) {
+            if (jumpHostIds[0]) required.add(jumpHostIds[0]);
+          }
+        }
+        if (routes.size !== required.size || [...required].some((id) => !routes.has(id))) throw errors.invalidInput("提供每个目标及将启用的直接跳板的路由绑定");
+        return [...routes.values()].flatMap(({ route }) => route.map(({ hostId }) => hostId));
+      };
+      return hostIntents.run(context, sshCapabilityDescriptors.routesEdit.name, {
+        hosts: ids,
+        intentKey,
+        input: { targets, change, bindings },
+        output: HostRouteEditResult,
+        authorize,
+        run: (assertCurrent) => apply({ targets, change }, assertCurrent),
+      });
     }),
   );
   api.defineCapability(
