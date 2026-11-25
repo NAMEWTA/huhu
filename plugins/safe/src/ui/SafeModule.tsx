@@ -40,6 +40,7 @@ const ACTION_TEXT: Record<string, string> = {
   "reveal-account": "显示账号密码",
   "create-entry": "新建条目",
   "update-entry": "编辑条目",
+  "create-account": "新增账号",
   "update-account": "编辑账号",
   "delete-account": "删除账号",
   "delete-entry": "删除条目",
@@ -54,7 +55,7 @@ const ACTION_TEXT: Record<string, string> = {
   "change-password": "修改主密码",
 };
 
-/** 保险箱（原型 Safe）：凭据双栏 / 访问记录；锁定策略与主密码在设置页的“保险箱”里；未初始化或锁定时是居中的锁屏。 */
+/** 保险箱条目、账号和访问记录。锁定策略与主密码在设置页。 */
 export function SafeModule(props: ModuleProps) {
   const engine = useEngine();
   return <SafeWorkspace key={`${engine.vaultId}:${engine.endpoint.baseUrl}`} {...props} />;

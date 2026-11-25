@@ -362,6 +362,94 @@ test("UX15 同步表单按容器重排，保存后从原计划继续管理", asy
   }
 });
 
+test("UX16 Safe 三栏按账号取用明文，窄窗逐级返回并清理", async ({ browserName }, info) => {
+  void browserName;
+  const password = "UX16 synthetic fixture master";
+  const accountSecret = "UX16 synthetic second password";
+  type Session = { instanceId: string; generation: number; locked: boolean };
+  await runOnHosts(info, async (page, name) => {
+    if (name === "electron") {
+      const initial = await call<Session>(page, "safe.status", {});
+      await call(page, "safe.setup", { password, session: { instanceId: initial.instanceId, generation: initial.generation } });
+      const status = await call<Session>(page, "safe.status", {});
+      const session = { instanceId: status.instanceId, generation: status.generation };
+      const first = await call<{ revision: number }>(page, "safe.entries.create", {
+        session, expectedRevision: 0, name: "UX16 三账号站点", url: "https://three.example.test",
+        accounts: [
+          { account: "账号甲", password: "UX16 synthetic first password" },
+          { account: "账号乙", password: accountSecret, email: "ux16-second@example.test" },
+          { account: "账号丙", password: "UX16 synthetic third password" },
+        ],
+      });
+      await call(page, "safe.entries.create", { session, expectedRevision: first.revision, name: "UX16 另一个站点", accounts: [{ account: "另一个站点的账号" }] });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator('[data-region="rail"]').getByRole("button", { name: "保险箱", exact: true }).click();
+    if ((await call<Session>(page, "safe.status", {})).locked) {
+      await page.getByLabel("主密码", { exact: true }).fill(password);
+      await page.getByRole("button", { name: "解锁保险箱" }).click();
+    }
+    const grid = page.getByTestId("safe-unlocked");
+    const entry = grid.getByTestId("safe-item").filter({ hasText: "UX16 三账号站点" });
+    const summary = grid.getByTestId("safe-accounts");
+    const accountRows = summary.getByTestId("safe-account-row");
+    const second = accountRows.filter({ hasText: "账号乙" });
+    const detail = grid.getByTestId("safe-account-detail");
+    const secret = detail.getByTestId("secret-value");
+    const reveals: string[] = [];
+    page.on("request", (request) => {
+      if (!request.url().endsWith("/api/v1/call") || request.method() !== "POST") return;
+      const body = request.postDataJSON();
+      if (body?.capability === "safe.accounts.reveal") reveals.push(body.input.accountId);
+    });
+    await entry.click();
+    await expect.poll(() => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+    await expect(accountRows).toHaveCount(3);
+    await expect(entry).toBeVisible();
+    await expect(summary).toBeVisible();
+    await expect(detail).toBeVisible();
+    await second.press("Enter");
+    await expect(detail.getByRole("heading", { name: "账号乙", exact: true })).toBeFocused();
+    await expect(detail).toContainText("ux16-second@example.test");
+    await expect(secret).toHaveText("••••••••");
+    expect(reveals).toEqual([]);
+    await detail.getByRole("button", { name: "显示密码", exact: true }).click();
+    await expect(secret).toHaveText(accountSecret);
+    expect(reveals).toEqual([await second.getAttribute("data-account-id")]);
+
+    await page.setViewportSize({ width: 490, height: 830 });
+    await expect(summary).toBeHidden();
+    await detail.getByRole("button", { name: "返回账号" }).click();
+    await expect(second).toBeFocused();
+    await expect(detail).toBeHidden();
+    await expect(secret).toHaveText("••••••••");
+    await summary.getByRole("button", { name: "返回条目" }).click();
+    await expect(entry).toBeFocused();
+    await entry.click();
+    await expect(second).toHaveAttribute("aria-pressed", "true");
+    const addedName = `UX16 新增账号 ${name}`;
+    await summary.getByRole("button", { name: "新增账号", exact: true }).click();
+    const editor = page.getByRole("dialog", { name: "新增账号" });
+    await editor.getByLabel("账号（必填）").fill(addedName);
+    await editor.getByLabel("密码", { exact: true }).fill("UX16 synthetic new password");
+    await editor.getByTestId("safe-save").click();
+    await expect(detail.getByRole("heading", { name: addedName, exact: true })).toBeFocused();
+    await expect(secret).toHaveText("••••••••");
+    expect(reveals).toHaveLength(1);
+    await detail.getByRole("button", { name: "删除账号", exact: true }).click();
+    await page.getByTestId("safe-remove-confirmation").getByRole("button", { name: "确认删除账号" }).click();
+    await expect(accountRows).toHaveCount(3);
+    await summary.getByRole("button", { name: "返回条目" }).click();
+    await grid.getByTestId("safe-item").filter({ hasText: "UX16 另一个站点" }).click();
+    await accountRows.filter({ hasText: "另一个站点的账号" }).click();
+    await expect(detail.getByRole("heading", { name: "另一个站点的账号" })).toBeVisible();
+    await expect(secret).toHaveText("未设置");
+    await page.getByRole("button", { name: "手动锁定" }).click();
+    await expect(page.getByTestId("safe-locked")).toBeVisible();
+    await expect(secret).toHaveCount(0);
+  });
+});
+
 test("F22 命令面板隔离键盘焦点并在关闭或执行后恢复导航", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page) => {

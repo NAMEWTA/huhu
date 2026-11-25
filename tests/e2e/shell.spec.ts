@@ -706,7 +706,7 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
     const newEntry = page.getByTestId("safe-new");
     const addAccount = dialog.getByRole("button", { name: "再添加一个账号" });
     const save = dialog.getByTestId("safe-save");
-    const accountSelect = page.getByRole("combobox", { name: "账号", exact: true });
+    const accounts = page.getByTestId("safe-accounts").getByTestId("safe-account-row");
     let reveals = 0;
     page.on("request", (request) => {
       if (request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "safe.accounts.reveal") reveals++;
@@ -739,13 +739,13 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
     await expect(secret).toHaveText("••••••••");
 
     await revealAfter(page, async () => {
-      await accountSelect.selectOption({ index: 1 });
+      await accounts.nth(1).press("Enter");
       await expect(secret).toHaveText("••••••••");
     });
     await expect(secret).toHaveText("••••••••");
     await page.getByRole("button", { name: "显示密码" }).press("Enter");
     await expect(secret).toHaveText(secondPassword);
-    await accountSelect.selectOption({ index: 2 });
+    await accounts.nth(2).press("Enter");
     await expect(secret).toHaveText("未设置");
     await expect(page.getByRole("button", { name: "显示密码" })).toBeDisabled();
     await expect(page.getByText(secondPassword, { exact: true })).toHaveCount(0);
@@ -763,7 +763,7 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
     await expect(row).toContainText(changedUrl);
     await expect(row).toContainText("3 个账号");
 
-    await accountSelect.selectOption({ index: 1 });
+    await accounts.nth(1).press("Enter");
     await page.getByRole("button", { name: "编辑账号" }).press("Enter");
     await expect(dialog.getByLabel("备注")).toHaveValue(longNote);
     await expect(dialog.getByLabel("新密码")).toHaveValue("");
@@ -775,7 +775,7 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
     await page.screenshot({ path: test.info().outputPath("safe-desktop-masked.png") });
     await page.getByRole("button", { name: "显示密码" }).press("Enter");
     await expect(secret).toHaveText(secondPassword);
-    await accountSelect.selectOption({ index: 2 });
+    await accounts.nth(2).press("Enter");
     await page.getByRole("button", { name: "编辑账号" }).press("Enter");
     await dialog.getByLabel("密码操作").selectOption("set");
     await dialog.getByLabel("新密码").fill("e2e-added-then-cleared");
@@ -789,7 +789,7 @@ test("保险箱：多账号创建、编辑、显隐与锁定清除", async () =>
     await save.press("Enter");
     await expect(secret).toHaveText("未设置");
 
-    await accountSelect.selectOption({ index: 0 });
+    await accounts.nth(0).press("Enter");
     await expect(secret).toHaveText("••••••••");
     await expect(page.getByText("0012345", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "显示密码" }).press("Enter");
@@ -873,14 +873,14 @@ test("保险箱：按指定账号删除，最后一个账号单独确认并可�
     const alpha = sites.filter({ hasText: "站点甲" });
     const beta = sites.filter({ hasText: "站点乙" });
     await alpha.click();
-    const selector = page.getByRole("combobox", { name: "账号", exact: true });
-    await selector.selectOption({ index: 1 });
+    const choices = page.getByTestId("safe-accounts").getByTestId("safe-account-row");
+    await choices.nth(1).click();
     await expect(page.getByText("甲二", { exact: true })).toBeVisible();
     const dialog = page.getByTestId("safe-remove-confirmation");
     await page.getByRole("button", { name: "删除账号", exact: true }).click();
     await expect(dialog).toContainText("站点甲");
     await dialog.getByRole("button", { name: "确认删除账号" }).click();
-    await expect(selector.locator("option")).toHaveCount(1);
+    await expect(choices).toHaveCount(1);
     await expect(page.getByText("甲一", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "删除账号", exact: true }).click();
     await expect(dialog).toContainText("仅剩的账号");

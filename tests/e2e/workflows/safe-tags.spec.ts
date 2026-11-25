@@ -198,7 +198,7 @@ test("保险箱只复制所选第三个账号，剪贴板拒绝有反馈且锁�
     await page.getByRole("button", { name: "手动锁定" }).click();
     await unlock(page);
     await page.getByTestId("safe-item").filter({ hasText: "复制测试条目" }).click();
-    await page.getByRole("combobox", { name: "账号", exact: true }).selectOption({ index: 2 });
+    await page.getByTestId("safe-accounts").getByTestId("safe-account-row").filter({ hasText: "第三账号" }).click();
     const copy = page.getByRole("button", { name: "复制密码", exact: true });
     const masked = page.getByTestId("secret-value");
     await expect(masked).toHaveText("••••••••");
@@ -295,12 +295,12 @@ test("保险箱标签：多标签交集、账号命中、无标签及锁定清�
     await expect(rows).toHaveCount(2);
     await second.press("Enter");
     await expect(rows).toHaveCount(1);
-    const select = page.getByRole("combobox", { name: "账号", exact: true });
+    const selectedAccount = page.getByTestId("safe-accounts").locator('[data-testid="safe-account-row"][aria-pressed="true"]');
     for (const query of [privateEmail, privateNote, "0012561"]) {
       await search.fill(query);
       await expect(rows).toContainText("命中账号 · 2. 同名账号");
       await rows.press("Enter");
-      await expect(select.locator("option:checked")).toHaveText("2. 同名账号");
+      await expect(selectedAccount).toContainText("2. 同名账号");
     }
     for (const query of [extra, "url-marker5c61", "两个标签"]) {
       await search.fill(query);
@@ -329,12 +329,12 @@ test("保险箱标签：多标签交集、账号命中、无标签及锁定清�
     await page.getByRole("button", { name: "手动锁定" }).click();
     await expect(search).toHaveCount(0);
     await expect(filters).toHaveCount(0);
-    await expect(select).toHaveCount(0);
+    await expect(selectedAccount).toHaveCount(0);
     await unlock(page);
     await expect(search).toHaveValue("");
     await expect(all).toHaveAttribute("aria-pressed", "true");
     await expect(rows).toHaveCount(3);
-    await expect(select).toHaveCount(0);
+    await expect(selectedAccount).toHaveCount(0);
 
     const fetched = Promise.withResolvers<boolean>();
     const release = Promise.withResolvers<void>();

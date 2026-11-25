@@ -26,6 +26,7 @@
       "safe.entries.list",
       "safe.entries.get",
       "safe.entries.delete",
+      "safe.accounts.create",
       "safe.accounts.update",
       "safe.accounts.delete",
       "safe.accounts.reveal",

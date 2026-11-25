@@ -5,6 +5,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import {
+  CreateAccount,
   CreateEntry,
   CreateEntryReceipt,
   CreateTag,
@@ -50,7 +51,7 @@ const Status = z.strictObject({
   callerProof: SafeCallerProof.optional(),
 });
 
-function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { risk?: CapabilityDescriptor["risk"]; individualExposure?: true } = {}) {
+function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["scope"], input: z.ZodType<I>, output: z.ZodType<O>, options: { risk?: CapabilityDescriptor["risk"]; individualExposure?: true; exposable?: false } = {}) {
   return defineCapabilityDescriptor({
     name: `safe.${name}`,
     title,
@@ -61,7 +62,7 @@ function tool<I, O>(name: string, title: string, scope: CapabilityDescriptor["sc
     output,
     risk: options.risk ?? (options.individualExposure || scope !== "read" ? "high" : "normal"),
     ...(options.individualExposure && { individualExposure: true }),
-    exposable: true,
+    exposable: options.exposable ?? true,
     defaultExposed: false,
     ...(scope === "write" && { idempotency: "handler" }),
   });
@@ -72,6 +73,7 @@ const caps = {
   updateEntry: tool("entries.update", "编辑保险箱条目", "write", UpdateEntry, UpdateEntryReceipt),
   listEntries: tool("entries.list", "列出保险箱条目索引", "read", ListEntries, EntryIndex),
   getEntry: tool("entries.get", "读取保险箱条目摘要", "read", GetEntry, EntryDetail),
+  createAccount: tool("accounts.create", "向保险箱条目新增账号", "write", CreateAccount, UpdateAccountReceipt, { exposable: false }),
   updateAccount: tool("accounts.update", "编辑指定账号", "write", UpdateAccount, UpdateAccountReceipt),
   deleteAccount: tool("accounts.delete", "移除条目中的指定账号", "write", DeleteAccount, UpdateEntryReceipt),
   deleteEntry: tool("entries.delete", "删除整个条目及其账号", "write", DeleteEntry, DeleteEntryReceipt),
@@ -174,6 +176,7 @@ export function apply(
   personal(caps.updateEntry, (access, input) => safe.updateEntry(input, access));
   personal(caps.listEntries, (access, input) => safe.listEntries(input.session, access));
   personal(caps.getEntry, (access, input) => safe.getEntry(input.session, input.entryId, access));
+  personal(caps.createAccount, (access, input) => safe.createAccount(input, access));
   personal(caps.updateAccount, (access, input) => safe.updateAccount(input, access));
   personal(caps.deleteAccount, (access, input) => safe.deleteAccount(input, access));
   personal(caps.deleteEntry, (access, input) => safe.deleteEntry(input, access));

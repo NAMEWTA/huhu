@@ -49,6 +49,7 @@ export const CreateEntry = ListEntries.extend({
 });
 
 const EditTarget = GetEntry.extend({ expectedRevision: Revision });
+export const CreateAccount = z.strictObject({ ...EditTarget.shape, ...AccountInput.shape });
 export const UpdateEntry = z
   .strictObject({ ...EditTarget.shape, name: RequiredText.optional(), url: OptionalUrl.optional(), tagIds: TagIds.optional(), newTags: z.array(TagFields).optional() })
   .refine(({ name, url, tagIds, newTags }) => name !== undefined || url !== undefined || tagIds !== undefined || !!newTags?.length, "提供要更新的条目字段");
@@ -75,6 +76,7 @@ export const UpdateAccountReceipt = EntryRef.extend({ accountId: z.uuid(), hasPa
 
 export type SafeSession = z.infer<typeof SafeSession>;
 export type CreateEntry = z.infer<typeof CreateEntry>;
+export type CreateAccount = z.infer<typeof CreateAccount>;
 export type EditTarget = z.infer<typeof EditTarget>;
 export type UpdateEntry = z.infer<typeof UpdateEntry>;
 export type UpdateAccount = z.infer<typeof UpdateAccount>;
