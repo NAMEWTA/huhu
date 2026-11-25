@@ -63,7 +63,8 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
   const tags = ["准备阶段", "跨团队复核", "必须保留同一个任务"];
   try {
     await engineReady(page);
-    const space = await call<{ id: string }>(page, "agent.spaces.save", { name: "窄栏任务工作区", root: vault });
+    const existing = (await call<{ id: string; root: string }[]>(page, "agent.spaces.list", {})).find((item) => item.root === vault);
+    const space = existing ?? await call<{ id: string }>(page, "agent.spaces.save", { name: "窄栏任务工作区", root: vault });
     await page.route("**/api/v1/call", async (route) => {
       if (route.request().postDataJSON()?.capability !== "agent.catalog.detect") return route.continue();
       return route.fulfill({ json: { ok: true, data: [{ id: "codex", displayName: "Codex", headless: true, installed: true }] } });
