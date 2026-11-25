@@ -266,7 +266,6 @@ export function WorkspaceRunView({
                   )}
                   {pane.phase === "ready" && (
                     <WorkspacePaneTools
-                      paneId={pane.paneId}
                       label={pane.label}
                       visible={shown && visible}
                       position={paneTools}
