@@ -1,9 +1,10 @@
-import { _electron as electron, expect, test, type Page } from "@playwright/test";
+import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { localUpstream } from "../../../packages/kernel/test/fixtures/mcp-upstream.js";
+import { loopbackOAuth } from "../../../packages/kernel/test/fixtures/mcp-oauth.js";
 import { root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
@@ -172,6 +173,156 @@ test("P2 导入三个本地来源、聚合同名工具、刷新分页目录并�
     await app?.close().catch(() => undefined);
     await http?.close().catch(() => undefined);
     await sse?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
+
+test("P3 正式来源页面添加服务、预览发布并访问真实资源和提示", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-mcp-page-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  const journal = path.join(sandbox, "fixture.ndjson");
+  const definition = path.join(sandbox, "definition.json");
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  try {
+    mkdirSync(vault);
+    writeFileSync(definition, JSON.stringify({ catalog: true, label: "Shared resource" }));
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await gateway(page);
+    const panel = page.getByTestId("gateway-mcp-sources");
+    await panel.getByRole("button", { name: "添加服务" }).click();
+    const editor = page.getByRole("dialog", { name: "添加 MCP 服务" });
+    await editor.getByLabel("服务名称").fill("页面夹具");
+    await editor.getByLabel("稳定命名空间").fill("catalog_page");
+    await editor.getByLabel("命令", { exact: true }).fill(process.execPath);
+    await editor.getByLabel("参数（JSON 数组）").fill(JSON.stringify([stdioFixture, journal, definition]));
+    await editor.getByRole("button", { name: "保存配置" }).click();
+    await panel.getByRole("button", { name: "查看 页面夹具" }).click();
+    const detail = panel.getByTestId("mcp-source-detail");
+    await expect(detail).toContainText("未启用");
+    expect(existsSync(journal)).toBe(false);
+    await detail.getByRole("button", { name: "核对命令并授权" }).click();
+    const approval = page.getByRole("dialog", { name: "授予本机许可" });
+    await expect(approval.getByRole("button", { name: "取消" })).toBeFocused();
+    await approval.getByRole("button", { name: "确认", exact: true }).click();
+    await detail.getByRole("button", { name: "检查连接" }).click();
+    await expect(panel.getByRole("status")).toContainText("检查成功");
+    const directory = panel.getByRole("table", { name: "MCP 能力目录" });
+    const selectEntry = async (name: string) => {
+      await directory.getByRole("button", { name: "选择开放 " + name, exact: true }).click();
+      const preview = page.getByRole("dialog", { name: "预览开放变更" });
+      await expect(preview).toContainText(name);
+      await preview.getByRole("button", { name: "确认更新开放策略" }).click();
+      await expect(preview).toBeHidden();
+    };
+    await selectEntry("catalog_page__echo");
+    await page.getByRole("tab", { name: "Resources" }).click();
+    const uri = "mcp-source://catalog_page/fixture://note/1";
+    await selectEntry(uri);
+    await page.getByRole("tab", { name: "Templates" }).click();
+    await selectEntry("mcp-source://catalog_page/fixture://group/{folder}/{name}{?q,format}");
+    await page.getByRole("tab", { name: "Prompts" }).click();
+    await selectEntry("catalog_page__review");
+    await detail.getByRole("button", { name: "启用来源", exact: true }).click();
+    await call(page, "gateway.mcp.update", { enabled: true });
+    const { token } = await call<{ token: string }>(page, "gateway.tokens.create", { name: "UI catalog" });
+    const rpc = await openClient(page, token);
+    expect((await rpc("resources/list")).result.resources).toContainEqual(expect.objectContaining({ uri }));
+    expect((await rpc("resources/read", { uri })).result.contents).toMatchObject([{ uri, text: "Shared resource" }]);
+    expect((await rpc("prompts/get", { name: "catalog_page__review", arguments: { topic: "本机夹具" } })).result.messages).toMatchObject([
+      { content: { text: "本机夹具" } }, { content: { resource: { uri } } },
+    ]);
+  } finally {
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
+
+test("P4 独立 Web 工作台通过正式来源页面预览、导入并读取脱敏配置", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-mcp-web-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  let browser: Browser | undefined;
+  try {
+    mkdirSync(vault);
+    app = await launch(vault);
+    const desktop = await app.firstWindow();
+    await gateway(desktop);
+    await desktop.getByRole("tab", { name: "服务端" }).click();
+    const share = desktop.getByTestId("web-share-panel");
+    await share.getByRole("combobox", { name: "分享范围" }).selectOption("local");
+    await share.getByRole("button", { name: "启动分享" }).click();
+    await share.getByRole("button", { name: "创建邀请" }).click();
+    const invitation = desktop.getByRole("dialog", { name: "Web 邀请链接" });
+    const link = await invitation.getByRole("textbox", { name: /^邀请链接 127.0.0.1:/ }).inputValue();
+    await invitation.getByRole("button", { name: "完成" }).click();
+
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+    await page.goto(link);
+    await page.getByRole("button", { name: "能力网关", exact: true }).first().click();
+    const panel = page.getByTestId("gateway-mcp-sources");
+    await panel.getByRole("button", { name: "导入 JSON" }).click();
+    const importer = page.getByRole("dialog", { name: "导入 MCP 配置" });
+    await importer.getByLabel("mcpServers JSON").fill(JSON.stringify({ mcpServers: {
+      web_demo: { command: "huhu-unused-fixture", args: ["serve"], env: { FIXTURE: "${HUHU_TEST_REFERENCE}" } },
+    } }));
+    await importer.getByRole("button", { name: "预览导入", exact: true }).click();
+    await expect(importer.getByRole("region", { name: "导入预览" })).toContainText("web_demo");
+    await importer.getByRole("button", { name: "提交所选变更" }).click();
+    await panel.getByRole("button", { name: "查看 web_demo" }).click();
+    await expect(panel.getByTestId("mcp-source-detail")).toContainText("未启用");
+    const exported = page.waitForEvent("download");
+    await panel.getByRole("button", { name: "脱敏导出" }).click();
+    const downloaded = await exported;
+    expect(downloaded.suggestedFilename()).toBe("mcp-sources.json");
+    expect(readFileSync((await downloaded.path())!, "utf8")).toContain("HUHU_TEST_REFERENCE");
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
+
+test("P4 桌面来源页面完成回环 OAuth 登录并注销", async () => {
+  test.skip(process.env["HUHU_MCP_KEYRING_ACCEPTANCE"] !== "1", "需要可用的系统凭据宿主");
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-mcp-oauth-ui-"));
+  const vault = path.join(sandbox, "vault");
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  let issuer: Awaited<ReturnType<typeof loopbackOAuth>> | undefined;
+  try {
+    mkdirSync(vault);
+    issuer = await loopbackOAuth();
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await gateway(page);
+    const panel = page.getByTestId("gateway-mcp-sources");
+    await panel.getByRole("button", { name: "添加服务" }).click();
+    const editor = page.getByRole("dialog", { name: "添加 MCP 服务" });
+    await editor.getByLabel("服务名称").fill("回环授权");
+    await editor.getByLabel("稳定命名空间").fill("oauth_page");
+    await editor.getByLabel("传输").selectOption("streamable-http");
+    await editor.getByLabel("远端 URL").fill(issuer.url);
+    await editor.getByLabel("认证方式").selectOption("oauth");
+    await editor.getByRole("button", { name: "保存配置" }).click();
+    await panel.getByRole("button", { name: "查看 回环授权" }).click();
+    const detail = panel.getByTestId("mcp-source-detail");
+    await detail.getByRole("button", { name: "登录 OAuth" }).click();
+    const login = page.getByRole("dialog", { name: "OAuth 登录" });
+    await login.getByLabel("账号标签").fill("工作账号");
+    await login.getByRole("button", { name: "开始登录" }).click();
+    const link = login.getByRole("link", { name: "打开授权页" });
+    await expect(link).toBeVisible();
+    expect((await fetch((await link.getAttribute("href"))!)).ok).toBe(true);
+    await expect(login.getByRole("status")).toHaveText("认证已完成");
+    await login.getByRole("button", { name: "完成" }).click();
+    await expect(detail).toContainText("已绑定 · 工作账号");
+    await detail.getByRole("button", { name: "注销 OAuth" }).click();
+    await expect(detail).toContainText("未绑定");
+    expect(issuer.exchanges).toBe(1);
+  } finally {
+    await app?.close().catch(() => undefined);
+    await issuer?.stop().catch(() => undefined);
     rmTree(sandbox);
   }
 });

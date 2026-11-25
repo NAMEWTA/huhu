@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, MCP_ENTRY_KINDS, MCP_MANAGEMENT_ACCESS, McpCatalogViewSchema, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, PluginManifestSchema } from "@huhu/contracts";
+import { errors, MCP_ENTRY_KINDS, MCP_MANAGEMENT_ACCESS, McpCatalogViewSchema, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, McpSourcesViewSchema, McpSourceViewSchema, PluginManifestSchema } from "@huhu/contracts";
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityContext } from "../capabilities/define.js";
 import type { PluginEntry } from "../plugin-manager.js";
@@ -7,7 +7,9 @@ import { canonicalJson } from "../idempotency.js";
 import { McpSourceRuntime, routeOwner, type McpSourceRuntimeOptions } from "./runtime.js";
 import { McpSourceStore } from "./store.js";
 import { MAX_MCP_SOURCES, McpSourceImport, mcpImportPreview, sourceNamespace } from "./import.js";
-import { validateSourceConfiguration } from "./transport.js";
+import { validateCredentialHeaders, validateSourceConfiguration } from "./transport.js";
+import { clearCredential, credentialReference, McpCredentials, type McpCredentialHost, type McpCredentialMaterial } from "./credentials.js";
+import { McpOAuth } from "./oauth.js";
 
 export const MCP_SOURCES_SERVICE = "mcpSources";
 
@@ -20,7 +22,10 @@ const sourceInput = McpSourceSchema.pick({ displayName: true, namespace: true, c
   displayName: z.string().trim().min(1).max(128), namespace: sourceNamespace,
 });
 const state = McpSourceCatalogSchema.shape.state;
-const sourceView = z.strictObject({ source: McpSourceSchema, state, approved: z.boolean(), checkedAt: z.string().nullable(), diagnostic: z.string().nullable() });
+const sourceView = McpSourceViewSchema;
+const account = z.string().trim().min(1).max(128);
+const loginId = z.strictObject({ attemptId: z.uuid() });
+const loginState = loginId.extend({ state: z.enum(["waiting", "exchanging", "complete", "cancelled", "expired", "failed"]), expiresAt: z.number() });
 const health = z.strictObject({ state, checkedAt: z.string(), diagnostic: z.string().nullable(), toolCount: revision });
 const policyInput = z.strictObject({
   expectedPolicyRevision: revision, expectedCatalogRevision: revision,
@@ -38,13 +43,14 @@ function descriptor<I, O>(name: keyof typeof MCP_MANAGEMENT_ACCESS, title: strin
 }
 
 const descriptors = {
-  list: descriptor("mcp.sources.list", "列出 MCP 来源", none, z.strictObject({ revision, sources: z.array(sourceView) })),
+  list: descriptor("mcp.sources.list", "列出 MCP 来源", none, McpSourcesViewSchema),
   get: descriptor("mcp.sources.get", "查看 MCP 来源", sourceId, sourceView),
   create: descriptor("mcp.sources.create", "添加 MCP 来源（默认停用）", sourceInput, McpSourceSchema),
   update: descriptor("mcp.sources.update", "更新 MCP 来源配置", sourceRevision.extend(sourceInput.omit({ namespace: true }).shape), McpSourceSchema),
   delete: descriptor("mcp.sources.delete", "删除 MCP 来源", sourceRevision, sourceId),
   setEnabled: descriptor("mcp.sources.setEnabled", "启用或停用 MCP 来源", sourceRevision.extend({ enabled: z.boolean() }), McpSourceSchema),
   importPreview: descriptor("mcp.sources.importPreview", "预览导入 MCP 配置", z.strictObject({ text: z.string().min(1).max(128 * 1024) }), mcpImportPreview),
+  importCancel: descriptor("mcp.sources.importCancel", "取消 MCP 配置导入", z.strictObject({ previewId: id }), none),
   importCommit: descriptor("mcp.sources.importCommit", "提交 MCP 配置导入", McpImportConfirmationSchema.refine((input) => input.selections.length <= MAX_MCP_SOURCES), z.strictObject({ revision, sources: z.array(McpSourceSchema) })),
   export: descriptor("mcp.sources.export", "脱敏导出 MCP 配置", none, z.strictObject({ mcpServers: z.record(z.string(), z.record(z.string(), z.unknown())) })),
   check: descriptor("mcp.sources.check", "临时检查 MCP 来源", sourceRevision, health),
@@ -57,6 +63,14 @@ const descriptors = {
   previewApproval: descriptor("mcp.executionApproval.preview", "核对 MCP 本机执行许可", sourceRevision, approvalPreview),
   confirmApproval: descriptor("mcp.executionApproval.confirm", "授予 MCP 本机执行许可", approvalInput, approvalPreview),
   revokeApproval: descriptor("mcp.executionApproval.revoke", "撤销 MCP 本机执行许可", approvalInput, approvalPreview),
+  bindCredential: descriptor("mcp.credentials.put", "绑定 MCP 本机静态凭据", sourceRevision.extend({
+    account, header: z.string().min(1).max(128), value: z.string().min(1).max(65536),
+  }), sourceView),
+  removeCredential: descriptor("mcp.credentials.remove", "移除 MCP 本机凭据", sourceRevision, sourceView),
+  beginOAuth: descriptor("mcp.oauth.begin", "开始 MCP OAuth 登录", sourceRevision.extend({ account }), loginId.extend({ authorizationUrl: z.url(), expiresAt: z.number() })),
+  oauthStatus: descriptor("mcp.oauth.status", "查询 MCP OAuth 登录状态", loginId, loginState),
+  cancelOAuth: descriptor("mcp.oauth.cancel", "取消 MCP OAuth 登录", loginId, loginState),
+  logoutOAuth: descriptor("mcp.oauth.logout", "注销 MCP OAuth 登录", sourceRevision, sourceView),
 };
 
 export const mcpSourceDescriptors = Object.values(descriptors);
@@ -69,23 +83,60 @@ const manifest = PluginManifestSchema.parse({
   },
 });
 
-export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { approvalPath?: string; hostId: string }): PluginEntry {
+export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { approvalPath?: string; hostId: string; credentialHost?: McpCredentialHost }): PluginEntry {
   return {
     manifest,
-    apply(ctx, api) {
+    async apply(ctx, api) {
       const store = new McpSourceStore(api.vault.files, options.approvalPath === undefined ? undefined : {
         path: options.approvalPath, hostId: options.hostId, vaultInstance: options.vaultInstance,
       });
-      const runtime = new McpSourceRuntime(store, options);
-      ctx.effect(() => () => runtime.dispose());
-      api.provide(MCP_SOURCES_SERVICE, runtime);
+      const credentials = new McpCredentials(store, options.credentialHost);
+      const runtime = new McpSourceRuntime(store, {
+        ...options,
+        catalogChanged: () => api.events.publish("entity.changed", { kind: "mcp-source", id: "catalog", op: "updated" }),
+      }, credentials);
       const emit = (id: string, op: "created" | "updated" | "deleted" = "updated") => api.events.publish("entity.changed", { kind: "mcp-source", id, op });
-      const importer = new McpSourceImport(store, (sources) => {
+      const present = async (source: Parameters<typeof runtime.view>[0]) => ({ ...runtime.view(source), credential: await credentials.status(source) });
+      const replaceCredential = async (
+        source: Parameters<typeof runtime.view>[0], identity: string, material: McpCredentialMaterial | undefined,
+        context: CapabilityContext, isCurrent = () => credentials.current(source),
+      ) => {
+        const staged = material && await credentials.stage(source, identity, material, context.signal, isCurrent);
+        const next = { ...source, configuration: staged?.configuration ?? clearCredential(source.configuration), revision: source.revision + 1 };
+        try {
+          await store.change(context, (data) => {
+            if (!isCurrent()) throw errors.versionConflict(String(store.source(source.sourceId).revision));
+            data.connectionRevisions[source.sourceId] = (data.connectionRevisions[source.sourceId] ?? 0) + 1;
+            data.sources = data.sources.map((entry) => entry.sourceId === source.sourceId ? next : entry);
+          }, () => { if (!isCurrent()) throw errors.versionConflict(String(source.revision)); });
+        } catch (error) {
+          if (staged) await credentials.discard(staged.reference, staged.revision);
+          throw error;
+        }
+        runtime.invalidate(source.sourceId);
+        emit(source.sourceId);
+        const previous = credentialReference(source);
+        if (previous) await credentials.discard(previous);
+        return next;
+      };
+      const oauth = new McpOAuth(credentials, async (source, identity, material, context, isCurrent) => {
+        await replaceCredential(source, identity, material, context, isCurrent);
+      });
+      const importer = new McpSourceImport(store, credentials, (sources) => {
         for (const source of sources) {
+          oauth.cancelSource(source.sourceId);
           runtime.invalidate(source.sourceId);
           emit(source.sourceId, source.revision === 1 ? "created" : "updated");
         }
       });
+      ctx.effect(() => async () => {
+        oauth.dispose();
+        importer.dispose();
+        credentials.dispose();
+        await runtime.dispose();
+      });
+      api.provide(MCP_SOURCES_SERVICE, runtime);
+      await credentials.reconcile().catch(() => undefined);
       const getChecked = ({ sourceId, expectedRevision }: z.infer<typeof sourceRevision>) => {
         const source = store.source(sourceId);
         if (source.revision !== expectedRevision) throw errors.versionConflict(String(source.revision));
@@ -140,12 +191,12 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         }
         return { revision: data.policy.revision + 1, catalogRevision: catalog.catalogRevision, selected: [...index.values()] };
       };
-      api.defineCapability(bindCapability(descriptors.list, () => {
+      api.defineCapability(bindCapability(descriptors.list, async () => {
         const { data } = store.read();
-        return { revision: data.revision, sources: data.sources.map((source) => runtime.view(source)) };
+        return { revision: data.revision, sources: await Promise.all(data.sources.map(present)), readOnly: store.files.readOnly, credentialHostAvailable: credentials.available };
       }));
-      api.defineCapability(bindCapability(descriptors.get, (_context, input) => runtime.view(store.source(input.sourceId))));
-      api.defineCapability(bindCapability(descriptors.diagnostics, (_context, input) => runtime.view(store.source(input.sourceId))));
+      api.defineCapability(bindCapability(descriptors.get, (_context, input) => present(store.source(input.sourceId))));
+      api.defineCapability(bindCapability(descriptors.diagnostics, (_context, input) => present(store.source(input.sourceId))));
       api.defineCapability(bindCapability(descriptors.create, async (context, input) => {
         validateSourceConfiguration(input.configuration);
         const source = { ...input, sourceId: randomUUID(), enabled: false, revision: 1 };
@@ -161,27 +212,35 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         return source;
       }));
       api.defineCapability(bindCapability(descriptors.update, async (context, input) => {
-        validateSourceConfiguration(input.configuration);
         const previous = getChecked(input);
-        const changed = canonicalJson(previous.configuration) !== canonicalJson(input.configuration);
-        const next = { ...previous, displayName: input.displayName, configuration: input.configuration, revision: previous.revision + 1 };
+        const priorRef = credentialReference(previous);
+        const retainsCredential = !!priorRef && canonicalJson(previous.configuration) === canonicalJson(input.configuration);
+        const configuration = retainsCredential ? previous.configuration : clearCredential(input.configuration);
+        if (!retainsCredential) validateSourceConfiguration(configuration);
+        const changed = canonicalJson(previous.configuration) !== canonicalJson(configuration);
+        const next = { ...previous, displayName: input.displayName, configuration, revision: previous.revision + 1 };
         await store.change(context, (data) => {
           if (data.sources.some((source) => source.sourceId !== input.sourceId && source.displayName === next.displayName)) throw errors.nameConflict(next.displayName);
           if (changed) data.connectionRevisions[input.sourceId] = (data.connectionRevisions[input.sourceId] ?? 0) + 1;
           data.sources = data.sources.map((source) => source.sourceId === input.sourceId ? next : source);
         });
+        oauth.cancelSource(input.sourceId);
         if (changed) runtime.invalidate(input.sourceId);
+        if (priorRef && !retainsCredential) await credentials.discard(priorRef);
         emit(input.sourceId);
         return next;
       }));
       api.defineCapability(bindCapability(descriptors.delete, async (context, input) => {
-        getChecked(input);
+        const source = getChecked(input);
         await store.change(context, (data) => {
           data.sources = data.sources.filter(({ sourceId }) => sourceId !== input.sourceId);
           const selected = data.policy.selected.filter(({ sourceId }) => sourceId !== input.sourceId);
           if (selected.length !== data.policy.selected.length) data.policy = { ...data.policy, revision: data.policy.revision + 1, selected };
         });
         runtime.invalidate(input.sourceId, true);
+        oauth.cancelSource(input.sourceId);
+        const reference = credentialReference(source);
+        if (reference) await credentials.discard(reference);
         emit(input.sourceId, "deleted");
         return { sourceId: input.sourceId };
       }));
@@ -192,11 +251,13 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         const next = { ...previous, enabled: input.enabled, revision: previous.revision + 1 };
         await store.change(context, (data) => { data.sources = data.sources.map((source) => source.sourceId === input.sourceId ? next : source); });
         runtime.invalidate(input.sourceId);
+        oauth.cancelSource(input.sourceId);
         emit(input.sourceId);
         return next;
       }));
       api.defineCapability(bindCapability(descriptors.check, (context, input) => probe(context, input, false, false)));
       api.defineCapability(bindCapability(descriptors.importPreview, (context, input) => importer.preview(context, input.text)));
+      api.defineCapability(bindCapability(descriptors.importCancel, (context, input) => importer.cancel(context, input.previewId)));
       api.defineCapability(bindCapability(descriptors.importCommit, (context, input) => importer.commit(context, input)));
       api.defineCapability(bindCapability(descriptors.export, () => importer.export()));
       api.defineCapability(bindCapability(descriptors.refresh, (context, input) => probe(context, input, false, true)));
@@ -214,6 +275,30 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
       api.defineCapability(bindCapability(descriptors.previewApproval, (_context, input) => preview(input)));
       api.defineCapability(bindCapability(descriptors.confirmApproval, (context, input) => approve(context, input, true)));
       api.defineCapability(bindCapability(descriptors.revokeApproval, (context, input) => approve(context, input, false)));
+      api.defineCapability(bindCapability(descriptors.bindCredential, async (context, input) => {
+        const source = getChecked(input);
+        if (source.configuration.transport === "stdio" || source.configuration.authentication.kind === "oauth") {
+          throw errors.invalidInput("请选择 HTTP 静态认证");
+        }
+        const headers = { [input.header]: input.value };
+        validateCredentialHeaders(headers);
+        oauth.cancelSource(input.sourceId);
+        return present(await replaceCredential(source, input.account, { kind: "remote", headers, query: "" }, context));
+      }));
+      const unlink = async (context: CapabilityContext, input: z.infer<typeof sourceRevision>) => {
+        const source = getChecked(input);
+        oauth.cancelSource(source.sourceId);
+        return present(await replaceCredential(source, "", undefined, context));
+      };
+      api.defineCapability(bindCapability(descriptors.removeCredential, unlink));
+      api.defineCapability(bindCapability(descriptors.logoutOAuth, async (context, input) => {
+        const source = getChecked(input);
+        if (source.configuration.transport !== "streamable-http" || source.configuration.authentication.kind !== "oauth") throw errors.invalidInput("来源未配置 OAuth");
+        return unlink(context, input);
+      }));
+      api.defineCapability(bindCapability(descriptors.beginOAuth, (context, input) => oauth.begin(getChecked(input), input.account, context)));
+      api.defineCapability(bindCapability(descriptors.oauthStatus, (context, input) => oauth.status(context, input.attemptId)));
+      api.defineCapability(bindCapability(descriptors.cancelOAuth, (context, input) => oauth.cancel(context, input.attemptId)));
     },
   };
 }

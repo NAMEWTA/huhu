@@ -1,4 +1,4 @@
-import { McpLocalPortSchema, type CapabilityCatalogEntry, type GatewayMcpStatus, type McpCatalogView, type McpEntryKind, type ToolAccessSnapshot } from "@huhu/contracts";
+import { McpLocalPortSchema, type CapabilityCatalogEntry, type GatewayMcpStatus, type McpEntryKind, type ToolAccessSnapshot } from "@huhu/contracts";
 import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
 import { useId, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { CliSection } from "./CliSection.js";
 import { SshHostGrants } from "./SshHostGrants.js";
 import { ToolPolicyCatalog } from "./ToolPolicyCatalog.js";
 import { WebSharePanel } from "./WebSharePanel.js";
+import { McpSourcesPanel } from "./McpSourcesPanel.js";
 
 interface AuditRow {
   at: string;
@@ -62,9 +63,6 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
     }
   }
   const mcp = gw.data?.mcp;
-  const mcpCatalog = useCapability<McpCatalogView>("mcp.catalog.list", {}, { enabled: section === "mcp" });
-  const protocolEntries = (mcpCatalog.data?.entries ?? []).filter((entry) => entry.kind === MCP_KIND[mcpTab] &&
-    (mcpTab !== "tools" || (entry.sourceId !== "builtin" && entry.publicKey.toLowerCase().includes(filter.toLowerCase()))));
   const [configOpen, setConfigOpen] = useState(false);
   const [portDraft, setPortDraft] = useState("");
   const [invalidPort, setInvalidPort] = useState(false);
@@ -445,23 +443,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                 <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />
                 {mcpTab === "tools" ? <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} /> : null}
               </div>
-              <section className="hu-card-alt" data-testid={`mcp-${mcpTab}`}>
-                {mcpCatalog.isPending ? <p role="status">正在读取能力目录…</p> : mcpCatalog.isError ? (
-                  <p role="alert">{mcpCatalog.error.message}</p>
-                ) : (
-                  <DataTable
-                    label={`MCP ${mcpTab}`}
-                    rows={protocolEntries}
-                    rowKey={(entry) => JSON.stringify([entry.sourceId, entry.upstreamIdentity])}
-                    columns={[
-                      { id: "name", header: "名称", width: 260, cell: (entry) => <code>{entry.publicKey}</code> },
-                      { id: "desc", header: "说明", width: 420, cell: (entry) => entry.description },
-                      { id: "source", header: "来源", width: 160, cell: (entry) => entry.sourceId === "builtin" ? "Huhu 内置" : "外部 MCP" },
-                      { id: "policy", header: "开放状态", width: 110, cell: (entry) => entry.selected ? "已选择" : "未开放" },
-                    ]}
-                  />
-                )}
-              </section>
+              <McpSourcesPanel kind={MCP_KIND[mcpTab]} filter={mcpTab === "tools" ? filter : ""} published={mcp?.enabled ?? false} />
               <div hidden={mcpTab !== "tools"}>
                 <SshHostGrants policy={gw.data?.toolAccess} />
                 <ToolPolicyCatalog entries={all} filter={filter} policy={gw.data?.toolAccess} />
