@@ -13,6 +13,14 @@ import {
 } from "../src/index.js";
 import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
 import { localUpstream } from "./fixtures/mcp-upstream.js";
+const mcpReply = z.object({
+  result: z.looseObject({
+    tools: z.array(z.looseObject({ name: z.string() })).optional(),
+    structuredContent: z.unknown().optional(),
+  }).optional(),
+  error: z.object({ data: z.object({ code: z.string() }).optional() }).optional(),
+});
+
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -88,7 +96,7 @@ async function fixture(directory: string, readOnly = false) {
       return async (method: string, params: unknown = {}) => {
         const response = await mcpRequest(endpoint, token, mcpRpc(method, params), handle);
         expect(response.status).toBe(200);
-        return response.json();
+        return mcpReply.parse(await response.json());
       };
     },
   };
@@ -141,8 +149,8 @@ test("stdio approval, temporary check, native MCP result and stable publication 
   const enabled = await f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
   f.setPublishing(true);
   const rpc = await f.client();
-  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo"]);
-  expect((await rpc("tools/call", { name: "vault_info", arguments: {} })).result.structuredContent).toEqual({ data: { name: "fixture" } });
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo"]);
+  expect((await rpc("tools/call", { name: "vault_info", arguments: {} })).result?.structuredContent).toEqual({ data: { name: "fixture" } });
   expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "hi" }, _meta: { "huhu-private": "ignored" } })).result).toMatchObject({
     structuredContent: { value: "hi" }, content: [{ type: "text", text: "hi" }, { type: "resource_link", uri: "fixture://note/1" }],
   });
@@ -156,7 +164,7 @@ test("stdio approval, temporary check, native MCP result and stable publication 
   expect(await reopened.call("mcp.sources.get", { sourceId: source.sourceId })).toMatchObject({ source: { enabled: true, namespace: "repo" }, approved: true });
   reopened.setPublishing(true);
   const restarted = await reopened.client();
-  expect((await restarted("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toContain("repo__echo");
+  expect((await restarted("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toContain("repo__echo");
   await reopened.close();
   const readonly = await fixture(directory, true);
   expect(await readonly.call("mcp.sources.get", { sourceId: source.sourceId })).toMatchObject({ source: { enabled: true }, approved: false });
@@ -173,10 +181,10 @@ test("cached stdio routes are immediately denied after revocation", async () => 
   await f.call("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
   f.setPublishing(true);
   const rpc = await f.client();
-  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toContain("repo__echo");
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toContain("repo__echo");
   await exposure(f, source, "echo", false);
-  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
-  expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "blocked" } })).error.data).toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
+  expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "blocked" } })).error?.data).toMatchObject({ code: "CAPABILITY_NOT_EXPOSED" });
   expect(writes(journal).filter(({ type }) => type === "call")).toHaveLength(0);
 });
 
@@ -246,7 +254,7 @@ test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP
   const { source: local } = await addStdio(f, directory);
   await approve(f, local);
   vi.stubEnv("HUHU_TEST_MCP_AUTH_HEADER", "Bearer fixture-only");
-  cleanup.unshift(() => vi.unstubAllEnvs());
+  cleanup.unshift(() => { vi.unstubAllEnvs(); });
   const remote = (namespace: string, transport: "streamable-http" | "sse", url: string, useEnv = false) => f.call<Source>("mcp.sources.create", {
     displayName: namespace, namespace, configuration: { transport, url, headers: {}, authentication: useEnv
       ? { kind: "environment", name: "HUHU_TEST_MCP_AUTH_HEADER", header: "Authorization" } : { kind: "none" } },
@@ -271,8 +279,8 @@ test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP
   }
   f.setPublishing(true);
   const rpc = await f.client();
-  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo", "remote__echo", "legacy__echo"]);
-  expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "local" } })).result.structuredContent).toEqual({ value: "local" });
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo", "remote__echo", "legacy__echo"]);
+  expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "local" } })).result?.structuredContent).toEqual({ value: "local" });
   expect((await rpc("tools/call", { name: "remote__echo", arguments: { value: "first" } })).result).toMatchObject({
     structuredContent: { transport: "streamable-http", value: "first" },
     content: [{ type: "text" }, { type: "image" }, { type: "audio" }, { type: "resource_link" }],
@@ -281,7 +289,7 @@ test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP
     structuredContent: { transport: "sse", value: "fail" }, isError: true,
   });
   await exposure(f, remoteHttp, "echo", false);
-  expect((await rpc("tools/call", { name: "remote__echo", arguments: { value: "must not reach" } })).error.data.code).toBe("CAPABILITY_NOT_EXPOSED");
+  expect((await rpc("tools/call", { name: "remote__echo", arguments: { value: "must not reach" } })).error?.data?.code).toBe("CAPABILITY_NOT_EXPOSED");
   expect(streamable.calls).toEqual([{ name: "echo", input: { value: "first" } }]);
   expect(sse.calls).toEqual([{ name: "echo", input: { value: "fail" } }]);
 });
@@ -307,13 +315,13 @@ test("complete paging and definition changes preserve exact names and isolate cu
   let enabled = await f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
   f.setPublishing(true);
   const rpc = await f.client();
-  expect((await rpc("tools/list")).result.tools).toHaveLength(7);
-  expect((await rpc("tools/call", { name: keys["汉字"], arguments: { value: "original identity" } })).result.structuredContent).toEqual({ value: "original identity" });
+  expect((await rpc("tools/list")).result?.tools).toHaveLength(7);
+  expect((await rpc("tools/call", { name: keys["汉字"], arguments: { value: "original identity" } })).result?.structuredContent).toEqual({ value: "original identity" });
   expect(writes(journal).at(-1)?.name).toBe("汉字");
   const liveStarts = writes(journal).filter(({ type }) => type === "start").length;
   const { source: saved } = await f.call<{ source: { configuration: unknown } }>("mcp.sources.get", { sourceId: source.sourceId });
   enabled = await f.call<Source>("mcp.sources.update", { ...sourceRef(enabled), displayName: "Renamed repo", configuration: saved.configuration });
-  expect((await rpc("tools/list")).result.tools).toHaveLength(7);
+  expect((await rpc("tools/list")).result?.tools).toHaveLength(7);
   expect(writes(journal).filter(({ type }) => type === "start")).toHaveLength(liveStarts);
   const liveCatalog = await f.call<Catalog>("mcp.catalog.list", {});
   const stream = new AbortController();
@@ -331,10 +339,10 @@ test("complete paging and definition changes preserve exact names and isolate cu
   const newCatalog = await f.call<Catalog>("mcp.catalog.list", {});
   expect(newCatalog.catalogRevision).toBeGreaterThan(liveCatalog.catalogRevision);
   expect(Object.fromEntries(newCatalog.entries.map((entry) => [entry.upstreamIdentity, entry.publicKey]))).toEqual(keys);
-  expect((await rpc("tools/list")).result.tools.find(({ name }: { name: string }) => name === keys["echo"])).toMatchObject({
+  expect((await rpc("tools/list")).result?.tools?.find(({ name }: { name: string }) => name === keys["echo"])).toMatchObject({
     description: "Updated schema", outputSchema: { properties: { value: { minLength: 1 } } },
   });
   writeFileSync(definition, JSON.stringify({ names, pageSize: 2, repeatCursor: true }));
   expect(await f.call("mcp.sources.refresh", sourceRef(enabled))).toMatchObject({ state: "offline", diagnostic: "上游目录返回重复游标", toolCount: 0 });
-  expect((await rpc("tools/list")).result.tools.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
 });
