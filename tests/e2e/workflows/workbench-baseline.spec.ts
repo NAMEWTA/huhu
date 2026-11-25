@@ -97,6 +97,20 @@ async function expectNarrowForm(dialog: Locator, name: string) {
   }), { message: `${name} 的窄表单应在同一列上下排列` }).toEqual({ narrow: true, stacked: true });
 }
 
+async function openSettingsPage(page: Page, section: string) {
+  const settings = page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true });
+  if ((await settings.getAttribute("aria-current")) !== "page") await settings.click();
+  await expect(settings).toHaveAttribute("aria-current", "page");
+  const sidebar = page.locator('[data-region="sidebar"]');
+  if (!(await sidebar.isVisible())) await page.getByRole("button", { name: "展开导航", exact: true }).click();
+  await sidebar.getByTestId(`settings-nav-${section}`).click();
+}
+
+async function collapseSettingsNavigation(page: Page) {
+  await page.getByRole("button", { name: "收起导航", exact: true }).click();
+  await expect(page.locator('[data-region="sidebar"]')).toBeHidden();
+}
+
 test("U0 中文笔记编辑与受控保存失败", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page, name, vault) => {
@@ -326,23 +340,21 @@ test("UX15 同步表单按容器重排，保存后从原计划继续管理", asy
     execFileSync("git", ["init", "--bare", repository]);
     const remote = pathToFileURL(repository).href;
     await runOnHosts(info, async (page, name) => {
+      // Keep a locator failure from consuming the shared budget for both host samples.
+      page.setDefaultTimeout(10_000);
       const mode = name === "electron" ? "full" : "follow";
       const branch = `ux15/${name}`;
       const rules = ["私有草稿/**", "scratch/**/*.tmp", "generated/"];
-      const rail = page.locator('[data-region="rail"]');
       const settings = page.getByTestId("sync-settings");
       const grid = settings.locator(".hu-sync-settings-grid");
       const save = settings.getByTestId("sync-save");
-      const openSettings = async () => {
-        await rail.getByRole("button", { name: "设置", exact: true }).click();
-        await page.getByTestId("settings-nav-versioning").click();
-        await expect(settings).toBeVisible();
-      };
       const columns = () => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
       await page.setViewportSize({ width: 1600, height: 930 });
-      await openSettings();
+      await openSettingsPage(page, "versioning");
+      await expect(settings).toBeVisible();
       await expect.poll(columns).toBe(2);
       await page.setViewportSize({ width: 480, height: 800 });
+      await collapseSettingsNavigation(page);
       await expect.poll(columns).toBe(1);
       await settings.getByTestId("sync-remote").fill(remote);
       await settings.getByTestId("sync-branch").fill(branch);
@@ -362,7 +374,7 @@ test("UX15 同步表单按容器重排，保存后从原计划继续管理", asy
       await expect(page.getByTestId("plan-directory")).toBeVisible();
       await expect.poll(() => new URL(page.url()).searchParams.get("automation-plan")).toBe(plan.planId);
       await page.setViewportSize({ width: 1600, height: 930 });
-      await openSettings();
+      await openSettingsPage(page, "versioning");
       await expect(settings.getByTestId("sync-remote")).toHaveValue(remote);
       await expect(settings.getByTestId("sync-branch")).toHaveValue(branch);
       await expect(settings.getByTestId("sync-exclude")).toHaveValue(rules.join("\n"));
