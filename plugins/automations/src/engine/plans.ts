@@ -1,7 +1,8 @@
-import { errors, isHuhuError, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { filterPlanPage, planOrders, planStates } from "../shared/plan-directory.js";
+import { historyPage, HistoryInput, HistoryPage, type HistoryRow } from "../shared/occurrence-history.js";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import type { DefaultTaskScan } from "./default-task-scan.js";
 import type { FollowUps } from "./follow-ups.js";
@@ -36,6 +37,10 @@ export const planDescriptors = {
   occurrence: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.readOccurrence", scope: "read", input: z.strictObject({ occurrenceId: identifier }), output: PlanOccurrenceSchema.nullable(),
     title: "查看计划发生", description: "查询指定发生的受理事实。", risk: "normal",
+  }),
+  history: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.history", scope: "read", input: HistoryInput, output: HistoryPage,
+    title: "查询计划运行历史", description: "按来源、状态与时间读取发生摘要。", risk: "normal",
   }),
   submit: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.submit", scope: "write", idempotency: "durable", input: PlanWriteSchema, output: PlanWriteResultSchema,
@@ -238,6 +243,38 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   api.defineCapability(bindCapability(planDescriptors.list, (context, input) => directory.list(input, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
+  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
+    signal.throwIfAborted();
+    const titles = new Map(deps.rules.rules().map((rule) => [rule.id, {
+      title: rule.data.title,
+      source: rule.data.action.kind === "agent" ? "tasks" : "automations",
+    }]));
+    for (const plan of [...deps.taskReminders.list(), ...deps.observations.list(), ...(deps.focus?.list() ?? [])]) {
+      titles.set(plan.planId, { title: plan.title, source: plan.source.plugin });
+    }
+    const rows = new Map<string, HistoryRow>();
+    for (const row of deps.activations()) {
+      const occurrence = occurrenceSummary(row)!;
+      const plan = titles.get(row.ruleId);
+      rows.set(row.activationId, {
+        id: row.activationId, planId: row.ruleId, source: plan?.source ?? "unknown",
+        title: plan?.title ?? "原自动化已移除", at: new Date(occurrence.at).toISOString(),
+        trigger: row.trigger === "manual" ? "manual" : "scheduled", state: occurrence.state,
+        ...(row.terminalRunId && { terminalRunId: row.terminalRunId }),
+        ...(row.summary && "processed" in row.summary && { counts: row.summary }),
+      });
+    }
+    for (const { occurrence, title, source } of [...deps.periodic.listHistory(), ...deps.followUps.listHistory()]) {
+      const at = occurrence.acceptedAt ?? (occurrence.timing.trigger === "scheduled" ? occurrence.timing.scheduledFor : null);
+      if (!at) continue;
+      rows.set(occurrence.occurrenceId, {
+        id: occurrence.occurrenceId, planId: occurrence.plan.planId, title, source, at: new Date(at).toISOString(),
+        trigger: occurrence.timing.trigger, state: occurrence.state,
+      });
+    }
+    return historyPage([...rows.values()], input);
+  }));
   api.defineCapability(bindCapability(planDescriptors.taskReminder, (context, input) => {
     if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("添加提醒需要与意图 ID 相同的持久意图键");
     return deps.taskReminders.create(input, context.signal);

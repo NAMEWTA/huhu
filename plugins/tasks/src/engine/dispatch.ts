@@ -839,7 +839,10 @@ export class TaskDispatch {
   private viewWithSession(record: DispatchRecord, toolOwner?: string): TaskDispatchView {
     const { boundExecution, snapshot, stop } = record;
     const spaceId = snapshot.execution.spaceId;
-    const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? { id: boundExecution.sessionBinding.sessionId, spaceId } : null;
+    const session = boundExecution && spaceId && this.matchesExecution(boundExecution) ? {
+      id: boundExecution.sessionBinding.sessionId, spaceId,
+      ...(toolOwner === undefined && { processGeneration: boundExecution.sessionBinding.processGeneration }),
+    } : null;
     const view = { ...this.dispatchView(record), session };
     if (!stop || (toolOwner !== undefined && stop.toolOwner !== toolOwner)) return view;
     const { toolOwner: _, ...stopStatus } = stop;

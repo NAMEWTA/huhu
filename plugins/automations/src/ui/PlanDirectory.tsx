@@ -1,7 +1,8 @@
-import type { PlanOccurrence, PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
+import { OccurrenceDetail } from "./OccurrenceDetail.js";
+import type { PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, Select } from "@huhu/ui";
 import {
-  requestOpenAgentSession, requestOpenTask, useCapability, useDiscoveredCapabilities,
+  requestOpenTask, useCapability, useDiscoveredCapabilities,
   useEngine, useModuleIcons, useQueryClient, type ModuleProps,
 } from "@huhu/workbench";
 import { ArrowLeft, ArrowUpRight, Ellipsis, Layers, Pause, Pencil, Play, Plus, RefreshCw, Workflow } from "lucide-react";
@@ -275,7 +276,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                   <strong>{plan.title}</strong>
                   <span><PlanBadges plan={plan} /> <small>{planSourceName(plan.source.plugin)}</small></span>
                   <span>{plan.action.summary}</span>
-                  <small>{describeTrigger(plan.trigger)}</small>
+                  <small>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</small>
                   <small>下次 {plan.nextAt ? formatMoment(plan.nextAt, planZone(plan)) : "未安排"} · {recentLabel(plan)}</small>
                 </button>
                 <div className="plan-row-actions">
@@ -374,7 +375,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       ) : null}
       {sheet?.kind === "delete" ? <DeletePlan plan={sheet.plan} pending={write} busy={busy} error={error}
         onClose={() => setSheet(null)} onSubmit={(input) => void submit(input)} /> : null}
-      {sheet?.kind === "occurrence" ? <OccurrenceDetail id={sheet.id} plan={sheet.plan} onClose={() => setSheet(null)} onNavigate={onNavigate} /> : null}
+      {sheet?.kind === "occurrence" ? <Dialog open title="运行详情" wide onClose={() => setSheet(null)}><h3>{sheet.plan.title}</h3><OccurrenceDetail key={sheet.id} id={sheet.id} onNavigate={onNavigate} /></Dialog> : null}
     </div>
   );
 }
@@ -439,7 +440,7 @@ function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onS
         {rule.error ? <p role="alert">{rule.error.message}</p> : null}
         {rule.data ? <RuleDetails rule={rule.data} /> : null}
       </section>
-      <section className="plan-detail-section"><h3>何时执行</h3><p>{describeTrigger(plan.trigger)}</p>
+      <section className="plan-detail-section"><h3>何时执行</h3><p>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</p>
         {!isRule ? <PlanScheduleControls plan={plan} changed={refresh} scheduleOnly registerLeaveGuard={registerLeaveGuard} /> : null}
       </section>
       <section className="plan-detail-section"><h3>执行与结果</h3>
@@ -501,32 +502,4 @@ function RuleRun({ rule, plan, onOccurrence, refresh }: {
     {lastRun ? <Button onClick={() => onOccurrence(lastRun)}>查看本次运行</Button> : null}
     {error ? <p role="alert">{error}</p> : null}
   </div>;
-}
-
-function OccurrenceDetail({ id, plan, onClose, onNavigate }: {
-  id: string; plan: PlanSummary; onClose(): void; onNavigate: ModuleProps["onNavigate"];
-}) {
-  const occurrence = useCapability<PlanOccurrence | null>("automations.plans.readOccurrence", { occurrenceId: id });
-  const binding = occurrence.data?.execution;
-  const sessions = useCapability<{ id: string; spaceId: string; generation?: string }[]>("agent.sessions.list", {}, { enabled: Boolean(binding && onNavigate) });
-  const session = sessions.data?.find(({ id, generation }) => id === binding?.sessionBinding.sessionId && generation === binding?.sessionBinding.processGeneration);
-  return (
-    <Dialog open title="运行详情" onClose={onClose} error={occurrence.error?.message}>
-      <h3>{plan.title}</h3>
-      <p><code>{id}</code></p>
-      {occurrence.isPending ? <p role="status">正在读取发生记录…</p> : null}
-      {occurrence.data === null ? <p>该发生暂无详细记录。</p> : null}
-      {occurrence.data ? <>
-        <p>{occurrenceLabel[occurrence.data.state]} · {occurrence.data.timing.trigger === "manual" ? "立即运行" : "自动触发"}</p>
-        {occurrence.data.acceptedAt ? <time dateTime={occurrence.data.acceptedAt}>{formatMoment(occurrence.data.acceptedAt, planZone(plan))}</time> : null}
-        {binding && onNavigate ? <div className="row">
-          <Button onClick={() => { requestOpenTask(binding.taskId); onNavigate("tasks"); }}>打开原任务</Button>
-          {session ? <Button onClick={() => {
-            requestOpenAgentSession({ vaultId: binding.vaultId, spaceId: session.spaceId, sessionId: session.id });
-            onNavigate("agent-cli");
-          }}>打开原会话</Button> : <span>原会话 {binding.sessionBinding.sessionId}{sessions.isPending ? " · 正在核对" : " · 当前不可打开"}</span>}
-        </div> : null}
-      </> : null}
-    </Dialog>
-  );
 }

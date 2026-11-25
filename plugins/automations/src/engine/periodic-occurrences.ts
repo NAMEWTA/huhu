@@ -51,6 +51,14 @@ export class PeriodicOccurrences {
     return typeof payload === "string" ? PlanOccurrenceSchema.parse(JSON.parse(payload)) : null;
   }
 
+  *list() {
+    const query = this.open()?.prepare("SELECT payload FROM occurrences");
+    if (!query) return;
+    for (const { payload } of query.iterate()) {
+      if (typeof payload === "string") yield PlanOccurrenceSchema.parse(JSON.parse(payload));
+    }
+  }
+
   latest(planId: string): string | null {
     const id = this.open()?.prepare("SELECT id FROM occurrences WHERE plan = ? ORDER BY sequence DESC LIMIT 1").get(planId)?.["id"];
     return typeof id === "string" ? id : null;

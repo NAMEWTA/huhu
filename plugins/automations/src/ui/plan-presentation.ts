@@ -25,7 +25,7 @@ export function formatMoment(value: string, zone?: string): string {
 }
 
 export function planZone(plan: PlanSummary): string | undefined {
-  return plan.trigger.kind === "cron" ? plan.trigger.zone : undefined;
+  return plan.businessSchedule?.zone ?? (plan.trigger.kind === "cron" ? plan.trigger.zone : undefined);
 }
 
 export function describeTrigger(trigger: PlanTrigger): string {

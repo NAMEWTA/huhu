@@ -7,6 +7,8 @@ import { BookId, type Book, type BookList, type CreateBook, type RemovalPreview 
 import { AccountLabels, Attachment, DictionaryItem, EntryId } from "../shared/entries.js";
 import { ImportMapping, ImportReceipt } from "../shared/imports.js";
 import { RecordReference } from "../shared/reconciliation.js";
+import { defaultCards, HolidayData, HolidayYear, ReportCards } from "../shared/reports.js";
+import { RecurringPeriod, RecurringRule } from "../shared/recurring.js";
 
 const directory = ".huhu/ledger";
 const indexPath = directory + "/books.json";
@@ -33,6 +35,10 @@ export const stateSchema = z.strictObject({
   mappingRevision: z.string().default("0"),
   mappings: z.array(ImportMapping).default([]),
   recordReferences: z.array(RecordReference).default([]),
+  reportCards: ReportCards.default(defaultCards),
+  holidays: z.record(HolidayYear, HolidayData).default({}),
+  recurring: z.array(RecurringRule).default([]),
+  recurringPeriods: z.array(RecurringPeriod).default([]),
 });
 
 type BookIndex = z.infer<typeof indexSchema>;

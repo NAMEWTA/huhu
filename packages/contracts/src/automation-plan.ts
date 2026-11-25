@@ -42,6 +42,7 @@ const allowedAction = z.enum(["reschedule", "pause", "resume", "delete", "run-no
 const intent = z.enum(["enabled", "paused", "deleted"]);
 const occurrenceState = z.enum(["scheduled", "blocked", "cancelled", "accepted", "running", "completed", "failed", "unknown"]);
 const occurrenceSummary = z.strictObject({ occurrenceId: id, state: occurrenceState, at: instant });
+const businessSchedule = z.strictObject({ label: z.string(), zone: id });
 
 /** C3/C7 shared projection. The source route and the centre use this same plan identity. */
 export const PlanSummarySchema = PlanRefSchema.extend({
@@ -52,6 +53,7 @@ export const PlanSummarySchema = PlanRefSchema.extend({
   intent,
   availability,
   trigger: PlanTriggerSchema,
+  businessSchedule: businessSchedule.optional(),
   intervalBounds: intervalBounds.optional(),
   createdAt: instant,
   updatedAt: instant,
@@ -152,16 +154,22 @@ export const PeriodicPlanSpecSchema = z.strictObject({
   source: PlanSourceSchema,
   title: z.string().min(1).max(200),
   everySeconds: z.int().min(1).max(86_400),
+  catchUp: z.literal("enabled-windows").optional(),
+  businessSchedule: businessSchedule.optional(),
   bounds: intervalBounds.optional(),
   action,
   intent,
 });
 export type PeriodicPlanSpec = z.infer<typeof PeriodicPlanSpecSchema>;
 export type PeriodicPlanChange = PeriodicPlanSpec & { expectedRevision: string | null };
+export const PeriodicEnabledWindowSchema = z.strictObject({ from: instant, until: instant.nullable() });
+export type PeriodicEnabledWindow = z.infer<typeof PeriodicEnabledWindowSchema>;
 export type PeriodicRunOutcome = "skipped" | "failed";
 export type PeriodicRunContext = PlanRef & {
   occurrenceId: string;
   scheduledFor: string;
+  observedAt?: string;
+  enabledWindows?: readonly PeriodicEnabledWindow[];
   signal: AbortSignal;
   isCurrent(): boolean;
   /** Ask Automations to wake the same still-active plan for a protocol event or bounded continuation. */
@@ -171,12 +179,15 @@ export interface PeriodicPlanSource {
   readonly signal: AbortSignal;
   legacy?(): readonly PeriodicPlanSpec[];
   availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
+  /** Calendar owners decide which unhandled business occurrence is next. */
+  nextDue?(plan: PeriodicPlanSpec, windows: readonly PeriodicEnabledWindow[]): string | null;
   suspend?(): void;
   run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void>;
 }
 export interface PeriodicPlanControl {
   read(planId: string): PlanSummary | null;
   inspect(planId: string): (PeriodicPlanSpec & PlanRef) | null;
+  enabledWindows(planId: string): readonly PeriodicEnabledWindow[];
   configure(changes: readonly PeriodicPlanChange[], signal: AbortSignal): Promise<PlanSummary[]>;
   wake(plan: PlanRef, delayMs: number): void;
   importSource(plugin: string): Promise<void>;

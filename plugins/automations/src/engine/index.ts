@@ -74,6 +74,7 @@ export const automationToolDescriptors = {
   plansRead: planDescriptors.read,
   plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,
+  plansHistory: planDescriptors.history,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
   plansCreateObservation: planDescriptors.observationCreate,
@@ -347,7 +348,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
   );
   const periodic = new PeriodicPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner }, svc,
-    ["mail", "versioning", "ssh"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
+    ["mail", "versioning", "ssh", "ledger"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
     (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }));
   api.provide(PERIODIC_PLANS_SERVICE, periodic);
   type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };

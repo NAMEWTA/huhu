@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { ledgerBusinessDayRange } from "../../../packages/contracts/src/ledger.js";
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
-import { engineReady } from "../knowledge/session-slow-bridge.js";
+import { openApp, root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
+import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 async function enterLedger(page: Page) {
   await page.getByRole("button", { name: "账本", exact: true }).first().click();
@@ -322,5 +324,93 @@ test("L4 跨账户平账保持资金余额，撤销后恢复统计并可预览�
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
+  }
+});
+
+test("L5 同一业务午夜在日历和报表可下钻，离线节假日与卡片可以调整", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "报表账本", "银行");
+    const { activeBookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
+    const accounts = await call<{ book: { id: string; revision: string; timeZone: string }; businessDate: string; accounts: { id: string }[] }>(page, "ledger.accounts.list", { bookId: activeBookId });
+    const day = accounts.businessDate;
+    await call(page, "ledger.records.create", {
+      bookId: activeBookId, expectedRevision: accounts.book.revision, intentKey: randomUUID(), title: "账本午夜流水",
+      record: {
+        type: "income", currency: "TWD", amountMinor: "123", accountId: accounts.accounts[0]!.id,
+        occurredAt: ledgerBusinessDayRange(day, accounts.book.timeZone).from,
+        categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [],
+      },
+    });
+    await page.getByTestId("ledger-nav-calendar").click();
+    await expect(ledger.getByText(/年节假日未配置/)).toBeVisible();
+    await ledger.getByLabel("导入离线节假日 JSON").setInputFiles({
+      name: "holidays.json", mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify({ year: day.slice(0, 4), source: "本地夹具", entries: [{ date: day, name: "本地节日", isWorkday: false }] })),
+    });
+    await expect(ledger.getByText("本地节日", { exact: true })).toBeVisible();
+    await ledger.getByRole("button", { name: day, exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("账本午夜流水");
+    await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
+    await page.getByTestId("ledger-nav-reports").click();
+    await ledger.getByRole("button", { name: "查看收入明细" }).click();
+    await expect(page.getByRole("dialog")).toContainText("账本午夜流水");
+    await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
+
+    await page.getByTestId("ledger-nav-overview").click();
+    await ledger.getByRole("button", { name: "调整总览卡片" }).click();
+    const preferences = page.getByRole("dialog", { name: "调整总览卡片" });
+    await preferences.getByRole("checkbox", { name: "最近流水" }).uncheck();
+    await preferences.getByRole("button", { name: "上移 账户余额" }).click();
+    await preferences.getByRole("button", { name: "保存卡片" }).click();
+    await expect(ledger.getByRole("heading", { name: "最近流水" })).toHaveCount(0);
+  } finally {
+    await close();
+  }
+});
+
+test("L7 账本启用和中心暂停操作同一个固定收支计划，预览未来期次无记账副作用", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "固定收支账本", "银行");
+    const { activeBookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
+    const { businessDate } = await call<{ businessDate: string }>(page, "ledger.accounts.list", { bookId: activeBookId });
+    const next = new Date(Date.parse(businessDate) + 86_400_000).toISOString().slice(0, 10);
+    await page.getByTestId("ledger-nav-recurring").click();
+    await ledger.getByRole("button", { name: "新建固定收支" }).click();
+    const dialog = page.getByRole("dialog", { name: "新建固定收支" });
+    await dialog.getByLabel("固定收支名称").fill("工作室订阅");
+    await dialog.getByLabel("金额", { exact: true }).fill("75");
+    await dialog.getByLabel("起始业务日").fill(next);
+    await dialog.getByRole("button", { name: "创建暂停计划" }).click();
+    const row = ledger.getByTestId("ledger-recurring-row");
+    await expect(row).toContainText("已暂停");
+    const read = () => call<{ rows: { plan: { planId: string; revision: string; nextAt: string | null; intent: string } }[] }>(
+      page, "ledger.recurring.list", { bookId: activeBookId },
+    );
+    const [{ plan: paused }] = (await read()).rows as [{ plan: { planId: string; revision: string } }];
+    await row.getByRole("button", { name: "启用计划" }).click();
+    await expect(row).toContainText(next);
+    const enabled = (await read()).rows[0]!.plan;
+    expect(enabled).toMatchObject({ planId: paused.planId, intent: "enabled", nextAt: ledgerBusinessDayRange(next, "Asia/Taipei").from });
+    expect(enabled.revision).not.toBe(paused.revision);
+    await row.getByRole("button", { name: "预览固定收支补期" }).click();
+    const preview = page.getByRole("dialog", { name: "预览固定收支补期" });
+    await expect(preview).toContainText("下一业务日 " + next);
+    await preview.getByRole("button", { name: "关闭" }).click();
+    await row.getByRole("button", { name: "在自动化中心管理计划" }).click();
+    const planDetail = page.getByTestId("rule-detail");
+    await expect(planDetail).toContainText("工作室订阅");
+    await planDetail.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect.poll(async () => (await read()).rows[0]?.plan).toMatchObject({ planId: paused.planId, intent: "paused", nextAt: null });
+    expect(await call(page, "ledger.records.list", { bookId: activeBookId })).toMatchObject({ total: 0 });
+  } finally {
+    await close();
   }
 });

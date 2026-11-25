@@ -97,7 +97,7 @@ export const DispatchReceipt = DispatchLookup.extend({
   parentRunId: Id.optional(),
 });
 export const TaskDispatchView = DispatchReceipt.extend({
-  session: z.strictObject({ id: Id, spaceId: Id }).nullable(),
+  session: z.strictObject({ id: Id, spaceId: Id, processGeneration: Id.optional() }).nullable(),
   stop: StopRecord.omit({ toolOwner: true }).optional(),
   canRetry: z.literal(true).optional(),
   superseded: z.literal(true).optional(),

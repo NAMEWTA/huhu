@@ -110,7 +110,7 @@ function ManagedRun({ row, onNavigate }: { row: RecentTaskRun; onNavigate: Navig
   );
 }
 
-function TerminalRun({ id, onNavigate }: { id: string; onNavigate: Navigate }) {
+export function TerminalRun({ id, onNavigate }: { id: string; onNavigate: Navigate }) {
   const detail = useCapability<TerminalRunDetail>("automations.runs.read", { runId: id });
   const engine = useEngine();
   const [error, setError] = useState("");
@@ -128,7 +128,10 @@ function TerminalRun({ id, onNavigate }: { id: string; onNavigate: Navigate }) {
       setBusy(false);
     }
   }
-  if (!row) return detail.error ? <p role="alert">{detail.error.message}</p> : <p role="status">正在读取运行结果…</p>;
+  if (!row) return detail.error ? <div className="hu-stack">
+    <p role="alert">{detail.error.message}</p>
+    <Button onClick={() => void detail.refetch()}>重新读取终端输出</Button>
+  </div> : <p role="status">正在读取运行结果…</p>;
   const data = row.data;
   return (
     <>
