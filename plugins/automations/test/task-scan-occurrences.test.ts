@@ -689,6 +689,30 @@ test("只重试失败的建任务效果，并始终沿用原任务和原发生�
   expect(await invoke(engine, "notifications.list", {})).toHaveLength(1);
 });
 
+test("待处理筛选找到较早发生的子运行，无需把派遣受理改写成执行失败", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "跨发生待处理");
+  const task = await createTask(engine, "目标暂不可用");
+  fixture.ready.mockResolvedValue("unavailable");
+  const first = await scans.invoke(rule.id);
+  const accepted = first.items.find((item) => item.taskId === task.id)!;
+  expect(accepted.state).toBe("accepted");
+  await vi.waitFor(async () => {
+    expect(await invoke(engine, "tasks.dispatch.read", { taskId: task.id, dispatchId: accepted.dispatchId })).toMatchObject({ state: "blocked" });
+  });
+  const current = await invoke<TaskDto>(engine, "tasks.read", { id: task.id });
+  await invoke(engine, "tasks.setStatus", { id: task.id, expectedVersion: current.version, status: "completed" });
+  fixture.now = at("01:15:00");
+  const latest = await scans.invoke(rule.id);
+  expect(latest.items.filter(({ state }) => state === "accepted")).toHaveLength(0);
+  expect(await invoke(engine, "automations.plans.history", { planId: rule.id, state: "attention" })).toMatchObject({
+    rows: [{ id: first.id, state: "completed", needsAttention: true }],
+  });
+  expect(await invoke(engine, "automations.plans.list", { state: "attention" })).toMatchObject({
+    plans: [{ planId: rule.id, needsAttention: true, lastOccurrence: { occurrenceId: latest.id } }],
+  });
+});
+
 function dispatchRecords(engine: RunningEngine): DispatchRecord[] {
   const dir = path.join(engine.vault.stateDir, "tasks", "dispatches");
   if (!existsSync(dir)) return [];

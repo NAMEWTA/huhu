@@ -13,6 +13,7 @@ import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-p
 import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
 import { ScheduleGateView, type ScheduleGate } from "./schedule-gate.js";
 import type { ReminderDeliveries } from "./reminder-deliveries.js";
+import type { TaskRunAttentionQuery, TaskRunReference } from "@huhu/contracts";
 
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
@@ -232,6 +233,26 @@ async function changeRule(rule: Rule, change: PlanWrite, deps: CatalogueDeps, ap
 }
 
 export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
+  let activations: ActivationRecord[] | undefined;
+  let recent: Map<string, ActivationRecord> | undefined;
+  let history: HistoryRow[] | undefined;
+  let followUpRuns = new Map<string, PlanOccurrence>();
+  let attention: { occurrenceIds: Set<string>; planIds: Set<string> } | undefined;
+  const activationRows = () => activations ??= deps.activations();
+  const latest = () => recent ??= latestActivation(activationRows());
+  api.events.subscribe(({ type, payload }) => {
+    const { kind, path, id } = payload as { kind?: string; path?: string; id?: string };
+    if (type === "automation.activated" || type === "run.stateChanged"
+      || (type === "entity.changed" && (kind === "automation-activation" || kind === "automation-rule"))
+      || (type === "vault.fileChanged" && path?.startsWith("Automations/"))) {
+      activations = recent = undefined;
+      history = undefined;
+    }
+    if ((type === "entity.changed" && ["task", "task-follow-up", "periodic-plan", "periodic-occurrence", "home-focus"].includes(kind ?? ""))
+      || (type === "plugin.stateChanged" && id === "tasks")) history = undefined;
+    if (!history || (type === "entity.changed" && kind === "task-run")) attention = undefined;
+  });
+
   function withAvailableSchedule(plan: PlanSummary | null): PlanSummary | null {
     if (plan?.nextAt && (deps.gate.view().paused || (plan.trigger.kind === "once" && !deps.gate.allows(plan.nextAt)))) {
       return { ...plan, nextAt: null };
@@ -257,7 +278,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   function catalogue(source?: PlanSource, includeRuleHistory = true): PlanSummary[] {
     const now = deps.now();
     const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
-    const recent = includeRuleHistory && rules.length > 0 ? latestActivation(deps.activations()) : undefined;
+    const recent = includeRuleHistory && rules.length > 0 ? latest() : undefined;
     return [
       ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
       ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
@@ -273,7 +294,10 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       signal.throwIfAborted();
       await (source ? deps.periodic.importSource(source.plugin) : deps.periodic.importReady());
       signal.throwIfAborted();
-      return filterPlanPage(catalogue(source), input);
+      const plans = catalogue(source);
+      if (input.state !== "attention") return filterPlanPage(plans, input);
+      const { planIds } = runAttention();
+      return filterPlanPage(plans.map((plan) => planIds.has(plan.planId) ? { ...plan, needsAttention: true } : plan), input);
     },
     async read(planId, signal) {
       signal.throwIfAborted();
@@ -281,7 +305,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
       if (!rule) return withAvailableSchedule(deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId));
-      return withAvailableSchedule(rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId)));
+      return withAvailableSchedule(rulePlan(rule, api, deps, deps.now(), latest().get(planId)));
     },
     async readOccurrence(occurrenceId, signal) {
       signal.throwIfAborted();
@@ -301,9 +325,8 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     if (!deps.reminders) throw errors.pluginDisabled("automations");
     return deps.reminders.recoverEffect(link, effectId, signal);
   }));
-  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
-    signal.throwIfAborted();
+  function historyRows(): HistoryRow[] {
+    if (history) return history;
     const titles = new Map(deps.rules.rules().map((rule) => [rule.id, {
       title: rule.data.title,
       source: rule.data.action.kind === "agent" ? "tasks" : "automations",
@@ -312,7 +335,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       titles.set(plan.planId, { title: plan.title, source: plan.source.plugin });
     }
     const rows = new Map<string, HistoryRow>();
-    for (const row of deps.activations()) {
+    for (const row of activationRows()) {
       const occurrence = occurrenceSummary(row)!;
       const plan = titles.get(row.ruleId);
       rows.set(row.activationId, {
@@ -323,7 +346,9 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ...(row.summary && "processed" in row.summary && { counts: row.summary }),
       });
     }
-    for (const { occurrence, title, source } of [...deps.periodic.listHistory(), ...deps.followUps.listHistory()]) {
+    const followUps = deps.followUps.listHistory();
+    followUpRuns = new Map(followUps.map(({ occurrence }) => [occurrence.occurrenceId, occurrence]));
+    for (const { occurrence, title, source } of [...deps.periodic.listHistory(), ...followUps]) {
       const at = occurrence.acceptedAt ?? (occurrence.timing.trigger === "scheduled" ? occurrence.timing.scheduledFor : null);
       if (!at) continue;
       rows.set(occurrence.occurrenceId, {
@@ -331,7 +356,41 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         trigger: occurrence.timing.trigger, state: occurrence.state,
       });
     }
-    return historyPage([...rows.values()], input);
+    history = [...rows.values()];
+    return history;
+  }
+
+  function runAttention() {
+    if (attention) return attention;
+    const rows = historyRows();
+    const candidates = new Map<TaskRunReference, HistoryRow>();
+    const query = api.service<TaskRunAttentionQuery>("taskRunAttention");
+    if (query) for (const row of rows) {
+      const occurrence = followUpRuns.get(row.id) ?? (row.counts?.processed ? deps.readCronOccurrence(row.id) : null);
+      for (const { kind, effectId, target, state } of occurrence?.effects ?? []) {
+        if (state === "accepted" && target.kind === "task" && (kind === "task-run" || kind === "task-dispatch")) {
+          candidates.set({ taskId: target.id, kind, id: effectId }, row);
+        }
+      }
+    }
+    const occurrenceIds = new Set<string>();
+    const planIds = new Set<string>();
+    for (const ref of query?.read([...candidates.keys()]) ?? []) {
+      const row = candidates.get(ref);
+      if (!row) continue;
+      occurrenceIds.add(row.id);
+      planIds.add(row.planId);
+    }
+    return attention = { occurrenceIds, planIds };
+  }
+
+  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
+    signal.throwIfAborted();
+    const rows = historyRows();
+    if (input.state !== "attention") return historyPage(rows, input);
+    const { occurrenceIds } = runAttention();
+    return historyPage(rows.map((row) => occurrenceIds.has(row.id) ? { ...row, needsAttention: true } : row), input);
   }));
   api.defineCapability(bindCapability(planDescriptors.taskReminder, (context, input) => {
     if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("添加提醒需要与意图 ID 相同的持久意图键");

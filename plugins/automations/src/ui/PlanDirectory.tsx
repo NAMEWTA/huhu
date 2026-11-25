@@ -300,7 +300,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                     select(plan.planId);
                   }}>
                   <strong>{plan.title}</strong>
-                  <span><PlanBadges plan={plan} /> <small>{planSourceName(plan.source.plugin)}</small></span>
+                  <span><PlanBadges plan={plan} /> {plan.needsAttention ? <Badge tone="warning">子运行待处理</Badge> : null} <small>{planSourceName(plan.source.plugin)}</small></span>
                   <span>{plan.action.summary}</span>
                   <small>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</small>
                   <small>下次 {plan.nextAt ? formatMoment(plan.nextAt, planZone(plan)) : "未安排"} · {recentLabel(plan)}</small>

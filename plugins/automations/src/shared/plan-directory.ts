@@ -32,7 +32,7 @@ export function planMatches(plan: PlanSummary, state?: State): boolean {
     case "completed": return plan.trigger.kind === "once" && last === "completed" && plan.nextAt === null;
     case "unrun": return !last;
     case "failed": return last === "failed";
-    case "attention": return plan.availability.state === "blocked" || last === "failed" || last === "unknown";
+    case "attention": return plan.needsAttention === true || plan.availability.state === "blocked" || last === "failed" || last === "unknown";
     case "enabled": case "paused": return plan.intent === state;
     default: return true;
   }

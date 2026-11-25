@@ -92,6 +92,7 @@ export function OccurrenceHistory({ planId, back, onNavigate }: { planId: string
             <time dateTime={row.at}>{formatMoment(row.at)}</time>
             <Badge>{row.trigger === "manual" ? "立即运行" : row.trigger === "scheduled" ? "按排期触发" : "来源事件"}</Badge>
             <Badge>{row.counts && row.state === "completed" ? "受理检查结束" : occurrenceLabel[row.state]}</Badge>
+            {row.needsAttention ? <Badge tone="warning">子运行待处理</Badge> : null}
           </header>
           {row.counts ? <p>{t.summary(row.counts)}</p> : null}
         </article>

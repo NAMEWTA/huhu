@@ -854,5 +854,6 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
       }
     },
   });
+  api.provide("taskRunAttention", { read: (refs) => dispatch.runAttention(refs) } satisfies import("@huhu/contracts").TaskRunAttentionQuery);
 
 }

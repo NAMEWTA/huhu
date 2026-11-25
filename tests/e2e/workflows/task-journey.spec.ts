@@ -98,7 +98,7 @@ async function stopFixtureCore(coreBin: string, runtime: string, env: NodeJS.Pro
   }
 }
 
-test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目标不可用时可人工关闭", async ({ browserName }, testInfo) => {
+test("T7.2 AU13 Linux 定时与手动运行共享 Tasks 派遣，待处理可定位受阻子运行", async ({ browserName }, testInfo) => {
   void browserName; // Electron tests still require Playwright’s fixture parameter.
   const { page, close, vault } = await openApp();
   try {
@@ -142,6 +142,13 @@ test("T7.2 Linux 实际定时与手动运行共享同一 Tasks 派遣，原目�
     expect(await readdir(vault)).not.toContain("Task Runs");
     await detail.getByTestId("task-status").selectOption("completed");
     await expect.poll(async () => (await call<TaskDto>("tasks.read", { id: task.id })).status).toBe("completed");
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "激活记录", exact: true }).click();
+    await page.getByLabel("发生状态", { exact: true }).selectOption("attention");
+    const attention = page.getByTestId("activation-row").filter({ hasText: "任务旅程定时规则" });
+    await expect(attention).toContainText("子运行待处理");
+    await attention.getByRole("button", { name: "任务旅程定时规则" }).click();
+    await expect(page.getByTestId("occurrence-child-run")).toContainText("无法派遣");
     await testInfo.attach("dispatch-identities", { body: JSON.stringify({ occurrenceId: scheduled.activationId, taskId: task.id, dispatch }), contentType: "application/json" });
   } finally {
     await close();

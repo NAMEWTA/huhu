@@ -61,6 +61,7 @@ export const PlanSummarySchema = PlanRefSchema.extend({
   updatedAt: instant,
   nextAt: instant.nullable(),
   lastOccurrence: occurrenceSummary.nullable(),
+  needsAttention: z.literal(true).optional(),
   actions: z.array(allowedAction),
 });
 export type PlanSummary = z.infer<typeof PlanSummarySchema>;

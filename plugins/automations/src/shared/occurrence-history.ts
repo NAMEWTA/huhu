@@ -10,6 +10,7 @@ export const HistoryRow = z.strictObject({
   at: z.iso.datetime(),
   trigger: z.enum(["manual", "scheduled", "event"]),
   state: HistoryState,
+  needsAttention: z.literal(true).optional(),
   terminalRunId: z.string().optional(),
   counts: z.strictObject({ processed: z.int().nonnegative(), skipped: z.int().nonnegative() }).optional(),
 });
@@ -41,7 +42,7 @@ export function historyPage(rows: HistoryRow[], input: z.output<typeof HistoryIn
   const search = input.query?.trim().toLowerCase();
   const result = rows
     .filter((row) => {
-      const matchesState = !input.state || (input.state === "attention" ? ["failed", "unknown", "blocked"].includes(row.state) : row.state === input.state);
+      const matchesState = !input.state || (input.state === "attention" ? row.needsAttention || ["failed", "unknown", "blocked"].includes(row.state) : row.state === input.state);
       return (
         matchesState &&
         (!input.occurrenceId || row.id === input.occurrenceId) &&
