@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { errors, MCP_MANAGEMENT_ACCESS, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, PluginManifestSchema } from "@huhu/contracts";
+import { errors, MCP_ENTRY_KINDS, MCP_MANAGEMENT_ACCESS, McpCatalogViewSchema, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, PluginManifestSchema } from "@huhu/contracts";
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityContext } from "../capabilities/define.js";
 import type { PluginEntry } from "../plugin-manager.js";
 import { canonicalJson } from "../idempotency.js";
-import { McpSourceRuntime, type McpSourceRuntimeOptions } from "./runtime.js";
+import { McpSourceRuntime, routeOwner, type McpSourceRuntimeOptions } from "./runtime.js";
 import { McpSourceStore } from "./store.js";
 import { MAX_MCP_SOURCES, McpSourceImport, mcpImportPreview, sourceNamespace } from "./import.js";
 import { validateSourceConfiguration } from "./transport.js";
@@ -24,14 +24,10 @@ const sourceView = z.strictObject({ source: McpSourceSchema, state, approved: z.
 const health = z.strictObject({ state, checkedAt: z.string(), diagnostic: z.string().nullable(), toolCount: revision });
 const policyInput = z.strictObject({
   expectedPolicyRevision: revision, expectedCatalogRevision: revision,
-  choices: z.array(z.strictObject({ sourceId: id, upstreamIdentity: id, selected: z.boolean() })).min(1).max(2048),
+  choices: z.array(z.strictObject({ sourceId: id, kind: z.enum(MCP_ENTRY_KINDS).optional(), upstreamIdentity: id, selected: z.boolean() })).min(1).max(2048),
 });
 const approvalInput = sourceRevision.extend({ configurationFingerprint: z.string().regex(/^[a-f0-9]{64}$/) });
 const approvalPreview = z.strictObject({ source: McpSourceSchema, configurationFingerprint: z.string(), approved: z.boolean() });
-const catalogView = z.strictObject({
-  catalogRevision: revision, policyRevision: revision,
-  entries: z.array(z.strictObject({ sourceId: id, upstreamIdentity: id, publicKey: id, selected: z.boolean(), description: z.string() })),
-});
 
 function descriptor<I, O>(name: keyof typeof MCP_MANAGEMENT_ACCESS, title: string, input: z.ZodType<I>, output: z.ZodType<O>) {
   const [scope, risk, defaultExposed] = MCP_MANAGEMENT_ACCESS[name];
@@ -54,7 +50,7 @@ const descriptors = {
   check: descriptor("mcp.sources.check", "临时检查 MCP 来源", sourceRevision, health),
   reconnect: descriptor("mcp.sources.reconnect", "重新连接 MCP 来源", sourceRevision, health),
   refresh: descriptor("mcp.sources.refresh", "刷新 MCP 目录", sourceRevision, health),
-  catalog: descriptor("mcp.catalog.list", "读取 MCP 工具目录", sourceId.partial(), catalogView),
+  catalog: descriptor("mcp.catalog.list", "读取 MCP 能力目录", sourceId.partial(), McpCatalogViewSchema),
   diagnostics: descriptor("mcp.diagnostics.get", "查看 MCP 来源诊断", sourceId, sourceView),
   previewPolicy: descriptor("mcp.policy.preview", "预览外部 MCP 发布策略", policyInput, McpPublishPolicySchema),
   updatePolicy: descriptor("mcp.policy.update", "更新外部 MCP 发布策略", policyInput, McpPublishPolicySchema),
@@ -103,7 +99,7 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         if (reconnect) runtime.invalidate(source.sourceId);
         const result = await runtime.check(source, context.signal, useLive);
         emit(source.sourceId);
-        return { state: result.state, checkedAt: result.checkedAt, diagnostic: result.diagnostic, toolCount: result.state === "ready" ? result.tools.length : 0 };
+        return { state: result.state, checkedAt: result.checkedAt, diagnostic: result.diagnostic, toolCount: result.state === "ready" ? result.entries.filter((entry) => entry.kind === "tool").length : 0 };
       };
       const preview = (input: z.infer<typeof sourceRevision>) => {
         const source = getChecked(input);
@@ -121,20 +117,25 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         const catalog = runtime.catalogView();
         if (data.policy.revision !== input.expectedPolicyRevision) throw errors.versionConflict(String(data.policy.revision));
         if (catalog.catalogRevision !== input.expectedCatalogRevision) throw errors.versionConflict(String(catalog.catalogRevision));
-        const index = new Map(data.policy.selected.map((entry) => [JSON.stringify([entry.sourceId, entry.upstreamIdentity]), entry]));
+        const index = new Map(data.policy.selected.map((entry) => [routeOwner(entry.sourceId, entry.kind, entry.upstreamIdentity), entry]));
         const seen = new Set<string>();
-        for (const { sourceId, upstreamIdentity, selected } of input.choices) {
-          const key = JSON.stringify([sourceId, upstreamIdentity]);
+        for (const { sourceId, kind = "tool", upstreamIdentity, selected } of input.choices) {
+          if (sourceId === "builtin") throw errors.invalidInput("内置条目请通过能力网关授权");
+          const key = routeOwner(sourceId, kind, upstreamIdentity);
           if (seen.has(key)) throw errors.invalidInput("发布选择包含重复工具");
           seen.add(key);
           if (selected) {
-            const entry = catalog.entries.find((item) => item.sourceId === sourceId && item.upstreamIdentity === upstreamIdentity);
-            if (!entry) throw errors.notFound("当前目录中没有该工具");
-            if (options.isBuiltinName(entry.publicKey) || Object.entries(data.publicKeys).some(([owner, name]) => owner !== key && name === entry.publicKey)) {
+            const entry = catalog.entries.find((item) => item.sourceId === sourceId && item.kind === kind && item.upstreamIdentity === upstreamIdentity);
+            if (!entry) throw errors.notFound("当前目录中没有该条目");
+            if ((kind === "tool" && options.isBuiltinName(entry.publicKey)) || Object.entries(data.publicKeys).some(([owner, name]) => {
+              if (owner === key || name !== entry.publicKey) return false;
+              const parts = JSON.parse(owner) as string[];
+              return (parts.length === 2 ? "tool" : parts[1]) === kind;
+            })) {
               throw errors.nameConflict(entry.publicKey);
             }
             if (reserveNames) data.publicKeys[key] = entry.publicKey;
-            index.set(key, { sourceId, upstreamIdentity, kind: "tool" });
+            index.set(key, { sourceId, upstreamIdentity, kind });
           } else index.delete(key);
         }
         return { revision: data.policy.revision + 1, catalogRevision: catalog.catalogRevision, selected: [...index.values()] };

@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 export async function localUpstream(transport: "streamable-http" | "sse", options: { authorization?: string; resourcesOnly?: boolean } = {}) {
   const calls: { name: string; input: unknown }[] = [];
@@ -14,7 +14,10 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
     const server = new Server({ name: transport, version: "1" }, { capabilities: options.resourcesOnly ? { resources: {} } : { tools: {} } });
     clients.add(server);
     server.onclose = () => { clients.delete(server); };
-    if (!options.resourcesOnly) {
+    if (options.resourcesOnly) {
+      server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+      server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
+    } else {
       server.setRequestHandler(ListToolsRequestSchema, async () => {
         listRequests++;
         return { tools: [{ name: "echo", description: "Local " + transport, inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };

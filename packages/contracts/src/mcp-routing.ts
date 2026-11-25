@@ -66,6 +66,19 @@ export type McpImportConfirmation = z.infer<typeof McpImportConfirmationSchema>;
 export const MCP_ENTRY_KINDS = ["tool", "resource", "resource-template", "prompt"] as const;
 export type McpEntryKind = (typeof MCP_ENTRY_KINDS)[number];
 const entryKind = z.enum(MCP_ENTRY_KINDS);
+export const McpCatalogViewSchema = z.strictObject({
+  catalogRevision: revision,
+  policyRevision: revision,
+  entries: z.array(z.strictObject({
+    sourceId: identity,
+    kind: entryKind,
+    upstreamIdentity: identity,
+    publicKey: identity,
+    selected: z.boolean(),
+    description: z.string(),
+  })),
+});
+export type McpCatalogView = z.infer<typeof McpCatalogViewSchema>;
 const entryIdentity = z.strictObject({ sourceId: identity, kind: entryKind, upstreamIdentity: identity });
 export type McpExternalEntryIdentity = z.infer<typeof entryIdentity>;
 

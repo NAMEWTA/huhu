@@ -103,7 +103,7 @@ async function fixture(directory: string, readOnly = false) {
 }
 
 type Source = { sourceId: string; revision: number; enabled: boolean; namespace: string };
-type Catalog = { catalogRevision: number; policyRevision: number; entries: { publicKey: string; upstreamIdentity: string; sourceId: string; selected: boolean }[] };
+type Catalog = { catalogRevision: number; policyRevision: number; entries: { kind?: string; publicKey: string; upstreamIdentity: string; sourceId: string; selected: boolean }[] };
 
 async function addStdio(f: Awaited<ReturnType<typeof fixture>>, directory: string, namespace = "repo", definition?: string) {
   const journal = path.join(directory, namespace + "-events.ndjson");
@@ -152,7 +152,7 @@ test("stdio approval, temporary check, native MCP result and stable publication 
   expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info", "repo__echo"]);
   expect((await rpc("tools/call", { name: "vault_info", arguments: {} })).result?.structuredContent).toEqual({ data: { name: "fixture" } });
   expect((await rpc("tools/call", { name: "repo__echo", arguments: { value: "hi" }, _meta: { "huhu-private": "ignored" } })).result).toMatchObject({
-    structuredContent: { value: "hi" }, content: [{ type: "text", text: "hi" }, { type: "resource_link", uri: "fixture://note/1" }],
+    structuredContent: { value: "hi" }, content: [{ type: "text", text: "hi" }, { type: "resource_link", uri: "mcp-source://repo/fixture://note/1" }],
   });
   expect(writes(journal).at(-1)).toMatchObject({ type: "call", name: "echo", args: { value: "hi" }, keys: ["arguments", "name"] });
   const longPid = writes(journal).findLast(({ type }) => type === "start")!.pid!;
@@ -346,3 +346,62 @@ test("complete paging and definition changes preserve exact names and isolate cu
   expect(await f.call("mcp.sources.refresh", sourceRef(enabled))).toMatchObject({ state: "offline", diagnostic: "上游目录返回重复游标", toolCount: 0 });
   expect((await rpc("tools/list")).result?.tools?.map(({ name }: { name: string }) => name)).toEqual(["vault_info"]);
 });
+
+test("four directories isolate equal upstream identifiers and authorize exact, templated, and embedded URIs", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const firstPath = path.join(directory, "one.json");
+  const secondPath = path.join(directory, "two.json");
+  writeFileSync(firstPath, JSON.stringify({ catalog: true, label: "one" }));
+  writeFileSync(secondPath, JSON.stringify({ catalog: true, label: "two" }));
+  const first = await addStdio(f, directory, "one", firstPath);
+  const second = await addStdio(f, directory, "two", secondPath);
+  for (const { source } of [first, second]) {
+    await approve(f, source);
+    await f.call("mcp.sources.check", sourceRef(source));
+    await f.call("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  }
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("resources/list")).result).toMatchObject({ resources: [{ uri: "huhu://vault/summary" }] });
+  expect((await rpc("prompts/list")).result).toMatchObject({ prompts: [{ name: "daily-review" }, { name: "knowledge-synthesis" }] });
+  const base = await f.call<Catalog>("mcp.catalog.list", {});
+  expect(base.entries).toHaveLength(14);
+  await f.call("mcp.policy.update", {
+    expectedCatalogRevision: base.catalogRevision, expectedPolicyRevision: base.policyRevision,
+    choices: base.entries.map(({ sourceId, kind, upstreamIdentity }) => ({ sourceId, kind, upstreamIdentity, selected: true })),
+  });
+  const oneUri = "mcp-source://one/fixture://note/1";
+  const twoUri = "mcp-source://two/fixture://note/1";
+  expect((await rpc("resources/list")).result).toMatchObject({
+    resources: [{ uri: oneUri }, { uri: twoUri }, { uri: "huhu://vault/summary" }],
+  });
+  expect((await rpc("resources/templates/list")).result?.["resourceTemplates"]).toEqual(expect.arrayContaining([
+    expect.objectContaining({ uriTemplate: "mcp-source://one/fixture://group/{folder}/{name}{?q,format}" }),
+  ]));
+  expect((await rpc("resources/read", { uri: oneUri })).result).toMatchObject({ contents: [{ uri: oneUri, text: "one" }] });
+  expect((await rpc("resources/read", { uri: twoUri })).result).toMatchObject({ contents: [{ uri: twoUri, text: "two" }] });
+  const raw = "fixture://group/%E4%B8%AD/a%25b?format=text&q=%2b";
+  const projected = "mcp-source://one/" + raw;
+  expect((await rpc("resources/read", { uri: projected })).result).toMatchObject({ contents: [{ uri: projected, text: "one" }] });
+  expect(writes(first.journal).at(-1)).toMatchObject({ type: "read", uri: raw });
+  expect((await rpc("resources/read", { uri: "mcp-source://one/fixture://overlap/a" })).error?.data?.code).toBe("NAME_CONFLICT");
+  expect((await rpc("prompts/get", { name: "two__review", arguments: { topic: "样例" } })).result).toMatchObject({
+    messages: [{ role: "assistant", content: { text: "样例" } }, { role: "user", content: { type: "resource", resource: { uri: twoUri, text: "two" } } }],
+  });
+  expect((await rpc("tools/call", { name: "one__echo", arguments: { value: "source" } })).result).toMatchObject({
+    content: [{ type: "text", text: "source" }, { type: "resource_link", uri: oneUri }],
+  });
+  const active = await f.call<Catalog>("mcp.catalog.list", {});
+  await f.call("mcp.policy.update", {
+    expectedCatalogRevision: active.catalogRevision, expectedPolicyRevision: active.policyRevision,
+    choices: [
+      { sourceId: first.source.sourceId, kind: "resource", upstreamIdentity: "fixture://note/1", selected: false },
+      { sourceId: second.source.sourceId, kind: "prompt", upstreamIdentity: "review", selected: false },
+    ],
+  });
+  const before = [writes(first.journal).length, writes(second.journal).length];
+  expect((await rpc("resources/read", { uri: oneUri })).error?.data?.code).toBe("CAPABILITY_NOT_EXPOSED");
+  expect((await rpc("prompts/get", { name: "two__review", arguments: { topic: "拒绝" } })).error?.data?.code).toBe("CAPABILITY_NOT_EXPOSED");
+  expect([writes(first.journal).length, writes(second.journal).length]).toEqual(before);
+}, 15_000);
