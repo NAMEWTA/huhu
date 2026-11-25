@@ -46,3 +46,5 @@
 - 使用当前仓库的 schema 解析 14 个 PlanSummary、6 个 PlanOccurrence、14 个改期输入、1 个 TaskActivity 和 4 个 HostDateField 样例。回执保留 `fixtures-validation.log`，浏览器证据在 `walkthrough-final.log` 和 `prototype-walkthrough-final.json`。这些检查针对模拟对象。生产调度、真实领域动作、权限、迁移、进程恢复及历史规模下的性能尚待相应实施验收。
 
 ## 用户确认
+
+- 2026-11-25，用户在 Lead 会话中对四套原型的确认提问回复「基本表示同意，我提出的地方请你继续优化」，未对本原型提出修改。确认版本 SHA-256 `96b22cdaa663016ae351a006be8e46fbb936a85c17489b52059f6debf3018775`，范围为本记录场景表所列页面与状态；后台约束仍以规格与原 Issue 为准。
