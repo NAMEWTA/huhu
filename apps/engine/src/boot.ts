@@ -342,7 +342,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const notifications = new NotificationStore(
     path.join(vault.stateDir, "notifications.ndjson"),
     () => new Date(),
-    (n) => events.publish("notification.created", { id: n.id, title: n.title, module: n.module }),
+    ({ id, title, module, occurrence }) => events.publish("notification.created", { id, title, module, ...(occurrence && { occurrence }) }),
   );
   const RecentNote = z.object({ path: z.string(), title: z.string(), folder: z.string(), updatedAt: z.string(), snippet: z.string() });
   const recentNotes = async (notes: { path: string; title: string }[], readText: (relative: string) => Promise<string>) => {

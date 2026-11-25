@@ -13,6 +13,8 @@ export const blockedLabel = {
   "domain-conflict": "来源状态冲突", "target-unavailable": "原目标不可用",
 };
 
+export const calendarFrequencyLabel = { daily: "每日", weekly: "每周", monthly: "每月" } as const;
+
 export function formatMoment(value: string, zone?: string): string {
   try {
     return new Date(value).toLocaleString("zh-CN", {
@@ -34,6 +36,7 @@ export function describeTrigger(trigger: PlanTrigger): string {
     case "interval": return `每 ${trigger.every} ${trigger.unit === "minutes" ? "分钟" : "秒"}`;
     case "observe": return `每 ${trigger.everySeconds} 秒检查`;
     case "event": return `事件 · ${trigger.event}`;
+    case "calendar": return `${calendarFrequencyLabel[trigger.frequency]} · ${trigger.startOn} 起`;
     case "cron": {
       const preset = presetOf(trigger.expression);
       const summary = preset.preset === "custom" ? trigger.expression

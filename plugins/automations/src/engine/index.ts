@@ -18,7 +18,8 @@ import { planDescriptors, registerPlanCatalogue } from "./plans.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
+import { ScheduleGate } from "./schedule-gate.js";
+import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsDeps, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { TaskReminderPlans } from "./task-reminder-plans.js";
 import { registerTaskScanTools, TaskScanAction, taskScanAuthorization, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
@@ -73,12 +74,15 @@ const RunRow = z.object({
 });
 
 export const automationToolDescriptors = {
+  automationState: planDescriptors.automationState,
+  setAutomationState: planDescriptors.setAutomationState,
   plansList: planDescriptors.list,
   plansSummary: planDescriptors.summary,
   plansRead: planDescriptors.read,
   plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,
   plansHistory: planDescriptors.history,
+  recoverEffect: planDescriptors.recoverEffect,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
   plansCreateObservation: planDescriptors.observationCreate,
@@ -253,7 +257,7 @@ export const automationToolDescriptors = {
 
 export interface AutomationsOptions {
   zone?: () => string;
-  notify?: (n: { title: string; module: string }) => void;
+  notify?: AutomationsDeps["notify"];
   reminderNotifications?: ReminderNotifications;
   focusDeadline?: FocusDeadlinePort;
   credentialHost?: AutomationCredentialHost;
@@ -275,6 +279,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const cliAvailable = opts.cliAvailable ?? (() => false);
   const stateFiles = new VaultFiles(api.vault.stateDir, undefined, api.vault.files.readOnly);
+  const gate = new ScheduleGate(stateFiles, now);
   const stateStat = statSync(stateFiles.root, { bigint: true });
   const rootIdentity = filesystemIdentity(stateStat);
   const terminalOwner =
@@ -305,6 +310,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     notify: opts.notify ?? (() => undefined),
     publish: (t, p) => api.events.publish(t, p),
     now,
+    allowsSchedule: gate.allows,
     zone,
   });
   const terminalEnvironments = registerTerminalEnvironments(api, svc, opts.credentialHost, opts.taskScanPrincipalCurrent);
@@ -313,7 +319,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     if (finishedAt) api.events.publish("entity.changed", { kind: "automation-activation", id: activationId, op: "updated" });
     else api.events.publish("automation.activated", { ruleId, activationId, trigger });
   };
-  const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now, publishActivation);
+  const scans = new TaskScanOccurrences(stateFiles, api.vault.vaultId, svc, () => api.service("taskDispatch"), now, publishActivation, gate.allows);
   if (opts.taskScanPrincipalCurrent) registerTaskScanTools(api, svc, scans, opts.taskScanPrincipalCurrent);
   api.provide("taskScanOccurrences", scans);
   ctx.effect(() => () => scans.close());
@@ -342,6 +348,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     () => api.service<TaskFollowUpDispatch>("taskFollowUpDispatch"),
     now,
     (taskId) => api.events.publish("entity.changed", { kind: "task-follow-up", id: taskId, op: "updated" }),
+    gate.allows,
   );
   api.provide("taskFollowUps", followUps);
   api.provide("taskScheduleAdmission", ((source, taskId) => source.kind === "follow-up"
@@ -350,10 +357,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   const taskReminders = new TaskReminderPlans(
     stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
+    gate.allows,
   );
   const periodic = new PeriodicPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner }, svc,
     ["mail", "versioning", "ssh", "ledger"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
-    (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }));
+    (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }), gate);
   api.provide(PERIODIC_PLANS_SERVICE, periodic);
   type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };
   type AgentObservation = { status(id: string): Promise<ObservationStatus> };
@@ -366,9 +374,9 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       if (task.execution.state === "none") return task.status === "not_started" ? "not_started" : "unknown";
       return task.execution.state === "waiting-input" ? "waiting_input" : task.execution.state;
     }, now, (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }),
-    ({ kind }) => kind === "task" ? !!api.service<TaskActivityQuery>("taskActivity") : !!api.service<AgentObservation>("agentObservation"));
+    ({ kind }) => kind === "task" ? !!api.service<TaskActivityQuery>("taskActivity") : !!api.service<AgentObservation>("agentObservation"), gate.allows);
   const focus = opts.focusDeadline
-    ? new FocusDeadlinePlans(opts.focusDeadline, svc, () => reminders, api.vault.vaultId, stateFiles.readOnly, now)
+    ? new FocusDeadlinePlans(opts.focusDeadline, svc, () => reminders, api.vault.vaultId, stateFiles.readOnly, now, gate.allows)
     : undefined;
   const reminders: ReminderDeliveries | undefined = opts.reminderNotifications
     ? new ReminderDeliveries(
@@ -396,21 +404,25 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
           return tasks.comment(taskId, id, body);
         },
         focus,
+        gate.allows,
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
   if (focus && reminders && opts.schedule !== false) api.provide("focusDeadlines", true);
   ctx.effect(() => {
     const check = () => {
-      void followUps.tick().catch(() => undefined);
+      if (!gate.view().paused) {
+        void followUps.tick().catch(() => undefined);
+        void taskReminders.tick().catch(() => undefined);
+      }
       void reminders?.recover().catch(() => undefined);
-      void taskReminders.tick().catch(() => undefined);
       if (!stateFiles.readOnly) void scans.recover().catch(() => undefined);
       if (!stateFiles.readOnly) void svc.reconcileTerminals().catch(() => undefined);
     };
     const timer = opts.schedule === false ? undefined : setInterval(check, 5_000);
     if (timer) check();
     const checkDeadlinesAndObservations = () => {
+      if (gate.view().paused) return;
       focus?.tick();
       void observations.tick();
       void periodic.tick().catch(() => undefined);
@@ -441,19 +453,27 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   };
   const scheduler = new Scheduler({
     activate: async (ruleId, at) => {
+      if (!gate.allows(at.toISOString())) return;
       await activate(ruleId, at);
     },
     lastActivatedFor: (id) => {
       const last = svc.lastActivatedFor(id);
       const kind = svc.rule(id).data.action.kind;
       const current = kind === "agent" ? scans.lastScheduledFor(id) : kind === "reminder" ? reminders?.lastScheduledFor(id) : null;
-      return current && (!last || current > last) ? current : last;
+      const latest = current && (!last || current > last) ? current : last;
+      const { changedAt } = gate.view();
+      if (changedAt && latest && latest.getTime() < Date.parse(changedAt)) return new Date(changedAt);
+      return latest;
     },
     now,
   });
   const scheduleLifetime = new AbortController();
   const resync = () => {
     if (opts.schedule === false || scheduleLifetime.signal.aborted) return;
+    if (gate.view().paused) {
+      scheduler.stop();
+      return;
+    }
     scheduler.sync(
       svc.rules().map((r) => ({
         id: r.id,
@@ -528,7 +548,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   };
   const activations = () => [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])];
   const readCronOccurrence = (id: string) => scans.readPlanOccurrence(id) ?? reminders?.readPlanOccurrence(id) ?? null;
-  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, periodic, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule });
+  const scheduleChanged = () => {
+    periodic.scheduleChanged();
+    resync();
+    api.events.publish("entity.changed", { kind: "automation-rule", id: "automation-state", op: "updated" });
+  };
+  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, periodic, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule, gate, scheduleChanged, reminders });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {

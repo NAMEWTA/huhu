@@ -1,4 +1,4 @@
-import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceLinkSchema, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { filterPlanPage, PlanHomeSummary, planOrders, planStates, summarizePlans } from "../shared/plan-directory.js";
@@ -11,6 +11,9 @@ import type { PeriodicPlans } from "./periodic-plans.js";
 import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsService } from "./service.js";
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
 import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
+import { ScheduleGateView, type ScheduleGate } from "./schedule-gate.js";
+import type { ReminderDeliveries } from "./reminder-deliveries.js";
+import type { TaskRunAttentionQuery, TaskRunReference } from "@huhu/contracts";
 
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
@@ -26,6 +29,15 @@ const ListPlans = z.strictObject({
 const PlanPage = z.strictObject({ plans: z.array(PlanSummarySchema), nextCursor: identifier.nullable() });
 const workbench = { plugin: "automations", exposable: false, defaultExposed: false } as const;
 export const planDescriptors = {
+  automationState: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.automationState", scope: "read", input: z.strictObject({}), output: ScheduleGateView,
+    title: "查看自动运行状态", description: "读取当前 Vault 的自动运行开关与修订。", risk: "normal",
+  }),
+  setAutomationState: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.setAutomationState", scope: "write", idempotency: "durable",
+    input: z.strictObject({ paused: z.boolean(), expectedRevision: identifier }), output: ScheduleGateView,
+    title: "暂停或恢复自动运行", description: "更新当前 Vault 的自动触发开关。", risk: "high",
+  }),
   list: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.list", scope: "read", input: ListPlans, output: PlanPage,
     title: "计划目录", description: "枚举当前 Vault 的计划，可按来源对象筛选。", risk: "normal",
@@ -45,6 +57,11 @@ export const planDescriptors = {
   history: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.history", scope: "read", input: HistoryInput, output: HistoryPage,
     title: "查询计划运行历史", description: "按来源、状态与时间读取发生摘要。", risk: "normal",
+  }),
+  recoverEffect: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.recoverEffect", scope: "write",
+    input: PlanOccurrenceLinkSchema.extend({ effectId: identifier }), output: PlanOccurrenceSchema,
+    title: "核实或重试原效果", description: "按原发生和效果身份处理一项可恢复的效果。", risk: "high",
   }),
   submit: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.submit", scope: "write", idempotency: "durable", input: PlanWriteSchema, output: PlanWriteResultSchema,
@@ -90,6 +107,9 @@ type CatalogueDeps = {
   now(): Date;
   activations(): ActivationRecord[];
   readCronOccurrence(id: string): PlanOccurrence | null;
+  reminders: ReminderDeliveries | undefined;
+  gate: ScheduleGate;
+  scheduleChanged(): void;
   deleteRule(ruleId: string, expectedVersion: string, assertCurrent: () => void): Promise<void>;
 };
 type ReadDirectory = Pick<PlanDirectory, "list" | "read" | "readOccurrence">;
@@ -213,10 +233,52 @@ async function changeRule(rule: Rule, change: PlanWrite, deps: CatalogueDeps, ap
 }
 
 export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
+  let activations: ActivationRecord[] | undefined;
+  let recent: Map<string, ActivationRecord> | undefined;
+  let history: HistoryRow[] | undefined;
+  let followUpRuns = new Map<string, PlanOccurrence>();
+  let attention: { occurrenceIds: Set<string>; planIds: Set<string> } | undefined;
+  const activationRows = () => activations ??= deps.activations();
+  const latest = () => recent ??= latestActivation(activationRows());
+  api.events.subscribe(({ type, payload }) => {
+    const { kind, path, id } = payload as { kind?: string; path?: string; id?: string };
+    if (type === "automation.activated" || type === "run.stateChanged"
+      || (type === "entity.changed" && (kind === "automation-activation" || kind === "automation-rule"))
+      || (type === "vault.fileChanged" && path?.startsWith("Automations/"))) {
+      activations = recent = undefined;
+      history = undefined;
+    }
+    if ((type === "entity.changed" && ["task", "task-follow-up", "periodic-plan", "periodic-occurrence", "home-focus"].includes(kind ?? ""))
+      || (type === "plugin.stateChanged" && id === "tasks")) history = undefined;
+    if (!history || (type === "entity.changed" && kind === "task-run")) attention = undefined;
+  });
+
+  function withAvailableSchedule(plan: PlanSummary | null): PlanSummary | null {
+    if (plan?.nextAt && (deps.gate.view().paused || (plan.trigger.kind === "once" && !deps.gate.allows(plan.nextAt)))) {
+      return { ...plan, nextAt: null };
+    }
+    return plan;
+  }
+
+  api.defineCapability(bindCapability(planDescriptors.automationState, ({ caller, signal }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看自动运行状态");
+    signal.throwIfAborted();
+    return deps.gate.view();
+  }));
+  api.defineCapability(bindCapability(planDescriptors.setAutomationState, ({ caller, signal }, { paused, expectedRevision }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("修改自动运行状态");
+    return deps.rules.withRuleConfiguration(async () => {
+      const before = deps.gate.view().revision;
+      const state = await deps.gate.set(paused, expectedRevision, signal);
+      if (before !== state.revision) deps.scheduleChanged();
+      return state;
+    });
+  }));
+
   function catalogue(source?: PlanSource, includeRuleHistory = true): PlanSummary[] {
     const now = deps.now();
     const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
-    const recent = includeRuleHistory && rules.length > 0 ? latestActivation(deps.activations()) : undefined;
+    const recent = includeRuleHistory && rules.length > 0 ? latest() : undefined;
     return [
       ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
       ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
@@ -224,7 +286,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       ...deps.periodic.list(),
       ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
       ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
-    ].filter((plan) => !source || matchesSource(plan.source, source));
+    ].filter((plan) => !source || matchesSource(plan.source, source)).map((plan) => withAvailableSchedule(plan)!);
   }
   const directory: ReadDirectory & { list(input: z.output<typeof ListPlans>, signal: AbortSignal): Promise<z.output<typeof PlanPage>> } = {
     async list(input: z.output<typeof ListPlans>, signal) {
@@ -232,15 +294,18 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       signal.throwIfAborted();
       await (source ? deps.periodic.importSource(source.plugin) : deps.periodic.importReady());
       signal.throwIfAborted();
-      return filterPlanPage(catalogue(source), input);
+      const plans = catalogue(source);
+      if (input.state !== "attention") return filterPlanPage(plans, input);
+      const { planIds } = runAttention();
+      return filterPlanPage(plans.map((plan) => planIds.has(plan.planId) ? { ...plan, needsAttention: true } : plan), input);
     },
     async read(planId, signal) {
       signal.throwIfAborted();
       await deps.periodic.importReady();
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
-      if (!rule) return deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);
-      return rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId));
+      if (!rule) return withAvailableSchedule(deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId));
+      return withAvailableSchedule(rulePlan(rule, api, deps, deps.now(), latest().get(planId)));
     },
     async readOccurrence(occurrenceId, signal) {
       signal.throwIfAborted();
@@ -255,9 +320,13 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   }));
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
-  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
-    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
-    signal.throwIfAborted();
+  api.defineCapability(bindCapability(planDescriptors.recoverEffect, ({ caller, signal }, { effectId, ...link }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("处理工作台发生效果");
+    if (!deps.reminders) throw errors.pluginDisabled("automations");
+    return deps.reminders.recoverEffect(link, effectId, signal);
+  }));
+  function historyRows(): HistoryRow[] {
+    if (history) return history;
     const titles = new Map(deps.rules.rules().map((rule) => [rule.id, {
       title: rule.data.title,
       source: rule.data.action.kind === "agent" ? "tasks" : "automations",
@@ -266,7 +335,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       titles.set(plan.planId, { title: plan.title, source: plan.source.plugin });
     }
     const rows = new Map<string, HistoryRow>();
-    for (const row of deps.activations()) {
+    for (const row of activationRows()) {
       const occurrence = occurrenceSummary(row)!;
       const plan = titles.get(row.ruleId);
       rows.set(row.activationId, {
@@ -277,7 +346,9 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ...(row.summary && "processed" in row.summary && { counts: row.summary }),
       });
     }
-    for (const { occurrence, title, source } of [...deps.periodic.listHistory(), ...deps.followUps.listHistory()]) {
+    const followUps = deps.followUps.listHistory();
+    followUpRuns = new Map(followUps.map(({ occurrence }) => [occurrence.occurrenceId, occurrence]));
+    for (const { occurrence, title, source } of [...deps.periodic.listHistory(), ...followUps]) {
       const at = occurrence.acceptedAt ?? (occurrence.timing.trigger === "scheduled" ? occurrence.timing.scheduledFor : null);
       if (!at) continue;
       rows.set(occurrence.occurrenceId, {
@@ -285,7 +356,41 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         trigger: occurrence.timing.trigger, state: occurrence.state,
       });
     }
-    return historyPage([...rows.values()], input);
+    history = [...rows.values()];
+    return history;
+  }
+
+  function runAttention() {
+    if (attention) return attention;
+    const rows = historyRows();
+    const candidates = new Map<TaskRunReference, HistoryRow>();
+    const query = api.service<TaskRunAttentionQuery>("taskRunAttention");
+    if (query) for (const row of rows) {
+      const occurrence = followUpRuns.get(row.id) ?? (row.counts?.processed ? deps.readCronOccurrence(row.id) : null);
+      for (const { kind, effectId, target, state } of occurrence?.effects ?? []) {
+        if (state === "accepted" && target.kind === "task" && (kind === "task-run" || kind === "task-dispatch")) {
+          candidates.set({ taskId: target.id, kind, id: effectId }, row);
+        }
+      }
+    }
+    const occurrenceIds = new Set<string>();
+    const planIds = new Set<string>();
+    for (const ref of query?.read([...candidates.keys()]) ?? []) {
+      const row = candidates.get(ref);
+      if (!row) continue;
+      occurrenceIds.add(row.id);
+      planIds.add(row.planId);
+    }
+    return attention = { occurrenceIds, planIds };
+  }
+
+  api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
+    signal.throwIfAborted();
+    const rows = historyRows();
+    if (input.state !== "attention") return historyPage(rows, input);
+    const { occurrenceIds } = runAttention();
+    return historyPage(rows.map((row) => occurrenceIds.has(row.id) ? { ...row, needsAttention: true } : row), input);
   }));
   api.defineCapability(bindCapability(planDescriptors.taskReminder, (context, input) => {
     if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("添加提醒需要与意图 ID 相同的持久意图键");

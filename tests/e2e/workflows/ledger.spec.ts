@@ -533,7 +533,7 @@ test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async 
   }
 });
 
-test("AW4 AU01 AU15 AU16 账本与中心双向定位同一计划且删除后插件重开不复活", async () => {
+test("AW4 AU16 账本与中心双向改期同一计划且删除后插件重开不复活", async ({ browserName: _browserName }) => {
   const { page, close } = await openApp();
   try {
     await engineReady(page);
@@ -565,6 +565,25 @@ test("AW4 AU01 AU15 AU16 账本与中心双向定位同一计划且删除后插�
     expect((await read()).revision).not.toBe(plan.revision);
     await row.getByRole("button", { name: "在自动化中心管理计划" }).click();
     await expect(inspector.getByRole("heading", { name: "原账本计划" })).toBeFocused();
+    const changedStart = new Date(Date.parse(startOn) + 86_400_000).toISOString().slice(0, 10);
+    await inspector.getByRole("button", { name: "改期" }).click();
+    const calendar = page.getByRole("dialog", { name: "更改计划时间" });
+    await calendar.getByLabel("周期", { exact: true }).selectOption("weekly");
+    await calendar.getByLabel("起始日期").fill(changedStart);
+    await calendar.getByRole("button", { name: "保存" }).click();
+    await expect(calendar).toBeHidden();
+    await expect.poll(read).toMatchObject({
+      planId: plan.planId, trigger: { kind: "calendar", startOn: changedStart, frequency: "weekly" },
+      nextAt: ledgerBusinessDayRange(changedStart, "Asia/Taipei").from,
+    });
+    await inspector.getByRole("button", { name: "打开账本" }).click();
+    await expect(row).toContainText(`每周 · ${changedStart} 起`);
+    await row.getByRole("button", { name: "改期" }).click();
+    await calendar.getByLabel("周期", { exact: true }).selectOption("daily");
+    await calendar.getByRole("button", { name: "保存" }).click();
+    await expect(calendar).toBeHidden();
+    await row.getByRole("button", { name: "在自动化中心管理计划" }).click();
+    await expect(inspector).toContainText(`每日 · ${changedStart} 起`);
     await inspector.getByRole("button", { name: "暂停", exact: true }).click();
     await expect.poll(read).toMatchObject({ planId: plan.planId, intent: "paused", nextAt: null });
     await inspector.getByRole("button", { name: "打开账本" }).click();

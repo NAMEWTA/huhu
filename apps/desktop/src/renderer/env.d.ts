@@ -28,6 +28,8 @@ declare global {
       acknowledgeExitSave(vaultPath: string, id: string): Promise<void>;
       onExit(prepare: import("../exit-ipc.js").PrepareExit, release: import("../exit-ipc.js").ReleaseExit): () => void;
       onEngineState(cb: (s: EngineState) => void): () => void;
+      showAutomationNotification(notice: { id: string; title: string; occurrence: import("@huhu/workbench").PlanOccurrenceLink }, vaultId: string): Promise<void>;
+      onAutomationNotification(cb: (notice: { vaultId: string; id: string; occurrence: import("@huhu/workbench").PlanOccurrenceLink }) => void): () => void;
     };
   }
 }

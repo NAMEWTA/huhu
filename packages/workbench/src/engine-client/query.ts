@@ -6,7 +6,7 @@ export const queryKey = (vaultId: string, capability: string, input: unknown = {
 
 const ENTITY_CAPS: Record<string, string[]> = {
   task: ["tasks.", "automations.plans."],
-  "task-run": ["tasks."],
+  "task-run": ["tasks.", "automations.plans."],
   "task-follow-up": ["automations.followUps.get", "automations.plans."],
   "automation-rule": ["automations.list", "automations.read", "automations.plans."],
   "agent-catalog": ["agent.catalog.detect", "agent.settings.get", "automations.plans.list", "automations.plans.read", "automations.plans.summary"],

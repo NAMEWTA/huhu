@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { errors, isHuhuError, newId, type AutomationRuleFrontmatter, type AutomationRunFrontmatter, type EventPayload, type EventType, type TaskDto } from "@huhu/contracts";
+import { errors, isHuhuError, newId, type AutomationRuleFrontmatter, type AutomationRunFrontmatter, type EventPayload, type EventType, type PlanOccurrenceLink, type TaskDto } from "@huhu/contracts";
 import { ModuleCredentials } from "@huhu/kernel";
 import { VaultFiles, type Entity, type SemanticRepository } from "@huhu/vault";
 import { z } from "zod";
@@ -49,9 +49,10 @@ export interface AutomationsDeps {
   launchTerminal?(ruleId: string, action: TerminalRuleAction, input: TerminalRuleLaunch, signal: AbortSignal, expectedEnvironmentRevision: string | null): Promise<{ id: string }>;
   /** 测试用：终端会话轮询间隔（毫秒），缺省 500。 */
   terminalPollMs?: number;
-  notify(n: { title: string; module: string }): void;
+  notify(n: { title: string; module: string; occurrence?: PlanOccurrenceLink }): void;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
+  allowsSchedule?(slot: string): boolean;
   zone(): string;
 }
 
@@ -511,7 +512,7 @@ export class AutomationsService {
       if (created) {
         this.d.publish("automation.activated", { ruleId, activationId: rec.activationId, trigger: rec.trigger });
         if (input) await this.runTerminalAction(run, rule.data.title, action, input);
-        else this.d.notify({ title: `自动化「${rule.data.title}」失败：${run.body.trim()}`, module: "automations" });
+        else this.d.notify({ title: `自动化「${rule.data.title}」失败：${run.body.trim()}`, module: "automations", occurrence: { planId: ruleId, occurrenceId: rec.activationId } });
       }
       return this.terminalActivation(this.d.repo.read("automation-run", run.id))!;
     });
@@ -533,6 +534,7 @@ export class AutomationsService {
         const current = this.rule(rule.id);
         if (current.version !== rule.version) throw errors.versionConflict(current.version);
         if (!current.data.enabled) throw errors.invalidInput("定时规则已暂停");
+        if (rec.scheduledFor && this.d.allowsSchedule?.(rec.scheduledFor) === false) throw errors.invalidInput("自动运行已暂停或原排期已跳过");
         return this.createTerminalRun(rec, { runId, ...(launch && { terminalLaunch: launch }), failure });
       });
       return { run, ...(input && { input }), created: true };
@@ -716,7 +718,7 @@ export class AutomationsService {
    * 规则环境只在 Engine 交给 Agent CLI 的启动服务。运行记录持有同一终端会话 ID。
    */
   private async runTerminalAction(run: Entity, ruleTitle: string, action: TerminalRuleAction, preparedInput?: TerminalRuleLaunch, expectedEnvironmentRevision: string | null = null): Promise<{ state: string }> {
-    const { ruleId, startedAt, terminalLaunch } = run.data as unknown as AutomationRunFrontmatter;
+    const { ruleId, activationId, startedAt, terminalLaunch, scheduledFor } = run.data as unknown as AutomationRunFrontmatter;
     const cancel = this.terminalSignal(ruleId, run.id);
     const launchSignal = AbortSignal.any([this.abort.signal, cancel]);
     let submittedAt = startedAt;
@@ -732,6 +734,7 @@ export class AutomationsService {
       }
       if (terminalLaunch) {
         if (this.abort.signal.aborted) return { state: "running" };
+        if (scheduledFor && this.d.allowsSchedule?.(scheduledFor) === false) return await this.finishTerminalRun(run.id, "cancelled", "自动运行已暂停或原排期已跳过。");
         if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
         const revision = this.matchingEnvironmentRevision(ruleId, input, terminalLaunch.fingerprint);
         if (revision === undefined) {
@@ -746,6 +749,7 @@ export class AutomationsService {
           throw error;
         }
         if (this.abort.signal.aborted) return { state: "running" };
+        if (scheduledFor && this.d.allowsSchedule?.(scheduledFor) === false) return await this.finishTerminalRun(run.id, "cancelled", "自动运行已暂停或原排期已跳过。");
         if (cancel.aborted) return await this.finishTerminalRun(run.id, "cancelled", "提交前已取消。");
         if (this.matchingEnvironmentRevision(ruleId, input, terminalLaunch.fingerprint) !== expectedEnvironmentRevision) {
           return await this.terminalPending(run.id, "规则或启动配置在提交前已变化，需人工核对。");
@@ -768,7 +772,7 @@ export class AutomationsService {
         return await this.terminalPending(run.id, "正在核对原启动及终端状态。");
       }
       const msg = errorMessage(e);
-      this.d.notify({ title: `自动化「${ruleTitle}」失败：${msg}`, module: "automations" });
+      this.d.notify({ title: `自动化「${ruleTitle}」失败：${msg}`, module: "automations", ...(activationId && { occurrence: { planId: ruleId, occurrenceId: activationId } }) });
       return await this.finishTerminalRun(run.id, "failed", msg);
     } finally {
       this.runAbort.delete(run.id);
@@ -837,7 +841,10 @@ export class AutomationsService {
     const cur = this.d.repo.read("automation-run", runId);
     await this.d.repo.patch("automation-run", runId, { state, finishedAt: iso(this.d.now()), exitCode, ...(sess.hasEnv && { sessionId, terminalReleasePending: true }) }, cur.version, `\n## 输出\n\n${note}${output}\n`);
     this.d.publish("run.stateChanged", { runId, kind: "automation-run", state });
-    if (state === "failed" || state === "unknown") this.d.notify({ title: `自动化「${ruleTitle}」${STATE_TEXT[state] ?? state}`, module: "automations" });
+    if (state === "failed" || state === "unknown") {
+      const { ruleId, activationId } = cur.data as unknown as AutomationRunFrontmatter;
+      this.d.notify({ title: `自动化「${ruleTitle}」${STATE_TEXT[state] ?? state}`, module: "automations", ...(activationId && { occurrence: { planId: ruleId, occurrenceId: activationId } }) });
+    }
     if (sess.hasEnv) await this.releaseTerminal(runId, sessionId);
     return { state };
   }
@@ -878,7 +885,7 @@ export class AutomationsService {
     for (const run of rows) {
       const { id } = run;
       if (this.abort.signal.aborted || this.runAbort.has(id)) continue;
-      const { ruleId, sessionId, startedAt, finishedAt, terminalLaunch, terminalIntent, state, trigger } = run.data as unknown as AutomationRunFrontmatter;
+      const { ruleId, sessionId, startedAt, finishedAt, terminalLaunch, terminalIntent, state, trigger, scheduledFor } = run.data as unknown as AutomationRunFrontmatter;
       if (finishedAt && sessionId) {
         await this.releaseTerminal(id, sessionId);
         continue;
@@ -886,6 +893,10 @@ export class AutomationsService {
       const rule = rules.get(ruleId);
       if (trigger === "schedule" && terminalLaunch?.submittedAt === null && !sessionId) {
         if (state !== "running" || this.ruleAbort.has(ruleId)) continue;
+        if (scheduledFor && this.d.allowsSchedule?.(scheduledFor) === false) {
+          await this.finishTerminalRun(id, "cancelled", "自动运行已暂停或原排期已跳过。");
+          continue;
+        }
         if (!rule?.data.enabled || rule.data.action.kind !== "terminal" || hasLegacyTerminalEnvironment(rule.data.action)) {
           await this.terminalPending(id, "原计划未提交，规则已停用、删除或需要重新配置。", run.version);
           continue;

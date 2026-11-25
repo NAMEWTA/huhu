@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
+import { errors, HuhuError, isHuhuError, type PlanOccurrence, type PlanOccurrenceLink } from "@huhu/contracts";
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "@huhu/contracts";
@@ -44,7 +44,7 @@ type ReminderTrigger = {
   expectedVersion?: string;
   plan?: PlanReminder;
 };
-type Notification = { id: string; title: string; module: string; body?: string };
+type Notification = { id: string; title: string; module: string; body?: string; occurrence: PlanOccurrenceLink };
 export type ReminderNotifications = { send(notification: Notification): void; has(id: string): boolean };
 const scheduledId = (ruleId: string, at: string, revision?: string) => `rem-${digest(revision ? [ruleId, revision, at] : [ruleId, at])}`;
 export const planReminderOccurrenceId = (plan: { planId: string; revision: string; scheduledFor: string }) => scheduledId(plan.planId, plan.scheduledFor, plan.revision);
@@ -73,6 +73,7 @@ export class ReminderDeliveries {
     private readonly observationCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
     private readonly writeComment?: (taskId: string, commentId: string, body: string) => Promise<unknown>,
     private readonly focus?: Pick<FocusDeadlinePlans, "current" | "settle">,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -123,6 +124,8 @@ export class ReminderDeliveries {
     if (!Id.safeParse(id).success) return null;
     const row = this.load(id)?.data;
     if (!row) return null;
+    const canRecover = !this.files.readOnly && this.owns(row);
+    const canRetry = canRecover && row.finishedAt && !row.cancelled && (!row.targetTask || this.taskAvailable(row.targetTask));
     const effects: PlanOccurrence["effects"] = [];
     if (row.source === "focus-deadline") {
       effects.push({
@@ -133,17 +136,20 @@ export class ReminderDeliveries {
     if (row.notification !== "disabled") {
       const effectId = notificationId(id);
       const state = row.notification === "sent" ? "completed" : row.notification === "pending" ? "not-accepted" : "unknown";
-      effects.push({ effectId, kind: "notification", target: { kind: "notification", id: effectId }, operationId: null, state, receiptId: state === "completed" ? effectId : null });
+      effects.push({ effectId, kind: "notification", target: { kind: "notification", id: effectId }, operationId: null, state,
+        receiptId: state === "completed" ? effectId : null, ...(canRecover && state === "unknown" && { recovery: "verify" as const }) });
     }
     if (row.task !== "disabled") {
       const taskId = reminderTaskId(id);
       const state = row.task === "created" ? "completed" : row.task === "pending" ? "not-accepted" : "failed";
-      effects.push({ effectId: taskId, kind: "task-create", target: { kind: "task", id: taskId }, operationId: null, state, receiptId: state === "completed" ? taskId : null });
+      effects.push({ effectId: taskId, kind: "task-create", target: { kind: "task", id: taskId }, operationId: null, state,
+        receiptId: state === "completed" ? taskId : null, ...(canRetry && state === "failed" && this.tasks() && { recovery: "retry" as const }) });
     }
     if (row.comment && row.targetTask) {
       const effectId = commentId(id);
       const state = row.comment === "written" ? "completed" : row.comment === "pending" ? "not-accepted" : "failed";
-      effects.push({ effectId, kind: "task-comment", target: { kind: "task", id: row.targetTask }, operationId: null, state, receiptId: state === "completed" ? effectId : null });
+      effects.push({ effectId, kind: "task-comment", target: { kind: "task", id: row.targetTask }, operationId: null, state,
+        receiptId: state === "completed" ? effectId : null, ...(canRetry && state === "failed" && this.writeComment && { recovery: "retry" as const }) });
     }
     return {
       occurrenceId: id,
@@ -156,6 +162,39 @@ export class ReminderDeliveries {
       execution: null,
       effects,
     };
+  }
+
+  async recoverEffect(link: PlanOccurrenceLink, effectId: string, signal: AbortSignal): Promise<PlanOccurrence> {
+    const { planId, occurrenceId } = link;
+    if (!Id.safeParse(occurrenceId).success) throw errors.notFound("可恢复的原发生");
+    return this.rules.withRuleConfiguration(async () => {
+      signal.throwIfAborted();
+      this.lifetime.signal.throwIfAborted();
+      this.files.assertWritable();
+      const row = this.load(occurrenceId);
+      if (!row || row.data.ruleId !== planId || !this.owns(row.data)) throw errors.notFound("可恢复的原发生");
+      const occurrence = this.readPlanOccurrence(occurrenceId)!;
+      const effect = occurrence.effects.find((entry) => entry.effectId === effectId);
+      if (!effect) throw errors.notFound("原发生效果");
+      if (effect.state === "completed") return occurrence;
+      const { data } = row;
+      let updated: ReminderRecord;
+      if (effect.recovery === "verify" && effect.kind === "notification") {
+        if (!this.notifications.has(effectId)) return occurrence;
+        updated = { ...data, notification: "sent" };
+      } else if (effect.recovery === "retry") {
+        if (effect.kind === "task-create") updated = { ...data, task: await this.createTask(data) };
+        else if (effect.kind === "task-comment" && data.targetTask) updated = { ...data, comment: await this.commentTask(data, data.targetTask) };
+        else throw errors.invalidInput("原效果不可重试");
+      } else throw errors.invalidInput("原效果当前不可重试");
+      const saved = await this.save(updated, row.version);
+      this.onChanged(this.view(saved.data));
+      return this.readPlanOccurrence(occurrenceId)!;
+    });
+  }
+
+  private owns(row: ReminderRecord): boolean {
+    return this.owner !== null && row.owner === this.owner && row.vaultId === this.vaultId;
   }
 
   lastScheduledFor(ruleId: string): Date | null {
@@ -217,6 +256,7 @@ export class ReminderDeliveries {
   }
 
   private current(data: ReminderRecord): boolean {
+    if (data.scheduledFor && !this.allowsSchedule(data.scheduledFor)) return false;
     if (data.source && data.scheduledFor) return this.sourceCurrent(data.source, data.ruleId, data.ruleVersion, data.scheduledFor, data.targetTask);
     if (data.targetTask && !this.taskAvailable(data.targetTask)) return false;
     if (!data.scheduledFor) return true;
@@ -226,6 +266,29 @@ export class ReminderDeliveries {
     } catch (error) {
       if (isHuhuError(error) && error.code === "NOT_FOUND") return false;
       throw error;
+    }
+  }
+
+  private async createTask(data: ReminderRecord): Promise<"created" | "unavailable"> {
+    const tasks = this.tasks();
+    if (!tasks) throw errors.pluginDisabled("tasks");
+    try {
+      await tasks.createFromRule({ taskId: reminderTaskId(data.id), ruleId: data.ruleId, occurrenceId: data.id, title: data.text.slice(0, 200), body: data.taskBody, execution: null });
+      return "created";
+    } catch (error) {
+      if (!isHuhuError(error) || !["NOT_FOUND", "VERSION_CONFLICT"].includes(error.code)) throw error;
+      return "unavailable";
+    }
+  }
+
+  private async commentTask(data: ReminderRecord, taskId: string): Promise<"written" | "unavailable"> {
+    if (!this.writeComment) throw errors.pluginDisabled("tasks");
+    try {
+      await this.writeComment(taskId, commentId(data.id), data.text);
+      return "written";
+    } catch (error) {
+      if (!isHuhuError(error) || !["NOT_FOUND", "READ_ONLY_VAULT"].includes(error.code)) throw error;
+      return "unavailable";
     }
   }
 
@@ -240,6 +303,7 @@ export class ReminderDeliveries {
       if (this.current(row.data)) {
         try {
           this.notifications.send({ id: stableNotification, title: row.data.text, module: row.data.notificationModule,
+            occurrence: { planId: row.data.ruleId, occurrenceId: id },
             ...(row.data.source === "task-reminder" && { body: `提醒时间 ${row.data.scheduledFor}` }),
           });
         } catch {
@@ -253,31 +317,13 @@ export class ReminderDeliveries {
       row = await this.save({ ...row.data, notification: this.notifications.has(stableNotification) ? "sent" : "unknown" }, row.version);
     }
     if (row.data.task === "pending" && this.current(row.data)) {
-      const tasks = this.tasks();
-      if (!tasks) return row.data;
-      const data = row.data;
+      if (!this.tasks()) return row.data;
       this.lifetime.signal.throwIfAborted();
-      let task: "created" | "unavailable";
-      try {
-        await tasks.createFromRule({ taskId: reminderTaskId(id), ruleId: data.ruleId, occurrenceId: id, title: data.text.slice(0, 200), body: data.taskBody, execution: null });
-        task = "created";
-      } catch (error) {
-        if (!isHuhuError(error) || (error.code !== "NOT_FOUND" && error.code !== "VERSION_CONFLICT")) throw error;
-        task = "unavailable";
-      }
-      row = await this.save({ ...row.data, task }, row.version);
+      row = await this.save({ ...row.data, task: await this.createTask(row.data) }, row.version);
     }
     if (row.data.comment === "pending" && row.data.targetTask && this.current(row.data)) {
       if (!this.writeComment) return row.data;
-      let comment: "written" | "unavailable";
-      try {
-        await this.writeComment(row.data.targetTask, commentId(id), row.data.text);
-        comment = "written";
-      } catch (error) {
-        if (!isHuhuError(error) || !["NOT_FOUND", "READ_ONLY_VAULT"].includes(error.code)) throw error;
-        comment = "unavailable";
-      }
-      row = await this.save({ ...row.data, comment }, row.version);
+      row = await this.save({ ...row.data, comment: await this.commentTask(row.data, row.data.targetTask) }, row.version);
     }
     const cancelled = row.data.cancelled || ((row.data.notification === "pending" || row.data.task === "pending" || row.data.comment === "pending") && !this.current(row.data));
     const completed = (await this.save({ ...row.data, ...(cancelled && { cancelled }), finishedAt: this.now().toISOString() }, row.version)).data;
@@ -292,6 +338,7 @@ export class ReminderDeliveries {
     if (!row && trigger) {
       row = await this.rules.withRuleConfiguration(async () => {
         this.lifetime.signal.throwIfAborted();
+        if (trigger.at && !this.allowsSchedule(trigger.at)) return null;
         if (trigger.plan && trigger.at) {
           const { revision, title, taskId, source, effect } = trigger.plan;
           const current = this.sourceCurrent(source, trigger.ruleId, revision, trigger.at, taskId);
@@ -340,7 +387,7 @@ export class ReminderDeliveries {
       if (!row) return null;
       this.onChanged(this.view(row.data));
     }
-    if (!row || row.data.finishedAt || row.data.owner !== this.owner || row.data.vaultId !== this.vaultId) return row?.data ?? null;
+    if (!row || row.data.finishedAt || !this.owns(row.data)) return row?.data ?? null;
     this.files.assertWritable();
     return this.rules.withRuleConfiguration(() => this.advanceEffects(row!));
   }

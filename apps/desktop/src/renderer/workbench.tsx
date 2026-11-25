@@ -25,6 +25,8 @@ import {
   type PaletteSearchHit,
   requestOpenPath,
   requestOpenTask,
+  writeAutomationOccurrenceLink,
+  readAutomationOccurrenceLink,
   QuickCapture,
   EngineClient,
   GatewayModule,
@@ -100,18 +102,29 @@ interface AppProps {
 
 export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConnection, browser = false }: AppProps) {
   const [vaultName, setVaultName] = useState("HUHU");
+  const currentEndpoint = useRef(endpoint);
+  const notificationRequest = useRef(0);
+  useLayoutEffect(() => { currentEndpoint.current = endpoint; }, [endpoint]);
   const ui = useMemo(() => {
     const active = (browser && browserLocation(location.pathname)?.module) || "home";
     return createUiStore({ activeModule: active, openTabs: active === "home" ? ["home"] : ["home", active] });
   }, [browser]);
   const openNotification = useCallback<OpenNotification>(
-    ({ id, module }, source) => {
+    ({ id, module, occurrence }, source) => {
       const open = () => {
         const state = ui.getState();
         const destination = module || "home";
         return state.activeModule === destination || state.openModule(destination);
       };
-      if (module === "mail") void requestMailNotification({ id, vaultId: source.vaultId, endpoint: source.baseUrl }, open);
+      if (occurrence) {
+        const request = ++notificationRequest.current;
+        void ui.getState().openModule("automations", {
+          guardCurrent: true,
+          isCurrent: () => request === notificationRequest.current
+            && currentEndpoint.current?.vaultId === source.vaultId && currentEndpoint.current.baseUrl === source.baseUrl,
+          onOpen: () => writeAutomationOccurrenceLink(source.vaultId, occurrence),
+        });
+      } else if (module === "mail") void requestMailNotification({ id, vaultId: source.vaultId, endpoint: source.baseUrl }, open);
       else open();
     },
     [ui],
@@ -229,6 +242,19 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
   const client = useMemo(() => (endpoint ? new EngineClient(endpoint) : null), [endpoint]);
 
   useEffect(() => {
+    if (endpoint && readAutomationOccurrenceLink(endpoint.vaultId) && ui.getState().activeModule !== "automations") {
+      void ui.getState().openModule("automations");
+    }
+  }, [endpoint, ui]);
+
+  useEffect(() => {
+    if (browser || !endpoint) return;
+    return window.huhuHost?.onAutomationNotification(({ vaultId, id, occurrence }) => {
+      if (vaultId === endpoint.vaultId) openNotification({ id, module: "automations", occurrence }, endpoint);
+    });
+  }, [browser, endpoint, openNotification]);
+
+  useEffect(() => {
     if (!browser) return;
     const openLocation = () => {
       const link = browserLocation(location.pathname);
@@ -236,7 +262,8 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
         if (link.module === "tasks") requestOpenTask(link.target);
         else requestOpenPath(link.target, true);
       }
-      const active = link?.module ?? "home";
+      const current = currentEndpoint.current;
+      const active = current && readAutomationOccurrenceLink(current.vaultId) ? "automations" : link?.module ?? "home";
       if (ui.getState().activeModule !== active) ui.getState().openModule(active);
     };
     openLocation();
@@ -282,7 +309,8 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}
       {endpoint ? <FocusPauseOnClose /> : null}
-      {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} /> : null}
+      {endpoint ? <ReminderToasts onOpenTasks={() => ui.getState().openModule("tasks")} onOpenNotification={openNotification}
+        {...(!browser && { onDesktopNotification: (notice, vaultId) => void window.huhuHost?.showAutomationNotification(notice, vaultId).catch(() => undefined) })} /> : null}
       <WorkbenchCommandPalette registry={registry} ui={ui} />
     </>
   );

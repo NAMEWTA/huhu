@@ -79,6 +79,7 @@ export class TaskScanOccurrences {
     private readonly taskDispatch: () => TaskRuleDispatch | undefined,
     private readonly now: () => Date,
     private readonly onChanged?: (activation: ActivationRecord) => void,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const directory = filesystemIdentity(stat);
@@ -250,6 +251,7 @@ export class TaskScanOccurrences {
   private currentSchedule(row: Occurrence): boolean {
     if (this.shutdown.signal.aborted) return false;
     if (row.scheduledForUTC === null) return true;
+    if (!this.allowsSchedule(row.scheduledForUTC)) return false;
     try {
       const rule = this.rules.rule(row.ruleId);
       return rule.version === row.ruleVersion && rule.data.enabled && rule.data.action.kind === "agent";
@@ -329,7 +331,7 @@ export class TaskScanOccurrences {
         signal.throwIfAborted();
         const rule = this.rules.rule(trigger.ruleId);
         const now = this.now();
-        if (trigger.at && (!rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
+        if (trigger.at && (!this.allowsSchedule(trigger.at) || !rule.data.enabled || Date.parse(trigger.at) <= Date.parse(rule.data.updatedAt))) return null;
         if (trigger.at && Date.parse(trigger.at) > now.getTime()) throw errors.invalidInput("计划派遣时间尚未到达");
         if (this.owner === null) throw errors.invalidInput("无法验证当前 Vault 的本机扫描归属");
         const occurrence = isTaskScanRule(rule) ? await this.freeze(id, rule, trigger.at, now, this.owner, signal) : this.freezeTemplate(id, rule, trigger.at, now, this.owner);

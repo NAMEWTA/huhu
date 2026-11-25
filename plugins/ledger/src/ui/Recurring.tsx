@@ -1,19 +1,21 @@
 import { ledgerBusinessDate, ledgerDecimalToMinor, type PlanSummary, type PlanWrite, type PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, Select } from "@huhu/ui";
-import { useCapability, useEngine, writeAutomationPlanLink, type ModuleProps } from "@huhu/workbench";
+import { useCapability, useEngine, useTaskAutomationViews, writeAutomationPlanLink, type ModuleProps } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { Book } from "../shared/books.js";
 import type { AccountsView } from "../shared/entries.js";
 import { RecurringInput, recurringLabels, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRow } from "../shared/recurring.js";
 import { displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
-export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, headingRef }: {
+export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, headingRef, registerLeaveGuard }: {
   book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"]; linkedPlanId: string | undefined;
   headingRef: RefObject<HTMLHeadingElement | null> | undefined;
+  registerLeaveGuard: ModuleProps["registerLeaveGuard"];
 }) {
   const engine = useEngine();
   const result = useCapability<RecurringList>("ledger.recurring.list", { bookId: book.id });
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
+  const PlanScheduleControls = useTaskAutomationViews()?.PlanScheduleControls;
   const [draft, setDraft] = useState<{ id: string; revision: string } | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [pending, setPending] = useState<PlanWrite | null>(null);
@@ -121,6 +123,8 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, 
           </p>
           <div className="hu-toolbar">
             <Button onClick={() => setPreviewId(rule.id)}>预览固定收支补期</Button>
+            {writable && plan?.actions.includes("reschedule") && PlanScheduleControls
+              ? <PlanScheduleControls plan={plan} scheduleOnly changed={result.refetch} registerLeaveGuard={registerLeaveGuard} /> : null}
             {plan && onNavigate && plan.intent !== "deleted" ? <Button onClick={() => center(plan)}>在自动化中心管理计划</Button> : null}
             {writable && !plan ? (
               <Button disabled={action.working} onClick={() => void action.run("ledger.recurring.ensurePlan", { bookId: book.id, ruleId: rule.id })}>

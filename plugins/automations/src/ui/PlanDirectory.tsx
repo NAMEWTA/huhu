@@ -1,4 +1,5 @@
 import { OccurrenceDetail } from "./OccurrenceDetail.js";
+import { AutomaticRunControl } from "./AutomaticRunControl.js";
 import type { PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, Select } from "@huhu/ui";
 import {
@@ -56,11 +57,12 @@ const templates = [
 
 let returnState: { vaultId: string; filter: Filter; cursors: string[] } | undefined;
 
-export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard }: {
+export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard, requestedPlan }: {
   active: boolean;
   onNavigate: ModuleProps["onNavigate"];
   registerLeaveGuard: ModuleProps["registerLeaveGuard"];
   onOpenRuns(planId: string): void;
+  requestedPlan: { id: string } | null;
 }) {
   const engine = useEngine();
   const cache = useQueryClient();
@@ -104,6 +106,12 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
     focusDetail.current = false;
   }, [selectedPlan]);
   useEffect(() => () => sourceLookup.current?.abort(), [active, selected]);
+  useEffect(() => {
+    if (!requestedPlan) return;
+    focusDetail.current = true;
+    setSelected(requestedPlan.id);
+    writeAutomationPlanLink(engine.vaultId, requestedPlan.id);
+  }, [requestedPlan, engine.vaultId]);
 
   function select(planId: string | null) {
     setSelected(planId);
@@ -251,6 +259,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       <div className="automations-plan-heading">
         <h1>计划</h1>
         <div className="row">
+          <AutomaticRunControl />
           <IconButton icon={RefreshCw} label="刷新目录" disabled={plans.isFetching} onClick={() => void refresh()} />
           <Button icon={Layers} disabled={!canCreate && !canObserve} onClick={() => openSheet({ kind: "templates" })}>从模板新建</Button>
           <Button icon={Plus} disabled={!canObserve} onClick={() => openSheet({ kind: "observation" })}>新建状态观察</Button>
@@ -291,7 +300,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                     select(plan.planId);
                   }}>
                   <strong>{plan.title}</strong>
-                  <span><PlanBadges plan={plan} /> <small>{planSourceName(plan.source.plugin)}</small></span>
+                  <span><PlanBadges plan={plan} /> {plan.needsAttention ? <Badge tone="warning">子运行待处理</Badge> : null} <small>{planSourceName(plan.source.plugin)}</small></span>
                   <span>{plan.action.summary}</span>
                   <small>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</small>
                   <small>下次 {plan.nextAt ? formatMoment(plan.nextAt, planZone(plan)) : "未安排"} · {recentLabel(plan)}</small>

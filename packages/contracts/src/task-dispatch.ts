@@ -69,6 +69,11 @@ export type TaskDispatchView = z.infer<typeof TaskDispatchViewSchema>;
 export type TaskRunSummary = z.infer<typeof TaskRunSummarySchema>;
 export type RecentTaskRun = z.infer<typeof RecentTaskRunSchema>;
 
+export type TaskRunReference = { taskId: string; id: string; kind: "task-dispatch" | "task-run" };
+export interface TaskRunAttentionQuery {
+  read(refs: readonly TaskRunReference[]): ReadonlySet<TaskRunReference>;
+}
+
 export const TaskFollowUpViewSchema = z.strictObject({
   taskId: z.string().min(1).max(256),
   followUpId: z.uuidv4(),

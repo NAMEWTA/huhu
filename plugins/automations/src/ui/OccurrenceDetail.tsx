@@ -1,9 +1,10 @@
-import type { PlanOccurrence, TaskDispatchView, TaskDto, TaskRunSummary } from "@huhu/contracts";
+import type { PlanEffect, PlanOccurrence, PlanOccurrenceLink, TaskDispatchView, TaskDto, TaskRunSummary } from "@huhu/contracts";
 import { Badge, Button } from "@huhu/ui";
 import { CapabilityError, requestOpenAgentSession, requestOpenTask, useCapability, useEngine, useTaskAutomationViews, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { occurrenceLabel, formatMoment } from "./plan-presentation.js";
 import { TerminalRun } from "./RunsPanel.js";
+import type { HistoryPage } from "../shared/occurrence-history.js";
 
 type Navigate = ModuleProps["onNavigate"];
 
@@ -30,16 +31,21 @@ const mailStatus = {
   "partially-accepted": "部分收件人已接受",
 };
 
-export function OccurrenceDetail({ id, terminalRunId, onNavigate }: { id: string; terminalRunId?: string; onNavigate: Navigate }) {
+export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId, onOpenPlan }: {
+  id: string; terminalRunId?: string; onNavigate: Navigate; expectedPlanId?: string; onOpenPlan?(): void;
+}) {
   const occurrence = useCapability<PlanOccurrence | null>("automations.plans.readOccurrence", { occurrenceId: id });
+  const historic = useCapability<HistoryPage>("automations.plans.history", { planId: expectedPlanId, occurrenceId: id, limit: 1 },
+    { enabled: Boolean(expectedPlanId && occurrence.data === null) });
+  const terminal = terminalRunId ?? historic.data?.rows[0]?.terminalRunId;
   const [output, setOutput] = useState(false);
-  const row = occurrence.data;
+  const row = !expectedPlanId || occurrence.data?.plan.planId === expectedPlanId ? occurrence.data : null;
   const tasks = row?.effects.filter(({ kind }) => kind === "task-dispatch" || kind === "task-run") ?? [];
   const scheduled = row?.timing.trigger === "scheduled" ? row.timing.scheduledFor : null;
   return (
     <div className="hu-stack" data-testid="occurrence-detail">
-      {occurrence.isPending ? <p role="status">正在读取发生记录…</p> : null}
-      {occurrence.error ? <p role="alert">{occurrence.error.message}</p> : null}
+      {occurrence.isPending || (historic.isFetching && !historic.data) ? <p role="status">正在读取发生记录…</p> : null}
+      {occurrence.error || historic.error ? <p role="alert">{(occurrence.error ?? historic.error)?.message}</p> : null}
       {row ? (
         <>
           <p>
@@ -87,40 +93,75 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate }: { id: string
             <section aria-label="发生效果">
               <h3>效果与回执</h3>
               <ul>
-                {row.effects.map(({ effectId, kind, state, target, receiptId }) => (
-                  <li key={effectId}>
-                    {effectNames[kind] ?? kind} · {effects[state]}
-                    {receiptId ? (
+                {row.effects.map((effect) => (
+                  <li key={effect.effectId}>
+                    {effectNames[effect.kind] ?? effect.kind} · {effects[effect.state]}
+                    {effect.receiptId ? (
                       <>
                         {" "}
-                        · <code>{receiptId}</code>
+                        · <code>{effect.receiptId}</code>
                       </>
                     ) : null}
-                    {target.kind === "task" && (kind === "task-create" || kind === "task-comment") && state === "completed" ? <TaskLink id={target.id} onNavigate={onNavigate} /> : null}
+                    {effect.target.kind === "task" && (effect.kind === "task-create" || effect.kind === "task-comment") && effect.state === "completed"
+                      ? <TaskLink id={effect.target.id} onNavigate={onNavigate} /> : null}
+                    {effect.recovery ? <EffectRecovery effect={effect} link={{ planId: row.plan.planId, occurrenceId: row.occurrenceId }} changed={occurrence.refetch} /> : null}
                   </li>
                 ))}
               </ul>
             </section>
           ) : null}
         </>
-      ) : occurrence.data === null && !terminalRunId ? (
-        <p>此发生仅保留历史摘要。</p>
+      ) : occurrence.data === null && !terminal && (!expectedPlanId || historic.data) ? (
+        <p>{expectedPlanId ? "原发生已过期、删除或不可访问。" : "此发生仅保留历史摘要。"}</p>
+      ) : occurrence.data && !row ? (
+        <p role="alert">原发生与通知中的计划不匹配。</p>
       ) : null}
-      {terminalRunId ? (
+      {terminal ? (
         <>
           <p>
-            终端运行 <code>{terminalRunId}</code>
+            终端运行 <code>{terminal}</code>
           </p>
-          {output ? <TerminalRun id={terminalRunId} onNavigate={undefined} /> : <Button onClick={() => setOutput(true)}>查看终端输出</Button>}
+          {output ? <TerminalRun id={terminal} onNavigate={undefined} /> : <Button onClick={() => setOutput(true)}>查看终端输出</Button>}
         </>
       ) : null}
       <div className="hu-toolbar">
+        {(row || terminal) && onOpenPlan ? <Button onClick={onOpenPlan}>查看原计划</Button> : null}
         <Button loading={occurrence.isFetching} onClick={() => void occurrence.refetch()}>
           {row?.state === "unknown" ? "核实原请求" : "重新读取原发生"}
         </Button>
       </div>
     </div>
   );
+}
+
+function EffectRecovery({ effect, link, changed }: { effect: PlanEffect; link: PlanOccurrenceLink; changed(): Promise<unknown> }) {
+  const engine = useEngine();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function recover() {
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await engine.call<PlanOccurrence>("automations.plans.recoverEffect", { ...link, effectId: effect.effectId }, { write: true });
+      const current = result.effects.find(({ effectId }) => effectId === effect.effectId);
+      if (current?.state === "unknown") setMessage("原效果仍待核实。");
+      if (current?.state === "failed") setError("原效果仍未完成。");
+      await changed();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "暂时无法处理原效果。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <>
+    <Button variant="ghost" loading={busy} onClick={() => void recover()}>{effect.recovery === "verify" ? "核实该效果" : "重试该效果"}</Button>
+    {message ? <span role="status">{message}</span> : null}
+    {error ? <span role="alert">{error}</span> : null}
+  </>;
 }
 
 function TaskLink({ id, runId, onNavigate }: { id: string; runId?: string; onNavigate: Navigate }) {

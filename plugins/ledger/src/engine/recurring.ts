@@ -1,4 +1,4 @@
-import { errors, isHuhuError, ledgerBusinessDate, ledgerBusinessDayRange, type PeriodicEnabledWindow, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext } from "@huhu/contracts";
+import { errors, isHuhuError, ledgerBusinessDate, ledgerBusinessDayRange, type CalendarPlanTrigger, type PeriodicEnabledWindow, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext, type PlanSummary } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import type { z } from "zod";
 import { recurringLabels, recurringPlanId, type OpenRecurring, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRule, type RetryRecurring } from "../shared/recurring.js";
@@ -43,6 +43,31 @@ function* pendingDates(rule: RecurringRule, state: BookState, windows: readonly 
       minimum = isoDate(new Date(Date.parse(date) + dayMs));
     }
   }
+}
+
+function* plannedDates(rule: RecurringRule, state: BookState, windows: readonly PeriodicEnabledWindow[], plan?: PeriodicPlanSpec | null) {
+  if (!plan?.calendar) {
+    yield* pendingDates(rule, state, windows);
+    return;
+  }
+  let start: string | null = null;
+  for (const { trigger, until } of [...(plan.calendarHistory ?? []), { trigger: plan.calendar, until: null }]) {
+    const eligible = windows.flatMap(({ from, until: end }) => {
+      const lower = start && start > from ? start : from;
+      const upper = until && (!end || until < end) ? until : end;
+      return !upper || lower < upper ? [{ from: lower, until: upper }] : [];
+    });
+    yield* pendingDates({ ...rule, frequency: trigger.frequency, startOn: trigger.startOn }, state, eligible);
+    start = until;
+  }
+}
+
+function calendar(rule: RecurringRule): CalendarPlanTrigger {
+  return { kind: "calendar", frequency: rule.frequency, startOn: rule.startOn };
+}
+
+function scheduleLabel(trigger: CalendarPlanTrigger, zone: string) {
+  return { label: `${recurringLabels[trigger.frequency]} · ${trigger.startOn} 起 · ${zone}`, zone };
 }
 
 function applyPeriod(state: BookState, rule: RecurringRule, slot: Slot, occurrenceId: string, previous?: RecurringPeriod) {
@@ -95,7 +120,15 @@ export class LedgerRecurring {
       },
       nextDue: (plan, windows) => {
         const { state, rule } = this.binding(plan);
-        return pendingDates(rule, state, windows).next().value?.scheduledAt ?? null;
+        return plannedDates(rule, state, windows, plan).next().value?.scheduledAt ?? null;
+      },
+      calendar: (plan) => calendar(this.binding(plan).rule),
+      rescheduleCalendar: (plan, trigger) => {
+        this.lifetime.throwIfAborted();
+        const { state, rule } = this.binding(plan);
+        requireActiveBook(state);
+        validateLedgerAccount(state, rule.accountId, rule.currency);
+        return scheduleLabel(trigger, state.book.timeZone);
       },
       run: (plan, context) => this.generate(plan, context),
     };
@@ -103,14 +136,16 @@ export class LedgerRecurring {
 
   private config(state: BookState, rule: RecurringRule): PeriodicPlanSpec {
     const source = { plugin: "ledger", object: { kind: "ledger-book", id: state.book.id } };
+    const schedule = calendar(rule);
     return {
       planId: rule.planId,
       source,
       title: rule.title,
-      action: { capability: "ledger.recurring.generate", object: { kind: "ledger-recurring", id: rule.id }, summary: `${recurringLabels[rule.frequency]} · ${rule.startOn} 起 · ${state.book.timeZone}` },
+      action: { capability: "ledger.recurring.generate", object: { kind: "ledger-recurring", id: rule.id }, summary: "生成本地账本的固定收支" },
       everySeconds: 60,
       catchUp: "enabled-windows",
-      businessSchedule: { label: `${recurringLabels[rule.frequency]} · ${rule.startOn} 起 · ${state.book.timeZone}`, zone: state.book.timeZone },
+      calendar: schedule,
+      businessSchedule: scheduleLabel(schedule, state.book.timeZone),
       intent: "paused",
     };
   }
@@ -136,7 +171,7 @@ export class LedgerRecurring {
     const current = control.read(rule.planId);
     if (current) {
       if (current.source.plugin !== "ledger" || current.source.object.id !== bookId) throw errors.idempotencyMismatch();
-      return { rule, plan: current, periods: saved.recurringPeriods.filter(({ ruleId }) => ruleId === rule.id) };
+      return { rule: this.project(rule, current), plan: current, periods: saved.recurringPeriods.filter(({ ruleId }) => ruleId === rule.id) };
     }
     c.assertCapabilityCurrent?.();
     const [plan] = await control.configure([{ ...this.config(saved, rule), expectedRevision: null }], signal);
@@ -147,12 +182,23 @@ export class LedgerRecurring {
     const control = this.control();
     return {
       revision: state.book.revision,
-      rows: state.recurring.map((rule) => ({
-        rule,
-        plan: control?.read(rule.planId) ?? null,
-        periods: state.recurringPeriods.filter(({ ruleId }) => ruleId === rule.id).sort((a, b) => b.date.localeCompare(a.date)),
-      })),
+      rows: state.recurring.map((rule) => {
+        const plan = control?.read(rule.planId) ?? null;
+        return { rule: this.project(rule, plan), plan, periods: state.recurringPeriods.filter(({ ruleId }) => ruleId === rule.id).sort((a, b) => b.date.localeCompare(a.date)) };
+      }),
     };
+  }
+
+  private project(rule: RecurringRule, plan: PlanSummary | null): RecurringRule {
+    return plan?.trigger.kind === "calendar" ? { ...rule, frequency: plan.trigger.frequency, startOn: plan.trigger.startOn } : rule;
+  }
+
+  backupRules(state: BookState): RecurringRule[] {
+    const control = this.control();
+    return state.recurring.map((rule) => {
+      const trigger = control?.inspect(rule.planId)?.calendar;
+      return trigger ? { ...rule, frequency: trigger.frequency, startOn: trigger.startOn } : rule;
+    });
   }
 
   ensure(c: Authorization, bookId: string, ruleId: string) {
@@ -165,10 +211,11 @@ export class LedgerRecurring {
   preview(bookId: string, ruleId: string): RecurringPreview {
     const state = this.store.snapshot(bookId);
     const rule = this.find(state, ruleId);
-    const windows = this.control()?.enabledWindows(rule.planId) ?? [];
+    const control = this.control();
+    const windows = control?.enabledWindows(rule.planId) ?? [];
     const pending: Slot[] = [];
     const now = Date.now();
-    for (const slot of pendingDates(rule, state, windows)) {
+    for (const slot of plannedDates(rule, state, windows, control?.inspect(rule.planId))) {
       if (Date.parse(slot.scheduledAt) > now) return { nextDate: slot.date, pending, truncated: false };
       if (pending.length === limit) return { nextDate: slot.date, pending, truncated: true };
       pending.push(slot);
@@ -180,7 +227,7 @@ export class LedgerRecurring {
     const { state, rule } = this.binding(plan);
     const clock = Date.parse(context.observedAt ?? context.scheduledFor);
     const due: Slot[] = [];
-    for (const slot of pendingDates(rule, state, context.enabledWindows ?? [])) {
+    for (const slot of plannedDates(rule, state, context.enabledWindows ?? [], plan)) {
       if (due.length === limit || Date.parse(slot.scheduledAt) > clock) break;
       due.push(slot);
     }

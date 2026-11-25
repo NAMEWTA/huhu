@@ -14,6 +14,7 @@ export class FocusDeadlinePlans {
     private readonly vaultId: string,
     private readonly readOnly: boolean,
     private readonly now: () => Date,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {}
 
   private summary(plan: FocusDeadline): PlanSummary {
@@ -25,15 +26,16 @@ export class FocusDeadlinePlans {
     if (availability.state === "ready" && state !== "deleted") {
       actions.push("delete");
       if (state === "enabled" || state === "paused") actions.push("reschedule", state === "enabled" ? "pause" : "resume");
+      if (state === "skipped") actions.push("reschedule");
     }
     const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
     return {
       planId, revision, title: "专注计时", createdAt, updatedAt,
       source: { plugin: "kernel", object }, owner: { scope: "vault", vaultId: this.vaultId },
       action: { capability: "home.focus.update", object, summary: "结算专注时段并递送完成通知" },
-      intent: state === "completed" ? "paused" : state, availability,
+      intent: state === "completed" ? "paused" : state === "skipped" ? "enabled" : state, availability,
       trigger: { kind: "once", scheduledFor },
-      nextAt: state === "enabled" && availability.state === "ready" ? scheduledFor : null,
+      nextAt: state === "enabled" && availability.state === "ready" && this.allowsSchedule(scheduledFor) ? scheduledFor : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, at: occurrence.acceptedAt ?? scheduledFor, state: occurrence.state } : null,
       actions,
     };
@@ -72,6 +74,11 @@ export class FocusDeadlinePlans {
     if (this.ticking || this.closed || this.readOnly) return;
     const plan = this.home.current();
     if (plan?.state !== "enabled" || Date.parse(plan.scheduledFor) > this.now().getTime()) return;
+    if (!this.allowsSchedule(plan.scheduledFor)) {
+      // The caller runs the deadline sweep only while automatic schedules are enabled.
+      this.home.skip(plan);
+      return;
+    }
     this.ticking = this.deliveries()?.activatePlanReminder({ ...plan, source: "focus-deadline", title: "专注完成", effect: "notification" })
       .catch(() => undefined).finally(() => { this.ticking = undefined; });
   }

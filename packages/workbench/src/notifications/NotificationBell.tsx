@@ -1,4 +1,5 @@
 import { Badge, Button, IconButton, Popover } from "@huhu/ui";
+import type { PlanOccurrenceLink } from "@huhu/contracts";
 import { ArrowRight, Bell, ChevronRight, X } from "lucide-react";
 import { useState } from "react";
 import { t } from "../i18n/zh-CN.js";
@@ -10,11 +11,12 @@ interface Notification {
   title: string;
   module: string;
   body?: string;
+  occurrence?: PlanOccurrenceLink;
   at: string;
   read: boolean;
 }
 
-export type OpenNotification = (notice: Pick<Notification, "id" | "module">, endpoint: Pick<EngineEndpoint, "vaultId" | "baseUrl">) => void;
+export type OpenNotification = (notice: Pick<Notification, "id" | "module" | "occurrence">, endpoint: Pick<EngineEndpoint, "vaultId" | "baseUrl">) => void;
 
 /** 来源模块的显示名（通知里的 module 是模块 id）。 */
 const SOURCE: Record<string, string> = {

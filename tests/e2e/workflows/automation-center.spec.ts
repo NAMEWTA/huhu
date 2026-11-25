@@ -1,8 +1,99 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import type { PlanSummary } from "../../../packages/contracts/src/automation-plan.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { openApp } from "../helpers/launch.js";
+
+test("AU15 全局暂停从中心写入并在设置中恢复", async ({ browserName: _browserName }) => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const control = page.getByTestId("automatic-run-control");
+    await control.getByRole("button", { name: "暂停自动运行" }).click();
+    await page.getByRole("dialog", { name: "暂停自动运行" }).getByRole("button", { name: "暂停自动运行" }).click();
+    await expect(control.getByRole("status")).toHaveText("自动运行已全局暂停");
+    await page.getByRole("button", { name: "设置", exact: true }).first().click();
+    const settings = page.getByTestId("settings-module");
+    await page.getByTestId("settings-nav-automations").click();
+    await expect(settings.getByTestId("automatic-run-control").getByRole("status")).toHaveText("自动运行已全局暂停");
+    await settings.getByRole("button", { name: "恢复自动运行" }).click();
+    await page.getByRole("dialog", { name: "恢复自动运行" }).getByRole("button", { name: "恢复自动运行" }).click();
+    await expect(settings.getByTestId("automatic-run-control").getByRole("status")).toHaveText("自动运行已开启");
+  } finally {
+    await close();
+  }
+});
+
+test("AU13 重试原建任务效果，保留通知和任务身份", async ({ browserName: _browserName }) => {
+  const { page, vault, close } = await openApp();
+  const title = "原效果重试夹具";
+  try {
+    await engineReady(page);
+    const rule = await call<{ id: string; version: string }>(page, "automations.create", {
+      title, trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "both", text: title },
+    });
+    const { activationId, summary } = await call<{ activationId: string; summary: { taskId: string } }>(page, "automations.runNow", {
+      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+    });
+    const filename = path.join(vault, ".huhu", "automations", "reminder-deliveries", `${activationId}.json`);
+    const record = JSON.parse(readFileSync(filename, "utf8")) as object;
+    writeFileSync(filename, JSON.stringify({ ...record, task: "unavailable" }) + "\n");
+
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "激活记录", exact: true }).click();
+    await page.getByTestId("activation-row").getByRole("button", { name: title }).click();
+    const detail = page.getByTestId("occurrence-inspector");
+    await expect(detail).toContainText("创建任务 · 失败");
+    await detail.getByRole("button", { name: "重试该效果" }).click();
+    await expect(detail).toContainText("创建任务 · 已完成");
+    const tasks = await call<{ id: string }[]>(page, "tasks.list", {});
+    expect(tasks.map(({ id }) => id)).toEqual([summary.taskId]);
+    const notices = await call<{ title: string }[]>(page, "notifications.list", {});
+    expect(notices.filter((row) => row.title === title)).toHaveLength(1);
+  } finally {
+    await close();
+  }
+});
+
+test("AU18 桌面和获邀 Web 同步显示同一次通知和发生", async ({ browserName: _browserName }) => {
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  const title = "同一 Engine 的通知";
+  try {
+    await engineReady(page);
+    await call(page, "web.share.start", { mode: "local", port: 0 });
+    const invitation = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage();
+    await web.goto(invitation.links[0]!);
+    for (const client of [page, web]) {
+      await client.getByTestId("bell").click();
+      await expect(client.getByTestId("notice-item")).toHaveCount(0);
+    }
+    const rule = await call<{ id: string; version: string }>(page, "automations.create", {
+      title, trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" }, action: { kind: "reminder", mode: "notification", text: title },
+    });
+    const { activationId } = await call<{ activationId: string }>(page, "automations.runNow", {
+      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+    });
+    for (const client of [page, web]) {
+      const notice = client.getByTestId("notice-item").filter({ hasText: title });
+      await expect(notice).toHaveCount(1);
+      await notice.click();
+      const occurrence = client.getByTestId("notification-occurrence");
+      await expect(occurrence).toContainText("通知 · 已完成");
+      await occurrence.getByText("计划与冻结输入").click();
+      await expect(occurrence).toContainText(activationId);
+    }
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
 
 test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", async () => {
   const { page, close } = await openApp();

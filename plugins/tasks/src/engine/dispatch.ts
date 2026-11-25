@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskActivity, type TaskDto, type TaskExecution, type TaskScheduleAdmission } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskActivity, type TaskDto, type TaskExecution, type TaskRunReference, type TaskScheduleAdmission } from "@huhu/contracts";
 import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import type { DeviceDispatchBudget } from "@huhu/vault";
 import {
@@ -546,6 +546,30 @@ export class TaskDispatch {
         },
       ];
     });
+  }
+
+  runAttention(refs: readonly TaskRunReference[]): ReadonlySet<TaskRunReference> {
+    const result = new Set<TaskRunReference>();
+    const byTask = new Map<string, TaskRunReference[]>();
+    for (const ref of refs) {
+      const group = byTask.get(ref.taskId);
+      if (group) group.push(ref);
+      else byTask.set(ref.taskId, [ref]);
+    }
+    for (const [taskId, requested] of byTask) {
+      const records = this.recordsFor(taskId).filter((record) => this.store.owns(record));
+      if (!records.length) continue;
+      const runs = new Map(this.runs(taskId, records).map((run) => [run.id, run]));
+      const byDispatch = new Map(records.map(({ receipt }) => [receipt.dispatchId, receipt]));
+      const byRun = new Map(records.map(({ receipt }) => [receipt.runId, receipt]));
+      for (const ref of requested) {
+        const receipt = (ref.kind === "task-dispatch" ? byDispatch : byRun).get(ref.id);
+        if (!receipt) continue;
+        const state = runs.get(receipt.runId)?.state;
+        if (state === "waiting_input" || state === "failed" || state === "unknown" || receipt.state === "blocked") result.add(ref);
+      }
+    }
+    return result;
   }
 
   activity(task: TaskDto): TaskActivity {

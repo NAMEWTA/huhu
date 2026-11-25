@@ -922,7 +922,10 @@ describe("Engine 启动与关闭", () => {
           condition: { kind: "threshold", status: "waiting_input", seconds: 1 }, stopAtTerminal: true, effect: "both", intentId,
         }, intentId);
         expect(result).toMatchObject({ ok: true, data: { trigger: { kind: "observe", everySeconds: 1 } } });
-        await expect.poll(reminders, { timeout: 12_000 }).toEqual([{ title: "需要核对原会话：等待输入", id: expect.any(String), module: "automations", at: expect.any(String), read: false }]);
+        await expect.poll(reminders, { timeout: 12_000 }).toEqual([expect.objectContaining({
+          title: "需要核对原会话：等待输入", id: expect.any(String), module: "automations", at: expect.any(String), read: false,
+          occurrence: { planId: result.data.planId, occurrenceId: expect.stringMatching(/^rem-/) },
+        })]);
         const tasks = async () => ((await call("tasks.list", {})).data as { title: string }[]).filter(({ title }) => title.startsWith("需要核对原会话"));
         await expect.poll(async () => (await tasks()).map(({ title }) => title)).toEqual(["需要核对原会话：等待输入"]);
         for (let i = 0; i < 6; i++) await Promise.all([waiting(), waiting(), waiting()]);

@@ -52,6 +52,7 @@ export class ObservationPlans {
     private readonly now: () => Date,
     private readonly changed: (id: string) => void,
     private readonly sourceAvailable: (target: Observation["target"]) => boolean = () => true,
+    private readonly allowsSchedule: (slot: string) => boolean = () => true,
   ) {}
 
   private load() {
@@ -205,6 +206,17 @@ export class ObservationPlans {
     for (const plan of this.load().plans) {
       if (!this.eligible(plan) || plan.nextAt > stamp) continue;
       try {
+        if (!this.allowsSchedule(plan.nextAt)) {
+          await this.rules.withRuleConfiguration(async () => {
+            if (!this.current(plan.planId, plan.revision, plan.nextAt)) return;
+            const { plans, version } = this.load();
+            await this.save(plans.map((entry) => entry.planId === plan.planId ? {
+              ...entry, status: null, since: null, alerted: false, nextAt: this.instant(plan.everySeconds),
+            } : entry), version);
+            this.changed(plan.planId);
+          });
+          continue;
+        }
         const key = JSON.stringify(plan.target);
         const fact = facts.get(key) ?? this.observe(plan.target, this.lifetime.signal);
         facts.set(key, fact);
@@ -234,7 +246,7 @@ export class ObservationPlans {
       if (!occurrence || occurrence.state === "accepted") return;
     }
     await this.rules.withRuleConfiguration(async () => {
-      if (!this.current(slot.planId, slot.revision, slot.scheduledFor)) return;
+      if (!this.allowsSchedule(slot.scheduledFor) || !this.current(slot.planId, slot.revision, slot.scheduledFor)) return;
       const { plans, version } = this.load();
       const stopped = plan.stopAtTerminal && (status === "completed" || status === "failed");
       const next: Observation = {

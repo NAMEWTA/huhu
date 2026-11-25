@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityCatalogEntry, PlanSummary, TaskDto, TaskRuleDispatch } from "@huhu/contracts";
+import { errors, type CapabilityCatalogEntry, type PlanOccurrence, type PlanSummary, type TaskDto, type TaskRuleDispatch } from "@huhu/contracts";
 import { NotificationStore, OperationReceipts, type HuhuApi } from "@huhu/kernel";
 import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -34,6 +34,7 @@ const fixture = {
   ready: vi.fn<TaskDispatchExecutor["ready"]>(),
   dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>(),
   accept: vi.fn<TaskRuleDispatch["acceptRule"]>(),
+  createFromRule: vi.fn<TaskRuleDispatch["createFromRule"]>(),
   refresh: vi.fn<() => Promise<void>>(),
 };
 const fixtureNow = () => (fixture.realtime ? new Date() : fixture.now);
@@ -82,7 +83,8 @@ vi.mock("../../tasks/src/engine/index.js", async (original) => {
             if (name !== "taskDispatch") return api.provide(name, service);
             const dispatch = service as TaskRuleDispatch;
             fixture.accept.mockImplementation(dispatch.acceptRule);
-            api.provide(name, { ...dispatch, acceptRule: fixture.accept } satisfies TaskRuleDispatch);
+            fixture.createFromRule.mockImplementation(dispatch.createFromRule);
+            api.provide(name, { ...dispatch, acceptRule: fixture.accept, createFromRule: fixture.createFromRule } satisfies TaskRuleDispatch);
           },
         },
         {
@@ -113,6 +115,7 @@ beforeEach(() => {
   fixture.ready.mockReset().mockResolvedValue("busy");
   fixture.dispatch.mockReset().mockResolvedValue("accepted");
   fixture.accept.mockReset();
+  fixture.createFromRule.mockReset();
   fixture.refresh.mockReset().mockResolvedValue(undefined);
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
@@ -530,7 +533,9 @@ test("外部提醒规则独立授权，固定版本的运行意图在重启后�
   ({ engine } = await start(root));
   expect(await cli("automations.runNow", input)).toEqual(accepted);
   const notices = await invoke<{ title: string }[]>(engine, "notifications.list", {});
-  expect(notices.filter(({ title }) => title === draft.action.text)).toHaveLength(1);
+  expect(notices.filter(({ title }) => title === draft.action.text)).toEqual([expect.objectContaining({
+    occurrence: { planId: id, occurrenceId: (accepted.data as { activationId: string }).activationId },
+  })]);
   expect(readdirSync(path.join(engine.vault.stateDir, "automations/reminder-deliveries"))).toHaveLength(1);
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 20_000);
@@ -549,6 +554,32 @@ async function createReminder(engine: RunningEngine, text: string, mode: "notifi
   const rule = await invoke<Rule>(engine, "automations.create", { title: text, trigger, action: { kind: "reminder", mode, text } });
   return invoke<Rule>(engine, "automations.setEnabled", { id: rule.id, enabled: true });
 }
+
+test("全局暂停跨 Engine 重启保留，恢复时跳过旧排期并保留原计划修订", async () => {
+  type State = { revision: string; paused: boolean };
+  const state = (engine: RunningEngine) => invoke<State>(engine, "automations.plans.automationState", {});
+  const set = (engine: RunningEngine, paused: boolean, expectedRevision: string) =>
+    call<State>(engine, "automations.plans.setAutomationState", { paused, expectedRevision }, false, randomUUID());
+  const first = await start();
+  const rule = await createReminder(first.engine, "全局暂停的原规则", "notification");
+  const initial = await state(first.engine);
+  const paused = await set(first.engine, true, initial.revision);
+  expect(paused).toMatchObject({ ok: true, data: { paused: true } });
+  expect(paused.data.revision).not.toBe(initial.revision);
+  expect(await set(first.engine, false, initial.revision)).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  fixture.now = at("01:15:00");
+  expect(await first.reminders.activate(rule.id, fixture.now)).toBeNull();
+  expect(await first.reminders.activate(rule.id, null)).toMatchObject({ summary: { notification: "sent" } });
+  await stop(first.engine);
+  const reopened = await start(first.engine.vault.files.root);
+  expect(await state(reopened.engine)).toEqual(paused.data);
+  fixture.now = at("01:20:00");
+  expect(await set(reopened.engine, false, paused.data.revision)).toMatchObject({ ok: true, data: { paused: false } });
+  expect(await reopened.reminders.activate(rule.id, at("01:15:00"))).toBeNull();
+  fixture.now = at("01:30:00");
+  expect(await reopened.reminders.activate(rule.id, fixture.now)).toMatchObject({ summary: { notification: "sent" } });
+  expect(await invoke(reopened.engine, "automations.read", { id: rule.id })).toMatchObject({ version: rule.version, data: { enabled: true } });
+});
 
 test("三种提醒效果对同一发生各自至多一次，重启保持任务、通知及发生关联", async () => {
   const { engine, reminders } = await start();
@@ -623,12 +654,63 @@ test("通知尝试无确认时只记录未知，并允许独立的建任务效�
   const first = await reminders.activate(rule.id, slot);
   expect(first?.summary).toMatchObject({ state: "unknown", notification: "unknown", task: "created", taskId: expect.any(String) });
   expect(notify).toHaveBeenCalledTimes(1);
+  const occurrenceId = first!.activationId;
+  const original = await invoke<PlanOccurrence>(engine, "automations.plans.readOccurrence", { occurrenceId });
+  const notification = original.effects.find(({ kind }) => kind === "notification")!;
+  const recovery = { planId: rule.id, occurrenceId, effectId: notification.effectId };
+  expect(notification.recovery).toBe("verify");
+  expect(await invoke(engine, "automations.plans.recoverEffect", recovery)).toEqual(original);
   await stop(engine);
   const reopened = await start(root);
   await reopened.reminders.recover();
   expect(await reopened.reminders.activate(rule.id, slot)).toEqual(first);
   expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([]);
   expect(notify).toHaveBeenCalledTimes(1);
+});
+
+test("只重试失败的建任务效果，并始终沿用原任务和原发生身份", async () => {
+  const { engine, reminders } = await start();
+  const rule = await createReminder(engine, "只重试失败的任务效果", "both");
+  fixture.createFromRule.mockRejectedValueOnce(errors.notFound("暂不可访问"));
+  const slot = (fixture.now = at("01:15:00"));
+  const occurrenceId = (await reminders.activate(rule.id, slot))!.activationId;
+  const original = await invoke<PlanOccurrence>(engine, "automations.plans.readOccurrence", { occurrenceId });
+  const effect = original.effects.find(({ kind }) => kind === "task-create")!;
+  expect(effect).toMatchObject({ state: "failed", recovery: "retry" });
+  const input = { planId: rule.id, occurrenceId, effectId: effect.effectId };
+  const [a, b] = await Promise.all([
+    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
+    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
+  ]);
+  expect(a).toEqual(b);
+  expect(a.effects).toEqual([original.effects[0], expect.objectContaining({ effectId: effect.effectId, state: "completed", receiptId: effect.effectId })]);
+  expect(fixture.createFromRule).toHaveBeenCalledTimes(2);
+  expect(fixture.createFromRule.mock.calls[0]).toEqual(fixture.createFromRule.mock.calls[1]);
+  expect(await invoke(engine, "notifications.list", {})).toHaveLength(1);
+});
+
+test("待处理筛选找到较早发生的子运行，无需把派遣受理改写成执行失败", async () => {
+  const { engine, scans } = await start();
+  const rule = await createRule(engine, "跨发生待处理");
+  const task = await createTask(engine, "目标暂不可用");
+  fixture.ready.mockResolvedValue("unavailable");
+  const first = await scans.invoke(rule.id);
+  const accepted = first.items.find((item) => item.taskId === task.id)!;
+  expect(accepted.state).toBe("accepted");
+  await vi.waitFor(async () => {
+    expect(await invoke(engine, "tasks.dispatch.read", { taskId: task.id, dispatchId: accepted.dispatchId })).toMatchObject({ state: "blocked" });
+  });
+  const current = await invoke<TaskDto>(engine, "tasks.read", { id: task.id });
+  await invoke(engine, "tasks.setStatus", { id: task.id, expectedVersion: current.version, status: "completed" });
+  fixture.now = at("01:15:00");
+  const latest = await scans.invoke(rule.id);
+  expect(latest.items.filter(({ state }) => state === "accepted")).toHaveLength(0);
+  expect(await invoke(engine, "automations.plans.history", { planId: rule.id, state: "attention" })).toMatchObject({
+    rows: [{ id: first.id, state: "completed", needsAttention: true }],
+  });
+  expect(await invoke(engine, "automations.plans.list", { state: "attention" })).toMatchObject({
+    plans: [{ planId: rule.id, needsAttention: true, lastOccurrence: { occurrenceId: latest.id } }],
+  });
 });
 
 function dispatchRecords(engine: RunningEngine): DispatchRecord[] {

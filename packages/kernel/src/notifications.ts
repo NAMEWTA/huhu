@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { errors } from "@huhu/contracts";
+import { errors, type PlanOccurrenceLink } from "@huhu/contracts";
 
 export interface Notification {
   id: string;
@@ -9,6 +9,7 @@ export interface Notification {
   module: string;
   /** 正文（一行）；可选。 */
   body?: string;
+  occurrence?: PlanOccurrenceLink;
   at: string;
   read: boolean;
 }
@@ -54,11 +55,14 @@ export class NotificationStore {
     return this.load().some((notification) => notification.id === id);
   }
 
-  create(input: { title: string; module: string; body?: string }, reservedId?: string): Notification {
+  create(input: Pick<Notification, "title" | "module" | "body" | "occurrence">, reservedId?: string): Notification {
     const list = this.load();
     const existing = reservedId ? list.find(({ id }) => id === reservedId) : undefined;
     if (existing) {
-      if (existing.title !== input.title || existing.module !== input.module || existing.body !== (input.body || undefined)) throw errors.idempotencyMismatch();
+      if (existing.title !== input.title || existing.module !== input.module || existing.body !== (input.body || undefined)
+        || (existing.occurrence && (existing.occurrence.planId !== input.occurrence?.planId || existing.occurrence.occurrenceId !== input.occurrence?.occurrenceId))) {
+        throw errors.idempotencyMismatch();
+      }
       return existing;
     }
     const n: Notification = {
@@ -67,6 +71,7 @@ export class NotificationStore {
       title: input.title,
       module: input.module,
       ...(input.body ? { body: input.body } : {}),
+      ...(input.occurrence ? { occurrence: input.occurrence } : {}),
       at: this.now().toISOString(),
       read: false,
     };

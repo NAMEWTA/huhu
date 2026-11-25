@@ -55,7 +55,7 @@ function nativeBackup(files: FileSet, rawManifest: unknown): PreparedBackup {
 
 export class LedgerBackups {
   private readonly previews = new Map<string, { owner: string; until: number; backup: PreparedBackup }>();
-  constructor(private readonly store: LedgerStore) {}
+  constructor(private readonly store: LedgerStore, private readonly recurringRules: (state: BookState) => BookState["recurring"] = (state) => state.recurring) {}
 
   dispose() {
     this.previews.clear();
@@ -66,6 +66,7 @@ export class LedgerBackups {
       context.signal.throwIfAborted();
       context.assertCapabilityCurrent?.();
       const state = selectModules(this.store.snapshot(bookId), modules);
+      state.recurring = this.recurringRules(state);
       validateBookRelations(state);
       const files = new Map<string, Uint8Array>([[stateName, json(state)]]);
       let total = files.get(stateName)!.byteLength;
