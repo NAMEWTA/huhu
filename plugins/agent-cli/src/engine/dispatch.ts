@@ -63,7 +63,7 @@ export class AgentDispatch {
     },
   ) {}
 
-  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined }, requestSignal: AbortSignal) {
+  async targets(input: { vaultId: string; machineId: string; spaceId: string; options?: z.infer<typeof LaunchOptions> | undefined; mode?: "snapshot" | undefined; includeResume?: false | undefined }, requestSignal: AbortSignal) {
     this.assertScope(input);
     const signal = AbortSignal.any([this.d.signal, requestSignal]);
     signal.throwIfAborted();
@@ -115,9 +115,9 @@ export class AgentDispatch {
     );
     signal.throwIfAborted();
     const codex = this.d.providers.codex;
-    const history = !write && codex?.transport === "native" && codex.modes.includes("resume") && this.d.resumeTargets ? await this.d.resumeTargets(space, snapshot) : [];
+    const history = input.includeResume !== false && !write && codex?.transport === "native" && codex.modes.includes("resume") && this.d.resumeTargets ? await this.d.resumeTargets(space, snapshot) : [];
     signal.throwIfAborted();
-    const resume = AGENT_CATALOG.filter(({ id }) => !history.some((item) => item.provider === id)).map(({ id: provider }) => ({
+    const resume = AGENT_CATALOG.filter(({ id }) => input.includeResume !== false && !history.some((item) => item.provider === id)).map(({ id: provider }) => ({
       mode: "resume" as const,
       provider,
       spaceId: space.id,

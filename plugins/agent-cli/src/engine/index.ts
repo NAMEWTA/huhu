@@ -656,7 +656,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   async function resumeTargets(space: Space, snapshot: boolean) {
     const profile = codex?.historyProfile;
     if (!profile || !spaceCanLaunch(space)) return [];
-    const projected = await historyProjection.scan({ roots: [space.root], env: { CODEX_HOME: profile }, providers: ["codex"] });
+    // Selecting a cold dispatch target must see history written since the last browse snapshot.
+    const projected = await historyProjection.scan({ roots: [space.root], env: { CODEX_HOME: profile }, providers: ["codex"] }, { fresh: !snapshot });
     const rows = projected.entries.filter((entry) => inDispatchSpace(space, entry));
     if (rows.length === 0) return [];
     const candidates = projected.candidates.get("codex") ?? new Map();
