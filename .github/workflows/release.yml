@@ -6,6 +6,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+  queue: max
+
 jobs:
   package:
     strategy:
@@ -16,6 +21,9 @@ jobs:
           - { os: macos-15, target: darwin-arm64 }
           - { os: ubuntu-22.04, target: linux-x64 }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/packaged-journeys.json
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -58,18 +66,28 @@ jobs:
         run: |
           exe="$(find apps/desktop/release/linux-unpacked -maxdepth 1 -type f -iname 'huhu' | head -1)"
           test -n "$exe"
-          HUHU_PACKAGED_EXE="$PWD/$exe" xvfb-run -a pnpm e2e:packaged # 不设 HUHU_HERDR_BIN：必须用随包的 Herdr Core
+          HUHU_PACKAGED_EXE="$PWD/$exe" xvfb-run -a pnpm e2e:packaged --reporter=list,json # 不设 HUHU_HERDR_BIN：必须用随包的 Herdr Core
       - name: 打包后 E2E 子集（macOS）
         if: runner.os == 'macOS'
-        run: HUHU_PACKAGED_EXE="$PWD/apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU" pnpm e2e:packaged
+        run: HUHU_PACKAGED_EXE="$PWD/apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU" pnpm e2e:packaged --reporter=list,json
       - name: 打包后 E2E 子集（Windows）
         if: runner.os == 'Windows'
         shell: bash
-        run: HUHU_PACKAGED_EXE="$PWD/apps/desktop/release/win-unpacked/HUHU.exe" pnpm e2e:packaged
+        run: HUHU_PACKAGED_EXE="$PWD/apps/desktop/release/win-unpacked/HUHU.exe" pnpm e2e:packaged --reporter=list,json
+      - if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-diagnostics-${{ github.sha }}-${{ matrix.target }}
+          path: |
+            apps/desktop/out/build-info.json
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: HUHU-${{ matrix.target }}
           if-no-files-found: error
+          retention-days: 30
           path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
@@ -81,6 +99,7 @@ jobs:
     needs: package
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
