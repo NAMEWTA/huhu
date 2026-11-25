@@ -333,6 +333,22 @@ async function showAgent(page: Page) {
   await expect(page.getByTestId("agent-cli-module")).toBeVisible();
 }
 
+async function launchWorkspacePane(page: Page, launch: Locator) {
+  const [response] = await Promise.all([
+    page.waitForResponse((response) => {
+      const request = response.request();
+      return request.method() === "POST" && new URL(request.url()).pathname === "/api/v1/call" && request.postDataJSON()?.capability === "agent.workspace.launch";
+    }),
+    launch.click(),
+  ]);
+  const result = (await response.json()) as { ok: boolean; data?: { sessionId: string; placement: { leaf: string } } };
+  expect(result).toMatchObject({ ok: true, data: { sessionId: expect.any(String), placement: { leaf: expect.any(String) } } });
+  const { sessionId, placement } = result.data!;
+  const pane = page.getByTestId("workspace-pane").and(page.locator(`[data-pane-id="${placement.leaf}"][data-session-id="${sessionId}"]`));
+  await expect(pane.getByTestId("terminal-view")).toHaveAttribute("data-state", "open", { timeout: 15_000 });
+  return pane;
+}
+
 async function lastRow(terminal: Locator, marker = "U0-LAST-ROW") {
   const line = terminal.locator(".xterm-rows > div").filter({ hasText: marker }).last();
   await expect(line).toContainText(marker, { timeout: 15_000 });
@@ -390,36 +406,34 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const history = page.getByTestId("agent-history-toggle");
     if (await history.getAttribute("aria-expanded") === "true") await history.click();
     await page.getByRole("button", { name: "新终端", exact: true }).click();
-    await page.getByTestId("launch-shell").click();
-    const terminals = page.getByTestId("terminal-view");
-    const first = terminals.first();
-    await expect(first).toHaveAttribute("data-state", "open");
+    const pane = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
+    const terminal = pane.getByTestId("terminal-view");
+    await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
     const verify = async (step: string) => {
       const marker = `UX08-${step}`;
       const output = path.join(vault, `.${marker}`);
-      await first.locator(".xterm-helper-textarea").focus();
+      await terminal.locator(".xterm-helper-textarea").focus();
       await page.keyboard.type(`sh .ux08-terminal.sh ${marker}`);
       await page.keyboard.press("Enter");
-      const observation = await lastRow(first, marker);
+      const observation = await lastRow(terminal, marker);
       const [rows = 0, cols = 0] = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
       expect(observation.rows).toBe(rows);
       expect(observation.clippingAncestors).toEqual([]);
       expect(observation.hitInTerminal).toBe(true);
-      expect(await first.locator(".xterm-rows > div").last().locator(".xterm-cursor").count()).toBeGreaterThan(0);
+      expect(await terminal.locator(".xterm-rows > div").last().locator(".xterm-cursor").count()).toBeGreaterThan(0);
       await info.attach(`${name}-${step}`, { body: JSON.stringify({ ...observation, rows, cols }), contentType: "application/json" });
       await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
       return { rows, cols };
     };
     const initial = await verify(`${name}-initial`);
-    await page.getByTestId("workspace-split-down").first().click();
-    await page.getByTestId("launch-shell").click();
-    await expect(terminals).toHaveCount(2);
+    await pane.getByTestId("workspace-split-down").click();
+    const sibling = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
+    await expect(page.getByTestId("terminal-view")).toHaveCount(2);
     expect((await verify(`${name}-split`)).rows).toBeLessThan(initial.rows);
-    const panes = page.getByTestId("workspace-pane");
-    await panes.last().getByRole("button", { name: "放大分栏" }).click();
-    await expect(panes.first()).toBeHidden();
-    await panes.last().getByRole("button", { name: "还原分栏" }).click();
-    await expect(panes.first()).toBeVisible();
+    await sibling.getByRole("button", { name: "放大分栏" }).click();
+    await expect(pane).toBeHidden();
+    await sibling.getByRole("button", { name: "还原分栏" }).click();
+    await expect(pane).toBeVisible();
     await page.setViewportSize({ width: 960, height: 680 });
     const resized = await verify(`${name}-viewport`);
     await page.evaluate(() => {
@@ -510,10 +524,13 @@ test("UX10 按需启动器支持模型搜索、键盘返回和窄窗启动", asy
   void browserName;
   test.setTimeout(120_000);
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-ux10-"));
+  const argvFile = path.join(bin, "claude.argv");
+  const readArgv = () => existsSync(argvFile) ? readFileSync(argvFile, "utf8").trimEnd().split("\n") : [];
   writeFileSync(
     path.join(bin, "claude"),
     `#!/bin/sh
 if [ "$1" = "--version" ]; then printf '2.1.0 (Claude Code)\\n'; exit 0; fi
+printf '%s\\n' "$@" > "$0.argv"
 printf 'UX10-ARGV:%s\\n' "$@"
 while IFS= read -r line; do :; done
 `,
@@ -574,13 +591,16 @@ while IFS= read -r line; do :; done
         expect(bounds.top).toBeGreaterThanOrEqual(0);
         expect(bounds.right).toBeLessThanOrEqual(bounds.viewport.width);
         expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewport.height);
-        await setup.getByRole("button", { name: "启动", exact: true }).click();
+        const pane = await launchWorkspacePane(page, setup.getByRole("button", { name: "启动", exact: true }));
         await expect(menu).toHaveCount(0);
-        const rows = page.getByTestId("terminal-view").locator(".xterm-rows");
-        await expect(rows).toContainText(`UX10-ARGV:${prompt}`);
-        await expect(rows).toContainText("UX10-ARGV:opus");
-        await expect(rows).toContainText("UX10-ARGV:high");
-        await info.attach(`${name}-launcher-geometry`, { body: JSON.stringify({ compact, bounds }), contentType: "application/json" });
+        await expect.poll(readArgv).toContain(prompt);
+        const argv = readArgv();
+        for (const [flag, value] of [["--model", "opus"], ["--effort", "high"]] as const) {
+          const index = argv.indexOf(flag);
+          expect(argv.slice(index, index + 2)).toEqual([flag, value]);
+        }
+        await expect(pane.locator(".xterm-rows")).toContainText(`UX10-ARGV:${prompt}`);
+        await info.attach(`${name}-launcher-geometry`, { body: JSON.stringify({ compact, bounds, argv }), contentType: "application/json" });
       },
       undefined,
       { width: 1050, height: 800 },

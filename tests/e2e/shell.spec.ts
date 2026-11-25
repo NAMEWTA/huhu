@@ -2466,12 +2466,15 @@ test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收
     await primaryDivider.focus();
     await page.keyboard.press("Shift+ArrowRight");
     await expect(primaryDivider).toHaveAttribute("aria-valuenow", "60");
+    await expect(primaryDivider).toHaveAttribute("data-saved-ratio", "60");
+    await expect(primaryDivider).toHaveAttribute("aria-disabled", "false");
+    await primaryDivider.hover();
     const handle = await primaryDivider.boundingBox();
     expect(handle).toBeTruthy();
-    await page.mouse.move(handle!.x + 3, handle!.y + 40);
     await page.mouse.down();
-    await page.mouse.move(handle!.x - 42, handle!.y + 40);
+    await page.mouse.move(handle!.x + handle!.width / 2 - 45, handle!.y + handle!.height / 2);
     await expect(primaryDivider).not.toHaveAttribute("aria-valuenow", "60");
+    await expect(primaryDivider).toHaveAttribute("data-saved-ratio", "60");
     await page.keyboard.press("Escape");
     await page.mouse.up();
     await expect(primaryDivider).toHaveAttribute("aria-valuenow", "60");
