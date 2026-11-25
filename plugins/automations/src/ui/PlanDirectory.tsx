@@ -56,11 +56,12 @@ const templates = [
 
 let returnState: { vaultId: string; filter: Filter; cursors: string[] } | undefined;
 
-export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard }: {
+export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard, requestedPlan }: {
   active: boolean;
   onNavigate: ModuleProps["onNavigate"];
   registerLeaveGuard: ModuleProps["registerLeaveGuard"];
   onOpenRuns(planId: string): void;
+  requestedPlan: { id: string } | null;
 }) {
   const engine = useEngine();
   const cache = useQueryClient();
@@ -104,6 +105,12 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
     focusDetail.current = false;
   }, [selectedPlan]);
   useEffect(() => () => sourceLookup.current?.abort(), [active, selected]);
+  useEffect(() => {
+    if (!requestedPlan) return;
+    focusDetail.current = true;
+    setSelected(requestedPlan.id);
+    writeAutomationPlanLink(engine.vaultId, requestedPlan.id);
+  }, [requestedPlan, engine.vaultId]);
 
   function select(planId: string | null) {
     setSelected(planId);

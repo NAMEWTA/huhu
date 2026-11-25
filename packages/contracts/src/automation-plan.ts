@@ -10,6 +10,8 @@ const domainObject = z.strictObject({ kind: id, id });
 
 export const PlanRefSchema = z.strictObject({ planId: id, revision });
 export type PlanRef = z.infer<typeof PlanRefSchema>;
+export const PlanOccurrenceLinkSchema = z.strictObject({ planId: id, occurrenceId: id });
+export type PlanOccurrenceLink = z.infer<typeof PlanOccurrenceLinkSchema>;
 export const PlanSourceSchema = z.strictObject({ plugin: id, object: domainObject });
 export type PlanSource = z.infer<typeof PlanSourceSchema>;
 

@@ -1,6 +1,6 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
 import { readFile } from "node:fs/promises";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,6 +50,16 @@ let preview: PreviewController | null = null;
 
 const recoveryPages = new WeakMap<BrowserWindow, string>();
 const showingRecovery = (win: BrowserWindow) => !win.isDestroyed() && recoveryPages.get(win) === win.webContents.getURL();
+
+function automationNotice(value: unknown) {
+  if (!value || typeof value !== "object" || !("id" in value) || !("title" in value) || !("occurrence" in value)) return null;
+  const { id, title, occurrence } = value;
+  if (typeof id !== "string" || !id || id.length > 256 || typeof title !== "string" || !title
+    || !occurrence || typeof occurrence !== "object" || !("planId" in occurrence) || !("occurrenceId" in occurrence)) return null;
+  const { planId, occurrenceId } = occurrence;
+  if (typeof planId !== "string" || !planId || planId.length > 256 || typeof occurrenceId !== "string" || !occurrenceId || occurrenceId.length > 256) return null;
+  return { id, title, occurrence: { planId, occurrenceId } };
+}
 
 /** 完整来源匹配：`huhu-app://workbench` 本身或其路径，开发服务器同理（不接受仅前缀相同的其他主机/端口）。 */
 function isTrustedUrl(url: string | undefined): boolean {
@@ -318,6 +328,28 @@ if (!gotLock) {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
+    const shownNotices = new Map<string, number>();
+    ipcMain.handle("huhu:show-automation-notification", (event, notice: unknown, vaultId: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const parsed = automationNotice(notice);
+      if (!win || win.isFocused() || !Notification.isSupported() || !parsed || typeof vaultId !== "string" || supervisor?.activeVaultId !== vaultId) return;
+      const { id, title, occurrence } = parsed;
+      const key = JSON.stringify([vaultId, id]);
+      const now = Date.now();
+      for (const [prior, at] of shownNotices) if (now - at > 30_000) shownNotices.delete(prior);
+      if (shownNotices.has(key)) return;
+      shownNotices.set(key, now);
+      const notification = new Notification({ title: "HUHU 自动化", body: title.slice(0, 256) });
+      notification.once("click", () => {
+        if (win.isDestroyed() || supervisor?.activeVaultId !== vaultId) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        win.webContents.send("huhu:open-automation-notification", { vaultId, id, occurrence });
+      });
+      notification.show();
+    });
     preview = registerPreviewHandlers({ vaultRoot: () => current?.path ?? null, frameAncestors: () => process.env["ELECTRON_RENDERER_URL"]?.replace(/\/$/, "") ?? APP_ORIGIN, assertTrusted });
     let startupError: string | null = null;
     let recent: RecentVault[] = [];

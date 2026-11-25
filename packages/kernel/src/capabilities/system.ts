@@ -479,12 +479,12 @@ export function registerSystemCapabilities(
   return () => offs.forEach((o) => o());
 }
 
-import { SettingsSchema, mergeSettings, type Settings } from "@huhu/contracts";
+import { PlanOccurrenceLinkSchema, SettingsSchema, mergeSettings, type Settings } from "@huhu/contracts";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Notification, NotificationStore } from "../notifications.js";
 
-const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), body: z.string().optional(), at: z.string(), read: z.boolean() });
+const NotificationDto = z.object({ id: z.string(), title: z.string(), module: z.string(), body: z.string().optional(), occurrence: PlanOccurrenceLinkSchema.optional(), at: z.string(), read: z.boolean() });
 const notificationIds = z.array(z.string().min(1)).max(1000);
 const revisionHash = z.string().regex(/^[a-f0-9]{64}$/);
 const SettingsView = SettingsSchema.extend({ revision: revisionHash.optional() });
@@ -539,7 +539,7 @@ export function registerNotificationAndSettings(registry: CapabilityRegistry, st
       output: z.array(NotificationDto),
       handler: ({ caller }, i) => {
         const items = store.list({ ...(i.unreadOnly ? { unreadOnly: true } : {}), ...(i.module ? { module: i.module } : {}) });
-        return isWorkbenchCaller(caller) ? items : items.filter(visibleNotification);
+        return isWorkbenchCaller(caller) ? items : items.filter(visibleNotification).map(({ occurrence: _, ...item }) => item);
       },
     }),
     registerKernelCapability(registry, {

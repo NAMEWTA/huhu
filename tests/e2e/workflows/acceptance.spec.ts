@@ -1765,7 +1765,7 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
   }
 });
 
-test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中心条目带正文、时间、来源，点击跳转来源并标已读", async () => {
+test("AU03 任务提醒：通知定位原发生及来源任务，并标为已读", async ({ browserName: _browserName }) => {
   test.setTimeout(120_000);
   const { page, close } = await openApp();
   try {
@@ -1795,7 +1795,13 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
     await expect(item).toContainText("提醒时间");
     await expect(item).toContainText("任务");
     await item.click();
-    await expect(page.getByTestId("task-detail").or(page.getByTestId("task-new"))).toBeVisible(); // 跳到任务模块
+    const detail = page.getByTestId("notification-occurrence");
+    await expect(detail).toContainText("效果与回执");
+    await detail.getByText("计划与冻结输入").click();
+    await expect(detail).toContainText(plan.data.planId);
+    await detail.getByRole("button", { name: "查看原计划" }).click();
+    await page.getByTestId("rule-detail").getByRole("button", { name: "打开来源任务" }).click();
+    await expect(page.getByTestId("task-detail")).toContainText("到点提醒任务");
     await page.getByTestId("bell").click();
     await expect(page.getByTestId("notice-item").filter({ hasText: "到点提醒任务" })).toHaveAttribute("data-read", "true");
   } finally {

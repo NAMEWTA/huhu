@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PlanOccurrenceLinkSchema } from "./automation-plan.js";
 
 const change = z.enum(["created", "modified", "deleted", "renamed"]);
 export const VaultIndexEntrySchema = z.object({ path: z.string(), type: z.enum(["file", "dir"]), size: z.number(), mtimeMs: z.number() });
@@ -25,7 +26,7 @@ export const EVENT_PAYLOADS = {
   "automation.activated": z.object({ ruleId: z.string(), activationId: z.string(), trigger: z.string() }),
   "run.stateChanged": z.object({ runId: z.string(), kind: z.enum(["task-run", "automation-run"]), state: z.string() }),
   "reminder.due": z.object({ taskId: z.string(), reminderId: z.string(), title: z.string() }),
-  "notification.created": z.object({ id: z.string(), title: z.string(), module: z.string() }),
+  "notification.created": z.object({ id: z.string(), title: z.string(), module: z.string(), occurrence: PlanOccurrenceLinkSchema.optional() }),
   "agent.sessionChanged": z.object({ sessionId: z.string(), state: z.string() }),
   "ssh.connectionChanged": z.object({ hostId: z.string(), state: z.string() }),
   "ssh.hostKeyPrompt": z.object({ attemptId: z.string(), hostId: z.string(), hop: z.number().int(), fingerprint: z.string(), keyType: z.string(), reason: z.enum(["first", "changed"]) }),

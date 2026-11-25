@@ -1,9 +1,12 @@
-import { Button } from "@huhu/ui";
+import { Button, Dialog } from "@huhu/ui";
 import { ArrowUpRight, List, Workflow } from "lucide-react";
-import { useEngine, type ModuleProps } from "@huhu/workbench";
-import { useState } from "react";
+import {
+  AUTOMATION_OCCURRENCE_NAVIGATION, readAutomationOccurrenceLink, useEngine, writeAutomationOccurrenceLink, type ModuleProps,
+} from "@huhu/workbench";
+import { useEffect, useState } from "react";
 import { PlanDirectory } from "./PlanDirectory.js";
 import { OccurrenceHistory } from "./OccurrenceHistory.js";
+import { OccurrenceDetail } from "./OccurrenceDetail.js";
 import { RunsPanel } from "./RunsPanel.js";
 import { t } from "./i18n.js";
 
@@ -16,8 +19,23 @@ export function AutomationsModule({ onNavigate, registerLeaveGuard }: ModuleProp
 }
 
 function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: ModuleProps["onNavigate"]; registerLeaveGuard: ModuleProps["registerLeaveGuard"] }) {
+  const { vaultId } = useEngine();
   const [view, setView] = useState<View>("plans");
   const [historyPlan, setHistoryPlan] = useState<string | null>(null);
+  const [occurrence, setOccurrence] = useState(() => readAutomationOccurrenceLink(vaultId));
+  const [requestedPlan, setRequestedPlan] = useState<{ id: string } | null>(null);
+
+  useEffect(() => {
+    const sync = () => setOccurrence(readAutomationOccurrenceLink(vaultId));
+    window.addEventListener(AUTOMATION_OCCURRENCE_NAVIGATION, sync);
+    window.addEventListener("popstate", sync);
+    sync();
+    return () => {
+      window.removeEventListener(AUTOMATION_OCCURRENCE_NAVIGATION, sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, [vaultId]);
+  const closeOccurrence = () => writeAutomationOccurrenceLink(vaultId, null);
 
   return (
     <div className="automations-center-host">
@@ -39,7 +57,7 @@ function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: Modu
           </div> : null}
         </aside>
         <main className="automations-automation-main">
-          <PlanDirectory active={view === "plans"} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}
+          <PlanDirectory active={view === "plans"} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard} requestedPlan={requestedPlan}
             onOpenRuns={(plan) => { setHistoryPlan(plan); setView("activations"); }} />
           {view === "activations" ? <OccurrenceHistory key={historyPlan ?? ""} planId={historyPlan} back={() => setView("plans")} onNavigate={onNavigate} /> : null}
           {view === "runs" ? <div className="automations-task-content automations-plan-history">
@@ -47,6 +65,16 @@ function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: Modu
             <RunsPanel {...(onNavigate && { onNavigate })} />
           </div> : null}
         </main>
+        {occurrence ? (
+          <Dialog open title="通知的原发生" wide onClose={closeOccurrence} testId="notification-occurrence">
+            <OccurrenceDetail key={occurrence.occurrenceId} id={occurrence.occurrenceId} expectedPlanId={occurrence.planId} onNavigate={onNavigate}
+              onOpenPlan={() => {
+                closeOccurrence();
+                setRequestedPlan({ id: occurrence.planId });
+                setView("plans");
+              }} />
+          </Dialog>
+        ) : null}
       </div>
     </div>
   );

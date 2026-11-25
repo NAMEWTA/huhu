@@ -14,6 +14,7 @@ export const HistoryRow = z.strictObject({
   counts: z.strictObject({ processed: z.int().nonnegative(), skipped: z.int().nonnegative() }).optional(),
 });
 export const HistoryInput = z.strictObject({
+  occurrenceId: z.string().optional(),
   planId: z.string().optional(),
   source: z.string().optional(),
   query: z.string().max(256).optional(),
@@ -43,6 +44,7 @@ export function historyPage(rows: HistoryRow[], input: z.output<typeof HistoryIn
       const matchesState = !input.state || (input.state === "attention" ? ["failed", "unknown", "blocked"].includes(row.state) : row.state === input.state);
       return (
         matchesState &&
+        (!input.occurrenceId || row.id === input.occurrenceId) &&
         (!input.planId || row.planId === input.planId) &&
         (!input.source || row.source === input.source) &&
         (!input.from || row.at >= input.from) &&

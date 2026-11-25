@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
+import { errors, HuhuError, isHuhuError, type PlanOccurrence, type PlanOccurrenceLink } from "@huhu/contracts";
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "@huhu/contracts";
@@ -44,7 +44,7 @@ type ReminderTrigger = {
   expectedVersion?: string;
   plan?: PlanReminder;
 };
-type Notification = { id: string; title: string; module: string; body?: string };
+type Notification = { id: string; title: string; module: string; body?: string; occurrence: PlanOccurrenceLink };
 export type ReminderNotifications = { send(notification: Notification): void; has(id: string): boolean };
 const scheduledId = (ruleId: string, at: string, revision?: string) => `rem-${digest(revision ? [ruleId, revision, at] : [ruleId, at])}`;
 export const planReminderOccurrenceId = (plan: { planId: string; revision: string; scheduledFor: string }) => scheduledId(plan.planId, plan.scheduledFor, plan.revision);
@@ -240,6 +240,7 @@ export class ReminderDeliveries {
       if (this.current(row.data)) {
         try {
           this.notifications.send({ id: stableNotification, title: row.data.text, module: row.data.notificationModule,
+            occurrence: { planId: row.data.ruleId, occurrenceId: id },
             ...(row.data.source === "task-reminder" && { body: `提醒时间 ${row.data.scheduledFor}` }),
           });
         } catch {

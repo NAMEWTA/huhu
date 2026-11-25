@@ -6,6 +6,7 @@ import type { ModuleProps } from "../contributions.js";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import type { OpenNotification } from "../notifications/NotificationBell.js";
+import type { PlanOccurrenceLink } from "@huhu/contracts";
 import { host } from "../settings/host.js";
 import { openSettings, type UiState } from "../state/ui-store.js";
 
@@ -33,6 +34,7 @@ interface Notice {
   module: string;
   at: string;
   read: boolean;
+  occurrence?: PlanOccurrenceLink;
 }
 
 const TITLE = { all: "健康中心", logs: "事件日志", notifications: "通知中心" } as Record<string, string>;

@@ -530,7 +530,9 @@ test("外部提醒规则独立授权，固定版本的运行意图在重启后�
   ({ engine } = await start(root));
   expect(await cli("automations.runNow", input)).toEqual(accepted);
   const notices = await invoke<{ title: string }[]>(engine, "notifications.list", {});
-  expect(notices.filter(({ title }) => title === draft.action.text)).toHaveLength(1);
+  expect(notices.filter(({ title }) => title === draft.action.text)).toEqual([expect.objectContaining({
+    occurrence: { planId: id, occurrenceId: (accepted.data as { activationId: string }).activationId },
+  })]);
   expect(readdirSync(path.join(engine.vault.stateDir, "automations/reminder-deliveries"))).toHaveLength(1);
   expect(fixture.dispatch).not.toHaveBeenCalled();
 }, 20_000);

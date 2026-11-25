@@ -4,6 +4,7 @@ import { localExitRequest, type ExitParticipant } from "./exit-participants.js";
 interface ModuleOpen {
   onOpen(): void;
   isCurrent?(): boolean;
+  guardCurrent?: boolean;
 }
 
 export interface UiState {
@@ -71,6 +72,7 @@ export function createUiStore(initial: Partial<UiPersisted> = {}, onPersist?: (s
       const s = get();
       if (request?.isCurrent?.() === false) return false;
       if (s.activeModule === id) {
+        if (request?.guardCurrent) return leave(id, request.onOpen, request.isCurrent);
         if (request) request.onOpen();
         else set({ sidebarCollapsed: !s.sidebarCollapsed });
         return true;

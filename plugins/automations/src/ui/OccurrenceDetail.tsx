@@ -4,6 +4,7 @@ import { CapabilityError, requestOpenAgentSession, requestOpenTask, useCapabilit
 import { useState } from "react";
 import { occurrenceLabel, formatMoment } from "./plan-presentation.js";
 import { TerminalRun } from "./RunsPanel.js";
+import type { HistoryPage } from "../shared/occurrence-history.js";
 
 type Navigate = ModuleProps["onNavigate"];
 
@@ -30,16 +31,21 @@ const mailStatus = {
   "partially-accepted": "部分收件人已接受",
 };
 
-export function OccurrenceDetail({ id, terminalRunId, onNavigate }: { id: string; terminalRunId?: string; onNavigate: Navigate }) {
+export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId, onOpenPlan }: {
+  id: string; terminalRunId?: string; onNavigate: Navigate; expectedPlanId?: string; onOpenPlan?(): void;
+}) {
   const occurrence = useCapability<PlanOccurrence | null>("automations.plans.readOccurrence", { occurrenceId: id });
+  const historic = useCapability<HistoryPage>("automations.plans.history", { planId: expectedPlanId, occurrenceId: id, limit: 1 },
+    { enabled: Boolean(expectedPlanId && occurrence.data === null) });
+  const terminal = terminalRunId ?? historic.data?.rows[0]?.terminalRunId;
   const [output, setOutput] = useState(false);
-  const row = occurrence.data;
+  const row = !expectedPlanId || occurrence.data?.plan.planId === expectedPlanId ? occurrence.data : null;
   const tasks = row?.effects.filter(({ kind }) => kind === "task-dispatch" || kind === "task-run") ?? [];
   const scheduled = row?.timing.trigger === "scheduled" ? row.timing.scheduledFor : null;
   return (
     <div className="hu-stack" data-testid="occurrence-detail">
-      {occurrence.isPending ? <p role="status">正在读取发生记录…</p> : null}
-      {occurrence.error ? <p role="alert">{occurrence.error.message}</p> : null}
+      {occurrence.isPending || (historic.isFetching && !historic.data) ? <p role="status">正在读取发生记录…</p> : null}
+      {occurrence.error || historic.error ? <p role="alert">{(occurrence.error ?? historic.error)?.message}</p> : null}
       {row ? (
         <>
           <p>
@@ -103,18 +109,21 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate }: { id: string
             </section>
           ) : null}
         </>
-      ) : occurrence.data === null && !terminalRunId ? (
-        <p>此发生仅保留历史摘要。</p>
+      ) : occurrence.data === null && !terminal && (!expectedPlanId || historic.data) ? (
+        <p>{expectedPlanId ? "原发生已过期、删除或不可访问。" : "此发生仅保留历史摘要。"}</p>
+      ) : occurrence.data && !row ? (
+        <p role="alert">原发生与通知中的计划不匹配。</p>
       ) : null}
-      {terminalRunId ? (
+      {terminal ? (
         <>
           <p>
-            终端运行 <code>{terminalRunId}</code>
+            终端运行 <code>{terminal}</code>
           </p>
-          {output ? <TerminalRun id={terminalRunId} onNavigate={undefined} /> : <Button onClick={() => setOutput(true)}>查看终端输出</Button>}
+          {output ? <TerminalRun id={terminal} onNavigate={undefined} /> : <Button onClick={() => setOutput(true)}>查看终端输出</Button>}
         </>
       ) : null}
       <div className="hu-toolbar">
+        {(row || terminal) && onOpenPlan ? <Button onClick={onOpenPlan}>查看原计划</Button> : null}
         <Button loading={occurrence.isFetching} onClick={() => void occurrence.refetch()}>
           {row?.state === "unknown" ? "核实原请求" : "重新读取原发生"}
         </Button>

@@ -18,7 +18,7 @@ import { planDescriptors, registerPlanCatalogue } from "./plans.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
 import { Scheduler } from "./scheduler.js";
-import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
+import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsDeps, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
 import { TaskReminderPlans } from "./task-reminder-plans.js";
 import { registerTaskScanTools, TaskScanAction, taskScanAuthorization, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
@@ -253,7 +253,7 @@ export const automationToolDescriptors = {
 
 export interface AutomationsOptions {
   zone?: () => string;
-  notify?: (n: { title: string; module: string }) => void;
+  notify?: AutomationsDeps["notify"];
   reminderNotifications?: ReminderNotifications;
   focusDeadline?: FocusDeadlinePort;
   credentialHost?: AutomationCredentialHost;

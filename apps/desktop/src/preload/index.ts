@@ -104,4 +104,10 @@ contextBridge.exposeInMainWorld("huhuHost", {
     ipcRenderer.on("huhu:engineState", handler);
     return () => ipcRenderer.removeListener("huhu:engineState", handler);
   },
+  showAutomationNotification: (notice: unknown, vaultId: string) => ipcRenderer.invoke("huhu:show-automation-notification", notice, vaultId),
+  onAutomationNotification: (cb: (notice: unknown) => void) => {
+    const listener = (_event: unknown, notice: unknown) => cb(notice);
+    ipcRenderer.on("huhu:open-automation-notification", listener);
+    return () => ipcRenderer.off("huhu:open-automation-notification", listener);
+  },
 });
