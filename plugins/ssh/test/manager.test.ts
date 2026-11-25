@@ -4,14 +4,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { HuhuError } from "@huhu/contracts";
+import { randomUUID } from "node:crypto";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
 import { SshManager } from "../src/engine/manager.js";
+import { DeviceProxies } from "../src/engine/device-proxies.js";
 import { TerminalRecordings } from "../src/engine/terminal-recordings.js";
-import { workspaceTarget } from "../src/engine/workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "../src/engine/workspace-target.js";
 import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
+import { relayToLoopback } from "./shell-relay-fixture.js";
+import { parseQuickEndpoint } from "../src/shared/quick-connection.js";
 
 const dirs: string[] = [];
 const closers: (() => Promise<void> | void)[] = [];
@@ -25,9 +29,10 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable = false) {
+function setup(password = "pw", unavailable = false, deviceProxy = false) {
   const root = tmp();
   const hosts = ownedHosts();
+  const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
   const prompts: { hop: number; reason: string; attemptId: string; fingerprint: string }[] = [];
   let mgr!: SshManager;
   const secretCalls: string[] = [];
@@ -48,10 +53,14 @@ function setup(password = "pw", unavailable = false) {
       }
     },
     decisionTimeoutMs: 1000,
+    ...(commands && { deviceProxy: { commands, currentRoute: (id: string) => connectionIdentity(routeForHost(new Map(hosts.list().map((host) => [host.id, host])), id)) } }),
   });
-  closers.push(() => mgr.disposeAll());
+  closers.push(() => {
+    commands?.dispose();
+    mgr.disposeAll();
+  });
   const add = (port: number, over: Partial<SshHostProfile> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
-  return { root, hosts, mgr, prompts, add, secretCalls };
+  return { root, hosts, mgr, prompts, add, secretCalls, commands };
 }
 const until = async (c: () => boolean, ms = 3000) => {
   const end = Date.now() + ms;
@@ -79,6 +88,138 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("an unsaved quick connection authenticates, opens one shell and releases all temporary state", async () => {
+    const srv = await startFakeSsh({ password: "one-time-fixture" });
+    const { root, hosts, mgr, prompts, secretCalls } = setup();
+    closers.push(srv.close);
+    const id = randomUUID();
+    const target = { user: "fixture", host: "127.0.0.1", port: srv.port };
+    const { hostId } = mgr.startQuick(id, target, "one-time-fixture");
+    expect(mgr.startQuick(id, target, "one-time-fixture")).toEqual({ hostId });
+    await expect.poll(() => prompts.length).toBe(1);
+    const waiting = mgr.quickStatus(id)?.status;
+    if (waiting?.state !== "waiting") throw new Error("Expected quick host-key prompt");
+    expect(mgr.decide(waiting.attemptId, 0, true, waiting.prompt.promptId, false)).toBe(true);
+    await expect.poll(() => mgr.quickStatus(id)?.shellId).toMatch(/^ssh-local-quick-/u);
+    const shell = mgr.quickStatus(id)!.shellId!;
+    expect(mgr.connectionStatuses()).toEqual([]);
+    expect(mgr.listShells()).toEqual([]);
+    expect(hosts.list()).toEqual([]);
+    expect(secretCalls).toEqual([]);
+    expect(mgr.auditList()).toEqual([]);
+    expect(() => readFileSync(path.join(root, "known_hosts"))).toThrow();
+    const output: string[] = [];
+    const terminal = mgr.attachShell(shell, { onData: (bytes) => output.push(bytes.toString()), onEnd: () => undefined });
+    await expect.poll(() => output.join("")).toContain("welcome");
+    terminal?.write(Buffer.from("exit\n"));
+    await expect.poll(() => mgr.quickStatus(id)).toBeNull();
+    await expect.poll(() => srv.closed()).toBe(1);
+    expect(mgr.shellInfo(shell)).toBeUndefined();
+    expect(mgr.closeQuick(id)).toBe(false);
+  });
+
+  test("a cancelled quick connection leaves no prompt and ignores stale confirmation", async () => {
+    const srv = await startFakeSsh();
+    const { mgr, prompts } = setup();
+    closers.push(srv.close);
+    const id = randomUUID();
+    mgr.startQuick(id, { user: "fixture", host: "127.0.0.1", port: srv.port }, "pw");
+    await expect.poll(() => prompts.length).toBe(1);
+    const waiting = mgr.quickStatus(id)?.status;
+    if (waiting?.state !== "waiting") throw new Error("Expected quick host-key prompt");
+    expect(mgr.closeQuick(id)).toBe(true);
+    expect(mgr.decide(waiting.attemptId, 0, true, waiting.prompt.promptId)).toBe(false);
+    await expect.poll(() => srv.closed()).toBe(1);
+    expect(mgr.quickStatus(id)).toBeNull();
+  });
+
+  test("quick targets accept hostnames and bracketed IPv6, and reject URL decorations", () => {
+    expect(parseQuickEndpoint("alice@ssh.example.com")).toEqual({ user: "alice", host: "ssh.example.com", port: 22 });
+    expect(parseQuickEndpoint("alice@[::1]:2222")).toEqual({ user: "alice", host: "::1", port: 2222 });
+    for (const bad of ["ssh://alice@host", "alice@host/path", "alice@host:0", "alice@host:70000", "alice@::1"]) expect(parseQuickEndpoint(bad)).toBeUndefined();
+  });
+
+  test("ViaShell authenticates both hops and closes its dedicated shell", async () => {
+    const target = await startFakeSsh();
+    const direct = vi.fn(() => true);
+    const closed = vi.fn();
+    const jump = await startFakeSsh({ onInteractiveShell: relayToLoopback(target.port), denyDirectTcp: direct, onShellClose: closed });
+    const { mgr, prompts, add } = setup();
+    closers.push(jump.close, target.close);
+    const first = add(jump.port);
+    const last = add(target.port, { jumpHostIds: [first.id], viaShell: true });
+    const pending = mgr.connect(last.id);
+    for (const hop of [0, 1]) {
+      await expect.poll(() => prompts[hop]?.hop).toBe(hop);
+      expect(mgr.decide(prompts[hop]!.attemptId, hop, true)).toBe(true);
+    }
+    await pending;
+    expect(direct).not.toHaveBeenCalled();
+    expect(mgr.connectionStatuses()[0]?.route?.[1]?.viaShell).toBe(true);
+    await expect(mgr.exec(last.id, "echo relay-ok")).resolves.toMatchObject({ stdout: "relay-ok\n" });
+    mgr.disconnect(last.id);
+    await expect.poll(() => closed.mock.calls.length).toBe(1);
+    await expect.poll(() => target.closed()).toBe(1);
+  });
+
+  test.each(["cancelled", "timeout"] as const)("ViaShell cleans up a waiting shell when %s", async (reason) => {
+    const waiting = vi.fn();
+    const jump = await startFakeSsh({ onInteractiveShell: waiting });
+    const { mgr, prompts, add } = setup();
+    closers.push(jump.close);
+    const first = add(jump.port);
+    const last = add(2222, { jumpHostIds: [first.id], viaShell: true, connectTimeoutSec: 1 });
+    const pending = mgr.connect(last.id).catch((error: unknown) => error);
+    await expect.poll(() => prompts.length).toBe(1);
+    expect(mgr.decide(prompts[0]!.attemptId, 0, true)).toBe(true);
+    await expect.poll(() => waiting.mock.calls.length).toBe(1);
+    if (reason === "cancelled") mgr.disconnect(last.id);
+    expect(await pending).toMatchObject({ details: { stage: "forwarding", reason } });
+    await expect.poll(() => jump.closed()).toBe(1);
+  });
+
+  test.skipIf(process.platform !== "linux")("approved ProxyCommand uses the first hop, rejects a stale route and closes on revocation", async () => {
+    const jump = await startFakeSsh();
+    const target = await startFakeSsh();
+    const { root, hosts, mgr, add, commands, prompts } = setup("pw", false, true);
+    closers.push(jump.close, target.close);
+    const first = add(jump.port);
+    const last = add(target.port, { jumpHostIds: [first.id] });
+    const script = path.join(root, "proxy.cjs");
+    writeFileSync(script, `
+      const [host, port, user] = process.argv.slice(2);
+      if (host !== "127.0.0.1" || port !== "${jump.port}" || user !== "u") process.exit(1);
+      const peer = require("node:net").connect(Number(port), host);
+      peer.on("error", () => process.exit(1));
+      process.stdin.pipe(peer).pipe(process.stdout);
+      peer.once("close", () => process.exit(0));
+    `);
+    const approval = commands!.approve([first, last], null, { executable: process.execPath, arguments: [script, "%h", "%p", "%r"] });
+    const external = mgr.openExternalConnection([first, last], new AbortController().signal, () => undefined, () => undefined, () => undefined);
+    await expect(external.ready).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(jump.conns).toHaveLength(0);
+    const pending = mgr.connect(last.id);
+    for (const hop of [0, 1]) {
+      await expect.poll(() => prompts[hop]?.hop).toBe(hop);
+      expect(mgr.decide(prompts[hop]!.attemptId, hop, true)).toBe(true);
+    }
+    await pending;
+    expect(mgr.connectionStatuses()[0]?.route?.[0]?.outboundProxy).toEqual({ source: "command" });
+    await expect(mgr.exec(last.id, "echo proxy-ok")).resolves.toMatchObject({ stdout: "proxy-ok\n" });
+    const { id, name, host, port, user, jumpHostIds, tags } = first;
+    hosts.save({ id, name: name + " updated", host, port, user, jumpHostIds, tags });
+    mgr.disconnect(last.id);
+    await expect(mgr.connect(last.id)).rejects.toMatchObject({ message: expect.stringContaining("重新批准") });
+    await expect.poll(() => jump.closed()).toBe(1);
+    const current = hosts.list().find((candidate) => candidate.id === first.id)!;
+    const refreshed = commands!.approve([current, last], approval.revision, approval.command);
+    await mgr.connect(last.id);
+    commands!.revoke(last.id, refreshed.revision);
+    await expect.poll(() => mgr.isConnected(last.id)).toBe(false);
+    await expect.poll(() => [jump.closed(), target.closed()]).toEqual([2, 2]);
+    expect(commands!.read(last.id)).toBeUndefined();
+  });
+
   test("关闭最后一个工作区等待后旧指纹不能再授权，共享拨号保留给未关闭的工作区", async () => {
     const srv = await startFakeSsh();
     closers.push(srv.close);

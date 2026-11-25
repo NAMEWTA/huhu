@@ -10,6 +10,6 @@ export function connectionIdentity(chain: readonly { id: string; revision: strin
 
 export function workspaceTarget(route: readonly HostRecord[]): string {
   return createHash("sha256")
-    .update(JSON.stringify(route.map((host) => [host.id, host.host.toLowerCase(), host.port, host.user, directJumpIds(host)])))
+    .update(JSON.stringify(route.map((host) => [host.id, host.host.toLowerCase(), host.port, host.user, directJumpIds(host), ...(host.viaShell && directJumpIds(host).length ? ["via-shell"] : [])])))
     .digest("hex");
 }

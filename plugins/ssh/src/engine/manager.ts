@@ -1,5 +1,5 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { HuhuError, errors, newId, type EventPayload, type EventType } from "@huhu/contracts";
 import { Readable, type Duplex } from "node:stream";
@@ -9,7 +9,7 @@ import type { ConnectionHop, ConnectionStatus, HostKeyPrompt, KnownHostAuthority
 import * as sftp from "./sftp.js";
 import { KnownHosts, fingerprintSha256, type TrustBlock } from "./known-hosts.js";
 import { OPENSSH_ED25519_CERT } from "./host-certificate.js";
-import type { ConnectionAuth, HostRecord, ManagedHost } from "./host-configurations.js";
+import { agentAuth, type ConnectionAuth, type HostRecord, type ManagedHost } from "./host-configurations.js";
 import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { openIntegratedShell, type ShellDirectory } from "./shell-directory.js";
@@ -18,6 +18,9 @@ import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
 import { outboundProxyVersion, summarizeOutboundProxy, type EffectiveProxy } from "./outbound-proxies.js";
+import type { DeviceProxies } from "./device-proxies.js";
+import { dialShellRelay } from "./shell-relay.js";
+import type { QuickEndpoint } from "../shared/quick-connection.js";
 
 const hostTrustErrors: Partial<Record<TrustBlock, string>> = {
   revoked: "SSH 主机身份或签发 CA 已撤销",
@@ -58,6 +61,7 @@ export interface SshDeps {
     resolve(host: ManagedHost): EffectiveProxy;
     dial(profile: NonNullable<EffectiveProxy["profile"]>, target: { host: string; port: number }, signal: AbortSignal, assertCurrent: () => void): Promise<Duplex>;
   };
+  deviceProxy?: { commands: DeviceProxies; currentRoute(hostId: string): string };
   decisionTimeoutMs?: number;
 }
 
@@ -74,6 +78,7 @@ type Attempt = {
   hostId: string;
   signal: AbortSignal;
   requirePromptId: boolean;
+  quick?: { host: ManagedHost; auth: ConnectionAuth };
   report?: (status: ConnectionStatus) => void;
   expectedTarget?: string;
   routeTarget?: string;
@@ -134,6 +139,8 @@ interface ShellRec extends ShellInfo {
   closers: Set<() => void>;
 }
 const SHELL_BUFFER = 64 * 1024;
+const quickHostId = (id: string) => `host-quick-${id}`;
+const isQuickHost = (hostId: string) => hostId.startsWith("host-quick-");
 
 const describeHost = ({ id, name, host, port }: HostRecord) => ({ id, name, host, port });
 
@@ -150,6 +157,7 @@ export class SshManager {
   private fileOrigins = new WeakMap<Conn, z.infer<typeof FileOrigin>>();
   private shellConnections = new WeakMap<ShellRec, Conn>();
   private attempts = new Map<string, Attempt>();
+  private quick = new Map<string, { shellId?: string }>();
   private drafts = new Set<AbortController>();
   private forwardDials = new Map<string, ForwardDial>();
   private borrowedForwards = new WeakMap<Conn, Set<ForwardOwner>>();
@@ -165,6 +173,7 @@ export class SshManager {
 
   // ---- 审计（不含凭据）----
   private audit(e: Omit<AuditEntry, "at"> | Omit<ExternalAudit, "at">, directory = this.d.auditDir): void {
+    if (isQuickHost(e.hostId)) return;
     const at = this.d.now().toISOString();
     mkdirSync(directory, { recursive: true });
     appendFileSync(path.join(directory, `${at.slice(0, 7)}.ndjson`), JSON.stringify({ at, ...e }) + "\n");
@@ -221,7 +230,7 @@ export class SshManager {
   }
 
   connectionStatuses(): ConnectionStatus[] {
-    return [...this.statuses.values()];
+    return [...this.statuses.values()].filter(({ hostId }) => !isQuickHost(hostId));
   }
 
   knownHosts(): KnownHostKey[] {
@@ -345,7 +354,8 @@ export class SshManager {
   }
 
   private routeIdentity(chain: readonly ManagedHost[], outbound = this.d.outbound?.resolve(chain.at(-1)!)): string {
-    return connectionIdentity(chain, outbound && outboundProxyVersion(outbound));
+    const command = this.d.deviceProxy?.commands.read(chain.at(-1)!.id);
+    return connectionIdentity(chain, command ? `command:${command.revision}` : outbound && outboundProxyVersion(outbound));
   }
 
   private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult>; direct: boolean; workspaces: number }>();
@@ -363,19 +373,80 @@ export class SshManager {
     return { attemptId: attempt.id };
   }
 
-  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string) {
+  startQuick(id: string, endpoint: QuickEndpoint, password?: string): { hostId: string } {
+    const hostId = quickHostId(id);
+    if (this.quick.has(hostId)) return { hostId };
+    if (this.connecting.has(hostId)) throw errors.versionConflict("上一次临时连接正在关闭");
+    const host: ManagedHost = {
+      ...endpoint,
+      id: hostId,
+      name: `${endpoint.user}@${endpoint.host}`,
+      revision: randomUUID(),
+      configId: randomUUID(),
+      jumpHostIds: [],
+      tags: [],
+      auth: { kind: password ? "password" : "agent", source: "ssh" },
+      authState: {},
+      configured: true,
+    };
+    const session: { shellId?: string } = {};
+    this.quick.set(hostId, session);
+    const { promise, attempt } = this.begin(hostId, AbortSignal.timeout(5 * 60_000), true, undefined, { host, auth: password ? { password } : agentAuth() });
+    void promise.then(async ({ connection }) => {
+      if (this.quick.get(hostId) !== session) return;
+      const shell = await this.openShell(hostId, undefined, connection, () => queueMicrotask(() => {
+        if (this.quick.get(hostId) === session) this.closeQuick(id);
+      }));
+      if (this.quick.get(hostId) !== session) {
+        this.closeShell(shell.id);
+        this.shells.delete(shell.id);
+        return;
+      }
+      session.shellId = shell.id;
+      this.update({ hostId, attemptId: attempt.id, state: "connected", route: connection.route });
+    }).catch((error: unknown) => {
+      if (this.quick.get(hostId) !== session || this.statuses.get(hostId)?.state !== "connected") return;
+      this.drop(hostId);
+      this.update({ hostId, attemptId: attempt.id, state: "failed", message: error instanceof HuhuError ? error.message : "无法打开临时终端" });
+    });
+    return { hostId };
+  }
+
+  quickStatus(id: string) {
+    const hostId = quickHostId(id);
+    const session = this.quick.get(hostId);
+    const status = this.statuses.get(hostId);
+    return session && status ? { status, ...(session.shellId && { shellId: session.shellId }) } : null;
+  }
+
+  isQuickAttempt(attemptId: string): boolean {
+    return Boolean(this.attempts.get(attemptId)?.quick);
+  }
+
+  closeQuick(id: string): boolean {
+    const hostId = quickHostId(id);
+    const session = this.quick.get(hostId);
+    if (!session) return false;
+    this.quick.delete(hostId);
+    this.forgetConnection(hostId);
+    if (session.shellId) this.shells.delete(session.shellId);
+    return true;
+  }
+
+  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"]) {
     const running = this.connecting.get(hostId);
     if (running) {
       if (!expectedTarget) running.direct = true;
       return running;
     }
     const abort = new AbortController();
-    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }) };
+    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }) };
     const promise = Promise.resolve()
       .then(() => this.doConnect(attempt))
       .finally(() => {
         this.connecting.delete(hostId);
         this.attempts.delete(attempt.id);
+        delete attempt.quick;
       });
     const created = { attempt, abort, promise, direct: !expectedTarget, workspaces: 0 };
     this.connecting.set(hostId, created);
@@ -394,7 +465,7 @@ export class SshManager {
     };
     signal.addEventListener("abort", closeOpened, { once: true });
     try {
-      const hosts = await this.d.hosts.list();
+      const hosts = attempt.quick ? [attempt.quick.host] : await this.d.hosts.list();
       if (!hosts.some((host) => host.id === hostId)) {
         if (current()) this.statuses.delete(hostId);
         throw errors.notFound("SSH 主机不存在");
@@ -449,8 +520,15 @@ export class SshManager {
     const defaults = this.d.connectionPreferences?.() ?? defaultVaultPreferences.connection;
     const outbound = attempt.outbound ?? this.d.outbound?.resolve(target);
     const outboundVersion = outbound && outboundProxyVersion(outbound);
+    const device = this.d.deviceProxy;
+    const command = device?.commands.read(target.id);
     const validate = () => {
       (attempt.publicProbe?.validate ?? attempt.draft?.validate)?.();
+      if (device?.commands.read(target.id)?.revision !== command?.revision) throw errors.versionConflict("本机 SSH ProxyCommand 批准已变更");
+      if (command) {
+        if (command.route !== device?.currentRoute(target.id)) throw errors.invalidInput("SSH 路由已变更，请重新批准本机 ProxyCommand");
+        return;
+      }
       const current = this.d.outbound?.resolve(target);
       if ((current && outboundProxyVersion(current)) !== outboundVersion) throw errors.versionConflict("SSH 出站代理已更新");
     };
@@ -458,13 +536,14 @@ export class SshManager {
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
-      validate();
       onHop?.(hop, host);
       if (attempt.route) {
-        const proxy = hop === 0 && outbound ? summarizeOutboundProxy(outbound) : undefined;
-        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }) });
+        const proxy = hop === 0 ? (command ? { source: "command" as const } : outbound && summarizeOutboundProxy(outbound)) : undefined;
+        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }), ...(hop > 0 && host.viaShell && { viaShell: true as const }) });
         this.trace(attempt, hop, "dialing");
       }
+      if (command && attempt.publicProbe) throw errors.permissionDenied("本机 SSH ProxyCommand");
+      validate();
       const client = new Client();
       opened.push(client);
       const authenticate = async (auth: ConnectionAuth) => {
@@ -474,10 +553,17 @@ export class SshManager {
           keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
           keepaliveCountMax: host.keepaliveCountMax ?? defaults.keepaliveCountMax,
         };
-        if (hop !== 0 || !outbound?.profile || !this.d.outbound) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
+        const proxy = this.d.outbound;
+        const profile = outbound?.profile;
+        const dial = device && command
+          ? (signal: AbortSignal) => device.commands.dial(command, chain, signal, validate)
+          : proxy && profile
+            ? (signal: AbortSignal) => proxy.dial(profile, host, signal, validate)
+            : undefined;
+        if (hop !== 0 || !dial) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
         this.trace(attempt, hop, "proxy");
         const deadline = AbortSignal.any([attempt.signal, AbortSignal.timeout(preferences.connectTimeoutSec * 1000)]);
-        const stream = await this.d.outbound.dial(outbound.profile, host, deadline, validate);
+        const stream = await dial(deadline);
         try {
           deadline.throwIfAborted();
           validate();
@@ -488,16 +574,22 @@ export class SshManager {
           throw error;
         }
       };
-      if (attempt.draft && host === target) await attempt.draft.authenticate(authenticate);
+      if (attempt.quick) await authenticate(attempt.quick.auth);
+      else if (attempt.draft && host === target) await attempt.draft.authenticate(authenticate);
       else await this.d.withManagedAuth(host, authenticate);
       client.setNoDelay(true);
       const next = chain[hop + 1];
       if (next) {
         validate();
         this.trace(attempt, hop, "forwarding");
-        socket = await new Promise((resolve, reject) =>
-          client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
-        );
+        if (next.viaShell) {
+          const timeout = (next.connectTimeoutSec ?? defaults.connectTimeoutSec) * 1000;
+          socket = await dialShellRelay(client, next, AbortSignal.any([attempt.signal, AbortSignal.timeout(timeout)]));
+        } else {
+          socket = await new Promise((resolve, reject) =>
+            client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
+          );
+        }
       }
       this.trace(attempt, hop, "connected");
     }
@@ -570,7 +662,7 @@ export class SshManager {
     };
   }
 
-  proxyShareTransport(hostId: string, connectionId: string): Client {
+  boundTransport(hostId: string, connectionId: string): Client {
     const connection = this.conns.get(hostId);
     if (!connection || this.fileOrigins.get(connection)?.connectionId !== connectionId) throw new HuhuError("SSH_DISCONNECTED", "请选择仍然在线的原 SSH 连接");
     return connection.target;
@@ -996,7 +1088,7 @@ export class SshManager {
       channel.close();
       throw new HuhuError("SSH_DISCONNECTED", "该主机的原连接已结束");
     }
-    const id = `ssh-${newId("cap").replace("cap-", "")}`;
+    const id = `${isQuickHost(hostId) ? "ssh-local-quick-" : "ssh-"}${newId("cap").replace("cap-", "")}`;
     const rec: ShellRec = { id, hostId, name: `Shell ${this.listShells(hostId).length + 1}`, state: "running", createdAt: this.d.now().toISOString(), channel, buffer: [], bufferSize: 0, viewers: new Set(), closers: new Set() };
     this.shells.set(id, rec);
     if (integrated) rec.directory = integrated.directory;
@@ -1025,7 +1117,7 @@ export class SshManager {
     return shell && this.info(shell);
   }
   listShells(hostId?: string): ShellInfo[] {
-    return [...this.shells.values()].filter((s) => !hostId || s.hostId === hostId).map((s) => this.info(s));
+    return [...this.shells.values()].filter((s) => !isQuickHost(s.hostId) && (!hostId || s.hostId === hostId)).map((s) => this.info(s));
   }
   closeShell(id: string): boolean {
     const s = this.shells.get(id);
@@ -1091,6 +1183,11 @@ export class SshManager {
     for (const { abort } of this.connecting.values()) abort.abort();
     for (const { abort } of this.forwardDials.values()) abort.abort();
     for (const id of Array.from(this.conns.keys())) this.drop(id);
+    for (const [hostId, session] of this.quick) {
+      this.statuses.delete(hostId);
+      if (session.shellId) this.shells.delete(session.shellId);
+    }
+    this.quick.clear();
   }
 
   /** Exec：超时/取消时发送 INT 并关闭 channel；返回输出末 2000 行。 */

@@ -1,9 +1,9 @@
-import { Button, type TerminalInput } from "@huhu/ui";
+import { Button, Dialog, type TerminalInput } from "@huhu/ui";
 import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
-import { useState } from "react";
-import { splitTree, type ChangeWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import { useId, useState } from "react";
+import { MAX_WORKSPACE_PANES, splitTree, type ChangeWorkbenchWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
-import { WorkspaceCanvas } from "./WorkspaceCanvas.js";
+import { WorkspaceCanvas, type WorkspaceTabAction } from "./WorkspaceCanvas.js";
 import { WorkspacePaneTools } from "./WorkspacePaneTools.js";
 import { AttachedFiles } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
@@ -29,12 +29,14 @@ export function WorkspaceRunView({
   run,
   shown,
   connections,
+  hosts,
   onTrust,
   onOpenFiles,
 }: {
   run: WorkspaceRun;
   shown: boolean;
   connections: readonly ConnectionStatus[];
+  hosts: readonly { hostId: string; name: string }[];
   onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>;
   onOpenFiles: (session: FileSession) => void;
 }) {
@@ -47,6 +49,9 @@ export function WorkspaceRunView({
   const [active, setActive] = useState(run.panes[0]?.paneId);
   const [maximized, setMaximized] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [splitHost, setSplitHost] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; label: string }>();
+  const renameForm = useId();
   const [layoutError, setLayoutError] = useState("");
   const [deviceNotice, setDeviceNotice] = useState("");
   const [locked, setLocked] = useState<Record<string, boolean>>({});
@@ -57,6 +62,8 @@ export function WorkspaceRunView({
   const [dock, setDock] = useState<"left" | "right">("right");
   const activePane = run.panes.find(({ paneId }) => paneId === active) ?? run.panes[0];
   const activeIndex = run.panes.indexOf(activePane!);
+  const remainingHosts = hosts.filter(({ hostId }) => hostId.startsWith("host-owned-") && !run.panes.some((pane) => pane.hostId === hostId));
+  const canSplit = !saving && activePane?.phase !== "reconnect" && remainingHosts.some(({ hostId }) => hostId === splitHost);
   const query = queryKey(engine.vaultId, "ssh.workspace.runs.list", {});
   function setDeviceLayout(patch: Partial<DevicePreferences>, message = "已保存本机布局。") {
     try {
@@ -68,12 +75,12 @@ export function WorkspaceRunView({
       return false;
     }
   }
-  async function apply(change: ChangeWorkspaceRun["change"]) {
+  async function apply(change: ChangeWorkbenchWorkspaceRun["change"], revision = run.layoutRevision ?? run.id) {
     if (saving) return;
     setSaving(true);
     setLayoutError("");
     try {
-      const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: run.layoutRevision ?? run.id, change }, { write: true });
+      const next = await engine.call<WorkspaceRun>("ssh.workspace.runs.changeLayout", { id: run.id, expectedLayoutRevision: revision, change }, { write: true });
       qc.setQueryData<WorkspaceRun[]>(query, (value) => value?.map((item) => (item.id === next.id ? next : item)));
     } catch (error) {
       setLayoutError(error instanceof Error ? error.message : "无法保存分栏布局。");
@@ -92,6 +99,31 @@ export function WorkspaceRunView({
     if (first < 0 || second < 0 || first === second) return;
     [ids[first], ids[second]] = [ids[second]!, ids[first]!];
     relayout(run.layout, ids);
+  }
+  function split(axis: "row" | "column") {
+    if (!activePane || !canSplit) return;
+    setMaximized(false);
+    void apply({ action: "split", hostId: splitHost, paneId: activePane.paneId, axis });
+  }
+  function tabActions(pane: WorkspaceRunPane, order: readonly string[]): WorkspaceTabAction[] {
+    const { paneId, label } = pane;
+    const index = order.indexOf(paneId);
+    const next = order[index + 1];
+    const previous = order[index - 1];
+    const others = order.filter((id) => id !== paneId);
+    const closeOthers = (ids: string[]) => {
+      setActive(paneId);
+      void apply({ action: "closeMany", paneIds: ids });
+    };
+    return [
+      { label: "重命名标签", disabled: saving, run: () => setRenaming({ id: paneId, label }) },
+      { label: locked[paneId] ? "解除输入锁定" : "锁定输入", disabled: pane.phase !== "ready", run: () => setLocked((current) => ({ ...current, [paneId]: !current[paneId] })) },
+      { label: "与前一标签交换", disabled: saving || !previous, run: () => { if (previous) swap(paneId, previous); } },
+      { label: "与后一标签交换", disabled: saving || !next, run: () => { if (next) swap(paneId, next); } },
+      { label: "关闭其他标签", disabled: saving || !others.length, run: () => closeOthers(others) },
+      { label: tabs === "left" ? "关闭下方标签" : "关闭右侧标签", disabled: saving || !next, run: () => closeOthers(order.slice(index + 1)) },
+      { label: "关闭当前标签", disabled: saving || !others.length, run: () => void apply({ action: "close", paneId }) },
+    ];
   }
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
   const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
@@ -160,6 +192,19 @@ export function WorkspaceRunView({
           </>
         )}
       </div>
+      {activePane && run.panes.length < MAX_WORKSPACE_PANES && remainingHosts.length > 0 && (
+        <div className="ssh-workspace-controls">
+          <label className="row">
+            新分栏主机
+            <select value={remainingHosts.some(({ hostId }) => hostId === splitHost) ? splitHost : ""} disabled={saving || activePane.phase === "reconnect"} onChange={(event) => setSplitHost(event.currentTarget.value)}>
+              <option value="">请选择主机</option>
+              {remainingHosts.map(({ hostId, name }) => <option key={hostId} value={hostId}>{name}</option>)}
+            </select>
+          </label>
+          <Button type="button" disabled={!canSplit} onClick={() => split("row")}>左右分割活动分栏</Button>
+          <Button type="button" disabled={!canSplit} onClick={() => split("column")}>上下分割活动分栏</Button>
+        </div>
+      )}
       {layoutError && <p role="alert">{layoutError}</p>}
       <details className="hu-card-alt hu-stack">
         <summary>本机布局偏好</summary>
@@ -215,8 +260,12 @@ export function WorkspaceRunView({
             tabs={tabs}
             groupVerticalTabs={groupVerticalTabs}
             connections={connections}
+            layoutRevision={run.layoutRevision ?? run.id}
+            resizingDisabled={saving}
             onActive={setActive}
             onSwap={swap}
+            onResize={(tree, revision) => apply({ action: "layout", layout: { kind: "custom", tree }, paneIds: run.panes.map(({ paneId }) => paneId) }, revision)}
+            tabActions={tabActions}
             render={(pane, visible) => {
               const prompt = pane.prompt;
               const decidingKey = prompt ? `${prompt.attemptId}:${prompt.hop}` : "";
@@ -320,6 +369,23 @@ export function WorkspaceRunView({
         ) : (
           <p role="status">{activePane.label}的连接尚未就绪</p>
         ))}
+      {renaming && shown && (
+        <Dialog
+          open
+          title="重命名标签"
+          onClose={() => setRenaming(undefined)}
+          actions={<Button type="submit" form={renameForm} disabled={!renaming.label.trim() || saving}>保存名称</Button>}
+        >
+          <form id={renameForm} method="post" onSubmit={(event) => {
+            event.preventDefault();
+            if (!renaming.label.trim() || saving) return;
+            setRenaming(undefined);
+            void apply({ action: "rename", paneId: renaming.id, label: renaming.label });
+          }}>
+            <label className="hu-field">标签名称<input name="label" value={renaming.label} maxLength={100} required onChange={(event) => setRenaming({ ...renaming, label: event.currentTarget.value })} /></label>
+          </form>
+        </Dialog>
+      )}
     </section>
   );
 }

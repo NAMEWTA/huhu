@@ -1,4 +1,5 @@
 import { APPEARANCE_CHANGED, appearanceController, TerminalView, type TerminalViewProps } from "@huhu/ui";
+import { host } from "@huhu/workbench";
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { terminalLineHeights, useDevicePreferences } from "./device-preferences.js";
 
@@ -10,11 +11,17 @@ const monospace = {
 
 export const canScaleTerminal = () => typeof CSS !== "undefined" && CSS.supports("zoom", "1");
 
+function openTerminalLink(url: string) {
+  const desktop = host()?.openExternal;
+  if (desktop) void desktop(url).catch(() => undefined);
+  else window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export function SshTerminal(props: TerminalViewProps) {
-  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback } = useDevicePreferences();
+  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator, terminalLinkActivation } = useDevicePreferences();
   const displayOptions = useMemo(
-    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback }),
-    [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback],
+    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback, wordSeparator: terminalWordSeparator }),
+    [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator],
   );
   const scale = canScaleTerminal() ? fontSize / 13 : 1;
   const previous = useRef(font);
@@ -27,7 +34,7 @@ export function SshTerminal(props: TerminalViewProps) {
   return (
     <div className="ssh-terminal-preferences" data-testid="ssh-terminal-preferences">
       <div className="ssh-terminal-scale" style={style} data-font={font}>
-        <TerminalView {...props} displayOptions={displayOptions} />
+        <TerminalView {...props} displayOptions={displayOptions} scrollbackSearch onOpenLink={openTerminalLink} linkActivation={terminalLinkActivation} />
       </div>
     </div>
   );

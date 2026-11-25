@@ -29,6 +29,7 @@ const tools = [
   "ssh.fileSessions.open",
   "ssh.sftp.upload",
   "ssh.sftp.download",
+  "ssh.routes.edit",
 ];
 
 function data<T>(result: CapabilityResult<unknown>): T {
@@ -37,7 +38,7 @@ function data<T>(result: CapabilityResult<unknown>): T {
 }
 
 for (const entry of ["CLI", "HTTP MCP"]) {
-  test(`${entry} updates SSH authentication, approves trust, reads job output and transfers bytes`, async () => {
+  test(`${entry} manages SSH authentication, transfers and versioned route edits`, async () => {
     test.setTimeout(90_000);
     const password = randomUUID();
     let commands = 0;
@@ -49,6 +50,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
         return { stdout: "结果\n" };
       },
     });
+    const jump = await startFakeSsh({ password });
     const app = await openApp();
     const { page, vault } = app;
     try {
@@ -143,13 +145,33 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       expect(await invoke("ssh.jobs.output.read", output)).toMatchObject({ ok: true, data: { text: "结果\n", nextCursor: 7 } });
       expect(await invoke("ssh.disconnect", { ...binding, attemptId })).toMatchObject({ ok: true });
       await expect.poll(async () => data<Probe>(await invoke("ssh.resources.connection.get", { hostId, attemptId })).state).toBe("disconnected");
+      const { hostId: jumpId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+        ...target, name: "入口一致性跳板", port: jump.port, expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: password }],
+      });
+      const jumpBinding = await desktopCall<ResourceHost>(page, "ssh.resources.host.get", { hostId: jumpId });
+      const routeEdit = {
+        targets: [{ hostId, expectedRevision: route.revision }],
+        change: { action: "associate", jumpHostId: jumpId, ifExists: "replace" },
+        bindings: [binding, { hostId: jumpId, routeRevision: jumpBinding.routeRevision }],
+        intentKey: randomUUID(),
+      };
+      expect(await invoke("ssh.routes.edit", routeEdit)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+      await policy([hostId, jumpId], true);
+      const edited = await invoke("ssh.routes.edit", routeEdit);
+      expect(edited).toMatchObject({ ok: true, data: { updated: [hostId], skipped: [] } });
+      expect(await invoke("ssh.routes.edit", routeEdit)).toEqual(edited);
+      const updated = data<ResourceHost>(await invoke("ssh.resources.host.get", { hostId }));
+      expect(updated.route.map((hop) => hop.hostId)).toEqual([jumpId, hostId]);
+      expect(updated.routeRevision).not.toBe(route.routeRevision);
+      expect(await invoke("ssh.routes.edit", { ...routeEdit, intentKey: randomUUID() })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
       await policy([], true);
       expect(await invoke("ssh.jobs.output.read", output)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       await policy([], false);
       expect(await invoke("ssh.sftp.download", download)).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
     } finally {
       await app.close();
-      await server.close();
+      await Promise.all([server.close(), jump.close()]);
     }
   });
 }

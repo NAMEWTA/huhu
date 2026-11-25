@@ -82,6 +82,10 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await settings.getByLabel("终端光标闪烁").uncheck();
     const scrollback = settings.getByLabel("终端回滚行数");
     await scrollback.selectOption("10000");
+    const separator = settings.getByLabel("终端选词分隔符");
+    const links = settings.getByLabel("允许在终端打开链接");
+    await separator.fill(" _");
+    await links.uncheck();
     const [localShell] = await desktopCall<{ id: string }[]>(page, "ssh.local.environments");
     expect(localShell).toBeDefined();
     await search.fill("本地 shell");
@@ -93,10 +97,14 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(font).toHaveValue("13");
     await expect(cursor).toHaveValue("block");
     await expect(scrollback).toHaveValue("5000");
+    await expect(separator).toHaveValue(" ()[]{}',\"`");
+    await expect(links).toBeChecked();
     await settings.getByRole("button", { name: "取消修改" }).click();
     await expect(font).toHaveValue("18");
     await expect(cursor).toHaveValue("underline");
     await expect(scrollback).toHaveValue("10000");
+    await expect(separator).toHaveValue(" _");
+    await expect(links).not.toBeChecked();
     await desktopCall(page, "ssh.workspace.runs.start", { name: "设备布局验收", layout: { kind: "tabs" }, panes: [{ hostId }] });
     await ssh.click();
     await page.getByRole("button", { name: "工作区", exact: true }).click();

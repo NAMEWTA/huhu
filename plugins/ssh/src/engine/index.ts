@@ -7,6 +7,7 @@ import type { WorkspaceTemplate } from "../shared/workspace.js";
 import { SaveForward } from "../shared/forwarding.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { registerSshAuthentication } from "./authentication-capability.js";
+import { registerQuickConnections } from "./quick-connection-capabilities.js";
 import { registerSshConfigSync } from "./config-sync.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
@@ -21,6 +22,8 @@ import { keyLibraryPackageFile } from "./key-library.js";
 import { registerSshLocalShells, type LaunchLocalPty } from "./local-shell.js";
 import { OutboundProxies, effectiveOutboundProxy, outboundProxyPackageFiles } from "./outbound-proxies.js";
 import { registerOutboundProxies } from "./outbound-proxy-capabilities.js";
+import { registerDeviceProxies } from "./device-proxy-capabilities.js";
+import { DeviceProxies } from "./device-proxies.js";
 import { dialOutboundProxy } from "./outbound-proxy-dial.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
@@ -36,7 +39,9 @@ import { MonitorPlans, monitorForPlan } from "./monitor-plans.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, readResourceRoute, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { connectionIdentity } from "./workspace-target.js";
+import { HostRouteEditResult, type EditHostRoutes } from "./route-edits.js";
 import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
@@ -49,6 +54,7 @@ import { registerSshProxyShare } from "./proxy-share.js";
 import { registerShortcuts } from "./shortcuts.js";
 import { registerSshTerminalBridge } from "./terminal-bridge.js";
 import { registerSshRecordings } from "./terminal-recordings.js";
+import { registerScp } from "./scp-capabilities.js";
 import { registerSshWorkspacePanes } from "./workspace-pane-capability.js";
 import * as sftp from "./sftp.js";
 
@@ -77,6 +83,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const monitorPanels = new MonitorPanels(api.vault.files, hosts);
   const preferences = new SshPreferences(api.vault.files);
   const outboundProxies = new OutboundProxies(api.vault.files, credentialHost);
+  const deviceProxies = credentialHost && new DeviceProxies(credentialHost);
   const assertHostUnused = (id: string) => {
     templates.assertUnused(id);
     forwardRules.assertUnused(id);
@@ -91,6 +98,12 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
     connectionPreferences: () => preferences.runtime().connection,
+    ...(deviceProxies && {
+      deviceProxy: {
+        commands: deviceProxies,
+        currentRoute: (hostId: string) => connectionIdentity(readResourceRoute(api.vault.files, hostId).chain),
+      },
+    }),
     outbound: {
       resolve: (host) => effectiveOutboundProxy(api.vault.files, host),
       dial: (proxy, target, signal, assertCurrent) => outboundProxies.dial(proxy, target, signal, dialOutboundProxy, assertCurrent),
@@ -129,6 +142,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   });
   const publicTransfers = new PublicTransfers(publicFiles, manager, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }));
   const files = new FileSessions(manager);
+  registerScp(api, files, manager);
   const archives = new Archives(files, manager);
   const publicArchives = new PublicArchives(publicFiles);
   const transfers = new Transfers(
@@ -150,11 +164,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   } satisfies PeriodicPlanSource);
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
-  registerOutboundProxies(api, outboundProxies, hosts);
+  registerOutboundProxies(api, outboundProxies, hosts, deviceProxies);
+  registerDeviceProxies(api, deviceProxies);
   registerHostAuthorities(api, hosts, manager);
   registerShortcuts(api);
   registerSshDraft(api, hosts, manager);
   registerSshAuthentication(api, manager);
+  registerQuickConnections(api, manager);
   registerSshConfigSync(api, hosts);
   const proxyShare = registerSshProxyShare(api, manager);
   registerSshWorkspacePanes(api, runs, publicWorkspaces);
@@ -193,6 +209,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     runs.dispose();
     recordings?.dispose();
     proxyShare.dispose();
+    deviceProxies?.dispose();
     manager.disposeAll();
   });
   if (localShells) ctx.effect(() => () => localShells.dispose());
@@ -568,11 +585,42 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     }),
   );
   api.defineCapability(
-    bindCapability(sshCapabilityDescriptors.routesEdit, async ({ caller, signal }, input) => {
-      if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshCapabilityDescriptors.routesEdit.name);
-      const result = await hosts.editRoutes(input, signal);
-      for (const id of result.updated) api.events.publish("entity.changed", { kind: "ssh-host", id, op: "updated" });
-      return result;
+    bindCapability(sshCapabilityDescriptors.routesEdit, (context, input) => {
+      const { caller, signal } = context;
+      const apply = async (edit: EditHostRoutes, assertCurrent?: () => void) => {
+        const result = await hosts.editRoutes(edit, signal, assertCurrent);
+        for (const id of result.updated) api.events.publish("entity.changed", { kind: "ssh-host", id, op: "updated" });
+        return result;
+      };
+      if (isWorkbenchCaller(caller)) return apply({ targets: input.targets, change: input.change });
+      if (!hostIntents || !("intentKey" in input)) throw errors.invalidInput("外部 SSH 路由编辑需要原路由绑定与意图键");
+      const { targets, change, bindings, intentKey } = input;
+      const ids = targets.map(({ hostId }) => hostId);
+      const authorize = () => {
+        const routes = boundSshRoutes(api.vault.files, context, bindings);
+        const required = new Set(ids);
+        if (change.action === "associate") required.add(change.jumpHostId);
+        for (const { hostId, expectedRevision } of targets) {
+          const current = routes.get(hostId);
+          if (!current) throw errors.invalidInput("每个目标都需要原路由绑定");
+          if (current.revision !== expectedRevision) throw errors.versionConflict(current.revision);
+        }
+        if (change.action === "setEnabled" && change.enabled) {
+          for (const { jumpHostIds } of readPortableHosts(api.vault.files, required)) {
+            if (jumpHostIds[0]) required.add(jumpHostIds[0]);
+          }
+        }
+        if (routes.size !== required.size || [...required].some((id) => !routes.has(id))) throw errors.invalidInput("提供每个目标及将启用的直接跳板的路由绑定");
+        return [...routes.values()].flatMap(({ route }) => route.map(({ hostId }) => hostId));
+      };
+      return hostIntents.run(context, sshCapabilityDescriptors.routesEdit.name, {
+        hosts: ids,
+        intentKey,
+        input: { targets, change, bindings },
+        output: HostRouteEditResult,
+        authorize,
+        run: (assertCurrent) => apply({ targets, change }, assertCurrent),
+      });
     }),
   );
   api.defineCapability(
@@ -583,6 +631,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
         return saved;
       };
+      if (input.viaShell !== undefined && context.caller !== "desktop") throw errors.permissionDenied("SSH ViaShell 设置");
       if (context.caller === "web") {
         if (input.outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
         if (input.credentials.some(({ purpose, action }) => purpose === "identityFile" && action === "replace")) throw errors.permissionDenied("SSH 本机身份文件");
@@ -706,6 +755,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         return publicProbes.decide(context, input.data);
       }
       if (request.accept && remember !== false) api.vault.files.assertWritable();
+      if (context.caller !== "desktop" && manager.isQuickAttempt(request.attemptId)) throw errors.permissionDenied("临时 SSH 连接");
       return { applied: manager.decide(request.attemptId, request.hop, request.accept, request.promptId, remember) };
     }),
   );

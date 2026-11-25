@@ -24,6 +24,8 @@ const fields = {
   terminalCursor: "终端光标样式",
   terminalCursorBlink: "终端光标闪烁",
   terminalScrollback: "终端回滚行数",
+  terminalWordSeparator: "终端选词分隔符",
+  terminalLinkActivation: "允许在终端打开链接",
   localShellEnvironment: "默认本地 Shell",
   showDotFiles: "显示以点开头的文件",
   fileSort: "文件排序方式",
@@ -34,7 +36,7 @@ const fields = {
 } satisfies Partial<Record<keyof DevicePreferences, string>>;
 const keys = {
   layout: ["tabs", "paneTools", "groupVerticalTabs", "paneToolOrder", "paneToolSize", "restoreWorkspace"],
-  terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "localShellEnvironment"],
+  terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation", "localShellEnvironment"],
   files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数" };
@@ -173,6 +175,18 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
               <option value={lines} key={lines}>{lines}</option>
             ))}
           </select>
+        </label>
+      )}
+      {shown("terminalWordSeparator") && (
+        <label className="hu-setting-row">
+          {fields.terminalWordSeparator}
+          <input type="text" value={draft.terminalWordSeparator} maxLength={100} onChange={(event) => set("terminalWordSeparator", event.currentTarget.value)} />
+        </label>
+      )}
+      {shown("terminalLinkActivation") && (
+        <label className="hu-setting-row">
+          {fields.terminalLinkActivation}
+          <input type="checkbox" checked={draft.terminalLinkActivation} onChange={(event) => set("terminalLinkActivation", event.currentTarget.checked)} />
         </label>
       )}
       {shown("localShellEnvironment") && (desktop ? (

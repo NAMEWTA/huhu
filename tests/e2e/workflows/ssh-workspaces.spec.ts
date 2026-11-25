@@ -47,6 +47,196 @@ async function configureLoopback(page: Page, name: string, port: number, passwor
   return result.data;
 }
 
+test("A06 dragging and keyboard resizing a running workspace retain the original shells", async () => {
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "左侧回环", first.port, password);
+    const b = await configureLoopback(page, "右侧回环", second.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "分隔线回环",
+      layout: { kind: "custom", tree: { kind: "split", axis: "row", firstPercent: 50, first: { kind: "pane" }, second: { kind: "pane" } } },
+      panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /分隔线回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    for (const label of ["左侧回环", "右侧回环"]) {
+      await run.getByRole("article", { name: label }).getByRole("button", { name: "信任并连接" }).click();
+    }
+    const panes = run.getByTestId("ssh-workspace-run-pane");
+    await expect(run.locator('[data-phase="ready"]')).toHaveCount(2);
+    const sessions = await panes.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-session-id")));
+    const thumb = run.getByRole("separator", { name: "调整 左侧回环 的分隔线" });
+    await thumb.scrollIntoViewIfNeeded();
+    const rect = (await thumb.boundingBox())!;
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + Math.min(rect.height / 2, 45);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 60, y, { steps: 7 });
+    await expect(thumb).not.toHaveAttribute("aria-valuenow", "50");
+    await page.mouse.up();
+    await expect.poll(async () => {
+      const rows = (await sshCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).data;
+      const layout = rows.find(({ id }) => id === started.data.id)?.layout;
+      return layout?.kind === "custom" && layout.tree.kind === "split" && layout.tree.firstPercent;
+    }).toBeGreaterThan(50);
+    await expect(thumb).toHaveAttribute("aria-disabled", "false");
+    await thumb.press("Home");
+    await expect(thumb).toHaveAttribute("aria-valuenow", "10");
+    expect(await panes.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-session-id")))).toEqual(sessions);
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("A05 adding a split opens only the new host and keeps the original pane session", async () => {
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "现有分栏", first.port, password);
+    const b = await configureLoopback(page, "新增分栏", second.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "动态分割回环", layout: { kind: "one" }, panes: [{ hostId: a.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /动态分割回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const original = run.getByRole("article", { name: "现有分栏" });
+    await original.getByRole("button", { name: "信任并连接" }).click();
+    await expect(original).toHaveAttribute("data-phase", "ready");
+    const shell = await original.getAttribute("data-session-id");
+    await run.getByLabel("新分栏主机").selectOption(b.hostId);
+    await run.getByRole("button", { name: "上下分割活动分栏" }).click();
+    const added = run.getByRole("article", { name: "新增分栏" });
+    await added.getByRole("button", { name: "信任并连接" }).click();
+    await expect(added).toHaveAttribute("data-phase", "ready");
+    await expect(original).toHaveAttribute("data-session-id", shell!);
+    await expect(run.getByRole("separator")).toHaveAttribute("aria-orientation", "horizontal");
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
+test("A06 live SSH scrollback search and terminal links use the same shell", async () => {
+  const password = randomUUID();
+  const plain = "https://example.invalid/plain";
+  const osc = "https://example.invalid/osc8";
+  const server = await startFakeSsh({ password, onInteractiveShell: (channel) => {
+    channel.write("原终端回滚目标\r\n");
+    for (let i = 0; i < 90; i++) channel.write(`fixture row ${i}\r\n`);
+    channel.write(`${plain}\r\n\u001b]8;;${osc}\u0007OSC eight target\u001b]8;;\u0007\r\n`);
+  } });
+  const fixture = await openApp();
+  try {
+    const { app, page } = fixture;
+    await app.evaluate(({ dialog, shell }) => {
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+      shell.openExternal = async (url) => {
+        ((globalThis as { sshLinksOpened?: string[] }).sshLinksOpened ??= []).push(url);
+      };
+    });
+    await openWorkspace(page);
+    const host = await configureLoopback(page, "回滚与链接", server.port, password);
+    expect((await sshCall(page, "ssh.workspace.runs.start", { name: "回滚查找回环", layout: { kind: "one" }, panes: [{ hostId: host.hostId }] })).ok).toBe(true);
+    await page.getByRole("button", { name: /回滚查找回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    const terminal = run.getByTestId("terminal-view");
+    await expect(terminal.locator(".xterm-rows")).toContainText("OSC eight target");
+    const pane = run.getByTestId("ssh-workspace-run-pane");
+    const session = await pane.getAttribute("data-session-id");
+    const find = async (value: string) => {
+      await terminal.getByRole("button", { name: "查找终端回滚" }).click();
+      const input = terminal.getByRole("searchbox", { name: "查找终端回滚" });
+      await expect(input).toBeFocused();
+      await input.fill(value);
+      await input.press("Enter");
+      await expect(terminal.getByRole("status")).toHaveText("已定位匹配内容");
+      await expect(terminal.locator(".xterm-rows")).toContainText(value);
+      await input.press("Escape");
+    };
+    await find("原终端回滚目标");
+    await find(plain);
+    for (const [label, href] of [[plain, plain], ["OSC eight target", osc]]) {
+      const row = terminal.locator(".xterm-rows > div").filter({ hasText: label! });
+      await row.scrollIntoViewIfNeeded();
+      const rect = (await row.boundingBox())!;
+      const x = rect.x + 15;
+      const y = rect.y + rect.height / 2;
+      await page.mouse.move(x, y);
+      await expect(terminal.getByRole("application")).toHaveAttribute("title", new RegExp(href!));
+      await page.keyboard.down("Control");
+      try { await page.mouse.click(x, y); }
+      finally { await page.keyboard.up("Control"); }
+    }
+    await expect.poll(() => app.evaluate(() => (globalThis as { sshLinksOpened?: string[] }).sshLinksOpened)).toEqual([plain, osc]);
+    await expect(pane).toHaveAttribute("data-session-id", session!);
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
+
+test("A06 workspace tab actions rename and close neighboring tabs without replacing retained shells", async () => {
+  const password = randomUUID();
+  const labels = ["标签甲", "标签乙", "标签丙"];
+  const closed = [0, 0, 0];
+  const servers = await Promise.all(labels.map((_, index) => startFakeSsh({ password, onShellClose: () => { closed[index]!++; } })));
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const panes = await Promise.all(labels.map(async (label, index) => ({ hostId: (await configureLoopback(page, label, servers[index]!.port, password)).hostId })));
+    expect((await sshCall(page, "ssh.workspace.runs.start", { name: "标签菜单回环", layout: { kind: "tabs" }, panes })).ok).toBe(true);
+    await page.getByRole("button", { name: /标签菜单回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    for (const name of labels) {
+      await run.getByRole("tab", { name, exact: true }).click();
+      const item = run.getByRole("article", { name, exact: true });
+      await item.getByRole("button", { name: "信任并连接" }).click();
+      await expect(item).toHaveAttribute("data-phase", "ready");
+    }
+    const retained = run.getByRole("article", { name: "标签乙", exact: true });
+    await run.getByRole("tab", { name: "标签乙", exact: true }).click();
+    const identity = await retained.getAttribute("data-session-id");
+    await run.getByRole("tab", { name: "标签乙", exact: true }).press("Shift+F10");
+    await page.getByRole("dialog", { name: "标签乙 标签操作" }).getByRole("button", { name: "重命名标签" }).click();
+    const rename = page.getByRole("dialog", { name: "重命名标签" });
+    await rename.getByLabel("标签名称").fill("保留终端");
+    await rename.getByRole("button", { name: "保存名称" }).click();
+    const keep = run.getByRole("tab", { name: "保留终端", exact: true });
+    await expect(keep).toBeVisible();
+    await keep.click({ button: "right" });
+    await page.getByRole("dialog", { name: "保留终端 标签操作" }).getByRole("button", { name: "关闭右侧标签" }).click();
+    await expect(run.getByRole("tab", { name: "标签丙", exact: true })).toHaveCount(0);
+    await expect.poll(() => closed[2]).toBe(1);
+    await run.getByRole("button", { name: "标签操作 保留终端" }).click();
+    await page.getByRole("dialog", { name: "保留终端 标签操作" }).getByRole("button", { name: "关闭其他标签" }).click();
+    await expect(run.getByRole("tab")).toHaveCount(1);
+    await expect(run.getByRole("article", { name: "保留终端", exact: true })).toHaveAttribute("data-session-id", identity!);
+    await expect.poll(() => closed[0]).toBe(1);
+    expect(closed[1]).toBe(0);
+  } finally {
+    await fixture.close();
+    await Promise.all(servers.map((server) => server.close()));
+  }
+});
+
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";
@@ -1426,7 +1616,9 @@ test("H7.3 ZIP 探测报告本机支持状态，支持时验证原设备的归�
     const id = await openBoundFiles();
     await panel.getByText("远端 ZIP 归档", { exact: true }).click();
     const remote = panel.getByRole("region", { name: "远端归档能力" });
-    if (process.platform !== "win32") {
+    const probe = await sshCall<ArchiveSupport>(page, "ssh.archives.support", { fileSessionId: id });
+    expect(probe.ok).toBe(true);
+    if (!probe.data.local.zip) {
       await expect(remote.getByRole("status")).toHaveText("ZIP 不可用 · 依赖的本机 ZIP 后端不可用");
       await expect(remote).toContainText("TAR、TGZ 和 7z");
       await remote.getByLabel("归档项目", { exact: true }).selectOption("docs");
@@ -1435,7 +1627,7 @@ test("H7.3 ZIP 探测报告本机支持状态，支持时验证原设备的归�
       expect(archiveHost.fs.files.has("/home/test/docs.zip")).toBe(false);
       const local = panel.getByRole("region", { name: "本机文件", exact: true });
       await local.getByText("本机 ZIP 归档", { exact: true }).click();
-      await expect(local.getByRole("region", { name: "本机归档能力" }).getByRole("status")).toHaveText("ZIP 不可用 · 本机 Windows .NET ZIP 后端不可用");
+      await expect(local.getByRole("region", { name: "本机归档能力" }).getByRole("status")).toHaveText(`ZIP 不可用 · ${probe.data.local.reason}`);
       return;
     }
     await expect(remote).toContainText("ZIP 可用");

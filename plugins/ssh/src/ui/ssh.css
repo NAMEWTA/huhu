@@ -983,6 +983,51 @@
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
 
+  .ssh-workspace-splitter {
+    z-index: 2;
+    position: relative;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .ssh-workspace-splitter::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    background: var(--line);
+    border-radius: 2px;
+  }
+
+  .ssh-workspace-splitter[aria-orientation="vertical"] {
+    inline-size: 12px;
+    justify-self: end;
+    transform: translateX(calc(50% + 3px));
+    cursor: col-resize;
+    touch-action: pan-y;
+  }
+
+  .ssh-workspace-splitter[aria-orientation="vertical"]::before {
+    inline-size: 2px;
+  }
+
+  .ssh-workspace-splitter[aria-orientation="horizontal"] {
+    block-size: 12px;
+    align-self: end;
+    transform: translateY(calc(50% + 3px));
+    cursor: row-resize;
+    touch-action: pan-x;
+  }
+
+  .ssh-workspace-splitter[aria-orientation="horizontal"]::before {
+    block-size: 2px;
+  }
+
+  .ssh-workspace-splitter:hover::before,
+  .ssh-workspace-splitter:focus-visible::before {
+    background: var(--accent);
+  }
+
   .ssh-workspace-main-bottom {
     grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
   }
@@ -1004,6 +1049,19 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+  }
+
+  .ssh-workspace-tab-entry {
+    display: inline-flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .ssh-workspace-tabs[data-tab-side="left"] .ssh-workspace-tab-entry > [role="tab"] {
+    flex: 1;
+    min-inline-size: 0;
+    text-align: start;
   }
 
   .ssh-workspace-tabs[data-tab-side="left"] {

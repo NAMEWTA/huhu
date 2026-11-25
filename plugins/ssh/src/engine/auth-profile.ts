@@ -10,6 +10,7 @@ export const SshHostProfile = z.object({
   user: z.string(),
   jumpHostIds: z.array(z.string()).max(1).default([]),
   routeDisabled: z.literal(true).optional(),
+  viaShell: z.literal(true).optional(),
   outboundProxy: OutboundProxyPolicy.optional(),
   tags: z.array(z.string()).default([]),
   connectTimeoutSec: z.number().min(1).max(300).optional(),
@@ -47,6 +48,7 @@ export type HostDefinition = z.infer<typeof HostDefinition>;
 export const ConfigureHost = z.strictObject({
   ...SshHostProfile.shape,
   routeDisabled: z.boolean().optional(),
+  viaShell: z.boolean().optional(),
   hostId: OwnedHostId.optional(),
   expectedRevision: Revision.nullable(),
   authKind: AuthKind,

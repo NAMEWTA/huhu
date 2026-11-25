@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ConnectionStatus, HostKeyPrompt, KnownHostKey } from "../../../plugins/ssh/src/shared/trust.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import { relayToLoopback } from "../../../plugins/ssh/test/shell-relay-fixture.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
@@ -53,6 +54,130 @@ async function promptFor(page: Page, hostId: string): Promise<HostKeyPrompt> {
 
 const known = (page: Page) => desktopCall<KnownHostKey[]>(page, "ssh.knownHosts.list");
 const approveOld = (page: Page, prompt: HostKeyPrompt) => desktopCall(page, "ssh.hostKey.decide", { attemptId: prompt.attemptId, hop: prompt.hop, promptId: prompt.promptId, accept: true });
+
+test("A03 desktop approves the first-hop ProxyCommand and revokes its live connection", async () => {
+  test.skip(process.platform !== "linux", "ProxyCommand executor requires Linux");
+  const password = randomUUID();
+  const jump = await startFakeSsh({ password });
+  const target = await startFakeSsh({ password });
+  const { page, vault, close } = await openApp();
+  try {
+    const jumpId = await fixtureHost(page, "代理首跳", jump.port, password);
+    const targetId = await fixtureHost(page, "代理目标", target.port, password, [jumpId]);
+    const script = path.join(vault, "loopback-proxy.cjs");
+    writeFileSync(script, `
+      const [host, port, user] = process.argv.slice(2);
+      if (host !== "127.0.0.1" || port !== "${jump.port}" || user !== "fixture") process.exit(1);
+      const socket = require("node:net").connect(Number(port), host);
+      socket.on("error", () => process.exit(1));
+      process.stdin.pipe(socket).pipe(process.stdout);
+      socket.once("close", () => process.exit(0));
+    `);
+    await openSsh(page);
+    const editProxy = async () => {
+      await moduleView(page).getByRole("button", { name: "跳板路由", exact: true }).click();
+      await page.getByRole("article").filter({ has: page.getByRole("checkbox", { name: "代理目标", exact: true }) }).getByRole("button", { name: "本机 ProxyCommand", exact: true }).click();
+      return page.getByRole("dialog", { name: "本机 ProxyCommand" });
+    };
+    const proxy = await editProxy();
+    await expect(proxy).toContainText(`代理首跳 · fixture@127.0.0.1:${jump.port}`);
+    await proxy.getByLabel("程序绝对路径").fill(process.execPath);
+    await proxy.getByLabel("参数（每行一个）").fill([script, "%h", "%p", "%r"].join("\n"));
+    await proxy.getByRole("button", { name: "批准并保存", exact: true }).click();
+    await expect(proxy.getByRole("status")).toHaveText("本机已批准");
+    expect(jump.conns).toHaveLength(0);
+    await proxy.getByRole("button", { name: "返回路由", exact: true }).click();
+    await page.getByRole("button", { name: "返回主机", exact: true }).click();
+    await selectHost(page, "代理目标");
+    await expect(moduleView(page).getByText("本机批准的 ProxyCommand", { exact: true })).toBeVisible();
+    await connect(page);
+    for (const port of [jump.port, target.port]) {
+      await expect(dialog(page)).toContainText(`127.0.0.1:${port}`);
+      await dialog(page).getByRole("button", { name: "信任并连接", exact: true }).click();
+    }
+    await expect.poll(() => snapshot(page, targetId)).toMatchObject({
+      state: "connected",
+      route: [{ id: jumpId, outboundProxy: { source: "command" } }, { id: targetId }],
+    });
+    const revocation = await editProxy();
+    await revocation.getByRole("button", { name: "撤销本机批准", exact: true }).click();
+    await expect(revocation.getByRole("status")).toHaveText("本机尚未批准");
+    await expect.poll(() => snapshot(page, targetId)).toMatchObject({ state: "disconnected" });
+    await expect.poll(() => [jump.closed(), target.closed()]).toEqual([1, 1]);
+  } finally {
+    await close();
+    await Promise.all([jump.close(), target.close()]);
+  }
+});
+
+test("A03 route editor selects ViaShell and authenticates the target over the dedicated channel", async () => {
+  const password = randomUUID();
+  const target = await startFakeSsh({ password });
+  let directAttempts = 0;
+  const jump = await startFakeSsh({
+    password,
+    onInteractiveShell: relayToLoopback(target.port),
+    denyDirectTcp: () => { directAttempts++; return true; },
+  });
+  const { page, close } = await openApp();
+  try {
+    const jumpId = await fixtureHost(page, "中继跳板", jump.port, password);
+    const targetId = await fixtureHost(page, "中继目标", target.port, password, [jumpId]);
+    await openSsh(page);
+    await moduleView(page).getByRole("button", { name: "跳板路由", exact: true }).click();
+    const route = page.getByRole("article").filter({ has: page.getByRole("checkbox", { name: "中继目标", exact: true }) });
+    await route.getByLabel("中继方式").selectOption("shell");
+    await route.getByRole("button", { name: "保存路由", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已保存「中继目标」的路由" })).toBeVisible();
+    await page.getByRole("button", { name: "返回主机", exact: true }).click();
+    await selectHost(page, "中继目标");
+    await connect(page);
+    for (const port of [jump.port, target.port]) {
+      await expect(dialog(page)).toContainText(`127.0.0.1:${port}`);
+      await dialog(page).getByRole("button", { name: "信任并连接", exact: true }).click();
+    }
+    await expect.poll(() => snapshot(page, targetId)).toMatchObject({
+      state: "connected",
+      route: [{ id: jumpId }, { id: targetId, viaShell: true }],
+    });
+    expect(directAttempts).toBe(0);
+    await disconnect(page);
+    await expect.poll(() => [jump.closed(), target.closed()]).toEqual([1, 1]);
+  } finally {
+    await close();
+    await Promise.all([jump.close(), target.close()]);
+  }
+});
+
+test("A01 quick connection opens and reclaims a terminal without saving the target", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const { page, close } = await openApp();
+  try {
+    await openSsh(page);
+    await moduleView(page).getByRole("button", { name: "主机目录", exact: true }).click();
+    const directory = page.getByRole("region", { name: "SSH 主机目录" });
+    const address = `fixture@127.0.0.1:${server.port}`;
+    await directory.getByPlaceholder("搜索主机名称、地址、用户或标签…").fill(address);
+    await directory.getByRole("button", { name: "快速连接", exact: true }).click();
+    const quick = page.getByRole("dialog", { name: "快速连接", exact: true });
+    await expect(quick.getByLabel("SSH 目标")).toHaveValue(address);
+    await quick.getByLabel("密码（可选）").fill(password);
+    await quick.getByRole("button", { name: "连接", exact: true }).click();
+    await expect(dialog(page)).toContainText(server.fingerprint);
+    await dialog(page).getByRole("button", { name: "仅本次信任", exact: true }).click();
+    await expect(quick.getByRole("application", { name: "临时 SSH 终端" })).toBeVisible();
+    expect(await desktopCall(page, "ssh.hosts.list", {})).toEqual([]);
+    expect(await desktopCall(page, "ssh.shells.list", {})).toEqual([]);
+    await quick.getByRole("button", { name: "结束临时连接", exact: true }).click();
+    await expect(quick).toBeHidden();
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(await known(page)).toEqual([]);
+  } finally {
+    await close();
+    await server.close();
+  }
+});
 
 test("SSH 首次指纹可重新打开，拒绝与仅本次信任均不写记录", async () => {
   const password = randomUUID();

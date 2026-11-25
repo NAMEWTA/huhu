@@ -15,6 +15,7 @@ import { acknowledgeExitSaveFeedback, readExitSaveFeedback, showExitSaveFeedback
 import { registerMailAttachmentPicker } from "./mail-attachment-picker.js";
 import { handleVaultMediaRequest } from "./preview-protocol.js";
 import { hardenWindowForPreview, previewSchemePrivileges, registerPreviewHandlers, type PreviewController } from "./preview-session.js";
+import { SshExternalDrafts } from "./ssh-external-editor.js";
 import { checkEmptyTarget, checkOpenable, copyDemoVault, importPackageTo, remember, type OpenResult, type RecentVault, type VaultState } from "./vault-session.js";
 import { installWindowChrome, nativeTitleOptions } from "./window-chrome.js";
 import { windowErrorPage } from "./window-error-page.js";
@@ -350,6 +351,21 @@ if (!gotLock) {
       });
       notification.show();
     });
+    const sshDrafts = new SshExternalDrafts();
+    const sshDraftOwners = new WeakMap<Electron.WebContents, object>();
+    const sshDraftOwner = (event: Electron.IpcMainInvokeEvent) => {
+      assertTrusted(event.senderFrame?.url);
+      if (!current || current.readOnly || event.senderFrame !== event.sender.mainFrame) throw new Error("需要可写的桌面 Vault。");
+      const window = event.sender;
+      let owner = sshDraftOwners.get(window);
+      if (!owner) {
+        owner = {};
+        sshDraftOwners.set(window, owner);
+        const captured = owner;
+        window.once("destroyed", () => sshDrafts.release(captured));
+      }
+      return owner;
+    };
     preview = registerPreviewHandlers({ vaultRoot: () => current?.path ?? null, frameAncestors: () => process.env["ELECTRON_RENDERER_URL"]?.replace(/\/$/, "") ?? APP_ORIGIN, assertTrusted });
     let startupError: string | null = null;
     let recent: RecentVault[] = [];
@@ -365,6 +381,7 @@ if (!gotLock) {
       preview?.revokeAll(); // 旧 Vault 的预览授权立即失效
       if (supervisor) await supervisor.stop();
       supervisor = null;
+      sshDrafts.clear();
       current = null;
       chrome.setVaultTitle();
       const next = new EngineSupervisor(target, flags, broadcast);
@@ -461,6 +478,7 @@ if (!gotLock) {
         preview?.revokeAll();
         if (supervisor) await supervisor.stop();
         supervisor = null;
+        sshDrafts.clear();
         current = null;
         chrome.setVaultTitle();
         startupError = null;
@@ -573,6 +591,34 @@ if (!gotLock) {
       if (r.canceled || !r.filePath) return false;
       writeFileSync(r.filePath, content);
       return true;
+    });
+    ipcMain.handle("huhu:ssh-external-editor:open", async (event, name: unknown, text: unknown) => {
+      const owner = sshDraftOwner(event);
+      const vault = current;
+      if (typeof name !== "string" || typeof text !== "string") throw new Error("无法读取待编辑的文本。");
+      const base = path.basename(name).replace(/[^\p{L}\p{N}._-]/gu, "-").slice(0, 100) || "SSH";
+      const defaultPath = path.join(app.getPath("documents"), `${base.replace(/\.txt$/iu, "") || "SSH"}.txt`);
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const options = { defaultPath, filters: [{ name: "UTF-8 文本", extensions: ["txt"] }] };
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath || current !== vault || event.sender.isDestroyed()) return null;
+      const draft = sshDrafts.create(owner, result.filePath, text);
+      let opened = false;
+      try {
+        opened = !(await shell.openPath(draft.file));
+      } catch {
+        // The selected copy is still available for opening by hand.
+      }
+      return { id: draft.id, opened };
+    });
+    ipcMain.handle("huhu:ssh-external-editor:read", (event, id: unknown) => {
+      const owner = sshDraftOwner(event);
+      if (typeof id !== "string") throw new Error("无效的本机编辑授权。");
+      return sshDrafts.read(owner, id);
+    });
+    ipcMain.handle("huhu:ssh-external-editor:release", (event, id: unknown) => {
+      const owner = sshDraftOwner(event);
+      if (typeof id === "string") sshDrafts.release(owner, id);
     });
     const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
     const rendererOrigin = rendererUrl ? URL.parse(rendererUrl)?.origin : undefined;

@@ -143,7 +143,8 @@ export class SshConfigSync {
     const rows = configFields.map((field) => {
       const file = fromFile(field, parsed.values.get(field)?.value);
       const huhu = working[field];
-      return { field, file, huhu, change: changeKind(file, huhu, previous[field]) } as const;
+      const unavailable = field === "ProxyJump" && host.viaShell ? "ViaShell 路由无法用 OpenSSH ProxyJump 表示" : undefined;
+      return { field, file, huhu, change: changeKind(file, huhu, previous[field]), ...(unavailable && { unavailable }) } as const;
     });
     const comparison = digest(JSON.stringify(rows));
     return { fingerprint, comparison, mode, parsed, directory, host, baseFile, previous, stateRevision: saved?.version ?? null, rows };
@@ -164,6 +165,7 @@ export class SshConfigSync {
     const rec = await this.snapshot(input);
     if (rec.fingerprint !== input.fingerprint || rec.comparison !== input.comparison || rec.host.revision !== input.hostRevision || rec.stateRevision !== input.stateRevision) throw errors.versionConflict(rec.fingerprint);
     const row = rec.rows.find(({ field }) => field === input.field)!;
+    if ("unavailable" in row && row.unavailable) throw errors.invalidInput(row.unavailable);
     const value = input.direction === "file-to-huhu" ? row.file : row.huhu;
     signal.throwIfAborted();
     if (row.file !== row.huhu) {
@@ -186,6 +188,7 @@ export class SshConfigSync {
         if (value && matches.length !== 1) throw errors.invalidInput("请先为跳板别名配置唯一的 Huhu 主机");
         input.jumpHostIds = matches.map(({ id }) => id);
         input.routeDisabled = false;
+        input.viaShell = false;
         break;
       }
       case "IdentityFile":

@@ -23,6 +23,7 @@ import { ForwardingPanel } from "./ForwardingPanel.js";
 import { MonitorDashboard } from "./MonitorDashboard.js";
 import { SshTerminal } from "./SshTerminal.js";
 import { RoutePanel } from "./RoutePanel.js";
+import { QuickConnectionDialog } from "./QuickConnectionDialog.js";
 import { ShortcutPanel } from "./ShortcutPanel.js";
 import { RecordTerminal, TerminalRecordingsPanel } from "./TerminalRecordings.js";
 import { LocalShellPanel } from "./LocalShellPanel.js";
@@ -59,6 +60,7 @@ const routeStages: Record<ConnectionHop["stage"], string> = {
 };
 
 function proxyDescription(proxy: OutboundProxySummary): string {
+  if (proxy.source === "command") return "本机批准的 ProxyCommand";
   if (proxy.name) return `${proxy.source === "inherit" ? "Vault 默认代理" : "主机指定代理"} ${proxy.name}（${proxy.protocol === "socks5" ? "SOCKS5" : "HTTP CONNECT"}）`;
   return proxy.source === "inherit" ? "继承 Vault 默认，首段直连" : "按主机设置首段直连";
 }
@@ -92,6 +94,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [activeShell, setActiveShell] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [query, setQuery] = useState("");
+  const [quickTarget, setQuickTarget] = useState<string>();
   const [workspaces, setWorkspaces] = useState(false);
   const [keyLibrary, setKeyLibrary] = useState(false);
   const [routes, setRoutes] = useState(false);
@@ -262,6 +265,11 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         {content}
       </div>
       <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
+      {quickTarget !== undefined ? <QuickConnectionDialog initial={quickTarget} onClose={() => setQuickTarget(undefined)} onReview={(item) => {
+        setQuickTarget(undefined);
+        setShowDirectory(false);
+        openReview(item);
+      }} /> : null}
     </>
   );
   if (workspaces) return withFileWorkspace(
@@ -341,6 +349,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         onRoute={desktop ? (ids) => { setRouteTargets(ids); setRoutes(true); } : undefined}
         onCreate={desktop ? () => { setShowDirectory(false); setHostAction({ kind: "create" }); } : undefined}
         onImport={desktop ? () => { setShowDirectory(false); setImportVault(engine.vaultId); } : undefined}
+        onQuickConnect={desktop ? setQuickTarget : undefined}
         onHostAction={desktop ? (kind, h) => { openFromDirectory(h); setHostAction({ kind, host: h }); } : undefined}
         onChanged={refresh}
       />,
@@ -370,6 +379,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
             {desktop ? <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => setHostAction({ kind: "create" })} /> : null}
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
+          {desktop ? <Button variant="ghost" onClick={() => setQuickTarget(query)}>快速连接</Button> : null}
           <Button variant="ghost" onClick={() => setShowDirectory(true)}>主机目录</Button>
         </div>
         <div className="hu-resource-list">
@@ -691,6 +701,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                       {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
                       {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
                       {hop.outboundProxy ? <span> · {proxyDescription(hop.outboundProxy)}</span> : null}
+                      {hop.viaShell ? <span> · ViaShell</span> : null}
                       {hop.verifiedHost?.kind === "certificate" && (
                         <span>
                           {" "}

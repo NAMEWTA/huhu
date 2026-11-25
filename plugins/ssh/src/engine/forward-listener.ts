@@ -5,6 +5,7 @@ import { HuhuError } from "@huhu/contracts";
 import type { Client, ClientChannel, TcpConnectionDetails } from "ssh2";
 import { FORWARD_BIND, type ForwardDestination, type ForwardListenerView, type ForwardRule } from "../shared/forwarding.js";
 import { httpDestination, SOCKS_OK, socksDestination, socksFailure } from "./forward-proxy.js";
+import { dialShellRelay } from "./shell-relay.js";
 
 const MAX_CONNECTIONS = 64;
 const HANDSHAKE_MS = 10_000;
@@ -206,21 +207,27 @@ export class ForwardListener {
 
   private async outbound(socket: Socket, target: ForwardDestination, mode: "local" | "http-connect" | "socks5", head?: Buffer) {
     let channel: ClientChannel;
+    const socketLifetime = new AbortController();
+    const closed = () => socketLifetime.abort();
+    socket.once("close", closed);
+    const signal = AbortSignal.any([socketLifetime.signal, this.abort.signal, AbortSignal.timeout(HANDSHAKE_MS)]);
     try {
-      channel = await sshRequest<ClientChannel>(
-        this.client,
-        AbortSignal.any([this.abort.signal, AbortSignal.timeout(HANDSHAKE_MS)]),
-        (done) => {
-          this.client.forwardOut(FORWARD_BIND, socket.remotePort ?? 0, target.host, target.port, done);
-        },
-        (late) => late.destroy(),
-      );
-    } catch {
-      if (this.serving) this.lastError = "SSH 拒绝打开 TCP 出口或目的地不可达";
+      channel = this.rule.relay === "shell"
+        ? await dialShellRelay(this.client, target, signal, "tcp")
+        : await sshRequest<ClientChannel>(
+          this.client,
+          signal,
+          (done) => this.client.forwardOut(FORWARD_BIND, socket.remotePort ?? 0, target.host, target.port, done),
+          (late) => late.destroy(),
+        );
+    } catch (reason) {
+      if (this.serving && !socket.destroyed) this.lastError = this.rule.relay === "shell" && reason instanceof HuhuError ? reason.message : "SSH 拒绝打开 TCP 出口或目的地不可达";
       if (mode === "http-connect") socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
       else if (mode === "socks5") socket.end(socksFailure(5));
       else socket.destroy();
       return;
+    } finally {
+      socket.off("close", closed);
     }
     if (!this.serving || socket.destroyed) {
       channel.destroy();

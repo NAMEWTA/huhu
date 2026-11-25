@@ -23,7 +23,7 @@ export const ResourceHost = routeHop.extend({
   route: z.array(routeHop),
 });
 export type ResourceHost = z.infer<typeof ResourceHost>;
-const RouteBinding = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
+export const RouteBinding = ResourceHostId.extend({ routeRevision: ResourceHost.shape.routeRevision });
 export const RouteIntentFields = {
   intentKey: CapabilityIntentKeySchema.optional(),
   bindings: z.array(RouteBinding).min(1).max(24).optional(),

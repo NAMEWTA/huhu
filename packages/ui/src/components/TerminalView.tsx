@@ -1,13 +1,14 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
+import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-content.js";
 
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
 export type TerminalControl = { id: string; canInput: boolean };
-type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback">;
+type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator">;
 const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000 } satisfies DisplayOptions;
 
 export interface TerminalViewProps {
@@ -20,6 +21,9 @@ export interface TerminalViewProps {
   ariaLabel: string;
   /** View preferences can change without replacing the terminal connection. */
   displayOptions?: DisplayOptions;
+  scrollbackSearch?: boolean;
+  onOpenLink?(url: string): void;
+  linkActivation?: boolean;
   /** 程序结束或连接断开时通知宿主。 */
   onExit?(reason: string): void;
   /** 桥接器授予输入控制后发布，离开此连接时撤回。 */
@@ -40,11 +44,21 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, onExit, onTerminalInput, onTerminalControl }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
   const [demoted, setDemoted] = useState(false); // 另一个视图正在输入：本视图被服务端降级为观察者
+  const [searching, setSearching] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searchResult, setSearchResult] = useState("");
+  const search = useRef<{ find(text: string, direction: "next" | "previous"): boolean; close(): void }>(undefined);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const openLink = useRef(onOpenLink);
+  openLink.current = onOpenLink;
+  const linksEnabled = useRef(linkActivation);
+  linksEnabled.current = linkActivation;
+  const hasLinkHandler = onOpenLink !== undefined;
   const exit = useRef(onExit);
   exit.current = onExit;
   const controlChanged = useRef(onTerminalControl);
@@ -56,11 +70,70 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   useEffect(() => {
     if (!host.current) return;
     const el = host.current;
+    const linkHandler = {
+      activate(event: MouseEvent, text: string) {
+        if (!linksEnabled.current || (!event.ctrlKey && !event.metaKey)) return;
+        const url = terminalHttpUrl(text);
+        if (!url) return;
+        event.preventDefault();
+        openLink.current?.(url);
+      },
+      hover(_event: MouseEvent, text: string) {
+        if (!linksEnabled.current) return;
+        const url = terminalHttpUrl(text);
+        if (url) el.title = `${url}（Ctrl 或 ⌘ 加点击打开）`;
+      },
+      leave() {
+        el.removeAttribute("title");
+      },
+    } satisfies ILinkHandler;
     // minimumContrastRatio：xterm 自带，保证任何 ANSI 前景 / 背景组合都可读（例如浅色主题下的“白色”文字）
-    const term = new Terminal({ ...readTheme(el), ...defaultDisplayOptions, ...currentDisplay.current, minimumContrastRatio: 4.5, convertEol: false });
+    const term = new Terminal({ ...readTheme(el), ...defaultDisplayOptions, ...currentDisplay.current, ...(hasLinkHandler && { linkHandler }), minimumContrastRatio: 4.5, convertEol: false });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
+    const links = hasLinkHandler ? term.registerLinkProvider({
+      provideLinks(row, callback) {
+        if (!linksEnabled.current) return callback(undefined);
+        const result = terminalLinks(term.buffer.active, term.cols, row - 1);
+        callback(result.map(({ range, text }) => ({
+          range: { start: { x: range.start.x + 1, y: range.start.y + 1 }, end: { x: range.end.x, y: range.end.y + 1 } },
+          text,
+          activate: linkHandler.activate,
+          hover: linkHandler.hover,
+          leave: linkHandler.leave,
+        })));
+      },
+    }) : undefined;
+    if (scrollbackSearch) {
+      let previous = "";
+      search.current = {
+        find(text, direction) {
+          const start = text === previous ? term.getSelectionPosition()?.start : undefined;
+          previous = text;
+          const result = searchTerminal(term.buffer.active, term.cols, text, direction, start);
+          if (!result) {
+            term.clearSelection();
+            return false;
+          }
+          term.select(result.start.x, result.start.y, (result.end.y - result.start.y) * term.cols + result.end.x - result.start.x);
+          term.scrollToLine(result.start.y);
+          return true;
+        },
+        close() {
+          previous = "";
+          term.clearSelection();
+          term.focus();
+        },
+      };
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.type !== "keydown" || event.isComposing || !(event.ctrlKey || event.metaKey) || !event.shiftKey || event.key.toLowerCase() !== "f") return true;
+        event.preventDefault();
+        setSearching(true);
+        searchInput.current?.focus();
+        return false;
+      });
+    }
     let ws: WebSocket | undefined;
     let sentSize: { cols: number; rows: number } | undefined;
     let ended = false;
@@ -202,6 +275,9 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     return () => {
       disposed = true;
       applyDisplay.current = undefined;
+      search.current = undefined;
+      links?.dispose();
+      el.removeAttribute("title");
       revokeInput();
       setControl();
       window.removeEventListener(APPEARANCE_CHANGED, restyle);
@@ -213,13 +289,48 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws?.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch]);
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
+  useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);
+
+  function find(direction: "next" | "previous") {
+    if (searchText) setSearchResult(search.current?.find(searchText, direction) ? "已定位匹配内容" : "当前终端回滚中无匹配");
+  }
+  function closeSearch() {
+    setSearching(false);
+    setSearchResult("");
+    search.current?.close();
+  }
 
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>
       <div ref={host} className="hu-terminal" role="application" aria-label={ariaLabel} />
+      {scrollbackSearch && (
+        <div className="hu-terminal-search">
+          {searching ? (
+            <form role="search" aria-label="终端回滚搜索" onSubmit={(event) => { event.preventDefault(); find("next"); }}>
+              <input
+                ref={searchInput}
+                type="search"
+                aria-label="查找终端回滚"
+                value={searchText}
+                maxLength={256}
+                onChange={(event) => { setSearchText(event.currentTarget.value); setSearchResult(""); }}
+                onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                  if (event.key === "Escape") { event.preventDefault(); closeSearch(); }
+                  if (event.key === "Enter" && event.shiftKey) { event.preventDefault(); find("previous"); }
+                }}
+              />
+              <button type="button" disabled={!searchText} onClick={() => find("previous")}>上一处</button>
+              <button type="submit" disabled={!searchText}>下一处</button>
+              <button type="button" onClick={closeSearch}>关闭搜索</button>
+              {searchResult && <p role="status">{searchResult}</p>}
+            </form>
+          ) : <button type="button" onClick={() => setSearching(true)}>查找终端回滚</button>}
+        </div>
+      )}
       {observe || demoted ? (
         <div className="hu-terminal-overlay" data-testid="terminal-observer" style={{ inset: "auto 8px 8px auto", padding: "2px 8px", pointerEvents: "none" }}>
           观察模式 · 不能输入

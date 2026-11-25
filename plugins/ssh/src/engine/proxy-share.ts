@@ -84,7 +84,7 @@ export class SshProxyShare {
   private tail: Promise<unknown> = Promise.resolve();
   private readonly lifetime = new AbortController();
 
-  constructor(private readonly manager: Pick<SshManager, "proxyShareTransport">) {}
+  constructor(private readonly manager: Pick<SshManager, "boundTransport">) {}
 
   status(): ProxyShareStatus {
     return this.view;
@@ -102,7 +102,7 @@ export class SshProxyShare {
       this.view = { state: "starting", config };
       try {
         await this.detect(config.localPort, operation);
-        const client = this.manager.proxyShareTransport(config.hostId, config.connectionId);
+        const client = this.manager.boundTransport(config.hostId, config.connectionId);
         const listener = new ForwardListener(
           {
             id: randomUUID(),

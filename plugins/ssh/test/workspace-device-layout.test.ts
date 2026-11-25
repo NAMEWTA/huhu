@@ -1,12 +1,33 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
 import type { ConnectionHop, ConnectionStatus } from "../src/shared/trust.js";
-import type { WorkspaceRunPane } from "../src/shared/workspace.js";
+import { paneCount, resizeSplit, splitPaneAt, workspaceTree, type SplitTree, type WorkspaceRunPane } from "../src/shared/workspace.js";
 import { deviceDefaults, saveDevicePreferences, type DevicePreferences } from "../src/ui/device-preferences.js";
 import { groupWorkspaceTabs } from "../src/ui/workspace-tab-groups.js";
 
 const preferenceKey = "huhu.ssh.device-preferences.v1";
 afterEach(() => localStorage.clear());
+
+test("resize only changes the targeted nested split and clamps its ratio", () => {
+  const pane = { kind: "pane" } as const;
+  const branch = { kind: "split", axis: "column", firstPercent: 65, first: pane, second: pane } as const;
+  const tree: SplitTree = { kind: "split", axis: "row", firstPercent: 50, first: pane, second: branch };
+  const moved = resizeSplit(tree, ["second"], 96);
+  expect(moved).toMatchObject({ firstPercent: 50, first: pane, second: { ...branch, firstPercent: 90 } });
+  expect(tree.second).toBe(branch);
+  expect(resizeSplit(moved, [], 9)).toMatchObject({ firstPercent: 10, second: { firstPercent: 90 } });
+});
+
+test("a new split retains the existing layout around the chosen pane", () => {
+  const baseline = workspaceTree({ kind: "main-right" }, 3);
+  const result = splitPaneAt(baseline, 1, "row");
+  expect(paneCount(result)).toBe(4);
+  expect(result).toMatchObject({
+    axis: "row", firstPercent: 60, first: { kind: "pane" },
+    second: { axis: "column", firstPercent: 50, first: { axis: "row", firstPercent: 50 }, second: { kind: "pane" } },
+  });
+  expect(paneCount(baseline)).toBe(3);
+});
 
 test("旧设备记录保留已有偏好，新工具栏尺寸和顺序使用默认值", () => {
   localStorage.setItem(preferenceKey, JSON.stringify({ paneTools: "bottom", tabs: "left", fontSize: 17, showPaneFiles: true }));
@@ -53,6 +74,14 @@ test("终端显示选项写入设备偏好，校验失败保留上一次保存",
   const invalidPatch: unknown = { terminalScrollback: 1 };
   expect(() => saveDevicePreferences(invalidPatch as Partial<DevicePreferences>)).toThrow();
   expect(localStorage.getItem(preferenceKey)).toBe(before);
+});
+
+test("终端选词和链接设置使用本机存储并可恢复默认", () => {
+  const changed = saveDevicePreferences({ terminalWordSeparator: " _", terminalLinkActivation: false });
+  expect(changed).toMatchObject({ terminalWordSeparator: " _", terminalLinkActivation: false });
+  expect(() => saveDevicePreferences({ terminalWordSeparator: "\n" })).toThrow();
+  const reset = saveDevicePreferences({ terminalWordSeparator: deviceDefaults.terminalWordSeparator, terminalLinkActivation: deviceDefaults.terminalLinkActivation });
+  expect(reset).toMatchObject({ terminalWordSeparator: " ()[]{}',\"`", terminalLinkActivation: true });
 });
 
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({

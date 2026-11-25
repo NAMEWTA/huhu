@@ -34,6 +34,13 @@ export function paneCount(tree: SplitTree): number {
   return tree.kind === "pane" ? 1 : paneCount(tree.first) + paneCount(tree.second);
 }
 
+export function resizeSplit(tree: SplitTree, path: readonly ("first" | "second")[], percent: number): SplitTree {
+  if (tree.kind === "pane") return tree;
+  const [branch, ...next] = path;
+  if (branch) return { ...tree, [branch]: resizeSplit(tree[branch], next, percent) };
+  return { ...tree, firstPercent: Math.max(10, Math.min(90, Math.round(percent))) };
+}
+
 export function removePaneAt(tree: SplitTree, index: number): SplitTree | undefined {
   if (tree.kind === "pane") return undefined;
   const firstCount = paneCount(tree.first);
@@ -48,6 +55,31 @@ export function removePaneAt(tree: SplitTree, index: number): SplitTree | undefi
 export function appendPane(tree: SplitTree): SplitTree {
   if (tree.kind === "pane") return { kind: "split", axis: "row", firstPercent: 50, first: tree, second: { kind: "pane" } };
   return { ...tree, second: appendPane(tree.second) };
+}
+
+export function splitPaneAt(tree: SplitTree, index: number, axis: "row" | "column"): SplitTree {
+  if (tree.kind === "pane") return { kind: "split", axis, firstPercent: 50, first: tree, second: { kind: "pane" } };
+  const count = paneCount(tree.first);
+  return index < count ? { ...tree, first: splitPaneAt(tree.first, index, axis) } : { ...tree, second: splitPaneAt(tree.second, index - count, axis) };
+}
+
+function distribute(parts: SplitTree[], axis: "row" | "column"): SplitTree {
+  if (parts.length === 1) return parts[0]!;
+  return { kind: "split", axis, firstPercent: Math.max(10, Math.round(100 / parts.length)), first: parts[0]!, second: distribute(parts.slice(1), axis) };
+}
+
+export function workspaceTree(layout: WorkspaceLayout, count: number): SplitTree {
+  if (layout.kind === "custom") return layout.tree;
+  if (count <= 1) return { kind: "pane" };
+  const leaves: SplitTree[] = Array.from({ length: count }, () => ({ kind: "pane" }));
+  if (layout.kind === "tabs") return distribute(leaves, "row");
+  if (layout.kind === "main-right" || layout.kind === "main-bottom") {
+    const axis = layout.kind === "main-right" ? "row" : "column";
+    return { kind: "split", axis, firstPercent: 60, first: leaves[0]!, second: distribute(leaves.slice(1), axis === "row" ? "column" : "row") };
+  }
+  const cols = layout.kind === "three" ? 3 : layout.kind === "two" ? 2 : 1;
+  const groups = Array.from({ length: Math.ceil(count / cols) }, (_, i) => distribute(leaves.slice(i * cols, (i + 1) * cols), "row"));
+  return distribute(groups, "column");
 }
 
 export function layoutProblem(panes: readonly WorkspacePane[], layout: WorkspaceLayout): string | undefined {
@@ -97,9 +129,16 @@ export const ChangeWorkspaceRun = runChange.extend({
   change: z.discriminatedUnion("action", [
     z.strictObject({ action: z.literal("layout"), layout: WorkspaceLayout, paneIds: z.array(z.uuid()).min(1).max(MAX_WORKSPACE_PANES) }),
     z.strictObject({ action: z.literal("close"), paneId: z.uuid() }),
+    z.strictObject({ action: z.literal("closeMany"), paneIds: z.array(z.uuid()).min(1).max(MAX_WORKSPACE_PANES - 1) }),
+    z.strictObject({ action: z.literal("rename"), paneId: z.uuid(), label: WorkspaceName }),
   ]),
 });
 export type ChangeWorkspaceRun = z.infer<typeof ChangeWorkspaceRun>;
+const SplitWorkspaceRun = runChange.extend({
+  change: z.strictObject({ action: z.literal("split"), paneId: z.uuid(), hostId: WorkspacePane.shape.hostId, axis: z.enum(["row", "column"]) }),
+});
+export const ChangeWorkbenchWorkspaceRun = z.union([ChangeWorkspaceRun, SplitWorkspaceRun]);
+export type ChangeWorkbenchWorkspaceRun = z.infer<typeof ChangeWorkbenchWorkspaceRun>;
 
 // Leaves correspond to panes in reading order, as in Motty workspace/spec.go.
 export function splitTree(count: number): SplitTree {

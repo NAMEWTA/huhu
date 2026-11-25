@@ -15,7 +15,7 @@ const options = {
   hostId: z.string().min(1).max(128),
   listenPort: ForwardPort.min(1024),
   resume: z.boolean(),
-  relay: z.literal("ssh").optional(),
+  relay: z.enum(["ssh", "shell"]).optional(),
 };
 const identity = { id: z.uuid(), revision: z.uuid(), boundTarget: z.string().regex(/^[a-f0-9]{64}$/) };
 export const ForwardRevision = z.strictObject({ id: z.uuid(), expectedRevision: z.uuid() });
@@ -24,7 +24,7 @@ export type ForwardRevision = z.infer<typeof ForwardRevision>;
 function rule<Shape extends z.ZodRawShape>(extra: Shape) {
   return z.discriminatedUnion("mode", [
     z.strictObject({ ...options, ...extra, mode: z.literal("local"), target: ForwardDestination }),
-    z.strictObject({ ...options, ...extra, mode: z.literal("remote"), target: ForwardDestination }),
+    z.strictObject({ ...options, ...extra, mode: z.literal("remote"), relay: z.literal("ssh").optional(), target: ForwardDestination }),
     z.strictObject({ ...options, ...extra, mode: z.literal("socks5") }),
     z.strictObject({ ...options, ...extra, mode: z.literal("http-connect") }),
   ]);

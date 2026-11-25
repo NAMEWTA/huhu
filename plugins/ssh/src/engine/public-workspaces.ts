@@ -136,15 +136,16 @@ export class PublicWorkspaces {
         const { layout, panes } = editWorkspacePanes(run.view, change);
         const bindings = new Map(run.view.panes.map(({ paneId }, index) => [paneId, run.bindings[index]!]));
         const nextBindings = panes.map(({ paneId }) => bindings.get(paneId)!);
-        const nextHosts = change.action === "close" ? [...new Set(nextBindings.flatMap((binding) => readBoundRoute(this.files, context, binding).map(({ id }) => id)))] : run.hostIds;
-        const closed = change.action === "close" ? run.view.panes.find(({ paneId }) => paneId === change.paneId) : undefined;
+        const kept = new Set(panes.map(({ paneId }) => paneId));
+        const closed = run.view.panes.filter(({ paneId }) => !kept.has(paneId));
+        const nextHosts = closed.length ? [...new Set(nextBindings.flatMap((binding) => readBoundRoute(this.files, context, binding).map(({ id }) => id)))] : run.hostIds;
         const layoutRevision = randomUUID();
         run.bindings = nextBindings;
         run.hostIds = nextHosts;
         run.view = { ...run.view, layout, panes, layoutRevision };
-        if (closed) {
-          run.detach(closed.paneId);
-          if (closed.sessionId) this.shells.closeWorkbench(closed.sessionId);
+        for (const pane of closed) {
+          run.detach(pane.paneId);
+          if (pane.sessionId) this.shells.closeWorkbench(pane.sessionId);
         }
         this.changed(id);
         return { ...this.snapshot(run), layoutRevision };

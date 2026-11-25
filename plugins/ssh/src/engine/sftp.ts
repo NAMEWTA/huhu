@@ -29,7 +29,7 @@ export function mapSftpError(e: unknown, what: string): HuhuError {
   if (err.code === SSH_FX.NO_SUCH_FILE) return errors.notFound(`远端不存在：${what}`);
   if (err.code === SSH_FX.PERMISSION_DENIED) return new HuhuError("PERMISSION_DENIED", `远端没有权限：${what}`);
   if (err.code === SSH_FX.OP_UNSUPPORTED) return errors.invalidInput("此 SFTP 服务端不支持该操作");
-  if (/Unable to start subsystem|subsystem request failed/i.test(err.message ?? "")) return new HuhuError("INTERNAL", "该服务器没有开启 SFTP 子系统。当前没有可用的 SCP 后端。", { retryable: false, details: { reason: "sftp-unavailable" } });
+  if (/Unable to start subsystem|subsystem request failed/i.test(err.message ?? "")) return new HuhuError("INTERNAL", "该服务器没有开启 SFTP 子系统。", { retryable: false, details: { reason: "sftp-unavailable" } });
   if (/not connected|No response from server|channel|ECONNRESET|socket/i.test(err.message ?? "")) return new HuhuError("SSH_DISCONNECTED", `连接已中断：${err.message ?? ""}`);
   return new HuhuError("INTERNAL", `SFTP 操作失败（${what}）：${err.message ?? String(e)}`, { retryable: false });
 }

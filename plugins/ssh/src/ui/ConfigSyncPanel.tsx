@@ -105,7 +105,7 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
                   <dt>Huhu</dt>
                   <dd>{row.huhu ?? "未设置"}</dd>
                 </dl>
-                {row.change === "same" ? (
+                {row.unavailable ? <p>{row.unavailable}</p> : row.change === "same" ? (
                   <Button disabled={busy} onClick={() => void apply(row.field, "establish")}>
                     记录基准
                   </Button>
