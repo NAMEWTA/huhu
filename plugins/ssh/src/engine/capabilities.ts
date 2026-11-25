@@ -11,6 +11,7 @@ import { sshHostAuthorityDescriptors } from "./host-authorities.js";
 import { sshKeyDescriptors } from "./key-library-capabilities.js";
 import { sshLocalShellDescriptors } from "./local-shell.js";
 import { sshOutboundProxyDescriptors } from "./outbound-proxy-capabilities.js";
+import { sshDeviceProxyDescriptors } from "./device-proxy-capabilities.js";
 import { sshProxyShareDescriptors } from "./proxy-share.js";
 import { EditHostRoutes, HostRouteEditResult } from "./route-edits.js";
 import { sshShortcutDescriptors } from "./shortcuts.js";
@@ -81,6 +82,7 @@ export const sshCapabilityDescriptors = {
   ...sshConfigSyncDescriptors,
   ...sshLocalShellDescriptors,
   ...sshOutboundProxyDescriptors,
+  ...sshDeviceProxyDescriptors,
   ...sshHostAuthorityDescriptors,
   ...sshShortcutDescriptors,
   ...sshProxyShareDescriptors,

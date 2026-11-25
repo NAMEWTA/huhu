@@ -7,6 +7,7 @@ import { routeForHost } from "../shared/route.js";
 import { isManagedHost, type Host, type ManagedHost } from "./host-record.js";
 import { ConfigSyncPanel } from "./ConfigSyncPanel.js";
 import { OutboundProxyPanel } from "./OutboundProxyPanel.js";
+import { DeviceProxyCommand } from "./DeviceProxyCommand.js";
 import { ProxySharePanel } from "./ProxySharePanel.js";
 import type { ConnectionStatus } from "../shared/trust.js";
 
@@ -45,6 +46,7 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
   const [query, setQuery] = useState("");
   const [sync, setSync] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [commandHost, setCommandHost] = useState<string>();
   const [groupByJump, setGroupByJump] = useState(false);
   const [saving, setSaving] = useState<string>();
   const [draftJumps, setDraftJumps] = useState<Record<string, string>>({});
@@ -286,12 +288,14 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
                       </Button>
                     )
                   )}
+                  <Button type="button" disabled={Boolean(saving)} onClick={() => setCommandHost(host.id)}>本机 ProxyCommand</Button>
                 </div>
               </article>
             );
           })}
         </section>
       ))}
+      {commandHost ? <DeviceProxyCommand hostId={commandHost} onClose={() => setCommandHost(undefined)} /> : null}
     </section>
   );
 }

@@ -7,8 +7,9 @@ import { HuhuError } from "@huhu/contracts";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
 import { SshManager } from "../src/engine/manager.js";
+import { DeviceProxies } from "../src/engine/device-proxies.js";
 import { TerminalRecordings } from "../src/engine/terminal-recordings.js";
-import { workspaceTarget } from "../src/engine/workspace-target.js";
+import { connectionIdentity, routeForHost, workspaceTarget } from "../src/engine/workspace-target.js";
 import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
@@ -25,9 +26,10 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable = false) {
+function setup(password = "pw", unavailable = false, deviceProxy = false) {
   const root = tmp();
   const hosts = ownedHosts();
+  const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
   const prompts: { hop: number; reason: string; attemptId: string; fingerprint: string }[] = [];
   let mgr!: SshManager;
   const secretCalls: string[] = [];
@@ -48,10 +50,14 @@ function setup(password = "pw", unavailable = false) {
       }
     },
     decisionTimeoutMs: 1000,
+    ...(commands && { deviceProxy: { commands, currentRoute: (id: string) => connectionIdentity(routeForHost(new Map(hosts.list().map((host) => [host.id, host])), id)) } }),
   });
-  closers.push(() => mgr.disposeAll());
+  closers.push(() => {
+    commands?.dispose();
+    mgr.disposeAll();
+  });
   const add = (port: number, over: Partial<SshHostProfile> = {}) => hosts.save({ name: `h${port}`, host: "127.0.0.1", port, user: "u", jumpHostIds: [], tags: [], connectTimeoutSec: 5, ...over });
-  return { root, hosts, mgr, prompts, add, secretCalls };
+  return { root, hosts, mgr, prompts, add, secretCalls, commands };
 }
 const until = async (c: () => boolean, ms = 3000) => {
   const end = Date.now() + ms;
@@ -79,6 +85,48 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test.skipIf(process.platform !== "linux")("approved ProxyCommand uses the first hop, rejects a stale route and closes on revocation", async () => {
+    const jump = await startFakeSsh();
+    const target = await startFakeSsh();
+    const { root, hosts, mgr, add, commands, prompts } = setup("pw", false, true);
+    closers.push(jump.close, target.close);
+    const first = add(jump.port);
+    const last = add(target.port, { jumpHostIds: [first.id] });
+    const script = path.join(root, "proxy.cjs");
+    writeFileSync(script, `
+      const [host, port, user] = process.argv.slice(2);
+      if (host !== "127.0.0.1" || port !== "${jump.port}" || user !== "u") process.exit(1);
+      const peer = require("node:net").connect(Number(port), host);
+      peer.on("error", () => process.exit(1));
+      process.stdin.pipe(peer).pipe(process.stdout);
+      peer.once("close", () => process.exit(0));
+    `);
+    const approval = commands!.approve([first, last], null, { executable: process.execPath, arguments: [script, "%h", "%p", "%r"] });
+    const external = mgr.openExternalConnection([first, last], new AbortController().signal, () => undefined, () => undefined, () => undefined);
+    await expect(external.ready).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(jump.conns).toHaveLength(0);
+    const pending = mgr.connect(last.id);
+    for (const hop of [0, 1]) {
+      await expect.poll(() => prompts[hop]?.hop).toBe(hop);
+      expect(mgr.decide(prompts[hop]!.attemptId, hop, true)).toBe(true);
+    }
+    await pending;
+    expect(mgr.connectionStatuses()[0]?.route?.[0]?.outboundProxy).toEqual({ source: "command" });
+    await expect(mgr.exec(last.id, "echo proxy-ok")).resolves.toMatchObject({ stdout: "proxy-ok\n" });
+    const { id, name, host, port, user, jumpHostIds, tags } = first;
+    hosts.save({ id, name: name + " updated", host, port, user, jumpHostIds, tags });
+    mgr.disconnect(last.id);
+    await expect(mgr.connect(last.id)).rejects.toMatchObject({ message: expect.stringContaining("重新批准") });
+    await expect.poll(() => jump.closed()).toBe(1);
+    const current = hosts.list().find((candidate) => candidate.id === first.id)!;
+    const refreshed = commands!.approve([current, last], approval.revision, approval.command);
+    await mgr.connect(last.id);
+    commands!.revoke(last.id, refreshed.revision);
+    await expect.poll(() => mgr.isConnected(last.id)).toBe(false);
+    await expect.poll(() => [jump.closed(), target.closed()]).toEqual([2, 2]);
+    expect(commands!.read(last.id)).toBeUndefined();
+  });
+
   test("关闭最后一个工作区等待后旧指纹不能再授权，共享拨号保留给未关闭的工作区", async () => {
     const srv = await startFakeSsh();
     closers.push(srv.close);

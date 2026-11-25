@@ -21,6 +21,8 @@ import { keyLibraryPackageFile } from "./key-library.js";
 import { registerSshLocalShells, type LaunchLocalPty } from "./local-shell.js";
 import { OutboundProxies, effectiveOutboundProxy, outboundProxyPackageFiles } from "./outbound-proxies.js";
 import { registerOutboundProxies } from "./outbound-proxy-capabilities.js";
+import { registerDeviceProxies } from "./device-proxy-capabilities.js";
+import { DeviceProxies } from "./device-proxies.js";
 import { dialOutboundProxy } from "./outbound-proxy-dial.js";
 import { SshManager } from "./manager.js";
 import { WorkspaceTemplates } from "./workspace-templates.js";
@@ -36,7 +38,8 @@ import { MonitorPlans, monitorForPlan } from "./monitor-plans.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
-import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { authorizedResourceRoute, boundSshRoutes, externalSshOwner, PublicHostView, readBoundRoute, readPortableHosts, readResourceRoute, selectedSshHosts, visibleSshRoutes } from "./public-resources.js";
+import { connectionIdentity } from "./workspace-target.js";
 import { ConnectOwned, DecidePublicProbe, PublicSshProbes } from "./public-probes.js";
 import { PublicExecJobs, type RetainActivity } from "./public-jobs.js";
 import { assertEntryRevision, PublicFileSessions } from "./public-files.js";
@@ -77,6 +80,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const monitorPanels = new MonitorPanels(api.vault.files, hosts);
   const preferences = new SshPreferences(api.vault.files);
   const outboundProxies = new OutboundProxies(api.vault.files, credentialHost);
+  const deviceProxies = credentialHost && new DeviceProxies(credentialHost);
   const assertHostUnused = (id: string) => {
     templates.assertUnused(id);
     forwardRules.assertUnused(id);
@@ -91,6 +95,12 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     publish: (t, p) => api.events.publish(t, p),
     now: () => new Date(),
     connectionPreferences: () => preferences.runtime().connection,
+    ...(deviceProxies && {
+      deviceProxy: {
+        commands: deviceProxies,
+        currentRoute: (hostId: string) => connectionIdentity(readResourceRoute(api.vault.files, hostId).chain),
+      },
+    }),
     outbound: {
       resolve: (host) => effectiveOutboundProxy(api.vault.files, host),
       dial: (proxy, target, signal, assertCurrent) => outboundProxies.dial(proxy, target, signal, dialOutboundProxy, assertCurrent),
@@ -151,6 +161,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
   registerOutboundProxies(api, outboundProxies, hosts);
+  registerDeviceProxies(api, deviceProxies);
   registerHostAuthorities(api, hosts, manager);
   registerShortcuts(api);
   registerSshDraft(api, hosts, manager);
@@ -193,6 +204,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     runs.dispose();
     recordings?.dispose();
     proxyShare.dispose();
+    deviceProxies?.dispose();
     manager.disposeAll();
   });
   if (localShells) ctx.effect(() => () => localShells.dispose());

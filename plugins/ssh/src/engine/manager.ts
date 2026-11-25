@@ -18,6 +18,7 @@ import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
 import { outboundProxyVersion, summarizeOutboundProxy, type EffectiveProxy } from "./outbound-proxies.js";
+import type { DeviceProxies } from "./device-proxies.js";
 
 const hostTrustErrors: Partial<Record<TrustBlock, string>> = {
   revoked: "SSH 主机身份或签发 CA 已撤销",
@@ -58,6 +59,7 @@ export interface SshDeps {
     resolve(host: ManagedHost): EffectiveProxy;
     dial(profile: NonNullable<EffectiveProxy["profile"]>, target: { host: string; port: number }, signal: AbortSignal, assertCurrent: () => void): Promise<Duplex>;
   };
+  deviceProxy?: { commands: DeviceProxies; currentRoute(hostId: string): string };
   decisionTimeoutMs?: number;
 }
 
@@ -345,7 +347,8 @@ export class SshManager {
   }
 
   private routeIdentity(chain: readonly ManagedHost[], outbound = this.d.outbound?.resolve(chain.at(-1)!)): string {
-    return connectionIdentity(chain, outbound && outboundProxyVersion(outbound));
+    const command = this.d.deviceProxy?.commands.read(chain.at(-1)!.id);
+    return connectionIdentity(chain, command ? `command:${command.revision}` : outbound && outboundProxyVersion(outbound));
   }
 
   private connecting = new Map<string, { attempt: Attempt; abort: AbortController; promise: Promise<DialResult>; direct: boolean; workspaces: number }>();
@@ -449,8 +452,15 @@ export class SshManager {
     const defaults = this.d.connectionPreferences?.() ?? defaultVaultPreferences.connection;
     const outbound = attempt.outbound ?? this.d.outbound?.resolve(target);
     const outboundVersion = outbound && outboundProxyVersion(outbound);
+    const device = this.d.deviceProxy;
+    const command = device?.commands.read(target.id);
     const validate = () => {
       (attempt.publicProbe?.validate ?? attempt.draft?.validate)?.();
+      if (device?.commands.read(target.id)?.revision !== command?.revision) throw errors.versionConflict("本机 SSH ProxyCommand 批准已变更");
+      if (command) {
+        if (command.route !== device?.currentRoute(target.id)) throw errors.invalidInput("SSH 路由已变更，请重新批准本机 ProxyCommand");
+        return;
+      }
       const current = this.d.outbound?.resolve(target);
       if ((current && outboundProxyVersion(current)) !== outboundVersion) throw errors.versionConflict("SSH 出站代理已更新");
     };
@@ -458,13 +468,14 @@ export class SshManager {
     let socket: unknown;
     for (const [hop, host] of chain.entries()) {
       attempt.signal.throwIfAborted();
-      validate();
       onHop?.(hop, host);
       if (attempt.route) {
-        const proxy = hop === 0 && outbound ? summarizeOutboundProxy(outbound) : undefined;
+        const proxy = hop === 0 ? (command ? { source: "command" as const } : outbound && summarizeOutboundProxy(outbound)) : undefined;
         attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }) });
         this.trace(attempt, hop, "dialing");
       }
+      if (command && attempt.publicProbe) throw errors.permissionDenied("本机 SSH ProxyCommand");
+      validate();
       const client = new Client();
       opened.push(client);
       const authenticate = async (auth: ConnectionAuth) => {
@@ -474,10 +485,17 @@ export class SshManager {
           keepaliveIntervalSec: host.keepaliveIntervalSec ?? defaults.keepaliveIntervalSec,
           keepaliveCountMax: host.keepaliveCountMax ?? defaults.keepaliveCountMax,
         };
-        if (hop !== 0 || !outbound?.profile || !this.d.outbound) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
+        const proxy = this.d.outbound;
+        const profile = outbound?.profile;
+        const dial = device && command
+          ? (signal: AbortSignal) => device.commands.dial(command, chain, signal, validate)
+          : proxy && profile
+            ? (signal: AbortSignal) => proxy.dial(profile, host, signal, validate)
+            : undefined;
+        if (hop !== 0 || !dial) return this.connectHop(client, host, target, hop, attempt, auth, socket, preferences);
         this.trace(attempt, hop, "proxy");
         const deadline = AbortSignal.any([attempt.signal, AbortSignal.timeout(preferences.connectTimeoutSec * 1000)]);
-        const stream = await this.d.outbound.dial(outbound.profile, host, deadline, validate);
+        const stream = await dial(deadline);
         try {
           deadline.throwIfAborted();
           validate();

@@ -59,6 +59,7 @@ const routeStages: Record<ConnectionHop["stage"], string> = {
 };
 
 function proxyDescription(proxy: OutboundProxySummary): string {
+  if (proxy.source === "command") return "本机批准的 ProxyCommand";
   if (proxy.name) return `${proxy.source === "inherit" ? "Vault 默认代理" : "主机指定代理"} ${proxy.name}（${proxy.protocol === "socks5" ? "SOCKS5" : "HTTP CONNECT"}）`;
   return proxy.source === "inherit" ? "继承 Vault 默认，首段直连" : "按主机设置首段直连";
 }
