@@ -2397,12 +2397,14 @@ test("首页看板通过可信目录添加 Git 和 SSH 卡片，停用后保留 
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
+    const board = page.getByTestId("home-dashboard");
     await page.getByTestId("home-customize").click();
     for (const title of ["版本与同步", "SSH 主机"]) {
       await page.getByRole("button", { name: "添加卡片", exact: true }).click();
       await page.getByRole("button", { name: `添加 ${title}`, exact: true }).click();
     }
-    await page.getByTestId("home-dashboard-save").click();
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status").filter({ hasText: "布局已保存。" })).toBeVisible();
     await expect(page.getByTestId("card-versioning-git")).toBeVisible();
     await expect(page.getByTestId("card-ssh-hosts")).toBeVisible();
     const file = path.join(vault, ".huhu/home/widgets.json");

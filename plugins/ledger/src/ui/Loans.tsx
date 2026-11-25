@@ -1,6 +1,6 @@
 import { Button, DataTable, Dialog, Select } from "@huhu/ui";
-import { createRequestId, useCapability } from "@huhu/workbench";
-import { useRef, useState } from "react";
+import { useCapability } from "@huhu/workbench";
+import { useState } from "react";
 import type { Book } from "../shared/books.js";
 import type { AccountsView } from "../shared/entries.js";
 import type { Loan, LoanHistory, LoanList, LoanPayment } from "../shared/loans.js";
@@ -37,7 +37,6 @@ function History({ loan, readOnly, close, onRecord }: { loan: Loan; readOnly: bo
   const [feedback, setFeedback] = useState("");
   const history = useCapability<LoanHistory>("ledger.loans.previewHistory", { bookId, loanId: id, accountId });
   const action = useLedgerAction();
-  const lastIntent = useRef<{ payload: string; key: string }>(null);
   const candidate = accounts.data?.accounts.filter(({ currency, status }) => currency === definition.currency && status === "active") ?? [];
   const activeAccount = candidate.some(({ id }) => id === accountId);
   const due = history.data?.installments.filter(({ status }) => status === "due").map(({ number }) => number) ?? [];
@@ -46,10 +45,7 @@ function History({ loan, readOnly, close, onRecord }: { loan: Loan; readOnly: bo
 
   async function confirm() {
     if (!history.data || !canSelect || !eligible.length) return;
-    const input = { ...history.data.preview, selected: eligible };
-    const payload = JSON.stringify(input);
-    if (lastIntent.current?.payload !== payload) lastIntent.current = { payload, key: createRequestId() };
-    const payments = await action.run<LoanPayment[]>("ledger.loans.confirmHistory", input, true, lastIntent.current.key);
+    const payments = await action.run<LoanPayment[]>("ledger.loans.confirmHistory", { ...history.data.preview, selected: eligible });
     if (payments) {
       setSelected([]);
       setFeedback(`已确认 ${payments.length} 个所选期次。`);
