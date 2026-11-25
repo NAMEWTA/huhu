@@ -175,7 +175,7 @@ engineTest(
     const save = (expectedRevision: string | null, token: string) => live.client.call<Auth>("sync.auth.configure", { remote: target, expectedRevision, credential: { action: "replace", username: user, token } });
     await live.client.call("sync.update", { remote: target, mode: "full", pullIntervalSec: 3600, pushIntervalSec: 3600 }, { write: true });
     const initial = await save(null, rejected);
-    const config = await live.client.call("sync.get");
+    const config = await live.client.call<{ remote: string; mode: string; revision: string }>("sync.get");
     writeFileSync(path.join(live.vaultPath, "repair.md"), "P4.2 isolated repair fixture");
     expect(await capture(live.client.call("sync.run", { mode: "sync" }, { write: true }))).toBe("GIT_AUTH_FAILED");
     expect(await status()).toMatchObject({ name: "auth-failed", pausedReason: "auth-failed", authPause: { source: "versioning", target, revision: initial.revision, reason: "remote-rejected" } });
@@ -195,7 +195,7 @@ engineTest(
     expect(saved.state).toBe("configured");
     await expect.poll(async () => (await status()).pausedReason, { timeout: 20_000 }).toBeNull();
     expect(await status()).toMatchObject({ name: "idle" });
-    expect(await live.client.call("sync.get")).toEqual(config);
+    expect(await live.client.call("sync.get")).toMatchObject({ remote: config.remote, mode: config.mode, revision: config.revision });
     expect(readFileSync(path.join(live.vaultPath, "incoming.md"), "utf8")).toBe("P4.2 isolated fetch fixture");
     expect(git(path.join(live.remoteRoot, "a.git"), "show", "main:repair.md")).toBe("P4.2 isolated repair fixture");
     const after = endpoint.seen.slice(before);
@@ -346,7 +346,7 @@ engineTest(
     expect([readFileSync(legacy.metadataPath), readFileSync(legacy.sealedPath)]).toEqual(originalLegacy);
     expect((await status()).pausedReason).toBe("auth-failed");
     await live.client.call("sync.update", { pushIntervalSec: 120 }, { write: true });
-    expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual({ ...config, exclude: [], pullIntervalSec: 30, pushIntervalSec: 120, authReconfigurationRequired: true });
+    expect(JSON.parse(readFileSync(configFile, "utf8"))).toEqual({ remote: config.remote, branch: config.branch, exclude: [], authReconfigurationRequired: true });
 
     const saved = await configure(null);
     expect(saved.state).toBe("configured");

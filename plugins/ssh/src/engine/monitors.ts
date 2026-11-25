@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { errors, HuhuError } from "@huhu/contracts";
+import { errors, HuhuError, type PeriodicRunContext, type PeriodicRunOutcome, type PlanSummary } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import type { z } from "zod";
 import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
 import type { MonitorConnection, SshManager } from "./manager.js";
 import type { MonitorPanels, MonitorPanelScope } from "./monitor-panels.js";
+import type { MonitorPlans } from "./monitor-plans.js";
 import { detectPlatform, readSample, SampleError, type Counters, type Platform } from "./monitor-sample.js";
 
 const MAX_POINTS = 1800;
@@ -26,6 +27,7 @@ type Binding = {
   interval: number;
   retention: number;
   enabled: boolean;
+  panelId?: string;
   source?: Source;
   release?: () => void;
   dial?: AbortController;
@@ -57,6 +59,7 @@ export class Monitors {
   constructor(
     private readonly panels: MonitorPanels,
     private readonly manager: SshManager,
+    private readonly plans?: MonitorPlans,
   ) {}
 
   open(input: z.infer<typeof MonitorSessionOpen>): MonitorSession {
@@ -106,21 +109,81 @@ export class Monitors {
 
   dashboard(id: string): MonitorPanelRun | null {
     const entry = this.dashboards.get(id);
-    return entry ? { id, revision: entry.panel.revision, state: entry.state, hosts: entry.bindings.map((binding) => this.view(binding)) } : null;
+    const plan = this.plans?.read(id);
+    return entry ? { id, revision: entry.panel.revision, state: entry.state, hosts: entry.bindings.map((binding) => this.view(binding)), ...(plan && { plan }) } : null;
+  }
+
+  availability(id: string): PlanSummary["availability"] {
+    if (!this.panels.get(id)) return { state: "blocked", reason: "target-unavailable" };
+    const run = this.dashboards.get(id);
+    if (run && run.state !== "stopped" && run.bindings.some(({ source }) => source && !source.failure)) return { state: "ready" };
+    return { state: "blocked", reason: "connection-unavailable", detail: "请在 SSH 面板启动或恢复连接" };
+  }
+
+  applyPlan(id: string): void {
+    const run = this.dashboards.get(id);
+    if (!run || run.state === "stopped") return;
+    const plan = this.plans?.inspect(id);
+    if (!plan || plan.intent === "deleted") {
+      run.state = "stopped";
+      for (const binding of run.bindings) this.disconnect(binding, "stopped");
+      return;
+    }
+    for (const binding of run.bindings) binding.interval = plan.everySeconds;
+    if (plan.intent === "paused" && run.state === "running") {
+      run.state = "paused";
+      for (const binding of run.bindings) this.pause(binding);
+    } else if (plan.intent === "enabled" && run.state === "paused") {
+      this.continueDashboard(run);
+      this.plans?.wake(id);
+    } else {
+      for (const { source } of run.bindings) if (source) this.schedule(source);
+    }
+  }
+
+  suspendPlans(): void {
+    for (const run of this.dashboards.values()) {
+      if (!run.bindings.some(({ panelId }) => panelId)) continue;
+      run.state = "stopped";
+      for (const binding of run.bindings) this.disconnect(binding, "stopped");
+    }
+  }
+
+  async sampleDashboard(id: string, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void> {
+    const run = this.dashboards.get(id);
+    if (run?.state !== "running" || !context.isCurrent()) return "skipped";
+    const sources = new Set(run.bindings.flatMap(({ source }) => source && !source.failure ? [source] : []));
+    const samples = await Promise.allSettled([...sources].map(async (source) => {
+      const period = this.period(source);
+      if (!period || source.request || (source.requestedAt !== undefined && Date.now() - source.requestedAt + 100 < period * 1_000)) return false;
+      await this.sample(source);
+      if (source.failure) throw source.failure;
+      return true;
+    }));
+    for (const sample of samples) if (sample.status === "rejected") throw sample.reason;
+    if (!samples.some((sample) => sample.status === "fulfilled" && sample.value)) return "skipped";
   }
 
   save(input: SaveMonitorPanel, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.serial(async () => {
-      const saved = await this.panels.save(input, signal, scope && this.inactiveScope(scope));
+      const plan = !scope && input.previous ? this.plans?.inspect(input.previous.id) : null;
+      if (input.previous && !scope) this.plans?.check(input.previous.id, input.expectedPlanRevision);
+      const previous = plan && input.previous ? this.panels.require(input.previous) : null;
+      const saved = await this.panels.save(previous ? { ...input, interval: previous.interval } : input, signal, scope && this.inactiveScope(scope));
       this.clearDashboard(saved.id);
-      return saved;
+      if (plan && plan.intent !== "deleted") await this.plans?.set(saved, "paused", signal, plan.revision, input.interval);
+      return !scope && this.plans ? this.plans.project(saved) : saved;
     });
   }
 
   delete(input: z.infer<typeof MonitorPanelRevision>, signal: AbortSignal, scope?: MonitorPanelScope) {
     return this.serial(async () => {
+      const plan = !scope && this.plans?.inspect(input.id);
+      const panel = plan && this.panels.require(input);
+      if (panel && plan.intent !== "deleted") this.plans?.check(input.id, plan.revision);
       const result = await this.panels.delete(input, signal, scope && this.inactiveScope(scope));
       this.clearDashboard(input.id);
+      if (panel && plan && plan.intent !== "deleted") await this.plans?.set(panel, "deleted", signal, plan.revision);
       return result;
     });
   }
@@ -139,24 +202,30 @@ export class Monitors {
       signal.throwIfAborted();
       const panel = this.panels.require(input);
       let run = this.dashboards.get(panel.id);
+      this.plans?.check(panel.id, input.expectedPlanRevision);
       if (input.action === "start" && (!run || run.state === "stopped")) {
         if ([...this.dashboards.values()].filter(({ state }) => state !== "stopped").length >= 8) throw errors.invalidInput("最多同时打开 8 个监控面板");
-        const bindings = panel.hostIds.map((hostId) => this.binding(hostId, panel.interval, panel.retention));
+        await this.plans?.set(panel, "enabled", signal, input.expectedPlanRevision);
+        signal.throwIfAborted();
+        const plan = this.plans?.inspect(panel.id);
+        if (this.plans && plan?.intent !== "enabled") return this.dashboard(panel.id);
+        const interval = plan?.everySeconds ?? panel.interval;
+        const bindings = panel.hostIds.map((hostId) => this.binding(hostId, interval, panel.retention));
+        if (this.plans) for (const binding of bindings) binding.panelId = panel.id;
         if (acquire) for (const binding of bindings) binding.acquire = () => acquire(binding.host.hostId);
         run = { panel, state: "running", bindings };
         this.dashboards.set(panel.id, run);
         for (const binding of bindings) this.dial(binding);
       } else if (run && input.action === "pause" && run.state === "running") {
+        await this.plans?.set(panel, "paused", signal, input.expectedPlanRevision);
         run.state = "paused";
         for (const binding of run.bindings) this.pause(binding);
       } else if (run && input.action === "continue" && run.state === "paused") {
-        run.state = "running";
-        for (const binding of run.bindings) {
-          if (binding.host.state !== "paused") continue;
-          if (binding.source) this.resume(binding);
-          else this.dial(binding);
-        }
+        await this.plans?.set(panel, "enabled", signal, input.expectedPlanRevision);
+        this.continueDashboard(run);
+        this.plans?.wake(panel.id);
       } else if (run && input.action === "stop") {
+        if (run.state !== "stopped") await this.plans?.set(panel, "paused", signal, input.expectedPlanRevision);
         run.state = "stopped";
         for (const binding of run.bindings) this.disconnect(binding, "stopped");
       } else if (run?.state === "running" && input.action === "retry") {
@@ -167,6 +236,15 @@ export class Monitors {
       }
       return this.dashboard(panel.id);
     });
+  }
+
+  private continueDashboard(run: Dashboard): void {
+    run.state = "running";
+    for (const binding of run.bindings) {
+      if (binding.host.state !== "paused") continue;
+      if (binding.source) this.resume(binding);
+      else this.dial(binding);
+    }
   }
 
   dispose() {
@@ -271,6 +349,7 @@ export class Monitors {
     };
     Object.assign(host, { connectionId: source.id, state: source.failure?.phase ?? "sampling", message: source.failure?.message, prompt: undefined, platform: source.platform });
     this.schedule(source);
+    if (binding.panelId) this.plans?.wake(binding.panelId);
   }
 
   private pause(binding: Binding) {
@@ -305,6 +384,7 @@ export class Monitors {
         Object.assign(user.host, { state: "sampling", message: undefined });
       }
     this.schedule(source);
+    if (binding.panelId) this.plans?.wake(binding.panelId);
   }
 
   private disconnect(binding: Binding, state: "disconnected" | "stopped") {
@@ -359,22 +439,22 @@ export class Monitors {
     if (binding.host.latest && binding.host.latest.at < cutoff) delete binding.host.latest;
   }
 
-  private period(source: Source) {
-    const intervals = [...source.users].filter(({ enabled }) => enabled).map(({ interval }) => interval);
+  private period(source: Source, leaseOnly = false) {
+    const intervals = [...source.users].filter(({ enabled, panelId }) => enabled && (!leaseOnly || !panelId)).map(({ interval }) => interval);
     return intervals.length ? Math.min(...intervals) : undefined;
   }
 
   private schedule(source: Source) {
     clearTimeout(source.timer);
     source.timer = undefined;
-    const period = this.period(source);
-    if (!period || this.disposed) {
+    if (!this.period(source) || this.disposed) {
       source.request?.abort();
       source.previous = undefined;
       source.requestedAt = undefined;
       return;
     }
-    if (source.request || source.failure) return;
+    const period = this.period(source, true);
+    if (!period || source.request || source.failure) return;
     const wait = source.requestedAt === undefined ? 0 : Math.max(0, source.requestedAt + period * 1000 - Date.now());
     source.timer = setTimeout(() => void this.sample(source), wait);
     source.timer.unref();

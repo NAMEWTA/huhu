@@ -18,6 +18,7 @@ export function PlanScheduleControls({ plan, changed }: { plan: PlanSummary; cha
   const [editRevision, setEditRevision] = useState<string | null>(null);
   const [scheduledFor, setScheduledFor] = useState<string | null>(null);
   const [every, setEvery] = useState("");
+  const [unit, setUnit] = useState<"seconds" | "minutes">("seconds");
   const [cron, setCron] = useState("");
   const [zone, setZone] = useState("");
 
@@ -50,17 +51,28 @@ export function PlanScheduleControls({ plan, changed }: { plan: PlanSummary; cha
   const writable = !busy && pending === null;
   const showError = error && !editing && !deleting;
   const trigger = plan.trigger;
+  const bounds = plan.intervalBounds;
+  const scale = unit === "minutes" ? 60 : 1;
+  const seconds = Number(every) * scale;
+  const validInterval = Number.isInteger(Number(every)) && seconds >= (bounds?.min ?? 1) && seconds <= (bounds?.max ?? 86_400)
+    && (!bounds || (seconds % bounds.step === 0 && (!bounds.allowed || bounds.allowed.includes(seconds))));
   const next: PlanTrigger | null = trigger.kind === "once" && scheduledFor ? { ...trigger, scheduledFor }
     : trigger.kind === "observe" && Number.isInteger(Number(every)) && Number(every) >= 1 && Number(every) <= 86_400 ? { ...trigger, everySeconds: Number(every) }
+    : trigger.kind === "interval" && validInterval ? { ...trigger, every: Number(every), unit }
     : trigger.kind === "cron" && cron.trim() && zone.trim() ? { ...trigger, expression: cron.trim(), zone: zone.trim() } : null;
   return (
     <>
       <div className="row">
-        {plan.actions.includes("reschedule") && (trigger.kind === "once" || trigger.kind === "observe" || trigger.kind === "cron") ? <Button disabled={!writable} onClick={() => {
+        {plan.actions.includes("reschedule") && (trigger.kind === "once" || trigger.kind === "observe" || trigger.kind === "interval" || trigger.kind === "cron") ? <Button disabled={!writable} onClick={() => {
           setError("");
           setEditRevision(plan.revision);
           if (trigger.kind === "once") setScheduledFor(trigger.scheduledFor);
           if (trigger.kind === "observe") setEvery(String(trigger.everySeconds));
+          if (trigger.kind === "interval") {
+            const allowed = plan.intervalBounds?.allowed;
+            setEvery(String(allowed && trigger.unit === "minutes" ? trigger.every * 60 : trigger.every));
+            setUnit(allowed ? "seconds" : trigger.unit);
+          }
           if (trigger.kind === "cron") { setCron(trigger.expression); setZone(trigger.zone); }
           setEditing(true);
         }}>改期</Button> : null}
@@ -89,6 +101,16 @@ export function PlanScheduleControls({ plan, changed }: { plan: PlanSummary; cha
         {deleting ? <p>{plan.title}</p> : trigger.kind === "once" ? <DateTimePicker label="触发时间" field={{ kind: "instant", value: scheduledFor }} clearable={false}
           disabled={!writable} onChange={(value) => { if (value.kind === "instant") setScheduledFor(value.value); }} />
           : trigger.kind === "observe" ? <label>检查间隔（秒） <input value={every} type="number" min={1} max={86400} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
+          : trigger.kind === "interval" && bounds?.allowed ? <label>执行间隔 <select value={every} disabled={!writable} onChange={(event) => setEvery(event.target.value)}>
+            {bounds.allowed.map((value) => <option key={value} value={value}>{value} 秒</option>)}
+          </select></label>
+          : trigger.kind === "interval" ? <>
+            <label>执行间隔 <input value={every} type="number" min={Math.ceil((bounds?.min ?? 1) / scale)} max={Math.floor((bounds?.max ?? 86_400) / scale)}
+              step={Math.max(1, (bounds?.step ?? 1) / scale)} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
+            <label>间隔单位 <select value={unit} disabled={!writable} onChange={(event) => setUnit(event.target.value === "minutes" ? "minutes" : "seconds")}>
+              <option value="seconds">秒</option><option value="minutes">分钟</option>
+            </select></label>
+          </>
           : trigger.kind === "cron" ? <>
             <label>Cron 表达式 <input value={cron} disabled={!writable} onChange={(event) => setCron(event.target.value)} /></label>
             <label>时区 <input value={zone} disabled={!writable} onChange={(event) => setZone(event.target.value)} /></label>

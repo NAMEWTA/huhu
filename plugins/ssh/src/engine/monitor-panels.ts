@@ -48,7 +48,7 @@ export class MonitorPanels {
     return this.hosts.withStableDirectory(async () => {
       this.files.assertWritable();
       const { panels, version } = this.read();
-      const { previous, ...draft } = input;
+      const { previous, expectedPlanRevision: _planRevision, ...draft } = input;
       const current = previous && panels.find(({ id }) => id === previous.id);
       scope?.(current);
       const old = previous && this.match(current, previous.expectedRevision);

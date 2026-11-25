@@ -231,7 +231,7 @@ async function withMailboxFixture(
       defineCapability: (entry: CapabilityDefinition) => bindings.set(entry.name, entry),
     } as unknown as HuhuApi;
     const context = { effect: (register: () => () => Promise<void>) => cleanup.push(register()) } as unknown as Context;
-    await apply(context, api, owner, undefined, { schedule: () => () => {} });
+    await apply(context, api, owner);
     const signal = new AbortController().signal;
     await run({
       vault,

@@ -7,6 +7,7 @@ import { CREATION_STAGE_PREFIX, directoryInstance, resolveInVault, versionOf } f
 import { z } from "zod";
 import { canSendAuthentication } from "../shared/git-auth.js";
 import { askpassCommand, openAskpass, scrubEnvironment } from "./askpass.js";
+import type { AutoSyncConfig } from "./auto-sync.js";
 import { SyncConflicts, type ConflictHooks, type Resolution } from "./conflicts/conflicts.js";
 import { loadSession } from "./conflicts/session.js";
 import { GitRunner, gitCancelled } from "./git.js";
@@ -133,6 +134,7 @@ export class VaultSync {
     private readonly credentials?: GitRemoteCredentials,
     private readonly readOnly = false,
     snapshots?: SafeGitSnapshots,
+    private readonly planConfig?: () => AutoSyncConfig,
   ) {
     // 文件名里的 * ? [ 不是通配符：否则排除的 xsecret.md 会被纳入文件 `x*` 的 pathspec 一并加入
     this.git = new GitRunner({ workTree: root, env: { GIT_LITERAL_PATHSPECS: "1", GIT_NO_REPLACE_OBJECTS: "1" } });
@@ -189,18 +191,29 @@ export class VaultSync {
     return resolveInVault(this.root, ".huhu/sync/config.json");
   }
 
-  private readConfig(): StoredSyncConfig {
+  private readConfig(legacy = false): StoredSyncConfig {
     try {
       const raw = JSON.parse(readFileSync(this.cfgFile(), "utf8")) as Partial<SyncConfig> & { credential?: unknown; authReconfigurationRequired?: unknown };
       const c = { ...DEFAULT_SYNC, ...raw };
       // 手改文件写出的非法间隔回退默认值，避免调度器拿到 NaN
       for (const k of ["pullIntervalSec", "pushIntervalSec"] as const) if (!Number.isInteger(c[k]) || c[k] < 30 || c[k] > 3600) c[k] = DEFAULT_SYNC[k];
-      const config = SyncConfigSchema.parse(c);
+      const config = SyncConfigSchema.parse({ ...c, ...(!legacy && this.planConfig?.()) });
       // 旧字段只用来判断是否需要补配，任何值都不进入能力输出或网络路径。
       const authReconfigurationRequired = c.authReconfigurationRequired === true || (typeof c.credential === "string" && c.credential.trim().length > 0);
       return { config, authReconfigurationRequired };
     } catch {
-      return { config: { ...DEFAULT_SYNC }, authReconfigurationRequired: false };
+      return { config: { ...DEFAULT_SYNC, ...(!legacy && this.planConfig?.()) }, authReconfigurationRequired: false };
+    }
+  }
+
+  legacyPlanConfig(): AutoSyncConfig | null {
+    try {
+      const data: unknown = JSON.parse(readFileSync(this.cfgFile(), "utf8"));
+      if (!data || typeof data !== "object" || !("mode" in data || "pullIntervalSec" in data || "pushIntervalSec" in data)) return null;
+      const { mode, pullIntervalSec, pushIntervalSec } = this.readConfig(true).config;
+      return { mode, pullIntervalSec, pushIntervalSec };
+    } catch {
+      return null;
     }
   }
 
@@ -222,6 +235,12 @@ export class VaultSync {
   }
 
   update(patch: z.input<typeof SyncConfigPatch>): SyncConfig {
+    const { config, stored } = this.prepareConfig(patch);
+    this.saveConfig(stored);
+    return config;
+  }
+
+  private prepareConfig(patch: z.input<typeof SyncConfigPatch>) {
     this.requireWritable();
     const { config: previous, authReconfigurationRequired } = this.readConfig();
     const next = { ...previous, ...patch } as SyncConfig;
@@ -239,7 +258,12 @@ export class VaultSync {
     if (!/^[A-Za-z0-9._/-]+$/.test(next.branch) || next.branch.startsWith("-")) throw errors.invalidInput("分支名无效");
     const config = SyncConfigSchema.parse(next);
     const sameTarget = config.remote === previous.remote || (isPlainSyncRemote(previous.remote) && config.remote === httpTarget(previous.remote));
-    const stored = authReconfigurationRequired && sameTarget && httpTarget(config.remote) ? { ...config, authReconfigurationRequired: true } : config;
+    const domain = this.planConfig ? { remote: config.remote, branch: config.branch, exclude: config.exclude } : config;
+    const stored = authReconfigurationRequired && sameTarget && httpTarget(config.remote) ? { ...domain, authReconfigurationRequired: true } : domain;
+    return { config, stored };
+  }
+
+  private saveConfig(stored: object): void {
     const configFile = this.cfgFile();
     mkdirSync(path.dirname(configFile), { recursive: true });
     const temporary = `${configFile}.${randomUUID()}.tmp`;
@@ -249,26 +273,31 @@ export class VaultSync {
     } finally {
       rmSync(temporary, { force: true });
     }
-    return config;
   }
 
-  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal, expectedRevision?: string, check?: () => void): Promise<SyncConfig & { revision?: string }> {
+  updateConfig(patch: z.input<typeof SyncConfigPatch>, signal?: AbortSignal, expectedRevision?: string, check?: () => void,
+    updatePlans?: (next: SyncConfig) => Promise<void>, restricted = expectedRevision !== undefined,
+  ): Promise<SyncConfig & { revision?: string }> {
     return this.exclusive(async () => {
       if (this.signal(signal).aborted) throw gitCancelled();
       if (expectedRevision !== undefined) {
         const { revision } = this.toolConfig();
         if (revision !== expectedRevision) throw errors.versionConflict(revision);
-        const previous = this.config();
-        const remote = toolRemote(patch.remote ?? previous.remote);
-        if ((patch.mode ?? previous.mode) !== "off") {
-          if (!remote) throw errors.invalidInput("自动同步需要已配置的 Git 远端");
-          await new VaultGit(this.root).toolIdentity();
-          if (this.toolConfig().revision !== expectedRevision) throw errors.versionConflict(this.toolConfig().revision);
+        if (restricted) {
+          const previous = this.config();
+          const remote = toolRemote(patch.remote ?? previous.remote);
+          if ((patch.mode ?? previous.mode) !== "off") {
+            if (!remote) throw errors.invalidInput("自动同步需要已配置的 Git 远端");
+            await new VaultGit(this.root).toolIdentity();
+            if (this.toolConfig().revision !== expectedRevision) throw errors.versionConflict(this.toolConfig().revision);
+          }
         }
       }
       check?.();
-      const next = this.update(patch);
-      return expectedRevision === undefined ? next : this.toolConfig();
+      const { config, stored } = this.prepareConfig(patch);
+      await updatePlans?.(config);
+      this.saveConfig(stored);
+      return restricted ? this.toolConfig() : this.config();
     });
   }
 
@@ -655,19 +684,19 @@ export class VaultSync {
     return this.exclusive(() => this.runLocked(mode, this.signal(signal), undefined, undefined, expected, check));
   }
 
-  runAutomatic(mode: "pull" | "sync", isCurrent: () => boolean, repair?: VersioningAuth): Promise<boolean> {
+  runAutomatic(mode: "pull" | "sync", isCurrent: () => boolean, repair?: VersioningAuth, planSignal?: AbortSignal): Promise<boolean> {
     // 与配置保存共用队列，拿到执行权后再次确认当前修订。
     return this.exclusive(async () => {
       const stored = this.readConfig();
       const c = stored.config;
-      const signal = this.signal();
+      const signal = this.signal(planSignal);
       if (!isCurrent() || signal.aborted || this.readOnly || loadSession(this.root) || c.mode === "off" || (mode === "sync" && c.mode !== "full")) return false;
       if (!repair) {
-        await this.runLocked(mode, signal, stored);
+        await this.runLocked(mode, signal, stored, undefined, undefined, () => { if (!isCurrent()) throw gitCancelled(); });
       } else {
         const auth = await this.networkAuth(stored);
         if (!isCurrent() || signal.aborted || auth?.scope.target !== repair.target || auth.scope.revision !== repair.revision || auth.summary.state !== "configured") return false;
-        await this.runLocked(mode, signal, stored, auth);
+        await this.runLocked(mode, signal, stored, auth, undefined, () => { if (!isCurrent()) throw gitCancelled(); });
       }
       return true;
     });

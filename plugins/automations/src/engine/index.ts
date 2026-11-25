@@ -5,7 +5,7 @@ import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDefinition, type CapabilityDescriptor, type FocusDeadlinePort, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
 import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
-import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller, type TaskActivityQuery } from "@huhu/contracts";
+import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, periodicPlanSourceService, type PeriodicPlanSource, type TaskActivityQuery } from "@huhu/contracts";
 import { z } from "zod";
 import { DEFAULT_TASK_SCAN_RULE_ID, DEFAULT_TASK_SCAN_SERVICE, DefaultTaskScan } from "./default-task-scan.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
@@ -13,6 +13,7 @@ import { FollowUpCancelInput, FollowUpLookup, FollowUps, FollowUpScheduleInput, 
 import { FocusDeadlinePlans } from "./focus-deadline.js";
 import { HoldStore } from "./holds.js";
 import { ObservationPlans, type ObservationStatus } from "./observations.js";
+import { PeriodicPlans } from "./periodic-plans.js";
 import { planDescriptors, registerPlanCatalogue } from "./plans.js";
 import { ReminderDeliveries, type ReminderNotifications } from "./reminder-deliveries.js";
 import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schemas.js";
@@ -252,10 +253,11 @@ export interface AutomationsOptions {
   /** 配合 Engine 静态登记任务扫描描述，复查已认证身份是否仍可用。 */
   taskScanPrincipalCurrent?: TaskScanPrincipalCheck;
   schedule?: boolean;
+  periodicClock?: { now(): number };
   now?: () => Date;
 }
 
-export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler } {
+export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {}): { service: AutomationsService; scheduler: Scheduler; periodic: PeriodicPlans } {
   const mid = machineId();
   const now = opts.now ?? (() => new Date());
   const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -334,6 +336,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
   );
+  const periodic = new PeriodicPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner }, svc,
+    ["mail", "versioning", "ssh"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
+    (id, sourcePlugin, kind) => api.events.publish("entity.changed", { kind, id, sourcePlugin, op: "updated" }));
+  api.provide(PERIODIC_PLANS_SERVICE, periodic);
   type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };
   type AgentObservation = { status(id: string): Promise<ObservationStatus> };
   const observations = new ObservationPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid }, svc, () => reminders,
@@ -391,6 +397,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     const checkDeadlinesAndObservations = () => {
       focus?.tick();
       void observations.tick();
+      void periodic.tick().catch(() => undefined);
     };
     const observationTimer = opts.schedule === false ? undefined : setInterval(checkDeadlinesAndObservations, 1_000);
     if (observationTimer) checkDeadlinesAndObservations();
@@ -398,7 +405,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       clearInterval(timer);
       clearInterval(observationTimer);
       followUps.close();
-      return Promise.all([taskReminders.close(), observations.close(), focus?.close(), reminders?.close()]).then(() => undefined);
+      return Promise.all([taskReminders.close(), observations.close(), periodic.close(), focus?.close(), reminders?.close()]).then(() => undefined);
     };
   });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
@@ -503,7 +510,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   };
   const activations = () => [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])];
   const readCronOccurrence = (id: string) => scans.readPlanOccurrence(id) ?? reminders?.readPlanOccurrence(id) ?? null;
-  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule });
+  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, periodic, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {
@@ -593,5 +600,5 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       return { cancelled, state: cancelled ? "cancelling" : typeof data.state === "string" ? data.state : "unknown" };
     }),
   );
-  return { service: svc, scheduler };
+  return { service: svc, scheduler, periodic };
 }

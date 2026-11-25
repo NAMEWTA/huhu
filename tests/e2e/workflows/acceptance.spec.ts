@@ -1803,6 +1803,34 @@ test("F28：关联任务的周期提醒在任务来源和中心使用同一计�
   }
 });
 
+test("MailPlan：邮件设置和自动化中心管理同一周期同步计划", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect(await call("mail.sync.settings")).toMatchObject({ ok: true, data: { minutes: 0, plan: null } });
+    expect(await call("mail.sync.setInterval", { minutes: 5, expectedRevision: null })).toMatchObject({ ok: true });
+    const { planId, revision } = (await call("mail.sync.settings")).data.plan;
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    const row = page.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`);
+    await expect(row).toContainText("每 5 分钟");
+    await row.getByRole("button", { name: "改期" }).click();
+    const dialog = page.getByRole("dialog", { name: "更改计划时间" });
+    await dialog.getByLabel("执行间隔").fill("10");
+    await dialog.getByRole("button", { name: "保存" }).click();
+    await expect(row).toContainText("每 10 分钟");
+    const updated = await call("mail.sync.settings");
+    expect(updated.data).toMatchObject({ minutes: 10, plan: { planId } });
+    expect(updated.data.revision).not.toBe(revision);
+    await row.getByRole("button", { name: "暂停" }).click();
+    await expect(row).toContainText("已暂停");
+    expect(await call("mail.sync.settings")).toMatchObject({ data: { minutes: 0, plan: { planId, intent: "paused" } } });
+  } finally {
+    await close();
+  }
+});
+
 test("F32：桌面和两个获邀 Web 页面切离专注卡片后由 Engine 到点结算", async () => {
   test.setTimeout(120_000);
   const { page, close } = await openApp();
@@ -2512,6 +2540,32 @@ test("AR-16 随包 demo vault：能看到“通讯录”示例，双链与被链
     await expect(page.getByTestId("archive-fields").getByLabel("电话")).toHaveValue("13800000000");
     await expect(page.getByTestId("archive-backlink").filter({ hasText: "双链示例" })).toBeVisible();
     await expect(page.getByTestId("archive-file").filter({ hasText: "会议记录" })).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("GitPlan：完整同步与拉取在中心各有一个可修改的计划", async () => {
+  const { page, close } = await openApp();
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    const settings = await call("sync.get");
+    expect(await call("sync.update", { expectedRevision: settings.data.revision, mode: "full", pullIntervalSec: 60, pushIntervalSec: 120 })).toMatchObject({ ok: true });
+    const { pull, sync } = (await call("sync.get")).data.periodics;
+    expect(pull.planId).not.toBe(sync.planId);
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    const directory = page.getByTestId("plan-directory");
+    await expect(directory.locator(`[data-plan-id="${pull.planId}"]`)).toContainText("每 1 分钟");
+    await expect(directory.locator(`[data-plan-id="${sync.planId}"]`)).toContainText("每 2 分钟");
+    const intentId = randomUUID();
+    expect(await call("automations.plans.submit", {
+      planId: pull.planId, expectedRevision: pull.revision, intentId, change: "set-intent", intent: "paused",
+    }, intentId)).toMatchObject({ ok: true, data: { outcome: "completed" } });
+    expect(await call("sync.get")).toMatchObject({ ok: true, data: { periodics: {
+      pull: { planId: pull.planId, intent: "paused" }, sync: { planId: sync.planId, intent: "enabled" },
+    } } });
   } finally {
     await close();
   }

@@ -1,3 +1,4 @@
+import { PlanSummarySchema } from "@huhu/contracts";
 import { z } from "zod";
 import { HostKeyPrompt } from "./trust.js";
 
@@ -19,9 +20,10 @@ const panel = {
   interval: PanelInterval,
   retention: Retention,
 };
-export const SaveMonitorPanel = z.strictObject({ ...panel, previous: MonitorPanelRevision.optional() });
+const planRevision = { expectedPlanRevision: z.string().nullable().optional() };
+export const SaveMonitorPanel = z.strictObject({ ...panel, previous: MonitorPanelRevision.optional(), ...planRevision });
 export type SaveMonitorPanel = z.infer<typeof SaveMonitorPanel>;
-export const MonitorPanel = z.strictObject({ ...panel, id: z.uuid(), revision: z.uuid() });
+export const MonitorPanel = z.strictObject({ ...panel, id: z.uuid(), revision: z.uuid(), plan: PlanSummarySchema.optional() });
 export type MonitorPanel = z.infer<typeof MonitorPanel>;
 
 export const MonitorSessionOpen = z.strictObject({ hostId: z.string().min(1), shellId: z.string().min(1), interval: SessionInterval });
@@ -31,8 +33,8 @@ export const MonitorSessionChange = z.discriminatedUnion("action", [
   MonitorSessionId.extend({ action: z.literal("interval"), interval: SessionInterval }),
 ]);
 export const MonitorPanelChange = z.discriminatedUnion("action", [
-  MonitorPanelRevision.extend({ action: z.enum(["start", "pause", "continue", "stop"]) }),
-  MonitorPanelRevision.extend({ action: z.literal("retry"), hostId: z.string().min(1) }),
+  MonitorPanelRevision.extend({ action: z.enum(["start", "pause", "continue", "stop"]), ...planRevision }),
+  MonitorPanelRevision.extend({ action: z.literal("retry"), hostId: z.string().min(1), ...planRevision }),
 ]);
 
 export const MonitorSample = z.object({
@@ -61,7 +63,7 @@ export const MonitorHost = z.object({
 export type MonitorHost = z.infer<typeof MonitorHost>;
 export const MonitorSession = MonitorSessionId.extend({ interval: SessionInterval, host: MonitorHost, source: z.literal("external").optional() });
 export type MonitorSession = z.infer<typeof MonitorSession>;
-export const MonitorPanelRun = z.object({ id: z.uuid(), revision: z.uuid(), state: z.enum(["running", "paused", "stopped"]), hosts: z.array(MonitorHost) });
+export const MonitorPanelRun = z.object({ id: z.uuid(), revision: z.uuid(), state: z.enum(["running", "paused", "stopped"]), hosts: z.array(MonitorHost), plan: PlanSummarySchema.optional() });
 export type MonitorPanelRun = z.infer<typeof MonitorPanelRun>;
 
 export const MonitorTool = z.enum(["processes", "containers"]);

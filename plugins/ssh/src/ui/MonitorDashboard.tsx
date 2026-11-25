@@ -37,7 +37,7 @@ function Editor({ previous, directory, error, busy, close, save }: { previous?: 
       hostIds: chosen,
       interval: Number(data.get("interval")),
       retention: Number(data.get("retention")),
-      ...(previous && { previous: revision(previous) }),
+      ...(previous && { previous: revision(previous), expectedPlanRevision: previous.plan?.revision ?? null }),
     });
     if (!parsed.success) {
       setValidation("请填写面板名称并选择 1 至 12 台主机。");
@@ -201,7 +201,8 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
   }
   function command(action: Action | "retry", hostId?: string) {
     if (!current) return;
-    const request: z.infer<typeof MonitorPanelChange> = action === "retry" ? { ...revision(current), action, hostId: hostId! } : { ...revision(current), action };
+    const ref = { ...revision(current), expectedPlanRevision: current.plan?.revision ?? null };
+    const request: z.infer<typeof MonitorPanelChange> = action === "retry" ? { ...ref, action, hostId: hostId! } : { ...ref, action };
     void call("ssh.monitor.panels.change", request);
   }
   return (

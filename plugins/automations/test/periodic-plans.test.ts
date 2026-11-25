@@ -1,0 +1,88 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { PeriodicPlanSource, PeriodicPlanSpec } from "@huhu/contracts";
+import { VaultFiles } from "@huhu/vault";
+import { expect, test, vi } from "vitest";
+import { PeriodicPlans } from "../src/engine/periodic-plans.js";
+
+test("managed periods serialize admission, preserve tombstones and fence each occurrence to its owner and revision", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-periodic-plans-"));
+  const apps: PeriodicPlans[] = [];
+  const files = new VaultFiles(root);
+  const controller = new AbortController();
+  let now = Date.UTC(2026, 10, 25);
+  let complete = () => {};
+  let tail: Promise<unknown> = Promise.resolve();
+  const object = { kind: "fixture", id: "sample" };
+  const legacy = {
+    planId: "fixture-periodic", title: "fixture", source: { plugin: "fixture", object },
+    action: { capability: "fixture.read", object, summary: "fixture read" }, everySeconds: 2, intent: "enabled",
+  } satisfies PeriodicPlanSpec;
+  const run = vi.fn<PeriodicPlanSource["run"]>(async (_plan, { signal }) => {
+    await new Promise<void>((resolve, reject) => {
+      complete = resolve;
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  });
+  const port = { signal: controller.signal, legacy: () => [legacy], run };
+  const rules = {
+    withRuleConfiguration<T>(operation: () => Promise<T> | T) {
+      const next = tail.then(operation);
+      tail = next.catch(() => undefined);
+      return next;
+    },
+  };
+  const make = (instance: string) => {
+    const plans = new PeriodicPlans(files, { vaultId: "vault", machineId: "machine", instance }, rules, ["fixture"], () => port, { now: () => now }, () => {});
+    apps.push(plans);
+    return plans;
+  };
+  try {
+    const plans = make("owner");
+    await plans.tick();
+    const enabled = plans.read(legacy.planId)!;
+    now += 2_000;
+    await plans.tick();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const first = plans.read(legacy.planId)!.lastOccurrence!.occurrenceId;
+    expect(plans.readOccurrence(first)?.state).toBe("running");
+    now += 6_000;
+    await plans.tick();
+    expect(run).toHaveBeenCalledTimes(1);
+
+    const foreign = make("foreign");
+    expect(foreign.read(legacy.planId)).toMatchObject({ actions: [], availability: { state: "blocked", reason: "foreign-owner" } });
+    expect(foreign.readOccurrence(first)?.state).toBe("unknown");
+    await foreign.tick();
+    expect(run).toHaveBeenCalledTimes(1);
+
+    const signal = new AbortController().signal;
+    const [rescheduled] = await plans.configure([{ ...legacy, everySeconds: 5, expectedRevision: enabled.revision }], signal);
+    expect(run.mock.calls[0]?.[1].signal.aborted).toBe(true);
+    await vi.waitFor(() => expect(plans.readOccurrence(first)?.state).toBe("unknown"));
+    await plans.tick();
+    now += 5_000;
+    await plans.tick();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    const second = plans.read(legacy.planId)!.lastOccurrence!.occurrenceId;
+    expect(second).not.toBe(first);
+    expect(plans.readOccurrence(first)?.state).toBe("unknown");
+    complete();
+    await vi.waitFor(() => expect(plans.readOccurrence(second)?.state).toBe("completed"));
+
+    await plans.configure([{ ...legacy, intent: "deleted", everySeconds: 5, expectedRevision: rescheduled!.revision }], signal);
+    await plans.close();
+    const reopened = make("owner");
+    now += 60_000;
+    await reopened.tick();
+    expect(reopened.list()).toEqual([]);
+    expect(reopened.read(legacy.planId)?.intent).toBe("deleted");
+    expect(reopened.readOccurrence(first)?.state).toBe("unknown");
+    expect(reopened.readOccurrence(second)?.state).toBe("completed");
+    expect(run).toHaveBeenCalledTimes(2);
+  } finally {
+    await Promise.all(apps.map((plans) => plans.close()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});

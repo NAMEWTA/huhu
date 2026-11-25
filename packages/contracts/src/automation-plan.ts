@@ -28,6 +28,10 @@ export const PlanTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type PlanTrigger = z.infer<typeof PlanTriggerSchema>;
 
+const intervalBounds = z.strictObject({
+  min: z.int().positive(), max: z.int().positive(), step: z.int().positive(), allowed: z.array(z.int().positive()).min(1).optional(),
+});
+
 const blockedReason = z.enum(["plugin-disabled", "read-only", "foreign-owner", "credentials-unavailable", "connection-unavailable", "domain-conflict", "target-unavailable"]);
 const availability = z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("ready") }),
@@ -48,6 +52,7 @@ export const PlanSummarySchema = PlanRefSchema.extend({
   intent,
   availability,
   trigger: PlanTriggerSchema,
+  intervalBounds: intervalBounds.optional(),
   createdAt: instant,
   updatedAt: instant,
   nextAt: instant.nullable(),
@@ -140,3 +145,41 @@ export interface PlanDirectory {
 export interface TaskActivityQuery {
   readTaskActivity(taskId: string, signal: AbortSignal): Promise<TaskActivity | null>;
 }
+
+/** Existing source actions, executed by Automations under one plan revision. */
+export const PeriodicPlanSpecSchema = z.strictObject({
+  planId: id,
+  source: PlanSourceSchema,
+  title: z.string().min(1).max(200),
+  everySeconds: z.int().min(1).max(86_400),
+  bounds: intervalBounds.optional(),
+  action,
+  intent,
+});
+export type PeriodicPlanSpec = z.infer<typeof PeriodicPlanSpecSchema>;
+export type PeriodicPlanChange = PeriodicPlanSpec & { expectedRevision: string | null };
+export type PeriodicRunOutcome = "skipped" | "failed";
+export type PeriodicRunContext = PlanRef & {
+  occurrenceId: string;
+  scheduledFor: string;
+  signal: AbortSignal;
+  isCurrent(): boolean;
+  /** Ask Automations to wake the same still-active plan for a protocol event or bounded continuation. */
+  wake(delayMs: number): void;
+};
+export interface PeriodicPlanSource {
+  readonly signal: AbortSignal;
+  legacy?(): readonly PeriodicPlanSpec[];
+  availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
+  suspend?(): void;
+  run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void>;
+}
+export interface PeriodicPlanControl {
+  read(planId: string): PlanSummary | null;
+  inspect(planId: string): (PeriodicPlanSpec & PlanRef) | null;
+  configure(changes: readonly PeriodicPlanChange[], signal: AbortSignal): Promise<PlanSummary[]>;
+  wake(plan: PlanRef, delayMs: number): void;
+  importSource(plugin: string): Promise<void>;
+}
+export const PERIODIC_PLANS_SERVICE = "automations.periodicPlans";
+export const periodicPlanSourceService = (plugin: string) => `automations.periodicSource:${plugin}`;

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { HuhuError, KINDS, errors, isWorkbenchCaller } from "@huhu/contracts";
+import { HuhuError, KINDS, errors, isWorkbenchCaller, periodicPlanSourceService, type PeriodicPlanSource } from "@huhu/contracts";
 import { machineId, normalizeRelPath, parseFrontmatter, parseTaskBody, patchFrontmatter, replaceBody, replaceTaskSection, splitDocument } from "@huhu/vault";
 import type { Context } from "@huhu/cordis";
 import { bindCapability, ExposureStore, OperationReceipts, toolSelection, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
@@ -11,6 +11,7 @@ import { allowToolPath, assertToolPath, VaultGit, type RepositoryBaseline } from
 import { GitRemoteCredentials, httpTarget, type GitAuthSummary, type GitCredentialHost } from "./remote-auth.js";
 import type { SafeGitSnapshots } from "./safe-git.js";
 import { VaultSync } from "./sync.js";
+import { GitSyncPlans, gitPlanMode } from "./sync-plans.js";
 
 export { versioningCapabilityDescriptors } from "./descriptors.js";
 export { FileHistory } from "./history.js";
@@ -204,6 +205,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       }),
     ),
   );
+  const plans = new GitSyncPlans(api);
+  const planLifetime = new AbortController();
   const sync = new VaultSync(
     files.root,
     undefined,
@@ -224,37 +227,46 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     opts.credentialHost && new GitRemoteCredentials(opts.credentialHost),
     files.readOnly,
     opts.safeSnapshots,
+    () => plans.config(),
   );
   let publishStatus = () => {};
-  // 自动同步：按模式与间隔定时拉取/推送；认证失败或冲突后暂停，插件停用即停止
   const auto = new AutoSync({
     config: () => sync.config(),
-    run: (mode, isCurrent, repair) => sync.runAutomatic(mode, isCurrent, repair),
+    run: (mode, isCurrent, signal, repair) => sync.runAutomatic(mode, isCurrent, repair, signal),
     authTarget: () => sync.authTarget(),
-    canRun: () => !files.readOnly,
     hasConflict: () => sync.status().name === "conflict",
-    schedule: (fn, ms) => {
-      const t = setTimeout(fn, ms);
-      t.unref();
-      return () => clearTimeout(t);
-    },
+    wake: (mode) => plans.wake(mode),
     onChange: () => publishStatus(),
   });
+  api.provide(periodicPlanSourceService("versioning"), {
+    signal: planLifetime.signal,
+    legacy: () => plans.legacy(sync.legacyPlanConfig()),
+    availability: (plan) => !sync.config().remote ? { state: "blocked", reason: "target-unavailable", detail: "尚未配置 Git 远端" }
+      : auto.availability(gitPlanMode(plan)),
+    run: (plan, context) => auto.run(gitPlanMode(plan), context),
+  } satisfies PeriodicPlanSource);
   publishStatus = () => {
     const st = sync.status();
     const paused = auto.state().pausedReason;
     api.events.publish("sync.statusChanged", { status: st.name, ahead: 0, behind: 0, conflicts: st.name === "conflict" ? st.detail.split("、").filter(Boolean).length : 0, ...(paused ? { pausedReason: paused } : {}) });
   };
   ctx.effect(() => async () => {
-    auto.stop();
+    planLifetime.abort();
     sync.dispose();
     await sync.idle();
     await pending.close();
   });
   api.events.subscribe((e) => {
-    if (e.type === "engine.closing") sync.dispose();
+    if (e.type === "engine.closing") {
+      planLifetime.abort();
+      sync.dispose();
+    }
+    if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "periodic-plan" && e.payload.id?.startsWith("periodic-versioning-")) publishStatus();
   });
-  api.defineCapability(bindCapability(caps.syncGet, (c) => (external(c) ? sync.toolConfig() : sync.config())));
+  api.defineCapability(bindCapability(caps.syncGet, async (c) => {
+    await plans.importLegacy();
+    return external(c) ? sync.toolConfig() : { ...sync.config(), revision: sync.toolConfig().revision, ...(plans.available() && { periodics: plans.plans() }) };
+  }));
   api.defineCapability(
     bindCapability(caps.syncAuthGet, async (c, { remote }) => {
       const summary = await sync.authStatus(remote);
@@ -304,8 +316,17 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
     }),
   );
   api.defineCapability(
-    bindCapability(caps.syncUpdate, async (c, { expectedRevision, ...patch }) => {
-      const next = await sync.updateConfig(patch, c.signal, required(c, expectedRevision, "expectedRevision"), () => check(c, caps.syncUpdate.name));
+    bindCapability(caps.syncUpdate, async (c, { expectedRevision, expectedPlans, ...patch }) => {
+      await plans.importLegacy();
+      const previous = sync.config();
+      const touched = { mode: patch.mode !== undefined && patch.mode !== previous.mode, pull: patch.pullIntervalSec !== undefined, sync: patch.pushIntervalSec !== undefined };
+      const revisions = plans.revisions();
+      if (expectedPlans && (expectedPlans.pull !== revisions.pull || expectedPlans.sync !== revisions.sync)) throw errors.versionConflict(sync.toolConfig().revision);
+      const configure = touched.mode || touched.pull || touched.sync;
+      if (configure && !plans.available()) throw errors.pluginDisabled("automations");
+      const next = await sync.updateConfig(patch, c.signal, required(c, expectedRevision, "expectedRevision"), () => check(c, caps.syncUpdate.name),
+        configure ? (config) => plans.configure(config, touched, revisions, c.signal) : undefined, external(c),
+      );
       auto.configChanged();
       return next;
     }),
@@ -378,6 +399,5 @@ export function apply(ctx: Context, api: HuhuApi, opts: VersioningOptions = {}):
       return { name, detail, pausedReason, authPause: auto.authPause() };
     }),
   );
-  auto.restart(); // 启动时按已保存的模式与间隔排程
   return { history };
 }
