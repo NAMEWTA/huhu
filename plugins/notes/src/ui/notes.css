@@ -281,6 +281,10 @@
     background: var(--line);
     margin: 0 5px;
   }
+  .notes-save-detail {
+    display: block;
+    overflow-wrap: anywhere;
+  }
   .notes-editor-layout {
     display: flex;
     position: relative;

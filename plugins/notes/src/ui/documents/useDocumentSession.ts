@@ -51,6 +51,7 @@ const EMPTY: SessionSnapshot = {
   draft: null,
   format: { bom: false, eol: "none", finalNewline: false },
   hasUnsaved: false,
+  writeUnconfirmed: false,
 };
 const noopSubscribe = () => () => undefined;
 

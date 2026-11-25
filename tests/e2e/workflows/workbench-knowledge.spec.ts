@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
+import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 async function openKnowledge(page: Page, filename: string) {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
@@ -45,6 +46,56 @@ test("UX01：混合 Markdown 三种模式铺满知识库编辑区并保留焦点
     await toolbar.getByRole("tab", { name: "实时预览" }).click();
     await expect(rich.getByText("末段。")).toBeVisible();
     expect(readFileSync(path.join(vault, filename), "utf8")).toBe(markdown);
+  } finally {
+    await close();
+  }
+});
+
+test("UX02：区分保存失败和未确认，保留中文输入并核实原保存", async () => {
+  const filename = "保存回执.md";
+  const initial = "原正文\n";
+  const { page, vault, close } = await openApp({}, (root) => writeFileSync(path.join(root, filename), initial));
+  const disk = () => readFileSync(path.join(vault, filename), "utf8");
+  try {
+    await engineReady(page);
+    await call(page, "settings.update", { patch: { editor: { autosave: false } } });
+    await openKnowledge(page, filename);
+    await page.getByTestId("note-toolbar").getByRole("tab", { name: "源码" }).click();
+    const editor = page.getByTestId("markdown-editor").locator(".cm-content");
+    let saves = 0;
+    await page.route("**/api/v1/call", async (route) => {
+      if (route.request().postDataJSON()?.capability !== "notes.save") return route.continue();
+      saves++;
+      if (saves === 1) {
+        return route.fulfill({ status: 200, json: { ok: false, error: { code: "INTERNAL", message: "合成的保存失败" } } });
+      }
+      if (saves === 3) {
+        const response = await route.fetch();
+        expect(await response.json()).toMatchObject({ ok: true });
+        return route.abort();
+      }
+      return route.continue();
+    });
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText("中文连续输入");
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("note-save-failed")).toContainText("合成的保存失败");
+    await expect(editor).toContainText("中文连续输入");
+    expect(disk()).toBe(initial);
+    await page.getByTestId("note-retry-save").click();
+    await expect.poll(disk).toContain("中文连续输入");
+
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText("再输入一段");
+    await page.getByTestId("note-save").click();
+    await expect(page.getByTestId("save-state")).toHaveText("保存结果待核实");
+    await expect(editor).toContainText("再输入一段");
+    await page.getByTestId("note-verify-save").click();
+    await expect(page.getByTestId("note-save-conflict")).toBeHidden();
+    expect(disk()).toContain("再输入一段");
+    expect(saves).toBe(3);
   } finally {
     await close();
   }
