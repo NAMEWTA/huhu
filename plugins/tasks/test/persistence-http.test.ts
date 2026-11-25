@@ -1,6 +1,8 @@
 import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +29,7 @@ import { githubAuthor, githubCommentEvent, githubIssue, githubIssueEvent, github
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
 const fixture: { now?: Date; executor?: TaskDispatchExecutor; rule?: TaskRuleDispatch; errors: unknown[]; checkMs?: number; followUpClock?: boolean; followUps?: FollowUps } = { errors: [] };
+let mailOutboxFixture: { submit(input: { draftId: string; expectedRevision: string }): Promise<{ operationId: string; messageId: string }> } | undefined;
 let targetProviders: AgentCliOptions["dispatchProviders"];
 
 vi.mock("@huhu/plugin-agent-cli/engine", async (original) => {
@@ -46,6 +49,9 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
         ctx,
         {
           ...api,
+          service<T>(name: string) {
+            return name === "mail.outbox" && mailOutboxFixture ? mailOutboxFixture as T : api.service<T>(name);
+          },
           provide(name, service) {
             api.provide(name, service);
             if (name === "taskDispatch") fixture.rule = service as TaskRuleDispatch;
@@ -101,6 +107,7 @@ afterEach(async () => {
   delete fixture.checkMs;
   delete fixture.followUpClock;
   delete fixture.followUps;
+  mailOutboxFixture = undefined;
   fixture.errors.length = 0;
   targetProviders = undefined;
 });
@@ -2133,4 +2140,120 @@ test("TW4 GitHub 已认证事件仍按真实作者、原对象及当前版本消
   await expect.poll(() => call(engine, "tasks.reply.read", accepted.data.reply)).toMatchObject({ ok: true, data: { status: "accepted" } });
   await expect.poll(async () => (await call<TaskDto>(engine, "tasks.read", { id: taskId })).data.comments.filter(({ event }) => event === "answer")).toMatchObject([{ author: "GitHub @issue-author", body: "明确答复" }]);
   expect(answer).toHaveBeenCalledTimes(1);
+});
+
+test.each(["echo", "list", "none"] as const)("TW5 GitHub 丢失 POST 回包（%s）只核实原结果，不再发送或派发", async (evidence) => {
+  const { root, fake, engine: first } = await startBoundRun();
+  let engine = first;
+  const connector = await bindGitHubFixture(engine);
+  const receive = (raw: unknown) => call<{ taskId: string; state: string }>(engine, "tasks.github.events.accept", { sourceId: connector.sourceId, raw }, connector.token);
+  const { data: { taskId } } = await receive(githubIssueEvent());
+  const { data: original } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
+  const { data: spaces } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const { data: task } = await call<TaskDto>(engine, "tasks.update", {
+    id: taskId, expectedVersion: original.version, patch: { type: "agent", execution: { spaceId: spaces[0]!.id, provider: "codex" } },
+  });
+  const run = await acceptDispatch(engine, intent(task));
+  await waitDispatch(engine, run, { state: "running" });
+  const execution = recordOf(engine, run).boundExecution!;
+  const result = { version: 1, kind: "result", receiptId: "github-result-receipt", execution, payload: { message: "待投递的稳定结果" } } as const satisfies ExecutionReceipt;
+  expect(await submitReceipt(engine, result)).toEqual(await submitReceipt(engine, result));
+  await expect.poll(() => call(engine, "tasks.runs", { id: taskId })).toMatchObject({
+    ok: true, data: [{ result: { receiptId: result.receiptId, delivery: "delivered" } }],
+  });
+  const outputActor = { id: 81, login: "github-delivery-bot" };
+  const scope = { sourceId: connector.sourceId, issueId: githubIssue.id };
+  expect(await call(engine, "tasks.github.deliveries.allow", { ...scope, actorId: outputActor.id })).toMatchObject({ ok: true });
+  for (const verb of ["claim", "confirm", "read"]) {
+    expect(await call(engine, "gateway.update", { capability: `tasks.github.deliveries.${verb}`, exposed: true })).toMatchObject({ ok: true });
+  }
+
+  let posts = 0;
+  let queries = 0;
+  let postedBody = "";
+  let echoed: Awaited<ReturnType<typeof receive>> | undefined;
+  const server = createServer(async (req, res) => {
+    try {
+      res.setHeader("content-type", "application/json");
+      const { pathname } = new URL(req.url!, "http://127.0.0.1");
+      const repo = `/repos/${githubRepository.name}`;
+      const issue = `${repo}/issues/${githubIssue.number}`;
+      if (pathname === repo) res.end(JSON.stringify({ id: githubRepository.id, full_name: githubRepository.name }));
+      else if (pathname === issue) res.end(JSON.stringify(githubIssue));
+      else if (pathname === "/user") res.end(JSON.stringify(outputActor));
+      else if (pathname === `${issue}/comments` && req.method === "POST") {
+        posts++;
+        let raw = "";
+        for await (const chunk of req) raw += String(chunk);
+        postedBody = (JSON.parse(raw) as { body: string }).body;
+        if (evidence === "echo") echoed = await receive(githubCommentEvent("20150", postedBody, outputActor));
+        res.destroy();
+      } else if (pathname === `${issue}/comments`) {
+        queries++;
+        const comment = githubCommentEvent("20150", postedBody, outputActor).payload.comment;
+        res.end(JSON.stringify(evidence === "list" && postedBody ? [comment] : []));
+      } else {
+        res.writeHead(404).end("{}");
+      }
+    } catch {
+      res.writeHead(500).end("{}");
+    }
+  });
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { githubClient, huhuClient } = await import(/* @vite-ignore */ new URL("../../../scripts/github-task-connector.mjs", import.meta.url).href);
+    const { deliver } = await import(/* @vite-ignore */ new URL("../../../scripts/github-task-delivery.mjs", import.meta.url).href);
+    const github = githubClient(new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}`), "fixture", githubRepository.name);
+    const huhu = () => huhuClient(new URL(`http://127.0.0.1:${engine.port}`), connector.token);
+    const key = { ...scope, taskId, receiptId: result.receiptId };
+    const request = { ...key, repository: githubRepository.name, repositoryId: githubRepository.id, issueNumber: githubIssue.number };
+    const delivered = await deliver(github, huhu(), request);
+    const expectedState = evidence === "none" ? "unknown" : "accepted";
+    expect(delivered).toMatchObject({ state: expectedState, receiptId: result.receiptId });
+    expect(posts).toBe(1);
+    expect(queries).toBe(evidence === "echo" ? 0 : 1);
+    expect(postedBody).toContain(result.payload.message);
+    if (evidence === "echo") expect(echoed).toMatchObject({ ok: true, data: { state: "echo", deliveryId: delivered.deliveryId } });
+    if (evidence === "list") expect(await receive(githubCommentEvent("20150", postedBody, outputActor))).toMatchObject({ ok: true, data: { state: "echo" } });
+    expect(await receive(githubCommentEvent("20151", postedBody, githubAuthor))).toMatchObject({ ok: true, data: { state: "discussion" } });
+    if (evidence !== "none") expect(await receive(githubCommentEvent("20152", postedBody, outputActor))).toMatchObject({ ok: true, data: { state: "discussion" } });
+
+    const dispatches = vi.mocked(fake.dispatch).mock.calls.length;
+    await stop(engine);
+    engine = await start(root);
+    expect(await submitReceipt(engine, result)).toMatchObject({ ok: true });
+    expect(await deliver(github, huhu(), request)).toMatchObject({ state: expectedState, deliveryId: delivered.deliveryId });
+    expect(await call(engine, "tasks.github.deliveries.read", key, connector.token)).toMatchObject({ ok: true, data: { state: expectedState } });
+    expect(posts).toBe(1);
+    expect(fake.dispatch).toHaveBeenCalledTimes(dispatches);
+    const { data: saved } = await call<TaskDto>(engine, "tasks.read", { id: taskId });
+    expect(saved.comments.filter(({ event }) => event === "result")).toHaveLength(1);
+    expect(saved.comments.filter(({ event }) => event === "github-comment")).toHaveLength(evidence === "none" ? 1 : 2);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("TW5 邮件结果关联冷恢复沿用 Mail Outbox 原草稿版与回执", async () => {
+  const operation = { operationId: "smtp-fixture-operation", messageId: "<smtp-fixture@example.invalid>" };
+  const outboxSubmit = vi.fn<NonNullable<typeof mailOutboxFixture>["submit"]>()
+    .mockRejectedValueOnce(new Error("提交后响应丢失"))
+    .mockResolvedValue(operation);
+  mailOutboxFixture = { submit: outboxSubmit };
+  const { root, engine, task, execution, fake } = await startBoundRun();
+  const receipt = { version: 1, kind: "result", receiptId: "mail-task-result", execution, payload: { message: "需要邮件投递的结果" } } as const satisfies ExecutionReceipt;
+  expect(await submitReceipt(engine, receipt)).toMatchObject({ ok: true });
+  await expect.poll(() => call(engine, "tasks.runs", { id: task.id })).toMatchObject({ ok: true, data: [{ result: { delivery: "delivered" } }] });
+  const draft = { draftId: randomUUID(), expectedRevision: randomUUID() };
+  const intent = { ...draft, taskId: task.id, receiptId: receipt.receiptId };
+  const submit = (running: RunningEngine, input = intent) => call(running, "tasks.mail.deliveries.submit", input);
+  expect(await submit(engine)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  await stop(engine);
+  const reopened = await start(root);
+  expect(await submit(reopened, { ...intent, draftId: randomUUID() })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
+  const retry = await submit(reopened);
+  expect(retry).toMatchObject({ ok: true, data: { ...operation, resultMessageId: expect.stringMatching(/^receipt-/u) } });
+  expect(await submit(reopened)).toEqual(retry);
+  expect(outboxSubmit.mock.calls.map(([input]) => input)).toEqual([draft, draft]);
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
 });

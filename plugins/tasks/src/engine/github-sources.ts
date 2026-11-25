@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { TaskDispatch } from "./dispatch.js";
 import { fingerprint } from "./dispatch-store.js";
 import { TaskReplyInput, TaskReplyLookup } from "./native-replies.js";
+import { GitHubDeliveries, resultDeliveryDescriptors } from "./result-delivery.js";
 import type { TasksService } from "./service.js";
 import { WriteQueue } from "./write-queue.js";
 
@@ -65,8 +66,9 @@ const receipt = z.object({
   ...lookup.shape,
   fingerprint: z.string(),
   taskId: z.string().nullable(),
-  state: z.enum(["pending", "created", "updated", "discussion", "stale", "reply-accepted", "reply-denied", "reply-rejected"]),
+  state: z.enum(["pending", "created", "updated", "discussion", "stale", "reply-accepted", "reply-denied", "reply-rejected", "echo"]),
   reply: TaskReplyLookup.optional(),
+  deliveryId: z.string().optional(),
 });
 const admission = receipt.extend({
   schema: z.literal(1),
@@ -166,6 +168,7 @@ export class GitHubSources {
     private readonly tasks: TasksService,
     private readonly dispatch: Pick<TaskDispatch, "questions" | "reply" | "check">,
     private readonly now: () => Date,
+    private readonly deliveries: GitHubDeliveries,
   ) {}
 
   drain() {
@@ -213,6 +216,41 @@ export class GitHubSources {
     const config = this.active(id);
     if (c.caller !== "http" || c.subject !== config.connectorId) throw errors.permissionDenied("该 HTTP 凭据未绑定到此 GitHub 来源");
     return config;
+  }
+
+  private deliveryScope(config: Source, issueId: number, taskId?: string) {
+    const mapped = this.read(this.objectPath(config.sourceId, issueId), objectMapping)?.value;
+    if (!mapped?.provisioned || (taskId !== undefined && mapped.taskId !== taskId)) throw errors.notFound("GitHub Issue 未关联此任务");
+    return { sourceId: config.sourceId, repository: config.repository, repositoryId: config.repositoryId, issueId, issueNumber: mapped.issueNumber };
+  }
+
+  allowDelivery(c: CapabilityContext, { sourceId, issueId, actorId }: z.output<typeof resultDeliveryDescriptors.githubAllowDelivery.input>) {
+    if (c.caller !== "desktop") throw errors.permissionDenied("需要从本机批准 GitHub 投递");
+    return this.writes.run(sourceId, () => this.deliveries.allow(this.deliveryScope(this.active(sourceId), issueId), actorId, c.assertCapabilityCurrent));
+  }
+
+  claimDelivery(c: CapabilityContext, { actorId, ...key }: z.output<typeof resultDeliveryDescriptors.githubClaimDelivery.input>) {
+    return this.writes.run(key.sourceId, () => {
+      const scope = this.deliveryScope(this.connector(c, key.sourceId), key.issueId, key.taskId);
+      return this.deliveries.claim(key, scope, actorId, () => {
+        this.connector(c, key.sourceId);
+      });
+    });
+  }
+
+  confirmDelivery(c: CapabilityContext, { sourceId, issueId, deliveryId, proof }: z.output<typeof resultDeliveryDescriptors.githubConfirmDelivery.input>) {
+    return this.writes.run(sourceId, () => {
+      const scope = this.deliveryScope(this.connector(c, sourceId), issueId);
+      return this.deliveries.confirm(scope, deliveryId, proof, () => {
+        this.connector(c, sourceId);
+      });
+    });
+  }
+
+  readDelivery(c: CapabilityContext, key: z.output<typeof resultDeliveryDescriptors.githubReadDelivery.input>) {
+    // The local owner can inspect historical evidence after a source has been retired.
+    if (c.caller !== "desktop") this.connector(c, key.sourceId);
+    return this.deliveries.read(key);
   }
 
   async create(c: CapabilityContext, input: z.infer<typeof sourceInput>) {
@@ -366,6 +404,8 @@ export class GitHubSources {
     }
 
     const body = parsed.payload.comment.body;
+    const deliveryId = await this.deliveries.echo(this.deliveryScope(config, record.issueId, mapping.taskId), { id: parsed.payload.comment.id, actorId: record.actor.id, url: record.url, body }, authorize);
+    if (deliveryId) return { ...result, state: "echo", deliveryId };
     const reply = parseReply(mapping.taskId, body, commentId);
     if (reply) {
       const { answer: _answer, messageIds: _messageIds, ...ref } = reply;

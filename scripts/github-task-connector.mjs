@@ -7,9 +7,9 @@ import { parseArgs } from "node:util";
 
 const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const id = /^\d{1,40}$/u;
-const repositoryName = /^[\w-]+\/(?!\.{1,2}$)[\w.-]+$/u;
+export const repositoryName = /^[\w-]+\/(?!\.{1,2}$)[\w.-]+$/u;
 
-function endpoint(value, github = false) {
+export function endpoint(value, github = false) {
   const url = new URL(value);
   const local = url.protocol === "http:" && loopback.has(url.hostname);
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/" || !(local || (github ? url.origin === "https://api.github.com" : url.protocol === "https:"))) {

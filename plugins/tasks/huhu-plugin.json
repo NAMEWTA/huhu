@@ -5,7 +5,7 @@
   "version": "0.0.2-rc.1",
   "origin": "builtin",
   "dependsOn": [],
-  "optionalDeps": ["agent-cli", "automations"],
+  "optionalDeps": ["agent-cli", "automations", "mail"],
   "permissions": ["agent.task-input"],
   "activation": "vault-open",
   "contributes": {
@@ -43,7 +43,12 @@
       "tasks.github.source.retire",
       "tasks.github.question.allow",
       "tasks.github.events.accept",
-      "tasks.github.events.read"
+      "tasks.github.events.read",
+      "tasks.github.deliveries.allow",
+      "tasks.github.deliveries.claim",
+      "tasks.github.deliveries.confirm",
+      "tasks.github.deliveries.read",
+      "tasks.mail.deliveries.submit"
     ],
     "fileKinds": ["task"]
   }
