@@ -16,8 +16,14 @@ const cases = [
   { file: "plugins/check/src/ui/node.ts", source: 'import value from "node:fs"; export { value };', code: forbiddenImport },
   { file: "plugins/check/src/ui/vault.ts", source: 'import value from "@huhu/vault"; export { value };', code: forbiddenImport },
   { file: "plugins/check/src/ui/engine.ts", source: 'import value from "@huhu/plugin-tasks/engine"; export { value };', code: forbiddenImport },
+  { file: "plugins/check/src/engine/private.ts", source: 'import type { View } from "../../../tasks/src/engine/private.js"; export type Sample = View;', code: forbiddenImport },
+  { file: "plugins/check/src/ui/private.ts", source: 'import value from "../../../tasks/src/ui/private.js"; export { value };', code: forbiddenImport },
+  { file: "plugins/check/src/ui/panels/private.ts", source: 'import value from "../../../../tasks/src/ui/private.js"; export { value };', code: forbiddenImport },
+  { file: "plugins/check/src/shared/private.ts", source: 'import value from "../../../tasks/src/shared/private.js"; export { value };', code: forbiddenImport },
   { file: "plugins/check/src/engine/allowed.ts", source: 'import value from "@huhu/vault"; export { value }; export const timeout = () => AbortSignal.timeout(100);' },
   { file: "plugins/check/src/ui/allowed.ts", source: 'import value from "@huhu/workbench"; export { value };' },
+  { file: "plugins/check/src/ui/panels/allowed.ts", source: 'import value from "../../shared/view.js"; export { value };' },
+  { file: "apps/check/src/bootstrap.ts", source: 'import value from "@huhu/plugin-tasks/ui"; export { value };' },
 ];
 
 const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-lint-rules-"));

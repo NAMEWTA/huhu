@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "node:fs";
 import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
+import type { TaskRuleDispatch } from "@huhu/contracts";
 import type { FocusDeadlinePlans } from "./focus-deadline.js";
 import type { ActivationRecord, AutomationsService } from "./service.js";
 

@@ -1,9 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { errors, HuhuError, isHuhuError, PlanOccurrenceSchema, type PlanOccurrence, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, HuhuError, isHuhuError, PlanOccurrenceSchema, TaskFollowUpViewSchema as FollowUpView, type PlanOccurrence, type PlanSummary, type PlanWrite, type TaskFollowUpDispatch } from "@huhu/contracts";
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import type { TaskFollowUpDispatch } from "../../../tasks/src/engine/index.js";
 import type { TaskQueryLike } from "./service.js";
 
 const directory = "automations/follow-ups";
@@ -11,7 +10,7 @@ const digest = (fields: readonly string[]) => createHash("sha256").update(JSON.s
 const ID = z.string().min(1).max(256);
 const Version = z.uuidv4();
 const Instant = z.iso.datetime();
-const State = z.enum(["scheduled", "accepted", "cancelled", "skipped"]);
+const State = FollowUpView.shape.state.exclude(["needs_confirmation", "paused"]);
 const Schedule = z.strictObject({
   format: z.literal(1),
   vaultId: ID,
@@ -31,10 +30,7 @@ export const FollowUpLookup = Schedule.pick({ taskId: true });
 const expectedTaskVersion = z.string().min(1).max(128).optional();
 export const FollowUpScheduleInput = FollowUpLookup.extend({ scheduledFor: Instant, expectedRevision: Version.nullable(), expectedTaskVersion, intentId: Version.optional() });
 export const FollowUpCancelInput = FollowUpLookup.extend({ expectedRevision: Version, intentId: Version.optional() });
-export const FollowUpView = Schedule.pick({ taskId: true, followUpId: true, revision: true, scheduledFor: true, reason: true, runId: true }).extend({
-  state: z.enum([...State.options, "needs_confirmation", "paused"]),
-  planId: ID.optional(), // Older receipts predate the directory identity.
-});
+export { FollowUpView };
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
 const PlanMetadata = z.strictObject({
   id: ID,

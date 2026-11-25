@@ -168,6 +168,8 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives.", "ledger.references.");
   else if (e.type === "plugin.stateChanged") {
     prefixes.push("plugins.", "capabilities.");
+    if (p["id"] === "tasks") prefixes.push("tasks.", "automations.plans.", "automations.followUps.");
+    if (p["id"] === "agent-cli") prefixes.push("automations.plans.");
     if (p["id"] === "notes") prefixes.push("ledger.references.");
     if (p["id"] === "ssh") prefixes.push("ssh.hosts.");
     if (p["id"] === "mcp") prefixes.push("mcp.", "gateway.get");

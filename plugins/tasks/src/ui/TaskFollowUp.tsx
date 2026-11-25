@@ -1,12 +1,8 @@
-import type { TaskDto } from "@huhu/contracts";
+import type { TaskDto, TaskFollowUpView as FollowUp } from "@huhu/contracts";
 import { Button, Dialog } from "@huhu/ui";
 import { AutomationPlanLink, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useId, useMemo, useState, type FormEvent } from "react";
-import type { z } from "zod";
-import type { FollowUpView } from "../../../automations/src/engine/follow-ups.js";
 import { followUpInstants, followUpWallTime } from "../shared/follow-up-time.js";
-
-type FollowUp = z.infer<typeof FollowUpView>;
 
 const stateText: Record<FollowUp["state"], string> = {
   scheduled: "待触发",

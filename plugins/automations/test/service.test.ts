@@ -1275,8 +1275,8 @@ test("历史 NDJSON 的孤立发生和中断半行仍可查询，同一计划点
   expect(readFileSync(file, "utf8")).toBe(bytes);
 
   const finishedAt = "2026-11-10T12:01:00Z";
-  await repo.create("automation-run", { activationId: previous.activationId, ruleId: rule.id, actionKind: "terminal", trigger: "schedule", state: "succeeded", finishedAt }, "");
-  expect(restarted.activations()).toEqual([{ ...previous, finishedAt, summary: { state: "succeeded" } }]);
+  const run = await repo.create("automation-run", { activationId: previous.activationId, ruleId: rule.id, actionKind: "terminal", trigger: "schedule", state: "succeeded", finishedAt }, "");
+  expect(restarted.activations()).toEqual([{ ...previous, finishedAt, terminalRunId: run.id, summary: { state: "succeeded" } }]);
   expect(readFileSync(file, "utf8")).toBe(bytes);
 });
 

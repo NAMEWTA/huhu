@@ -8,6 +8,8 @@ import { AutomationHomeWidget } from "./AutomationHomeWidget.js";
 import { automationSummaryWidget } from "../shared/home-widget.js";
 import { t } from "./i18n.js";
 
+export { PlanScheduleControls } from "./PlanScheduleControls.js";
+
 export const contributions = {
   modules: [{ id: "automations", plugin: "automations", title: t.title, group: "execution", order: 30, icon: <Workflow size={18} aria-hidden />, component: AutomationsModule }] satisfies ModuleContribution[],
   homeWidgets: [defineHomeWidgetContribution(automationSummaryWidget, 40, AutomationHomeWidget)],

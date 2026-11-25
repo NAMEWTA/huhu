@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityCatalogEntry, TaskDto } from "@huhu/contracts";
+import type { CapabilityCatalogEntry, PlanSummary, TaskDto, TaskRuleDispatch } from "@huhu/contracts";
 import { NotificationStore, OperationReceipts, type HuhuApi } from "@huhu/kernel";
 import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -15,7 +15,6 @@ import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispat
 import type { TaskDispatchExecutor } from "../../tasks/src/engine/dispatch.js";
 import type { DispatchReceipt, DispatchRecord } from "../../tasks/src/engine/dispatch-store.js";
 import { externalEntries, externalToolEntry, type ExternalEntry } from "../../tasks/test/external-tool-entry.js";
-import type { TaskRuleDispatch } from "../../tasks/src/engine/index.js";
 import { DEFAULT_TASK_SCAN_RULE_ID } from "../src/engine/default-task-scan.js";
 import { AutomationsService } from "../src/engine/service.js";
 import { Scheduler } from "../src/engine/scheduler.js";
@@ -128,7 +127,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function start(vaultPath?: string) {
+async function start(vaultPath?: string, readOnly = false) {
   const create = vaultPath === undefined;
   if (!vaultPath) {
     vaultPath = mkdtempSync(path.join(tmpdir(), "huhu-task-occurrences-"));
@@ -136,7 +135,7 @@ async function start(vaultPath?: string) {
   }
   fixture.scans = undefined;
   fixture.reminders = undefined;
-  const engine = await boot({ vaultPath, create });
+  const engine = await boot({ vaultPath, create, readOnly });
   engines.push(engine);
   expect(fixture.scans).toBeDefined();
   return { engine, scans: fixture.scans!, reminders: fixture.reminders! };
@@ -147,11 +146,11 @@ async function stop(engine: RunningEngine) {
   engines.splice(engines.indexOf(engine), 1);
 }
 
-async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external: boolean | string = false) {
+async function call<T = unknown>(engine: RunningEngine, capability: string, input: unknown, external: boolean | string = false, intentKey?: string) {
   const response = await fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
     method: "POST",
     headers: { authorization: `Bearer ${typeof external === "string" ? external : external ? engine.cliToken : engine.rendererToken}`, "content-type": "application/json" },
-    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
+    body: JSON.stringify({ capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), intentKey }),
   });
   return (await response.json()) as { ok: boolean; data: T; error?: { code: string; details?: Record<string, unknown> } };
 }
@@ -1290,4 +1289,61 @@ test.each(externalEntries)("%s 终端环境与批准能力逐项开放，本机�
     expect(await external.list()).not.toContain(id);
     expect(await external.call(id, input)).toMatchObject(denied);
   }
+});
+
+test("AW6 AU17 同一计划区分源插件停用和只读，外部只发现批准的领域能力", async () => {
+  let { engine } = await start();
+  const task = await createTask(engine, "AW6 原任务");
+  const reminderIntent = randomUUID();
+  const created = await call<PlanSummary>(engine, "automations.plans.createTaskReminder", {
+    taskId: task.id, scheduledFor: at("23:00:00").toISOString(), intentId: reminderIntent, startPaused: true,
+  }, false, reminderIntent);
+  expect(created).toMatchObject({ ok: true, data: { availability: { state: "ready" }, intent: "paused" } });
+  const observeIntent = randomUUID();
+  const observation = await call<PlanSummary>(engine, "automations.plans.createObservation", {
+    title: "AW6 原任务状态", target: { kind: "task", id: task.id }, condition: { kind: "change" },
+    everySeconds: 60, intentId: observeIntent, startPaused: true,
+  }, false, observeIntent);
+  expect(observation).toMatchObject({ ok: true, data: { availability: { state: "ready" }, intent: "paused" } });
+
+  const { planId, revision } = created.data;
+  const read = (id: string) => invoke<PlanSummary>(engine, "automations.plans.read", { planId: id });
+  const allowed = "automations.followUps.get";
+  await expose(engine, allowed);
+  for (const entry of externalEntries) {
+    const { external } = await toolsFor(entry, engine);
+    expect(await external.list()).toEqual([allowed]);
+    expect(await external.call(allowed, { taskId: task.id })).toMatchObject({ ok: true, data: null });
+    expect(await external.call("automations.plans.list", {})).toMatchObject({ ok: false, error: { code: "CAPABILITY_NOT_EXPOSED" } });
+  }
+
+  await invoke(engine, "plugins.setEnabled", { id: "tasks", enabled: false });
+  for (const before of [created.data, observation.data]) {
+    const unavailable = await read(before.planId);
+    expect(unavailable).toMatchObject({
+      planId: before.planId, revision: before.revision, nextAt: null, intent: "paused",
+      availability: { state: "blocked", reason: "plugin-disabled" },
+    });
+    expect(unavailable.actions).not.toContain("resume");
+  }
+  const update = async (plan: PlanSummary, intent: "enabled" | "paused") => {
+    const intentId = randomUUID();
+    return call(engine, "automations.plans.submit", {
+      planId: plan.planId, expectedRevision: plan.revision, intentId, change: "set-intent", intent,
+    }, false, intentId);
+  };
+  expect(await update(observation.data, "enabled")).toMatchObject({ ok: true, data: { outcome: "not-accepted", error: { code: "INVALID_INPUT" } } });
+  await invoke(engine, "plugins.setEnabled", { id: "tasks", enabled: true });
+  expect(await read(planId)).toMatchObject({ planId, revision, intent: "paused", availability: { state: "ready" } });
+  expect((await read(planId)).actions).toContain("resume");
+
+  const vault = engine.vault.root;
+  await stop(engine);
+  ({ engine } = await start(vault, true));
+  const readonly = await read(planId);
+  expect(readonly).toMatchObject({ planId, revision, actions: [], nextAt: null, availability: { state: "blocked", reason: "read-only" } });
+  expect(await update(readonly, "enabled")).toMatchObject({
+    ok: false, error: { code: "INVALID_INPUT", message: "此能力需要可写的持久操作记录" },
+  });
+  expect(await read(planId)).toEqual(readonly);
 });

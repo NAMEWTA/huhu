@@ -577,6 +577,20 @@ describe("插件启停", () => {
     await invalidateForEvent(qc, "v", { type: "plugin.stateChanged", payload: { id: "tasks", state: "disabled" } });
     for (const k of ["home.summary", "health.run", "plugins.list"]) expect(qc.getQueryState(queryKey("v", k))?.isInvalidated).toBe(true);
   });
+
+  test("任务插件启停刷新同一 Vault 的运行、跟进和计划来源", async () => {
+    const qc = new QueryClient();
+    const capabilities = ["tasks.dispatch.recent", "automations.followUps.get", "automations.plans.list"];
+    for (const vault of ["local", "other"]) {
+      for (const capability of capabilities) qc.setQueryData(queryKey(vault, capability), {});
+    }
+    await invalidateForEvent(qc, "local", { type: "plugin.stateChanged", payload: { id: "tasks", state: "disabled" } });
+    for (const capability of capabilities) {
+      expect(qc.getQueryState(queryKey("local", capability))?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(queryKey("other", capability))?.isInvalidated).toBe(false);
+    }
+    qc.clear();
+  });
 });
 
 describe("同步状态事件", () => {

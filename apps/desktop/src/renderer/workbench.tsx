@@ -2,7 +2,7 @@ import "@huhu/ui/styles.css";
 import "@huhu/workbench/shell.css";
 import { appearanceController } from "@huhu/ui";
 import { contributions as agentGuideUi } from "@huhu/plugin-agent-guide/ui";
-import { contributions as automationsUi } from "@huhu/plugin-automations/ui";
+import { contributions as automationsUi, PlanScheduleControls } from "@huhu/plugin-automations/ui";
 import { contributions as agentCliUi } from "@huhu/plugin-agent-cli/ui";
 import { contributions as inboxUi, requestOpenCapture } from "@huhu/plugin-inbox/ui";
 import { createLedgerContributions } from "@huhu/plugin-ledger/ui";
@@ -11,7 +11,7 @@ import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugi
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { contributions as sshUi } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
-import { contributions as tasksUi } from "@huhu/plugin-tasks/ui";
+import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
   AppShell,
   ContributionRegistry,
@@ -36,6 +36,7 @@ import {
   PluginCenterModule,
   SettingsModule,
   systemSettingsPages,
+  TaskAutomationViewsContext,
   useCapability,
   useEngine,
   createUiStore,
@@ -46,6 +47,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { browserLocation } from "./web-host.js";
 
 export type EngineState = "starting" | "ready" | "stopped" | "crashed";
+const taskAutomationViews = { PlanScheduleControls, TaskRunDetails, taskRunLabel };
 
 /** 按插件启用状态过滤 rail / 标签 / 命令（启停无需刷新页面）。 */
 function PluginFilter({ registry }: { registry: ContributionRegistry }) {
@@ -286,7 +288,7 @@ export function WorkbenchApp({ endpoint, state, version, onRestartEngine, onConn
   );
   return endpoint ? (
     <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
-      {withFilter}
+      <TaskAutomationViewsContext.Provider value={taskAutomationViews}>{withFilter}</TaskAutomationViewsContext.Provider>
     </EngineProvider>
   ) : (
     <>

@@ -3,10 +3,21 @@ import { resolve } from "node:path";
 import { createExecutionReceiptAck, executionReceiptIdentity, validateExecutionReceipt, validateExecutionReceiptAck } from "@huhu/contracts/execution-receipt/engine";
 import { describe, expect, test } from "vitest";
 import { appendComment, buildTaskBody, parseTaskBody } from "../../vault/src/markdown/regions.js";
-import { ExecutionReceiptSchema, TasksReceiptConsumptionSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceiptAckStage } from "../src/index.js";
+import { ExecutionReceiptSchema, NativeStopIdSchema, TasksReceiptConsumptionSchema, TaskStopReceiptSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceiptAckStage } from "../src/index.js";
 import { execution, invalidCommentMessageIds, nativeQuestion, question, questionSchemaCases, result, utf8CommentMessageIds } from "./fixtures/execution-receipt-v1.js";
 
 const fixtures = [result, question, nativeQuestion];
+
+test("native stop and Tasks share a UTF-8 stable stop identity and a redacted receipt", () => {
+  const at = "2026-11-25T00:00:00.000Z";
+  const receipt = { taskId: "task-1", dispatchId: "dispatch-1", runId: "run-1", stopId: "停止🙂", status: "stopped", acceptedAt: at, updatedAt: at };
+  expect(TaskStopReceiptSchema.parse(receipt)).toEqual(receipt);
+  expect(TaskStopReceiptSchema.safeParse({ ...receipt, toolOwner: "local-owner" }).success).toBe(false);
+  for (const stopId of [" ", "坏\ud800", "\udfff"]) {
+    expect(NativeStopIdSchema.safeParse(stopId).success).toBe(false);
+    expect(TaskStopReceiptSchema.safeParse({ ...receipt, stopId }).success).toBe(false);
+  }
+});
 
 describe("execution receipt v1", () => {
   test.each(fixtures)("$receipt.kind $receipt.receiptId has a fixed identity", ({ receipt, identity }) => {

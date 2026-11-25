@@ -1,4 +1,10 @@
 import type { PlanSummary } from "@huhu/contracts";
+import { createRequestId } from "../engine-client/client.js";
+
+export function createPlanIntentId(): string {
+  const id = createRequestId();
+  return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
+}
 
 export function readAutomationPlanLink(vaultId: string): string | null {
   const params = new URLSearchParams(window.location.search);

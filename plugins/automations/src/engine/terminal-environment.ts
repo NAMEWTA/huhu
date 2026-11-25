@@ -1,11 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { errors, HuhuError, type AutomationRuleFrontmatter } from "@huhu/contracts";
+import { errors, HuhuError, type AutomationRuleFrontmatter, type AgentProtectedDirectory as ProtectedDirectory } from "@huhu/contracts";
 import { bindCapability, CredentialError, defineCapabilityDescriptor, ExposureStore, ModuleCredentials, toolSelection, type CapabilityContext, type CredentialAction, type CredentialOwner, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import type { ProtectedDirectory } from "../../../agent-cli/src/engine/protected-launch.js";
 import { inspectLinuxShell, unavailableLinuxImage, type ApprovedLinuxShell } from "./approved-linux-shell.js";
 import { automationReceipts, automationToolOwner } from "./external-intents.js";
 import { hasLegacyTerminalEnvironment, sameDir, type ApprovedShellCancellation, type AutomationsService, type TerminalRuleLaunch } from "./service.js";

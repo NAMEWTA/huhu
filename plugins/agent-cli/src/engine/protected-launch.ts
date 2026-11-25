@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 import { createServer, type AddressInfo, type Socket } from "node:net";
-import { HuhuError } from "@huhu/contracts";
+import { HuhuError, type AgentProtectedDirectory as ProtectedDirectory } from "@huhu/contracts";
 import { filesystemIdentity } from "@huhu/vault";
 
 const HOST = "127.0.0.1";
@@ -9,7 +9,7 @@ const TOKEN = /^[a-f0-9]{64}$/;
 const MAX_PAYLOAD = 2 * 1024 * 1024;
 
 type Ticket = { content: string; timeout: NodeJS.Timeout };
-export type ProtectedDirectory = { path: string; identity: string; birthtimeNs: string };
+export type { AgentProtectedDirectory as ProtectedDirectory } from "@huhu/contracts";
 
 export function matchesProtectedDirectory(cwd: string, expected: ProtectedDirectory): boolean {
   try {

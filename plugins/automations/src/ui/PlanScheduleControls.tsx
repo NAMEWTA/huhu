@@ -1,15 +1,12 @@
 import type { PlanSummary, PlanTrigger, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Button, DateTimePicker, Dialog } from "@huhu/ui";
-import { createRequestId, useEngine, type ModuleProps } from "@huhu/workbench";
+import { createPlanIntentId as planIntentId, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useId, useRef, useState } from "react";
 import { describeTrigger } from "./plan-presentation.js";
 import { uncertainPlanWrite } from "./plan-write.js";
 import { useDraftDismissal } from "./use-draft-dismissal.js";
 
-export function planIntentId(): string {
-  const id = createRequestId();
-  return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
-}
+export { planIntentId };
 
 export function PlanScheduleControls({ plan, changed, scheduleOnly = false, registerLeaveGuard }: { plan: PlanSummary; changed(): Promise<unknown>; scheduleOnly?: boolean; registerLeaveGuard?: ModuleProps["registerLeaveGuard"] }) {
   const engine = useEngine();
