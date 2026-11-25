@@ -18,7 +18,7 @@ export function displayMoney(amount: string, currency: string) {
 export function LedgerField({ label, children }: { label: string; children: ReactElement<{ id?: string }> }) {
   const fallback = useId();
   const id = children.props.id ?? fallback;
-  return <label className="hu-field" htmlFor={id}><span className="hu-field-label">{label}</span>{cloneElement(children, { id })}</label>;
+  return <div className="hu-field"><label className="hu-field-label" htmlFor={id}>{label}</label>{cloneElement(children, { id })}</div>;
 }
 
 export function useLedgerAction() {
