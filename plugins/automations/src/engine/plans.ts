@@ -1,4 +1,4 @@
-import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, isHuhuError, isWorkbenchCaller, PlanOccurrenceLinkSchema, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import { filterPlanPage, PlanHomeSummary, planOrders, planStates, summarizePlans } from "../shared/plan-directory.js";
@@ -12,6 +12,7 @@ import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsSe
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
 import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
 import { ScheduleGateView, type ScheduleGate } from "./schedule-gate.js";
+import type { ReminderDeliveries } from "./reminder-deliveries.js";
 
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
@@ -55,6 +56,11 @@ export const planDescriptors = {
   history: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.history", scope: "read", input: HistoryInput, output: HistoryPage,
     title: "查询计划运行历史", description: "按来源、状态与时间读取发生摘要。", risk: "normal",
+  }),
+  recoverEffect: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.recoverEffect", scope: "write",
+    input: PlanOccurrenceLinkSchema.extend({ effectId: identifier }), output: PlanOccurrenceSchema,
+    title: "核实或重试原效果", description: "按原发生和效果身份处理一项可恢复的效果。", risk: "high",
   }),
   submit: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.submit", scope: "write", idempotency: "durable", input: PlanWriteSchema, output: PlanWriteResultSchema,
@@ -100,6 +106,7 @@ type CatalogueDeps = {
   now(): Date;
   activations(): ActivationRecord[];
   readCronOccurrence(id: string): PlanOccurrence | null;
+  reminders: ReminderDeliveries | undefined;
   gate: ScheduleGate;
   scheduleChanged(): void;
   deleteRule(ruleId: string, expectedVersion: string, assertCurrent: () => void): Promise<void>;
@@ -289,6 +296,11 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   }));
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
+  api.defineCapability(bindCapability(planDescriptors.recoverEffect, ({ caller, signal }, { effectId, ...link }) => {
+    if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("处理工作台发生效果");
+    if (!deps.reminders) throw errors.pluginDisabled("automations");
+    return deps.reminders.recoverEffect(link, effectId, signal);
+  }));
   api.defineCapability(bindCapability(planDescriptors.history, ({ caller, signal }, input) => {
     if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("查看工作台运行历史");
     signal.throwIfAborted();

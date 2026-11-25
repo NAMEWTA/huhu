@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { CapabilityCatalogEntry, PlanSummary, TaskDto, TaskRuleDispatch } from "@huhu/contracts";
+import { errors, type CapabilityCatalogEntry, type PlanOccurrence, type PlanSummary, type TaskDto, type TaskRuleDispatch } from "@huhu/contracts";
 import { NotificationStore, OperationReceipts, type HuhuApi } from "@huhu/kernel";
 import { exportPackage, filesystemIdentity, importPackage, machineId, VaultFiles } from "@huhu/vault";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -34,6 +34,7 @@ const fixture = {
   ready: vi.fn<TaskDispatchExecutor["ready"]>(),
   dispatch: vi.fn<TaskDispatchExecutor["dispatch"]>(),
   accept: vi.fn<TaskRuleDispatch["acceptRule"]>(),
+  createFromRule: vi.fn<TaskRuleDispatch["createFromRule"]>(),
   refresh: vi.fn<() => Promise<void>>(),
 };
 const fixtureNow = () => (fixture.realtime ? new Date() : fixture.now);
@@ -82,7 +83,8 @@ vi.mock("../../tasks/src/engine/index.js", async (original) => {
             if (name !== "taskDispatch") return api.provide(name, service);
             const dispatch = service as TaskRuleDispatch;
             fixture.accept.mockImplementation(dispatch.acceptRule);
-            api.provide(name, { ...dispatch, acceptRule: fixture.accept } satisfies TaskRuleDispatch);
+            fixture.createFromRule.mockImplementation(dispatch.createFromRule);
+            api.provide(name, { ...dispatch, acceptRule: fixture.accept, createFromRule: fixture.createFromRule } satisfies TaskRuleDispatch);
           },
         },
         {
@@ -113,6 +115,7 @@ beforeEach(() => {
   fixture.ready.mockReset().mockResolvedValue("busy");
   fixture.dispatch.mockReset().mockResolvedValue("accepted");
   fixture.accept.mockReset();
+  fixture.createFromRule.mockReset();
   fixture.refresh.mockReset().mockResolvedValue(undefined);
   vi.spyOn(AgentDetector.prototype, "detect").mockResolvedValue([]);
 });
@@ -651,12 +654,39 @@ test("通知尝试无确认时只记录未知，并允许独立的建任务效�
   const first = await reminders.activate(rule.id, slot);
   expect(first?.summary).toMatchObject({ state: "unknown", notification: "unknown", task: "created", taskId: expect.any(String) });
   expect(notify).toHaveBeenCalledTimes(1);
+  const occurrenceId = first!.activationId;
+  const original = await invoke<PlanOccurrence>(engine, "automations.plans.readOccurrence", { occurrenceId });
+  const notification = original.effects.find(({ kind }) => kind === "notification")!;
+  const recovery = { planId: rule.id, occurrenceId, effectId: notification.effectId };
+  expect(notification.recovery).toBe("verify");
+  expect(await invoke(engine, "automations.plans.recoverEffect", recovery)).toEqual(original);
   await stop(engine);
   const reopened = await start(root);
   await reopened.reminders.recover();
   expect(await reopened.reminders.activate(rule.id, slot)).toEqual(first);
   expect(await invoke(reopened.engine, "notifications.list", {})).toEqual([]);
   expect(notify).toHaveBeenCalledTimes(1);
+});
+
+test("只重试失败的建任务效果，并始终沿用原任务和原发生身份", async () => {
+  const { engine, reminders } = await start();
+  const rule = await createReminder(engine, "只重试失败的任务效果", "both");
+  fixture.createFromRule.mockRejectedValueOnce(errors.notFound("暂不可访问"));
+  const slot = (fixture.now = at("01:15:00"));
+  const occurrenceId = (await reminders.activate(rule.id, slot))!.activationId;
+  const original = await invoke<PlanOccurrence>(engine, "automations.plans.readOccurrence", { occurrenceId });
+  const effect = original.effects.find(({ kind }) => kind === "task-create")!;
+  expect(effect).toMatchObject({ state: "failed", recovery: "retry" });
+  const input = { planId: rule.id, occurrenceId, effectId: effect.effectId };
+  const [a, b] = await Promise.all([
+    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
+    invoke<PlanOccurrence>(engine, "automations.plans.recoverEffect", input),
+  ]);
+  expect(a).toEqual(b);
+  expect(a.effects).toEqual([original.effects[0], expect.objectContaining({ effectId: effect.effectId, state: "completed", receiptId: effect.effectId })]);
+  expect(fixture.createFromRule).toHaveBeenCalledTimes(2);
+  expect(fixture.createFromRule.mock.calls[0]).toEqual(fixture.createFromRule.mock.calls[1]);
+  expect(await invoke(engine, "notifications.list", {})).toHaveLength(1);
 });
 
 function dispatchRecords(engine: RunningEngine): DispatchRecord[] {

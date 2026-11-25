@@ -82,6 +82,7 @@ export const automationToolDescriptors = {
   plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,
   plansHistory: planDescriptors.history,
+  recoverEffect: planDescriptors.recoverEffect,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
   plansCreateObservation: planDescriptors.observationCreate,
@@ -552,7 +553,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     resync();
     api.events.publish("entity.changed", { kind: "automation-rule", id: "automation-state", op: "updated" });
   };
-  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, periodic, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule, gate, scheduleChanged });
+  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, observations, periodic, ...(focus && { focus }), defaults, now, activations, readCronOccurrence, deleteRule, gate, scheduleChanged, reminders });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {

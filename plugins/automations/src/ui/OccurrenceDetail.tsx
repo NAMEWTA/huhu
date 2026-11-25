@@ -1,4 +1,4 @@
-import type { PlanOccurrence, TaskDispatchView, TaskDto, TaskRunSummary } from "@huhu/contracts";
+import type { PlanEffect, PlanOccurrence, PlanOccurrenceLink, TaskDispatchView, TaskDto, TaskRunSummary } from "@huhu/contracts";
 import { Badge, Button } from "@huhu/ui";
 import { CapabilityError, requestOpenAgentSession, requestOpenTask, useCapability, useEngine, useTaskAutomationViews, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
@@ -93,16 +93,18 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId
             <section aria-label="发生效果">
               <h3>效果与回执</h3>
               <ul>
-                {row.effects.map(({ effectId, kind, state, target, receiptId }) => (
-                  <li key={effectId}>
-                    {effectNames[kind] ?? kind} · {effects[state]}
-                    {receiptId ? (
+                {row.effects.map((effect) => (
+                  <li key={effect.effectId}>
+                    {effectNames[effect.kind] ?? effect.kind} · {effects[effect.state]}
+                    {effect.receiptId ? (
                       <>
                         {" "}
-                        · <code>{receiptId}</code>
+                        · <code>{effect.receiptId}</code>
                       </>
                     ) : null}
-                    {target.kind === "task" && (kind === "task-create" || kind === "task-comment") && state === "completed" ? <TaskLink id={target.id} onNavigate={onNavigate} /> : null}
+                    {effect.target.kind === "task" && (effect.kind === "task-create" || effect.kind === "task-comment") && effect.state === "completed"
+                      ? <TaskLink id={effect.target.id} onNavigate={onNavigate} /> : null}
+                    {effect.recovery ? <EffectRecovery effect={effect} link={{ planId: row.plan.planId, occurrenceId: row.occurrenceId }} changed={occurrence.refetch} /> : null}
                   </li>
                 ))}
               </ul>
@@ -130,6 +132,36 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate, expectedPlanId
       </div>
     </div>
   );
+}
+
+function EffectRecovery({ effect, link, changed }: { effect: PlanEffect; link: PlanOccurrenceLink; changed(): Promise<unknown> }) {
+  const engine = useEngine();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function recover() {
+    setBusy(true);
+    setMessage("");
+    setError("");
+    try {
+      const result = await engine.call<PlanOccurrence>("automations.plans.recoverEffect", { ...link, effectId: effect.effectId }, { write: true });
+      const current = result.effects.find(({ effectId }) => effectId === effect.effectId);
+      if (current?.state === "unknown") setMessage("原效果仍待核实。");
+      if (current?.state === "failed") setError("原效果仍未完成。");
+      await changed();
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "暂时无法处理原效果。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <>
+    <Button variant="ghost" loading={busy} onClick={() => void recover()}>{effect.recovery === "verify" ? "核实该效果" : "重试该效果"}</Button>
+    {message ? <span role="status">{message}</span> : null}
+    {error ? <span role="alert">{error}</span> : null}
+  </>;
 }
 
 function TaskLink({ id, runId, onNavigate }: { id: string; runId?: string; onNavigate: Navigate }) {

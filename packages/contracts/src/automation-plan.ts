@@ -79,6 +79,7 @@ export const PlanEffectSchema = z.strictObject({
   operationId: id.nullable(),
   state: z.enum(["not-accepted", "accepted", "completed", "failed", "unknown"]),
   receiptId: id.nullable(),
+  recovery: z.enum(["retry", "verify"]).optional(),
 });
 export type PlanEffect = z.infer<typeof PlanEffectSchema>;
 

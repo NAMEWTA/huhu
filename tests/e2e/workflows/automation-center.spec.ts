@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import type { PlanSummary } from "../../../packages/contracts/src/automation-plan.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
@@ -20,6 +22,38 @@ test("AU15 全局暂停从中心写入并在设置中恢复", async ({ browserNa
     await settings.getByRole("button", { name: "恢复自动运行" }).click();
     await page.getByRole("dialog", { name: "恢复自动运行" }).getByRole("button", { name: "恢复自动运行" }).click();
     await expect(settings.getByTestId("automatic-run-control").getByRole("status")).toHaveText("自动运行已开启");
+  } finally {
+    await close();
+  }
+});
+
+test("AU13 重试原建任务效果，保留通知和任务身份", async ({ browserName: _browserName }) => {
+  const { page, vault, close } = await openApp();
+  const title = "原效果重试夹具";
+  try {
+    await engineReady(page);
+    const rule = await call<{ id: string; version: string }>(page, "automations.create", {
+      title, trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "both", text: title },
+    });
+    const { activationId, summary } = await call<{ activationId: string; summary: { taskId: string } }>(page, "automations.runNow", {
+      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+    });
+    const filename = path.join(vault, ".huhu", "automations", "reminder-deliveries", `${activationId}.json`);
+    const record = JSON.parse(readFileSync(filename, "utf8")) as object;
+    writeFileSync(filename, JSON.stringify({ ...record, task: "unavailable" }) + "\n");
+
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "激活记录", exact: true }).click();
+    await page.getByTestId("activation-row").getByRole("button", { name: title }).click();
+    const detail = page.getByTestId("occurrence-inspector");
+    await expect(detail).toContainText("创建任务 · 失败");
+    await detail.getByRole("button", { name: "重试该效果" }).click();
+    await expect(detail).toContainText("创建任务 · 已完成");
+    const tasks = await call<{ id: string }[]>(page, "tasks.list", {});
+    expect(tasks.map(({ id }) => id)).toEqual([summary.taskId]);
+    const notices = await call<{ title: string }[]>(page, "notifications.list", {});
+    expect(notices.filter((row) => row.title === title)).toHaveLength(1);
   } finally {
     await close();
   }
