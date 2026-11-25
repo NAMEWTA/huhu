@@ -20,7 +20,8 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "ssh-outbound-proxy": ["ssh.outboundProxies.", "ssh.hosts.list"],
   "ssh-shortcuts": ["ssh.shortcuts."],
   "home-dashboard": ["home.dashboard.get"],
-  "tool-access": ["gateway.get", "capabilities.list"],
+  "tool-access": ["gateway.get", "capabilities.list", "mcp.catalog."],
+  "mcp-source": ["mcp.sources.", "mcp.catalog.", "mcp.diagnostics."],
   gateway: ["gateway.get"],
   "automation-activation": ["automations.activations", "automations.plans."],
   "mail-ai-settings": ["mail.ai.getSettings"],
@@ -150,7 +151,10 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
   else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表
   else if (e.type === "task.statusChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
-  else if (e.type === "plugin.stateChanged") prefixes.push("plugins.", "capabilities.");
+  else if (e.type === "plugin.stateChanged") {
+    prefixes.push("plugins.", "capabilities.");
+    if (p["id"] === "mcp") prefixes.push("mcp.", "gateway.get");
+  }
   else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");
   else if (e.type === "automation.activated" || e.type === "run.stateChanged") prefixes.push("automations.", "tasks.");

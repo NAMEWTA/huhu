@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, fsyncSync, lstatSync, openSync, readFi
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import { getRequestListener } from "@hono/node-server";
-import { errors, mcpSessionSubject, type Caller, type McpSessionIdentity, type McpSessionPrincipal } from "@huhu/contracts";
+import { errors, MCP_ENTRY_KINDS, mcpSessionSubject, type Caller, type McpEntryKind, type McpSessionIdentity, type McpSessionPrincipal } from "@huhu/contracts";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CancelledNotificationSchema, isInitializeRequest, isJSONRPCRequest, type RequestId } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -277,9 +277,9 @@ export class McpSessions {
         operation: (lookup) => (this.current(session) ? dispatcher.readOperation(caller, session, lookup) : closed()),
         ...(this.deps.externalMcpTools && {
           external: {
-            list: async () => {
+            list: async (kind: McpEntryKind) => {
               if (!this.current(session)) return [];
-              const result = await this.deps.externalMcpTools?.()?.list(externalPrincipal()) ?? [];
+              const result = await this.deps.externalMcpTools?.()?.list(externalPrincipal(), kind) ?? [];
               return this.current(session) ? result : [];
             },
             call: async (name, input) => {
@@ -291,6 +291,8 @@ export class McpSessions {
               }
               return upstream?.call(externalPrincipal(), name, input);
             },
+            read: async (uri: string) => this.current(session) ? this.deps.externalMcpTools?.()?.read(externalPrincipal(), uri) : undefined,
+            get: async (name: string, args: Record<string, string>) => this.current(session) ? this.deps.externalMcpTools?.()?.get(externalPrincipal(), name, args) : undefined,
             ownsName: (name: string) => this.deps.externalMcpTools?.()?.ownsName(name) ?? false,
           },
         }),
@@ -308,10 +310,15 @@ export class McpSessions {
       mcp.oninitialized = () => {
         if (initialized || !this.current(session)) return;
         initialized = true;
-        const notify = () => { if (this.current(session)) void mcp.sendToolListChanged().catch(() => undefined); };
+        const notify = (kinds: readonly McpEntryKind[]) => {
+          if (!this.current(session)) return;
+          if (kinds.includes("tool")) void mcp.sendToolListChanged().catch(() => undefined);
+          if (kinds.includes("resource") || kinds.includes("resource-template")) void mcp.sendResourceListChanged().catch(() => undefined);
+          if (kinds.includes("prompt")) void mcp.sendPromptListChanged().catch(() => undefined);
+        };
         const detachTools = this.deps.externalMcpTools?.()?.subscribe(notify);
         const detachEvents = this.deps.events.subscribe((event) => {
-          if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "tool-access")) notify();
+          if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "tool-access")) notify(MCP_ENTRY_KINDS);
         });
         signal.addEventListener("abort", () => { detachTools?.(); detachEvents(); }, { once: true });
       };

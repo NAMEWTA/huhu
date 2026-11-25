@@ -3375,7 +3375,10 @@ test("能力网关：开放/关闭能力开关、不可开放的能力无开关�
     await page.getByTestId("bench-invoke").click();
     await expect(page.getByTestId("bench-result")).toHaveAttribute("data-ok", "true");
     await expect(page.getByTestId("bench-result")).toContainText("name");
-    // MCP 的 Resources / Templates / Prompts 子标签
+    // 目录来自协议真实权限，先开放内置资源所依赖的能力。
+    for (const capability of ["vault.indexEntries", "notes.list", "notes.read"]) {
+      await call(page, "gateway.update", { capability, exposed: true });
+    }
     await page.getByRole("tab", { name: "Resources" }).click();
     await expect(page.getByTestId("mcp-resources")).toContainText("huhu://notes/recent");
     await page.getByRole("tab", { name: "Templates" }).click();

@@ -3,10 +3,11 @@ import type { AddressInfo } from "node:net";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListResourcesRequestSchema, ListResourceTemplatesRequestSchema, ListToolsRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
-export async function localUpstream(transport: "streamable-http" | "sse", options: { authorization?: string; resourcesOnly?: boolean } = {}) {
+export async function localUpstream(transport: "streamable-http" | "sse", options: { authorization?: string; authorize?: (header: string | undefined, url: string | undefined) => boolean; resourcesOnly?: boolean } = {}) {
   const calls: { name: string; input: unknown }[] = [];
+  const admissions: { authorization: string | undefined; url: string | undefined }[] = [];
   const sse = new Map<string, SSEServerTransport>();
   const clients = new Set<Server>();
   let listRequests = 0;
@@ -14,7 +15,10 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
     const server = new Server({ name: transport, version: "1" }, { capabilities: options.resourcesOnly ? { resources: {} } : { tools: {} } });
     clients.add(server);
     server.onclose = () => { clients.delete(server); };
-    if (!options.resourcesOnly) {
+    if (options.resourcesOnly) {
+      server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+      server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
+    } else {
       server.setRequestHandler(ListToolsRequestSchema, async () => {
         listRequests++;
         return { tools: [{ name: "echo", description: "Local " + transport, inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
@@ -37,10 +41,12 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
   }
   const http = createServer(async (request, response) => {
     try {
-      if (options.authorization !== undefined && request.headers.authorization !== options.authorization) {
+      if ((options.authorization !== undefined && request.headers.authorization !== options.authorization) ||
+          (options.authorize && !options.authorize(request.headers.authorization, request.url))) {
         response.writeHead(401, { "www-authenticate": 'Bearer realm="fixture"' }).end("local authorization required");
         return;
       }
+      admissions.push({ authorization: request.headers.authorization, url: request.url });
       if (transport === "streamable-http") {
         const server = endpoint();
         const streamable = new StreamableHTTPServerTransport({ enableJsonResponse: true });
@@ -68,6 +74,7 @@ export async function localUpstream(transport: "streamable-http" | "sse", option
   return {
     url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/${transport === "sse" ? "sse" : "mcp"}`,
     calls,
+    admissions,
     get listRequests() { return listRequests; },
     async close() {
       await Promise.all([...clients].map((server) => server.close()));

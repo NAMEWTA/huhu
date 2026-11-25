@@ -1,4 +1,4 @@
-import { McpLocalPortSchema, type CapabilityCatalogEntry, type GatewayMcpStatus, type ToolAccessSnapshot } from "@huhu/contracts";
+import { McpLocalPortSchema, type CapabilityCatalogEntry, type GatewayMcpStatus, type McpEntryKind, type ToolAccessSnapshot } from "@huhu/contracts";
 import { Badge, Button, ChoiceSwitch, DataTable, Dialog, EmptyState, Field, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, BookOpen, Blocks, Code2, Command, Copy, Database, Folder, HeartPulse, Monitor, Play, Plug, Server, Settings, ShieldCheck } from "lucide-react";
 import { useId, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { CliSection } from "./CliSection.js";
 import { SshHostGrants } from "./SshHostGrants.js";
 import { ToolPolicyCatalog } from "./ToolPolicyCatalog.js";
 import { WebSharePanel } from "./WebSharePanel.js";
+import { McpSourcesPanel } from "./McpSourcesPanel.js";
 
 interface AuditRow {
   at: string;
@@ -29,18 +30,7 @@ const MCP_TABS: { value: McpTab; label: string }[] = [
   { value: "templates", label: "Templates" },
   { value: "prompts", label: "Prompts" },
 ];
-/** 随 MCP 服务固定提供的非工具条目（与 packages/kernel/src/mcp.ts 一致）；读取它们仍经同一授权。 */
-const MCP_STATIC: Record<Exclude<McpTab, "tools">, { name: string; desc: string; source: string }[]> = {
-  resources: [
-    { name: "huhu://vault/summary", desc: "Vault 概览（名称、ID、统计）", source: "vault.info" },
-    { name: "huhu://notes/recent", desc: "最近修改的 20 篇笔记", source: "vault.indexEntries" },
-  ],
-  templates: [{ name: "huhu://notes/{id}", desc: "按笔记 ID 或相对路径读取 Markdown 正文", source: "notes.list · notes.read" }],
-  prompts: [
-    { name: "daily-review", desc: "回顾当天的笔记与任务，整理成每日复盘", source: "参数 date（可选）" },
-    { name: "knowledge-synthesis", desc: "围绕主题综合相关笔记并标注来源", source: "参数 topic（必填）" },
-  ],
-};
+const MCP_KIND: Record<McpTab, McpEntryKind> = { tools: "tool", resources: "resource", templates: "resource-template", prompts: "prompt" };
 const TITLE: Record<string, string> = { mcp: "HUHU MCP 服务", cli: "CLI 命令行", server: "服务端", desktop: "桌面宿主" };
 
 /** 能力网关（原型 Interfaces）：MCP / CLI / 服务端 / 桌面宿主四个分区。不可开放的能力（保险箱明文、Agent/SSH 执行）没有开关。 */
@@ -453,20 +443,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
                 <Segmented<McpTab> label="MCP 条目类型" value={mcpTab} onChange={setMcpTab} options={MCP_TABS} />
                 {mcpTab === "tools" ? <SearchBox value={filter} onChange={setFilter} placeholder={g.filter} /> : null}
               </div>
-              {mcpTab !== "tools" ? (
-                <section className="hu-card-alt" data-testid={`mcp-${mcpTab}`}>
-                  <DataTable
-                    label={`MCP ${mcpTab}`}
-                    rows={MCP_STATIC[mcpTab]}
-                    rowKey={(r) => r.name}
-                    columns={[
-                      { id: "name", header: "名称", width: 260, cell: (r) => <code>{r.name}</code> },
-                      { id: "desc", header: "说明", width: 420, cell: (r) => r.desc },
-                      { id: "source", header: "来源", width: 160, className: "small muted", cell: (r) => r.source },
-                    ]}
-                  />
-                </section>
-              ) : null}
+              <McpSourcesPanel kind={MCP_KIND[mcpTab]} filter={mcpTab === "tools" ? filter : ""} published={mcp?.enabled ?? false} />
               <div hidden={mcpTab !== "tools"}>
                 <SshHostGrants policy={gw.data?.toolAccess} />
                 <ToolPolicyCatalog entries={all} filter={filter} policy={gw.data?.toolAccess} />
