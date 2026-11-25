@@ -5,7 +5,7 @@ import { getRequestListener } from "@hono/node-server";
 import type { CapabilityRegistry } from "../capabilities/define.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { EventBus } from "../context.js";
-import { resolveMcpToolName } from "../mcp.js";
+import { resolveMcpToolName, type ExternalMcpTools } from "../mcp.js";
 import { registerCapabilityHttp, type CapabilityHttpEnv } from "./capability-http.js";
 import { RENDERER_ORIGIN, bearerFrom, checkIngress } from "./ingress.js";
 import { listenHttp } from "./listen-http.js";
@@ -26,6 +26,8 @@ export interface EngineServerDeps {
   terminal?: TerminalBridge;
   /** MCP Streamable HTTP（`/mcp`）：未启用时返回 404，使用持久 HTTP 授权。 */
   mcpHttp?: { enabled(): boolean };
+  /** Scoped external catalog available only while its management plugin is running. */
+  externalMcpTools?(): ExternalMcpTools | undefined;
   /** Lifetime of the admitted MCP service configuration. */
   mcpSignal?(): AbortSignal;
   /** Stable Vault binding, when available. A listener still owns one Vault without it. */

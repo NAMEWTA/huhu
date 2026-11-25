@@ -215,6 +215,7 @@ export function registerSystemCapabilities(
             if (state === "active") exposure.setPluginEnabled?.(id, true);
             return { state, alsoDisabled: [] };
           }
+          if (id === "mcp" && gateway?.mcp?.status().enabled) gateway.mcp.update({ enabled: false });
           const stopped = await plugins.disable(id);
           for (const stoppedId of stopped) exposure.setPluginEnabled?.(stoppedId, false);
           confirmCleanup(stopped);

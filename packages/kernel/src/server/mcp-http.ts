@@ -9,6 +9,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { CancelledNotificationSchema, isInitializeRequest, isJSONRPCRequest, type RequestId } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { createMcpServer } from "../mcp.js";
+import { mcpRouteError } from "../mcp-routing.js";
 import { discoverCapabilities, unknownTool } from "./capability-http.js";
 import type { EngineServerDeps } from "./http-app.js";
 import { MAX_BODY_BYTES, MAX_CONCURRENT_PER_TOKEN } from "./ingress.js";
@@ -253,6 +254,13 @@ export class McpSessions {
       { once: true },
     );
     const { dispatcher } = this.deps;
+    const externalPrincipal = (): McpSessionPrincipal => {
+      const request = requestSignal.getStore();
+      return {
+        identity, signal: request ? AbortSignal.any([signal, request]) : signal,
+        ...(session.recovered && { recovered: true as const }),
+      };
+    };
     const call = async (capability: string, input: unknown, intentKey?: string) => {
       if (!this.current(session)) return closed();
       const result = await dispatcher.call(caller, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID(), ...(intentKey && { intentKey }) }, requestSignal.getStore(), session);
@@ -267,6 +275,25 @@ export class McpSessions {
         },
         call,
         operation: (lookup) => (this.current(session) ? dispatcher.readOperation(caller, session, lookup) : closed()),
+        ...(this.deps.externalMcpTools && {
+          external: {
+            list: async () => {
+              if (!this.current(session)) return [];
+              const result = await this.deps.externalMcpTools?.()?.list(externalPrincipal()) ?? [];
+              return this.current(session) ? result : [];
+            },
+            call: async (name, input) => {
+              if (!this.current(session)) return undefined;
+              const upstream = this.deps.externalMcpTools?.();
+              if (this.resolveTool(name)) {
+                if (upstream?.ownsName(name)) throw mcpRouteError("ambiguous-entry");
+                return undefined;
+              }
+              return upstream?.call(externalPrincipal(), name, input);
+            },
+            ownsName: (name: string) => this.deps.externalMcpTools?.()?.ownsName(name) ?? false,
+          },
+        }),
       },
       "0.0.1",
     );
@@ -276,6 +303,19 @@ export class McpSessions {
       if (params.requestId !== undefined) session.requests.get(params.requestId)?.abort();
     });
     mcp.onclose = session.close;
+    if (this.deps.externalMcpTools) {
+      let initialized = false;
+      mcp.oninitialized = () => {
+        if (initialized || !this.current(session)) return;
+        initialized = true;
+        const notify = () => { if (this.current(session)) void mcp.sendToolListChanged().catch(() => undefined); };
+        const detachTools = this.deps.externalMcpTools?.()?.subscribe(notify);
+        const detachEvents = this.deps.events.subscribe((event) => {
+          if (event.type === "plugin.stateChanged" || (event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "tool-access")) notify();
+        });
+        signal.addEventListener("abort", () => { detachTools?.(); detachEvents(); }, { once: true });
+      };
+    }
     void mcp.connect(transport).catch(session.close);
     const onMessage = transport.onmessage;
     transport.onmessage = (message, extra) => {
