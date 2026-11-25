@@ -1274,7 +1274,7 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
 
       expect(await oldSave).toBe(false);
       expect(eng.disk(path)).toBe("A");
-      expect(session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "1", state: "conflict", hasUnsaved: true, flushError: "无法核对正文" });
+      expect(session.getSnapshot()).toMatchObject({ text: "X", baseVersion: "1", state: "conflict", hasUnsaved: true, writeUnconfirmed: false, flushError: "无法核对正文" });
       expect(await session.flush({ untilClean: true })).toBe(false);
       expect(await session.load()).toBe(false);
       eng.failDraft = new Error("草稿暂时不可写");
