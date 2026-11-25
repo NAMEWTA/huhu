@@ -16,6 +16,7 @@ type Invoke = (capability: string, input: object) => Promise<CapabilityResult<un
 const run = promisify(execFile);
 const tools = [
   "ssh.hosts.configure",
+  "ssh.hosts.list",
   "ssh.resources.host.get",
   "ssh.connect",
   "ssh.resources.connection.get",
@@ -90,6 +91,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
         };
       }
       await policy([hostId], true);
+      expect(await invoke("ssh.hosts.list", {})).toMatchObject({ ok: true, data: [{ id: hostId, name: target.name }] });
       const before = data<ResourceHost>(await invoke("ssh.resources.host.get", { hostId }));
       const edit = { ...target, hostId, routeRevision: before.routeRevision, intentKey: randomUUID(), expectedRevision: original.revision, credentials: [{ action: "replace", purpose: "password", value: password }] };
       const saved = await invoke("ssh.hosts.configure", edit);
@@ -111,9 +113,12 @@ for (const entry of ["CLI", "HTTP MCP"]) {
         expect(await invoke("ssh.resources.trust.decide", answer)).toMatchObject({ ok: true, data: { applied: true } });
         expect(await invoke("ssh.resources.trust.decide", answer)).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       }
-      const { attemptId } = data<{ attemptId: string }>(await invoke("ssh.connect", { ...binding, intentKey: randomUUID() }));
+      const connect = { ...binding, intentKey: randomUUID() };
+      const { attemptId } = data<{ attemptId: string }>(await invoke("ssh.connect", connect));
+      expect(await invoke("ssh.connect", connect)).toMatchObject({ ok: true, data: { attemptId } });
       await trust(attemptId);
       await expect.poll(async () => data<Probe>(await invoke("ssh.resources.connection.get", { hostId, attemptId })).state).toBe("connected");
+      expect(server.conns).toHaveLength(1);
       const { fileSessionId } = data<{ fileSessionId: string }>(await invoke("ssh.fileSessions.open", { ...binding, attemptId, intentKey: randomUUID() }));
       const bytes = { fileSessionId, remotePath: "/home/test/entry-parity.bin", transferId: randomUUID(), intentKey: randomUUID(), dataBase64: "AQID" };
       expect(await invoke("ssh.sftp.upload", bytes)).toMatchObject({ ok: true, data: { size: 3 } });
@@ -137,6 +142,7 @@ for (const entry of ["CLI", "HTTP MCP"]) {
       const output = { jobId, stream: "stdout", cursor: 0 };
       expect(await invoke("ssh.jobs.output.read", output)).toMatchObject({ ok: true, data: { text: "结果\n", nextCursor: 7 } });
       expect(await invoke("ssh.disconnect", { ...binding, attemptId })).toMatchObject({ ok: true });
+      await expect.poll(async () => data<Probe>(await invoke("ssh.resources.connection.get", { hostId, attemptId })).state).toBe("disconnected");
       await policy([], true);
       expect(await invoke("ssh.jobs.output.read", output)).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
       await policy([], false);

@@ -321,8 +321,11 @@ test.each(["cli", "mcp"] as const)("%s SSH Vault settings are individually autho
     expect(await tools()).not.toContainEqual(expect.objectContaining({ name: name(get) }));
     expect(await invoke(get)).toMatchObject(denied);
 
+    expect(credentials).not.toHaveBeenCalled();
     await engine.shutdown();
     engine = await boot({ vaultPath: vault, desktopUserData: profile, moduleCredentialProtection: protection });
+    // MCP source startup reconciles its own credentials before the SSH replay.
+    credentials.mockClear();
     if (session) {
       expect((await mcpRequest(endpoint(), token, mcpRpc("tools/list"), session.handle)).status).toBe(404);
       session = await openRecoverableMcpSession(endpoint(), token, session.recovery);

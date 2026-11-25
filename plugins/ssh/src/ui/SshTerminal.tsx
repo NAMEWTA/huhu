@@ -1,6 +1,6 @@
 import { APPEARANCE_CHANGED, appearanceController, TerminalView, type TerminalViewProps } from "@huhu/ui";
-import { useEffect, useRef, type CSSProperties } from "react";
-import { useDevicePreferences } from "./device-preferences.js";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { terminalLineHeights, useDevicePreferences } from "./device-preferences.js";
 
 const monospace = {
   theme: undefined,
@@ -11,7 +11,11 @@ const monospace = {
 export const canScaleTerminal = () => typeof CSS !== "undefined" && CSS.supports("zoom", "1");
 
 export function SshTerminal(props: TerminalViewProps) {
-  const { fontSize, font } = useDevicePreferences();
+  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback } = useDevicePreferences();
+  const displayOptions = useMemo(
+    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback }),
+    [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback],
+  );
   const scale = canScaleTerminal() ? fontSize / 13 : 1;
   const previous = useRef(font);
   useEffect(() => {
@@ -23,7 +27,7 @@ export function SshTerminal(props: TerminalViewProps) {
   return (
     <div className="ssh-terminal-preferences" data-testid="ssh-terminal-preferences">
       <div className="ssh-terminal-scale" style={style} data-font={font}>
-        <TerminalView {...props} />
+        <TerminalView {...props} displayOptions={displayOptions} />
       </div>
     </div>
   );

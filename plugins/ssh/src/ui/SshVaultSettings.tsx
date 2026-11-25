@@ -1,11 +1,12 @@
 import { Button } from "@huhu/ui";
 import { CapabilityError, host, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { defaultVaultPreferences, type UpdateVaultPreferences, type VaultPreferencesSnapshot } from "../shared/preferences.js";
 
 type Section = UpdateVaultPreferences["change"]["section"];
 
 function VaultForm({ section, initial, reload }: { section: Section; initial: VaultPreferencesSnapshot; reload: () => Promise<unknown> }) {
+  const headingId = useId();
   const engine = useEngine();
   const queries = useQueryClient();
   const [saved, setSaved] = useState(initial);
@@ -42,8 +43,8 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
   }
 
   return (
-    <form className="hu-settings-section hu-card-alt" onSubmit={(event) => void submit(event)}>
-      <h2>{section === "connection" ? "当前库的连接默认值" : "当前库的传输默认值"}</h2>
+    <form className="hu-settings-section hu-card-alt" aria-labelledby={headingId} onSubmit={(event) => void submit(event)}>
+      <h2 id={headingId}>{section === "connection" ? "当前库的连接默认值" : "当前库的传输默认值"}</h2>
       {section === "connection" ? (
         <>
           <p>新拨号使用这些值。主机上单独填写的值优先。已经打开的连接保留原参数。</p>

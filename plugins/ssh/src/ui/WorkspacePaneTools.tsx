@@ -1,15 +1,14 @@
 import { Button, IconButton } from "@huhu/ui";
 import { GripHorizontal } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import type { DevicePreferences } from "./device-preferences.js";
 
 type Dock = Exclude<DevicePreferences["paneTools"], "hidden">;
 type Tool = "move" | "files" | "monitor";
 const dockName: Record<Dock, string> = { top: "上方", bottom: "下方" };
-const dragType = "application/x-huhu-ssh-pane-toolbar";
+const dragThreshold = 4;
 
 export function WorkspacePaneTools({
-  paneId,
   label,
   visible,
   position,
@@ -21,7 +20,6 @@ export function WorkspacePaneTools({
   onMonitor,
   children,
 }: {
-  paneId: string;
   label: string;
   visible: boolean;
   position: DevicePreferences["paneTools"];
@@ -34,7 +32,9 @@ export function WorkspacePaneTools({
   children: ReactNode;
 }) {
   const view = useRef<HTMLDivElement>(null);
-  const sourceDock = useRef<Dock | undefined>(undefined);
+  const dropTarget = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: number; x: number; y: number; active: boolean } | null>(null);
+  const ignorePointerClick = useRef(false);
   const restoreHandle = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [over, setOver] = useState(false);
@@ -48,21 +48,6 @@ export function WorkspacePaneTools({
     view.current?.querySelector<HTMLButtonElement>('[data-tool="move"]')?.focus({ preventScroll: true });
   }, [position]);
 
-  useEffect(() => {
-    if (!dragging) return;
-    const cancelOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !sourceDock.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      sourceDock.current = undefined;
-      setDragging(false);
-      setOver(false);
-      onStatus("已取消工具栏移动。");
-    };
-    window.addEventListener("keydown", cancelOnEscape, true);
-    return () => window.removeEventListener("keydown", cancelOnEscape, true);
-  }, [dragging, onStatus]);
-
   function move(dock: Dock, handle: HTMLElement | null) {
     if (!visible || position === dock) return;
     restoreHandle.current = handle === document.activeElement;
@@ -70,42 +55,30 @@ export function WorkspacePaneTools({
   }
 
   function clearDrag() {
-    sourceDock.current = undefined;
+    drag.current = null;
     setDragging(false);
     setOver(false);
   }
 
-  function accepts(event: DragEvent<HTMLDivElement>) {
-    return visible && sourceDock.current === position && event.dataTransfer.types.includes(dragType);
+  function cancelDrag() {
+    if (drag.current?.active) onStatus("已取消工具栏移动。");
+    clearDrag();
   }
 
-  function hoverDrop(event: DragEvent<HTMLDivElement>) {
-    if (!accepts(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    setOver(true);
+  function isOverDropTarget(event: PointerEvent<HTMLButtonElement>) {
+    return visible && (dropTarget.current?.contains(document.elementFromPoint(event.clientX, event.clientY)) ?? false);
   }
 
   function slot(dock: Dock) {
     if (position !== dock) {
-      if (!visible || !dragging || sourceDock.current !== position) return null;
+      if (!visible || !dragging) return null;
       return (
         <div
+          ref={dropTarget}
           className="ssh-pane-toolbar-drop"
           data-toolbar-drop={dock}
           data-over={over}
           aria-hidden="true"
-          onDragEnter={hoverDrop}
-          onDragOver={hoverDrop}
-          onDragLeave={() => setOver(false)}
-          onDrop={(event) => {
-            if (!accepts(event) || event.dataTransfer.getData(dragType) !== paneId) return;
-            event.preventDefault();
-            event.stopPropagation();
-            clearDrag();
-            move(dock, view.current?.querySelector('[data-tool="move"]') ?? null);
-          }}
         >
           移至分栏{dockName[dock]}
         </div>
@@ -144,22 +117,45 @@ export function WorkspacePaneTools({
           data-tool="move"
           data-pane-layout-control
           tabIndex={nativeFocusGroup ? undefined : focused === "move" ? 0 : -1}
-          draggable={visible}
-          onClick={(event) => move(other, event.currentTarget)}
-          onDragStart={(event) => {
-            if (!visible) {
-              event.preventDefault();
+          onClick={(event) => {
+            if (event.detail === 0 || !ignorePointerClick.current) move(other, event.currentTarget);
+          }}
+          onPointerDown={(event) => {
+            if (!visible || !event.isPrimary || event.button !== 0 || drag.current) return;
+            ignorePointerClick.current = false;
+            event.currentTarget.focus({ preventScroll: true });
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, active: false };
+          }}
+          onPointerMove={(event) => {
+            const started = drag.current;
+            if (started?.id !== event.pointerId) return;
+            if (!started.active) {
+              if (Math.hypot(event.clientX - started.x, event.clientY - started.y) < dragThreshold) return;
+              started.active = true;
+              ignorePointerClick.current = true;
+              setDragging(true);
+            }
+            setOver(isOverDropTarget(event));
+          }}
+          onPointerUp={(event) => {
+            const started = drag.current;
+            if (started?.id !== event.pointerId) return;
+            if (started.active && !isOverDropTarget(event)) {
+              cancelDrag();
               return;
             }
-            event.stopPropagation();
-            sourceDock.current = dock;
-            event.dataTransfer.effectAllowed = "move";
-            event.dataTransfer.setData(dragType, paneId);
-            setDragging(true);
-          }}
-          onDragEnd={() => {
-            if (sourceDock.current) onStatus("已取消工具栏移动。");
             clearDrag();
+            if (started.active) move(other, event.currentTarget);
+          }}
+          onLostPointerCapture={(event) => {
+            if (drag.current?.id === event.pointerId) cancelDrag();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || !drag.current?.active) return;
+            event.preventDefault();
+            event.stopPropagation();
+            cancelDrag();
           }}
         />
         <div className="ssh-workspace-controls" role="group" aria-label="分栏工具">

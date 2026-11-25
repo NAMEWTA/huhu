@@ -460,9 +460,10 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await zone.scrollIntoViewIfNeeded();
     const drop = (await zone.boundingBox())!;
     await page.mouse.move(drop.x + drop.width / 2, drop.y + drop.height / 2, { steps: 8 });
-    await page.mouse.move(drop.x + drop.width / 2 + 1, drop.y + drop.height / 2);
+    await expect(zone).toHaveAttribute("data-over", "true");
     await page.mouse.up();
     await expect(firstToolbar).toHaveAttribute("data-position", "top");
+    await expect(firstToolbar.getByRole("button", { name: "移至分栏下方" })).toBeFocused();
     expect(attached()).toEqual([1, 0, 0]);
 
     const tabs = run.getByRole("tablist", { name: "内部标签" });

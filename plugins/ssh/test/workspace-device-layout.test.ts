@@ -19,6 +19,10 @@ test("旧设备记录保留已有偏好，新工具栏尺寸和顺序使用默�
     groupVerticalTabs: true,
     paneToolSize: deviceDefaults.paneToolSize,
     paneToolOrder: deviceDefaults.paneToolOrder,
+    terminalLineHeight: "normal",
+    terminalCursor: "block",
+    terminalCursorBlink: true,
+    terminalScrollback: 5000,
   });
   expect(JSON.parse(localStorage.getItem(preferenceKey)!)).toEqual(next);
 });
@@ -39,6 +43,16 @@ test("无效工具栏位置、顺序或尺寸不会写入设备偏好", () => {
     expect(() => saveDevicePreferences(patch as Partial<DevicePreferences>)).toThrow();
     expect(localStorage.getItem(preferenceKey)).toBe(before);
   }
+});
+
+test("终端显示选项写入设备偏好，校验失败保留上一次保存", () => {
+  const display = { terminalLineHeight: "roomy", terminalCursor: "underline", terminalCursorBlink: false, terminalScrollback: 10000 } as const;
+  expect(saveDevicePreferences(display)).toMatchObject(display);
+  const before = localStorage.getItem(preferenceKey)!;
+  expect(JSON.parse(before)).toMatchObject(display);
+  const invalidPatch: unknown = { terminalScrollback: 1 };
+  expect(() => saveDevicePreferences(invalidPatch as Partial<DevicePreferences>)).toThrow();
+  expect(localStorage.getItem(preferenceKey)).toBe(before);
 });
 
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({

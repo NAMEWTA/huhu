@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
+import { LocalEnvironment } from "../shared/local-shell.js";
+
+export const terminalLineHeights = { normal: 1, roomy: 1.25 } as const;
+export const terminalScrollbackChoices = [1000, 5000, 10000] as const;
 
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
@@ -10,6 +14,11 @@ const schema = z.object({
   restoreWorkspace: z.boolean(),
   fontSize: z.number().int().min(9).max(28),
   font: z.enum(["theme", "jetbrains", "system"]),
+  terminalLineHeight: z.enum(["normal", "roomy"]),
+  terminalCursor: z.enum(["block", "bar", "underline"]),
+  terminalCursorBlink: z.boolean(),
+  terminalScrollback: z.literal(terminalScrollbackChoices),
+  localShellEnvironment: z.union([z.literal(""), LocalEnvironment.shape.id]),
   showDotFiles: z.boolean(),
   fileSort: z.enum(["name", "modified", "size"]),
   remoteOnLeft: z.boolean(),
@@ -27,6 +36,11 @@ export const deviceDefaults: DevicePreferences = {
   restoreWorkspace: false,
   fontSize: 13,
   font: "theme",
+  terminalLineHeight: "normal",
+  terminalCursor: "block",
+  terminalCursorBlink: true,
+  terminalScrollback: 5000,
+  localShellEnvironment: "",
   showDotFiles: true,
   fileSort: "name",
   remoteOnLeft: false,

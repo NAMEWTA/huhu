@@ -1,5 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
@@ -7,6 +7,8 @@ import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
 export type TerminalControl = { id: string; canInput: boolean };
+type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback">;
+const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000 } satisfies DisplayOptions;
 
 export interface TerminalViewProps {
   /** 工作台所在的 Engine 基址；桌面附带回环令牌，浏览器自动携带同源 cookie。 */
@@ -16,6 +18,8 @@ export interface TerminalViewProps {
   sessionId: string;
   observe?: boolean;
   ariaLabel: string;
+  /** View preferences can change without replacing the terminal connection. */
+  displayOptions?: DisplayOptions;
   /** 程序结束或连接断开时通知宿主。 */
   onExit?(reason: string): void;
   /** 桥接器授予输入控制后发布，离开此连接时撤回。 */
@@ -36,7 +40,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, onExit, onTerminalInput, onTerminalControl }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, onExit, onTerminalInput, onTerminalControl }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -45,12 +49,15 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   exit.current = onExit;
   const controlChanged = useRef(onTerminalControl);
   controlChanged.current = onTerminalControl;
+  const currentDisplay = useRef(displayOptions);
+  currentDisplay.current = displayOptions;
+  const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
 
   useEffect(() => {
     if (!host.current) return;
     const el = host.current;
     // minimumContrastRatio：xterm 自带，保证任何 ANSI 前景 / 背景组合都可读（例如浅色主题下的“白色”文字）
-    const term = new Terminal({ ...readTheme(el), cursorBlink: true, minimumContrastRatio: 4.5, convertEol: false, scrollback: 5000 });
+    const term = new Terminal({ ...readTheme(el), ...defaultDisplayOptions, ...currentDisplay.current, minimumContrastRatio: 4.5, convertEol: false });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
@@ -167,6 +174,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     const scheduleFit = () => {
       if (!disposed && frame === undefined) frame = window.requestAnimationFrame(measure);
     };
+    applyDisplay.current = (options) => {
+      term.options = { ...defaultDisplayOptions, ...options };
+      scheduleFit();
+    };
     const restyle = () => {
       const next = readTheme(el);
       term.options.theme = next.theme;
@@ -190,6 +201,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     watchResolution();
     return () => {
       disposed = true;
+      applyDisplay.current = undefined;
       revokeInput();
       setControl();
       window.removeEventListener(APPEARANCE_CHANGED, restyle);
@@ -202,6 +214,8 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       term.dispose();
     };
   }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput]);
+
+  useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
 
   return (
     <div className="hu-terminal-wrap" data-testid="terminal-view" data-state={state}>
