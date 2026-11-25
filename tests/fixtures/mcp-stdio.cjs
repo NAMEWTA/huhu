@@ -1,16 +1,24 @@
 const { appendFileSync, readFileSync } = require("node:fs");
 const { createInterface } = require("node:readline");
+const { spawn } = require("node:child_process");
 const [journal, definition] = process.argv.slice(2);
 const config = () => definition ? JSON.parse(readFileSync(definition, "utf8")) : {};
 const resourceUri = "fixture://note/1";
 const write = (event) => appendFileSync(journal, JSON.stringify(event) + "\n");
 const input = createInterface({ input: process.stdin });
-write({ type: "start", pid: process.pid });
+const helper = config().helper && spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+if (helper) process.on("SIGTERM", () => {
+  if (helper.exitCode !== null || helper.signalCode !== null) process.exit(0);
+  helper.once("exit", () => process.exit(0));
+});
+write({ type: "start", pid: process.pid, ...(helper && { helperPid: helper.pid }) });
 input.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.id === undefined) return;
   const reply = (result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\n");
   if (request.method === "initialize") {
+    if (config().hanging) return;
+    if (config().failInitialize) process.exit(1);
     reply({
       protocolVersion: "2025-11-25",
       capabilities: { tools: { listChanged: true }, ...(config().catalog && { resources: { listChanged: true }, prompts: { listChanged: true } }) },
@@ -33,6 +41,7 @@ input.on("line", (line) => {
   } else if (request.method === "tools/call") {
     const { name, arguments: args } = request.params;
     write({ type: "call", name, args, keys: Object.keys(request.params).sort() });
+    if (args.value === "fixture-disconnect") process.exit(1);
     reply({
       content: [{ type: "text", text: args.value }, { type: "resource_link", name: "Fixture", uri: "fixture://note/1" }],
       structuredContent: { value: args.value },

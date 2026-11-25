@@ -12,7 +12,7 @@ import {
   createHuhuContext, createMcpSourcePlugin, defineCapability, mcpSourceDescriptors, startEngineServer,
   type ExternalMcpTools, type LocalCredentialProtection,
 } from "../src/index.js";
-import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
+import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession } from "./fixtures/mcp-http.js";
 import { localUpstream } from "./fixtures/mcp-upstream.js";
 import { loopbackOAuth } from "./fixtures/mcp-oauth.js";
 const mcpReply = z.object({
@@ -60,6 +60,7 @@ async function fixture(directory: string, readOnly = false, options: { localRoot
     vaultInstance: identity, hostId: "fixture-host", approvalPath: ".huhu/runtime/test/mcp-approvals.json",
     ...(options && { credentialHost: { ...options, vault, localVaultInstanceId: "fixture-vault" } }),
     publishSignal: () => plugins.isEnabled("mcp") ? service?.signal : undefined,
+    endpoint: () => endpoint,
     isBuiltinName: (name) => name === "vault_info",
     audit: (row) => audit.add(row),
   }));
@@ -74,6 +75,7 @@ async function fixture(directory: string, readOnly = false, options: { localRoot
     mcpHttp: { enabled: () => !!service && plugins.isEnabled("mcp") },
     externalMcpTools: () => lifecycle.getService<ExternalMcpTools>(MCP_SOURCES_SERVICE),
     mcpSignal: () => service?.signal ?? AbortSignal.abort(),
+    mcpRecovery: { directory, generation: () => "fixture-generation" },
   });
   const close = async () => {
     if (closed) return;
@@ -92,7 +94,7 @@ async function fixture(directory: string, readOnly = false, options: { localRoot
   }
   const endpoint = `http://127.0.0.1:${server.port}/mcp`;
   return {
-    call, invoke, endpoint, token, close, plugins, vault, audit,
+    call, invoke, endpoint, token, tokens, close, plugins, vault, audit,
     setPublishing(enabled: boolean) { service?.abort(); service = enabled ? new AbortController() : undefined; },
     async client() {
       const handle = await openMcpSession(endpoint, token);
@@ -132,9 +134,135 @@ async function exposure(f: Awaited<ReturnType<typeof fixture>>, source: Source, 
   });
 }
 
-function writes(journal: string): { type: string; pid?: number; args?: object; name?: string; keys?: string[] }[] {
+function writes(journal: string): { type: string; pid?: number; helperPid?: number; args?: object; name?: string; keys?: string[] }[] {
   return readFileSync(journal, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }
+
+async function readySource(f: Awaited<ReturnType<typeof fixture>>, directory: string, namespace: string, definition?: string) {
+  const { source, journal } = await addStdio(f, directory, namespace, definition);
+  await approve(f, source);
+  await f.call("mcp.sources.check", sourceRef(source));
+  await exposure(f, source, "echo", true);
+  const enabled = await f.call<Source>("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  return { source: enabled, journal };
+}
+
+function running(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+test("ten sessions share stdio; a source exit reports unknown and recovery only rediscovers", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const healthy = await readySource(f, directory, "healthy");
+  const broken = await readySource(f, directory, "broken");
+  f.setPublishing(true);
+  const clients = await Promise.all(Array.from({ length: 10 }, () => f.client()));
+  const snapshots = await Promise.all(clients.map((rpc) => rpc("tools/list")));
+  for (const snapshot of snapshots) expect(snapshot.result?.tools?.map(({ name }) => name)).toEqual(["vault_info", "healthy__echo", "broken__echo"]);
+  for (const source of [healthy, broken]) expect(writes(source.journal).filter(({ type }) => type === "start")).toHaveLength(2);
+
+  const rpc = clients[0]!;
+  const result = await rpc("tools/call", { name: "broken__echo", arguments: { value: "fixture-disconnect" } });
+  expect(result.error?.data?.code).toBe("RUN_UNKNOWN");
+  expect((await rpc("tools/call", { name: "healthy__echo", arguments: { value: "ok" } })).result?.structuredContent).toEqual({ value: "ok" });
+  expect((await rpc("tools/call", { name: "vault_info" })).result?.structuredContent).toEqual({ data: { name: "fixture" } });
+  await expect.poll(async () => (await f.call<{ state: string }>("mcp.sources.get", { sourceId: broken.source.sourceId })).state).toBe("ready");
+  expect(writes(broken.journal).filter(({ type }) => type === "start")).toHaveLength(3);
+  expect(writes(broken.journal).filter(({ type }) => type === "call")).toHaveLength(1);
+  expect(f.audit.list()).toContainEqual(expect.objectContaining({
+    mcp: expect.objectContaining({
+      requestId: expect.any(String), session: expect.any(String), sourceName: "broken", upstreamEntry: "echo", publicEntry: "broken__echo",
+      result: "upstream-result-unknown",
+    }),
+  }));
+  expect(JSON.stringify(f.audit.list())).not.toContain("fixture-disconnect");
+});
+
+test("a hanging stdio source leaves other entries reachable and publication stop reclaims checks and descendants", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const definition = path.join(directory, "hanging.json");
+  writeFileSync(definition, JSON.stringify({ helper: process.platform !== "win32" }));
+  const slow = await readySource(f, directory, "slow", definition);
+  const healthy = await readySource(f, directory, "quick");
+  writeFileSync(definition, JSON.stringify({ helper: process.platform !== "win32", hanging: true }));
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result?.tools?.map(({ name }) => name)).toEqual(["vault_info", "quick__echo"]);
+  const check = f.invoke("mcp.sources.check", sourceRef(slow.source));
+  await expect.poll(() => writes(slow.journal).filter(({ type }) => type === "start").length).toBe(3);
+  const pending = writes(slow.journal).filter(({ type }) => type === "start").slice(1).flatMap(({ pid, helperPid }) => [pid!, ...(helperPid ? [helperPid] : [])]);
+  f.setPublishing(false);
+  expect(await check).toMatchObject({ ok: false });
+  const quickPid = writes(healthy.journal).at(-1)!.pid!;
+  await expect.poll(() => [...pending, quickPid].filter(running)).toEqual([]);
+  writeFileSync(definition, JSON.stringify({ helper: process.platform !== "win32" }));
+  expect(await f.call("mcp.sources.check", sourceRef(slow.source))).toMatchObject({ state: "ready" });
+  expect(running(writes(slow.journal).at(-1)!.pid!)).toBe(false);
+  expect((await mcpRequest(f.endpoint, f.token, mcpRpc("tools/list"))).ok).toBe(false);
+});
+
+test("a recovered session refuses even read-only upstream tools, and revocation stays credential scoped", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const { journal } = await readySource(f, directory, "repo");
+  f.setPublishing(true);
+  const first = await openRecoverableMcpSession(f.endpoint, f.token);
+  f.setPublishing(false);
+  f.setPublishing(true);
+  const recovered = await openRecoverableMcpSession(f.endpoint, f.token, first.recovery);
+  const body = mcpRpc("tools/call", { name: "repo__echo", arguments: { value: "ok" } });
+  const denied = await mcpRequest(f.endpoint, f.token, body, recovered.handle);
+  expect(mcpReply.parse(await denied.json()).error).toBeDefined();
+  expect(writes(journal).filter(({ type }) => type === "call")).toHaveLength(0);
+  const clean = await f.client();
+  expect((await clean("tools/call", body.params)).result?.structuredContent).toEqual({ value: "ok" });
+  const otherToken = f.tokens.issue("http");
+  const peer = await openMcpSession(f.endpoint, otherToken);
+  f.tokens.removeHash(TokenTable.hashHex(f.token));
+  expect((await mcpRequest(f.endpoint, f.token, body, recovered.handle)).ok).toBe(false);
+  const accepted = await mcpRequest(f.endpoint, otherToken, body, peer);
+  expect(mcpReply.parse(await accepted.json()).result?.structuredContent).toEqual({ value: "ok" });
+  expect(writes(journal).filter(({ type }) => type === "call")).toHaveLength(2);
+});
+
+test("automatic discovery stops after three reconnect attempts, and an explicit reconnect resets it", async () => {
+  const directory = root();
+  const f = await fixture(directory);
+  const definition = path.join(directory, "recovery.json");
+  writeFileSync(definition, "{}");
+  const { source, journal } = await readySource(f, directory, "recoverable", definition);
+  writeFileSync(definition, JSON.stringify({ failInitialize: true }));
+  f.setPublishing(true);
+  const rpc = await f.client();
+  expect((await rpc("tools/list")).result?.tools).toEqual([expect.objectContaining({ name: "vault_info" })]);
+  await expect.poll(() => writes(journal).length, { timeout: 7_000 }).toBe(5);
+  await expect.poll(async () => (await f.call<{ state: string }>("mcp.sources.get", { sourceId: source.sourceId })).state).toBe("offline");
+  writeFileSync(definition, "{}");
+  expect((await rpc("tools/list")).result?.tools).toEqual([expect.objectContaining({ name: "vault_info" })]);
+  expect(writes(journal)).toHaveLength(5);
+  expect(await f.call("mcp.sources.reconnect", sourceRef(source))).toMatchObject({ state: "ready", toolCount: 1 });
+  expect((await rpc("tools/list")).result?.tools).toContainEqual(expect.objectContaining({ name: "recoverable__echo" }));
+  expect(writes(journal)).toHaveLength(6);
+}, 10_000);
+
+test("an explicit check detects the Engine endpoint through a loopback alias", async () => {
+  const f = await fixture(root());
+  const url = new URL(f.endpoint);
+  url.hostname = "localhost";
+  const source = await f.call<Source>("mcp.sources.create", {
+    displayName: "self", namespace: "self",
+    configuration: { transport: "streamable-http", url: url.href, headers: {}, authentication: { kind: "none" } },
+  });
+  expect(await f.call("mcp.sources.check", sourceRef(source))).toMatchObject({
+    state: "offline", diagnostic: "MCP 来源不能指回当前 Engine 入口", toolCount: 0,
+  });
+});
 
 test("stdio approval, temporary check, native MCP result and stable publication after reopening", async () => {
   const directory = root();

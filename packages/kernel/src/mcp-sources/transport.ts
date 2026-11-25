@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontex
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { mcpRouteError } from "../mcp-routing.js";
 import type { McpCredentialMaterial } from "./credentials.js";
+import { GroupStdioTransport } from "./stdio.js";
 
 const reservedHeader = /^(?:host|origin|connection|upgrade|transfer-encoding|content-length|content-type|accept|proxy-.+|mcp-.+|x-forwarded-.+)$/i;
 
@@ -64,7 +65,7 @@ export function sourceTransport(source: McpSource, endpoint: () => string | null
   if (configuration.transport === "stdio") {
     const sealed = material();
     if (configuration.credentialEnvironment && sealed?.kind !== "stdio") throw mcpRouteError("authentication-required", { sourceId: source.sourceId });
-    const transport = new StdioClientTransport({
+    const parameters = {
       command: configuration.command,
       args: configuration.args,
       ...(configuration.cwd !== undefined && { cwd: configuration.cwd }),
@@ -72,8 +73,9 @@ export function sourceTransport(source: McpSource, endpoint: () => string | null
         ...Object.fromEntries(Object.entries(configuration.environment).map(([name, reference]) => [name, environmentValue(reference)])),
         ...(sealed?.kind === "stdio" && sealed.environment),
       },
-      stderr: "pipe",
-    });
+    };
+    if (process.platform !== "win32") return new GroupStdioTransport(parameters);
+    const transport = new StdioClientTransport({ ...parameters, stderr: "pipe" });
     transport.stderr?.on("data", () => undefined);
     return transport;
   }

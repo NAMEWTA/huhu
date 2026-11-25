@@ -21,6 +21,7 @@ import {
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityDefinition, type CapabilityRegistry } from "./define.js";
 import { toolResourceIds, toolSelection, type ExposureStore } from "../exposure.js";
+import { auditRecordSchema, type AuditRecord } from "../gateway-audit.js";
 import type { PluginManager } from "../plugin-manager.js";
 
 /** Kernel tools are bound for the life of a Vault. Declare their metadata from the same definition as the handler. */
@@ -75,7 +76,7 @@ export function registerSystemCapabilities(
   exposure: Pick<ExposureStore, "snapshot" | "setMany"> & { setPluginEnabled?(id: string, enabled: boolean): void; publishPolicyChange?(): void },
   gateway?: {
     hasSavedSshHosts?(ids: readonly string[]): boolean;
-    audit?: { list(): { at: string; entry: string; capability: string; code: string; ms: number }[]; clear(): void };
+    audit?: { list(): AuditRecord[]; clear(): void };
     mcp?: {
       status(): GatewayMcpStatus;
       update(settings: { enabled: boolean; port?: number }): GatewayMcpStatus;
@@ -375,7 +376,7 @@ export function registerSystemCapabilities(
       exposable: true,
       defaultExposed: false,
       input: z.object({}),
-      output: z.array(z.object({ at: z.string(), entry: z.string(), capability: z.string(), code: z.string(), ms: z.number() })),
+      output: z.array(auditRecordSchema),
       handler: ({ caller }) => {
         const records = (gateway?.audit?.list() ?? []).slice().reverse();
         if (isWorkbenchCaller(caller)) return records;
