@@ -415,8 +415,14 @@ export class Monitors {
     const { history } = binding.host;
     const width = Math.max(1000, (binding.retention * 60_000) / MAX_POINTS);
     const last = history.at(-1);
-    if (last?.sample && Math.floor(last.at / width) === Math.floor(point.at / width)) history[history.length - 1] = point;
-    else history.push(point);
+    const historical = { ...point, sample: point.sample && { ...point.sample } };
+    // Hardware detail belongs to the latest sample. Keep history bounded by its existing aggregate metrics.
+    if (historical.sample) {
+      delete historical.sample.cores;
+      delete historical.sample.interfaces;
+    }
+    if (last?.sample && Math.floor(last.at / width) === Math.floor(point.at / width)) history[history.length - 1] = historical;
+    else history.push(historical);
     binding.host.latest = point;
     this.trim(binding);
   }

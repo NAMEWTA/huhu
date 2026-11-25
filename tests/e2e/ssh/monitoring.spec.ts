@@ -1,9 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import type { PlanSummary } from "@huhu/contracts";
 import { openApp } from "../helpers/launch.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../../../plugins/ssh/src/engine/monitor-sample.js";
-import { CONTAINER_LIST, PROCESS_LIST } from "../../../plugins/ssh/src/engine/monitor-tools.js";
+import { CONTAINER_LIST, IMAGE_LIST, PROCESS_LIST } from "../../../plugins/ssh/src/engine/monitor-tools.js";
+import type { MonitorPanel } from "../../../plugins/ssh/src/shared/monitoring.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import { browserBinary, localWebLink } from "./workbench.js";
 
 async function call<T>(page: Page, capability: string, input: unknown) {
   const result = await page.evaluate(
@@ -28,10 +30,11 @@ test("Workbench monitors a saved panel in the background and controls the active
     onExec(command) {
       if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
       if (command === PROCESS_LIST) return { stdout: "42 monitor-fixture" };
-      if (command === CONTAINER_LIST) return { stderr: "docker: not found", code: 127 };
+      if (command === CONTAINER_LIST) return { stderr: "permission denied", code: 1 };
+      if (command === IMAGE_LIST) return { stdout: "abcdef123456|monitor/fixture:stable|10MB" };
       if (command !== LINUX_SAMPLE) return;
       const sequence = 100 + ++reads;
-      return { stdout: `cpu ${sequence * 25} ${sequence * 100}\nmemory 8388608 4194304\nuptime 3600\nload 1.25\ndisk 41943040 20971520\nnet ${sequence * 80} ${sequence * 50}\n` };
+      return { stdout: `cpu ${sequence * 25} ${sequence * 100}\ncpu0 ${sequence * 20} ${sequence * 40}\niface eth0 ${sequence * 80} ${sequence * 50}\nmemory 8388608 4194304\nuptime 3600\nload 1.25\ndisk 41943040 20971520\nnet ${sequence * 80} ${sequence * 50}\n` };
     },
   });
   const app = await openApp();
@@ -85,6 +88,9 @@ test("Workbench monitors a saved panel in the background and controls the active
     await workspace.getByRole("button", { name: "分栏监控", exact: true }).click();
     const sidebar = workspace.getByTestId("ssh-monitor-sidebar");
     await expect(sidebar).toContainText("正在采样 · Linux", { timeout: 10_000 });
+    await sidebar.getByText("CPU 核心与网络接口", { exact: true }).click();
+    await expect(sidebar.getByText("CPU 0 · 50.0%", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.getByText(/^eth0 · 接收 \d+ B\/s · 发送 \d+ B\/s$/)).toBeVisible();
     await sidebar.getByLabel("停靠位置").selectOption("left");
     await expect(workspace.locator("[data-dock]")).toHaveAttribute("data-dock", "left");
     await sidebar.getByLabel("采样周期").selectOption("1");
@@ -98,7 +104,9 @@ test("Workbench monitors a saved panel in the background and controls the active
     const tools = page.getByRole("dialog", { name: "服务器工具" });
     await expect(tools.getByText(/monitor-fixture/)).toBeVisible();
     await tools.getByRole("button", { name: "容器" }).click();
-    await expect(tools.getByRole("alert")).toHaveText("当前主机缺少 Docker 命令");
+    await expect(tools.getByRole("alert")).toHaveText("当前账户没有读取权限");
+    await tools.getByRole("button", { name: "镜像" }).click();
+    await expect(tools.getByRole("listitem")).toContainText("monitor/fixture:stable");
     await tools.getByRole("button", { name: "关闭", exact: true }).click();
     await sidebar.getByRole("button", { name: "关闭监控" }).click();
     await expect(sidebar).toHaveCount(0);
@@ -107,5 +115,73 @@ test("Workbench monitors a saved panel in the background and controls the active
   } finally {
     await app.close();
     await server.close();
+  }
+});
+
+test("A11 独立 Web 查看两个主机的桌面采样，采样控制由桌面管理", async () => {
+  test.skip(!browserBinary, "需要 Playwright Chromium");
+  test.setTimeout(60_000);
+  function source(percent: number) {
+    let reads = 0;
+    return startFakeSsh({
+      onExec(command) {
+        if (command === PLATFORM_COMMAND) return { stdout: "Linux" };
+        if (command === LINUX_SAMPLE) {
+          const n = 100 + ++reads;
+          return { stdout: `cpu ${n * percent} ${n * 100}\ncpu0 ${n * percent} ${n * 100}\nmemory 8192 4096` };
+        }
+      },
+    });
+  }
+  const a = await source(25);
+  const b = await source(65);
+  const app = await openApp();
+  let browser: Browser | undefined;
+  try {
+    const { page } = app;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const save = (name: string, port: number) => call<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name, port, host: "127.0.0.1", user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+    });
+    const [first, second] = [await save("监控甲", a.port), await save("监控乙", b.port)];
+    const panel = await call<MonitorPanel>(page, "ssh.monitor.panels.save", {
+      name: "浏览器监控面板", hostIds: [first.hostId, second.hostId], note: "", interval: 2, retention: 15,
+    });
+    const link = await localWebLink(page);
+    browser = await chromium.launch({ executablePath: browserBinary });
+    const web = await browser.newPage();
+    await web.goto(link);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    await web.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await web.getByRole("button", { name: "监控", exact: true }).click();
+    const dashboard = web.getByTestId("ssh-monitor-dashboard");
+    await expect(dashboard.getByText("未开始", { exact: true })).toHaveCount(2);
+    await expect(dashboard.getByRole("button", { name: "开始监控", exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "监控", exact: true }).click();
+    const desktopDashboard = page.getByTestId("ssh-monitor-dashboard");
+    await desktopDashboard.getByRole("button", { name: "开始监控", exact: true }).click();
+    for (const [name, percent] of [["监控甲", "25.0%"], ["监控乙", "65.0%"]] as const) {
+      const desktopHost = desktopDashboard.getByTestId("ssh-monitor-host").filter({ has: page.getByRole("heading", { name, exact: true }) });
+      await desktopHost.getByRole("button", { name: "核对主机指纹" }).click();
+      await page.getByRole("button", { name: "信任并连接" }).click();
+      const webHost = dashboard.getByTestId("ssh-monitor-host").filter({ has: web.getByRole("heading", { name, exact: true }) });
+      await expect(webHost.getByText(percent, { exact: true })).toBeVisible({ timeout: 12_000 });
+      await webHost.getByText("样本历史", { exact: true }).click();
+      await expect(webHost.getByRole("table")).toContainText(percent);
+    }
+    await expect(dashboard.getByRole("button", { name: "暂停监控", exact: true })).toHaveCount(0);
+    const desktopPanel = await call<{ hosts: { state: string }[] }>(page, "ssh.monitor.panels.run", { id: panel.id });
+    expect(desktopPanel.hosts.map(({ state }) => state)).toEqual(["running", "running"]);
+    expect([a.conns.length, b.conns.length]).toEqual([1, 1]);
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      await app.close();
+      await Promise.all([a.close(), b.close()]);
+    }
   }
 });

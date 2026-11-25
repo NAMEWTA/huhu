@@ -1,5 +1,5 @@
 import { Button, Dialog, EmptyState, PageHead } from "@huhu/ui";
-import { AutomationPlanLink, useCapability, useEngine, useEngineEvents, type ModuleProps } from "@huhu/workbench";
+import { AutomationPlanLink, host as desktopHost, useCapability, useEngine, useEngineEvents, type ModuleProps } from "@huhu/workbench";
 import { useId, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
@@ -160,10 +160,11 @@ function Editor({ previous, directory, error, busy, close, save }: { previous?: 
 type Action = "start" | "stop" | "pause" | "continue";
 export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack, onReview }: { directory?: Directory | undefined; initialPanelId: string | undefined; onNavigate: ModuleProps["onNavigate"]; onBack(): void; onReview(prompt: HostKeyPrompt): void }) {
   const engine = useEngine();
+  const desktop = Boolean(desktopHost());
   const visible = useMonitorVisibility();
   const panels = useCapability<MonitorPanel[]>("ssh.monitor.panels.list");
-  const subscriptions = useCapability<MonitorSession[]>("ssh.monitor.session.list", {}, { enabled: visible });
-  const externalPanels = useCapability<z.infer<typeof MonitorPanelRuntime>[]>("ssh.monitor.panels.external.list", {}, { enabled: visible });
+  const subscriptions = useCapability<MonitorSession[]>("ssh.monitor.session.list", {}, { enabled: visible && desktop });
+  const externalPanels = useCapability<z.infer<typeof MonitorPanelRuntime>[]>("ssh.monitor.panels.external.list", {}, { enabled: visible && desktop });
   const [selected, select] = useState(initialPanelId ?? "");
   const current = panels.data?.find(({ id }) => id === selected) ?? (selected === initialPanelId ? undefined : panels.data?.[0]);
   const runs = useCapability<MonitorPanelRun | null>("ssh.monitor.panels.run", { id: current?.id ?? "" }, { enabled: Boolean(current && visible) });
@@ -177,10 +178,10 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
   const pending = run?.hosts.find(({ hostId }) => hostId === trust);
   const refresh = runs.refetch;
   const hostName = (id: string) => directory?.hosts.find(({ hostId }) => id === hostId)?.name ?? "已移除的主机";
-  useMonitorPoll(Boolean(visible && current && run && run.state !== "stopped"), refresh);
+  useMonitorPoll(Boolean(visible && current && (!desktop || (run && run.state !== "stopped"))), refresh);
   useEngineEvents((event) => {
-    if (visible && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-monitor-panel") void panels.refetch();
-    if (visible && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-external-monitor") {
+    if (visible && event.type === "entity.changed" && "kind" in event.payload && (event.payload.kind === "ssh-monitor-panel" || (event.payload.kind === "periodic-plan" && "sourcePlugin" in event.payload && event.payload.sourcePlugin === "ssh"))) void panels.refetch();
+    if (visible && desktop && event.type === "entity.changed" && "kind" in event.payload && event.payload.kind === "ssh-external-monitor") {
       void subscriptions.refetch();
       void externalPanels.refetch();
     }
@@ -191,7 +192,7 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
     setError("");
     try {
       const result = await engine.call<T>(name, input, { write: true });
-      await Promise.all([panels.refetch(), refresh(), subscriptions.refetch(), externalPanels.refetch()]);
+      await Promise.all([panels.refetch(), refresh(), ...(desktop ? [subscriptions.refetch(), externalPanels.refetch()] : [])]);
       done?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "监控操作失败");
@@ -208,6 +209,7 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
   return (
     <section className="hu-stack" data-testid="ssh-monitor-dashboard" aria-label="SSH 监控">
       <PageHead title="监控" />
+      {!desktop && <p>请在桌面应用中启动、暂停、继续、重试或停止采样。</p>}
       {!!subscriptions.data?.length && (
         <section className="hu-card-alt">
           <h2>外部工具监控订阅</h2>
@@ -281,22 +283,22 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
           </p>
           <div className="ssh-workspace-controls">
             {current.plan && current.plan.intent !== "deleted" && <AutomationPlanLink planId={current.plan.planId} onNavigate={onNavigate} />}
-            {(!run || run.state === "stopped") && (
+            {desktop && (!run || run.state === "stopped") && (
               <Button variant="primary" disabled={busy} onClick={() => command("start")}>
                 开始监控
               </Button>
             )}
-            {run?.state === "running" && (
+            {desktop && run?.state === "running" && (
               <Button disabled={busy} onClick={() => command("pause")}>
                 暂停监控
               </Button>
             )}
-            {run?.state === "paused" && (
+            {desktop && run?.state === "paused" && (
               <Button disabled={busy} onClick={() => command("continue")}>
                 继续监控
               </Button>
             )}
-            {run && run.state !== "stopped" && (
+            {desktop && run && run.state !== "stopped" && (
               <Button disabled={busy} onClick={() => command("stop")}>
                 停止监控
               </Button>
@@ -327,7 +329,7 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
                   <h3>{hostName(hostId)}</h3>
                   {reading ? <MonitorMetrics host={reading} details={expanded} /> : <p role="status">未开始</p>}
                   {reading?.prompt && <Button onClick={() => setTrust(hostId)}>核对主机指纹</Button>}
-                  {run?.state === "running" && reading && ["disconnected", "failed", "denied", "unsupported", "missing"].includes(reading.state) && (
+                  {desktop && run?.state === "running" && reading && ["disconnected", "failed", "denied", "unsupported", "missing"].includes(reading.state) && (
                     <Button disabled={busy} onClick={() => command("retry", hostId)}>
                       重试此主机
                     </Button>

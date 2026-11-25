@@ -1,5 +1,5 @@
 import { Button } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
+import { host as desktopHost, useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import { SESSION_INTERVALS, SessionInterval, type MonitorHost, type MonitorSession, type MonitorSessionChange } from "../shared/monitoring.js";
 import type { z } from "zod";
@@ -84,6 +84,25 @@ export function MonitorMetrics({ host, details = true }: { host: MonitorHost; de
           )}
         </dl>
       )}
+      {details && host.platform === "linux" && sample && (
+        <details>
+          <summary>CPU 核心与网络接口</summary>
+          <dl className="ssh-key-details">
+            <dt>每核 CPU</dt>
+            <dd>{sample.cores?.map(({ index, percent }) => `CPU ${index} · ${percent.toFixed(1)}%`).join(" / ") || unknown}</dd>
+            <dt>网卡吞吐</dt>
+            <dd>
+              {sample.interfaces?.length ? (
+                <ul>
+                  {sample.interfaces.map(({ name, received, sent }) => (
+                    <li key={name}>{name} · 接收 {Math.round(received)} B/s · 发送 {Math.round(sent)} B/s</li>
+                  ))}
+                </ul>
+              ) : unknown}
+            </dd>
+          </dl>
+        </details>
+      )}
       {details && host.history.length > 0 && (
         <details>
           <summary>样本历史</summary>
@@ -121,7 +140,20 @@ export function MonitorMetrics({ host, details = true }: { host: MonitorHost; de
   );
 }
 
-export function MonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onClose }: { hostId: string; shellId: string; name: string; shown: boolean; dock: "left" | "right"; onDock(value: "left" | "right"): void; onClose(): void }) {
+type SidebarProps = { hostId: string; shellId: string; name: string; shown: boolean; dock: "left" | "right"; onDock(value: "left" | "right"): void; onClose(): void };
+
+export function MonitorSidebar(props: SidebarProps) {
+  if (desktopHost()) return <ActiveMonitorSidebar {...props} />;
+  return (
+    <aside className="ssh-monitor-side hu-stack" data-testid="ssh-monitor-sidebar" aria-label="活动分栏监控">
+      <h3>{props.name} · 监控</h3>
+      <p>请在桌面应用中打开分栏监控和服务器工具。此浏览器可查看已启动的监控面板。</p>
+      <Button onClick={props.onClose}>关闭监控</Button>
+    </aside>
+  );
+}
+
+function ActiveMonitorSidebar({ hostId, shellId, name, shown, dock, onDock, onClose }: SidebarProps) {
   const engine = useEngine();
   const active = useMonitorVisibility() && shown;
   const [session, setSession] = useState<MonitorSession>();

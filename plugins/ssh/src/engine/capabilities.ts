@@ -249,7 +249,7 @@ export const sshCapabilityDescriptors = {
   monitorToolsRead: defineCapabilityDescriptor({
     ...resource,
     name: "ssh.monitor.tools.read",
-    title: "读取已绑定服务器的进程和容器状态",
+    title: "读取已绑定服务器的进程、容器和镜像状态",
     description: "在原分栏执行固定只读查询。",
     scope: "execute",
     risk: "high",
