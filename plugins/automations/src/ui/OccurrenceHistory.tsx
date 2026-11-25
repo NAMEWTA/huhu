@@ -36,7 +36,7 @@ export function OccurrenceHistory({ planId, back, onNavigate }: { planId: string
     setPages([]);
   }
   return (
-    <div className="automations-occurrence-list plan-history hu-stack">
+    <div className="automations-occurrence-list automations-plan-history hu-stack">
       <h1>{t.nav.activations}</h1>
       {planId ? <Button onClick={back}>返回计划目录</Button> : null}
       <search aria-label="筛选发生" className="hu-toolbar">

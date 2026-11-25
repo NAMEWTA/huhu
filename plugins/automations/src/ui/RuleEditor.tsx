@@ -213,7 +213,7 @@ export function RuleEditor({
         if ((valid || waiting) && !busy) void submit();
       }}
     >
-      <fieldset className="hu-form-grid automation-editor-fields" disabled={busy || waiting}>
+      <fieldset className="hu-form-grid automations-editor-fields" disabled={busy || waiting}>
         <div className="hu-form-primary">
           <h3>做什么</h3>
           <Field label={t.ruleTitle}>
@@ -399,7 +399,7 @@ export function RuleEditor({
               <DateInput type="time" label={t.timeOfDay} value={time || null} onChange={(next) => { onDirty(); setTime(next ?? ""); }} />
             </Field>
           ) : null}
-          {preset === "weekly" ? <fieldset className="plan-weekdays">
+          {preset === "weekly" ? <fieldset className="automations-plan-weekdays">
             <legend>执行星期</legend>
             {["日", "一", "二", "三", "四", "五", "六"].map((label, day) => <label key={day}>
               <input type="checkbox" checked={days.includes(day)} onChange={() => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])} /> 周{label}

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { errors, HuhuError, isWorkbenchCaller, newId, type CaptureConversion, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller, newId, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import type { Entity, SemanticRepository, Trash } from "@huhu/vault";
 

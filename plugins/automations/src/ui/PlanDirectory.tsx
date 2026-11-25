@@ -247,8 +247,8 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
   const currentSheet = sheet && sheet.kind === "rule" ? sheet : null;
 
   return (
-    <div className="plan-center" data-testid="plan-directory" hidden={!active}>
-      <div className="plan-heading">
+    <div className="automations-plan-center" data-testid="plan-directory" hidden={!active}>
+      <div className="automations-plan-heading">
         <h1>计划</h1>
         <div className="row">
           <IconButton icon={RefreshCw} label="刷新目录" disabled={plans.isFetching} onClick={() => void refresh()} />
@@ -261,9 +261,9 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       {plans.error ? <p role="alert" className="hu-field-error">{plans.error.message}</p> : null}
       {error && !sheet ? <p role="alert" className="hu-field-error">{error}</p> : null}
       {write && !sheet ? <Button disabled={busy} onClick={() => void submit(write)}>核对原变更</Button> : null}
-      <div className={`plan-columns${selected ? " plan-has-detail" : ""}`}>
-        <section className="plan-list-panel" aria-label="计划目录">
-          <div className="plan-filters">
+      <div className={`automations-plan-columns${selected ? " automations-plan-has-detail" : ""}`}>
+        <section className="automations-plan-list-panel" aria-label="计划目录">
+          <div className="automations-plan-filters">
             <Field label="搜索计划"><input ref={searchRef} type="search" aria-label="搜索计划" placeholder="名称、来源或目标" maxLength={256} value={filter.query} onChange={(e) => filterBy({ ...filter, query: e.target.value })} /></Field>
             <Field label="来源"><Select aria-label="来源" value={filter.plugin} onChange={(e) => filterBy({ ...filter, plugin: e.target.value })}>
               <option value="">全部来源</option>{sourceOptions.map((source) => <option key={source} value={source}>{planSourceName(source)}</option>)}
@@ -279,11 +279,11 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
             </Select></Field>
             {filtersActive ? <Button variant="ghost" onClick={() => { filterBy(initialFilter); searchRef.current?.focus(); }}>清除筛选</Button> : null}
           </div>
-          <p className="plan-page-status" role="status">{plans.isPending ? "正在读取计划…" : plans.data ? `第 ${cursors.length + 1} 页 · ${rows.length} 项` : ""}</p>
-          <ul className="plan-rows">
+          <p className="automations-plan-page-status" role="status">{plans.isPending ? "正在读取计划…" : plans.data ? `第 ${cursors.length + 1} 页 · ${rows.length} 项` : ""}</p>
+          <ul className="automations-plan-rows">
             {rows.map((plan) => (
-              <li key={plan.planId} data-plan-id={plan.planId} className={selected === plan.planId ? "plan-row-selected" : ""}>
-                <button type="button" className="plan-row-main" data-testid="rule-row"
+              <li key={plan.planId} data-plan-id={plan.planId} className={selected === plan.planId ? "automations-plan-row-selected" : ""}>
+                <button type="button" className="automations-plan-row-main" data-testid="rule-row"
                   aria-label={`打开自动化 ${plan.title}`} aria-current={selected === plan.planId ? "true" : undefined} onClick={(e) => {
                     origin.current = e.currentTarget;
                     scrollBeforeDetail.current = e.currentTarget.closest("main")?.scrollTop ?? 0;
@@ -296,7 +296,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                   <small>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</small>
                   <small>下次 {plan.nextAt ? formatMoment(plan.nextAt, planZone(plan)) : "未安排"} · {recentLabel(plan)}</small>
                 </button>
-                <div className="plan-row-actions">
+                <div className="automations-plan-row-actions">
                   <IconButton icon={plan.intent === "enabled" ? Pause : Play} label={`${plan.intent === "enabled" ? "暂停" : "启用"} ${plan.title}`}
                     disabled={busy || write !== null || !plan.actions.includes(plan.intent === "enabled" ? "pause" : "resume")} onClick={() => toggle(plan)} />
                   <IconButton icon={Ellipsis} label={`更多操作 · ${plan.title}`} onClick={() => openSheet({ kind: "menu", plan })} />
@@ -313,7 +313,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
           </div>
         </section>
         {selected ? (
-          <section className="plan-inspector" aria-label="计划详情" data-testid="rule-detail">
+          <section className="automations-plan-inspector" aria-label="计划详情" data-testid="rule-detail">
             <Button variant="ghost" icon={ArrowLeft} onClick={back}>返回计划目录</Button>
             {detail.error ? <p role="alert">{detail.error.message}</p> : null}
             {detail.isPending ? <p role="status">正在读取计划详情…</p> : null}
@@ -339,7 +339,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
       {sheet?.kind === "templates" ? (
         <Dialog open wide title="从模板新建" onClose={() => setSheet(null)}>
           <p>模板会填入新表单，保存后默认暂停。</p>
-          <div className="plan-template-grid">
+          <div className="automations-plan-template-grid">
             {templates.map((template) => {
               const available = template.id === "observation" ? canObserve && capabilities?.includes("agent.sessions.list") : canCreate && (template.id === "reminder" || capabilities?.includes(template.id === "scan" ? "tasks.list" : "agent.catalog.detect"));
               return <article key={template.id}><h3>{template.title}</h3><p>{template.detail}</p>
@@ -422,7 +422,7 @@ function DeletePlan({ plan, pending, busy, error, onClose, onSubmit }: {
   const keep = useRef<HTMLButtonElement>(null);
   return (
     <Dialog open title="删除计划" initialFocusRef={keep} onClose={() => { if (!busy) onClose(); }} error={error}
-      actions={<><button ref={keep} type="button" className="hu-button" disabled={busy} onClick={onClose}>取消</button>
+      actions={<><Button ref={keep} disabled={busy} onClick={onClose}>取消</Button>
         <Button variant="danger" disabled={busy} onClick={() => onSubmit(pending ?? {
           change: "delete", planId: plan.planId, expectedRevision: plan.revision, intentId: planIntentId(),
         })}>{pending ? "核对原删除请求" : "删除计划"}</Button></>}>
@@ -447,21 +447,21 @@ function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onS
         {plan.actions.includes(plan.intent === "enabled" ? "pause" : "resume") ? <Button disabled={busy} onClick={onToggle}>{plan.intent === "enabled" ? "暂停" : "启用"}</Button> : null}
         <Button icon={Ellipsis} onClick={onMenu}>更多操作</Button>
       </div>
-      <div className="plan-facts">
+      <div className="automations-plan-facts">
         <div><small>下次执行</small><strong>{plan.nextAt ? <time dateTime={plan.nextAt}>{formatMoment(plan.nextAt, planZone(plan))}</time> : "未安排"}</strong></div>
         <div><small>最近发生</small>{plan.lastOccurrence
           ? <Button variant="ghost" onClick={() => onOccurrence(plan.lastOccurrence!.occurrenceId)}>{recentLabel(plan)}</Button>
           : <strong>尚未运行</strong>}</div>
       </div>
-      <section className="plan-detail-section"><h3>做什么</h3><p>{plan.action.summary}</p>
+      <section className="automations-plan-detail-section"><h3>做什么</h3><p>{plan.action.summary}</p>
         {rule.data && rule.data.data.legacyEnvironment !== true ? <RuleRun rule={rule.data} plan={plan} refresh={refresh} onOccurrence={onOccurrence} /> : null}
         {rule.error ? <p role="alert">{rule.error.message}</p> : null}
         {rule.data ? <RuleDetails rule={rule.data} /> : null}
       </section>
-      <section className="plan-detail-section"><h3>何时执行</h3><p>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</p>
+      <section className="automations-plan-detail-section"><h3>何时执行</h3><p>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</p>
         {!isRule ? <PlanScheduleControls plan={plan} changed={refresh} scheduleOnly registerLeaveGuard={registerLeaveGuard} /> : null}
       </section>
-      <section className="plan-detail-section"><h3>执行与结果</h3>
+      <section className="automations-plan-detail-section"><h3>执行与结果</h3>
         <p>{plan.owner.scope === "vault" ? "当前 Vault" : plan.owner.scope === "device" ? "绑定设备" : "绑定连接"}</p>
         {onSource ? <Button icon={ArrowUpRight} onClick={onSource}>{plan.source.plugin === "tasks" ? "打开来源任务" : `打开${planSourceName(plan.source.plugin)}`}</Button> : null}
       </section>

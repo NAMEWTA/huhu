@@ -1243,7 +1243,8 @@ test.each(["cli", "mcp"] as const)("%s scopes monitor reads and edits to authori
     await vi.waitFor(async () => {
       const result = await f.desktop<MonitorPanelRun>(cached, { id: panel.id });
       expect(result.hosts[0]?.latest?.sample?.memory).toEqual({ total: 8192, available: 4096 });
-    });
+    }, { timeout: 7_500, interval: 30 });
+    expect(data(await invoke(cached, binding))).toBeNull();
     await f.desktop(change, { ...binding, action: "pause" });
     const before = samples;
     expect(data(await invoke(cached, binding))).toBeNull();

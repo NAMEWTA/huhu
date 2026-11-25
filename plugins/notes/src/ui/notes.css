@@ -320,10 +320,10 @@
       [content-end] minmax(var(--note-gutter), 1fr)
       [full-end];
   }
-  .notes-editor-surface :is(.tiptap-editor-portal-content > .ProseMirror, .source-editor .cm-content):focus {
+  .notes-editor-surface :is([class~="tiptap-editor-portal-content"] > .ProseMirror, [class~="source-editor"] .cm-content):focus {
     outline: none;
   }
-  .notes-editor-body:has(.tiptap-editor-portal-content > .ProseMirror:focus-visible, .source-editor .cm-content:focus-visible)::before {
+  .notes-editor-body:has([class~="tiptap-editor-portal-content"] > .ProseMirror:focus-visible, [class~="source-editor"] .cm-content:focus-visible)::before {
     content: "";
     position: absolute;
     z-index: 1;
@@ -333,13 +333,13 @@
     border-block-start: 2px solid var(--focus);
     pointer-events: none;
   }
-  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror[contenteditable="false"] {
+  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror[contenteditable="false"] {
     --ok-trailing-zone: 0px;
   }
-  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror {
+  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror {
     overflow-wrap: anywhere;
   }
-  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror pre {
+  .notes-editor-surface [class~="tiptap-editor-portal-content"] > .ProseMirror pre {
     overflow-wrap: normal;
   }
   .notes-reading-pane {

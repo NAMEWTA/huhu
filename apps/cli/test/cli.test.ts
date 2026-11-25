@@ -10,7 +10,7 @@ import { createMcpServer as createSharedMcp, MAX_BODY_BYTES } from "@huhu/kernel
 import { Vault } from "@huhu/vault";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema, ReadResourceResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ErrorCode, ReadResourceResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { run } from "../src/main.js";
 import cliPackage from "../package.json" with { type: "json" };
@@ -299,7 +299,7 @@ describe("CLI", () => {
     expect(await run(["call", "no.such", "--vault", dir], c.io)).toBe(1);
     expect(c.out.join("")).toContain("CAPABILITY_NOT_FOUND");
   });
-  test("同一 Engine 的扩展卸载与复装在目录、CLI 和两种 MCP 上一致", async () => {
+  test("同一 Engine 的扩展卸载与复装在目录、CLI 和 HTTP MCP 上一致", async () => {
     const vault = tmp();
     const e = await boot({ vaultPath: vault, create: true });
     engines.push(e);
@@ -377,7 +377,11 @@ describe("CLI", () => {
       checkError(cliReply.error);
       expect(await http("tools/list")).toMatchObject({ result: { tools: [] } });
       const httpReply = (await http("tools/call", { name, arguments: {} })) as { result?: unknown };
-      checkToolError(httpReply.result);
+      if (found) {
+        checkToolError(httpReply.result);
+      } else {
+        expect(httpReply).toMatchObject({ error: { code: ErrorCode.InvalidParams, data: { ...error, details: { reason: "unknown-entry" } } } });
+      }
     };
     const missing = { code: "CAPABILITY_NOT_FOUND" };
     const unbound = { ...missing, details: { reason: "handler-missing", plugin: id } };

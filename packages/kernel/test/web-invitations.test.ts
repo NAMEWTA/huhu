@@ -35,14 +35,14 @@ test("两个邀请可建三个独立会话，仅撤回对应会话，同端口�
       cookies.push(cookie!.split(";")[0]!);
     }
     expect(new Set(cookies).size).toBe(3);
-    for (const cookie of cookies) {
+    const sessions = cookies.map((cookie) => owner!.authenticate(cookie.slice(WEB_SESSION_COOKIE.length + 1))!);
+    expect(new Set(sessions.map((session) => session.id)).size).toBe(3);
+    for (const [index, cookie] of cookies.entries()) {
       const ready = await bootstrap(cookie);
       expect(ready.status).toBe(200);
       expect(ready.headers.get("cache-control")).toBe("no-store");
-      expect(await ready.json()).toEqual({ vaultId: "vault-web-a", generation: running.generation });
+      expect(await ready.json()).toEqual({ vaultId: "vault-web-a", generation: running.generation, sessionId: sessions[index]!.id });
     }
-    const sessions = cookies.map((cookie) => owner!.authenticate(cookie.slice(WEB_SESSION_COOKIE.length + 1))!);
-    expect(new Set(sessions.map((session) => session.id)).size).toBe(3);
     expect((await bootstrap(cookies[2]!, { "x-forwarded-host": "other.example" })).status).toBe(403);
 
     expect(owner.revoke(a.id)).toBe(true);
