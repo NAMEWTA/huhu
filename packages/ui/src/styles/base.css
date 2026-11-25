@@ -91,3 +91,31 @@ b {
   color: var(--text);
   text-align: center;
 }
+.hu-terminal-search {
+  position: absolute;
+  inset-block-start: var(--space-2);
+  inset-inline-end: var(--space-2);
+  z-index: 2;
+  max-inline-size: calc(100% - 2 * var(--space-2));
+  color: var(--text);
+}
+.hu-terminal-search :is(form, button, input) {
+  border-radius: var(--radius-control);
+  background: var(--chrome);
+  color: inherit;
+}
+.hu-terminal-search form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+.hu-terminal-search :is(button, input) {
+  border: 1px solid var(--line);
+  padding: var(--space-1) var(--space-2);
+}
+.hu-terminal-search p {
+  flex-basis: 100%;
+  margin: 0;
+}

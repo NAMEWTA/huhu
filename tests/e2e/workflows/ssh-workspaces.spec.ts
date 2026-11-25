@@ -131,6 +131,67 @@ test("A05 adding a split opens only the new host and keeps the original pane ses
   }
 });
 
+test("A06 live SSH scrollback search and terminal links use the same shell", async () => {
+  const password = randomUUID();
+  const plain = "https://example.invalid/plain";
+  const osc = "https://example.invalid/osc8";
+  const server = await startFakeSsh({ password, onInteractiveShell: (channel) => {
+    channel.write("原终端回滚目标\r\n");
+    for (let i = 0; i < 90; i++) channel.write(`fixture row ${i}\r\n`);
+    channel.write(`${plain}\r\n\u001b]8;;${osc}\u0007OSC eight target\u001b]8;;\u0007\r\n`);
+  } });
+  const fixture = await openApp();
+  try {
+    const { app, page } = fixture;
+    await app.evaluate(({ dialog, shell }) => {
+      dialog.showMessageBox = (async () => ({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+      shell.openExternal = async (url) => {
+        ((globalThis as { sshLinksOpened?: string[] }).sshLinksOpened ??= []).push(url);
+      };
+    });
+    await openWorkspace(page);
+    const host = await configureLoopback(page, "回滚与链接", server.port, password);
+    expect((await sshCall(page, "ssh.workspace.runs.start", { name: "回滚查找回环", layout: { kind: "one" }, panes: [{ hostId: host.hostId }] })).ok).toBe(true);
+    await page.getByRole("button", { name: /回滚查找回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    const terminal = run.getByTestId("terminal-view");
+    await expect(terminal.locator(".xterm-rows")).toContainText("OSC eight target");
+    const pane = run.getByTestId("ssh-workspace-run-pane");
+    const session = await pane.getAttribute("data-session-id");
+    const find = async (value: string) => {
+      await terminal.getByRole("button", { name: "查找终端回滚" }).click();
+      const input = terminal.getByRole("searchbox", { name: "查找终端回滚" });
+      await expect(input).toBeFocused();
+      await input.fill(value);
+      await input.press("Enter");
+      await expect(terminal.getByRole("status")).toHaveText("已定位匹配内容");
+      await expect(terminal.locator(".xterm-rows")).toContainText(value);
+      await input.press("Escape");
+    };
+    await find("原终端回滚目标");
+    await find(plain);
+    for (const [label, href] of [[plain, plain], ["OSC eight target", osc]]) {
+      const row = terminal.locator(".xterm-rows > div").filter({ hasText: label! });
+      await row.scrollIntoViewIfNeeded();
+      const rect = (await row.boundingBox())!;
+      const x = rect.x + 15;
+      const y = rect.y + rect.height / 2;
+      await page.mouse.move(x, y);
+      await expect(terminal.getByRole("application")).toHaveAttribute("title", new RegExp(href!));
+      await page.keyboard.down("Control");
+      try { await page.mouse.click(x, y); }
+      finally { await page.keyboard.up("Control"); }
+    }
+    await expect.poll(() => app.evaluate(() => (globalThis as { sshLinksOpened?: string[] }).sshLinksOpened)).toEqual([plain, osc]);
+    await expect(pane).toHaveAttribute("data-session-id", session!);
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
+
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";
