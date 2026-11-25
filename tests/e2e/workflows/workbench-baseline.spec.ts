@@ -477,11 +477,7 @@ test("UX16 Safe 三栏按账号取用明文，窄窗逐级返回并清理", asyn
 test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page, name) => {
-    const openAppearance = async () => {
-      await page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true }).click();
-      await page.getByTestId("settings-nav-appearance").click();
-      await expect(page.getByTestId("settings-appearance")).toBeVisible();
-    };
+    page.setDefaultTimeout(10_000);
     const appearance = page.getByTestId("settings-appearance");
     const grid = appearance.getByRole("group", { name: "主题", exact: true });
     const root = page.locator("html");
@@ -500,13 +496,14 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
       };
     });
     await page.setViewportSize({ width: 1920, height: 940 });
-    await openAppearance();
+    await openSettingsPage(page, "appearance");
     await expect(grid.getByRole("button")).toHaveCount(4);
     await expect.poll(metrics).toMatchObject({ columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
     const firstWide = await metrics();
     await page.setViewportSize({ width: 1200, height: 850 });
     await expect.poll(metrics).toMatchObject({ columns: 2, pageFits: true, lastColumnFillsGrid: true });
     await page.setViewportSize({ width: 490, height: 830 });
+    await collapseSettingsNavigation(page);
     await expect.poll(metrics).toMatchObject({ columns: 1, pageFits: true });
     const theme = name === "electron" ? "vercel" : "notion";
     const mode = name === "electron" ? "dark" : "light";
@@ -523,7 +520,7 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
     expect(await call(page, "settings.get", {})).toMatchObject({ appearance: { theme, mode, fontSize: 18 } });
     await page.setViewportSize({ width: 1920, height: 940 });
     await page.reload();
-    await openAppearance();
+    await openSettingsPage(page, "appearance");
     await expect(root).toHaveAttribute("data-theme", theme);
     await expect(root).toHaveAttribute("data-mode", mode);
     await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
