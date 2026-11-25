@@ -76,6 +76,14 @@ test("终端显示选项写入设备偏好，校验失败保留上一次保存",
   expect(localStorage.getItem(preferenceKey)).toBe(before);
 });
 
+test("终端选词和链接设置使用本机存储并可恢复默认", () => {
+  const changed = saveDevicePreferences({ terminalWordSeparator: " _", terminalLinkActivation: false });
+  expect(changed).toMatchObject({ terminalWordSeparator: " _", terminalLinkActivation: false });
+  expect(() => saveDevicePreferences({ terminalWordSeparator: "\n" })).toThrow();
+  const reset = saveDevicePreferences({ terminalWordSeparator: deviceDefaults.terminalWordSeparator, terminalLinkActivation: deviceDefaults.terminalLinkActivation });
+  expect(reset).toMatchObject({ terminalWordSeparator: " ()[]{}',\"`", terminalLinkActivation: true });
+});
+
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({
   paneId: `pane-${name}`,
   hostId: name,

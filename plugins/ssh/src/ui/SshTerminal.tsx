@@ -18,10 +18,10 @@ function openTerminalLink(url: string) {
 }
 
 export function SshTerminal(props: TerminalViewProps) {
-  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback } = useDevicePreferences();
+  const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator, terminalLinkActivation } = useDevicePreferences();
   const displayOptions = useMemo(
-    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback }),
-    [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback],
+    () => ({ lineHeight: terminalLineHeights[terminalLineHeight], cursorStyle: terminalCursor, cursorBlink: terminalCursorBlink, scrollback: terminalScrollback, wordSeparator: terminalWordSeparator }),
+    [terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator],
   );
   const scale = canScaleTerminal() ? fontSize / 13 : 1;
   const previous = useRef(font);
@@ -34,7 +34,7 @@ export function SshTerminal(props: TerminalViewProps) {
   return (
     <div className="ssh-terminal-preferences" data-testid="ssh-terminal-preferences">
       <div className="ssh-terminal-scale" style={style} data-font={font}>
-        <TerminalView {...props} displayOptions={displayOptions} scrollbackSearch onOpenLink={openTerminalLink} />
+        <TerminalView {...props} displayOptions={displayOptions} scrollbackSearch onOpenLink={openTerminalLink} linkActivation={terminalLinkActivation} />
       </div>
     </div>
   );
