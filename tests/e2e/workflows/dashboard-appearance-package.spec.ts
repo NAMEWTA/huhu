@@ -41,12 +41,12 @@ test("候选看板：四主题明暗、减少动效、放大与键盘移动保�
         const enterTabs = await tabTo(page, customize);
         await page.keyboard.press("Enter");
         const card = page.locator('[data-instance-id="default-focus"]');
-        const move = card.getByRole("button", { name: /^向下移动 / });
+        const move = card.getByRole("button", { name: "移动 专注", exact: true });
         const moveTabs = await tabTo(page, move);
         await expect(move).toBeFocused();
         const before = await card.getAttribute("style");
         const previousY = existsSync(layoutFile) ? JSON.parse(readFileSync(layoutFile, "utf8")).layout.find((item: { instanceId: string }) => item.instanceId === "default-focus").y : 5;
-        await page.keyboard.press("Enter");
+        await page.keyboard.press("ArrowDown");
         await expect(page.getByTestId("home-dashboard").getByRole("status")).toHaveText(`专注，第 1 列，第 ${previousY + 2} 行，3 × 2。`);
         await expect(card).not.toHaveAttribute("style", before ?? "");
         const save = page.getByTestId("home-dashboard-save");

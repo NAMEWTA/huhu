@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 import { treeFileRows, treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
+import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
 type Call = (capability: string, input?: unknown, intentKey?: string) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
@@ -992,9 +993,9 @@ test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重�
     await page.setViewportSize({ width: 600, height: 768 });
     await expect(board.locator(".hu-dashboard-canvas")).toHaveAttribute("data-dashboard-narrow", "true");
     await page.getByTestId("home-customize").click();
-    const earlier = board.getByRole("button", { name: "前移 最近笔记" });
-    await expect(board.getByRole("button", { name: "移动 最近笔记", exact: true })).toBeHidden();
-    await earlier.press("Enter");
+    const handle = board.getByRole("button", { name: "移动 最近笔记", exact: true });
+    await handle.press("ArrowUp");
+    await expect(handle).toBeFocused();
     await expect(board.getByRole("status")).toContainText(/最近笔记，第 \d+ 列，第 \d+ 行/u);
     await expect.poll(order).toEqual(expected);
     expect(existsSync(file)).toBe(false);
@@ -1260,7 +1261,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
   }
 });
 
-test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置、管理所属插件", async () => {
+test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置、管理所属插件", async (_args, info) => {
   const { app, page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -1285,7 +1286,24 @@ test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置�
     await page.getByTestId("gateway-mcp-copy").click();
     await expect(page.getByRole("status").filter({ hasText: "客户端配置已复制" })).toBeVisible();
     const configuration = JSON.parse(await app.evaluate(({ clipboard }) => clipboard.readText()));
-    expect(configuration).toEqual({ mcpServers: { huhu: { url: `${baseUrl}/mcp`, headers: { Authorization: expect.stringContaining("Bearer <") } } } });
+    expect(configuration).toEqual({ mcpServers: { huhu: { url: `${baseUrl}/mcp`, headers: { Authorization: "Bearer <在“服务端”里创建的令牌>" } } } });
+    const endpoint = configuration.mcpServers.huhu.url as string;
+    const call = await caller(page);
+    expect((await call("gateway.update", { capability: "vault.info", exposed: true })).ok).toBe(true);
+    const credential = await call("gateway.tokens.create", { name: "U7 fixed endpoint client" });
+    expect(credential.ok).toBe(true);
+    const { id, token } = credential.data as { id: string; token: string };
+    const session = await openMcpSession(endpoint, token);
+    const request = () => mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "vault_info", arguments: {} }), session);
+    const authorized = await request();
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toMatchObject({ result: { structuredContent: { data: { id: expect.any(String) } } } });
+    expect((await call("gateway.tokens.revoke", { id })).ok).toBe(true);
+    const revoked = await request();
+    expect(revoked.status).toBe(401);
+    await info.attach("fixed-endpoint-client", { contentType: "application/json", body: JSON.stringify({
+      configuration, tool: "vault_info", authorizedStatus: authorized.status, revokedStatus: revoked.status,
+    }) });
     await page.getByRole("button", { name: "管理所属插件" }).click();
     await expect(page.getByTestId("plugin-center")).toBeVisible();
   } finally {

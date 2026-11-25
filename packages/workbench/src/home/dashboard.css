@@ -22,7 +22,7 @@
   }
 
   .hu-dashboard-toolbar,
-  .hu-dashboard-card-controls .row {
+  .hu-dashboard-settings-actions {
     flex-wrap: wrap;
   }
 
@@ -39,12 +39,27 @@
   }
 
   .hu-dashboard-card-controls {
-    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
     background: var(--panel);
   }
 
-  .hu-dashboard-card-controls strong {
+  .hu-dashboard-card-controls > label {
+    margin-inline-start: auto;
+  }
+
+  .hu-dashboard-hidden-name {
     flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hu-dashboard-layout-help {
+    margin-block: 0 12px;
   }
 
   .hu-dashboard-drag {
@@ -57,6 +72,12 @@
   .hu-dashboard-grid .react-grid-item > .react-resizable-handle {
     touch-action: none;
     opacity: 1;
+    inline-size: 24px;
+    block-size: 24px;
+  }
+
+  .hu-dashboard-canvas[data-dashboard-narrow] .hu-dashboard-drag {
+    cursor: default;
   }
 
   .hu-dashboard-grid .react-grid-item > .react-resizable-handle::after {
@@ -94,6 +115,45 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
     gap: 16px;
+  }
+
+  .hu-dashboard-catalog-filters,
+  .hu-dashboard-catalog {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+    gap: 10px;
+  }
+
+  .hu-dashboard-catalog-filters {
+    margin-block-end: 14px;
+  }
+
+  .hu-dashboard-catalog-filters > * {
+    min-inline-size: 0;
+  }
+
+  .hu-dashboard-catalog-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .hu-dashboard-catalog-card :is(h3, p) {
+    margin: 0;
+  }
+
+  .hu-dashboard-catalog-card small,
+  .hu-dashboard-catalog-size {
+    color: var(--muted);
+  }
+
+  .hu-dashboard-catalog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-block-start: auto;
   }
 
   .hu-dashboard-canvas[data-dashboard-narrow] .hu-dashboard-grid {

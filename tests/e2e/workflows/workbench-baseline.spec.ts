@@ -8,6 +8,7 @@ import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
+import type { DashboardView } from "../../../packages/contracts/src/home.js";
 
 const artifacts = process.env["HUHU_U0_DESKTOP_APP"] ?? root;
 const size = { width: 1000, height: 720 };
@@ -526,6 +527,131 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
     await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
     await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
     await info.attach(`${name}-appearance-reflow`, { body: JSON.stringify({ firstWide, narrow, reopened: await metrics(), theme, mode }), contentType: "application/json" });
+  });
+});
+
+test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留布局", async (_args, info) => {
+  await runOnHosts(info, async (page, name) => {
+    page.setDefaultTimeout(10_000);
+    await page.setViewportSize({ width: 1440, height: 930 });
+    if (name === "web") await page.reload();
+    const board = page.getByTestId("home-dashboard");
+    const read = () => call<DashboardView>(page, "home.dashboard.get", {});
+    const initial = (await read()).board;
+    const notes = board.locator('[data-instance-id="default-notes"]');
+    const tasks = board.locator('[data-instance-id="default-tasks"]');
+    const drag = async (target: Locator, cells: number) => {
+      await target.scrollIntoViewIfNeeded();
+      const bounds = (await target.boundingBox())!;
+      const stride = await board.locator(".hu-dashboard-grid").evaluate((grid) => (grid.getBoundingClientRect().width + 12) / 6);
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      try {
+        await page.mouse.move(x + stride * cells, y, { steps: 8 });
+        await expect(board.locator(".hu-dashboard-drop-preview, .placeholder-resizing")).toBeVisible();
+      } finally {
+        await page.mouse.up();
+      }
+    };
+    await page.getByTestId("home-customize").click();
+    expect(await board.locator(".hu-dashboard-card-controls select").count()).toBe(0);
+    const origin = (await notes.boundingBox())!;
+    await drag(notes.getByRole("button", { name: "移动 最近笔记", exact: true }), -1);
+    await expect.poll(async () => (await notes.boundingBox())?.x).toBeLessThan(origin.x);
+    await expect.poll(async () => (await tasks.boundingBox())?.y).toBeGreaterThan((await notes.boundingBox())!.y);
+    await drag(notes.locator(".react-resizable-handle-se"), 1);
+    await expect.poll(async () => (await notes.boundingBox())?.width).toBeGreaterThan(origin.width);
+    const taskMove = tasks.getByRole("button", { name: "移动 我的任务", exact: true });
+    await taskMove.press("Shift+ArrowDown");
+    await expect(taskMove).toBeFocused();
+    await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("3 × 4");
+    expect((await read()).board.revision).toBe(initial.revision);
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
+    const saved = (await read()).board;
+    expect(saved.layout).toEqual(expect.arrayContaining([
+      expect.objectContaining({ instanceId: "default-notes", x: 2, w: 4 }),
+      expect.objectContaining({ instanceId: "default-tasks", h: 4 }),
+    ]));
+    await page.reload();
+    await expect(notes).toBeVisible();
+    const savedStyle = await notes.getAttribute("style");
+    expect((await read()).board.layout).toEqual(saved.layout);
+    await page.getByTestId("home-customize").click();
+    await notes.getByRole("button", { name: "移动 最近笔记", exact: true }).press("ArrowLeft");
+    await expect(board.getByTestId("home-dashboard-save")).toBeEnabled();
+    await board.getByRole("button", { name: "取消编辑", exact: true }).click();
+    await expect(notes).toHaveAttribute("style", savedStyle!);
+    expect((await read()).board.layout).toEqual(saved.layout);
+    if (name === "electron") await call(page, "home.dashboard.update", { baseRevision: saved.revision, instances: initial.instances, layout: initial.layout });
+  });
+});
+
+test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多实例和不可用来源", async (_args, info) => {
+  await runOnHosts(info, async (page, name) => {
+    page.setDefaultTimeout(10_000);
+    await page.setViewportSize({ width: 940, height: 850 });
+    if (name === "web") await page.reload();
+    const board = page.getByTestId("home-dashboard");
+    const initial = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
+    const focus = board.locator('[data-instance-id="default-focus"]');
+    const dialog = page.getByRole("dialog", { name: "添加卡片" });
+    const search = dialog.getByRole("searchbox", { name: "搜索卡片" });
+    const source = dialog.getByRole("combobox", { name: "卡片来源" });
+    const open = () => board.getByRole("button", { name: "添加卡片", exact: true }).click();
+    const cancel = board.getByRole("button", { name: "取消编辑", exact: true });
+    const focusChoice = dialog.getByRole("article", { name: "专注", exact: true });
+    const taskChoice = dialog.getByRole("article", { name: "我的任务", exact: true });
+    let tasksDisabled = false;
+    try {
+      await page.getByTestId("home-customize").click();
+      await open();
+      await source.selectOption("system");
+      await search.fill("跟踪计时");
+      await expect(focusChoice).toContainText("推荐尺寸 3 × 2");
+      await expect(focusChoice.getByRole("button", { name: "已添加 专注" })).toBeDisabled();
+      await expect(taskChoice).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await focus.getByRole("checkbox", { name: "隐藏" }).check();
+      await open();
+      await search.fill("专注");
+      await focusChoice.getByRole("button", { name: "恢复隐藏卡片 专注" }).click();
+      await expect(focus.getByRole("checkbox", { name: "隐藏" })).not.toBeChecked();
+
+      await open();
+      await source.selectOption("plugin");
+      await search.fill("今日安排");
+      await expect(taskChoice).toContainText("已有 1 个");
+      await taskChoice.getByRole("button", { name: "再添加一个 我的任务" }).click();
+      await board.getByTestId("home-dashboard-save").click();
+      await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
+      const saved = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
+      const tasks = saved.instances.filter(({ widgetType }) => widgetType === "widget:tasks:tasks");
+      expect(tasks).toHaveLength(2);
+      expect(new Set(tasks.map(({ instanceId }) => instanceId)).size).toBe(2);
+      expect(saved.instances.filter(({ widgetType }) => widgetType === "widget:kernel:focus")).toEqual([
+        expect.objectContaining({ instanceId: "default-focus", hidden: false }),
+      ]);
+
+      await call(page, "plugins.setEnabled", { id: "tasks", enabled: false });
+      tasksDisabled = true;
+      await expect(board.getByText("卡片所需的插件已停用", { exact: true })).toHaveCount(2);
+      await page.getByTestId("home-customize").click();
+      await open();
+      await search.fill("今日安排");
+      await expect(taskChoice.getByRole("button", { name: "当前不可用 我的任务" })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await cancel.click();
+      expect((await call<DashboardView>(page, "home.dashboard.get", {})).board.instances).toEqual(saved.instances);
+    } finally {
+      if (await dialog.isVisible()) await page.keyboard.press("Escape");
+      if (await cancel.isVisible() && await cancel.isEnabled()) await cancel.click();
+      if (tasksDisabled) await call(page, "plugins.setEnabled", { id: "tasks", enabled: true });
+      const current = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
+      if (current.revision !== initial.revision) await call(page, "home.dashboard.update", { baseRevision: current.revision, instances: initial.instances, layout: initial.layout });
+    }
   });
 });
 
