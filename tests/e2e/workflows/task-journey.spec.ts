@@ -424,10 +424,18 @@ test("T4.1 与 T5.5 在工作台处理 DST 回拨与缺口、保留启用状态�
     await expect(ruleEditor).toContainText("保存后保持启用");
     await ruleEditor.getByLabel("时区", { exact: true }).fill("invalid/zone");
     await expect(ruleEditor.getByTestId("rule-trigger-error")).toBeVisible();
+    const enginePreview = page.waitForResponse((response) => {
+      const request = response.request();
+      if (!response.url().endsWith("/api/v1/call") || request.method() !== "POST") return false;
+      const payload = request.postDataJSON();
+      return payload?.capability === "automations.plans.previewRuleDraft" && payload.input?.trigger?.zone === "Asia/Taipei";
+    });
     await ruleEditor.getByLabel("时区", { exact: true }).fill("Asia/Taipei");
+    const { data: draftPreview } = await (await enginePreview).json() as { data: { next: string[] } };
     const previewTimes = ruleEditor.getByTestId("rule-upcoming").locator("time");
     await expect(previewTimes).toHaveCount(3);
     const proposed = await previewTimes.evaluateAll((elements) => elements.map((element) => element.getAttribute("datetime")));
+    expect(proposed).toEqual(draftPreview.next);
     await ruleEditor.getByTestId("rule-save").click();
     await expect(ruleEditor).toBeHidden();
     const saved = await call<Rule>("automations.read", { id: rule.id });

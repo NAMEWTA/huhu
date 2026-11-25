@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useRef, type ComponentProps } from "react";
+import { useEffect, useId, useRef, useState, type ComponentProps } from "react";
 import { DateCalendar } from "./DateCalendar.js";
 import { localInputToIso, isoToLocalInput } from "./datetime.js";
 import { HostDateField } from "./host-ui.js";
@@ -14,9 +14,47 @@ interface DateInputProps extends Omit<ComponentProps<"input">, "value" | "onChan
 }
 
 /** Shared native input for dates and clock times. Values follow the input type's canonical format. */
-export function DateInput({ label, type, value, onChange, clearable = true, disabled, ...inputProps }: DateInputProps) {
+export function DateInput({ label, type, value, onChange, clearable = true, disabled, readOnly, ...inputProps }: DateInputProps) {
   const input = useRef<HTMLInputElement>(null);
+  const errorId = useId();
+  const [error, setError] = useState("");
   const language = inputProps.lang || (typeof document === "undefined" ? "" : document.documentElement.lang) || "zh-CN";
+  const english = language.startsWith("en");
+
+  useEffect(() => {
+    input.current?.setCustomValidity("");
+    setError("");
+  }, [value]);
+
+  function commit(text: string | null, element: HTMLInputElement) {
+    if (element.matches(":disabled") || element.readOnly) return false;
+    element.setCustomValidity("");
+    const { badInput, rangeUnderflow, rangeOverflow, stepMismatch } = element.validity;
+    if (badInput || rangeUnderflow || rangeOverflow || stepMismatch) {
+      const message = rangeUnderflow ? (english ? `Enter a value on or after ${element.min}.` : `请选择不早于 ${element.min} 的日期或时间。`)
+        : rangeOverflow ? (english ? `Enter a value on or before ${element.max}.` : `请选择不晚于 ${element.max} 的日期或时间。`)
+        : english ? "Enter a valid date or time." : "请输入有效的日期或时间。";
+      element.setCustomValidity(message);
+    } else {
+      onChange(text, element);
+    }
+    const message = element.validity.customError ? element.validationMessage : "";
+    setError(message);
+    return !message;
+  }
+
+  function choose(text: string | null) {
+    const element = input.current;
+    if (!element) return false;
+    const previous = element.value;
+    element.value = text ?? "";
+    try {
+      return commit(text, element);
+    } finally {
+      element.value = previous;
+    }
+  }
+
   return (
     <span className="hu-datetime">
       <input
@@ -27,22 +65,16 @@ export function DateInput({ label, type, value, onChange, clearable = true, disa
         value={value ?? ""}
         lang={language}
         disabled={disabled}
-        onChange={(e) => {
-          e.target.setCustomValidity("");
-          if (e.target.validity.badInput) return;
-          onChange(e.target.value || null, e.target);
-        }}
+        readOnly={readOnly}
+        aria-invalid={error ? true : inputProps["aria-invalid"]}
+        aria-describedby={[inputProps["aria-describedby"], error ? errorId : undefined].filter(Boolean).join(" ") || undefined}
+        onChange={(event) => { commit(event.currentTarget.value || null, event.currentTarget); }}
       />
-      {type === "date" && !disabled ? <DateCalendar label={label} language={language} value={value} onChange={(date) => {
-        if (!input.current) return;
-        input.current.setCustomValidity("");
-        onChange(date, input.current);
+      {type === "date" && !disabled && !readOnly ? <DateCalendar label={label} language={language} value={value} clearable={clearable} onChange={choose} /> : null}
+      {clearable && value && !disabled && !readOnly ? <IconButton icon={X} label={english ? `Clear ${label}` : `清除${label}`} size={14} onClick={() => {
+        if (choose(null)) input.current?.focus();
       }} /> : null}
-      {clearable && value && !disabled ? <IconButton icon={X} label={language?.startsWith("en") ? `Clear ${label}` : `清除${label}`} size={14} onClick={() => {
-        input.current?.setCustomValidity("");
-        if (input.current) onChange(null, input.current);
-        input.current?.focus();
-      }} /> : null}
+      {error ? <small className="hu-datetime-error hu-field-error" id={errorId} role="alert">{error}</small> : null}
     </span>
   );
 }

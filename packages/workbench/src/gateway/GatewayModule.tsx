@@ -39,6 +39,7 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
   const qc = useQueryClient();
   const caps = useCapability<CapabilityCatalogEntry[]>("capabilities.list", { includeInactive: true });
   const gw = useCapability<{ mcp: GatewayMcpStatus; tokens: number; toolAccess: ToolAccessSnapshot }>("gateway.get", {});
+  const vault = useCapability<{ readOnly: boolean }>("vault.info");
   const tokens = useCapability<{ id: string; name: string; createdAt: string }[]>("gateway.tokens.list", {});
   const [filter, setFilter] = useState("");
   const [name, setName] = useState("");
@@ -63,6 +64,10 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
     }
   }
   const mcp = gw.data?.mcp;
+  const canEditVault = vault.data?.readOnly === false;
+  const toolPolicyRestriction = vault.data?.readOnly ? "Vault 以只读方式打开，可以查看已有授权。"
+    : !engine.endpoint.token ? "当前浏览器连接可以查看工具授权。请在桌面工作台更改授权。"
+    : canEditVault ? undefined : "Vault 状态暂不可用，工具授权无法修改。";
   const [configOpen, setConfigOpen] = useState(false);
   const [portDraft, setPortDraft] = useState("");
   const [invalidPort, setInvalidPort] = useState(false);
@@ -445,8 +450,9 @@ export function GatewayModule({ section, ui, onNavigate }: ModuleProps & { ui: S
               </div>
               <McpSourcesPanel kind={MCP_KIND[mcpTab]} filter={mcpTab === "tools" ? filter : ""} published={mcp?.enabled ?? false} />
               <div hidden={mcpTab !== "tools"}>
-                <SshHostGrants policy={gw.data?.toolAccess} />
-                <ToolPolicyCatalog entries={all} filter={filter} policy={gw.data?.toolAccess} />
+                <SshHostGrants policy={gw.data?.toolAccess} writable={canEditVault} />
+                <ToolPolicyCatalog entries={caps.data} catalogFailed={caps.isError} filter={filter} policy={gw.data?.toolAccess}
+                  restriction={toolPolicyRestriction} published={mcp?.enabled === true} />
               </div>
               <div className="hu-callout shell-system-note">
                 <ShieldCheck size={17} aria-hidden />

@@ -52,7 +52,10 @@ function ruleWriteResult(caller: string, value: ReturnType<AutomationsService["r
 const RuleDraftPreview = defineCapabilityDescriptor({
   plugin: "automations", name: "automations.plans.previewRuleDraft", scope: "read", risk: "normal", exposable: false, defaultExposed: false,
   title: "预览规则草稿", description: "使用当前条件读取未来时刻和候选，不执行动作。",
-  input: z.strictObject({ trigger: Trigger, action: Action, body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT) }),
+  input: z.union([
+    z.strictObject({ trigger: Trigger }),
+    z.strictObject({ trigger: Trigger, action: Action, body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT) }),
+  ]),
   output: z.strictObject({ at: z.iso.datetime(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
 });
 const Id = z.object({ id: z.string() });
@@ -549,7 +552,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     return ruleWriteResult(c.caller, r);
   });
   defineRuleTool(taskScanToolDescriptors.preview, (c, i) => svc.preview(i.id, i.expectedVersion, c.signal));
-  api.defineCapability(bindCapability(automationToolDescriptors.plansPreviewRuleDraft, (context, input) => svc.previewDraft(input.trigger, input.action, input.body, context.signal)));
+  api.defineCapability(bindCapability(automationToolDescriptors.plansPreviewRuleDraft, (context, input) =>
+    svc.previewDraft(input.trigger, "action" in input ? input.action : undefined, "body" in input ? input.body : "", context.signal)));
   api.defineCapability(
     bindCapability(automationToolDescriptors.runNow, async ({ caller, subject, signal }, { id, expectedVersion, intentId }) => {
       signal.throwIfAborted();

@@ -2218,6 +2218,31 @@
     gap: 20px;
     margin: 22px 0 14px;
   }
+  .hu-gateway-grants {
+    display: grid;
+    gap: 8px;
+    min-inline-size: 0;
+    border: 0;
+    margin: 12px 0 0;
+    padding: 0;
+  }
+  .hu-gateway-grants > legend {
+    margin-block-end: 8px;
+    padding: 0;
+    font-weight: 600;
+  }
+  .hu-gateway-grants > p {
+    margin: 0;
+  }
+  .hu-gateway-grant-actions {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .hu-gateway-grant-actions > .hu-field {
+    margin: 0;
+  }
   .shell-capability-tester {
     margin-top: 22px;
     scroll-margin-top: 14px;
