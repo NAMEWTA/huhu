@@ -54,7 +54,7 @@ export function DeviceProxyCommand({ hostId, onClose }: { hostId: string; onClos
       onClose={() => { if (!busy.current) onClose(); }}
       actions={
         <>
-          <Button type="button" disabled={saving} onClick={onClose}>关闭</Button>
+          <Button type="button" disabled={saving} onClick={onClose}>返回路由</Button>
           {approved && state.supported ? (
             <Button type="button" disabled={saving} onClick={() => void mutate("revoke", { hostId, expectedRevision: approved.revision })}>撤销本机批准</Button>
           ) : null}

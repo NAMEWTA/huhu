@@ -21,6 +21,7 @@ export function registerSshAuthentication(api: HuhuApi, manager: SshManager): vo
   api.defineCapability(
     bindCapability(sshAuthenticationDescriptor, ({ caller, signal }, { attemptId, hop, promptId, answers }) => {
       if (!isWorkbenchCaller(caller)) throw errors.permissionDenied(sshAuthenticationDescriptor.name);
+      if (caller !== "desktop" && manager.isQuickAttempt(attemptId)) throw errors.permissionDenied("临时 SSH 连接");
       signal.throwIfAborted();
       return { applied: manager.decideAuthentication(attemptId, hop, promptId, answers) };
     }),

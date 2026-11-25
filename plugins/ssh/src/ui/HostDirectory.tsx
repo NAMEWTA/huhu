@@ -30,7 +30,7 @@ const dialogTitle: Record<DirectoryDialog["kind"], string> = {
   "delete-group": "删除主机分组",
 };
 
-export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onConnect, onWorkspace, onRoute, onCreate, onImport, onHostAction, onChanged }: {
+export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onConnect, onWorkspace, onRoute, onCreate, onImport, onHostAction, onQuickConnect, onChanged }: {
   directory: Directory | undefined;
   hosts: Host[];
   statuses: ReadonlyMap<string, ConnectionStatus>;
@@ -41,6 +41,7 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
   onRoute?: ((ids: string[]) => void) | undefined;
   onCreate?: (() => void) | undefined;
   onImport?: (() => void) | undefined;
+  onQuickConnect?: ((endpoint: string) => void) | undefined;
   onHostAction?: ((kind: "edit" | "copy" | "remove", host: ManagedHost) => void) | undefined;
   onChanged(): Promise<unknown>;
 }) {
@@ -191,6 +192,7 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
       </>} />
       <div className="ssh-directory-controls row">
         <SearchBox value={query} onChange={setQuery} placeholder="搜索主机名称、地址、用户或标签…" />
+        {onQuickConnect ? <Button onClick={() => onQuickConnect(query)}>快速连接</Button> : null}
         <Select aria-label="按主机分组筛选" value={scope || group === "" ? group : "all"} onChange={(event) => setGroup(event.target.value)}>
           <option value="all">全部分组</option>
           <option value="">未分组</option>

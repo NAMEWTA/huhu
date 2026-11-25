@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { HuhuError } from "@huhu/contracts";
+import { randomUUID } from "node:crypto";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
 import { SshManager } from "../src/engine/manager.js";
@@ -14,6 +15,7 @@ import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
 import { relayToLoopback } from "./shell-relay-fixture.js";
+import { parseQuickEndpoint } from "../src/shared/quick-connection.js";
 
 const dirs: string[] = [];
 const closers: (() => Promise<void> | void)[] = [];
@@ -86,6 +88,57 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("an unsaved quick connection authenticates, opens one shell and releases all temporary state", async () => {
+    const srv = await startFakeSsh({ password: "one-time-fixture" });
+    const { root, hosts, mgr, prompts, secretCalls } = setup();
+    closers.push(srv.close);
+    const id = randomUUID();
+    const target = { user: "fixture", host: "127.0.0.1", port: srv.port };
+    const { hostId } = mgr.startQuick(id, target, "one-time-fixture");
+    expect(mgr.startQuick(id, target, "one-time-fixture")).toEqual({ hostId });
+    await expect.poll(() => prompts.length).toBe(1);
+    const waiting = mgr.quickStatus(id)?.status;
+    if (waiting?.state !== "waiting") throw new Error("Expected quick host-key prompt");
+    expect(mgr.decide(waiting.attemptId, 0, true, waiting.prompt.promptId, false)).toBe(true);
+    await expect.poll(() => mgr.quickStatus(id)?.shellId).toMatch(/^ssh-local-quick-/u);
+    const shell = mgr.quickStatus(id)!.shellId!;
+    expect(mgr.connectionStatuses()).toEqual([]);
+    expect(mgr.listShells()).toEqual([]);
+    expect(hosts.list()).toEqual([]);
+    expect(secretCalls).toEqual([]);
+    expect(mgr.auditList()).toEqual([]);
+    expect(() => readFileSync(path.join(root, "known_hosts"))).toThrow();
+    const output: string[] = [];
+    const terminal = mgr.attachShell(shell, { onData: (bytes) => output.push(bytes.toString()), onEnd: () => undefined });
+    await expect.poll(() => output.join("")).toContain("welcome");
+    terminal?.write(Buffer.from("exit\n"));
+    await expect.poll(() => mgr.quickStatus(id)).toBeNull();
+    await expect.poll(() => srv.closed()).toBe(1);
+    expect(mgr.shellInfo(shell)).toBeUndefined();
+    expect(mgr.closeQuick(id)).toBe(false);
+  });
+
+  test("a cancelled quick connection leaves no prompt and ignores stale confirmation", async () => {
+    const srv = await startFakeSsh();
+    const { mgr, prompts } = setup();
+    closers.push(srv.close);
+    const id = randomUUID();
+    mgr.startQuick(id, { user: "fixture", host: "127.0.0.1", port: srv.port }, "pw");
+    await expect.poll(() => prompts.length).toBe(1);
+    const waiting = mgr.quickStatus(id)?.status;
+    if (waiting?.state !== "waiting") throw new Error("Expected quick host-key prompt");
+    expect(mgr.closeQuick(id)).toBe(true);
+    expect(mgr.decide(waiting.attemptId, 0, true, waiting.prompt.promptId)).toBe(false);
+    await expect.poll(() => srv.closed()).toBe(1);
+    expect(mgr.quickStatus(id)).toBeNull();
+  });
+
+  test("quick targets accept hostnames and bracketed IPv6, and reject URL decorations", () => {
+    expect(parseQuickEndpoint("alice@ssh.example.com")).toEqual({ user: "alice", host: "ssh.example.com", port: 22 });
+    expect(parseQuickEndpoint("alice@[::1]:2222")).toEqual({ user: "alice", host: "::1", port: 2222 });
+    for (const bad of ["ssh://alice@host", "alice@host/path", "alice@host:0", "alice@host:70000", "alice@::1"]) expect(parseQuickEndpoint(bad)).toBeUndefined();
+  });
+
   test("ViaShell authenticates both hops and closes its dedicated shell", async () => {
     const target = await startFakeSsh();
     const direct = vi.fn(() => true);

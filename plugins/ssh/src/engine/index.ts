@@ -7,6 +7,7 @@ import type { WorkspaceTemplate } from "../shared/workspace.js";
 import { SaveForward } from "../shared/forwarding.js";
 import { PublicHostMutation } from "./auth-profile.js";
 import { registerSshAuthentication } from "./authentication-capability.js";
+import { registerQuickConnections } from "./quick-connection-capabilities.js";
 import { registerSshConfigSync } from "./config-sync.js";
 import { HostDirectory } from "./directory.js";
 import { PublicDirectoryMutation } from "./directory-schema.js";
@@ -166,6 +167,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   registerShortcuts(api);
   registerSshDraft(api, hosts, manager);
   registerSshAuthentication(api, manager);
+  registerQuickConnections(api, manager);
   registerSshConfigSync(api, hosts);
   const proxyShare = registerSshProxyShare(api, manager);
   registerSshWorkspacePanes(api, runs, publicWorkspaces);
@@ -719,6 +721,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         return publicProbes.decide(context, input.data);
       }
       if (request.accept && remember !== false) api.vault.files.assertWritable();
+      if (context.caller !== "desktop" && manager.isQuickAttempt(request.attemptId)) throw errors.permissionDenied("临时 SSH 连接");
       return { applied: manager.decide(request.attemptId, request.hop, request.accept, request.promptId, remember) };
     }),
   );

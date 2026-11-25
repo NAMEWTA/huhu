@@ -86,7 +86,7 @@ test("A03 desktop approves the first-hop ProxyCommand and revokes its live conne
     await proxy.getByRole("button", { name: "批准并保存", exact: true }).click();
     await expect(proxy.getByRole("status")).toHaveText("本机已批准");
     expect(jump.conns).toHaveLength(0);
-    await proxy.getByRole("button", { name: "关闭", exact: true }).click();
+    await proxy.getByRole("button", { name: "返回路由", exact: true }).click();
     await page.getByRole("button", { name: "返回主机", exact: true }).click();
     await selectHost(page, "代理目标");
     await connect(page);
@@ -145,6 +145,36 @@ test("A03 route editor selects ViaShell and authenticates the target over the de
   } finally {
     await close();
     await Promise.all([jump.close(), target.close()]);
+  }
+});
+
+test("A01 quick connection opens and reclaims a terminal without saving the target", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const { page, close } = await openApp();
+  try {
+    await openSsh(page);
+    await moduleView(page).getByRole("button", { name: "主机目录", exact: true }).click();
+    const directory = page.getByRole("region", { name: "SSH 主机目录" });
+    const address = `fixture@127.0.0.1:${server.port}`;
+    await directory.getByPlaceholder("搜索主机名称、地址、用户或标签…").fill(address);
+    await directory.getByRole("button", { name: "快速连接", exact: true }).click();
+    const quick = page.getByRole("dialog", { name: "快速连接", exact: true });
+    await expect(quick.getByLabel("SSH 目标")).toHaveValue(address);
+    await quick.getByLabel("密码（可选）").fill(password);
+    await quick.getByRole("button", { name: "连接", exact: true }).click();
+    await expect(dialog(page)).toContainText(server.fingerprint);
+    await dialog(page).getByRole("button", { name: "仅本次信任", exact: true }).click();
+    await expect(quick.getByRole("application", { name: "临时 SSH 终端" })).toBeVisible();
+    expect(await desktopCall(page, "ssh.hosts.list", {})).toEqual([]);
+    expect(await desktopCall(page, "ssh.shells.list", {})).toEqual([]);
+    await quick.getByRole("button", { name: "结束临时连接", exact: true }).click();
+    await expect(quick).toBeHidden();
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(await known(page)).toEqual([]);
+  } finally {
+    await close();
+    await server.close();
   }
 });
 

@@ -5,6 +5,7 @@ import { ConfigureHost, CopyHost, HostAuthSummary, HostMutationBinding, HostRevi
 import { DirectoryMutationRequest, DirectoryQuery, DirectoryView, PublicDirectoryMutation } from "./directory-schema.js";
 import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./import/capability.js";
 import { sshAuthenticationDescriptor } from "./authentication-capability.js";
+import { sshQuickConnectionDescriptors } from "./quick-connection-capabilities.js";
 import { sshConfigSyncDescriptors } from "./config-sync.js";
 import { sshDraftDescriptor } from "./draft-connection.js";
 import { sshHostAuthorityDescriptors } from "./host-authorities.js";
@@ -88,6 +89,7 @@ export const sshCapabilityDescriptors = {
   ...sshProxyShareDescriptors,
   ...sshRecordingDescriptors,
   authenticationAnswer: sshAuthenticationDescriptor,
+  ...sshQuickConnectionDescriptors,
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
   routesEdit: defineCapabilityDescriptor({
