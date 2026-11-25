@@ -33,7 +33,7 @@ type SavedRun = z.infer<typeof SavedRun>;
 type PaneState = Pick<WorkspaceRunPane, "sessionId" | "error">;
 type LiveRun = { generation: number; panes: Map<string, PaneState>; controllers: Map<string, AbortController> };
 
-export function editWorkspacePanes<Pane extends { paneId: string; hostId: string }>(current: { layout: WorkspaceLayout; panes: Pane[] }, change: ChangeWorkspaceRun["change"]) {
+export function editWorkspacePanes<Pane extends { paneId: string; hostId: string; label: string }>(current: { layout: WorkspaceLayout; panes: Pane[] }, change: ChangeWorkspaceRun["change"]) {
   const byId = new Map(current.panes.map((pane) => [pane.paneId, pane]));
   let layout = current.layout;
   let panes: Pane[];
@@ -41,13 +41,22 @@ export function editWorkspacePanes<Pane extends { paneId: string; hostId: string
     if (change.paneIds.length !== byId.size || new Set(change.paneIds).size !== byId.size || change.paneIds.some((paneId) => !byId.has(paneId))) throw errors.invalidInput("分栏位置必须包含当前的所有分栏");
     panes = change.paneIds.map((paneId) => byId.get(paneId)!);
     layout = change.layout;
-  } else {
+  } else if (change.action === "rename") {
     if (!byId.has(change.paneId)) throw errors.notFound("工作区分栏");
-    if (byId.size === 1) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
-    panes = current.panes.filter(({ paneId }) => paneId !== change.paneId);
+    panes = current.panes.map((pane) => pane.paneId === change.paneId ? { ...pane, label: change.label } : pane);
+  } else {
+    const closed = change.action === "close" ? [change.paneId] : change.paneIds;
+    const removed = new Set(closed);
+    if (closed.length !== removed.size) throw errors.invalidInput("关闭的分栏不能重复");
+    if (closed.some((paneId) => !byId.has(paneId))) throw errors.notFound("工作区分栏");
+    if (closed.length >= current.panes.length) throw errors.invalidInput("请通过关闭运行关闭最后一个分栏");
+    panes = current.panes.filter(({ paneId }) => !removed.has(paneId));
     if (layout.kind === "custom") {
-      const index = current.panes.findIndex(({ paneId }) => paneId === change.paneId);
-      layout = { kind: "custom", tree: removePaneAt(layout.tree, index)! };
+      let tree = layout.tree;
+      for (let index = current.panes.length - 1; index >= 0; index--) {
+        if (removed.has(current.panes[index]!.paneId)) tree = removePaneAt(tree, index)!;
+      }
+      layout = { kind: "custom", tree };
     }
   }
   const problem = layoutProblem(panes, layout);
@@ -143,7 +152,8 @@ export class WorkspaceRuns {
       );
       const live = this.live.get(id);
       if (live) {
-        if (change.action === "close") this.releasePane(live, change.paneId);
+        const kept = new Set(panes.map(({ paneId }) => paneId));
+        for (const { paneId } of current.panes) if (!kept.has(paneId)) this.releasePane(live, paneId);
         if ("pane" in edited && !this.disposed) this.beginPane(saved, live, edited.pane);
       }
       this.changed(id);

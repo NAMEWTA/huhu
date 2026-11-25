@@ -1051,6 +1051,19 @@
     gap: 4px;
   }
 
+  .ssh-workspace-tab-entry {
+    display: inline-flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .ssh-workspace-tabs[data-tab-side="left"] .ssh-workspace-tab-entry > [role="tab"] {
+    flex: 1;
+    min-inline-size: 0;
+    text-align: start;
+  }
+
   .ssh-workspace-tabs[data-tab-side="left"] {
     grid-template-columns: minmax(0, min(11rem, 30%)) minmax(0, 1fr);
   }

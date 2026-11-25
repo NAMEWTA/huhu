@@ -129,6 +129,8 @@ export const ChangeWorkspaceRun = runChange.extend({
   change: z.discriminatedUnion("action", [
     z.strictObject({ action: z.literal("layout"), layout: WorkspaceLayout, paneIds: z.array(z.uuid()).min(1).max(MAX_WORKSPACE_PANES) }),
     z.strictObject({ action: z.literal("close"), paneId: z.uuid() }),
+    z.strictObject({ action: z.literal("closeMany"), paneIds: z.array(z.uuid()).min(1).max(MAX_WORKSPACE_PANES - 1) }),
+    z.strictObject({ action: z.literal("rename"), paneId: z.uuid(), label: WorkspaceName }),
   ]),
 });
 export type ChangeWorkspaceRun = z.infer<typeof ChangeWorkspaceRun>;

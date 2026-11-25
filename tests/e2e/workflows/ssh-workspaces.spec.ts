@@ -192,6 +192,51 @@ test("A06 live SSH scrollback search and terminal links use the same shell", asy
   }
 });
 
+test("A06 workspace tab actions rename and close neighboring tabs without replacing retained shells", async () => {
+  const password = randomUUID();
+  const labels = ["标签甲", "标签乙", "标签丙"];
+  const closed = [0, 0, 0];
+  const servers = await Promise.all(labels.map((_, index) => startFakeSsh({ password, onShellClose: () => { closed[index]!++; } })));
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const panes = await Promise.all(labels.map(async (label, index) => ({ hostId: (await configureLoopback(page, label, servers[index]!.port, password)).hostId })));
+    expect((await sshCall(page, "ssh.workspace.runs.start", { name: "标签菜单回环", layout: { kind: "tabs" }, panes })).ok).toBe(true);
+    await page.getByRole("button", { name: /标签菜单回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    for (const name of labels) {
+      await run.getByRole("tab", { name, exact: true }).click();
+      const item = run.getByRole("article", { name, exact: true });
+      await item.getByRole("button", { name: "信任并连接" }).click();
+      await expect(item).toHaveAttribute("data-phase", "ready");
+    }
+    const retained = run.getByRole("article", { name: "标签乙", exact: true });
+    await run.getByRole("tab", { name: "标签乙", exact: true }).click();
+    const identity = await retained.getAttribute("data-session-id");
+    await run.getByRole("tab", { name: "标签乙", exact: true }).press("Shift+F10");
+    await page.getByRole("dialog", { name: "标签乙 标签操作" }).getByRole("button", { name: "重命名标签" }).click();
+    const rename = page.getByRole("dialog", { name: "重命名标签" });
+    await rename.getByLabel("标签名称").fill("保留终端");
+    await rename.getByRole("button", { name: "保存名称" }).click();
+    const keep = run.getByRole("tab", { name: "保留终端", exact: true });
+    await expect(keep).toBeVisible();
+    await keep.click({ button: "right" });
+    await page.getByRole("dialog", { name: "保留终端 标签操作" }).getByRole("button", { name: "关闭右侧标签" }).click();
+    await expect(run.getByRole("tab", { name: "标签丙", exact: true })).toHaveCount(0);
+    await expect.poll(() => closed[2]).toBe(1);
+    await run.getByRole("button", { name: "标签操作 保留终端" }).click();
+    await page.getByRole("dialog", { name: "保留终端 标签操作" }).getByRole("button", { name: "关闭其他标签" }).click();
+    await expect(run.getByRole("tab")).toHaveCount(1);
+    await expect(run.getByRole("article", { name: "保留终端", exact: true })).toHaveAttribute("data-session-id", identity!);
+    await expect.poll(() => closed[0]).toBe(1);
+    expect(closed[1]).toBe(0);
+  } finally {
+    await fixture.close();
+    await Promise.all(servers.map((server) => server.close()));
+  }
+});
+
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";

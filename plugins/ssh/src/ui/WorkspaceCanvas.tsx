@@ -1,4 +1,5 @@
-import { Button } from "@huhu/ui";
+import { Button, IconButton, Popover } from "@huhu/ui";
+import { Ellipsis } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { ConnectionStatus } from "../shared/trust.js";
 import { paneCount, resizeSplit, type SplitTree, type WorkspaceLayout, type WorkspaceRunPane } from "../shared/workspace.js";
@@ -25,6 +26,7 @@ type SplitDrag = {
   next: number;
   length: number;
 };
+export type WorkspaceTabAction = { label: string; run(): void; disabled?: boolean };
 const canvas = { x: 0, y: 0, w: 1, h: 1 };
 const fractions = (count: number) => Array.from({ length: count }, (_, index) => index / count);
 const precision = (value: number) => Number(value.toFixed(12));
@@ -103,6 +105,7 @@ export function WorkspaceCanvas({
   onActive,
   onSwap,
   onResize,
+  tabActions,
   render,
 }: {
   layout: WorkspaceLayout;
@@ -117,19 +120,22 @@ export function WorkspaceCanvas({
   onActive(id: string): void;
   onSwap(from: string, to: string): void;
   onResize(tree: SplitTree, revision: string): Promise<void>;
+  tabActions(pane: WorkspaceRunPane, order: readonly string[]): WorkspaceTabAction[];
   render(pane: WorkspaceRunPane, visible: boolean): ReactNode;
 }) {
   const parent = useRef<HTMLDivElement>(null);
   const dragging = useRef<string | undefined>(undefined);
   const splitDrag = useRef<SplitDrag | undefined>(undefined);
   const [preview, setPreview] = useState<{ tree: SplitTree; revision: string }>();
+  const [tabMenu, setTabMenu] = useState<string>();
   const refocus = useRef<{ id: string; order: string } | undefined>(undefined);
   const focusedTab = useRef<HTMLButtonElement | undefined>(undefined);
   const tabPrefix = useId();
   const tabbed = layout.kind === "tabs" && !maximized;
   const order = panes.map((pane) => pane.paneId).join(",");
   const tabGroups = tabs === "left" && groupVerticalTabs ? groupWorkspaceTabs(panes, connections) : panes.map((pane) => ({ key: pane.paneId, label: undefined, panes: [pane] }));
-  const tabOrder = tabGroups.flatMap((group) => group.panes.map(({ paneId }) => paneId)).join(",");
+  const tabIds = tabGroups.flatMap((group) => group.panes.map(({ paneId }) => paneId));
+  const tabOrder = tabIds.join(",");
   useLayoutEffect(() => {
     if (focusedTab.current?.isConnected && document.activeElement === document.body) focusedTab.current.focus({ preventScroll: true });
   }, [tabOrder, tabs]);
@@ -257,13 +263,31 @@ export function WorkspaceCanvas({
                   </span>
                 ),
                 ...group.panes.map((pane) => (
-                  <button type="button" role="tab" id={`${tabPrefix}-tab-${pane.paneId}`} key={pane.paneId}
-                    aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}
-                    data-grouped={Boolean(heading)}
-                    onFocus={() => onActive(pane.paneId)} onClick={() => onActive(pane.paneId)}
-                  >
-                    {pane.label}
-                  </button>
+                  <span key={pane.paneId} className="ssh-workspace-tab-entry">
+                    <button type="button" role="tab" id={`${tabPrefix}-tab-${pane.paneId}`}
+                      aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}
+                      data-grouped={Boolean(heading)}
+                      onFocus={() => onActive(pane.paneId)} onClick={() => onActive(pane.paneId)}
+                      onContextMenu={(event) => { event.preventDefault(); setTabMenu(pane.paneId); }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                        event.preventDefault();
+                        setTabMenu(pane.paneId);
+                      }}
+                    >
+                      {pane.label}
+                    </button>
+                    <Popover.Root open={tabMenu === pane.paneId} onOpenChange={(shown) => setTabMenu((current) => shown ? pane.paneId : current === pane.paneId ? undefined : current)}>
+                      <Popover.Trigger asChild><IconButton icon={Ellipsis} label={`标签操作 ${pane.label}`} tabIndex={pane.paneId === active ? 0 : -1} /></Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${pane.label} 标签操作`}>
+                          {tabActions(pane, tabIds).map(({ label, run, disabled }) => (
+                            <Button key={label} type="button" variant="ghost" disabled={disabled} onClick={() => { setTabMenu(undefined); run(); }}>{label}</Button>
+                          ))}
+                        </Popover.Content>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </span>
                 )),
               ];
             })}
