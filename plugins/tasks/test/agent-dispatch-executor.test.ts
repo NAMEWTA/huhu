@@ -37,7 +37,7 @@ test("the bound input uses the frozen body and requires a matching provider ACK"
   const receipt = { status: "accepted", reason: null, acceptedAt: null, execution, ownerActive: true, coreWrite: "core_written" };
   call.mockResolvedValueOnce([{ ...work.agentTarget, binding: null, available: true, reason: null, structuredReply: false, structuredResult: false, cancel: false }]);
   expect(await executor.ready(work, signal)).toEqual({ state: "ready", target: work.agentTarget });
-  expect(call).toHaveBeenCalledExactlyOnceWith("agent.targets.list", { vaultId: key.vaultId, machineId: "machine-fixture", spaceId: "original-space", options: { model: "opus", effort: "high", fast: true } }, { signal });
+  expect(call).toHaveBeenCalledExactlyOnceWith("agent.targets.list", { vaultId: key.vaultId, machineId: "machine-fixture", spaceId: "original-space", options: { model: "opus", effort: "high", fast: true }, includeResume: false }, { signal });
   call.mockClear();
   call.mockResolvedValueOnce({ ...receipt, providerAcceptance: { id: "fixture-ack", execution, inputSha256: "0".repeat(64) } });
   expect(await executor.dispatch(work, signal)).toBe("unknown");

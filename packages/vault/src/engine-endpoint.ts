@@ -93,5 +93,5 @@ export async function probeEngine(endpoint: EngineEndpointRecord, action: "statu
   if (pid !== endpoint.pid || port !== endpoint.port || vaultId !== endpoint.vaultId || rootBinding !== endpoint.rootBinding || instance !== endpoint.instance || mode !== endpoint.mode) {
     throw new Error("Engine 管理响应与本机发现记录的身份不符");
   }
-  return result;
+  return { status: result.status, ...(result.rendererToken !== undefined && { rendererToken: result.rendererToken }) };
 }

@@ -442,12 +442,12 @@ export class HistoryProjection {
 
   constructor(private readonly signal?: AbortSignal, private readonly now = Date.now) {}
 
-  async scan(o: ScanOptions): Promise<ScanResult & { candidates: Map<Provider, Snapshot["candidates"]> }> {
+  async scan(o: ScanOptions, { fresh = false } = {}): Promise<ScanResult & { candidates: Map<Provider, Snapshot["candidates"]> }> {
     const env = o.env ?? process.env;
     const home = o.home ?? os.homedir();
     const roots = o.roots.map(real);
     const providers = o.providers ?? (Object.keys(stores) as Provider[]);
-    const snapshots = await Promise.all(providers.map((provider) => this.snapshot(provider, env, home, false)));
+    const snapshots = await Promise.all(providers.map((provider) => this.snapshot(provider, env, home, fresh)));
     const entries = snapshots.flatMap(({ byCwd }) => [...byCwd].flatMap(([cwd, rows]) => roots.some((root) => within(root, cwd)) ? rows : []));
     entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.historyId.localeCompare(b.historyId));
     return {
