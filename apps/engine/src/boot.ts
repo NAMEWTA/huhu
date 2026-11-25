@@ -300,7 +300,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(ledgerManifest),
-    apply: ledger.apply,
+    apply: (ctx, api) => ledger.apply(ctx, api, () => dispatcherRef.current!),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),

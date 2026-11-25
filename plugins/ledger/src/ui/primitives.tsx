@@ -1,7 +1,7 @@
-import { ledgerMinorToDecimal } from "@huhu/contracts";
 import { useEngine, useQueryClient } from "@huhu/workbench";
 import { cloneElement, useId, useState, type ReactElement } from "react";
 import type { Book } from "../shared/books.js";
+export { displayMoney } from "../shared/money.js";
 
 export const currencies = ["CNY", "TWD", "USD", "JPY"];
 export const bookVersion = (book: Book) => ({ bookId: book.id, expectedRevision: book.revision });
@@ -23,14 +23,6 @@ export function downloadFile(fileName: string, content: Blob) {
   link.download = fileName;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
-export function displayMoney(amount: string, currency: string) {
-  // Each individual amount has a fixed scale; a total can contain more digits.
-  const scale = ledgerMinorToDecimal("0", currency).split(".")[1]?.length ?? 0;
-  if (scale === 0) return currency + " " + amount;
-  const magnitude = amount.replace(/^-/, "").padStart(scale + 1, "0");
-  return `${currency} ${amount.startsWith("-") ? "-" : ""}${magnitude.slice(0, -scale)}.${magnitude.slice(-scale)}`;
 }
 
 export function LedgerField({ label, children }: { label: string; children: ReactElement<{ id?: string }> }) {

@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { ConfirmMerge, MergeInput, MergePreview, OffsetGroupView, OffsetInput, OffsetPreview, UndoOffset } from "../shared/reconciliation.js";
 import { monetaryShape } from "./reconciliation-matches.js";
 import { findRecord, recordTitle } from "./records.js";
+import { documentKey } from "./references.js";
 import type { BookState } from "./store.js";
 
 const distinct = <T>(values: T[]) => [...new Set(values)];
@@ -33,7 +34,10 @@ export function previewMerge(state: BookState, input: MergeInput): MergePreview 
     throw errors.invalidInput("合并组必须为同方向、同币种和同金额的流水");
   }
   const ids = new Set(records.map(({ id }) => id));
-  const notes = distinct(state.recordReferences.filter(({ kind, recordId }) => kind === "note" && ids.has(recordId)).map(({ targetId }) => targetId));
+  const notes = distinct([
+    ...state.recordReferences.filter(({ kind, recordId }) => kind === "note" && ids.has(recordId)).map(({ targetId }) => targetId),
+    ...state.resourceReferences.flatMap(({ owner, resource }) => owner.kind === "record" && ids.has(owner.id) ? [documentKey(resource)] : []),
+  ]);
   const occurrences = distinct(state.recordReferences.filter(({ kind, recordId }) => kind === "occurrence" && ids.has(recordId)).map(({ targetId }) => targetId));
   const combined = distinct([keeper, ...records.filter((row) => row !== keeper)].map(({ memo }) => memo?.trim()).filter(Boolean)).join(" / ");
   return {
@@ -92,6 +96,15 @@ export function merge(state: BookState, input: z.infer<typeof ConfirmMerge>) {
     return [canonicalJson([next.kind, next.targetId, next.recordId]), next];
   }));
   state.recordReferences = [...references.values()];
+  const keptResources = new Set(state.resourceReferences.flatMap(({ owner, resource }) =>
+    owner.kind === "record" && owner.id === id ? [documentKey(resource)] : []));
+  state.resourceReferences = state.resourceReferences.flatMap((row) => {
+    if (row.owner.kind !== "record" || !retired.has(row.owner.id)) return [row];
+    const key = documentKey(row.resource);
+    if (keptResources.has(key)) return [];
+    keptResources.add(key);
+    return [{ ...row, owner: { kind: "record" as const, id } }];
+  });
   for (const [key, recordId] of Object.entries(state.importRows)) {
     if (retired.has(recordId)) state.importRows[key] = id;
   }

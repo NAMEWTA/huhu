@@ -162,8 +162,9 @@ export function previewBatch(state: BookState, input: z.infer<typeof InputBatch>
   for (const row of selection) {
     if (input.action.kind === "delete") {
       requireNoOffset(state, row);
-      if (state.recordReferences.some(({ recordId, kind, targetId }) => recordId === row.id &&
-        (kind !== "occurrence" || !generated.has(targetId)))) {
+      if (state.resourceReferences.some(({ owner }) => owner.kind === "record" && owner.id === row.id) ||
+        state.recordReferences.some(({ recordId, kind, targetId }) => recordId === row.id &&
+          (kind !== "occurrence" || !generated.has(targetId)))) {
         throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
       }
     } else {

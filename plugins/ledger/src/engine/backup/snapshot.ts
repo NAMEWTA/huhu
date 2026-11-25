@@ -24,6 +24,7 @@ export function validateBookRelations(state: BookState) {
   const dictionary = indexById(state.dictionary, "字典");
   const attachments = indexById(state.attachments, "凭证");
   const budgets = indexById(state.budgets, "预算");
+  indexById(state.resourceReferences, "财务笔记关联");
   const cycles = indexById(state.recurring, "固定收支");
   const loans = indexById(state.loans, "贷款");
   indexById(state.offsets, "平账组");
@@ -53,6 +54,8 @@ export function validateBookRelations(state: BookState) {
   const periods = new Set(periodIds);
   if (state.recordReferences.some(({ recordId, kind, targetId }) => !records.has(recordId) || (kind === "occurrence" && !periods.has(targetId))) ||
     [...Object.keys(state.recordTitles), ...state.legacyOffsetRecordIds].some((id) => !records.has(id))) throw invalid("流水关系缺失");
+  if (state.resourceReferences.some(({ owner }) => (owner.kind === "record" && !records.has(owner.id)) ||
+    (owner.kind === "budget" && !budgets.has(owner.id)))) throw invalid("财务笔记关联对象缺失");
 
   const offsetMembers = new Set<string>();
   for (const group of state.offsets) {
@@ -90,6 +93,8 @@ export function selectModules(state: BookState, modules: readonly BackupModule[]
     records: includeRecords ? state.records.map((row) => includeFiles ? row : { ...row, attachmentIds: [] }) : [],
     recordTitles: includeRecords ? state.recordTitles : {},
     recordReferences: includeRecords ? state.recordReferences.filter(({ kind }) => kind !== "occurrence" || has("cycles")) : [],
+    resourceReferences: state.resourceReferences.filter(({ owner }) =>
+      owner.kind === "book" || (owner.kind === "record" ? includeRecords : has("budgets"))),
     offsets: includeRecords ? state.offsets : [],
     legacyOffsetRecordIds: includeRecords ? state.legacyOffsetRecordIds : [],
     importRows: includeRecords ? state.importRows : {},
@@ -157,6 +162,9 @@ export function remapBook(source: BookState, sourceAttachments: ReadonlyMap<stri
   });
   state.recordReferences = state.recordReferences.map((row) => ({ ...row, recordId: idFor(row.recordId),
     targetId: row.kind === "occurrence" ? periods.get(row.targetId)! : row.targetId }));
+  state.resourceReferences = state.resourceReferences.map((row) => ({
+    ...row, id: idFor(row.id), owner: row.owner.kind === "book" ? row.owner : { ...row.owner, id: idFor(row.owner.id) },
+  }));
   const attachments = new Map([...sourceAttachments].map(([id, value]) => [idFor(id), value]));
   return { state, attachments };
 }

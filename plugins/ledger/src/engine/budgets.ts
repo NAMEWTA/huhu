@@ -9,7 +9,7 @@ import type { BookState, LedgerStore } from "./store.js";
 const key = ({ name, ...definition }: Budget["definition"]) =>
   JSON.stringify([definition.type, definition.type === "fixed" ? definition.month : null, name.normalize("NFKC").toLowerCase()]);
 
-function readBudget(state: BookState, id: string) {
+export function readBudget(state: BookState, id: string) {
   const budget = state.budgets.find((row) => row.id === id && row.bookId === state.book.id);
   if (!budget) throw errors.notFound("当前账本没有这项预算");
   return budget;
@@ -48,6 +48,7 @@ export function saveBudgets(state: BookState, { budgets }: z.infer<typeof SaveBu
 export function removeBudget(state: BookState, id: string) {
   const budget = readBudget(state, id);
   state.budgets = state.budgets.filter((row) => row !== budget);
+  state.resourceReferences = state.resourceReferences.filter(({ owner }) => owner.kind !== "budget" || owner.id !== id);
   return budget;
 }
 

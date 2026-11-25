@@ -43,8 +43,11 @@ test("L7 catch-up preserves original business dates, skips disabled windows, and
       );
     const periods = async () => (await engine.call<RecurringList>("ledger.recurring.list", key)).rows[0]!.periods;
     const records = () => engine.call<RecordsPage>("ledger.records.list", key);
+    const overview = () => engine.call("ledger.overview.activity", key);
+    expect(await overview()).toMatchObject({ recurring: { rules: 1, enabled: 0, nextAt: null } });
     await intent("enabled");
     expect(engine.periodic!.read(planId)?.nextAt).toBe("2026-01-30T16:00:00.000Z");
+    expect(await overview()).toMatchObject({ recurring: { enabled: 1, nextAt: "2026-01-30T16:00:00.000Z" } });
     await engine.close();
 
     now = Date.parse("2026-03-01T01:00:00Z");
@@ -82,6 +85,7 @@ test("L7 catch-up preserves original business dates, skips disabled windows, and
       { date: "2026-01-31", state: "generated" },
     ]);
     const failed = (await periods())[0]!;
+    expect(await overview()).toMatchObject({ recurring: { failedPeriods: 1 } });
     await engine.call("ledger.accounts.setStatus", { ...(await revision()), accountId, status: "active" });
     const retry = { ...(await revision()), ruleId: rule.id, periodId: failed.periodId };
     const recovered = await engine.call("ledger.recurring.retry", retry);

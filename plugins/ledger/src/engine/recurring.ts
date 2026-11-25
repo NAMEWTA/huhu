@@ -143,8 +143,7 @@ export class LedgerRecurring {
     return { rule, plan: plan ?? null, periods: [] };
   }
 
-  list(bookId: string): RecurringList {
-    const state = this.store.snapshot(bookId);
+  list(state: BookState): RecurringList {
     const control = this.control();
     return {
       revision: state.book.revision,

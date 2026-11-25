@@ -125,6 +125,29 @@ function watchVersion<T>(qc: QueryClient, key: ReturnType<typeof queryKey>, read
 }
 
 describe("查询失效", () => {
+  test("账本总览随统一计划刷新，财务笔记随 Notes 状态刷新，只影响当前 Vault", async () => {
+    const qc = new QueryClient();
+    try {
+      const overview = (vaultId: string) => queryKey(vaultId, "ledger.overview.activity", { bookId: "book" });
+      const references = (vaultId: string) => queryKey(vaultId, "ledger.references.list", { bookId: "book", owner: { kind: "book" } });
+      for (const vaultId of ["vault-a", "vault-b"]) {
+        qc.setQueryData(overview(vaultId), {});
+        qc.setQueryData(references(vaultId), {});
+      }
+      await invalidateForEvent(qc, "vault-a", {
+        type: "entity.changed", payload: { kind: "periodic-plan", id: "plan", op: "updated", sourcePlugin: "ledger" },
+      });
+      expect(qc.getQueryState(overview("vault-a"))?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(references("vault-a"))?.isInvalidated).toBe(false);
+      await invalidateForEvent(qc, "vault-a", { type: "plugin.stateChanged", payload: { id: "notes", state: "disabled" } });
+      expect(qc.getQueryState(references("vault-a"))?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(overview("vault-b"))?.isInvalidated).toBe(false);
+      expect(qc.getQueryState(references("vault-b"))?.isInvalidated).toBe(false);
+    } finally {
+      qc.clear();
+    }
+  });
+
   test("原生会话身份确认后，正在读取的历史列表随后重查并恢复资格", async () => {
     const qc = new QueryClient();
     let childConfirmed = false;
