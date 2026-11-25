@@ -6,6 +6,7 @@ import type { Book, BookList, RemovalPreview } from "../shared/books.js";
 import { AccountsSection } from "./Accounts.js";
 import { Overview, RecordsSection } from "./Records.js";
 import { LedgerCalendar, LedgerReports } from "./Reports.js";
+import { LedgerRecurringPage } from "./Recurring.js";
 import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
 
 const zones = ["Asia/Taipei", "Asia/Shanghai", "America/New_York", "UTC"];
@@ -21,7 +22,7 @@ function LedgerModule(props: ModuleProps & { quick: QuickEntry }) {
   return <LedgerPage key={engine.vaultId} {...props} />;
 }
 
-function LedgerPage({ section, onSection, quick }: ModuleProps & { quick: QuickEntry }) {
+function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { quick: QuickEntry }) {
   const quickEntry = useSyncExternalStore(quick.subscribe, quick.get);
   const list = useCapability<BookList>("ledger.books.list", {});
   const { run, working, error, clearError } = useLedgerAction();
@@ -107,6 +108,7 @@ function LedgerPage({ section, onSection, quick }: ModuleProps & { quick: QuickE
         : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)} />
         : section === "calendar" ? <LedgerCalendar key={current.id} book={current} readOnly={readOnly} />
         : section === "reports" ? <LedgerReports key={current.id} book={current} />
+        : section === "recurring" ? <LedgerRecurringPage key={current.id} book={current} readOnly={readOnly} onNavigate={onNavigate} />
         : <Overview key={current.id} book={current} readOnly={readOnly} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
     </div>
     {editor && <Dialog open title={editor.mode === "create" ? "创建账本" : editor.mode === "rename" ? "重命名账本" : "删除账本"}
@@ -157,7 +159,7 @@ export function createLedgerContributions(openRecords: () => void) {
     icon: <BookOpen size={18} aria-hidden />, component: (props) => <LedgerModule {...props} quick={quick} />, nav: "shell",
     sections: [
       { id: "overview", label: "总览" }, { id: "records", label: "流水" },
-      { id: "accounts", label: "账户" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
+      { id: "accounts", label: "账户" }, { id: "recurring", label: "固定收支" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
     ],
   };
   return { modules: [module], commands: [{ id: "ledger.record", plugin: "ledger", title: "记一笔", run: () => { quick.set(true); openRecords(); } }] };

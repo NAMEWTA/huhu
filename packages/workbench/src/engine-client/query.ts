@@ -31,6 +31,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "mail-ai-settings": ["mail.ai.getSettings"],
 };
 const PERIODIC_SOURCE_CAPS: Record<string, string[]> = {
+  ledger: ["ledger.recurring."],
   mail: ["mail.sync.settings"],
   versioning: ["sync.get"],
   ssh: ["ssh.monitor.panels.list", "ssh.monitor.panels.run"],

@@ -276,7 +276,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGua
                   <strong>{plan.title}</strong>
                   <span><PlanBadges plan={plan} /> <small>{planSourceName(plan.source.plugin)}</small></span>
                   <span>{plan.action.summary}</span>
-                  <small>{describeTrigger(plan.trigger)}</small>
+                  <small>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</small>
                   <small>下次 {plan.nextAt ? formatMoment(plan.nextAt, planZone(plan)) : "未安排"} · {recentLabel(plan)}</small>
                 </button>
                 <div className="plan-row-actions">
@@ -440,7 +440,7 @@ function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onS
         {rule.error ? <p role="alert">{rule.error.message}</p> : null}
         {rule.data ? <RuleDetails rule={rule.data} /> : null}
       </section>
-      <section className="plan-detail-section"><h3>何时执行</h3><p>{describeTrigger(plan.trigger)}</p>
+      <section className="plan-detail-section"><h3>何时执行</h3><p>{plan.businessSchedule?.label ?? describeTrigger(plan.trigger)}</p>
         {!isRule ? <PlanScheduleControls plan={plan} changed={refresh} scheduleOnly registerLeaveGuard={registerLeaveGuard} /> : null}
       </section>
       <section className="plan-detail-section"><h3>执行与结果</h3>

@@ -155,7 +155,10 @@ export function previewBatch(state: BookState, input: z.infer<typeof InputBatch>
   for (const row of selection) {
     if (input.action.kind === "delete") {
       requireNoOffset(state, row);
-      if (state.recordReferences.some(({ recordId }) => recordId === row.id)) throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
+      if (state.recordReferences.some(({ recordId, kind, targetId }) => recordId === row.id &&
+        (kind !== "occurrence" || !state.recurringPeriods.some(({ periodId, state }) => periodId === targetId && state === "generated")))) {
+        throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
+      }
     } else {
       const { patch } = input.action;
       validateDimensions(state, { categoryId: patch.categoryId === undefined ? row.categoryId : patch.categoryId, tagIds: patch.tagIds ?? row.tagIds }, row);
@@ -170,6 +173,7 @@ export function applyBatch(state: BookState, input: z.infer<typeof InputBatch>) 
   const ids = new Set(input.selection.map(({ recordId }) => recordId));
   if (action.kind === "delete") {
     state.records = state.records.filter(({ id }) => !ids.has(id));
+    state.recordReferences = state.recordReferences.filter(({ recordId }) => !ids.has(recordId));
     for (const id of ids) delete state.recordTitles[id];
   } else {
     for (const row of state.records) {

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
-import { errors, PeriodicPlanSpecSchema, PlanOccurrenceSchema, PlanRefSchema, type PeriodicPlanChange, type PeriodicPlanControl, type PeriodicPlanSource, type PlanOccurrence, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, PeriodicEnabledWindowSchema, PeriodicPlanSpecSchema, PlanOccurrenceSchema, PlanRefSchema, type PeriodicPlanChange, type PeriodicPlanControl, type PeriodicPlanSource, type PlanOccurrence, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { PeriodicOccurrences } from "./periodic-occurrences.js";
@@ -11,6 +11,7 @@ const journal = "automations/periodic-occurrences";
 const StoredPlan = PeriodicPlanSpecSchema.extend({
   revision: PlanRefSchema.shape.revision, owner: z.string(), machineId: z.string(),
   createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), lastOccurrence: z.string().nullable(),
+  enabledWindows: z.array(PeriodicEnabledWindowSchema).optional(),
 });
 const Store = z.strictObject({ plans: z.array(StoredPlan), imported: z.array(z.string()) });
 type StoredPlan = z.infer<typeof StoredPlan>;
@@ -68,7 +69,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
     const { planId, revision, source, title, action, everySeconds, intent, createdAt, updatedAt, machineId } = plan;
     const availability = this.availability(plan);
     const actions: PlanSummary["actions"] = this.files.readOnly || plan.owner !== this.owner.instance || intent === "deleted" ? [] : [
-      "reschedule", "delete", intent === "enabled" ? "pause" : "resume",
+      ...(plan.catchUp ? [] : ["reschedule" as const]), "delete", intent === "enabled" ? "pause" : "resume",
     ];
     const unit = everySeconds % 60 === 0 ? "minutes" : "seconds";
     const latest = this.occurrences.latest(planId) ?? plan.lastOccurrence;
@@ -82,9 +83,12 @@ export class PeriodicPlans implements PeriodicPlanControl {
     return {
       planId, revision, title, source, owner: { scope: "device", vaultId: this.owner.vaultId, machineId },
       trigger: { kind: "interval", every: unit === "minutes" ? everySeconds / 60 : everySeconds, unit },
+      ...(plan.businessSchedule && { businessSchedule: plan.businessSchedule }),
       ...(plan.bounds && { intervalBounds: plan.bounds }),
       action, intent, availability, actions, createdAt, updatedAt,
-      nextAt: intent === "enabled" && availability.state === "ready" ? new Date(next).toISOString() : null,
+      nextAt: intent === "enabled" && availability.state === "ready"
+        ? plan.catchUp ? this.findSource(source.plugin)?.nextDue?.(plan, plan.enabledWindows ?? []) ?? null : new Date(next).toISOString()
+        : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, state: occurrence.state, at: occurrence.acceptedAt ?? updatedAt } : null,
     };
   }
@@ -105,8 +109,12 @@ export class PeriodicPlans implements PeriodicPlanControl {
   inspect(planId: string) {
     const row = this.load().store.plans.find((entry) => entry.planId === planId);
     if (!row) return null;
-    const { owner: _owner, machineId: _machine, createdAt: _created, updatedAt: _updated, lastOccurrence: _last, ...plan } = row;
+    const { owner: _owner, machineId: _machine, createdAt: _created, updatedAt: _updated, lastOccurrence: _last, enabledWindows: _windows, ...plan } = row;
     return plan;
+  }
+
+  enabledWindows(planId: string) {
+    return this.load().store.plans.find((row) => row.planId === planId)?.enabledWindows ?? [];
   }
 
   importSource(plugin: string): Promise<void> {
@@ -170,10 +178,16 @@ export class PeriodicPlans implements PeriodicPlanControl {
       || (bounds.allowed && !bounds.allowed.includes(everySeconds)))) {
       throw errors.invalidInput("周期不符合来源允许的范围");
     }
+    const windows = previous?.enabledWindows?.slice() ?? [];
+    if (parsed.catchUp && parsed.intent !== previous?.intent) {
+      if (parsed.intent === "enabled") windows.push({ from: stamp, until: null });
+      else if (previous?.intent === "enabled" && windows.length) windows[windows.length - 1] = { ...windows.at(-1)!, until: stamp };
+    }
     return {
       ...parsed,
       revision: randomUUID(), owner: this.owner.instance, machineId: this.owner.machineId,
       createdAt: previous?.createdAt ?? stamp, updatedAt: stamp, lastOccurrence: previous?.lastOccurrence ?? null,
+      ...(parsed.catchUp && { enabledWindows: windows }),
     };
   }
 
@@ -209,11 +223,12 @@ export class PeriodicPlans implements PeriodicPlanControl {
     if (write.expectedRevision !== row.revision) throw errors.versionConflict(row.revision);
     const { planId, source, title, action } = row;
     const base = { planId, source, title, action, expectedRevision: write.expectedRevision, everySeconds: row.everySeconds, intent: row.intent,
-      ...(row.bounds && { bounds: row.bounds }) };
+      ...(row.bounds && { bounds: row.bounds }), ...(row.catchUp && { catchUp: row.catchUp }),
+      ...(row.businessSchedule && { businessSchedule: row.businessSchedule }) };
     let change: PeriodicPlanChange;
     if (write.change === "delete") change = { ...base, intent: "deleted" };
     else if (write.change === "set-intent") change = { ...base, intent: write.intent };
-    else if (write.change === "reschedule" && write.trigger.kind === "interval") {
+    else if (write.change === "reschedule" && write.trigger.kind === "interval" && !row.catchUp) {
       change = { ...base, everySeconds: write.trigger.every * (write.trigger.unit === "minutes" ? 60 : 1) };
     } else throw errors.invalidInput("周期计划只接受秒或分钟间隔");
     if (!PeriodicPlanSpecSchema.shape.everySeconds.safeParse(change.everySeconds).success) throw errors.invalidInput("周期需要在 1 秒至 24 小时之间");
@@ -284,17 +299,22 @@ export class PeriodicPlans implements PeriodicPlanControl {
         const interval = plan.everySeconds * 1_000;
         const first = Date.parse(plan.updatedAt) + interval;
         job = { revision: plan.revision, source, controller, signal: AbortSignal.any([controller.signal, source.signal]),
-          next: first >= now ? first : now + interval };
+          next: plan.catchUp ? NaN : first >= now ? first : now + interval };
         this.jobs.set(plan.planId, job);
       }
       const wake = this.wakeups.get(plan.planId);
+      if (plan.catchUp && !job.running && Number.isNaN(job.next)) {
+        if (this.availability(plan).state !== "ready") continue;
+        const next = source.nextDue?.(plan, plan.enabledWindows ?? []);
+        job.next = next ? Date.parse(next) : Infinity;
+      }
       if (wake?.revision === plan.revision && !job.running) {
         job.wakeAt = Math.min(job.wakeAt ?? Infinity, wake.at);
         this.wakeups.delete(plan.planId);
       }
       if (!job.running && this.dueAt(job) <= now && this.availability(plan).state === "ready") {
         const scheduledFor = new Date(this.dueAt(job)).toISOString();
-        job.next = now + plan.everySeconds * 1_000;
+        job.next = plan.catchUp ? NaN : now + plan.everySeconds * 1_000;
         delete job.wakeAt;
         const running = job;
         const id = occurrenceId(plan.planId, plan.revision, scheduledFor);
@@ -320,19 +340,24 @@ export class PeriodicPlans implements PeriodicPlanControl {
     const receipt = await this.rules.withRuleConfiguration(() => {
       if (!current() || (plan.lastOccurrence && this.files.currentVersion(`${journal}/${id}.json`))) return;
       const acceptedAt = new Date(this.clock.now()).toISOString();
-      const row: PlanOccurrence = {
+      let row: PlanOccurrence = {
         occurrenceId: id, plan: { planId, revision }, timing: { trigger: "scheduled", scheduledFor },
         state: "running", acceptedAt, frozenInput: { revision, digest: id }, execution: null,
         effects: [{ effectId: id, kind: action.capability, target: action.object, operationId: null, state: "accepted", receiptId: null }],
       };
-      if (!this.occurrences.claim(row)) return;
+      if (!this.occurrences.claim(row)) {
+        const existing = this.occurrences.read(id);
+        if (!plan.catchUp || !existing || !["running", "failed", "unknown"].includes(existing.state)) return;
+        row = existing;
+      }
       if (!current()) {
         this.occurrences.settle({ ...row, state: "cancelled", effects: row.effects.map((effect) => ({ ...effect, state: "not-accepted" })) });
         return;
       }
       const now = this.clock.now.bind(this.clock);
       const execute = async () => job.source.run(plan, {
-        planId, revision, occurrenceId: id, signal: job.signal, scheduledFor, isCurrent: current,
+        planId, revision, occurrenceId: id, signal: job.signal, scheduledFor, observedAt: acceptedAt,
+        enabledWindows: plan.enabledWindows ?? [], isCurrent: current,
         wake(delay) {
           if (!current() || !Number.isFinite(delay)) return;
           const date = now() + Math.max(1_000, Math.min(86_400_000, delay));
