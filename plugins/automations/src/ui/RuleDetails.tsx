@@ -15,7 +15,8 @@ interface Preview {
 const actionLabel = (a: EditableRule["data"]["action"]): string => (a.kind === "agent" ? (a.input.source === "tasks" ? t.kinds.agent_tasks : t.kinds.agent_prompt) : a.kind === "terminal" ? t.kinds.terminal : t.kinds.reminder);
 
 export function RuleDetails({ rule: cur }: { rule: EditableRule }) {
-  const [preview, setPreview] = useState(false);
+  const [previewedRevision, setPreviewedRevision] = useState<string | null>(null);
+  const preview = previewedRevision === cur.version;
   const query = useCapability<Preview>("automations.preview", { id: cur.id, expectedVersion: cur.version });
   return (
     <>
@@ -59,7 +60,9 @@ export function RuleDetails({ rule: cur }: { rule: EditableRule }) {
       ) : null}
       <RuleSchedule next={query.data?.next} zone={cur.data.trigger.zone} />
       <div className="automations-rule-preview-action">
-        <Button icon={Search} onClick={() => setPreview(true)}>
+        <Button icon={Search} disabled={query.isFetching} onClick={() => {
+          void query.refetch().then(() => setPreviewedRevision(cur.version));
+        }}>
           {cur.data.action.kind === "agent" && cur.data.action.input.source === "tasks" ? "预览将处理的任务" : t.preview}
         </Button>
         <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>

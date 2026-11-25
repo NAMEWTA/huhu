@@ -49,6 +49,12 @@ function ruleWriteResult(caller: string, value: ReturnType<AutomationsService["r
   return publicRule(!isWorkbenchCaller(caller) && isTaskScanRule(value) ? { ...value, body: "" } : value);
 }
 
+const RuleDraftPreview = defineCapabilityDescriptor({
+  plugin: "automations", name: "automations.plans.previewRuleDraft", scope: "read", risk: "normal", exposable: false, defaultExposed: false,
+  title: "预览规则草稿", description: "使用当前条件读取未来时刻和候选，不执行动作。",
+  input: z.strictObject({ trigger: Trigger, action: Action, body: z.string().max(TASK_SCAN_INSTRUCTIONS_LIMIT) }),
+  output: z.strictObject({ at: z.iso.datetime(), next: z.array(z.string()), tasksDisabled: z.boolean(), candidates: z.array(z.unknown()), skipped: z.array(z.unknown()) }),
+});
 const Id = z.object({ id: z.string() });
 const CancelRuleRun = Id.extend({ runId: z.string().min(1).optional(), activationId: z.string().min(1).optional(), intentId: z.uuidv4().optional() }).strict();
 const Cancelled = z.strictObject({ cancelled: z.boolean() });
@@ -66,6 +72,7 @@ const RunRow = z.object({
 export const automationToolDescriptors = {
   plansList: planDescriptors.list,
   plansRead: planDescriptors.read,
+  plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
@@ -535,6 +542,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     return ruleWriteResult(c.caller, r);
   });
   defineRuleTool(taskScanToolDescriptors.preview, (c, i) => svc.preview(i.id, i.expectedVersion, c.signal));
+  api.defineCapability(bindCapability(automationToolDescriptors.plansPreviewRuleDraft, (context, input) => svc.previewDraft(input.trigger, input.action, input.body, context.signal)));
   api.defineCapability(
     bindCapability(automationToolDescriptors.runNow, async ({ caller, subject, signal }, { id, expectedVersion, intentId }) => {
       signal.throwIfAborted();
@@ -542,11 +550,16 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       if (isWorkbenchCaller(caller) && intentId === undefined && expectedVersion === undefined) {
         a = await activate(id, null);
       } else {
-        if (!intentId || !expectedVersion) throw errors.invalidInput("运行提醒须提供规则版本和固定的执行意图");
+        if (!intentId || !expectedVersion) throw errors.invalidInput("手动运行须提供规则版本和固定的执行意图");
         const principal = { caller, subject: subject ?? caller };
-        if (isWorkbenchCaller(caller) && (scans.hasWorkbenchIntent(intentId, principal) || svc.rule(id).data.action.kind === "agent")) {
+        const workbench = isWorkbenchCaller(caller);
+        const knownScan = workbench && scans.hasWorkbenchIntent(intentId, principal);
+        const currentAction = workbench && !knownScan ? svc.rules().find((rule) => rule.id === id)?.data.action.kind : undefined;
+        if (knownScan || currentAction === "agent") {
           const occurrence = await scans.invokeWorkbench({ ruleId: id, expectedVersion, intentId }, principal, signal);
           a = scans.activation(occurrence);
+        } else if (currentAction === "terminal") {
+          a = await svc.activateNonAgent(id, "manual", null, expectedVersion);
         } else {
           if (!reminders) throw errors.invalidInput("当前提醒执行服务不可用");
           a = await reminders.activateManual(id, expectedVersion, caller, intentId);

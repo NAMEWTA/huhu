@@ -1,17 +1,23 @@
 import type { PlanSummary, PlanTrigger, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Button, DateTimePicker, Dialog } from "@huhu/ui";
-import { createRequestId, useEngine } from "@huhu/workbench";
-import { useState } from "react";
+import { createRequestId, useEngine, type ModuleProps } from "@huhu/workbench";
+import { useId, useRef, useState } from "react";
+import { describeTrigger } from "./plan-presentation.js";
+import { uncertainPlanWrite } from "./plan-write.js";
+import { useDraftDismissal } from "./use-draft-dismissal.js";
 
 export function planIntentId(): string {
   const id = createRequestId();
   return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
 }
 
-export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { plan: PlanSummary; changed(): Promise<unknown>; scheduleOnly?: boolean }) {
+export function PlanScheduleControls({ plan, changed, scheduleOnly = false, registerLeaveGuard }: { plan: PlanSummary; changed(): Promise<unknown>; scheduleOnly?: boolean; registerLeaveGuard?: ModuleProps["registerLeaveGuard"] }) {
   const engine = useEngine();
+  const formId = useId();
+  const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<PlanWrite | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitted = useRef(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -23,6 +29,8 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { 
   const [zone, setZone] = useState("");
 
   async function submit(input: PlanWrite) {
+    if (submitted.current) return;
+    submitted.current = true;
     setPending(input);
     setBusy(true);
     setError("");
@@ -41,14 +49,18 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { 
       }
       await changed();
     } catch (failure) {
+      if (!uncertainPlanWrite(failure)) setPending(null);
       setError(failure instanceof Error ? failure.message : "暂时无法确认计划变更。");
     } finally {
+      submitted.current = false;
       setBusy(false);
     }
   }
 
   const writeBase = (expectedRevision = plan.revision) => ({ planId: plan.planId, expectedRevision, intentId: planIntentId() });
   const writable = !busy && pending === null;
+  const { dismiss, confirmation } = useDraftDismissal({ enabled: editing || deleting, dirty, locked: !writable,
+    close: () => { setEditing(false); setDeleting(false); }, registerLeaveGuard });
   const showError = error && !editing && !deleting;
   const trigger = plan.trigger;
   const bounds = plan.intervalBounds;
@@ -65,6 +77,7 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { 
       <div className="row">
         {plan.actions.includes("reschedule") && (trigger.kind === "once" || trigger.kind === "observe" || trigger.kind === "interval" || trigger.kind === "cron") ? <Button disabled={!writable} onClick={() => {
           setError("");
+          setDirty(false);
           setEditRevision(plan.revision);
           if (trigger.kind === "once") setScheduledFor(trigger.scheduledFor);
           if (trigger.kind === "observe") setEvery(String(trigger.everySeconds));
@@ -78,43 +91,53 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { 
         }}>改期</Button> : null}
         {!scheduleOnly && plan.actions.includes("pause") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "paused" })}>暂停</Button> : null}
         {!scheduleOnly && plan.actions.includes("resume") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "enabled" })}>启用</Button> : null}
-        {!scheduleOnly && plan.actions.includes("delete") ? <Button disabled={!writable} onClick={() => { setError(""); setEditRevision(plan.revision); setDeleting(true); }}>删除</Button> : null}
+        {!scheduleOnly && plan.actions.includes("delete") ? <Button disabled={!writable} onClick={() => { setError(""); setDirty(false); setEditRevision(plan.revision); setDeleting(true); }}>删除</Button> : null}
         {pending && !editing && !deleting ? <Button disabled={busy} onClick={() => void submit(pending)}>核对原变更</Button> : null}
       </div>
       {showError ? <p role="alert">{error}</p> : null}
       {editing || deleting ? <Dialog
         open
         title={deleting ? "删除计划" : "更改计划时间"}
-        onClose={() => { if (writable) { setEditing(false); setDeleting(false); } }}
+        onClose={dismiss}
+        dismissOnBackdrop
         error={error}
         actions={
           <>
-            <Button disabled={!writable} onClick={() => { setEditing(false); setDeleting(false); }}>取消</Button>
-            <Button variant={deleting ? "danger" : "primary"} disabled={busy || (!deleting && !next)} onClick={() => {
-              if (pending) void submit(pending);
-              else if (deleting && editRevision) void submit({ ...writeBase(editRevision), change: "delete" });
-              else if (next && editRevision) void submit({ ...writeBase(editRevision), change: "reschedule", trigger: next });
-            }}>{pending ? "核对原变更" : deleting ? "删除计划" : "保存"}</Button>
+            <Button disabled={!writable} onClick={dismiss}>取消</Button>
+            <Button type="submit" form={formId} variant={deleting ? "danger" : "primary"} disabled={busy || (!pending && !deleting && !next)}>{pending ? "核对原变更" : deleting ? "删除计划" : "保存"}</Button>
           </>
         }
       >
-        {deleting ? <p>{plan.title}</p> : trigger.kind === "once" ? <DateTimePicker label="触发时间" field={{ kind: "instant", value: scheduledFor }} clearable={false}
-          disabled={!writable} onChange={(value) => { if (value.kind === "instant") setScheduledFor(value.value); }} />
-          : trigger.kind === "observe" ? <label>检查间隔（秒） <input value={every} type="number" min={1} max={86400} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
-          : trigger.kind === "interval" && bounds?.allowed ? <label>执行间隔 <select value={every} disabled={!writable} onChange={(event) => setEvery(event.target.value)}>
-            {bounds.allowed.map((value) => <option key={value} value={value}>{value} 秒</option>)}
-          </select></label>
-          : trigger.kind === "interval" ? <>
-            <label>执行间隔 <input value={every} type="number" min={Math.ceil((bounds?.min ?? 1) / scale)} max={Math.floor((bounds?.max ?? 86_400) / scale)}
-              step={Math.max(1, (bounds?.step ?? 1) / scale)} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
-            <label>间隔单位 <select value={unit} disabled={!writable} onChange={(event) => setUnit(event.target.value === "minutes" ? "minutes" : "seconds")}>
-              <option value="seconds">秒</option><option value="minutes">分钟</option>
+        <form id={formId} onChange={() => setDirty(true)} onSubmit={(event) => {
+          event.preventDefault();
+          if (busy) return;
+          if (pending) void submit(pending);
+          else if (deleting && editRevision) void submit({ ...writeBase(editRevision), change: "delete" });
+          else if (next && editRevision) void submit({ ...writeBase(editRevision), change: "reschedule", trigger: next });
+        }}>
+          {deleting ? <p>{plan.title}</p> : trigger.kind === "once" ? <DateTimePicker label="触发时间" field={{ kind: "instant", value: scheduledFor }} clearable={false}
+            disabled={!writable} onChange={(value) => { if (value.kind === "instant") setScheduledFor(value.value); }} />
+            : trigger.kind === "observe" ? <label>检查间隔（秒） <input value={every} type="number" min={1} max={86400} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
+            : trigger.kind === "interval" && bounds?.allowed ? <label>执行间隔 <select value={every} disabled={!writable} onChange={(event) => setEvery(event.target.value)}>
+              {bounds.allowed.map((value) => <option key={value} value={value}>{value} 秒</option>)}
             </select></label>
-          </>
-          : trigger.kind === "cron" ? <>
-            <label>Cron 表达式 <input value={cron} disabled={!writable} onChange={(event) => setCron(event.target.value)} /></label>
-            <label>时区 <input value={zone} disabled={!writable} onChange={(event) => setZone(event.target.value)} /></label>
-          </> : null}
+            : trigger.kind === "interval" ? <>
+              <label>执行间隔 <input value={every} type="number" min={Math.ceil((bounds?.min ?? 1) / scale)} max={Math.floor((bounds?.max ?? 86_400) / scale)}
+                step={Math.max(1, (bounds?.step ?? 1) / scale)} disabled={!writable} onChange={(event) => setEvery(event.target.value)} /></label>
+              <label>间隔单位 <select value={unit} disabled={!writable} onChange={(event) => setUnit(event.target.value === "minutes" ? "minutes" : "seconds")}>
+                <option value="seconds">秒</option><option value="minutes">分钟</option>
+              </select></label>
+            </>
+            : trigger.kind === "cron" ? <>
+              <label>Cron 表达式 <input value={cron} disabled={!writable} onChange={(event) => setCron(event.target.value)} /></label>
+              <label>时区 <input value={zone} disabled={!writable} onChange={(event) => setZone(event.target.value)} /></label>
+            </> : null}
+        </form>
+        {editing && !busy && !pending && editRevision !== plan.revision && plan.actions.includes("reschedule") ? <div role="status">
+          <p>当前排期已更新为 {describeTrigger(plan.trigger)}。表单中的排期已保留。</p>
+          <Button onClick={() => { setEditRevision(plan.revision); setError(""); }}>采用当前修订</Button>
+        </div> : null}
+        {confirmation}
       </Dialog> : null}
     </>
   );

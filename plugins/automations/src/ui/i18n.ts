@@ -63,7 +63,7 @@ export const t = {
   frequency: "激活频率",
   timeOfDay: "时刻",
   zone: "时区",
-  presets: { every5: "每 5 分钟", hourly: "每小时", daily: "每天", weekdays: "工作日", monday: "每周一", custom: "自定义 cron" },
+  presets: { every15: "每 15 分钟（按时钟）", weekly: "每周指定日", every5: "每 5 分钟（按时钟）", hourly: "每小时", daily: "每天", weekdays: "工作日", monday: "每周一", custom: "自定义 cron" },
   next: "接下来三次激活",
   candidates: "将处理的任务",
   skipped: "跳过的任务",

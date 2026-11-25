@@ -37,7 +37,7 @@ export function describeTrigger(trigger: PlanTrigger): string {
     case "cron": {
       const preset = presetOf(trigger.expression);
       const summary = preset.preset === "custom" ? trigger.expression
-        : `${t.presets[preset.preset]}${["daily", "weekdays", "monday"].includes(preset.preset) ? ` ${preset.time}` : ""}`;
+        : `${t.presets[preset.preset]}${["daily", "weekdays", "monday", "weekly"].includes(preset.preset) ? ` ${preset.time}` : ""}`;
       return `${summary} · ${trigger.zone}`;
     }
   }

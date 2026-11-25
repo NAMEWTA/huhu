@@ -120,12 +120,19 @@ function rulePlan(rule: Rule, api: HuhuApi, deps: CatalogueDeps, now: Date, rece
   const { data, id: planId, version: revision } = rule;
   const object = { kind: "automation-rule", id: planId };
   const taskId = data.action.kind === "reminder" ? data.action.taskId : null;
+  const input = data.action.kind === "agent" && data.action.input.source === "prompt" ? data.action.input : null;
+  const issue = input ? deps.rules.templateIssue(input.spaceId, input.provider, rule.body) : undefined;
+  const issueLabels: Record<string, string> = {
+    "missing-space": "原 Space 不存在", "space-inaccessible": "原 Space 当前不可访问",
+    "cli-missing": "原 CLI 当前不可用", "empty-template": "缺少固定需求正文",
+  };
   const source = taskId ? { plugin: "tasks", object: { kind: "task", id: taskId } } : { plugin: "automations", object };
   const readOnly = api.vault.files.readOnly || rule.readOnly;
   let availability: PlanSummary["availability"] = readOnly
     ? { state: "blocked", reason: "read-only" }
     : hasLegacyTerminalEnvironment(data.action) ? { state: "blocked", reason: "credentials-unavailable" }
     : taskId && !deps.taskReminders.taskAvailable(taskId) ? { state: "blocked", reason: "target-unavailable" }
+    : issue ? { state: "blocked", reason: "target-unavailable", detail: issueLabels[issue] ?? "请检查执行目标" }
     : { state: "ready" };
   const { cron: expression, zone } = data.trigger;
   let nextAt: string | null = null;

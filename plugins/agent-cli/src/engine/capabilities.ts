@@ -19,6 +19,7 @@ const DetectOut = z.object({
   via: z.enum(["path", "installDir", "override"]).optional(),
   headless: z.boolean(),
   detectedAt: z.string(),
+  models: z.array(z.object({ id: z.string(), label: z.string(), efforts: z.array(z.string()), fast: z.boolean() })).optional(),
 });
 const SettingsOut = z.object({
   settings: z.object({ schema: z.literal(1), revision: z.number(), defaultAgent: z.enum(["claude", "codex", "pi"]).nullable(), waitingTasks: z.boolean().optional(), agents: z.record(z.string(), AgentSettingsEntry) }),

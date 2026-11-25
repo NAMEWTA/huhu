@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test, type Browser } from "@playwright/test";
 import type { PlanSummary } from "../../../packages/contracts/src/automation-plan.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { openApp } from "../helpers/launch.js";
@@ -40,6 +40,123 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
     await expect(center).toContainText("没有匹配的计划");
     await expect(center).not.toContainText("尚无计划");
   } finally {
+    await close();
+  }
+});
+
+test("AW3：扫描草稿预览无写入，关闭保护草稿并保留并发冲突输入", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    await call(page, "tasks.create", { title: "人工任务 · 仅供预览" });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const center = page.getByTestId("plan-directory");
+    await center.getByRole("button", { name: "从模板新建" }).click();
+    await page.getByRole("button", { name: "使用模板 · 扫描 Agent 任务" }).click();
+    const editor = page.getByTestId("rule-editor");
+    await editor.getByLabel("派遣窗口").selectOption("week");
+    await editor.getByLabel("包括逾期").check();
+    await editor.getByLabel("每次并发上限").fill("3");
+    await editor.getByTestId("rule-instruction").fill("初版草稿");
+    await editor.getByRole("button", { name: "预览候选" }).click();
+    await expect(editor.getByRole("region", { name: "候选预览" })).toContainText("人工任务 · 仅供预览");
+    expect(await call(page, "automations.activations", {})).toEqual([]);
+    expect(await call(page, "automations.list", {})).toEqual([]);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "放弃未保存的更改？" }).getByRole("button", { name: "继续编辑" }).click();
+    await expect(editor.getByTestId("rule-instruction")).toHaveValue("初版草稿");
+    await editor.getByTestId("rule-save").click();
+
+    await center.getByTestId("rule-edit").click();
+    await expect(editor.getByLabel("派遣窗口")).toHaveValue("week");
+    await expect(editor.getByLabel("每次并发上限")).toHaveValue("3");
+    await expect(editor.getByLabel("包括逾期")).toBeChecked();
+    const [rule] = await call<{ id: string; version: string }[]>(page, "automations.list", {});
+    await editor.getByTestId("rule-instruction").fill("并发时保留这份输入");
+    await call(page, "automations.update", { id: rule!.id, expectedVersion: rule!.version, patch: { title: "另一个客户端已更新" } });
+    await editor.getByTestId("rule-save").click();
+    await expect(page.getByRole("region", { name: "当前计划版本" })).toContainText("另一个客户端已更新");
+    await expect(editor.getByTestId("rule-instruction")).toHaveValue("并发时保留这份输入");
+    await page.getByRole("button", { name: "保留草稿并采用当前修订" }).click();
+    await editor.getByTestId("rule-save").click();
+    await expect(center.getByTestId("rule-detail").getByRole("heading", { name: "另一个客户端已更新" })).toBeVisible();
+  } finally {
+    await close();
+  }
+});
+
+test("AW3：暂停规则的手动请求断线后从原意图核实", async () => {
+  const { page, close } = await openApp();
+  const title = "手动核实的提醒";
+  type Rule = { id: string; version: string; data: { enabled: boolean } };
+  try {
+    await engineReady(page);
+    const rule = await call<Rule>(page, "automations.create", {
+      title,
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: title },
+    });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByTestId("rule-row").filter({ hasText: title }).click();
+    const requests: { intentId: string; idempotencyKey: string }[] = [];
+    await page.route("**/api/v1/call", async (route) => {
+      const request = route.request().postDataJSON() as { capability: string; input: { intentId: string }; idempotencyKey: string };
+      if (request.capability !== "automations.runNow") return route.continue();
+      requests.push({ intentId: request.input.intentId, idempotencyKey: request.idempotencyKey });
+      if (requests.length > 1) return route.continue();
+      const response = await route.fetch();
+      expect(response.ok()).toBe(true);
+      await route.abort();
+    });
+    const detail = page.getByTestId("rule-detail");
+    await detail.getByRole("button", { name: "立即运行", exact: true }).click();
+    await expect(detail.getByRole("button", { name: "核对原运行", exact: true })).toBeVisible();
+    await detail.getByRole("button", { name: "核对原运行", exact: true }).click();
+    await detail.getByRole("button", { name: "查看本次运行" }).click();
+    await expect(page.getByRole("dialog", { name: "运行详情" })).toContainText("立即运行");
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+    const records = await call<{ ruleId: string; trigger: string }[]>(page, "automations.activations", {});
+    expect(records.filter(({ ruleId }) => ruleId === rule.id)).toMatchObject([{ trigger: "manual" }]);
+    const saved = await call<Rule>(page, "automations.read", { id: rule.id });
+    expect(saved).toMatchObject({ id: rule.id, version: rule.version, data: { enabled: false } });
+  } finally {
+    await close();
+  }
+});
+
+test("AW3：独立 Web 窄容器保留编辑内容和返回焦点", async () => {
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(page);
+    await call(page, "automations.create", {
+      title: "需要在窄容器里完整显示的中文周期提醒名称",
+      trigger: { preset: "custom", cron: "0 9 1 * *", zone: "Asia/Taipei" },
+      action: { kind: "reminder", mode: "notification", text: "原通知" },
+    });
+    await call(page, "web.share.start", { mode: "local", port: 0 });
+    const invitation = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await web.goto(invitation.links[0]!);
+    await web.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const row = web.getByTestId("rule-row").first();
+    await row.click();
+    await web.getByTestId("rule-edit").click();
+    const editor = web.getByTestId("rule-editor");
+    await expect(editor.getByLabel("cron 表达式")).toHaveValue("0 9 1 * *");
+    await editor.getByLabel("通知内容").fill("窄工作台输入");
+    const dialog = web.getByTestId("rule-dialog");
+    await expect(dialog).toContainText("做什么");
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await editor.getByTestId("rule-save").click();
+    await expect(dialog).toBeHidden();
+    await expect(web.getByTestId("rule-detail")).toContainText("窄工作台输入");
+    await web.getByRole("button", { name: "返回计划目录" }).click();
+    await expect(row).toBeFocused();
+  } finally {
+    await browser?.close();
     await close();
   }
 });

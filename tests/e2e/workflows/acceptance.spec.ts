@@ -1635,7 +1635,7 @@ test("终端规则在桌面配置和清除受保护环境，Safe 停用后仍可
     await page.getByTestId("run-detail").getByRole("button", { name: "关闭", exact: true }).click();
     await page
       .getByRole("navigation", { name: "自动化导航" })
-      .getByRole("button", { name: /^定时自动化/ })
+      .getByRole("button", { name: "计划", exact: true })
       .click();
     await page.getByTestId("rule-row").filter({ hasText: "桌面规则的独立环境" }).click();
     await openApproval.click();
@@ -1815,7 +1815,9 @@ test("MailPlan：邮件设置和自动化中心管理同一周期同步计划", 
     await page.getByRole("button", { name: "计划", exact: true }).click();
     const row = page.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`);
     await expect(row).toContainText("每 5 分钟");
-    await row.getByRole("button", { name: "改期" }).click();
+    await row.getByTestId("rule-row").click();
+    const detail = page.getByTestId("rule-detail");
+    await detail.getByRole("button", { name: "改期" }).click();
     const dialog = page.getByRole("dialog", { name: "更改计划时间" });
     await dialog.getByLabel("执行间隔").fill("10");
     await dialog.getByRole("button", { name: "保存" }).click();
@@ -1823,8 +1825,8 @@ test("MailPlan：邮件设置和自动化中心管理同一周期同步计划", 
     const updated = await call("mail.sync.settings");
     expect(updated.data).toMatchObject({ minutes: 10, plan: { planId } });
     expect(updated.data.revision).not.toBe(revision);
-    await row.getByRole("button", { name: "暂停" }).click();
-    await expect(row).toContainText("已暂停");
+    await detail.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect(detail).toContainText("已暂停");
     expect(await call("mail.sync.settings")).toMatchObject({ data: { minutes: 0, plan: { planId, intent: "paused" } } });
   } finally {
     await close();
@@ -1899,7 +1901,10 @@ test("F31：自动化中心建立、改期、暂停和删除任务观察", async
     const row = plans.locator("[data-plan-id]").filter({ hasText: "编辑任务状态观察" });
     await expect(row).toContainText("每 1 秒检查");
     const planId = await row.getAttribute("data-plan-id");
-    await row.getByRole("button", { name: "编辑观察" }).click();
+    await row.getByTestId("rule-row").click();
+    const detail = page.getByTestId("rule-detail");
+    await expect(detail).toContainText("已暂停");
+    await detail.getByRole("button", { name: "编辑观察" }).click();
     const change = page.getByRole("dialog", { name: "编辑状态观察" });
     await change.getByLabel("观察对象").selectOption(nextTask.data.id);
     await change.getByLabel("触发条件").selectOption("threshold");
@@ -1909,14 +1914,17 @@ test("F31：自动化中心建立、改期、暂停和删除任务观察", async
     await expect(change).toBeHidden();
     await expect(row).toHaveAttribute("data-plan-id", planId!);
     expect((await call("automations.plans.readObservation", { planId })).data).toMatchObject({ target: { id: nextTask.data.id }, condition: { kind: "threshold", seconds: 20 }, repeat: true });
-    await row.getByRole("button", { name: "改期" }).click();
+    await detail.getByRole("button", { name: "改期" }).click();
     const revise = page.getByRole("dialog", { name: "更改计划时间" });
     await revise.getByLabel("检查间隔（秒）").fill("2");
     await revise.getByRole("button", { name: "保存" }).click();
-    await expect(row).toContainText("每 2 秒检查");
-    await row.getByRole("button", { name: "暂停" }).click();
-    await expect(row).toContainText("已暂停");
-    await row.getByRole("button", { name: "删除" }).click();
+    await expect(detail).toContainText("每 2 秒检查");
+    await detail.getByRole("button", { name: "启用", exact: true }).click();
+    await expect(detail).toContainText("已启用");
+    await detail.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect(detail).toContainText("已暂停");
+    await detail.getByRole("button", { name: "更多操作" }).click();
+    await page.getByRole("dialog", { name: "计划操作" }).getByRole("button", { name: "删除计划" }).click();
     await page.getByRole("dialog", { name: "删除计划" }).getByRole("button", { name: "删除计划" }).click();
     await expect(row).toHaveCount(0);
   } finally {

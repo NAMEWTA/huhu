@@ -662,3 +662,61 @@
     .plan-has-detail .plan-list-panel { display: none; }
   }
 }
+
+@layer modules {
+  .automation-editor-fields {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-inline-size: 0;
+  }
+
+  .automation-editor-fields .hu-form-primary h3 { margin: 0; }
+  .automation-editor-fields :is(.hu-form-primary, .hu-form-aside) > :is(p, details, fieldset) { margin: 0; }
+
+  .plan-weekdays {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    min-inline-size: 0;
+  }
+
+  .automation-conflict {
+    margin-block-end: .75rem;
+    overflow-wrap: anywhere;
+  }
+
+  .automation-conflict pre { white-space: pre-wrap; }
+}
+
+@layer modules {
+  .automation-center-host {
+    container: automation-workbench / inline-size;
+    height: 100%;
+    min-width: 0;
+  }
+
+  .tw-automation .automations-automation-main { overflow: auto; }
+
+  @container automation-workbench (max-width: 42rem) {
+    .tw-automation { flex-direction: column; }
+
+    .tw-automation .hu-tw-navigation {
+      flex: 0 0 auto;
+      inline-size: auto;
+      border-inline-end: 0;
+      border-block-end: 1px solid var(--line);
+      padding: .25rem .5rem;
+      flex-flow: row wrap;
+      align-items: center;
+    }
+
+    .tw-automation .hu-tw-nav-title,
+    .tw-automation .hu-tw-nav-bottom { display: none; }
+
+    .tw-automation .hu-tw-navigation nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+  }
+}

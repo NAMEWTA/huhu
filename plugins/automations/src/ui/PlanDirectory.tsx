@@ -1,8 +1,8 @@
 import type { PlanOccurrence, PlanSummary, PlanWrite, PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, Select } from "@huhu/ui";
 import {
-  CapabilityError, requestOpenAgentSession, requestOpenTask, useCapability, useDiscoveredCapabilities,
-  useEngine, useQueryClient, type ModuleProps,
+  requestOpenAgentSession, requestOpenTask, useCapability, useDiscoveredCapabilities,
+  useEngine, useModuleIcons, useQueryClient, type ModuleProps,
 } from "@huhu/workbench";
 import { ArrowLeft, ArrowUpRight, Ellipsis, Layers, Pause, Pencil, Play, Plus, RefreshCw, Workflow } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -13,7 +13,9 @@ import { blockedLabel, describeTrigger, formatMoment, occurrenceLabel, planZone 
 import { PlanScheduleControls, planIntentId } from "./PlanScheduleControls.js";
 import { TaskReminderEditor } from "./TaskReminderEditor.js";
 import { RuleDetails } from "./RuleDetails.js";
-import { RuleEditor, type EditableRule, type RuleTemplate } from "./RuleEditor.js";
+import type { EditableRule, RuleTemplate } from "./RuleEditor.js";
+import { RuleDraftDialog } from "./RuleDraftDialog.js";
+import { uncertainPlanWrite } from "./plan-write.js";
 import { t } from "./i18n.js";
 
 type Page = { plans: PlanSummary[]; nextCursor: string | null };
@@ -52,21 +54,25 @@ const templates = [
 
 let returnState: { vaultId: string; filter: Filter; cursors: string[] } | undefined;
 
-function linkedPlan(): string | null {
-  return new URLSearchParams(window.location.search).get("automation-plan");
+function linkedPlan(vaultId: string): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("automation-vault") === vaultId ? params.get("automation-plan") : null;
 }
 
-export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
+export function PlanDirectory({ active, onNavigate, onOpenRuns, registerLeaveGuard }: {
   active: boolean;
   onNavigate: ModuleProps["onNavigate"];
+  registerLeaveGuard: ModuleProps["registerLeaveGuard"];
   onOpenRuns(planId: string): void;
 }) {
   const engine = useEngine();
   const cache = useQueryClient();
   const discovered = useDiscoveredCapabilities();
+  const modules = useModuleIcons();
+  const vault = useCapability<{ readOnly: boolean }>("vault.info");
   const [filter, setFilter] = useState(() => returnState?.vaultId === engine.vaultId ? returnState.filter : initialFilter);
   const [cursors, setCursors] = useState<string[]>(() => returnState?.vaultId === engine.vaultId ? returnState.cursors : []);
-  const [selected, setSelected] = useState(linkedPlan);
+  const [selected, setSelected] = useState(() => linkedPlan(engine.vaultId));
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [error, setError] = useState("");
   const [write, setWrite] = useState<PlanWrite | null>(null);
@@ -76,6 +82,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
   const searchRef = useRef<HTMLInputElement>(null);
   const origin = useRef<HTMLElement | null>(null);
   const focusDetail = useRef(false);
+  const scrollBeforeDetail = useRef(0);
   const cursor = cursors.at(-1);
   const plans = useCapability<Page>("automations.plans.list", {
     limit: 12, order: filter.order, ...(cursor && { cursor }),
@@ -87,8 +94,9 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
   const selectedPlan = detail.data?.intent === "deleted" ? null : detail.data;
   const empty = useCapability<Page>("automations.plans.list", { limit: 1 }, { enabled: active && Boolean(filter.plugin || filter.action || filter.state || filter.query) });
   const capabilities = discovered.data?.map(({ name }) => name);
-  const canCreate = capabilities?.some((name) => name === "automations.create") ?? false;
-  const canObserve = capabilities?.some((name) => name === "automations.plans.createObservation") ?? false;
+  const writable = vault.data?.readOnly === false;
+  const canCreate = writable && Boolean(capabilities?.includes("automations.create"));
+  const canObserve = writable && Boolean(capabilities?.includes("automations.plans.createObservation"));
   const refresh = () => cache.invalidateQueries({ queryKey: [engine.vaultId], predicate: ({ queryKey }) => String(queryKey[1]).startsWith("automations.") });
 
   useEffect(() => {
@@ -101,15 +109,25 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
   function select(planId: string | null) {
     setSelected(planId);
     const url = new URL(window.location.href);
-    if (planId) url.searchParams.set("automation-plan", planId);
-    else url.searchParams.delete("automation-plan");
+    if (planId) {
+      url.searchParams.set("automation-plan", planId);
+      url.searchParams.set("automation-vault", engine.vaultId);
+    } else {
+      url.searchParams.delete("automation-plan");
+      url.searchParams.delete("automation-vault");
+    }
     window.history.replaceState(window.history.state, "", url);
   }
 
   function back() {
     select(null);
     const previous = origin.current;
-    requestAnimationFrame(() => (previous?.isConnected ? previous : searchRef.current)?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => {
+      const target = previous?.isConnected ? previous : searchRef.current;
+      const scroller = target?.closest("main");
+      if (scroller) scroller.scrollTop = scrollBeforeDetail.current;
+      target?.focus({ preventScroll: true });
+    });
   }
 
   function filterBy(next: Filter) {
@@ -165,7 +183,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
       }
       await refresh();
     } catch (failure) {
-      if (failure instanceof CapabilityError && !["INTERNAL", "UNAUTHENTICATED", "WRITE_PARTIAL"].includes(failure.code)) setWrite(null);
+      if (!uncertainPlanWrite(failure)) setWrite(null);
       setError(failure instanceof Error ? failure.message : "暂时无法确认计划变更。");
     } finally {
       submitted.current = false;
@@ -209,7 +227,6 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
   const allEmpty = plans.data && rows.length === 0 && !cursor && (!filter.query && !filter.plugin && !filter.action && !filter.state || empty.data?.plans.length === 0);
   const filtersActive = Boolean(filter.query || filter.plugin || filter.action || filter.state);
   const currentSheet = sheet && sheet.kind === "rule" ? sheet : null;
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   return (
     <div className="plan-center" data-testid="plan-directory" hidden={!active}>
@@ -222,6 +239,7 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
           <Button variant="primary" icon={Plus} disabled={!canCreate} onClick={() => openSheet({ kind: "rule" })} data-testid="rule-new">新建计划</Button>
         </div>
       </div>
+      {vault.data?.readOnly ? <p role="status">当前 Vault 为只读。</p> : null}
       {plans.error ? <p role="alert" className="hu-field-error">{plans.error.message}</p> : null}
       {error && !sheet ? <p role="alert" className="hu-field-error">{error}</p> : null}
       {write && !sheet ? <Button disabled={busy} onClick={() => void submit(write)}>核对原变更</Button> : null}
@@ -248,8 +266,9 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
             {rows.map((plan) => (
               <li key={plan.planId} data-plan-id={plan.planId} className={selected === plan.planId ? "plan-row-selected" : ""}>
                 <button type="button" className="plan-row-main" data-testid="rule-row"
-                  aria-current={selected === plan.planId ? "true" : undefined} onClick={(e) => {
+                  aria-label={`打开自动化 ${plan.title}`} aria-current={selected === plan.planId ? "true" : undefined} onClick={(e) => {
                     origin.current = e.currentTarget;
+                    scrollBeforeDetail.current = e.currentTarget.closest("main")?.scrollTop ?? 0;
                     focusDetail.current = plan.planId !== selected;
                     select(plan.planId);
                   }}>
@@ -290,8 +309,9 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
                   onEdit={() => void openEditor(selectedPlan)} onToggle={() => toggle(selectedPlan)}
                   onMenu={() => openSheet({ kind: "menu", plan: selectedPlan })}
                   onOccurrence={(id) => openSheet({ kind: "occurrence", id, plan: selectedPlan })}
-                  onSource={onNavigate && selectedPlan.source.plugin !== "automations" ? () => openSource(selectedPlan) : undefined}
-                  refresh={refresh} />
+                  onSource={onNavigate && selectedPlan.source.plugin !== "automations" && modules[selectedPlan.source.plugin === "kernel" ? "home" : selectedPlan.source.plugin]
+                    ? () => openSource(selectedPlan) : undefined}
+                  refresh={refresh} registerLeaveGuard={registerLeaveGuard} />
               </>
             ) : null}
           </section>
@@ -311,12 +331,12 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
               </article>;
             })}
             <article><h3>一次性任务提醒</h3><p>选择任务和提醒时刻。</p>
-              {capabilities?.includes("tasks.list") && capabilities.includes("automations.plans.createTaskReminder") ?
+              {writable && capabilities?.includes("tasks.list") && capabilities.includes("automations.plans.createTaskReminder") ?
                 <Button onClick={() => openSheet({ kind: "reminder" })}>使用模板 · 一次性任务提醒</Button>
                 : <p>需要启用任务插件。</p>}
             </article>
             <article><h3>恢复系统默认扫描</h3><p>恢复系统原有的扫描计划和固定身份。</p>
-              <Button disabled={!capabilities?.includes("automations.plans.defaultTaskScan") || !capabilities.includes("tasks.list")}
+              <Button disabled={!writable || !capabilities?.includes("automations.plans.defaultTaskScan") || !capabilities.includes("tasks.list")}
                 onClick={() => openSheet({ kind: "restore-default" })}>恢复默认扫描</Button>
             </article>
             <article><h3>来源计划</h3><p>Mail、Git 与 SSH 计划需要先在原模块配置账号、仓库或监控面板。</p></article>
@@ -328,41 +348,20 @@ export function PlanDirectory({ active, onNavigate, onOpenRuns }: {
           <Button variant="primary" disabled={busy} onClick={() => void restoreDefault()}>确认恢复</Button></>}>
         <p>如果系统默认扫描已移除，恢复后会按每 15 分钟检查一次可派遣任务。</p>
       </Dialog> : null}
-      {sheet?.kind === "reminder" ? <TaskReminderEditor onClose={() => setSheet(null)} onSaved={(planId) => {
+      {sheet?.kind === "reminder" ? <TaskReminderEditor registerLeaveGuard={registerLeaveGuard} onClose={() => setSheet(null)} onSaved={(planId) => {
         setFilter(initialFilter); setCursors([]); select(planId); setSheet(null); void refresh();
       }} /> : null}
-      {currentSheet ? (
-        <Dialog open wide title={currentSheet.rule ? "编辑自动化" : "新建自动化"} onClose={() => { if (!busy) setSheet(null); }} error={error} testId="rule-dialog">
-          <RuleEditor {...(currentSheet.rule && { rule: currentSheet.rule })} {...(currentSheet.template && { template: currentSheet.template })}
-            zone={zone} onCancel={() => setSheet(null)} onSave={async (value) => {
-              if (submitted.current) return false;
-              submitted.current = true;
-              setBusy(true);
-              setError("");
-              try {
-                const { expectedVersion, ...fields } = value;
-                const rule = currentSheet.rule;
-                const changed = await engine.call<EditableRule>(rule ? "automations.update" : "automations.create",
-                  rule ? { id: rule.id, expectedVersion, patch: { title: fields.title, trigger: fields.trigger, action: fields.action }, body: fields.body } : fields,
-                  { write: true });
-                setSheet(null);
-                if (!rule) { setFilter(initialFilter); setCursors([]); }
-                select(changed.id);
-                await refresh();
-                return true;
-              } catch (failure) {
-                setError(failure instanceof Error ? failure.message : "暂时无法保存计划。");
-                return false;
-              } finally {
-                submitted.current = false;
-                setBusy(false);
-              }
-            }} />
-        </Dialog>
-      ) : null}
+      {currentSheet ? <RuleDraftDialog key={currentSheet.rule?.id ?? "new"}
+        {...(currentSheet.rule && { rule: currentSheet.rule })} {...(currentSheet.template && { template: currentSheet.template })}
+        registerLeaveGuard={registerLeaveGuard} onClose={() => setSheet(null)} onSaved={(id) => {
+          setSheet(null);
+          if (!currentSheet.rule) { setFilter(initialFilter); setCursors([]); }
+          select(id);
+          void refresh();
+        }} /> : null}
       {sheet?.kind === "observation" ? <ObservationEditor
         {...(sheet.config && { initial: sheet.config })} {...(sheet.target && { targetKind: sheet.target })}
-        onClose={() => setSheet(null)} onSaved={refresh} /> : null}
+        onClose={() => setSheet(null)} onSaved={refresh} registerLeaveGuard={registerLeaveGuard} /> : null}
       {sheet?.kind === "menu" ? (
         <Dialog open title="计划操作" onClose={() => setSheet(null)} error={error}>
           <p>{sheet.plan.title}</p>
@@ -413,10 +412,10 @@ function DeletePlan({ plan, pending, busy, error, onClose, onSubmit }: {
   );
 }
 
-function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onSource, refresh }: {
+function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onSource, refresh, registerLeaveGuard }: {
   plan: PlanSummary; busy: boolean;
   onEdit(): void; onToggle(): void; onMenu(): void; onOccurrence(id: string): void;
-  onSource: (() => void) | undefined; refresh(): Promise<unknown>;
+  onSource: (() => void) | undefined; refresh(): Promise<unknown>; registerLeaveGuard: ModuleProps["registerLeaveGuard"];
 }) {
   const isRule = plan.action.capability === "automations.runNow";
   const rule = useCapability<EditableRule>("automations.read", { id: plan.planId }, { enabled: isRule });
@@ -441,7 +440,7 @@ function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onS
         {rule.data ? <RuleDetails rule={rule.data} /> : null}
       </section>
       <section className="plan-detail-section"><h3>何时执行</h3><p>{describeTrigger(plan.trigger)}</p>
-        {!isRule ? <PlanScheduleControls plan={plan} changed={refresh} scheduleOnly /> : null}
+        {!isRule ? <PlanScheduleControls plan={plan} changed={refresh} scheduleOnly registerLeaveGuard={registerLeaveGuard} /> : null}
       </section>
       <section className="plan-detail-section"><h3>执行与结果</h3>
         <p>{plan.owner.scope === "vault" ? "当前 Vault" : plan.owner.scope === "device" ? "绑定设备" : "绑定连接"}</p>
@@ -451,41 +450,52 @@ function PlanInspector({ plan, busy, onEdit, onToggle, onMenu, onOccurrence, onS
   );
 }
 
+type RunIntent = { id: string; expectedVersion: string; intentId: string };
+const pendingRuleRuns = new Map<string, RunIntent>();
+const submittingRuleRuns = new Set<string>();
+
 function RuleRun({ rule, plan, onOccurrence, refresh }: {
   rule: EditableRule; plan: PlanSummary; onOccurrence(id: string): void; refresh(): Promise<unknown>;
 }) {
   const engine = useEngine();
-  const [pending, setPending] = useState<{ id: string; expectedVersion: string; intentId: string } | null>(null);
+  const scope = JSON.stringify([engine.vaultId, engine.endpoint.browserSessionId ?? "desktop", rule.id]);
+  const [pending, setPending] = useState(() => pendingRuleRuns.get(scope) ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [lastRun, setLastRun] = useState<string | null>(null);
-  const submitted = useRef(false);
   async function run() {
-    if (submitted.current) return;
-    submitted.current = true;
+    if (submittingRuleRuns.has(scope)) return;
+    submittingRuleRuns.add(scope);
     setBusy(true);
     setError("");
-    const input = pending ?? { id: rule.id, expectedVersion: rule.version, intentId: planIntentId() };
-    // Terminal rules have a separate, protected execution path.
-    const canVerify = rule.data.action.kind !== "terminal";
-    if (canVerify) setPending(input);
+    const input = pendingRuleRuns.get(scope) ?? { id: rule.id, expectedVersion: rule.version, intentId: planIntentId() };
+    pendingRuleRuns.set(scope, input);
+    setPending(input);
     try {
-      const result = await engine.call<{ activationId: string }>("automations.runNow", canVerify ? input : { id: rule.id },
+      const result = await engine.call<{ activationId: string; summary: { state?: string } | null }>("automations.runNow", input,
         { write: true, idempotencyKey: input.intentId });
-      setPending(null);
-      await refresh();
+      const unknown = result.summary?.state === "unknown" || result.summary?.state === "pending";
+      if (unknown) setError("原运行已受理，结果仍待核实。");
+      else {
+        pendingRuleRuns.delete(scope);
+        setPending(null);
+      }
       setLastRun(result.activationId);
+      await refresh();
     } catch (failure) {
-      if (failure instanceof CapabilityError && !["INTERNAL", "UNAUTHENTICATED", "WRITE_PARTIAL"].includes(failure.code)) setPending(null);
+      if (!uncertainPlanWrite(failure)) {
+        pendingRuleRuns.delete(scope);
+        setPending(null);
+      }
       setError(failure instanceof Error ? failure.message : "暂时无法确认运行。");
     } finally {
       setBusy(false);
-      submitted.current = false;
+      submittingRuleRuns.delete(scope);
     }
   }
 
   return <div className="row">
-    <Button variant="primary" icon={Play} disabled={busy || (!pending && plan.availability.state === "blocked")} onClick={() => void run()}>
+    <Button variant="primary" icon={Play} disabled={busy || (!pending && (plan.availability.state === "blocked" || plan.lastOccurrence?.state === "unknown"))} onClick={() => void run()}>
       {pending && !busy ? "核对原运行" : t.runNow}
     </Button>
     {lastRun ? <Button onClick={() => onOccurrence(lastRun)}>查看本次运行</Button> : null}

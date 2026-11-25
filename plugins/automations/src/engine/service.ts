@@ -296,12 +296,18 @@ export class AutomationsService {
   async preview(ruleId: string, expectedVersion?: string, signal?: AbortSignal) {
     const r = this.rule(ruleId);
     if (expectedVersion !== undefined && expectedVersion !== r.version) throw errors.versionConflict(r.version);
+    return { ruleVersion: r.version, ...await this.previewDraft(r.data.trigger, r.data.action, r.body, signal) };
+  }
+
+  async previewDraft(trigger: RuleData["trigger"], action: RuleData["action"], body: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const now = this.d.now();
-    const next = nextRuns(r.data.trigger.cron, r.data.trigger.zone, 3, now);
-    if (!isTaskScanRule(r)) return { ruleVersion: r.version, next, tasksDisabled: false, candidates: [], skipped: [] };
-    const { tasksDisabled, candidates, skipped } = await this.classifyTaskScan(r, now, signal);
+    const at = now.toISOString();
+    const next = nextRuns(trigger.cron, trigger.zone, 3, now);
+    if (action.kind !== "agent" || action.input.source !== "tasks") return { at, next, tasksDisabled: false, candidates: [], skipped: [] };
+    const { tasksDisabled, candidates, skipped } = await this.classifyTaskScan({ data: { trigger, action: { kind: "agent", input: action.input } }, body }, now, signal);
     return {
-      ruleVersion: r.version,
+      at,
       next,
       tasksDisabled,
       candidates: candidates.map((c) => ({ taskId: c.task.id, title: c.task.title, inputRevision: c.task.inputRevision, processingKey: c.processingKey })),
@@ -309,7 +315,7 @@ export class AutomationsService {
     };
   }
 
-  async classifyTaskScan(rule: TaskScanRule, now: Date, callerSignal?: AbortSignal) {
+  async classifyTaskScan(rule: { body: string; data: Pick<TaskScanRule["data"], "trigger" | "action"> }, now: Date, callerSignal?: AbortSignal) {
     const query = this.d.taskQuery();
     const signal = callerSignal ? AbortSignal.any([this.abort.signal, callerSignal]) : this.abort.signal;
     signal.throwIfAborted();
@@ -438,8 +444,9 @@ export class AutomationsService {
     appendFileSync(path.join(this.d.activationsDir, `${iso(this.d.now()).slice(0, 7)}.ndjson`), JSON.stringify(r) + "\n");
   }
 
-  activateNonAgent(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null): Promise<ActivationRecord> {
+  activateNonAgent(ruleId: string, trigger: "schedule" | "manual", scheduledFor: Date | null = null, expectedVersion?: string): Promise<ActivationRecord> {
     const rule = this.rule(ruleId);
+    if (expectedVersion !== undefined && rule.version !== expectedVersion) throw errors.versionConflict(rule.version);
     if (rule.data.action.kind === "agent") throw errors.invalidInput("Agent 规则由 Tasks 接受派遣");
     if (hasLegacyTerminalEnvironment(rule.data.action)) throw errors.invalidInput("旧规则需要重新配置受保护环境");
     return this.activateRule(rule, trigger, scheduledFor);
