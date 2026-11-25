@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { ledgerBusinessDayRange } from "../../../packages/contracts/src/ledger.js";
+import { ledgerBusinessDayRange, type LedgerRecord } from "../../../packages/contracts/src/ledger.js";
+import type { BookList } from "../../../plugins/ledger/src/shared/books.js";
+import type { RecordsPage } from "../../../plugins/ledger/src/shared/entries.js";
 import type { Loan, LoanHistory } from "../../../plugins/ledger/src/shared/loans.js";
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
@@ -590,7 +592,7 @@ test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
     await createBook(desktop, "原账本", "银行");
     const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
     const { book, businessDate, accounts } = await call<{ book: { revision: string }; businessDate: string; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
-    await call(desktop, "ledger.records.create", { bookId, expectedRevision: book.revision, intentKey: randomUUID(), title: "备份车票",
+    const originalRecord = await call<LedgerRecord>(desktop, "ledger.records.create", { bookId, expectedRevision: book.revision, intentKey: randomUUID(), title: "备份车票",
       record: { type: "expense", accountId: accounts[0]!.id, amountMinor: "2300", currency: "TWD",
         occurredAt: ledgerBusinessDayRange(businessDate, "Asia/Taipei").from, categoryId: null, tagIds: [], attachmentIds: [], payee: null, memo: null } });
     const url = await inviteWorkbench(desktop);
@@ -614,14 +616,24 @@ test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
     await restore.getByRole("button", { name: "检查备份" }).click();
     await expect(restore.getByRole("heading", { name: "核对恢复范围" })).toBeFocused();
     expect(await call(page, "ledger.books.list", {})).toMatchObject({ books: [{ id: bookId }] });
-    await restore.getByLabel("恢复到新账本").fill("恢复账本");
+    const restoredName = "恢复账本";
+    await restore.getByLabel("恢复到新账本").fill(restoredName);
     await restore.getByRole("button", { name: "确认恢复" }).click();
-    await expect(ledger.getByRole("heading", { name: "恢复账本", exact: true })).toBeVisible();
-    const published = await call<{ activeBookId: string; books: { id: string }[] }>(page, "ledger.books.list", {});
-    expect(published.activeBookId).not.toBe(bookId);
+    await expect(ledger.getByRole("heading", { name: restoredName, exact: true })).toBeVisible();
+    const published = await call<BookList>(page, "ledger.books.list", {});
     expect(published.books).toHaveLength(2);
-    expect(await call(page, "ledger.records.list", { bookId: published.activeBookId })).toMatchObject({ total: 1, rows: [{ title: "备份车票" }] });
-    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({ total: 1, rows: [{ title: "备份车票" }] });
+    const restoredBook = published.books.find(({ name }) => name === restoredName);
+    expect(restoredBook).toBeDefined();
+    const restoredId = restoredBook!.id;
+    expect(restoredId).not.toBe(bookId);
+    expect(published.activeBookId).toBe(restoredId);
+    await expect(ledger.getByLabel("当前账本")).toHaveValue(restoredId);
+    const restoredRecords = await call<RecordsPage>(page, "ledger.records.list", { bookId: restoredId });
+    expect(restoredRecords).toMatchObject({ total: 1, rows: [{ title: "备份车票", record: { amountMinor: "2300" } }] });
+    expect(restoredRecords.rows[0]!.record.id).not.toBe(originalRecord.id);
+    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({
+      total: 1, rows: [{ title: "备份车票", record: { id: originalRecord.id, amountMinor: "2300" } }],
+    });
   } finally {
     await browser?.close().catch(() => undefined);
     await close();

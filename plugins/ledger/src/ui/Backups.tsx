@@ -1,5 +1,5 @@
 import { Button, Dialog, Select } from "@huhu/ui";
-import { createRequestId, useCapability } from "@huhu/workbench";
+import { useCapability } from "@huhu/workbench";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { backupModuleLabels, backupModules, maxLedgerArchiveBytes, missingBackupModules,
   type BackupDecision, type BackupModule, type BackupPreview, type ExportedBackup } from "../shared/backups.js";
@@ -87,7 +87,6 @@ function RestoreDialog({ timeZone, close, restored }: { timeZone: string | undef
   const [inspecting, setInspecting] = useState(false);
   const formId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const lastIntent = useRef<{ body: string; id: string }>(null);
   const inspectPending = useRef(false);
   const zoneValue = zone ?? timeZone ?? settings.data?.dateTime.zone ?? "";
   const issues = preview?.issues.filter(({ module }) => modules.includes(module)) ?? [];
@@ -134,9 +133,7 @@ function RestoreDialog({ timeZone, close, restored }: { timeZone: string | undef
     }
     if (!canConfirm) return;
     const input = { previewId: preview.previewId, name, modules, decisions: Object.fromEntries(issues.map(({ id }) => [id, decisions[id]])) };
-    const body = JSON.stringify(input);
-    if (lastIntent.current?.body !== body) lastIntent.current = { body, id: createRequestId() };
-    const book = await action.run<Book>("ledger.backups.confirm", input, true, lastIntent.current.id);
+    const book = await action.run<Book>("ledger.backups.confirm", input);
     if (book) restored(book);
   }
 
