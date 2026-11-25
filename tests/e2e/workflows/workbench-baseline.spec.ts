@@ -540,6 +540,19 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
     const initial = (await read()).board;
     const notes = board.locator('[data-instance-id="default-notes"]');
     const tasks = board.locator('[data-instance-id="default-tasks"]');
+    const cancel = board.getByRole("button", { name: "取消编辑", exact: true });
+    const renderedPlacement = (tile: Locator) => tile.evaluate((element) => {
+      const grid = element.closest(".hu-dashboard-grid")!.getBoundingClientRect();
+      const rect = element.getBoundingClientRect();
+      // Match the six-column grid, its 12px gaps and 100px rows in DashboardGrid.
+      const column = (grid.width + 12) / 6;
+      return {
+        x: Math.round((rect.x - grid.x) / column),
+        y: Math.round((rect.y - grid.y) / 112),
+        w: Math.round((rect.width + 12) / column),
+        h: Math.round((rect.height + 12) / 112),
+      };
+    });
     const drag = async (target: Locator, cells: number) => {
       await target.scrollIntoViewIfNeeded();
       const bounds = (await target.boundingBox())!;
@@ -555,37 +568,56 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
         await page.mouse.up();
       }
     };
-    await page.getByTestId("home-customize").click();
-    expect(await board.locator(".hu-dashboard-card-controls select").count()).toBe(0);
-    const origin = (await notes.boundingBox())!;
-    await drag(notes.getByRole("button", { name: "移动 最近笔记", exact: true }), -1);
-    await expect.poll(async () => (await notes.boundingBox())?.x).toBeLessThan(origin.x);
-    await expect.poll(async () => (await tasks.boundingBox())?.y).toBeGreaterThan((await notes.boundingBox())!.y);
-    await drag(notes.locator(".react-resizable-handle-se"), 1);
-    await expect.poll(async () => (await notes.boundingBox())?.width).toBeGreaterThan(origin.width);
-    const taskMove = tasks.getByRole("button", { name: "移动 我的任务", exact: true });
-    await taskMove.press("Shift+ArrowDown");
-    await expect(taskMove).toBeFocused();
-    await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("3 × 4");
-    expect((await read()).board.revision).toBe(initial.revision);
-    await board.getByTestId("home-dashboard-save").click();
-    await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
-    const saved = (await read()).board;
-    expect(saved.layout).toEqual(expect.arrayContaining([
-      expect.objectContaining({ instanceId: "default-notes", x: 2, w: 4 }),
-      expect.objectContaining({ instanceId: "default-tasks", h: 4 }),
-    ]));
-    await page.reload();
-    await expect(notes).toBeVisible();
-    const savedStyle = await notes.getAttribute("style");
-    expect((await read()).board.layout).toEqual(saved.layout);
-    await page.getByTestId("home-customize").click();
-    await notes.getByRole("button", { name: "移动 最近笔记", exact: true }).press("ArrowLeft");
-    await expect(board.getByTestId("home-dashboard-save")).toBeEnabled();
-    await board.getByRole("button", { name: "取消编辑", exact: true }).click();
-    await expect(notes).toHaveAttribute("style", savedStyle!);
-    expect((await read()).board.layout).toEqual(saved.layout);
-    if (name === "electron") await call(page, "home.dashboard.update", { baseRevision: saved.revision, instances: initial.instances, layout: initial.layout });
+    try {
+      expect(initial.layout).toEqual(expect.arrayContaining([
+        expect.objectContaining({ instanceId: "default-notes", x: 3, y: 2, w: 3 }),
+        expect.objectContaining({ instanceId: "default-tasks", x: 0, y: 2, h: 3 }),
+      ]));
+      await page.getByTestId("home-customize").click();
+      expect(await board.locator(".hu-dashboard-card-controls select").count()).toBe(0);
+      await drag(notes.getByRole("button", { name: "移动 最近笔记", exact: true }), -1);
+      await expect.poll(() => renderedPlacement(notes)).toMatchObject({ x: 2, y: 2, w: 3 });
+      await expect.poll(() => renderedPlacement(tasks)).toMatchObject({ y: 5, h: 3 });
+      await drag(notes.locator(".react-resizable-handle-se"), 1);
+      await expect.poll(() => renderedPlacement(notes)).toMatchObject({ x: 2, y: 2, w: 4 });
+      const taskMove = tasks.getByRole("button", { name: "移动 我的任务", exact: true });
+      await taskMove.press("Shift+ArrowDown");
+      await expect(taskMove).toBeFocused();
+      await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("3 × 4");
+      await expect.poll(() => renderedPlacement(tasks)).toMatchObject({ y: 5, h: 4 });
+      expect((await read()).board.revision).toBe(initial.revision);
+      await board.getByTestId("home-dashboard-save").click();
+      await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
+      const saved = (await read()).board;
+      const savedNotes = saved.layout.find(({ instanceId }) => instanceId === "default-notes")!;
+      const savedTasks = saved.layout.find(({ instanceId }) => instanceId === "default-tasks")!;
+      expect(savedNotes).toMatchObject({ x: 2, y: 2, w: 4 });
+      expect(savedTasks).toMatchObject({ y: 5, h: 4 });
+      await page.reload();
+      await expect(notes).toBeVisible();
+      const expectSavedPlacement = async () => {
+        const { x, y, w, h } = savedNotes;
+        await expect.poll(() => renderedPlacement(notes)).toEqual({ x, y, w, h });
+        await expect.poll(() => renderedPlacement(tasks)).toEqual({ x: savedTasks.x, y: savedTasks.y, w: savedTasks.w, h: savedTasks.h });
+      };
+      await expectSavedPlacement();
+      expect((await read()).board.layout).toEqual(saved.layout);
+      await page.getByTestId("home-customize").click();
+      await notes.getByRole("button", { name: "移动 最近笔记", exact: true }).press("ArrowLeft");
+      await expect.poll(() => renderedPlacement(notes)).toMatchObject({ x: savedNotes.x - 1 });
+      await expect(board.getByTestId("home-dashboard-save")).toBeEnabled();
+      await cancel.click();
+      await expectSavedPlacement();
+      expect((await read()).board).toEqual(saved);
+    } finally {
+      try {
+        if (await cancel.isVisible() && await cancel.isEnabled()) await cancel.click();
+      } finally {
+        // The browser shares the Electron fixture Vault, even when an Electron assertion fails.
+        const current = (await read()).board;
+        if (current.revision !== initial.revision) await call(page, "home.dashboard.update", { baseRevision: current.revision, instances: initial.instances, layout: initial.layout });
+      }
+    }
   });
 });
 
@@ -600,31 +632,37 @@ test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多
     const dialog = page.getByRole("dialog", { name: "添加卡片" });
     const search = dialog.getByRole("searchbox", { name: "搜索卡片" });
     const source = dialog.getByRole("combobox", { name: "卡片来源" });
-    const open = () => board.getByRole("button", { name: "添加卡片", exact: true }).click();
+    const catalogButton = board.getByRole("button", { name: "添加卡片", exact: true });
+    const closeButton = dialog.getByRole("button", { name: "关闭", exact: true });
     const cancel = board.getByRole("button", { name: "取消编辑", exact: true });
     const focusChoice = dialog.getByRole("article", { name: "专注", exact: true });
     const taskChoice = dialog.getByRole("article", { name: "我的任务", exact: true });
     let tasksDisabled = false;
     try {
       await page.getByTestId("home-customize").click();
-      await open();
+      await catalogButton.click();
       await source.selectOption("system");
       await search.fill("跟踪计时");
       await expect(focusChoice).toContainText("推荐尺寸 3 × 2");
       await expect(focusChoice.getByRole("button", { name: "已添加 专注" })).toBeDisabled();
       await expect(taskChoice).toHaveCount(0);
-      await page.keyboard.press("Escape");
+      // Escape in a nonempty search input clears the query before it can dismiss the dialog.
+      await closeButton.click();
+      await expect(dialog).toBeHidden();
+      await expect(catalogButton).toBeFocused();
       await focus.getByRole("checkbox", { name: "隐藏" }).check();
-      await open();
+      await catalogButton.click();
       await search.fill("专注");
       await focusChoice.getByRole("button", { name: "恢复隐藏卡片 专注" }).click();
+      await expect(dialog).toBeHidden();
       await expect(focus.getByRole("checkbox", { name: "隐藏" })).not.toBeChecked();
 
-      await open();
+      await catalogButton.click();
       await source.selectOption("plugin");
       await search.fill("今日安排");
       await expect(taskChoice).toContainText("已有 1 个");
       await taskChoice.getByRole("button", { name: "再添加一个 我的任务" }).click();
+      await expect(dialog).toBeHidden();
       await board.getByTestId("home-dashboard-save").click();
       await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
       const saved = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
@@ -639,14 +677,15 @@ test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多
       tasksDisabled = true;
       await expect(board.getByText("卡片所需的插件已停用", { exact: true })).toHaveCount(2);
       await page.getByTestId("home-customize").click();
-      await open();
+      await catalogButton.click();
       await search.fill("今日安排");
       await expect(taskChoice.getByRole("button", { name: "当前不可用 我的任务" })).toBeDisabled();
-      await page.keyboard.press("Escape");
+      await closeButton.click();
+      await expect(dialog).toBeHidden();
       await cancel.click();
       expect((await call<DashboardView>(page, "home.dashboard.get", {})).board.instances).toEqual(saved.instances);
     } finally {
-      if (await dialog.isVisible()) await page.keyboard.press("Escape");
+      if (await dialog.isVisible()) await closeButton.click();
       if (await cancel.isVisible() && await cancel.isEnabled()) await cancel.click();
       if (tasksDisabled) await call(page, "plugins.setEnabled", { id: "tasks", enabled: true });
       const current = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
