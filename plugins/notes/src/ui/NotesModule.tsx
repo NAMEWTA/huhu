@@ -3,7 +3,7 @@ import type { EventPayload, VaultIndexSnapshot } from "@huhu/contracts";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { n, t } from "./i18n.js";
 import { a } from "./archives/i18n.js";
 import { NoteContextMenu, type NoteContextMenuProps } from "./NoteContextMenu.js";
@@ -110,6 +110,12 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     parkedDocument.current = { session, locale, checkpoint };
   }, [active, locale, selected, vaultId]);
   const [inspector, setInspector] = useState(false);
+  const inspectorId = useId();
+  const inspectorTrigger = useRef<HTMLElement | null>(null);
+  const closeInspector = () => {
+    setInspector(false);
+    inspectorTrigger.current?.focus();
+  };
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [docText, setDocText] = useState("");
   const [dailyDate, setDailyDate] = useState(today());
@@ -429,6 +435,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const detail =
     inspector && selected && tab?.kind === "file" && !restrictedFile && section !== "trash" ? (
       <NoteInspector
+        id={inspectorId}
         path={selected}
         headings={headings}
         propertiesRef={setPropertiesTarget}
@@ -438,7 +445,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         notePaths={(every.data ?? []).map((x) => x.path)}
         flush={flushForComments}
         readOnly={vault.data?.readOnly !== false}
-        onClose={() => setInspector(false)}
+        onClose={closeInspector}
         onOpen={openLinked}
         onJump={(line) => editorPort?.gotoLine(line)}
         onOpenHistory={() => onNavigate?.("versioning")}
@@ -611,10 +618,19 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
               key={tab.path}
               path={tab.path}
               favorite={current?.favorite === true}
-              inspectorOpen={inspector}
+              inspectorOpen={detail !== null}
+              inspectorId={inspectorId}
               detail={detail}
               propertiesTarget={propertiesTarget}
-              onToggleInspector={() => setInspector((v) => !v)}
+              onToggleInspector={(trigger) => {
+                inspectorTrigger.current = trigger;
+                if (inspector) {
+                  closeInspector();
+                } else {
+                  setInspector(true);
+                  requestAnimationFrame(() => document.getElementById(inspectorId)?.querySelector<HTMLButtonElement>('[data-testid="note-inspector-close"]')?.focus());
+                }
+              }}
               onToggleFavorite={() => void run("notes.setFavorite", { path: tab.path, favorite: !(current?.favorite === true) })}
               onOpen={openLinked}
               onClose={() => closeTab(tabKey(tab))}

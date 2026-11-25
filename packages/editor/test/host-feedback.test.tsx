@@ -15,7 +15,7 @@ import { commentRoutes, toThreadMeta, type HuhuComment } from "../src/host/route
 import { CommentsBoundary } from "../src/vendor/open-knowledge/app/src/comments/CommentsBoundary";
 import { CommentedDocProvider, useCommentedDocName } from "../src/vendor/open-knowledge/app/src/comments/CommentedDocContext";
 import { CommentsPanel } from "../src/vendor/open-knowledge/app/src/comments/CommentsPanel";
-import { CommentScopeProvider, createFileThread, deleteThread, reopenThread, replaceOrphan, replyToThread, resolveThread } from "../src/vendor/open-knowledge/app/src/comments/store";
+import { CommentScopeProvider, createFileThread, deleteThread, replaceOrphan, editComment } from "../src/vendor/open-knowledge/app/src/comments/store";
 import { TagDialog } from "../src/vendor/open-knowledge/app/src/editor/components/TagDialog";
 import { dispatchTagClickEvent } from "../src/vendor/open-knowledge/app/src/editor/extensions/tag-click-plugin";
 import { setEditorDocName } from "../src/vendor/open-knowledge/app/src/editor/extensions/doc-context";
@@ -142,10 +142,8 @@ test.each([
 
 test.each([
   { method: "POST", path: "/api/comments", name: "create", run: (id: string) => createFileThread({ docName: id, body: "新批注" }), toast: "Couldn't add that comment" },
-  { method: "POST", path: "/api/comment", name: "reply", run: (id: string) => replyToThread(id, "新回复"), toast: "Couldn't send that reply" },
+  { method: "POST", path: "/api/comment", name: "update", run: (id: string) => editComment(id, "编辑后的批注", undefined, "v1"), toast: "Couldn't save that edit" },
   { method: "DELETE", path: "/api/comment", name: "delete", run: deleteThread, toast: "Couldn't delete that comment" },
-  { method: "POST", path: "/api/comment", name: "resolve", run: resolveThread, toast: "Couldn't resolve that comment" },
-  { method: "POST", path: "/api/comment", name: "reopen", run: reopenThread, toast: "Couldn't reopen that comment" },
   { method: "POST", path: "/api/comment", name: "relocate", run: (id: string) => replaceOrphan(id, "新引用"), toast: "Couldn't re-place that comment" },
 ])("H04 comment $name renders the successful update or the rejected request toast", async ({ method, path, name, run, toast }) => {
   const failure = "批注写入暂时不可用";
@@ -159,10 +157,11 @@ test.each([
       property: null,
       state: name === "relocate" ? "orphaned" : "anchored",
       anchor: null,
-      resolved: name === "reopen",
+      version: "v1",
       createdAt: at,
       updatedAt: at,
-      messages: [{ at, author: "Huhu", text: "已有批注" }],
+      author: "Huhu",
+      text: "已有批注",
     };
     let entries: HuhuComment[] = name === "create" ? [] : [base];
     const change = (next: HuhuComment[]): void => {
@@ -174,26 +173,17 @@ test.each([
         port: {
           list: async () => entries,
           create: async ({ text }) => {
-            const created = { ...base, messages: [{ at, author: "Huhu", text }] };
+            const created = { ...base, text };
             change([created]);
             return created;
           },
-          reply: async (_id, text) => {
-            const updated = { ...base, messages: [...base.messages, { at, author: "Huhu", text }] };
+          update: async (_id, text, version) => {
+            expect(version).toBe("v1");
+            const updated = { ...base, text, version: "v2" };
             change([updated]);
             return updated;
           },
           delete: async () => change([]),
-          resolve: async () => {
-            const updated = { ...base, resolved: true };
-            change([updated]);
-            return updated;
-          },
-          reopen: async () => {
-            const updated = { ...base, resolved: false };
-            change([updated]);
-            return updated;
-          },
           relocate: async (_id, { quote }) => {
             const updated: HuhuComment = { ...base, state: "anchored", anchor: { exact: quote!, prefix: "", suffix: "", start: 0, end: quote!.length } };
             change([updated]);
@@ -220,7 +210,6 @@ test.each([
       </>,
     );
     try {
-      if (name === "reopen") fireEvent.click(await screen.findByRole("button", { name: /show resolved/i }));
       if (name !== "create") await screen.findByText("已有批注");
       await act(async () => run(id));
       if (failed) {
@@ -229,18 +218,13 @@ test.each([
       } else if (name === "delete") {
         await screen.findByText(/No comments yet/);
         expect(screen.queryByText("已有批注")).toBeNull();
-      } else if (name === "resolve") {
-        fireEvent.click(await screen.findByRole("button", { name: /show resolved/i }));
-        expect((await screen.findByTestId("comment-thread")).getAttribute("data-state")).toBe("resolved");
-      } else if (name === "reopen") {
-        await waitFor(() => expect(screen.getByTestId("comment-thread").getAttribute("data-state")).toBe("anchored"));
       } else if (name === "relocate") {
         await screen.findByText((text) => text.includes("新引用"));
         expect(screen.getByTestId("comment-thread").getAttribute("data-state")).toBe("anchored");
       } else if (name === "create") {
         await screen.findByText("新批注");
       } else {
-        expect((await screen.findByTestId("thread-reply")).textContent).toContain("新回复");
+        expect((await screen.findByTestId("thread-comment-body")).textContent).toContain("编辑后的批注");
       }
       expect(responses.map(({ status }) => status)).toEqual([failed ? 500 : 200]);
       if (failed) expect(await responses[0]!.json()).toMatchObject({ code: "HOST_ERROR" });
@@ -439,10 +423,11 @@ test("H04 comment list shows a load failure until a retry reads a nonempty list"
       property: null,
       anchor: null,
       state: "anchored",
-      resolved: false,
+      version: "v1",
       createdAt: at,
       updatedAt: at,
-      messages: [{ at, author: "Huhu", text: "Recovered comment" }],
+      author: "Huhu",
+      text: "Recovered comment",
     },
     (path) => path,
   );
@@ -492,10 +477,11 @@ test.each([false, true])("H04 comments share a pending read and ignore a stale s
         property: null,
         anchor: null,
         state: "anchored",
-        resolved: false,
+        version: "v1",
         createdAt: at,
         updatedAt: at,
-        messages: [{ at, author: "Huhu", text }],
+        author: "Huhu",
+        text,
       },
       (path) => path,
     );

@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** 知识库文件树（OK FileTree，行在 shadow DOM 里，Playwright 的 CSS 选择器自动穿透）。 */
 export const treeRows = (page: Page): Locator => page.locator('[data-testid="notes-resource-tree"] [data-item-path]');
@@ -58,4 +58,13 @@ export async function treeRename(page: Page, row: Locator, newBaseName: string):
   await page.keyboard.press("Control+A");
   await page.keyboard.type(newBaseName);
   await page.keyboard.press("Enter");
+}
+
+/** 知识库文档的属性从详情栏打开。 */
+export async function openNoteProperties(page: Page): Promise<Locator> {
+  const button = page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情", exact: true });
+  await expect(button).toBeVisible();
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  await page.getByTestId("note-inspector").getByRole("tab", { name: "属性", exact: true }).click();
+  return page.getByTestId("inspector-properties");
 }

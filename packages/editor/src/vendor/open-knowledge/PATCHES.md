@@ -14,11 +14,13 @@
 
 ## S4 评论（P-S4-xx）
 
-- P-S4-01 `core/src/schemas/api/comments.ts`：`CommentThreadMetaSchema` 加可选 `scope`（body / file / property）与 `messages`（Huhu 线程是消息列表，OK 只有 `latestComment`；整篇笔记批注是 Huhu 的 `target:"file"`）。
-- P-S4-02 `app/src/comments/types.ts`：`CommentThread` 加可选 `scope` / `messages`。
-- P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：`toThread` 携带 scope / messages；新增 `createFileThread` / `replyToThread` / `resolveThread`（对应 `/api/comment` 的 `reply` / `resolve` 动作与 `wholeFile` 创建参数）。
-- P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 `CommentSendFooter`（AI 派发发送栏，Q2 不接）。
-- P-S4-05 `app/src/comments/ThreadCard.tsx`（含 e2e 用的 data-testid：comment-thread / comment-orphaned / thread-*）：去掉“发送”勾选与点击卡片切换发送；铅笔编辑入口换成“标记为已解决”（Huhu 的消息是追加式记录，没有编辑）；回复列表与回复输入；删除两步确认；整篇笔记批注的标签。
+- 批注输入浮层随可见区域限制高度，保留提交按钮访问。
+
+- P-S4-01 `core/src/schemas/api/comments.ts`、P-S4-02 `app/src/comments/types.ts`：Huhu 批注携带所属范围与编辑版本。
+- P-S4-03 `app/src/comments/store.ts`、`app/src/comments/comments-client.ts`：提交批注编辑时带上开始编辑的版本，写入失败保留编辑内容；保留整篇笔记批注入口。
+- P-S4-04 `app/src/comments/CommentListPanel.tsx`：不渲染 AI 派发发送栏。
+- P-S4-05 `app/src/comments/ThreadCard.tsx`：Huhu 显示单条可编辑批注、定位和删除两步确认。
+
 - P-S4-06 `app/src/comments/store.ts`：`setCommentsReadOnly` / `useCommentsReadOnly`（宿主只读时隐藏写操作入口，批注仍可查看 / 定位）。
 - P-S4-07 `app/src/locales/en/messages.po`、`app/src/locales/zh-Hans/messages.po`：新增上面补丁用到的 9 条消息（`zh-Hans` 译文）。
 - P-S4-08 上游 app 非 dom 测试迁入（22 个，原样复制自上游 app 的 comments 目录，与被测源码同目录；`test:vendor` 经 `vitest.vendor.config.ts` 的 Lingui 宏管线与 `test/vendor-setup.ts`（激活 en）运行）：（逐文件清单见 evidence/tests-manifest.json，与上游 SHA-256 逐一相同）、、、、、、、、、、、、、、、、、、、、、。

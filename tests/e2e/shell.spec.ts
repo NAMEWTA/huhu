@@ -545,13 +545,12 @@ test("批注：选中正文添加、回复、解决、删除；删除锚定句�
     // 正文里有 OK 锚点层提供的高亮装饰
     await expect(editor.locator(".ProseMirror [data-comment-thread]").first()).toBeVisible();
 
-    await page.getByTestId("thread-reply-input").fill("收到");
-    await page.keyboard.press("Enter");
-    await expect.poll(() => readFileSync(path.join(dir, readdirSync(dir)[0] as string), "utf8")).toContain("收到");
-    await page.getByTestId("thread-resolve").click({ force: true });
-    await expect(page.getByTestId("comment-thread")).toHaveCount(0);
-    await page.getByTestId("comment-doc-resolved-toggle").click();
-    await page.getByRole("button", { name: "重新打开" }).click({ force: true });
+    const comment = page.getByTestId("comment-thread");
+    await comment.hover();
+    await comment.getByTestId("comment-edit").click();
+    await comment.getByRole("textbox", { name: "编辑这条评论" }).fill("收到");
+    await comment.getByTestId("comment-edit-save").click();
+    await expect(comment.getByTestId("thread-comment-body")).toContainText("收到");
 
     // 删除锚定处的文字并保存 → orphaned
     await editor.locator(".ProseMirror").click();

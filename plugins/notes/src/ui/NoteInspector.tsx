@@ -11,6 +11,7 @@ type Tab = InspectorTab;
 
 /** 文档详情抽屉（原型 knowledge-inspector）：属性 / 大纲 / 关联（反向链接）/ 历史（由版本历史模块提供）。 */
 export function NoteInspector({
+  id,
   path,
   headings,
   tags,
@@ -26,6 +27,7 @@ export function NoteInspector({
   onOpenHistory,
   onNavigate,
 }: {
+  id: string;
   path: string;
   headings: readonly OutlineHeading[];
   tags: string[];
@@ -49,10 +51,22 @@ export function NoteInspector({
   const title = n.props.tabs[tab];
   const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "根目录";
   return (
-    <aside className="notes-inspector" aria-label={n.props.title} data-region="detail" data-testid="note-inspector">
+    <aside
+      id={id}
+      className="notes-inspector"
+      aria-label={title}
+      data-region="detail"
+      data-testid="note-inspector"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing) return;
+        if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return;
+        event.stopPropagation();
+        onClose();
+      }}
+    >
       <header>
         <h3>{tab === "properties" ? n.props.title : tab === "outline" ? n.props.outline : tab === "links" ? n.props.links : tab === "comments" ? n.props.comments : n.props.history}</h3>
-        <IconButton icon={X} label="关闭文档详情" onClick={onClose} />
+        <IconButton icon={X} label="关闭文档详情" data-testid="note-inspector-close" onClick={onClose} />
       </header>
       <div className="hu-knowledge-inspector-nav">
         <ChoiceSegmented label="详情分区" value={tab} onChange={(id) => setTab(id as Tab)} items={(Object.keys(n.props.tabs) as Tab[]).map((id) => ({ id, label: n.props.tabs[id] }))} />

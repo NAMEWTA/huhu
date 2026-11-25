@@ -6,7 +6,7 @@ import { call } from "./session-slow-bridge.js";
 import { treeItem } from "../helpers/tree.js";
 
 // S4：OK 评论 UI 接 Huhu 的 comments.*（真实 Electron）。
-// D01 选区 / 整篇评论进同一存储，取消不留伪线程；D02 线程 / 回复 / 解决 / 重开 / 删除确认；D03 点线程定位正文；
+// D01 选区 / 整篇评论进同一存储，取消不留伪线程；D02 批注编辑和删除确认；D03 点线程定位正文；
 // D04 前插内容 / 重复段落锚点正确，删除原文显示孤立；D05 发表后继续编辑不影响锚点；D06 改名后评论仍在、任务评论不受影响。
 
 async function gotoNotes(page: Page): Promise<void> {
@@ -61,7 +61,7 @@ async function addComment(page: Page, body: string): Promise<void> {
   await page.keyboard.press("Enter");
 }
 
-test("D01/D02：选区批注进真实存储，取消不留伪线程；回复 / 解决 / 重开 / 删除确认；整篇笔记批注", async () => {
+test("D01/D02：选区批注进真实存储，取消不留伪线程；编辑与删除确认；整篇笔记批注", async () => {
   const { page, vault, close } = await openApp();
   try {
     writeFileSync(path.join(vault, "批注一.md"), "# 标题\n\n这里有一套能力，值得批注。\n\n另一段内容。\n");
@@ -92,16 +92,14 @@ test("D01/D02：选区批注进真实存储，取消不留伪线程；回复 / �
     expect(readAll(vault)).toMatch(/exact: 一套能力/);
     await expect(prose(page).locator("[data-comment-thread]").first()).toBeVisible();
 
-    // 回复 / 解决 / 重开
-    await page.getByTestId("thread-reply-input").fill("收到，会补充");
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("thread-reply")).toContainText("收到，会补充");
-    await page.getByTestId("thread-resolve").click({ force: true });
-    await expect(page.getByTestId("comment-thread")).toHaveCount(0);
-    await page.getByTestId("comment-doc-resolved-toggle").click();
-    await expect(page.getByTestId("comment-thread")).toHaveAttribute("data-state", "resolved");
-    await page.getByRole("button", { name: "重新打开" }).click({ force: true });
-    await expect(page.getByTestId("comment-thread")).toHaveAttribute("data-state", "anchored");
+    const thread = page.getByTestId("comment-thread");
+    await thread.hover();
+    await thread.getByTestId("comment-edit").click();
+    await thread.getByRole("textbox", { name: "编辑这条评论" }).fill("收到，会补充");
+    await thread.getByTestId("comment-edit-save").click();
+    await expect(thread.getByTestId("thread-comment-body")).toContainText("收到，会补充");
+    await expect(thread).toHaveAttribute("data-state", "anchored");
+    await expect(thread.getByTestId("thread-reply-input")).toHaveCount(0);
 
     // 整篇笔记批注
     await page.getByTestId("comment-whole-note-input").fill("整体写得不错");
@@ -180,7 +178,7 @@ test("D03/D04/D05：点线程定位正文；前插内容锚点跟随；重复句
   }
 });
 
-test("D06：改名后评论仍绑定同一笔记；未解决的批注在重开应用后仍锚定", async () => {
+test("D06：改名后评论仍绑定同一笔记；批注在重开应用后仍锚定", async () => {
   const { page, vault, close } = await openApp();
   try {
     writeFileSync(path.join(vault, "原名.md"), "# 原名\n\n需要保留的批注句子。\n");
@@ -314,9 +312,7 @@ test("D02 只读 Vault 内可查看和定位已有线程，评论操作与磁盘
     writeFileSync(file, contents);
     await gotoNotes(page);
     const doc = "只读评论.md";
-    const seed = await call<{ id: string }>(page, "comments.create", { path: doc, quote: "已有锚点", text: "只读仍可见" });
-    const resolved = await call<{ id: string }>(page, "comments.create", { path: doc, quote: "第一处", text: "已解决的意见" });
-    await call(page, "comments.resolve", { id: resolved.id });
+    const seed = await call<{ id: string; version: string }>(page, "comments.create", { path: doc, quote: "已有锚点", text: "只读仍可见" });
     const before = readAll(vault);
     expect(await page.evaluate((location) => window.huhuHost.vault.open(location, { kind: "open", readOnly: true }), vault)).toMatchObject({ ok: true });
     await page.reload();
@@ -336,13 +332,9 @@ test("D02 只读 Vault 内可查看和定位已有线程，评论操作与磁盘
     await expect(prose(page).locator(`[data-comment-thread="${seed.id}"]`)).toBeInViewport();
     await expect(page.getByTestId("comments-readonly-reason")).toBeVisible();
     await expect(page.getByTestId("comment-whole-note-input")).toHaveCount(0);
-    await expect(page.getByTestId("thread-reply-input")).toHaveCount(0);
     await expect(page.getByTestId("thread-delete")).toHaveCount(0);
-    await expect(page.getByTestId("thread-resolve")).toHaveCount(0);
-    await page.getByTestId("comment-doc-resolved-toggle").click();
-    await expect(page.getByText("已解决的意见")).toBeVisible();
-    await expect(page.getByRole("button", { name: "重新打开" })).toHaveCount(0);
-    await expect(call(page, "comments.reply", { id: seed.id, text: "直接写也应被拒绝" })).rejects.toThrow("READ_ONLY_VAULT");
+    await expect(page.getByTestId("comment-edit")).toHaveCount(0);
+    await expect(call(page, "comments.update", { id: seed.id, expectedVersion: seed.version, text: "直接写也应被拒绝" })).rejects.toThrow("READ_ONLY_VAULT");
     expect(readAll(vault)).toBe(before);
     expect(readFileSync(file, "utf8")).toBe(contents);
   } finally {
@@ -350,7 +342,7 @@ test("D02 只读 Vault 内可查看和定位已有线程，评论操作与磁盘
   }
 });
 
-test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vault 中保留原文", async () => {
+test("D02 编辑后的批注安全渲染 Markdown，关闭重开和只读 Vault 中保留原文", async () => {
   const { app, page, vault, close } = await openApp();
   const file = "评论排版.md";
   const note = "# 评论排版\n\n笔记正文。\n";
@@ -371,14 +363,10 @@ test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vau
       `<img src="https://example.test/comment-html-image.png" onerror="document.body.dataset.commentScript='1'">`,
     ].join("\n\n");
   const original = message("original");
-  const response = message("reply");
+  const response = message("edited");
   const body = page.getByTestId("thread-comment-body");
-  const reply = page.getByTestId("thread-reply");
   const checkRendered = async () => {
-    for (const [region, kind] of [
-      [body, "original"],
-      [reply, "reply"],
-    ] as const) {
+    for (const [region, kind] of [[body, "edited"]] as const) {
       await expect(region.locator("strong").filter({ hasText: `bold ${kind}` })).toBeVisible();
       await expect(region.locator("blockquote")).toHaveText(`quote ${kind}`);
       await expect(region.locator("li")).toHaveText("list item");
@@ -415,24 +403,21 @@ test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vau
     await expect(composer).toHaveValue(original);
     await page.getByTestId("comment-whole-note-add").click();
 
-    const replyInput = page.getByTestId("thread-reply-input");
-    await replyInput.fill("**bold reply**");
-    await replyInput.press("End");
-    await replyInput.press("Shift+Enter");
-    await expect(replyInput).toHaveValue("**bold reply**\n");
-    await replyInput.fill(response);
-    await expect(replyInput).toHaveValue(response);
-    await replyInput.press("Enter");
+    const thread = page.getByTestId("comment-thread");
+    await thread.hover();
+    await thread.getByTestId("comment-edit").click();
+    await thread.getByRole("textbox", { name: "编辑这条评论" }).fill(response);
+    await thread.getByTestId("comment-edit-save").click();
     await checkRendered();
 
     const [storedFile] = commentFiles(vault);
     if (!storedFile) throw new Error("批注没有落盘");
     const readStored = () => readFileSync(path.join(commentsDir(vault), storedFile));
     const stored = readStored();
-    expect(stored.includes(Buffer.from(`\n\n${original}\n\n### `))).toBe(true);
-    expect(stored.subarray(-Buffer.byteLength(`\n\n${response}\n`))).toEqual(Buffer.from(`\n\n${response}\n`));
+    expect(stored.includes(Buffer.from(response))).toBe(true);
+    expect(stored.includes(Buffer.from(original))).toBe(false);
 
-    await reply.getByRole("link", { name: "link reply" }).click();
+    await body.getByRole("link", { name: "link edited" }).click();
     await expect(page.evaluate(() => window.huhuHost.openExternal("javascript:example"))).rejects.toThrow("unsupported external URL");
     await expect.poll(() => app.evaluate(() => Reflect.get(globalThis, "commentExternalUrls"))).toEqual([link]);
     expect(app.windows()).toHaveLength(1);
@@ -449,7 +434,7 @@ test("D02 评论正文与回复安全渲染 Markdown，关闭重开和只读 Vau
     await treeItem(page, file).click();
     await openPanel();
     await expect(page.getByTestId("comments-readonly-reason")).toBeVisible();
-    await expect(replyInput).toHaveCount(0);
+    await expect(page.getByTestId("comment-edit")).toHaveCount(0);
     await checkRendered();
     expect(readStored()).toEqual(stored);
     expect(readFileSync(path.join(vault, file), "utf8")).toBe(note);

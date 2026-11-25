@@ -29,9 +29,10 @@ export interface NoteDocumentProps {
   path: string;
   favorite: boolean;
   inspectorOpen: boolean;
+  inspectorId: string;
   detail: ReactNode;
   propertiesTarget: HTMLElement | null;
-  onToggleInspector(): void;
+  onToggleInspector(trigger: HTMLButtonElement): void;
   onToggleFavorite(): void;
   onOpen(path: string): void;
   onClose(): void;
@@ -252,7 +253,7 @@ export function NoteDocument(props: NoteDocumentProps) {
         </select>
         <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading || readOnly || !props.onAddComment} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
-        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
+        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} aria-controls={props.inspectorOpen ? props.inspectorId : undefined} className={props.inspectorOpen ? "active" : ""} onClick={(event) => props.onToggleInspector(event.currentTarget)} />
         <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
       </div>
       {state === "conflict" || snap.writeUnconfirmed ? (

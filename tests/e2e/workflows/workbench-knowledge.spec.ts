@@ -100,3 +100,52 @@ test("UX02：区分保存失败和未确认，保留中文输入并核实原保�
     await close();
   }
 });
+
+test("UX03：右栏收起时正文铺满，锚定批注可提交、编辑、定位和删除", async () => {
+  const filename = "批注侧栏.md";
+  const markdown = "---\ntitle: 批注侧栏\n---\n\n# 批注\n\n选中这一句话。\n";
+  const { app, page, vault, close } = await openApp({}, (root) => writeFileSync(path.join(root, filename), markdown));
+  try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(940, 670));
+    await openKnowledge(page, filename);
+    const inspector = page.getByTestId("note-inspector");
+    await expect(inspector).toHaveCount(0);
+    await expect(page.getByTestId("editor-properties")).toHaveCount(0);
+    const toolbar = page.getByTestId("note-toolbar");
+    const toggle = toolbar.getByRole("button", { name: "文档详情", exact: true });
+    await toggle.click();
+    await expect(page.getByTestId("inspector-properties")).toContainText("title");
+    await expect(inspector.getByTestId("note-inspector-close")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(inspector).toHaveCount(0);
+    await expect(toggle).toBeFocused();
+
+    const rich = page.getByTestId("markdown-editor").locator(".tiptap-editor-portal-content > .ProseMirror").first();
+    const passage = rich.getByText("选中这一句话。");
+    await passage.click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await toolbar.getByRole("button", { name: "添加批注", exact: true }).click();
+    const composer = page.getByTestId("comment-composer");
+    await composer.getByRole("textbox").fill("待补上的说明");
+    await composer.getByRole("button", { name: "添加评论（Enter）" }).click();
+    const comment = inspector.getByTestId("comment-thread");
+    await expect(comment).toHaveAttribute("data-state", "anchored");
+    await expect(comment.getByTestId("thread-reply-input")).toHaveCount(0);
+    await expect(inspector.getByTestId("comment-doc-resolved-toggle")).toHaveCount(0);
+    await comment.hover();
+    await comment.getByTestId("comment-edit").click();
+    await comment.getByRole("textbox", { name: "编辑这条评论" }).fill("本条批注已更新");
+    await comment.getByTestId("comment-edit-save").click();
+    await expect(comment.getByTestId("thread-comment-body")).toHaveText("本条批注已更新");
+    await comment.getByRole("button", { name: /选中这一句话/ }).click();
+    await expect(rich.locator("[data-comment-thread]")).toBeInViewport();
+    await comment.hover();
+    await comment.getByTestId("thread-delete").click();
+    await comment.getByTestId("comment-delete-confirm").click();
+    await expect(comment).toHaveCount(0);
+    expect(readFileSync(path.join(vault, filename), "utf8")).toBe(markdown);
+  } finally {
+    await close();
+  }
+});

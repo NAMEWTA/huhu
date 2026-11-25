@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeItem, treeSettled } from "../helpers/tree.js";
 import { holdBridgeTimers } from "./session-slow-bridge.js";
 
 // S3 / C01–C05：OK 属性面板接入笔记顶部；属性与正文共用同一缓冲、同一文件；未触碰的 YAML 原样保留。
@@ -25,8 +25,8 @@ test("S3：属性显示、只改属性不丢正文与其它键、改正文保留
     await treeItem(page, "属性.md").click();
     await expect(prose(page)).toContainText("段落一", { timeout: 30_000 });
 
-    // C01：顶部显示属性
-    const panel = page.getByTestId("editor-properties");
+    // C01：详情栏显示属性
+    const panel = await openNoteProperties(page);
     await expect(panel).toContainText("title");
     await expect(panel).toContainText("count");
     await expect(panel).toContainText("tags");
@@ -89,7 +89,7 @@ test("C04：正文仍待慢桥交付时改属性，末字和属性一同写入",
     await expect(editor).toContainText("正文首笔末字");
     expect(await source()).toBe(first);
     expect(read()).toBe(first);
-    const title = page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first();
+    const title = (await openNoteProperties(page)).locator("textarea, input[type=text], input:not([type])").first();
     await title.fill("新题");
     await title.blur();
     const final = first.replace("title: 原题", "title: 新题").replace("首笔", "首笔末字");
@@ -116,7 +116,7 @@ test("C04：先编辑未保存的属性，再写正文，一次保存包含两�
     await treeItem(page, "逆序属性.md").click();
     const editor = prose(page);
     await expect(editor).toContainText("正文");
-    const title = page.getByTestId("editor-properties").locator("textarea, input[type=text], input:not([type])").first();
+    const title = (await openNoteProperties(page)).locator("textarea, input[type=text], input:not([type])").first();
     await title.fill("新题");
     await editor.click(); // blur 交付属性，立即继续编辑正文
     await page.keyboard.press("ControlOrMeta+End");
@@ -157,7 +157,7 @@ test("H01 BOM＋CRLF 笔记的 YAML 可读，编辑后逐字节保留文件格�
     writeFileSync(file, original);
     await gotoNotes(page);
     await treeItem(page, "文件格式.md").click();
-    await expect(page.getByTestId("editor-properties").locator('textarea[data-key="title"]')).toHaveValue("格式标题");
+    await expect((await openNoteProperties(page)).locator('textarea[data-key="title"]')).toHaveValue("格式标题");
     const body = prose(page).getByText("正文", { exact: true });
     await expect(body).toBeVisible();
     expect(readFileSync(file)).toEqual(Buffer.from(original));
@@ -204,20 +204,10 @@ for (const [name, bom, eol] of [
       await gotoNotes(page);
       await treeItem(page, "属性保真.md").click();
       await expect(prose(page)).toContainText("段落");
-      const top = page.getByTestId("editor-properties");
-      await expect(titleInput(top)).toHaveValue("原题");
-      await page.getByRole("button", { name: "文档详情", exact: true }).click();
-      const detail = page.getByTestId("inspector-properties");
+      const detail = await openNoteProperties(page);
       await expect(titleInput(detail)).toHaveValue("原题");
-
-      await titleInput(top).fill("顶栏改");
-      await titleInput(top).blur();
-      await expect(titleInput(detail)).toHaveValue("顶栏改");
-      await expect.poll(read).toEqual(Buffer.from(original.replace("原题", "顶栏改")));
-
       await titleInput(detail).fill("详情改");
       await titleInput(detail).blur();
-      await expect(titleInput(top)).toHaveValue("详情改");
       const afterProperty = original.replace("原题", "详情改");
       await expect.poll(read).toEqual(Buffer.from(afterProperty));
 
@@ -228,7 +218,8 @@ for (const [name, bom, eol] of [
       await expect.poll(read).toEqual(Buffer.from(afterBody));
 
       await page.getByRole("tab", { name: "阅读" }).click();
-      for (const panel of [top, detail]) {
+      {
+        const panel = detail;
         await expect(panel.getByTestId("readonly-property-value").and(panel.locator('[data-key="title"]'))).toHaveText("详情改");
         await expect(panel.getByTestId("readonly-property-value").and(panel.locator('[data-key="when"]'))).toHaveText("2026-11");
         await expect(panel.locator("textarea, input, [contenteditable=true]")).toHaveCount(0);

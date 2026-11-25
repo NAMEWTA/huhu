@@ -501,7 +501,7 @@ function businessEvents(f: Fixture) {
 }
 
 describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
-  test("33 capabilities default off, explicitly enabled, revoked and reconciled after restart", { timeout: 90_000 }, async () => {
+  test("shared capabilities default off, explicitly enabled, revoked and reconciled after restart", { timeout: 90_000 }, async () => {
     const f = await fixture(entry);
     const matrix = await cases(f);
     const events = businessEvents(f);
@@ -509,7 +509,9 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
     const catalog = z.object({ name: z.string(), plugin: z.string(), scope: z.string().nullable(), risk: z.string().optional(), availability: z.string(), exposable: z.boolean(), selected: z.boolean().nullable() });
     const entries = z.array(catalog).parse(await f.callDesktop("capabilities.list"));
     const shared = entries.filter(({ plugin }) => ["notes", "inbox", "agent-guide"].includes(plugin));
-    expect(shared).toHaveLength(59);
+    expect(shared).toHaveLength(57);
+    const commentNames = shared.map(({ name }) => name).filter((name) => name.startsWith("comments.")).sort();
+    expect(commentNames).toEqual(["comments.create", "comments.delete", "comments.list", "comments.relocate", "comments.update"]);
     for (const registered of shared) {
       expect(registered).toMatchObject({ availability: "active", exposable: true, selected: false });
       const descriptor = f.engine().registry.getDescriptor(registered.name);

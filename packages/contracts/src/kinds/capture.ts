@@ -23,7 +23,8 @@ export const CommentFrontmatterSchema = z.object({
   property: z.string().nullable().default(null),
   anchor: z.object({ exact: z.string(), prefix: z.string(), suffix: z.string(), start: z.number().int(), end: z.number().int(), sourceVersion: z.string() }).nullable().default(null),
   state: z.enum(["anchored", "orphaned"]),
-  resolved: z.boolean().default(false),
+  contentFormat: z.literal("single").optional(),
+  author: z.string().optional(),
   createdAt: dateLike(IsoTime),
   updatedAt: dateLike(IsoTime),
 });

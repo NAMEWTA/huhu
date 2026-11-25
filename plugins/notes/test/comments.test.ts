@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { OperationLog, patchFrontmatter, SemanticRepository, VaultFiles, VaultIndex } from "@huhu/vault";
+import { OperationLog, patchFrontmatter, SemanticRepository, VaultFiles, VaultIndex, replaceBody, splitDocument } from "@huhu/vault";
 import { afterEach, describe, expect, test } from "vitest";
 import { createAnchor, refind } from "../src/engine/comments/anchor.js";
-import { CommentsService, parseMessages } from "../src/engine/comments/service.js";
+import { CommentsService } from "../src/engine/comments/service.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,8 +22,10 @@ async function setup(doc: string) {
   await index.build();
   const ids: Record<string, string> = { "笔记.md": "note-1" };
   const events: string[] = [];
+  const opsDir = path.join(d, "ops");
+  const ops = new OperationLog(files, opsDir);
   const svc = new CommentsService({
-    repo: new SemanticRepository(files, new OperationLog(files, path.join(d, "ops"))),
+    repo: new SemanticRepository(files, ops),
     files,
     ensureId: async (rel) => ids[rel] ?? (ids[rel] = `note-${Object.keys(ids).length + 1}`),
     noteId: (rel) => ids[rel] ?? null,
@@ -31,7 +33,7 @@ async function setup(doc: string) {
     now: () => new Date("2026-11-11T08:00:00Z"),
   });
   const write = (text: string) => writeFileSync(path.join(root, "笔记.md"), text);
-  return { svc, root, write, events, version: () => files.currentVersion("笔记.md") ?? "" };
+  return { svc, root, ops, write, events, version: () => files.currentVersion("笔记.md") ?? "" };
 }
 const at = (body: string, needle: string, nth = 0) => {
   let i = -1;
@@ -114,14 +116,14 @@ describe("锚点（R-24）", () => {
 
 describe("CommentsService", () => {
   const DOC = "# 标题\n\n这里有一套能力，值得批注。\n\n另一段：一套能力。\n";
-  test("创建正文批注：写入 Comments/ 文件，消息格式，空内容拒绝", async () => {
+  test("创建正文批注：写入单条 Markdown，空内容拒绝", async () => {
     const { svc, root } = await setup(DOC);
     await expect(svc.create({ path: "笔记.md", target: "body", ...at(DOC, "一套能力"), text: "   ", author: "我" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     const c = await svc.create({ path: "笔记.md", target: "body", ...at(DOC, "一套能力"), text: "这里要展开", author: "我" });
     expect(c.anchor?.exact).toBe("一套能力");
-    expect(c.messages).toEqual([{ at: "2026-11-11T08:00:00Z", author: "我", text: "这里要展开" }]);
+    expect(c).toMatchObject({ author: "我", text: "这里要展开" });
     expect(c.path.startsWith("Comments/note-1--")).toBe(true);
-    expect(readFileSync(path.join(root, c.path), "utf8")).toContain("### 2026-11-11T08:00:00Z · 我");
+    expect(readFileSync(path.join(root, c.path), "utf8")).toContain("contentFormat: single");
     expect(svc.list("笔记.md")).toHaveLength(1);
   });
   test("引擎拒绝 flush 后磁盘再次变化的选区", async () => {
@@ -139,21 +141,18 @@ describe("CommentsService", () => {
     const p = await svc.create({ path: "笔记.md", target: "property", property: "tags", text: "标签不对", author: "我" });
     expect(p.property).toBe("tags");
   });
-  test("回复、解决、重新打开、删除", async () => {
+  test("修改正文校验版本，保留批注标识；删除批注", async () => {
     const { svc } = await setup(DOC);
     const c = await svc.create({ path: "笔记.md", target: "file", text: "问题", author: "我" });
-    const r = await svc.reply(c.id, "回复内容", "cli");
-    expect(r.messages.map((m) => m.author)).toEqual(["我", "cli"]);
-    expect((await svc.setResolved(c.id, true)).resolved).toBe(true);
-    expect((await svc.setResolved(c.id, false)).resolved).toBe(false);
+    const updated = await svc.update(c.id, "更新的意见", c.version);
+    expect(updated).toMatchObject({ id: c.id, author: "我", text: "更新的意见" });
+    await expect(svc.update(c.id, "过期编辑", c.version)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
     await svc.delete(c.id);
     expect(svc.list("笔记.md")).toEqual([]);
   });
-  test("保存后 refind：位移跟随；删除锚定句 → orphaned；已解决的不再重定位；重新选择位置恢复", async () => {
+  test("保存后 refind：位移跟随；删除锚定句 → orphaned；重新选择位置恢复", async () => {
     const { svc, write, version } = await setup(DOC);
     const c = await svc.create({ path: "笔记.md", target: "body", ...at(DOC, "另一段：一套能力。"), text: "看这句", author: "我" });
-    const resolved = await svc.create({ path: "笔记.md", target: "body", ...at(DOC, "# 标题"), text: "已处理", author: "我" });
-    await svc.setResolved(resolved.id, true);
 
     const shifted = `前言一行\n\n${DOC}`;
     write(shifted);
@@ -167,7 +166,6 @@ describe("CommentsService", () => {
     await svc.refind("笔记.md", removed, version());
     const orphan = svc.list("笔记.md").find((x) => x.id === c.id)!;
     expect(orphan.state).toBe("orphaned");
-    expect(svc.list("笔记.md").find((x) => x.id === resolved.id)?.anchor?.start).toBe(0); // 已解决的不动
 
     const re = await svc.relocate(c.id, at(removed, "前言一行"));
     expect(re.state).toBe("anchored");
@@ -221,12 +219,24 @@ describe("CommentsService", () => {
     expect(svc.list("笔记.md").map((c) => c.id)).toEqual([fresh.id]);
     expect(svc.list().map((c) => c.id)).not.toContain(old.id);
   });
-  test("消息解析容忍多行与空行", () => {
-    const msgs = parseMessages("### 2026-11-11T08:00:00Z · 我\n\n第一行\n第二行\n\n### 2026-11-11T09:00:00Z · cli\n\n回复\n");
-    expect(msgs).toEqual([
-      { at: "2026-11-11T08:00:00Z", author: "我", text: "第一行\n第二行" },
-      { at: "2026-11-11T09:00:00Z", author: "cli", text: "回复" },
-    ]);
+  test("旧回复只转换一次，保留原正文、作者、锚点及完整备份", async () => {
+    const { svc, ops, root } = await setup(DOC);
+    const c = await svc.create({ path: "笔记.md", target: "body", ...at(DOC, "一套能力"), text: "旧内容", author: "我" });
+    const file = path.join(root, c.path);
+    const legacyBody = "\n### 2026-11-11T08:00:00Z · 我\n\n第一行\n第二行\n\n### 2026-11-11T09:00:00Z · cli\n\n回复\n";
+    const original = replaceBody(patchFrontmatter(readFileSync(file, "utf8"), { contentFormat: undefined, author: undefined, resolved: true }), legacyBody);
+    writeFileSync(file, original);
+    await svc.migrateLegacy(ops);
+    const migrated = readFileSync(file, "utf8");
+    expect(splitDocument(migrated).body).toBe(legacyBody);
+    expect(migrated).toContain("contentFormat: single");
+    expect(migrated).not.toContain("resolved:");
+    expect(svc.list()[0]).toMatchObject({ id: c.id, anchor: c.anchor, author: "我", text: legacyBody.slice(1) });
+    await svc.migrateLegacy(ops);
+    const [entry] = ops.list();
+    expect(ops.list()).toHaveLength(1);
+    expect(entry).toMatchObject({ kind: "comments-migrate-single", state: "committed" });
+    expect(readFileSync(path.join(root, entry!.steps[0]!.path), "utf8")).toBe(original);
   });
 });
 

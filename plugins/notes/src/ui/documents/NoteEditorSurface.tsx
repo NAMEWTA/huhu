@@ -270,6 +270,7 @@ export default function NoteEditorSurface(props: NoteEditorSurfaceProps) {
         readOnly={props.readOnly}
         retainSession={props.retainSession}
         mode={props.mode}
+        properties={false}
         propertiesTarget={props.propertiesTarget}
         assetActions={assetActions}
         onPort={props.onPort}

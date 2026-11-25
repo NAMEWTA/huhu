@@ -10,13 +10,11 @@ const base: HuhuComment = {
   property: null,
   anchor: { exact: "一套能力", prefix: "这里有", suffix: "，值得", start: 10, end: 14 },
   state: "anchored",
-  resolved: false,
+  version: "v1",
   createdAt: "2026-11-11T08:00:00Z",
   updatedAt: "2026-11-11T09:00:00Z",
-  messages: [
-    { at: "2026-11-11T08:00:00Z", author: "我", text: "这里要展开" },
-    { at: "2026-11-11T09:00:00Z", author: "cli", text: "好的" },
-  ],
+  text: "这里要展开",
+  author: "我",
 };
 const docNameOf = (p: string) => p.replace(/\.md$/, "");
 
@@ -25,9 +23,7 @@ function fakePort(over: Partial<CommentsPort> = {}) {
   const port: CommentsPort = {
     list: vi.fn(async (path?: string) => (calls.push(`list:${path ?? "*"}`), [base])),
     create: vi.fn(async (i) => (calls.push(`create:${JSON.stringify(i)}`), base)),
-    reply: vi.fn(async (id, text) => (calls.push(`reply:${id}:${text}`), base)),
-    resolve: vi.fn(async (id) => (calls.push(`resolve:${id}`), { ...base, resolved: true })),
-    reopen: vi.fn(async (id) => (calls.push(`reopen:${id}`), base)),
+    update: vi.fn(async (id, text, version) => (calls.push(`update:${id}:${text}:${version}`), { ...base, text })),
     relocate: vi.fn(async (id, r) => (calls.push(`relocate:${id}:${JSON.stringify(r)}`), base)),
     delete: vi.fn(async (id) => void calls.push(`delete:${id}`)),
     ...over,
@@ -46,14 +42,13 @@ async function call(routes: ReturnType<typeof commentRoutes>, method: string, ur
 }
 
 describe("toThreadMeta：字段映射", () => {
-  test("正文批注：消息列表保留，latestComment 取首条，毫秒时间戳，docName 去扩展名", () => {
+  test("正文批注：携带正文、作者和版本，毫秒时间戳，docName 去扩展名", () => {
     const m = toThreadMeta(base, docNameOf);
     expect(m).toMatchObject({ threadId: "c1", docName: "笔记/一", target: { kind: "body" }, state: "anchored", queued: false, latestComment: "这里要展开", createdBy: "我", scope: "body" });
     expect(m.createdAt).toBe(Date.parse("2026-11-11T08:00:00Z"));
-    expect(m.messages).toHaveLength(2);
+    expect(m.version).toBe("v1");
   });
-  test("已解决 → state resolved；孤立 → orphaned（锚点保留，不吸附）", () => {
-    expect(toThreadMeta({ ...base, resolved: true }, docNameOf).state).toBe("resolved");
+  test("孤立保留原锚点", () => {
     const o = toThreadMeta({ ...base, state: "orphaned" }, docNameOf);
     expect(o.state).toBe("orphaned");
     expect(o.anchor?.exact).toBe("一套能力");
@@ -145,20 +140,19 @@ describe("路由", () => {
     await call(routes, "POST", "/api/comments", { docName: "a", wholeFile: true, body: "总评" });
     expect(JSON.parse(calls[0]!.replace("create:", ""))).toMatchObject({ target: "file" });
   });
-  test("动作：reopen / resolve / reply / replace(重新选择位置，先 flush) / DELETE", async () => {
+  test("编辑检查版本，重新选择位置先 flush，支持删除", async () => {
     const { routes, calls, flushed } = mk();
-    await call(routes, "POST", "/api/comment", { action: "reopen", id: "c1" });
-    await call(routes, "POST", "/api/comment", { action: "resolve", id: "c1" });
-    await call(routes, "POST", "/api/comment", { action: "reply", id: "c1", body: "收到" });
+    const edited = await call(routes, "POST", "/api/comment", { action: "edit", id: "c1", body: "已补充", expectedVersion: "v1" });
+    expect(edited.json.latestComment).toBe("已补充");
     await call(routes, "POST", "/api/comment", { action: "replace", id: "c1", quote: "新句子", prefix: "p", suffix: "s" });
     const del = await call(routes, "DELETE", "/api/comment?id=c1");
     expect(del.json).toEqual({ threadId: "c1" });
-    expect(calls).toEqual(["reopen:c1", "resolve:c1", "reply:c1:收到", "list:*", 'relocate:c1:{"quote":"新句子","prefix":"p","suffix":"s"}', "delete:c1"]);
+    expect(calls).toEqual(["update:c1:已补充:v1", "list:*", 'relocate:c1:{"quote":"新句子","prefix":"p","suffix":"s"}', "delete:c1"]);
     expect(flushed).toEqual(["笔记/一"]);
   });
-  test("AI 派发 / 队列 / 编辑动作不接：返回带 title 的错误，不改任何数据", async () => {
+  test("AI 派发、队列、解决和回复动作不接：返回带 title 的错误，不改任何数据", async () => {
     const { routes, calls } = mk();
-    for (const action of ["queue", "unqueue", "dispatch-prepare-batch", "dispatch-complete-batch", "edit"]) {
+    for (const action of ["queue", "unqueue", "dispatch-prepare-batch", "dispatch-complete-batch", "reply", "resolve", "reopen"]) {
       const r = await call(routes, "POST", "/api/comment", { action, id: "c1", body: "x" });
       expect(r.status).toBe(500);
       expect(String(r.json.title)).toContain("NOT_AVAILABLE");
@@ -177,7 +171,7 @@ describe("路由", () => {
 test.each([
   { method: "GET", path: "/api/comments", operation: "list", payload: undefined },
   { method: "POST", path: "/api/comments", operation: "create", payload: { docName: "笔记/一", body: "测试" } },
-  { method: "POST", path: "/api/comment", operation: "reply", payload: { action: "reply", id: "c1", body: "测试" } },
+  { method: "POST", path: "/api/comment", operation: "update", payload: { action: "edit", id: "c1", body: "测试", expectedVersion: "v1" } },
   { method: "DELETE", path: "/api/comment?id=c1", operation: "delete", payload: undefined },
 ])("H04 $method $path propagates the comments error code and readable reason", async ({ method, path, operation, payload }) => {
   const { port } = fakePort({
