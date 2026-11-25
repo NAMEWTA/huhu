@@ -361,11 +361,9 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
               端口转发
             </Button>
           )}
-          {desktop && (
-            <Button variant="ghost" onClick={() => setMonitoring(true)}>
-              监控
-            </Button>
-          )}
+          <Button variant="ghost" onClick={() => setMonitoring(true)}>
+            监控
+          </Button>
           <div className="row">
             <span className="hu-flex-fill ssh-resource-title">{t.hosts}</span>
             <span className="ssh-count">{(hosts.data ?? []).length}</span>
