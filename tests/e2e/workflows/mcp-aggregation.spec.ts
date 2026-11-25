@@ -118,11 +118,14 @@ test("P2 导入三个本地来源、聚合同名工具、刷新分页目录并�
     app = await launch(vault);
     const page = await app.firstWindow();
     await gateway(page);
+    const embeddedCredentials = new URL(http.url);
+    embeddedCredentials.username = "fixture";
+    embeddedCredentials.password = "synthetic-p2-secret";
     const text = JSON.stringify({ mcpServers: {
       repo: { command: process.execPath, args: [stdioFixture, journal, definition] },
       http_repo: { url: http.url, type: "streamable-http" },
       sse_repo: { url: sse.url, type: "sse" },
-      blocked: { url: http.url, headers: { Authorization: "Bearer synthetic-p2-secret" } },
+      blocked: { url: embeddedCredentials.href },
     } });
     const preview = await fromWorkbench<{
       previewId: string; sourcesRevision: number; entries: { entryId: string; state: string }[];
@@ -302,9 +305,11 @@ test("P4 桌面来源页面完成回环 OAuth 登录并注销", async () => {
     await editor.getByLabel("服务名称").fill("回环授权");
     await editor.getByLabel("稳定命名空间").fill("oauth_page");
     await editor.getByLabel("传输").selectOption("streamable-http");
+    await expect(editor.getByLabel("非秘密 header（JSON）")).toHaveValue("{}");
     await editor.getByLabel("远端 URL").fill(issuer.url);
     await editor.getByLabel("认证方式").selectOption("oauth");
     await editor.getByRole("button", { name: "保存配置" }).click();
+    await expect(editor).toBeHidden();
     await panel.getByRole("button", { name: "查看 回环授权" }).click();
     const detail = panel.getByTestId("mcp-source-detail");
     await detail.getByRole("button", { name: "登录 OAuth" }).click();

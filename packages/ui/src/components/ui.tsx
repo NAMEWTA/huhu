@@ -9,6 +9,7 @@ export function Select({ className = "", ...props }: ComponentProps<"select">) {
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   loading?: boolean;
   icon?: LucideIcon;

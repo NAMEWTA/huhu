@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { IconButton } from "./ui.js";
 
 export interface DialogProps {
@@ -12,6 +12,7 @@ export interface DialogProps {
   children: ReactNode;
   /** 底部操作区（按钮）。 */
   actions?: ReactNode;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   testId?: string;
   className?: string;
   wide?: boolean;
@@ -21,7 +22,7 @@ export interface DialogProps {
 }
 
 /** 模态对话框（原型 .modal 结构）：基于原生 <dialog>，焦点陷阱、Esc、背景惰性由浏览器提供。 */
-export function Dialog({ open, title, ariaLabel, description, onClose, children, actions, testId, className, wide = false, dismissOnBackdrop = false, error }: DialogProps) {
+export function Dialog({ open, title, ariaLabel, description, onClose, children, actions, initialFocusRef, testId, className, wide = false, dismissOnBackdrop = false, error }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [present, setPresent] = useState(open);
@@ -31,8 +32,9 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
     const invoker = d.ownerDocument.activeElement;
     if (open && !d.open) {
       d.showModal();
-      // 让第一个可编辑字段获得焦点。
-      d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select")?.focus();
+      const initial = initialFocusRef?.current ??
+        d.querySelector<HTMLElement>(".hu-modal-body input:not([type=hidden]), .hu-modal-body textarea, .hu-modal-body select");
+      initial?.focus();
     }
     if (!open && d.open) d.close();
     setPresent(open);
@@ -46,7 +48,7 @@ export function Dialog({ open, title, ariaLabel, description, onClose, children,
           && (active === d.ownerDocument.body || d.contains(active))) invoker.focus();
       });
     };
-  }, [open]);
+  }, [open, initialFocusRef]);
   if (!open && !present) return null;
   return (
     <dialog

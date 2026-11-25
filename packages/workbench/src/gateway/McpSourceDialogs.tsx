@@ -1,6 +1,6 @@
 import { McpSourceConfigSchema, type McpSource } from "@huhu/contracts";
 import { Button, Dialog } from "@huhu/ui";
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useId, useState, type FormEvent, type ReactNode } from "react";
 
 export function McpField({ label, children }: { label: string; children: ReactNode }) {
   return <label className="hu-field"><span className="hu-field-label">{label}</span>{children}</label>;
@@ -75,15 +75,15 @@ export function McpSourceEditor({ source, busy, error, onClose, save }: {
           </select>
         </McpField>
         {transport === "stdio" ? (
-          <>
+          <Fragment key="stdio">
             <McpField label="命令"><input name="command" defaultValue={stdio?.command} required /></McpField>
             <McpField label="参数（JSON 数组）"><textarea name="args" rows={3} defaultValue={JSON.stringify(stdio?.args ?? [])} spellCheck={false} /></McpField>
             <McpField label="工作目录"><input name="cwd" defaultValue={stdio?.cwd} /></McpField>
             <McpField label="环境变量引用（JSON）"><textarea name="environment" rows={3} defaultValue={JSON.stringify(stdio?.environment ?? {})} spellCheck={false} /></McpField>
             <p className="small muted">命令由 Engine 所在主机执行，首次检查前需授予本机执行许可。</p>
-          </>
+          </Fragment>
         ) : (
-          <>
+          <Fragment key="remote">
             <McpField label="远端 URL"><input name="url" type="url" defaultValue={remote?.url} required /></McpField>
             <McpField label="非秘密 header（JSON）"><textarea name="headers" rows={3} defaultValue={JSON.stringify(remote?.headers ?? {})} spellCheck={false} /></McpField>
             <McpField label="认证方式">
@@ -98,7 +98,7 @@ export function McpSourceEditor({ source, busy, error, onClose, save }: {
               <McpField label="环境变量名"><input name="environmentName" defaultValue={remote?.authentication.kind === "environment" ? remote.authentication.name : ""} required pattern="[A-Za-z_][A-Za-z0-9_]*" /></McpField>
               <McpField label="认证 header"><input name="header" defaultValue={remote?.authentication.kind === "environment" ? remote.authentication.header : "Authorization"} required /></McpField>
             </> : null}
-          </>
+          </Fragment>
         )}
       </form>
     </Dialog>
