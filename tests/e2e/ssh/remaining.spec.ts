@@ -383,9 +383,13 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
   const other = await startFakeSsh({ password, onShellInput: (chunk) => inputs.push(chunk) });
   const fixture = await openApp();
   const { page } = fixture;
-  const attachments: string[] = [];
+  const attachments = new Map<string, number>();
   page.on("websocket", (socket) => {
-    if (new URL(socket.url()).pathname.includes("/ws/terminal/")) attachments.push(socket.url());
+    const path = new URL(socket.url()).pathname;
+    const prefix = "/ws/terminal/";
+    if (!path.startsWith(prefix)) return;
+    const id = decodeURIComponent(path.slice(prefix.length));
+    attachments.set(id, (attachments.get(id) ?? 0) + 1);
   });
   try {
     await fixture.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 1000));
@@ -417,8 +421,9 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     const firstPane = panes.first();
     const firstToolbar = firstPane.getByTestId("ssh-pane-tools");
     const activeSpot = run.locator('[data-workspace-spot][data-active="true"]');
-    await expect.poll(() => attachments.length).toBeGreaterThanOrEqual(3);
-    const attachmentCount = attachments.length;
+    const attached = () => originalPanes.map(({ sessionId }) => attachments.get(sessionId!) ?? 0);
+    await expect(firstPane.getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+    expect(attached()).toEqual([1, 0, 0]);
 
     await firstToolbar.getByRole("button", { name: "移至分栏下方" }).press("Enter");
     await expect(firstToolbar).toHaveAttribute("data-position", "bottom");
@@ -458,6 +463,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await page.mouse.move(drop.x + drop.width / 2 + 1, drop.y + drop.height / 2);
     await page.mouse.up();
     await expect(firstToolbar).toHaveAttribute("data-position", "top");
+    expect(attached()).toEqual([1, 0, 0]);
 
     const tabs = run.getByRole("tablist", { name: "内部标签" });
     const aliasTab = tabs.getByRole("tab", { name: "目标甲别名", exact: true });
@@ -465,6 +471,8 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await tabs.getByRole("tab", { name: "目标甲", exact: true }).press("End");
     await expect(aliasTab).toBeFocused();
     await expect(aliasTab).toHaveAttribute("aria-selected", "true");
+    await expect(panes.last().getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+    expect(attached()).toEqual([1, 0, 1]);
     await run.getByText("本机布局偏好", { exact: true }).click();
     await run.getByLabel("工作区标签方向").selectOption("left");
     await run.getByRole("checkbox", { name: "纵向标签按同目标分组" }).check();
@@ -475,6 +483,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     const otherTab = tabs.getByRole("tab", { name: "另一目标", exact: true });
     await expect(otherTab).toBeFocused();
     await expect(run.getByRole("tabpanel", { name: "另一目标", exact: true })).toBeVisible();
+    await expect(panes.nth(1).getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
     await otherTab.press("ArrowUp");
     await expect(aliasTab).toBeFocused();
     await expect(activeSpot).toHaveAttribute("data-workspace-spot", originalPanes[2]!.paneId);
@@ -485,7 +494,7 @@ test("H5.2 终端工具栏移动与设备偏好不重连，纵向按同目标分
     await expect(aliasToolbar).toHaveAttribute("data-size", "large");
     await run.getByLabel("分栏工具栏位置").selectOption("hidden");
     await expect(run.getByTestId("ssh-pane-tools")).toHaveCount(0);
-    expect(attachments).toHaveLength(attachmentCount);
+    expect(attached()).toEqual([1, 1, 1]);
     expect([target.conns.length, other.conns.length]).toEqual([2, 1]);
     const current = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === start.id)!;
     expect(current.layoutRevision).toBe(original.layoutRevision);
