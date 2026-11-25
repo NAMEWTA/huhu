@@ -169,7 +169,7 @@ export function TaskDetail({
             ))}
           </section>
         ) : null}
-        <TaskReminderPlans key={task.id} task={task} />
+        <TaskReminderPlans task={task} />
         {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
         {agent ? <RunRecords task={task} zone={zone} onOpenAgent={onOpenAgent} /> : null}
