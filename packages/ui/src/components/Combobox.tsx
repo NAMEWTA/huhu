@@ -28,6 +28,8 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
   const [query, setQuery] = useState<string | null>(null); // null：显示当前值；非 null：用户正在输入
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const activeOption = useRef<HTMLLIElement>(null);
   const container = open && input.current ? invokerOverlayContainer(input.current) : null;
   const dialog = container?.matches("dialog[open]") ? container : undefined;
   const shown = query ?? options.find((o) => o.value === value)?.label ?? value;
@@ -36,6 +38,15 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
     return q === "" ? options : options.filter((o) => (o.label ?? o.value).toLowerCase().includes(q) || o.value.toLowerCase().includes(q));
   }, [options, query]);
   useEffect(() => setActive(0), [query, open]);
+  useEffect(() => {
+    const scroller = popup.current;
+    const option = activeOption.current;
+    if (!scroller || !option) return;
+    const viewport = scroller.getBoundingClientRect();
+    const row = option.getBoundingClientRect();
+    if (row.bottom > viewport.bottom) scroller.scrollTop += row.bottom - viewport.bottom;
+    else if (row.top < viewport.top) scroller.scrollTop -= viewport.top - row.top;
+  }, [active, matches.length, open]);
   const choose = (v: string) => {
     onChange(v);
     setQuery(null);
@@ -55,7 +66,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
           aria-label={label}
           aria-expanded={open}
           aria-autocomplete="list"
-          aria-controls={`${id}-list`}
+          aria-controls={open ? `${id}-list` : undefined}
           aria-activedescendant={open && matches[active] ? `${id}-${active}` : undefined}
           data-testid={testId}
           autoComplete="off"
@@ -89,6 +100,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
       </Popover.Anchor>
       {container ? <Popover.Portal container={container}>
         <Popover.Content
+          ref={popup}
           className="hu-combobox-list"
           align="start"
           sideOffset={4}
@@ -116,6 +128,7 @@ export function Combobox({ label, value, onChange, options, placeholder, allowCu
             {matches.map((o, i) => (
               <li
                 key={o.value}
+                ref={i === active ? activeOption : undefined}
                 id={`${id}-${i}`}
                 role="option"
                 aria-selected={o.value === value}

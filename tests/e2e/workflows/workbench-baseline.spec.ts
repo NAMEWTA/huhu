@@ -191,14 +191,29 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await expect(inbox).toBeHidden();
     await expect(capture).toBeFocused();
 
+    if (name === "electron") {
+      for (let index = 1; index <= 14; index++) {
+        const project = `UX12 项目${String(index).padStart(2, "0")}`;
+        await call(page, "tasks.create", { title: project, project, type: "human", tags: [] });
+      }
+    }
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     const taskNew = page.getByTestId("task-new");
     await taskNew.click();
     const task = page.getByTestId("task-editor");
     await expect(task).toBeVisible();
     await expect(page.getByTestId("task-due")).toHaveValue("");
-    await task.getByTestId("task-project").focus();
-    await expect(task.getByRole("listbox", { name: "任务项目" })).toBeVisible();
+    const project = task.getByTestId("task-project");
+    await project.focus();
+    const projectList = task.getByRole("listbox", { name: "任务项目" });
+    await expect(projectList.getByRole("option")).toHaveCount(14);
+    await page.keyboard.press("ArrowUp");
+    const lastOption = projectList.getByRole("option").last();
+    await expect(project).toHaveAttribute("aria-activedescendant", (await lastOption.getAttribute("id"))!);
+    await expect.poll(() => lastOption.evaluate((option) => {
+      const scroller = option.closest(".hu-combobox-list")!;
+      return scroller.scrollTop > 0 && option.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().bottom + 1;
+    })).toBe(true);
     await page.keyboard.press("Escape");
     await expect(task.getByRole("listbox", { name: "任务项目" })).toBeHidden();
     await expect(task.getByTestId("task-project")).toBeFocused();
@@ -231,7 +246,8 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     const title = `${"包含较长名称且同时保留正文和截止日期的任务".repeat(3)} ${name}`;
     await task.getByLabel("任务名称").fill(title);
     await task.getByTestId("task-body").locator(".ProseMirror").fill("正文仍然可编辑");
-    await task.getByRole("button", { name: "Choose 截止日期" }).click();
+    const englishDateButton = task.getByRole("button", { name: "Choose 截止日期" });
+    await englishDateButton.click();
     calendar = task.getByRole("dialog", { name: "Choose 截止日期" });
     await expect(calendar.getByLabel("Month", { exact: true }).locator('option[value="11"]')).toHaveText("November");
     await calendar.getByLabel("Year", { exact: true }).fill("2028");
@@ -240,6 +256,17 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await calendar.getByRole("button", { name: "Apply" }).click();
     const due = task.getByTestId("task-due");
     await expect(due).toHaveValue("2028-02-29");
+    await englishDateButton.click();
+    await calendar.getByLabel("Year", { exact: true }).fill("2027");
+    await expect(calendar.getByRole("button", { name: "Apply" })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(due).toHaveValue("2028-02-29");
+    await expect(englishDateButton).toBeFocused();
+    await englishDateButton.click();
+    await calendar.getByRole("button", { name: "Clear", exact: true }).click();
+    await expect(due).toHaveValue("");
+    await expect(englishDateButton).toBeFocused();
+    await due.fill("2028-02-29");
     await task.getByRole("button", { name: "Clear 截止日期" }).click();
     await expect(due).toHaveValue("");
     await expect(due).toBeFocused();
@@ -271,6 +298,7 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     await expect(rule.getByTestId("rule-upcoming").locator("time")).toHaveCount(3);
     await expect(rule.getByTestId("rule-save")).toBeEnabled();
     await page.keyboard.press("Escape");
+    await page.getByRole("dialog", { name: "放弃未保存的更改？" }).getByRole("button", { name: "放弃更改" }).click();
     await expect(rule).toBeHidden();
     await expect(ruleNew).toBeFocused();
   });

@@ -5,11 +5,12 @@ import { dismissChildOnEscape, invokerOverlayContainer } from "./host-ui.js";
 import { dateParts, dateValue, daysInMonth, today, type DateParts } from "./calendar-date.js";
 import { Button, IconButton, Select } from "./ui.js";
 
-export function DateCalendar({ label, language, value, onChange }: {
+export function DateCalendar({ label, language, value, clearable, onChange }: {
   label: string;
   language: string;
   value: string | null;
-  onChange(value: string): void;
+  clearable: boolean;
+  onChange(value: string | null): boolean;
 }) {
   const [draft, setDraft] = useState(() => dateParts(value));
   const [open, setOpen] = useState(false);
@@ -23,10 +24,10 @@ export function DateCalendar({ label, language, value, onChange }: {
   const dayLabel = english ? "Day" : "日";
   const validYear = Number.isInteger(draft.year) && draft.year >= 1 && draft.year <= 9999;
   const days = daysInMonth(validYear ? draft.year : 2000, draft.month);
+  const validDay = draft.day > 0 && draft.day <= days;
   const monthName = new Intl.DateTimeFormat(language || undefined, { month: "long", timeZone: "UTC" });
   const pick = (parts: DateParts) => {
-    onChange(dateValue(parts));
-    setOpen(false);
+    if (onChange(dateValue(parts))) setOpen(false);
   };
   return (
     <Popover.Root open={open} onOpenChange={(next) => {
@@ -66,8 +67,11 @@ export function DateCalendar({ label, language, value, onChange }: {
               </label>
             </div>
             <div className="hu-date-calendar-actions">
+              {clearable ? <Button variant="ghost" disabled={!value} onClick={() => {
+                if (onChange(null)) setOpen(false);
+              }}>{english ? "Clear" : "清除"}</Button> : null}
               <Button variant="ghost" onClick={() => pick(today())}>{english ? "Today" : "今天"}</Button>
-              <Button variant="primary" disabled={!validYear || draft.day > days} onClick={() => pick(draft)}>{english ? "Apply" : "确定"}</Button>
+              <Button variant="primary" disabled={!validYear || !validDay} onClick={() => pick(draft)}>{english ? "Apply" : "确定"}</Button>
             </div>
           </Popover.Content>
         </Popover.Portal>
