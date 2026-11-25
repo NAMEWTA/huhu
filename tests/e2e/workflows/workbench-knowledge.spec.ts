@@ -1,13 +1,20 @@
 import { expect, test, type Page } from "@playwright/test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
 import { treeItem, treeSettled } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
+const navigate = (page: Page, name: string) => page.locator('[data-region="rail"]').getByRole("button", { name, exact: true }).click();
+
+async function openEditorSettings(page: Page) {
+  await navigate(page, "设置");
+  await page.getByTestId("settings-nav-editor").click();
+}
+
 async function openKnowledge(page: Page, filename: string) {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
-  await page.getByRole("button", { name: "知识库", exact: true }).first().click();
+  await navigate(page, "知识库");
   await treeSettled(page);
   await treeItem(page, filename).click();
   await expect(page.getByTestId("markdown-editor")).toBeVisible();
@@ -58,7 +65,10 @@ test("UX02：区分保存失败和未确认，保留中文输入并核实原保�
   const disk = () => readFileSync(path.join(vault, filename), "utf8");
   try {
     await engineReady(page);
-    await call(page, "settings.update", { patch: { editor: { autosave: false } } });
+    await openEditorSettings(page);
+    const autosave = page.getByRole("switch", { name: "自动保存" });
+    if (await autosave.isChecked()) await autosave.click();
+    await expect(autosave).not.toBeChecked();
     await openKnowledge(page, filename);
     await page.getByTestId("note-toolbar").getByRole("tab", { name: "源码" }).click();
     const editor = page.getByTestId("markdown-editor").locator(".cm-content");
@@ -145,6 +155,65 @@ test("UX03：右栏收起时正文铺满，锚定批注可提交、编辑、定�
     await comment.getByTestId("comment-delete-confirm").click();
     await expect(comment).toHaveCount(0);
     expect(readFileSync(path.join(vault, filename), "utf8")).toBe(markdown);
+  } finally {
+    await close();
+  }
+});
+
+test("UX04：常驻月历按时区与语言显示，键盘选日且空日仅创建一次", async () => {
+  const past = "2026-11-05";
+  const today = "2026-11-06";
+  const existing = `${past} · 每日笔记.md`;
+  const created = `${today} · 每日笔记.md`;
+  const { page, vault, close } = await openApp({}, (root) => {
+    const folder = path.join(root, "日记");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(path.join(folder, existing), "# 已有日记\n");
+  });
+  const files = () => readdirSync(path.join(vault, "日记")).sort();
+  try {
+    await engineReady(page);
+    await call(page, "settings.update", { patch: { dateTime: { zone: "America/Los_Angeles", weekStartsOn: 0 } } });
+    await page.reload();
+    await page.clock.setFixedTime(new Date("2026-11-07T03:00:00Z"));
+    await engineReady(page);
+    await navigate(page, "知识库");
+    await page.getByRole("button", { name: "日记", exact: true }).click();
+    const calendar = page.getByRole("grid");
+    const date = (value: string) => calendar.locator(`button[data-date="${value}"]`);
+    await expect(calendar).toHaveAccessibleName("2026年11月");
+    await expect(date(today)).toHaveAttribute("aria-current", "date");
+    await expect(date(past)).toHaveAttribute("data-has-note", "true");
+    await page.getByRole("button", { name: "下个月" }).click();
+    await expect(calendar).toHaveAccessibleName("2026年12月");
+    await page.getByRole("button", { name: "上个月" }).click();
+    expect(files()).toEqual([existing]);
+
+    await openEditorSettings(page);
+    const language = page.getByLabel("知识库编辑器语言", { exact: true });
+    await language.selectOption("en");
+    await expect(language).toHaveValue("en");
+    await navigate(page, "知识库");
+    await page.getByRole("button", { name: "日记", exact: true }).click();
+    await expect(calendar).toHaveAccessibleName("November 2026");
+    await expect(calendar.getByRole("columnheader").first()).toHaveText("Sun");
+    await date(today).focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(date(past)).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("markdown-editor").getByRole("heading", { name: "已有日记" })).toBeVisible();
+
+    await date(today).click();
+    const dialog = page.getByRole("dialog", { name: "Create daily note" });
+    await expect(dialog).toContainText(today);
+    expect(files()).toEqual([existing]);
+    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect.poll(files).toEqual([existing, created]);
+    await expect(date(today)).toHaveAttribute("data-has-note", "true");
+    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    expect(files()).toEqual([existing, created]);
   } finally {
     await close();
   }

@@ -1006,12 +1006,8 @@
     background: var(--accent-soft);
     border-color: var(--muted);
   }
-  .hu-knowledge-daily-picker {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
+  .notes-note-list > .hu-month-calendar {
+    border-block-end: 1px solid var(--line);
   }
   .hu-knowledge-undo-banner {
     display: flex;

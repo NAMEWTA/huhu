@@ -5,6 +5,7 @@ export * from "./components/TerminalView.js";
 export * from "./components/Dialog.js";
 export * from "./components/Segmented.js";
 export * from "./components/DateTimePicker.js";
+export { MonthCalendar } from "./components/MonthCalendar.js";
 export { dismissChildOnEscape, HostDateField, invokerOverlayContainer, overlayContainer, requestDialogClose } from "./components/host-ui.js";
 export * from "./components/datetime.js";
 export * from "./components/controls.js";

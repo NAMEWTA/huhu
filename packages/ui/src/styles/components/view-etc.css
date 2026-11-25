@@ -92,6 +92,69 @@
   gap: 8px;
   margin-block-start: 8px;
 }
+.hu-month-calendar {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.hu-month-calendar > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  text-align: center;
+}
+.hu-month-calendar table {
+  inline-size: 100%;
+  table-layout: fixed;
+  border-spacing: 2px;
+}
+.hu-month-calendar th {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.hu-month-calendar td {
+  padding: 0;
+}
+.hu-month-calendar td button {
+  position: relative;
+  inline-size: 100%;
+  min-block-size: 30px;
+  padding: 2px 0 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.hu-month-calendar td button:hover,
+.hu-month-calendar td[aria-selected="true"] button {
+  background: var(--accent-soft);
+}
+.hu-month-calendar :is(td[aria-selected="true"] button, button[aria-current="date"]) {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.hu-month-calendar td button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.hu-month-calendar button[data-has-note]::after {
+  position: absolute;
+  inset-inline-start: calc(50% - 2px);
+  inset-block-end: 3px;
+  inline-size: 4px;
+  block-size: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+.hu-month-calendar > .hu-btn {
+  justify-self: start;
+}
 .hu-select {
   min-inline-size: 0;
   max-inline-size: 100%;

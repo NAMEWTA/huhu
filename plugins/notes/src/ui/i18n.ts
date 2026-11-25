@@ -38,8 +38,6 @@ export const n = {
   allTags: "全部标签",
   sortTime: "按修改时间排序",
   sortName: "按文件名排序",
-  dailyDate: "每日笔记日期",
-  dailyOpen: "打开 / 创建",
   emptyFolder: "空文件夹 · 创建笔记",
   import: "导入文件",
   fileCount: (c: number) => `${c} 个文件`,

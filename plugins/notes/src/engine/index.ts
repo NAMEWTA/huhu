@@ -1,3 +1,4 @@
+import { dailyNotePath, todayInZone } from "../shared/daily.js";
 import { legacyTextEncodings } from "../shared/text-encoding.js";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
@@ -664,8 +665,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     bind(noteTools.openDaily, async (c, i) => {
       if (!workbench(c) && i.date === undefined) throw errors.invalidInput("外部调用必须指定日报日期");
       const zone = opts.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const date = i.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format((opts.now ?? (() => new Date()))());
-      writePath(c, `日记/${date} · 每日笔记.md`);
+      const date = i.date ?? todayInZone(now(), zone);
+      writePath(c, dailyNotePath(date));
       const r = await svc.openDaily(date);
       if (r.created) changed(null, "created");
       return r;

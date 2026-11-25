@@ -1,5 +1,5 @@
 import { Button, Dialog, EmptyState } from "@huhu/ui";
-import type { EventPayload, VaultIndexSnapshot } from "@huhu/contracts";
+import type { EventPayload, Settings, VaultIndexSnapshot } from "@huhu/contracts";
 import type { RichEditorPort } from "@huhu/editor/rich";
 import { host, onOpenRequest, takeOpenRequest, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { FileText, Folder, Plus } from "lucide-react";
@@ -24,6 +24,7 @@ import { ArchivesSidebar } from "./archives/ArchivesSidebar.js";
 import { archiveFolderRoute, archiveNoteRoute, archiveOfFile, folderName } from "./archives/route.js";
 import { hasProtectedSegment } from "../shared/attachments.js";
 import { unsupportedEncoding } from "../shared/text-encoding.js";
+import { dailyNoteDate, dailyNotePath, todayInZone } from "../shared/daily.js";
 import { noteTemplateInput } from "./explorer/filesDeps.js";
 
 const FileViewer = lazy(() => import("./viewers/FileViewer.js").then(({ FileViewer }) => ({ default: FileViewer })));
@@ -38,8 +39,8 @@ export type DialogState =
   | { kind: "purge"; note: NoteRef }
   | { kind: "version"; note: NoteRef }
   | { kind: "copyPath"; path: string }
+  | { kind: "daily"; date: string }
   | null;
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** 知识库（原型 NotesView）：左侧文件资源管理器 + 文档区 + 右侧详情抽屉。 */
 export function NotesModule({ active = true, onNavigate }: ModuleProps) {
@@ -118,7 +119,16 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   };
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const [docText, setDocText] = useState("");
-  const [dailyDate, setDailyDate] = useState(today());
+  const settings = useCapability<Settings>("settings.get", {});
+  const [calendarClock, setCalendarClock] = useState(() => new Date());
+  const [creatingDaily, setCreatingDaily] = useState(false);
+  const dailyInFlight = useRef(false);
+  useEffect(() => {
+    if (section !== "daily") return;
+    setCalendarClock(new Date());
+    const timer = window.setInterval(() => setCalendarClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [section]);
   const [undo, setUndo] = useState<{ label: string; trashId: string } | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
   const [editorPort, setEditorPort] = useState<RichEditorPort | null>(null);
@@ -130,6 +140,13 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
   const filter = section === "tags" ? (tag ? { tag } : "all") : section === "all" ? "all" : section;
   const list = useCapability<NoteRef[]>("notes.list", { filter });
   const every = useCapability<NoteRef[]>("notes.list", { filter: "all" });
+  const dailyDates = useMemo(() => new Set((every.data ?? []).flatMap(({ path }) => {
+    const date = dailyNoteDate(path);
+    return date ? [date] : [];
+  })), [every.data]);
+  const calendarZone = settings.data?.dateTime.zone;
+  const calendarToday = useMemo(() => todayInZone(calendarClock, calendarZone), [calendarClock, calendarZone]);
+  const calendarDate = (selected && dailyNoteDate(selected)) || calendarToday;
   const folders = useCapability<string[]>("notes.folders", {});
   const tags = useCapability<{ tag: string; count: number }[]>("notes.tags", {});
   const vault = useCapability<{ name: string; readOnly: boolean }>("vault.info", {});
@@ -395,6 +412,33 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
     dispatch({ type: "open", tab: fileTab(vaultRef.current, path, restricted ? "viewer" : "rich") });
     expandTo(path.split("/").slice(0, -1).join("/")); // 展开它所在的文件夹，树里能定位到
   };
+  function selectDaily(date: string) {
+    setError(null);
+    if (dailyDates.has(date)) {
+      openNote(dailyNotePath(date));
+    } else if (vault.data?.readOnly === false) {
+      setDialog({ kind: "daily", date });
+    } else if (vault.data?.readOnly) {
+      setError(locale === "en" ? "This vault is read-only. A daily note cannot be created." : "知识库为只读，无法创建日记。");
+    }
+  }
+
+  async function createDaily(date: string) {
+    if (dailyInFlight.current) return;
+    dailyInFlight.current = true;
+    setCreatingDaily(true);
+    try {
+      const result = await run<{ path: string }>("notes.openDaily", { date });
+      if (result && vaultRef.current === vaultId) {
+        setDialog(null);
+        openNote(result.path);
+      }
+    } finally {
+      dailyInFlight.current = false;
+      setCreatingDaily(false);
+    }
+  }
+
   /** 链接 / 请求 / 命令面板的打开：档案的 index.md 就是档案记录标签，其余是文件标签。 */
   const openLinked = (path: string): void => (archiveNoteRoute(path) ? openArchive(path) : openNote(path));
   const focusTab = (key: string) => {
@@ -504,7 +548,7 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
           const r = el.getBoundingClientRect();
           setMenu({ note, x: r.right, y: r.bottom });
         }}
-        onOpenDaily={(date) => void run<{ path: string }>("notes.openDaily", { date }).then((r) => r && openNote(r.path))}
+        onOpenDaily={selectDaily}
         onImport={(files) =>
           void (async () => {
             for (const f of Array.from(files)) {
@@ -523,8 +567,11 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
             }
           })()
         }
-        dailyDate={dailyDate}
-        onDailyDate={setDailyDate}
+        calendarDate={calendarDate}
+        calendarToday={calendarToday}
+        calendarLanguage={locale}
+        calendarWeekStart={settings.data?.dateTime.weekStartsOn ?? 1}
+        calendarAvailableDates={dailyDates}
       />
       <div className="notes-main" ref={notesMain}>
         {section !== "trash" && shell.tabs.tabs.length > 0 ? (
@@ -691,6 +738,25 @@ export function NotesModule({ active = true, onNavigate }: ModuleProps) {
         />
       ) : null}
 
+      {dialog?.kind === "daily" ? (
+        <Dialog
+          open
+          testId="create-daily-note"
+          title={locale === "en" ? "Create daily note" : "创建日记"}
+          error={error}
+          onClose={() => { if (!dailyInFlight.current) setDialog(null); }}
+          actions={
+            <>
+              <Button disabled={creatingDaily} onClick={() => setDialog(null)}>{locale === "en" ? "Cancel" : "取消"}</Button>
+              <Button variant="primary" disabled={creatingDaily} onClick={() => void createDaily(dialog.date)}>
+                {creatingDaily ? (locale === "en" ? "Creating…" : "正在创建…") : (locale === "en" ? "Create" : "创建")}
+              </Button>
+            </>
+          }
+        >
+          <p>{locale === "en" ? `Create a daily note for ${dialog.date}?` : `创建 ${dialog.date} 的日记？`}</p>
+        </Dialog>
+      ) : null}
       {dialog?.kind === "new" ? (
         <NewNoteDialog
           folder={dialog.folder}

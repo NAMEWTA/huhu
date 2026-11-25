@@ -3,6 +3,8 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import hostPath from "node:path";
 import path from "node:path/posix";
 import { errors, isId, KINDS, newId, type NoteIndexDelta } from "@huhu/contracts";
+import { z } from "zod";
+import { dailyNotePath } from "../shared/daily.js";
 import { folderNoteDir, normalizeRelPath, readAsset, resolveReadableAsset, splitDocument, versionOf, type OperationLog, type OpStep, type Trash, type TrashMeta, type VaultFiles, type VaultIndex } from "@huhu/vault";
 import { ATTACH_DIR, hasProtectedSegment, isAllowedAttachment, MAX_ATTACH_BYTES, sanitizeAttachmentName, uniqueName } from "../shared/attachments.js";
 import { rewriteLinks } from "../shared/links-rewrite.js";
@@ -611,11 +613,16 @@ export class NotesService {
     return this.dailyAt(dateIso);
   }
   private async dailyAt(date: string): Promise<{ path: string; created: boolean }> {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw errors.invalidInput("日期格式应为 YYYY-MM-DD");
-    const rel = `日记/${date} · 每日笔记.md`;
+    if (!z.iso.date().safeParse(date).success) throw errors.invalidInput("请输入有效的 YYYY-MM-DD 日期");
+    const rel = dailyNotePath(date);
     if (this.d.files.exists(rel)) return { path: rel, created: false };
     mkdirSync(this.d.files.abs("日记"), { recursive: true }); // 日记目录被删除时重建
-    await this.d.files.write(rel, Buffer.from(renderTemplate("daily", `${date} · 每日笔记`)), { expectedVersion: null });
+    try {
+      await this.d.files.write(rel, Buffer.from(renderTemplate("daily", `${date} · 每日笔记`)), { expectedVersion: null });
+    } catch (error) {
+      if ((error as { code?: string })?.code !== "NAME_CONFLICT" || !this.d.files.read(rel)) throw error;
+      return { path: rel, created: false };
+    }
     await this.ensureId(rel);
     this.d.index.refreshPaths([rel]);
     return { path: rel, created: true };
