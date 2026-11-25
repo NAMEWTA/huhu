@@ -20,6 +20,7 @@
     "@huhu/plugin-agent-guide": "workspace:*",
     "@huhu/plugin-automations": "workspace:*",
     "@huhu/plugin-inbox": "workspace:*",
+    "@huhu/plugin-ledger": "workspace:*",
     "@huhu/plugin-mail": "workspace:*",
     "@huhu/plugin-notes": "workspace:*",
     "@huhu/plugin-safe": "workspace:*",

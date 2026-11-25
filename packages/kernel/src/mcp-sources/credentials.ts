@@ -77,7 +77,7 @@ export function credentialFailure(error: unknown) {
 
 export class McpCredentials {
   private readonly owner: ModuleCredentials<Definition> | undefined;
-  private readonly refreshes = new Map<string, Promise<OAuthMaterial>>();
+  private readonly refreshes = new Map<string, { scope: AbortSignal; result: Promise<OAuthMaterial> }>();
   private readonly lifetime = new AbortController();
 
   constructor(private readonly store: McpSourceStore, host?: McpCredentialHost) {
@@ -148,7 +148,8 @@ export class McpCredentials {
     } catch { return { state: "temporarily-unavailable", account: null }; }
   }
 
-  async values(source: McpSource): Promise<McpCredentialMaterial | undefined> {
+  async values(source: McpSource, scope = this.lifetime.signal): Promise<McpCredentialMaterial | undefined> {
+    scope.throwIfAborted();
     const config = source.configuration;
     const reference = credentialReference(source);
     if (!reference) {
@@ -164,24 +165,25 @@ export class McpCredentials {
         const material = materialSchema.parse(JSON.parse(values.get("authentication")!));
         return material.kind === definition.kind ? { definition, material, revision } : undefined;
       });
+      scope.throwIfAborted();
       if (!read || !this.current(source, false)) throw mcpRouteError("authentication-required");
       if (read.material.kind !== "oauth" || read.material.expiresAt === null || read.material.expiresAt > Date.now() + 5_000) return read.material;
       const existing = this.refreshes.get(reference);
-      if (existing) return await existing;
-      const material = read.material;
-      const refresh = this.refresh(source, reference, read.definition, read.revision, material);
+      if (existing && !existing.scope.aborted) return await existing.result;
+      const refresh = { scope, result: this.refresh(source, reference, read.definition, read.revision, read.material, scope) };
       this.refreshes.set(reference, refresh);
-      try { return await refresh; }
+      try { return await refresh.result; }
       finally { if (this.refreshes.get(reference) === refresh) this.refreshes.delete(reference); }
     } catch {
+      scope.throwIfAborted();
       throw mcpRouteError("authentication-required", { sourceId: source.sourceId });
     }
   }
 
-  private async refresh(source: McpSource, reference: string, definition: Definition, revision: string, material: OAuthMaterial): Promise<OAuthMaterial> {
+  private async refresh(source: McpSource, reference: string, definition: Definition, revision: string, material: OAuthMaterial, scope: AbortSignal): Promise<OAuthMaterial> {
     const refreshToken = material.tokens.refresh_token;
     if (!refreshToken) throw mcpRouteError("authentication-required");
-    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(12_000)]);
+    const signal = AbortSignal.any([this.lifetime.signal, scope, AbortSignal.timeout(12_000)]);
     const tokens = await refreshAuthorization(material.issuer, {
       clientInformation: material.client, ...(material.metadata && { metadata: material.metadata }), refreshToken, resource: material.resource,
       fetchFn: oauthFetch(new URL(material.resource), signal),

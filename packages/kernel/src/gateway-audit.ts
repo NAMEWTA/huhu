@@ -1,17 +1,21 @@
 import { appendFileSync, mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
-export interface AuditRecord {
-  at: string;
-  entry: string;
-  capability: string;
-  code: string;
-  ms: number;
-}
+export const auditRecordSchema = z.object({
+  at: z.string(), entry: z.string(), capability: z.string(), code: z.string(), ms: z.number(),
+  mcp: z.object({
+    operation: z.string(), requestId: z.string(), subject: z.string(), session: z.string(), result: z.string().optional(),
+    sourceId: z.string().optional(), sourceName: z.string().optional(),
+    upstreamEntry: z.string().optional(), publicEntry: z.string().optional(),
+    catalogRevision: z.number().optional(), configRevision: z.number().optional(),
+  }).optional(),
+});
+export type AuditRecord = z.infer<typeof auditRecordSchema>;
 
 const MAX_RECORDS = 500;
 
-/** 外部入口调用记录：只含时间、入口、能力、结果码、耗时，不含输入。 */
+/** Metadata for external calls. Parameters and results are never stored. */
 export class GatewayAudit {
   private records: AuditRecord[] = [];
 

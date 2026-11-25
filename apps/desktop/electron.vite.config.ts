@@ -19,6 +19,7 @@ export default defineConfig({
           "@huhu/plugin-agent-guide",
           "@huhu/plugin-safe",
           "@huhu/plugin-inbox",
+          "@huhu/plugin-ledger",
           "@huhu/kernel",
           "@huhu/vault",
           "@huhu/contracts",

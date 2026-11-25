@@ -1,0 +1,38 @@
+{
+  "id": "ledger",
+  "title": "账本",
+  "description": "管理当前 Vault 的个人账本、资金账户和流水",
+  "version": "0.0.2-rc.1",
+  "origin": "builtin",
+  "activation": "vault-open",
+  "contributes": {
+    "modules": ["ledger"],
+    "commands": ["ledger.record"],
+    "capabilities": [
+      "ledger.books.list",
+      "ledger.books.create",
+      "ledger.books.open",
+      "ledger.books.update",
+      "ledger.books.archive",
+      "ledger.books.restore",
+      "ledger.books.previewRemoval",
+      "ledger.books.remove",
+      "ledger.accounts.list",
+      "ledger.accounts.create",
+      "ledger.accounts.update",
+      "ledger.accounts.setStatus",
+      "ledger.accounts.previewBalance",
+      "ledger.accounts.confirmBalance",
+      "ledger.dictionaries.save",
+      "ledger.records.list",
+      "ledger.records.get",
+      "ledger.records.create",
+      "ledger.records.update",
+      "ledger.records.clone",
+      "ledger.records.previewBatch",
+      "ledger.records.confirmBatch",
+      "ledger.attachments.upload",
+      "ledger.attachments.read"
+    ]
+  }
+}

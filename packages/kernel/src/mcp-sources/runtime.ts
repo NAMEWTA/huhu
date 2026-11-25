@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isHuhuError, MCP_ENTRY_KINDS, type McpEntryKind, type McpExternalRoute, type McpSessionPrincipal, type McpSource, type McpSourceCatalog } from "@huhu/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema, ErrorCode, GetPromptResultSchema, McpError, PromptListChangedNotificationSchema, ReadResourceResultSchema, ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema, type CallToolResult, type ContentBlock, type GetPromptResult, type ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { canonicalJson } from "../idempotency.js";
+import type { AuditRecord } from "../gateway-audit.js";
 import { builtinMcpDirectory, type ExternalMcpTools } from "../mcp.js";
 import { createMcpRouting, mcpRouteError, type McpUpstreamResult } from "../mcp-routing.js";
 import { discoverCatalog, matchesTemplate, projectTool, projectUri, publicToolName, resourcePrefix, type DirectoryEntry } from "./catalog.js";
@@ -14,10 +15,29 @@ import type { McpCredentialMaterial, McpCredentials } from "./credentials.js";
 const initializeMs = 6_000;
 const discoverMs = 8_000;
 const callMs = 30_000;
+const listWaitMs = 750;
+const reconnectDelays = [250, 1_000, 3_000];
 const argumentsSchema = z.record(z.string(), z.unknown());
 
 type Catalog = { fingerprint: string; catalogRevision: number; entries: DirectoryEntry[]; state: McpSourceCatalog["state"]; checkedAt: string; diagnostic: string | null };
-type Connection = { fingerprint: string; lifetime: AbortSignal; close(): Promise<void>; ready: Promise<Client>; renewAuthentication(): Promise<void>; refresh?: Promise<Catalog>; refreshAgain?: true };
+type Connection = { fingerprint: string; lifetime: AbortSignal; discovered: boolean; close(): Promise<void>; ready: Promise<Client>; renewAuthentication(): Promise<void>; detach?: () => void; refresh?: Promise<Catalog>; refreshAgain?: true };
+type Retry = { fingerprint: string; service: AbortSignal; attempts: number; cancel(): void };
+
+async function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    throw signal.reason;
+  }
+  let abort!: () => void;
+  try {
+    return await Promise.race([promise, new Promise<never>((_resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally {
+    signal.removeEventListener("abort", abort);
+  }
+}
 
 export interface McpSourceRuntimeOptions {
   vaultInstance: string;
@@ -26,12 +46,14 @@ export interface McpSourceRuntimeOptions {
   builtinDirectory?(): ReturnType<typeof builtinMcpDirectory>;
   catalogChanged?(): void;
   isBuiltinName(name: string): boolean;
-  audit?(row: { at: string; entry: string; capability: string; code: string; ms: number }): void;
+  audit?(row: AuditRecord): void;
 }
 
 export class McpSourceRuntime implements ExternalMcpTools {
   private readonly lifetime = new AbortController();
   private readonly connections = new Map<string, Connection>();
+  private readonly retiring = new Map<string, Promise<void>>();
+  private readonly retries = new Map<string, Retry>();
   private readonly checks = new Map<string, AbortController>();
   private readonly closing = new Set<Promise<void>>();
   private readonly catalogs = new Map<string, Catalog>();
@@ -62,28 +84,31 @@ export class McpSourceRuntime implements ExternalMcpTools {
     }
   }
 
-  private connect(source: McpSource, lifetime: AbortSignal, changed?: () => void): Connection {
-    lifetime.throwIfAborted();
+  private connect(source: McpSource, scope: AbortSignal, changed?: () => void): Connection {
+    scope.throwIfAborted();
     this.requireApproved(source);
+    const owner = new AbortController();
+    const lifetime = AbortSignal.any([scope, owner.signal]);
     const client = new Client({ name: "huhu", version: "0.0.1" });
     let material: McpCredentialMaterial | undefined;
     const renewAuthentication = async () => {
       if (material?.kind === "oauth" && material.expiresAt !== null && material.expiresAt <= Date.now() + 5_000) {
-        material = await this.credentials?.values(source);
+        material = await this.credentials?.values(source, lifetime);
       }
     };
     let closed: Promise<void> | undefined;
     const abort = () => { void close(); };
     const close = () => {
-      lifetime.removeEventListener("abort", abort);
+      scope.removeEventListener("abort", abort);
       if (!closed) {
-        closed = client.close().catch(() => undefined);
+        owner.abort();
+        closed = Promise.resolve().then(() => client.close()).catch(() => undefined);
         this.closing.add(closed);
         void closed.finally(() => this.closing.delete(closed!));
       }
       return closed;
     };
-    lifetime.addEventListener("abort", abort, { once: true });
+    scope.addEventListener("abort", abort, { once: true });
     if (changed) {
       client.setNotificationHandler(ToolListChangedNotificationSchema, changed);
       client.setNotificationHandler(ResourceListChangedNotificationSchema, changed);
@@ -91,32 +116,28 @@ export class McpSourceRuntime implements ExternalMcpTools {
     }
     const ready = (async () => {
       const handshake = AbortSignal.any([lifetime, AbortSignal.timeout(initializeMs)]);
-      let rejectWait: () => void = () => {};
       try {
-        material = await this.credentials?.values(source);
+        const retiring = this.retiring.get(source.sourceId);
+        if (retiring) await untilAborted(retiring, handshake);
+        material = await untilAborted(Promise.resolve(this.credentials?.values(source, handshake)), handshake);
         handshake.throwIfAborted();
         const transport = sourceTransport(source, () => this.options.endpoint?.(), () => material);
-        const deadline = new Promise<never>((_resolve, reject) => {
-          rejectWait = () => reject(handshake.reason);
-          handshake.addEventListener("abort", rejectWait, { once: true });
-        });
-        await Promise.race([client.connect(transport, { signal: handshake, timeout: initializeMs }), deadline]);
+        await untilAborted(client.connect(transport, { signal: handshake, timeout: initializeMs }), handshake);
         lifetime.throwIfAborted();
         return client;
       } catch (error) {
         await close();
         throw error;
-      } finally {
-        handshake.removeEventListener("abort", rejectWait);
       }
     })();
-    return { fingerprint: this.store.fingerprint(source), lifetime, close, ready, renewAuthentication };
+    return { fingerprint: this.store.fingerprint(source), lifetime, discovered: false, close, ready, renewAuthentication };
   }
 
   private async fetchCatalog(connection: Connection): Promise<DirectoryEntry[]> {
     const client = await connection.ready;
-    await connection.renewAuthentication();
-    return discoverCatalog(client, AbortSignal.any([connection.lifetime, AbortSignal.timeout(discoverMs)]));
+    const signal = AbortSignal.any([connection.lifetime, AbortSignal.timeout(discoverMs)]);
+    await untilAborted(connection.renewAuthentication(), signal);
+    return discoverCatalog(client, signal);
   }
 
   private catalog(source: McpSource, entries: DirectoryEntry[], state: McpSourceCatalog["state"], diagnostic: string | null): Catalog {
@@ -150,13 +171,55 @@ export class McpSourceRuntime implements ExternalMcpTools {
     }
   }
 
+  private stop(sourceId: string, connection: Connection): Promise<void> {
+    if (this.connections.get(sourceId) === connection) this.connections.delete(sourceId);
+    connection.detach?.();
+    const closed = connection.close();
+    this.retiring.set(sourceId, closed);
+    void closed.then(() => {
+      if (this.retiring.get(sourceId) === closed) this.retiring.delete(sourceId);
+    });
+    return closed;
+  }
+
+  private clearRetry(id: string) {
+    this.retries.get(id)?.cancel();
+    this.retries.delete(id);
+  }
+
+  private retry(source: McpSource, service: AbortSignal, catalog: Catalog) {
+    const id = source.sourceId;
+    if (service.aborted || this.lifetime.signal.aborted || catalog.state !== "offline") {
+      this.clearRetry(id);
+      return;
+    }
+    const previous = this.retries.get(id);
+    const attempts = previous?.service === service && previous.fingerprint === catalog.fingerprint ? previous.attempts : 0;
+    this.clearRetry(id);
+    const delay = reconnectDelays[attempts];
+    const timer = delay === undefined ? undefined : setTimeout(() => {
+      if (service.aborted || this.lifetime.signal.aborted) return;
+      try {
+        this.assertCurrent(source, catalog.fingerprint, service);
+        void this.refreshLive(source, this.live(source)).catch(() => undefined);
+      } catch { this.clearRetry(id); }
+    }, delay);
+    timer?.unref();
+    const abort = () => this.clearRetry(id);
+    this.retries.set(id, {
+      fingerprint: catalog.fingerprint, service, attempts: attempts + 1,
+      cancel: () => { clearTimeout(timer); service.removeEventListener("abort", abort); },
+    });
+    service.addEventListener("abort", abort, { once: true });
+  }
+
   private live(source: McpSource): Connection {
     const service = this.options.publishSignal();
     if (!service || service.aborted || !source.enabled) throw mcpRouteError("source-disabled", { sourceId: source.sourceId });
     const id = source.sourceId;
     const existing = this.connections.get(id);
     if (existing?.fingerprint === this.store.fingerprint(source) && !existing.lifetime.aborted) return existing;
-    if (existing) void existing.close();
+    if (existing) void this.stop(id, existing);
     const lifetime = AbortSignal.any([this.lifetime.signal, service]);
     const connection = this.connect(source, lifetime, () => {
       if (this.connections.get(id) !== connection) return;
@@ -164,13 +227,23 @@ export class McpSourceRuntime implements ExternalMcpTools {
       else void this.refreshLive(source, connection).catch(() => undefined);
     });
     this.connections.set(id, connection);
+    const stop = () => {
+      this.clearRetry(id);
+      if (this.connections.get(id) === connection) {
+        void this.stop(id, connection);
+        const previous = this.catalogs.get(id);
+        if (previous) this.catalog(source, previous.entries, "stale", null);
+      }
+    };
+    lifetime.addEventListener("abort", stop, { once: true });
+    connection.detach = () => lifetime.removeEventListener("abort", stop);
     void connection.ready.then((client) => {
       client.onclose = () => {
-        if (this.connections.get(id) !== connection) return;
-        this.connections.delete(id);
-        if (!lifetime.aborted) this.failed(source, undefined);
+        if (this.connections.get(id) !== connection || connection.refresh) return;
+        void this.stop(id, connection);
+        if (!lifetime.aborted) this.retry(source, service, this.failed(source, undefined));
       };
-    }, () => { if (this.connections.get(id) === connection) this.connections.delete(id); });
+    }, () => undefined);
     return connection;
   }
 
@@ -183,6 +256,8 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   private refreshLive(source: McpSource, connection: Connection): Promise<Catalog> {
     if (connection.refresh) return connection.refresh;
+    const service = this.options.publishSignal();
+    if (!service) return Promise.reject(mcpRouteError("source-disabled"));
     const probe = {};
     this.probes.set(source.sourceId, probe);
     const action = (async () => {
@@ -191,14 +266,18 @@ export class McpSourceRuntime implements ExternalMcpTools {
         const entries = await this.fetchCatalog(connection);
         this.assertCurrent(source, connection.fingerprint, connection.lifetime);
         if (this.connections.get(source.sourceId) !== connection || this.probes.get(source.sourceId) !== probe) throw mcpRouteError("stale-route");
+        connection.discovered = true;
+        this.clearRetry(source.sourceId);
         return this.catalog(source, entries, "ready", null);
       } catch (error) {
-        if (this.connections.get(source.sourceId) !== connection || connection.lifetime.aborted || this.probes.get(source.sourceId) !== probe) throw error;
-        this.connections.delete(source.sourceId);
-        await connection.close();
-        this.assertCurrent(source, connection.fingerprint, connection.lifetime);
+        if (this.connections.get(source.sourceId) !== connection || service.aborted || this.probes.get(source.sourceId) !== probe) throw error;
+        const closing = this.stop(source.sourceId, connection);
+        this.assertCurrent(source, connection.fingerprint, service);
         if (this.probes.get(source.sourceId) !== probe) throw mcpRouteError("stale-route");
-        return this.failed(source, error);
+        const catalog = this.failed(source, error);
+        this.retry(source, service, catalog);
+        await closing;
+        return catalog;
       }
     })();
     connection.refresh = action;
@@ -224,17 +303,24 @@ export class McpSourceRuntime implements ExternalMcpTools {
     let connection: Connection | undefined;
     const probe = {};
     try {
-      if (useLive && service && source.enabled) return await this.refreshLive(source, this.live(source));
-      this.probes.set(id, probe);
+      if (useLive && service && source.enabled) {
+        this.clearRetry(id);
+        return await untilAborted(this.refreshLive(source, this.live(source)), lifetime);
+      }
+      const previousProbe = this.probes.get(id);
+      if (!previousProbe) this.probes.set(id, probe);
       connection = this.connect(source, lifetime);
       fingerprint = connection.fingerprint;
       const entries = await this.fetchCatalog(connection);
       this.assertCurrent(source, fingerprint, lifetime);
-      if (this.probes.get(id) !== probe) throw mcpRouteError("stale-route");
+      if (this.probes.get(id) !== (previousProbe ?? probe)) throw mcpRouteError("stale-route");
+      if (this.connections.has(id) || this.retries.has(id)) return {
+        fingerprint, entries, state: "ready", checkedAt: new Date().toISOString(), diagnostic: null, catalogRevision: this.revision,
+      };
       return this.catalog(source, entries, "ready", null);
     } catch (error) {
       lifetime.throwIfAborted();
-      if (!useLive && this.probes.get(id) !== probe) throw mcpRouteError("stale-route");
+      if (isHuhuError(error) && error.details?.reason === "stale-route") throw error;
       if (this.store.fingerprint(this.store.source(id)) !== fingerprint) throw mcpRouteError("stale-route");
       return this.failed(source, error);
     } finally {
@@ -245,12 +331,12 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   invalidate(sourceId: string, remove = false) {
     this.probes.delete(sourceId);
+    this.clearRetry(sourceId);
     const pending = this.checks.get(sourceId);
     this.checks.delete(sourceId);
     pending?.abort();
     const connection = this.connections.get(sourceId);
-    this.connections.delete(sourceId);
-    if (connection) void connection.close();
+    if (connection) void this.stop(sourceId, connection);
     const prior = this.catalogs.get(sourceId);
     if (remove) this.catalogs.delete(sourceId);
     else if (prior) this.catalogs.set(sourceId, { ...prior, state: "stale", catalogRevision: this.revision + 1 });
@@ -261,30 +347,43 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   async dispose(): Promise<void> {
     this.lifetime.abort();
+    for (const id of this.retries.keys()) this.clearRetry(id);
     const connections = [...this.connections.values()];
     this.connections.clear();
     this.listeners.clear();
-    await Promise.all([...connections.map((connection) => connection.close()), ...this.closing]);
+    await Promise.all([...connections.map((connection) => connection.close()), ...this.closing, ...this.retiring.values()]);
   }
 
   private async ensureCatalogs(principal: McpSessionPrincipal, matchesSource?: (source: McpSource, data: ReturnType<McpSourceStore["read"]>["data"]) => boolean) {
-    principal.signal.throwIfAborted();
-    if (!this.options.publishSignal()) return;
+    if (principal.signal.aborted) throw mcpRouteError("cancelled-before-send");
+    const service = this.options.publishSignal();
+    if (!service || service.aborted) return;
     const data = this.store.read().data;
-    await Promise.all(data.sources.filter((source) => source.enabled).map(async (source) => {
+    const refreshes = Promise.all(data.sources.filter((source) => source.enabled).map(async (source) => {
       if (matchesSource && !matchesSource(source, data)) return;
       const catalog = this.catalogs.get(source.sourceId);
       const active = this.connections.get(source.sourceId);
-      if (catalog?.fingerprint === this.store.fingerprint(source) && catalog.state === "ready" && active && !active.lifetime.aborted) return;
-      if (catalog?.state === "offline" && Date.now() - Date.parse(catalog.checkedAt) < 5_000) return;
+      if (catalog?.fingerprint === this.store.fingerprint(source) && catalog.state === "ready" && active?.discovered && !active.lifetime.aborted) return;
+      const retry = this.retries.get(source.sourceId);
+      if (!active && retry?.service === service && retry.fingerprint === this.store.fingerprint(source)) return;
       try { await this.refreshLive(source, this.live(source)); }
       catch (error) {
-        if (principal.signal.aborted || !this.options.publishSignal()) return;
+        if (service.aborted || this.options.publishSignal() !== service) return;
         if (isHuhuError(error) && error.details?.reason === "stale-route") return;
         const latest = this.store.read().data.sources.find(({ sourceId }) => sourceId === source.sourceId);
-        if (latest?.enabled && this.store.fingerprint(latest) === this.store.fingerprint(source)) this.failed(source, error);
+        if (latest?.enabled && this.store.fingerprint(latest) === this.store.fingerprint(source)) {
+          this.retry(source, service, this.failed(source, error));
+        }
       }
     }));
+    const snapshotBudget = matchesSource ? undefined : AbortSignal.timeout(listWaitMs);
+    const signal = AbortSignal.any([principal.signal, service, ...(snapshotBudget ? [snapshotBudget] : [])]);
+    try { await untilAborted(refreshes, signal); }
+    catch (error) {
+      if (principal.signal.aborted) throw mcpRouteError("cancelled-before-send");
+      if (service.aborted) throw mcpRouteError("service-unavailable");
+      if (!snapshotBudget?.aborted) throw error;
+    }
   }
 
   view(source: McpSource) {
@@ -327,7 +426,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
     catch { return false; }
   }
 
-  private routing(principal: McpSessionPrincipal) {
+  private routing(principal: McpSessionPrincipal, requestId?: string, recordRoute?: (route: McpExternalRoute, source: McpSource) => void) {
     return createMcpRouting({
       readSnapshot: () => {
         const data = this.store.read().data;
@@ -336,10 +435,13 @@ export class McpSourceRuntime implements ExternalMcpTools {
         for (const source of data.sources) {
           const catalog = this.catalogs.get(source.sourceId);
           const view = this.view(source);
+          const connection = this.connections.get(source.sourceId);
+          const live = connection?.discovered && !connection.lifetime.aborted && connection.fingerprint === catalog?.fingerprint;
+          const state = !live && view.state === "ready" ? "stale" : view.state;
           const catalogRevision = catalog?.catalogRevision ?? 0;
           sources.set(source.sourceId, {
             sourceId: source.sourceId, configRevision: source.revision, authenticationRevision: data.connectionRevisions[source.sourceId] ?? 0, catalogRevision,
-            state: view.state, complete: !!catalog && view.state === "ready",
+            state, complete: state === "ready",
             entries: (catalog?.entries ?? []).map((entry) => ({ kind: entry.kind, upstreamIdentity: entry.identity, descriptor: entry.definition })),
           });
           for (const entry of catalog?.entries ?? []) {
@@ -357,9 +459,19 @@ export class McpSourceRuntime implements ExternalMcpTools {
       invokeBuiltin: async () => { throw mcpRouteError("unknown-entry"); },
       prepareExternal: async (route, signal) => {
         const source = this.store.source(route.sourceId);
+        recordRoute?.(route, source);
         const connection = this.live(source);
-        const client = await connection.ready;
-        await connection.renewAuthentication();
+        const preparing = AbortSignal.any([signal, connection.lifetime, AbortSignal.timeout(initializeMs)]);
+        let client: Client;
+        try {
+          client = await untilAborted(connection.ready, preparing);
+          await untilAborted(connection.renewAuthentication(), preparing);
+        }
+        catch (error) {
+          if (signal.aborted) throw mcpRouteError("cancelled-before-send");
+          if (connection.lifetime.aborted) throw mcpRouteError("stale-route");
+          throw error;
+        }
         return async (input) => {
           if (signal.aborted) throw mcpRouteError("cancelled-before-send");
           const current = this.connections.get(source.sourceId);
@@ -386,7 +498,7 @@ export class McpSourceRuntime implements ExternalMcpTools {
           } catch (error) {
             if (isHuhuError(error)) throw error;
             if (error instanceof McpError && error.code === ErrorCode.InvalidParams) throw mcpRouteError("invalid-arguments");
-            throw mcpRouteError("upstream-result-unknown", { sourceId: source.sourceId, correlationId: randomUUID() });
+            throw mcpRouteError("upstream-result-unknown", { sourceId: source.sourceId, correlationId: requestId ?? randomUUID() });
           }
         };
       },
@@ -434,6 +546,11 @@ export class McpSourceRuntime implements ExternalMcpTools {
 
   private async invoke(principal: McpSessionPrincipal, kind: McpEntryKind, publicKey: string, input: unknown): Promise<McpUpstreamResult> {
     const started = Date.now();
+    const requestId = randomUUID();
+    const named = kind === "tool" || kind === "prompt";
+    const { credentialId, clientSessionId } = principal.identity;
+    const identity = { operation: kind, requestId, subject: fingerprint(credentialId), session: fingerprint(clientSessionId) };
+    let mcp: NonNullable<AuditRecord["mcp"]> = identity;
     let code = "INTERNAL";
     try {
       if (kind === "tool" && principal.recovered) throw mcpRouteError("recovered-session");
@@ -441,22 +558,32 @@ export class McpSourceRuntime implements ExternalMcpTools {
         await this.ensureCatalogs(principal, (source, data) => data.policy.selected.some((entry) => entry.sourceId === source.sourceId && entry.kind === kind &&
           this.publicKey(source, kind, entry.upstreamIdentity, data) === publicKey));
       }
-      const reply = await this.routing(principal).call(principal, { kind, publicKey, input });
+      const reply = await this.routing(principal, requestId, (route, source) => {
+        mcp = {
+          ...identity, sourceId: source.sourceId, sourceName: source.displayName,
+          upstreamEntry: named ? route.upstreamIdentity.slice(0, 128) : fingerprint(route.upstreamIdentity),
+          publicEntry: named ? route.publicKey.slice(0, 128) : fingerprint(route.publicKey),
+          catalogRevision: route.catalogRevision, configRevision: route.configRevision,
+        };
+      }).call(principal, { kind, publicKey, input });
       if (reply.origin !== "external") throw mcpRouteError("unknown-entry");
       code = "isError" in reply.result && reply.result.isError ? "UPSTREAM_TOOL_ERROR" : "OK";
       return reply.result;
     } catch (error) {
       if (isHuhuError(error)) code = error.code;
+      mcp.result = isHuhuError(error) && typeof error.details?.reason === "string" ? error.details.reason : code;
       throw error;
     } finally {
       // Resource URIs can contain user data in their path and query.
-      try { this.options.audit?.({ at: new Date().toISOString(), entry: "mcp-http", capability: kind === "tool" || kind === "prompt" ? publicKey.slice(0, 128) : "mcp.resources.read", code, ms: Date.now() - started }); }
+      mcp.result ??= code;
+      try { this.options.audit?.({ at: new Date().toISOString(), entry: "mcp-http", capability: named && mcp.sourceId ? publicKey.slice(0, 128) : "mcp.external." + kind, code, ms: Date.now() - started, mcp }); }
       catch { /* audit I/O cannot change the call outcome */ }
     }
   }
 }
 
 const promptArguments = z.record(z.string(), z.string());
+const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 24);
 export const routeOwner = (sourceId: string, kind: McpEntryKind, name: string) =>
   JSON.stringify(kind === "tool" ? [sourceId, name] : [sourceId, kind, name]);
 

@@ -48,6 +48,8 @@ import tasksManifest from "@huhu/plugin-tasks/manifest" with { type: "json" };
 import notesManifest from "@huhu/plugin-notes/manifest" with { type: "json" };
 import agentGuideManifest from "@huhu/plugin-agent-guide/manifest" with { type: "json" };
 import inboxManifest from "@huhu/plugin-inbox/manifest" with { type: "json" };
+import ledgerManifest from "@huhu/plugin-ledger/manifest" with { type: "json" };
+import * as ledger from "@huhu/plugin-ledger/engine";
 import mailManifest from "@huhu/plugin-mail/manifest" with { type: "json" };
 import safeManifest from "@huhu/plugin-safe/manifest" with { type: "json" };
 import agentCliManifest from "@huhu/plugin-agent-cli/manifest" with { type: "json" };
@@ -131,6 +133,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const registry = new CapabilityRegistry();
   registry.declareDescriptors("notes", notes.notesCapabilityDescriptors);
   registry.declareDescriptors("inbox", Object.values(inbox.inboxCapabilityDescriptors));
+  registry.declareDescriptors("ledger", ledger.ledgerCapabilityDescriptors);
   registry.declareDescriptors("agent-guide", Object.values(agentGuide.guideCapabilityDescriptors));
   registry.declareDescriptors("tasks", Object.values(tasks.taskToolDescriptors));
   registry.declareDescriptors("mail", mail.mailCapabilityDescriptors);
@@ -288,6 +291,10 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   plugins.register({
     manifest: PluginManifestSchema.parse(inboxManifest),
     apply: (ctx, api) => void inbox.apply(ctx, api, { isPluginEnabled: (id) => plugins.isEnabled(id) }),
+  });
+  plugins.register({
+    manifest: PluginManifestSchema.parse(ledgerManifest),
+    apply: ledger.apply,
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(mailManifest),
