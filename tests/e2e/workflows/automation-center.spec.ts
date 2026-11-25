@@ -57,42 +57,50 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
 
 test("AW3：扫描草稿预览无写入，关闭保护草稿并保留并发冲突输入", async () => {
   const { page, close } = await openApp();
+  const engineCall = <T,>(capability: string, input: object) =>
+    test.step(`Engine ${capability}`, () => call<T>(page, capability, input, undefined, 8_000), { timeout: 10_000 });
   try {
-    await engineReady(page);
-    await call(page, "tasks.create", { title: "人工任务 · 仅供预览" });
+    await test.step("等待桌面 Engine 就绪", () => engineReady(page), { timeout: 23_000 });
+    await engineCall("tasks.create", { title: "人工任务 · 仅供预览" });
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     const center = page.getByTestId("plan-directory");
     await center.getByRole("button", { name: "从模板新建" }).click();
     await page.getByRole("button", { name: "使用模板 · 扫描 Agent 任务" }).click();
-    const editor = page.getByTestId("rule-editor");
+    const dialog = page.getByTestId("rule-dialog");
+    const editor = dialog.getByTestId("rule-editor");
     await editor.getByLabel("派遣窗口").selectOption("week");
     await editor.getByLabel("包括逾期").check();
     await editor.getByLabel("每次并发上限").fill("3");
     await editor.getByTestId("rule-instruction").fill("初版草稿");
     await editor.getByRole("button", { name: "预览候选" }).click();
     await expect(editor.getByRole("region", { name: "候选预览" })).toContainText("人工任务 · 仅供预览");
-    expect(await call(page, "automations.activations", {})).toEqual([]);
-    expect(await call(page, "automations.list", {})).toEqual([]);
+    expect(await engineCall("automations.activations", {})).toEqual([]);
+    expect(await engineCall("automations.list", {})).toEqual([]);
     await page.keyboard.press("Escape");
     await page.getByRole("dialog", { name: "放弃未保存的更改？" }).getByRole("button", { name: "继续编辑" }).click();
     await expect(editor.getByTestId("rule-instruction")).toHaveValue("初版草稿");
     await editor.getByTestId("rule-save").click();
+    await expect(dialog).toBeHidden();
 
     await center.getByTestId("rule-edit").click();
     await expect(editor.getByLabel("派遣窗口")).toHaveValue("week");
     await expect(editor.getByLabel("每次并发上限")).toHaveValue("3");
     await expect(editor.getByLabel("包括逾期")).toBeChecked();
-    const [rule] = await call<{ id: string; version: string }[]>(page, "automations.list", {});
+    const [rule] = await engineCall<{ id: string; version: string }[]>("automations.list", {});
     await editor.getByTestId("rule-instruction").fill("并发时保留这份输入");
-    await call(page, "automations.update", { id: rule!.id, expectedVersion: rule!.version, patch: { title: "另一个客户端已更新" } });
+    await engineCall("automations.update", { id: rule!.id, expectedVersion: rule!.version, patch: { title: "另一个客户端已更新" } });
     await editor.getByTestId("rule-save").click();
     await expect(page.getByRole("region", { name: "当前计划版本" })).toContainText("另一个客户端已更新");
     await expect(editor.getByTestId("rule-instruction")).toHaveValue("并发时保留这份输入");
     await page.getByRole("button", { name: "保留草稿并采用当前修订" }).click();
     await editor.getByTestId("rule-save").click();
+    await expect(dialog).toBeHidden();
     await expect(center.getByTestId("rule-detail").getByRole("heading", { name: "另一个客户端已更新" })).toBeVisible();
+    expect(await engineCall("automations.read", { id: rule!.id })).toMatchObject({
+      id: rule!.id, body: "并发时保留这份输入", data: { title: "另一个客户端已更新" },
+    });
   } finally {
-    await close();
+    await test.step("关闭桌面夹具", close, { timeout: 15_000 });
   }
 });
 
