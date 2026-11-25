@@ -82,6 +82,21 @@ async function screenshot(info: TestInfo, page: Page, name: string) {
   await info.attach(name, { path: file, contentType: "image/png" });
 }
 
+async function expectNarrowForm(dialog: Locator, name: string) {
+  await dialog.evaluate((element) => { element.style.inlineSize = "460px"; });
+  const form = dialog.locator(".hu-form-columns");
+  await expect.poll(() => form.evaluate((container) => {
+    const primary = container.querySelector(".hu-form-primary")!.getBoundingClientRect();
+    const aside = container.querySelector(".hu-form-aside")!.getBoundingClientRect();
+    // A fieldset can serialize a single grid track as minmax(0px, 1fr).
+    return {
+      narrow: container.clientWidth > 0 && container.clientWidth <= 460,
+      stacked: primary.width > 0 && aside.width > 0
+        && Math.abs(primary.left - aside.left) < 1 && aside.top >= primary.bottom - 1,
+    };
+  }), { message: `${name} 的窄表单应在同一列上下排列` }).toEqual({ narrow: true, stacked: true });
+}
+
 test("U0 中文笔记编辑与受控保存失败", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page, name, vault) => {
@@ -242,9 +257,7 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     // Exercise the component with a host-provided document locale and with a narrow form on the same viewport.
     await page.evaluate(() => { document.documentElement.lang = "en-US"; });
     await taskNew.click();
-    await task.evaluate((dialog) => { dialog.style.width = "460px"; });
-    const taskAreas = task.locator(".hu-form-grid");
-    await expect.poll(() => taskAreas.evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(1);
+    await expectNarrowForm(task, `${name} 任务`);
     const title = `${"包含较长名称且同时保留正文和截止日期的任务".repeat(3)} ${name}`;
     await task.getByLabel("任务名称").fill(title);
     await task.getByTestId("task-body").locator(".ProseMirror").fill("正文仍然可编辑");
@@ -282,8 +295,7 @@ test("U1 Inbox、Task 和 Automation 在真实对话框中共享浮层与表单�
     const ruleNew = page.getByTestId("rule-new");
     await ruleNew.click();
     const rule = page.getByTestId("rule-dialog");
-    await rule.evaluate((dialog) => { dialog.style.width = "460px"; });
-    await expect.poll(() => rule.locator(".hu-form-grid").evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length)).toBe(1);
+    await expectNarrowForm(rule, `${name} 自动化规则`);
     const kind = rule.getByTestId("rule-kind");
     await expect(kind.locator('option[value="terminal"]')).toHaveText("运行命令");
     if (await kind.evaluate(() => CSS.supports("appearance", "base-select"))) {
