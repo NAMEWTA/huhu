@@ -2,6 +2,7 @@ import { z } from "zod";
 import { HuhuErrorSchema } from "./errors.js";
 import { ExecutionBindingSchema, ExecutionSessionBindingSchema } from "./execution-receipt.js";
 import { TaskStatusSchema } from "./kinds/task.js";
+import { LedgerBusinessDate } from "./ledger.js";
 
 const id = z.string().min(1).max(256);
 const instant = z.iso.datetime();
@@ -21,12 +22,18 @@ const owner = z.discriminatedUnion("scope", [
   z.strictObject({ scope: z.literal("connection"), vaultId: id, machineId: id, connectionId: id }),
 ]);
 
+export const CalendarPlanTriggerSchema = z.strictObject({
+  kind: z.literal("calendar"), frequency: z.enum(["daily", "weekly", "monthly"]), startOn: LedgerBusinessDate,
+});
+export type CalendarPlanTrigger = z.infer<typeof CalendarPlanTriggerSchema>;
+
 export const PlanTriggerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("once"), scheduledFor: instant }),
   z.strictObject({ kind: z.literal("interval"), every: z.int().positive(), unit: z.enum(["seconds", "minutes"]) }),
   z.strictObject({ kind: z.literal("cron"), expression: id, zone: id }),
   z.strictObject({ kind: z.literal("event"), event: id, object: domainObject }),
   z.strictObject({ kind: z.literal("observe"), query: id, object: domainObject, everySeconds: z.int().positive() }),
+  CalendarPlanTriggerSchema,
 ]);
 export type PlanTrigger = z.infer<typeof PlanTriggerSchema>;
 
@@ -160,6 +167,8 @@ export const PeriodicPlanSpecSchema = z.strictObject({
   everySeconds: z.int().min(1).max(86_400),
   catchUp: z.literal("enabled-windows").optional(),
   businessSchedule: businessSchedule.optional(),
+  calendar: CalendarPlanTriggerSchema.optional(),
+  calendarHistory: z.array(z.strictObject({ trigger: CalendarPlanTriggerSchema, until: instant })).optional(),
   bounds: intervalBounds.optional(),
   action,
   intent,
@@ -185,6 +194,8 @@ export interface PeriodicPlanSource {
   availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
   /** Calendar owners decide which unhandled business occurrence is next. */
   nextDue?(plan: PeriodicPlanSpec, windows: readonly PeriodicEnabledWindow[]): string | null;
+  calendar?(plan: PeriodicPlanSpec): CalendarPlanTrigger | null;
+  rescheduleCalendar?(plan: PeriodicPlanSpec, trigger: CalendarPlanTrigger): NonNullable<PeriodicPlanSpec["businessSchedule"]>;
   suspend?(): void;
   run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void>;
 }

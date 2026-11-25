@@ -134,10 +134,10 @@ export function apply(
 ) {
   const store = new LedgerStore(api.vault.files, api.events);
   const imports = new LedgerImports(store);
-  const backups = new LedgerBackups(store);
   const references = new LedgerReferences(dispatcher);
   const lifetime = new AbortController();
   const recurring = new LedgerRecurring(store, () => api.service<PeriodicPlanControl>(PERIODIC_PLANS_SERVICE), lifetime.signal);
+  const backups = new LedgerBackups(store, (state) => recurring.backupRules(state));
   api.provide(periodicPlanSourceService("ledger"), recurring.source());
   ctx.effect(() => () => { lifetime.abort(); imports.dispose(); backups.dispose(); return store.idle(); });
   const snapshot = async (bookId: string) => { await store.idle(); return store.snapshot(bookId); };

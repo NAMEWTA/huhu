@@ -8,6 +8,43 @@ import type { AccountsView, RecordsPage } from "../src/shared/entries.js";
 import type { RecurringList, RecurringRow } from "../src/shared/recurring.js";
 import { ledgerEngine } from "./fixture.js";
 
+test("AU16 calendar edits use one plan revision and retain overdue dates from the previous schedule", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "huhu-ledger-calendar-"));
+  let now = Date.parse("2026-01-01T12:00:00Z");
+  const engine = await ledgerEngine(root, false, { now: () => now });
+  try {
+    const book = await engine.call<Book>("ledger.books.create", {
+      name: "改期账本", defaultCurrency: "CNY", timeZone: "Asia/Taipei", firstAccount: { name: "账户" },
+    });
+    const key = { bookId: book.id };
+    const { accounts, book: latest } = await engine.call<AccountsView>("ledger.accounts.list", key);
+    const rule = { id: randomUUID(), title: "改期订阅", type: "expense", accountId: accounts[0]!.id,
+      currency: "CNY", amountMinor: "123", startOn: "2026-01-02", frequency: "monthly", memo: null };
+    const { plan } = await engine.call<RecurringRow>("ledger.recurring.create", { ...key, expectedRevision: latest.revision, rule });
+    const signal = new AbortController().signal;
+    const enabled = await engine.periodic!.change({
+      change: "set-intent", intent: "enabled", planId: plan!.planId, expectedRevision: plan!.revision, intentId: randomUUID(),
+    }, signal);
+    now = Date.parse("2026-02-03T12:00:00Z");
+    const edit = {
+      change: "reschedule", planId: enabled.planId, expectedRevision: enabled.revision, intentId: randomUUID(),
+      trigger: { kind: "calendar", frequency: "daily", startOn: "2026-02-03" },
+    } as const;
+    const changed = await engine.periodic!.change(edit, signal);
+    expect(changed).toMatchObject({ planId: enabled.planId, trigger: edit.trigger, intent: "enabled", nextAt: "2026-01-01T16:00:00.000Z" });
+    expect(changed.revision).not.toBe(enabled.revision);
+    await expect(engine.periodic!.change(edit, signal)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    const read = async () => (await engine.call<RecurringList>("ledger.recurring.list", key)).rows[0]!;
+    expect(await read()).toMatchObject({ plan: { revision: changed.revision }, rule: { frequency: "daily", startOn: "2026-02-03" }, periods: [] });
+    await engine.periodic!.tick();
+    await expect.poll(async () => (await read()).periods.map(({ date }) => date)).toEqual(["2026-02-02", "2026-01-02"]);
+    expect((await read()).plan?.nextAt).toBe("2026-02-03T16:00:00.000Z");
+  } finally {
+    await engine.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("L7 catch-up preserves original business dates, skips disabled windows, and retries the original failed occurrence", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "huhu-ledger-recurring-"));
   let now = Date.parse("2026-01-30T12:00:00Z");

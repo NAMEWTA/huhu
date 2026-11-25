@@ -26,7 +26,7 @@ function LedgerModule(props: ModuleProps & { quick: QuickEntry }) {
   return <LedgerPage key={engine.vaultId} {...props} />;
 }
 
-function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { quick: QuickEntry }) {
+function LedgerPage({ section, onSection, onNavigate, quick, registerLeaveGuard }: ModuleProps & { quick: QuickEntry }) {
   const { vaultId } = useEngine();
   const quickEntry = useSyncExternalStore(quick.subscribe, quick.get);
   const list = useCapability<BookList>("ledger.books.list", {});
@@ -148,7 +148,7 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
         : section === "reports" ? <LedgerReports key={current.id} book={current} readOnly={readOnly} openResource={openResource} />
         : section === "recurring" ? <div key={current.id} className="hu-stack">
           <LedgerRecurringPage book={current} readOnly={readOnly} onNavigate={onNavigate} linkedPlanId={source?.planId}
-            headingRef={target === "fixed" ? cycleHeading : undefined} />
+            headingRef={target === "fixed" ? cycleHeading : undefined} registerLeaveGuard={registerLeaveGuard} />
           <LedgerLoans book={current} readOnly={readOnly} headingRef={target === "loan" ? cycleHeading : undefined} onRecord={(recordId) => {
             setLinkedRecord({ bookId: current.id, recordId });
             onSection("records");

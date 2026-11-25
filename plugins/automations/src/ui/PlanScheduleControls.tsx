@@ -1,8 +1,8 @@
-import type { PlanSummary, PlanTrigger, PlanWrite, PlanWriteResult } from "@huhu/contracts";
+import { LedgerBusinessDate, type CalendarPlanTrigger, type PlanSummary, type PlanTrigger, type PlanWrite, type PlanWriteResult } from "@huhu/contracts";
 import { Button, DateTimePicker, Dialog } from "@huhu/ui";
 import { createPlanIntentId as planIntentId, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useId, useRef, useState } from "react";
-import { describeTrigger } from "./plan-presentation.js";
+import { calendarFrequencyLabel, describeTrigger } from "./plan-presentation.js";
 import { uncertainPlanWrite } from "./plan-write.js";
 import { useDraftDismissal } from "./use-draft-dismissal.js";
 
@@ -24,6 +24,8 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false, regi
   const [unit, setUnit] = useState<"seconds" | "minutes">("seconds");
   const [cron, setCron] = useState("");
   const [zone, setZone] = useState("");
+  const [startOn, setStartOn] = useState("");
+  const [frequency, setFrequency] = useState<CalendarPlanTrigger["frequency"]>("monthly");
 
   async function submit(input: PlanWrite) {
     if (submitted.current) return;
@@ -68,11 +70,12 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false, regi
   const next: PlanTrigger | null = trigger.kind === "once" && scheduledFor ? { ...trigger, scheduledFor }
     : trigger.kind === "observe" && Number.isInteger(Number(every)) && Number(every) >= 1 && Number(every) <= 86_400 ? { ...trigger, everySeconds: Number(every) }
     : trigger.kind === "interval" && validInterval ? { ...trigger, every: Number(every), unit }
+    : trigger.kind === "calendar" && LedgerBusinessDate.safeParse(startOn).success ? { kind: "calendar", startOn, frequency }
     : trigger.kind === "cron" && cron.trim() && zone.trim() ? { ...trigger, expression: cron.trim(), zone: zone.trim() } : null;
   return (
     <>
       <div className="row">
-        {plan.actions.includes("reschedule") && (trigger.kind === "once" || trigger.kind === "observe" || trigger.kind === "interval" || trigger.kind === "cron") ? <Button disabled={!writable} onClick={() => {
+        {plan.actions.includes("reschedule") && trigger.kind !== "event" ? <Button disabled={!writable} onClick={() => {
           setError("");
           setDirty(false);
           setEditRevision(plan.revision);
@@ -84,6 +87,7 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false, regi
             setUnit(allowed ? "seconds" : trigger.unit);
           }
           if (trigger.kind === "cron") { setCron(trigger.expression); setZone(trigger.zone); }
+          if (trigger.kind === "calendar") { setStartOn(trigger.startOn); setFrequency(trigger.frequency); }
           setEditing(true);
         }}>改期</Button> : null}
         {!scheduleOnly && plan.actions.includes("pause") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "paused" })}>暂停</Button> : null}
@@ -124,6 +128,16 @@ export function PlanScheduleControls({ plan, changed, scheduleOnly = false, regi
               <label>间隔单位 <select value={unit} disabled={!writable} onChange={(event) => setUnit(event.target.value === "minutes" ? "minutes" : "seconds")}>
                 <option value="seconds">秒</option><option value="minutes">分钟</option>
               </select></label>
+            </>
+            : trigger.kind === "calendar" ? <>
+              <label>周期 <select value={frequency} disabled={!writable} onChange={(event) => {
+                const value = event.currentTarget.value;
+                if (value === "daily" || value === "weekly" || value === "monthly") setFrequency(value);
+              }}>
+                {Object.entries(calendarFrequencyLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select></label>
+              <label>起始日期 <input type="date" required value={startOn} disabled={!writable} onChange={(event) => setStartOn(event.currentTarget.value)} /></label>
+              <p>业务时区 {plan.businessSchedule?.zone}</p>
             </>
             : trigger.kind === "cron" ? <>
               <label>Cron 表达式 <input value={cron} disabled={!writable} onChange={(event) => setCron(event.target.value)} /></label>
