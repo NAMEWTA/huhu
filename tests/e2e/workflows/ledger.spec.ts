@@ -846,3 +846,118 @@ test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲�
     await close();
   }
 });
+
+test("L10 财务笔记可关联、打开和修复，Notes 停用时仍可记账和预览复盘", async ({}) => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "财务笔记账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const accounts = () => call<{ businessDate: string; book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+    const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
+    const { businessDate, accounts: [account] } = await accounts();
+    const note = await call<{ path: string }>(desktop, "notes.create", { name: "财务采购说明", body: "# 财务采购说明" });
+    const missing = await call<{ path: string }>(desktop, "notes.create", { name: "旧纸笔凭据", body: "# 旧纸笔凭据" });
+    await call(desktop, "archives.types.save", { name: "采购档案", fields: [{ name: "负责人", type: "text" }] });
+    const archive = await call<{ path: string }>(desktop, "archives.create", { type: "采购档案", name: "工作室报销档案", fields: { 负责人: "林川" } });
+    const [budget] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", { ...await version(),
+      budgets: [{ definition: { name: "纸笔预算", type: "fixed", month: businessDate.slice(0, 7),
+        currency: "TWD", limitMinor: "15000", direction: "expense", categoryIds: [] } }] });
+    const record = await call<LedgerRecord>(desktop, "ledger.records.create", {
+      ...await version(), title: "购置纸笔", intentKey: randomUUID(),
+      record: { type: "expense", accountId: account!.id, occurredAt: `${businessDate}T03:00:00.000Z`, amountMinor: "2100",
+        currency: "TWD", categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [] },
+    });
+    const owner = { kind: "record", id: record.id };
+    const broken = await call<{ id: string }>(desktop, "ledger.references.link", {
+      ...await version(), owner, resource: { kind: "note", path: missing.path },
+    });
+    await call(desktop, "notes.trash", { path: missing.path });
+
+    const url = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(url);
+    const webLedger = await enterLedger(page);
+    const openLedger = () => page.getByRole("button", { name: "账本", exact: true }).first().click();
+    const openTab = (title: string) => page.getByTestId("document-tab").and(page.locator(`[title="${title}"]`));
+    await webLedger.getByRole("button", { name: "财务笔记", exact: true }).click();
+    const bookNote = page.getByRole("dialog", { name: "账本财务笔记" });
+    await bookNote.getByRole("button", { name: "关联已有资源" }).click();
+    await bookNote.getByLabel("资源类型").selectOption("note");
+    await bookNote.getByRole("searchbox", { name: "筛选资源" }).fill("采购说明");
+    await bookNote.getByRole("radio", { name: /财务采购说明/ }).check();
+    await bookNote.getByRole("button", { name: "确认关联" }).click();
+    await expect(bookNote.getByText("资源已关联。")).toBeVisible();
+    await bookNote.getByRole("button", { name: `打开 ${note.path}`, exact: true }).click();
+    await expect(openTab(note.path)).toHaveAttribute("aria-current", "true");
+
+    await openLedger();
+    await page.getByTestId("ledger-nav-budgets").click();
+    await webLedger.getByTestId(`ledger-budget-${budget!.id}`).getByRole("button", { name: "纸笔预算的财务笔记" }).click();
+    const budgetNote = page.getByRole("dialog", { name: "预算财务笔记" });
+    await budgetNote.getByRole("button", { name: "关联已有资源" }).click();
+    await budgetNote.getByLabel("资源类型").selectOption("archive");
+    await budgetNote.getByRole("radio", { name: /工作室报销档案/ }).check();
+    await budgetNote.getByRole("button", { name: "确认关联" }).click();
+    await budgetNote.getByRole("button", { name: `打开 ${archive.path}`, exact: true }).click();
+    await expect(openTab(archive.path + "index.md")).toHaveAttribute("aria-current", "true");
+
+    await openLedger();
+    await page.getByTestId("ledger-nav-records").click();
+    const recordTrigger = webLedger.getByRole("button", { name: "购置纸笔的财务笔记" });
+    const recordNote = page.getByRole("dialog", { name: "流水财务笔记" });
+    await recordTrigger.click();
+    const brokenRow = recordNote.getByTestId(`ledger-reference-${broken.id}`);
+    await expect(brokenRow.getByText("资源已缺失")).toBeVisible();
+    await brokenRow.getByRole("button", { name: `选择替换资源 ${missing.path}` }).click();
+    await recordNote.getByRole("searchbox", { name: "筛选资源" }).fill("财务采购说明");
+    await recordNote.getByRole("radio", { name: /财务采购说明/ }).check();
+    await recordNote.getByRole("button", { name: "保存修复" }).click();
+    await expect(brokenRow.getByRole("button", { name: `打开 ${note.path}`, exact: true })).toBeVisible();
+    await call(desktop, "plugins.setEnabled", { id: "notes", enabled: false });
+    await expect(recordNote.getByText(/Notes 已停用/)).toBeVisible();
+    await expect(recordNote.getByRole("button", { name: "关联已有资源" })).toBeDisabled();
+    await brokenRow.getByRole("button", { name: `移除关联 ${note.path}`, exact: true }).click();
+    await expect(brokenRow).toHaveCount(0);
+    await recordNote.getByRole("button", { name: "完成", exact: true }).click();
+    await webLedger.getByRole("button", { name: "记一笔", exact: true }).click();
+    const entry = page.getByRole("dialog", { name: "记一笔" });
+    await entry.getByLabel("事项").fill("补买文件夹");
+    await entry.getByLabel("交易类型").selectOption("expense");
+    await entry.getByLabel("资金账户").selectOption({ label: "银行 · TWD" });
+    await entry.getByLabel("金额", { exact: true }).fill("3");
+    await entry.getByRole("button", { name: "保存流水" }).click();
+    await expect(entry).toBeHidden();
+    await expect(webLedger.getByRole("cell", { name: "补买文件夹", exact: true })).toBeVisible();
+
+    await page.getByTestId("ledger-nav-reports").click();
+    await webLedger.getByRole("button", { name: "期间复盘" }).click();
+    const review = page.getByRole("dialog", { name: "期间复盘" });
+    await review.getByLabel("复盘开始日期").fill(businessDate);
+    await review.getByLabel("复盘结束日期").fill(businessDate);
+    await review.getByLabel("复盘币种").selectOption("TWD");
+    await review.getByLabel("纳入已平账流水").check();
+    await review.getByRole("button", { name: "生成 Markdown 预览" }).click();
+    const markdown = review.getByLabel("Markdown 预览正文");
+    await expect(markdown).toContainText("财务笔记账本");
+    await expect(markdown).toContainText("币种：TWD");
+    await expect(markdown).toContainText("包含平账组与历史排除流水");
+    await expect(review.getByRole("button", { name: "保存为笔记" })).toBeDisabled();
+
+    await call(desktop, "plugins.setEnabled", { id: "notes", enabled: true });
+    await review.getByLabel("复盘笔记名称").fill("纸笔期间复盘");
+    const source = await markdown.textContent();
+    await review.getByRole("button", { name: "保存为笔记" }).click();
+    await review.getByRole("button", { name: "打开复盘笔记" }).click();
+    await expect(openTab("纸笔期间复盘.md")).toHaveAttribute("aria-current", "true");
+    expect(await call(desktop, "notes.read", { path: "纸笔期间复盘.md" })).toMatchObject({ text: source });
+    expect(await call(desktop, "notes.read", { path: note.path })).toMatchObject({ text: "# 财务采购说明" });
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await close();
+  }
+});

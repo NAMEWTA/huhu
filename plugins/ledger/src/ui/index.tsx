@@ -1,5 +1,5 @@
 import { Button, Dialog, Select } from "@huhu/ui";
-import { takeAutomationSource, useCapability, useEngine, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
+import { requestOpenPath, takeAutomationSource, useCapability, useEngine, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
 import { BookOpen, Plus } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { Book, BookList, RemovalPreview } from "../shared/books.js";
@@ -51,6 +51,11 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
   const selectedBookId = source?.bookId ?? (readOnly && ephemeralBook ? ephemeralBook : activeBookId);
   const current = books.find(({ id }) => id === selectedBookId);
   const locked = readOnly || working;
+  const openResource = (path: string) => {
+    if (!onNavigate) return;
+    requestOpenPath(path, true);
+    onNavigate("notes");
+  };
 
   function edit(next: Editor) {
     clearError();
@@ -125,11 +130,11 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
           </div>
         </article>)}
       </section> : current && (section === "accounts" ? <AccountsSection key={current.id} book={current} readOnly={readOnly} />
-        : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)}
+        : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} openResource={openResource} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)}
           linkedRecordId={linkedRecord?.bookId === current.id ? linkedRecord.recordId : undefined} closeLinkedRecord={() => setLinkedRecord(undefined)} />
-        : section === "budgets" ? <LedgerBudgets key={current.id} book={current} readOnly={readOnly} />
+        : section === "budgets" ? <LedgerBudgets key={current.id} book={current} readOnly={readOnly} openResource={openResource} />
         : section === "calendar" ? <LedgerCalendar key={current.id} book={current} readOnly={readOnly} />
-        : section === "reports" ? <LedgerReports key={current.id} book={current} />
+        : section === "reports" ? <LedgerReports key={current.id} book={current} readOnly={readOnly} openResource={openResource} />
         : section === "recurring" ? <div key={current.id} className="hu-stack">
           <LedgerRecurringPage book={current} readOnly={readOnly} onNavigate={onNavigate} linkedPlanId={source?.planId} />
           <LedgerLoans book={current} readOnly={readOnly} onRecord={(recordId) => {
@@ -137,7 +142,7 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
             onSection("records");
           }} />
         </div>
-        : <Overview key={current.id} book={current} readOnly={readOnly} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
+        : <Overview key={current.id} book={current} readOnly={readOnly} openResource={openResource} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
     </div>
     {editor && <Dialog open title={editor.mode === "create" ? "创建账本" : editor.mode === "rename" ? "重命名账本" : "删除账本"}
       onClose={() => { if (!working) setEditor(undefined); }} error={error}

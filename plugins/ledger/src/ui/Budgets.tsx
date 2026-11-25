@@ -6,6 +6,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import type { Book } from "../shared/books.js";
 import { SaveBudgets, type Budget, type BudgetDetail, type BudgetOverview, type CopyBudgetResult } from "../shared/budgets.js";
 import type { AccountsView } from "../shared/entries.js";
+import { FinancialNotesButton } from "./FinancialNotes.js";
 import { currencies, displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 import "./ledger.css";
 
@@ -44,14 +45,16 @@ function BudgetProgress({ budget }: { budget: Progress }) {
   </div>;
 }
 
-export function LedgerBudgets({ book, readOnly }: { book: Book; readOnly: boolean }) {
+export function LedgerBudgets({ book, readOnly, openResource }: { book: Book; readOnly: boolean; openResource(path: string): void }) {
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
   if (accounts.isError) return <p role="alert">{accounts.error.message}</p>;
   if (!accounts.data) return <p role="status">正在读取预算设置…</p>;
-  return <BudgetPage book={book} readOnly={readOnly} view={accounts.data} />;
+  return <BudgetPage book={book} readOnly={readOnly} view={accounts.data} openResource={openResource} />;
 }
 
-function BudgetPage({ book, view, readOnly }: { book: Book; view: AccountsView; readOnly: boolean }) {
+function BudgetPage({ book, view, readOnly, openResource }: {
+  book: Book; view: AccountsView; readOnly: boolean; openResource(path: string): void;
+}) {
   const current = view.businessDate.slice(0, 7);
   const [filter, setFilter] = useState<Filter>({ year: current.slice(0, 4), month: current.slice(5), currency: "" });
   const [year, setYear] = useState(filter.year);
@@ -130,13 +133,16 @@ function BudgetPage({ book, view, readOnly }: { book: Book; view: AccountsView; 
               }</span>
             </div>
             <BudgetProgress budget={budget} />
-            <Button aria-label={`查看 ${def.name} 明细`} onClick={() => setDialog({ kind: "detail", budget })}>明细</Button>
+            <div className="ledger-budget-options">
+              <Button aria-label={`查看 ${def.name} 明细`} onClick={() => setDialog({ kind: "detail", budget })}>明细</Button>
+              <FinancialNotesButton book={book} owner={{ kind: "budget", id }} title={def.name} readOnly={readOnly} openResource={openResource} />
+            </div>
           </li>;
         })}</ul> : <p>所选期间和币种没有预算。</p>}
       </section>
     </>}
     {dialog?.kind === "detail" && <BudgetDetails query={{ ...query, budgetId: dialog.budget.id }} budget={dialog.budget}
-      view={view} close={() => setDialog(undefined)} />}
+      view={view} readOnly={readOnly} openResource={openResource} close={() => setDialog(undefined)} />}
     {dialog?.kind === "edit" && <BudgetEditor view={view} budgets={dialog.budgets} revision={dialog.revision}
       period={period} options={options} locked={locked} close={() => setDialog(undefined)} saved={(count) => {
         setDialog(undefined);
@@ -148,9 +154,9 @@ function BudgetPage({ book, view, readOnly }: { book: Book; view: AccountsView; 
   </section>;
 }
 
-function BudgetDetails({ query, budget, view, close }: {
+function BudgetDetails({ query, budget, view, readOnly, openResource, close }: {
   query: { bookId: string; budgetId: string; year: string; month?: string; currency?: string };
-  budget: Progress; view: AccountsView; close(): void;
+  budget: Progress; view: AccountsView; readOnly: boolean; openResource(path: string): void; close(): void;
 }) {
   const [page, setPage] = useState(1);
   const caption = useId();
@@ -162,7 +168,11 @@ function BudgetDetails({ query, budget, view, close }: {
   const shownPage = Math.min(page, last);
   if (shownPage !== page) setPage(shownPage);
   return <Dialog open wide title={`预算明细 · ${budget.definition.name}`} onClose={close} error={detail.error?.message}
-    initialFocusRef={done} actions={<Button ref={done} onClick={close}>完成</Button>}>
+    initialFocusRef={done} actions={<>
+      <FinancialNotesButton book={view.book} owner={{ kind: "budget", id: budget.id }}
+        title={budget.definition.name} readOnly={readOnly} openResource={openResource} />
+      <Button ref={done} onClick={close}>完成</Button>
+    </>}>
     <div className="hu-stack">
       <BudgetProgress budget={latest} />
       {detail.isPending && <p role="status">正在读取预算明细…</p>}

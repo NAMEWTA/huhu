@@ -8,6 +8,7 @@ import type { Book } from "../shared/books.js";
 import type { AccountsView, BatchPreview, InputBatch, RecordFilters, RecordsPage, RecordView } from "../shared/entries.js";
 import type { CsvResult } from "../shared/imports.js";
 import { defaultCards, type ReportCards } from "../shared/reports.js";
+import { FinancialNotesButton } from "./FinancialNotes.js";
 import { ImportWizard } from "./ImportWizard.js";
 import { ReconciliationDialog, type ReconciliationTarget } from "./ReconciliationDialog.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
@@ -23,8 +24,9 @@ function amount(record: LedgerRecord) {
     : displayMoney(record.amountMinor, record.currency);
 }
 
-export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, linkedRecordId, closeLinkedRecord }: {
+export function RecordsSection({ book, readOnly, openResource, quickEntry, consumeQuickEntry, linkedRecordId, closeLinkedRecord }: {
   book: Book; readOnly: boolean; quickEntry: boolean; consumeQuickEntry(): void; linkedRecordId: string | undefined; closeLinkedRecord(): void;
+  openResource(path: string): void;
 }) {
   const [filters, setFilters] = useState<RecordFilters>({});
   const [page, setPage] = useState(1);
@@ -207,6 +209,8 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, 
           <Button aria-label={`凭证 ${row.title}`} onClick={() => setAttachment(row.record.id)}>
             凭证{row.attachments.some(({ missing }) => missing) ? " · 缺失" : row.attachments.length ? ` ${row.attachments.length}` : ""}
           </Button>
+          <FinancialNotesButton book={book} owner={{ kind: "record", id: row.record.id }}
+            title={row.title} readOnly={readOnly} openResource={openResource} />
           {row.record.type !== "transfer" && <Button disabled={locked} aria-label={`${row.offset ? "撤销平账" : "平账"} ${row.title}`}
             onClick={() => setReconciliation({ mode: row.offset ? "undo" : "offset", recordId: row.record.id })}>{row.offset ? "撤销平账" : "平账"}</Button>}
           {row.legacyOffset && <Button disabled={locked || action.working} onClick={() => void action.run("ledger.reconciliation.clearLegacyOffset", {
@@ -261,8 +265,8 @@ function LinkedRecord({ book, recordId, close }: { book: Book; recordId: string;
 
 const cardLabels = { summary: "本月汇总", recent: "最近流水", balances: "账户余额" };
 
-export function Overview({ book, readOnly, onSection, onRecord }: {
-  book: Book; readOnly: boolean; onSection(section: string): void; onRecord(): void;
+export function Overview({ book, readOnly, openResource, onSection, onRecord }: {
+  book: Book; readOnly: boolean; openResource(path: string): void; onSection(section: string): void; onRecord(): void;
 }) {
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
   const prefs = useCapability<{ revision: string; cards: ReportCards }>("ledger.reports.preferences", { bookId: book.id });
@@ -291,6 +295,7 @@ export function Overview({ book, readOnly, onSection, onRecord }: {
   return <section className="hu-stack" aria-label="账本总览">
     <div className="hu-toolbar"><h2>{book.name}</h2>
       <Button icon={Plus} variant="primary" disabled={!open} onClick={onRecord}>记一笔</Button>
+      <FinancialNotesButton book={book} owner={{ kind: "book" }} title={book.name} readOnly={readOnly} openResource={openResource} />
       {open && prefs.data ? <Button onClick={() => { action.clearError(); setDraft(structuredClone(prefs.data!)); }}>调整总览卡片</Button> : null}
     </div>
     <p>默认币种 {book.defaultCurrency} · 业务时区 {book.timeZone}{book.status === "archived" ? " · 已归档" : ""}</p>
