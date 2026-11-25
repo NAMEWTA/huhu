@@ -333,9 +333,9 @@ async function showAgent(page: Page) {
   await expect(page.getByTestId("agent-cli-module")).toBeVisible();
 }
 
-async function lastRow(terminal: Locator) {
-  const line = terminal.locator(".xterm-rows > div").filter({ hasText: "U0-LAST-ROW" }).last();
-  await expect(line).toHaveText(/U0-LAST-ROW/u, { timeout: 15_000 });
+async function lastRow(terminal: Locator, marker = "U0-LAST-ROW") {
+  const line = terminal.locator(".xterm-rows > div").filter({ hasText: marker }).last();
+  await expect(line).toContainText(marker, { timeout: 15_000 });
   return line.evaluate((element) => {
     const screen = element.closest(".xterm-screen")!.getBoundingClientRect();
     const row = element.getBoundingClientRect();
@@ -380,4 +380,66 @@ test("U0 真实 PTY 分栏拖动后的末行与光标", async ({ browserName }, 
     await screenshot(info, page, `${name}-12-terminal`);
     await info.attach(`${name}-terminal`, { body: JSON.stringify({ ...observation, ptySize: readFileSync(path.join(vault, ".u0-pty-size"), "utf8").trim() }), contentType: "application/json" });
   }, (vault) => writeFileSync(path.join(vault, ".u0-terminal.sh"), "stty size > .u0-pty-size\nread rows cols < .u0-pty-size\nprintf '\\033[2J\\033[H'\nfor i in 1 2 3 4 5 6 7 8 9; do printf 'PTY sample %s\\r\\n' \"$i\"; done\nprintf '\\033[%s;1H%s%s' \"$rows\" 'U0-LAST-' 'ROW'\nread answer\n"), { width: 1160, height: 960 });
+});
+
+test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", async ({ browserName }, info) => {
+  void browserName;
+  test.setTimeout(120_000);
+  await runOnHosts(info, async (page, name, vault) => {
+    await showAgent(page);
+    const history = page.getByTestId("agent-history-toggle");
+    if (await history.getAttribute("aria-expanded") === "true") await history.click();
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByTestId("launch-shell").click();
+    const terminals = page.getByTestId("terminal-view");
+    const first = terminals.first();
+    await expect(first).toHaveAttribute("data-state", "open");
+    const verify = async (step: string) => {
+      const marker = `UX08-${step}`;
+      const output = path.join(vault, `.${marker}`);
+      await first.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.type(`sh .ux08-terminal.sh ${marker}`);
+      await page.keyboard.press("Enter");
+      const observation = await lastRow(first, marker);
+      const [rows = 0, cols = 0] = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
+      expect(observation.rows).toBe(rows);
+      expect(observation.clippingAncestors).toEqual([]);
+      expect(observation.hitInTerminal).toBe(true);
+      expect(await first.locator(".xterm-rows > div").last().locator(".xterm-cursor").count()).toBeGreaterThan(0);
+      await info.attach(`${name}-${step}`, { body: JSON.stringify({ ...observation, rows, cols }), contentType: "application/json" });
+      await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
+      return { rows, cols };
+    };
+    const initial = await verify(`${name}-initial`);
+    await page.getByTestId("workspace-split-down").first().click();
+    await page.getByTestId("launch-shell").click();
+    await expect(terminals).toHaveCount(2);
+    expect((await verify(`${name}-split`)).rows).toBeLessThan(initial.rows);
+    const panes = page.getByTestId("workspace-pane");
+    await panes.last().getByRole("button", { name: "放大分栏" }).click();
+    await expect(panes.first()).toBeHidden();
+    await panes.last().getByRole("button", { name: "还原分栏" }).click();
+    await expect(panes.first()).toBeVisible();
+    await page.setViewportSize({ width: 960, height: 680 });
+    const resized = await verify(`${name}-viewport`);
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--font-size", "18px");
+      window.dispatchEvent(new Event("huhu:appearance-changed"));
+    });
+    expect((await verify(`${name}-font`)).cols).toBeLessThan(resized.cols);
+  }, (vault) => writeFileSync(path.join(vault, ".ux08-terminal.sh"), `
+set -eu
+stty size > ".$1"
+read -r rows cols < ".$1"
+printf '\\033[?1049h\\033[2J\\033[H'
+i=0
+while [ "$i" -lt "$((rows * 3))" ]; do
+  printf 'PTY sample %s\\r\\n' "$i"
+  i=$((i + 1))
+done
+printf '\\033[%s;1H%s\\033[K' "$rows" "$1"
+printf '\\033[%s;%sH#\\033[%s;%sH' "$rows" "$cols" "$rows" "$cols"
+read -r answer
+printf '\\033[?1049l'
+`), { width: 1180, height: 940 });
 });

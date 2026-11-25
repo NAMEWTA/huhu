@@ -464,6 +464,9 @@
     min-inline-size: 0;
     overflow: hidden;
   }
+  .agent-workspace-pane-body > .hu-terminal-wrap {
+    min-block-size: 0;
+  }
   .agent-workspace-pane-body > .hu-btn {
     margin: 12px;
   }

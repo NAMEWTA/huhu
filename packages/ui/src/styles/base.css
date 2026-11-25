@@ -73,6 +73,7 @@ b {
   position: relative;
   height: 100%;
   min-height: 240px;
+  padding: var(--space-2);
   background: var(--term-bg);
   border-radius: var(--radius-control);
   overflow: hidden;
@@ -82,7 +83,7 @@ b {
 }
 .hu-terminal {
   height: 100%;
-  padding: var(--space-2);
+  font-size: calc(var(--font-size, 14px) - 1px);
 }
 .hu-terminal-overlay {
   position: absolute;
