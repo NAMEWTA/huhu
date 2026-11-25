@@ -105,8 +105,12 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
     await expect.poll(() => call(page, "tasks.read", { id: task.id })).toMatchObject({
       title, body: text, tags, due: "2026-12-18", type: "agent", execution: { provider: "codex", spaceId: space.id },
     });
+    const detail = page.getByTestId("task-detail");
+    await expect(detail.getByTestId("detail-title")).toHaveText(title);
+    await detail.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+    await expect(detail).toHaveCount(0);
     await page.getByRole("button", { name: `打开任务 ${title}` }).click();
-    await page.getByTestId("detail-edit").click();
+    await detail.getByTestId("detail-edit").click();
     await expect(dialog.getByLabel("任务名称")).toHaveValue(title);
     await expect(body).toHaveText(text);
   } finally {
