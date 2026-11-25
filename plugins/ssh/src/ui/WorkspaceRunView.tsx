@@ -1,7 +1,7 @@
 import { Button, type TerminalInput } from "@huhu/ui";
 import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
 import { useState } from "react";
-import { splitTree, type ChangeWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import { MAX_WORKSPACE_PANES, splitTree, type ChangeWorkbenchWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
 import { WorkspaceCanvas } from "./WorkspaceCanvas.js";
 import { WorkspacePaneTools } from "./WorkspacePaneTools.js";
@@ -29,12 +29,14 @@ export function WorkspaceRunView({
   run,
   shown,
   connections,
+  hosts,
   onTrust,
   onOpenFiles,
 }: {
   run: WorkspaceRun;
   shown: boolean;
   connections: readonly ConnectionStatus[];
+  hosts: readonly { hostId: string; name: string }[];
   onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>;
   onOpenFiles: (session: FileSession) => void;
 }) {
@@ -47,6 +49,7 @@ export function WorkspaceRunView({
   const [active, setActive] = useState(run.panes[0]?.paneId);
   const [maximized, setMaximized] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [splitHost, setSplitHost] = useState("");
   const [layoutError, setLayoutError] = useState("");
   const [deviceNotice, setDeviceNotice] = useState("");
   const [locked, setLocked] = useState<Record<string, boolean>>({});
@@ -57,6 +60,8 @@ export function WorkspaceRunView({
   const [dock, setDock] = useState<"left" | "right">("right");
   const activePane = run.panes.find(({ paneId }) => paneId === active) ?? run.panes[0];
   const activeIndex = run.panes.indexOf(activePane!);
+  const remainingHosts = hosts.filter(({ hostId }) => hostId.startsWith("host-owned-") && !run.panes.some((pane) => pane.hostId === hostId));
+  const canSplit = !saving && activePane?.phase !== "reconnect" && remainingHosts.some(({ hostId }) => hostId === splitHost);
   const query = queryKey(engine.vaultId, "ssh.workspace.runs.list", {});
   function setDeviceLayout(patch: Partial<DevicePreferences>, message = "已保存本机布局。") {
     try {
@@ -68,7 +73,7 @@ export function WorkspaceRunView({
       return false;
     }
   }
-  async function apply(change: ChangeWorkspaceRun["change"], revision = run.layoutRevision ?? run.id) {
+  async function apply(change: ChangeWorkbenchWorkspaceRun["change"], revision = run.layoutRevision ?? run.id) {
     if (saving) return;
     setSaving(true);
     setLayoutError("");
@@ -92,6 +97,11 @@ export function WorkspaceRunView({
     if (first < 0 || second < 0 || first === second) return;
     [ids[first], ids[second]] = [ids[second]!, ids[first]!];
     relayout(run.layout, ids);
+  }
+  function split(axis: "row" | "column") {
+    if (!activePane || !canSplit) return;
+    setMaximized(false);
+    void apply({ action: "split", hostId: splitHost, paneId: activePane.paneId, axis });
   }
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
   const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
@@ -160,6 +170,19 @@ export function WorkspaceRunView({
           </>
         )}
       </div>
+      {activePane && run.panes.length < MAX_WORKSPACE_PANES && remainingHosts.length > 0 && (
+        <div className="ssh-workspace-controls">
+          <label className="row">
+            新分栏主机
+            <select value={remainingHosts.some(({ hostId }) => hostId === splitHost) ? splitHost : ""} disabled={saving || activePane.phase === "reconnect"} onChange={(event) => setSplitHost(event.currentTarget.value)}>
+              <option value="">请选择主机</option>
+              {remainingHosts.map(({ hostId, name }) => <option key={hostId} value={hostId}>{name}</option>)}
+            </select>
+          </label>
+          <Button type="button" disabled={!canSplit} onClick={() => split("row")}>左右分割活动分栏</Button>
+          <Button type="button" disabled={!canSplit} onClick={() => split("column")}>上下分割活动分栏</Button>
+        </div>
+      )}
       {layoutError && <p role="alert">{layoutError}</p>}
       <details className="hu-card-alt hu-stack">
         <summary>本机布局偏好</summary>

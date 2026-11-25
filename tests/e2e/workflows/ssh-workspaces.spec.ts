@@ -97,6 +97,40 @@ test("A06 dragging and keyboard resizing a running workspace retain the original
   }
 });
 
+test("A05 adding a split opens only the new host and keeps the original pane session", async () => {
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openWorkspace(page);
+    const a = await configureLoopback(page, "现有分栏", first.port, password);
+    const b = await configureLoopback(page, "新增分栏", second.port, password);
+    const started = await sshCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+      name: "动态分割回环", layout: { kind: "one" }, panes: [{ hostId: a.hostId }],
+    });
+    expect(started.ok).toBe(true);
+    await page.getByRole("button", { name: /动态分割回环.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    const original = run.getByRole("article", { name: "现有分栏" });
+    await original.getByRole("button", { name: "信任并连接" }).click();
+    await expect(original).toHaveAttribute("data-phase", "ready");
+    const shell = await original.getAttribute("data-session-id");
+    await run.getByLabel("新分栏主机").selectOption(b.hostId);
+    await run.getByRole("button", { name: "上下分割活动分栏" }).click();
+    const added = run.getByRole("article", { name: "新增分栏" });
+    await added.getByRole("button", { name: "信任并连接" }).click();
+    await expect(added).toHaveAttribute("data-phase", "ready");
+    await expect(original).toHaveAttribute("data-session-id", shell!);
+    await expect(run.getByRole("separator")).toHaveAttribute("aria-orientation", "horizontal");
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
+  }
+});
+
 test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";

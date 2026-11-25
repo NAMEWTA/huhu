@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
 import type { ConnectionHop, ConnectionStatus } from "../src/shared/trust.js";
-import { resizeSplit, type SplitTree, type WorkspaceRunPane } from "../src/shared/workspace.js";
+import { paneCount, resizeSplit, splitPaneAt, workspaceTree, type SplitTree, type WorkspaceRunPane } from "../src/shared/workspace.js";
 import { deviceDefaults, saveDevicePreferences, type DevicePreferences } from "../src/ui/device-preferences.js";
 import { groupWorkspaceTabs } from "../src/ui/workspace-tab-groups.js";
 
@@ -16,6 +16,17 @@ test("resize only changes the targeted nested split and clamps its ratio", () =>
   expect(moved).toMatchObject({ firstPercent: 50, first: pane, second: { ...branch, firstPercent: 90 } });
   expect(tree.second).toBe(branch);
   expect(resizeSplit(moved, [], 9)).toMatchObject({ firstPercent: 10, second: { firstPercent: 90 } });
+});
+
+test("a new split retains the existing layout around the chosen pane", () => {
+  const baseline = workspaceTree({ kind: "main-right" }, 3);
+  const result = splitPaneAt(baseline, 1, "row");
+  expect(paneCount(result)).toBe(4);
+  expect(result).toMatchObject({
+    axis: "row", firstPercent: 60, first: { kind: "pane" },
+    second: { axis: "column", firstPercent: 50, first: { axis: "row", firstPercent: 50 }, second: { kind: "pane" } },
+  });
+  expect(paneCount(baseline)).toBe(3);
 });
 
 test("旧设备记录保留已有偏好，新工具栏尺寸和顺序使用默认值", () => {

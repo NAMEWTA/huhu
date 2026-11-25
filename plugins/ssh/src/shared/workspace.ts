@@ -57,6 +57,31 @@ export function appendPane(tree: SplitTree): SplitTree {
   return { ...tree, second: appendPane(tree.second) };
 }
 
+export function splitPaneAt(tree: SplitTree, index: number, axis: "row" | "column"): SplitTree {
+  if (tree.kind === "pane") return { kind: "split", axis, firstPercent: 50, first: tree, second: { kind: "pane" } };
+  const count = paneCount(tree.first);
+  return index < count ? { ...tree, first: splitPaneAt(tree.first, index, axis) } : { ...tree, second: splitPaneAt(tree.second, index - count, axis) };
+}
+
+function distribute(parts: SplitTree[], axis: "row" | "column"): SplitTree {
+  if (parts.length === 1) return parts[0]!;
+  return { kind: "split", axis, firstPercent: Math.max(10, Math.round(100 / parts.length)), first: parts[0]!, second: distribute(parts.slice(1), axis) };
+}
+
+export function workspaceTree(layout: WorkspaceLayout, count: number): SplitTree {
+  if (layout.kind === "custom") return layout.tree;
+  if (count <= 1) return { kind: "pane" };
+  const leaves: SplitTree[] = Array.from({ length: count }, () => ({ kind: "pane" }));
+  if (layout.kind === "tabs") return distribute(leaves, "row");
+  if (layout.kind === "main-right" || layout.kind === "main-bottom") {
+    const axis = layout.kind === "main-right" ? "row" : "column";
+    return { kind: "split", axis, firstPercent: 60, first: leaves[0]!, second: distribute(leaves.slice(1), axis === "row" ? "column" : "row") };
+  }
+  const cols = layout.kind === "three" ? 3 : layout.kind === "two" ? 2 : 1;
+  const groups = Array.from({ length: Math.ceil(count / cols) }, (_, i) => distribute(leaves.slice(i * cols, (i + 1) * cols), "row"));
+  return distribute(groups, "column");
+}
+
 export function layoutProblem(panes: readonly WorkspacePane[], layout: WorkspaceLayout): string | undefined {
   if (panes.length < 1 || panes.length > MAX_WORKSPACE_PANES) return "请选择 1 至 12 台主机";
   if (new Set(panes.map(({ hostId }) => hostId)).size !== panes.length) return "同一台主机只能选择一次";
@@ -107,6 +132,11 @@ export const ChangeWorkspaceRun = runChange.extend({
   ]),
 });
 export type ChangeWorkspaceRun = z.infer<typeof ChangeWorkspaceRun>;
+const SplitWorkspaceRun = runChange.extend({
+  change: z.strictObject({ action: z.literal("split"), paneId: z.uuid(), hostId: WorkspacePane.shape.hostId, axis: z.enum(["row", "column"]) }),
+});
+export const ChangeWorkbenchWorkspaceRun = z.union([ChangeWorkspaceRun, SplitWorkspaceRun]);
+export type ChangeWorkbenchWorkspaceRun = z.infer<typeof ChangeWorkbenchWorkspaceRun>;
 
 // Leaves correspond to panes in reading order, as in Motty workspace/spec.go.
 export function splitTree(count: number): SplitTree {

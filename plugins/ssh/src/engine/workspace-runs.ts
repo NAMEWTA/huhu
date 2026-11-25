@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { errors, HuhuError } from "@huhu/contracts";
 import type { HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
-import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, removePaneAt, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
+import { BoundWorkspacePane, layoutProblem, MAX_WORKSPACE_PANES, removePaneAt, splitPaneAt, workspaceTree, WorkspaceDraft, WorkspaceLayout, WorkspaceName, type ChangeWorkbenchWorkspaceRun, type ChangeWorkspaceRun, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import type { HostConfigurations } from "./host-configurations.js";
 import type { SshManager } from "./manager.js";
 import { routeForHost, workspaceTarget } from "./workspace-target.js";
@@ -127,26 +127,42 @@ export class WorkspaceRuns {
     });
   }
 
-  changeLayout({ id, expectedLayoutRevision, change }: ChangeWorkspaceRun, signal: AbortSignal): Promise<WorkspaceRun> {
+  changeLayout({ id, expectedLayoutRevision, change }: ChangeWorkbenchWorkspaceRun, signal: AbortSignal): Promise<WorkspaceRun> {
     return this.hosts.withStableDirectory(async () => {
       const { runs, fileVersion } = this.read();
       const current = this.find(runs, id);
       const revision = current.layoutRevision ?? current.id;
       if (expectedLayoutRevision !== revision) throw errors.versionConflict(revision);
-      const { layout, panes } = editWorkspacePanes(current, change);
+      const edited = change.action === "split" ? await this.split(current, change) : editWorkspacePanes(current, change);
+      const { layout, panes } = edited;
       const saved = { ...current, layout, panes, layoutRevision: randomUUID() };
       await this.write(
         runs.map((run) => (run.id === id ? saved : run)),
         fileVersion,
         signal,
       );
-      if (change.action === "close") {
-        const live = this.live.get(id);
-        if (live) this.releasePane(live, change.paneId);
+      const live = this.live.get(id);
+      if (live) {
+        if (change.action === "close") this.releasePane(live, change.paneId);
+        if ("pane" in edited && !this.disposed) this.beginPane(saved, live, edited.pane);
       }
       this.changed(id);
       return this.view(saved);
     });
+  }
+
+  private async split(current: SavedRun, change: Extract<ChangeWorkbenchWorkspaceRun["change"], { action: "split" }>) {
+    if (this.live.get(current.id)?.generation !== current.generation) throw errors.invalidInput("请先重连此工作区");
+    const index = current.panes.findIndex(({ paneId }) => paneId === change.paneId);
+    if (index < 0) throw errors.notFound("工作区分栏");
+    if (current.panes.length >= MAX_WORKSPACE_PANES || current.panes.some(({ hostId }) => hostId === change.hostId)) throw errors.invalidInput("请选择尚未使用的 SSH 主机，每个工作区最多 12 个分栏");
+    const hosts = new Map((await this.hosts.list()).map((host) => [host.id, host]));
+    const route = routeForHost(hosts, change.hostId);
+    if (route.some((host) => !("revision" in host))) throw errors.invalidInput("请先修复新分栏的 SSH 主机或跳板");
+    const pane = { paneId: randomUUID(), hostId: change.hostId, label: route.at(-1)!.name, target: workspaceTarget(route) };
+    const panes = current.panes.toSpliced(index + 1, 0, pane);
+    const layout = { kind: "custom", tree: splitPaneAt(workspaceTree(current.layout, current.panes.length), index, change.axis) } as const;
+    return { pane, panes, layout };
   }
 
   saveTemplate(id: string, name: string, signal: AbortSignal) {
@@ -164,28 +180,30 @@ export class WorkspaceRuns {
     if (this.disposed) return;
     const live: LiveRun = { generation: run.generation, controllers: new Map(), panes: new Map() };
     this.live.set(run.id, live);
-    for (const pane of run.panes) {
-      const controller = new AbortController();
-      live.controllers.set(pane.paneId, controller);
-      void this.manager
-        .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id))
-        .then(
-          (shell) => {
-            if (this.live.get(run.id) === live && !controller.signal.aborted) live.panes.set(pane.paneId, { sessionId: shell.id });
-            else this.manager.closeShell(shell.id);
-          },
-          (error: unknown) => {
-            if (this.live.get(run.id) !== live || controller.signal.aborted) return;
-            live.panes.set(pane.paneId, {
-              error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
-            });
-          },
-        )
-        .finally(() => {
-          if (this.live.get(run.id) === live) this.changed(run.id);
-        });
-    }
+    for (const pane of run.panes) this.beginPane(run, live, pane);
     this.changed(run.id);
+  }
+
+  private beginPane(run: SavedRun, live: LiveRun, pane: SavedRun["panes"][number]) {
+    const controller = new AbortController();
+    live.controllers.set(pane.paneId, controller);
+    void this.manager
+      .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id))
+      .then(
+        (shell) => {
+          if (this.live.get(run.id) === live && !controller.signal.aborted) live.panes.set(pane.paneId, { sessionId: shell.id });
+          else this.manager.closeShell(shell.id);
+        },
+        (error: unknown) => {
+          if (this.live.get(run.id) !== live || controller.signal.aborted) return;
+          live.panes.set(pane.paneId, {
+            error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
+          });
+        },
+      )
+      .finally(() => {
+        if (this.live.get(run.id) === live) this.changed(run.id);
+      });
   }
 
   private release(id: string): void {

@@ -348,7 +348,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
                   ))}
                 </ul>
               ) : (
-                <WorkspaceRunView key={run.id} run={run} shown={shown} connections={connections} onTrust={trust} onOpenFiles={onFiles} />
+                <WorkspaceRunView key={run.id} run={run} shown={shown} connections={connections} hosts={hosts} onTrust={trust} onOpenFiles={onFiles} />
               )}
             </>
           )}
