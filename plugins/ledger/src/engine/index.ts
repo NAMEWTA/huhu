@@ -23,6 +23,8 @@ import { HolidayData, HolidayQuery, ReportQuery, ReportView, ReportsPreferences,
 import { report } from "./reports.js";
 import { OpenRecurring, RecurringKey, RecurringList, RecurringPeriod, RecurringPreview, RecurringRow, RetryRecurring } from "../shared/recurring.js";
 import { LedgerRecurring } from "./recurring.js";
+import { Budget, BudgetDetail, BudgetDetailQuery, BudgetOverview, BudgetQuery, CopyBudgetResult, CopyBudgets, RemoveBudget, SaveBudgets } from "../shared/budgets.js";
+import { budgetDetail, budgetOverview, copyBudgets, removeBudget, saveBudgets } from "./budgets.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
@@ -45,6 +47,11 @@ const descriptors = {
   saveReportPreferences: descriptor({ ...write, name: "ledger.reports.savePreferences", title: "保存总览卡片", description: "按账本版本保存卡片顺序和可见性。", input: SaveReportsPreferences, output: ReportsPreferences }),
   holidays: descriptor({ ...read, name: "ledger.calendar.holidays", title: "读取节假日", description: "读取本地已配置的节假日年份。", input: HolidayQuery, output: HolidayData.nullable() }),
   saveHolidays: descriptor({ ...write, name: "ledger.calendar.importHolidays", title: "导入离线节假日", description: "在当前账本保存指定年份的离线节假日和补班日期。", input: SaveHolidayData, output: HolidayData }),
+  budgets: descriptor({ ...read, name: "ledger.budgets.list", title: "查看预算进度", description: "按年或月查看预算及各方向、币种的汇总。", input: BudgetQuery, output: BudgetOverview }),
+  budgetDetail: descriptor({ ...read, name: "ledger.budgets.detail", title: "查看预算流水", description: "查询和预算进度同一范围的流水明细。", input: BudgetDetailQuery, output: BudgetDetail }),
+  saveBudgets: descriptor({ ...write, name: "ledger.budgets.saveBatch", title: "批量保存预算", description: "创建或修改当前账本的一批预算。", input: SaveBudgets, output: z.array(Budget) }),
+  removeBudget: descriptor({ ...write, name: "ledger.budgets.remove", title: "删除预算", description: "删除指定预算规则。", input: RemoveBudget, output: Budget }),
+  copyBudgets: descriptor({ ...write, name: "ledger.budgets.copy", title: "复制月度预算", description: "复制固定预算到目标月份，保留已有同名项。", input: CopyBudgets, output: CopyBudgetResult }),
   recurring: descriptor({ ...read, name: "ledger.recurring.list", title: "查询固定收支", description: "读取账本规则、统一计划及原期次回执。", input: BookRef, output: RecurringList }),
   createRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.create", title: "创建固定收支", description: "按稳定规则身份建立暂停的统一计划。", input: OpenRecurring, output: RecurringRow }),
   ensureRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.ensurePlan", title: "补全固定收支计划", description: "核对原规则并补全缺失的暂停计划。", input: RecurringKey, output: RecurringRow }),
@@ -132,6 +139,11 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
     state.holidays[input.data.year] = input.data;
     return input.data;
   })));
+  api.defineCapability(bindCapability(descriptors.budgets, async (_context, input) => budgetOverview(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.budgetDetail, async (_context, input) => budgetDetail(store, await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.saveBudgets, (context, input) => change(context, input, (state) => saveBudgets(state, input))));
+  api.defineCapability(bindCapability(descriptors.removeBudget, (context, input) => change(context, input, (state) => removeBudget(state, input.budgetId))));
+  api.defineCapability(bindCapability(descriptors.copyBudgets, (context, input) => change(context, input, (state) => copyBudgets(state, input))));
   api.defineCapability(bindCapability(descriptors.recurring, async (_context, { bookId }) => { await store.idle(); return recurring.list(bookId); }));
   api.defineCapability(bindCapability(descriptors.createRecurring, (context, input) => recurring.create(context, input)));
   api.defineCapability(bindCapability(descriptors.ensureRecurring, (context, { bookId, ruleId }) => recurring.ensure(context, bookId, ruleId)));

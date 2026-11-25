@@ -414,3 +414,61 @@ test("L7 账本启用和中心暂停操作同一个固定收支计划，预览�
     await close();
   }
 });
+
+test("L6 预算进度和明细同源，复制冲突在独立 Web 中可核对", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-budget-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  let browser: Browser | undefined;
+  try {
+    app = await launch(vault);
+    const desktop = await app.firstWindow();
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "预算账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const ref = { bookId };
+    const accounts = () => call<{ book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", ref);
+    const version = async () => ({ ...ref, expectedRevision: (await accounts()).book.revision });
+    const tags: string[] = [];
+    for (const name of ["旅行", "度假"]) {
+      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...await version(), kind: "tag", name });
+      tags.push(tag.id);
+    }
+    const [free] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
+      ...await version(),
+      budgets: [
+        { definition: { name: "旅行", type: "free", tagIds: tags, currency: "TWD", limitMinor: "60000" } },
+        { definition: { name: "日用", type: "fixed", month: "2026-01", direction: "expense", categoryIds: [], currency: "TWD", limitMinor: "80000" } },
+      ],
+    });
+    const { accounts: [account] } = await accounts();
+    await call(desktop, "ledger.records.create", {
+      ...await version(), intentKey: randomUUID(), title: "旅行车票",
+      record: { type: "expense", accountId: account!.id, occurredAt: "2026-01-31T16:00:00.000Z",
+        amountMinor: "4250", currency: "TWD", tagIds: tags, categoryId: null, payee: null, memo: null, attachmentIds: [] },
+    });
+    const copy = { source: "2026-01", targets: ["2026-02"] };
+    expect(await call(desktop, "ledger.budgets.copy", { ...await version(), ...copy })).toMatchObject({ created: 1 });
+    expect(await call(desktop, "ledger.budgets.copy", { ...await version(), ...copy })).toMatchObject({ created: 0, skipped: [{ name: "日用" }] });
+
+    const link = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(link);
+    await enterLedger(page);
+    const query = { ...ref, year: "2026", month: "02" };
+    const overview = await call<{ budgets: { id: string; actualMinor: string; count: number }[] }>(page, "ledger.budgets.list", query);
+    expect(overview.budgets.find(({ id }) => id === free!.id)).toMatchObject({ actualMinor: "4250", count: 1 });
+    expect(overview.budgets).toHaveLength(2);
+    expect(await call(page, "ledger.budgets.detail", { ...query, budgetId: free!.id })).toMatchObject({
+      actualMinor: "4250", count: 1, rows: [{ title: "旅行车票", businessDate: "2026-02-01" }],
+    });
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
