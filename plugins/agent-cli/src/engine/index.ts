@@ -461,7 +461,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
   );
   api.defineCapability(
     bindCapability(mainAgentDescriptors.sessionsList, (c, i) => {
-      if (!isAgentTool(c.caller)) return sessions.list(i.spaceId).map(publicSession);
+      if (!isAgentTool(c.caller)) {
+        const records = isWorkbenchCaller(c.caller) && !api.vault.files.readOnly
+          ? sessions.listWithHistoryIdentities(i.spaceId) : sessions.list(i.spaceId);
+        return records.map(publicSession);
+      }
       if (i.spaceId) spaces.get(i.spaceId);
       const known = new Map(
         spaces
@@ -825,7 +829,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       if (external && i.allSpaces) throw errors.invalidInput("请选择一个 Space 来查询历史");
       const roots = historyRoots(i);
       const live = new Map<string, SessionRecord[]>();
-      for (const session of sessions.list()) {
+      const records = isWorkbenchCaller(caller) && !api.vault.files.readOnly ? sessions.listWithHistoryIdentities() : sessions.list();
+      for (const session of records) {
         const id = session.nativeSessionId ?? session.historyLaunch?.history.nativeId;
         if (!blocksHistoryLaunch(session) || !id) continue;
         const key = liveHistoryKey(session.provider, id);

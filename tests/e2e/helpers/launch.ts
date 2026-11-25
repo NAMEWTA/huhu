@@ -1,5 +1,5 @@
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -14,6 +14,16 @@ export function rmTree(p: string): void {
 
 export const root = path.resolve(import.meta.dirname, "../../../apps/desktop");
 const HERDR = process.env["HUHU_HERDR_BIN"] ?? path.resolve(root, "resources/herdr", `${process.platform}-${process.arch}`, process.platform === "win32" ? "herdr-core.exe" : "herdr-core");
+
+export function linuxProtectedPtyEnvironment(): { HUHU_AGENT_PTY_HOST: string } {
+  const helper = process.env["HUHU_AGENT_PTY_HOST"] ?? path.resolve(root, "../../native/agent-pty/bin/huhu-agent-pty");
+  try {
+    accessSync(helper, constants.X_OK);
+  } catch (cause) {
+    throw new Error("请将 HUHU_AGENT_PTY_HOST 指向已构建且可执行的 Linux 原生 PTY helper", { cause });
+  }
+  return { HUHU_AGENT_PTY_HOST: helper };
+}
 
 /** 以临时 Vault 启动桌面应用；返回应用、首个窗口与清理函数。 */
 export async function openApp(extraEnv: Record<string, string> = {}, prepareVault?: (vault: string) => void, applicationRoot = root): Promise<{ app: ElectronApplication; page: Page; vault: string; close(): Promise<void> }> {

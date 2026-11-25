@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import type { CapabilityResult } from "../../../packages/contracts/src/capability.js";
-import { openApp } from "../helpers/launch.js";
+import { linuxProtectedPtyEnvironment, openApp } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 test("Linux 桌面对话框在系统 sh 无法核对时仍可撤销原批准", async () => {
   test.skip(process.platform !== "linux", "使用 Linux 系统 sh 和本机终端批准");
-  const { page, close } = await openApp();
+  const { page, close } = await openApp(linuxProtectedPtyEnvironment());
   const review = "automations.terminal.approval.review";
   const calls = "**/api/v1/call";
   const unavailableReason = "无法核对 Linux 系统 sh 的可执行文件";

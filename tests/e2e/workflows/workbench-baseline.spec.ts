@@ -834,6 +834,7 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const pane = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
     const terminal = pane.getByTestId("terminal-view");
     await expect(terminal.getByTestId("terminal-observer")).toHaveCount(0);
+    const grid = () => terminal.locator(".xterm-rows").evaluate((element) => ({ rows: element.childElementCount, width: element.clientWidth }));
     const verify = async (step: string) => {
       const marker = `UX08-${step}`;
       const output = path.join(vault, `.${marker}`);
@@ -855,16 +856,21 @@ test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", a
     const sibling = await launchWorkspacePane(page, page.getByTestId("launch-shell"));
     await expect(page.getByTestId("terminal-view")).toHaveCount(2);
     expect((await verify(`${name}-split`)).rows).toBeLessThan(initial.rows);
+    const splitGrid = await grid();
     await sibling.getByRole("button", { name: "放大分栏" }).click();
     await expect(pane).toBeHidden();
     await sibling.getByRole("button", { name: "还原分栏" }).click();
     await expect(pane).toBeVisible();
+    await expect.poll(grid).toEqual(splitGrid);
     await page.setViewportSize({ width: 960, height: 680 });
+    await expect.poll(grid).not.toEqual(splitGrid);
     const resized = await verify(`${name}-viewport`);
+    const resizedGrid = await grid();
     await page.evaluate(() => {
       document.documentElement.style.setProperty("--font-size", "18px");
       window.dispatchEvent(new Event("huhu:appearance-changed"));
     });
+    await expect.poll(grid).not.toEqual(resizedGrid);
     expect((await verify(`${name}-font`)).cols).toBeLessThan(resized.cols);
   }, (vault) => writeFileSync(path.join(vault, ".ux08-terminal.sh"), `
 set -eu
