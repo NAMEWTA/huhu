@@ -177,8 +177,9 @@ test("H04 页面图标和封面通过 Vault 媒体路径显示本地图片", asy
     writeFileSync(path.join(vault, "图标封面.md"), "---\nicon: 封面 图.png\nbanner: 封面 图.png\n---\n\n正文\n");
     await gotoNotes(page);
     await treeItem(page, "图标封面.md").click();
+    const properties = await openNoteProperties(page);
     for (const testId of ["page-icon-preview", "page-cover-preview"]) {
-      const image = page.getByTestId(testId).locator("img");
+      const image = properties.getByTestId(testId).locator("img");
       await expect(image).toHaveAttribute("src", "/%E5%B0%81%E9%9D%A2%20%E5%9B%BE.png");
       await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(1);
     }
@@ -324,9 +325,9 @@ test("F02：Markdown、TXT 和 JSON 在显式转换前保留旧编码字节", as
       expect(readFileSync(file)).toEqual(bytes);
       await expect(convert).toBeEnabled();
       await convert.click();
-      await expect.poll(() => readFileSync(file)).toEqual(Buffer.from(text));
       const editor = name.endsWith(".md") ? prose(page) : page.locator(".cm-content");
       await expect(editor).toContainText("你好");
+      expect(readFileSync(file)).toEqual(Buffer.from(text));
       await page.getByRole("button", { name: `关闭 ${name.replace(/\.md$/i, "")}`, exact: true }).click();
     }
   } finally {

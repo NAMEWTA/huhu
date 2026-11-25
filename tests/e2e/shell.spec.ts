@@ -1963,7 +1963,10 @@ test("知识库：关闭自动保存后，未保存的编辑在“重命名”�
     const dir = path.join(vault, ".huhu", "trash");
     if (!existsSync(dir)) return "";
     for (const id of readdirSync(dir)) {
-      const f = path.join(dir, id, name);
+      const entry = path.join(dir, id);
+      const metadata = path.join(entry, "meta.json");
+      if (!existsSync(metadata) || JSON.parse(readFileSync(metadata, "utf8")).originalPath !== name) continue;
+      const f = path.join(entry, "payload", "entry");
       if (existsSync(f)) return readFileSync(f, "utf8");
     }
     return "";
@@ -2194,7 +2197,9 @@ test("版本与同步：文件历史查看/恢复；Git 页初始化、暂存、
       await call("history.checkpoint", { path: n.path, title: "第二版" });
     });
     await page.getByRole("button", { name: "版本历史" }).first().click();
-    await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
+    const entries = page.getByTestId("history-entry");
+    await expect(entries.filter({ hasText: /· 编辑$/ })).toHaveCount(2, { timeout: 10_000 });
+    await expect(entries.filter({ hasText: /· 命名版本$/ })).toHaveCount(2);
     await expect(page.getByTestId("history-content")).toContainText("第二版");
     await page.getByTestId("history-entry").filter({ hasText: "第一版" }).click();
     await expect(page.getByTestId("history-content")).toContainText("第一版");

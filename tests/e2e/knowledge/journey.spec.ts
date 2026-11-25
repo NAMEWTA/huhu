@@ -239,9 +239,10 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     // ── 11 切回文件继续编辑：侧栏回到文件树，内容仍在，新输入落盘 ──
     await journalTab.click();
     await expect(page.getByTestId("notes-explorer-tree")).toBeVisible();
-    await expect(prose(page)).toContainText("条目甲", { timeout: 30_000 });
-    await prose(page).click();
-    await page.keyboard.press("ControlOrMeta+End");
+    const item = prose(page).getByText("条目甲", { exact: true });
+    await expect(item).toBeVisible({ timeout: 30_000 });
+    await item.click();
+    await page.keyboard.press("End");
     const tail = "切回后继续写";
     await page.keyboard.type(tail);
     // 富文本桥接尚未提交这次输入时，状态仍可能显示上一次的「已保存」。

@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeItem, treeSettled } from "../helpers/tree.js";
 
 async function goToNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 30_000 });
@@ -190,12 +190,13 @@ test("源码模式的属性图标仍能使用离线表情并保存", async () =>
     await editor(page).waitFor();
     await page.getByRole("tab", { name: "源码", exact: true }).click();
     await expect(page.getByTestId("markdown-editor").locator(".cm-content")).toBeVisible();
-    await page.getByTestId("page-icon-preview").click();
+    const properties = await openNoteProperties(page);
+    await properties.getByTestId("page-icon-preview").click();
     const picker = page.getByRole("dialog");
     await picker.getByRole("searchbox").fill("rocket");
     await picker.getByRole("gridcell", { name: "火箭", exact: true }).click();
     await expect(picker).toBeHidden();
-    await expect(page.getByTestId("page-icon-widget")).toHaveValue("🚀");
+    await expect(properties.getByTestId("page-icon-widget")).toHaveValue("🚀");
     await expect.poll(() => readFileSync(file, "utf8")).toMatch(/icon: .*🚀.*\n---\n\n保留正文\n$/);
   } finally {
     await close();

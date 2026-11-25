@@ -1214,8 +1214,11 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
     v = (await call("notes.save", { path: n.path, text: "# 基准笔记\n\n一\n二\n三\n", expectedVersion: v })).data.version;
     await call("history.checkpoint", { path: n.path, title: "版本二" });
     await page.getByRole("button", { name: "版本历史" }).first().click();
-    await expect(page.getByTestId("history-entry")).toHaveCount(2, { timeout: 10_000 });
-    await page.getByTestId("history-entry").filter({ hasText: "版本二" }).click();
+    const entries = page.getByTestId("history-entry");
+    const edits = entries.filter({ hasText: /· 编辑$/ });
+    await expect(edits).toHaveCount(2, { timeout: 10_000 });
+    // “版本二”检查点的前一条是同一内容的自动修订，从自动修订比较两次正文编辑。
+    await edits.first().click();
     // 与当前内容：所选就是当前，没有差异
     await expect(page.getByTestId("version-diff-labels")).toContainText("当前有效内容");
     // 与前一版：版本二相对版本一新增两行
@@ -1223,7 +1226,7 @@ test("版本历史：对比基准“与当前内容 / 与前一版”切换，�
     await expect(page.getByTestId("version-diff-labels")).toContainText("前一版本");
     await expect(page.getByTestId("history-stats")).toContainText("+2");
     // 最早的一版没有前一版：与空文件比
-    await page.getByTestId("history-entry").filter({ hasText: "版本一" }).click();
+    await edits.last().click();
     await expect(page.getByTestId("version-diff-labels")).toContainText("没有更早的版本");
   } finally {
     await close();
