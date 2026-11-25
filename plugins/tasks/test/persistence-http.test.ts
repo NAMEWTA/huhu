@@ -2248,12 +2248,17 @@ test("TW5 邮件结果关联冷恢复沿用 Mail Outbox 原草稿版与回执", 
   const intent = { ...draft, taskId: task.id, receiptId: receipt.receiptId };
   const submit = (running: RunningEngine, input = intent) => call(running, "tasks.mail.deliveries.submit", input);
   expect(await submit(engine)).toMatchObject({ ok: false, error: { code: "INTERNAL" } });
+  const resultKey = { taskId: task.id, receiptId: receipt.receiptId };
+  expect(await call(engine, "tasks.mail.deliveries.read", resultKey)).toMatchObject({ ok: true, data: null });
   await stop(engine);
   const reopened = await start(root);
   expect(await submit(reopened, { ...intent, draftId: randomUUID() })).toMatchObject({ ok: false, error: { code: "IDEMPOTENCY_MISMATCH" } });
   const retry = await submit(reopened);
   expect(retry).toMatchObject({ ok: true, data: { ...operation, resultMessageId: expect.stringMatching(/^receipt-/u) } });
   expect(await submit(reopened)).toEqual(retry);
+  expect(await reopened.dispatcher.call("web:delivery-fixture", {
+    capability: "tasks.mail.deliveries.read", input: resultKey, requestId: randomUUID(),
+  })).toMatchObject({ ok: true, data: operation });
   expect(outboxSubmit.mock.calls.map(([input]) => input)).toEqual([draft, draft]);
   expect(fake.dispatch).toHaveBeenCalledTimes(1);
 });

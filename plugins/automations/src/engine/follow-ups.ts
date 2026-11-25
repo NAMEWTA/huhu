@@ -258,6 +258,14 @@ export class FollowUps {
     return null;
   }
 
+  listHistory() {
+    return [...this.records()].flatMap(({ value }) => {
+      const current = this.occurrence(value);
+      return [...(current && current.state !== "scheduled" ? [current] : []), ...(value.history ?? [])]
+        .map((occurrence) => ({ occurrence, title: "任务跟进", source: "tasks" }));
+    });
+  }
+
   changePlan(change: PlanWrite, authorize: () => void): Promise<PlanSummary> {
     return this.serialize(async () => {
       authorize();

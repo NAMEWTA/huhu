@@ -74,6 +74,7 @@ export const automationToolDescriptors = {
   plansRead: planDescriptors.read,
   plansPreviewRuleDraft: RuleDraftPreview,
   plansReadOccurrence: planDescriptors.occurrence,
+  plansHistory: planDescriptors.history,
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
   plansCreateObservation: planDescriptors.observationCreate,

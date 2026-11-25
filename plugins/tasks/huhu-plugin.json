@@ -48,7 +48,8 @@
       "tasks.github.deliveries.claim",
       "tasks.github.deliveries.confirm",
       "tasks.github.deliveries.read",
-      "tasks.mail.deliveries.submit"
+      "tasks.mail.deliveries.submit",
+      "tasks.mail.deliveries.read"
     ],
     "fileKinds": ["task"]
   }

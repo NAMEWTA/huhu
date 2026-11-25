@@ -1,6 +1,7 @@
 import type { PlanSummary } from "@huhu/contracts";
 import { expect, test } from "vitest";
 import { filterPlanPage } from "../src/shared/plan-directory.js";
+import { historyPage, type HistoryRow } from "../src/shared/occurrence-history.js";
 
 function plan(planId: string, fields: Partial<PlanSummary> = {}): PlanSummary {
   const object = { kind: "task", id: `task-${planId}` };
@@ -35,4 +36,18 @@ test("continues the selected order after the preceding page's last plan disappea
   const page = filterPlanPage([third, second, first], input);
   expect(page.plans).toEqual([first, second]);
   expect(filterPlanPage([first, third], { ...input, cursor: page.nextCursor! })).toEqual({ plans: [third], nextCursor: null });
+});
+
+test("AW5 occurrence pages preserve a stable boundary and distinguish filterable unknown effects", () => {
+  const at = "2026-11-25T10:00:00.000Z";
+  const seed = { planId: "plan", at, trigger: "manual", title: "原计划", source: "tasks", state: "unknown" } as const;
+  const rows: HistoryRow[] = [
+    { ...seed, id: "c" }, { ...seed, id: "b", state: "failed" }, { ...seed, id: "a" },
+    { ...seed, id: "z", source: "mail" }, { ...seed, id: "y", state: "completed" },
+  ];
+  const filter = { limit: 2, source: "tasks", state: "attention", from: at } as const;
+  const first = historyPage(rows, filter);
+  expect(first.rows.map(({ id }) => id)).toEqual(["c", "b"]);
+  expect(historyPage(rows.filter(({ id }) => id !== "b"), { ...filter, cursor: first.next! }).rows.map(({ id }) => id)).toEqual(["a"]);
+  expect(historyPage(rows, { ...filter, until: at }).rows).toEqual([]);
 });

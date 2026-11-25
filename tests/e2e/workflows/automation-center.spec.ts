@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { chromium, expect, test, type Browser } from "@playwright/test";
 import type { PlanSummary } from "../../../packages/contracts/src/automation-plan.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
@@ -165,6 +166,40 @@ test("AW3：独立 Web 窄容器保留编辑内容和返回焦点", async () => 
     await expect(row).toBeFocused();
   } finally {
     await browser?.close();
+    await close();
+  }
+});
+
+test("AW5：筛选原发生和逐项效果，重新读取不会再次发送通知", async () => {
+  const { page, close } = await openApp();
+  try {
+    await engineReady(page);
+    const rule = await call<{ id: string; version: string }>(page, "automations.create", {
+      title: "检查原通知效果",
+      trigger: { preset: "custom", cron: "0 0 1 1 *", zone: "UTC" },
+      action: { kind: "reminder", mode: "notification", text: "只发送一次的通知" },
+    });
+    const occurrence = await call<{ activationId: string }>(page, "automations.runNow", {
+      id: rule.id, expectedVersion: rule.version, intentId: randomUUID(),
+    });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "激活记录", exact: true }).click();
+    await page.getByRole("searchbox", { name: "搜索发生" }).fill("检查原通知");
+    const row = page.getByTestId("activation-row");
+    await expect(row).toHaveCount(1);
+    const open = row.getByRole("button", { name: "检查原通知效果" });
+    await open.click();
+    const detail = page.getByTestId("occurrence-inspector");
+    await expect(detail.getByRole("listitem").filter({ hasText: "通知" })).toContainText("已完成");
+    await detail.getByText("计划与冻结输入", { exact: true }).click();
+    await expect(detail.getByText(occurrence.activationId, { exact: true })).toBeVisible();
+    await detail.getByRole("button", { name: "重新读取原发生" }).click();
+    await expect(detail.getByRole("listitem").filter({ hasText: "通知" })).toHaveCount(1);
+    await detail.getByRole("button", { name: "关闭" }).click();
+    await expect(open).toBeFocused();
+    const all = await call<{ activationId: string; ruleId: string }[]>(page, "automations.activations", {});
+    expect(all.filter(({ ruleId }) => ruleId === rule.id).map(({ activationId }) => activationId)).toEqual([occurrence.activationId]);
+  } finally {
     await close();
   }
 });

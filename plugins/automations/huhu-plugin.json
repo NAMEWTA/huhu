@@ -28,6 +28,7 @@
       "automations.plans.previewRuleDraft",
       "automations.plans.read",
       "automations.plans.readOccurrence",
+      "automations.plans.history",
       "automations.plans.submit",
       "automations.preview",
       "automations.read",

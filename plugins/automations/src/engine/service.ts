@@ -97,6 +97,7 @@ export interface ActivationRecord {
   scheduledFor: string | null;
   startedAt: string;
   finishedAt?: string;
+  terminalRunId?: string;
   summary?: { processed: number; skipped: number } | { state: string };
 }
 
@@ -414,7 +415,7 @@ export class AutomationsService {
     const data = run.data as unknown as AutomationRunFrontmatter;
     const { activationId, ruleId, trigger, scheduledFor, startedAt, finishedAt } = data;
     if (data.actionKind !== "terminal" || typeof activationId !== "string" || typeof data.state !== "string") return undefined;
-    const result = { ...(typeof finishedAt === "string" ? { finishedAt } : {}), summary: { state: this.terminalState(data) } };
+    const result = { ...(typeof finishedAt === "string" ? { finishedAt } : {}), summary: { state: this.terminalState(data) }, terminalRunId: run.id };
     if (legacy && legacy.ruleId === ruleId) {
       const { finishedAt: _, ...base } = legacy;
       return { ...base, ...result };

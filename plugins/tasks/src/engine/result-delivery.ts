@@ -84,6 +84,11 @@ export const resultDeliveryDescriptors = {
     title: "通过邮件投递任务结果",
     description: "将已保存的结果关联到明确选择的草稿版本，交给 Mail Outbox。",
   }),
+  readMailDelivery: defineCapabilityDescriptor({
+    ...desktop, desktopOnly: false, scope: "read", name: "tasks.mail.deliveries.read", input: resultKey,
+    output: mailReceipt.nullable(), title: "查看任务邮件投递",
+    description: "读取原任务结果已关联的 Mail Outbox 操作。",
+  }),
 };
 
 function marker(id: string) {
@@ -203,8 +208,17 @@ export class TaskMailDeliveries {
     return this.writes.drain();
   }
 
+  private file(taskId: string, receiptId: string) {
+    return `tasks/mail-deliveries/${fingerprint([taskId, receiptId])}.json`;
+  }
+
+  read({ taskId, receiptId }: z.output<typeof resultKey>) {
+    const saved = this.files.read(this.file(taskId, receiptId));
+    return saved ? mailLink.parse(JSON.parse(saved.bytes.toString("utf8"))).outbox ?? null : null;
+  }
+
   submit(c: CapabilityContext, input: z.infer<typeof mailInput>) {
-    const path = `tasks/mail-deliveries/${fingerprint([input.taskId, input.receiptId])}.json`;
+    const path = this.file(input.taskId, input.receiptId);
     return this.writes.run(path, async () => {
       c.signal.throwIfAborted();
       c.assertCapabilityCurrent?.();

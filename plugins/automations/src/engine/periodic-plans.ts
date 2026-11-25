@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { errors, PeriodicPlanSpecSchema, PlanOccurrenceSchema, PlanRefSchema, type PeriodicPlanChange, type PeriodicPlanControl, type PeriodicPlanSource, type PlanOccurrence, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
@@ -128,9 +129,31 @@ export class PeriodicPlans implements PeriodicPlanControl {
   readOccurrence(id: string): PlanOccurrence | null {
     if (!/^periodic-[a-f0-9]{64}$/.test(id)) return null;
     const occurrence = this.occurrences.read(id) ?? this.readLegacyOccurrence(id);
-    if (!occurrence) return null;
+    return occurrence ? this.historyState(occurrence) : null;
+  }
+
+  private historyState(occurrence: PlanOccurrence): PlanOccurrence {
+    const id = occurrence.occurrenceId;
     if (occurrence.state !== "running" || this.jobs.get(occurrence.plan.planId)?.occurrenceId === id) return occurrence;
     return { ...occurrence, state: "unknown", effects: occurrence.effects.map((effect) => ({ ...effect, state: "unknown" })) };
+  }
+
+  listHistory() {
+    const plans = new Map(this.load().store.plans.map((plan) => [plan.planId, plan]));
+    const rows = new Map([...this.occurrences.list()].map((row) => [row.occurrenceId, row]));
+    if (this.files.exists(journal)) {
+      for (const name of readdirSync(this.files.abs(journal))) {
+        if (!/^periodic-[a-f0-9]{64}\.json$/u.test(name)) continue;
+        const id = name.slice(0, -5);
+        if (rows.has(id)) continue;
+        const old = this.readLegacyOccurrence(id);
+        if (old) rows.set(id, old);
+      }
+    }
+    return [...rows.values()].map((row) => {
+      const plan = plans.get(row.plan.planId);
+      return { occurrence: this.historyState(row), source: plan?.source.plugin ?? "unknown", title: plan?.title ?? "历史计划" };
+    });
   }
 
   private readLegacyOccurrence(id: string): PlanOccurrence | null {

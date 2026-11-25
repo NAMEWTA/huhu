@@ -1,19 +1,11 @@
-import { Badge, Button, EmptyState } from "@huhu/ui";
-import { ArrowUpRight, History, List, Workflow } from "lucide-react";
-import { useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
+import { Button } from "@huhu/ui";
+import { ArrowUpRight, List, Workflow } from "lucide-react";
+import { useEngine, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { PlanDirectory } from "./PlanDirectory.js";
-import { formatMoment } from "./plan-presentation.js";
+import { OccurrenceHistory } from "./OccurrenceHistory.js";
 import { RunsPanel } from "./RunsPanel.js";
 import { t } from "./i18n.js";
-
-interface Activation {
-  activationId: string;
-  ruleId: string;
-  trigger: "schedule" | "manual";
-  startedAt: string;
-  summary?: unknown;
-}
 
 const views = { plans: "计划", activations: t.nav.activations, runs: t.nav.runs } as const;
 type View = keyof typeof views;
@@ -49,39 +41,13 @@ function AutomationCenter({ onNavigate, registerLeaveGuard }: { onNavigate: Modu
         <main className="automations-automation-main">
           <PlanDirectory active={view === "plans"} onNavigate={onNavigate} registerLeaveGuard={registerLeaveGuard}
             onOpenRuns={(plan) => { setHistoryPlan(plan); setView("activations"); }} />
-          {view === "activations" ? <Activations planId={historyPlan} back={() => setView("plans")} /> : null}
+          {view === "activations" ? <OccurrenceHistory key={historyPlan ?? ""} planId={historyPlan} back={() => setView("plans")} onNavigate={onNavigate} /> : null}
           {view === "runs" ? <div className="automations-task-content plan-history">
             <h1>运行记录</h1>
             <RunsPanel {...(onNavigate && { onNavigate })} />
           </div> : null}
         </main>
       </div>
-    </div>
-  );
-}
-
-function Activations({ planId, back }: { planId: string | null; back(): void }) {
-  const activations = useCapability<Activation[]>("automations.activations");
-  const rules = useCapability<{ id: string; data: { title: string } }[]>("automations.list");
-  const rows = activations.data?.filter(({ ruleId }) => planId === null || planId === ruleId) ?? [];
-  const titles = new Map(rules.data?.map(({ id, data }) => [id, data.title]));
-  return (
-    <div className="automations-occurrence-list plan-history">
-      <h1>{t.nav.activations}</h1>
-      {planId ? <Button onClick={back}>返回计划目录</Button> : null}
-      {activations.error ? <p role="alert">{activations.error.message}</p> : null}
-      {activations.isPending ? <p role="status">正在读取激活记录…</p> : null}
-      {activations.data && rows.length === 0 ? <EmptyState icon={History} title={t.noActivations} /> : null}
-      {rows.map((row) => (
-        <article key={row.activationId} className="automations-occurrence" data-testid="activation-row">
-          <header>
-            <strong>{titles.get(row.ruleId) ?? "原自动化已移除"}</strong>
-            <time dateTime={row.startedAt}>{formatMoment(row.startedAt)}</time>
-            <Badge>{t.trigger[row.trigger]}</Badge>
-          </header>
-          <div className="automations-run-summary">{t.summary(row.summary)}</div>
-        </article>
-      ))}
     </div>
   );
 }

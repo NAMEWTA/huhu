@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, isHuhuError, newId, TaskWritableSchema, type TaskDto } from "@huhu/contracts";
+import { errors, isHuhuError, isWorkbenchCaller, newId, TaskWritableSchema, type TaskDto } from "@huhu/contracts";
 import { defineCapabilityDescriptor, type CapabilityContext } from "@huhu/kernel";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
@@ -248,8 +248,7 @@ export class GitHubSources {
   }
 
   readDelivery(c: CapabilityContext, key: z.output<typeof resultDeliveryDescriptors.githubReadDelivery.input>) {
-    // The local owner can inspect historical evidence after a source has been retired.
-    if (c.caller !== "desktop") this.connector(c, key.sourceId);
+    if (!isWorkbenchCaller(c.caller)) this.connector(c, key.sourceId);
     return this.deliveries.read(key);
   }
 

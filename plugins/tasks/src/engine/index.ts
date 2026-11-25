@@ -474,15 +474,34 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
   api.defineCapability(bindCapability(taskToolDescriptors.githubCreate, (c, input) => githubSources.create(c, input)));
   api.defineCapability(bindCapability(taskToolDescriptors.githubRetire, (c, { sourceId }) => githubSources.retire(c, sourceId)));
   api.defineCapability(bindCapability(taskToolDescriptors.githubAllowReply, (c, input) => githubSources.allowReply(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubAccept, (c, input) => githubSources.accept(c, input)));
+  const deliveryChanged = (taskId: string) => api.events.publish("entity.changed", { kind: "task", id: taskId, op: "updated" });
+  api.defineCapability(bindCapability(taskToolDescriptors.githubAccept, async (c, input) => {
+    const result = await githubSources.accept(c, input);
+    if (result.state === "echo" && result.taskId) deliveryChanged(result.taskId);
+    return result;
+  }));
   api.defineCapability(bindCapability(taskToolDescriptors.githubRead, (c, input) => githubSources.readEvent(c, input)));
   api.defineCapability(bindCapability(taskToolDescriptors.githubAllowDelivery, (c, input) => githubSources.allowDelivery(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubClaimDelivery, (c, input) => githubSources.claimDelivery(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.githubConfirmDelivery, (c, input) => githubSources.confirmDelivery(c, input)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubClaimDelivery, async (c, input) => {
+    const result = await githubSources.claimDelivery(c, input);
+    if (result.send) deliveryChanged(result.taskId);
+    return result;
+  }));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubConfirmDelivery, async (c, input) => {
+    const result = await githubSources.confirmDelivery(c, input);
+    deliveryChanged(result.taskId);
+    return result;
+  }));
   api.defineCapability(bindCapability(taskToolDescriptors.githubReadDelivery, (c, input) => githubSources.readDelivery(c, input)));
-  api.defineCapability(bindCapability(taskToolDescriptors.submitMailDelivery, (c, input) => {
+  api.defineCapability(bindCapability(taskToolDescriptors.submitMailDelivery, async (c, input) => {
     if (c.caller !== "desktop") throw errors.permissionDenied("需要从本机提交对应邮件草稿");
-    return mailDeliveries.submit(c, input);
+    const result = await mailDeliveries.submit(c, input);
+    deliveryChanged(input.taskId);
+    return result;
+  }));
+  api.defineCapability(bindCapability(taskToolDescriptors.readMailDelivery, (c, input) => {
+    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("查看原任务的邮件投递");
+    return mailDeliveries.read(input);
   }));
 
   const exposure = new ExposureStore(api.vault.files, path.join(api.vault.stateDir, "plugins.json"));
