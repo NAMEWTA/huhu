@@ -58,7 +58,7 @@ export function sourceTransport(source: McpSource, endpoint: () => string | null
       env: Object.fromEntries(Object.entries(configuration.environment).map(([name, reference]) => [name, environmentValue(reference)])),
       stderr: "pipe",
     });
-    transport.stderr?.resume();
+    transport.stderr?.on("data", () => undefined);
     return transport;
   }
 
