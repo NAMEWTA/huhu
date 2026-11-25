@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeFolder, treeMenu, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeFolder, treeMenu, treeSettled } from "../helpers/tree.js";
 
 async function openComments(page: Page): Promise<void> {
   const toggle = page.getByTestId("note-toolbar").getByRole("button", { name: "文档详情", exact: true });
@@ -38,7 +38,8 @@ test("D01 / D06 属性评论取消不落盘，创建后重开、移动、回收�
     };
     await row.click();
 
-    const trigger = page.getByTestId("property-comment-button").and(page.locator('[data-key="title"]'));
+    const properties = await openNoteProperties(page);
+    const trigger = properties.getByTestId("property-comment-button").and(page.locator('[data-key="title"]'));
     const input = page.getByPlaceholder("添加评论", { exact: true });
     await trigger.click();
     await input.fill("应当取消");

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
@@ -18,6 +18,17 @@ async function gotoNotes(page: Page): Promise<void> {
   await treeSettled(page);
 }
 const prose = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror").first();
+
+/** Use the painted line, which can be much shorter than a full-width paragraph box. */
+function firstTextLine(paragraph: Locator) {
+  return paragraph.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const rect = range.getClientRects()[0];
+    if (!rect || rect.width === 0) throw new Error("段落的首行没有可选择的文字");
+    return { x: rect.left, y: rect.top + rect.height / 2, width: rect.width };
+  });
+}
 
 async function installProbe(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -78,28 +89,29 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
     // 段内拖选 ×6：与预言机的差异不超过 2 个字符（汉字中点命中取整）
     await loc(3).evaluate((el) => el.scrollIntoView({ block: "center" }));
     await page.waitForTimeout(500);
-    const b3 = (await loc(3).boundingBox())!;
+    const b3 = await firstTextLine(loc(3));
     for (let i = 0; i < 6; i++) {
       await page.waitForTimeout(600); // 避开双击 / 三击判定
-      const b4r = (await loc(4).boundingBox())!;
-      await page.mouse.click(b4r.x + 6, b4r.y + b4r.height - 6); // 先把选区挪到别处：在已有选区内按下会启动文字拖放而不是新选区
+      const b4r = await firstTextLine(loc(4));
+      await page.mouse.click(b4r.x + 6, b4r.y); // 先清空选区，避免在已有选区内按下时启动文字拖放
       // ProseMirror 的 focus 处理会在获得焦点后 20 ms 把自己的选区写回 DOM；真人点击与下一步操作之间至少隔一百多毫秒，合成输入没有间隔，主线程繁忙时该定时器会落进拖选 / 按键中间。
       await page.waitForTimeout(150);
       const x1 = b3.x + b3.width * (0.1 + 0.05 * i);
       const x2 = b3.x + b3.width * (0.55 + 0.06 * i);
-      const y = b3.y + 10;
+      const y = b3.y;
       await page.mouse.move(x1, y);
       await page.mouse.down();
       await page.mouse.move(x2, y, { steps: 10 });
       await page.mouse.up();
       const got = await page.evaluate(() => (window as unknown as { __p: { text(): string } }).__p.text());
       const want = (await page.evaluate(([a, b, c, d]) => (window as unknown as { __p: { oracle(...n: number[]): string | null } }).__p.oracle(a!, b!, c!, d!), [x1, y, x2, y])) ?? "";
+      expect(want.length).toBeGreaterThan(0);
       expect(got.length).toBeGreaterThan(0);
       expect(Math.abs(got.length - want.length)).toBeLessThanOrEqual(2);
     }
 
     // 逐行 ArrowDown ×12 / ArrowUp ×12：偏移单调、单步纵向位移不超过 3 行
-    await page.mouse.click(b3.x + b3.width * 0.4, b3.y + 10);
+    await page.mouse.click(b3.x + b3.width * 0.4, b3.y);
     await page.waitForTimeout(150);
     let prev = await page.evaluate(() => (window as unknown as { __p: { focus(): { offset: number; y: number } } }).__p.focus());
     for (let i = 0; i < 12; i++) {
@@ -118,7 +130,7 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
     }
 
     // Shift+ArrowDown 扩选：只增不减，锚点不动
-    await page.mouse.click(b3.x + b3.width * 0.3, b3.y + 10);
+    await page.mouse.click(b3.x + b3.width * 0.3, b3.y);
     await page.waitForTimeout(150);
     const a0 = await page.evaluate(() => (window as unknown as { __p: { anchor(): number } }).__p.anchor());
     let len = 0;
@@ -133,9 +145,9 @@ test("B06：鼠标拖选（段内与跨段）与上下行光标，不错位、�
 
     // 跨段拖选（第 2 段 → 第 4 段）：两端都在视口内，与预言机差异 ≤ 6 字符；选区文本同时含两段的片段
     await loc(3).evaluate((el) => el.scrollIntoView({ block: "center" }));
-    const b2 = (await loc(2).boundingBox())!;
-    const b4 = (await loc(4).boundingBox())!;
-    const [x1, y1, x2, y2] = [b2.x + b2.width * 0.3, b2.y + 10, b4.x + b4.width * 0.6, b4.y + 10] as const;
+    const b2 = await firstTextLine(loc(2));
+    const b4 = await firstTextLine(loc(4));
+    const [x1, y1, x2, y2] = [b2.x + b2.width * 0.3, b2.y, b4.x + b4.width * 0.6, b4.y] as const;
     await page.mouse.move(x1, y1);
     await page.mouse.down();
     await page.mouse.move(x2, y2, { steps: 20 });
@@ -199,7 +211,7 @@ test("C05：坏 YAML——面板逐字给出诊断，修复入口是源码模式
     await gotoNotes(page);
     await treeItem(page, "坏属性.md").click();
     await expect(prose(page)).toContainText("段落", { timeout: 30_000 });
-    const alert = page.getByTestId("property-panel-yaml-error");
+    const alert = (await openNoteProperties(page)).getByTestId("property-panel-yaml-error");
     await expect(alert).toBeVisible({ timeout: 20_000 });
     await expect(alert).toHaveAttribute("role", "alert");
     // 诊断文案逐字（Lingui 的 en / zh-Hans 两个编译目录之一）
@@ -223,7 +235,7 @@ test("C05：坏 YAML——面板逐字给出诊断，修复入口是源码模式
     await expect.poll(() => readFileSync(file, "utf8"), { timeout: 15_000 }).toContain("title: 修好了");
     await page.getByRole("tab", { name: "实时预览" }).click();
     await expect(prose(page)).toContainText("段落", { timeout: 20_000 });
-    await expect(page.getByTestId("property-panel-yaml-error")).toHaveCount(0);
+    await expect((await openNoteProperties(page)).getByTestId("property-panel-yaml-error")).toHaveCount(0);
   } finally {
     await close();
   }

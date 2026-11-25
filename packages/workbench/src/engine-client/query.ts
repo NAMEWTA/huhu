@@ -134,6 +134,8 @@ function refreshNoteCommit(qc: QueryClient, vaultId: string, delta: NoteIndexDel
       if (["notes.read", "notes.textEncoding", "notes.previewEncoding", "vault.readFile", "vault.readRange"].includes(capability)) return parameters?.path === path;
       if (capability.startsWith("tasks.")) return path.startsWith("Tasks/");
       if (capability.startsWith("automations.")) return path.startsWith("Automations/");
+      // A note outside Archives can add or remove a backlink to a record or attachment.
+      if (capability === "archives.read" && /\.md$/i.test(path)) return true;
       if (capability.startsWith("archives.")) return path.startsWith("Archives/");
       return ["notes.backlinks", "vault.search", "home.notes.recent", "home.summary", "health.run"].includes(capability);
     },

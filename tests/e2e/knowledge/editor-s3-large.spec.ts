@@ -50,6 +50,7 @@ test("S3：1 MiB 文档源码优先打开；切到实时预览才构建富文本
 });
 
 test("S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件，最后一个字符不丢", async () => {
+  test.setTimeout(120_000);
   const { page, vault, close } = await openApp();
   try {
     const body = Array.from({ length: 5000 }, (_, i) => `第 ${i} 行：这是一段正文，包含 **加粗**。`).join("\n\n");
@@ -59,27 +60,28 @@ test("S3：5000 段文档在实时预览里输入后立刻切源码 / 切文件�
 
     await gotoNotes(page);
     await treeItem(page, "长文.md").click();
-    await expect(prose(page)).toContainText("第 0 行", { timeout: 30_000 });
+    const firstParagraph = prose(page).locator("p").first();
+    await expect(firstParagraph).toContainText("第 0 行", { timeout: 30_000 });
 
-    await prose(page).click();
-    await page.keyboard.press("ControlOrMeta+Home");
-    await page.keyboard.press("ArrowDown");
+    await firstParagraph.click();
+    await page.keyboard.press("Home");
     await page.keyboard.type("前缀甲乙丙");
 
     // 立刻切源码：CodeMirror 必须看到最新的 Y.Text（切换前先结算被推迟的桥）
     await page.getByRole("tab", { name: "源码" }).click();
-    await expect(cm(page)).toContainText("前缀甲乙丙", { timeout: 20_000 });
+    // 与上一个大文档用例一样，等挂载时以 DOM 查询避开整份富文本的 ARIA 遍历。
+    await page.waitForFunction(() => document.querySelector('[data-testid="markdown-editor"] .cm-content')?.textContent?.includes("前缀甲乙丙"), undefined, { timeout: 60_000, polling: 250 });
+    expect(readFileSync(file, "utf8")).toContain("前缀甲乙丙");
 
     // 回到实时预览再输入，然后立刻切到另一个文件：磁盘必须含最后一个字符
     await page.getByRole("tab", { name: "实时预览" }).click();
-    await expect(prose(page)).toContainText("前缀甲乙丙", { timeout: 30_000 });
-    await prose(page).click();
-    await page.keyboard.press("ControlOrMeta+Home");
-    await page.keyboard.press("ArrowDown");
+    await expect(firstParagraph).toBeVisible({ timeout: 30_000 });
+    await expect(firstParagraph).toContainText("前缀甲乙丙");
+    await firstParagraph.click();
     await page.keyboard.press("End");
     await page.keyboard.type("尾丁");
     await treeItem(page, "短文.md").click();
-    await expect(prose(page)).toContainText("正文", { timeout: 30_000 });
+    await expect(prose(page).getByRole("heading", { name: "短文", exact: true })).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => readFileSync(file, "utf8"), { timeout: 10_000 }).toContain("尾丁");
     expect(readFileSync(file, "utf8")).toContain("前缀甲乙丙");
   } finally {

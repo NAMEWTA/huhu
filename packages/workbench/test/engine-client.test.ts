@@ -648,7 +648,9 @@ test("F23 正文保存按修订更新原位元信息，不请求完整路径树"
   const body = queryKey("v", "notes.read", { path: entry.path });
   const unrelated = queryKey("v", "notes.read", { path: "another.md" });
   const tags = queryKey("v", "notes.list", { filter: { tag: "note" } });
-  for (const k of [body, unrelated, tags]) qc.setQueryData(k, {});
+  const archiveDetail = queryKey("v", "archives.read", { path: "Archives/Contacts/A/" });
+  const archiveList = queryKey("v", "archives.list", { type: "Archives/Contacts/" });
+  for (const k of [body, unrelated, tags, archiveDetail, archiveList]) qc.setQueryData(k, {});
   const commit = (before: number, revision: number, size: number, tagsChanged = false) =>
     invalidateForEvent(qc, "v", {
       type: "vault.fileChanged",
@@ -663,6 +665,8 @@ test("F23 正文保存按修订更新原位元信息，不请求完整路径树"
     expect(qc.getQueryState(body)?.isInvalidated).toBe(true);
     expect(qc.getQueryState(unrelated)?.isInvalidated).toBe(false);
     expect(qc.getQueryState(tags)?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(archiveDetail)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(archiveList)?.isInvalidated).toBe(false);
 
     await commit(2, 3, 30, true);
     expect(qc.getQueryState(tags)?.isInvalidated).toBe(true);

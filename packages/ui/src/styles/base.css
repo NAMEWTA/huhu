@@ -22,9 +22,7 @@ body {
   color: var(--text);
   font: 400 var(--font-size) / var(--body-leading) var(--font-ui);
 }
-h1,
-h2,
-h3 {
+:is(h1, h2, h3):where(:not(.ok-root *)) {
   font-family: var(--font-display);
   font-weight: var(--title-weight);
   letter-spacing: var(--title-tracking);

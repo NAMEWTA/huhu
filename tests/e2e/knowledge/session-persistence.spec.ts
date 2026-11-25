@@ -63,7 +63,7 @@ test("C05 坏 YAML 保留原文，使用源码入口修好并关闭重开后属�
     await doc.click();
     const prose = page.getByTestId("markdown-editor").locator(".ProseMirror");
     await expect(prose).toContainText("正文保留");
-    await expect(page.getByTestId("property-panel-yaml-error")).toBeVisible();
+    await expect((await openNoteProperties(page)).getByTestId("property-panel-yaml-error")).toBeVisible();
     await expect(doc).toBeVisible();
     expect(readFileSync(file, "utf8")).toBe(original);
     await page.getByRole("tab", { name: "源码", exact: true }).click();
@@ -78,9 +78,10 @@ test("C05 坏 YAML 保留原文，使用源码入口修好并关闭重开后属�
     await page.getByRole("button", { name: "关闭 坏属性", exact: true }).click();
     await doc.click();
     await page.getByRole("tab", { name: "实时预览", exact: true }).click();
-    await expect(page.getByTestId("property-panel-yaml-error")).toHaveCount(0);
-    await expect(await openNoteProperties(page)).toContainText("title");
-    await expect(await openNoteProperties(page)).toContainText("code");
+    const properties = await openNoteProperties(page);
+    await expect(properties.getByTestId("property-panel-yaml-error")).toHaveCount(0);
+    await expect(properties).toContainText("title");
+    await expect(properties).toContainText("code");
     await expect(prose).toContainText("正文保留");
     expect(readFileSync(file, "utf8")).toBe(repaired);
   } finally {

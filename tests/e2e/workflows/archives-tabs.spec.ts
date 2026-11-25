@@ -167,8 +167,8 @@ test("E04 同一 index.md 同一会话：Markdown 标签里的未保存编辑，
     expect(existsSync(path.join(vault, "Archives", "通讯录", "张三", "index.md"))).toBe(true);
     // 切回 Markdown：看到字段与追加行
     await page.getByTestId("archive-open-markdown").click();
-    await expect(page.getByTestId("markdown-editor")).toContainText("999");
     await expect(page.getByTestId("markdown-editor")).toContainText("来自 Markdown 的修改");
+    await expect((await openNoteProperties(page)).locator('textarea[data-key="电话"]')).toHaveValue("999");
   } finally {
     await close();
   }
