@@ -4,7 +4,7 @@ import path from "node:path";
 import { unzipSync, zipSync } from "fflate";
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
-import { exportPackage, importPackage } from "../src/index.js";
+import { exportPackage, importPackage, readBoundedZip } from "../src/index.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -39,6 +39,16 @@ function evilZip(files: Record<string, string>, manifestFiles?: { path: string; 
   return p;
 }
 const VJ = JSON.stringify({ kind: "huhu-vault", id: "vault-evil1", name: "e", description: "", formatVersion: 1, createdAt: "" });
+
+test("bounded ZIP inspection rejects non-canonical paths, case collisions and excess declared data", () => {
+  const byte = new Uint8Array([1]);
+  const limits = { archiveBytes: 4096, entryBytes: 10, totalBytes: 12, entries: 5 };
+  expect(() => readBoundedZip(zipSync({ "../outside.txt": byte }), limits)).toThrow();
+  expect(() => readBoundedZip(zipSync({ "Foo": byte, "foo": byte }), limits)).toThrow(/重复/);
+  expect(() => readBoundedZip(zipSync({ "first": new Uint8Array(7), "second": new Uint8Array(6) }), limits)).toThrow(/超出上限/);
+  expect(() => readBoundedZip(zipSync({ "large": new Uint8Array(11) }), limits)).toThrow(/超出上限/);
+  expect(readBoundedZip(zipSync({ "data/info.txt": byte }), limits).get("data/info.txt")).toEqual(byte);
+});
 
 describe("数据包", () => {
   test("导出排除运行和认证状态，导入后保留业务数据及 Vault ID", async () => {

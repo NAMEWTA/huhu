@@ -568,3 +568,90 @@ test("AW4 AU01 AU15 AU16 账本与中心双向定位同一计划且删除后插�
     await close();
   }
 });
+
+test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const original = await enterLedger(desktop);
+    await original.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "原账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const { book, businessDate, accounts } = await call<{ book: { revision: string }; businessDate: string; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+    await call(desktop, "ledger.records.create", { bookId, expectedRevision: book.revision, intentKey: randomUUID(), title: "备份车票",
+      record: { type: "expense", accountId: accounts[0]!.id, amountMinor: "2300", currency: "TWD",
+        occurredAt: ledgerBusinessDayRange(businessDate, "Asia/Taipei").from, categoryId: null, tagIds: [], attachmentIds: [], payee: null, memo: null } });
+    const url = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(url);
+    const ledger = await enterLedger(page);
+    await page.getByTestId("ledger-nav-backups").click();
+    await ledger.getByRole("button", { name: "准备当前快照" }).click();
+    const exporting = page.getByRole("dialog", { name: "导出账本包" });
+    await exporting.getByRole("checkbox", { name: "账户、期初余额与字典" }).uncheck();
+    await expect(exporting.getByRole("button", { name: "下载账本包" })).toBeDisabled();
+    await expect(exporting.getByRole("status")).toContainText(/请补选\s*账户/);
+    await exporting.getByRole("checkbox", { name: "账户、期初余额与字典" }).check();
+    const downloadPromise = page.waitForEvent("download");
+    await exporting.getByRole("button", { name: "下载账本包" }).click();
+    const archive = await downloadPromise;
+    await ledger.getByRole("button", { name: "预览恢复" }).click();
+    const restore = page.getByRole("dialog", { name: "恢复账本包" });
+    await restore.getByLabel("本地账本包").setInputFiles(await archive.path());
+    await restore.getByRole("button", { name: "检查备份" }).click();
+    await expect(restore.getByRole("heading", { name: "核对恢复范围" })).toBeFocused();
+    expect(await call(page, "ledger.books.list", {})).toMatchObject({ books: [{ id: bookId }] });
+    await restore.getByLabel("恢复到新账本").fill("恢复账本");
+    await restore.getByRole("button", { name: "确认恢复" }).click();
+    await expect(ledger.getByRole("heading", { name: "恢复账本", exact: true })).toBeVisible();
+    const published = await call<{ activeBookId: string; books: { id: string }[] }>(page, "ledger.books.list", {});
+    expect(published.activeBookId).not.toBe(bookId);
+    expect(published.books).toHaveLength(2);
+    expect(await call(page, "ledger.records.list", { bookId: published.activeBookId })).toMatchObject({ total: 1, rows: [{ title: "备份车票" }] });
+    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({ total: 1, rows: [{ title: "备份车票" }] });
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await close();
+  }
+});
+
+test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async () => {
+  const { page, close } = await openApp();
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-vault-package-e2e-"));
+  let restoredApp: Awaited<ReturnType<typeof launch>> | undefined;
+  let originalClosed = false;
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "完整备份账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
+    const accounts = () => call<{ book: { revision: string }; businessDate: string; accounts: { id: string }[] }>(page, "ledger.accounts.list", { bookId });
+    const initial = await accounts();
+    const record = await call<{ id: string; revision: string }>(page, "ledger.records.create", { bookId, expectedRevision: initial.book.revision,
+      intentKey: randomUUID(), title: "含凭证流水", record: { type: "expense", accountId: initial.accounts[0]!.id, amountMinor: "1000", currency: "TWD",
+        occurredAt: ledgerBusinessDayRange(initial.businessDate, "Asia/Taipei").from, categoryId: null, tagIds: [], attachmentIds: [], payee: null, memo: null } });
+    await call(page, "ledger.attachments.upload", { bookId, expectedRevision: (await accounts()).book.revision, recordId: record.id,
+      recordRevision: record.revision, fileName: "票据.txt", mediaType: "text/plain", base64: Buffer.from("original receipt").toString("base64") });
+    const dest = path.join(sandbox, "vault.zip");
+    const targetDir = path.join(sandbox, "received");
+    await call(page, "vault.exportPackage", { dest, includeAttachments: false });
+    await call(page, "vault.importPackage", { zipPath: dest, targetDir });
+    expect(await call(page, "ledger.records.list", { bookId })).toMatchObject({ total: 1, rows: [{ attachments: [{ fileName: "票据.txt" }] }] });
+    await close();
+    originalClosed = true;
+    restoredApp = await launch(targetDir);
+    const restored = await restoredApp.firstWindow();
+    await engineReady(restored);
+    await expect((await enterLedger(restored)).getByRole("heading", { name: "完整备份账本" })).toBeVisible();
+    expect(await call(restored, "ledger.records.list", { bookId })).toMatchObject({
+      total: 1, rows: [{ title: "含凭证流水", attachments: [], record: { id: record.id, attachmentIds: [] } }],
+    });
+  } finally {
+    await restoredApp?.close().catch(() => undefined);
+    if (!originalClosed) await close();
+    rmTree(sandbox);
+  }
+});

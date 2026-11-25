@@ -40,6 +40,11 @@
       "ledger.loans.previewHistory",
       "ledger.loans.confirmHistory",
       "ledger.loans.remove",
+      "ledger.backups.export",
+      "ledger.backups.preview",
+      "ledger.backups.cancel",
+      "ledger.backups.status",
+      "ledger.backups.confirm",
       "ledger.accounts.create",
       "ledger.accounts.update",
       "ledger.accounts.setStatus",
@@ -70,7 +75,8 @@
       "ledger.reconciliation.previewOffset",
       "ledger.reconciliation.confirmOffset",
       "ledger.reconciliation.offsetGroup",
-      "ledger.reconciliation.undoOffset"
+      "ledger.reconciliation.undoOffset",
+      "ledger.reconciliation.clearLegacyOffset"
     ]
   }
 }

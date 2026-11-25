@@ -85,6 +85,7 @@ export function merge(state: BookState, input: z.infer<typeof ConfirmMerge>) {
     retained = LedgerRecord.parse({ ...fields, accountId: source });
   }
   state.records = state.records.flatMap((row) => retired.has(row.id) ? [] : [row.id === id ? retained : row]);
+  state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((recordId) => !retired.has(recordId));
   for (const removedId of removed) delete state.recordTitles[removedId];
   const references = new Map(state.recordReferences.map((row) => {
     const next = retired.has(row.recordId) ? { ...row, recordId: id } : row;

@@ -7,7 +7,7 @@ export const RecurringInput = z.strictObject({
   id: EntryId,
   title: z.string().trim().min(1).max(150),
   type: z.enum(["income", "expense"]),
-  amountMinor: LedgerMinorUnits.refine((value) => BigInt(value) > 0n, "金额须为正数"),
+  amountMinor: LedgerMinorUnits.refine((value) => value !== "0" && !value.startsWith("-"), "金额须为正数"),
   currency: LedgerCurrency,
   accountId: EntryId,
   startOn: LedgerBusinessDate,
@@ -48,3 +48,4 @@ export type RecurringPreview = z.infer<typeof RecurringPreview>;
 export type RecurringRow = z.infer<typeof RecurringRow>;
 
 export const recurringLabels = { daily: "每日", weekly: "每周", monthly: "每月" };
+export const recurringPlanId = (bookId: string, ruleId: string) => `ledger-recurring-${bookId}-${ruleId}`;

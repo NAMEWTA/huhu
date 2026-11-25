@@ -17,6 +17,7 @@ export * from "./markdown/index.js";
 export * from "./index/search.js";
 export * from "./index/vault-index.js";
 export * from "./package/package.js";
+export * from "./package/bounded-zip.js";
 export * from "./trash.js";
 export * from "./list.js";
 export * from "./read-asset.js";

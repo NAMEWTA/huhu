@@ -74,7 +74,8 @@ export function recordView(store: LedgerStore, state: BookState, record: LedgerR
     const file = statSync(store.files.abs(attachmentPath(state.book.id, entry.id)), { throwIfNoEntry: false });
     return { ...entry, missing: !file?.isFile() || file.size !== entry.size };
   });
-  return { record, title: recordTitle(state, record), businessDate: ledgerBusinessDate(record.occurredAt, state.book.timeZone), offset, attachments };
+  return { record, title: recordTitle(state, record), businessDate: ledgerBusinessDate(record.occurredAt, state.book.timeZone), offset,
+    legacyOffset: state.legacyOffsetRecordIds.includes(record.id), attachments };
 }
 
 export function legs(row: LedgerRecord): MoneyLeg[] {
@@ -100,7 +101,7 @@ export function filteredRecords(state: BookState, filters: RecordFilters) {
   const { book, records, dictionary } = state;
   const from = filters.from ? Date.parse(ledgerBusinessDayRange(filters.from, book.timeZone).from) : -Infinity;
   const until = filters.to ? Date.parse(ledgerBusinessDayRange(filters.to, book.timeZone).until) : Infinity;
-  const offsetRows = offsets(state);
+  const offsetRows = new Set([...offsets(state), ...state.legacyOffsetRecordIds]);
   const categories = new Map(dictionary.filter((item) => item.kind === "category").map((item) => [item.id, item.name]));
   return records.filter((row) => {
     const when = Date.parse(row.occurredAt);
@@ -121,10 +122,11 @@ export function filteredRecords(state: BookState, filters: RecordFilters) {
 export function recordsPage(store: LedgerStore, state: BookState, { filters, page, pageSize }: z.infer<typeof RecordsQuery>): RecordsPage {
   const { book } = state;
   const offsetRows = offsets(state);
+  const legacy = new Set(state.legacyOffsetRecordIds);
   const sums = new Map<Currency, Record<MoneyLeg["column"], bigint>>();
   const matching = filteredRecords(state, filters);
   for (const row of matching) {
-    if (offsetRows.has(row.id)) continue;
+    if (offsetRows.has(row.id) || legacy.has(row.id)) continue;
     for (const { currency, amount, column } of legs(row)) {
       if (filters.currency && currency !== filters.currency) continue;
       const sum = sums.get(currency) ?? { incomeMinor: 0n, expenseMinor: 0n, transferOutMinor: 0n, transferInMinor: 0n };
@@ -179,6 +181,7 @@ export function applyBatch(state: BookState, input: z.infer<typeof InputBatch>) 
   if (action.kind === "delete") {
     state.records = state.records.filter(({ id }) => !ids.has(id));
     state.recordReferences = state.recordReferences.filter(({ recordId }) => !ids.has(recordId));
+    state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((id) => !ids.has(id));
     for (const id of ids) delete state.recordTitles[id];
   } else {
     for (const row of state.records) {

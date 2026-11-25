@@ -8,6 +8,7 @@ import { Overview, RecordsSection } from "./Records.js";
 import { LedgerCalendar, LedgerReports } from "./Reports.js";
 import { LedgerRecurringPage } from "./Recurring.js";
 import { LedgerLoans } from "./Loans.js";
+import { LedgerBackupsSection } from "./Backups.js";
 import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
 
 const zones = ["Asia/Taipei", "Asia/Shanghai", "America/New_York", "UTC"];
@@ -98,7 +99,11 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
       {source && !current && <p role="status">原计划的账本已不可用。</p>}
       {readOnly && <p role="status">当前 Vault 为只读。</p>}
       {!editor && error && <p role="alert">{error}</p>}
-      {books.length === 0 ? <section className="hu-stack">
+      {section === "backups" ? <LedgerBackupsSection key={current?.id ?? "no-book"} book={current} readOnly={readOnly} restored={(book) => {
+        setSource(undefined);
+        setNotice(`已恢复为新账本「${book.name}」。`);
+        onSection("overview");
+      }} /> : books.length === 0 ? <section className="hu-stack">
         <h2>还没有账本</h2>
         <p>先建立账本，选择业务时区和第一项资金账户。</p>
         <div><Button icon={Plus} variant="primary" disabled={locked} onClick={() => edit({ mode: "create" })}>创建第一个账本</Button></div>
@@ -181,6 +186,7 @@ export function createLedgerContributions(openRecords: () => void) {
     sections: [
       { id: "overview", label: "总览" }, { id: "records", label: "流水" },
       { id: "accounts", label: "账户" }, { id: "recurring", label: "固定收支与贷款" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
+      { id: "backups", label: "导入与恢复" },
     ],
   };
   return { modules: [module], commands: [{ id: "ledger.record", plugin: "ledger", title: "记一笔", run: () => { quick.set(true); openRecords(); } }] };

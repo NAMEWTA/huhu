@@ -1,7 +1,7 @@
 import { errors, isHuhuError, ledgerBusinessDate, ledgerBusinessDayRange, type PeriodicEnabledWindow, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import type { z } from "zod";
-import { recurringLabels, type OpenRecurring, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRule, type RetryRecurring } from "../shared/recurring.js";
+import { recurringLabels, recurringPlanId, type OpenRecurring, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRule, type RetryRecurring } from "../shared/recurring.js";
 import { anchoredMonthDate } from "../shared/monthly-date.js";
 import { requireActiveBook, validateLedgerAccount } from "./accounts.js";
 import { saveRecord } from "./records.js";
@@ -11,7 +11,6 @@ type Authorization = Pick<CapabilityContext, "signal" | "assertCapabilityCurrent
 type Slot = { periodId: string; date: string; scheduledAt: string };
 const dayMs = 86_400_000;
 const limit = 128;
-const planIdFor = (bookId: string, ruleId: string) => `ledger-recurring-${bookId}-${ruleId}`;
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 function fromDate(rule: RecurringRule, minimum: string): string {
@@ -121,7 +120,7 @@ export class LedgerRecurring {
     const control = this.control();
     if (!control) throw errors.pluginDisabled("automations");
     const signal = AbortSignal.any([this.lifetime, c.signal]);
-    const rule = { ...input, planId: planIdFor(bookId, input.id) };
+    const rule = { ...input, planId: recurringPlanId(bookId, input.id) };
     const state = this.store.snapshot(bookId);
     const prior = state.recurring.find(({ id }) => id === input.id);
     if (prior) {

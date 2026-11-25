@@ -191,7 +191,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, 
           checked={selection.some(({ record }) => record.id === row.record.id)} onChange={(event) => setSelection(
             event.currentTarget.checked ? [...selection, row] : selection.filter(({ record }) => record.id !== row.record.id),
           )} /> },
-        { id: "title", header: "事项", cell: (row) => <span>{row.title}{row.offset ? " · 已平账" : ""}</span> },
+        { id: "title", header: "事项", cell: (row) => <span>{row.title}{row.offset ? " · 已平账" : ""}{row.legacyOffset ? " · 旧报表排除" : ""}</span> },
         { id: "date", header: "业务日", cell: (row) => row.businessDate },
         { id: "type", header: "类型", cell: ({ record }) => recordKinds[record.type] },
         { id: "account", header: "资金账户", cell: ({ record }) => {
@@ -209,6 +209,9 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, 
           </Button>
           {row.record.type !== "transfer" && <Button disabled={locked} aria-label={`${row.offset ? "撤销平账" : "平账"} ${row.title}`}
             onClick={() => setReconciliation({ mode: row.offset ? "undo" : "offset", recordId: row.record.id })}>{row.offset ? "撤销平账" : "平账"}</Button>}
+          {row.legacyOffset && <Button disabled={locked || action.working} onClick={() => void action.run("ledger.reconciliation.clearLegacyOffset", {
+            ...bookVersion(data.book), recordId: row.record.id,
+          })}>清除旧平账标记</Button>}
         </div> },
       ]} />
       <div className="hu-toolbar" aria-label="分页">

@@ -205,21 +205,25 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     },
   });
   registerPackageCapabilities(registry, vault, {
-    withSnapshot: async (read, signal, desktop) => {
+    withSnapshot: async (read, signal, desktop, includeAttachments) => {
       const activeAgent = desktop && plugins.isEnabled("agent-cli") ? getService<{ core: HerdrCore }>("agentCli") : undefined;
       const workspace = desktop ? await agentCli.workspacePackageSnapshot(vault, signal, activeAgent?.core) : undefined;
-      return safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
+      return ledger.withLedgerSnapshot(vault.files, () => safe.withSafePackageSnapshot(vault.files, (safeFiles) =>
         mail.withMailSnapshot(vault.files, () => {
           signal.throwIfAborted();
           const mailSelection = mail.mailPackageSelection(vault.files);
+          const ledgerSelection = desktop ? ledger.ledgerPackageSelection(vault.files, includeAttachments) : undefined;
+          const computedFiles = new Map(ledgerSelection?.computedFiles);
+          if (workspace) computedFiles.set(agentCli.workspacePackagePath, workspace.bytes);
           const definitions = [mail.mailAccountPackageFile(vault.files), ...ssh.sshPortablePackageFiles(vault.files)];
           return read(signal, {
-            ...(workspace && { computedFiles: new Map([[agentCli.workspacePackagePath, workspace.bytes]]) }),
+            computedFiles,
             externalFiles: new Set(definitions.map(({ path }) => path)),
             includeFile(relative) {
               const normalized = relative.toLowerCase();
               if (normalized === agentCli.workspacePackagePath) return relative === normalized && workspace !== undefined;
               if (normalized.startsWith(".huhu/safe/")) return safeFiles.has(relative);
+              if (ledgerSelection?.includeFile(relative) === false) return false;
               return mailSelection.includeFile(relative);
             },
             verifyFiles(files) {
@@ -234,14 +238,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
                 if (written.get(path) !== expected) throw new HuhuError("VERSION_CONFLICT", "备份所需的保险箱文件已变化或未完整收录，请重新核对后导出");
               }
               mailSelection.verifyFiles(written);
+              ledgerSelection?.verifyFiles(written);
             },
           });
         }),
-      );
+      ));
     },
     validateStaging(files, restored) {
       safe.validateSafePackage(files);
       mail.validateMailPackage(files, restored);
+      ledger.validateLedgerPackage(files, restored);
       agentCli.validateWorkspacePackage(files, restored);
     },
   });

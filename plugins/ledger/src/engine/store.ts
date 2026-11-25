@@ -12,15 +12,18 @@ import { RecurringPeriod, RecurringRule } from "../shared/recurring.js";
 import { Budget } from "../shared/budgets.js";
 import { Loan, LoanPayment } from "../shared/loans.js";
 
-const directory = ".huhu/ledger";
-const indexPath = directory + "/books.json";
+export const ledgerDirectory = ".huhu/ledger";
+const directory = ledgerDirectory;
+export const indexPath = directory + "/books.json";
 export const bookDirectory = (id: string) => directory + "/books/" + BookId.parse(id);
-const bookPath = (id: string) => bookDirectory(id) + "/state.json";
+export const bookPath = (id: string) => bookDirectory(id) + "/state.json";
 export const attachmentPath = (bookId: string, id: string) => bookDirectory(bookId) + "/attachments/" + EntryId.parse(id);
-const indexSchema = z.strictObject({
+const restoreReceipt = z.strictObject({ bookId: BookId, owner: z.string(), fingerprint: z.string() });
+export const indexSchema = z.strictObject({
   format: z.literal(1),
   ids: z.array(BookId),
   activeBookId: BookId.nullable(),
+  restores: z.record(EntryId, restoreReceipt).default({}),
 });
 export const stateSchema = z.strictObject({
   book: LedgerBook,
@@ -32,6 +35,7 @@ export const stateSchema = z.strictObject({
   recordTitles: z.record(EntryId, z.string().min(1).max(150)).default({}),
   attachments: z.array(Attachment).default([]),
   offsets: z.array(LedgerOffsetGroup).default([]),
+  legacyOffsetRecordIds: z.array(EntryId).default([]),
   importRows: z.record(z.string(), EntryId).default({}),
   importReceipts: z.array(ImportReceipt).default([]),
   mappingRevision: z.string().default("0"),
@@ -54,21 +58,32 @@ type Context = Pick<CapabilityContext, "signal" | "assertCapabilityCurrent">;
 const bytes = (data: unknown) => Buffer.from(JSON.stringify(data) + "\n");
 const write = (path: string, data: unknown, expectedVersion: string | null): OpStep => ({ action: "write", path, bytes: bytes(data), expectedVersion });
 
+const tails = new WeakMap<VaultFiles, Promise<void>>();
+
+export function withLedgerSnapshot<T>(files: VaultFiles, operation: () => T | Promise<T>): Promise<T> {
+  const result = (tails.get(files) ?? Promise.resolve()).then(operation);
+  tails.set(files, result.then(() => undefined, () => undefined));
+  return result;
+}
+
+export function ledgerOperations(files: VaultFiles) {
+  return new OperationLog(files, files.abs(directory + "/operations"));
+}
+
 export class LedgerStore {
   private readonly operations: OperationLog;
-  private tail = Promise.resolve();
   private pending?: { index: IndexSnapshot; bookId: string; state: Versioned<BookState> | null };
   private recoveryRequired = false;
 
   constructor(readonly files: VaultFiles, private readonly events: Pick<EventBus, "publish">, private readonly now = () => new Date()) {
-    this.operations = new OperationLog(files, files.abs(directory + "/operations"));
+    this.operations = ledgerOperations(files);
     try {
       if (!files.readOnly) this.operations.recover();
       this.inspectRecovery();
     } catch { this.recoveryRequired = true; }
   }
 
-  idle(): Promise<void> { return this.tail; }
+  idle(): Promise<void> { return tails.get(this.files) ?? Promise.resolve(); }
 
   private inspectRecovery() {
     this.recoveryRequired = this.operations.list().some(({ state }) => state === "prepared" || state === "needs_attention");
@@ -86,12 +101,10 @@ export class LedgerStore {
   }
 
   private enqueue<T>(context: Context, task: () => Promise<T>): Promise<T> {
-    const action = this.tail.then(() => {
+    return withLedgerSnapshot(this.files, () => {
       this.requireWrite(context);
       return task();
     });
-    this.tail = action.then(() => undefined, () => undefined);
-    return action;
   }
 
   private index(): IndexSnapshot {
@@ -99,7 +112,7 @@ export class LedgerStore {
     if (this.pending) return this.pending.index;
     const current = this.files.read(indexPath);
     return current ? { data: indexSchema.parse(JSON.parse(current.bytes.toString("utf8"))), version: current.version } :
-      { data: { format: 1, ids: [], activeBookId: null }, version: null };
+      { data: { format: 1, ids: [], activeBookId: null, restores: {} }, version: null };
   }
 
   private state(bookId: string): Versioned<BookState> {
@@ -155,11 +168,43 @@ export class LedgerStore {
         bookId: book.id, accountId: account.id, effectiveBusinessDate: ledgerBusinessDate(this.now().toISOString(), timeZone), balanceMinor: "0", revision: randomUUID(),
       });
       const state = stateSchema.parse({ book, accounts: [account], bases: [base], records: [] });
-      const next: BookIndex = { format: 1, ids: [...index.data.ids, book.id], activeBookId: book.id };
+      const next: BookIndex = { ...index.data, ids: [...index.data.ids, book.id], activeBookId: book.id };
       await this.transaction(context, "ledger-book-create", [
         write(bookPath(book.id), state, null),
         write(indexPath, next, index.version),
       ], { index, bookId: book.id, state: null });
+      this.emit(book.id, "created");
+      return book;
+    });
+  }
+
+  restoredBook(previewId: string, owner: string): Book | null {
+    const index = this.index().data;
+    const receipt = index.restores[previewId];
+    return receipt?.owner === owner && index.ids.includes(receipt.bookId) ? this.snapshot(receipt.bookId).book : null;
+  }
+
+  restore(context: Context, input: { previewId: string; owner: string; fingerprint: string; name: string },
+    prepare: () => { state: BookState; attachments: ReadonlyMap<string, Uint8Array> }): Promise<Book> {
+    return this.enqueue(context, async () => {
+      const index = this.index();
+      const received = index.data.restores[input.previewId];
+      if (received) {
+        if (received.owner !== input.owner) throw errors.notFound("找不到恢复预览");
+        if (received.fingerprint !== input.fingerprint) throw errors.idempotencyMismatch();
+        return this.snapshot(received.bookId).book;
+      }
+      this.ensureName(input.name);
+      const { state: prepared, attachments } = prepare();
+      const state = stateSchema.parse(prepared);
+      const book = state.book;
+      const next: BookIndex = {
+        ...index.data,
+        ids: [...index.data.ids, book.id], activeBookId: book.id,
+        restores: { ...index.data.restores, [input.previewId]: { bookId: book.id, owner: input.owner, fingerprint: input.fingerprint } },
+      };
+      const steps: OpStep[] = [...attachments].map(([id, data]) => ({ action: "write", path: attachmentPath(book.id, id), bytes: Buffer.from(data), expectedVersion: null }));
+      await this.transaction(context, "ledger-restore", [...steps, write(bookPath(book.id), state, null), write(indexPath, next, index.version)], { index, bookId: book.id, state: null });
       this.emit(book.id, "created");
       return book;
     });
