@@ -1427,6 +1427,43 @@ describe("Engine 启动与关闭", () => {
     expect((await call(e.rendererToken, "vault.reindexCancel", {})).data).toEqual({ cancelled: false });
     expect((await call(e.rendererToken, "vault.reindex", {})).data).toEqual({ completed: true });
   }, 30_000);
+  test("AW6：固定需求计划立即反映 Agent CLI 设置，保留原修订与暂停意图", async () => {
+    const root = tmp();
+    const configure = (engine: RunningEngine, capability: string, input: unknown = {}) =>
+      post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() });
+    const setCodex = async (engine: RunningEngine, enabled: boolean) => {
+      const current = await configure(engine, "agent.settings.get");
+      const { settings } = current.data as unknown as { settings: { revision: number } };
+      expect(await configure(engine, "agent.settings.update", {
+        expectedRevision: settings.revision, defaultAgent: "codex",
+        agents: { codex: { enabled, command: process.execPath }, claude: { enabled: false }, pi: { enabled: false } },
+      })).toMatchObject({ ok: true });
+    };
+    const original = await boot({ vaultPath: root, create: true });
+    engines.push(original);
+    await setCodex(original, false);
+    await original.shutdown();
+    engines.pop();
+    const engine = await boot({ vaultPath: root });
+    engines.push(engine);
+    const [space] = (await configure(engine, "agent.spaces.list")).data as unknown as { id: string }[];
+    const created = await configure(engine, "automations.create", {
+      title: "整理周报", body: "请整理本周的工作记录。",
+      trigger: { preset: "daily", cron: "30 9 * * *", zone: "UTC" },
+      action: { kind: "agent", input: { source: "prompt", spaceId: space!.id, provider: "codex" } },
+    });
+    expect(created).toMatchObject({ ok: true });
+    const { id, version } = created.data as unknown as { id: string; version: string };
+    const identity = { planId: id, revision: version, intent: "paused", nextAt: null, lastOccurrence: null };
+    const read = () => configure(engine, "automations.plans.read", { planId: id });
+    const unavailable = { state: "blocked", reason: "target-unavailable", detail: "原 CLI 当前不可用" };
+    expect(await read()).toMatchObject({ ok: true, data: { ...identity, availability: unavailable } });
+
+    await setCodex(engine, true);
+    expect(await read()).toMatchObject({ ok: true, data: { ...identity, availability: { state: "ready" }, actions: expect.arrayContaining(["resume"]) } });
+    await setCodex(engine, false);
+    expect(await read()).toMatchObject({ ok: true, data: { ...identity, availability: unavailable } });
+  }, 15_000);
   test("automations.update 可以改规则正文（agent 提示词输入的提示词）；外部入口不能改 agent 规则的正文", async () => {
     const e = await boot({ vaultPath: tmp(), create: true });
     engines.push(e);

@@ -502,18 +502,16 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
     manifest: PluginManifestSchema.parse(automationsManifest),
     apply: (ctx, api) => {
       const cli = () => api.service<{ spaces: { list(): { id: string; root: string }[] }; detector: agentCli.AgentDetector }>("agentCli");
-      let exes: Record<string, string> = {};
       // 探测结果有 10 分钟缓存；每次扫描前再取一次（命中缓存就是即时的），这样启动时探测超时 / 之后才安装的 CLI 也能被用上
       const refreshClis = async (): Promise<void> => {
-        const r = await cli()?.detector.detect();
-        exes = Object.fromEntries((r ?? []).flatMap((x) => (x.installed && x.path && x.headless ? [[x.id, x.path] as const] : [])));
+        await cli()?.detector.detect();
       };
       void refreshClis().catch(() => undefined);
       automations.apply(ctx, api, {
         zone: settingsZone,
         taskScanPrincipalCurrent: (caller, subject) => (serverRef.current?.hasMcpPrincipal(caller, subject) ?? false) || (caller !== "mcp" && tokens.hasPrincipal(caller, subject)),
         ...(moduleCredentialHost && { credentialHost: { ...moduleCredentialHost, vault } }),
-        cliAvailable: (p) => cli() !== undefined && exes[p] !== undefined,
+        cliAvailable: (p) => cli()?.detector.cached().some((entry) => entry.id === p && entry.installed && entry.path && entry.headless) ?? false,
         refreshClis,
         spaceState: (id) => {
           const s = cli()

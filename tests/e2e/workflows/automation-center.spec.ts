@@ -8,7 +8,9 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
   const { page, close } = await openApp();
   try {
     await engineReady(page);
-    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    const automations = page.getByRole("navigation", { name: "功能图标栏" }).getByRole("button", { name: "自动化", exact: true });
+    await expect(automations).toBeVisible({ timeout: 10_000 });
+    await automations.click({ timeout: 10_000 });
     const center = page.getByTestId("plan-directory");
     const rows = center.getByTestId("rule-row");
     await expect(center).toContainText("尚无计划");
