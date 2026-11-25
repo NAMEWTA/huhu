@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +10,7 @@ import { EngineClient } from "../../../packages/workbench/src/engine-client/clie
 import { FORWARD_BIND, type ForwardRule, type ForwardRun, type SaveForward } from "../src/shared/forwarding.js";
 import type { ConnectionStatus, HostKeyPrompt } from "../src/shared/trust.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
+import { localPosixRelayShell } from "./shell-relay-fixture.js";
 
 async function api(vaultPath: string, desktopUserData: string, create: boolean) {
   const engine = await boot({ vaultPath, desktopUserData, moduleCredentialProtection: new TestProtection(desktopUserData), create });
@@ -182,7 +184,7 @@ test("four forwarding configurations persist by revision without opening a socke
       { ...drafts[0], listenHost: "0.0.0.0" },
       { ...drafts[1], relay: "shell" },
       { ...drafts[2], target },
-      { ...drafts[3], relay: "shell" },
+      { ...drafts[3], relay: "invalid" },
     ]) {
       await expect(live.client.call("ssh.forwarding.rules.save", invalid, { write: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
     }
@@ -201,6 +203,51 @@ test("four forwarding configurations persist by revision without opening a socke
   } finally {
     await engine?.shutdown();
     await rm(root, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/python3"))("ViaShell forwards fixed and dynamic loopback traffic only after the target connects", { timeout: 30_000 }, async () => {
+  const f = await networkFixture();
+  const direct = vi.fn(() => true);
+  try {
+    const { client } = f;
+    const { hostId, server } = await f.host({ denyDirectTcp: direct, onInteractiveShell: localPosixRelayShell });
+    const target = await f.echo();
+    const local = await save(client, { name: "ViaShell Local", hostId, mode: "local", listenPort: await freePort(), resume: false, target, relay: "shell" });
+    const socks = await save(client, { name: "ViaShell SOCKS", hostId, mode: "socks5", listenPort: await freePort(), resume: false, relay: "shell" });
+    const http = await save(client, { name: "ViaShell HTTP", hostId, mode: "http-connect", listenPort: await freePort(), resume: false, relay: "shell" });
+    await command(client, "start", local);
+    await trust(client, (await state(client, local, "waiting")).prompt!);
+    await state(client, local, "running");
+    for (const rule of [socks, http]) {
+      await command(client, "start", rule);
+      await state(client, rule, "running");
+    }
+    const bytes = Buffer.from([0, 1, 0xff, 0x7f, 0x0a]);
+    const fixed = await f.socket(local.listenPort);
+    await echo(fixed, bytes);
+    const dynamic = await f.socket(socks.listenPort);
+    dynamic.write(Buffer.from([5, 1, 0]));
+    expect(await read(dynamic, 2)).toEqual(Buffer.from([5, 0]));
+    dynamic.write(Buffer.from([5, 1, 0, 1, 127, 0, 0, 1, target.port >>> 8, target.port & 255]));
+    expect((await read(dynamic, 10))[1]).toBe(0);
+    await echo(dynamic, bytes);
+    const proxy = await f.socket(http.listenPort);
+    const authority = `${FORWARD_BIND}:${target.port}`;
+    proxy.write(`CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`);
+    const ready = Buffer.from("HTTP/1.1 200 Connection Established\r\n\r\n");
+    expect(await read(proxy, ready.length)).toEqual(ready);
+    await echo(proxy, bytes);
+    const refused = await f.socket(http.listenPort);
+    const closedAddress = `${FORWARD_BIND}:${await freePort()}`;
+    refused.write(`CONNECT ${closedAddress} HTTP/1.1\r\nHost: ${closedAddress}\r\n\r\n`);
+    const badGateway = Buffer.from("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+    expect(await read(refused, badGateway.length)).toEqual(badGateway);
+    expect(direct).not.toHaveBeenCalled();
+    for (const rule of [local, socks, http]) await command(client, "stop", rule);
+    await vi.waitFor(() => expect(server.closed()).toBe(1));
+  } finally {
+    await f.close();
   }
 });
 

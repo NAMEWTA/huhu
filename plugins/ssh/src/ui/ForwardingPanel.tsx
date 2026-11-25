@@ -67,6 +67,7 @@ function RuleEditor({ previous, hosts, active, busy, error, cancel, save }: { pr
       mode,
       listenPort: Number(data.get("listenPort")),
       resume: data.has("resume"),
+      ...(data.get("relay") === "shell" && mode !== "remote" && { relay: "shell" }),
       ...(fixed && { target: { host: String(data.get("targetHost")).trim(), port: Number(data.get("targetPort")) } }),
       ...(previous && { previous: { id: previous.id, expectedRevision: previous.revision }, rebind: data.has("rebind") }),
     });
@@ -145,7 +146,17 @@ function RuleEditor({ previous, hosts, active, busy, error, cancel, save }: { pr
         ) : (
           <p>由客户端逐连接选择目的地，流量通过所选 SSH 主机出站。</p>
         )}
-        <p className="muted">{mode === "remote" ? "此模式使用 SSH 远端监听，无法配置 Shell 中继。" : "出口使用 SSH TCP 通道。当前后端未提供 Shell 中继。"}</p>
+        {mode === "remote" ? (
+          <p className="muted">此模式使用 SSH 远端监听，无法配置 Shell 中继。</p>
+        ) : (
+          <label className="hu-stack">
+            出口中继
+            <select className="hu-input" name="relay" defaultValue={previous?.relay ?? "ssh"}>
+              <option value="ssh">SSH TCP 通道</option>
+              <option value="shell">ViaShell（SSH 主机需要 Python 3.8+）</option>
+            </select>
+          </label>
+        )}
         <label className="row">
           <input name="resume" type="checkbox" defaultChecked={previous?.resume} />
           断线后提供恢复操作
@@ -234,7 +245,7 @@ export function ForwardingPanel({ hosts, onBack, onReview }: { hosts: Host[]; on
             <li key={rule.id} data-testid="ssh-forward-rule">
               <strong>{rule.name}</strong>
               <p>
-                {hosts.find(({ id }) => id === rule.hostId)?.name ?? rule.hostId} · {forwardLabels[rule.mode]}
+                {hosts.find(({ id }) => id === rule.hostId)?.name ?? rule.hostId} · {forwardLabels[rule.mode]}{rule.relay === "shell" ? " · ViaShell" : ""}
               </p>
               <p>
                 {rule.mode === "remote" ? "远端申请监听" : "本机监听"}{" "}

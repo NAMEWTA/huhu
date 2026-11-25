@@ -1,10 +1,12 @@
 import { once } from "node:events";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { openApp } from "../helpers/launch.js";
 import { FORWARD_BIND, forwardLabels, ForwardMode } from "../../../plugins/ssh/src/shared/forwarding.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
+import { localPosixRelayShell } from "../../../plugins/ssh/test/shell-relay-fixture.js";
 
 async function createHost(page: Page, port: number, password: string) {
   const result = await page.evaluate(
@@ -59,6 +61,53 @@ async function readExactly(socket: net.Socket, length: number): Promise<Buffer> 
     await once(socket, "readable", { signal });
   }
 }
+
+test("P07 Workbench ViaShell confirms a TCP exit and cannot be selected for Remote", async () => {
+  test.skip(process.platform !== "linux" || !existsSync("/usr/bin/python3"), "Linux system Python 3 is required");
+  const password = randomUUID();
+  let directAttempts = 0;
+  const ssh = await startFakeSsh({ password, denyDirectTcp: () => { directAttempts++; return true; }, onInteractiveShell: localPosixRelayShell });
+  const upstream = net.createServer((socket) => socket.pipe(socket));
+  const targetPort = await bind(upstream);
+  const fixture = await openApp();
+  let socket: net.Socket | undefined;
+  try {
+    const { page } = fixture;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await createHost(page, ssh.port, password);
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "端口转发", exact: true }).click();
+    await page.getByRole("button", { name: "新建规则" }).click();
+    const editor = page.getByRole("dialog", { name: "新建转发规则" });
+    await editor.getByLabel("转发模式").selectOption("remote");
+    await expect(editor.getByLabel("出口中继")).toHaveCount(0);
+    await editor.getByLabel("转发模式").selectOption("local");
+    await editor.getByLabel("出口中继").selectOption("shell");
+    const listenPort = await port();
+    await editor.getByLabel("规则名称").fill("ViaShell 回环");
+    await editor.getByLabel(/监听端口/).fill(String(listenPort));
+    await editor.getByLabel("目标端口").fill(String(targetPort));
+    await editor.getByRole("button", { name: "保存规则" }).click();
+    const rule = page.getByTestId("ssh-forward-rule").filter({ has: page.getByText("ViaShell 回环", { exact: true }) });
+    await expect(rule).toContainText("Local · ViaShell");
+    await rule.getByRole("button", { name: "启动" }).click();
+    await rule.getByRole("button", { name: "核对主机指纹" }).click();
+    await page.getByRole("button", { name: "信任并连接" }).click();
+    await expect(rule.getByRole("status")).toHaveText("监听中");
+    socket = await dial(listenPort);
+    const binary = Buffer.from([0, 255, 66, 10]);
+    socket.write(binary);
+    expect(await readExactly(socket, binary.length)).toEqual(binary);
+    expect(directAttempts).toBe(0);
+    await rule.getByRole("button", { name: "停止", exact: true }).click();
+    await expect(rule.getByRole("status")).toHaveText("已停止");
+    await expect(dial(listenPort)).rejects.toMatchObject({ code: "ECONNREFUSED" });
+  } finally {
+    socket?.destroy();
+    await fixture.close();
+    await Promise.all([close(upstream), ssh.close()]);
+  }
+});
 
 test("A10 Workbench forwards bytes in all four modes and releases each loopback listener", async () => {
   test.setTimeout(60_000);
