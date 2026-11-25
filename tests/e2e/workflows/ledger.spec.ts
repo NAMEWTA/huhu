@@ -1,5 +1,5 @@
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
@@ -12,11 +12,11 @@ async function enterLedger(page: Page) {
   return ledger;
 }
 
-async function createBook(page: Page, name: string, account: string) {
+async function createBook(page: Page, name: string, account: string, currency = "TWD") {
   const dialog = page.getByRole("dialog", { name: "创建账本" });
   await expect(dialog.getByLabel("账本名称")).toBeFocused();
   await dialog.getByLabel("账本名称").fill(name);
-  await dialog.getByLabel("默认币种").selectOption("TWD");
+  await dialog.getByLabel("默认币种").selectOption(currency);
   await dialog.getByLabel("业务时区").selectOption("Asia/Taipei");
   await dialog.getByLabel("首个资金账户").fill(account);
   await dialog.getByRole("button", { name: "创建账本", exact: true }).click();
@@ -25,6 +25,20 @@ async function createBook(page: Page, name: string, account: string) {
 
 function launch(vault: string) {
   return electron.launch({ args: [root, "--no-sandbox", USER_DATA_ARG], env: { ...process.env, HUHU_VAULT: vault } });
+}
+
+async function inviteWorkbench(desktop: Page) {
+  await engineReady(desktop);
+  await desktop.getByRole("button", { name: "能力网关", exact: true }).first().click();
+  await desktop.getByRole("tab", { name: "服务端" }).click();
+  const share = desktop.getByTestId("web-share-panel");
+  await share.getByRole("combobox", { name: "分享范围" }).selectOption("local");
+  await share.getByRole("button", { name: "启动分享" }).click();
+  await share.getByRole("button", { name: "创建邀请" }).click();
+  const invitation = desktop.getByRole("dialog", { name: "Web 邀请链接" });
+  const link = await invitation.getByRole("textbox", { name: /^邀请链接 127.0.0.1:/ }).inputValue();
+  await invitation.getByRole("button", { name: "完成" }).click();
+  return link;
 }
 
 test("L1 桌面创建两本账，重开 Vault 后保留选择和删除预览", async () => {
@@ -72,16 +86,7 @@ test("L1 独立 Web 工作台建账，桌面打开同一 Vault 的账本", async
   try {
     app = await launch(vault);
     const desktop = await app.firstWindow();
-    await engineReady(desktop);
-    await desktop.getByRole("button", { name: "能力网关", exact: true }).first().click();
-    await desktop.getByRole("tab", { name: "服务端" }).click();
-    const share = desktop.getByTestId("web-share-panel");
-    await share.getByRole("combobox", { name: "分享范围" }).selectOption("local");
-    await share.getByRole("button", { name: "启动分享" }).click();
-    await share.getByRole("button", { name: "创建邀请" }).click();
-    const invitation = desktop.getByRole("dialog", { name: "Web 邀请链接" });
-    const link = await invitation.getByRole("textbox", { name: /^邀请链接 127.0.0.1:/ }).inputValue();
-    await invitation.getByRole("button", { name: "完成" }).click();
+    const link = await inviteWorkbench(desktop);
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(link);
@@ -90,6 +95,76 @@ test("L1 独立 Web 工作台建账，桌面打开同一 Vault 的账本", async
     await createBook(page, "Web 账本", "资金账户");
     await expect(ledger.getByRole("heading", { name: "Web 账本" })).toBeVisible();
     await expect((await enterLedger(desktop)).getByRole("heading", { name: "Web 账本" })).toBeVisible();
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
+
+test("L3 独立 Web 导入四种账单、保留真实重复消费并导出筛选结果", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-import-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  let browser: Browser | undefined;
+  try {
+    app = await launch(vault);
+    const link = await inviteWorkbench(await app.firstWindow());
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(link);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "导入账本", "银行", "CNY");
+    await page.getByTestId("ledger-nav-accounts").click();
+    for (const name of ["微信", "花呗"]) {
+      await ledger.getByRole("button", { name: "新增账户" }).click();
+      const account = page.getByRole("dialog", { name: "新增资金账户" });
+      await account.getByLabel("账户名称").fill(name);
+      await account.getByRole("button", { name: "保存账户" }).click();
+      await expect(account).toBeHidden();
+    }
+    await page.getByTestId("ledger-nav-records").click();
+    const selectBill = async (source: string, fileName: string) => {
+      await ledger.getByRole("button", { name: "导入账单", exact: true }).click();
+      const wizard = page.getByRole("dialog", { name: "导入账单" });
+      await wizard.getByLabel("账单来源", { exact: true }).selectOption(source);
+      await wizard.getByLabel("账单文件", { exact: true }).setInputFiles(path.resolve(import.meta.dirname, "../../fixtures/ledger", fileName));
+      await wizard.getByRole("button", { name: "预览账单", exact: true }).click();
+      await expect(wizard.getByRole("heading", { name: "核对账单" })).toBeFocused();
+      return wizard;
+    };
+    for (const [source, name, encoding, count] of [
+      ["alipay", "alipay.csv", "UTF-8", 2], ["jd", "jd-gbk.csv", "GBK", 1], ["wechat", "wechat.xlsx", "XLSX", 2],
+    ] as const) {
+      const pane = await selectBill(source, name);
+      await expect(pane.getByRole("status")).toContainText(encoding);
+      await pane.getByRole("button", { name: "确认导入" }).click();
+      await expect(pane.getByRole("status")).toHaveText(`已导入 ${count} 笔流水。`);
+      await pane.getByRole("button", { name: "完成" }).click();
+    }
+    let pane = await selectBill("csv", "generic.csv");
+    await pane.getByRole("button", { name: "取消导入" }).click();
+    await expect(ledger.getByRole("status").filter({ hasText: /^5 笔$/ })).toBeVisible();
+    pane = await selectBill("csv", "generic.csv");
+    await pane.getByRole("button", { name: "处理第 3 行" }).click();
+    await pane.getByLabel("资金账户", { exact: true }).selectOption({ label: "银行" });
+    await pane.getByLabel("保存所选账户和分类映射").check();
+    await pane.getByRole("button", { name: "应用处理" }).click();
+    await expect(pane.getByRole("status")).toContainText("1 疑似重复");
+    await pane.getByRole("checkbox", { name: "导入第 4 行" }).check();
+    await pane.getByRole("button", { name: "确认导入" }).click();
+    await expect(pane.getByRole("status")).toHaveText("已导入 2 笔流水。");
+    await pane.getByRole("button", { name: "完成" }).click();
+    await ledger.getByLabel("搜索流水").fill("文具");
+    await ledger.getByRole("button", { name: "应用筛选" }).click();
+    await expect(ledger.getByRole("cell", { name: "文具", exact: true })).toHaveCount(2);
+    const downloaded = page.waitForEvent("download");
+    await ledger.getByRole("button", { name: "导出筛选 CSV" }).click();
+    const csv = readFileSync((await (await downloaded).path())!, "utf8");
+    expect(csv.match(/文具/g)).toHaveLength(2);
+    expect(csv).not.toContain("测试京东退款");
   } finally {
     await browser?.close().catch(() => undefined);
     await app?.close().catch(() => undefined);
@@ -167,6 +242,83 @@ test("L2 收入、支出与转账得到 95/125，带凭证流水重开后可编�
     await expect(edit).toBeHidden();
     await ledger.getByRole("button", { name: "凭证 重开后编辑" }).click();
     await expect(page.getByRole("dialog", { name: "流水凭证" }).getByRole("button", { name: "下载 receipt.txt" })).toBeVisible();
+  } finally {
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});
+
+test("L4 跨账户平账保持资金余额，撤销后恢复统计并可预览合并重复流水", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-reconcile-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  try {
+    app = await launch(vault);
+    const page = await app.firstWindow();
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "对账账本", "银行", "CNY");
+    await page.getByTestId("ledger-nav-accounts").click();
+    await ledger.getByRole("button", { name: "新增账户" }).click();
+    const account = page.getByRole("dialog", { name: "新增资金账户" });
+    await account.getByLabel("账户名称").fill("钱包");
+    await account.getByRole("button", { name: "保存账户" }).click();
+    await expect(account).toBeHidden();
+    const recordsTab = page.getByTestId("ledger-nav-records");
+    await recordsTab.click();
+    const add = async (title: string, type: "income" | "expense", amount: string, name: string) => {
+      await ledger.getByRole("button", { name: "记一笔", exact: true }).click();
+      const entry = page.getByRole("dialog", { name: "记一笔" });
+      await entry.getByLabel("事项").fill(title);
+      await entry.getByLabel("交易类型").selectOption(type);
+      await entry.getByLabel("资金账户").selectOption({ label: name + " · CNY" });
+      await entry.getByLabel("金额", { exact: true }).fill(amount);
+      await entry.getByRole("button", { name: "保存流水" }).click();
+      await expect(entry).toBeHidden();
+    };
+    await add("原支出", "expense", "100", "银行");
+    await add("退款 60", "income", "60", "钱包");
+    await add("退款 40", "income", "40", "钱包");
+    const sums = ledger.getByRole("list", { name: "筛选汇总" });
+    await expect(sums).toContainText("收入 CNY 100.00");
+    await expect(sums).toContainText("支出 CNY 100.00");
+    await ledger.getByRole("button", { name: "平账 原支出", exact: true }).click();
+    const offset = page.getByRole("dialog", { name: "流水平账" });
+    await offset.getByRole("button", { name: "查找候选" }).click();
+    await offset.getByRole("button", { name: "选择平账组" }).click();
+    await offset.getByRole("button", { name: "预览确认" }).click();
+    await expect(offset).toContainText("平账金额 CNY 100.00");
+    await expect(offset.getByRole("button", { name: "取消" })).toBeFocused();
+    await offset.getByRole("button", { name: "确认平账" }).click();
+    await expect(offset).toBeHidden();
+    await expect(sums).toHaveCount(0);
+    await page.getByTestId("ledger-nav-accounts").click();
+    const balances = ledger.getByRole("table", { name: "资金账户" });
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "银行", exact: true }) })).toContainText("CNY -100.00");
+    await expect(balances.getByRole("row").filter({ has: page.getByRole("cell", { name: "钱包", exact: true }) })).toContainText("CNY 100.00");
+    await recordsTab.click();
+    await ledger.getByRole("button", { name: "撤销平账 原支出" }).click();
+    const undo = page.getByRole("dialog", { name: "撤销整组平账" });
+    await expect(undo).toContainText("这 3 笔流水");
+    await undo.getByRole("button", { name: "确认撤销" }).click();
+    await expect(sums).toContainText("收入 CNY 100.00");
+
+    await add("原重复记账", "expense", "7", "银行");
+    await add("另一来源记账", "expense", "7", "银行");
+    await ledger.getByRole("button", { name: "去重", exact: true }).click();
+    const merge = page.getByRole("dialog", { name: "去重与合并" });
+    await merge.getByRole("button", { name: "查找候选" }).click();
+    await merge.getByRole("button", { name: "选择合并组" }).click();
+    const label = await merge.getByRole("option", { name: /^原重复记账/ }).textContent();
+    await merge.getByLabel("保留流水", { exact: true }).selectOption({ label: label! });
+    await merge.getByRole("button", { name: "预览确认" }).click();
+    await expect(merge).toContainText("合并迁移");
+    await merge.getByRole("button", { name: "确认合并" }).click();
+    await expect(merge).toBeHidden();
+    await expect(ledger.getByRole("cell", { name: "原重复记账", exact: true })).toBeVisible();
+    await expect(ledger.getByRole("cell", { name: "另一来源记账", exact: true })).toHaveCount(0);
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
