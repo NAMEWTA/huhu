@@ -337,7 +337,8 @@ export function NoteDocument(props: NoteDocumentProps) {
                 onPort={onPort}
                 linkPreviewsEnabled={ed?.linkPreviews === true}
                 onRevealSource={revealSource}
-                {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
+                contentWidth={ed?.readableWidth && ed.readableWidth !== "full" ? Number(ed.readableWidth) : null}
+                {...(ed ? { fontSize: ed.fontSize } : {})}
               />
             </div>
           </Suspense>
