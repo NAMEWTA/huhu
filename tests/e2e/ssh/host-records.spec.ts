@@ -1,11 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AuthKind, ManagedHostView } from "../../../plugins/ssh/src/engine/auth-profile.js";
 import type { DirectoryView } from "../../../plugins/ssh/src/engine/directory-schema.js";
 import { openApp } from "../helpers/launch.js";
-import { desktopCall } from "./workbench.js";
+import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
 type Host = ReturnType<typeof ManagedHostView.parse>;
 type Directory = ReturnType<typeof DirectoryView.parse>;
@@ -43,6 +43,74 @@ async function save(page: Page) {
 const edit = (page: Page) => moduleView(page).getByTestId("ssh-host-edit").click();
 const list = (page: Page) => desktopCall<Host[]>(page, "ssh.hosts.list");
 const directory = (page: Page) => desktopCall<Directory>(page, "ssh.hosts.directory");
+
+test("A01 SSH 主机目录在桌面和 Web 按账号标签筛选，网格保留选区并移动所选", async () => {
+  test.skip(!browserBinary, "需要 Playwright Chromium");
+  test.setTimeout(60_000);
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await openSsh(page);
+    await desktopCall(page, "ssh.hosts.configure", { name: "构建节点", host: "build.example.test", port: 2222, user: "builder", tags: ["编译"], authKind: "agent" });
+    await desktopCall(page, "ssh.hosts.configure", { name: "审阅节点", host: "review.example.test", port: 22, user: "reviewer", tags: ["审阅"], authKind: "agent" });
+    const link = await localWebLink(page);
+    browser = await chromium.launch({ executablePath: browserBinary });
+    const web = await browser.newPage({ viewport: { width: 900, height: 820 } });
+    await web.goto(link);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    for (const host of [page, web]) {
+      await host.getByRole("button", { name: "远程连接", exact: true }).first().click();
+      await moduleView(host).getByRole("button", { name: "主机目录", exact: true }).click();
+      const view = host.getByRole("region", { name: "SSH 主机目录" });
+      const rows = view.getByRole("list", { name: "主机", exact: true });
+      const search = view.getByRole("textbox", { name: /搜索主机名称/ });
+      await expect(rows.getByRole("listitem")).toHaveCount(2);
+      await search.fill("BUILDER 编译");
+      await expect(rows.getByRole("listitem")).toHaveCount(1);
+      await view.getByRole("checkbox", { name: "选择 构建节点", exact: true }).check();
+      await view.getByRole("tab", { name: "网格", exact: true }).click();
+      await expect(rows).toHaveAttribute("data-layout", "grid");
+      await expect(view.getByRole("checkbox", { name: "选择 构建节点", exact: true })).toBeChecked();
+      await search.fill("reviewer");
+      await expect(view.getByRole("status")).toContainText("其中 1 台在筛选结果之外");
+      await view.getByRole("checkbox", { name: "选择 审阅节点", exact: true }).check();
+      await view.getByRole("button", { name: "清空搜索", exact: true }).click();
+      await expect(view.getByRole("status")).toHaveText("已选 2 台");
+      if (host === page) {
+        await view.getByRole("button", { name: "新建分组", exact: true }).click();
+        const createGroup = host.getByRole("dialog", { name: "新建主机分组", exact: true });
+        await createGroup.getByLabel("分组名称").fill("验收分组");
+        await createGroup.getByRole("button", { name: "保存", exact: true }).click();
+        await expect(createGroup).toBeHidden();
+        await view.getByRole("button", { name: "从选择建立工作区", exact: true }).click();
+        const template = host.getByRole("dialog", { name: "新建工作区模板", exact: true });
+        await expect(template.getByRole("list", { name: "主机顺序" })).toContainText("构建节点");
+        await expect(template.getByRole("list", { name: "主机顺序" })).toContainText("审阅节点");
+        await template.getByRole("button", { name: "取消", exact: true }).click();
+      } else {
+        await view.getByRole("button", { name: "移动所选", exact: true }).click();
+        const move = host.getByRole("dialog", { name: "移动所选主机", exact: true });
+        await move.getByLabel("目标分组").selectOption({ label: "验收分组" });
+        await move.getByRole("button", { name: "保存", exact: true }).click();
+        await expect(move).toBeHidden();
+        await view.getByRole("combobox", { name: "按主机分组筛选", exact: true }).selectOption({ label: "未分组" });
+        await expect(view.getByText("没有符合条件的主机", { exact: true })).toBeVisible();
+        await view.getByRole("combobox", { name: "按主机分组筛选", exact: true }).selectOption({ label: "验收分组" });
+        await expect(rows.getByRole("listitem")).toHaveCount(2);
+      }
+    }
+    const current = await directory(page);
+    const group = current.groups.find(({ name }) => name === "验收分组");
+    expect(group).toBeDefined();
+    expect(current.hosts.map(({ groupId }) => groupId)).toEqual([group!.groupId, group!.groupId]);
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      await close();
+    }
+  }
+});
 
 test("SSH 保存版本、保持编辑失败草稿、复制与显式修改认证补丁", async () => {
   const { app, page, vault, close } = await openApp();

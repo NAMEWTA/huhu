@@ -34,7 +34,13 @@ function jumpIssue(graph: ReadonlyMap<string, ManagedHost>, candidate: Host, tar
   }
 }
 
-export function RoutePanel({ hosts, connections, onBack, onChanged }: { hosts: readonly Host[]; connections: ConnectionStatus[]; onBack(): void; onChanged(): Promise<unknown> }) {
+export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, onChanged }: {
+  hosts: readonly Host[];
+  connections: ConnectionStatus[];
+  defaultTargets?: readonly string[] | undefined;
+  onBack(): void;
+  onChanged(): Promise<unknown>;
+}) {
   const engine = useEngine();
   const [query, setQuery] = useState("");
   const [sync, setSync] = useState(false);
@@ -42,7 +48,10 @@ export function RoutePanel({ hosts, connections, onBack, onChanged }: { hosts: r
   const [groupByJump, setGroupByJump] = useState(false);
   const [saving, setSaving] = useState<string>();
   const [draftJumps, setDraftJumps] = useState<Record<string, string>>({});
-  const [selected, setSelected] = useState(new Map<string, { name: string; revision: string }>());
+  const [selected, setSelected] = useState(() => {
+    const targets = new Set(defaultTargets);
+    return new Map(hosts.filter(isManagedHost).filter(({ id }) => targets.has(id)).map(({ id, name, revision }) => [id, { name, revision }]));
+  });
   const [jumpQuery, setJumpQuery] = useState("");
   const [batchJump, setBatchJump] = useState("");
   const [ifExists, setIfExists] = useState<"skip" | "replace">("skip");

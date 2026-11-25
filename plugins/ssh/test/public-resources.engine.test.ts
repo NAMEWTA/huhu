@@ -263,14 +263,21 @@ async function connectOwned(f: Awaited<ReturnType<typeof fixture>>, invoke: Awai
 test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the first of three SSH jumps", { timeout: 45_000 }, async (entry) => {
   const f = await fixture();
   const proxy = createHttpServer();
+  const echo = createServer((socket) => socket.pipe(socket));
   const sockets = new Set<Socket>();
+  let forwardRule: ForwardRule | undefined;
   try {
     const jumps: Awaited<ReturnType<typeof f.host>>[] = [];
     for (const name of ["first", "middle", "last"]) {
       const previous = jumps.at(-1)?.hostId;
       jumps.push(await f.host(name + " jump fixture", previous ? [previous] : []));
     }
-    const destination = await f.host("destination fixture", [jumps[2]!.hostId]);
+    const destination = await f.host("destination fixture", [jumps[2]!.hostId], {
+      onExec: (command) => {
+        if (command === PLATFORM_COMMAND) return { stdout: "Linux\n" };
+        if (command === LINUX_SAMPLE) return { stdout: "cpu 25 100\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet 80 50\ndisk 40960 20480\n" };
+      },
+    });
     const first = jumps[0]!;
     const authority = `127.0.0.1:${first.server.port}`;
     const proxyAuth = { action: "replace", username: "fixture-proxy-user", password: "fixture-proxy-passphrase" } as const;
@@ -340,6 +347,43 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
       expect(await invoke(trustDecide, decision(waiting))).toMatchObject({ ok: true });
     }
     await vi.waitFor(async () => expect(await status()).toMatchObject({ state: "connected" }));
+    for (const capability of [
+      "ssh.shells.open", "ssh.shells.read", "ssh.fileSessions.open", "ssh.sftp.upload", "ssh.sftp.download",
+      "ssh.monitor.session.open", "ssh.monitor.session.get", "ssh.forwarding.runs.start",
+    ]) await f.allow(capability);
+    const connection = { hostId, attemptId, routeRevision: route.routeRevision };
+    const allocate = () => ({ ...connection, intentKey: randomUUID() });
+    const { shellId } = z.object({ shellId: z.string() }).parse(data(await invoke("ssh.shells.open", allocate())));
+    expect(data(await invoke("ssh.shells.read", { shellId, waitMs: 1000 }))).toMatchObject({ text: "welcome\n" });
+    const { fileSessionId } = z.object({ fileSessionId: z.uuid() }).parse(data(await invoke("ssh.fileSessions.open", allocate())));
+    const remotePath = "/home/test/three-jump.bin";
+    const upload = { fileSessionId, remotePath, transferId: randomUUID(), intentKey: randomUUID(), dataBase64: "AQID" };
+    expect(data(await invoke("ssh.sftp.upload", upload))).toMatchObject({ size: 3 });
+    expect(data(await invoke("ssh.sftp.download", { fileSessionId, remotePath, transferId: randomUUID() }))).toMatchObject({ dataBase64: "AQID", eof: true });
+    const monitor = z.object({ id: z.uuid() }).parse(data(await invoke("ssh.monitor.session.open", { ...allocate(), interval: 2 })));
+    await vi.waitFor(async () => expect(data(await invoke("ssh.monitor.session.get", monitor))).toMatchObject({
+      host: { hostId, latest: { sample: { memory: { total: expect.any(Number) } } } },
+    }), { timeout: 5000 });
+
+    echo.listen(0, "127.0.0.1");
+    await once(echo, "listening");
+    const echoPort = (echo.address() as { port: number }).port;
+    forwardRule = await f.desktop<ForwardRule>("ssh.forwarding.rules.save", {
+      name: "three-jump loopback", mode: "local", hostId, listenPort: echoPort, target: { host: "127.0.0.1", port: echoPort }, resume: false,
+    });
+    const run = data(await invoke("ssh.forwarding.runs.start", { ...allocate(), id: forwardRule.id, expectedRevision: forwardRule.revision })) as ForwardRun;
+    expect(run).toMatchObject({ ruleId: forwardRule.id, state: "running" });
+    if (run.listener?.device !== "local") throw new Error("Expected a loopback forwarding listener");
+    const socket = createConnection(run.listener.port, run.listener.host);
+    try {
+      await once(socket, "connect");
+      const returned = once(socket, "data");
+      socket.write("three jumps");
+      expect((await returned)[0]).toEqual(Buffer.from("three jumps"));
+    } finally {
+      socket.destroy();
+    }
+    for (const hop of [...jumps, destination]) expect(hop.server.conns).toHaveLength(1);
     expect(received).toEqual([authority]);
 
     const removed = await f.call(f.engine.rendererToken, "ssh.outboundProxies.remove", { id: profile.id, revision: profile.revision });
@@ -354,8 +398,13 @@ test.each(["cli", "mcp"] as const)("%s binds the effective outbound proxy to the
     await f.desktop("ssh.outboundProxies.remove", { id: profile.id, revision: profile.revision });
   } finally {
     try {
-      await f.close();
+      try {
+        if (forwardRule) await f.desktop("ssh.forwarding.rules.delete", { id: forwardRule.id, expectedRevision: forwardRule.revision });
+      } finally {
+        await f.close();
+      }
     } finally {
+      if (echo.listening) await new Promise<void>((resolve, reject) => echo.close((error) => (error ? reject(error) : resolve())));
       for (const socket of sockets) socket.destroy();
       if (proxy.listening) {
         const closed = once(proxy, "close");
@@ -1007,7 +1056,14 @@ test("a changed jump revision invalidates the original pending target before aut
     expect(await f.call(cliToken, trustDecide, decision(first))).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     await f.desktop("ssh.hosts.configure", { ...jump.profile, name: "revised jump", hostId: jump.hostId, expectedRevision: jump.revision, credentials: [] });
     expect(await f.desktop(hostGet, { hostId })).not.toMatchObject({ routeRevision });
-    expect(await f.call(cliToken, trustDecide, decision(second))).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+    await vi.waitFor(async () => {
+      expect(await f.call(cliToken, probeGet, key)).toMatchObject({
+        ok: true, data: { ...key, routeRevision, state: "failed", reason: "route-changed" },
+      });
+      expect(jump.server.closed()).toBe(1);
+      expect(target.server.closed()).toBe(1);
+    });
+    expect(await f.call(cliToken, trustDecide, decision(second))).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(targetAuth).not.toContain("password");
   } finally {
     await f.close();

@@ -5,10 +5,12 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
 import type { OutboundProxySummary } from "../shared/outbound-proxy.js";
+import { directoryGroupPath, hostSearchTerms, matchesHostSearch } from "../shared/host-directory.js";
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
+import { HostDirectory } from "./HostDirectory.js";
 import { HostImportDialog } from "./HostImportDialog.js";
 import { HostKeyDialog, hostEndpoint } from "./HostKeyDialog.js";
 import { HostRecordActionDialog } from "./HostRecordActionDialog.js";
@@ -64,16 +66,7 @@ function proxyDescription(proxy: OutboundProxySummary): string {
 function groupPath(directory: z.output<typeof DirectoryView> | undefined, hostId: string): string {
   if (!directory) return "";
   const groups = new Map(directory.groups.map((group) => [group.groupId, group]));
-  const parts: string[] = [];
-  let groupId = directory.hosts.find((host) => host.hostId === hostId)?.groupId;
-  while (groupId) {
-    const group = groups.get(groupId);
-    if (!group) break;
-    groups.delete(groupId);
-    parts.unshift(group.name);
-    groupId = group.parentId;
-  }
-  return parts.join(" / ");
+  return directoryGroupPath(groups, directory.hosts.find((host) => host.hostId === hostId)?.groupId);
 }
 
 export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNavigate" | "active">) {
@@ -85,6 +78,9 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const connections = useCapability<ConnectionStatus[]>(CONNECTIONS, {});
   const refetchConnections = connections.refetch;
   const [sel, setSel] = useState<string | null>(null);
+  const [showDirectory, setShowDirectory] = useState(false);
+  const [workspaceSeed, setWorkspaceSeed] = useState<{ ids: string[]; temporary: boolean }>();
+  const [routeTargets, setRouteTargets] = useState<string[]>();
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [knownReview, setKnownReview] = useState<HostKeyPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +148,10 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     }
     if (e.type === "entity.changed" && "kind" in e.payload && e.payload.kind === "ssh-exec-job") {
       void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.jobs.list"] });
+    }
+    if (e.type === "entity.changed" && "kind" in e.payload && (e.payload.kind === "ssh-host-directory" || e.payload.kind === "ssh-host")) {
+      void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.hosts.directory"] });
+      if (e.payload.kind === "ssh-host") void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.hosts.list"] });
     }
   });
 
@@ -230,7 +230,8 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     setTab("known");
   };
   const audit = useCapability<{ at: string; action: string; hostId: string; result?: string; detail?: string }[]>("ssh.audit.list", { limit: 100 });
-  const shown = (hosts.data ?? []).filter((h) => `${h.name}${h.host}`.toLowerCase().includes(query.toLowerCase()));
+  const searchTerms = hostSearchTerms(query);
+  const shown = (hosts.data ?? []).filter((h) => matchesHostSearch(h, searchTerms));
   let nextRoute: Host[] = [];
   if (host) {
     try {
@@ -263,7 +264,15 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
       <FileWorkspace active={fileView} selectedId={selectedFile} seed={fileSeed} select={selectFile} onBack={() => showFileView(false)} />
     </>
   );
-  if (workspaces) return withFileWorkspace(<WorkspaceLibrary shown={active && !fileView} connections={connections.data ?? []} onHosts={() => setWorkspaces(false)} onFiles={openFiles} />);
+  if (workspaces) return withFileWorkspace(
+    <WorkspaceLibrary
+      shown={active && !fileView}
+      connections={connections.data ?? []}
+      onHosts={() => { setWorkspaceSeed(undefined); setWorkspaces(false); }}
+      onFiles={openFiles}
+      seed={workspaceSeed}
+    />,
+  );
   if (keyLibrary)
     return (
       <KeyLibraryPanel
@@ -275,7 +284,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     );
   if (recordings) return <TerminalRecordingsPanel onBack={() => setRecordings(false)} />;
   if (localTerminal) return <LocalShellPanel onBack={() => setLocalTerminal(false)} />;
-  if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} onBack={() => setRoutes(false)} onChanged={refresh} />;
+  if (routes) return <RoutePanel hosts={hosts.data ?? []} connections={connections.data ?? []} defaultTargets={routeTargets} onBack={() => { setRouteTargets(undefined); setRoutes(false); }} onChanged={refresh} />;
   if (shortcuts)
     return (
       <div className="hu-stack">
@@ -312,6 +321,31 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         }}
       />,
     );
+  if (showDirectory) {
+    function openFromDirectory(h: Host) {
+      setSel(h.id);
+      setActiveShell(null);
+      setResult(null);
+      setTab("overview");
+      setShowDirectory(false);
+    }
+    return withFileWorkspace(
+      <HostDirectory
+        directory={directory.data}
+        hosts={hosts.data ?? []}
+        statuses={byHost}
+        onBack={() => setShowDirectory(false)}
+        onOpen={openFromDirectory}
+        onConnect={(h) => { openFromDirectory(h); void connect(h); }}
+        onWorkspace={(ids, temporary) => { setWorkspaceSeed({ ids, temporary }); setWorkspaces(true); }}
+        onRoute={desktop ? (ids) => { setRouteTargets(ids); setRoutes(true); } : undefined}
+        onCreate={desktop ? () => { setShowDirectory(false); setHostAction({ kind: "create" }); } : undefined}
+        onImport={desktop ? () => { setShowDirectory(false); setImportVault(engine.vaultId); } : undefined}
+        onHostAction={desktop ? (kind, h) => { openFromDirectory(h); setHostAction({ kind, host: h }); } : undefined}
+        onChanged={refresh}
+      />,
+    );
+  }
   return withFileWorkspace(
     <div className="hu-module-layout hu-execution-module" data-testid="ssh-module">
       <aside className="hu-resource-pane" aria-label={t.title}>
@@ -338,6 +372,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
             {desktop ? <IconButton icon={Plus} label="新增 SSH 主机" onClick={() => setHostAction({ kind: "create" })} /> : null}
           </div>
           <SearchBox value={query} onChange={setQuery} placeholder="搜索主机…" />
+          <Button variant="ghost" onClick={() => setShowDirectory(true)}>主机目录</Button>
         </div>
         <div className="hu-resource-list">
           <div className="ssh-list-label">连接配置</div>

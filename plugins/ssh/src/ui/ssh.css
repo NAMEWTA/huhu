@@ -1,5 +1,37 @@
 @layer theme, tokens, base, vendor, components, shell, modules;
 @layer modules {
+  .ssh-directory-controls {
+    flex-wrap: wrap;
+    margin-block-end: 12px;
+  }
+  .ssh-directory-hosts {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ssh-directory-hosts[data-layout="grid"] {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  }
+  .ssh-directory-host {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    min-inline-size: 0;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control, 8px);
+    overflow-wrap: anywhere;
+  }
+  .ssh-directory-hosts[data-layout="grid"] .ssh-directory-host {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ssh-directory-host > .row {
+    flex-wrap: wrap;
+  }
   dialog:modal:has(.ssh-host-key) {
     inline-size: min(42rem, calc(100vw - 32px));
     overscroll-behavior: contain;
