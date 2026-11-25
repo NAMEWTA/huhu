@@ -632,31 +632,37 @@ test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多
     const dialog = page.getByRole("dialog", { name: "添加卡片" });
     const search = dialog.getByRole("searchbox", { name: "搜索卡片" });
     const source = dialog.getByRole("combobox", { name: "卡片来源" });
-    const open = () => board.getByRole("button", { name: "添加卡片", exact: true }).click();
+    const catalogButton = board.getByRole("button", { name: "添加卡片", exact: true });
+    const closeButton = dialog.getByRole("button", { name: "关闭", exact: true });
     const cancel = board.getByRole("button", { name: "取消编辑", exact: true });
     const focusChoice = dialog.getByRole("article", { name: "专注", exact: true });
     const taskChoice = dialog.getByRole("article", { name: "我的任务", exact: true });
     let tasksDisabled = false;
     try {
       await page.getByTestId("home-customize").click();
-      await open();
+      await catalogButton.click();
       await source.selectOption("system");
       await search.fill("跟踪计时");
       await expect(focusChoice).toContainText("推荐尺寸 3 × 2");
       await expect(focusChoice.getByRole("button", { name: "已添加 专注" })).toBeDisabled();
       await expect(taskChoice).toHaveCount(0);
-      await page.keyboard.press("Escape");
+      // Escape in a nonempty search input clears the query before it can dismiss the dialog.
+      await closeButton.click();
+      await expect(dialog).toBeHidden();
+      await expect(catalogButton).toBeFocused();
       await focus.getByRole("checkbox", { name: "隐藏" }).check();
-      await open();
+      await catalogButton.click();
       await search.fill("专注");
       await focusChoice.getByRole("button", { name: "恢复隐藏卡片 专注" }).click();
+      await expect(dialog).toBeHidden();
       await expect(focus.getByRole("checkbox", { name: "隐藏" })).not.toBeChecked();
 
-      await open();
+      await catalogButton.click();
       await source.selectOption("plugin");
       await search.fill("今日安排");
       await expect(taskChoice).toContainText("已有 1 个");
       await taskChoice.getByRole("button", { name: "再添加一个 我的任务" }).click();
+      await expect(dialog).toBeHidden();
       await board.getByTestId("home-dashboard-save").click();
       await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
       const saved = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
@@ -671,14 +677,15 @@ test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多
       tasksDisabled = true;
       await expect(board.getByText("卡片所需的插件已停用", { exact: true })).toHaveCount(2);
       await page.getByTestId("home-customize").click();
-      await open();
+      await catalogButton.click();
       await search.fill("今日安排");
       await expect(taskChoice.getByRole("button", { name: "当前不可用 我的任务" })).toBeDisabled();
-      await page.keyboard.press("Escape");
+      await closeButton.click();
+      await expect(dialog).toBeHidden();
       await cancel.click();
       expect((await call<DashboardView>(page, "home.dashboard.get", {})).board.instances).toEqual(saved.instances);
     } finally {
-      if (await dialog.isVisible()) await page.keyboard.press("Escape");
+      if (await dialog.isVisible()) await closeButton.click();
       if (await cancel.isVisible() && await cancel.isEnabled()) await cancel.click();
       if (tasksDisabled) await call(page, "plugins.setEnabled", { id: "tasks", enabled: true });
       const current = (await call<DashboardView>(page, "home.dashboard.get", {})).board;
