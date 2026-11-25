@@ -69,6 +69,8 @@ export const automationToolDescriptors = {
   plansSubmit: planDescriptors.submit,
   plansCreateTaskReminder: planDescriptors.taskReminder,
   plansCreateObservation: planDescriptors.observationCreate,
+  plansReadObservation: planDescriptors.observationRead,
+  plansUpdateObservation: planDescriptors.observationUpdate,
   plansDefaultTaskScan: planDescriptors.defaultTaskScan,
   followUpsGet: defineCapabilityDescriptor({
     name: "automations.followUps.get",

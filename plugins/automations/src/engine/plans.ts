@@ -7,7 +7,7 @@ import type { FollowUps } from "./follow-ups.js";
 import type { FocusDeadlinePlans } from "./focus-deadline.js";
 import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsService } from "./service.js";
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
-import { ObservationInput, type ObservationPlans } from "./observations.js";
+import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
 
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
@@ -43,6 +43,16 @@ export const planDescriptors = {
     ...workbench, name: "automations.plans.createObservation", scope: "write", idempotency: "durable",
     input: ObservationInput, output: PlanSummarySchema,
     title: "建立状态观察", description: "按间隔核对任务或会话，在条件满足时递送结果。", risk: "high",
+  }),
+  observationRead: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.readObservation", scope: "read",
+    input: PlanRefSchema.pick({ planId: true }), output: ObservationEditView.nullable(),
+    title: "查看观察配置", description: "返回当前的观察对象、触发条件和递送方式。", risk: "normal",
+  }),
+  observationUpdate: defineCapabilityDescriptor({
+    ...workbench, name: "automations.plans.updateObservation", scope: "write", idempotency: "durable",
+    input: ObservationUpdateInput, output: PlanSummarySchema,
+    title: "修改状态观察", description: "使用原观察计划及其修订更新配置。", risk: "high",
   }),
   defaultTaskScan: defineCapabilityDescriptor({
     ...workbench, name: "automations.plans.defaultTaskScan", scope: "write",
@@ -211,6 +221,14 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   api.defineCapability(bindCapability(planDescriptors.observationCreate, (context, input) => {
     if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("建立观察需要与意图 ID 相同的持久意图键");
     return deps.observations.create(input, context.signal);
+  }));
+  api.defineCapability(bindCapability(planDescriptors.observationRead, (context, { planId }) => {
+    context.signal.throwIfAborted();
+    return deps.observations.configuration(planId);
+  }));
+  api.defineCapability(bindCapability(planDescriptors.observationUpdate, (context, input) => {
+    if (!context.parentOperationId || context.intentKey !== input.intentId) throw errors.invalidInput("修改观察需要与意图 ID 相同的持久意图键");
+    return deps.observations.update(input, context.signal);
   }));
   api.defineCapability(bindCapability(planDescriptors.submit, async (context, change) => {
     const { intentId, planId } = change;

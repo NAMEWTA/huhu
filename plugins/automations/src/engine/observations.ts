@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, type PlanSummary, type PlanWrite } from "@huhu/contracts";
+import { errors, PlanRefSchema, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { planReminderOccurrenceId, type ReminderDeliveries } from "./reminder-deliveries.js";
@@ -13,19 +13,30 @@ const Condition = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("change") }),
   z.strictObject({ kind: z.literal("threshold"), status: Status.exclude(["unknown"]), seconds: Cadence }),
 ]);
-export const ObservationInput = z.strictObject({
+const Settings = z.strictObject({
   title: z.string().trim().min(1).max(200), target: Target, everySeconds: Cadence, condition: Condition,
   repeat: z.boolean().default(false), stopAtTerminal: z.boolean().default(true),
-  effect: z.enum(["notification", "task", "both", "comment"]).default("notification"), intentId: z.uuidv4(),
+  effect: z.enum(["notification", "task", "both", "comment"]).default("notification"),
 });
-const Store = z.array(ObservationInput.omit({ intentId: true }).extend({
+export const ObservationInput = Settings.extend({ intentId: z.uuidv4() });
+export const ObservationUpdateInput = ObservationInput.extend({
+  planId: PlanRefSchema.shape.planId, expectedRevision: PlanRefSchema.shape.revision,
+});
+export const ObservationEditView = Settings.extend(PlanRefSchema.shape);
+export type ObservationConfiguration = z.output<typeof ObservationEditView>;
+const Store = z.array(Settings.extend({
   planId: z.string(), revision: z.string(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), nextAt: z.iso.datetime(),
   intent: z.enum(["enabled", "paused", "deleted"]), stopped: z.boolean(), machineId: z.string().nullable(),
   status: Status.nullable(), since: z.iso.datetime().nullable(), alerted: z.boolean(), lastOccurrenceId: z.string().nullable(),
+  lastEditIntent: z.uuidv4().optional(),
 }));
 type Observation = z.infer<typeof Store>[number];
 export type ObservationStatus = z.infer<typeof Status>;
 type ReadStatus = (target: Observation["target"], signal: AbortSignal) => Promise<ObservationStatus>;
+
+function validateEffect(input: z.output<typeof Settings>): void {
+  if (input.effect === "comment" && input.target.kind !== "task") throw errors.invalidInput("只有任务观察能向原任务追加评论");
+}
 
 export class ObservationPlans {
   private sweeping: Promise<void> | undefined;
@@ -92,6 +103,13 @@ export class ObservationPlans {
     return plan ? this.summary(plan) : null;
   }
 
+  configuration(planId: string): ObservationConfiguration | null {
+    const plan = this.load().plans.find((entry) => entry.planId === planId && entry.intent !== "deleted");
+    if (!plan) return null;
+    const { title, target, everySeconds, condition, repeat, stopAtTerminal, effect, revision } = plan;
+    return { planId, revision, title, target, everySeconds, condition, repeat, stopAtTerminal, effect };
+  }
+
   async create({ intentId, ...input }: z.output<typeof ObservationInput>, signal: AbortSignal): Promise<PlanSummary> {
     return this.rules.withRuleConfiguration(async () => {
       const { plans, version } = this.load();
@@ -99,7 +117,7 @@ export class ObservationPlans {
       const existing = plans.find((plan) => plan.planId === planId);
       if (existing) return this.summary(existing);
       if (!this.deliveries()) throw errors.invalidInput("当前无法递送观察结果");
-      if (input.effect === "comment" && input.target.kind !== "task") throw errors.invalidInput("只有任务观察能向原任务追加评论");
+      validateEffect(input);
       const stamp = this.instant();
       const plan: Observation = {
         ...input, planId, revision: randomUUID(), createdAt: stamp, updatedAt: stamp, nextAt: stamp,
@@ -109,6 +127,27 @@ export class ObservationPlans {
       await this.save([...plans, plan], version, signal);
       this.changed(planId);
       return this.summary(plan);
+    });
+  }
+
+  async update({ planId, expectedRevision, intentId, ...input }: z.output<typeof ObservationUpdateInput>, signal: AbortSignal): Promise<PlanSummary> {
+    return this.rules.withRuleConfiguration(async () => {
+      const { plans, version } = this.load();
+      const plan = plans.find((entry) => entry.planId === planId && entry.intent !== "deleted");
+      if (!plan) throw errors.notFound("观察计划");
+      if (plan.machineId && plan.machineId !== this.owner.machineId) throw errors.permissionDenied("只能在来源设备修改会话观察");
+      if (plan.lastEditIntent === intentId) return this.summary(plan);
+      if (plan.revision !== expectedRevision) throw errors.versionConflict(plan.revision);
+      validateEffect(input);
+      const stamp = this.instant();
+      const next: Observation = {
+        ...plan, ...input, revision: randomUUID(), updatedAt: stamp, nextAt: stamp,
+        machineId: input.target.kind === "agent-session" ? this.owner.machineId : null,
+        lastEditIntent: intentId, status: null, since: null, alerted: false,
+      };
+      await this.save(plans.map((entry) => entry === plan ? next : entry), version, signal);
+      this.changed(planId);
+      return this.summary(next);
     });
   }
 

@@ -1851,7 +1851,9 @@ test("F31：自动化中心建立、改期、暂停和删除任务观察", async
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = await caller(page);
     const task = await call("tasks.create", { title: "待观察的编辑任务" });
+    const nextTask = await call("tasks.create", { title: "替换观察对象" });
     expect(task.ok).toBe(true);
+    expect(nextTask.ok).toBe(true);
     await page.getByRole("button", { name: "自动化", exact: true }).first().click();
     await page.getByRole("button", { name: "计划", exact: true }).click();
     const plans = page.getByTestId("plan-directory");
@@ -1864,6 +1866,17 @@ test("F31：自动化中心建立、改期、暂停和删除任务观察", async
     await editor.getByRole("button", { name: "保存观察" }).click();
     const row = plans.locator("[data-plan-id]").filter({ hasText: "编辑任务状态观察" });
     await expect(row).toContainText("每 1 秒检查");
+    const planId = await row.getAttribute("data-plan-id");
+    await row.getByRole("button", { name: "编辑观察" }).click();
+    const change = page.getByRole("dialog", { name: "编辑状态观察" });
+    await change.getByLabel("观察对象").selectOption(nextTask.data.id);
+    await change.getByLabel("触发条件").selectOption("threshold");
+    await change.getByLabel("持续秒数").fill("20");
+    await change.getByLabel("条件持续满足时重复递送").check();
+    await change.getByRole("button", { name: "保存观察" }).click();
+    await expect(change).toBeHidden();
+    await expect(row).toHaveAttribute("data-plan-id", planId!);
+    expect((await call("automations.plans.readObservation", { planId })).data).toMatchObject({ target: { id: nextTask.data.id }, condition: { kind: "threshold", seconds: 20 }, repeat: true });
     await row.getByRole("button", { name: "改期" }).click();
     const revise = page.getByRole("dialog", { name: "更改计划时间" });
     await revise.getByLabel("检查间隔（秒）").fill("2");

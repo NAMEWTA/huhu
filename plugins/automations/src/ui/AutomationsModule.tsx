@@ -1,5 +1,6 @@
 import { Badge, Button, Dialog, EmptyState, IconButton } from "@huhu/ui";
 import type { PlanSummary } from "@huhu/contracts";
+import type { ObservationConfiguration } from "../engine/observations.js";
 import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
 import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
@@ -352,14 +353,34 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
 }
 
 function PlansPanel() {
+  const engine = useEngine();
   const [cursor, setCursor] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editObservation, setEditObservation] = useState<ObservationConfiguration | null>(null);
+  const [loadingObservation, setLoadingObservation] = useState(false);
+  const [editError, setEditError] = useState("");
   const plans = useCapability<{ plans: PlanSummary[]; nextCursor: string | null }>("automations.plans.list", { ...(cursor && { cursor }), limit: 30 });
+  async function openObservation(planId: string) {
+    setLoadingObservation(true);
+    setEditError("");
+    try {
+      const config = await engine.call<ObservationConfiguration | null>("automations.plans.readObservation", { planId });
+      if (config) setEditObservation(config);
+      else setEditError("原观察已删除。");
+    } catch (failure) {
+      setEditError(failure instanceof Error ? failure.message : "暂时无法读取观察设置。");
+    } finally {
+      setLoadingObservation(false);
+    }
+  }
   return (
     <div className="automations-task-content" data-testid="plan-directory">
       {plans.error ? <p role="alert">{plans.error.message}</p> : null}
-      <Button icon={Plus} onClick={() => setCreating(true)}>新建状态观察</Button>
+      <Button icon={Plus} disabled={loadingObservation} onClick={() => setCreating(true)}>新建状态观察</Button>
       {creating ? <ObservationEditor onClose={() => setCreating(false)} onSaved={() => plans.refetch()} /> : null}
+      {editObservation ? <ObservationEditor key={editObservation.planId} initial={editObservation}
+        onClose={() => setEditObservation(null)} onSaved={() => plans.refetch()} /> : null}
+      {editError ? <p role="alert">{editError}</p> : null}
       {plans.data?.plans.map((plan) => (
         <section key={plan.planId} className="hu-tw-detail-section" data-plan-id={plan.planId}>
           <h3>{plan.title}</h3>
@@ -368,6 +389,8 @@ function PlansPanel() {
           <p>{plan.lastOccurrence?.state === "completed" && !plan.nextAt ? "最近一次已完成"
             : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
           {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
+          {plan.trigger.kind === "observe" && plan.actions.includes("reschedule")
+            ? <Button icon={Pencil} disabled={loadingObservation} onClick={() => void openObservation(plan.planId)}>编辑观察</Button> : null}
           <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
         </section>
       ))}

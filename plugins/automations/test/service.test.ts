@@ -246,6 +246,17 @@ test("观察断线后继续，评论写入回执丢失时沿用原发生和评�
   expect(writeComment.mock.calls[0]).toEqual(writeComment.mock.calls[1]);
   expect(comments.size).toBe(1);
   expect(restarted.deliveries.readPlanOccurrence(updated!.lastOccurrence!.occurrenceId)).toMatchObject({ effects: [{ kind: "task-comment", state: "completed" }] });
+  const edit = {
+    planId: plan.planId, expectedRevision: plan.revision, intentId: randomUUID(), title: "重新核对",
+    target: { kind: "task", id: "task-replacement" }, everySeconds: 60,
+    condition: { kind: "threshold", status: "running", seconds: 300 }, repeat: true, stopAtTerminal: false, effect: "both",
+  } as const;
+  const revised = await restarted.plans.update(edit, new AbortController().signal);
+  expect(revised).toMatchObject({ planId: plan.planId, intent: "paused", trigger: { kind: "observe", object: edit.target, everySeconds: 60 } });
+  expect(revised.revision).not.toBe(plan.revision);
+  expect(restarted.plans.configuration(plan.planId)).toMatchObject({ condition: edit.condition, repeat: true, effect: "both" });
+  expect(await restarted.plans.update(edit, new AbortController().signal)).toEqual(revised);
+  await expect(restarted.plans.update({ ...edit, intentId: randomUUID() }, new AbortController().signal)).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
   await restarted.plans.close();
   await restarted.deliveries.close();
 });
