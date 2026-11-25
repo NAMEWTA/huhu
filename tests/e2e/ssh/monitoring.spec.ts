@@ -171,7 +171,7 @@ test("A11 独立 Web 查看两个主机的桌面采样，采样控制由桌面�
       await desktopHost.getByRole("button", { name: "核对主机指纹" }).click();
       await page.getByRole("button", { name: "信任并连接" }).click();
       const webHost = dashboard.getByTestId("ssh-monitor-host").filter({ has: web.getByRole("heading", { name, exact: true }) });
-      await expect(webHost.getByText(percent, { exact: true })).toBeVisible({ timeout: 12_000 });
+      await expect(webHost.getByRole("definition").getByText(percent, { exact: true })).toBeVisible({ timeout: 12_000 });
       await webHost.getByText("样本历史", { exact: true }).click();
       await expect(webHost.getByRole("table")).toContainText(percent);
     }
