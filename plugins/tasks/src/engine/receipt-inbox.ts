@@ -195,6 +195,15 @@ export class TaskReceiptInbox {
     };
   }
 
+  committedResult(taskId: string, receiptId: string, bound: (execution: ExecutionBinding) => boolean) {
+    const record = this.read(this.file(receiptId))?.record;
+    if (!record || record.status !== "delivered" || record.receipt.receiptId !== receiptId ||
+        record.receipt.kind !== "result" || record.receipt.execution.taskId !== taskId || !bound(record.receipt.execution)) {
+      throw errors.notFound("找不到原任务已保存的结果");
+    }
+    return { receiptId, messageId: record.consumption.delivery.messageId, body: record.receipt.payload.message };
+  }
+
   schedulingHistory(bindings: ReadonlyMap<string, string>, onError: (error: unknown) => void, snapshot: ReceiptSnapshot) {
     const matches = (execution: ExecutionBinding) => bindings.get(execution.dispatchId) === fingerprint(execution);
     const files = this.index.pathsFor([...bindings.keys()].map((dispatchId) => `dispatch:${dispatchId}`), onError);
@@ -241,7 +250,11 @@ export class TaskReceiptInbox {
               const state = receipt.kind === "failed" ? nativeTerminalStates.get(receipt.payload.code) : undefined;
               const outcome: RunOutcome = state
                 ? { state, finishedAt: at }
-                : { state: receipt.kind === "failed" ? "failed" : "succeeded", finishedAt: at, result: { kind: receipt.kind, delivery: status } };
+                : {
+                    state: receipt.kind === "failed" ? "failed" : "succeeded",
+                    finishedAt: at,
+                    result: { kind: receipt.kind, delivery: status, ...(receipt.kind === "result" && { receiptId: receipt.receiptId }) },
+                  };
               terminal.set(execution.dispatchId, { payloadHash, outcome });
             }
           }

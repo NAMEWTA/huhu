@@ -241,6 +241,16 @@ export class TaskDispatch {
     });
   }
 
+  committedResult(taskId: string, receiptId: string) {
+    this.tasks.read(taskId);
+    const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
+    return this.receipts.committedResult(taskId, receiptId, (execution) => {
+      const outcome = outcomes.get(execution.dispatchId);
+      return outcome?.state === "succeeded" && outcome.result.kind === "result" && outcome.result.receiptId === receiptId &&
+        this.matchesExecution(execution) && !this.store.read(eventIdOf(retryDispatchId(execution.dispatchId)));
+    });
+  }
+
   reply(input: ReplyInput, actor: ResponseActor, signal: AbortSignal, authorize: () => void): Promise<ReplyView> {
     const stopped = AbortSignal.any([signal, this.abort.signal]);
     const normalEvent = eventIdOf(normalDispatchId(input));

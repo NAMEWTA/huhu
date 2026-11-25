@@ -13,8 +13,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: preview-platforms-v0.0.2-rc.1
+  group: release-${{ inputs.release_tag }}
   cancel-in-progress: false
+  queue: max
 
 env:
   RELEASE_TAG: ${{ inputs.release_tag }}
@@ -36,6 +37,7 @@ jobs:
             extension: dmg
             executable: apps/desktop/release/mac-arm64/HUHU.app/Contents/MacOS/HUHU
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     defaults:
       run:
         shell: bash
@@ -129,11 +131,21 @@ jobs:
           installer="HUHU-${RELEASE_TAG#v}-$TARGET.$EXTENSION"
           test -s "apps/desktop/release/$installer"
           printf 'filename=%s\n' "$installer" >> "$GITHUB_OUTPUT"
+      - if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-diagnostics-${{ env.SOURCE_COMMIT }}-${{ matrix.target }}
+          path: |
+            packaged-results.json
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: HUHU-${{ matrix.target }}
           overwrite: true
           if-no-files-found: error
+          retention-days: 30
           path: |
             apps/desktop/release/${{ steps.installer.outputs.filename }}
             apps/desktop/release/SHA256SUMS-${{ matrix.target }}.txt
@@ -142,6 +154,7 @@ jobs:
   publish:
     needs: package
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

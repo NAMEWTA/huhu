@@ -110,7 +110,7 @@ export const TaskRunSummary = z.object({
   model: z.string().nullable(),
   questions: z.number(),
   parentRunId: z.string().optional(),
-  result: z.strictObject({ kind: z.enum(["result", "failed", "no_update"]), delivery: z.enum(["pending", "delivered", "target_missing"]) }).optional(),
+  result: z.strictObject({ kind: z.enum(["result", "failed", "no_update"]), delivery: z.enum(["pending", "delivered", "target_missing"]), receiptId: z.string().optional() }).optional(),
 });
 export const RecentTaskRun = z.object({ dispatch: TaskDispatchView, run: TaskRunSummary.nullable(), title: z.string() });
 export type TaskRunSummary = z.infer<typeof TaskRunSummary>;
