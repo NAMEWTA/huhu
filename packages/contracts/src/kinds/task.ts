@@ -24,6 +24,8 @@ export const TaskHistorySelectionSchema = z.strictObject({
   spaceRevision: z.number().int().positive(),
 });
 export type TaskHistorySelection = z.infer<typeof TaskHistorySelectionSchema>;
+export const TaskExecutionProfileSchema = z.enum(["read-only", "workspace-write"]);
+export type TaskExecutionProfile = z.infer<typeof TaskExecutionProfileSchema>;
 
 /** agent 任务的执行配置；没有 `kind`，类型只看任务的 `type`。 */
 export const TaskExecutionSchema = z.object({
@@ -32,6 +34,7 @@ export const TaskExecutionSchema = z.object({
   model: z.string().nullable().default(null),
   effort: z.string().nullable().default(null),
   fast: z.boolean().default(false),
+  profile: TaskExecutionProfileSchema.optional(),
   /** 旧文件缺省为 new。其他目标显式保存各自的会话标识，派遣时核验资格。 */
   target: z
     .discriminatedUnion("mode", [

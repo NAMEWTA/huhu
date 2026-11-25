@@ -73,6 +73,7 @@ export interface AgentCliOptions {
   codexDispatch?: CodexDispatchOptions | undefined;
   credentialHost?: AgentCredentialHost;
   receiptCheckMs?: number;
+  dispatchBudget?: import("@huhu/vault").DeviceDispatchBudget;
 }
 
 export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): { spaces: SpaceStore; detector: AgentDetector; sessions: SessionsService; core: HerdrCore } {
@@ -152,6 +153,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     onHistoryIdentityConfirmed: publishSessionChanged,
     protectedLaunch,
     interactiveEnvironment,
+    ...(opts.dispatchBudget && { dispatchBudget: opts.dispatchBudget }),
   });
   const nativeProvider: DispatchProvider = { id: "codex-app-server-v1", modes: ["new", "existing", "resume"], transport: "native" };
   const providers = { ...(codex?.configured && { codex: nativeProvider }), ...opts.dispatchProviders };
@@ -181,7 +183,10 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
         lifetime.signal,
         opts.receiptCheckMs ?? 5_000,
         (execution) => dispatch.reconcileNative(execution),
-        () => sessions.releaseAbandonedResumes(resumeAbandoned),
+        async () => {
+          await sessions.releaseAbandonedResumes(resumeAbandoned);
+          await sessions.reconcileDispatchResources();
+        },
       ),
     );
   }
@@ -287,6 +292,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
     return isAgentTool(c.caller) ? { ...projected, requestId } : projected;
   };
   api.defineCapability(bindCapability(mainAgentDescriptors.spacesList, () => spaces.list()));
+  api.defineCapability(bindCapability(mainAgentDescriptors.dispatchWriteApproval, ({ caller, signal }, { id, expectedRevision, allowed }) => {
+    if (caller !== "desktop") throw errors.permissionDenied("需要在本机桌面批准工作区写入");
+    signal.throwIfAborted();
+    spaces.approveDispatchWrite(id, expectedRevision, allowed);
+    return { allowed };
+  }));
   api.defineCapability(
     bindCapability(mainAgentDescriptors.spacesSave, ({ caller }, i) => {
       const external = isAgentTool(caller);
@@ -979,7 +990,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       return selected || c.parentOperationId || !i.dryRun ? { sent } : { sent, text };
     }),
   );
-  api.provide("agentCli", { spaces, detector, core });
+  api.provide("agentCli", { spaces, detector, core, dispatchRetained: () => sessions.dispatchRetained() });
   api.provide("agentProtectedTerminal", {
     readApprovedShellCancellation: (requestId: string) => sessions.readApprovedShellCancellation(requestId),
     get launchApprovedShell() {

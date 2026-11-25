@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { isHuhuError, newId, PlanWriteResultSchema, TaskPatchSchema, TaskWritableSchema, toJsonSchema, type ExecutionBinding, type ExecutionReceipt, type PlanSummary, type PlanWrite, type TaskDto } from "@huhu/contracts";
 import { executionReceiptIdentity } from "@huhu/contracts/execution-receipt/engine";
-import { importPackage, machineId, VaultFiles } from "@huhu/vault";
+import { importPackage, machineId, VaultFiles, versionOf } from "@huhu/vault";
 import { HerdrClient } from "../../../packages/herdr-client/src/index.js";
 import { afterEach, expect, test, vi } from "vitest";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
@@ -21,6 +21,7 @@ import type { TaskRuleDispatch } from "../src/engine/index.js";
 import { TaskReceiptInbox } from "../src/engine/receipt-inbox.js";
 import { externalEntries, externalToolEntry } from "./external-tool-entry.js";
 import { TasksService } from "../src/engine/service.js";
+import { dispatchSnapshotText } from "../src/engine/dispatch-store.js";
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
@@ -490,6 +491,87 @@ async function startBoundRun() {
 function submitReceipt(engine: RunningEngine, receipt: ExecutionReceipt) {
   return engine.dispatcher.call("plugin:agent-cli", { capability: "tasks.receipts.consume", input: receipt, requestId: randomUUID(), idempotencyKey: receipt.receiptId });
 }
+
+test("TW6 明确的新轮次从选中的消息和产物版本继续，保持任务输入修订", async () => {
+  const { root, engine, task, fake, run, execution } = await startBoundRun();
+  await vi.waitFor(async () => expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ data: { status: "in_progress" } }));
+  const active = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  expect(await call(engine, "tasks.dispatch", { ...intent(active.data), newRound: true })).toMatchObject({ ok: false, error: { details: { reason: "task_occupied" } } });
+  expect(await submitReceipt(engine, { version: 1, kind: "no_update", receiptId: "tw6-first-ended", execution, payload: {} })).toMatchObject({ ok: true });
+  mkdirSync(path.join(root, "Notes"), { recursive: true });
+  const artifactPath = "Notes/progress.txt";
+  const artifact = path.join(root, artifactPath);
+  const saved = "checked fixture output";
+  writeFileSync(artifact, saved);
+  const { data: summary } = await call<{ comment: { id: string } }>(engine, "tasks.comments.add", { taskId: task.id, body: `已完成首轮，下一步使用 [[${artifactPath}]]。` });
+  await call(engine, "tasks.comments.add", { taskId: task.id, body: "这段消息不在选取范围内。" });
+  const { data: updated } = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  expect(updated).toMatchObject({ body: task.body, inputRevision: task.inputRevision, inputHash: task.inputHash });
+  const request = { ...intent(updated), newRound: true, context: { messageIds: [summary.comment.id], artifacts: [{ path: artifactPath, expectedVersion: versionOf(Buffer.from(saved)) }] } };
+  expect(await call(engine, "tasks.dispatch", { ...request, context: { ...request.context, artifacts: [{ path: artifactPath, expectedVersion: "stale" }] } })).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
+  vi.mocked(fake.ready).mockResolvedValue("busy");
+  const { data: next } = await call<DispatchReceipt>(engine, "tasks.dispatch", request);
+  expect(next).toMatchObject({ parentRunId: run.runId, attempt: 1 });
+  expect(next.runId).not.toBe(run.runId);
+  writeFileSync(artifact, "changed after acceptance");
+  await stop(engine);
+  const reopened = await start(root);
+  expect(await call(reopened, "tasks.dispatch", request)).toMatchObject({ ok: true, data: { runId: next.runId } });
+  vi.mocked(fake.dispatch).mockResolvedValue({ state: "accepted", execution: { ...execution, dispatchId: next.dispatchId, runId: next.runId, sessionBinding: { ...execution.sessionBinding, sessionId: "fixture-new-session", nativeSessionId: "fixture-new-thread" } } });
+  vi.mocked(fake.ready).mockResolvedValue("ready");
+  await waitDispatch(reopened, next, { state: "running" });
+  const { snapshot, boundExecution } = recordOf(reopened, next);
+  expect(boundExecution?.sessionBinding).toMatchObject({ sessionId: "fixture-new-session", nativeSessionId: "fixture-new-thread" });
+  expect(snapshot.context?.artifacts).toEqual([{ path: artifactPath, version: request.context.artifacts[0]!.expectedVersion, expectedVersion: request.context.artifacts[0]!.expectedVersion, text: saved }]);
+  expect(dispatchSnapshotText(snapshot)).toContain(saved);
+  expect(dispatchSnapshotText(snapshot)).toContain("已完成首轮");
+  expect(dispatchSnapshotText(snapshot)).not.toContain("这段消息不在选取范围");
+  expect(dispatchSnapshotText(snapshot)).not.toContain("changed after acceptance");
+});
+
+test.skipIf(!process.getuid)("TW6 本机名额在两个 Vault 的规则之间共享，原生等待释放活动但未知仍占位", async () => {
+  const config = tempVault();
+  vi.stubEnv("XDG_CONFIG_HOME", config);
+  mkdirSync(path.join(config, "huhu"));
+  writeFileSync(path.join(config, "huhu", "dispatch-limits.json"), JSON.stringify({ active: 1, retained: 2 }));
+  const fake = executor();
+  fixture.executor = fake;
+  const first = await start(tempVault(), true);
+  const firstRules = fixture.rule!;
+  const second = await start(tempVault(), true);
+  const secondRules = fixture.rule!;
+  const a = await createDispatchable(first, "第一 Vault 的运行");
+  const b = await createDispatchable(second, "第二 Vault 的运行");
+  const bound = new Map<string, ExecutionBinding>();
+  fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
+    if (snapshot.taskId === b.id) return "unknown";
+    const execution = { vaultId: first.vault.id, taskId: snapshot.taskId, dispatchId, runId, attempt, sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` } } satisfies ExecutionBinding;
+    bound.set(runId, execution);
+    return { state: "accepted", execution };
+  });
+  const r1 = await firstRules.acceptRule(intent(a), rule("device-first"));
+  await waitDispatch(first, r1, { state: "running" });
+  const r2 = await secondRules.acceptRule(intent(b), rule("device-second"));
+  await waitDispatch(second, r2, { reason: "waiting_resource" });
+  expect(fake.dispatch).toHaveBeenCalledTimes(1);
+  expect(await submitReceipt(first, { version: 1, receiptId: "device-question", kind: "question", execution: bound.get(r1.runId)!, payload: { mode: "native_deferred", requestId: "device-question", requestVersion: 1, nativeRequestId: "device-native", text: "等待", options: ["一"] } })).toMatchObject({ ok: true });
+  await waitDispatch(second, r2, { state: "unknown" });
+  const view = (engine: RunningEngine) => call(engine, "tasks.dispatch.resources", {});
+  await vi.waitFor(async () => expect(await view(first)).toMatchObject({ ok: true, data: { vault: { active: 0, waitingNative: 1, oldestNativeWaitAt: expect.any(String) }, device: { active: { limit: 1, occupied: 1 } } } }));
+  await vi.waitFor(async () => expect(await view(second)).toMatchObject({ ok: true, data: { vault: { active: 1, unknown: 1 } } }));
+  const extra = await firstRules.acceptRule(intent(await createDispatchable(first, "第三个待排队运行")), rule("device-third"));
+  await waitDispatch(first, extra, { reason: "waiting_resource" });
+  expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  const core = vi.spyOn(HerdrCore.prototype, "peek");
+  try {
+    const results = await Promise.all(Array.from({ length: 8 }, () => view(first)));
+    expect(results.every(({ ok }) => ok)).toBe(true);
+    expect(core).not.toHaveBeenCalled();
+    expect(fake.dispatch).toHaveBeenCalledTimes(2);
+  } finally {
+    core.mockRestore();
+  }
+});
 
 test("确认失败后用原快照追加 attempt，旧派遣重传保持原身份", async () => {
   const { engine, task, fake, run, execution } = await startBoundRun();
@@ -1925,7 +2007,7 @@ test.each(externalEntries)("%s 逐项开放和撤销 Tasks 目标快照，冷与
     const bytes = JSON.stringify(existing);
     writeFileSync(targetFile, bytes);
     const warm = await list();
-    expect(warm).toMatchObject({ ok: true, data: expect.arrayContaining([{ mode: "existing", provider: "claude", sessionId: existing.id, available: false, reason: "binding_unverified" }]) });
+    expect(warm).toMatchObject({ ok: true, data: expect.arrayContaining([expect.objectContaining({ mode: "existing", provider: "claude", sessionId: existing.id, available: false, reason: "binding_unverified", capabilities: expect.objectContaining({ liveSession: { state: "runtime_check", reason: "binding_unverified" } }) })]) });
     expect(readFileSync(targetFile, "utf8")).toBe(bytes);
     expect(await external.call(id, { spaceId: "space-missing" })).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
     expect(vi.mocked(spawn).mock.calls).toHaveLength(initialStarts);

@@ -7,6 +7,8 @@ export * from "./semantic/filename.js";
 export * from "./semantic/frontmatter.js";
 export * from "./semantic/repository.js";
 export * from "./identity.js";
+export * from "./engine-endpoint.js";
+export * from "./device-dispatch-budget.js";
 export * from "./watch/snapshot.js";
 export * from "./watch/watcher.js";
 export * from "./index/links.js";

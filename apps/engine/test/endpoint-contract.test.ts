@@ -115,7 +115,7 @@ test("占用固定端口时保留冲突，复制的描述文件也不能把另�
   copyFileSync(path.join(engine.vault.runtimeDir, "mcp-listener.json"), path.join(other.vault.runtimeDir, "mcp-listener.json"));
   copyFileSync(engine.descriptorPath, otherDescriptor);
   expect(readLiveEndpoint(other.vault)).toBeNull();
-  await expect(connect(otherRoot, { engineEntry: "" })).rejects.toThrow("未配置引擎入口");
+  await expect(connect(otherRoot, { engineEntry: "" })).rejects.toThrow("发现记录不属于所选 Vault");
   expect(await connect(root, { engineEntry: "" })).toMatchObject({ vaultId: engine.vault.id });
   const reopened = await start(otherRoot);
   expect(reopened.port).not.toBe(engine.port);

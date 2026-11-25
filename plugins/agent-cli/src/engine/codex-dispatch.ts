@@ -84,6 +84,7 @@ type CodexPlan = {
   helperStamp: string;
   configStamp: string | null;
   nativeChoiceBridge: boolean;
+  workspace?: { root: string; rootIdentity: string; files: { path: string; stamp: string }[] };
   resume?: z.infer<typeof Resume>;
 };
 type Identity = Pick<z.infer<typeof Launch>, "vaultId" | "machineId" | "sessionId" | "coreId" | "attempt">;
@@ -199,7 +200,7 @@ export class CodexDispatch {
     }
   }
 
-  async prepare(input: Pick<LaunchInput, "model" | "effort" | "fast" | "history" | "resumeDispatchId">): Promise<CodexPlan> {
+  async prepare(input: Pick<LaunchInput, "model" | "effort" | "fast" | "history" | "resumeDispatchId">, workspace?: CodexPlan["workspace"]): Promise<CodexPlan> {
     const configuration = this.configuration(input);
     const { command, args: fixtureArgs, home, binaryStamp } = configuration;
     const linuxNative = process.platform === "linux" && fixtureArgs.length === 0;
@@ -223,6 +224,7 @@ export class CodexDispatch {
       }
       const version = await this.versionCheck.result;
       if (!version) throw unavailable();
+      if (workspace && (!linuxNative || !version.nativeChoiceBridge || input.history)) throw unavailable();
       let resume: CodexPlan["resume"];
       const history = input.history;
       if (history) {
@@ -238,7 +240,7 @@ export class CodexDispatch {
         if (actual !== revision) throw unavailable();
         resume = Resume.parse({ threadId, file, cwd, physical, historyId, revision, dispatchId: input.resumeDispatchId, source: launchHash([home, file, cwd, threadId, physical]) });
       }
-      return { ...configuration, nativeChoiceBridge: version.nativeChoiceBridge, ...(resume && { resume }) };
+      return { ...configuration, nativeChoiceBridge: version.nativeChoiceBridge, ...(resume && { resume }), ...(workspace && { workspace }) };
     } catch {
       throw unavailable();
     }

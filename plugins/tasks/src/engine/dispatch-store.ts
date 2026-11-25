@@ -11,7 +11,15 @@ const Id = z.string().trim().min(1).max(256);
 const Instant = z.iso.datetime();
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
-export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional() }).strict();
+const ContextSelection = z.strictObject({
+  messageIds: z.array(Id).max(8).default([]),
+  artifacts: z.array(z.strictObject({ path: z.string().min(1).max(1024), expectedVersion: z.string().min(1).max(256).optional() })).max(4).default([]),
+});
+const FrozenContext = z.strictObject({
+  messages: z.array(z.strictObject({ id: Id, body: z.string().max(8_000) })).max(8),
+  artifacts: z.array(z.strictObject({ path: z.string(), version: z.string(), expectedVersion: z.string().optional(), text: z.string().max(8_000) })).max(4),
+});
+export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional(), newRound: z.literal(true).optional(), context: ContextSelection.optional() }).strict();
 export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
 export const RetryDispatch = DispatchLookup.extend({ retryId: Id });
 const StopRecord = z.strictObject({
@@ -64,7 +72,18 @@ const Snapshot = InputIdentity.extend({
   references: z.array(z.string()),
   source: Source,
   allowEarly: z.boolean().optional(),
+  newRound: z.literal(true).optional(),
+  previousRunId: Id.optional(),
+  context: FrozenContext.optional(),
 });
+
+export function dispatchSnapshotText({ body, source, context }: z.infer<typeof Snapshot>): string {
+  const instructions = source.kind === "automation" ? source.instructions : undefined;
+  const messages = context?.messages.map(({ body }) => body);
+  const artifacts = context?.artifacts.map(({ path, version, text }) => `文件 ${path}（版本 ${version}）\n${text}`);
+  return [body, instructions, ...(messages?.length ? ["选取的任务消息", ...messages] : []), ...(artifacts?.length ? ["选取的关联产物", ...artifacts] : [])]
+    .filter((part): part is string => part !== undefined && part !== "").join("\n\n").replace(/\r\n/g, "\n");
+}
 export const DispatchReceipt = DispatchLookup.extend({
   eventId: z.string(),
   runId: z.string(),
@@ -217,9 +236,13 @@ export class DispatchStore {
     try {
       const record = DispatchRecord.parse(JSON.parse(file.bytes.toString("utf8")));
       const { receipt, snapshot, claim, requestHash, snapshotHash } = record;
-      if (receipt.parentRunId !== ("parent" in snapshot.source ? snapshot.source.parent?.runId : undefined)) throw new Error("后续运行关联不一致");
-      const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly } = snapshot;
-      const input = { taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion, ...(allowEarly !== undefined && { allowEarly }) };
+      const { taskId, inputHash, inputRevision, expectedVersion, source, allowEarly, newRound, previousRunId, context } = snapshot;
+      if (receipt.parentRunId !== (newRound ? previousRunId : "parent" in source ? source.parent?.runId : undefined)) throw new Error("后续运行关联不一致");
+      const input = {
+        taskId, dispatchId: receipt.dispatchId, inputHash, inputRevision, expectedVersion,
+        ...(allowEarly !== undefined && { allowEarly }), ...(newRound && { newRound }),
+        ...(context && { context: { messageIds: context.messages.map(({ id }) => id), artifacts: context.artifacts.map(({ path, expectedVersion }) => ({ path, ...(expectedVersion !== undefined && { expectedVersion }) })) } }),
+      };
       if (receipt.eventId !== eventId || eventIdOf(receipt.dispatchId) !== eventId || receipt.taskId !== taskId || !isId(receipt.runId, "run")) throw new Error("派遣身份校验失败");
       const { retryOf } = record;
       if (retryOf ? record.schema !== 2 || receipt.attempt < 2 || retryOf.intent.taskId !== taskId || retryDispatchId(retryOf.intent.dispatchId) !== receipt.dispatchId : receipt.attempt !== 1) {

@@ -1,4 +1,4 @@
-import { errors, ExecutionBindingSchema, ExecutionSessionBindingSchema, TaskHistorySelectionSchema } from "@huhu/contracts";
+import { errors, ExecutionBindingSchema, ExecutionSessionBindingSchema, TaskExecutionProfileSchema, TaskHistorySelectionSchema } from "@huhu/contracts";
 import { defineCapability as def, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { AgentDispatch } from "./dispatch.js";
@@ -6,6 +6,7 @@ import { DispatchInput, DispatchLookup, LaunchOptions, ProviderAcceptance, Resum
 import { NativeAnswer, NativeAnswerStatus } from "./native-answer.js";
 import { NativeStop, NativeStopStatus } from "./native-stop.js";
 
+const CapabilityState = z.object({ state: z.enum(["available", "conditional", "runtime_check", "unsupported"]), reason: z.string().optional() });
 export const AgentDispatchTargetInfoSchema = z.object({
   mode: z.enum(["new", "existing", "resume"]),
   provider: z.string(),
@@ -19,9 +20,12 @@ export const AgentDispatchTargetInfoSchema = z.object({
   binding: ExecutionSessionBindingSchema.nullable(),
   available: z.boolean(),
   reason: z.string().nullable(),
-  structuredReply: z.boolean(),
-  structuredResult: z.boolean(),
-  cancel: z.boolean(),
+  profile: TaskExecutionProfileSchema.optional(),
+  capabilities: z.object({
+    interactive: CapabilityState, dispatch: CapabilityState, liveSession: CapabilityState, coldResume: CapabilityState,
+    structuredReply: CapabilityState, structuredResult: CapabilityState, stop: CapabilityState,
+    workspaceRead: CapabilityState, workspaceWrite: CapabilityState, command: CapabilityState, mcp: CapabilityState,
+  }).optional(),
 });
 export const AgentDispatchResponseSchema = z.object({
   status: z.enum(["accepted", "busy", "unsupported", "unknown", "not_sent"]),

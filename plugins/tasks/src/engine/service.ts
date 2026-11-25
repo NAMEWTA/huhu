@@ -62,8 +62,9 @@ function executionWithDefault(type: TaskDto["type"], execution: TaskDto["executi
   return { ...(execution ?? TaskExecutionSchema.parse({})), target: { mode: "new" } };
 }
 
-export function agentDispatchBlocker(task: TaskDto): string | undefined {
-  if (task.readOnly || task.type !== "agent" || task.status !== "not_started") return "此任务无法开始新的 Agent 执行";
+export function agentDispatchBlocker(task: TaskDto, newRound = false): string | undefined {
+  const canBegin = task.status === "not_started" || (newRound && task.status === "in_progress" && (task.execution?.target?.mode ?? "new") === "new");
+  if (task.readOnly || task.type !== "agent" || !canBegin) return "此任务无法开始新的 Agent 执行";
   if (task.problems.length) return "任务文件有结构问题";
   if (!task.body.trim()) return "任务内容为空";
   if (!task.execution?.spaceId) return "没有选择工作目录（Space）";
