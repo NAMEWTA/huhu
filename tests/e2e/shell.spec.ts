@@ -2042,10 +2042,7 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     expect(await call(page, "automations.plans.submit", {
       planId: plan.planId, expectedRevision: plan.revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
     }, intentId)).toMatchObject({ outcome: "completed", plan: { planId: plan.planId, nextAt: scheduledFor } });
-    await app.close();
-    app = await launch(vault);
-    page = await app.firstWindow();
-    await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
+    // 正常退出会暂停运行中的专注，先验证 Engine 到点结算。
     await expect(page.getByTestId("focus-completed")).toHaveText("今日完成 1 次", { timeout: 15_000 });
     await expect(page.getByTestId("focus-time")).toHaveText("25:00");
     await expect(page.getByTestId("focus-start")).toBeVisible();
@@ -2075,6 +2072,7 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
     page = await app.firstWindow();
     await expect(page.getByTestId("habit-row")).toHaveCount(1, { timeout: 20_000 });
     await expect(page.getByLabel("喝水", { exact: true })).toBeChecked();
+    await expect(page.getByTestId("focus-completed")).toHaveText("今日完成 1 次");
 
     // 自定义：隐藏专注卡片，重启后仍隐藏
     await page.getByTestId("home-customize").click();

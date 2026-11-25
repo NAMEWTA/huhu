@@ -711,7 +711,10 @@ describe("Engine 启动与关闭", () => {
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
   }, 30_000);
-  test("F32：专注截止随同一计划改期，Engine 重开无页面仍结算一次", async () => {
+  test.each([
+    { scenario: "Engine 停机期间到期，重开无页面仍结算一次", pauseBeforeShutdown: false },
+    { scenario: "桌面退出前主动暂停，跨过原截止重开仍保持暂停", pauseBeforeShutdown: true },
+  ])("F32：专注截止随同一计划改期，$scenario", async ({ pauseBeforeShutdown }) => {
     const dir = tmp();
     const original = await boot({ vaultPath: dir, create: true });
     engines.push(original);
@@ -734,12 +737,28 @@ describe("Engine 启动与关闭", () => {
     const updated = await call(original, "home.focus.get", {});
     const ref = (updated.data as unknown as { plan: { planId: string; revision: string } }).plan;
     expect(ref.revision).not.toBe(revision);
-    expect(updated.data).toMatchObject({ plan: ref, endsAt: scheduledFor });
+    expect(updated.data).toMatchObject({ running: true, plan: ref, endsAt: scheduledFor });
+    const paused = pauseBeforeShutdown ? await call(original, "home.focus.update", { action: "pause" }) : undefined;
+    if (paused) {
+      expect(paused).toMatchObject({ ok: true, data: { running: false, endsAt: null, completedToday: 0, plan: { planId } } });
+    }
     await original.shutdown();
     engines.splice(engines.indexOf(original), 1);
     await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(scheduledFor) - Date.now() + 50)));
+    const saved = JSON.parse(readFileSync(path.join(dir, ".huhu/home/focus.json"), "utf8"));
+    expect(saved).toMatchObject({
+      running: !pauseBeforeShutdown, completedToday: 0,
+      deadline: { planId, scheduledFor, state: pauseBeforeShutdown ? "paused" : "enabled" },
+    });
     const reopened = await boot({ vaultPath: dir });
     engines.push(reopened);
+    if (paused) {
+      expect((await call(reopened, "home.focus.get", {})).data).toEqual(paused.data);
+      expect((await call(reopened, "automations.plans.read", { planId })).data)
+        .toMatchObject({ intent: "paused", nextAt: null, lastOccurrence: null });
+      expect((await call(reopened, "notifications.list", {})).data).toEqual([]);
+      return;
+    }
     await expect.poll(async () => (await call(reopened, "home.focus.get", {})).data).toMatchObject({ running: false, completedToday: 1, plan: ref });
     await expect.poll(async () => (await call(reopened, "automations.plans.read", { planId })).data)
       .toMatchObject({ ...ref, nextAt: null, lastOccurrence: { state: "completed" } });
