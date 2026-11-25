@@ -992,9 +992,9 @@ test("首页看板：窄屏调整顺序时保留草稿，保存后在宽屏重�
     await page.setViewportSize({ width: 600, height: 768 });
     await expect(board.locator(".hu-dashboard-canvas")).toHaveAttribute("data-dashboard-narrow", "true");
     await page.getByTestId("home-customize").click();
-    const earlier = board.getByRole("button", { name: "前移 最近笔记" });
-    await expect(board.getByRole("button", { name: "移动 最近笔记", exact: true })).toBeHidden();
-    await earlier.press("Enter");
+    const handle = board.getByRole("button", { name: "移动 最近笔记", exact: true });
+    await handle.press("ArrowUp");
+    await expect(handle).toBeFocused();
     await expect(board.getByRole("status")).toContainText(/最近笔记，第 \d+ 列，第 \d+ 行/u);
     await expect.poll(order).toEqual(expected);
     expect(existsSync(file)).toBe(false);

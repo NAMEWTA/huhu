@@ -8,6 +8,7 @@ import { openApp, rmTree, root } from "../helpers/launch.js";
 import { treeItem } from "../helpers/tree.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 import { fixtureCoreCli } from "../../../plugins/agent-cli/test/fixtures/core-cli.js";
+import type { DashboardView } from "../../../packages/contracts/src/home.js";
 
 const artifacts = process.env["HUHU_U0_DESKTOP_APP"] ?? root;
 const size = { width: 1000, height: 720 };
@@ -526,6 +527,65 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
     await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
     await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
     await info.attach(`${name}-appearance-reflow`, { body: JSON.stringify({ firstWide, narrow, reopened: await metrics(), theme, mode }), contentType: "application/json" });
+  });
+});
+
+test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留布局", async (_args, info) => {
+  await runOnHosts(info, async (page, name) => {
+    page.setDefaultTimeout(10_000);
+    await page.setViewportSize({ width: 1440, height: 930 });
+    if (name === "web") await page.reload();
+    const board = page.getByTestId("home-dashboard");
+    const read = () => call<DashboardView>(page, "home.dashboard.get", {});
+    const initial = (await read()).board;
+    const notes = board.locator('[data-instance-id="default-notes"]');
+    const tasks = board.locator('[data-instance-id="default-tasks"]');
+    const drag = async (target: Locator, cells: number) => {
+      await target.scrollIntoViewIfNeeded();
+      const bounds = (await target.boundingBox())!;
+      const stride = await board.locator(".hu-dashboard-grid").evaluate((grid) => (grid.getBoundingClientRect().width + 12) / 6);
+      const x = bounds.x + bounds.width / 2;
+      const y = bounds.y + bounds.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      try {
+        await page.mouse.move(x + stride * cells, y, { steps: 8 });
+        await expect(board.locator(".hu-dashboard-drop-preview, .placeholder-resizing")).toBeVisible();
+      } finally {
+        await page.mouse.up();
+      }
+    };
+    await page.getByTestId("home-customize").click();
+    expect(await board.locator(".hu-dashboard-card-controls select").count()).toBe(0);
+    const origin = (await notes.boundingBox())!;
+    await drag(notes.getByRole("button", { name: "移动 最近笔记", exact: true }), -1);
+    await expect.poll(async () => (await notes.boundingBox())?.x).toBeLessThan(origin.x);
+    await expect.poll(async () => (await tasks.boundingBox())?.y).toBeGreaterThan((await notes.boundingBox())!.y);
+    await drag(notes.locator(".react-resizable-handle-se"), 1);
+    await expect.poll(async () => (await notes.boundingBox())?.width).toBeGreaterThan(origin.width);
+    const taskMove = tasks.getByRole("button", { name: "移动 我的任务", exact: true });
+    await taskMove.press("Shift+ArrowDown");
+    await expect(taskMove).toBeFocused();
+    await expect(board.getByRole("status").filter({ hasText: "我的任务，" })).toContainText("3 × 4");
+    expect((await read()).board.revision).toBe(initial.revision);
+    await board.getByTestId("home-dashboard-save").click();
+    await expect(board.getByRole("status").filter({ hasText: "布局已保存" })).toBeVisible();
+    const saved = (await read()).board;
+    expect(saved.layout).toEqual(expect.arrayContaining([
+      expect.objectContaining({ instanceId: "default-notes", x: 2, w: 4 }),
+      expect.objectContaining({ instanceId: "default-tasks", h: 4 }),
+    ]));
+    await page.reload();
+    await expect(notes).toBeVisible();
+    const savedStyle = await notes.getAttribute("style");
+    expect((await read()).board.layout).toEqual(saved.layout);
+    await page.getByTestId("home-customize").click();
+    await notes.getByRole("button", { name: "移动 最近笔记", exact: true }).press("ArrowLeft");
+    await expect(board.getByTestId("home-dashboard-save")).toBeEnabled();
+    await board.getByRole("button", { name: "取消编辑", exact: true }).click();
+    await expect(notes).toHaveAttribute("style", savedStyle!);
+    expect((await read()).board.layout).toEqual(saved.layout);
+    if (name === "electron") await call(page, "home.dashboard.update", { baseRevision: saved.revision, instances: initial.instances, layout: initial.layout });
   });
 });
 

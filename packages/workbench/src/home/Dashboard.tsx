@@ -1,16 +1,19 @@
 import { DASHBOARD_COLUMNS, defaultDashboardBoard, homeWidgetConfigSchema, homeWidgetType, type DashboardBoard, type DashboardRepairChange, type HomeWidgetDefinition } from "@huhu/contracts";
 import { Button, Dialog, IconButton } from "@huhu/ui";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Copy, Grip, Plus, RotateCcw, X } from "lucide-react";
-import { Component, useId, useState, type ReactNode } from "react";
+import { Copy, Grip, Plus, RotateCcw, SlidersHorizontal, X } from "lucide-react";
+import { Component, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useContainerWidth } from "react-grid-layout";
 import { createRequestId } from "../engine-client/client.js";
 import { DashboardGrid, DASHBOARD_NARROW_WIDTH } from "./DashboardGrid.js";
-import { appendPlacement, movePlacement, orderPlacements, packPlacements, placementAnnouncement, reorderPlacement, type Placement } from "./dashboard-layout.js";
+import { appendPlacement, movePlacement, orderPlacements, placementAnnouncement, reorderPlacement, resizePlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
 import "./dashboard.css";
 
 type Instance = DashboardBoard["instances"][number];
 type Controller = ReturnType<typeof useDashboard>;
+const arrowSteps = new Map<string, readonly [-1 | 0 | 1, -1 | 0 | 1]>([
+  ["ArrowLeft", [-1, 0]], ["ArrowRight", [1, 0]], ["ArrowUp", [0, -1]], ["ArrowDown", [0, 1]],
+] as const);
 
 function WidgetPlaceholder({ name, message, retry }: { name: string; message: string; retry?: () => void }) {
   return (
@@ -73,7 +76,9 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   const [addOpen, setAddOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [cardSettings, setCardSettings] = useState<string>();
   const backupPicker = useId();
+  const layoutHelp = useId();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
@@ -87,11 +92,14 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   const byId = new Map(board?.instances.map((item) => [item.instanceId, item]));
   const layout = orderPlacements(board?.layout ?? []);
   const items = layout.filter((p) => editing || byId.get(p.instanceId)?.hidden === false);
+  const settingsCard = cardSettings ? byId.get(cardSettings) : undefined;
+  const settingsPlacement = layout.find((item) => item.instanceId === cardSettings);
+  const settingsDefinition = settingsCard && definitions.get(settingsCard.widgetType);
   const label = (instance: Instance) => instance.title || definitions.get(instance.widgetType)?.title || instance.widgetType;
   const changeLayout = (next: Placement[] | undefined, id: string) => {
     if (!board || !editing || locked) return;
     if (!next) {
-      setFeedback("该位置超出看板的边界。");
+      setFeedback("已到达看板的位置或尺寸边界。");
       return;
     }
     const placed = next.find(({ instanceId }) => instanceId === id);
@@ -99,6 +107,23 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
     if (placed && instance) setFeedback(placementAnnouncement(label(instance), placed));
     state.update({ ...board, layout: next });
   };
+  function adjustCard(event: KeyboardEvent<HTMLButtonElement>, placement: Placement, definition: HomeWidgetDefinition | undefined) {
+    const step = arrowSteps.get(event.key);
+    if (!board || !step || event.altKey || event.ctrlKey || event.metaKey) return;
+    const [dx, dy] = step;
+    if (event.shiftKey ? !definition : narrow && !dy) return;
+    event.preventDefault();
+    const next = event.shiftKey && definition
+      ? resizePlacement(board.layout, { ...placement, w: placement.w + dx, h: placement.h + dy }, definition, narrow)
+      : narrow && dy
+        ? reorderPlacement(board.layout, placement.instanceId, dy)
+        : movePlacement(board.layout, { ...placement, x: placement.x + dx, y: placement.y + dy });
+    changeLayout(next, placement.instanceId);
+    const tile = event.currentTarget.closest(".hu-dashboard-tile");
+    if (next && tile) requestAnimationFrame(() => {
+      if (tile.contains(tile.ownerDocument.activeElement)) tile.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }
   const changeInstance = (id: string, patch: Partial<Instance>) => {
     if (!board) return;
     state.update({ ...board, instances: board.instances.map((item) => (item.instanceId === id ? { ...item, ...patch } : item)) });
@@ -193,21 +218,27 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
         </div>
       ) : null}
       {editing ? (
-        <div className="row hu-dashboard-toolbar">
-          <Button icon={Plus} onClick={openCatalog} disabled={locked}>
-            添加卡片
-          </Button>
-          <Button onClick={() => setResetOpen(true)} disabled={locked || !definitionsReady}>
-            恢复默认布局
-          </Button>
-          <span className="hu-flex-fill" />
-          <Button onClick={state.cancel} disabled={locked}>
-            取消编辑
-          </Button>
-          <Button variant="primary" data-testid="home-dashboard-save" onClick={() => void state.save()} disabled={locked || !state.dirty}>
-            保存布局
-          </Button>
-        </div>
+        <>
+          <div className="row hu-dashboard-toolbar">
+            <Button icon={Plus} onClick={openCatalog} disabled={locked}>
+              添加卡片
+            </Button>
+            <Button onClick={() => setResetOpen(true)} disabled={locked || !definitionsReady}>
+              恢复默认布局
+            </Button>
+            <span className="hu-flex-fill" />
+            <Button onClick={state.cancel} disabled={locked}>
+              取消编辑
+            </Button>
+            <Button variant="primary" data-testid="home-dashboard-save" onClick={() => void state.save()} disabled={locked || !state.dirty}>
+              保存布局
+            </Button>
+          </div>
+          <p id={layoutHelp} className="hu-hint-text hu-dashboard-layout-help">
+            {narrow ? "聚焦移动手柄，按上下方向键调整顺序。" : "拖动手柄移动，拖动右下角缩放。聚焦手柄后可按方向键移动。"}
+            按 Shift 加方向键调整尺寸。
+          </p>
+        </>
       ) : null}
       {gridReady && board && (
         <DashboardGrid
@@ -226,79 +257,23 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
             const instance = byId.get(p.instanceId)!;
             const definition = definitions.get(instance.widgetType);
             const name = label(instance);
-            const move = (x: number, y: number) => changeLayout(movePlacement(board.layout, { ...p, x: p.x + x, y: p.y + y }), p.instanceId);
-            const resize = (dimension: "w" | "h", value: number) => {
-              const candidate = { ...p, [dimension]: value };
-              changeLayout(narrow ? packPlacements(layout.map((item) => (item.instanceId === candidate.instanceId ? candidate : item))) : movePlacement(board.layout, candidate), p.instanceId);
-            };
             const controls = editing ? (
               <div className="hu-dashboard-card-controls">
-                <div className="row">
-                  {!narrow && (
-                    <button type="button" className="hu-dashboard-drag hu-btn" disabled={locked} aria-label={`移动 ${name}`}>
-                      <Grip size={16} aria-hidden />
-                    </button>
-                  )}
-                  <strong>{name}</strong>
-                  <label className="row">
-                    <input type="checkbox" checked={instance.hidden} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { hidden: event.target.checked })} />
-                    隐藏
-                  </label>
-                  <IconButton
-                    icon={X}
-                    disabled={locked}
-                    label={`移除 ${name}`}
-                    onClick={() => state.update({ ...board, instances: board.instances.filter((item) => item.instanceId !== p.instanceId), layout: board.layout.filter((item) => item.instanceId !== p.instanceId) })}
-                  />
-                </div>
+                <IconButton
+                  icon={Grip}
+                  className="hu-dashboard-drag"
+                  disabled={locked}
+                  label={`移动 ${name}`}
+                  aria-describedby={layoutHelp}
+                  aria-keyshortcuts={`${narrow ? "" : "ArrowLeft ArrowRight "}ArrowUp ArrowDown${definition ? " Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown" : ""}`}
+                  onKeyDown={(event) => adjustCard(event, p, definition)}
+                />
+                {instance.hidden ? <span className="hu-dashboard-hidden-name">{name}</span> : null}
                 <label className="row">
-                  标题
-                  <input aria-label={`${name}标题`} placeholder={definition?.title ?? "卡片标题"} value={instance.title ?? ""} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { title: event.target.value })} />
+                  <input type="checkbox" checked={instance.hidden} disabled={locked} onChange={(event) => changeInstance(p.instanceId, { hidden: event.target.checked })} />
+                  隐藏
                 </label>
-                <div className="row">
-                  {narrow ? (
-                    <div className="row">
-                      <IconButton icon={ArrowUp} disabled={locked || layout[0]?.instanceId === p.instanceId} label={`前移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, -1), p.instanceId)} />
-                      <IconButton icon={ArrowDown} disabled={locked || layout.at(-1)?.instanceId === p.instanceId} label={`后移 ${name}`} onClick={() => changeLayout(reorderPlacement(board.layout, p.instanceId, 1), p.instanceId)} />
-                    </div>
-                  ) : (
-                    <div className="row">
-                      <IconButton icon={ArrowLeft} disabled={locked || p.x === 0} label={`向左移动 ${name}`} onClick={() => move(-1, 0)} />
-                      <IconButton icon={ArrowRight} disabled={locked || p.x + p.w === DASHBOARD_COLUMNS} label={`向右移动 ${name}`} onClick={() => move(1, 0)} />
-                      <IconButton icon={ArrowUp} disabled={locked || p.y === 0} label={`向上移动 ${name}`} onClick={() => move(0, -1)} />
-                      <IconButton icon={ArrowDown} disabled={locked} label={`向下移动 ${name}`} onClick={() => move(0, 1)} />
-                    </div>
-                  )}
-                  {definition
-                    ? (["w", "h"] as const).map((dimension) => {
-                        const title = dimension === "w" ? "宽度" : "高度";
-                        const min = definition.minSize[dimension];
-                        const max = definition.maxSize[dimension];
-                        return (
-                          <label key={dimension} className="row">
-                            {title}
-                            <select aria-label={`${name} ${title}`} disabled={locked} value={p[dimension]} onChange={(event) => resize(dimension, Number(event.target.value))}>
-                              {Array.from({ length: max - min + 1 }, (_, index) => (
-                                <option key={index + min}>{index + min}</option>
-                              ))}
-                            </select>
-                          </label>
-                        );
-                      })
-                    : null}
-                  {definition ? (
-                    <IconButton
-                      icon={RotateCcw}
-                      disabled={locked}
-                      label={`恢复 ${name} 推荐尺寸`}
-                      onClick={() => changeLayout(movePlacement(board.layout, { ...p, ...definition.defaultSize, x: Math.min(p.x, DASHBOARD_COLUMNS - definition.defaultSize.w) }), p.instanceId)}
-                    />
-                  ) : null}
-                  {definition?.maxInstances === null && allowed(instance.widgetType) ? (
-                    <IconButton icon={Copy} disabled={locked} label={`复制 ${name}`} onClick={() => insert({ ...instance, instanceId: createRequestId(), config: structuredClone(instance.config) }, p)} />
-                  ) : null}
-                </div>
-                {configureWidget?.(instance, (config) => changeInstance(p.instanceId, { config }), locked)}
+                <IconButton icon={SlidersHorizontal} disabled={locked} label={`设置 ${name}`} onClick={() => setCardSettings(p.instanceId)} />
               </div>
             ) : null;
             return (
@@ -322,6 +297,38 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
           {view.writable && !editing ? <Button onClick={openCatalog}>添加首个小组件</Button> : null}
         </div>
       ) : null}
+      {settingsCard && settingsPlacement && editing && (
+        <Dialog open title={`设置 ${label(settingsCard)}`} onClose={() => setCardSettings(undefined)}>
+          <label className="hu-field">
+            <span className="hu-field-label">标题</span>
+            <input aria-label="卡片标题" placeholder={settingsDefinition?.title ?? "卡片标题"} value={settingsCard.title ?? ""} disabled={locked}
+              onChange={(event) => changeInstance(settingsCard.instanceId, { title: event.target.value })} />
+          </label>
+          {configureWidget?.(settingsCard, (config) => changeInstance(settingsCard.instanceId, { config }), locked)}
+          <div className="row hu-dashboard-settings-actions">
+            {settingsDefinition && (
+              <Button icon={RotateCcw} disabled={locked} onClick={() => {
+                const size = settingsDefinition.defaultSize;
+                const candidate = { ...settingsPlacement, ...size, x: Math.min(settingsPlacement.x, DASHBOARD_COLUMNS - size.w) };
+                if (board) changeLayout(resizePlacement(board.layout, candidate, settingsDefinition, narrow), settingsCard.instanceId);
+              }}>恢复推荐尺寸</Button>
+            )}
+            {settingsDefinition?.maxInstances === null && allowed(settingsCard.widgetType) && (
+              <Button icon={Copy} disabled={locked} onClick={() => {
+                insert({ ...settingsCard, instanceId: createRequestId(), config: structuredClone(settingsCard.config) }, settingsPlacement);
+                setCardSettings(undefined);
+              }}>复制卡片</Button>
+            )}
+            <Button icon={X} variant="danger" disabled={locked} onClick={() => {
+              if (board) state.update({ ...board,
+                instances: board.instances.filter((item) => item.instanceId !== settingsCard.instanceId),
+                layout: board.layout.filter((item) => item.instanceId !== settingsCard.instanceId),
+              });
+              setCardSettings(undefined);
+            }}>移除卡片</Button>
+          </div>
+        </Dialog>
+      )}
       <Dialog open={addOpen && editing} title="添加卡片" onClose={() => setAddOpen(false)}>
         <div className="row">
           <input aria-label="搜索卡片" placeholder="搜索卡片" value={search} onChange={(event) => setSearch(event.target.value)} />

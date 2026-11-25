@@ -22,7 +22,7 @@
   }
 
   .hu-dashboard-toolbar,
-  .hu-dashboard-card-controls .row {
+  .hu-dashboard-settings-actions {
     flex-wrap: wrap;
   }
 
@@ -39,12 +39,27 @@
   }
 
   .hu-dashboard-card-controls {
-    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
     background: var(--panel);
   }
 
-  .hu-dashboard-card-controls strong {
+  .hu-dashboard-card-controls > label {
+    margin-inline-start: auto;
+  }
+
+  .hu-dashboard-hidden-name {
     flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hu-dashboard-layout-help {
+    margin-block: 0 12px;
   }
 
   .hu-dashboard-drag {
@@ -57,6 +72,12 @@
   .hu-dashboard-grid .react-grid-item > .react-resizable-handle {
     touch-action: none;
     opacity: 1;
+    inline-size: 24px;
+    block-size: 24px;
+  }
+
+  .hu-dashboard-canvas[data-dashboard-narrow] .hu-dashboard-drag {
+    cursor: default;
   }
 
   .hu-dashboard-grid .react-grid-item > .react-resizable-handle::after {
