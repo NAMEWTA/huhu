@@ -2,7 +2,7 @@ const currencyDigits = { CNY:2, TWD:2, USD:2, JPY:0 };
 const currencyChoices = Object.keys(currencyDigits);
 const ledgerDay = "2026-11-25";
 const labels = { income:"收入", expense:"支出", transfer:"转账" };
-const ledger = { books:[], active:null, readOnly:false, fault:"ok", selected:null, focusIds:null, filter:{ type:"", from:"", to:"", currency:"", query:"" } };
+const ledger = { books:[], active:null, readOnly:false, notesEnabled:true, fault:"ok", selected:null, focusIds:null, filter:{ type:"", from:"", to:"", currency:"", query:"" } };
 const bookNow = () => ledger.books.find((book) => book.id === ledger.active) ?? null;
 const labelAccount = (book,id) => book.accounts.find((account)=>account.id===id)?.name ?? "原账户已缺失";
 const booking = (title,amount,type,account,date=ledgerDay) => ({id:crypto.randomUUID(),title,amount:String(amount),type,account,date,currency:"CNY",category:type==="income"?"退款与补贴":"日常开支",memo:""});
@@ -24,7 +24,8 @@ function money(amount,currency) {
 
 function makeBook(title,currency,zone,account) {
   return { id:crypto.randomUUID(),title,currency,zone,revision:1,
-    accounts:[{id:"primary",name:account,currency,base:"0",state:"active"}],rows:[],offsets:[],imports:new Set(),periods:new Set() };
+    accounts:[{id:"primary",name:account,currency,base:"0",state:"active"}],rows:[],offsets:[],imports:new Set(),periods:new Set(),
+    budgets:[],references:[],sampleCycles:false };
 }
 
 function loadSample() {
@@ -40,6 +41,11 @@ function loadSample() {
     booking("差旅餐费","850","expense","travel","2026-11-20"),
   ];
   book.rows.at(-1).currency="JPY";
+  book.rows.find(({title})=>title==="购置纸笔").tagIds=["workspace","materials"];
+  book.rows.find(({title})=>title==="工作坊报名").tagIds=["workspace"];
+  seedBudgets(book);
+  seedFinancialNotes(book);
+  book.sampleCycles=true;
   ledger.books.push(book);ledger.active=book.id;renderShell();
 }
 
@@ -54,8 +60,8 @@ function balances(book) {
   });
 }
 
-function finance(book,rows,currency) {
-  const offsetMembers=new Set(book.offsets.flatMap((group)=>group.members));
+function finance(book,rows,currency,includeOffset=false) {
+  const offsetMembers=new Set(includeOffset?[]:book.offsets.flatMap((group)=>group.members));
   return rows.reduce((s,row)=>{
     if(row.currency===currency&&!offsetMembers.has(row.id))s[row.type]+=BigInt(row.amount);
     return s;
@@ -149,8 +155,14 @@ function showOverview() {
     ${book.rows.length?`<ul class="list">${book.rows.slice(0,5).map((row)=>`<li class="bar"><span>${escapeHtml(row.title)}</span><code>${money(row.amount,row.currency)}</code></li>`).join("")}</ul>`:'<p class="empty">还没有流水。</p>'}</section>
     <section class="card stack"><div class="bar"><h2>账户余额</h2>${button("新增账户",{name:"Plus",className:"small",attrs:ledger.readOnly?"id=account-add disabled":"id=account-add"})}</div>
     <ul class="list">${balances(book).map((account)=>`<li class="bar"><span>${escapeHtml(account.name)}</span><code data-book-balance="${account.id}">${money(account.balance,account.currency)}</code></li>`).join("")}</ul>
-    </section></div>`,newRecordButton());
+    </section></div>${activityCards(book)}`,newRecordButton()+referenceButton({kind:"book"}));
   bind("add-record",()=>recordDialog());bind("account-add",accountDialog);
+  bindReferenceButtons();
+  bind("jump-month-budget",()=>{Object.assign(budgetView,currentBudgetQuery());openPage("budgets");});
+  all("[data-cycle-jump]").forEach((entry)=>entry.onclick=()=>{
+    openPage("cycles");
+    by("#cycle-"+entry.dataset.cycleJump)?.focus();
+  });
 }
 
 function recordDialog(row=null) {
@@ -217,9 +229,10 @@ function showRecords() {
       ${rows.length?`<ul class="list record-list">${rows.map((row)=>`<li class="bar">
         <div><strong>${escapeHtml(row.title)}</strong><p class="meta">${row.date} · ${labels[row.type]} · ${escapeHtml(labelAccount(book,row.account))}${row.type==="transfer"?" → "+escapeHtml(labelAccount(book,row.to)):""}</p></div>
         <div class="row"><code>${money(row.amount,row.currency)}</code>${row.type==="transfer"?`<small>→ ${money(row.toAmount,row.toCurrency)}</small>`:""}
-        ${book.offsets.some(({members})=>members.includes(row.id))?badge("已平账","info"):""}${button("编辑",{className:"small",aria:`编辑 ${row.title}`,attrs:`data-record="${row.id}" ${ledger.readOnly?"disabled":""}`})}</div>
+        ${book.offsets.some(({members})=>members.includes(row.id))?badge("已平账","info"):""}${referenceButton({kind:"record",id:row.id},row.title)}${button("编辑",{className:"small",aria:`编辑 ${row.title}`,attrs:`data-record="${row.id}" ${ledger.readOnly?"disabled":""}`})}</div>
         </li>`).join("")}</ul>`:`<p class="empty">${book.rows.length?"没有匹配的流水。":"尚未记录流水。"}</p>`}`;
     all("[data-record]").forEach((entry)=>entry.onclick=()=>recordDialog(book.rows.find(({id})=>id===entry.dataset.record)));
+    bindReferenceButtons();
   };
   by("#record-query").oninput=(event)=>{f.query=event.target.value;paint();};
   for(const name of ["from","to","type"])by(`#record-${name}`).onchange=(event)=>{f[name]=event.target.value;paint();};
@@ -398,6 +411,23 @@ function showOffsets() {
 }
 
 const reportFilter={from:"2026-11-01",to:"2026-11-30",currency:""};
+function activityCards(book) {
+  const {totals}=budgetOverview(book,currentBudgetQuery());
+  const scheduled=book.sampleCycles?{rules:1,enabled:1,nextAt:"2026-12-01T01:00:00Z",failedPeriods:Number(!book.periods.has("fixed-2026-11"))}
+    :{rules:0,enabled:0,nextAt:null,failedPeriods:0};
+  const loans=book.sampleCycles?{count:1,installments:periodic.loan.length,generated:periodic.loan.filter(({key})=>book.periods.has(key)).length}
+    :{count:0,installments:0,generated:0};
+  const next=scheduled.nextAt&&new Intl.DateTimeFormat("zh-CN",{timeZone:book.zone,dateStyle:"medium",timeStyle:"short"}).format(new Date(scheduled.nextAt));
+  return `<div class="metric-grid ledger-activities">
+    <section class="card stack"><h2>当月预算</h2>${totals.length?`<ul class="list">${budgetTotalsMarkup(totals)}</ul>`:'<p class="empty">本月暂无预算。</p>'}
+      <div>${button("查看本月预算",{attrs:"id=jump-month-budget"})}</div></section>
+    <section class="card stack"><h2>固定收支下一期</h2>${next?`<p><strong>${next}</strong> <small>${escapeHtml(book.zone)}</small></p>
+      <p class="meta">${scheduled.enabled} 项启用 · ${scheduled.failedPeriods} 期需处理</p>`:'<p class="empty">暂无已排定的下一期。</p>'}
+      <div>${button("查看固定收支",{attrs:'data-cycle-jump="fixed"'})}</div></section>
+    <section class="card stack"><h2>贷款补记</h2>${loans.count?`<p>${loans.count} 项贷款 · 已补记 ${loans.generated} / ${loans.installments} 期</p>`:'<p class="empty">暂无贷款。</p>'}
+      <div>${button("查看贷款补记",{attrs:'data-cycle-jump="loan"'})}</div></section></div>`;
+}
+
 function showReports() {
   if(missing("报表"))return;
   const book=bookNow(), currency=book.accounts.some((account)=>account.currency===reportFilter.currency)?reportFilter.currency:book.currency;
@@ -406,7 +436,8 @@ function showReports() {
     ${field("结束日期",`<input id="report-to" type="date" value="${reportFilter.to}">`)}
     ${field("报表币种",`<select id="report-currency">${[...new Set(book.accounts.map((row)=>row.currency))].map((key)=>option(key,key,currency)).join("")}</select>`)}
     <button id="current-month" type="button">本月</button></div>
-    <div id="report-body"></div>`);
+    <div id="report-body"></div>`,button("期间复盘",{name:"FileText",attrs:"id=review-period"}));
+  bind("review-period",()=>reviewDialog(book,{...reportFilter,currency}));
   const paint=()=>{
     const rows=book.rows.filter((row)=>row.currency===currency&&row.date>=reportFilter.from&&row.date<=reportFilter.to);
     const totals=finance(book,rows,currency);
@@ -489,11 +520,11 @@ function showCycles() {
   if(missing("固定收支与贷款"))return;
   const book=bookNow();
   pane("固定收支与贷款","预览可补记范围与处理结果",`<div class="two-up">
-    <section class="card stack"><h2>固定收支</h2><p>工作室订阅 · 每月 1 日</p>
+    <section class="card stack"><h2 id="cycle-fixed" tabindex="-1">固定收支</h2><p>工作室订阅 · 每月 1 日</p>
     <p class="meta">停用期间无补记。账户修正后可确认待处理期次。</p>
     <div class="row">${button("预览固定收支补期",{name:"CalendarClock",attrs:ledger.readOnly?"id=preview-fixed disabled":"id=preview-fixed"})} <a href="../automations/index.html#plans/plan-ledger">在自动化中心管理计划</a></div>
     <small>已补记 ${[...book.periods].filter((key)=>key.startsWith("fixed-")).length} 期</small></section>
-    <section class="card stack"><h2>贷款</h2><p>设备贷款 · 等额本金样例</p>
+    <section class="card stack"><h2 id="cycle-loan" tabindex="-1">贷款</h2><p>设备贷款 · 等额本金样例</p>
     <p class="meta">明确确认所选到期期次，查看后续日期和本息。未到期项不能补记。</p>
     <div>${button("预览贷款历史补记",{name:"CalendarClock",attrs:ledger.readOnly?"id=preview-loan disabled":"id=preview-loan"})}</div>
     <small>已补记 ${[...book.periods].filter((key)=>key.startsWith("loan-")).length} 期</small></section>
@@ -573,6 +604,7 @@ startShell({
   pages:{
     overview:{label:"总览",icon:"House",sidebar:ledgerNavigation,show:showOverview},
     records:{label:"流水",icon:"ListTodo",sidebar:ledgerNavigation,show:showRecords},
+    budgets:{label:"预算",icon:"Tag",sidebar:ledgerNavigation,show:showBudgets},
     offsets:{label:"平账",icon:"Layers",sidebar:ledgerNavigation,show:showOffsets},
     reports:{label:"报表",icon:"FileText",sidebar:ledgerNavigation,show:showReports},
     cycles:{label:"固定收支与贷款",icon:"CalendarClock",sidebar:ledgerNavigation,show:showCycles},
@@ -580,10 +612,12 @@ startShell({
   },
   demo:()=>button("载入样例账本",{attrs:"id=load-sample",className:"small"})+
     demo("access","Vault 访问",'<option value="write">可写</option><option value="readonly">只读</option>')+
+    demo("notes","Notes 模块",'<option value="on">启用</option><option value="off">停用</option>')+
     demo("fault","下一次确认",'<option value="ok">正常</option><option value="write">写入失败</option><option value="stale">预览版本过期</option>'),
 });
 bind("load-sample",()=>{loadSample();by(".demo-controls").open=false;});
 by("#demo-fields").onchange=(event)=>{
   if(event.target.dataset.demo==="access"){ledger.readOnly=event.target.value==="readonly";renderShell();}
+  if(event.target.dataset.demo==="notes"){ledger.notesEnabled=event.target.value==="on";renderShell();}
   if(event.target.dataset.demo==="fault")ledger.fault=event.target.value;
 };

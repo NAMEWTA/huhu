@@ -13,7 +13,16 @@
 .sidebar-link { margin:12px 6px; font-size:.86em; }
 .dialog-body .notice { margin-block-start:8px; }
 .modal .field { min-inline-size:0; }
+.budget-list-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; align-items:center; gap:12px; }
+.budget-progress,.budget-total { gap:5px; overflow-wrap:anywhere; }
+.budget-progress progress { inline-size:100%; block-size:8px; accent-color:var(--accent-strong); }
+.budget-table caption { text-align:start; padding:8px 12px; font-weight:600; }
+.budget-table tbody th { position:sticky; inset-inline-start:0; background:var(--panel); }
+.financial-markdown { white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--font-mono); background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-card); padding:12px; margin:0; }
+.financial-path,.ledger-activities { overflow-wrap:anywhere; }
+.ledger-activities > .card { align-content:start; }
 @container surface (max-width:550px) {
   .metric-grid { grid-template-columns:minmax(0,1fr); }
   .record-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .budget-list-row { grid-template-columns:minmax(0,1fr); }
 }

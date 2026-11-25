@@ -2,7 +2,7 @@
 
 [打开账本原型](prototype/ledger/index.html) · [L0b 票据](tasks/021-l0b.md) · [领域与上游映射](../../../../docs/upstream/ledger.md)
 
-资源包 SHA-256 为 `3cb524336845bb8f6d2e4fea306b6bd00c39d0ca7ff16988edcdd91603efb940`，覆盖原型目录 12 个文件。下载整个目录后双击打开 `index.html`。外壳、主题、标志和图标沿用已确认的工作台原型。CSV 预览复用仓库中现有的 d3-dsv 3.0.2，原型目录附 ISC 许可。
+首轮原型可从提交 `dcce110b6e91608a2651d7cc3d0ec656ab6e9102` 恢复。SHA-256 为 `3cb524336845bb8f6d2e4fea306b6bd00c39d0ca7ff16988edcdd91603efb940`，覆盖原型目录 12 个文件。下载整个目录后双击打开 `index.html`。外壳、主题、标志和图标沿用已确认的工作台原型。CSV 预览复用仓库中现有的 d3-dsv 3.0.2，原型目录附 ISC 许可。
 
 | 入口 | 走查路径与可见结果 |
 | --- | --- |
@@ -19,3 +19,17 @@ Playwright 1.65.0 的 Chromium 158.0.8127.18 以离线 `file:` 打开。1440×10
 ## 用户确认
 
 - 2026-11-25，用户在 Lead 会话中对四套原型的确认提问回复「基本表示同意，我提出的地方请你继续优化」，未对本原型提出修改。确认版本 SHA-256 `3cb524336845bb8f6d2e4fea306b6bd00c39d0ca7ff16988edcdd91603efb940`，范围为本记录场景表所列页面与状态；后台约束仍以规格与原 Issue 为准。
+
+## 追加走查场景（待用户确认）
+
+当前原型资源包 SHA-256 为 `0886426ecf3c2e3628eaa9f228a7e848cda8fa808d85d9c24109ea5b397ccfe1`，覆盖 14 个文件。打开原型后展开「原型演示」，选择「载入样例账本」。刷新或「重置演示」可恢复初始状态。
+
+| 场景 | 操作与可见结果 | 实现依据 |
+| --- | --- | --- |
+| L6 预算列表、进度与明细 | 在「预算」按年、月、币种筛选。打开「工作室物料」明细，翻两页查看同批流水；同时命中两个标签的支出计一次，进度金额和条数相同。勾选两项后打开「批量编辑」，保存后列表显示修改后的额度。 | `showBudgets`、`budgetDetail`、`budgetEditor` 对应 `ledger.budgets.list/detail/saveBatch`。 [预算原型脚本](prototype/ledger/budgets.js) |
+| L6 跨月复制 | 从 2026-11 复制到 2026-12，可再添加目标月。确认后逐条列出冲突月份与名称，已有「日常支出」保留原额度。再次复制同一目标时，已存在的规则全部跳过。 | `copyBudgetDialog` 对应 `ledger.budgets.copy`。 [预算原型脚本](prototype/ledger/budgets.js) |
+| L10 关联、打开与修复 | 从总览、预算列表或流水打开「财务笔记」，筛选当前 Vault 的笔记或档案，确认关联后可打开资源。打开「购置纸笔」的财务笔记可替换缺失资源。将演示中的 Notes 模块设为停用，关联不可打开并提示重新启用，仍可移除关联及记账。 | `referenceButton`、`referenceDialog` 对应 `ledger.references.list/open/link/unlink`。 [财务笔记原型脚本](prototype/ledger/financial-notes.js) |
+| L10 期间复盘 | 从「报表」打开「期间复盘」，选择日期、币种及平账口径，生成 Markdown 预览。命名并保存后可以打开同一正文，新笔记也出现在资源选择器。Vault 只读或 Notes 停用时可预览。 | `reviewDialog` 对应 `ledger.references.previewReview/saveReview`。 [财务笔记原型脚本](prototype/ledger/financial-notes.js) |
+| L11 总览三张卡片 | 从「当月预算」打开当前月份预算，从「固定收支下一期」打开相应计划区域，从「贷款补记」定位预览入口。确认一笔已到期期次后返回总览，已补记期数增加。 | `activityCards` 对应 `ledger.overview.activity`，跳转复用当前账本的现有固定收支与贷款页。 [账本原型脚本](prototype/ledger/prototype.js) |
+
+新增交互使用原有主题变量与原生对话框，预算明细表在窄容器内可滚动。模拟数据保存在当前页面内存。jsdom 的 5 项定向检查通过，覆盖分页去重、批量保存及复制冲突、资源关联与降级、复盘保存和卡片跳转。原生浏览器的焦点与窄窗布局待走查。
