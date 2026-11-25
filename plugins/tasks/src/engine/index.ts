@@ -5,6 +5,7 @@ import {
   ExecutionReceiptSchema,
   HuhuError,
   isWorkbenchCaller,
+  TaskAttentionSchema,
   TaskCategorySchema,
   TaskCommentSchema,
   TaskDtoSchema,
@@ -14,6 +15,7 @@ import {
   TaskStatusSchema,
   TaskTypeSchema,
   TaskWritableSchema,
+  type TaskAttention,
   type TaskDto,
   type TaskExecution,
   type TaskOrigin,
@@ -99,6 +101,18 @@ export const taskToolDescriptors = {
     idempotency: "durable",
     input: TaskWritableSchema.extend({ inboxConversionId: z.string().min(1).optional() }),
     output: z.union([TaskDtoSchema, Id]),
+  }),
+  attention: defineCapabilityDescriptor({
+    name: "tasks.attention",
+    plugin: "tasks",
+    title: "列出待处理任务摘要",
+    description: "使用原任务、运行和问题身份汇总工作台需要处理的记录。",
+    scope: "read",
+    risk: "normal",
+    exposable: false,
+    defaultExposed: false,
+    input: z.strictObject({}),
+    output: z.array(TaskAttentionSchema),
   }),
   questionsList: defineCapabilityDescriptor({
     name: "tasks.questions.list",
@@ -686,6 +700,26 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     ),
   );
   api.defineCapability(bindCapability(taskToolDescriptors.read, (_c, i) => svc.read(i.id)));
+  api.defineCapability(bindCapability(taskToolDescriptors.attention, (c): TaskAttention[] => {
+    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("待处理任务摘要");
+    return svc.list({ status: ["not_started", "in_progress"] }).flatMap((task): TaskAttention[] => {
+      const base = { taskId: task.id, title: task.title };
+      if (task.type === "agent") {
+        const attention = dispatch.questions(task.id).flatMap(({ status, reply, runId, requestId }): TaskAttention[] => {
+          if (status !== "awaiting" || reply?.status === "accepted") return [];
+          const state = !reply ? "awaiting"
+            : reply.status === "not_sent" || reply.status === "unsupported" || reply.status === "expired" ? "answer-failed" : "answer-unconfirmed";
+          return [{ ...base, state, runId, questionId: requestId }];
+        });
+        if (attention.length) return attention;
+        const run = dispatch.activity(task).execution;
+        if (run.state === "unknown" || run.state === "failed") {
+          return [{ ...base, state: run.state === "unknown" ? "run-unknown" : "run-failed", runId: run.identity.runId }];
+        }
+      }
+      return [{ ...base, state: task.dispatchBlockers.length ? "blocked" : "pending" }];
+    });
+  }));
   api.defineCapability(
     bindCapability(taskToolDescriptors.create, async (c, i) => {
       if (i.inboxConversionId && (c.caller !== "plugin:inbox" || c.delegatedBy)) throw errors.permissionDenied("收件转换标识");

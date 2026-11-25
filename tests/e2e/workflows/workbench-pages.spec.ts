@@ -1,4 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import path from "node:path";
+import { TaskExecutionSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "../../../packages/contracts/src/index.js";
+import { executionReceiptIdentity } from "../../../packages/contracts/src/execution-receipt-engine.js";
+import { machineId, VaultFiles } from "../../../packages/vault/src/index.js";
+import { operationIdFor, OutboxStorage } from "../../../plugins/mail/src/engine/outbox-storage.js";
+import { DispatchStore, eventIdOf, fingerprint, type DispatchSnapshot } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import { openApp } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
@@ -100,6 +107,145 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
     await page.getByTestId("detail-edit").click();
     await expect(dialog.getByLabel("任务名称")).toHaveValue(title);
     await expect(body).toHaveText(text);
+  } finally {
+    await close();
+  }
+});
+
+test("UX06：快速捕获的斜线菜单在模态框内，中文正文和来源可保存并核实原转换", async () => {
+  const { page, close } = await openApp();
+  const title = "快速捕获，保留来源和正文";
+  try {
+    await engineReady(page);
+    await navigate(page, "收件箱");
+    await page.getByRole("button", { name: "快速捕获", exact: true }).click();
+    const dialog = page.getByTestId("quick-capture-dialog");
+    await dialog.getByRole("textbox", { name: "标题" }).fill(title);
+    await dialog.getByRole("combobox", { name: "来源" }).selectOption("import");
+    const editor = dialog.getByLabel("内容", { exact: true });
+    await editor.click();
+    await page.keyboard.type("/");
+    const heading = dialog.locator('[data-slash-command="heading2"]');
+    await expect(heading).toBeVisible();
+    await expect.poll(() => heading.evaluate((item) => {
+      const { x, y, width, height } = item.getBoundingClientRect();
+      return item.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+    })).toBe(true);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Escape");
+    await expect(heading).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expect(editor).toBeFocused();
+    await editor.fill("");
+    await page.keyboard.type("/");
+    await heading.click();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.imeSetComposition", { text: "zhongwen", selectionStart: 8, selectionEnd: 8 });
+    await cdp.send("Input.insertText", { text: "中文标题" });
+    await page.keyboard.press("Enter");
+    await page.keyboard.insertText("保留原始正文及第二段。");
+    await dialog.getByRole("button", { name: "收进收件箱" }).click();
+    await expect(dialog).toBeHidden();
+    const captures = () => call<{ id: string; title: string; body: string; source: string; result: { id: string } | null }[]>(page, "inbox.list", {});
+    const [capture] = await captures();
+    expect(capture).toMatchObject({ title, source: "import" });
+    expect(capture!.body).toContain("中文标题");
+    expect(capture!.body).toContain("保留原始正文及第二段。");
+
+    let cut = false;
+    await page.route("**/api/v1/call", async (route) => {
+      if (cut || route.request().postDataJSON()?.capability !== "inbox.convert") return route.continue();
+      cut = true;
+      expect(await (await route.fetch()).json()).toMatchObject({ ok: true });
+      await route.abort();
+    });
+    await page.getByRole("button", { name: /^转为笔记/ }).click();
+    const convert = page.getByTestId("convert-dialog");
+    await convert.getByRole("button", { name: "创建笔记并完成处理" }).click();
+    await convert.getByRole("button", { name: "核实原转换" }).click();
+    await expect(convert).toBeHidden();
+    expect(await captures()).toMatchObject([{ id: capture!.id, result: { id: expect.any(String) } }]);
+    const notes = await call<{ title: string }[]>(page, "notes.list", {});
+    expect(notes.filter((note) => note.title === title)).toHaveLength(1);
+  } finally {
+    await close();
+  }
+});
+
+test("UX06：待处理事项只投影原任务、问题和投递，处理后收件项数保持不变", async () => {
+  const { page, vault, close } = await openApp();
+  try {
+    await engineReady(page);
+    const captureList = () => call<unknown[]>(page, "inbox.list", {});
+    const before = (await captureList()).length;
+    const task = await call<TaskDto>(page, "tasks.create", { title: "验收源任务" });
+    const agentTask = await call<TaskDto>(page, "tasks.create", { title: "验收等待问题", type: "agent", body: "保留任务和问题绑定" });
+    const { id: vaultId } = await call<{ id: string }>(page, "vault.info", {});
+    const dispatchId = randomUUID();
+    const runId = "run-attention-fixture";
+    const at = new Date().toISOString();
+    const device = machineId();
+    const files = new VaultFiles(path.join(vault, ".huhu"));
+    const execution: ExecutionBinding = { vaultId, taskId: agentTask.id, dispatchId, runId, attempt: 1, sessionBinding: {
+      machineId: device, sessionId: "attention-session", coreId: "fixture-core", coreAddress: "t9", processGeneration: "fixture-generation", provider: "codex", nativeSessionId: null,
+    } };
+    const snapshot: DispatchSnapshot = {
+      taskId: agentTask.id, inputRevision: agentTask.inputRevision, inputHash: agentTask.inputHash, expectedVersion: agentTask.version, taskVersion: agentTask.version,
+      body: agentTask.body, references: [], execution: TaskExecutionSchema.parse({ provider: "codex", spaceId: "fixture-space", target: { mode: "new" } }), source: { kind: "desktop" },
+    };
+    const store = new DispatchStore(files, vaultId, device);
+    await store.create({
+      receipt: { taskId: agentTask.id, dispatchId, eventId: eventIdOf(dispatchId), runId, attempt: 1, acceptedAt: at, state: "running", reason: null, cancelRequested: false },
+      snapshot, requestHash: fingerprint(snapshot), snapshotHash: fingerprint(snapshot), claim: { at, machineId: device }, boundExecution: execution, startedAt: at, finishedAt: null,
+    });
+    const receipt: ExecutionReceipt = {
+      version: 1, receiptId: randomUUID(), execution, kind: "question",
+      payload: { mode: "normal", requestId: "attention-question", requestVersion: 1, text: "确认原任务的问题", options: [] },
+    };
+    const key = fingerprint(receipt.receiptId);
+    await files.write(`tasks/receipts/${key}.json`, Buffer.from(JSON.stringify({
+      format: 1, receipt, consumption: { execution, delivery: { receipt: executionReceiptIdentity(receipt), deliveryId: `delivery-${key}`, messageId: `receipt-${key}` } },
+      at, status: "delivered",
+    })), { expectedVersion: null });
+    const outbox = new OutboxStorage(new VaultFiles(vault));
+    const mail = [];
+    for (const state of ["unknown", "not-delivered"] as const) {
+      const draftId = randomUUID();
+      const revision = randomUUID();
+      const operationId = operationIdFor(draftId, revision);
+      const messageId = `<${randomUUID()}@huhu.local>`;
+      const subject = state === "unknown" ? "待核实原投递" : "未送达原投递";
+      await outbox.write({
+        format: 1, operationId, draftId, revision, messageId, claimedAt: at, from: "sender@example.test", auth: "password",
+        smtp: { host: "localhost", port: 1, security: "none" },
+        draft: { accountId: randomUUID(), to: ["reader@example.test"], cc: [], bcc: [], subject, body: { type: "doc" } }, text: "验收投递",
+        result: state === "unknown" ? null : { stage: "data", finishedAt: at, recipients: [{ address: "reader@example.test", state: "not-delivered" }] },
+      }, null);
+      mail.push({ subject, messageId });
+    }
+    await page.reload();
+    await engineReady(page);
+    const openAttention = async () => {
+      await navigate(page, "收件箱");
+      const details = page.locator(".inbox-attention");
+      if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+      return details;
+    };
+    let detail = await openAttention();
+    await detail.getByRole("button", { name: /待处理任务.*验收源任务/ }).click();
+    await expect(page.getByTestId("detail-title")).toHaveText(task.title);
+    await call(page, "tasks.setStatus", { id: task.id, expectedVersion: task.version, status: "completed" });
+    detail = await openAttention();
+    await expect(detail.getByRole("button", { name: /待处理任务.*验收源任务/ })).toHaveCount(0);
+    await detail.getByRole("button", { name: /等待回答.*验收等待问题/ }).click();
+    const question = page.getByTestId("task-run-question").filter({ hasText: "确认原任务的问题" });
+    await expect(question).toBeFocused();
+    for (const entry of mail) {
+      detail = await openAttention();
+      await detail.getByRole("button", { name: new RegExp(entry.subject) }).click();
+      await expect(page.getByText(entry.messageId, { exact: true })).toBeVisible();
+    }
+    expect(await captureList()).toHaveLength(before);
   } finally {
     await close();
   }

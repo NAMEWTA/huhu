@@ -28,22 +28,47 @@ export function onOpenRequest(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-let pendingTask: string | null = null;
-const taskListeners = new Set<(id: string) => void>();
-
-export function requestOpenTask(id: string): void {
-  if (taskListeners.size === 0) pendingTask = id;
-  else for (const open of taskListeners) open(id);
+export interface TaskDestination {
+  runId: string;
+  questionId?: string | undefined;
 }
 
-export function onOpenTaskRequest(open: (id: string) => void): () => void {
+type OpenTask = (id: string, destination?: TaskDestination) => void;
+let pendingTask: { id: string; destination: TaskDestination | undefined } | null = null;
+const taskListeners = new Set<OpenTask>();
+
+export function requestOpenTask(id: string, destination?: TaskDestination): void {
+  if (taskListeners.size === 0) pendingTask = { id, destination };
+  else for (const open of taskListeners) open(id, destination);
+}
+
+export function onOpenTaskRequest(open: OpenTask): () => void {
   taskListeners.add(open);
   if (pendingTask !== null) {
-    const id = pendingTask;
+    const { id, destination } = pendingTask;
     pendingTask = null;
-    open(id);
+    open(id, destination);
   }
   return () => taskListeners.delete(open);
+}
+
+type OpenMailDelivery = { vaultId: string; operationId: string };
+let pendingMailDelivery: OpenMailDelivery | null = null;
+const mailDeliveryListeners = new Set<(request: OpenMailDelivery) => void>();
+
+export function requestOpenMailDelivery(request: OpenMailDelivery): void {
+  if (mailDeliveryListeners.size === 0) pendingMailDelivery = request;
+  else for (const open of mailDeliveryListeners) open(request);
+}
+
+export function onOpenMailDeliveryRequest(open: (request: OpenMailDelivery) => void): () => void {
+  mailDeliveryListeners.add(open);
+  if (pendingMailDelivery) {
+    const request = pendingMailDelivery;
+    pendingMailDelivery = null;
+    open(request);
+  }
+  return () => mailDeliveryListeners.delete(open);
 }
 
 type AgentSessionRequest = { vaultId: string; spaceId: string; sessionId: string };

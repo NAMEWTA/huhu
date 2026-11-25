@@ -1,6 +1,6 @@
 import type { Settings } from "@huhu/contracts";
 import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, host, registerExitParticipant, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, host, onOpenMailDeliveryRequest, registerExitParticipant, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
@@ -417,6 +417,10 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
     setOperationId(id);
     setTab("outbox");
   }
+
+  useEffect(() => onOpenMailDeliveryRequest(({ vaultId, operationId }) => {
+    if (vaultId === engine.vaultId) openDelivery(operationId);
+  }), [engine.vaultId]);
 
   function showDelivery(id: string) {
     openDelivery(id);

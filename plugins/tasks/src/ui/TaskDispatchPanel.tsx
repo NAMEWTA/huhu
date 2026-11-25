@@ -1,8 +1,8 @@
 import { isTaskAvailable, type TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, Field } from "@huhu/ui";
-import { CapabilityError, createRequestId, host, requestOpenAgentSession, useCapability, useEngine, useQueryClient } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, requestOpenAgentSession, useCapability, useEngine, useQueryClient, type TaskDestination } from "@huhu/workbench";
 import { History } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
@@ -62,12 +62,24 @@ export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null |
   return row.superseded ? "已失败" : ((run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state]);
 }
 
-export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate }: { task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
+export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate, destination }: { destination?: TaskDestination | undefined; task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
   const engine = useEngine();
   const qc = useQueryClient();
   // Observe the list query that supplies this task without starting a second request.
   const { isFetching: taskRefreshing } = useCapability<TaskDto[]>("tasks.list", { category: "all" }, { enabled: false });
   const [opened, setOpened] = useState<string | null>(null);
+  const runList = useRef<HTMLElement>(null);
+  const destinationUsed = useRef<TaskDestination>(null);
+  useEffect(() => {
+    if (!destination || destinationUsed.current === destination) return;
+    const match = rows?.find(({ runId, superseded }) => runId === destination.runId && !superseded);
+    if (!match) return;
+    destinationUsed.current = destination;
+    setOpened(match.dispatchId);
+    if (!destination.questionId) {
+      runList.current?.querySelector<HTMLElement>(`[data-run-id="${CSS.escape(match.runId)}"]`)?.focus();
+    }
+  }, [destination, rows]);
   const [request, setRequest] = useState<DispatchInput | null>(null);
   const [retry, setRetry] = useState<RetryDispatch | null>(null);
   const [earlyDialog, setEarlyDialog] = useState(false);
@@ -135,7 +147,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
   }
 
   return (
-    <section className="hu-tw-detail-section" aria-label="Agent 派遣">
+    <section ref={runList} className="hu-tw-detail-section" aria-label="Agent 派遣">
       <h3>
         <History size={14} aria-hidden /> Agent 派遣
       </h3>
@@ -167,7 +179,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
         const run = runs.find(({ id }) => id === row.runId);
         const expanded = opened === row.dispatchId;
         return (
-          <article key={row.dispatchId} className="tasks-task-run" data-testid="managed-task-run" data-run-id={row.runId}>
+          <article key={row.dispatchId} tabIndex={-1} className="tasks-task-run" data-testid="managed-task-run" data-run-id={row.runId}>
             <header>
               <Badge tone={row.state === "unknown" ? "warning" : "neutral"}>{taskRunLabel(row, run)}</Badge>
               {row.attempt > 1 || row.superseded ? <span>第 {row.attempt} 次尝试</span> : null}
@@ -185,7 +197,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
               </Button>
             ) : null}
             {!row.superseded ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
-            {expanded ? <TaskRunDetails task={task} taskRefreshing={taskRefreshing} row={row} run={run} onOpenAgent={onNavigate} /> : null}
+            {expanded ? <TaskRunDetails task={task} questionFocus={destination?.runId === row.runId ? destination : undefined} taskRefreshing={taskRefreshing} row={row} run={run} onOpenAgent={onNavigate} /> : null}
           </article>
         );
       })}
@@ -238,6 +250,7 @@ function CancelQueuedRun({ task, row, refresh }: { task: TaskDto; row: TaskDispa
 export function TaskRunDetails({
   task,
   taskRefreshing,
+  questionFocus,
   row,
   run,
   showQueue = false,
@@ -245,6 +258,7 @@ export function TaskRunDetails({
 }: {
   task: TaskDto;
   taskRefreshing: boolean;
+  questionFocus?: TaskDestination | undefined;
   row: TaskDispatchView;
   run: TaskRunSummary | null | undefined;
   showQueue?: boolean;
@@ -291,7 +305,7 @@ export function TaskRunDetails({
       {(questions.data ?? [])
         .filter((question) => question.runId === row.runId)
         .map((question) => (
-          <RunQuestion key={`${question.requestId}:${question.requestVersion}`} task={task} question={question} refresh={refresh} />
+          <RunQuestion key={`${question.requestId}:${question.requestVersion}`} task={task} question={question} focusRequest={questionFocus?.questionId === question.requestId ? questionFocus : undefined} refresh={refresh} />
         ))}
       {session && task.status === "in_progress" && run?.state === "running" && !task.readOnly ? <RunSupplement task={task} row={row} refresh={refresh} /> : null}
       <div data-testid={run?.finishedAt ? "managed-run-result" : undefined}>
@@ -374,7 +388,11 @@ function StopRun({ task, row, canStop, refresh }: { task: TaskDto; row: TaskDisp
   );
 }
 
-function RunQuestion({ task, question, refresh }: { task: TaskDto; question: Question; refresh(): Promise<void> }) {
+function RunQuestion({ task, question, refresh, focusRequest }: { task: TaskDto; question: Question; refresh(): Promise<void>; focusRequest?: TaskDestination | undefined }) {
+  const panel = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (focusRequest) panel.current?.focus();
+  }, [focusRequest]);
   const engine = useEngine();
   const [answer, setAnswer] = useState("");
   const [intent, setIntent] = useState<{ replyId: string; answer: string } | null>(null);
@@ -404,6 +422,9 @@ function RunQuestion({ task, question, refresh }: { task: TaskDto; question: Que
   }
   return (
     <form
+      ref={panel}
+      tabIndex={-1}
+      data-testid="task-run-question"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();

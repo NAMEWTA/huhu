@@ -82,11 +82,11 @@ export class InboxService {
   }
 
   async capture(input: { title?: string; body: string; source?: string }, context?: CapabilityContext): Promise<CaptureDto> {
-    const body = input.body.trim();
-    if (!body && !input.title?.trim()) throw errors.invalidInput("内容不能为空");
-    const title = input.title?.trim() || [...(body.split(/\r?\n/)[0] ?? "")].slice(0, 40).join("").trim() || "未命名捕获";
+    const body = input.body;
+    if (!body.trim() && !input.title?.trim()) throw errors.invalidInput("内容不能为空");
+    const title = input.title?.trim() || [...(body.trim().split(/\r?\n/)[0] ?? "")].slice(0, 40).join("").trim() || "未命名捕获";
     const source = context ? sourceFor(context.caller, input.source) : (input.source ?? "quick");
-    const e = await this.d.repo.create("capture", { title, source, status: "pending", createdAt: iso(this.d.now()) }, body);
+    const e = await this.d.repo.create("capture", { title, source, status: "pending", createdAt: iso(this.d.now()) }, `\n${body}`);
     this.d.publish("entity.changed", { kind: "capture", id: e.id, op: "created" });
     return toDto(e);
   }
