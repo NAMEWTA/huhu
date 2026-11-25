@@ -134,11 +134,14 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(terminal).toHaveAttribute("data-state", "open");
     await expect(scale).toHaveAttribute("data-font", "system");
     await run.getByRole("button", { name: "打开独立双栏" }).click();
-    const independent = page.getByTestId("ssh-independent-files");
+    const fileWorkspace = page.getByTestId("ssh-file-workspace");
+    const independent = fileWorkspace.getByTestId("ssh-independent-files");
     await expect(independent.locator(".ssh-file-columns > section").first().getByRole("table", { name: "远端目录项目" })).toBeVisible();
     await independent.getByRole("button", { name: "交换左右位置" }).click();
     await expect(independent.locator(".ssh-file-columns > section").last().getByRole("table", { name: "远端目录项目" })).toBeVisible();
-    await independent.getByRole("button", { name: "返回 SSH" }).click();
+    await fileWorkspace.getByRole("button", { name: "返回 SSH", exact: true }).click();
+    await expect(fileWorkspace).toBeHidden();
+    await expect(run).toBeVisible();
     await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
     await page.getByRole("button", { name: "本地终端", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
