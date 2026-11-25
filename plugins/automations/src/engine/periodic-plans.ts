@@ -125,7 +125,8 @@ export class PeriodicPlans implements PeriodicPlanControl {
     const stamp = new Date(this.clock.now()).toISOString();
     const parsed = PeriodicPlanSpecSchema.parse(Object.fromEntries(Object.entries(spec).filter(([key]) => key !== "expectedRevision")));
     const { bounds, everySeconds } = parsed;
-    if (bounds && (everySeconds < bounds.min || everySeconds > bounds.max || everySeconds % bounds.step !== 0)) {
+    if (bounds && (everySeconds < bounds.min || everySeconds > bounds.max || everySeconds % bounds.step !== 0
+      || (bounds.allowed && !bounds.allowed.includes(everySeconds)))) {
       throw errors.invalidInput("周期不符合来源允许的范围");
     }
     return {
@@ -315,6 +316,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
   async close(): Promise<void> {
     this.closed = true;
     this.wakeups.clear();
+    for (const plugin of this.sourceIds) this.findSource(plugin)?.suspend?.();
     for (const id of this.jobs.keys()) this.cancel(id);
     await this.sweeping?.catch(() => undefined);
     await Promise.allSettled([...this.jobs.values()].flatMap(({ running }) => running ? [running] : []));

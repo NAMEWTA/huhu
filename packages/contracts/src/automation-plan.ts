@@ -147,7 +147,9 @@ export const PeriodicPlanSpecSchema = z.strictObject({
   source: PlanSourceSchema,
   title: z.string().min(1).max(200),
   everySeconds: z.int().min(1).max(86_400),
-  bounds: z.strictObject({ min: z.int().positive(), max: z.int().positive(), step: z.int().positive() }).optional(),
+  bounds: z.strictObject({
+    min: z.int().positive(), max: z.int().positive(), step: z.int().positive(), allowed: z.array(z.int().positive()).min(1).optional(),
+  }).optional(),
   action,
   intent,
 });
@@ -165,6 +167,7 @@ export interface PeriodicPlanSource {
   readonly signal: AbortSignal;
   legacy?(): readonly PeriodicPlanSpec[];
   availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
+  suspend?(): void;
   run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<void>;
 }
 export interface PeriodicPlanControl {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Context } from "@huhu/cordis";
-import { errors, HuhuError, isWorkbenchCaller } from "@huhu/contracts";
+import { errors, HuhuError, isWorkbenchCaller, periodicPlanSourceService, type PeriodicPlanSource } from "@huhu/contracts";
 import { bindCapability, OperationReceipts, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { ForwardRuleReceipt, MonitorPanelReceipt, sshCapabilityDescriptors, WorkspaceTemplateReceipt } from "./capabilities.js";
 import type { WorkspaceTemplate } from "../shared/workspace.js";
@@ -32,6 +32,7 @@ import { PublicArchives } from "./public-archives.js";
 import { ForwardRules, type ForwardRuleScope } from "./forward-rules.js";
 import { ForwardRuns } from "./forward-runs.js";
 import { MonitorPanels, type MonitorPanelScope } from "./monitor-panels.js";
+import { MonitorPlans, monitorForPlan } from "./monitor-plans.js";
 import { Monitors } from "./monitors.js";
 import { readMonitorTool } from "./monitor-tools.js";
 import { SshPreferences } from "./preferences.js";
@@ -138,7 +139,15 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const publicForwarding = new PublicForwarding(api.vault.files, forwardRules, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
-  const monitors = new Monitors(monitorPanels, manager);
+  const monitorPlans = new MonitorPlans(api);
+  const monitors = new Monitors(monitorPanels, manager, monitorPlans);
+  const samplerLifetime = new AbortController();
+  api.provide(periodicPlanSourceService("ssh"), {
+    signal: samplerLifetime.signal,
+    availability: ({ source }) => monitors.availability(source.object.id),
+    run: ({ source }, context) => monitors.sampleDashboard(source.object.id, context),
+    suspend: () => monitors.suspendPlans(),
+  } satisfies PeriodicPlanSource);
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
   registerOutboundProxies(api, outboundProxies, hosts);
@@ -162,8 +171,13 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     if (event.payload.kind === "ssh-host" || event.payload.kind === "ssh-outbound-proxy") publicProbes.revalidateRoutes();
     if (event.payload.kind === "ssh-forward") publicForwarding.revalidateRules();
     if (event.payload.kind === "ssh-monitor-panel") publicMonitors.revalidatePanels();
+    if (event.payload.kind === "periodic-plan" && event.payload.id) {
+      const id = monitorForPlan(event.payload.id);
+      if (id) monitors.applyPlan(id);
+    }
   });
   ctx.effect(() => () => {
+    samplerLifetime.abort();
     publicJobs?.dispose();
     publicProbes.dispose();
     publicWorkspaces.dispose();
@@ -245,7 +259,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   );
   api.defineCapability(
     bindCapability(sshCapabilityDescriptors.monitorPanelsList, (context) => {
-      if (isWorkbenchCaller(context.caller)) return monitorPanels.list();
+      if (isWorkbenchCaller(context.caller)) return monitorPanels.list().map((panel) => monitorPlans.project(panel));
       const routes = visibleSshRoutes(api.vault.files, context);
       return monitorPanels.list().filter(({ hostIds }) => hostIds.every((id) => routes.has(id)));
     }),
@@ -320,7 +334,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
       const { id, expectedRevision, intentKey, connections, runId, action } = input;
       const request = input.action === "retry" ? { id, expectedRevision, action: input.action, hostId: input.hostId } : { id, expectedRevision, action: input.action };
       if (desktopMonitor(context)) {
-        if (!runId) return monitors.change(request, context.signal);
+        if (!runId) return monitors.change({ ...request, expectedPlanRevision: input.expectedPlanRevision }, context.signal);
         if (action !== "stop") throw errors.invalidInput("工作台只能停止指定的外部监控运行");
         publicMonitors.closeWorkbenchPanel(runId);
         return null;

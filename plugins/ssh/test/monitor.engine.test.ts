@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import type { PlanSummary } from "@huhu/contracts";
 import { expect, test, vi } from "vitest";
 import { boot } from "../../../apps/engine/src/boot.js";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
@@ -106,6 +108,14 @@ const panel = (client: EngineClient, draft: SaveMonitorPanel) => client.call<Mon
 const readPanel = (client: EngineClient, id: string) => client.call<MonitorPanelRun | null>("ssh.monitor.panels.run", { id });
 const change = (client: EngineClient, panel: MonitorPanel, action: "start" | "pause" | "continue" | "stop" | "retry", hostId?: string) =>
   client.call<MonitorPanelRun>("ssh.monitor.panels.change", { id: panel.id, expectedRevision: panel.revision, action, ...(hostId && { hostId }) }, opts);
+const monitorPlans = (client: EngineClient) => client.call<{ plans: PlanSummary[] }>("automations.plans.list");
+async function updatePlan(client: EngineClient, { planId, revision }: PlanSummary, update: object) {
+  const intentId = randomUUID();
+  const result = await client.call<{ outcome: string; plan: PlanSummary }>("automations.plans.submit",
+    { planId, expectedRevision: revision, intentId, ...update }, { ...opts, intentKey: intentId });
+  expect(result.outcome).toBe("completed");
+  return result.plan;
+}
 
 test("server tools use only read-only commands on the selected Pane", { timeout: 20_000 }, async () => {
   const f = await fixture();
@@ -194,8 +204,10 @@ test("dashboards share fastest sampling, isolate host failures and keep configur
     const fast = await panel(client, { name: "Fast", note: "two hosts", hostIds: [win.id, linux.id], interval: 2, retention: 15 });
     const slow = await panel(client, { name: "Slow", note: "", hostIds: [linux.id], interval: 5, retention: 1440 });
     expect(await readPanel(client, fast.id)).toBeNull();
+    expect((await monitorPlans(client)).plans.filter(({ source }) => source.plugin === "ssh")).toEqual([]);
     expect(linux.server.conns).toHaveLength(0);
-    await change(client, fast, "start");
+    const { plan: fastPlan } = await change(client, fast, "start");
+    expect(fastPlan).toBeDefined();
     await change(client, slow, "start");
     for (const host of [linux, win]) {
       const prompt = await vi.waitFor(async () => {
@@ -221,10 +233,12 @@ test("dashboards share fastest sampling, isolate host failures and keep configur
     win.deny(false);
     await change(client, fast, "retry", win.id);
     await vi.waitFor(async () => expect((await readPanel(client, fast.id))?.hosts[0]).toMatchObject({ state: "running", latest: { sample: windows } }), wait);
-    expect((await change(client, fast, "pause")).hosts[1]).toMatchObject({ state: "paused", history: expect.arrayContaining([{ sample: null, at: expect.any(Number) }]) });
+    const paused = await updatePlan(client, fastPlan!, { change: "set-intent", intent: "paused" });
+    expect(await readPanel(client, fast.id)).toMatchObject({ plan: { planId: paused.planId, revision: paused.revision }, state: "paused" });
+    expect((await readPanel(client, fast.id))?.hosts[1]).toMatchObject({ state: "paused", history: expect.arrayContaining([{ sample: null, at: expect.any(Number) }]) });
     expect((await readPanel(client, slow.id))?.hosts[0]).toMatchObject({ state: "running", interval: 5, subscribers: 2 });
     await change(client, fast, "continue");
-    await change(client, fast, "stop");
+    await updatePlan(client, (await readPanel(client, fast.id))!.plan!, { change: "delete" });
     await vi.waitFor(() => expect(win.server.closed()).toBe(1), wait);
     expect((await readPanel(client, slow.id))?.hosts[0]).toMatchObject({ state: "running", subscribers: 1, interval: 5 });
     const lastConnection = (await readPanel(client, slow.id))?.hosts[0]?.connectionId;
@@ -240,11 +254,19 @@ test("dashboards share fastest sampling, isolate host failures and keep configur
     expect(recovered.history).toHaveLength(1);
     await change(client, slow, "stop");
     await vi.waitFor(() => expect(linux.server.closed()).toBe(2), wait);
+    const stopped = (await readPanel(client, slow.id))!.plan!;
+    const rescheduled = await updatePlan(client, stopped, { change: "reschedule", trigger: { kind: "interval", every: 10, unit: "seconds" } });
+    const resumed = await updatePlan(client, rescheduled, { change: "set-intent", intent: "enabled" });
+    expect(resumed.availability).toMatchObject({ state: "blocked", reason: "connection-unavailable" });
     const reopened = await f.reopen();
-    expect(await reopened.call("ssh.monitor.panels.list")).toEqual([fast, slow]);
+    expect(await reopened.call("ssh.monitor.panels.list")).toMatchObject([
+      { ...fast, plan: { planId: fastPlan!.planId, intent: "deleted" } },
+      { ...slow, interval: 10, plan: { planId: resumed.planId, revision: resumed.revision, intent: "enabled", availability: { reason: "connection-unavailable" } } },
+    ]);
     expect(await readPanel(reopened, slow.id)).toBeNull();
+    expect(linux.server.conns).toHaveLength(2);
     await reopened.call("ssh.monitor.panels.delete", { id: fast.id, expectedRevision: fast.revision }, opts);
-    expect(await reopened.call("ssh.monitor.panels.list")).toEqual([slow]);
+    expect(await reopened.call("ssh.monitor.panels.list")).toMatchObject([{ id: slow.id, interval: 10 }]);
   } finally {
     await f.close();
   }

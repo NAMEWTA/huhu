@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { PlanSummary } from "@huhu/contracts";
 import { openApp } from "../helpers/launch.js";
 import { LINUX_SAMPLE, PLATFORM_COMMAND } from "../../../plugins/ssh/src/engine/monitor-sample.js";
 import { CONTAINER_LIST, PROCESS_LIST } from "../../../plugins/ssh/src/engine/monitor-tools.js";
@@ -57,6 +58,9 @@ test("Workbench monitors a saved panel in the background and controls the active
     await editor.getByRole("checkbox", { name: /回环 Linux 监控/ }).check();
     await editor.getByRole("button", { name: "保存面板" }).click();
     await expect(dashboard.getByText("历史 1 小时", { exact: false })).toBeVisible();
+    const sshPlans = () => call<{ plans: PlanSummary[] }>(page, "automations.plans.list", {}).then(({ plans }) =>
+      plans.filter(({ source }) => source.plugin === "ssh"));
+    expect(await sshPlans()).toEqual([]);
     expect(reads).toBe(0);
     expect(server.conns).toHaveLength(0);
     await dashboard.getByRole("button", { name: "开始监控" }).click();
@@ -68,6 +72,12 @@ test("Workbench monitors a saved panel in the background and controls the active
     const before = reads;
     await expect.poll(() => reads).toBeGreaterThan(before);
 
+    const [plan] = await sshPlans();
+    expect(plan).toMatchObject({ title: "回环仪表盘", intent: "enabled", trigger: { kind: "interval", every: 2, unit: "seconds" } });
+    await page.getByRole("button", { name: "自动化", exact: true }).first().click();
+    await page.getByRole("button", { name: "计划", exact: true }).click();
+    await expect(page.getByTestId("plan-directory").locator(`[data-plan-id="${plan!.planId}"]`)).toContainText("回环仪表盘");
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
     await call(page, "ssh.workspace.runs.start", { name: "分栏监控验收", layout: { kind: "tabs" }, panes: [{ hostId }] });
     await page.getByRole("button", { name: "工作区", exact: true }).click();
     await page.getByRole("button", { name: /分栏监控验收.*代次 1/ }).click();
