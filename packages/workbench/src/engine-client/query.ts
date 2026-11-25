@@ -9,6 +9,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "task-run": ["tasks."],
   "task-follow-up": ["automations.followUps.get", "automations.plans."],
   "automation-rule": ["automations.list", "automations.read", "automations.plans."],
+  "agent-catalog": ["agent.catalog.detect", "agent.settings.get", "automations.plans.list", "automations.plans.read", "automations.plans.summary"],
   "agent-session": ["agent.sessions.list", "agent.history.list"],
   "agent-workspace": ["agent.workspace.get"],
   note: ["notes.", "vault.", "archives.", "ledger.references."], // 档案的 index.md 就是笔记：笔记变了，档案视图也要刷新

@@ -319,10 +319,13 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       return snapshot.map(({ id, displayName, installed, skipped, headless, detectedAt }) => ({ id, displayName, installed, skipped, headless, detectedAt }));
     }),
   );
+  const catalogChanged = () => api.events.publish("entity.changed", { kind: "agent-catalog", id: "providers", op: "updated" });
   api.defineCapability(
-    bindCapability(mainAgentDescriptors.catalogRefresh, ({ caller }) => {
+    bindCapability(mainAgentDescriptors.catalogRefresh, async ({ caller }) => {
       if (!isWorkbenchCaller(caller)) throw errors.permissionDenied("刷新 Agent CLI 检测");
-      return detector.detect(true);
+      const current = await detector.detect(true);
+      catalogChanged();
+      return current;
     }),
   );
   api.defineCapability(
@@ -346,6 +349,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AgentCliOptions = {}): {
       const out = settingsStore.write({ defaultAgent: i.defaultAgent, agents: i.agents }, i.expectedRevision);
       detector.invalidate(); // command / enabled 可能变了，旧检测结果不再可信
       detector.snapshot();
+      catalogChanged();
       return external || parentOperationId ? summarizeSettings(out) : out;
     }),
   );

@@ -507,6 +507,22 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
   });
 
+  test("Agent 目录变动刷新当前 Vault 的计划可用性与提供者，运行历史保持缓存", async () => {
+    const qc = new QueryClient();
+    const affected = ["agent.settings.get", "agent.catalog.detect", "automations.plans.list", "automations.plans.read", "automations.plans.summary"];
+    const unrelated = ["automations.plans.history", "agent.sessions.list"];
+    for (const vault of ["vault-a", "vault-b"]) {
+      for (const name of [...affected, ...unrelated]) qc.setQueryData(queryKey(vault, name), {});
+    }
+    await invalidateForEvent(qc, "vault-a", { type: "entity.changed", payload: { kind: "agent-catalog", id: "providers", op: "updated" } });
+    for (const name of affected) {
+      expect(qc.getQueryState(queryKey("vault-a", name))?.isInvalidated).toBe(true);
+      expect(qc.getQueryState(queryKey("vault-b", name))?.isInvalidated).toBe(false);
+    }
+    for (const name of unrelated) expect(qc.getQueryState(queryKey("vault-a", name))?.isInvalidated).toBe(false);
+    qc.clear();
+  });
+
   test("周期发生只刷新中心和对应来源，停用 Automations 刷新各来源", async () => {
     const qc = new QueryClient();
     const names = ["automations.plans.list", "ssh.monitor.panels.run", "sync.get", "mail.sync.settings"];
