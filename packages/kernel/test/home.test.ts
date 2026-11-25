@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,13 +14,13 @@ function setup(start = "2026-11-11T10:00:00Z", zone = "UTC") {
   const dir = mkdtempSync(path.join(tmpdir(), "huhu-home-"));
   dirs.push(dir);
   const clock = { t: new Date(start).getTime(), zone };
-  const notes: { title: string; module: string }[] = [];
-  const store = new HomeStore({ dir, now: () => new Date(clock.t), zone: () => clock.zone, notify: (n) => notes.push(n) });
+  const settings = { automations: true };
+  const store = new HomeStore({ dir, now: () => new Date(clock.t), zone: () => clock.zone, deadlineAvailable: () => settings.automations });
   return {
     dir,
     store,
     clock,
-    notes,
+    settings,
     advance: (sec: number) => {
       clock.t += sec * 1000;
     },
@@ -41,38 +42,55 @@ describe("专注计时", () => {
     expect(store.focus().remainingSec).toBe(1000);
   });
 
-  test("到零（ACC-WB-06）：次数 +1、发一次“专注完成”通知、回到 25:00 未运行；重复结算不重复计数", () => {
-    const { store, advance, notes } = setup();
+  test("到点按同一专注计划结算一次，取数和旧 sync 调用只返回视图", () => {
+    const { store, advance } = setup();
     store.focusAction("start");
+    const deadline = store.focusDeadline();
+    const plan = deadline.current()!;
     advance(1499);
     expect(store.focus().remainingSec).toBe(1);
-    expect(notes).toHaveLength(0);
+    expect(deadline.settle(plan, "original")).toBe(false);
     advance(2);
-    expect(store.focus().remainingSec).toBe(0); // 读取不结算
-    const done = store.focusAction("sync");
-    expect(done).toMatchObject({ remainingSec: 1500, running: false, completedToday: 1 });
-    expect(notes).toEqual([{ title: "专注完成", module: "home" }]);
-    expect(store.focusAction("sync").completedToday).toBe(1);
-    expect(notes).toHaveLength(1);
+    expect(store.focusAction("sync")).toMatchObject({ remainingSec: 0, running: true, completedToday: 0 });
+    expect(deadline.settle(plan, "original")).toBe(true);
+    expect(store.focus()).toMatchObject({ remainingSec: 1500, running: false, completedToday: 1 });
+    expect(deadline.settle(plan, "original")).toBe(true);
+    expect(deadline.settle(plan, "replacement")).toBe(false);
+    expect(store.focus().completedToday).toBe(1);
   });
 
-  test("重置回到 25:00；在 0 秒时“开始”先结算再开始新的一轮", () => {
-    const { store, advance, notes } = setup();
+  test("中心改期、暂停、继续和删除共享修订；未登记时开始受阻", () => {
+    const { store, settings, advance, clock } = setup();
+    settings.automations = false;
+    expect(() => store.focusAction("start")).toThrow();
+    expect(store.focus()).toMatchObject({ running: false, completedToday: 0, endsAt: null });
+    settings.automations = true;
     store.focusAction("start");
-    advance(10);
-    expect(store.focusAction("reset")).toMatchObject({ remainingSec: 1500, running: false });
-    store.focusAction("start");
-    advance(1600);
-    const v = store.focusAction("start"); // 先结算上一轮，再开始
-    expect(v).toMatchObject({ running: true, completedToday: 1, remainingSec: 1500 });
-    expect(notes).toHaveLength(1);
+    const deadlines = store.focusDeadline();
+    const original = deadlines.current()!;
+    const write = () => ({ planId: original.planId, expectedRevision: deadlines.current()!.revision, intentId: randomUUID() });
+    const extended = new Date(clock.t + 30 * 60_000).toISOString();
+    deadlines.change({ ...write(), change: "reschedule", trigger: { kind: "once", scheduledFor: extended } });
+    expect(store.focus()).toMatchObject({ remainingSec: 1800, endsAt: extended });
+    expect(() => deadlines.change({ ...write(), expectedRevision: original.revision, change: "delete" })).toThrow();
+    advance(1500);
+    expect(deadlines.settle(original, "old")).toBe(false);
+    deadlines.change({ ...write(), change: "set-intent", intent: "paused" });
+    expect(store.focus()).toMatchObject({ running: false, remainingSec: 300 });
+    advance(600);
+    deadlines.change({ ...write(), change: "set-intent", intent: "enabled" });
+    expect(store.focus()).toMatchObject({ running: true, remainingSec: 300 });
+    deadlines.change({ ...write(), change: "delete" });
+    expect(store.focus()).toMatchObject({ running: false, remainingSec: 300 });
+    expect(store.focusAction("reset")).toMatchObject({ running: false, remainingSec: 1500 });
   });
 
   test("今日次数按设置的时区计算“今天”", () => {
     const { store, clock, advance } = setup("2026-11-11T10:00:00Z", "UTC");
     store.focusAction("start");
     advance(1600);
-    store.focusAction("sync");
+    const deadlines = store.focusDeadline();
+    expect(deadlines.settle(deadlines.current()!, "original")).toBe(true);
     expect(store.focus().completedToday).toBe(1);
     clock.zone = "Pacific/Kiritimati"; // UTC+14：此刻已是 11-12，与记录的 11-11 不同 → 清零
     expect(store.focus().completedToday).toBe(0);

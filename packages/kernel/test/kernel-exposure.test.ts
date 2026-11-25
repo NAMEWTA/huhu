@@ -88,7 +88,7 @@ async function setup(entry: Entry) {
   notices.markRead([clear.id]);
   const hidden = notices.create({ title: secretMarker, module: "ssh", body: secretMarker });
   const clock = { now: new Date("2026-11-21T12:00:00Z") };
-  const home = new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => clock.now, zone: () => "UTC", notify: (notice) => void notices.create(notice) });
+  const home = new HomeStore({ dir: path.join(vault.stateDir, "home"), now: () => clock.now, zone: () => "UTC", deadlineAvailable: () => true });
   const log = new EventLog(path.join(vault.stateDir, "diagnostics.ndjson"));
   log.append({ module: "笔记", message: secretMarker, tone: "neutral" });
   log.append({ module: secretMarker, message: secretMarker, tone: "error" });
@@ -481,21 +481,23 @@ test("持久回执跨 Dispatcher 重启保留结果，拒绝异参和已撤权�
   expect(await restarted("settings.update", input, key)).toMatchObject(notExposed);
 });
 
-test("专注只读不结算，计时器代次冲突被拒且同意图只通知一次", async () => {
+test("专注只读保留到点状态，原修订结算后外部旧版本写入被拒绝", async () => {
   const fixture = await setup("mcp");
   const { home, clock, notices, external, select, via, read } = fixture;
   home.focusAction("start");
+  const deadlines = home.focusDeadline();
+  const plan = deadlines.current()!;
   clock.now = new Date(clock.now.getTime() + 1600_000);
   const before = notices.list().length;
   const state = z.object({ revision: z.string(), remainingSec: z.number(), completedToday: z.number() }).parse(await via("home.focus.get"));
   expect(state).toMatchObject({ remainingSec: 0, completedToday: 0 });
-  expect(notices.list()).toHaveLength(before);
   await select("home.focus.update", true);
   const key = randomUUID();
   const input = { action: "sync", expectedRevision: state.revision };
-  expect(await read("home.focus.update", input, key)).toMatchObject({ completedToday: 1 });
-  expect(await read("home.focus.update", input, key)).toMatchObject({ completedToday: 1 });
-  expect(notices.list()).toHaveLength(before + 1);
+  expect(await read("home.focus.update", input, key)).toMatchObject({ completedToday: 0 });
+  expect(notices.list()).toHaveLength(before);
+  expect(deadlines.settle(plan, "original")).toBe(true);
+  expect(await read("home.focus.update", input, key)).toMatchObject({ completedToday: 0 });
   expect(await external("home.focus.update", input, randomUUID())).toMatchObject({ ok: false, error: { code: "VERSION_CONFLICT" } });
 });
 

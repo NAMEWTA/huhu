@@ -4,6 +4,7 @@ import { errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contr
 import { filesystemIdentity, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
+import type { FocusDeadlinePlans } from "./focus-deadline.js";
 import type { ActivationRecord, AutomationsService } from "./service.js";
 
 const directory = "automations/reminder-deliveries";
@@ -22,12 +23,13 @@ const RecordSchema = z.strictObject({
   finishedAt: Instant.nullable(),
   text: z.string().min(1),
   taskBody: z.string(),
-  notificationModule: z.enum(["tasks", "automations"]),
+  notificationModule: z.enum(["tasks", "automations", "home"]),
   notification: z.enum(["disabled", "pending", "sending", "sent", "unknown"]),
   task: z.enum(["disabled", "pending", "created", "unavailable"]),
-  source: z.enum(["task-reminder", "observation"]).optional(),
+  source: z.enum(["task-reminder", "observation", "focus-deadline"]).optional(),
   targetTask: z.string().optional(),
   comment: z.enum(["pending", "written", "unavailable"]).optional(),
+  focusSettled: z.literal(true).optional(),
   cancelled: z.boolean().optional(),
 });
 type ReminderRecord = z.infer<typeof RecordSchema>;
@@ -70,6 +72,7 @@ export class ReminderDeliveries {
     private readonly reminderPlanCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
     private readonly observationCurrent: (planId: string, revision: string, at: string) => boolean = () => false,
     private readonly writeComment?: (taskId: string, commentId: string, body: string) => Promise<unknown>,
+    private readonly focus?: Pick<FocusDeadlinePlans, "current" | "settle">,
   ) {
     const stat = statSync(files.root, { bigint: true });
     const identity = filesystemIdentity(stat);
@@ -121,6 +124,12 @@ export class ReminderDeliveries {
     const row = this.load(id)?.data;
     if (!row) return null;
     const effects: PlanOccurrence["effects"] = [];
+    if (row.source === "focus-deadline") {
+      effects.push({
+        effectId: `focus-${id}`, kind: "focus-settlement", target: { kind: "focus-session", id: row.ruleId }, operationId: null,
+        state: row.focusSettled ? "completed" : "not-accepted", receiptId: row.focusSettled ? id : null,
+      });
+    }
     if (row.notification !== "disabled") {
       const effectId = notificationId(id);
       const state = row.notification === "sent" ? "completed" : row.notification === "pending" ? "not-accepted" : "unknown";
@@ -201,10 +210,15 @@ export class ReminderDeliveries {
     if (data.ruleId !== ruleId || data.ruleVersion !== expectedVersion || data.scheduledFor !== null) throw errors.idempotencyMismatch();
   }
 
+  private sourceCurrent(source: PlanReminder["source"], id: string, revision: string, scheduledFor: string, taskId: string | undefined): boolean {
+    if (source === "focus-deadline") return this.focus?.current(id, revision, scheduledFor) === true;
+    if (source === "observation") return this.observationCurrent(id, revision, scheduledFor);
+    return Boolean(taskId && this.taskAvailable(taskId) && this.reminderPlanCurrent(id, revision, scheduledFor));
+  }
+
   private current(data: ReminderRecord): boolean {
-    if (data.source === "observation") return Boolean(data.scheduledFor && this.observationCurrent(data.ruleId, data.ruleVersion, data.scheduledFor));
+    if (data.source && data.scheduledFor) return this.sourceCurrent(data.source, data.ruleId, data.ruleVersion, data.scheduledFor, data.targetTask);
     if (data.targetTask && !this.taskAvailable(data.targetTask)) return false;
-    if (data.source) return Boolean(data.scheduledFor && this.reminderPlanCurrent(data.ruleId, data.ruleVersion, data.scheduledFor));
     if (!data.scheduledFor) return true;
     try {
       const rule = this.rules.rule(data.ruleId);
@@ -219,7 +233,9 @@ export class ReminderDeliveries {
     const { id } = row.data;
     const stableNotification = notificationId(id);
     if (row.data.notification === "pending" && this.current(row.data)) {
-      row = await this.save({ ...row.data, notification: "sending" }, row.version);
+      const source = row.data;
+      if (source.source === "focus-deadline" && source.scheduledFor && !this.focus?.settle(source.ruleId, source.ruleVersion, source.scheduledFor, id)) return source;
+      row = await this.save({ ...row.data, notification: "sending", ...(source.source === "focus-deadline" && { focusSettled: true }) }, row.version);
       this.lifetime.signal.throwIfAborted();
       if (this.current(row.data)) {
         try {
@@ -278,15 +294,13 @@ export class ReminderDeliveries {
         this.lifetime.signal.throwIfAborted();
         if (trigger.plan && trigger.at) {
           const { revision, title, taskId, source, effect } = trigger.plan;
-          const current = source === "observation"
-            ? this.observationCurrent(trigger.ruleId, revision, trigger.at)
-            : taskId && this.taskAvailable(taskId) && this.reminderPlanCurrent(trigger.ruleId, revision, trigger.at);
+          const current = this.sourceCurrent(source, trigger.ruleId, revision, trigger.at, taskId);
           if (!this.owner || !current) return null;
           return this.save({
             format: 1, id, vaultId: this.vaultId, owner: this.owner, ruleId: trigger.ruleId, ruleVersion: revision,
             scheduledFor: trigger.at, startedAt: this.now().toISOString(), finishedAt: null, text: title,
             taskBody: taskId ? `${title}\n\n相关任务：[[${this.taskPath(taskId) ?? taskId}]]` : title,
-            notificationModule: source === "task-reminder" ? "tasks" : "automations",
+            notificationModule: source === "task-reminder" ? "tasks" : source === "focus-deadline" ? "home" : "automations",
             notification: effect === "notification" || effect === "both" ? "pending" : "disabled",
             task: effect === "task" || effect === "both" ? "pending" : "disabled",
             ...(effect === "comment" && { comment: "pending" }), source, ...(taskId && { targetTask: taskId }),

@@ -365,7 +365,8 @@ function PlansPanel() {
           <h3>{plan.title}</h3>
           {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time> : null}
           {plan.trigger.kind === "observe" ? <p>每 {plan.trigger.everySeconds} 秒检查</p> : null}
-          <p>{plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
+          <p>{plan.lastOccurrence?.state === "completed" && !plan.nextAt ? "最近一次已完成"
+            : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
           {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
           <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
         </section>

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import type { DefaultTaskScan } from "./default-task-scan.js";
 import type { FollowUps } from "./follow-ups.js";
+import type { FocusDeadlinePlans } from "./focus-deadline.js";
 import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsService } from "./service.js";
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
 import { ObservationInput, type ObservationPlans } from "./observations.js";
@@ -57,6 +58,7 @@ type CatalogueDeps = {
   followUps: FollowUps;
   taskReminders: TaskReminderPlans;
   observations: ObservationPlans;
+  focus?: FocusDeadlinePlans;
   defaults: DefaultTaskScan;
   now(): Date;
   activations(): ActivationRecord[];
@@ -180,6 +182,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
         ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
         ...deps.observations.list(),
+        ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
         ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
       ].filter(matches).sort((a, b) => (a.planId < b.planId ? -1 : Number(a.planId > b.planId)));
       const plans = candidates.slice(0, limit);
@@ -188,7 +191,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     async read(planId, signal) {
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
-      if (!rule) return deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.followUps.readPlan(planId);
+      if (!rule) return deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);
       return rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId));
     },
     async readOccurrence(occurrenceId, signal) {
@@ -222,6 +225,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ? await changeRule(rule, change, deps, api, assertCurrent)
         : deps.taskReminders.read(planId) ? await deps.taskReminders.change(change, context.signal)
         : deps.observations.read(planId) ? await deps.observations.change(change, context.signal)
+        : deps.focus?.read(planId) ? await deps.focus.change(change, context.signal)
         : await deps.followUps.changePlan(change, assertCurrent);
       return { outcome: "completed", intentId, operationId, plan } as const;
     } catch (error) {

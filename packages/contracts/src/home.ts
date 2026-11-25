@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PluginManifest } from "./plugin-manifest.js";
+import { PlanRefSchema } from "./automation-plan.js";
 
 /** 专注计时默认时长（秒）。 */
 export const FOCUS_SECONDS = 25 * 60;
@@ -22,6 +23,7 @@ export const FocusViewSchema = z.object({
   /** 运行中：预计结束的时刻（ISO），界面据此倒计时。 */
   endsAt: z.string().nullable(),
   completedToday: z.number().int(),
+  plan: PlanRefSchema.optional(),
 });
 export type FocusView = z.infer<typeof FocusViewSchema>;
 

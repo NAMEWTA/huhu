@@ -711,6 +711,43 @@ describe("Engine 启动与关闭", () => {
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
   }, 30_000);
+  test("F32：专注截止随同一计划改期，Engine 重开无页面仍结算一次", async () => {
+    const dir = tmp();
+    const original = await boot({ vaultPath: dir, create: true });
+    engines.push(original);
+    const call = (engine: RunningEngine, capability: string, input: unknown, intentKey?: string) =>
+      post(engine, engine.rendererToken, { capability, input, requestId: randomUUID(), idempotencyKey: intentKey ?? randomUUID(), intentKey });
+    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: false })).ok).toBe(true);
+    expect(await call(original, "home.focus.update", { action: "start" })).toMatchObject({ ok: false, error: { code: "PLUGIN_DISABLED" } });
+    expect((await call(original, "home.focus.get", {})).data).toMatchObject({ running: false, endsAt: null, completedToday: 0 });
+    expect((await call(original, "plugins.setEnabled", { id: "automations", enabled: true })).ok).toBe(true);
+
+    const started = await call(original, "home.focus.update", { action: "start" });
+    expect(started).toMatchObject({ ok: true, data: { plan: { planId: expect.any(String), revision: expect.any(String) }, running: true } });
+    const { planId, revision } = (started.data as unknown as { plan: { planId: string; revision: string } }).plan;
+    const intentId = randomUUID();
+    const scheduledFor = new Date(Date.now() + 3_000).toISOString();
+    const moved = await call(original, "automations.plans.submit", {
+      planId, expectedRevision: revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
+    }, intentId);
+    expect(moved).toMatchObject({ ok: true, data: { outcome: "completed", plan: { planId, revision: expect.any(String) } } });
+    const updated = await call(original, "home.focus.get", {});
+    const ref = (updated.data as unknown as { plan: { planId: string; revision: string } }).plan;
+    expect(ref.revision).not.toBe(revision);
+    expect(updated.data).toMatchObject({ plan: ref, endsAt: scheduledFor });
+    await original.shutdown();
+    engines.splice(engines.indexOf(original), 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(scheduledFor) - Date.now() + 50)));
+    const reopened = await boot({ vaultPath: dir });
+    engines.push(reopened);
+    await expect.poll(async () => (await call(reopened, "home.focus.get", {})).data).toMatchObject({ running: false, completedToday: 1, plan: ref });
+    await expect.poll(async () => (await call(reopened, "automations.plans.read", { planId })).data)
+      .toMatchObject({ ...ref, nextAt: null, lastOccurrence: { state: "completed" } });
+    const notices = (await call(reopened, "notifications.list", {})).data as unknown as { id: string; title: string }[];
+    expect(notices.filter(({ title }) => title === "专注完成")).toHaveLength(1);
+    const reads = await Promise.all(Array.from({ length: 3 }, () => call(reopened, "home.focus.get", {})));
+    expect(reads.every(({ data }) => (data as unknown as { completedToday: number }).completedToday === 1)).toBe(true);
+  }, 15_000);
   test("plugins.setEnabled：停用后其能力不可用并持久化；级联停用依赖者；重启保持；kernel 不可停用", async () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });

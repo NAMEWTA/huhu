@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { HuhuError, type TaskDto } from "@huhu/contracts";
-import { ExposureStore, type CapabilityDefinition, type HuhuApi } from "@huhu/kernel";
+import { ExposureStore, HomeStore, type CapabilityDefinition, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, OperationLog, SemanticRepository, Vault, VaultFiles } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { TestProtection } from "../../../packages/kernel/test/fixtures/credentials.js";
@@ -13,6 +13,7 @@ import { SpaceStore } from "../../agent-cli/src/engine/spaces.js";
 import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
+import { FocusDeadlinePlans } from "../src/engine/focus-deadline.js";
 import { ReminderDeliveries, planReminderOccurrenceId } from "../src/engine/reminder-deliveries.js";
 import { ObservationPlans, type ObservationStatus } from "../src/engine/observations.js";
 import { AutomationsService } from "../src/engine/service.js";
@@ -150,6 +151,49 @@ function setup(
 const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
 const terminalAction = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null } as const;
 const terminalSlot = new Date("2026-11-10T12:00:00Z");
+
+test("专注已结算、通知检查点写入中断后继续原发生", async () => {
+  let time = Date.parse("2026-11-10T12:00:00Z");
+  const now = () => new Date(time);
+  const { svc, root } = setup({ now });
+  const seen = new Set<string>();
+  const send = vi.fn(({ id }: { id: string }) => { seen.add(id); });
+  const open = (files: VaultFiles) => {
+    const home = new HomeStore({ dir: path.join(root, "home"), zone: () => "UTC", now, deadlineAvailable: () => true });
+    const plans = new FocusDeadlinePlans(home.focusDeadline(), svc, (): ReminderDeliveries => deliveries, "vault", false, now);
+    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => undefined,
+      { send, has: (id) => seen.has(id) }, now, () => undefined, undefined, undefined, undefined, undefined, plans);
+    return { home, plans, deliveries };
+  };
+  const files = new VaultFiles(root);
+  const first = open(files);
+  first.home.focusAction("start");
+  const deadline = first.home.focusDeadline().current()!;
+  const id = planReminderOccurrenceId(deadline);
+  time = Date.parse(deadline.scheduledFor);
+  const original = files.write.bind(files);
+  vi.spyOn(files, "write").mockImplementation(async (rel, data, opts) => {
+    if (rel.startsWith("automations/reminder-deliveries/") && Buffer.from(data).includes('"notification":"sending"')) throw new Error("通知检查点未写入");
+    return original(rel, data, opts);
+  });
+  first.plans.tick();
+  await first.plans.close();
+  expect(first.home.focus()).toMatchObject({ completedToday: 1, running: false });
+  expect(first.deliveries.readPlanOccurrence(id)).toMatchObject({ state: "accepted" });
+  expect(send).not.toHaveBeenCalled();
+  await first.deliveries.close();
+
+  const reopened = open(new VaultFiles(root));
+  await reopened.deliveries.recover();
+  await reopened.deliveries.recover();
+  expect(reopened.home.focus()).toMatchObject({ completedToday: 1, running: false });
+  expect(reopened.deliveries.readPlanOccurrence(id)).toMatchObject({
+    state: "completed", effects: [{ kind: "focus-settlement", state: "completed" }, { kind: "notification", state: "completed" }],
+  });
+  expect(send).toHaveBeenCalledTimes(1);
+  await reopened.plans.close();
+  await reopened.deliveries.close();
+});
 
 test("观察断线后继续，评论写入回执丢失时沿用原发生和评论 ID", async () => {
   let time = Date.parse("2026-11-10T12:00:00Z");

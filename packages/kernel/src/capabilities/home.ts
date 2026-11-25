@@ -8,6 +8,8 @@ import {
   FocusActionSchema,
   FocusStateSchema,
   FocusViewSchema,
+  PlanRefSchema,
+  type PlanWrite,
   HabitsActionSchema,
   HabitsStateSchema,
   HabitsViewSchema,
@@ -31,12 +33,30 @@ export interface HomeDeps {
   now: () => Date;
   /** 当前设置的时区（决定“今天”）。 */
   zone: () => string;
-  notify: (n: { title: string; module: string }) => void;
+  deadlineAvailable?: () => boolean;
+  focusChanged?: () => void;
 }
 
 const MAX_HABITS = 20;
 const MAX_TITLE = 60;
-const FocusStateWithRevision = FocusStateSchema.extend({ revision: z.string().optional() });
+const Deadline = PlanRefSchema.extend({
+  scheduledFor: z.iso.datetime(), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
+  state: z.enum(["enabled", "paused", "completed", "deleted"]),
+});
+export type FocusDeadline = z.infer<typeof Deadline>;
+type Settlement = { plan: FocusDeadline; occurrenceId: string };
+export interface FocusDeadlinePort {
+  current(): FocusDeadline | undefined;
+  settled(): Settlement | undefined;
+  change(write: PlanWrite): FocusDeadline;
+  settle(plan: Pick<FocusDeadline, "planId" | "revision" | "scheduledFor">, occurrenceId: string): boolean;
+}
+
+const FocusStateWithRevision = FocusStateSchema.extend({
+  remainingSec: z.int().nonnegative().catch(FOCUS_SECONDS),
+  revision: z.string().optional(), deadline: Deadline.optional(),
+  settledDeadline: z.object({ plan: Deadline, occurrenceId: z.string() }).optional(),
+});
 const HabitsStateWithRevision = HabitsStateSchema.extend({ revision: z.string().optional() });
 const FocusSnapshot = FocusViewSchema.extend({ revision: z.string().optional() });
 const HabitsSnapshot = HabitsViewSchema.extend({ revision: z.string().optional(), dateKey: z.string().optional() });
@@ -78,7 +98,7 @@ export class HomeStore {
       }
     }
     const tmp = `${this.file(name)}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(v, null, 2));
+    writeFileSync(tmp, JSON.stringify(v, null, 2), { flush: true });
     renameSync(tmp, this.file(name));
   }
   private today(): string {
@@ -88,18 +108,29 @@ export class HomeStore {
   // ---- 专注 ----
 
   private loadFocus(): z.infer<typeof FocusStateWithRevision> {
-    const s = this.read("focus.json", (v) => FocusStateWithRevision.parse(v));
-    if (s.dateKey !== this.today()) return { ...s, dateKey: this.today(), completedToday: 0 }; // 跨日：今日次数清零
-    return s;
+    const stored = this.read("focus.json", (value) => FocusStateWithRevision.parse(value));
+    const state = stored.running && stored.deadline?.state !== "enabled" ? { ...stored, running: false, startedAt: null } : stored;
+    return state.dateKey === this.today() ? state : { ...state, dateKey: this.today(), completedToday: 0 };
   }
-  private remaining(s: z.infer<typeof FocusStateWithRevision>): number {
-    if (!s.running || !s.startedAt) return s.remainingSec;
-    const elapsed = Math.floor((this.d.now().getTime() - Date.parse(s.startedAt)) / 1000);
-    return Math.max(0, s.remainingSec - (Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0));
+
+  private remaining(state: z.infer<typeof FocusStateWithRevision>): number {
+    return state.running && state.deadline
+      ? Math.max(0, Math.ceil((Date.parse(state.deadline.scheduledFor) - this.d.now().getTime()) / 1_000))
+      : state.remainingSec;
   }
-  private view(s: z.infer<typeof FocusStateWithRevision>): FocusView {
-    const rem = this.remaining(s);
-    return { remainingSec: rem, running: s.running, endsAt: s.running ? new Date(this.d.now().getTime() + rem * 1000).toISOString() : null, completedToday: s.completedToday };
+
+  private view(state: z.infer<typeof FocusStateWithRevision>): FocusView {
+    const plan = state.deadline && state.deadline.state !== "deleted" ? { planId: state.deadline.planId, revision: state.deadline.revision } : undefined;
+    return {
+      remainingSec: this.remaining(state), running: state.running,
+      endsAt: state.running ? state.deadline?.scheduledFor ?? null : null, completedToday: state.completedToday,
+      ...(plan && { plan }),
+    };
+  }
+
+  private saveFocus(state: z.infer<typeof FocusStateWithRevision>): void {
+    this.write("focus.json", { ...state, revision: randomUUID() });
+    this.d.focusChanged?.();
   }
 
   focus(): FocusView {
@@ -111,20 +142,80 @@ export class HomeStore {
     return { ...this.view(state), revision: revisionOf(state) };
   }
 
-  /** 先结算（到点则记一次完成并发通知），再执行动作。 */
   focusAction(action: "start" | "pause" | "reset" | "sync", expectedRevision?: string): FocusView {
-    let s = this.loadFocus();
-    if (expectedRevision !== undefined && expectedRevision !== revisionOf(s)) throw errors.versionConflict(revisionOf(s));
-    if (s.running && this.remaining(s) === 0) {
-      s = { ...s, remainingSec: FOCUS_SECONDS, running: false, startedAt: null, completedToday: s.completedToday + 1, revision: randomUUID() };
-      this.write("focus.json", s);
-      this.d.notify({ title: "专注完成", module: "home" });
+    let state = this.loadFocus();
+    if (expectedRevision !== undefined && expectedRevision !== revisionOf(state)) throw errors.versionConflict(revisionOf(state));
+    const now = this.d.now();
+    const stamp = now.toISOString();
+    if (action === "start" && !state.running) {
+      if (!this.d.deadlineAvailable?.()) throw errors.pluginDisabled("automations");
+      const previous = state.deadline?.state === "paused" ? state.deadline : undefined;
+      const remainingSec = state.remainingSec || FOCUS_SECONDS;
+      const deadline: FocusDeadline = {
+        planId: previous?.planId ?? `focus-deadline-${randomUUID()}`, revision: randomUUID(), state: "enabled",
+        createdAt: previous?.createdAt ?? stamp, updatedAt: stamp,
+        scheduledFor: new Date(now.getTime() + remainingSec * 1_000).toISOString(),
+      };
+      state = { ...state, running: true, startedAt: stamp, remainingSec, deadline };
+    } else if (action === "pause" && state.running && state.deadline) {
+      state = {
+        ...state, running: false, startedAt: null, remainingSec: this.remaining(state),
+        deadline: { ...state.deadline, state: "paused", revision: randomUUID(), updatedAt: stamp },
+      };
+    } else if (action === "reset") {
+      state = { ...state, running: false, startedAt: null, remainingSec: FOCUS_SECONDS };
+      if (state.deadline) state.deadline = { ...state.deadline, state: "deleted", revision: randomUUID(), updatedAt: stamp };
+    } else return this.view(state);
+    this.saveFocus(state);
+    return this.view(state);
+  }
+
+  focusDeadline(): FocusDeadlinePort {
+    return {
+      current: () => this.loadFocus().deadline,
+      settled: () => this.loadFocus().settledDeadline,
+      change: (write) => this.changeDeadline(write),
+      settle: (plan, occurrenceId) => this.settleDeadline(plan, occurrenceId),
+    };
+  }
+
+  private changeDeadline(write: PlanWrite): FocusDeadline {
+    const state = this.loadFocus();
+    const plan = state.deadline;
+    if (!plan || plan.planId !== write.planId || plan.state === "deleted") throw errors.notFound("专注截止计划");
+    if (plan.revision !== write.expectedRevision) throw errors.versionConflict(plan.revision);
+    const stamp = this.d.now().toISOString();
+    if (write.change === "set-intent" && plan.state !== "completed") {
+      this.focusAction(write.intent === "enabled" ? "start" : "pause");
+      return this.loadFocus().deadline!;
     }
-    if (action === "start" && !s.running) s = { ...s, running: true, startedAt: this.d.now().toISOString(), remainingSec: s.remainingSec > 0 ? s.remainingSec : FOCUS_SECONDS };
-    else if (action === "pause" && s.running) s = { ...s, remainingSec: this.remaining(s), running: false, startedAt: null };
-    else if (action === "reset") s = { ...s, remainingSec: FOCUS_SECONDS, running: false, startedAt: null };
-    this.write("focus.json", { ...s, revision: randomUUID() });
-    return this.view(s);
+    if (write.change === "reschedule" && write.trigger.kind === "once" && plan.state !== "completed") {
+      const scheduledFor = new Date(write.trigger.scheduledFor).toISOString();
+      const remainingSec = Math.max(0, Math.ceil((Date.parse(scheduledFor) - Date.parse(stamp)) / 1_000));
+      if (remainingSec <= 0) throw errors.invalidInput("专注截止时间需要晚于当前时间");
+      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, scheduledFor };
+      this.saveFocus({ ...state, deadline, remainingSec, startedAt: state.running ? stamp : null });
+      return deadline;
+    }
+    if (write.change === "delete") {
+      const deadline = { ...plan, revision: randomUUID(), updatedAt: stamp, state: "deleted" as const };
+      this.saveFocus({ ...state, deadline, running: false, startedAt: null, remainingSec: this.remaining(state) || FOCUS_SECONDS });
+      return deadline;
+    }
+    throw errors.invalidInput("当前专注截止计划无法执行此操作");
+  }
+
+  private settleDeadline(expected: Pick<FocusDeadline, "planId" | "revision" | "scheduledFor">, occurrenceId: string): boolean {
+    const state = this.loadFocus();
+    const matches = (plan: FocusDeadline | undefined) => plan?.planId === expected.planId && plan.revision === expected.revision && plan.scheduledFor === expected.scheduledFor;
+    if (matches(state.settledDeadline?.plan) && state.settledDeadline?.occurrenceId === occurrenceId) return true;
+    if (!state.deadline || !matches(state.deadline) || state.deadline.state !== "enabled" || this.remaining(state) > 0) return false;
+    const deadline = { ...state.deadline, updatedAt: this.d.now().toISOString(), state: "completed" as const };
+    this.saveFocus({
+      ...state, deadline, settledDeadline: { plan: deadline, occurrenceId }, completedToday: state.completedToday + 1,
+      remainingSec: FOCUS_SECONDS, running: false, startedAt: null,
+    });
+    return true;
   }
 
   // ---- 习惯 ----

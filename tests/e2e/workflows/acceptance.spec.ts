@@ -1769,6 +1769,52 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
   }
 });
 
+test("F32：桌面和两个获邀 Web 页面切离专注卡片后由 Engine 到点结算", async () => {
+  test.setTimeout(120_000);
+  const { page, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = await caller(page);
+    expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ ok: true, data: { state: "running" } });
+    browser = await chromium.launch();
+    const clients = [page];
+    for (let i = 0; i < 2; i++) {
+      const invite = await call("web.invitations.create");
+      expect(invite.ok).toBe(true);
+      const context = await browser.newContext();
+      const web = await context.newPage();
+      await web.goto(invite.data.links[0]);
+      await expect(web.getByTestId("home-dashboard")).toBeVisible();
+      clients.push(web);
+    }
+    await page.getByTestId("focus-start").click();
+    const view = await call("home.focus.get");
+    expect(view.data).toMatchObject({ running: true, plan: { planId: expect.any(String), revision: expect.any(String) } });
+    const { planId, revision } = view.data.plan;
+    const rows = [];
+    for (const client of clients) {
+      await client.getByRole("button", { name: "自动化", exact: true }).first().click();
+      await expect(client.getByTestId("card-focus")).toHaveCount(0);
+      await client.getByRole("button", { name: "计划", exact: true }).click();
+      const row = client.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`);
+      await expect(row).toContainText("专注计时");
+      rows.push(row);
+    }
+    const intentId = randomUUID();
+    const reschedule = await call("automations.plans.submit", { planId, expectedRevision: revision, intentId, change: "reschedule",
+      trigger: { kind: "once", scheduledFor: new Date(Date.now() + 1_500).toISOString() },
+    }, intentId);
+    expect(reschedule.data).toMatchObject({ outcome: "completed", plan: { planId } });
+    await expect.poll(async () => (await call("home.focus.get")).data).toMatchObject({ running: false, completedToday: 1 });
+    await expect.poll(async () => (await call("notifications.list")).data.filter(({ title }: { title: string }) => title === "专注完成").length).toBe(1);
+    for (const row of rows) await expect(row).toContainText("最近一次已完成");
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});
+
 test("F31：自动化中心建立、改期、暂停和删除任务观察", async () => {
   const { page, close } = await openApp();
   try {
