@@ -11,6 +11,7 @@ import { defaultCards, HolidayData, HolidayYear, ReportCards } from "../shared/r
 import { RecurringPeriod, RecurringRule } from "../shared/recurring.js";
 import { Budget } from "../shared/budgets.js";
 import { Loan, LoanPayment } from "../shared/loans.js";
+import { Reference } from "../shared/references.js";
 
 export const ledgerDirectory = ".huhu/ledger";
 const directory = ledgerDirectory;
@@ -41,6 +42,7 @@ export const stateSchema = z.strictObject({
   mappingRevision: z.string().default("0"),
   mappings: z.array(ImportMapping).default([]),
   recordReferences: z.array(RecordReference).default([]),
+  resourceReferences: z.array(Reference).default([]),
   reportCards: ReportCards.default(defaultCards),
   holidays: z.record(HolidayYear, HolidayData).default({}),
   budgets: z.array(Budget).default([]),

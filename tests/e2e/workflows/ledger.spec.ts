@@ -640,6 +640,43 @@ test("L9 独立 Web 导出账本包并预览恢复到新账本", async () => {
   }
 });
 
+test("L10 独立 Web 关联财务笔记并保存期间复盘，桌面可读取所写 Markdown", async () => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "旅行账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const note = await call<{ path: string; id: string }>(desktop, "notes.create", { name: "旅行凭据说明", body: "# 旅行凭据说明" });
+    const url = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(url);
+    await enterLedger(page);
+    const owner = { kind: "book" };
+    const { book } = await call<{ book: { revision: string } }>(page, "ledger.accounts.list", { bookId });
+    expect(await call(page, "notes.list", {})).toContainEqual(expect.objectContaining(note));
+    const link = await call<{ id: string }>(page, "ledger.references.link", {
+      bookId, expectedRevision: book.revision, owner, resource: { kind: "note", path: note.path },
+    });
+    expect(await call(page, "ledger.references.open", { bookId, owner, referenceId: link.id })).toMatchObject({
+      status: "available", resource: { path: note.path, documentId: note.id },
+    });
+    const query = { bookId, from: "2026-02-01", to: "2026-02-28", currency: "TWD" };
+    const draft = await call<{ revision: string; markdown: string }>(page, "ledger.references.previewReview", query);
+    const review = await call<{ path: string }>(page, "ledger.references.saveReview", { ...query, expectedRevision: draft.revision, name: "旅行二月复盘" });
+    expect(await call(desktop, "notes.read", { path: review.path })).toMatchObject({ text: draft.markdown });
+    expect(draft.markdown).toContain("账本：旅行账本");
+    expect(draft.markdown).toContain("2026-02-01 至 2026-02-28");
+    expect(draft.markdown).toContain("排除平账组与历史排除流水");
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await close();
+  }
+});
+
 test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async () => {
   const { page, close } = await openApp();
   const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-vault-package-e2e-"));
