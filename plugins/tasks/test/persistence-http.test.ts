@@ -542,7 +542,7 @@ test.skipIf(!process.getuid)("TW6 本机名额在两个 Vault 的规则之间共
   const secondRules = fixture.rule!;
   const a = await createDispatchable(first, "第一 Vault 的运行");
   const b = await createDispatchable(second, "第二 Vault 的运行");
-  const bound = new Map<string, ExecutionBinding>();
+  const bound = new Map<string, ExecutionBinding & { sessionBinding: { nativeSessionId: string } }>();
   fake.dispatch = vi.fn<TaskDispatchExecutor["dispatch"]>().mockImplementation(async ({ snapshot, dispatchId, runId, attempt }) => {
     if (snapshot.taskId === b.id) return "unknown";
     const execution = { vaultId: first.vault.id, taskId: snapshot.taskId, dispatchId, runId, attempt, sessionBinding: { machineId: machineId(), sessionId: `session-${runId}`, coreId: "fixture-core", coreAddress: "t2", processGeneration: runId, provider: "codex", nativeSessionId: `thread-${runId}` } } satisfies ExecutionBinding;

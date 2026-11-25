@@ -1,19 +1,30 @@
 const agentWorkspaces = {
   oral: { name:"口述史", sessions:[
-    { id:"pi-orals", name:"Pi", state:"运行中", model:"deepseek-v3", output:["$ pi", "已加载北岸口述史工作区", "共找到 31 份访谈记录。", "最近一次变更：修订第三批音频的索引。"] },
-    { id:"codex-orals", name:"Codex", state:"等待输入", model:"gpt-5.4", output:["$ codex", "已经准备好匿名化检查。", "请选择要处理的样稿。"] },
+    { id:"pi-orals", name:"Pi", provider:"pi", state:"运行中", model:"deepseek-v3", output:["$ pi", "已加载北岸口述史工作区", "共找到 31 份访谈记录。", "最近一次变更：修订第三批音频的索引。"] },
+    { id:"codex-orals", name:"Codex", provider:"codex", state:"等待输入", model:"gpt-5.4", output:["$ codex", "已经准备好匿名化检查。", "请选择要处理的样稿。"] },
   ], visible:["pi-orals"], active:"pi-orals", direction:"right", ratio:50 },
   publish: { name:"出版校对", sessions:[
-    { id:"shell-publish", name:"终端", state:"运行中", model:"Shell", output:["$ npm run check", "开始核对图文排版", "交叉引用已经更新。"] },
-    { id:"codex-publish", name:"Codex", state:"运行中", model:"gpt-5.4-mini", output:["$ codex", "准备复核发布前资料。"] },
+    { id:"shell-publish", name:"终端", provider:"shell", state:"运行中", model:"Shell", output:["$ npm run check", "开始核对图文排版", "交叉引用已经更新。"] },
+    { id:"codex-publish", name:"Codex", provider:"codex", state:"运行中", model:"gpt-5.4-mini", output:["$ codex", "准备复核发布前资料。"] },
+    { id:"claude-publish", name:"Claude Code", provider:"claude", state:"运行中", model:"Sonnet", output:["$ claude", "正在整理交叉引用的编辑意见。"] },
   ], visible:["shell-publish"], active:"shell-publish", direction:"right", ratio:50 },
 };
 const agentUI = { space:"oral", expanded:new Set(["oral","publish"]), readerSize:13, observer:null };
 const providerCatalog = {
   Codex:[{name:"gpt-5.4",efforts:["low","medium","high"]},{name:"gpt-5.4-mini",efforts:["low","medium"]}],
   Pi:[{name:"deepseek-v3",efforts:[]},{name:"claude-sonnet",efforts:["medium","high"]}],
+  "Claude Code":[{name:"Sonnet",efforts:["low","medium","high"]}],
   "终端":[{name:"Shell",efforts:[]}],
 };
+const providerKeys = { Codex:"codex", Pi:"pi", "Claude Code":"claude", "终端":"shell" };
+const providerIcon = (agent) => `<img class="provider-icon" src="agent-icons/${agent}.svg" data-agent="${agent}" width="16" height="16" alt="">`;
+function sessionButton(session, label, attrs, className, aria = "") {
+  return `<button type="button" class="${className}" ${attrs} ${aria ? `aria-label="${escapeHtml(aria)}"` : ""}>${providerIcon(session.provider)}<span>${escapeHtml(label)}</span></button>`;
+}
+
+function workspaceControl(label, glyph, attrs) {
+  return button("", { name:glyph, aria:label, className:"quiet small", attrs:`title="${label}" ${attrs}` });
+}
 
 function selectSession(spaceID, sessionID) {
   const workspace = agentWorkspaces[spaceID];
@@ -26,12 +37,12 @@ function selectSession(spaceID, sessionID) {
 
 function agentTree() {
   return `<h2>Spaces</h2><div class="workspace-tree">${Object.entries(agentWorkspaces).map(([key,group]) => `<details data-space-tree="${key}" ${agentUI.expanded.has(key) ? "open" : ""}><summary>${icon("Folder")} ${group.name}</summary>
-  <nav aria-label="${group.name}会话">${group.sessions.map((session) => button(session.name, { name:"Terminal", className:"quiet nav-link", aria:`${group.name} / ${session.name}`, attrs:`data-tree-session="${session.id}" data-space="${key}" ${agentUI.space === key && group.active === session.id ? 'aria-current="page"' : ""}` })).join("")}</nav></details>`).join("")}</div>`;
+  <nav aria-label="${group.name}会话">${group.sessions.map((session) => sessionButton(session, session.name, `data-tree-session="${session.id}" data-space="${key}" ${agentUI.space === key && group.active === session.id ? 'aria-current="page"' : ""}`, "quiet nav-link", `${group.name} / ${session.name}`)).join("")}</nav></details>`).join("")}</div>`;
 }
 
 function terminalPane(session, workspace) {
   return `<section class="terminal-pane ${workspace.active === session.id ? "active" : ""}" data-pane="${session.id}">
-    <header class="bar"><button class="quiet small" type="button" data-focus-pane="${session.id}" aria-pressed="${workspace.active === session.id}">${icon("Terminal")} ${escapeHtml(session.name)}</button><small>${escapeHtml(session.state)}</small></header>
+    <header class="bar">${sessionButton(session, session.name, `data-focus-pane="${session.id}" aria-pressed="${workspace.active === session.id}"`, "quiet small")}<small>${escapeHtml(session.state)}</small></header>
     <pre class="terminal-buffer" tabindex="0" aria-label="${escapeHtml(session.name)}终端输出">${session.output.map(escapeHtml).join("\n")}\n<span class="last-output">最后一行可见 · ${session.output.length} 行</span>\n<span class="term-cursor" aria-hidden="true"></span></pre>
     <footer class="bar"><span>${escapeHtml(workspace.name)} / ${escapeHtml(session.model)}</span><span data-term-size>计算内容尺寸…</span></footer>
   </section>`;
@@ -41,7 +52,7 @@ function splitTerminal(direction) {
   const workspace = agentWorkspaces[agentUI.space];
   let session = workspace.sessions.find(({ id }) => !workspace.visible.includes(id));
   if (!session) {
-    session = { id:crypto.randomUUID(), name:"终端", model:"Shell", state:"运行中", output:["$ pwd", `/vault/${workspace.name}`] };
+    session = { id:crypto.randomUUID(), name:"终端", provider:"shell", model:"Shell", state:"运行中", output:["$ pwd", `/vault/${workspace.name}`] };
     workspace.sessions.push(session);
   }
   workspace.direction = direction;
@@ -56,15 +67,18 @@ function showAgent() {
   const parts = workspace.visible.map((id) => terminalPane(workspace.sessions.find((session) => session.id === id), workspace));
   const axis = ["up","down"].includes(workspace.direction) ? "row" : "col";
   const divider = `<div class="split-handle" tabindex="0" role="separator" aria-label="调整终端分栏" aria-orientation="${axis === "row" ? "horizontal" : "vertical"}" aria-valuemin="25" aria-valuemax="75" aria-valuenow="${workspace.ratio}"></div>`;
-  main.innerHTML = `<div class="agent-page stack">
-    ${heading("Agent 工作区", "", button("启动 Agent", { name:"Plus", className:"primary", attrs:"id=launch-agent" }))}
-    <nav class="global-sessions" aria-label="全局会话">${Object.entries(agentWorkspaces).flatMap(([key,group]) => group.sessions.map((session) => button(`${session.name} · ${group.name}`, { name:"Terminal", className:"quiet small", attrs:`data-global-session="${session.id}" data-space="${key}" aria-pressed="${key === agentUI.space && workspace.active === session.id}"` }))).join("")}</nav>
-    <div class="bar agent-controls"><div class="row">
-      ${[["left","向左"],["right","向右"],["up","向上"],["down","向下"]].map(([direction,label]) => button(label + "分栏", { className:"small", attrs:`data-split="${direction}"` })).join("")}
-      ${button("收起分栏", { attrs:workspace.visible.length === 1 ? "id=hide-pane disabled" : "id=hide-pane", className:"small" })}
-    </div><div class="row">${button("输出下一屏", { attrs:"id=term-output", className:"small" })}${button("放大字号", { attrs:"id=term-font", className:"small" })}</div></div>
+  main.innerHTML = `<section class="agent-page" aria-label="Agent 工作区">
+    <header class="bar agent-topbar">
+      <nav class="global-sessions" aria-label="全局会话">${Object.entries(agentWorkspaces).flatMap(([key,group]) => group.sessions.map((session) => sessionButton(session, `${session.name} · ${group.name}`, `data-global-session="${session.id}" data-space="${key}" aria-pressed="${key === agentUI.space && workspace.active === session.id}"`, "quiet small"))).join("")}</nav>
+      <div class="agent-controls" role="group" aria-label="Agent 工作区操作">
+        ${workspaceControl("启动 Agent", "Plus", "id=launch-agent")}
+        ${[["left","向左"],["right","向右"],["up","向上"],["down","向下"]].map(([direction,label]) => workspaceControl(label + "分栏", "PanelLeft", `data-split="${direction}"`)).join("")}
+        ${workspaceControl("收起分栏", "SquareTerminal", workspace.visible.length === 1 ? "id=hide-pane disabled" : "id=hide-pane")}
+        ${workspaceControl("输出下一屏", "Terminal", "id=term-output")}${workspaceControl("放大字号", "Search", "id=term-font")}
+      </div>
+    </header>
     <div class="terminal-canvas" data-axis="${axis}" data-two="${parts.length > 1}" style="--split:${workspace.ratio}%;--term-size:${agentUI.readerSize}px">${parts.join(divider)}</div>
-    </div>`;
+    </section>`;
   for (const nav of [main,menu]) {
     all("[data-global-session], [data-tree-session]",nav).forEach((entry) => entry.onclick = () => selectSession(entry.dataset.space, entry.dataset.globalSession || entry.dataset.treeSession));
   }
@@ -203,7 +217,7 @@ function openLauncher(event) {
     const id = crypto.randomUUID();
     const prompt = by("#launch-prompt",popup)?.value.trim();
     const effort = by("#effort-choice",popup)?.value;
-    workspace.sessions.push({ id,name:active,model:selected,state:"运行中",output:[`已启动 ${selected}${effort ? ` · ${effort}` : ""}`, ...(prompt ? [prompt] : [])] });
+    workspace.sessions.push({ id,name:active,provider:providerKeys[active],model:selected,state:"运行中",output:[`已启动 ${selected}${effort ? ` · ${effort}` : ""}`, ...(prompt ? [prompt] : [])] });
     popup.hidePopover();
     selectSession(agentUI.space,id);
   };

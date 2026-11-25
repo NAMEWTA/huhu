@@ -228,6 +228,23 @@ describe("历史扫描", async () => {
     expect(await scanHistory({ roots: [tmp()], home: tmp(), env: {} })).toMatchObject({ entries: [], skipped: 0, limitedProviders: [] });
   });
 
+  test("显式冷恢复候选能越过同一窗口内的空浏览快照", async () => {
+    const root = tmp();
+    const profile = tmp();
+    const store = path.join(profile, "sessions", "2026", "11", "25");
+    mkdirSync(store, { recursive: true });
+    const options = { roots: [root], env: { CODEX_HOME: profile }, providers: ["codex" as const] };
+    const projection = new HistoryProjection(undefined, () => 10_000);
+    expect((await projection.scan(options)).entries).toEqual([]);
+    const id = "07abe12c-7777-4578-9b80-123456781234";
+    const file = path.join(store, `rollout-2026-11-25T00-00-00-${id}.jsonl`);
+    writeFileSync(file, jl({ type: "session_meta", payload: { id, cwd: root } }));
+    expect((await projection.scan(options)).entries).toEqual([]);
+    const fresh = await projection.scan(options, { fresh: true });
+    expect(fresh.entries).toMatchObject([{ nativeSessionId: id, file }]);
+    expect(fresh.candidates.get("codex")?.get(id)).toBe(file);
+  });
+
   test("Pi 文件追加保留身份，旧启动版本及同路径替换都拒绝", async () => {
     const root = tmp();
     const history = tmp();

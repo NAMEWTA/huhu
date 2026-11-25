@@ -118,7 +118,7 @@ export function createAgentDispatchExecutor(api: Pick<HuhuApi, "call"> & { vault
       const options = preference.mode === "new" ? { ...(model != null && { model }), ...(effort != null && { effort }), fast, ...(profile && { profile }) } : undefined;
       let listing: z.infer<typeof Targets>;
       try {
-        listing = Targets.parse(await api.call("agent.targets.list", { ...scope, spaceId, ...(options && { options }) }, { signal }));
+        listing = Targets.parse(await api.call("agent.targets.list", { ...scope, spaceId, includeResume: false, ...(options && { options }) }, { signal }));
       } catch (error) {
         signal.throwIfAborted();
         const code = errorCode(error);

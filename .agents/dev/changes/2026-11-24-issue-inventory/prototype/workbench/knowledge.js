@@ -1,9 +1,9 @@
 const todayDay = "2026-11-24";
 const initialMarkdown = "# 2026 年 11 月 24 日 · 日记\n今早整理了北岸口述史项目的走访记录，准备周五发给小组。\n## 今天的工作\n- [x] 核对访谈授权书\n- [ ] 汇总三处待核对的地名\n> 和讲述者确认原话，再写入公开底稿。\n![[访谈整理进度]]\n## 实验记录\n```text\narchive / research / interviews\n```\n下周把带时间戳的版本交给校对组。";
 const notes = {
-  current: todayDay, month: "2026-11", mode: "edit", language: "zh-CN", saveNext: "ok",
+  current: todayDay, month: "2026-11", mode: "edit", language: "zh-CN", saveNext: "ok", inspectorOpen: false,
   files: {
-    [todayDay]: { stored: initialMarkdown, comments: [{ id: "c1", line: 1, quote: "准备周五发给小组", body: "对照共享盘的版本号后再发。", resolved: false }] },
+    [todayDay]: { stored: initialMarkdown, comments: [{ id: "c1", line: 1, quote: "准备周五发给小组", body: "对照共享盘的版本号后再发。" }] },
     "2026-11-21": { stored: "# 2026 年 11 月 21 日 · 日记\n内页排版和照片清单已经确认。", comments: [] },
     "2026-11-20": { stored: "# 2026 年 11 月 20 日 · 日记\n在旧地图上标了第一批地名。", comments: [] },
   },
@@ -185,7 +185,8 @@ function annotate() {
     event.preventDefault();
     const body = new FormData(event.currentTarget).get("comment").trim();
     if (!body) return;
-    note.comments.push({ id: crypto.randomUUID(), line: Number(block.dataset.line), quote, body, resolved: false });
+    note.comments.push({ id: crypto.randomUUID(), line: Number(block.dataset.line), quote, body });
+    notes.inspectorOpen = true;
     dialog.close();
     showNotes();
     setStatus("批注已保存。");
@@ -195,9 +196,8 @@ function annotate() {
 function noteCommentList(note) {
   return note.comments.length ? note.comments.map((item) => {
     const present = noteText(note).split("\n")[item.line]?.includes(item.quote);
-    return `<li class="stack"><div class="bar"><strong>${escapeHtml(item.quote)}</strong>${badge(present ? item.resolved ? "已解决" : "未解决" : "原文已变更", present ? "" : "warn")}</div><p>${escapeHtml(item.body)}</p><div class="row">
+    return `<li class="stack"><div class="bar"><strong>${escapeHtml(item.quote)}</strong>${present ? "" : badge("原文已变更", "warn")}</div><p>${escapeHtml(item.body)}</p><div class="row">
       ${button("定位", { className:"small", attrs:`data-locate="${item.id}" ${present ? "" : "disabled"}` })}
-      ${button(item.resolved ? "重新打开" : "解决", { className:"small quiet", attrs:`data-resolve="${item.id}"` })}
       ${button("删除", { className:"small quiet", attrs:`data-remove-comment="${item.id}"` })}
     </div></li>`;
   }).join("") : '<li class="empty">暂时没有批注。</li>';
@@ -207,21 +207,26 @@ function showNotes() {
   renderCalendar();
   const note = currentNote();
   const text = noteText(note);
-  main.innerHTML = `<div class="module-container">
+  main.innerHTML = `<div class="module-container notes-workspace">
     <header class="bar note-tools"><div class="segments">${[["edit","实时预览"],["read","阅读"],["source","源码"]].map(([mode,label]) => tab(label, notes.mode === mode, `data-note-mode="${mode}"`)).join("")}</div>
     <div class="row" id="note-actions"><span id="note-state" role="status"></span>
       ${button("批注", { name:"MessageSquare", attrs: notes.mode === "source" ? "id=add-comment disabled" : "id=add-comment", className:"small" })}
+      ${button("", { name:"PanelRight", aria:"属性与批注", attrs:`id="toggle-note-inspector" title="属性与批注" aria-controls="note-inspector" aria-expanded="${notes.inspectorOpen}"`, className:"small quiet" })}
       ${button("保存", { name:"Check", attrs:"id=save-note", className:"small primary" })}
       ${button("核实保存", { attrs:"id=verify-note hidden", className:"small" })}
       ${button("查看冲突", { attrs:"id=compare-note hidden", className:"small" })}
     </div></header>
-    <div class="notebook-layout two-up"><article id="note-paper" class="note-paper">
+    <div class="notebook-layout"><article id="note-paper" class="note-paper">
       ${notes.mode === "source" ? `<textarea id="note-source" aria-label="笔记 Markdown 源码" spellcheck="false">${escapeHtml(text)}</textarea>` : noteBlocks(text, notes.mode === "edit", note.comments)}
     </article>
-    <section class="card comment-rail"><div class="bar"><h2>批注</h2>${badge(String(note.comments.length))}</div>
-      <ul class="list">${noteCommentList(note)}</ul>
-      <details><summary>旧批注保全示例</summary><p class="meta">保留旧正文与附加消息的作者和顺序。</p>${button("转换示例批注", { attrs:"id=convert-comment", className:"small" })}</details>
-    </section></div></div>`;
+    <aside id="note-inspector" class="note-inspector" aria-labelledby="note-properties-title" ${notes.inspectorOpen ? "" : "hidden"}>
+      <div class="bar"><h2 id="note-properties-title">属性</h2>${button("", { name:"X", aria:"关闭属性与批注", attrs:"id=close-note-inspector", className:"small quiet" })}</div>
+      <dl><dt>文件</dt><dd>${escapeHtml(notes.current)}.md</dd><dt>类型</dt><dd>日记</dd></dl>
+      <section class="comment-rail"><div class="bar"><h2>批注</h2>${badge(String(note.comments.length))}</div>
+        <ul class="list">${noteCommentList(note)}</ul>
+        <details><summary>旧批注保全示例</summary><p class="meta">保留旧正文与附加消息的作者和顺序。</p>${button("转换示例批注", { attrs:"id=convert-comment", className:"small" })}</details>
+      </section>
+    </aside></div></div>`;
   markCurrent(main, "note-mode", notes.mode, (mode) => { notes.mode = mode; showNotes(); by(`[data-note-mode="${mode}"]`).focus(); });
   all("[contenteditable]", main).forEach((node) => {
     node.oninput = () => editNoteLine(Number(node.dataset.line), node.innerText);
@@ -234,6 +239,19 @@ function showNotes() {
   });
   by("#add-comment").addEventListener("mousedown", (event) => event.preventDefault());
   bind("add-comment", annotate);
+  const inspector = by("#note-inspector", main);
+  const toggle = by("#toggle-note-inspector", main);
+  const setInspector = (open) => {
+    notes.inspectorOpen = open;
+    inspector.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  };
+  toggle.onclick = () => setInspector(!notes.inspectorOpen);
+  const closeInspector = () => { setInspector(false); toggle.focus(); };
+  bind("close-note-inspector", closeInspector, main);
+  inspector.onkeydown = (event) => {
+    if (event.key === "Escape") { event.stopPropagation(); closeInspector(); }
+  };
   bind("save-note", () => saveNote());
   bind("verify-note", () => {
     note.status = undefined;
@@ -254,18 +272,13 @@ function showNotes() {
     block.focus({ preventScroll: true });
     block.classList.add("located");
   });
-  all("[data-resolve]", main).forEach((entry) => entry.onclick = () => {
-    const item = note.comments.find((value) => value.id === entry.dataset.resolve);
-    item.resolved = !item.resolved;
-    showNotes();
-  });
   all("[data-remove-comment]", main).forEach((entry) => entry.onclick = () => confirmation("删除这条批注", "删除后原文标记也会移除。", "删除批注", () => {
     note.comments = note.comments.filter((item) => item.id !== entry.dataset.removeComment);
     showNotes();
   }));
   bind("convert-comment", () => {
     if (!note.comments.some((value) => value.id === "legacy-1")) {
-      note.comments.push({ id: "legacy-1", line: 1, quote: "北岸", body: "09:10 · 林舟：先核对录音。\n09:25 · 宋宁：已补录第二段。", resolved: false });
+      note.comments.push({ id: "legacy-1", line: 1, quote: "北岸", body: "09:10 · 林舟：先核对录音。\n09:25 · 宋宁：已补录第二段。" });
     }
     showNotes();
   });

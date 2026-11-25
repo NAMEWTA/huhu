@@ -47,3 +47,15 @@
   4. Agent 标签页显示对应 Agent 的适配图标，参考复刻 herdr-app。
   5. 左侧 Spaces 列表中的会话图标同第 4 点。
 - 其余页面按本版本确认。上述五点修订后形成新版本，修订范围以新指纹记录；修订版复用本次确认，修订点按用户意见实现。
+
+## 修订版
+
+[工作台原型](prototype/workbench/index.html)资源包 SHA-256 为 `9f5db0cb02b2aaf035ab4d80177bb1411ebce2291dc84b8a3e23cdc8d8ed42bb`，共 21 个文件。
+
+1. 知识库的实时预览、阅读和源码共用铺满主区域的编辑面，移除编辑卡片边框和外白。布局参考 Open Knowledge `44a2e0a6acce5952da0764746e3693fded5025b4` 的 `EditorArea` 与 `EditorPane`。见 [knowledge.js](prototype/workbench/knowledge.js) 和 [module.css](prototype/workbench/module.css)。
+2. 默认收起右侧属性与批注栏，点击工具栏按钮打开。窄屏从右侧覆盖编辑面。可用 Esc 关闭并回到打开按钮；批注保留定位和删除。
+3. Agent 工作区沿用左侧 Spaces、顶部会话标签和下方终端区。分栏、收起分栏及终端预览操作使用带名称提示的小图标按钮。参考 Herdr App `0ac92e4e9d5dea2097375c26e6a0cb194a75c2f0` 的 `defaults/mods/workspace-chrome`、`terminals-bar` 和 `terminals-pane`。见 [workspace.js](prototype/workbench/workspace.js)。
+4. Agent 标签显示 Pi、Codex、Claude Code 与终端图标。SVG 原样取自同一 Herdr App 提交的 `defaults/icons`，本地附 [LICENSE-LobeHub.txt](prototype/workbench/agent-icons/LICENSE-LobeHub.txt) 和 [LICENSE-Lucide.txt](prototype/workbench/agent-icons/LICENSE-Lucide.txt)。
+5. 左侧 Spaces 会话与顶部标签使用同一组图标和会话身份。点击会话定位到其终端。
+
+2026-11-25 在 Linux 上用 Playwright 1.65.0、Chromium 158.0.8127.18 离线打开 `file:` 原型。17 条旅程全部通过，其中浅色 1440 × 1000 走查 9 条，深色 390 × 844 走查 8 条，附 700 × 844 外壳复核。新增走查验证编辑区尺寸、侧栏开关及键盘焦点、窄屏覆盖、Agent 与 Spaces 图标加载、分栏缩放和终端末行。各页面无横向溢出、资源加载失败或脚本异常。脚本与结果保存在 `temp/dev/2026-11-24-issue-inventory/runs/t1hs/task09/` 的 `workbench-walkthrough.cjs`、`workbench-walkthrough.log`、`workbench-walkthrough.json`。
