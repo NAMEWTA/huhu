@@ -1,4 +1,5 @@
 import { useId, useState, type DragEvent, type ReactNode } from "react";
+import { GripVertical } from "lucide-react";
 import type { FileEntry } from "../shared/files.js";
 import { useDevicePreferences } from "./device-preferences.js";
 import { t } from "./i18n.js";
@@ -59,8 +60,26 @@ export function FileTable({
           {sorted.map((entry) => {
             const selectable = entry.type === "file" || entry.type === "dir";
             return (
-              <tr key={entry.name} data-testid="files-row" draggable={selectable && selection?.canDrag} onDragStart={selection && selectable ? (event) => selection.start(entry.name, event) : undefined} onDragEnd={selection?.end}>
-                {selection && <td>{selectable && <input type="checkbox" aria-label={`选择 ${entry.name}`} checked={selection.names.includes(entry.name)} disabled={selection.disabled} onChange={() => selection.toggle(entry.name)} />}</td>}
+              <tr key={entry.name} data-testid="files-row">
+                {selection && (
+                  <td>
+                    {selectable && (
+                      <div className="ssh-file-selection">
+                        <input type="checkbox" aria-label={`选择 ${entry.name}`} checked={selection.names.includes(entry.name)} disabled={selection.disabled} onChange={() => selection.toggle(entry.name)} />
+                        <span
+                          aria-hidden="true"
+                          className="ssh-file-drag-handle"
+                          data-testid="ssh-file-drag-handle"
+                          draggable={selection.canDrag}
+                          onDragStart={(event) => selection.start(entry.name, event)}
+                          onDragEnd={selection.end}
+                        >
+                          <GripVertical size={14} />
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                )}
                 <td>
                   {entry.type === "dir" || actions ? (
                     <button type="button" className="hu-nav-item" disabled={disabled} aria-current={current === entry.name ? "location" : undefined} onClick={() => onOpen(entry)} data-testid="files-open">

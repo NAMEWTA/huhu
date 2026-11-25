@@ -1168,12 +1168,30 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
       .getByTestId("files-panel")
       .getByTestId("files-row")
       .filter({ has: page.getByRole("checkbox", { name: "选择 pull", exact: true }) });
-    await pull.dragTo(local);
-    await expect(page.getByText("已加入传输中心，目录和文件分别核对")).toBeVisible();
+    const handle = pull.getByTestId("ssh-file-drag-handle");
+    await expect(handle).toHaveAttribute("draggable", "true");
+    const dropTarget = local.getByRole("heading", { name: "本机文件", exact: true });
+    const [downloadResponse] = await Promise.all([
+      page.waitForResponse((response) => {
+        const request = response.request();
+        if (request.method() !== "POST" || new URL(request.url()).pathname !== "/api/v1/call") return false;
+        const body = request.postDataJSON();
+        return body?.capability === "ssh.transfers.startBatch" && body.input?.source?.kind === "remote" && body.input?.target?.kind === "local";
+      }, { timeout: 10_000 }),
+      handle.dragTo(dropTarget, { steps: 16 }),
+    ]);
+    const download = (await downloadResponse.json()) as { ok: boolean; data: TransferBatch; error?: { message: string } };
+    expect(download.ok, download.error?.message).toBe(true);
+    expect(download.data.source).toMatchObject({ kind: "remote", fileSessionId: sourceId, path: "/home/test" });
+    expect(download.data.target).toMatchObject({ kind: "local", path: localRoot });
     await center.click();
-    const downloaded = page.getByTestId("ssh-transfer-batch").filter({ has: page.getByRole("button", { name: "pulled.txt · 已完成", exact: true }) });
+    const batchId = page.locator(`[data-batch-id="${download.data.batchId}"]`);
+    const downloaded = page.getByTestId("ssh-transfer-batch").and(batchId);
     await expect(downloaded).toHaveAttribute("data-state", "partial");
-    await expect(downloaded.getByRole("button", { name: "remote-link · 已跳过", exact: true })).toBeVisible();
+    await expect(downloaded.getByRole("button", { name: "pulled.txt · 已完成", exact: true })).toBeVisible();
+    const skippedLink = all.and(batchId).filter({ hasText: /pull\/remote-link · .*未遍历链接/ });
+    await expect(skippedLink).toHaveAttribute("data-state", "failed");
+    expect(existsSync(path.join(localRoot, "pull", "remote-link"))).toBe(false);
     expect(readFileSync(path.join(localRoot, "pull", "sub", "pulled.txt")).toString()).toBe("从回环 SFTP 下载");
 
     await page.getByRole("button", { name: "返回 SSH" }).click();

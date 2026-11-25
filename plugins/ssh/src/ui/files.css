@@ -43,6 +43,29 @@
     text-decoration: underline;
   }
 
+  .ssh-file-selection {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .ssh-file-drag-handle {
+    display: inline-flex;
+    padding: 4px;
+    color: var(--muted);
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .ssh-file-drag-handle[draggable="true"] {
+    color: inherit;
+    cursor: grab;
+  }
+
+  .ssh-file-drag-handle > svg {
+    pointer-events: none;
+  }
+
   .ssh-file-document {
     inline-size: 100%;
     min-block-size: 12rem;
