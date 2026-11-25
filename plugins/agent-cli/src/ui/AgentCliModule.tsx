@@ -3,7 +3,7 @@ import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView, typ
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
 import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { HistoryPanel, type HistoryAction, type HistorySelection } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
@@ -41,14 +41,13 @@ interface LaunchIntent {
   navigation: number;
   id: string;
   trigger?: HTMLButtonElement;
-  position?: CSSProperties;
 }
 type ViewSelection = { tab: string; leaf: string; zoom: string | null };
 type HistoryLocation = { spaceId: string; sessionId: string; terminalId: string; tab: string; leaf: string };
 type LaunchParameters = LaunchOptions & { history?: HistorySelection & { action: HistoryAction } };
 
 type LaunchRecovery = {
-  intent: Omit<LaunchIntent, "trigger" | "position">;
+  intent: Omit<LaunchIntent, "trigger">;
   provider: string;
   options: LaunchParameters;
   outcome: "unknown" | "not-created";
@@ -67,7 +66,6 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [menu, setMenu] = useState<LaunchIntent | null>(null);
   const [environmentIntent, setEnvironmentIntent] = useState<LaunchIntent | null>(null);
   const [recoveries, setRecoveries] = useState<Record<string, LaunchRecovery | null>>({});
-  const launcher = useRef<HTMLDivElement>(null);
   const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [closing, setClosing] = useState<{ view: WorkspaceView; tab: string; leaf: string; session: Session; navigation: number } | null>(null);
@@ -156,16 +154,6 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     setMenu(null);
     if (restore && menu?.trigger?.isConnected) menu.trigger.focus();
   };
-  useEffect(() => {
-    if (!menu) return;
-    const outside = (event: PointerEvent) => {
-      if (!(event.target instanceof Node) || launcher.current?.contains(event.target) || menu.trigger?.contains(event.target)) return;
-      setMenu(null);
-      if (menu.trigger?.isConnected) menu.trigger.focus();
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [menu]);
 
   useEffect(
     () =>
@@ -234,17 +222,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   function startTarget(target: WorkspaceTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
     if (!space || !boundSpace || !view || !editable || writeReceipt.current) return null;
     const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
-    if (!event) return intent;
-    const trigger = event.currentTarget;
-    const bounds = trigger.getBoundingClientRect();
-    const below = window.innerHeight - bounds.bottom;
-    const flip = below < Math.min(360, window.innerHeight / 2) && bounds.top > below;
-    const position = {
-      left: Math.max(8, Math.min(bounds.left, window.innerWidth - 608)),
-      maxHeight: Math.max(96, (flip ? bounds.top : below) - 16),
-      ...(flip ? { bottom: below + bounds.height + 8 } : { top: bounds.bottom + 8 }),
-    };
-    return { ...intent, trigger, position };
+    return event ? { ...intent, trigger: event.currentTarget } : intent;
   }
 
   async function launch(intent: LaunchIntent, provider: string, options: LaunchParameters = {}) {
@@ -658,7 +636,9 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
                   onClick={() => openExisting(session)}
                 >
                   <AgentIcon id={session.provider} name={session.name} />
-                  <span className="agent-session-name">{session.name} · {owner.name}</span>
+                  <span className="agent-session-name">
+                    {session.name} · {owner.name}
+                  </span>
                   {stateBadge(session)}
                   {session.waiting?.active ? (
                     <Badge tone="warning" data-testid="session-waiting">
@@ -719,25 +699,24 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             </button>
           </div>
         </div>
-        {menu ? (
-          <div className="agent-launcher agent-workspace-launcher" ref={launcher} style={menu.position}>
-            <LaunchMenu
-              detected={detected.data ?? []}
-              settings={agentSettings.data?.settings ?? emptyAgentSettings()}
-              noSpace={false}
-              onLaunch={(provider, options) => void launch(menu, provider, options)}
-              onOpenEnvironment={
-                host()
-                  ? () => {
-                      setEnvironmentIntent(menu);
-                      setMenu(null);
-                    }
-                  : undefined
-              }
-              onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
-              onClose={() => dismissMenu()}
-            />
-          </div>
+        {menu?.trigger ? (
+          <LaunchMenu
+            key={menu.id}
+            trigger={menu.trigger}
+            detected={detected.data ?? []}
+            settings={agentSettings.data?.settings ?? emptyAgentSettings()}
+            onLaunch={(provider, options) => void launch(menu, provider, options)}
+            onOpenEnvironment={
+              host()
+                ? () => {
+                    setEnvironmentIntent(menu);
+                    setMenu(null);
+                  }
+                : undefined
+            }
+            onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
+            onClose={dismissMenu}
+          />
         ) : null}
         {environmentIntent ? (
           <ProtectedLaunchDialog
@@ -836,6 +815,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             }}
             onRequest={(event, leaf, direction) => {
               if (moving && direction) moveTo(leaf, direction);
+              else if (menu?.trigger === event.currentTarget) dismissMenu();
               else setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event));
             }}
             onMoveStart={(leaf) => {

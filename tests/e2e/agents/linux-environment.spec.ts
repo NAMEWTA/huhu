@@ -127,7 +127,7 @@ function observe(proof: string): Observation[] {
 
 async function preview(page: Page, profile: Profile) {
   await page.locator(".agent-add-cli").click();
-  await page.getByRole("menuitem", { name: "使用启动环境…" }).click();
+  await page.getByRole("button", { name: "使用启动环境…" }).click();
   const dialog = page.getByRole("dialog", { name: "使用启动环境", exact: true });
   await dialog.getByRole("combobox", { name: "启动环境", exact: true }).selectOption(profile.id);
   await dialog.getByRole("button", { name: "预览启动" }).click();
