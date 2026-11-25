@@ -29,3 +29,4 @@
 - 2026-11-25：t1s2（codex-inv-w1b）上下文 94%，task02 交回后回收；新会话 t1t7（codex-inv-w1c）接手 inv-w1。
 - 2026-11-25：t1rb（codex-inv-w2b）上下文 94%，task03 交回后回收；新会话 t1td（codex-inv-w2c）接手 inv-w2。
 - 2026-11-25：t1td（codex-inv-w2c）task01–03 验收后回收（上下文 75%）；新会话 t1tw（codex-inv-w2d）接手 inv-w2。
+- 2026-11-25：t1t7（codex-inv-w1c）task02 交回后回收（上下文 83%）；新会话 t1v2（codex-inv-w1d）接手 inv-w1，先修 L8/L9/首页看板 E2E。
