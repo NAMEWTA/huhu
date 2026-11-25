@@ -391,6 +391,20 @@ export class SessionsService {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  listWithHistoryIdentities(spaceId?: string): SessionRecord[] {
+    return this.list(spaceId).map((session) => {
+      const binding = session.launchReceipt?.attempt?.binding;
+      if (session.state !== "running" || !binding) return session;
+      // The history receipt may arrive after Core has already bound the terminal.
+      const history = this.confirmNativeHistory(session, binding);
+      if (!history) return session;
+      const confirmed = { ...session, ...history };
+      this.save(confirmed);
+      this.d.onHistoryIdentityConfirmed?.(confirmed.id);
+      return confirmed;
+    });
+  }
+
   get(id: string): SessionRecord {
     const s = this.list().find((x) => x.id === id);
     if (!s) throw errors.notFound("会话不存在");

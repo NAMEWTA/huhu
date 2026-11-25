@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AgentDetector, HerdrCore, SessionsService } from "@huhu/plugin-agent-cli/engine";
@@ -103,6 +103,8 @@ else if (args[0] === "app-server") {
     type Run = { argv: string[]; cwd: string; env: NodeJS.ProcessEnv; labels: Record<string, string> };
     const terminals: (Run & { address: string; pid: number; created_ms: number; state: string; finished_ms: number | null; exit_code: number | null; stderr: string })[] = [];
     let document = { version: 0, value: null as unknown };
+    let delayForkReceipt = false;
+    let forkReceipt: string | undefined;
     const rpc = vi.fn(async (method: string, input: Run & { version: number; value: unknown }) => {
       if (method === "hello") return { core: { id: "isolated-history-core" }, generation: 1 };
       if (method === "terminal.list") return { terminals: terminals.filter((terminal) => Object.entries(input.labels ?? {}).every(([key, value]) => terminal.labels[key] === value)) };
@@ -124,6 +126,11 @@ else if (args[0] === "app-server") {
         child.once("error", reject);
         child.once("close", resolve);
       });
+      if (delayForkReceipt && exit === 0 && args[1] === "--history" && args[2]) {
+        forkReceipt = path.join(path.dirname(args[2]), "fork.json");
+        renameSync(forkReceipt, `${forkReceipt}.delayed`);
+        delayForkReceipt = false;
+      }
       const now = Date.now();
       const terminal = { ...input, address, pid: child.pid!, created_ms: now - 1, state: exit === 0 ? "live" : "finished", finished_ms: exit === 0 ? null : now, exit_code: exit === 0 ? null : exit, stderr };
       terminals.push(terminal);
@@ -187,8 +194,16 @@ else if (args[0] === "app-server") {
       expect(claude.placement).toBeTruthy();
       expect(terminals[1]?.argv.slice(1, 4)).toEqual(["--resume", claudeId, "--fork-session"]);
       const codexFork = select("codex", "fork", 2);
+      delayForkReceipt = true;
       const codex = await get<{ sessionId: string; placement: object }>("agent.history.workspaceLaunch", codexFork);
       expect(codex.placement).toBeTruthy();
+      assert(forkReceipt);
+      const listSessions = () => get<{ id: string; nativeSessionId?: string; cwd: string }[]>("agent.sessions.list", { spaceId: space.id });
+      expect((await listSessions()).find(({ id }) => id === codex.sessionId)?.nativeSessionId).toBeUndefined();
+      renameSync(`${forkReceipt}.delayed`, forkReceipt);
+      const rpcCount = rpc.mock.calls.length;
+      expect((await listSessions()).find(({ id }) => id === codex.sessionId)).toMatchObject({ nativeSessionId: codexChild, cwd: work });
+      expect(rpc).toHaveBeenCalledTimes(rpcCount);
       const [claudeResume, codexResume] = [select("claude", "resume", 3), select("codex", "resume", 4)];
       const restored: { sessionId: string }[] = [];
       for (const ref of [claudeResume, codexResume]) restored.push(await get<{ sessionId: string }>("agent.history.workspaceLaunch", ref));

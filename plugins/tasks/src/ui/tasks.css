@@ -38,6 +38,12 @@
   .tasks-task-row:hover {
     background: var(--muted-bg);
   }
+  @supports (contain-intrinsic-block-size: auto 36px) {
+    .tasks-task-table .tasks-task-row:nth-of-type(n + 41) {
+      content-visibility: auto;
+      contain-intrinsic-block-size: auto 36px;
+    }
+  }
   .tasks-task-row.selected {
     background: var(--muted-bg);
   }

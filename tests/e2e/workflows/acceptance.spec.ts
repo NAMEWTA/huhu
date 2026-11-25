@@ -145,7 +145,12 @@ test("W05-W06 旧看板任务卡保留独立筛选、时区与布局，冲突后
     expect(readFileSync(savedPath, "utf8")).toBe(legacyBytes);
 
     await page.getByTestId("home-customize").click();
-    await all.getByRole("textbox", { name: "全部工作标题" }).fill("两张任务卡");
+    await all.getByRole("button", { name: "设置 全部工作", exact: true }).click();
+    const cardSettings = page.getByRole("dialog").filter({ has: page.getByRole("textbox", { name: "卡片标题" }) });
+    const title = cardSettings.getByRole("textbox", { name: "卡片标题" });
+    await title.fill("两张任务卡");
+    await title.press("Escape");
+    await expect(cardSettings).toBeHidden();
     await page.getByTestId("home-dashboard-save").click();
     await expect(page.getByTestId("home-dashboard").getByRole("status")).toContainText("布局已保存");
     const saved = JSON.parse(readFileSync(savedPath, "utf8"));
@@ -540,14 +545,14 @@ test("ACC-AG-05 切换 Space：右侧历史只显示当前 Space 目录的会话
       await page.getByLabel("Space 名称").fill(name);
       await page.getByLabel("工作目录").fill(dir);
       await page.getByTestId("space-save").click();
-      await expect(page.getByRole("button", { name: new RegExp(name) })).toBeVisible();
+      await expect(page.getByTestId("agent-space-item").filter({ hasText: name })).toBeVisible();
     }
     const items = page.getByTestId("history-item");
     // 当前是刚建好的“空间乙”
     await expect(items).toHaveCount(1);
     await expect(items.first()).toContainText("乙目录里的提问");
     await page.getByLabel("搜索会话历史").fill("乙目录");
-    await page.getByRole("button", { name: /空间甲/ }).click();
+    await page.getByTestId("agent-space-item").filter({ hasText: "空间甲" }).click();
     await expect(items).toHaveCount(1);
     await expect(items.first()).toContainText("甲目录里的提问");
     await expect(page.getByLabel("搜索会话历史")).toHaveValue("");
@@ -1718,7 +1723,7 @@ test("Agent CLI 智能体设置页：列出检测状态，设置默认模型并�
   const bin = mkdtempSync(path.join(tmpdir(), "huhu-aset-bin-"));
   const claude = path.join(bin, "claude");
   const probeLog = path.join(bin, "version-probe.log");
-  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${version}" >> "$HUHU_E2E_AGENT_PROBE_LOG"; echo "${version} (Claude Code)"; exit 0; fi\nsleep 30\n`, { mode: 0o755 });
+  const writeVersion = (version: string) => writeFileSync(claude, `#!/bin/sh\ncase "$1" in\n  --version) echo "${version}" >> "$HUHU_E2E_AGENT_PROBE_LOG"; echo "${version} (Claude Code)" ;;\n  --help) echo '  --resume [id]' ;;\n  *) exit 1 ;;\nesac\n`, { mode: 0o755 });
   writeVersion("2.1.0");
   const { page, vault, close } = await openApp({ PATH: `${bin}:${process.env["PATH"] ?? ""}`, HUHU_E2E_AGENT_PROBE_LOG: probeLog }, (vault) => {
     const directory = path.join(vault, ".huhu/agent-cli");
@@ -2357,7 +2362,7 @@ test("Combobox：任务“项目”可从已有项目中搜索选择，也可直
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByTestId("task-new").click();
     const editor = page.getByTestId("task-editor");
-    const project = editor.getByLabel("任务项目");
+    const project = editor.getByRole("combobox", { name: "任务项目", exact: true });
     await project.click();
     await expect(page.getByRole("listbox", { name: "任务项目" }).getByRole("option")).toHaveCount(2);
     await project.fill("家");

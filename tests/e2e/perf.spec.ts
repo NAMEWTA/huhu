@@ -228,6 +228,7 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
     }
     diagnostics?.mark("file-writes-done");
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
+    await expect(page.getByTestId("task-row")).toHaveCount(1001, { timeout: 30_000 });
     await expect(page.getByTestId("task-row").first()).toBeVisible({ timeout: 30_000 });
     diagnostics?.mark("first-row-visible");
     // 用相邻 rAF 回调的间隔衡量卡顿（本环境不上报 longtask 条目）；正向对照：人为阻塞 120 ms，必须被看到
@@ -286,6 +287,10 @@ test("任务列表 1,000 行滚动：没有超过 50 ms 的长任务", async () 
     expect(result.total).toBeGreaterThan(0);
     // 目标：没有 >50 ms 的卡顿；帧间隔量化为 16.7 ms，>50 ms 即至少 4 帧（>66 ms）才会被算作一次卡顿
     if (STRICT) expect(result.longs).toEqual([]);
+    const pendingRows = page.locator('[data-group="not_started"]').getByTestId("task-row");
+    await pendingRows.nth(39).getByRole("button").last().focus();
+    await page.keyboard.press("Tab");
+    await expect(pendingRows.nth(40).getByTestId("task-status")).toBeFocused();
   } finally {
     await diagnostics?.finishProfile();
     await diagnostics?.attach("before-close");

@@ -8,7 +8,7 @@ import { CapabilityResultSchema } from "../../../packages/contracts/src/capabili
 import { mcpRequest, mcpRpc, openMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { openCandidateDesktop, withFixtureCleanup } from "../helpers/candidate-desktop.js";
 import { disposeCandidate } from "../helpers/candidate-package.js";
-import { openApp } from "../helpers/launch.js";
+import { linuxProtectedPtyEnvironment, openApp } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 const exec = promisify(execFile);
@@ -27,7 +27,7 @@ test("Linux 桌面批准 sh，CLI 和 MCP 配置及运行沿用原请求", async
   test.skip(process.platform !== "linux", "使用 Linux Secret Service、系统 sh 和真实 Herdr Core");
   test.setTimeout(packaged ? 180_000 : 90_000);
   const candidate = packaged ? await openCandidateDesktop({ identityAttachment: "rule-candidate-identity" }) : undefined;
-  const { page, vault, close } = candidate ?? (await openApp());
+  const { page, vault, close } = candidate ?? (await openApp(linuxProtectedPtyEnvironment()));
   const cli = candidate ? path.join(candidate.resources, "bin", "huhu") : process.execPath;
   const cliPrefix = candidate ? [] : [process.env["HUHU_CLI_TEST_BUNDLE"] ?? path.resolve(import.meta.dirname, "../../../apps/cli/dist/cli.mjs")];
   const starts = path.join(vault, "linux-approval-starts.txt");

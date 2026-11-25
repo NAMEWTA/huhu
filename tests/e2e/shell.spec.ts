@@ -347,7 +347,7 @@ test("Agent CLI：新建 Space 指向 Vault 外目录，只写 .huhu/agent-cli/s
     await page.getByLabel("Space 名称").fill("外部项目");
     await page.getByLabel("工作目录").fill(outside);
     await page.getByTestId("space-save").click();
-    await expect(page.getByRole("button", { name: /外部项目/ })).toBeVisible();
+    await expect(page.getByTestId("agent-space-item").filter({ hasText: "外部项目" })).toBeVisible();
     const dir = path.join(vault, ".huhu/agent-cli/spaces");
     await expect.poll(() => readdirSync(dir).length).toBeGreaterThanOrEqual(2); // 默认 Space + 新建的
     expect(readdirSync(outside)).toEqual([]); // 不在目录里写任何东西
@@ -1725,7 +1725,10 @@ test("同步设置用 Versioning 凭据补配旧 HTTPS 目标，换目标后明�
     await page.getByTestId("sync-save").click();
     await expect(state).toHaveText("请在此重新配置该 Git 远端的认证");
     const cfg = readFileSync(path.join(configDir, "config.json"), "utf8");
-    expect(JSON.parse(cfg)).toMatchObject({ remote: second, branch: "main", mode: "off" });
+    const stored = JSON.parse(cfg);
+    expect(stored).toMatchObject({ remote: second, branch: "main" });
+    expect(stored).not.toHaveProperty("mode");
+    await expect(page.getByTestId("sync-mode-off")).toBeChecked();
     expect([secret, retiredReference, "previous-user", "new-fixture-user"].some((material) => cfg.includes(material))).toBe(false);
     expect(calls).not.toContain("safe.items.list");
     await remote.fill(first);
@@ -2033,11 +2036,13 @@ test("首页：专注计时到点（ACC-WB-06）、习惯勾选持久化、自�
   try {
     let page = await app.firstWindow();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { plan } = await call<{ plan: { planId: string; revision: string } }>(page, "home.focus.update", { action: "start" });
+    const intentId = crypto.randomUUID();
+    const scheduledFor = new Date(Date.now() + 3_000).toISOString();
+    expect(await call(page, "automations.plans.submit", {
+      planId: plan.planId, expectedRevision: plan.revision, intentId, change: "reschedule", trigger: { kind: "once", scheduledFor },
+    }, intentId)).toMatchObject({ outcome: "completed", plan: { planId: plan.planId, nextAt: scheduledFor } });
     await app.close();
-    // 预置一个还剩 2 秒、正在运行的专注：不必等 25 分钟
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }).format(new Date());
-    mkdirSync(path.join(vault, ".huhu", "home"), { recursive: true });
-    writeFileSync(path.join(vault, ".huhu", "home", "focus.json"), JSON.stringify({ remainingSec: 2, running: true, startedAt: new Date().toISOString(), completedToday: 0, dateKey: today }));
     app = await launch(vault);
     page = await app.firstWindow();
     await expect(page.getByTestId("home-module")).toBeVisible({ timeout: 20_000 });
@@ -2968,7 +2973,7 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
     await editor.getByTestId("rule-provider").selectOption("claude");
     await editor.getByTestId("rule-prompt").fill("请整理本周的工作记录，写成周报。");
     await editor.getByTestId("rule-preset").selectOption("daily");
-    await editor.getByLabel("时刻").fill("09:30");
+    await editor.getByLabel("时刻", { exact: true }).fill("09:30");
     await expect(editor.getByTestId("rule-cron")).toHaveText("30 9 * * *");
     await expect(editor.getByTestId("rule-upcoming")).toContainText("接下来三次"); // 合法时显示接下来三次激活
     await editor.getByTestId("rule-preset").selectOption("custom");
@@ -2987,10 +2992,10 @@ test("自动化规则编辑器：新建 Agent 规则（Space / CLI / 提示词 /
     await page.getByTestId("rule-edit").click();
     const edit = page.getByTestId("rule-editor");
     await expect(edit.getByTestId("rule-prompt")).toHaveValue("请整理本周的工作记录，写成周报。");
-    await expect(edit.getByLabel("时刻")).toHaveValue("09:30");
+    await expect(edit.getByLabel("时刻", { exact: true })).toHaveValue("09:30");
     await edit.getByTestId("rule-prompt").fill("改成：只列出已完成的事项。");
     await edit.getByTestId("rule-preset").selectOption("weekdays");
-    await edit.getByLabel("时刻").fill("18:00");
+    await edit.getByLabel("时刻", { exact: true }).fill("18:00");
     await edit.getByTestId("rule-save").click();
     await expect.poll(ruleFile).toContain("改成：只列出已完成的事项。");
     expect(ruleFile()).toContain("0 18 * * 1-5");
