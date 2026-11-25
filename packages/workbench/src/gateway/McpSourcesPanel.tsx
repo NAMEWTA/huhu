@@ -1,6 +1,6 @@
 import { type McpCatalogView, type McpEntryKind, type McpSource, type McpSourcesView, type McpSourceView } from "@huhu/contracts";
 import { Badge, Button, DataTable, Dialog } from "@huhu/ui";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { host } from "../settings/host.js";
 import { McpField, McpImportDialog, McpSourceEditor } from "./McpSourceDialogs.js";
@@ -37,6 +37,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const formId = useId();
+  const cancelAction = useRef<HTMLButtonElement>(null);
   const directory = sources.data?.sources ?? [];
   const active = directory.find((entry) => entry.source.sourceId === selected);
   const activeFilter = sourceFilter === "all" || sourceFilter === "builtin" || directory.some(({ source }) => source.sourceId === sourceFilter) ? sourceFilter : "all";
@@ -226,12 +227,12 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
 
       {dialog === "add" || (dialog === "edit" && active) ? <McpSourceEditor key={dialog === "add" ? "new" : active?.source.sourceId} {...(dialog === "edit" && active && { source: active.source })} busy={busy} error={error} save={run} onClose={close} /> : null}
       {dialog === "import" ? <McpImportDialog busy={busy} error={error} run={run} onClose={close} /> : null}
-      {dialog === "confirm" && confirm ? <Dialog open title={confirm.title} onClose={close} error={error}
-        actions={<><Button onClick={close} autoFocus>取消</Button><Button variant="danger" disabled={busy} onClick={async () => { if (await run(confirm.action, confirm.input)) close(); }}>确认</Button></>}>
+      {dialog === "confirm" && confirm ? <Dialog open title={confirm.title} onClose={close} error={error} initialFocusRef={cancelAction}
+        actions={<><Button ref={cancelAction} onClick={close}>取消</Button><Button variant="danger" disabled={busy} onClick={async () => { if (await run(confirm.action, confirm.input)) close(); }}>确认</Button></>}>
         <p>{confirm.text}</p>
       </Dialog> : null}
-      {dialog === "policy" && policy ? <Dialog open title="预览开放变更" onClose={close} error={error}
-        actions={<><Button onClick={close} autoFocus>取消</Button><Button variant="primary" disabled={busy} onClick={async () => {
+      {dialog === "policy" && policy ? <Dialog open title="预览开放变更" onClose={close} error={error} initialFocusRef={cancelAction}
+        actions={<><Button ref={cancelAction} onClick={close}>取消</Button><Button variant="primary" disabled={busy} onClick={async () => {
           const { names: _names, ...input } = policy;
           if (await run("mcp.policy.update", input)) close();
         }}>确认更新开放策略</Button></>}>
