@@ -10,18 +10,18 @@
 
 ## 成果与运行指针
 
-- 工作目录 `/home/wta/projects/huhu/.agents/dev/worktree/inv-w1`，分支 `inv/w1`，基线 `44b37c6f8e1857ea75f261cacee60c9ebe6aa5a5`，交付 HEAD `TW9_SHA`。运行附件在 [task09](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1v2/task09)。
+- 工作目录 `/home/wta/projects/huhu/.agents/dev/worktree/inv-w1`，分支 `inv/w1`，基线 `44b37c6f8e1857ea75f261cacee60c9ebe6aa5a5`，交付 HEAD `5f93bba576ecf5ef750bb960b747c247deb43345`。运行附件在 [task09](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1v2/task09)。
 
 ### AW6 · AW3 间歇超时
 
 - 提交 `a0b547e00a2b84fc2908ae1efad20d79150f2ff4`。改动 `tests/e2e/workflows/automation-center.spec.ts` 与 `tests/e2e/knowledge/session-slow-bridge.ts`。
-- Lead 首轮 9 条通过，AW3 超时。21 次复验中 20 条通过，同一场景第 3 次进程超时。派发保存的 trace 与复跑路径当时读取到相同的调用序列。第一笔 `tasks.create` 在 86.66 ms 内返回，其他四次 `Evaluate` 各在约 8–49 ms 内结束。最终标题的可见断言在 2.712 s 已成功，路由清理也返回。唯一未结束的动作自 2.715 s 开始，为 `launch.ts:41` 的 Electron `Close context`。这份轨迹排除了 Engine 启动、插件未加载和等待 HTTP 回包导致的该次超时。AW2 更早的首次点击超时未取得同源证据。[步骤时间线](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1v2/task09/aw3-trace-steps.txt) · [首轮](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/lead/aw3-flaky/e2e-aw6-fix1-aw7.log) · [复跑](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/lead/e2e-aw3-rerun.log)
+- Lead 首轮 9 条通过，AW3 超时。21 次复验中 20 条通过，同一场景三次重复中的第三轮超时。派发保存的 trace 与复跑路径当时读取到相同的调用序列。第一笔 `tasks.create` 在 86.66 ms 内返回，其他四次 `Evaluate` 各在约 8–49 ms 内结束。最终标题的可见断言在 2.712 s 已成功，路由清理也返回。唯一未结束的动作自 2.715 s 开始，为 `launch.ts:41` 的 Electron `Close context`。这份轨迹排除了 Engine 启动、插件未加载和等待 HTTP 回包导致的该次超时。AW2 更早的首次点击超时未取得同源证据。[步骤时间线](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1v2/task09/aw3-trace-steps.txt) · [首轮](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/lead/aw3-flaky/e2e-aw6-fix1-aw7.log) · [复跑](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/lead/e2e-aw3-rerun.log)
 - 用例同步缺口已经确定。另一客户端预先修改了最终断言采用的标题，因此标题可见时，工作台仍可能在保存本轮输入。Playwright 1.65 的关闭回调只发一次 `app.quit()`，随后等待应用退出。已有产品退出保护会在规则仍处于 busy 或 pending 时拒绝退出，与这条时间线相符。原轨迹缺少规则 guard 及主进程退出阶段的回执，实际是哪条退出分支拒绝仍待复跑确认。
-- 两次点击保存后均等待编辑对话框关闭。最后从 Engine 回读同一规则，核对原标题与新正文已同时持久化。每笔 `evaluate` 进入具名的 10 秒 Playwright 步骤，内部 fetch 8 秒取消，启动就绪与关闭也各有独立截止值。此次只修改测试同步与超时诊断。
+- 两次点击保存后均等待编辑对话框关闭。最后从 Engine 回读同一规则，核对另一客户端保存的标题与本轮新正文已同时持久化。每笔 `evaluate` 进入具名的 10 秒 Playwright 步骤，内部 fetch 8 秒取消，启动就绪与关闭也各有独立截止值。此次只修改测试同步与超时诊断。
 
 ### TW9 · 迁移与原身份核实
 
-- 提交 `TW9_SHA`。改动 `plugins/tasks/test/persistence-http.test.ts`，扩展 `TW5 GitHub 丢失 POST 回包（none）只核实原结果，不再发送或派发`。
+- 提交 `5f93bba576ecf5ef750bb960b747c247deb43345`。改动 `plugins/tasks/test/persistence-http.test.ts`，扩展 `TW5 GitHub 丢失 POST 回包（none）只核实原结果，不再发送或派发`。
 - 该场景用真实 Engine HTTP 与本地 GitHub 回环服务，在收到 POST 后断流并且没有可核对的评论。原 Vault 重启后，同一投递 ID 继续为 `unknown`。通过正式 `vault.exportPackage/importPackage` 导入新 Vault 后，原 Task ID、正文、来源、评论和原投递回执可从现役能力读取，原来源事件和派遣记录逐字节一致。旧 HTTP 连接器凭据返回未授权。POST 计数保持 1，Task 派遣计数保持原值。
 - 核对 W5d 与 AW6 已清退的旧调度、提醒与私有调用，保留旧 Task/Agent 数据的兼容读取，无新增迁移器或权限入口。附录核对固定 agent-autoloop 源码及 MIT 许可，包含旧入口、数据、原身份核实操作和 AT-A01–AT-A20 逐项证据与缺口。[TW9 对照与排障](/home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1v2/task09/tw9-coverage.md)
 
@@ -38,3 +38,4 @@
 - worker 未运行 E2E、构建、打包、截图、全仓检查、真实 GitHub 或 SMTP、真实线上 provider、异机 CI 和候选制品的全链路迁移。当前受控 Task MCP 能力仍返回 `no_task_tool_scope`。完整工具与合并候选证据仍归 J16/J17/J18/J21/J22 和 SIGN。导入副本只验证历史读取与旧凭据拒绝，未验证给原历史来源重新绑定新连接器。
 
 ## Lead 验收
+- Lead 2026-11-25：合入 main 92283526；AW3 重复 21/21、TW9 52/52 通过。本终端回收以腾出顾问名额。
