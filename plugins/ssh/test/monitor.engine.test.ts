@@ -30,6 +30,7 @@ async function fixture() {
   const clientFor = () => new EngineClient({ baseUrl: `http://127.0.0.1:${engine.port}`, token: engine.rendererToken, vaultId: engine.vault.id });
   return {
     client: clientFor(),
+    webCall: (capability: string, input: unknown = {}) => engine.dispatcher.call("web:monitor-fixture", { capability, input, requestId: randomUUID(), idempotencyKey: randomUUID() }),
     async host(name: string, platform: "linux" | "windows", tools?: FakeSshOptions["onExec"]) {
       let reads = 0;
       let denied = false;
@@ -230,7 +231,7 @@ test.skipIf(process.platform !== "linux")("Pane monitor parses the native Linux 
   }
 });
 
-test("dashboards share fastest sampling, isolate host failures and keep configuration across restart", { timeout: 35_000 }, async () => {
+test("dashboards share fastest sampling, allow browser reads and keep configuration across restart", { timeout: 35_000 }, async () => {
   const f = await fixture();
   try {
     const { client } = f;
@@ -264,6 +265,13 @@ test("dashboards share fastest sampling, isolate host failures and keep configur
     }, wait);
     expect(linux.server.conns).toHaveLength(1);
     expect(await client.call("ssh.connections.status")).toEqual([]);
+    expect(await f.webCall("ssh.monitor.panels.list")).toMatchObject({ ok: true, data: expect.arrayContaining([{ ...fast, plan: expect.objectContaining({ planId: fastPlan!.planId }) }]) });
+    expect(await f.webCall("ssh.monitor.panels.run", { id: fast.id })).toMatchObject({
+      ok: true,
+      data: { id: fast.id, state: "running", hosts: [{ hostId: win.id, state: "denied" }, { hostId: linux.id, state: "running", latest: expect.any(Object) }] },
+    });
+    expect(await f.webCall("ssh.monitor.panels.change", { id: fast.id, expectedRevision: fast.revision, action: "stop" })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
+    expect(await f.webCall("ssh.monitor.panels.delete", { id: fast.id, expectedRevision: fast.revision })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
     const earlier = linux.reads();
     await vi.waitFor(() => expect(linux.reads()).toBeGreaterThan(earlier), wait);
     win.deny(false);

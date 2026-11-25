@@ -95,7 +95,12 @@ export function useFileBatch(side: Side, directory: string, entries: FileEntry[]
     },
     drop: {
       onDragOver(event: DragEvent) {
-        if (event.dataTransfer.types.includes("Files") || (!blocked && batch.drag.current?.side === opposite(side))) event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+        } else if (!blocked && batch.drag.current?.side === opposite(side) && event.dataTransfer.types.includes(MIME)) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
       },
       onDrop(event: DragEvent) {
         if (event.dataTransfer.types.includes("Files")) {

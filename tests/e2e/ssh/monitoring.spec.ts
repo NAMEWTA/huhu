@@ -154,10 +154,13 @@ test("A11 独立 Web 查看两个主机的桌面采样，采样控制由桌面�
     await web.goto(link);
     await expect(web.getByTestId("home-dashboard")).toBeVisible();
     await web.getByRole("button", { name: "远程连接", exact: true }).first().click();
-    await web.getByRole("button", { name: "监控", exact: true }).click();
+    const openMonitoring = web.getByTestId("ssh-module").getByRole("button", { name: "监控", exact: true });
+    await expect(openMonitoring).toBeVisible();
+    await openMonitoring.click();
     const dashboard = web.getByTestId("ssh-monitor-dashboard");
     await expect(dashboard.getByText("未开始", { exact: true })).toHaveCount(2);
     await expect(dashboard.getByRole("button", { name: "开始监控", exact: true })).toHaveCount(0);
+    await expect(dashboard.getByRole("button", { name: "新建面板", exact: true })).toHaveCount(0);
 
     await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
     await page.getByRole("button", { name: "监控", exact: true }).click();

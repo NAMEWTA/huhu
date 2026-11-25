@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test, vi } from "vitest";
@@ -52,6 +52,7 @@ async function fixture() {
     endpoint,
     find,
     state,
+    localDirectory: (sessionId: string) => sessions.localList(sessionId, [], root),
     async close() {
       queue.dispose();
       sessions.dispose();
@@ -80,6 +81,32 @@ function latch() {
 function readGate() {
   return { entered: latch(), released: latch() };
 }
+
+test("remote directory downloads complete ordinary children and report unsupported links in the same batch", async () => {
+  const f = await fixture();
+  try {
+    const { server, session, file } = await f.endpoint();
+    server.fs.dirs.add("/home/test/docs");
+    server.fs.dirs.add("/home/test/docs/sub");
+    server.fs.files.set("/home/test/docs/sub/notes.txt", fresh);
+    server.fs.links.set("/home/test/docs/notes-link", "/home/test/docs/sub/notes.txt");
+    const local = await f.localDirectory(session.fileSessionId);
+    const batch = await f.queue.startBatch({
+      source: file("/home/test"),
+      target: { kind: "local", path: local.path },
+      names: ["docs"],
+      localFileSessionId: session.fileSessionId,
+    }, new AbortController().signal);
+    await vi.waitFor(() => expect(f.queue.findBatch(batch.batchId)?.state).toBe("partial"));
+    const jobs = f.queue.list().jobs.filter(({ batchId }) => batchId === batch.batchId);
+    expect(jobs.find(({ target }) => target.path === path.join(local.path, "docs", "sub", "notes.txt"))?.state).toBe("completed");
+    expect(jobs.find(({ message }) => message?.includes("docs/notes-link"))).toMatchObject({ state: "failed", message: expect.stringContaining("未遍历链接") });
+    expect(await readFile(path.join(local.path, "docs", "sub", "notes.txt"))).toEqual(fresh);
+    await expect(lstat(path.join(local.path, "docs", "notes-link"))).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await f.close();
+  }
+});
 
 test.each(["changed target", "replaced connection"] as const)("waiting transfer preserves current target after %s", async (scenario) => {
   const f = await fixture();

@@ -187,12 +187,12 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
     }
   });
   async function call<T>(name: string, input: object, done?: (value: T) => void) {
-    if (busy) return;
+    if (!desktop || busy) return;
     setBusy(true);
     setError("");
     try {
       const result = await engine.call<T>(name, input, { write: true });
-      await Promise.all([panels.refetch(), refresh(), ...(desktop ? [subscriptions.refetch(), externalPanels.refetch()] : [])]);
+      await Promise.all([panels.refetch(), refresh(), subscriptions.refetch(), externalPanels.refetch()]);
       done?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "监控操作失败");
@@ -209,7 +209,7 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
   return (
     <section className="hu-stack" data-testid="ssh-monitor-dashboard" aria-label="SSH 监控">
       <PageHead title="监控" />
-      {!desktop && <p>请在桌面应用中启动、暂停、继续、重试或停止采样。</p>}
+      {!desktop && <p>请在桌面应用中管理监控面板、核对主机指纹和控制采样。</p>}
       {!!subscriptions.data?.length && (
         <section className="hu-card-alt">
           <h2>外部工具监控订阅</h2>
@@ -248,16 +248,18 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
       )}
       <div className="ssh-workspace-controls">
         <Button onClick={onBack}>返回 SSH</Button>
-        <Button
-          variant="primary"
-          disabled={!directory?.hosts.length}
-          onClick={() => {
-            setError("");
-            setEdit("new");
-          }}
-        >
-          新建面板
-        </Button>
+        {desktop && (
+          <Button
+            variant="primary"
+            disabled={!directory?.hosts.length}
+            onClick={() => {
+              setError("");
+              setEdit("new");
+            }}
+          >
+            新建面板
+          </Button>
+        )}
         {panels.data?.map((panel) => (
           <Button
             key={panel.id}
@@ -304,22 +306,26 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
               </Button>
             )}
             <Button onClick={() => setExpanded(!expanded)}>{expanded ? "简洁视图" : "详细视图"}</Button>
-            <Button
-              onClick={() => {
-                setError("");
-                setEdit(current);
-              }}
-            >
-              编辑面板
-            </Button>
-            <Button
-              onClick={() => {
-                setError("");
-                setRemove(current);
-              }}
-            >
-              删除面板
-            </Button>
+            {desktop && (
+              <>
+                <Button
+                  onClick={() => {
+                    setError("");
+                    setEdit(current);
+                  }}
+                >
+                  编辑面板
+                </Button>
+                <Button
+                  onClick={() => {
+                    setError("");
+                    setRemove(current);
+                  }}
+                >
+                  删除面板
+                </Button>
+              </>
+            )}
           </div>
           <ul className="ssh-transfer-list">
             {current.hostIds.map((hostId) => {
@@ -328,7 +334,7 @@ export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack
                 <li key={hostId} data-testid="ssh-monitor-host">
                   <h3>{hostName(hostId)}</h3>
                   {reading ? <MonitorMetrics host={reading} details={expanded} /> : <p role="status">未开始</p>}
-                  {reading?.prompt && <Button onClick={() => setTrust(hostId)}>核对主机指纹</Button>}
+                  {desktop && reading?.prompt && <Button onClick={() => setTrust(hostId)}>核对主机指纹</Button>}
                   {desktop && run?.state === "running" && reading && ["disconnected", "failed", "denied", "unsupported", "missing"].includes(reading.state) && (
                     <Button disabled={busy} onClick={() => command("retry", hostId)}>
                       重试此主机
