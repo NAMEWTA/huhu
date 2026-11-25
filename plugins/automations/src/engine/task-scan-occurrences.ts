@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "node:fs";
 import { AgentInputSchema, AutomationRuleFrontmatterSchema, errors, HuhuError, isHuhuError, type PlanOccurrence } from "@huhu/contracts";
 import { filesystemIdentity, machineId, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
-import type { TaskRuleDispatch } from "../../../tasks/src/engine/index.js";
+import type { TaskRuleDispatch } from "@huhu/contracts";
 import { isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type AutomationsService, type TaskScanRule } from "./service.js";
 
 const dir = "automations/task-scan-occurrences";

@@ -1,9 +1,7 @@
-import type { TaskDto } from "@huhu/contracts";
+import type { RecentTaskRun, TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState } from "@huhu/ui";
-import { CapabilityError, requestOpenTask, useCapability, useEngine } from "@huhu/workbench";
+import { CapabilityError, requestOpenTask, useCapability, useEngine, useTaskAutomationViews } from "@huhu/workbench";
 import { useState } from "react";
-import type { RecentTaskRun } from "../../../tasks/src/engine/dispatch-store.js";
-import { TaskRunDetails, taskRunLabel } from "../../../tasks/src/ui/TaskDispatchPanel.js";
 import { t } from "./i18n.js";
 
 interface TerminalRunRow {
@@ -30,12 +28,14 @@ const disabled = (error: Error | null) => error instanceof CapabilityError && er
 export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
   const tasks = useCapability<RecentTaskRun[]>("tasks.dispatch.recent");
   const terminal = useCapability<TerminalRunRow[]>("automations.runs.list");
+  const views = useTaskAutomationViews();
   const [selection, setSelection] = useState<Selection | null>(null);
-  const taskRows = (tasks.data ?? []).map(({ dispatch, run, title }) => ({
+  const taskRuns = tasks.error ? [] : tasks.data ?? [];
+  const taskRows = taskRuns.map(({ dispatch, run, title }) => ({
     id: dispatch.runId,
     kind: "task" as const,
     title,
-    state: taskRunLabel(dispatch, run),
+    state: views?.taskRunLabel(dispatch, run) ?? run?.state ?? dispatch.state,
     at: dispatch.acceptedAt,
   }));
   const terminalRows = (terminal.data ?? []).map((row) => ({
@@ -46,7 +46,7 @@ export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
     at: row.startedAt,
   }));
   const rows = [...taskRows, ...terminalRows].sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
-  const task = tasks.data?.find(({ dispatch }) => dispatch.runId === selection?.id);
+  const task = taskRuns.find(({ dispatch }) => dispatch.runId === selection?.id);
   const selected = rows.find(({ id, kind }) => id === selection?.id && kind === selection.kind);
   const error = terminal.error ?? (disabled(tasks.error) ? null : tasks.error);
   return (
@@ -83,16 +83,18 @@ export function RunsPanel({ onNavigate }: { onNavigate?: Navigate }) {
 
 function ManagedRun({ row, onNavigate }: { row: RecentTaskRun; onNavigate: Navigate }) {
   const { dispatch, run } = row;
+  const views = useTaskAutomationViews();
+  const TaskRunDetails = views?.TaskRunDetails;
   const task = useCapability<TaskDto>("tasks.read", { id: dispatch.taskId });
   return (
     <section data-run-id={dispatch.runId}>
       <p role="status" data-testid="run-state">
-        {taskRunLabel(dispatch, run)}
+        {views?.taskRunLabel(dispatch, run) ?? run?.state ?? dispatch.state}
       </p>
       {onNavigate ? (
         <Button
           onClick={() => {
-            requestOpenTask(dispatch.taskId);
+            requestOpenTask(dispatch.taskId, { runId: dispatch.runId });
             onNavigate("tasks");
           }}
         >
@@ -105,7 +107,7 @@ function ManagedRun({ row, onNavigate }: { row: RecentTaskRun; onNavigate: Navig
         </p>
       ) : null}
       {task.isPending ? <p role="status">正在读取原任务…</p> : null}
-      {task.data ? <TaskRunDetails task={task.data} taskRefreshing={task.isFetching} row={dispatch} run={run} showQueue onOpenAgent={onNavigate ? () => onNavigate("agent-cli") : undefined} /> : null}
+      {task.data && !task.error && TaskRunDetails ? <TaskRunDetails task={task.data} taskRefreshing={task.isFetching} row={dispatch} run={run} showQueue onOpenAgent={onNavigate ? () => onNavigate("agent-cli") : undefined} /> : null}
     </section>
   );
 }

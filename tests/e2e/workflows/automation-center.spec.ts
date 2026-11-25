@@ -232,3 +232,60 @@ test("AW4 AU16 专注来源与中心共享计划修订和下次时间", async ()
     await close();
   }
 });
+
+test("AW6 AU16 AU17 获邀 Web 在任务来源管理原提醒，停用来源时中心显示准确状态", async ({}) => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const task = await call<{ id: string }>(desktop, "tasks.create", { title: "核对采购付款", type: "human" });
+    const intentId = randomUUID();
+    const scheduledFor = new Date(Date.now() + 86_400_000).toISOString();
+    const reminder = await call<PlanSummary>(desktop, "automations.plans.createTaskReminder", {
+      taskId: task.id, scheduledFor, intentId, startPaused: true,
+    }, intentId);
+    const { planId } = reminder;
+    const read = () => call<PlanSummary>(desktop, "automations.plans.read", { planId });
+
+    await call(desktop, "web.share.start", { mode: "local", port: 0 });
+    const invitation = await call<{ links: string[] }>(desktop, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage();
+    await web.goto(invitation.links[0]!);
+    await engineReady(web);
+    for (const client of [desktop, web]) {
+      await client.getByRole("navigation", { name: "功能图标栏" }).getByRole("button", { name: "自动化", exact: true }).click();
+      const row = client.getByTestId("plan-directory").locator(`[data-plan-id="${planId}"]`);
+      await row.getByTestId("rule-row").click();
+      await expect(client.getByTestId("rule-detail")).toContainText("任务提醒：核对采购付款");
+    }
+    const detail = web.getByTestId("rule-detail");
+    await detail.getByRole("button", { name: "打开来源任务" }).click();
+    const reminders = web.getByTestId("detail-reminders");
+    const sourceRow = reminders.locator(`[data-plan-id="${planId}"]`);
+    await expect(sourceRow.locator("time")).toHaveAttribute("datetime", scheduledFor);
+    await sourceRow.getByRole("button", { name: "启用", exact: true }).click();
+    await expect.poll(read).toMatchObject({ planId, intent: "enabled", nextAt: scheduledFor });
+    const enabled = await read();
+    expect(enabled.revision).not.toBe(reminder.revision);
+    await expect(desktop.getByTestId("rule-detail").locator("time")).toHaveAttribute("datetime", scheduledFor);
+    await sourceRow.getByRole("button", { name: "在中心管理 · 任务提醒：核对采购付款" }).click();
+    await expect(detail.locator("time")).toHaveAttribute("datetime", scheduledFor);
+
+    await call(desktop, "plugins.setEnabled", { id: "tasks", enabled: false });
+    await expect(detail).toContainText("来源插件未启用");
+    await expect(detail.getByRole("button", { name: "打开来源任务" })).toHaveCount(0);
+    expect(await read()).toMatchObject({ planId, revision: enabled.revision, nextAt: null, availability: { state: "blocked", reason: "plugin-disabled" } });
+    await detail.getByRole("button", { name: "暂停", exact: true }).click();
+    await expect.poll(read).toMatchObject({ planId, intent: "paused", nextAt: null });
+
+    await call(desktop, "plugins.setEnabled", { id: "tasks", enabled: true });
+    await expect(detail.getByRole("button", { name: "打开来源任务" })).toBeVisible();
+    await detail.getByRole("button", { name: "打开来源任务" }).click();
+    await expect(sourceRow).toContainText("已暂停");
+    await expect(sourceRow.locator("time")).toHaveAttribute("datetime", scheduledFor);
+  } finally {
+    await browser?.close();
+    await close();
+  }
+});

@@ -1,7 +1,22 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readdirSync, statSync } from "node:fs";
-import { ExecutionBindingSchema, HuhuError, isHuhuError, isId, TaskExecutionSchema, TaskRunAttemptSchema, type TaskDto } from "@huhu/contracts";
-import { AgentDispatchTargetSchema, AgentNativeStopInputSchema, AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
+import { ExecutionBindingSchema, HuhuError, isHuhuError, isId, TaskExecutionSchema, type TaskDto } from "@huhu/contracts";
+import {
+  TaskDispatchInputIdentitySchema as InputIdentity,
+  TaskDispatchInputSchema,
+  TaskDispatchLookupSchema,
+  TaskRetryDispatchSchema,
+  TaskStopLookupSchema,
+  TaskStopReceiptSchema,
+  TaskRuleDispatchSourceSchema,
+  TaskFollowUpDispatchSchema,
+  TaskFollowUpSourceSchema,
+  TaskDispatchReceiptSchema,
+  TaskDispatchViewSchema,
+  TaskRunSummarySchema,
+  RecentTaskRunSchema,
+} from "@huhu/contracts";
+import { AgentDispatchTargetSchema } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
@@ -11,37 +26,27 @@ import { ResponseActor } from "./response-actor.js";
 const Id = z.string().trim().min(1).max(256);
 const Instant = z.iso.datetime();
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
-const InputIdentity = z.object({ inputRevision: z.number().int().positive(), inputHash: z.string().regex(/^[a-f0-9]{16}$/) });
-const ContextSelection = z.strictObject({
-  messageIds: z.array(Id).max(8).default([]),
-  artifacts: z.array(z.strictObject({ path: z.string().min(1).max(1024), expectedVersion: z.string().min(1).max(256).optional() })).max(4).default([]),
-});
 const FrozenContext = z.strictObject({
   messages: z.array(z.strictObject({ id: Id, body: z.string().max(8_000) })).max(8),
   artifacts: z.array(z.strictObject({ path: z.string(), version: z.string(), expectedVersion: z.string().optional(), text: z.string().max(8_000) })).max(4),
 });
-export const DispatchInput = InputIdentity.extend({ taskId: Id, dispatchId: Id, expectedVersion: z.string().min(1), allowEarly: z.boolean().optional(), newRound: z.literal(true).optional(), context: ContextSelection.optional() }).strict();
-export const DispatchLookup = DispatchInput.pick({ taskId: true, dispatchId: true });
-export const RetryDispatch = DispatchLookup.extend({ retryId: Id });
-const StopRecord = z.strictObject({
-  stopId: AgentNativeStopInputSchema.shape.stopId,
-  status: z.enum(["pending", "sending", ...AgentNativeStopStatusSchema.options]),
-  acceptedAt: Instant,
-  updatedAt: Instant,
-  toolOwner: Digest.optional(),
-});
-export const StopLookup = DispatchLookup.extend({ runId: Id, stopId: StopRecord.shape.stopId });
-export const StopReceipt = StopLookup.extend(StopRecord.omit({ toolOwner: true }).shape);
-export const RuleSource = z.strictObject({
-  kind: z.literal("automation"),
-  ruleId: Id,
-  ruleVersion: Id,
-  occurrenceId: Id,
-  maxConcurrent: z.int().min(1).max(4).optional(),
-  notBefore: Instant.optional(),
-  expiresAt: Instant.optional(),
-  instructions: z.string().max(20_000).optional(),
-});
+export const DispatchInput = TaskDispatchInputSchema;
+export const DispatchLookup = TaskDispatchLookupSchema;
+export const RetryDispatch = TaskRetryDispatchSchema;
+export const StopLookup = TaskStopLookupSchema;
+export const StopReceipt = TaskStopReceiptSchema;
+export const RuleSource = TaskRuleDispatchSourceSchema;
+export const FollowUpDispatch = TaskFollowUpDispatchSchema;
+export const FollowUpSource = TaskFollowUpSourceSchema;
+export const DispatchReceipt = TaskDispatchReceiptSchema;
+export const TaskDispatchView = TaskDispatchViewSchema;
+export const TaskRunSummary = TaskRunSummarySchema;
+export const RecentTaskRun = RecentTaskRunSchema;
+export type TaskRunSummary = z.infer<typeof TaskRunSummary>;
+export type RecentTaskRun = z.infer<typeof RecentTaskRun>;
+
+// Keep the persisted owner fingerprint private.
+const StopRecord = StopReceipt.omit({ taskId: true, dispatchId: true, runId: true }).extend({ toolOwner: Digest.optional() });
 export const ReplySource = z.strictObject({
   kind: z.literal("reply"),
   parent: ExecutionBindingSchema,
@@ -61,8 +66,6 @@ export const SupplementSource = z.strictObject({
   messageIds: z.array(Id).max(32),
   actor: ResponseActor.optional(),
 });
-export const FollowUpDispatch = InputIdentity.extend({ taskId: Id, followUpId: Id, scheduledFor: Instant }).strict();
-export const FollowUpSource = FollowUpDispatch.pick({ followUpId: true, scheduledFor: true }).extend({ kind: z.literal("follow-up"), parent: ExecutionBindingSchema.optional() });
 const Source = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("desktop") }), z.strictObject({ kind: z.literal("tool"), owner: Digest.optional() }), RuleSource, ReplySource, SupplementSource, FollowUpSource]);
 const Snapshot = InputIdentity.extend({
   taskId: Id,
@@ -85,36 +88,6 @@ export function dispatchSnapshotText({ body, source, context }: z.infer<typeof S
   return [body, instructions, ...(messages?.length ? ["选取的任务消息", ...messages] : []), ...(artifacts?.length ? ["选取的关联产物", ...artifacts] : [])]
     .filter((part): part is string => part !== undefined && part !== "").join("\n\n").replace(/\r\n/g, "\n");
 }
-export const DispatchReceipt = DispatchLookup.extend({
-  eventId: z.string(),
-  runId: z.string(),
-  attempt: TaskRunAttemptSchema,
-  acceptedAt: Instant,
-  state: z.enum(["pending", "claimed", "sending", "running", "unknown", "cancelled", "stale_input", "expired", "blocked"]),
-  reason: z.enum(["waiting_resource", "waiting_schedule", "task_occupied", "task_closed", "task_unavailable", "target_unavailable", "target_unsupported", "foreign_machine", "awaiting_confirmation"]).nullable(),
-  cancelRequested: z.boolean(),
-  overriddenAvailableAt: Instant.optional(),
-  parentRunId: Id.optional(),
-});
-export const TaskDispatchView = DispatchReceipt.extend({
-  session: z.strictObject({ id: Id, spaceId: Id, processGeneration: Id.optional() }).nullable(),
-  stop: StopRecord.omit({ toolOwner: true }).optional(),
-  canRetry: z.literal(true).optional(),
-  superseded: z.literal(true).optional(),
-});
-export const TaskRunSummary = z.object({
-  id: z.string(),
-  state: z.string(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
-  model: z.string().nullable(),
-  questions: z.number(),
-  parentRunId: z.string().optional(),
-  result: z.strictObject({ kind: z.enum(["result", "failed", "no_update"]), delivery: z.enum(["pending", "delivered", "target_missing"]), receiptId: z.string().optional() }).optional(),
-});
-export const RecentTaskRun = z.object({ dispatch: TaskDispatchView, run: TaskRunSummary.nullable(), title: z.string() });
-export type TaskRunSummary = z.infer<typeof TaskRunSummary>;
-export type RecentTaskRun = z.infer<typeof RecentTaskRun>;
 const RecordFields = z.object({
   receipt: DispatchReceipt,
   retryOf: z.strictObject({ intent: RetryDispatch, taskInput: InputIdentity }).optional(),

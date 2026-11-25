@@ -137,9 +137,11 @@ function rulePlan(rule: Rule, api: HuhuApi, deps: CatalogueDeps, now: Date, rece
   };
   const source = taskId ? { plugin: "tasks", object: { kind: "task", id: taskId } } : { plugin: "automations", object };
   const readOnly = api.vault.files.readOnly || rule.readOnly;
+  const needsTasks = !!taskId || (data.action.kind === "agent" && data.action.input.source === "tasks");
   let availability: PlanSummary["availability"] = readOnly
     ? { state: "blocked", reason: "read-only" }
     : hasLegacyTerminalEnvironment(data.action) ? { state: "blocked", reason: "credentials-unavailable" }
+    : needsTasks && !deps.taskReminders.taskSourceAvailable() ? { state: "blocked", reason: "plugin-disabled" }
     : taskId && !deps.taskReminders.taskAvailable(taskId) ? { state: "blocked", reason: "target-unavailable" }
     : issue ? { state: "blocked", reason: "target-unavailable", detail: issueLabels[issue] ?? "请检查执行目标" }
     : { state: "ready" };

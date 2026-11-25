@@ -4,7 +4,7 @@ import path from "node:path";
 import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type CapabilityDefinition, type CapabilityDescriptor, type FocusDeadlinePort, type HuhuApi } from "@huhu/kernel";
 import { filesystemIdentity, machineId, VaultFiles } from "@huhu/vault";
-import type { TaskFollowUpDispatch, TaskScheduleAdmission } from "../../../tasks/src/engine/index.js";
+import type { TaskFollowUpDispatch, TaskScheduleAdmission } from "@huhu/contracts";
 import { AgentInputSchema, AutomationActionSchema, errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, periodicPlanSourceService, type PeriodicPlanSource, type TaskActivityQuery } from "@huhu/contracts";
 import { z } from "zod";
 import { DEFAULT_TASK_SCAN_RULE_ID, DefaultTaskScan } from "./default-task-scan.js";
@@ -365,7 +365,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
       if (task.status === "completed") return "completed";
       if (task.execution.state === "none") return task.status === "not_started" ? "not_started" : "unknown";
       return task.execution.state === "waiting-input" ? "waiting_input" : task.execution.state;
-    }, now, (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }));
+    }, now, (id) => api.events.publish("entity.changed", { kind: "automation-activation", id, op: "updated" }),
+    ({ kind }) => kind === "task" ? !!api.service<TaskActivityQuery>("taskActivity") : !!api.service<AgentObservation>("agentObservation"));
   const focus = opts.focusDeadline
     ? new FocusDeadlinePlans(opts.focusDeadline, svc, () => reminders, api.vault.vaultId, stateFiles.readOnly, now)
     : undefined;

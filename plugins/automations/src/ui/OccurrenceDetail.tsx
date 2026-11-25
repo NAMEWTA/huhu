@@ -1,9 +1,7 @@
-import type { PlanOccurrence, TaskDto } from "@huhu/contracts";
+import type { PlanOccurrence, TaskDispatchView, TaskDto, TaskRunSummary } from "@huhu/contracts";
 import { Badge, Button } from "@huhu/ui";
-import { CapabilityError, requestOpenAgentSession, requestOpenTask, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, requestOpenAgentSession, requestOpenTask, useCapability, useEngine, useTaskAutomationViews, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
-import type { TaskDispatchView, TaskRunSummary } from "../../../tasks/src/engine/dispatch-store.js";
-import { TaskRunDetails, taskRunLabel } from "../../../tasks/src/ui/TaskDispatchPanel.js";
 import { occurrenceLabel, formatMoment } from "./plan-presentation.js";
 import { TerminalRun } from "./RunsPanel.js";
 
@@ -125,11 +123,11 @@ export function OccurrenceDetail({ id, terminalRunId, onNavigate }: { id: string
   );
 }
 
-function TaskLink({ id, onNavigate }: { id: string; onNavigate: Navigate }) {
+function TaskLink({ id, runId, onNavigate }: { id: string; runId?: string; onNavigate: Navigate }) {
   return onNavigate ? (
     <Button
       onClick={() => {
-        requestOpenTask(id);
+        requestOpenTask(id, runId ? { runId } : undefined);
         onNavigate("tasks");
       }}
     >
@@ -157,10 +155,12 @@ function BoundSession({ vaultId, sessionId, generation, spaceId, onNavigate }: {
 
 function OccurrenceTask({ effect, onNavigate }: { effect: PlanOccurrence["effects"][number]; onNavigate: Navigate }) {
   const { vaultId } = useEngine();
+  const views = useTaskAutomationViews();
+  const TaskRunDetails = views?.TaskRunDetails;
   const taskId = effect.target.id;
   const [expanded, setExpanded] = useState(false);
   const dispatch = useCapability<TaskDispatchView[]>("tasks.dispatch.list", { taskId }, { enabled: effect.state === "accepted" });
-  const identity = dispatch.data?.find((row) => (effect.kind === "task-run" ? row.runId === effect.effectId : row.dispatchId === effect.effectId));
+  const identity = dispatch.error ? undefined : dispatch.data?.find((row) => (effect.kind === "task-run" ? row.runId === effect.effectId : row.dispatchId === effect.effectId));
   const runs = useCapability<TaskRunSummary[]>("tasks.runs", { id: taskId }, { enabled: !!identity });
   const task = useCapability<TaskDto>("tasks.read", { id: taskId }, { enabled: expanded && !!identity });
   const run = runs.data?.find(({ id }) => id === identity?.runId);
@@ -178,11 +178,11 @@ function OccurrenceTask({ effect, onNavigate }: { effect: PlanOccurrence["effect
   return (
     <article className="hu-stack" data-testid="occurrence-child-run">
       <header>
-        <strong>{task.data?.title ?? taskId}</strong> <Badge>{identity ? taskRunLabel(identity, run) : effects[effect.state]}</Badge>
+        <strong>{!task.error && task.data ? task.data.title : taskId}</strong> <Badge>{identity ? views?.taskRunLabel(identity, run) ?? run?.state ?? identity.state : effects[effect.state]}</Badge>
       </header>
       {error ? <p role="alert">无法读取原任务运行。{error.message}</p> : null}
       {!error && dispatch.data && !identity ? <p role="status">没有找到原派遣，保留已记录的受理状态。</p> : null}
-      {dispatch.data ? <TaskLink id={taskId} onNavigate={onNavigate} /> : null}
+      {dispatch.data && !dispatch.error ? <TaskLink id={taskId} {...(identity && { runId: identity.runId })} onNavigate={onNavigate} /> : null}
       {identity ? (
         <details onToggle={(event) => setExpanded(event.currentTarget.open)}>
           <summary>查看运行、原问题与输出</summary>
@@ -193,7 +193,7 @@ function OccurrenceTask({ effect, onNavigate }: { effect: PlanOccurrence["effect
               </p>
               {identity.session?.processGeneration ? <BoundSession vaultId={vaultId} sessionId={identity.session.id} generation={identity.session.processGeneration} spaceId={identity.session.spaceId} onNavigate={onNavigate} /> : null}
               {task.isPending ? <p role="status">正在读取原运行的输出…</p> : null}
-              {task.data ? <TaskRunDetails row={identity} run={run} task={task.data} taskRefreshing={task.isFetching} showQueue /> : null}
+              {task.data && !task.error && TaskRunDetails ? <TaskRunDetails row={identity} run={run} task={task.data} taskRefreshing={task.isFetching} showQueue /> : null}
               {channel.data ? <p data-testid="occurrence-channel-state">GitHub 投递 · {channel.data.state === "accepted" ? "渠道已接受" : "待核实"}</p> : null}
               {mailLink.data ? <p data-testid="occurrence-mail-state">邮件投递 · {mail.data ? mailStatus[mail.data.state] : mail.isPending ? "正在读取渠道状态…" : "渠道记录暂不可读"}</p> : null}
               {mailLink.error || mail.error ? <p role="alert">{mailLink.error?.message ?? mail.error?.message}</p> : null}

@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { PeriodicPlanSource, PeriodicPlanSpec } from "@huhu/contracts";
@@ -42,6 +43,8 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     const plans = make("owner");
     await plans.tick();
     const enabled = plans.read(legacy.planId)!;
+    for (let readers = 0; readers < 3; readers++) expect(plans.list()).toEqual([enabled]);
+    expect(run).not.toHaveBeenCalled();
     now += 2_000;
     await plans.tick();
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
@@ -54,6 +57,10 @@ test("managed periods serialize admission, preserve tombstones and fence each oc
     const foreign = make("foreign");
     expect(foreign.read(legacy.planId)).toMatchObject({ actions: [], availability: { state: "blocked", reason: "foreign-owner" } });
     expect(foreign.readOccurrence(first)?.state).toBe("unknown");
+    await expect(foreign.change({
+      change: "set-intent", intent: "paused", planId: legacy.planId,
+      expectedRevision: enabled.revision, intentId: randomUUID(),
+    }, controller.signal)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await foreign.tick();
     expect(run).toHaveBeenCalledTimes(1);
 

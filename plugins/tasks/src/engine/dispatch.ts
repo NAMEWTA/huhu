@@ -1,4 +1,4 @@
-import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskActivity, type TaskDto, type TaskExecution } from "@huhu/contracts";
+import { HuhuError, errors, isHuhuError, isTaskAvailable, newId, type ExecutionBinding, type ExecutionReceipt, type TaskActivity, type TaskDto, type TaskExecution, type TaskScheduleAdmission } from "@huhu/contracts";
 import { AgentDispatchInputSchema, type AgentNativeStopInputSchema, type AgentNativeStopStatusSchema } from "@huhu/plugin-agent-cli/engine";
 import type { DeviceDispatchBudget } from "@huhu/vault";
 import {
@@ -63,7 +63,6 @@ type NativeStopStatus = z.infer<typeof AgentNativeStopStatusSchema>;
 type StopRecord = NonNullable<OwnedRecord["stop"]>;
 type RuleSlots = Map<string, Set<string>>;
 type Occupancy = "active" | "none" | { waitingSince: string };
-export type TaskScheduleAdmission = (source: Extract<DispatchSource, { kind: "automation" | "follow-up" }>, taskId: string) => boolean;
 const noBacklog = () => ({ pending: 0, active: 0, waitingNative: 0, unknown: 0, oldestPendingAt: null as string | null, oldestNativeWaitAt: null as string | null, oldestUnknownAt: null as string | null });
 const earlier = (previous: string | null, next: string) => previous === null || next < previous ? next : previous;
 type ReplyInput = z.infer<typeof TaskReplyInput>;

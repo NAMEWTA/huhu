@@ -36,6 +36,10 @@
                 "message": "禁止深路径导入"
               },
               {
+                "regex": "^(?:\\.\\./){3,}(?:plugins/)?[^/]+/src/",
+                "message": "插件间使用公开包入口或共享合同"
+              },
+              {
                 "group": ["react", "react-dom", "@huhu/ui", "@huhu/workbench"],
                 "message": "插件 engine 不得导入 UI"
               }
@@ -56,8 +60,32 @@
                 "message": "禁止深路径导入"
               },
               {
+                "regex": "^(?:\\.\\./){3,}(?:plugins/)?[^/]+/src/",
+                "message": "插件间使用公开包入口或共享合同"
+              },
+              {
                 "group": ["node:*", "@huhu/vault", "@huhu/kernel", "@huhu/plugin-*/engine"],
                 "message": "插件 ui 不得导入 Node 或 engine"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["plugins/*/src/shared/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@huhu/*/src/**"],
+                "message": "禁止深路径导入"
+              },
+              {
+                "regex": "^(?:\\.\\./){3,}(?:plugins/)?[^/]+/src/",
+                "message": "插件间使用公开包入口或共享合同"
               }
             ]
           }

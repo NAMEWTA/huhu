@@ -23,14 +23,14 @@ import {
 import type { Context } from "@huhu/cordis";
 import { bindCapability, defineCapability, defineCapabilityDescriptor, ExposureStore, toolSelection, type CapabilityContext, type HuhuApi } from "@huhu/kernel";
 import { machineId, resolveReadableAsset, VaultFiles, versionOf, type DeviceDispatchBudget } from "@huhu/vault";
-import { newId } from "@huhu/contracts";
+import { newId, type TaskFollowUpDispatch, type TaskRuleDispatch, type TaskScheduleAdmission } from "@huhu/contracts";
 import { AgentDispatchTargetInfoSchema } from "@huhu/plugin-agent-cli/engine";
 import { agentById } from "@huhu/plugin-agent-cli/shared";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { createAgentDispatchExecutor } from "./agent-dispatch-executor.js";
-import { TaskDispatch, type TaskDispatchExecutor, type TaskScheduleAdmission } from "./dispatch.js";
+import { TaskDispatch, type TaskDispatchExecutor } from "./dispatch.js";
 import { DispatchInput, DispatchLookup, DispatchReceipt, DispatchStore, fingerprint, RecentTaskRun, RetryDispatch, StopLookup, StopReceipt, TaskDispatchView, TaskRunSummary } from "./dispatch-store.js";
 import { GitHubSources, githubSourceDescriptors } from "./github-sources.js";
 import { TaskNativeReplies, TaskReplyInput, TaskReplyLookup, TaskReplyView, TaskSupplementInput, TaskSupplementLookup, TaskSupplementView } from "./native-replies.js";
@@ -41,9 +41,7 @@ import { agentDispatchBlocker, TasksService } from "./service.js";
 
 export { TasksService } from "./service.js";
 export type { TaskDispatchExecutor } from "./dispatch.js";
-export type TaskRuleDispatch = Pick<TaskDispatch, "acceptRule"> & Partial<Pick<TaskDispatch, "readAcceptedRule">> & Pick<TasksService, "createFromRule">;
-export type { TaskScheduleAdmission } from "./dispatch.js";
-export type TaskFollowUpDispatch = Pick<TaskDispatch, "acceptFollowUp">;
+export type { TaskFollowUpDispatch, TaskRuleDispatch, TaskScheduleAdmission } from "@huhu/contracts";
 
 /** 其他插件通过 `api.service<TaskQuery>("taskQuery")` 使用。 */
 export interface TaskQuery {

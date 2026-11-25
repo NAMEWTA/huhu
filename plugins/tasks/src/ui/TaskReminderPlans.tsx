@@ -1,11 +1,11 @@
 import type { PlanSummary, TaskDto } from "@huhu/contracts";
 import { Button, DateTimePicker, Dialog } from "@huhu/ui";
-import { AutomationPlanLink, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
+import { AutomationPlanLink, createPlanIntentId, useCapability, useEngine, useTaskAutomationViews, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
-import { PlanScheduleControls, planIntentId } from "../../../automations/src/ui/PlanScheduleControls.js";
 
 export function TaskReminderPlans({ task, onNavigate }: { task: TaskDto; onNavigate: ModuleProps["onNavigate"] }) {
   const engine = useEngine();
+  const PlanScheduleControls = useTaskAutomationViews()?.PlanScheduleControls;
   const plans = useCapability<{ plans: PlanSummary[] }>("automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: task.id } } });
   const [scheduledFor, setScheduledFor] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -15,7 +15,7 @@ export function TaskReminderPlans({ task, onNavigate }: { task: TaskDto; onNavig
 
   async function save() {
     if (!scheduledFor) return;
-    const input = pending ?? { intentId: planIntentId(), scheduledFor };
+    const input = pending ?? { intentId: createPlanIntentId(), scheduledFor };
     setBusy(true);
     setPending(input);
     setError("");
@@ -41,7 +41,7 @@ export function TaskReminderPlans({ task, onNavigate }: { task: TaskDto; onNavig
           {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time>
             : plan.trigger.kind === "cron" ? <span>{plan.trigger.expression} · {plan.trigger.zone}</span> : null}
           <small>{plan.lastOccurrence?.state === "unknown" ? "待核实" : plan.lastOccurrence?.state === "completed" ? "已递送" : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : "待触发"}</small>
-          <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
+          {PlanScheduleControls ? <PlanScheduleControls plan={plan} changed={() => plans.refetch()} /> : null}
           <AutomationPlanLink planId={plan.planId} onNavigate={onNavigate} label={`在中心管理 · ${plan.title}`} />
         </div>
       ))}

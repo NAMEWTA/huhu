@@ -26,6 +26,12 @@ export const ExecutionBindingSchema = z.strictObject({
 });
 export type ExecutionBinding = z.infer<typeof ExecutionBindingSchema>;
 
+// Lone surrogate code units would change the identifier when persisted as UTF-8.
+export const NativeStopIdSchema = z.string().min(1).max(256).regex(/\S/)
+  .refine((id) => !/[\uD800-\uDFFF]/u.test(id));
+export const NativeStopStatusSchema = z.enum(["stopped", "completed", "not_sent", "unknown", "stale", "unsupported"]);
+export type AgentProtectedDirectory = { path: string; identity: string; birthtimeNs: string };
+
 const questionFields = {
   requestId: nonBlank,
   requestVersion: z.number().int().min(1),

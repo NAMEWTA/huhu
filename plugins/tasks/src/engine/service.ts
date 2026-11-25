@@ -7,6 +7,7 @@ import {
   TaskExecutionSchema,
   TaskWritableSchema,
   type EventPayload,
+  type RuleTemplateTask,
   type EventType,
   type TaskComment,
   type TaskDto,
@@ -33,8 +34,6 @@ export interface TasksDeps {
   /** 任务是否有活动运行（automations 提供；缺省读 task-run 的状态）。 */
   hasActiveRun?(taskId: string): boolean | undefined;
 }
-
-export type RuleTemplateTask = { taskId: string; ruleId: string; occurrenceId: string; title: string; body: string; execution: TaskDto["execution"] };
 
 type TaskData = {
   title: string;

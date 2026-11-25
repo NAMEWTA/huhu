@@ -51,6 +51,7 @@ export class ObservationPlans {
     private readonly observe: ReadStatus,
     private readonly now: () => Date,
     private readonly changed: (id: string) => void,
+    private readonly sourceAvailable: (target: Observation["target"]) => boolean = () => true,
   ) {}
 
   private load() {
@@ -67,7 +68,8 @@ export class ObservationPlans {
   }
 
   private eligible(plan: Observation): boolean {
-    return !this.stopped && !plan.stopped && plan.intent === "enabled" && (!plan.machineId || plan.machineId === this.owner.machineId);
+    return !this.stopped && !plan.stopped && plan.intent === "enabled" && (!plan.machineId || plan.machineId === this.owner.machineId)
+      && this.sourceAvailable(plan.target);
   }
 
   current(planId: string, revision: string, scheduledFor: string): boolean {
@@ -77,11 +79,13 @@ export class ObservationPlans {
 
   private summary(plan: Observation): PlanSummary {
     const { planId, revision, machineId, target, title, createdAt, updatedAt, intent } = plan;
+    const foreign = !!machineId && machineId !== this.owner.machineId;
     const availability: PlanSummary["availability"] = this.files.readOnly ? { state: "blocked", reason: "read-only" }
-      : machineId && machineId !== this.owner.machineId ? { state: "blocked", reason: "foreign-owner" }
-      : !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
-    const actions: PlanSummary["actions"] = this.files.readOnly || intent === "deleted" || availability.state === "blocked" ? [] : ["delete", "reschedule"];
-    if (actions.length) actions.push(intent === "enabled" && !plan.stopped ? "pause" : "resume");
+      : foreign ? { state: "blocked", reason: "foreign-owner" }
+      : !this.deliveries() || !this.sourceAvailable(target) ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
+    const actions: PlanSummary["actions"] = this.files.readOnly || foreign || intent === "deleted" ? [] : ["delete", "reschedule"];
+    if (actions.length && intent === "enabled" && !plan.stopped) actions.push("pause");
+    else if (actions.length && availability.state === "ready") actions.push("resume");
     const recent = plan.lastOccurrenceId ? this.deliveries()?.readPlanOccurrence(plan.lastOccurrenceId) : null;
     return {
       planId, revision, title, createdAt, updatedAt, intent: plan.stopped && intent === "enabled" ? "paused" : intent, availability, actions,
@@ -163,6 +167,7 @@ export class ObservationPlans {
       else if (write.change === "set-intent") {
         next.intent = write.intent;
         if (write.intent === "enabled") {
+          if (!this.deliveries() || !this.sourceAvailable(plan.target)) throw errors.invalidInput("原观察来源暂不可用");
           next.stopped = false;
           next.nextAt = this.instant();
           next.since = null;

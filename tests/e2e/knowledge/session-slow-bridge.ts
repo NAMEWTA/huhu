@@ -58,19 +58,19 @@ export async function engineReady(page: Page): Promise<void> {
   }
 }
 
-export async function call<T>(page: Page, capability: string, input: object): Promise<T> {
+export async function call<T>(page: Page, capability: string, input: object, intentKey?: string): Promise<T> {
   return page.evaluate(
-    async ({ capability, input }) => {
+    async ({ capability, input, intentKey }) => {
       const endpoint = await window.huhuHost?.engine();
       const res = await fetch(`${endpoint?.baseUrl ?? ""}/api/v1/call`, {
         method: "POST",
         headers: { ...(endpoint?.token && { authorization: `Bearer ${endpoint.token}` }), "content-type": "application/json" },
-        body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+        body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), intentKey }),
       });
       const result = await res.json();
       if (!result.ok) throw new Error(JSON.stringify(result.error));
       return result.data;
     },
-    { capability, input },
+    { capability, input, intentKey },
   );
 }

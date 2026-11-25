@@ -58,6 +58,10 @@ export class TaskReminderPlans {
     return Boolean(task && !task.readOnly && task.status !== "completed");
   }
 
+  taskSourceAvailable(): boolean {
+    return this.tasks() !== undefined;
+  }
+
   current(planId: string, revision: string, at: string): boolean {
     const plan = this.load().plans.find((entry) => entry.planId === planId);
     return Boolean(plan && plan.intent === "enabled" && plan.revision === revision && plan.scheduledFor === at && this.taskAvailable(plan.taskId));
@@ -67,8 +71,9 @@ export class TaskReminderPlans {
     const task = this.task(plan.taskId);
     const readOnly = this.files.readOnly || task?.readOnly;
     const availability: PlanSummary["availability"] = readOnly ? { state: "blocked", reason: "read-only" }
+      : !this.taskSourceAvailable() || !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" }
       : !task || task.status === "completed" ? { state: "blocked", reason: "target-unavailable" }
-      : !this.deliveries() ? { state: "blocked", reason: "plugin-disabled" } : { state: "ready" };
+      : { state: "ready" };
     const occurrence = this.deliveries()?.readPlanOccurrence(planReminderOccurrenceId(plan));
     const actions: PlanSummary["actions"] = readOnly || plan.intent === "deleted" ? [] : ["reschedule", "delete"];
     if (actions.length > 0 && !occurrence?.effects.some(({ state }) => state === "completed" || state === "unknown")) {
