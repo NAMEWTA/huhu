@@ -45,7 +45,7 @@
 
 ## 返工要点（第 1 次修复）
 
-先把 inv/w2 快进到 main（含 Lead 夹具修正 dbe349f3），只修复以下 Lead 实测失败，不扩展范围：
+先把 inv/w2 快进到 main（含 Lead 夹具修正 dbe349f3 及 UX08–UX10 合入 6f0a8c89），只修复以下 Lead 实测失败，不扩展范围：
 
 1. UX05「UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，保存后可重新打开」：Vault 已有默认 Space，原 `agent.spaces.save` 冲突，Lead 已改为复用已有 Space。之后在 460×640 窗口保存后点击列表中「打开任务 …」超时：`aside.tasks-task-detail` 的 `.hu-tw-detail-title` 覆盖列表并拦截指针。按窄栏原型判断：若窄宽下详情覆盖列表是预期行为，则用例应先经可见的返回/关闭入口回到列表；若不是，则修正布局。说明你的判断依据。
 2. UX06「UX06：待处理事项只投影原任务、问题和投递，处理后收件项数保持不变」：完成源任务后，`.inbox-attention` 内找不到名称匹配 `/等待回答.*验收等待问题/` 的按钮（30 秒超时）。核对合成的 dispatch/receipt/问题夹具能否被生产查询读到（例如 coreId、machineId、会话代次、receipt 路径与 fingerprint），并核对待处理投影在源任务完成后的刷新。需要时增加对应 engine 定向单测，复现夹具读取路径。
