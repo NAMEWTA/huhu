@@ -1,12 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { TaskExecutionSchema, type ExecutionBinding, type ExecutionReceipt, type TaskDto } from "../../../packages/contracts/src/index.js";
-import { executionReceiptIdentity } from "../../../packages/contracts/src/execution-receipt-engine.js";
-import { machineId, VaultFiles } from "../../../packages/vault/src/index.js";
+import type { TaskDto } from "../../../packages/contracts/src/index.js";
+import { VaultFiles } from "../../../packages/vault/src/index.js";
 import { operationIdFor, OutboxStorage } from "../../../plugins/mail/src/engine/outbox-storage.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
-import { DispatchStore, eventIdOf, fingerprint, type DispatchSnapshot } from "../../../plugins/tasks/src/engine/dispatch-store.js";
+import { seedAttentionQuestion } from "../../../plugins/tasks/test/attention-fixture.js";
 import { openApp } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
@@ -105,8 +104,12 @@ test("UX05：窄窗口可填写长中文、多个标签与 Agent 日期字段，
     await expect.poll(() => call(page, "tasks.read", { id: task.id })).toMatchObject({
       title, body: text, tags, due: "2026-12-18", type: "agent", execution: { provider: "codex", spaceId: space.id },
     });
+    const detail = page.getByTestId("task-detail");
+    await expect(detail.getByTestId("detail-title")).toHaveText(title);
+    await detail.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+    await expect(detail).toHaveCount(0);
     await page.getByRole("button", { name: `打开任务 ${title}` }).click();
-    await page.getByTestId("detail-edit").click();
+    await detail.getByTestId("detail-edit").click();
     await expect(dialog.getByLabel("任务名称")).toHaveValue(title);
     await expect(body).toHaveText(text);
   } finally {
@@ -181,34 +184,16 @@ test("UX06：待处理事项只投影原任务、问题和投递，处理后收�
     const captureList = () => call<unknown[]>(page, "inbox.list", {});
     const before = (await captureList()).length;
     const task = await call<TaskDto>(page, "tasks.create", { title: "验收源任务" });
-    const agentTask = await call<TaskDto>(page, "tasks.create", { title: "验收等待问题", type: "agent", body: "保留任务和问题绑定" });
-    const { id: vaultId } = await call<{ id: string }>(page, "vault.info", {});
-    const dispatchId = randomUUID();
-    const runId = "run-attention-fixture";
-    const at = new Date().toISOString();
-    const device = machineId();
-    const files = new VaultFiles(path.join(vault, ".huhu"));
-    const execution: ExecutionBinding = { vaultId, taskId: agentTask.id, dispatchId, runId, attempt: 1, sessionBinding: {
-      machineId: device, sessionId: "attention-session", coreId: "fixture-core", coreAddress: "t9", processGeneration: "fixture-generation", provider: "codex", nativeSessionId: null,
-    } };
-    const snapshot: DispatchSnapshot = {
-      taskId: agentTask.id, inputRevision: agentTask.inputRevision, inputHash: agentTask.inputHash, expectedVersion: agentTask.version, taskVersion: agentTask.version,
-      body: agentTask.body, references: [], execution: TaskExecutionSchema.parse({ provider: "codex", spaceId: "fixture-space", target: { mode: "new" } }), source: { kind: "desktop" },
-    };
-    const store = new DispatchStore(files, vaultId, device);
-    await store.create({
-      receipt: { taskId: agentTask.id, dispatchId, eventId: eventIdOf(dispatchId), runId, attempt: 1, acceptedAt: at, state: "running", reason: null, cancelRequested: false },
-      snapshot, requestHash: fingerprint(snapshot), snapshotHash: fingerprint(snapshot), claim: { at, machineId: device }, boundExecution: execution, startedAt: at, finishedAt: null,
+    const [space] = await call<{ id: string }[]>(page, "agent.spaces.list", {});
+    const agentTask = await call<TaskDto>(page, "tasks.create", {
+      title: "验收等待问题",
+      type: "agent",
+      body: "保留任务和问题绑定",
+      execution: { provider: "codex", spaceId: space!.id },
     });
-    const receipt: ExecutionReceipt = {
-      version: 1, receiptId: randomUUID(), execution, kind: "question",
-      payload: { mode: "normal", requestId: "attention-question", requestVersion: 1, text: "确认原任务的问题", options: [] },
-    };
-    const key = fingerprint(receipt.receiptId);
-    await files.write(`tasks/receipts/${key}.json`, Buffer.from(JSON.stringify({
-      format: 1, receipt, consumption: { execution, delivery: { receipt: executionReceiptIdentity(receipt), deliveryId: `delivery-${key}`, messageId: `receipt-${key}` } },
-      at, status: "delivered",
-    })), { expectedVersion: null });
+    const { id: vaultId } = await call<{ id: string }>(page, "vault.info", {});
+    const { runId, requestId, text: questionText } = await seedAttentionQuestion(new VaultFiles(path.join(vault, ".huhu")), vaultId, agentTask);
+    const at = new Date().toISOString();
     const outbox = new OutboxStorage(new VaultFiles(vault));
     const mail = [];
     for (const state of ["unknown", "not-delivered"] as const) {
@@ -227,6 +212,9 @@ test("UX06：待处理事项只投影原任务、问题和投递，处理后收�
     }
     await page.reload();
     await engineReady(page);
+    await expect.poll(() => call(page, "tasks.questions.list", { taskId: agentTask.id })).toMatchObject([
+      { runId, requestId, text: questionText, status: "awaiting" },
+    ]);
     const openAttention = async () => {
       await navigate(page, "收件箱");
       const details = page.locator(".inbox-attention");
@@ -234,13 +222,14 @@ test("UX06：待处理事项只投影原任务、问题和投递，处理后收�
       return details;
     };
     let detail = await openAttention();
+    await expect(detail.getByRole("button", { name: /等待回答.*验收等待问题/ })).toBeVisible();
     await detail.getByRole("button", { name: /待处理任务.*验收源任务/ }).click();
     await expect(page.getByTestId("detail-title")).toHaveText(task.title);
     await call(page, "tasks.setStatus", { id: task.id, expectedVersion: task.version, status: "completed" });
     detail = await openAttention();
     await expect(detail.getByRole("button", { name: /待处理任务.*验收源任务/ })).toHaveCount(0);
     await detail.getByRole("button", { name: /等待回答.*验收等待问题/ }).click();
-    const question = page.getByTestId("task-run-question").filter({ hasText: "确认原任务的问题" });
+    const question = page.getByTestId("task-run-question").filter({ hasText: questionText });
     await expect(question).toBeFocused();
     for (const entry of mail) {
       detail = await openAttention();

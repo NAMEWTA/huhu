@@ -25,6 +25,7 @@ import { externalEntries, externalToolEntry } from "./external-tool-entry.js";
 import { TasksService } from "../src/engine/service.js";
 import { dispatchSnapshotText } from "../src/engine/dispatch-store.js";
 import { githubAuthor, githubCommentEvent, githubIssue, githubIssueEvent, githubRepository } from "./github-fixture.js";
+import { seedAttentionQuestion } from "./attention-fixture.js";
 
 const dirs: string[] = [];
 const engines: RunningEngine[] = [];
@@ -822,6 +823,23 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
     vi.unstubAllEnvs();
     injection.mockRestore();
   }
+});
+
+test("UX06 待回答问题通过原运行投影，完成无关任务后继续可见", async () => {
+  const engine = await start(tempVault(), true);
+  const { data: sourceTask } = await call<TaskDto>(engine, "tasks.create", { title: "待处理源任务" });
+  const { data: [space] } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
+  const { data: agentTask } = await call<TaskDto>(engine, "tasks.create", { title: "等待回答的任务", type: "agent", execution: { provider: "codex", spaceId: space!.id } });
+  const { runId, requestId, text } = await seedAttentionQuestion(new VaultFiles(engine.vault.stateDir), engine.vault.id, agentTask);
+  const question = { taskId: agentTask.id, title: agentTask.title, runId, questionId: requestId, state: "awaiting" };
+  const pending = { taskId: sourceTask.id, title: sourceTask.title, state: "pending" };
+  expect(await call(engine, "tasks.questions.list", { taskId: agentTask.id })).toEqual({
+    ok: true, data: [expect.objectContaining({ runId, requestId, text, status: "awaiting" })],
+  });
+  const attention = () => call(engine, "tasks.attention", {});
+  expect(await attention()).toEqual({ ok: true, data: expect.arrayContaining([pending, question]) });
+  expect(await call(engine, "tasks.setStatus", { id: sourceTask.id, expectedVersion: sourceTask.version, status: "completed" })).toMatchObject({ ok: true });
+  expect(await attention()).toEqual({ ok: true, data: [question] });
 });
 
 test("普通回答重开后只派发一轮到原会话，保留父运行和明确选中的消息", { timeout: 60_000 }, async () => {
