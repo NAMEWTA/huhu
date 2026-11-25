@@ -24,6 +24,7 @@ type Action =
   | { kind: "reminder"; mode: "notification" | "task" | "both"; text: string; taskId: string | null };
 /** 表单里的动作种类：agent 动作按输入来源拆成两项。 */
 type FormKind = "agent_tasks" | "agent_prompt" | "terminal" | "reminder";
+export type RuleTemplate = { kind: FormKind; title: string; cron: string };
 const formKindOf = (a: Action | undefined): FormKind => (!a ? "reminder" : a.kind === "agent" ? (a.input.source === "tasks" ? "agent_tasks" : "agent_prompt") : a.kind);
 
 interface Space {
@@ -41,11 +42,13 @@ interface Detected {
 /** 规则编辑器（新建 / 编辑）：标题、触发（预设+时刻或 cron+时区）、动作（让 Agent 执行 / 运行终端命令 / 提醒），保存时默认保持暂停。 */
 export function RuleEditor({
   rule,
+  template,
   zone,
   onSave,
   onCancel,
 }: {
   rule?: EditableRule;
+  template?: RuleTemplate;
   zone: string;
   onSave(v: { title: string; expectedVersion?: string; trigger: { preset: string; cron: string; zone: string }; action: Record<string, unknown>; body: string }): Promise<boolean>;
   onCancel?(): void;
@@ -53,14 +56,15 @@ export function RuleEditor({
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const providers = useCapability<Detected[]>("agent.catalog.detect", {});
   const [start] = useState(rule);
-  const init = start ? presetOf(start.data.trigger.cron) : { preset: "every5" as PresetId, time: "09:00" };
+  const initialCron = start?.data.trigger.cron ?? template?.cron;
+  const init = initialCron ? presetOf(initialCron) : { preset: "every5" as PresetId, time: "09:00" };
   const a = start?.data.action;
-  const [title, setTitle] = useState(rule?.data.title ?? "");
+  const [title, setTitle] = useState(rule?.data.title ?? template?.title ?? "");
   const [preset, setPreset] = useState<PresetId>(init.preset);
   const [time, setTime] = useState(init.time);
-  const [custom, setCustom] = useState(rule?.data.trigger.cron ?? "*/5 * * * *");
+  const [custom, setCustom] = useState(initialCron ?? "*/5 * * * *");
   const [tz, setTz] = useState(rule?.data.trigger.zone ?? zone);
-  const [kind, setKind] = useState<FormKind>(formKindOf(a));
+  const [kind, setKind] = useState<FormKind>(template?.kind ?? formKindOf(a));
   const tasks = useCapability<{ id: string; title: string }[]>("tasks.list", {}, { enabled: kind === "reminder" });
   const prompt0 = a?.kind === "agent" && a.input.source === "prompt" ? a.input : null;
   const [text, setText] = useState(a?.kind === "reminder" ? a.text : "");

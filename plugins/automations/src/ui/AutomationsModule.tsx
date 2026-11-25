@@ -1,421 +1,84 @@
-import { Badge, Button, Dialog, EmptyState, IconButton } from "@huhu/ui";
-import type { PlanSummary } from "@huhu/contracts";
-import type { ObservationConfiguration } from "../engine/observations.js";
-import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
-import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { Badge, Button, EmptyState } from "@huhu/ui";
+import { ArrowUpRight, History, List, Workflow } from "lucide-react";
+import { useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
-import { t } from "./i18n.js";
-import { RuleEditor, type EditableRule } from "./RuleEditor.js";
+import { PlanDirectory } from "./PlanDirectory.js";
+import { formatMoment } from "./plan-presentation.js";
 import { RunsPanel } from "./RunsPanel.js";
-import { PlanScheduleControls } from "./PlanScheduleControls.js";
-import { ObservationEditor } from "./ObservationEditor.js";
-import { TerminalEnvironment } from "./TerminalEnvironment.js";
+import { t } from "./i18n.js";
 
-type Rule = EditableRule;
-type AgentRunIntent = { id: string; expectedVersion: string; intentId: string };
-
-function createRunIntentId(): string {
-  const id = createRequestId();
-  // LAN HTTP uses the random-byte fallback. Format it as a UUID accepted by runNow.
-  return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
-}
-interface Preview {
-  next: string[];
-  tasksDisabled: boolean;
-  candidates: { taskId: string; title: string }[];
-  skipped: { taskId: string; title: string; reason: keyof typeof t.reasons }[];
-}
 interface Activation {
   activationId: string;
   ruleId: string;
   trigger: "schedule" | "manual";
   startedAt: string;
-  finishedAt?: string;
   summary?: unknown;
 }
 
-const actionLabel = (a: Rule["data"]["action"]): string => (a.kind === "agent" ? (a.input.source === "tasks" ? t.kinds.agent_tasks : t.kinds.agent_prompt) : a.kind === "terminal" ? t.kinds.terminal : t.kinds.reminder);
+const views = { plans: "计划", activations: t.nav.activations, runs: t.nav.runs } as const;
+type View = keyof typeof views;
 
 export function AutomationsModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
-  const qc = useQueryClient();
-  const [nav, setNav] = useState<"rules" | "plans" | "activations" | "runs">("rules");
-  const [sel, setSel] = useState<string | null>(null);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null); // 正在编辑的规则 id（null = 底部显示“新建”）
-  const [agentRunIntent, setAgentRunIntent] = useState<AgentRunIntent | null>(null);
-  const [runningAgentRule, setRunningAgentRule] = useState(false);
-  const rules = useCapability<Rule[]>("automations.list", {});
-  const acts = useCapability<Activation[]>("automations.activations", {});
-  const cur = (rules.data ?? []).find((r) => r.id === sel) ?? rules.data?.[0] ?? null;
-  const refresh = () => qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId });
+  return <AutomationCenter key={engine.vaultId} onNavigate={onNavigate} />;
+}
 
-  async function act<T>(cap: string, input: unknown): Promise<T | null> {
-    setError(null);
-    try {
-      const r = await engine.call<T>(cap, input, { write: true });
-      await refresh();
-      return r;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return null;
-    }
-  }
+function AutomationCenter({ onNavigate }: { onNavigate: ModuleProps["onNavigate"] }) {
+  const [view, setView] = useState<View>("plans");
+  const [historyPlan, setHistoryPlan] = useState<string | null>(null);
 
-  async function runAgentRule(intent: AgentRunIntent) {
-    setAgentRunIntent(intent);
-    setRunningAgentRule(true);
-    setError(null);
-    try {
-      await engine.call("automations.runNow", intent, { write: true, idempotencyKey: intent.intentId });
-      setAgentRunIntent(null);
-      await refresh();
-    } catch (failure) {
-      const ambiguous = !(failure instanceof CapabilityError) || failure.code === "INTERNAL" || failure.code === "UNAUTHENTICATED";
-      if (!ambiguous) setAgentRunIntent(null);
-      setError(ambiguous ? "未收到运行确认，可核对原运行。" : (failure as CapabilityError).message);
-    } finally {
-      setRunningAgentRule(false);
-    }
-  }
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
-  const list = (rules.data ?? []).filter((r) => `${r.data.title}`.toLowerCase().includes(query.toLowerCase()));
-  const heading: Record<string, [string, string]> = {
-    rules: [t.nav.rules, "设置何时让 Agent 处理任务、运行命令或提醒"],
-    plans: ["计划", "查看各模块安排的计划"],
-    activations: [t.nav.activations, `${(acts.data ?? []).length} 条记录`],
-    runs: [t.nav.runs, "Agent 与命令的运行记录"],
-  };
   return (
     <div className="hu-module-layout hu-tw-workbench tw-automation" data-testid="automations-module">
       <aside className="hu-tw-navigation" aria-label={t.title}>
-        <div className="hu-tw-nav-title">
-          <Workflow size={16} aria-hidden />
-          <strong>{t.title}</strong>
-        </div>
+        <div className="hu-tw-nav-title"><Workflow size={16} aria-hidden /><strong>{t.title}</strong></div>
         <nav aria-label="自动化导航">
-          {(["rules", "plans", "activations", "runs"] as const).map((k) => (
-            <button key={k} type="button" className={nav === k ? "active" : ""} aria-current={nav === k} onClick={() => setNav(k)}>
-              <span>{heading[k]?.[0]}</span>
-              <small>{k === "rules" ? (rules.data ?? []).length : k === "activations" ? (acts.data ?? []).length : ""}</small>
+          {(Object.keys(views) as View[]).map((id) => (
+            <button key={id} type="button" className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined}
+              onClick={() => { setView(id); if (id === "activations") setHistoryPlan(null); }}>
+              {views[id]}
             </button>
           ))}
         </nav>
-        <div className="hu-tw-nav-bottom">
-          {onNavigate ? (
-            <Button variant="ghost" icon={List} data-testid="automations-open-tasks" onClick={() => onNavigate("tasks")}>
-              打开任务
-              <ArrowUpRight size={13} aria-hidden />
-            </Button>
-          ) : null}
-          <p>
-            让 Agent 处理未开始的任务
-            <br />
-            或按时间运行命令、提醒
-          </p>
-        </div>
+        {onNavigate ? <div className="hu-tw-nav-bottom">
+          <Button variant="ghost" icon={List} data-testid="automations-open-tasks" onClick={() => onNavigate("tasks")}>
+            打开任务 <ArrowUpRight size={13} aria-hidden />
+          </Button>
+        </div> : null}
       </aside>
       <main className="automations-automation-main">
-        <header className="hu-tw-heading">
-          <div>
-            <h1>{heading[nav]?.[0]}</h1>
-            <p>{heading[nav]?.[1]}</p>
-          </div>
-          <Button icon={Plus} onClick={() => setCreating(true)} data-testid="rule-new">
-            新建自动化
-          </Button>
-        </header>
-        {error ? (
-          <div role="alert" className="hu-field-error" style={{ padding: "0 28px" }}>
-            {error}
-          </div>
-        ) : null}
-        {nav === "plans" ? (
-          <PlansPanel />
-        ) : nav === "runs" ? (
-          <div className="automations-task-content" style={{ padding: "0 28px" }}>
-            <RunsPanel {...(onNavigate ? { onNavigate } : {})} />
-          </div>
-        ) : nav === "rules" ? (
-          <div className="automations-automation-columns">
-            <section className="automations-rule-list">
-              <div className="hu-tw-search">
-                <Search size={14} aria-hidden />
-                <input aria-label="搜索自动化" placeholder="搜索自动化…" value={query} onChange={(e) => setQuery(e.target.value)} />
-              </div>
-              {list.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  className={`hu-tw-rule-item${cur?.id === r.id ? " active" : ""}`}
-                  data-testid="rule-row"
-                  aria-label={`打开自动化 ${r.data.title}`}
-                  aria-current={cur?.id === r.id}
-                  onClick={() => {
-                    setSel(r.id);
-                    setPreview(null);
-                  }}
-                >
-                  <div>
-                    <Workflow size={16} aria-hidden />
-                    <strong>{r.data.title}</strong>
-                    <Badge tone={r.data.enabled ? "success" : "neutral"}>{r.data.enabled ? t.enabled : t.paused}</Badge>
-                  </div>
-                  <p>
-                    {r.data.trigger.cron} · {r.data.trigger.zone}
-                  </p>
-                  <small>{actionLabel(r.data.action)}</small>
-                </button>
-              ))}
-              {list.length === 0 ? <EmptyState icon={Workflow} title="没有匹配的自动化" /> : null}
-            </section>
-            {cur ? (
-              <section className="automations-rule-detail" aria-label={cur.data.title} data-testid="rule-detail">
-                <div className="hu-tw-rule-detail-header">
-                  <div>
-                    <Badge tone={cur.data.enabled ? "success" : "neutral"}>{cur.data.enabled ? t.enabled : t.paused}</Badge>
-                    <h2>{cur.data.title}</h2>
-                  </div>
-                  <div>
-                    <IconButton icon={Pencil} label="编辑当前自动化" onClick={() => setEditing(cur.id)} data-testid="rule-edit" />
-                    <Button variant="ghost" icon={cur.data.enabled ? Pause : Play} onClick={() => void act("automations.setEnabled", { id: cur.id, enabled: !cur.data.enabled })}>
-                      {cur.data.enabled ? t.pause : t.enable}
-                    </Button>
-                  </div>
-                </div>
-                <div className="automations-rule-flow">
-                  <span>定时激活</span>
-                  <ArrowRight size={15} aria-hidden />
-                  <span>{actionLabel(cur.data.action)}</span>
-                  <ArrowRight size={15} aria-hidden />
-                  <span>记录结果</span>
-                </div>
-                {cur.data.action.kind === "agent" && cur.data.action.input.source === "tasks" ? (
-                  <div className="automations-scan-contract">
-                    <strong>{t.scanTitle}</strong>
-                    <p>{t.scanHintA}</p>
-                    <p>{t.scanHintB}</p>
-                    {cur.data.action.input.tags.length > 0 ? <p>标签筛选：{cur.data.action.input.tags.map((x) => `#${x}`).join(" ")}（全部匹配）</p> : null}
-                    {cur.body.trim() ? <pre className="hu-tw-source-preview">{cur.body.trim()}</pre> : null}
-                  </div>
-                ) : cur.data.action.kind === "agent" ? (
-                  <section className="automations-markdown">
-                    <h3>固定需求</h3>
-                    <pre className="hu-tw-source-preview">{cur.body.trim() || "尚未配置内容。"}</pre>
-                  </section>
-                ) : cur.data.action.kind === "terminal" ? (
-                  <section className="automations-markdown">
-                    <h3>命令</h3>
-                    <pre className="hu-tw-source-preview">{cur.data.action.command}</pre>
-                  </section>
-                ) : (
-                  <section className="automations-markdown">
-                    <h3>提醒内容</h3>
-                    <p>{cur.data.action.text}</p>
-                  </section>
-                )}
-                {cur.data.action.kind === "terminal" && host() ? (
-                  cur.data.legacyEnvironment ? (
-                    <p role="status">旧终端环境需要重新配置。编辑并确认替换后，规则会暂停。</p>
-                  ) : (
-                    <TerminalEnvironment key={cur.id} ruleId={cur.id} showExternalApproval={cur.data.action.shell === "powershell" || cur.data.action.shell === "sh"} />
-                  )
-                ) : null}
-                <RuleSchedule id={cur.id} version={cur.version} zone={cur.data.trigger.zone} />
-                <div className="automations-rule-preview-action">
-                  <Button icon={Search} onClick={() => void act<Preview>("automations.preview", { id: cur.id }).then(setPreview)}>
-                    {cur.data.action.kind === "agent" && cur.data.action.input.source === "tasks" ? "预览将处理的任务" : t.preview}
-                  </Button>
-                  <p>预览不写日志、不运行；立即运行才会记录一次激活。</p>
-                  <div className="row" style={{ marginTop: 10 }}>
-                    <Button
-                      variant="primary"
-                      icon={Play}
-                      disabled={cur.data.legacyEnvironment || runningAgentRule || (agentRunIntent !== null && agentRunIntent.id !== cur.id)}
-                      onClick={() => {
-                        if (agentRunIntent?.id === cur.id) void runAgentRule(agentRunIntent);
-                        else if (cur.data.action.kind === "agent") void runAgentRule({ id: cur.id, expectedVersion: cur.version, intentId: createRunIntentId() });
-                        else void act("automations.runNow", { id: cur.id });
-                      }}
-                    >
-                      {agentRunIntent?.id === cur.id && !runningAgentRule ? "核对原运行" : t.runNow}
-                    </Button>
-                    <Button onClick={() => void act("automations.cancel", { id: cur.id })}>{t.cancel}</Button>
-                    <Button variant="danger" onClick={() => void act("automations.delete", { id: cur.id })}>
-                      {t.delete}
-                    </Button>
-                  </div>
-                </div>
-                {preview ? (
-                  <div className="automations-scan-contract" data-testid="rule-preview">
-                    <strong>{t.next}</strong>
-                    <div className="automations-schedule-preview">
-                      {preview.next.map((n) => (
-                        <time key={n}>{new Date(n).toLocaleString("zh-CN", { hour12: false })}</time>
-                      ))}
-                    </div>
-                    {preview.tasksDisabled ? <p>{t.tasksDisabled}</p> : null}
-                    <strong>
-                      {t.candidates} {preview.candidates.length}
-                    </strong>
-                    <div className="automations-scan-list">
-                      {preview.candidates.map((c) => (
-                        <div key={c.taskId} data-testid="preview-candidate">
-                          <FileText size={14} aria-hidden />
-                          <strong>{c.title}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    <strong>
-                      {t.skipped} {preview.skipped.length}
-                    </strong>
-                    <div className="automations-scan-list">
-                      {preview.skipped.map((sk) => (
-                        <div key={sk.taskId} className="automations-scan-skipped" data-testid="preview-skipped">
-                          <strong>{sk.title}</strong>
-                          <small>{t.reasons[sk.reason] ?? sk.reason}</small>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                <section className="automations-rule-linked">
-                  <h3>最近激活</h3>
-                  {(acts.data ?? [])
-                    .filter((x) => x.ruleId === cur.id)
-                    .slice(0, 5)
-                    .map((x) => (
-                      <button key={x.activationId} type="button" onClick={() => setNav("activations")}>
-                        <History size={13} aria-hidden />
-                        <span>{new Date(x.startedAt).toLocaleString("zh-CN")}</span>
-                        <small>{t.trigger[x.trigger]}</small>
-                        <ArrowRight size={13} aria-hidden />
-                      </button>
-                    ))}
-                  {(acts.data ?? []).filter((x) => x.ruleId === cur.id).length === 0 ? <p className="tasks-hint">尚未激活。启用配置不等于已经运行。</p> : null}
-                </section>
-              </section>
-            ) : null}
-          </div>
-        ) : (
-          <div className="automations-occurrence-list">
-            {(acts.data ?? []).length === 0 ? (
-              <EmptyState icon={History} title={t.noActivations} hint="立即运行或等待定时激活后，结果会出现在这里。" />
-            ) : (
-              (acts.data ?? []).map((a) => (
-                <article key={a.activationId} className="automations-occurrence" data-testid="activation-row">
-                  <header>
-                    <strong>{(rules.data ?? []).find((r) => r.id === a.ruleId)?.data.title ?? "原自动化已移除"}</strong>
-                    <time>{new Date(a.startedAt).toLocaleString("zh-CN")}</time>
-                    <Badge>{t.trigger[a.trigger]}</Badge>
-                  </header>
-                  <div className="automations-run-summary">{t.summary(a.summary)}</div>
-                </article>
-              ))
-            )}
-          </div>
-        )}
+        <PlanDirectory active={view === "plans"} onNavigate={onNavigate}
+          onOpenRuns={(plan) => { setHistoryPlan(plan); setView("activations"); }} />
+        {view === "activations" ? <Activations planId={historyPlan} back={() => setView("plans")} /> : null}
+        {view === "runs" ? <div className="automations-task-content plan-history">
+          <h1>运行记录</h1>
+          <RunsPanel {...(onNavigate && { onNavigate })} />
+        </div> : null}
       </main>
-      {creating ? (
-        <Dialog open wide title="新建自动化" description="按时间激活一个动作；任务执行与普通待办完成分开。" onClose={() => setCreating(false)} error={error} testId="rule-dialog">
-          <RuleEditor
-            key="new"
-            zone={zone}
-            onCancel={() => setCreating(false)}
-            onSave={async (v) => {
-              const r = await act("automations.create", v);
-              if (r !== null) setCreating(false);
-              return r !== null;
-            }}
-          />
-        </Dialog>
-      ) : null}
-      {cur && editing === cur.id ? (
-        <Dialog open wide title="编辑自动化" onClose={() => setEditing(null)} error={error} testId="rule-dialog">
-          <RuleEditor
-            key={cur.id}
-            rule={cur}
-            zone={zone}
-            onCancel={() => setEditing(null)}
-            onSave={async (v) => {
-              const r = await act("automations.update", { id: cur.id, expectedVersion: v.expectedVersion, patch: { title: v.title, trigger: v.trigger, action: v.action }, body: v.body });
-              if (r !== null) setEditing(null);
-              return r !== null;
-            }}
-          />
-        </Dialog>
-      ) : null}
     </div>
   );
 }
 
-function PlansPanel() {
-  const engine = useEngine();
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [editObservation, setEditObservation] = useState<ObservationConfiguration | null>(null);
-  const [loadingObservation, setLoadingObservation] = useState(false);
-  const [editError, setEditError] = useState("");
-  const plans = useCapability<{ plans: PlanSummary[]; nextCursor: string | null }>("automations.plans.list", { ...(cursor && { cursor }), limit: 30 });
-  async function openObservation(planId: string) {
-    setLoadingObservation(true);
-    setEditError("");
-    try {
-      const config = await engine.call<ObservationConfiguration | null>("automations.plans.readObservation", { planId });
-      if (config) setEditObservation(config);
-      else setEditError("原观察已删除。");
-    } catch (failure) {
-      setEditError(failure instanceof Error ? failure.message : "暂时无法读取观察设置。");
-    } finally {
-      setLoadingObservation(false);
-    }
-  }
+function Activations({ planId, back }: { planId: string | null; back(): void }) {
+  const activations = useCapability<Activation[]>("automations.activations");
+  const rules = useCapability<{ id: string; data: { title: string } }[]>("automations.list");
+  const rows = activations.data?.filter(({ ruleId }) => planId === null || planId === ruleId) ?? [];
+  const titles = new Map(rules.data?.map(({ id, data }) => [id, data.title]));
   return (
-    <div className="automations-task-content" data-testid="plan-directory">
-      {plans.error ? <p role="alert">{plans.error.message}</p> : null}
-      <Button icon={Plus} disabled={loadingObservation} onClick={() => setCreating(true)}>新建状态观察</Button>
-      {creating ? <ObservationEditor onClose={() => setCreating(false)} onSaved={() => plans.refetch()} /> : null}
-      {editObservation ? <ObservationEditor key={editObservation.planId} initial={editObservation}
-        onClose={() => setEditObservation(null)} onSaved={() => plans.refetch()} /> : null}
-      {editError ? <p role="alert">{editError}</p> : null}
-      {plans.data?.plans.map((plan) => (
-        <section key={plan.planId} className="hu-tw-detail-section" data-plan-id={plan.planId}>
-          <h3>{plan.title}</h3>
-          {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time> : null}
-          {plan.trigger.kind === "observe" ? <p>每 {plan.trigger.everySeconds} 秒检查</p> : null}
-          {plan.trigger.kind === "interval" ? <p>每 {plan.trigger.every} {plan.trigger.unit === "minutes" ? "分钟" : "秒"}</p> : null}
-          <p>{plan.lastOccurrence?.state === "completed" && !plan.nextAt ? "最近一次已完成"
-            : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? (plan.availability.detail ?? "暂不可用") : plan.action.summary}</p>
-          {plan.trigger.kind === "interval" && plan.nextAt ? <p>下一次 <time dateTime={plan.nextAt}>{new Date(plan.nextAt).toLocaleString()}</time></p> : null}
-          {plan.trigger.kind === "interval" && plan.lastOccurrence?.state === "failed" ? <p>最近一次执行失败</p> : null}
-          {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
-          {plan.trigger.kind === "observe" && plan.actions.includes("reschedule")
-            ? <Button icon={Pencil} disabled={loadingObservation} onClick={() => void openObservation(plan.planId)}>编辑观察</Button> : null}
-          <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
-        </section>
-      ))}
-      {cursor ? <Button onClick={() => setCursor(null)}>返回第一页</Button> : null}
-      {plans.data?.nextCursor ? <Button onClick={() => setCursor(plans.data?.nextCursor ?? null)}>下一页</Button> : null}
-    </div>
-  );
-}
-
-/** 规则详情里常驻的“接下来的激活时间”（原型 SchedulePreview）：只预览，不写日志、不运行。 */
-function RuleSchedule({ id, version, zone }: { id: string; version: string; zone: string }) {
-  const preview = useCapability<Preview>("automations.preview", { id, expectedVersion: version });
-  if (preview.isError || !preview.data) return null;
-  const fmt = new Intl.DateTimeFormat("sv-SE", { timeZone: zone || undefined, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  return (
-    <div className="automations-schedule-preview" data-testid="rule-schedule">
-      <strong>接下来的激活时间</strong>
-      <small>{zone || "本地时区"} · 仅预览</small>
-      {preview.data.next.map((time) => (
-        <time key={time} dateTime={time}>
-          {fmt.format(new Date(time))}
-        </time>
+    <div className="automations-occurrence-list plan-history">
+      <h1>{t.nav.activations}</h1>
+      {planId ? <Button onClick={back}>返回计划目录</Button> : null}
+      {activations.error ? <p role="alert">{activations.error.message}</p> : null}
+      {activations.isPending ? <p role="status">正在读取激活记录…</p> : null}
+      {activations.data && rows.length === 0 ? <EmptyState icon={History} title={t.noActivations} /> : null}
+      {rows.map((row) => (
+        <article key={row.activationId} className="automations-occurrence" data-testid="activation-row">
+          <header>
+            <strong>{titles.get(row.ruleId) ?? "原自动化已移除"}</strong>
+            <time dateTime={row.startedAt}>{formatMoment(row.startedAt)}</time>
+            <Badge>{t.trigger[row.trigger]}</Badge>
+          </header>
+          <div className="automations-run-summary">{t.summary(row.summary)}</div>
+        </article>
       ))}
     </div>
   );

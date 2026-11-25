@@ -1,6 +1,7 @@
 import { errors, isHuhuError, PlanOccurrenceSchema, PlanRefSchema, PlanSourceSchema, PlanSummarySchema, PlanWriteResultSchema, PlanWriteSchema, type PlanDirectory, type PlanOccurrence, type PlanSource, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
+import { filterPlanPage, planOrders, planStates } from "../shared/plan-directory.js";
 import { nextRuns, validateSchedule } from "../shared/cron.js";
 import type { DefaultTaskScan } from "./default-task-scan.js";
 import type { FollowUps } from "./follow-ups.js";
@@ -13,7 +14,12 @@ import { ObservationEditView, ObservationInput, ObservationUpdateInput, type Obs
 const identifier = PlanRefSchema.shape.planId;
 const ListPlans = z.strictObject({
   source: PlanSourceSchema.optional(),
-  cursor: identifier.optional(),
+  plugin: identifier.optional(),
+  action: identifier.optional(),
+  state: z.enum(planStates).optional(),
+  query: z.string().max(256).optional(),
+  order: z.enum(planOrders).optional(),
+  cursor: z.string().min(1).max(8192).optional(),
   limit: z.int().min(1).max(200).default(100),
 });
 const PlanPage = z.strictObject({ plans: z.array(PlanSummarySchema), nextCursor: identifier.nullable() });
@@ -136,12 +142,18 @@ function rulePlan(rule: Rule, api: HuhuApi, deps: CatalogueDeps, now: Date, rece
     if (data.enabled) actions.push("pause");
     else if (availability.state === "ready") actions.push("resume");
   }
-  const actionSummary = { agent: "执行 Agent 任务或提示词", terminal: "运行终端命令", reminder: "递送提醒" };
+  const action = data.action;
+  const target = action.kind === "agent" && action.input.source === "prompt" ? { kind: "agent-space", id: action.input.spaceId }
+    : action.kind === "terminal" && action.spaceId ? { kind: "agent-space", id: action.spaceId }
+    : taskId ? { kind: "task", id: taskId } : object;
+  const actionSummary = action.kind === "agent"
+    ? (action.input.source === "tasks" ? "扫描 Agent 任务" : `向 ${action.input.provider} 派遣新任务`)
+    : action.kind === "terminal" ? "运行终端命令" : "递送提醒";
   return {
     planId, revision, title: data.title,
     source,
     owner: { scope: "vault", vaultId: api.vault.vaultId },
-    action: { capability: "automations.runNow", object, summary: actionSummary[data.action.kind] },
+    action: { capability: "automations.runNow", object, summary: target.kind === "agent-space" ? `${actionSummary} · ${target.id}` : actionSummary },
     intent: data.enabled ? "enabled" : "paused",
     availability,
     trigger: { kind: "cron", expression, zone },
@@ -183,15 +195,16 @@ async function changeRule(rule: Rule, change: PlanWrite, deps: CatalogueDeps, ap
 }
 
 export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
-  const directory: ReadDirectory = {
-    async list({ source, cursor, limit }, signal) {
+  const directory: ReadDirectory & { list(input: z.output<typeof ListPlans>, signal: AbortSignal): Promise<z.output<typeof PlanPage>> } = {
+    async list(input: z.output<typeof ListPlans>, signal) {
+      const { source } = input;
       signal.throwIfAborted();
       await (source ? deps.periodic.importSource(source.plugin) : deps.periodic.importReady());
       signal.throwIfAborted();
       const now = deps.now();
       const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
       const recent = rules.length > 0 ? latestActivation(deps.activations()) : undefined;
-      const matches = (plan: PlanSummary) => (!source || matchesSource(plan.source, source)) && (!cursor || plan.planId > cursor);
+      const matches = (plan: PlanSummary) => !source || matchesSource(plan.source, source);
       const candidates = [
         ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
         ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
@@ -199,9 +212,8 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ...deps.periodic.list(),
         ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
         ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
-      ].filter(matches).sort((a, b) => (a.planId < b.planId ? -1 : Number(a.planId > b.planId)));
-      const plans = candidates.slice(0, limit);
-      return { plans, nextCursor: candidates.length > limit ? plans.at(-1)?.planId ?? null : null };
+      ].filter(matches);
+      return filterPlanPage(candidates, input);
     },
     async read(planId, signal) {
       signal.throwIfAborted();
@@ -216,9 +228,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       return deps.periodic.readOccurrence(occurrenceId) ?? deps.readCronOccurrence(occurrenceId) ?? deps.followUps.readOccurrence(occurrenceId);
     },
   };
-  api.defineCapability(bindCapability(planDescriptors.list, (context, { source, cursor, limit }) => directory.list({
-    limit, ...(source && { source }), ...(cursor && { cursor }),
-  }, context.signal)));
+  api.defineCapability(bindCapability(planDescriptors.list, (context, input) => directory.list(input, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.read, (context, { planId }) => directory.read(planId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.occurrence, (context, { occurrenceId }) => directory.readOccurrence(occurrenceId, context.signal)));
   api.defineCapability(bindCapability(planDescriptors.taskReminder, (context, input) => {

@@ -11,11 +11,11 @@ type Observation = {
   repeat: boolean; stopAtTerminal: boolean; effect: string; intentId: string;
 };
 
-export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): void; onSaved(): Promise<unknown>; initial?: ObservationConfiguration }) {
+export function ObservationEditor({ onClose, onSaved, initial, targetKind }: { onClose(): void; onSaved(): Promise<unknown>; initial?: ObservationConfiguration; targetKind?: Target["kind"] }) {
   const engine = useEngine();
   const id = useId();
   const [original] = useState(initial);
-  const [kind, setKind] = useState<Target["kind"]>(original?.target.kind ?? "task");
+  const [kind, setKind] = useState<Target["kind"]>(original?.target.kind ?? targetKind ?? "task");
   const [threshold, setThreshold] = useState(original?.condition.kind === "threshold");
   const [unit, setUnit] = useState(original && original.everySeconds % 60 !== 0 ? "seconds" : "minutes");
   const initialInterval = original ? original.everySeconds / (original.everySeconds % 60 === 0 ? 60 : 1) : 1;
@@ -45,7 +45,7 @@ export function ObservationEditor({ onClose, onSaved, initial }: { onClose(): vo
     setError("");
     try {
       await engine.call(original ? "automations.plans.updateObservation" : "automations.plans.createObservation",
-        { ...input, ...(original && { planId: original.planId, expectedRevision: original.revision }) },
+        { ...input, ...(original ? { planId: original.planId, expectedRevision: original.revision } : { startPaused: true }) },
         { write: true, intentKey: input.intentId, idempotencyKey: input.intentId },
       );
       await onSaved();

@@ -8,7 +8,7 @@ export function planIntentId(): string {
   return id.length === 32 ? `${id.slice(0, 8)}-${id.slice(8, 12)}-4${id.slice(13, 16)}-8${id.slice(17, 20)}-${id.slice(20)}` : id;
 }
 
-export function PlanScheduleControls({ plan, changed }: { plan: PlanSummary; changed(): Promise<unknown> }) {
+export function PlanScheduleControls({ plan, changed, scheduleOnly = false }: { plan: PlanSummary; changed(): Promise<unknown>; scheduleOnly?: boolean }) {
   const engine = useEngine();
   const [pending, setPending] = useState<PlanWrite | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,9 +76,9 @@ export function PlanScheduleControls({ plan, changed }: { plan: PlanSummary; cha
           if (trigger.kind === "cron") { setCron(trigger.expression); setZone(trigger.zone); }
           setEditing(true);
         }}>改期</Button> : null}
-        {plan.actions.includes("pause") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "paused" })}>暂停</Button> : null}
-        {plan.actions.includes("resume") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "enabled" })}>启用</Button> : null}
-        {plan.actions.includes("delete") ? <Button disabled={!writable} onClick={() => { setError(""); setEditRevision(plan.revision); setDeleting(true); }}>删除</Button> : null}
+        {!scheduleOnly && plan.actions.includes("pause") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "paused" })}>暂停</Button> : null}
+        {!scheduleOnly && plan.actions.includes("resume") ? <Button disabled={!writable} onClick={() => void submit({ ...writeBase(), change: "set-intent", intent: "enabled" })}>启用</Button> : null}
+        {!scheduleOnly && plan.actions.includes("delete") ? <Button disabled={!writable} onClick={() => { setError(""); setEditRevision(plan.revision); setDeleting(true); }}>删除</Button> : null}
         {pending && !editing && !deleting ? <Button disabled={busy} onClick={() => void submit(pending)}>核对原变更</Button> : null}
       </div>
       {showError ? <p role="alert">{error}</p> : null}
