@@ -1,13 +1,6 @@
 import type { TaskDto, TaskExecution, TaskStatus, TaskType } from "@huhu/contracts";
 import { normalizeTags } from "@huhu/contracts";
 
-export interface DraftReminder {
-  id: string;
-  /** ISO 时间；null = 还没选。 */
-  at: string | null;
-  enabled: boolean;
-  deliveredAt: string | null;
-}
 /** 编辑对话框里的表单状态（字符串/可空字段，和界面控件一一对应）。 */
 export interface TaskDraft {
   title: string;
@@ -24,7 +17,6 @@ export interface TaskDraft {
   effort: string | null;
   fast: boolean;
   target: NonNullable<TaskExecution["target"]> | null;
-  reminders: DraftReminder[];
 }
 
 export const emptyDraft = (over: Partial<TaskDraft> = {}): TaskDraft => ({
@@ -41,7 +33,6 @@ export const emptyDraft = (over: Partial<TaskDraft> = {}): TaskDraft => ({
   effort: null,
   fast: false,
   target: null,
-  reminders: [],
   ...over,
 });
 
@@ -60,11 +51,10 @@ export function draftFromTask(t: TaskDto): TaskDraft {
     effort: t.execution?.effort ?? null,
     fast: t.execution?.fast ?? false,
     target: t.execution?.target ?? null,
-    reminders: t.reminders.map((r) => ({ id: r.id, at: r.at, enabled: r.enabled, deliveredAt: r.deliveredAt })),
   };
 }
 
-export type DraftProblem = "title" | "space" | "provider" | "target" | "reminder";
+export type DraftProblem = "title" | "space" | "provider" | "target";
 
 /** 保存前校验；返回有问题的字段（空数组 = 可以保存）。 */
 export function validateDraft(d: TaskDraft): DraftProblem[] {
@@ -75,7 +65,6 @@ export function validateDraft(d: TaskDraft): DraftProblem[] {
     if (d.target?.mode !== "existing" && !d.provider) p.push("provider");
     if (d.target?.mode === "resume" && (!d.target.history || d.target.history.spaceId !== d.spaceId)) p.push("target");
   }
-  if (d.reminders.some((r) => !r.at)) p.push("reminder");
   return p;
 }
 
@@ -91,7 +80,6 @@ export function draftToWritable(d: TaskDraft) {
     availableAt: d.availableAt,
     project: d.project.trim() || null,
     execution: hasExecution ? { spaceId: d.spaceId, provider: d.provider, model: d.model, effort: d.effort, fast: d.fast, ...(d.target && { target: d.target }) } : null,
-    reminders: d.reminders.filter((r): r is DraftReminder & { at: string } => r.at !== null).map((r) => ({ id: r.id, channel: "in_app" as const, at: r.at, enabled: r.enabled, deliveredAt: r.deliveredAt })),
   };
 }
 

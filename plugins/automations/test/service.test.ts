@@ -13,7 +13,9 @@ import { SpaceStore } from "../../agent-cli/src/engine/spaces.js";
 import { createAgentDispatchExecutor } from "../../tasks/src/engine/agent-dispatch-executor.js";
 import type { ApprovedLinuxShell } from "../src/engine/approved-linux-shell.js";
 import { Scheduler } from "../src/engine/scheduler.js";
+import { ReminderDeliveries, taskReminderOccurrenceId } from "../src/engine/reminder-deliveries.js";
 import { AutomationsService } from "../src/engine/service.js";
+import { TaskReminderPlans } from "../src/engine/task-reminder-plans.js";
 import { TaskScanOccurrences } from "../src/engine/task-scan-occurrences.js";
 import { registerTerminalEnvironments } from "../src/engine/terminal-environment.js";
 
@@ -147,6 +149,65 @@ function setup(
 const every5 = { preset: "every5", cron: "*/5 * * * *", zone: "UTC" };
 const terminalAction = { kind: "terminal", command: "echo fixture", shell: "default", spaceId: null } as const;
 const terminalSlot = new Date("2026-11-10T12:00:00Z");
+
+test("改期排在提醒选中与副作用之间时，旧发生取消且重开只递送新发生", async () => {
+  let time = new Date("2026-11-10T12:00:00Z");
+  const now = () => time;
+  const { svc, root } = setup({ now });
+  const source = task("task-reminder-fixture");
+  const seen = new Set<string>();
+  const notification = { send: vi.fn(({ id }: { id: string }) => { seen.add(id); }), has: (id: string) => seen.has(id) };
+  const open = (files: VaultFiles) => {
+    const plans = new TaskReminderPlans(files, "vault", svc, () => ({
+      listAll: () => [source], listDispatchable: () => [], snapshot: () => source,
+    }), (): ReminderDeliveries => deliveries, now, () => undefined);
+    const deliveries = new ReminderDeliveries(files, "vault", "machine", svc, () => undefined, () => source.path, notification, now, () => undefined,
+      () => true, (id, revision, at) => plans.current(id, revision, at));
+    return { plans, deliveries };
+  };
+  const files = new VaultFiles(root);
+  const first = open(files);
+  const scheduledFor = "2026-11-10T12:00:02.000Z";
+  const plan = await first.plans.create({ taskId: source.id, scheduledFor, intentId: randomUUID() }, new AbortController().signal);
+  await first.plans.tick();
+  let announce!: () => void;
+  let release!: () => void;
+  const selected = new Promise<void>((resolve) => { announce = resolve; });
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const original = files.write.bind(files);
+  const write = vi.spyOn(files, "write").mockImplementation(async (rel, bytes, options) => {
+    if (rel.startsWith("automations/reminder-deliveries/") && options?.expectedVersion === null) {
+      announce();
+      await hold;
+    }
+    return original(rel, bytes, options);
+  });
+  time = new Date(scheduledFor);
+  const tick = first.plans.tick();
+  await selected;
+  const nextAt = "2026-11-10T12:05:00.000Z";
+  const move = first.plans.change({ planId: plan.planId, expectedRevision: plan.revision, intentId: randomUUID(), change: "reschedule",
+    trigger: { kind: "once", scheduledFor: nextAt },
+  }, new AbortController().signal);
+  release();
+  const [moved] = await Promise.all([move, tick]);
+  expect(first.deliveries.readPlanOccurrence(taskReminderOccurrenceId({ ...plan, scheduledFor }))).toMatchObject({ state: "cancelled" });
+  expect(notification.send).not.toHaveBeenCalled();
+  expect(moved.planId).toBe(plan.planId);
+  expect(moved.revision).not.toBe(plan.revision);
+  write.mockRestore();
+  await first.plans.close();
+  await first.deliveries.close();
+
+  time = new Date(nextAt);
+  const reopened = open(new VaultFiles(root));
+  await reopened.plans.tick();
+  await reopened.deliveries.recover();
+  expect(reopened.plans.read(plan.planId)).toMatchObject({ revision: moved.revision, nextAt: null, lastOccurrence: { state: "completed" } });
+  expect(notification.send).toHaveBeenCalledTimes(1);
+  await reopened.plans.close();
+  await reopened.deliveries.close();
+});
 
 async function terminalRule(svc: AutomationsService) {
   const created = await svc.create({ title: "定时终端", trigger: every5, action: terminalAction });

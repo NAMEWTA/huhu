@@ -17,6 +17,7 @@ import { MissedRunGraceMinutes, Rule, RuleVersion, Trigger } from "./rule-schema
 import { Scheduler } from "./scheduler.js";
 import { AutomationsService, hasLegacyTerminalEnvironment, isTaskScanRule, TASK_SCAN_INSTRUCTIONS_LIMIT, type ActivationRecord, type TaskQueryLike } from "./service.js";
 import { TaskScanOccurrences } from "./task-scan-occurrences.js";
+import { TaskReminderPlans } from "./task-reminder-plans.js";
 import { registerTaskScanTools, TaskScanAction, taskScanAuthorization, taskScanToolDescriptors, type TaskScanPrincipalCheck } from "./task-scan-tools.js";
 import { registerTerminalEnvironments, type AutomationCredentialHost } from "./terminal-environment.js";
 
@@ -64,6 +65,7 @@ export const automationToolDescriptors = {
   plansRead: planDescriptors.read,
   plansReadOccurrence: planDescriptors.occurrence,
   plansSubmit: planDescriptors.submit,
+  plansCreateTaskReminder: planDescriptors.taskReminder,
   plansDefaultTaskScan: planDescriptors.defaultTaskScan,
   followUpsGet: defineCapabilityDescriptor({
     name: "automations.followUps.get",
@@ -322,7 +324,11 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     (taskId) => api.events.publish("entity.changed", { kind: "task-follow-up", id: taskId, op: "updated" }),
   );
   api.provide("taskFollowUps", followUps);
-  const reminders = opts.reminderNotifications
+  const taskReminders = new TaskReminderPlans(
+    stateFiles, api.vault.vaultId, svc, () => api.service<TaskQueryLike>("taskQuery"), () => reminders, now,
+    (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
+  );
+  const reminders: ReminderDeliveries | undefined = opts.reminderNotifications
     ? new ReminderDeliveries(
         stateFiles,
         api.vault.vaultId,
@@ -339,6 +345,8 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
         opts.reminderNotifications,
         now,
         publishActivation,
+        (id) => taskReminders.taskAvailable(id),
+        (id, revision, at) => taskReminders.current(id, revision, at),
       )
     : undefined;
   if (reminders) api.provide("automationReminderDeliveries", reminders);
@@ -346,6 +354,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     const check = () => {
       void followUps.tick().catch(() => undefined);
       void reminders?.recover().catch(() => undefined);
+      void taskReminders.tick().catch(() => undefined);
       if (!stateFiles.readOnly) void scans.recover().catch(() => undefined);
       if (!stateFiles.readOnly) void svc.reconcileTerminals().catch(() => undefined);
     };
@@ -354,7 +363,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     return () => {
       clearInterval(timer);
       followUps.close();
-      return reminders?.close();
+      return Promise.all([taskReminders.close(), reminders?.close()]).then(() => undefined);
     };
   });
   const defaults = new DefaultTaskScan(stateFiles, api.vault.files, api.vault.repo, zone, now, (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "created" }));
@@ -459,7 +468,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
   };
   const activations = () => [...svc.activations(), ...scans.list().map((occurrence) => scans.activation(occurrence)), ...(reminders?.list() ?? [])];
   const readCronOccurrence = (id: string) => scans.readPlanOccurrence(id) ?? reminders?.readPlanOccurrence(id) ?? null;
-  registerPlanCatalogue(api, { rules: svc, followUps, defaults, now, activations, readCronOccurrence, deleteRule });
+  registerPlanCatalogue(api, { rules: svc, followUps, taskReminders, defaults, now, activations, readCronOccurrence, deleteRule });
   const defineRuleTool = <I, O>(descriptor: CapabilityDescriptor<I, O>, handler: CapabilityDefinition<NoInfer<I>, NoInfer<O>>["handler"]) =>
     api.defineCapability(opts.taskScanPrincipalCurrent ? bindCapability(descriptor, handler) : { ...descriptor, handler });
   defineRuleTool(taskScanToolDescriptors.delete, async (c, i) => {

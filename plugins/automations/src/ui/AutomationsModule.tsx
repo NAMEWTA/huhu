@@ -1,10 +1,12 @@
 import { Badge, Button, Dialog, EmptyState, IconButton } from "@huhu/ui";
+import type { PlanSummary } from "@huhu/contracts";
 import { ArrowRight, ArrowUpRight, FileText, History, List, Pause, Pencil, Play, Plus, Search, Workflow } from "lucide-react";
 import { CapabilityError, createRequestId, host, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { t } from "./i18n.js";
 import { RuleEditor, type EditableRule } from "./RuleEditor.js";
 import { RunsPanel } from "./RunsPanel.js";
+import { PlanScheduleControls } from "./PlanScheduleControls.js";
 import { TerminalEnvironment } from "./TerminalEnvironment.js";
 
 type Rule = EditableRule;
@@ -35,7 +37,7 @@ const actionLabel = (a: Rule["data"]["action"]): string => (a.kind === "agent" ?
 export function AutomationsModule({ onNavigate }: ModuleProps) {
   const engine = useEngine();
   const qc = useQueryClient();
-  const [nav, setNav] = useState<"rules" | "activations" | "runs">("rules");
+  const [nav, setNav] = useState<"rules" | "plans" | "activations" | "runs">("rules");
   const [sel, setSel] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +83,7 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
   const list = (rules.data ?? []).filter((r) => `${r.data.title}`.toLowerCase().includes(query.toLowerCase()));
   const heading: Record<string, [string, string]> = {
     rules: [t.nav.rules, "设置何时让 Agent 处理任务、运行命令或提醒"],
+    plans: ["计划", "查看各模块安排的计划"],
     activations: [t.nav.activations, `${(acts.data ?? []).length} 条记录`],
     runs: [t.nav.runs, "Agent 与命令的运行记录"],
   };
@@ -92,9 +95,9 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
           <strong>{t.title}</strong>
         </div>
         <nav aria-label="自动化导航">
-          {(["rules", "activations", "runs"] as const).map((k) => (
+          {(["rules", "plans", "activations", "runs"] as const).map((k) => (
             <button key={k} type="button" className={nav === k ? "active" : ""} aria-current={nav === k} onClick={() => setNav(k)}>
-              <span>{t.nav[k]}</span>
+              <span>{heading[k]?.[0]}</span>
               <small>{k === "rules" ? (rules.data ?? []).length : k === "activations" ? (acts.data ?? []).length : ""}</small>
             </button>
           ))}
@@ -128,7 +131,9 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
             {error}
           </div>
         ) : null}
-        {nav === "runs" ? (
+        {nav === "plans" ? (
+          <PlansPanel />
+        ) : nav === "runs" ? (
           <div className="automations-task-content" style={{ padding: "0 28px" }}>
             <RunsPanel {...(onNavigate ? { onNavigate } : {})} />
           </div>
@@ -341,6 +346,27 @@ export function AutomationsModule({ onNavigate }: ModuleProps) {
           />
         </Dialog>
       ) : null}
+    </div>
+  );
+}
+
+function PlansPanel() {
+  const [cursor, setCursor] = useState<string | null>(null);
+  const plans = useCapability<{ plans: PlanSummary[]; nextCursor: string | null }>("automations.plans.list", { ...(cursor && { cursor }), limit: 30 });
+  return (
+    <div className="automations-task-content" data-testid="plan-directory">
+      {plans.error ? <p role="alert">{plans.error.message}</p> : null}
+      {plans.data?.plans.map((plan) => (
+        <section key={plan.planId} className="hu-tw-detail-section" data-plan-id={plan.planId}>
+          <h3>{plan.title}</h3>
+          {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time> : null}
+          <p>{plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
+          {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
+          <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
+        </section>
+      ))}
+      {cursor ? <Button onClick={() => setCursor(null)}>返回第一页</Button> : null}
+      {plans.data?.nextCursor ? <Button onClick={() => setCursor(plans.data?.nextCursor ?? null)}>下一页</Button> : null}
     </div>
   );
 }

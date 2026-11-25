@@ -31,7 +31,7 @@ function setup(nowIso = "2026-11-10T12:00:00Z", over: { hasActiveRun?: (id: stri
 }
 const desktop: TaskOrigin = { kind: "desktop" };
 const agentExec = { spaceId: "space-1", provider: "codex", model: null, effort: null, fast: false };
-const w = (over: Partial<TaskWritable> = {}): TaskWritable => ({ title: "A", type: "human", body: "", tags: [], due: null, project: null, execution: null, reminders: [], ...over });
+const w = (over: Partial<TaskWritable> = {}): TaskWritable => ({ title: "A", type: "human", body: "", tags: [], due: null, project: null, execution: null, ...over });
 
 describe("TasksService（schema 2）", () => {
   test("A01/ACC-TK-01 创建 agent 任务：status=not_started，frontmatter 与 <task> 区段符合模型，不启动任何进程", async () => {
@@ -219,14 +219,14 @@ describe("TasksService（schema 2）", () => {
     expect(readFileSync(path.join(root, "Tasks/旧--task-old001.md"), "utf8")).toBe(v1);
   });
 
-  test("复制：新 id、未开始、inputRevision=1、提醒未投递；删除进回收站并保留 task-run", async () => {
+  test("复制：新 id、未开始、inputRevision=1；删除进回收站并保留 task-run", async () => {
     const { svc, root } = setup();
-    const t = await svc.create(w({ type: "agent", body: "x", execution: agentExec, reminders: [{ id: "rem-1", channel: "in_app", at: "2026-11-10T09:00:00Z", enabled: true, deliveredAt: "2026-11-10T09:00:05Z" }] }), desktop);
+    const t = await svc.create(w({ type: "agent", body: "x", execution: agentExec }), desktop);
     const done = await svc.setStatus(t.id, "completed", t.version);
     const dup = await svc.duplicate(done.id, desktop);
     expect(dup).toMatchObject({ status: "not_started", inputRevision: 1, comments: [] });
     expect(dup.id).not.toBe(t.id);
-    expect(dup.reminders[0]?.deliveredAt).toBeNull();
+    expect(dup.reminders).toEqual([]);
     mkdirSync(path.join(root, "Task Runs"));
     writeFileSync(
       path.join(root, "Task Runs/r--run-aaa111.md"),
@@ -236,26 +236,5 @@ describe("TasksService（schema 2）", () => {
     expect(() => svc.read(t.id)).toThrow();
     expect(readdirSync(path.join(root, "Task Runs"))).toHaveLength(1);
     expect(readdirSync(path.join(root, ".huhu/trash"))).toHaveLength(1);
-  });
-
-  test("提醒：到点未投递才返回；投递后写 deliveredAt 且任务状态不变", async () => {
-    const { svc, events, setNow } = setup("2026-11-10T08:00:00Z");
-    const t = await svc.create(
-      w({
-        reminders: [
-          { id: "rem-1", channel: "in_app", at: "2026-11-10T09:00:00Z", enabled: true, deliveredAt: null },
-          { id: "rem-2", channel: "in_app", at: "2026-11-10T07:00:00Z", enabled: false, deliveredAt: null },
-        ],
-      }),
-      desktop,
-    );
-    expect(svc.dueReminders()).toEqual([]);
-    setNow("2026-11-10T09:01:00Z");
-    expect(svc.dueReminders().map((r) => r.reminderId)).toEqual(["rem-1"]);
-    await svc.markReminderDelivered(t.id, "rem-1");
-    expect(svc.dueReminders()).toEqual([]);
-    expect(svc.read(t.id)).toMatchObject({ status: "not_started" });
-    expect(svc.read(t.id).reminders[0]?.deliveredAt).toBeTruthy();
-    expect(events).toContainEqual(["reminder.due", { taskId: t.id, reminderId: "rem-1", title: "A" }]);
   });
 });

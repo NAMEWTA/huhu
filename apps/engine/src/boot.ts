@@ -266,7 +266,7 @@ export async function boot(opts: BootOptions): Promise<RunningEngine> {
   const settingsZone = () => readSettingsFile(settingsFile).dateTime.zone;
   plugins.register({
     manifest: PluginManifestSchema.parse(tasksManifest),
-    apply: (ctx, api) => tasks.apply(ctx, api, { notify: (n) => void notifications.create(n), zone: settingsZone, ...(dispatchBudget && { dispatchBudget }) }),
+    apply: (ctx, api) => tasks.apply(ctx, api, { zone: settingsZone, ...(dispatchBudget && { dispatchBudget }) }),
   });
   plugins.register({
     manifest: PluginManifestSchema.parse(notesManifest),

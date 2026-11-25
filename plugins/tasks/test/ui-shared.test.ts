@@ -63,11 +63,10 @@ describe("编辑表单", () => {
   test("human 任务：标题必填；保存内容裁掉首尾空白，项目为空存 null，不带执行配置", () => {
     expect(validateDraft(emptyDraft())).toEqual(["title"]);
     const w = draftToWritable(emptyDraft({ title: "  买菜 ", project: " ", tags: ["#家务", "家务"] }));
-    expect(w).toMatchObject({ title: "买菜", type: "human", project: null, execution: null, tags: ["家务"], reminders: [] });
+    expect(w).toMatchObject({ title: "买菜", type: "human", project: null, execution: null, tags: ["家务"] });
   });
-  test("agent 任务必须有 Space 和 CLI；提醒必须选了时间", () => {
+  test("agent 任务必须有 Space 和 CLI", () => {
     expect(validateDraft(emptyDraft({ title: "x", type: "agent" }))).toEqual(["space", "provider"]);
-    expect(validateDraft(emptyDraft({ title: "x", reminders: [{ id: "r1", at: null, enabled: true, deliveredAt: null }] }))).toEqual(["reminder"]);
     const ok = emptyDraft({ title: "x", type: "agent", spaceId: "s1", provider: "claude", model: "m" });
     expect(validateDraft(ok)).toEqual([]);
     expect(draftToWritable(ok).execution).toEqual({ spaceId: "s1", provider: "claude", model: "m", effort: null, fast: false });
@@ -106,6 +105,7 @@ describe("编辑表单", () => {
       dispatchBlockers: [],
     };
     const w = draftToWritable(draftFromTask(task));
+    expect(w).not.toHaveProperty("reminders");
     expect(w).toMatchObject({
       title: "T",
       body: "正文 [[Notes/a.md]]",
@@ -115,7 +115,6 @@ describe("编辑表单", () => {
       availableAt: task.availableAt,
       project: "工作",
       execution: { spaceId: "s", provider: "codex" },
-      reminders: task.reminders,
     });
   });
 });

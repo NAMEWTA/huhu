@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { AutomationsService } from "@huhu/plugin-automations/engine";
 import { OperationLog, SemanticRepository } from "@huhu/vault";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -683,14 +684,17 @@ describe("Engine 启动与关闭", () => {
       await srv.close();
     }
   }, 60_000);
-  test("ACC-TK-07：已到点的提醒在引擎启动时投递为站内通知；deliveredAt 写入；任务状态不变", async () => {
+  test("ACC-TK-07：到点提醒重启后仍使用同一计划和发生，任务状态不变", async () => {
     const dir = tmp();
     const e1 = await boot({ vaultPath: dir, create: true });
     type R = { ok: boolean; data: unknown; error?: { code: string } };
-    const call = (e: RunningEngine, capability: string, input: unknown): Promise<R> =>
-      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: `key-${capability}-${Math.random().toString(36).slice(2)}` }) as unknown as Promise<R>;
-    const t = (await call(e1, "tasks.create", { title: "到点提醒", type: "human", reminders: [{ id: "rem-1", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }] })).data as { id: string };
-    await e1.shutdown(); // 模拟"应用关闭期间到点"：下次启动时补发
+    const call = (e: RunningEngine, capability: string, input: unknown, intentKey?: string): Promise<R> =>
+      post(e, e.rendererToken, { capability, input, requestId: "r", idempotencyKey: intentKey ?? randomUUID(), intentKey }) as unknown as Promise<R>;
+    const t = (await call(e1, "tasks.create", { title: "到点提醒", type: "human" })).data as { id: string };
+    const intentId = randomUUID();
+    const reminder = await call(e1, "automations.plans.createTaskReminder", { taskId: t.id, scheduledFor: "2020-01-01T00:00:00Z", intentId }, intentId);
+    expect(reminder.ok).toBe(true);
+    await e1.shutdown();
     const e2 = await boot({ vaultPath: dir });
     engines.push(e2);
     let list: { title: string; module: string }[] = [];
@@ -700,9 +704,10 @@ describe("Engine 启动与关闭", () => {
       await new Promise((r) => setTimeout(r, 50));
     }
     expect(list.map((n) => [n.title, n.module])).toEqual([["任务提醒：到点提醒", "tasks"]]);
-    const task = (await call(e2, "tasks.read", { id: t.id })).data as { status: string; reminders: { deliveredAt: string | null }[] };
-    expect(task.status).toBe("not_started");
-    expect(task.reminders[0]?.deliveredAt).toBeTruthy();
+    expect((await call(e2, "tasks.read", { id: t.id })).data).toMatchObject({ status: "not_started", reminders: [] });
+    const { planId, revision } = reminder.data as { planId: string; revision: string };
+    await expect.poll(async () => (await call(e2, "automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.id } } })).data)
+      .toMatchObject({ plans: [{ planId, revision, nextAt: null, lastOccurrence: { state: "completed" } }] });
     const ids = ((await call(e2, "notifications.list", {})).data as { id: string }[]).map((n) => n.id);
     expect(((await call(e2, "notifications.markRead", { ids })).data as { changed: number }).changed).toBe(1);
   }, 30_000);

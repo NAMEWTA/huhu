@@ -168,7 +168,7 @@ test("完整编辑请求合并评论与区段外的 Markdown 字节", { timeout:
     id: task.id,
     expectedVersion: task.version,
     baseEditHash: task.editHash,
-    patch: { title: task.title, type: task.type, body: "更新正文", tags: ["已编辑"], due: task.due, project: task.project, execution: task.execution, reminders: task.reminders },
+    patch: { title: task.title, type: task.type, body: "更新正文", tags: ["已编辑"], due: task.due, project: task.project, execution: task.execution },
   });
   expect(result).toMatchObject({ ok: true, data: { body: "更新正文", tags: ["已编辑"], inputRevision: 2, comments: [{ body: "保存前到达的评论" }] } });
   const saved = readFileSync(file);
@@ -304,15 +304,14 @@ test("Human、缺配 Agent 和显式已有会话在重启后可读，保存或�
   expect(noConfig).toMatchObject({ ok: true, data: { execution: { spaceId: null, provider: null, target: { mode: "new" } } } });
 
   const existingConfig = { spaceId, provider: "codex", target: { mode: "existing", sessionId: "fixture-huhu-session" } };
-  const reminders = [{ id: "fixture-reminder", channel: "in_app", at: "2099-01-01T00:00:00Z", enabled: true, deliveredAt: null }];
-  const existing = await call<TaskDto>(engine, "tasks.create", { title: "已有会话", type: "agent", body: "一轮任务", execution: existingConfig, reminders });
+  const existing = await call<TaskDto>(engine, "tasks.create", { title: "已有会话", type: "agent", body: "一轮任务", execution: existingConfig });
   expect(existing).toMatchObject({ ok: true, data: { execution: existingConfig } });
   expect(existing.data.dispatchBlockers).toEqual([]);
   expect(await call(engine, "tasks.create", { title: "无会话", type: "agent", execution: { target: { mode: "existing" } } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
   expect(await call(engine, "tasks.create", { title: "冲突会话", type: "agent", execution: { target: { mode: "new", sessionId: "fixture-huhu-session" } } })).toMatchObject({ ok: false, error: { code: "INVALID_INPUT" } });
 
   const patched = await call<TaskDto>(engine, "tasks.update", { id: existing.data.id, expectedVersion: existing.data.version, patch: { tags: ["合成"] } });
-  expect(patched).toMatchObject({ ok: true, data: { execution: existingConfig, reminders, inputRevision: 1, inputHash: existing.data.inputHash } });
+  expect(patched).toMatchObject({ ok: true, data: { execution: existingConfig, inputRevision: 1, inputHash: existing.data.inputHash } });
   const formConfig = { spaceId, provider: "codex", model: null, effort: null, fast: false };
   const formSaved = await call<TaskDto>(engine, "tasks.update", { id: existing.data.id, expectedVersion: patched.data.version, patch: { execution: formConfig } });
   expect(formSaved).toMatchObject({ ok: true, data: { execution: existingConfig, inputRevision: 1, inputHash: existing.data.inputHash } });

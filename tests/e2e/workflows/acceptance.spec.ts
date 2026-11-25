@@ -1,6 +1,6 @@
 /* oxlint-disable typescript/no-explicit-any */
 import { _electron as electron, chromium, expect, test, type Browser, type ElectronApplication, type Page } from "@playwright/test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,21 +8,21 @@ import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
 import { treeFileRows, treeFolder, treeItem, treeMenu, treeSettled } from "../helpers/tree.js";
 
 /** 验收补充：每条用真实桌面应用走一遍可观察行为（ACC-WB-05 / ACC-KN-09 / ACC-AG-11）。 */
-type Call = (capability: string, input?: unknown) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
+type Call = (capability: string, input?: unknown, intentKey?: string) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
 
 async function caller(page: Page): Promise<Call> {
   const ep = await page.evaluate(() => window.huhuHost.engine());
-  return (capability, input = {}) =>
+  return (capability, input = {}, intentKey) =>
     page.evaluate(
-      async ([e, cap, inp]) => {
+      async ([e, cap, inp, intentKey]) => {
         const r = await fetch(`${e.baseUrl}/api/v1/call`, {
           method: "POST",
           headers: { authorization: `Bearer ${e.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+          body: JSON.stringify({ capability: cap, input: inp, requestId: crypto.randomUUID(), idempotencyKey: intentKey ?? crypto.randomUUID(), intentKey }),
         });
         return r.json();
       },
-      [ep, capability, input] as const,
+      [ep, capability, input, intentKey] as const,
     );
 }
 
@@ -1743,10 +1743,13 @@ test("任务提醒到点：持久提示（打开任务 / 知道了）+ 通知中
       due: null,
       project: null,
       type: "human",
-      reminders: [{ id: "rem-e2e", channel: "in_app", at: "2020-01-01T00:00:00Z", enabled: true }],
     });
     expect(t.ok).toBe(true);
-    // 到点检查每 30 秒一轮
+    const intentId = randomUUID();
+    const plan = await call("automations.plans.createTaskReminder", { taskId: t.data.id, scheduledFor: "2020-01-01T00:00:00Z", intentId }, intentId);
+    expect(plan.ok).toBe(true);
+    const taskPlans = await call("automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: t.data.id } } });
+    expect(taskPlans.data.plans).toEqual([expect.objectContaining({ planId: plan.data.planId, revision: plan.data.revision })]);
     const toast = page.locator("[data-sonner-toast]").filter({ hasText: "任务提醒：到点提醒任务" });
     await expect(toast).toBeVisible({ timeout: 50_000 });
     await page.waitForTimeout(4500); // 持久：过了普通提示的消失时间仍在

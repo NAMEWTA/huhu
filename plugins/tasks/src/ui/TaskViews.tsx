@@ -1,6 +1,6 @@
 import type { TaskDto, TaskStatus } from "@huhu/contracts";
 import { IconButton } from "@huhu/ui";
-import { AlertTriangle, Bell, Bot, ChevronDown, ChevronLeft, ChevronRight, Circle, FileText, Folder } from "lucide-react";
+import { AlertTriangle, Bot, ChevronDown, ChevronLeft, ChevronRight, Circle, FileText, Folder } from "lucide-react";
 import { useState } from "react";
 import { groupByDue, monthGrid, shiftMonth } from "../shared/calendar.js";
 import { STATUS_ORDER } from "../shared/draft.js";
@@ -38,7 +38,6 @@ function TaskRow({ task, pending, selected, onStatus, onOpen }: { task: TaskDto;
       <StatusSelect task={task} pending={pending} onStatus={onStatus} />
       <button type="button" className="hu-knowledge-task-name tasks-task-name" aria-label={t.openTask(task.title)} onClick={onOpen}>
         <span>{task.title}</span>
-        {task.reminders.length > 0 ? <Bell size={12} aria-hidden /> : null}
         {task.dispatchBlockers.length > 0 && agent && task.status === "not_started" ? <AlertTriangle size={12} aria-label={t.blocked} /> : null}
         {attention > 0 ? <span className="tasks-attention">{t.attention(attention)}</span> : null}
       </button>
