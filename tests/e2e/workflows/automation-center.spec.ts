@@ -11,7 +11,15 @@ test("AW2：模板只填草稿，目录组合筛选并保留原计划身份", as
     const center = page.getByTestId("plan-directory");
     const rows = center.getByTestId("rule-row");
     await expect(center).toContainText("尚无计划");
-    await center.getByRole("button", { name: "从模板新建" }).click();
+    const templates = center.getByRole("button", { name: "从模板新建" });
+    await expect.poll(() => templates.evaluate((control) => {
+      const host = control.closest(".automation-center-host")!;
+      const surface = host.parentElement!;
+      const box = control.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      return { fillsSurface: host.clientWidth === surface.clientWidth && host.clientWidth > 0, clickable: control.contains(hit) };
+    })).toEqual({ fillsSurface: true, clickable: true });
+    await templates.click();
     await page.getByRole("button", { name: "使用模板 · 周期提醒" }).click();
     await expect(page.getByLabel("规则名称")).toHaveValue("周期提醒");
     await page.getByTestId("rule-editor").getByRole("button", { name: "取消", exact: true }).click();
