@@ -1000,6 +1000,9 @@ test("L11 总览三张卡片定位本月预算、固定收支和贷款补记并�
     await expect(byCard("固定收支下一期").locator("time")).toHaveAttribute("datetime", ledgerBusinessDayRange(nextDay, "Asia/Taipei").from);
 
     const url = await inviteWorkbench(desktop);
+    await enterLedger(desktop);
+    await desktop.getByTestId("ledger-nav-overview").click();
+    await expect(byCard("贷款补记")).toContainText("已补记 0 / 2 期");
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(url);
