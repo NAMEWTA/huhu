@@ -24,6 +24,14 @@ vi.mock("@huhu/plugin-tasks/engine", async (original) => {
 const at = "2026-11-25T00:00:00.000Z";
 const inputHash = "0000000000000000";
 const active = 2;
+const measuredFiles = /^tasks\/(dispatches|receipts|native-replies)\//;
+
+type ActivitySample = { reads: number; readBytes: number; cpuMs: number; checkMs: number; responseMs: number; rssBytes: number };
+
+function summarize(values: number[]) {
+  const sorted = values.toSorted((a, b) => a - b);
+  return { median: sorted[Math.ceil(sorted.length / 2) - 1]!, p95: sorted[Math.ceil(sorted.length * 0.95) - 1]! };
+}
 
 async function seed(engine: RunningEngine, closed: number) {
   const files = new VaultFiles(engine.vault.stateDir);
@@ -82,15 +90,19 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
       const warmStart = performance.now();
       await realCheck.call(runtime);
       const warmedMs = performance.now() - warmStart;
-      const traces = [];
+      const traces: ActivitySample[] = [];
       for (let repeat = 0; repeat < 5; repeat++) {
         const originalRead = VaultFiles.prototype.read;
+        let reads = 0;
+        let readBytes = 0;
         const probe = vi.spyOn(VaultFiles.prototype, "read").mockImplementation(function (this: VaultFiles, input) {
           const result = originalRead.call(this, input);
-          if (result && /^tasks\/(dispatches|receipts|native-replies)\//.test(input)) reads++;
+          if (result && measuredFiles.test(input)) {
+            reads++;
+            readBytes += result.bytes.byteLength;
+          }
           return result;
         });
-        let reads = 0;
         try {
           const requestAt = performance.now();
           const response = fetch(`http://127.0.0.1:${engine.port}/api/v1/call`, {
@@ -104,13 +116,20 @@ test.runIf(process.env["HUHU_F11_BENCH"] === "1")("activity reconciliation again
           const used = process.cpuUsage(cpu);
           const http = await response;
           expect(http.body).toMatchObject({ ok: true, data: { vault: { active, pending: 0, unknown: 0 } } });
-          traces.push({ reads, cpuMs: (used.user + used.system) / 1000, checkMs, responseMs: http.ms });
+          traces.push({ reads, readBytes, cpuMs: (used.user + used.system) / 1000, checkMs, responseMs: http.ms, rssBytes: process.memoryUsage.rss() });
         } finally {
           probe.mockRestore();
         }
       }
       expect(fixture.errors).toEqual([]);
-      console.info("F11", JSON.stringify({ closed, active, warmedMs, traces }));
+      const summary = {
+        reads: summarize(traces.map(({ reads }) => reads)),
+        readBytes: summarize(traces.map(({ readBytes }) => readBytes)),
+        checkMs: summarize(traces.map(({ checkMs }) => checkMs)),
+        responseMs: summarize(traces.map(({ responseMs }) => responseMs)),
+        peakSampleRssBytes: Math.max(...traces.map(({ rssBytes }) => rssBytes)),
+      };
+      console.info("F11", JSON.stringify({ closed, active, warmedMs, correct: true, summary, traces }));
       if (process.env["HUHU_F11_ASSERT_ACTIVITY"] === "1") expect(Math.max(...traces.map(({ reads }) => reads))).toBeLessThan(25);
     } finally {
       check.mockRestore();
