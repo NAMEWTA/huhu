@@ -25,6 +25,7 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "mcp-source": ["mcp.sources.", "mcp.catalog.", "mcp.diagnostics."],
   gateway: ["gateway.get"],
   "automation-activation": ["automations.activations", "automations.plans."],
+  "periodic-plan": ["automations.plans.", "mail.sync.settings"],
   "mail-ai-settings": ["mail.ai.getSettings"],
 };
 

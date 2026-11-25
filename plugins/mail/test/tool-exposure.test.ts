@@ -23,7 +23,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
   const mail = await original<typeof import("../src/engine/index.js")>();
   return {
     ...mail,
-    apply: ((ctx, api, owner, transport, _, oauth, options) =>
+    apply: ((ctx, api, owner, transport, sync, oauth, options) =>
       mail.apply(
         ctx,
         {
@@ -35,7 +35,7 @@ vi.mock("@huhu/plugin-mail/engine", async (original) => {
         },
         owner,
         transport,
-        { schedule: () => () => {} },
+        sync,
         oauth,
         options,
       )) satisfies typeof mail.apply,

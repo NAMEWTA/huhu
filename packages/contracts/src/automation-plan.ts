@@ -140,3 +140,37 @@ export interface PlanDirectory {
 export interface TaskActivityQuery {
   readTaskActivity(taskId: string, signal: AbortSignal): Promise<TaskActivity | null>;
 }
+
+/** Existing source actions, executed by Automations under one plan revision. */
+export const PeriodicPlanSpecSchema = z.strictObject({
+  planId: id,
+  source: PlanSourceSchema,
+  title: z.string().min(1).max(200),
+  everySeconds: z.int().min(1).max(86_400),
+  bounds: z.strictObject({ min: z.int().positive(), max: z.int().positive(), step: z.int().positive() }).optional(),
+  action,
+  intent,
+});
+export type PeriodicPlanSpec = z.infer<typeof PeriodicPlanSpecSchema>;
+export type PeriodicPlanChange = PeriodicPlanSpec & { expectedRevision: string | null };
+export type PeriodicRunContext = PlanRef & {
+  occurrenceId: string;
+  scheduledFor: string;
+  signal: AbortSignal;
+  isCurrent(): boolean;
+  /** Ask Automations to wake the same still-active plan for a protocol event or bounded continuation. */
+  wake(delayMs: number): void;
+};
+export interface PeriodicPlanSource {
+  readonly signal: AbortSignal;
+  legacy?(): readonly PeriodicPlanSpec[];
+  availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
+  run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<void>;
+}
+export interface PeriodicPlanControl {
+  read(planId: string): PlanSummary | null;
+  configure(changes: readonly PeriodicPlanChange[], signal: AbortSignal): Promise<PlanSummary[]>;
+  wake(plan: PlanRef, delayMs: number): void;
+}
+export const PERIODIC_PLANS_SERVICE = "automations.periodicPlans";
+export const periodicPlanSourceService = (plugin: string) => `automations.periodicSource:${plugin}`;

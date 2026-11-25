@@ -5,6 +5,7 @@ import { nextRuns, validateSchedule } from "../shared/cron.js";
 import type { DefaultTaskScan } from "./default-task-scan.js";
 import type { FollowUps } from "./follow-ups.js";
 import type { FocusDeadlinePlans } from "./focus-deadline.js";
+import type { PeriodicPlans } from "./periodic-plans.js";
 import { hasLegacyTerminalEnvironment, type ActivationRecord, type AutomationsService } from "./service.js";
 import { TaskReminderPlanInput, type TaskReminderPlans } from "./task-reminder-plans.js";
 import { ObservationEditView, ObservationInput, ObservationUpdateInput, type ObservationPlans } from "./observations.js";
@@ -68,6 +69,7 @@ type CatalogueDeps = {
   followUps: FollowUps;
   taskReminders: TaskReminderPlans;
   observations: ObservationPlans;
+  periodic: PeriodicPlans;
   focus?: FocusDeadlinePlans;
   defaults: DefaultTaskScan;
   now(): Date;
@@ -192,6 +194,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
         ...rules.map((rule) => rulePlan(rule, api, deps, now, recent?.get(rule.id))),
         ...(source && source.plugin !== "tasks" ? [] : deps.taskReminders.list()),
         ...deps.observations.list(),
+        ...deps.periodic.list(),
         ...(source && source.plugin !== "kernel" ? [] : deps.focus?.list() ?? []),
         ...(source && source.plugin !== "tasks" ? [] : deps.followUps.listPlans(source?.object.id)),
       ].filter(matches).sort((a, b) => (a.planId < b.planId ? -1 : Number(a.planId > b.planId)));
@@ -201,12 +204,12 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
     async read(planId, signal) {
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
-      if (!rule) return deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);
+      if (!rule) return deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);
       return rulePlan(rule, api, deps, deps.now(), latestActivation(deps.activations()).get(planId));
     },
     async readOccurrence(occurrenceId, signal) {
       signal.throwIfAborted();
-      return deps.readCronOccurrence(occurrenceId) ?? deps.followUps.readOccurrence(occurrenceId);
+      return deps.periodic.readOccurrence(occurrenceId) ?? deps.readCronOccurrence(occurrenceId) ?? deps.followUps.readOccurrence(occurrenceId);
     },
   };
   api.defineCapability(bindCapability(planDescriptors.list, (context, { source, cursor, limit }) => directory.list({
@@ -241,6 +244,7 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       const rule = deps.rules.rules().find(({ id }) => id === planId);
       const plan = rule
         ? await changeRule(rule, change, deps, api, assertCurrent)
+        : deps.periodic.read(planId) ? await deps.periodic.change(change, context.signal)
         : deps.taskReminders.read(planId) ? await deps.taskReminders.change(change, context.signal)
         : deps.observations.read(planId) ? await deps.observations.change(change, context.signal)
         : deps.focus?.read(planId) ? await deps.focus.change(change, context.signal)
