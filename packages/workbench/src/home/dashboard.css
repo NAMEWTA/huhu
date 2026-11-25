@@ -117,6 +117,45 @@
     gap: 16px;
   }
 
+  .hu-dashboard-catalog-filters,
+  .hu-dashboard-catalog {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+    gap: 10px;
+  }
+
+  .hu-dashboard-catalog-filters {
+    margin-block-end: 14px;
+  }
+
+  .hu-dashboard-catalog-filters > * {
+    min-inline-size: 0;
+  }
+
+  .hu-dashboard-catalog-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .hu-dashboard-catalog-card :is(h3, p) {
+    margin: 0;
+  }
+
+  .hu-dashboard-catalog-card small,
+  .hu-dashboard-catalog-size {
+    color: var(--muted);
+  }
+
+  .hu-dashboard-catalog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-block-start: auto;
+  }
+
   .hu-dashboard-canvas[data-dashboard-narrow] .hu-dashboard-grid {
     display: flex;
     flex-direction: column;

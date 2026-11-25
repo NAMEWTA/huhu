@@ -4,6 +4,7 @@ import { Copy, Grip, Plus, RotateCcw, SlidersHorizontal, X } from "lucide-react"
 import { Component, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useContainerWidth } from "react-grid-layout";
 import { createRequestId } from "../engine-client/client.js";
+import { DashboardCatalog } from "./DashboardCatalog.js";
 import { DashboardGrid, DASHBOARD_NARROW_WIDTH } from "./DashboardGrid.js";
 import { appendPlacement, movePlacement, orderPlacements, placementAnnouncement, reorderPlacement, resizePlacement, type Placement } from "./dashboard-layout.js";
 import type { useDashboard } from "./useDashboard.js";
@@ -68,19 +69,18 @@ interface DashboardProps {
   definitionsReady: boolean;
   allowed(type: string): boolean;
   unavailableReason(type: string): string;
+  sourceName(owner: string): string;
   renderWidget(instance: Instance): ReactNode;
   configureWidget?(instance: Instance, onChange: (config: Instance["config"]) => void, disabled: boolean): ReactNode;
 }
 
-export function Dashboard({ state, definitions, definitionsReady, allowed, unavailableReason, renderWidget, configureWidget }: DashboardProps) {
+export function Dashboard({ state, definitions, definitionsReady, allowed, unavailableReason, sourceName, renderWidget, configureWidget }: DashboardProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [cardSettings, setCardSettings] = useState<string>();
   const backupPicker = useId();
   const layoutHelp = useId();
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
   const [feedback, setFeedback] = useState("");
   const { width, mounted: gridReady, containerRef } = useContainerWidth({ measureBeforeMount: true });
   const narrow = width <= DASHBOARD_NARROW_WIDTH;
@@ -128,10 +128,6 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
     if (!board) return;
     state.update({ ...board, instances: board.instances.map((item) => (item.instanceId === id ? { ...item, ...patch } : item)) });
   };
-  const candidates = [...definitions.values()].filter(
-    (definition) => (category === "all" || (category === "system") === (definition.owner === "kernel")) && `${definition.title} ${definition.description} ${definition.owner}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
-  );
-  const count = (type: string) => board?.instances.filter((item) => item.widgetType === type).length ?? 0;
   function insert(instance: Instance, size: { w: number; h: number }) {
     if (!board || locked) return;
     const placement = appendPlacement(board.layout, { instanceId: instance.instanceId, w: size.w, h: size.h });
@@ -146,8 +142,6 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
   }
   function openCatalog() {
     if (!editing) state.start();
-    setSearch("");
-    setCategory("all");
     setAddOpen(true);
   }
   function resetDraft() {
@@ -329,49 +323,14 @@ export function Dashboard({ state, definitions, definitionsReady, allowed, unava
           </div>
         </Dialog>
       )}
-      <Dialog open={addOpen && editing} title="添加卡片" onClose={() => setAddOpen(false)}>
-        <div className="row">
-          <input aria-label="搜索卡片" placeholder="搜索卡片" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <select aria-label="卡片来源" value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="all">全部来源</option>
-            <option value="system">工作台</option>
-            <option value="plugin">插件</option>
-          </select>
-        </div>
-        {candidates.length ? (
-          candidates.map((definition) => {
-            const type = homeWidgetType(definition.owner, definition.id);
-            const existing = board?.instances.find((item) => item.widgetType === type);
-            const canAdd = definition.maxInstances === null || count(type) < definition.maxInstances;
-            return (
-              <div key={type} className="row">
-                <div className="hu-flex-fill">
-                  <strong>{definition.title}</strong>
-                  <p>
-                    {definition.description} · {definition.defaultSize.w} × {definition.defaultSize.h}
-                  </p>
-                </div>
-                {allowed(type) && existing?.hidden && !canAdd ? (
-                  <Button
-                    onClick={() => {
-                      changeInstance(existing.instanceId, { hidden: false });
-                      setAddOpen(false);
-                    }}
-                  >
-                    显示已隐藏卡片
-                  </Button>
-                ) : (
-                  <Button aria-label={`添加 ${definition.title}`} disabled={!allowed(type) || !canAdd} onClick={() => add(definition)}>
-                    {!allowed(type) ? "当前不可用" : canAdd ? "添加" : "已添加"}
-                  </Button>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <p>没有符合条件的卡片。</p>
-        )}
-      </Dialog>
+      {addOpen && editing && board && (
+        <DashboardCatalog definitions={definitions} instances={board.instances} allowed={allowed} unavailableReason={unavailableReason} sourceName={sourceName}
+          onAdd={add} onRestore={(instance) => {
+            if (locked || !allowed(instance.widgetType)) return;
+            changeInstance(instance.instanceId, { hidden: false });
+            setAddOpen(false);
+          }} onClose={() => setAddOpen(false)} />
+      )}
       <Dialog open={backupOpen && !editing} title="选择布局备份" onClose={() => setBackupOpen(false)}>
         <label htmlFor={backupPicker}>布局备份文件（JSON）</label>
         <input
