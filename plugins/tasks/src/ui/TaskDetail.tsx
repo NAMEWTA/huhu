@@ -138,6 +138,12 @@ export function TaskDetail({
             <dt>{t.detail.execution}</dt>
             <dd>{agent ? t.detail.targetAgent(space ? `${space.name} · ${space.root}` : (agent.spaceId ?? t.detail.none), agent.provider ?? t.detail.none) : t.manual}</dd>
           </div>
+          {task.origin.kind === "inbox" ? (
+            <div>
+              <dt>任务来源</dt>
+              <dd>收件箱</dd>
+            </div>
+          ) : null}
           <div>
             <dt>{t.detail.project}</dt>
             <dd>{task.project ?? t.detail.none}</dd>
@@ -176,7 +182,7 @@ export function TaskDetail({
         <TaskReminderPlans task={task} onNavigate={onNavigate} />
         {task.type === "agent" ? <TaskFollowUp task={task} zone={zone} onNavigate={onNavigate} /> : null}
         <Timeline task={task} zone={zone} refs={refs} onOpen={openWiki} />
-        {agent ? <RunRecords task={task} zone={zone} destination={destination} onOpenAgent={onOpenAgent} /> : null}
+        {agent ? <RunRecords task={task} zone={zone} destination={destination} onOpenAgent={onOpenAgent} onNavigate={onNavigate} /> : null}
         <CommentComposer key={task.id} task={task} refs={refs} onChanged={onChanged} onMessage={onMessage} />
       </div>
       {confirmDelete ? (
@@ -284,8 +290,8 @@ function CommentComposer({ task, refs, onChanged, onMessage }: { task: TaskDto; 
   );
 }
 
-function RunRecords({ task, zone, onOpenAgent, destination }: { task: TaskDto; zone: string | undefined; onOpenAgent(): void; destination?: TaskDestination | undefined }) {
+function RunRecords({ task, zone, onOpenAgent, onNavigate, destination }: { task: TaskDto; zone: string | undefined; onOpenAgent(): void; onNavigate?: ModuleProps["onNavigate"]; destination?: TaskDestination | undefined }) {
   const runs = useCapability<TaskRunSummary[]>("tasks.runs", { id: task.id });
   const managed = useCapability<TaskDispatchView[]>("tasks.dispatch.list", { taskId: task.id });
-  return <TaskDispatchPanel task={task} zone={zone} destination={destination} runs={runs.data ?? []} rows={managed.data} readError={managed.error ?? runs.error} onNavigate={onOpenAgent} />;
+  return <TaskDispatchPanel task={task} zone={zone} destination={destination} runs={runs.data ?? []} rows={managed.data} readError={managed.error ?? runs.error} onOpenAgent={onOpenAgent} onNavigate={onNavigate} />;
 }

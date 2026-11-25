@@ -184,6 +184,10 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
     const deliver = () => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", result.receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)]);
     const acknowledged = await deliver();
     expect(acknowledged).toMatchObject({ state: "accepted" });
+    const runCard = detail.getByTestId("managed-task-run");
+    await runCard.getByRole("button", { name: "展开结果", exact: true }).click();
+    await expect(runCard.getByText("GitHub 已接收评论")).toBeVisible();
+    await expect(runCard.getByRole("link", { name: "查看原评论", exact: true })).toHaveAttribute("href", posted!.payload.comment.html_url);
     expect(await scan()).toMatchObject([
       { taskId: id, state: "echo" },
       { taskId: id, state: "discussion" },

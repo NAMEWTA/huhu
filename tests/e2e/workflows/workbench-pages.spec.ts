@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { TaskDto } from "../../../packages/contracts/src/index.js";
+import { NotificationStore } from "../../../packages/kernel/src/notifications.js";
 import { VaultFiles } from "../../../packages/vault/src/index.js";
 import { operationIdFor, OutboxStorage } from "../../../plugins/mail/src/engine/outbox-storage.js";
 import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
@@ -177,13 +178,30 @@ test("UX06：快速捕获的斜线菜单在模态框内，中文正文和来源�
   }
 });
 
-test("UX06：待处理事项只投影原任务、问题和投递，处理后收件项数保持不变", async () => {
-  const { page, vault, close } = await openApp();
+test("UX06 / TW8 AT-A14：转换身份、待处理跳转与通知清除保留原任务和投递", async () => {
+  test.setTimeout(60_000);
+  const notice = "待处理验收通知";
+  const { page, vault, close } = await openApp({}, (dir) => {
+    new NotificationStore(path.join(dir, ".huhu", "notifications.ndjson")).create({ title: notice, module: "tasks" });
+  });
+  let browser: Browser | undefined;
   try {
     await engineReady(page);
-    const captureList = () => call<unknown[]>(page, "inbox.list", {});
-    const before = (await captureList()).length;
-    const task = await call<TaskDto>(page, "tasks.create", { title: "验收源任务" });
+    type Capture = { id: string; title: string; status: string; result: { kind: string; id: string } | null };
+    const captureList = (host = page) => call<Capture[]>(host, "inbox.list", {});
+    const capture = await call<Capture>(page, "inbox.capture", { title: "验收源任务", body: "由收件箱转换并保留原始身份。" });
+    await navigate(page, "收件箱");
+    await page.getByTestId("capture-item").filter({ hasText: capture.title }).click();
+    await page.getByRole("button", { name: /^转为任务/ }).click();
+    const convert = page.getByTestId("convert-dialog");
+    await convert.getByRole("button", { name: "创建任务并完成处理" }).click();
+    await expect(convert).toBeHidden();
+    const [processed] = await captureList();
+    expect(processed).toMatchObject({ id: capture.id, status: "processed", result: { kind: "task", id: expect.any(String) } });
+    const task = await call<TaskDto>(page, "tasks.read", { id: processed!.result!.id });
+    expect(task).toMatchObject({ title: capture.title, origin: { kind: "inbox", captureId: capture.id }, status: "not_started" });
+    await page.getByRole("button", { name: "打开原任务", exact: true }).click();
+    await expect(page.getByTestId("detail-title")).toHaveText(task.title);
     const [space] = await call<{ id: string }[]>(page, "agent.spaces.list", {});
     const agentTask = await call<TaskDto>(page, "tasks.create", {
       title: "验收等待问题",
@@ -215,30 +233,66 @@ test("UX06：待处理事项只投影原任务、问题和投递，处理后收�
     await expect.poll(() => call(page, "tasks.questions.list", { taskId: agentTask.id })).toMatchObject([
       { runId, requestId, text: questionText, status: "awaiting" },
     ]);
-    const openAttention = async () => {
-      await navigate(page, "收件箱");
-      const details = page.locator(".inbox-attention");
+    const openAttention = async (host: Page) => {
+      await navigate(host, "收件箱");
+      const pending = host.getByRole("tablist", { name: "收集状态" }).getByRole("tab", { name: "待处理", exact: true });
+      if (await pending.getAttribute("aria-selected") !== "true") await pending.click();
+      const details = host.locator(".inbox-attention");
       if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
       return details;
     };
-    let detail = await openAttention();
-    await expect(detail.getByRole("button", { name: /等待回答.*验收等待问题/ })).toBeVisible();
-    await detail.getByRole("button", { name: /待处理任务.*验收源任务/ }).click();
-    await expect(page.getByTestId("detail-title")).toHaveText(task.title);
-    await call(page, "tasks.setStatus", { id: task.id, expectedVersion: task.version, status: "completed" });
-    detail = await openAttention();
-    await expect(detail.getByRole("button", { name: /待处理任务.*验收源任务/ })).toHaveCount(0);
-    await detail.getByRole("button", { name: /等待回答.*验收等待问题/ }).click();
-    const question = page.getByTestId("task-run-question").filter({ hasText: questionText });
-    await expect(question).toBeFocused();
-    for (const entry of mail) {
-      detail = await openAttention();
-      await detail.getByRole("button", { name: new RegExp(entry.subject) }).click();
-      await expect(page.getByText(entry.messageId, { exact: true })).toBeVisible();
+    await call(page, "web.share.start", { mode: "local", port: 0 });
+    const { links } = await call<{ links: string[] }>(page, "web.invitations.create", {});
+    browser = await chromium.launch();
+    const web = await browser.newPage({ viewport: { width: 1440, height: 930 } });
+    await web.goto(links[0]!);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    const initialOutbox = await call(page, "mail.outbox.list", {});
+    for (const host of [page, web]) {
+      let detail = await openAttention(host);
+      await detail.getByRole("button", { name: /待处理任务.*验收源任务/ }).click();
+      await expect(host.getByTestId("detail-title")).toHaveText(task.title);
+      await expect(host.getByTestId("task-detail").locator("dd").getByText("收件箱", { exact: true })).toBeVisible();
+      detail = await openAttention(host);
+      await detail.getByRole("button", { name: /等待回答.*验收等待问题/ }).click();
+      await expect(host.getByTestId("task-run-question").filter({ hasText: questionText })).toBeFocused();
+      for (const entry of mail) {
+        detail = await openAttention(host);
+        await detail.getByRole("button", { name: new RegExp(entry.subject) }).click();
+        await expect(host.getByText(entry.messageId, { exact: true })).toBeVisible();
+      }
+      expect(await captureList(host)).toEqual([processed]);
     }
-    expect(await captureList()).toHaveLength(before);
+    await web.getByTestId("bell").click();
+    const notifications = web.getByTestId("notification-panel");
+    await expect(notifications.getByText(notice, { exact: true })).toBeVisible();
+    await notifications.getByRole("button", { name: "全部标为已读", exact: true }).click();
+    await expect(notifications.getByTestId("notice-item").filter({ hasText: notice })).toHaveAttribute("data-read", "true");
+    await notifications.getByRole("button", { name: "清除已读", exact: true }).click();
+    await expect(notifications.getByText(notice, { exact: true })).toHaveCount(0);
+    await notifications.getByRole("button", { name: "关闭通知", exact: true }).click();
+    await navigate(web, "收件箱");
+    await web.getByRole("tablist", { name: "收集状态" }).getByRole("tab", { name: "已整理", exact: true }).click();
+    await web.getByTestId("capture-item").filter({ hasText: capture.title }).click();
+    await web.getByRole("button", { name: "归档记录", exact: true }).click();
+    await expect(web.getByText("这条记录已归档", { exact: true })).toBeVisible();
+    expect(await captureList(web)).toMatchObject([{ id: capture.id, status: "dismissed", result: processed!.result }]);
+    expect(await call<TaskDto>(web, "tasks.read", { id: task.id })).toMatchObject({ status: "not_started", origin: task.origin });
+    expect(await call(web, "tasks.questions.list", { taskId: agentTask.id })).toMatchObject([{ runId, requestId, status: "awaiting" }]);
+    expect(await call(web, "mail.outbox.list", {})).toEqual(initialOutbox);
+    const remaining = await openAttention(web);
+    await expect(remaining.getByRole("button", { name: /待处理任务.*验收源任务/ })).toBeVisible();
+    await expect(remaining.getByRole("button", { name: /等待回答.*验收等待问题/ })).toBeVisible();
+    await expect(remaining.getByRole("button", { name: /未送达原投递/ })).toBeVisible();
+    await call(web, "tasks.setStatus", { id: task.id, expectedVersion: task.version, status: "completed" });
+    await expect(remaining.getByRole("button", { name: /待处理任务.*验收源任务/ })).toHaveCount(0);
+    await expect(remaining.getByRole("button", { name: /等待回答.*验收等待问题/ })).toBeVisible();
   } finally {
-    await close();
+    try {
+      await browser?.close();
+    } finally {
+      await close();
+    }
   }
 });
 
