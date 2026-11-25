@@ -169,8 +169,10 @@ export interface PeriodicPlanSource {
 }
 export interface PeriodicPlanControl {
   read(planId: string): PlanSummary | null;
+  inspect(planId: string): (PeriodicPlanSpec & PlanRef) | null;
   configure(changes: readonly PeriodicPlanChange[], signal: AbortSignal): Promise<PlanSummary[]>;
   wake(plan: PlanRef, delayMs: number): void;
+  importSource(plugin: string): Promise<void>;
 }
 export const PERIODIC_PLANS_SERVICE = "automations.periodicPlans";
 export const periodicPlanSourceService = (plugin: string) => `automations.periodicSource:${plugin}`;

@@ -91,6 +91,17 @@ export class PeriodicPlans implements PeriodicPlanControl {
     return plan ? this.summary(plan) : null;
   }
 
+  inspect(planId: string) {
+    const row = this.load().store.plans.find((entry) => entry.planId === planId);
+    if (!row) return null;
+    const { owner: _owner, machineId: _machine, createdAt: _created, updatedAt: _updated, lastOccurrence: _last, ...plan } = row;
+    return plan;
+  }
+
+  importSource(plugin: string): Promise<void> {
+    return this.importSources([plugin]);
+  }
+
   wake(plan: { planId: string; revision: string }, delayMs: number): void {
     if (this.closed || this.files.readOnly || !Number.isFinite(delayMs)) return;
     const current = this.load().store.plans.find(({ planId }) => planId === plan.planId);
@@ -175,18 +186,22 @@ export class PeriodicPlans implements PeriodicPlanControl {
     if (!job.running) this.jobs.delete(planId);
   }
 
-  private async importSources(): Promise<void> {
-    const ready = this.sourceIds.filter((plugin) => this.findSource(plugin)?.legacy);
+  private async importSources(plugins: readonly string[] = this.sourceIds): Promise<void> {
+    if (this.closed || this.files.readOnly) return;
+    const ready = plugins.filter((plugin) => this.sourceIds.includes(plugin) && this.findSource(plugin)?.legacy);
     if (!ready.length) return;
     const imported = this.load().store.imported;
     if (ready.every((plugin) => imported.includes(plugin))) return;
     await this.rules.withRuleConfiguration(async () => {
       const { store, revision } = this.load();
       const changed = [];
+      const importedCount = store.imported.length;
       for (const plugin of ready) {
         const port = this.findSource(plugin);
         if (!port?.legacy || port.signal.aborted || store.imported.includes(plugin)) continue;
-        for (const spec of port.legacy()) {
+        const legacy = port.legacy();
+        if (!legacy.length) continue;
+        for (const spec of legacy) {
           if (spec.source.plugin !== plugin || store.plans.some(({ planId }) => planId === spec.planId)) continue;
           const plan = this.record(spec);
           store.plans.push(plan);
@@ -194,7 +209,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
         }
         store.imported.push(plugin);
       }
-      await this.save(store, revision);
+      if (store.imported.length !== importedCount) await this.save(store, revision);
       for (const planId of changed) this.changed(planId);
     });
   }

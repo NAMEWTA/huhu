@@ -337,7 +337,7 @@ export function apply(ctx: Context, api: HuhuApi, opts: AutomationsOptions = {})
     (id) => api.events.publish("entity.changed", { kind: "automation-rule", id, op: "updated" }),
   );
   const periodic = new PeriodicPlans(stateFiles, { vaultId: api.vault.vaultId, machineId: mid, instance: terminalOwner }, svc,
-    ["mail"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
+    ["mail", "versioning"], (plugin) => api.service<PeriodicPlanSource>(periodicPlanSourceService(plugin)), opts.periodicClock ?? { now: Date.now },
     (id) => api.events.publish("entity.changed", { kind: "periodic-plan", id, op: "updated" }));
   api.provide(PERIODIC_PLANS_SERVICE, periodic);
   type TaskObservation = { comment(taskId: string, id: string, body: string): Promise<unknown> };

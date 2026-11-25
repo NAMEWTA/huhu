@@ -2,6 +2,7 @@ import { defineCapabilityDescriptor as descriptor, durableExternal } from "@huhu
 import { z } from "zod";
 import { ConfigureGitAuth, GitAuthSummary } from "./remote-auth.js";
 import { SyncConfigPatch, SyncConfigSchema } from "./sync.js";
+import { PlanSummarySchema } from "@huhu/contracts";
 
 const Entry = z.object({ id: z.string(), at: z.string(), source: z.string(), title: z.string().nullable(), path: z.string(), size: z.number() });
 const Path = z.object({ path: z.string().min(1) });
@@ -105,7 +106,9 @@ export const versioningTools = {
     input: z.object({ message: z.string(), expected: Repository.optional() }),
     output: Commit.partial({ subject: true }),
   }),
-  syncGet: descriptor({ name: "sync.get", title: "读取同步设置", description: "读取同步设置", ...common, risk: "normal", scope: "read", input: z.object({}), output: SyncConfigSchema.extend({ revision: z.string().optional() }) }),
+  syncGet: descriptor({ name: "sync.get", title: "读取同步设置", description: "读取同步设置", ...common, risk: "normal", scope: "read", input: z.object({}),
+    output: SyncConfigSchema.extend({ revision: z.string().optional(), periodics: z.object({ pull: PlanSummarySchema.nullable(), sync: PlanSummarySchema.nullable() }).optional() }),
+  }),
   syncAuthGet: descriptor({
     name: "sync.auth.get",
     title: "读取 Git 远端认证状态",
@@ -137,7 +140,7 @@ export const versioningTools = {
     risk: "high",
     ...durableExternal,
     scope: "admin",
-    input: SyncConfigPatch.extend({ expectedRevision: z.string().optional() }),
+    input: SyncConfigPatch.extend({ expectedRevision: z.string().optional(), expectedPlans: z.strictObject({ pull: z.string().nullable(), sync: z.string().nullable() }).optional() }),
     output: SyncConfigSchema.extend({ revision: z.string().optional() }),
   }),
   syncPreview: descriptor({

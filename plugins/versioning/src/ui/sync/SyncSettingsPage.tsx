@@ -6,6 +6,9 @@ import { t } from "../i18n.js";
 import { useCall } from "../useCall.js";
 import { GitAuthPanel } from "./GitAuthPanel.js";
 import type { Cfg, SyncStatus } from "./types.js";
+import type { GitPlanRevisions } from "../../engine/sync-plans.js";
+
+type ScheduleDraft = { mode: Cfg["mode"]; pullSec: string; pushSec: string; revisions: GitPlanRevisions; revision: string | undefined };
 
 /** 同步设置页（versioning 插件）：远端、分支、凭据、同步模式、间隔与排除规则。状态、预览与执行留在版本模块的同步页。 */
 export function SyncSettingsPage() {
@@ -26,10 +29,13 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
   const call = useCall();
   const [remote, setRemote] = useState(cfg.remote);
   const [branch, setBranch] = useState(cfg.branch);
-  const [mode, setMode] = useState(cfg.mode);
   const [exclude, setExclude] = useState(cfg.exclude.join("\n"));
-  const [pullSec, setPullSec] = useState(String(cfg.pullIntervalSec));
-  const [pushSec, setPushSec] = useState(String(cfg.pushIntervalSec));
+  const [schedule, setSchedule] = useState<ScheduleDraft>();
+  const base = { mode: cfg.mode, pullSec: String(cfg.pullIntervalSec), pushSec: String(cfg.pushIntervalSec) };
+  const { mode, pullSec, pushSec } = schedule ?? base;
+  const updateSchedule = (patch: Partial<typeof base>) => setSchedule((previous) => ({
+    ...base, revisions: { pull: cfg.periodics?.pull?.revision ?? null, sync: cfg.periodics?.sync?.revision ?? null }, revision: cfg.revision, ...previous, ...patch,
+  }));
   const okSec = (v: string) => /^\d+$/.test(v) && Number(v) >= 30 && Number(v) <= 3600;
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const dirty = remote !== cfg.remote || branch !== cfg.branch || mode !== cfg.mode || exclude !== cfg.exclude.join("\n") || pullSec !== String(cfg.pullIntervalSec) || pushSec !== String(cfg.pushIntervalSec);
@@ -41,15 +47,20 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
     const r = await call<Cfg>("sync.update", {
       remote: target,
       branch: branch.trim(),
-      mode,
-      pullIntervalSec: okSec(pullSec) ? Number(pullSec) : cfg.pullIntervalSec,
-      pushIntervalSec: okSec(pushSec) ? Number(pushSec) : cfg.pushIntervalSec,
+      ...((schedule ? schedule.revision : cfg.revision) && { expectedRevision: schedule ? schedule.revision : cfg.revision }),
+      ...(schedule && {
+        expectedPlans: schedule.revisions,
+        ...(mode !== cfg.mode && { mode }),
+        ...(okSec(pullSec) && Number(pullSec) !== cfg.pullIntervalSec && { pullIntervalSec: Number(pullSec) }),
+        ...(okSec(pushSec) && Number(pushSec) !== cfg.pushIntervalSec && { pushIntervalSec: Number(pushSec) }),
+      }),
       exclude: exclude
         .split("\n")
         .map((l) => l.trim())
         .filter(Boolean),
     });
     if (r.ok) setRemote((current) => (current.trim() === target ? r.data.remote : current));
+    if (r.ok || r.code === "VERSION_CONFLICT") setSchedule(undefined);
     setMsg(r.ok ? { tone: "ok", text: t.sync.saved } : { tone: "error", text: r.message });
   }
 
@@ -71,11 +82,11 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
           {t.sync.branch}
           <input className="hu-input" data-testid="sync-branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
         </label>
-        <fieldset>
+        <fieldset disabled={!cfg.periodics}>
           <legend>{t.sync.mode}</legend>
           <div role="radiogroup" aria-label={t.sync.mode} className="hu-row">
             {(["off", "follow", "full"] as const).map((m) => (
-              <Button key={m} type="button" role="radio" aria-checked={mode === m} variant={mode === m ? "primary" : "secondary"} data-testid={`sync-mode-${m}`} onClick={() => setMode(m)}>
+              <Button key={m} type="button" role="radio" aria-checked={mode === m} variant={mode === m ? "primary" : "secondary"} data-testid={`sync-mode-${m}`} onClick={() => updateSchedule({ mode: m })}>
                 {t.sync.modes[m]}
               </Button>
             ))}
@@ -85,12 +96,12 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
             <div className="hu-row">
               <label>
                 {t.sync.pullEvery}
-                <input className="hu-input" inputMode="numeric" data-testid="sync-pull-sec" aria-invalid={!okSec(pullSec)} value={pullSec} onChange={(e) => setPullSec(e.target.value)} />
+                <input className="hu-input" type="number" min={30} max={3600} data-testid="sync-pull-sec" aria-invalid={!okSec(pullSec)} value={pullSec} onChange={(e) => updateSchedule({ pullSec: e.target.value })} />
               </label>
               {mode === "full" ? (
                 <label>
                   {t.sync.pushEvery}
-                  <input className="hu-input" inputMode="numeric" data-testid="sync-push-sec" aria-invalid={!okSec(pushSec)} value={pushSec} onChange={(e) => setPushSec(e.target.value)} />
+                  <input className="hu-input" type="number" min={30} max={3600} data-testid="sync-push-sec" aria-invalid={!okSec(pushSec)} value={pushSec} onChange={(e) => updateSchedule({ pushSec: e.target.value })} />
                 </label>
               ) : null}
               <span>{t.sync.intervalRange}</span>
@@ -102,6 +113,7 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
             </p>
           ) : null}
         </fieldset>
+        {!cfg.periodics ? <p role="status">周期计划服务暂不可用。</p> : null}
         <label>
           {t.sync.exclude}
           <textarea className="hu-input" data-testid="sync-exclude" rows={3} value={exclude} onChange={(e) => setExclude(e.target.value)} />
