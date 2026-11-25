@@ -195,7 +195,7 @@ test("L11 同一 MCP 目录保留外部工具，账本按授权开放、撤权�
     upstream = await localUpstream("streamable-http");
     const source = await fromWorkbench<Source>(page, "mcp.sources.create", {
       displayName: "账本联合验收来源", namespace: "ledger_fixture",
-      configuration: { transport: "streamable-http", url: upstream.url },
+      configuration: { transport: "streamable-http", url: upstream.url, headers: {}, authentication: { kind: "none" } },
     });
     expect(await fromWorkbench(page, "mcp.sources.check", sourceRef(source))).toMatchObject({ state: "ready" });
     const catalog = await fromWorkbench<Catalog>(page, "mcp.catalog.list", { sourceId: source.sourceId });
