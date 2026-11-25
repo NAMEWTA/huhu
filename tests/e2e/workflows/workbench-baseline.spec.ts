@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Browser, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { release, tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
@@ -16,14 +16,14 @@ const diskText = "# 现场\n\n初始正文\n";
 test.use({ trace: "off" });
 test.skip(process.platform !== "linux" || !process.env["HUHU_U0_DESKTOP_APP"], "U0 使用已构建的 Linux 桌面目录和独立 Web");
 
-async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" | "web", vault: string) => Promise<void>, prepare?: (vault: string) => void, windowSize = size) {
+async function runOnHosts(info: TestInfo, sample: (host: Page, name: "electron" | "web", vault: string) => Promise<void>, prepare?: (vault: string) => void, windowSize = size, environment: Record<string, string> = {}) {
   const runtime = realpathSync(mkdtempSync(path.join(tmpdir(), "huhu-u0-")));
   let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
   let browser: Browser | undefined;
   const results: unknown[] = [];
   const failures: string[] = [];
   try {
-    desktop = await openApp({ XDG_RUNTIME_DIR: runtime }, prepare, artifacts);
+    desktop = await openApp({ ...environment, XDG_RUNTIME_DIR: runtime }, prepare, artifacts);
     await engineReady(desktop.page);
     await desktop.app.evaluate(({ BrowserWindow }, { width, height }) => {
       const window = BrowserWindow.getAllWindows()[0]!;
@@ -333,9 +333,9 @@ async function showAgent(page: Page) {
   await expect(page.getByTestId("agent-cli-module")).toBeVisible();
 }
 
-async function lastRow(terminal: Locator) {
-  const line = terminal.locator(".xterm-rows > div").filter({ hasText: "U0-LAST-ROW" }).last();
-  await expect(line).toHaveText(/U0-LAST-ROW/u, { timeout: 15_000 });
+async function lastRow(terminal: Locator, marker = "U0-LAST-ROW") {
+  const line = terminal.locator(".xterm-rows > div").filter({ hasText: marker }).last();
+  await expect(line).toContainText(marker, { timeout: 15_000 });
   return line.evaluate((element) => {
     const screen = element.closest(".xterm-screen")!.getBoundingClientRect();
     const row = element.getBoundingClientRect();
@@ -380,4 +380,213 @@ test("U0 真实 PTY 分栏拖动后的末行与光标", async ({ browserName }, 
     await screenshot(info, page, `${name}-12-terminal`);
     await info.attach(`${name}-terminal`, { body: JSON.stringify({ ...observation, ptySize: readFileSync(path.join(vault, ".u0-pty-size"), "utf8").trim() }), contentType: "application/json" });
   }, (vault) => writeFileSync(path.join(vault, ".u0-terminal.sh"), "stty size > .u0-pty-size\nread rows cols < .u0-pty-size\nprintf '\\033[2J\\033[H'\nfor i in 1 2 3 4 5 6 7 8 9; do printf 'PTY sample %s\\r\\n' \"$i\"; done\nprintf '\\033[%s;1H%s%s' \"$rows\" 'U0-LAST-' 'ROW'\nread answer\n"), { width: 1160, height: 960 });
+});
+
+test("UX08 实际 PTY 随分栏、视口和字号同步，末行完整可见", async ({ browserName }, info) => {
+  void browserName;
+  test.setTimeout(120_000);
+  await runOnHosts(info, async (page, name, vault) => {
+    await showAgent(page);
+    const history = page.getByTestId("agent-history-toggle");
+    if (await history.getAttribute("aria-expanded") === "true") await history.click();
+    await page.getByRole("button", { name: "新终端", exact: true }).click();
+    await page.getByTestId("launch-shell").click();
+    const terminals = page.getByTestId("terminal-view");
+    const first = terminals.first();
+    await expect(first).toHaveAttribute("data-state", "open");
+    const verify = async (step: string) => {
+      const marker = `UX08-${step}`;
+      const output = path.join(vault, `.${marker}`);
+      await first.locator(".xterm-helper-textarea").focus();
+      await page.keyboard.type(`sh .ux08-terminal.sh ${marker}`);
+      await page.keyboard.press("Enter");
+      const observation = await lastRow(first, marker);
+      const [rows = 0, cols = 0] = readFileSync(output, "utf8").trim().split(/\s+/u).map(Number);
+      expect(observation.rows).toBe(rows);
+      expect(observation.clippingAncestors).toEqual([]);
+      expect(observation.hitInTerminal).toBe(true);
+      expect(await first.locator(".xterm-rows > div").last().locator(".xterm-cursor").count()).toBeGreaterThan(0);
+      await info.attach(`${name}-${step}`, { body: JSON.stringify({ ...observation, rows, cols }), contentType: "application/json" });
+      await page.keyboard.press("Enter"); // 回到原 shell 及其滚动回看
+      return { rows, cols };
+    };
+    const initial = await verify(`${name}-initial`);
+    await page.getByTestId("workspace-split-down").first().click();
+    await page.getByTestId("launch-shell").click();
+    await expect(terminals).toHaveCount(2);
+    expect((await verify(`${name}-split`)).rows).toBeLessThan(initial.rows);
+    const panes = page.getByTestId("workspace-pane");
+    await panes.last().getByRole("button", { name: "放大分栏" }).click();
+    await expect(panes.first()).toBeHidden();
+    await panes.last().getByRole("button", { name: "还原分栏" }).click();
+    await expect(panes.first()).toBeVisible();
+    await page.setViewportSize({ width: 960, height: 680 });
+    const resized = await verify(`${name}-viewport`);
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--font-size", "18px");
+      window.dispatchEvent(new Event("huhu:appearance-changed"));
+    });
+    expect((await verify(`${name}-font`)).cols).toBeLessThan(resized.cols);
+  }, (vault) => writeFileSync(path.join(vault, ".ux08-terminal.sh"), `
+set -eu
+stty size > ".$1"
+read -r rows cols < ".$1"
+printf '\\033[?1049h\\033[2J\\033[H'
+i=0
+while [ "$i" -lt "$((rows * 3))" ]; do
+  printf 'PTY sample %s\\r\\n' "$i"
+  i=$((i + 1))
+done
+printf '\\033[%s;1H%s\\033[K' "$rows" "$1"
+printf '\\033[%s;%sH#\\033[%s;%sH' "$rows" "$cols" "$rows" "$cols"
+read -r answer
+printf '\\033[?1049l'
+`), { width: 1180, height: 940 });
+});
+
+test("UX09 全局会话行与 Space 树定位同一终端，切换及刷新保留布局", async ({ browserName }, info) => {
+  void browserName;
+  test.setTimeout(120_000);
+  const otherName = "UX09 第二工作区";
+  await runOnHosts(info, async (page, name, vault) => {
+    if (name === "web") await page.reload();
+    await showAgent(page);
+    const panes = page.getByTestId("workspace-pane");
+    const top = page.getByRole("navigation", { name: "全局会话" });
+    const items = top.getByTestId("session-tab");
+    if (name === "electron") {
+      const start = async (count: number) => {
+        await page.getByTestId(count === 1 ? "workspace-pane-launch" : "workspace-split-down").first().click();
+        await page.getByTestId("launch-shell").click();
+        await expect(panes.getByTestId("terminal-view")).toHaveCount(count);
+      };
+      await start(1);
+      await start(2);
+      await page.getByTestId("space-new").click();
+      await page.getByLabel("Space 名称").fill(otherName);
+      await page.getByLabel("工作目录", { exact: true }).fill(path.join(vault, "ux09-other"));
+      await page.getByTestId("space-save").click();
+      await expect(page.getByTestId("agent-space-item").filter({ hasText: otherName })).toHaveAttribute("aria-pressed", "true");
+      await start(1);
+      await start(2);
+    }
+    type Entry = { id: string; spaceId: string; terminalId: string | null };
+    const list = () => call<Entry[]>(page, "agent.sessions.list", {});
+    await expect(top).toHaveCount(1);
+    await expect(items).toHaveCount(4);
+    const before = await list();
+    expect(new Set(before.map(({ spaceId }) => spaceId)).size).toBe(2);
+    const left = before[0]!;
+    const right = before.find(({ spaceId }) => spaceId !== left.spaceId)!;
+    const bySession = (id: string) => page.locator(`[data-session-id="${id}"]`);
+    const verify = async (entry: Entry, source: "session-tab" | "space-session") => {
+      await page.getByTestId(source).and(bySession(entry.id)).click();
+      await expect(items.and(bySession(entry.id))).toHaveAttribute("aria-current", "true");
+      const treeItem = page.getByTestId("space-session").and(bySession(entry.id));
+      await expect(treeItem).toHaveAttribute("aria-current", "true");
+      await expect(treeItem.locator("img")).toHaveAttribute("src", (await items.and(bySession(entry.id)).locator("img").getAttribute("src"))!);
+      await expect(panes.and(bySession(entry.id))).toHaveAttribute("data-active", "true");
+      await expect(panes.and(bySession(entry.id)).getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+      await expect(panes).toHaveCount(2);
+    };
+    await verify(left, "session-tab");
+    await verify(right, "space-session");
+    await verify(left, "space-session");
+    await verify(right, "session-tab");
+    const toggle = page.getByRole("button", { name: `收起 ${otherName}`, exact: true });
+    await toggle.click();
+    await expect(page.getByRole("button", { name: `展开 ${otherName}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(items).toHaveCount(4);
+    await page.reload();
+    await showAgent(page);
+    await verify(left, "session-tab");
+    await verify(right, "space-session");
+    expect((await list()).map(({ id, spaceId, terminalId }) => ({ id, spaceId, terminalId }))).toEqual(before.map(({ id, spaceId, terminalId }) => ({ id, spaceId, terminalId })));
+    await info.attach(`${name}-session-navigation`, { body: JSON.stringify(before), contentType: "application/json" });
+  }, (vault) => mkdirSync(path.join(vault, "ux09-other")), { width: 1340, height: 950 });
+});
+
+test("UX10 按需启动器支持模型搜索、键盘返回和窄窗启动", async ({ browserName }, info) => {
+  void browserName;
+  test.setTimeout(120_000);
+  const bin = mkdtempSync(path.join(tmpdir(), "huhu-ux10-"));
+  writeFileSync(
+    path.join(bin, "claude"),
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then printf '2.1.0 (Claude Code)\\n'; exit 0; fi
+printf 'UX10-ARGV:%s\\n' "$@"
+while IFS= read -r line; do :; done
+`,
+    { mode: 0o700 },
+  );
+  try {
+    await runOnHosts(
+      info,
+      async (page, name) => {
+        await showAgent(page);
+        const history = page.getByTestId("agent-history-toggle");
+        if ((await history.getAttribute("aria-expanded")) === "true") await history.click();
+        await page.setViewportSize({ width: 690, height: 525 });
+        const trigger = page.getByRole("button", { name: "新终端", exact: true }).first();
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        const menu = page.getByRole("dialog", { name: "启动 Agent" });
+        const provider = menu.getByTestId("launch-agent").filter({ hasText: "Claude Code" });
+        const setup = menu.getByTestId("launch-submenu");
+        const search = setup.getByRole("searchbox", { name: "搜索模型" });
+        await expect(provider).toBeEnabled();
+        await expect(setup).toHaveCount(0);
+        const compact = await menu.boundingBox();
+        await provider.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(search).toBeFocused();
+        await search.fill("opus");
+        await page.keyboard.press("Enter");
+        await expect(setup.getByRole("radio", { name: "Opus", exact: true })).toBeChecked();
+        await setup.getByLabel("推理档位").selectOption("high");
+        await expect(setup.getByRole("checkbox", { name: /Fast/u })).toBeVisible();
+        await search.fill("haiku");
+        await page.keyboard.press("Enter");
+        await expect(setup.getByRole("radio", { name: "Haiku", exact: true })).toBeChecked();
+        await expect(setup.getByLabel("推理档位")).toHaveCount(0);
+        await expect(setup.getByRole("checkbox", { name: /Fast/u })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(setup).toHaveCount(0);
+        await expect(provider).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+
+        await trigger.click();
+        await provider.click();
+        await search.fill("opus");
+        await setup.getByRole("radio", { name: "Opus", exact: true }).check();
+        await expect(setup.getByLabel("推理档位")).toHaveValue("");
+        await setup.getByLabel("推理档位").selectOption("high");
+        const prompt = `ux10-prompt-${name}`;
+        await setup.getByLabel("附加提示词").fill(prompt);
+        const bounds = await menu.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, viewport: { width: innerWidth, height: innerHeight } };
+        });
+        expect(bounds.width).toBeGreaterThan(compact!.width);
+        expect(bounds.left).toBeGreaterThanOrEqual(0);
+        expect(bounds.top).toBeGreaterThanOrEqual(0);
+        expect(bounds.right).toBeLessThanOrEqual(bounds.viewport.width);
+        expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewport.height);
+        await setup.getByRole("button", { name: "启动", exact: true }).click();
+        await expect(menu).toHaveCount(0);
+        const rows = page.getByTestId("terminal-view").locator(".xterm-rows");
+        await expect(rows).toContainText(`UX10-ARGV:${prompt}`);
+        await expect(rows).toContainText("UX10-ARGV:opus");
+        await expect(rows).toContainText("UX10-ARGV:high");
+        await info.attach(`${name}-launcher-geometry`, { body: JSON.stringify({ compact, bounds }), contentType: "application/json" });
+      },
+      undefined,
+      { width: 1050, height: 800 },
+      { PATH: `${bin}:${process.env["PATH"] ?? ""}` },
+    );
+  } finally {
+    rmTree(bin);
+  }
 });

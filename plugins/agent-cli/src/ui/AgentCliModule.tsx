@@ -1,9 +1,9 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView, type TerminalControl } from "@huhu/ui";
-import { ArrowLeft, ArrowRight, ChevronDown, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
 import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { HistoryPanel, type HistoryAction, type HistorySelection } from "./history/HistoryPanel.js";
 import { ReviewPanel } from "./ReviewPanel.js";
 import { ProtectedLaunchDialog } from "./ProtectedLaunchDialog.js";
@@ -25,6 +25,7 @@ import {
   type WorkspaceTarget,
   type WorkspaceView,
 } from "../shared/workspace-layout.js";
+import { AgentIcon } from "./AgentIcon.js";
 import { t } from "./i18n.js";
 
 interface Detected {
@@ -40,14 +41,13 @@ interface LaunchIntent {
   navigation: number;
   id: string;
   trigger?: HTMLButtonElement;
-  position?: CSSProperties;
 }
 type ViewSelection = { tab: string; leaf: string; zoom: string | null };
 type HistoryLocation = { spaceId: string; sessionId: string; terminalId: string; tab: string; leaf: string };
 type LaunchParameters = LaunchOptions & { history?: HistorySelection & { action: HistoryAction } };
 
 type LaunchRecovery = {
-  intent: Omit<LaunchIntent, "trigger" | "position">;
+  intent: Omit<LaunchIntent, "trigger">;
   provider: string;
   options: LaunchParameters;
   outcome: "unknown" | "not-created";
@@ -59,11 +59,13 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [collapsedSpaces, setCollapsedSpaces] = useState<ReadonlySet<string>>(() => new Set());
+  const treeId = useId();
+  const tabsRef = useRef<HTMLElement>(null);
   const [requestedSession, setRequestedSession] = useState<{ spaceId: string; sessionId: string; exact?: HistoryLocation } | null>(null);
   const [menu, setMenu] = useState<LaunchIntent | null>(null);
   const [environmentIntent, setEnvironmentIntent] = useState<LaunchIntent | null>(null);
   const [recoveries, setRecoveries] = useState<Record<string, LaunchRecovery | null>>({});
-  const launcher = useRef<HTMLDivElement>(null);
   const [selections, setSelections] = useState<Record<string, ViewSelection | null>>({});
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const [closing, setClosing] = useState<{ view: WorkspaceView; tab: string; leaf: string; session: Session; navigation: number } | null>(null);
@@ -80,9 +82,10 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   const [showReview, setShowReview] = useState(false);
   const [terminalControls, setTerminalControls] = useState(() => new Map<string, TerminalControl>());
   const [error, setError] = useState<string | null>(null);
-  const space = (spaces.data ?? []).find((s) => s.id === spaceId) ?? spaces.data?.[0] ?? null;
+  const availableSpaces = spaces.data ?? [];
+  const space = availableSpaces.find((s) => s.id === spaceId) ?? availableSpaces[0] ?? null;
   const boundSpace = spaceCanLaunch(space);
-  const sessions = useCapability<Session[]>("agent.sessions.list", { spaceId: space?.id }, { enabled: Boolean(space) });
+  const sessions = useCapability<Session[]>("agent.sessions.list", {}, { enabled: Boolean(space) });
   const workspace = useCapability<WorkspaceView>("agent.workspace.get", { spaceId: space?.id }, { enabled: Boolean(space) });
   const detected = useCapability<Detected[]>("agent.catalog.detect", {});
   const agentSettings = useCapability<{ settings: AgentSettingsFile }>("agent.settings.get", {});
@@ -151,16 +154,6 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     setMenu(null);
     if (restore && menu?.trigger?.isConnected) menu.trigger.focus();
   };
-  useEffect(() => {
-    if (!menu) return;
-    const outside = (event: PointerEvent) => {
-      if (!(event.target instanceof Node) || launcher.current?.contains(event.target) || menu.trigger?.contains(event.target)) return;
-      setMenu(null);
-      if (menu.trigger?.isConnected) menu.trigger.focus();
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, [menu]);
 
   useEffect(
     () =>
@@ -185,7 +178,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
       return;
     }
     if (space?.id !== requestedSession.spaceId || sessions.isFetching || workspace.isFetching || !sessions.isSuccess || !workspace.isSuccess) return;
-    const session = sessions.data?.find(({ id }) => id === requestedSession.sessionId);
+    const session = sessions.data?.find(({ id, spaceId }) => id === requestedSession.sessionId && spaceId === requestedSession.spaceId);
     const exact = requestedSession.exact;
     if (exact) {
       const placement = view && sessionPlacement(view.layout, exact.sessionId);
@@ -197,11 +190,10 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     } else if (!session) setError("未找到原会话。可以重连后从任务重试定位。");
     else {
       setActive(session.id);
-      const owner = view?.layout.tabs.find((item) => leaves(item.pane).some(({ sessionId }) => sessionId === session.id));
-      const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
-      if (owner && leaf) {
-        setSelections((previous) => ({ ...previous, [space.id]: { tab: owner.id, leaf: leaf.id, zoom: null } }));
-        setFocusTarget(leaf.id);
+      const placement = view && sessionPlacement(view.layout, session.id);
+      if (placement) {
+        setSelections((previous) => ({ ...previous, [space.id]: { ...placement, zoom: null } }));
+        setFocusTarget(placement.leaf);
       }
     }
     setRequestedSession(null);
@@ -230,17 +222,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
   function startTarget(target: WorkspaceTarget, event?: MouseEvent<HTMLButtonElement>): LaunchIntent | null {
     if (!space || !boundSpace || !view || !editable || writeReceipt.current) return null;
     const intent: LaunchIntent = { space, view, target, navigation: navigation.current, id: createRequestId() };
-    if (!event) return intent;
-    const trigger = event.currentTarget;
-    const bounds = trigger.getBoundingClientRect();
-    const below = window.innerHeight - bounds.bottom;
-    const flip = below < Math.min(360, window.innerHeight / 2) && bounds.top > below;
-    const position = {
-      left: Math.max(8, Math.min(bounds.left, window.innerWidth - 608)),
-      maxHeight: Math.max(96, (flip ? bounds.top : below) - 16),
-      ...(flip ? { bottom: below + bounds.height + 8 } : { top: bounds.bottom + 8 }),
-    };
-    return { ...intent, trigger, position };
+    return event ? { ...intent, trigger: event.currentTarget } : intent;
   }
 
   async function launch(intent: LaunchIntent, provider: string, options: LaunchParameters = {}) {
@@ -335,15 +317,26 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     }
   }
 
-  const list = sessions.data ?? [];
+  const allSessions = sessions.data ?? [];
+  const sessionsBySpace = new Map<string, Session[]>();
+  for (const session of allSessions) {
+    const group = sessionsBySpace.get(session.spaceId);
+    if (group) group.push(session);
+    else sessionsBySpace.set(session.spaceId, [session]);
+  }
+  const list = space ? (sessionsBySpace.get(space.id) ?? []) : [];
   // 定期在真实 Core 中核对待确认启动和运行中的会话。
-  const anyRunning = list.some((s) => s.state === "running" || s.state === "launching" || s.state === "unknown");
+  const anyRunning = allSessions.some((s) => s.state === "running" || s.state === "launching" || s.state === "unknown");
   useEffect(() => {
     if (!anyRunning) return;
     const id = setInterval(() => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === engine.vaultId && q.queryKey[1] === "agent.sessions.list" }), 5000);
     return () => clearInterval(id);
   }, [anyRunning, engine.vaultId, qc]);
   const currentSession = active ?? currentLeaf?.sessionId;
+  useLayoutEffect(() => {
+    const current = tabsRef.current?.querySelector<HTMLElement>('[aria-current="true"]');
+    current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [currentSession, tab?.id]);
   const cur = list.find((s) => s.id === currentSession) ?? null;
   const preview = cur && (!view || !sessionPlacement(view.layout, cur.id)) ? cur : null;
   const reviewControl = preview ? terminalControls.get(`preview:${preview.id}`) : currentLeaf?.sessionId === currentSession && currentLeaf ? terminalControls.get(currentLeaf.id) : undefined;
@@ -431,15 +424,45 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
     );
   }
 
-  function openExisting(session: Session) {
+  function expandSpace(id: string, expanded: boolean) {
+    setCollapsedSpaces((previous) => {
+      if (previous.has(id) !== expanded) return previous;
+      const next = new Set(previous);
+      if (expanded) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectSpace(id: string) {
     ++navigation.current;
+    setSpaceId(id);
+    setActive(null);
+    setRequestedSession(null);
+    setClosing(null);
+    setMoveSource(null);
     setShowReview(false);
     dismissMenu(false);
-    setMoveSource(null);
+    setError(null);
+    expandSpace(id, true);
+  }
+
+  function openExisting(session: Session) {
+    if (session.spaceId !== space?.id || !view) {
+      selectSpace(session.spaceId);
+      setRequestedSession({ spaceId: session.spaceId, sessionId: session.id });
+      return;
+    }
+    ++navigation.current;
+    setRequestedSession(null);
+    setShowReview(false);
+    setClosing(null);
+    dismissMenu(false);
+    setError(null);
+    expandSpace(session.spaceId, true);
     setActive(session.id);
-    const owner = view?.layout.tabs.find(({ pane }) => leaves(pane).some(({ sessionId }) => sessionId === session.id));
-    const leaf = owner && leaves(owner.pane).find(({ sessionId }) => sessionId === session.id);
-    if (owner && leaf) tabFocus(owner.id, leaf.id, session.id);
+    const placement = sessionPlacement(view.layout, session.id);
+    if (placement) tabFocus(placement.tab, placement.leaf, session.id, zoom === placement.leaf ? zoom : null);
   }
 
   function moveTo(leaf: string, direction: SplitDirection) {
@@ -482,37 +505,54 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             <IconButton icon={Plus} label="新建 Space" onClick={() => setSpaceForm({ name: "", folder: "" })} />
           </span>
         </div>
-        <div className="agent-vault-caption">
-          <Folder size={13} aria-hidden /> {t.spaces}
-        </div>
         <div className="agent-space-list">
-          {(spaces.data ?? []).map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`agent-space-item${space?.id === s.id ? " active" : ""}`}
-              data-testid="agent-space-item"
-              aria-pressed={space?.id === s.id}
-              title={s.root}
-              onClick={() => {
-                ++navigation.current;
-                setSpaceId(s.id);
-                setActive(null);
-                setRequestedSession(null);
-                setClosing(null);
-                setMoveSource(null);
-                dismissMenu(false);
-                setError(null);
-              }}
-            >
-              <FolderOpen size={17} aria-hidden />
-              <span>
-                <strong>{s.name}</strong>
-                <small title={s.root || undefined}>{s.root || "待绑定"}</small>
-              </span>
-              <span className="agent-count">{space?.id === s.id ? list.length : ""}</span>
-            </button>
-          ))}
+          {availableSpaces.map((owner) => {
+            const expanded = !collapsedSpaces.has(owner.id);
+            const groupId = `${treeId}-${owner.id}`;
+            const group = sessionsBySpace.get(owner.id) ?? [];
+            return (
+              <section key={owner.id}>
+                <div className="agent-space-row">
+                  <IconButton
+                    icon={expanded ? ChevronDown : ChevronRight}
+                    label={`${expanded ? "收起" : "展开"} ${owner.name}`}
+                    aria-expanded={expanded}
+                    aria-controls={groupId}
+                    onClick={() => expandSpace(owner.id, !expanded)}
+                  />
+                  <button
+                    type="button"
+                    className="agent-space-item"
+                    data-testid="agent-space-item"
+                    data-space-id={owner.id}
+                    aria-pressed={space?.id === owner.id}
+                    title={owner.root || undefined}
+                    onClick={() => selectSpace(owner.id)}
+                  >
+                    <Folder size={15} aria-hidden />
+                    <span>{owner.name}</span>
+                  </button>
+                </div>
+                <div id={groupId} className="agent-space-sessions" role="group" aria-label={`${owner.name} 会话`} hidden={!expanded}>
+                  {group.map((session) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      data-testid="space-session"
+                      data-session-id={session.id}
+                      title={session.name}
+                      aria-current={session.id === currentSession ? "true" : undefined}
+                      onClick={() => openExisting(session)}
+                    >
+                      <AgentIcon id={session.provider} name={session.name} />
+                      <span className="agent-session-name">{session.name}</span>
+                      {stateBadge(session)}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
         <button type="button" className="agent-create-space" data-testid="space-new" onClick={() => setSpaceForm({ name: "", folder: "" })}>
           <Plus size={14} aria-hidden />
@@ -578,22 +618,74 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
               ))
           : null}
         <div className="agent-tabs">
-          <div className="agent-open-tabs" role="tablist" aria-label="Agents">
-            {list.map((s) => (
-              <div key={s.id} className={`agent-session-tab${s.id === currentSession ? " active" : ""}`}>
-                <button type="button" role="tab" aria-selected={s.id === currentSession} data-testid="session-tab" onClick={() => openExisting(s)}>
-                  <span className={`agent-provider-mark provider-${s.provider}`}>{s.provider === "shell" ? "›" : s.provider.slice(0, 1).toUpperCase()}</span>
-                  {s.name} {stateBadge(s)}
-                  {s.waiting?.active ? (
+          <nav className="agent-open-tabs" ref={tabsRef} aria-label="全局会话">
+            {availableSpaces.flatMap((owner) => {
+              const group = new Map(sessionsBySpace.get(owner.id)?.map((session) => [session.id, session]));
+              const layout = owner.id === view?.spaceId ? view.layout : qc.getQueryData<WorkspaceView>(queryKey(engine.vaultId, "agent.workspace.get", { spaceId: owner.id }))?.layout;
+              const renderSession = (session: Session, layoutTab?: string) => (
+                <button
+                  key={session.id}
+                  type="button"
+                  className="agent-session-tab"
+                  aria-current={session.id === currentSession ? "true" : undefined}
+                  data-testid="session-tab"
+                  data-session-id={session.id}
+                  data-space-id={owner.id}
+                  data-tab-id={layoutTab}
+                  title={`${session.name} · ${owner.name}`}
+                  onClick={() => openExisting(session)}
+                >
+                  <AgentIcon id={session.provider} name={session.name} />
+                  <span className="agent-session-name">
+                    {session.name} · {owner.name}
+                  </span>
+                  {stateBadge(session)}
+                  {session.waiting?.active ? (
                     <Badge tone="warning" data-testid="session-waiting">
                       {t.needsYou}
                     </Badge>
                   ) : null}
                 </button>
-              </div>
-            ))}
-          </div>
+              );
+              const placed = (layout?.tabs ?? []).flatMap((entry) => {
+                const items = leaves(entry.pane);
+                const entries = items.flatMap(({ sessionId }) => {
+                  const session = sessionId ? group.get(sessionId) : undefined;
+                  if (!session) return [];
+                  group.delete(session.id);
+                  return [session];
+                });
+                if (entries.length) return entries.map((session, index) => renderSession(session, index === 0 ? entry.id : undefined));
+                if (owner.id !== space?.id || items.some(({ sessionId }) => sessionId)) return [];
+                return [
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="agent-session-tab"
+                    aria-current={entry.id === tab?.id && !preview ? "true" : undefined}
+                    data-tab-id={entry.id}
+                    onClick={() => {
+                      ++navigation.current;
+                      setRequestedSession(null);
+                      dismissMenu(false);
+                      setShowReview(false);
+                      tabFocus(entry.id, items[0]!.id, null);
+                    }}
+                  >
+                    空分栏
+                  </button>,
+                ];
+              });
+              return [...placed, ...Array.from(group.values(), (session) => renderSession(session))];
+            })}
+          </nav>
           <div className="agent-tab-actions">
+            {tabOrder.length > 1 ? (
+              <>
+                <IconButton icon={ArrowLeft} label="左移当前标签" disabled={!editable || !!moving || currentTabIndex <= 0} onClick={() => reorderTab(-1)} />
+                <IconButton icon={ArrowRight} label="右移当前标签" disabled={!editable || !!moving || currentTabIndex < 0 || currentTabIndex >= tabOrder.length - 1} onClick={() => reorderTab(1)} />
+              </>
+            ) : null}
             <button
               type="button"
               className="agent-add-cli"
@@ -607,25 +699,24 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             </button>
           </div>
         </div>
-        {menu ? (
-          <div className="agent-launcher agent-workspace-launcher" ref={launcher} style={menu.position}>
-            <LaunchMenu
-              detected={detected.data ?? []}
-              settings={agentSettings.data?.settings ?? emptyAgentSettings()}
-              noSpace={false}
-              onLaunch={(provider, options) => void launch(menu, provider, options)}
-              onOpenEnvironment={
-                host()
-                  ? () => {
-                      setEnvironmentIntent(menu);
-                      setMenu(null);
-                    }
-                  : undefined
-              }
-              onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
-              onClose={() => dismissMenu()}
-            />
-          </div>
+        {menu?.trigger ? (
+          <LaunchMenu
+            key={menu.id}
+            trigger={menu.trigger}
+            detected={detected.data ?? []}
+            settings={agentSettings.data?.settings ?? emptyAgentSettings()}
+            onLaunch={(provider, options) => void launch(menu, provider, options)}
+            onOpenEnvironment={
+              host()
+                ? () => {
+                    setEnvironmentIntent(menu);
+                    setMenu(null);
+                  }
+                : undefined
+            }
+            onOpenSettings={() => (dismissMenu(false), onNavigate?.("settings", "agent-cli"))}
+            onClose={dismissMenu}
+          />
         ) : null}
         {environmentIntent ? (
           <ProtectedLaunchDialog
@@ -641,34 +732,6 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             }}
           />
         ) : null}
-        <div className="agent-workspace-tabs" role="group" aria-label="工作区标签">
-          {tabOrder.length > 1 ? (
-            <div className="agent-workspace-tab-order">
-              <IconButton icon={ArrowLeft} label="左移当前标签" disabled={!editable || !!moving || currentTabIndex <= 0} onClick={() => reorderTab(-1)} />
-              <IconButton icon={ArrowRight} label="右移当前标签" disabled={!editable || !!moving || currentTabIndex < 0 || currentTabIndex >= tabOrder.length - 1} onClick={() => reorderTab(1)} />
-            </div>
-          ) : null}
-          {tabOrder.map((entry, index) => {
-            const first = leaves(entry.pane)[0]!;
-            const name = list.find(({ id }) => id === first.sessionId)?.name;
-            return (
-              <Button
-                key={entry.id}
-                aria-pressed={entry.id === tab?.id && !preview}
-                data-testid="workspace-tab"
-                data-tab-id={entry.id}
-                onClick={() => {
-                  ++navigation.current;
-                  dismissMenu(false);
-                  setShowReview(false);
-                  tabFocus(entry.id, first.id, first.sessionId);
-                }}
-              >
-                {name ?? `标签 ${index + 1}`}
-              </Button>
-            );
-          })}
-        </div>
         {moving ? (
           <div className="agent-workspace-move" role="status">
             <span>选择移入方向，或拖到目标分栏的边缘。</span>
@@ -752,6 +815,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             }}
             onRequest={(event, leaf, direction) => {
               if (moving && direction) moveTo(leaf, direction);
+              else if (menu?.trigger === event.currentTarget) dismissMenu();
               else setMenu(startTarget({ kind: "leaf", tab: tab.id, leaf, ...(direction ? { direction } : {}) }, event));
             }}
             onMoveStart={(leaf) => {

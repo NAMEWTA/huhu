@@ -2515,7 +2515,7 @@ test("Agent CLI 递归分栏在两个 Space 隔离，终端身份、比例和收
     await expect(page.getByTestId("workspace-pane-close-dialog")).toBeVisible();
     await page.getByRole("button", { name: "收起分栏" }).click();
     await expect(panes).toHaveCount(5);
-    await expect(page.getByTestId("session-tab")).toHaveCount(6);
+    await expect(page.getByTestId("session-tab")).toHaveCount(7);
 
     await app.close();
     app = await launch(vault);
@@ -2550,7 +2550,8 @@ test("Agent CLI 跨标签移动分栏与重排标签保留实际终端", async (
     await page.setViewportSize({ width: 1560, height: 900 });
     await page.getByRole("button", { name: "Agent CLI" }).first().click();
     const panes = page.getByTestId("workspace-pane");
-    const tabs = page.getByTestId("workspace-tab");
+    const workspaceTabs = (target: Page) => target.getByRole("navigation", { name: "全局会话" }).locator("[data-tab-id]");
+    const tabs = workspaceTabs(page);
     const shell = async (trigger: ReturnType<Page["getByTestId"]>) => {
       await trigger.click();
       await page.getByTestId("launch-shell").click();
@@ -2588,7 +2589,7 @@ test("Agent CLI 跨标签移动分栏与重排标签保留实际终端", async (
     const reopened = await app.firstWindow();
     await expect(reopened.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await reopened.getByRole("button", { name: "Agent CLI" }).first().click();
-    await expect(reopened.getByTestId("workspace-tab").first()).toHaveAttribute("data-tab-id", order[1]!);
+    await expect(workspaceTabs(reopened).first()).toHaveAttribute("data-tab-id", order[1]!);
     await expect(reopened.locator(`[data-pane-id="${sourceId}"]`)).toHaveAttribute("data-session-id", sessionId!);
   } finally {
     await app.close();

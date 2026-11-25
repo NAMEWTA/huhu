@@ -359,7 +359,7 @@ test("ACC-AG-11 本机没有任何受支持 CLI：新建菜单提供“新终端
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await page.getByRole("button", { name: "Agent CLI", exact: true }).first().click();
     await page.getByRole("button", { name: "新终端" }).first().click();
-    const menu = page.getByRole("menu", { name: "新建" });
+    const menu = page.getByRole("dialog", { name: "启动 Agent" });
     await expect(menu).toBeVisible();
     await expect(menu.getByTestId("launch-shell")).toBeEnabled();
     const claude = menu.locator('[data-agent="claude"]');
@@ -1670,7 +1670,8 @@ test("Agent CLI 新建菜单：悬停智能体打开子菜单，选模型 / 附�
     await menu.locator('[data-agent="claude"]').hover();
     const sub = page.getByTestId("launch-submenu");
     await expect(sub).toBeVisible();
-    await sub.getByLabel("模型").selectOption("opus");
+    await sub.getByRole("searchbox", { name: "搜索模型" }).fill("opus");
+    await sub.getByRole("radio", { name: "Opus", exact: true }).check();
     await sub.getByLabel("附加提示词").fill("整理周报");
     await sub.getByTestId("launch-submenu-start").click();
     await expect.poll(() => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : ""), { timeout: 20_000 }).toContain("整理周报");

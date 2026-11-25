@@ -17,27 +17,57 @@
     cursor: pointer;
     color: inherit;
   }
-  .agent-space-item {
-    width: 100%;
-    border: 1px solid transparent;
-    background: transparent;
+  .agent-space-row {
     display: flex;
-    gap: 10px;
     align-items: center;
-    text-align: left;
-    padding: 11px 9px;
-    border-radius: 8px;
-    margin-bottom: 4px;
-    min-width: 0;
+    gap: 2px;
+  }
+  .agent-space-row > .hu-icon-btn {
+    flex: none;
+    inline-size: 24px;
+    block-size: 24px;
+  }
+  .agent-space-item,
+  .agent-space-sessions > button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-inline-size: 0;
+    min-block-size: 28px;
+    padding: 2px 5px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background: transparent;
+    text-align: start;
+  }
+  .agent-space-item {
+    flex: 1;
   }
   .agent-space-item:hover,
+  .agent-space-sessions > button:hover,
   .agent-history-item:hover {
     background: var(--muted-bg);
   }
-  .agent-space-item.active {
+  .agent-space-item[aria-pressed="true"],
+  .agent-space-sessions > button[aria-current="true"] {
     background: var(--panel);
     border-color: var(--line);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-ink) 2%, transparent);
+  }
+  .agent-space-sessions {
+    margin-inline-start: 20px;
+    padding-inline-start: 5px;
+    border-inline-start: 1px solid var(--line);
+  }
+  .agent-space-sessions > button {
+    inline-size: 100%;
+  }
+  .agent-space-item > span,
+  .agent-session-name {
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .hu-v9-core-note {
     display: flex;
@@ -62,18 +92,25 @@
   }
   .agent-session-tab {
     display: flex;
-    min-width: 100px;
-    max-width: 245px;
+    flex: none;
+    min-inline-size: 0;
+    max-inline-size: 245px;
     align-items: center;
     border: 1px solid transparent;
     border-bottom: 0;
     gap: 4px;
     padding: 0 8px;
-    margin-top: 5px;
+    margin-block-start: 5px;
+    background: transparent;
+    text-align: start;
     border-radius: 7px 7px 0 0;
     color: var(--muted);
   }
-  .agent-session-tab.active {
+  .agent-session-tab:focus-visible,
+  .agent-space-sessions > button:focus-visible {
+    outline-offset: -2px;
+  }
+  .agent-session-tab[aria-current="true"] {
     background: var(--panel);
     border-color: var(--line);
     color: var(--text);
@@ -102,18 +139,19 @@
   }
   .agent-launcher {
     z-index: 100;
-    display: flex;
-    align-items: flex-start;
-    width: 600px;
-    max-width: calc(100vw - 32px);
+    inline-size: min(13rem, var(--radix-popover-content-available-width));
+    max-block-size: var(--radix-popover-content-available-height);
+    overflow: auto;
+    overscroll-behavior: contain;
     color: var(--text);
     font-size: 12px;
     border: 1px solid var(--line);
     background: var(--panel);
-    box-shadow: 0 18px 55px color-mix(in srgb, var(--shadow-ink) 13%, transparent);
-    border-radius: 12px;
-    overflow: hidden;
-    animation: v9-in 140ms ease-out;
+    box-shadow: var(--shadow-popover);
+    border-radius: var(--radius-popover);
+  }
+  .agent-launcher[data-configuring="true"] {
+    inline-size: min(31rem, var(--radix-popover-content-available-width));
   }
   .agent-layout button:focus-visible,
   .agent-launcher button:focus-visible {
@@ -144,7 +182,7 @@
     text-align: left;
     color: var(--text);
   }
-  .agent-launch-menu-row.focused {
+  .agent-launch-menu-row[aria-expanded="true"] {
     background: var(--muted-bg);
   }
   .agent-launch-menu-row:hover:not(:disabled) {
@@ -215,36 +253,10 @@
     align-items: center;
     gap: 8px;
   }
-  .agent-vault-caption {
-    display: flex;
-    gap: 7px;
-    align-items: center;
-    padding: 8px 16px 14px;
-    color: var(--muted);
-    font-size: 12px;
-  }
   .agent-space-list {
     overflow: auto;
     flex: 1;
     padding: 0 8px;
-  }
-  .agent-space-item > span:nth-child(2) {
-    min-width: 0;
-    flex: 1;
-  }
-  .agent-space-item strong {
-    display: block;
-    font-weight: 550;
-    font-size: 13px;
-    margin-bottom: 5px;
-  }
-  .agent-space-item small {
-    display: block;
-    color: var(--muted);
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .agent-count {
     color: var(--muted);
@@ -314,24 +326,9 @@
     display: flex;
     align-items: stretch;
     min-width: 0;
-    overflow: auto;
+    overflow-x: auto;
+    scrollbar-width: thin;
     flex: 1;
-  }
-  .agent-session-tab button {
-    display: flex;
-    align-items: center;
-    border: 0;
-    background: transparent;
-    gap: 7px;
-    padding: 2px;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .agent-session-tab > button:first-child {
-    flex: 1;
-    min-width: 0;
   }
   .agent-tab-actions {
     display: flex;
@@ -354,30 +351,10 @@
   .hu-module-layout.agent-layout:not(.agent-history-open) {
     grid-template-columns: minmax(105px, min(22%, 224px)) minmax(0, 1fr);
   }
-  .agent-workspace-tabs {
-    display: flex;
-    flex-shrink: 0;
-    gap: 4px;
-    overflow-x: auto;
-    padding: 3px 12px;
-    border-block-end: 1px solid var(--line);
-  }
-  .agent-workspace-tabs:empty {
-    display: none;
-  }
-  .agent-workspace-tabs .hu-btn {
-    white-space: nowrap;
-  }
-  .agent-workspace-tabs [aria-pressed="true"] {
-    border-color: var(--focus);
-  }
-  .agent-workspace-tab-order,
   .agent-workspace-move {
     display: flex;
     align-items: center;
     gap: 4px;
-  }
-  .agent-workspace-move {
     padding: 3px 12px;
   }
   .agent-workspace-canvas {
@@ -464,13 +441,11 @@
     min-inline-size: 0;
     overflow: hidden;
   }
+  .agent-workspace-pane-body > .hu-terminal-wrap {
+    min-block-size: 0;
+  }
   .agent-workspace-pane-body > .hu-btn {
     margin: 12px;
-  }
-  .agent-workspace-launcher {
-    position: fixed;
-    overflow: auto;
-    overscroll-behavior: contain;
   }
   .agent-main-footer {
     display: flex;
@@ -612,17 +587,6 @@
     .agent-history {
       display: none;
     }
-    .agent-launcher {
-      width: 550px;
-    }
-    .agent-space-item {
-      gap: 4px;
-      padding: 8px 4px;
-    }
-    .agent-space-item small,
-    .agent-space-item .agent-count {
-      display: none;
-    }
   }
   @media (max-width: 760px) {
     .agent-layout.agent-history-open > .agent-history {
@@ -636,11 +600,6 @@
       box-shadow: -15px 0 40px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
     }
   }
-  .agent-space-item strong {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .agent-history-space small {
     display: block;
     font-size: 11px;
@@ -650,63 +609,105 @@
     text-overflow: ellipsis;
   }
   .agent-launch-menu {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
+    display: grid;
+    min-inline-size: 0;
+    padding: 6px;
+  }
+  .agent-launcher[data-configuring="true"] .agent-launch-menu {
+    grid-template-columns: minmax(0, 1fr) minmax(7rem, 40%);
   }
   .agent-launch-menu-list {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    min-width: 260px;
-    padding: 6px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-popover);
-    background: var(--panel);
-    box-shadow: var(--shadow-popover);
+    min-inline-size: 0;
   }
-  .agent-launch-menu-search {
+  .agent-launcher[data-configuring="true"] .agent-launch-menu-list {
+    grid-area: 1 / 2;
+  }
+  .agent-launch-menu-row > span {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .agent-launch-menu-row > :is(svg, img) {
+    flex: none;
+  }
+  .agent-launch-menu-search,
+  .agent-launch-menu-heading,
+  .agent-launch-fast {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 8px;
-    color: var(--muted);
+  }
+  .agent-launch-menu-heading {
+    justify-content: space-between;
   }
   .agent-launch-menu-search input {
     flex: 1;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    color: var(--text);
+    min-inline-size: 0;
   }
   .agent-launch-menu-row kbd,
   .agent-launch-menu-tag {
     font-size: 11px;
     color: var(--muted);
-    margin-left: 6px;
-  }
-  .agent-launch-menu-sep {
-    height: 1px;
-    margin: 4px 0;
-    background: var(--line);
   }
   .agent-launch-menu-sub {
+    grid-area: 1 / 1;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    min-width: 220px;
-    padding: 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-popover);
-    background: var(--panel);
-    box-shadow: var(--shadow-popover);
+    min-inline-size: 0;
+    margin-inline-end: 6px;
+    padding: 4px 8px 4px 3px;
+    border-inline-end: 1px solid var(--line);
   }
-  .agent-launch-menu-sub label {
+  .agent-launch-models {
+    display: grid;
+    gap: 2px;
+    max-block-size: 8rem;
+    overflow: auto;
+  }
+  .agent-launch-models > label {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--muted);
+    align-items: center;
+    gap: 5px;
+    min-block-size: 25px;
+    overflow-wrap: anywhere;
+  }
+  .agent-launch-field {
+    display: grid;
+    gap: 3px;
+  }
+  .agent-launch-field > :is(select, textarea) {
+    inline-size: 100%;
+    min-inline-size: 0;
+  }
+  @media (max-width: 340px) {
+    .agent-launcher[data-configuring="true"] .agent-launch-menu {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .agent-launcher[data-configuring="true"] .agent-launch-menu-list {
+      grid-area: 1 / 1;
+    }
+    .agent-launch-menu-sub {
+      grid-area: 2 / 1;
+      margin: 0;
+      padding: 6px;
+      border-inline-end: 0;
+      border-block-start: 1px solid var(--line);
+    }
+  }
+  .agent-icon,
+  .agent-icon-fallback {
+    flex: none;
+  }
+  .agent-icon[data-provider-icon="pi"] {
+    padding: 1px;
+    border-radius: 3px;
+    background: var(--term-ansi-0);
+  }
+  [data-mode="dark"] .agent-icon[data-provider-icon="shell"] {
+    filter: invert(1);
   }
   .agent-icon-fallback {
     display: inline-grid;
