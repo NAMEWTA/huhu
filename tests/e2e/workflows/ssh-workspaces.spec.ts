@@ -1,12 +1,12 @@
-import { _electron as electron, expect, test, type Page } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { _electron as electron, expect, test, type Locator, type Page, type Request, type Response } from "@playwright/test";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import type { WorkspaceRun, WorkspaceTemplate } from "../../../plugins/ssh/src/shared/workspace.js";
 import type { FileDocument, FileSession } from "../../../plugins/ssh/src/shared/files.js";
-import type { TransferBatch, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
+import type { TransferBatch, TransferBatchRequest, TransferJob, TransferQueue } from "../../../plugins/ssh/src/shared/transfers.js";
 import type { ArchiveResult, ArchiveSupport } from "../../../plugins/ssh/src/shared/archives.js";
 import { openApp, root, USER_DATA_ARG } from "../helpers/launch.js";
 import { shellDirectoryProbe } from "../../../plugins/ssh/src/engine/shell-directory.js";
@@ -1077,12 +1077,162 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
   }
 });
 
-test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃逸", async () => {
+function batchCallInput(request: Request): TransferBatchRequest | undefined {
+  if (request.method() !== "POST" || new URL(request.url()).pathname !== "/api/v1/call") return;
+  const body = request.postDataJSON();
+  if (body?.capability === "ssh.transfers.startBatch") return body.input;
+}
+
+function observeBatchCalls(page: Page) {
+  type Exchange = {
+    request: { at: number; source: string; target: string; names: string[] };
+    response?: { at: number; status: number; batchId?: string };
+    requestfailed?: { at: number; status: "failed" };
+  };
+  const calls = new Map<Request, Exchange>();
+  const responses: Promise<void>[] = [];
+  const onRequest = (request: Request) => {
+    const input = batchCallInput(request);
+    if (input) calls.set(request, { request: { at: Date.now(), source: input.source.kind, target: input.target.kind, names: input.names } });
+  };
+  const onResponse = (response: Response) => {
+    const call = calls.get(response.request());
+    if (!call) return;
+    const recorded: NonNullable<Exchange["response"]> = { at: Date.now(), status: response.status() };
+    call.response = recorded;
+    responses.push(response.json().then(({ data }) => {
+      if (typeof data?.batchId === "string") recorded.batchId = data.batchId;
+    }).catch(() => {}));
+  };
+  const onFailed = (request: Request) => {
+    const call = calls.get(request);
+    if (call) call.requestfailed = { at: Date.now(), status: "failed" };
+  };
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfailed", onFailed);
+  return async () => {
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    page.off("requestfailed", onFailed);
+    await Promise.all(responses);
+    return [...calls.values()];
+  };
+}
+
+async function dragFileBatch(page: Page, handle: Locator, evidence: { geometry?: unknown; events?: unknown }) {
+  const trace = await handle.evaluateHandle((source) => {
+    const doc = source.ownerDocument;
+    const local = source.closest(".ssh-file-columns")?.querySelector<HTMLElement>('[data-file-batch-side="local"]');
+    const scroller = source.closest(".hu-scroll");
+    if (!local || !scroller) throw new Error("未找到同一文件会话的本机栏和滚动容器");
+    const events: unknown[] = [];
+    const geometry = () => ({
+      source: source.getBoundingClientRect().toJSON(),
+      target: local.getBoundingClientRect().toJSON(),
+      scroll: { rect: scroller.getBoundingClientRect().toJSON(), top: scroller.scrollTop },
+    });
+    const initial = geometry();
+    const describe = (element: EventTarget | null) => {
+      if (!(element instanceof Element)) return null;
+      return {
+        tag: element.tagName,
+        testId: element.getAttribute("data-testid"),
+        side: element.closest("[data-file-batch-side]")?.getAttribute("data-file-batch-side"),
+      };
+    };
+    const types = ["pointerdown", "pointermove", "pointerup", "pointercancel", "gotpointercapture", "lostpointercapture", "dragstart", "dragover", "drop", "dragend"];
+    const record = (event: Event) => {
+      if (!(event instanceof MouseEvent)) return;
+      const hit = doc.elementFromPoint(event.clientX, event.clientY);
+      const target = event.target instanceof Node ? event.target : null;
+      if (!source.contains(target) && !local.contains(target)) return;
+      const transfer = event instanceof DragEvent ? event.dataTransfer : null;
+      events.push({
+        at: Date.now(),
+        type: event.type,
+        target: describe(event.target),
+        hit: describe(hit),
+        x: event.clientX,
+        y: event.clientY,
+        types: Array.from(transfer?.types ?? []),
+        dropEffect: transfer?.dropEffect ?? null,
+        defaultPrevented: event.defaultPrevented,
+      });
+    };
+    // React's pane and handle listeners run before the event bubbles to the document.
+    for (const type of types) doc.addEventListener(type, record);
+    return {
+      points() {
+        const from = source.getBoundingClientRect();
+        const to = local.getBoundingClientRect();
+        const clip = scroller.getBoundingClientRect();
+        const start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+        const top = Math.max(0, clip.top, to.top) + 6;
+        const bottom = Math.min(window.innerHeight, clip.bottom, to.bottom) - 6;
+        const end = { x: to.left + to.width / 2, y: Math.min(bottom, Math.max(top, start.y)) };
+        return {
+          geometry: geometry(),
+          start,
+          end,
+          sourceHit: source.contains(doc.elementFromPoint(start.x, start.y)),
+          targetHit: top <= bottom && local.contains(doc.elementFromPoint(end.x, end.y)),
+        };
+      },
+      finish() {
+        for (const type of types) doc.removeEventListener(type, record);
+        return { initial, end: geometry(), events };
+      },
+    };
+  });
+  try {
+    await handle.scrollIntoViewIfNeeded();
+    const points = await trace.evaluate((observer) => observer.points());
+    evidence.geometry = points;
+    expect(points.sourceHit, "起点命中远端把手").toBe(true);
+    expect(points.targetHit, "释放点位于本机栏可见区域").toBe(true);
+    await page.mouse.move(points.start.x, points.start.y);
+    await page.mouse.down();
+    try {
+      const deltaX = points.end.x - points.start.x;
+      const deltaY = points.end.y - points.start.y;
+      const distance = Math.hypot(deltaX, deltaY);
+      await page.mouse.move(points.start.x + 8 * deltaX / distance, points.start.y + 8 * deltaY / distance);
+      await page.mouse.move(points.end.x, points.end.y, { steps: 12 });
+    } finally {
+      await page.mouse.up();
+    }
+  } finally {
+    evidence.events = await trace.evaluate((observer) => observer.finish()).catch(() => null);
+    await trace.dispose();
+  }
+}
+
+test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃逸", async ({}, testInfo) => {
   test.setTimeout(90_000);
   const password = randomUUID();
   const first = await startFakeSsh({ password });
   const second = await startFakeSsh({ password });
   const fixture = await openApp();
+  const finishCalls = observeBatchCalls(fixture.page);
+  const pointer: Parameters<typeof dragFileBatch>[2] = {};
+  const queue: Partial<Record<"before" | "after", unknown>> = {};
+  async function readQueue(phase: "before" | "after") {
+    try {
+      const result = await sshCall<TransferQueue>(fixture.page, "ssh.transfers.list");
+      if (!result.ok) throw new Error(result.error?.code ?? "ssh.transfers.list failed");
+      queue[phase] = result.data.batches.map(({ batchId, source, target, state }) => ({
+        batchId,
+        source: { kind: source.kind, path: source.path, fileSessionId: source.kind === "remote" ? source.fileSessionId : undefined },
+        target: { kind: target.kind, path: target.path, fileSessionId: target.kind === "remote" ? target.fileSessionId : undefined },
+        state,
+      }));
+      return result.data.batches;
+    } catch (error) {
+      queue[phase] = { unavailable: String(error) };
+      return undefined;
+    }
+  }
   try {
     const { page, app, vault } = fixture;
     const localRoot = path.join(vault, "selected-root");
@@ -1169,21 +1319,31 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
       .getByTestId("files-row")
       .filter({ has: page.getByRole("checkbox", { name: "选择 pull", exact: true }) });
     const handle = pull.getByTestId("ssh-file-drag-handle");
-    await expect(handle).toHaveAttribute("draggable", "true");
-    const dropTarget = local.getByRole("heading", { name: "本机文件", exact: true });
-    const [downloadResponse] = await Promise.all([
-      page.waitForResponse((response) => {
-        const request = response.request();
-        if (request.method() !== "POST" || new URL(request.url()).pathname !== "/api/v1/call") return false;
-        const body = request.postDataJSON();
-        return body?.capability === "ssh.transfers.startBatch" && body.input?.source?.kind === "remote" && body.input?.target?.kind === "local";
-      }, { timeout: 10_000 }),
-      handle.dragTo(dropTarget, { steps: 16 }),
-    ]);
-    const download = (await downloadResponse.json()) as { ok: boolean; data: TransferBatch; error?: { message: string } };
+    await expect(handle).toHaveAttribute("data-drag-enabled", "true");
+    await expect(local).toHaveAttribute("data-file-batch-ready", "true");
+    const before = await readQueue("before");
+    expect(before, "拖动前传输队列可读").toBeDefined();
+    let after: TransferBatch[] | undefined;
+    let download: { ok: boolean; data: TransferBatch; error?: { message: string } };
+    try {
+      const [response] = await Promise.all([
+        page.waitForResponse((response) => {
+          const input = batchCallInput(response.request());
+          return input?.source.kind === "remote" && input.target.kind === "local";
+        }, { timeout: 10_000 }),
+        dragFileBatch(page, handle, pointer),
+      ]);
+      download = await response.json();
+    } finally {
+      after = await readQueue("after");
+    }
     expect(download.ok, download.error?.message).toBe(true);
     expect(download.data.source).toMatchObject({ kind: "remote", fileSessionId: sourceId, path: "/home/test" });
     expect(download.data.target).toMatchObject({ kind: "local", path: localRoot });
+    const priorIds = new Set(before?.map(({ batchId }) => batchId));
+    expect(after?.filter(({ batchId }) => !priorIds.has(batchId)), "真实拖放恰好新增一个批次").toMatchObject([
+      { batchId: download.data.batchId, source: { kind: "remote", fileSessionId: sourceId, path: "/home/test" }, target: { kind: "local", path: localRoot } },
+    ]);
     await center.click();
     const batchId = page.locator(`[data-batch-id="${download.data.batchId}"]`);
     const downloaded = page.getByTestId("ssh-transfer-batch").and(batchId);
@@ -1191,7 +1351,7 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     await expect(downloaded.getByRole("button", { name: "pulled.txt · 已完成", exact: true })).toBeVisible();
     const skippedLink = all.and(batchId).filter({ hasText: /pull\/remote-link · .*未遍历链接/ });
     await expect(skippedLink).toHaveAttribute("data-state", "failed");
-    expect(existsSync(path.join(localRoot, "pull", "remote-link"))).toBe(false);
+    expect(lstatSync(path.join(localRoot, "pull", "remote-link"), { throwIfNoEntry: false })).toBeUndefined();
     expect(readFileSync(path.join(localRoot, "pull", "sub", "pulled.txt")).toString()).toBe("从回环 SFTP 下载");
 
     await page.getByRole("button", { name: "返回 SSH" }).click();
@@ -1207,8 +1367,15 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     await expect(page.getByTestId("ssh-transfer-batch").and(page.locator(`[data-batch-id="${cross.data.batchId}"]`))).toHaveAttribute("data-state", "completed");
     expect(second.fs.files.get("/home/test/sub/pulled.txt")?.toString()).toBe("从回环 SFTP 下载");
   } finally {
-    await fixture.close();
-    await Promise.all([first.close(), second.close()]);
+    try {
+      await testInfo.attach("h7-file-batch-drag", {
+        body: JSON.stringify({ calls: await finishCalls(), queue, pointer }, null, 2),
+        contentType: "application/json",
+      });
+    } finally {
+      await fixture.close();
+      await Promise.all([first.close(), second.close()]);
+    }
   }
 });
 

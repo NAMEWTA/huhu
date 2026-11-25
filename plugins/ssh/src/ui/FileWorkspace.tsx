@@ -315,7 +315,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                   </div>
                   {localPicker() ? (
                     <FileBatchProvider session={session}>
-                      <div className="ssh-file-columns">{panes}</div>
+                      {panes}
                     </FileBatchProvider>
                   ) : (
                     <div className="ssh-file-columns">{panes}</div>
