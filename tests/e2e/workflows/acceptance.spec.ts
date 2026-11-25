@@ -1792,7 +1792,7 @@ test("F28：关联任务的周期提醒在任务来源和中心使用同一计�
     await page.getByRole("button", { name: "任务", exact: true }).first().click();
     await page.getByRole("button", { name: /^全部任务/ }).click();
     await page.getByTestId("task-views").getByRole("tab", { name: "列表" }).click();
-    await page.locator(`[data-task-id="${task.data.id}"]`).getByRole("button", { name: /核对周期提醒/ }).click();
+    await page.locator(`[data-task-id="${task.data.id}"]`).getByRole("button", { name: "打开任务 核对周期提醒", exact: true }).click();
     await expect(page.getByTestId("detail-reminders").locator(`[data-plan-id="${linked.planId}"]`)).toBeVisible();
   } finally {
     await close();
