@@ -58,19 +58,21 @@ export async function engineReady(page: Page): Promise<void> {
   }
 }
 
-export async function call<T>(page: Page, capability: string, input: object, intentKey?: string): Promise<T> {
+export async function call<T>(page: Page, capability: string, input: object, intentKey?: string, requestTimeoutMs?: number): Promise<T> {
   return page.evaluate(
-    async ({ capability, input, intentKey }) => {
+    async ({ capability, input, intentKey, requestTimeoutMs }) => {
       const endpoint = await window.huhuHost?.engine();
+      const signal = requestTimeoutMs === undefined ? undefined : AbortSignal.timeout(requestTimeoutMs);
       const res = await fetch(`${endpoint?.baseUrl ?? ""}/api/v1/call`, {
         method: "POST",
         headers: { ...(endpoint?.token && { authorization: `Bearer ${endpoint.token}` }), "content-type": "application/json" },
         body: JSON.stringify({ capability, input, requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), intentKey }),
+        ...(signal && { signal }),
       });
       const result = await res.json();
       if (!result.ok) throw new Error(JSON.stringify(result.error));
       return result.data;
     },
-    { capability, input, intentKey },
+    { capability, input, intentKey, requestTimeoutMs },
   );
 }
