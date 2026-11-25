@@ -748,3 +748,101 @@ test("L9 桌面全 Vault 包恢复账本并按附件选项清理引用", async (
     rmTree(sandbox);
   }
 });
+
+test("L6 预算页依同一筛选分页、批量编辑并显示逐月复制冲突", async ({}) => {
+  const { page: desktop, close } = await openApp();
+  let browser: Browser | undefined;
+  try {
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "预算界面账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const accounts = () => call<{ book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+    const version = async () => ({ bookId, expectedRevision: (await accounts()).book.revision });
+    const tags: string[] = [];
+    for (const name of ["物料", "工作室"]) {
+      const tag = await call<{ id: string }>(desktop, "ledger.dictionaries.save", { ...await version(), kind: "tag", name });
+      tags.push(tag.id);
+    }
+    const [free, fixed, conflicting] = await call<{ id: string }[]>(desktop, "ledger.budgets.saveBatch", {
+      ...await version(),
+      budgets: [
+        { definition: { type: "free", name: "工作室物料", currency: "TWD", limitMinor: "15000", tagIds: tags, from: "2026-02-01", to: "2026-02-28" } },
+        { definition: { type: "fixed", name: "日常支出", currency: "TWD", limitMinor: "20000", direction: "expense", month: "2026-02", categoryIds: [] } },
+        { definition: { type: "fixed", name: "日常支出", currency: "TWD", limitMinor: "50000", direction: "expense", month: "2026-03", categoryIds: [] } },
+        { definition: { type: "fixed", name: "外币目标", currency: "USD", limitMinor: "10000", direction: "income", month: "2026-02", categoryIds: [] } },
+      ],
+    });
+    const accountId = (await accounts()).accounts[0]!.id;
+    for (let day = 1; day <= 11; day++) {
+      await call(desktop, "ledger.records.create", {
+        ...await version(), intentKey: randomUUID(), title: day === 1 ? "双标签纸笔" : `物料支出 ${day}`,
+        record: { type: "expense", accountId, occurredAt: `2026-02-${String(day).padStart(2, "0")}T04:00:00.000Z`,
+          amountMinor: "100", currency: "TWD", tagIds: day === 1 ? tags : tags.slice(0, 1),
+          categoryId: null, payee: null, memo: null, attachmentIds: [] },
+      });
+    }
+    await desktop.getByTestId("ledger-nav-budgets").click();
+    await expect(ledger.getByRole("heading", { name: "预算列表" })).toBeVisible();
+
+    const link = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 420, height: 760 } });
+    await page.goto(link);
+    const webLedger = await enterLedger(page);
+    await page.getByTestId("ledger-nav-budgets").click();
+    await page.getByRole("button", { name: "收起导航" }).click();
+    const year = webLedger.getByLabel("预算年份");
+    await year.fill("2026");
+    await year.press("Tab");
+    const month = webLedger.getByLabel("预算月份");
+    await month.selectOption("02");
+    await webLedger.getByLabel("预算币种").selectOption("TWD");
+    await expect(webLedger.getByRole("heading", { name: "月度汇总" })).toBeVisible();
+    const freeRow = webLedger.getByTestId(`ledger-budget-${free!.id}`);
+    const fixedRow = webLedger.getByTestId(`ledger-budget-${fixed!.id}`);
+    await expect(freeRow).toContainText("TWD 11.00 / TWD 150.00");
+    await expect(freeRow).toContainText("11 笔");
+    await expect(webLedger.getByText("外币目标", { exact: true })).toHaveCount(0);
+    await freeRow.getByRole("button", { name: "查看 工作室物料 明细" }).click();
+    const detail = page.getByRole("dialog", { name: "预算明细 · 工作室物料" });
+    const table = detail.getByRole("table", { name: "预算匹配流水" });
+    await expect(table.getByRole("row")).toHaveCount(11);
+    await expect(detail).toContainText("TWD 11.00 / TWD 150.00");
+    await detail.getByRole("button", { name: "下一页" }).click();
+    await expect(table.getByRole("rowheader", { name: "双标签纸笔" })).toBeVisible();
+    await expect(table.getByRole("row")).toHaveCount(2);
+    await expect(detail.getByText("第 2 / 2 页 · 共 11 笔")).toBeVisible();
+    await detail.getByRole("button", { name: "完成", exact: true }).click();
+
+    await freeRow.getByRole("checkbox", { name: "工作室物料" }).check();
+    await fixedRow.getByRole("checkbox", { name: "日常支出" }).check();
+    await webLedger.getByRole("button", { name: "批量编辑（2）" }).click();
+    const edit = page.getByRole("dialog", { name: "批量编辑预算" });
+    await edit.getByRole("group", { name: "工作室物料", exact: true }).getByLabel("预算额度").fill("175.50");
+    await edit.getByRole("group", { name: "日常支出", exact: true }).getByLabel("预算额度").fill("250");
+    await edit.getByRole("button", { name: "保存预算" }).click();
+    await expect(freeRow).toContainText("TWD 11.00 / TWD 175.50");
+    await expect(fixedRow).toContainText("TWD 11.00 / TWD 250.00");
+
+    const copy = page.getByRole("dialog", { name: "跨月复制固定预算" });
+    for (const [created, skipped] of [[3, 1], [0, 4]]) {
+      await webLedger.getByRole("button", { name: "跨月复制" }).click();
+      await copy.getByLabel("目标月份", { exact: true }).fill("2026-03");
+      await copy.getByRole("button", { name: "添加目标月" }).click();
+      await copy.getByLabel("目标月份 2").fill("2026-04");
+      await copy.getByRole("button", { name: "确认复制" }).click();
+      await expect(copy.getByRole("status")).toContainText(`已复制 ${created} 项 · 跳过 ${skipped} 项同名预算`);
+      await expect(copy.getByRole("status")).toContainText("2026-03 · 日常支出（保留已有规则）");
+      await copy.getByRole("button", { name: "完成", exact: true }).click();
+    }
+    await month.selectOption("03");
+    await expect(webLedger.getByTestId(`ledger-budget-${conflicting!.id}`)).toContainText("TWD 0.00 / TWD 500.00");
+    await month.selectOption("");
+    await expect(webLedger.getByRole("heading", { name: "年度汇总" })).toBeVisible();
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await close();
+  }
+});

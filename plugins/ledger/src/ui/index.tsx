@@ -4,6 +4,7 @@ import { BookOpen, Plus } from "lucide-react";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { Book, BookList, RemovalPreview } from "../shared/books.js";
 import { AccountsSection } from "./Accounts.js";
+import { LedgerBudgets } from "./Budgets.js";
 import { Overview, RecordsSection } from "./Records.js";
 import { LedgerCalendar, LedgerReports } from "./Reports.js";
 import { LedgerRecurringPage } from "./Recurring.js";
@@ -126,6 +127,7 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
       </section> : current && (section === "accounts" ? <AccountsSection key={current.id} book={current} readOnly={readOnly} />
         : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)}
           linkedRecordId={linkedRecord?.bookId === current.id ? linkedRecord.recordId : undefined} closeLinkedRecord={() => setLinkedRecord(undefined)} />
+        : section === "budgets" ? <LedgerBudgets key={current.id} book={current} readOnly={readOnly} />
         : section === "calendar" ? <LedgerCalendar key={current.id} book={current} readOnly={readOnly} />
         : section === "reports" ? <LedgerReports key={current.id} book={current} />
         : section === "recurring" ? <div key={current.id} className="hu-stack">
@@ -185,7 +187,7 @@ export function createLedgerContributions(openRecords: () => void) {
     icon: <BookOpen size={18} aria-hidden />, component: (props) => <LedgerModule {...props} quick={quick} />, nav: "shell",
     sections: [
       { id: "overview", label: "总览" }, { id: "records", label: "流水" },
-      { id: "accounts", label: "账户" }, { id: "recurring", label: "固定收支与贷款" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
+      { id: "accounts", label: "账户" }, { id: "budgets", label: "预算" }, { id: "recurring", label: "固定收支与贷款" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
       { id: "backups", label: "导入与恢复" },
     ],
   };
