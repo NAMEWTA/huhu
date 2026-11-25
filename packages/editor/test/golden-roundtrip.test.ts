@@ -1,6 +1,7 @@
 import { markdownFileBody, restoreMarkdownFileEnvelope } from "../src/host/markdown-file-envelope";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JSONContent } from "@tiptap/core";
 import type { Schema } from "@tiptap/pm/model";
@@ -14,17 +15,20 @@ const fixtureRoots = [new URL("../src/vendor/open-knowledge/core/src/markdown/fi
 const largeThreshold = 256 * 1024;
 const samples: { name: string; bytes: Buffer }[] = [];
 const markdownKeys = ["markdown", "input", "source", "blockForm", "inlineForm"] as const;
+const fixtureId = (relativePath: string, separator: string = path.sep) => relativePath.split(separator).join(path.posix.sep);
 for (const fixtureDir of fixtureRoots) {
-  for (const entry of readdirSync(fileURLToPath(fixtureDir), { recursive: true, encoding: "utf8" }).sort()) {
-    const file = new URL(entry, fixtureDir);
-    if (entry.endsWith(".md")) samples.push({ name: entry, bytes: readFileSync(file) });
-    if (entry.endsWith(".base64")) samples.push({ name: entry, bytes: Buffer.from(readFileSync(file, "utf8"), "base64") });
+  const root = fileURLToPath(fixtureDir);
+  for (const entry of readdirSync(root, { recursive: true, encoding: "utf8" }).sort()) {
+    const file = path.join(root, entry);
+    const name = fixtureId(entry);
+    if (entry.endsWith(".md")) samples.push({ name, bytes: readFileSync(file) });
+    if (entry.endsWith(".base64")) samples.push({ name, bytes: Buffer.from(readFileSync(file, "utf8"), "base64") });
     if (!entry.endsWith(".json")) continue;
     const cases = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>[];
     for (const [index, value] of cases.entries()) {
       for (const key of markdownKeys) {
         const markdown = value[key];
-        if (typeof markdown === "string") samples.push({ name: `${entry}:${index + 1}:${key}`, bytes: Buffer.from(markdown) });
+        if (typeof markdown === "string") samples.push({ name: `${name}:${index + 1}:${key}`, bytes: Buffer.from(markdown) });
       }
     }
   }
@@ -267,6 +271,34 @@ const serializationDifferences = new Map<string, { source: string; output: strin
   ],
 ]);
 
+function checkSerialization(name: string, original: string, serialized: string) {
+  const difference = serializationDifferences.get(name);
+  if (!difference) {
+    expect(serialized).toBe(original);
+    return;
+  }
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  expect(digest(original), difference.reason).toBe(difference.source);
+  expect(digest(serialized), difference.reason).toBe(difference.output);
+  return difference;
+}
+
+test("逻辑样例 ID 按 POSIX 匹配，已知差异与普通样例都拒绝意外字节", () => {
+  const ids = new Set(samples.map(({ name }) => name));
+  for (const [id, difference] of serializationDifferences) {
+    const windowsId = id.replaceAll(path.posix.sep, path.win32.sep);
+    const normalized = fixtureId(windowsId, path.win32.sep);
+    expect(normalized).toBe(id);
+    expect(serializationDifferences.get(normalized)).toBe(difference);
+    expect(ids.has(normalized)).toBe(true);
+  }
+
+  const known = fixtureId(String.raw`gfm\examples.json:2:markdown`, path.win32.sep);
+  const original = samples.find(({ name }) => name === known)!.bytes.toString("utf8");
+  expect(() => checkSerialization(known, original, "意外改写")).toThrow();
+  expect(() => checkSerialization("ordinary.md", "原文", "意外改写")).toThrow();
+});
+
 test.each(samples)(
   "H01 源缓冲保留字节并经富文本 hydrate→serialize $name",
   async ({ name, bytes }) => {
@@ -286,14 +318,8 @@ test.each(samples)(
       const { slot } = core.splitFmBoundarySlot(frontmatter, body);
       const serialized = restoreMarkdownFileEnvelope(original, core.composeWithDerivedBody(frontmatter, slot + markdown.mdManager.serialize(rich.toJSON())).md);
       expect(Buffer.from(restoreMarkdownFileEnvelope(original, provider.document.getText("source").toString())).equals(bytes)).toBe(true);
-      const difference = serializationDifferences.get(name);
-      if (!difference) {
-        expect(serialized).toBe(original);
-        return;
-      }
-      const digest = (text: string) => createHash("sha256").update(text).digest("hex");
-      expect(digest(original), difference.reason).toBe(difference.source);
-      expect(digest(serialized), difference.reason).toBe(difference.output);
+      const difference = checkSerialization(name, original, serialized);
+      if (!difference) return;
       const canonicalize = createDocCanonicalizer(markdown.mdManager, {});
       expect(core.isParseEquivalentBridge(original, serialized, canonicalize), difference.reason).toBe(difference.equivalent);
     });
