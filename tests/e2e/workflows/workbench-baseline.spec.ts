@@ -450,6 +450,64 @@ test("UX16 Safe 三栏按账号取用明文，窄窗逐级返回并清理", asyn
   });
 });
 
+test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", async ({ browserName }, info) => {
+  void browserName;
+  await runOnHosts(info, async (page, name) => {
+    const openAppearance = async () => {
+      await page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true }).click();
+      await page.getByTestId("settings-nav-appearance").click();
+      await expect(page.getByTestId("settings-appearance")).toBeVisible();
+    };
+    const appearance = page.getByTestId("settings-appearance");
+    const grid = appearance.getByRole("group", { name: "主题", exact: true });
+    const root = page.locator("html");
+    const metrics = () => grid.evaluate((element) => {
+      const scroll = element.closest<HTMLElement>(".shell-settings-content")!;
+      const options = [...element.querySelectorAll("button")].map((card) => card.getBoundingClientRect());
+      const bounds = scroll.getBoundingClientRect();
+      return {
+        columns: getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        scrollFillsWidth: Math.abs(bounds.width - scroll.parentElement!.clientWidth) <= 1,
+        pageFits: scroll.scrollWidth <= scroll.clientWidth + 1,
+        viewport: [window.innerWidth, window.innerHeight],
+        width: element.clientWidth,
+        lastColumnFillsGrid: Math.abs(options.at(-1)!.right - element.getBoundingClientRect().right) <= 1,
+        fontSize: getComputedStyle(document.documentElement).getPropertyValue("--font-size"),
+      };
+    });
+    await page.setViewportSize({ width: 1920, height: 940 });
+    await openAppearance();
+    await expect(grid.getByRole("button")).toHaveCount(4);
+    await expect.poll(metrics).toMatchObject({ columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
+    const firstWide = await metrics();
+    await page.setViewportSize({ width: 1200, height: 850 });
+    await expect.poll(metrics).toMatchObject({ columns: 2, pageFits: true, lastColumnFillsGrid: true });
+    await page.setViewportSize({ width: 490, height: 830 });
+    await expect.poll(metrics).toMatchObject({ columns: 1, pageFits: true });
+    const theme = name === "electron" ? "vercel" : "notion";
+    const mode = name === "electron" ? "dark" : "light";
+    await appearance.getByTestId(`theme-${theme}`).click();
+    await expect(root).toHaveAttribute("data-theme", theme);
+    await appearance.getByRole("tab", { name: mode === "dark" ? "深色" : "浅色", exact: true }).click();
+    await expect(root).toHaveAttribute("data-mode", mode);
+    const font = appearance.getByRole("slider", { name: "界面字号", exact: true });
+    await font.press("Home");
+    await expect.poll(metrics).toMatchObject({ fontSize: "12px" });
+    await font.press("End");
+    await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 1, pageFits: true });
+    const narrow = await metrics();
+    expect(await call(page, "settings.get", {})).toMatchObject({ appearance: { theme, mode, fontSize: 18 } });
+    await page.setViewportSize({ width: 1920, height: 940 });
+    await page.reload();
+    await openAppearance();
+    await expect(root).toHaveAttribute("data-theme", theme);
+    await expect(root).toHaveAttribute("data-mode", mode);
+    await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(metrics).toMatchObject({ fontSize: "18px", columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
+    await info.attach(`${name}-appearance-reflow`, { body: JSON.stringify({ firstWide, narrow, reopened: await metrics(), theme, mode }), contentType: "application/json" });
+  });
+});
+
 test("F22 命令面板隔离键盘焦点并在关闭或执行后恢复导航", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page) => {

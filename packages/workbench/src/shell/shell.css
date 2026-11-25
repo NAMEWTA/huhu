@@ -2444,34 +2444,67 @@
     color: var(--muted);
     margin-top: 5px;
   }
-  .shell-settings-content {
+  .shell-settings-content:not([data-settings-page="appearance"]) {
     max-width: 1150px;
+  }
+  .shell-appearance {
+    container: appearance-settings / inline-size;
+    min-inline-size: 0;
   }
   .shell-theme-options {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: clamp(10px, 2cqi, 16px);
+  }
+  @container appearance-settings (min-width: 30rem) {
+    .shell-theme-options {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container appearance-settings (min-width: 64rem) {
+    .shell-theme-options {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  @container appearance-settings (max-width: 36rem) {
+    .shell-appearance .hu-setting-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .shell-appearance .hu-setting-row > div:first-child {
+      flex-basis: auto;
+    }
+    .shell-appearance .hu-setting-row > .row {
+      max-inline-size: 100%;
+    }
+    .shell-appearance .hu-setting-row > .row > input[type="range"] {
+      min-inline-size: 0;
+    }
   }
   .shell-theme-option {
+    min-inline-size: 0;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 9px;
     padding: 8px;
-    text-align: left;
+    text-align: start;
+    overflow-wrap: anywhere;
   }
   .shell-theme-option.selected {
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }
-  .shell-theme-option strong {
+  .shell-theme-option > strong {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 12px;
+    font-size: var(--fs-list);
     font-weight: 500;
     padding: 10px 4px 3px;
   }
-  .shell-theme-option small {
-    font-size: 12px;
+  .shell-theme-option > small {
+    font-size: var(--fs-meta);
+    line-height: 1.65;
     color: var(--muted);
     padding: 0 4px 4px;
     display: block;
@@ -2683,11 +2716,6 @@
     }
   }
   @media (max-width: 1000px) {
-    .shell-theme-options {
-      gap: 12px;
-    }
-  }
-  @media (max-width: 1000px) {
     .hu-gateway-overview {
       padding: 18px;
     }
@@ -2812,21 +2840,6 @@
     }
   }
   @media (max-width: 760px) {
-    .shell-theme-options {
-      gap: 8px;
-    }
-  }
-  @media (max-width: 760px) {
-    .shell-theme-option strong {
-      font-size: 12px;
-    }
-  }
-  @media (max-width: 760px) {
-    .shell-theme-option small {
-      font-size: 12px;
-    }
-  }
-  @media (max-width: 760px) {
     .shell-about-hero {
       padding: 24px;
       gap: 18px;
@@ -2928,28 +2941,6 @@
   @media (max-width: 520px) {
     .shell-desktop-layer-grid {
       grid-template-columns: 1fr;
-    }
-  }
-  @media (max-width: 520px) {
-    .shell-theme-options {
-      grid-template-columns: 1fr;
-    }
-  }
-  @media (max-width: 520px) {
-    .shell-theme-option {
-      display: grid;
-      grid-template-columns: 100px 1fr;
-      column-gap: 12px;
-    }
-  }
-  @media (max-width: 520px) {
-    .shell-theme-option strong {
-      align-self: end;
-    }
-  }
-  @media (max-width: 520px) {
-    .shell-theme-option small {
-      align-self: start;
     }
   }
   @media (max-width: 520px) {
@@ -3614,19 +3605,6 @@
     font-size: 12px;
     line-height: 1.65;
   }
-  .shell-theme-option small {
-    font-size: var(--fs-meta);
-    line-height: 1.65;
-  }
-  .shell-theme-options {
-    gap: 16px;
-  }
-  .shell-theme-option {
-    border-radius: 9px;
-  }
-  .shell-theme-option strong {
-    font-size: 13px;
-  }
   .shell-storage-ownership {
     padding: 24px;
     gap: 20px;
@@ -3725,11 +3703,6 @@
       flex-basis: 196px;
     }
   }
-  @media (max-width: 900px) {
-    .shell-theme-options {
-      gap: 12px;
-    }
-  }
   @media (max-width: 780px) {
     .rail {
       padding: 10px 5px 8px;
@@ -3817,11 +3790,6 @@
   @media (max-width: 560px) {
     .hu-home-task-card .shell-card-head {
       row-gap: 12px;
-    }
-  }
-  @media (max-width: 560px) {
-    .shell-theme-options {
-      grid-template-columns: minmax(0, 1fr);
     }
   }
   @media (forced-colors: active) {

@@ -54,7 +54,7 @@ export function SettingsModule({ section, onNavigate }: ModuleProps) {
     <div className="hu-module-layout" data-testid="settings-module">
       <div className="hu-view-content">
         <PageHead title={page?.title ?? "设置"} description="修改立即生效，随当前 Vault 独立保存。" />
-        <div className="shell-system-scroll hu-scroll shell-settings-content">
+        <div className="shell-system-scroll hu-scroll shell-settings-content" data-settings-page={page?.id}>
           {error ? (
             <div role="alert" className="hu-field-error">
               {error}
