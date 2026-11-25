@@ -233,13 +233,35 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
       expect(saved.ok, saved.error?.message).toBe(true);
       hosts.push({ id: saved.data.hostId, name, revision: saved.data.revision });
     }
+    const createGroup = async (version: string, name: string, parentId: string | null) => {
+      const result = await sshCall<{ version: string; groups: { groupId: string; name: string }[] }>(page, "ssh.hosts.organize", { expectedVersion: version, operation: { type: "group.create", name, parentId } });
+      expect(result.ok, result.error?.message).toBe(true);
+      return { version: result.data.version, id: result.data.groups.find((group) => group.name === name)!.groupId };
+    };
+    const group = await createGroup("0", "夹具主组", null);
+    const subgroup = await createGroup(group.version, "子组", group.id);
+    expect((await sshCall(page, "ssh.hosts.organize", {
+      expectedVersion: subgroup.version, operation: { type: "hosts.move", hostIds: [hosts[0]!.id], groupId: subgroup.id },
+    })).ok).toBe(true);
     await openWorkspace(page);
     await page.getByRole("button", { name: "新建模板" }).click();
     const dialog = page.getByRole("dialog", { name: "新建工作区模板" });
     await dialog.getByLabel("模板名称").fill("开发工作区");
     await dialog.getByRole("button", { name: "保存模板" }).click();
     await expect(dialog.getByRole("alert")).toContainText("1 至 12");
-    for (const host of hosts.slice(0, 3)) {
+    const groupFilter = dialog.getByRole("combobox", { name: "工作区主机分组", exact: true });
+    const candidate = dialog.getByLabel("从主机目录选择");
+    await groupFilter.selectOption(group.id);
+    await expect(candidate.getByRole("option")).toHaveCount(2);
+    await candidate.selectOption(hosts[0]!.id);
+    await dialog.getByRole("button", { name: "加入主机" }).click();
+    await groupFilter.selectOption("all");
+    const hostSearch = dialog.getByRole("textbox", { name: "筛选工作区主机…" });
+    await hostSearch.fill("fixture@127.0.0.1:21002");
+    await expect(candidate.getByRole("option")).toHaveCount(2);
+    await expect(dialog.getByRole("list", { name: "主机顺序" })).toContainText(hosts[0]!.name);
+    await hostSearch.clear();
+    for (const host of hosts.slice(1, 3)) {
       await dialog.getByLabel("从主机目录选择").selectOption(host.id);
       await dialog.getByRole("button", { name: "加入主机" }).click();
     }
@@ -253,6 +275,12 @@ test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删
     }
     await dialog.getByLabel("从分栏 1 开始的方向").selectOption("column");
     await dialog.getByLabel("首区比例（%）").first().fill("70");
+    await candidate.selectOption(hosts[3]!.id);
+    await dialog.getByRole("button", { name: "加入主机" }).click();
+    await expect(dialog.getByLabel("首区比例（%）").first()).toHaveValue("70");
+    await dialog.getByRole("button", { name: `移除 ${hosts[3]!.name}`, exact: true }).click();
+    await expect(dialog.getByLabel("从分栏 1 开始的方向")).toHaveValue("column");
+    await expect(dialog.getByLabel("首区比例（%）").first()).toHaveValue("70");
     await dialog.getByRole("button", { name: "保存模板" }).click();
     await expect(page.getByRole("heading", { name: "开发工作区" })).toBeVisible();
     const file = readFileSync(path.join(vault, ".huhu/ssh/workspace-templates.json"), "utf8");
@@ -335,7 +363,7 @@ test("H4.2 临时运行独立信任和认证，重挂与重连保留分栏归属
     await draft.getByLabel("登录命令（可选）").first().fill("echo huhu-workspace-fixture");
     await draft.getByRole("button", { name: "启动工作区", exact: true }).click();
     const run = page.getByTestId("ssh-workspace-run");
-    const pane = page.getByTestId("ssh-workspace-run-pane");
+    const pane = run.getByTestId("ssh-workspace-run-pane").filter({ visible: true });
     await expect(run).toHaveAttribute("data-generation", "1");
     const original = (await run.getAttribute("data-run-id"))!;
     await expect(pane).toHaveAttribute("data-phase", "trust");
@@ -353,20 +381,20 @@ test("H4.2 临时运行独立信任和认证，重挂与重连保留分栏归属
     const paneA = (await pane.getAttribute("data-pane-id"))!;
     await expect.poll(() => inputs).toEqual(["echo huhu-workspace-fixture\r"]);
     await expect.poll(() => terminalOutput.join("")).toContain("welcome");
-    await run.getByRole("button", { name: "回环乙" }).click();
+    await run.getByRole("tab", { name: "回环乙" }).click();
     await expect(pane).toHaveAttribute("data-phase", "trust");
     await pane.getByRole("button", { name: "信任并连接" }).click();
     await expect(pane).toHaveAttribute("data-phase", "ready");
     const sessionB = (await pane.getAttribute("data-session-id"))!;
     expect(sessionB).not.toBe(sessionA);
-    await run.getByRole("button", { name: "拒绝认证" }).click();
+    await run.getByRole("tab", { name: "拒绝认证" }).click();
     await expect(pane).toHaveAttribute("data-phase", "trust");
     await pane.getByRole("button", { name: "信任并连接" }).click();
     await expect(pane.getByRole("alert")).toContainText("认证失败");
     expect(rejectedAuth).toContain("password");
-    await run.getByRole("button", { name: "回环甲" }).click();
+    await run.getByRole("tab", { name: "回环甲" }).click();
     await expect(pane).toHaveAttribute("data-session-id", sessionA);
-    await run.getByRole("button", { name: "回环乙" }).click();
+    await run.getByRole("tab", { name: "回环乙" }).click();
     await expect(pane).toHaveAttribute("data-session-id", sessionB);
     await page.getByRole("button", { name: "主机", exact: true }).click();
     await page.getByRole("button", { name: "工作区", exact: true }).click();
@@ -395,7 +423,7 @@ test("H4.2 临时运行独立信任和认证，重挂与重连保留分栏归属
       await openWorkspace(fresh);
       await fresh.getByRole("button", { name: /回环试运行.*代次 1/ }).click();
       const restored = fresh.getByTestId("ssh-workspace-run");
-      const restoredPane = fresh.getByTestId("ssh-workspace-run-pane");
+      const restoredPane = restored.getByTestId("ssh-workspace-run-pane").filter({ visible: true });
       await expect(restored).toHaveAttribute("data-run-id", original);
       await expect(restoredPane).toHaveAttribute("data-phase", "reconnect");
       await expect(restoredPane).toHaveAttribute("data-pane-id", paneA);
@@ -542,7 +570,7 @@ test("H6.1 附属文件跟随活动分栏，独立双栏保持原连接和单独
     expect(started.ok).toBe(true);
     await page.getByRole("button", { name: /双主机文件绑定.*代次 1/ }).click();
     const run = page.getByTestId("ssh-workspace-run");
-    const sourcePane = run.getByTestId("ssh-workspace-run-pane");
+    const sourcePane = run.getByTestId("ssh-workspace-run-pane").filter({ visible: true });
     await sourcePane.getByRole("button", { name: "信任并连接" }).click();
     await sourcePane.getByRole("button", { name: "分栏文件" }).click();
     const shellA = (await sourcePane.getAttribute("data-session-id"))!;
@@ -590,7 +618,7 @@ test("H6.1 附属文件跟随活动分栏，独立双栏保持原连接和单独
     await pinned.getByLabel("筛选远端目录").fill("no-match");
     await expect(pinned.getByRole("button", { name: "nested-marker.txt", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "返回 SSH" }).click();
-    await run.getByRole("button", { name: "文件源乙", exact: true }).click();
+    await run.getByRole("tab", { name: "文件源乙", exact: true }).click();
     await sourcePane.getByRole("button", { name: "信任并连接" }).click();
     await expect(attached.getByRole("button", { name: "remote-b.txt", exact: true })).toBeVisible();
     const shellB = (await sourcePane.getAttribute("data-session-id"))!;

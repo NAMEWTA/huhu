@@ -1021,6 +1021,12 @@
     font-weight: 700;
   }
 
+  .ssh-workspace-tabstrip [aria-selected="true"] {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+  }
+
   .ssh-workspace-tab-group {
     padding-block-start: 6px;
     font-size: var(--fs-meta);

@@ -45,6 +45,11 @@ export function removePaneAt(tree: SplitTree, index: number): SplitTree | undefi
   return second ? { ...tree, second } : tree.first;
 }
 
+export function appendPane(tree: SplitTree): SplitTree {
+  if (tree.kind === "pane") return { kind: "split", axis: "row", firstPercent: 50, first: tree, second: { kind: "pane" } };
+  return { ...tree, second: appendPane(tree.second) };
+}
+
 export function layoutProblem(panes: readonly WorkspacePane[], layout: WorkspaceLayout): string | undefined {
   if (panes.length < 1 || panes.length > MAX_WORKSPACE_PANES) return "请选择 1 至 12 台主机";
   if (new Set(panes.map(({ hostId }) => hostId)).size !== panes.length) return "同一台主机只能选择一次";
