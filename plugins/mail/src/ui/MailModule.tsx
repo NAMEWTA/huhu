@@ -1,5 +1,5 @@
 import type { Settings } from "@huhu/contracts";
-import { Banner, Button, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
+import { Banner, Button, Dialog, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
 import { CapabilityError, host, onOpenMailDeliveryRequest, registerExitParticipant, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
@@ -112,6 +112,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const [period, setPeriod] = useState<MailPeriod>("today");
   const time = useMemo(() => mailDayWindow(period, zone, clock), [period, zone, clock]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [navigation, setNavigation] = useState<{ revision: number; location: LocatedMessage | null }>({ revision: 0, location: null });
   const noticeNavigation = useRef<AbortController | null>(null);
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("mail");
@@ -428,12 +429,14 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   }
 
   const accountSetupAvailable = desktop && !readOnly && accounts.data?.available;
+  const accountNames = useMemo(() => new Map(rows.map((row) => [row.accountId, accountTitle(row)])), [rows]);
   const currentQuery = tab === "mail" ? accounts : tab === "drafts" ? drafts : deliveries;
   const original = (composer?.draft ?? composer?.seed)?.reply;
 
   return (
     <div
       className="hu-mail-workspace"
+      data-testid="mail-workspace"
       style={{ "--mail-account-width": `${accountColumn.width}px` } as CSSProperties}
       onKeyDown={(event) => {
         if (searchOpen && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") event.preventDefault();
@@ -446,6 +449,9 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
             <button type="button" className="hu-btn" ref={searchTrigger} onClick={() => setSearchOpen(true)}>
               搜索邮件
             </button>
+            <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
+              邮件设置
+            </Button>
             <MailAiApprovals key={engine.endpoint.baseUrl} readOnly={readOnly} />
             <Button disabled={readOnly} onClick={() => showComposer(null)}>
               写信
@@ -463,10 +469,14 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </>
         }
       />
-      <MailSyncSettings readOnly={readOnly} accountNames={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} settings={syncSettings} />
-      <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
-      <MailCacheSettings readOnly={readOnly} />
-      <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={new Map(rows.map((row) => [row.accountId, accountTitle(row)]))} />
+      <Dialog open={settingsOpen} wide title="邮件设置" onClose={() => setSettingsOpen(false)}>
+        <div className="hu-mail-settings">
+          <MailSyncSettings readOnly={readOnly} accountNames={accountNames} settings={syncSettings} />
+          <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
+          <MailCacheSettings readOnly={readOnly} />
+          <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={accountNames} />
+        </div>
+      </Dialog>
       <nav className="hu-mail-row" aria-label="邮件工作区">
         {tabs.map(({ id, label }) => (
           <Button
@@ -516,70 +526,74 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
       )}
       {currentQuery.isPending && <p>正在读取邮件工作区…</p>}
       {tab === "mail" && !currentQuery.isPending && (
-        <div ref={accountColumn.attachGrid} className="hu-mail-columns hu-mail-account-columns" data-account-view={rows.length ? accountView : "accounts"}>
-          <aside ref={accountList} id={accountPaneId} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
-            <MailAccountRow
-              title="全部账号"
-              selected={!account}
-              unread={accounts.data && rows.every((row) => row.mailbox) ? rows.reduce((count, row) => count + (row.mailbox?.unread ?? 0), 0) : undefined}
-              busy={rows.some((row) => !!isSyncing(row.accountId))}
-              {...(canRefreshAll && { onRefresh: () => rows.forEach((row) => void refreshAccount(row)) })}
-              onSelect={() => {
-                setAccountId(null);
-                clearLocation();
-                if (rows.length) {
-                  setAccountView("mailbox");
-                  requestAnimationFrame(() => {
-                    if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
-                  });
-                }
-              }}
-            />
-            {[...groups].map(([provider, members]) => (
-              <div key={provider} className="hu-mail-provider">
-                <Button
-                  variant="ghost"
-                  aria-expanded={!collapsed.has(provider)}
-                  onClick={() => setCollapsed((current) => (current.has(provider) ? new Set([...current].filter((item) => item !== provider)) : new Set([...current, provider])))}
-                >
-                  {mailPreset(provider).label}
-                </Button>
-                <div className="hu-mail-provider-accounts" hidden={collapsed.has(provider)}>
-                  {members.map((row) => (
-                    <MailAccountRow
-                      key={row.accountId}
-                      accountId={row.accountId}
-                      title={accountTitle(row)}
-                      selected={row.accountId === account?.accountId}
-                      unread={row.mailbox?.unread}
-                      busy={!!isSyncing(row.accountId)}
-                      oauth={!!row.definition.oauth}
-                      status={accountStatus(row, !!isSyncing(row.accountId), rowSync.get(row.accountId)?.failure, scheduledSync.get(row.accountId), accounts.isError)}
-                      {...(!readOnly && canRefreshAccount(row) && { onRefresh: () => void refreshAccount(row) })}
-                      {...(accountSetupAvailable && { onManage: (kind: MailAccountAction, trigger: HTMLButtonElement) => manageAccount(row, kind, trigger) })}
-                      onSelect={() => {
-                        if (row.accountId !== accountId) clearLocation();
-                        chooseAccount(row);
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-            {accountSetupAvailable &&
-              accounts.data?.pendingRemovals?.map((target) => (
-                <Button
-                  key={target.accountId}
-                  onClick={(event) => {
-                    accountActionTrigger.current = event.currentTarget;
-                    setDialog({ kind: "remove", target });
+        <div ref={accountColumn.attachGrid} className="hu-mail-columns hu-mail-account-columns" data-empty={rows.length ? undefined : true} data-account-view={rows.length ? accountView : "accounts"}>
+          {rows.length || accounts.data?.pendingRemovals?.length ? (
+            <aside ref={accountList} id={accountPaneId} aria-label="邮箱账号" className="hu-mail-list hu-mail-account-sidebar">
+              {rows.length ? (
+                <MailAccountRow
+                  title="全部账号"
+                  selected={!account}
+                  unread={accounts.data && rows.every((row) => row.mailbox) ? rows.reduce((count, row) => count + (row.mailbox?.unread ?? 0), 0) : undefined}
+                  busy={rows.some((row) => !!isSyncing(row.accountId))}
+                  {...(canRefreshAll && { onRefresh: () => rows.forEach((row) => void refreshAccount(row)) })}
+                  onSelect={() => {
+                    setAccountId(null);
+                    clearLocation();
+                    if (rows.length) {
+                      setAccountView("mailbox");
+                      requestAnimationFrame(() => {
+                        if (backAccounts.current?.getClientRects().length) backAccounts.current.focus();
+                      });
+                    }
                   }}
-                >
-                  继续清理 {target.label}
-                </Button>
+                />
+              ) : null}
+              {[...groups].map(([provider, members]) => (
+                <div key={provider} className="hu-mail-provider">
+                  <Button
+                    variant="ghost"
+                    aria-expanded={!collapsed.has(provider)}
+                    onClick={() => setCollapsed((current) => (current.has(provider) ? new Set([...current].filter((item) => item !== provider)) : new Set([...current, provider])))}
+                  >
+                    {mailPreset(provider).label}
+                  </Button>
+                  <div className="hu-mail-provider-accounts" hidden={collapsed.has(provider)}>
+                    {members.map((row) => (
+                      <MailAccountRow
+                        key={row.accountId}
+                        accountId={row.accountId}
+                        title={accountTitle(row)}
+                        selected={row.accountId === account?.accountId}
+                        unread={row.mailbox?.unread}
+                        busy={!!isSyncing(row.accountId)}
+                        oauth={!!row.definition.oauth}
+                        status={accountStatus(row, !!isSyncing(row.accountId), rowSync.get(row.accountId)?.failure, scheduledSync.get(row.accountId), accounts.isError)}
+                        {...(!readOnly && canRefreshAccount(row) && { onRefresh: () => void refreshAccount(row) })}
+                        {...(accountSetupAvailable && { onManage: (kind: MailAccountAction, trigger: HTMLButtonElement) => manageAccount(row, kind, trigger) })}
+                        onSelect={() => {
+                          if (row.accountId !== accountId) clearLocation();
+                          chooseAccount(row);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
-          </aside>
-          <MailPaneSeparator label="调整账号栏宽度" controls={accountPaneId} column={accountColumn} onResize={(width) => resizePane("accountWidth", width)} />
+              {accountSetupAvailable &&
+                accounts.data?.pendingRemovals?.map((target) => (
+                  <Button
+                    key={target.accountId}
+                    onClick={(event) => {
+                      accountActionTrigger.current = event.currentTarget;
+                      setDialog({ kind: "remove", target });
+                    }}
+                  >
+                    继续清理 {target.label}
+                  </Button>
+                ))}
+            </aside>
+          ) : null}
+          {rows.length ? <MailPaneSeparator label="调整账号栏宽度" controls={accountPaneId} column={accountColumn} onResize={(width) => resizePane("accountWidth", width)} /> : null}
           {rows.length ? (
             <Mailbox
               key={`${selectionKey}:${navigation.revision}`}
@@ -613,7 +627,7 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
                 })}
             />
           ) : (
-            <article className="hu-mail-detail hu-mail-account-overview">
+            <article className="hu-mail-detail" data-testid="mail-no-accounts">
               <h2>添加第一个邮箱</h2>
               <p>
                 {!desktop
@@ -1084,35 +1098,38 @@ function Mailbox({
               return list.refetch();
             }}
           />
-        ) : (
-          conversation && (
-            <ConversationTimeline
-              key={conversation.conversationId}
-              conversation={conversation}
-              accountId={account?.accountId}
-              accounts={accounts}
-              time={time}
-              location={location?.conversationId === conversation.conversationId ? location : null}
-              opened={activeMessage}
-              readOnly={readOnly}
-              onCompose={onCompose}
-              onCheckDelivery={onCheckDelivery}
-              onRefresh={refresh}
-              onChanged={list.refetch}
-              onRevoked={revokeOpened}
-              onOpen={(message, trigger) => {
-                setConversationId(conversation.conversationId);
-                onConversation({ id: conversation.conversationId, offset });
-                messageTrigger.current = trigger;
-                setOpened(message);
-                if (message)
-                  requestAnimationFrame(() => {
-                    if (backMessages.current?.getClientRects().length) backMessages.current.focus();
-                  });
-              }}
-            />
-          )
-        )}
+        ) : conversation ? (
+          <ConversationTimeline
+            key={conversation.conversationId}
+            conversation={conversation}
+            accountId={account?.accountId}
+            accounts={accounts}
+            time={time}
+            location={location?.conversationId === conversation.conversationId ? location : null}
+            opened={activeMessage}
+            readOnly={readOnly}
+            onCompose={onCompose}
+            onCheckDelivery={onCheckDelivery}
+            onRefresh={refresh}
+            onChanged={list.refetch}
+            onRevoked={revokeOpened}
+            onOpen={(message, trigger) => {
+              setConversationId(conversation.conversationId);
+              onConversation({ id: conversation.conversationId, offset });
+              messageTrigger.current = trigger;
+              setOpened(message);
+              if (message)
+                requestAnimationFrame(() => {
+                  if (backMessages.current?.getClientRects().length) backMessages.current.focus();
+                });
+            }}
+          />
+        ) : !conversationId ? (
+          <section className="hu-mail-reading-empty" aria-label="邮件阅读区">
+            <h3>选择一段对话</h3>
+            <p className="hu-mail-help">从联系人列表选择邮件，查看往来和回复。</p>
+          </section>
+        ) : null}
       </div>
     </article>
   );

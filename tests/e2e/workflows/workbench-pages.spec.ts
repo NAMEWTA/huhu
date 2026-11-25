@@ -5,6 +5,7 @@ import { TaskExecutionSchema, type ExecutionBinding, type ExecutionReceipt, type
 import { executionReceiptIdentity } from "../../../packages/contracts/src/execution-receipt-engine.js";
 import { machineId, VaultFiles } from "../../../packages/vault/src/index.js";
 import { operationIdFor, OutboxStorage } from "../../../plugins/mail/src/engine/outbox-storage.js";
+import { openImapFixture } from "../../../plugins/mail/test/fixtures/imap.js";
 import { DispatchStore, eventIdOf, fingerprint, type DispatchSnapshot } from "../../../plugins/tasks/src/engine/dispatch-store.js";
 import { openApp } from "../helpers/launch.js";
 import { call, engineReady } from "../knowledge/session-slow-bridge.js";
@@ -248,5 +249,99 @@ test("UX06：待处理事项只投影原任务、问题和投递，处理后收�
     expect(await captureList()).toHaveLength(before);
   } finally {
     await close();
+  }
+});
+
+test("UX07：邮件设置按需打开，三栏到窄窗继续阅读、回复草稿与逐收件人结果", async () => {
+  const subject = "邮件工作区验收";
+  const imap = await openImapFixture({ message: {
+    uid: 1, uidValidity: 42, subject,
+    source: `From: Sender <sender@example.test>\r\nTo: reader@example.test\r\nSubject: ${subject}\r\nDate: ${new Date().toUTCString()}\r\n\r\nmail fixture original\r\n`,
+  } });
+  try {
+    const { page, vault, close } = await openApp();
+    try {
+      await engineReady(page);
+      await page.setViewportSize({ width: 480, height: 850 });
+      await navigate(page, "邮件");
+      await expect(page.getByTestId("mail-no-accounts")).toBeVisible();
+      const add = page.getByRole("button", { name: "添加邮箱", exact: true });
+      await add.click();
+      const accountDialog = page.getByRole("dialog", { name: "添加邮箱", exact: true });
+      await expect(accountDialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(add).toBeFocused();
+      const settings = page.getByRole("button", { name: "邮件设置", exact: true });
+      await expect(page.getByText("邮件同步设置", { exact: true })).toHaveCount(0);
+      await settings.click();
+      const settingsDialog = page.getByRole("dialog", { name: "邮件设置", exact: true });
+      await expect(settingsDialog.getByText("邮件同步设置", { exact: true })).toBeVisible();
+      await expect(settingsDialog.getByText("邮件缓存", { exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(settings).toBeFocused();
+
+      const address = { host: "127.0.0.1", port: imap.port, security: "none" } as const;
+      const { setupId } = await call<{ setupId: string }>(page, "mail.accounts.testConnection", {
+        settings: { provider: "custom_imap", email: "reader@example.test", label: "验收邮箱", auth: "password", imap: address, smtpEnabled: false, smtp: address },
+        password: "synthetic-loopback-password",
+      });
+      const { accountId } = await call<{ accountId: string }>(page, "mail.accounts.save", { setupId, folders: ["INBOX"] });
+      await call(page, "mail.sync.refresh", { accountId, folder: "INBOX" });
+      await page.reload();
+      await engineReady(page);
+      await page.setViewportSize({ width: 1500, height: 900 });
+      await navigate(page, "邮件");
+      const account = page.getByRole("button", { name: "验收邮箱", exact: true });
+      await account.click();
+      const panes = page.getByRole("separator", { name: "调整联系人栏宽度" });
+      await expect(panes).toBeVisible();
+      await panes.focus();
+      await panes.press("ArrowRight");
+      const contacts = page.getByRole("complementary", { name: "联系人对话" });
+      await contacts.getByRole("button", { name: /sender@example\.test/ }).click();
+      await page.getByRole("region", { name: "往来邮件" }).getByRole("button", { name: subject, exact: true }).click();
+      await expect(page.getByText("mail fixture original", { exact: true })).toBeVisible();
+
+      await page.setViewportSize({ width: 480, height: 850 });
+      await expect(panes).toBeHidden();
+      await page.getByRole("button", { name: "返回邮件列表" }).click();
+      await page.getByRole("button", { name: "返回账号" }).click();
+      await expect(account).toBeFocused();
+      await account.click();
+      await contacts.getByRole("button", { name: /sender@example\.test/ }).click();
+      await page.getByRole("region", { name: "往来邮件" }).getByRole("button", { name: subject, exact: true }).click();
+      await page.getByRole("button", { name: "引用回复", exact: true }).click();
+      const composer = page.getByRole("form", { name: "回复邮件", exact: true });
+      await composer.getByRole("textbox", { name: "正文", exact: true }).fill("保留到原回复草稿");
+      await composer.getByRole("button", { name: "保存草稿", exact: true }).click();
+      await expect(composer.getByRole("button", { name: "保存草稿", exact: true })).toBeDisabled();
+      await composer.getByRole("button", { name: "关闭写信" }).click();
+      await page.getByRole("button", { name: "草稿", exact: true }).click();
+      await expect(page.getByRole("complementary", { name: "草稿列表" })).toContainText(subject);
+
+      const draftId = randomUUID();
+      const revision = randomUUID();
+      const operationId = operationIdFor(draftId, revision);
+      const messageId = `<${randomUUID()}@huhu.local>`;
+      const claimedAt = new Date().toISOString();
+      const recipients = ["accepted@example.test", "failed@example.test"];
+      await new OutboxStorage(new VaultFiles(vault)).write({
+        format: 1, operationId, draftId, revision, messageId, claimedAt, from: "reader@example.test", auth: "password", smtp: address,
+        draft: { accountId, to: recipients, cc: [], bcc: [], subject: "部分送达的邮件", body: { type: "doc" } }, text: "测试投递",
+        result: { stage: "data", finishedAt: claimedAt, smtpCode: 250, recipients: [{ address: recipients[0]!, state: "accepted" }, { address: recipients[1]!, state: "not-delivered" }] },
+      }, null);
+      await page.reload();
+      await engineReady(page);
+      await navigate(page, "邮件");
+      await page.getByRole("button", { name: "发件箱", exact: true }).click();
+      await page.getByRole("button", { name: /部分送达的邮件/ }).click();
+      await expect(page.getByText(messageId, { exact: true })).toBeVisible();
+      const results = page.getByRole("list", { name: "收件人投递结果" });
+      await expect(results.getByRole("listitem")).toHaveText(["accepted@example.test · 服务端已接受", "failed@example.test · 明确未投递"]);
+    } finally {
+      await close();
+    }
+  } finally {
+    await imap.close();
   }
 });

@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { URL as FileURL } from "node:url";
 import { act, type ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { MailAccount } from "../src/engine/accounts.js";
 import { MailModule } from "../src/ui/MailModule.js";
 
 // Use the repository's desktop renderer without adding a second renderer dependency to Mail.
@@ -17,6 +18,17 @@ const settingsKey = queryKey(endpoint.vaultId, "settings.get");
 const defaults = SettingsSchema.parse({});
 const ok = (data: unknown) => Response.json({ ok: true, data });
 const failedWrite = () => Response.json({ ok: false, error: { code: "INTERNAL", message: "settings write failed" } });
+const address = { host: "mail.example.test", port: 993, security: "tls" } as const;
+const account: MailAccount = {
+  accountId: "pane-account",
+  revision: "pane-revision",
+  authState: { "account-password": "configured" },
+  definition: {
+    format: 1,
+    settings: { provider: "custom_imap", email: "pane@example.test", label: "Mail pane fixture", auth: "password", imap: address, smtpEnabled: false, smtp: address },
+    folders: [{ path: "INBOX", name: "INBOX", delimiter: "/", specialUse: null, flags: [] }],
+  },
+};
 
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -73,7 +85,7 @@ async function mount(options: { access?: Promise<Response>; read?: Promise<Respo
         stored = mergeSettings(stored, input.patch);
         return ok(stored);
       case "mail.accounts.list":
-        return ok({ available: true, accounts: [] });
+        return ok({ available: true, accounts: [account] });
       default:
         return ok(null);
     }
