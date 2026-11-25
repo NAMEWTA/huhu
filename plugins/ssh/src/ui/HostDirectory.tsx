@@ -4,7 +4,7 @@ import { Server } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import type { z } from "zod";
 import type { DirectoryUpdate, DirectoryView } from "../engine/directory-schema.js";
-import { maxRouteEditTargets } from "../engine/route-edits.js";
+import { maxRouteEditTargets } from "../shared/route.js";
 import { directoryGroupPath, groupsInScope, hostSearchTerms, matchesHostSearch } from "../shared/host-directory.js";
 import { MAX_WORKSPACE_PANES } from "../shared/workspace.js";
 import type { ConnectionStatus } from "../shared/trust.js";

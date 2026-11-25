@@ -1,9 +1,11 @@
 import { CapabilityIntentKeySchema } from "@huhu/contracts";
 import { z } from "zod";
 import { HostRevision, OwnedHostId } from "./auth-profile.js";
+import { maxRouteEditTargets } from "../shared/route.js";
 import { RouteBinding } from "./public-resources.js";
 
-export const maxRouteEditTargets = 100;
+export { maxRouteEditTargets };
+
 export const EditHostRoutes = z.strictObject({
   targets: z
     .array(HostRevision)

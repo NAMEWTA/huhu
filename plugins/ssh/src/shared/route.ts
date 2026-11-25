@@ -1,5 +1,8 @@
 import { errors } from "@huhu/contracts";
 
+/** Largest host batch one route edit may change; shared by the editor UI and the Engine schema. */
+export const maxRouteEditTargets = 100;
+
 type RouteNode = { id: string; jumpHostIds: string[]; routeDisabled?: true | undefined };
 
 export function directJumpIds(host: Pick<RouteNode, "jumpHostIds" | "routeDisabled">): readonly string[] {
