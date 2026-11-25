@@ -97,6 +97,20 @@ async function expectNarrowForm(dialog: Locator, name: string) {
   }), { message: `${name} 的窄表单应在同一列上下排列` }).toEqual({ narrow: true, stacked: true });
 }
 
+async function openSettingsPage(page: Page, section: string) {
+  const settings = page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true });
+  if ((await settings.getAttribute("aria-current")) !== "page") await settings.click();
+  await expect(settings).toHaveAttribute("aria-current", "page");
+  const sidebar = page.locator('[data-region="sidebar"]');
+  if (!(await sidebar.isVisible())) await page.getByRole("button", { name: "展开导航", exact: true }).click();
+  await sidebar.getByTestId(`settings-nav-${section}`).click();
+}
+
+async function collapseSettingsNavigation(page: Page) {
+  await page.getByRole("button", { name: "收起导航", exact: true }).click();
+  await expect(page.locator('[data-region="sidebar"]')).toBeHidden();
+}
+
 test("U0 中文笔记编辑与受控保存失败", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page, name, vault) => {
@@ -326,23 +340,21 @@ test("UX15 同步表单按容器重排，保存后从原计划继续管理", asy
     execFileSync("git", ["init", "--bare", repository]);
     const remote = pathToFileURL(repository).href;
     await runOnHosts(info, async (page, name) => {
+      // Keep a locator failure from consuming the shared budget for both host samples.
+      page.setDefaultTimeout(10_000);
       const mode = name === "electron" ? "full" : "follow";
       const branch = `ux15/${name}`;
       const rules = ["私有草稿/**", "scratch/**/*.tmp", "generated/"];
-      const rail = page.locator('[data-region="rail"]');
       const settings = page.getByTestId("sync-settings");
       const grid = settings.locator(".hu-sync-settings-grid");
       const save = settings.getByTestId("sync-save");
-      const openSettings = async () => {
-        await rail.getByRole("button", { name: "设置", exact: true }).click();
-        await page.getByTestId("settings-nav-versioning").click();
-        await expect(settings).toBeVisible();
-      };
       const columns = () => grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
       await page.setViewportSize({ width: 1600, height: 930 });
-      await openSettings();
+      await openSettingsPage(page, "versioning");
+      await expect(settings).toBeVisible();
       await expect.poll(columns).toBe(2);
       await page.setViewportSize({ width: 480, height: 800 });
+      await collapseSettingsNavigation(page);
       await expect.poll(columns).toBe(1);
       await settings.getByTestId("sync-remote").fill(remote);
       await settings.getByTestId("sync-branch").fill(branch);
@@ -362,7 +374,7 @@ test("UX15 同步表单按容器重排，保存后从原计划继续管理", asy
       await expect(page.getByTestId("plan-directory")).toBeVisible();
       await expect.poll(() => new URL(page.url()).searchParams.get("automation-plan")).toBe(plan.planId);
       await page.setViewportSize({ width: 1600, height: 930 });
-      await openSettings();
+      await openSettingsPage(page, "versioning");
       await expect(settings.getByTestId("sync-remote")).toHaveValue(remote);
       await expect(settings.getByTestId("sync-branch")).toHaveValue(branch);
       await expect(settings.getByTestId("sync-exclude")).toHaveValue(rules.join("\n"));
@@ -465,11 +477,7 @@ test("UX16 Safe 三栏按账号取用明文，窄窗逐级返回并清理", asyn
 test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", async ({ browserName }, info) => {
   void browserName;
   await runOnHosts(info, async (page, name) => {
-    const openAppearance = async () => {
-      await page.locator('[data-region="rail"]').getByRole("button", { name: "设置", exact: true }).click();
-      await page.getByTestId("settings-nav-appearance").click();
-      await expect(page.getByTestId("settings-appearance")).toBeVisible();
-    };
+    page.setDefaultTimeout(10_000);
     const appearance = page.getByTestId("settings-appearance");
     const grid = appearance.getByRole("group", { name: "主题", exact: true });
     const root = page.locator("html");
@@ -488,13 +496,14 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
       };
     });
     await page.setViewportSize({ width: 1920, height: 940 });
-    await openAppearance();
+    await openSettingsPage(page, "appearance");
     await expect(grid.getByRole("button")).toHaveCount(4);
     await expect.poll(metrics).toMatchObject({ columns: 4, scrollFillsWidth: true, pageFits: true, lastColumnFillsGrid: true });
     const firstWide = await metrics();
     await page.setViewportSize({ width: 1200, height: 850 });
     await expect.poll(metrics).toMatchObject({ columns: 2, pageFits: true, lastColumnFillsGrid: true });
     await page.setViewportSize({ width: 490, height: 830 });
+    await collapseSettingsNavigation(page);
     await expect.poll(metrics).toMatchObject({ columns: 1, pageFits: true });
     const theme = name === "electron" ? "vercel" : "notion";
     const mode = name === "electron" ? "dark" : "light";
@@ -511,7 +520,7 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
     expect(await call(page, "settings.get", {})).toMatchObject({ appearance: { theme, mode, fontSize: 18 } });
     await page.setViewportSize({ width: 1920, height: 940 });
     await page.reload();
-    await openAppearance();
+    await openSettingsPage(page, "appearance");
     await expect(root).toHaveAttribute("data-theme", theme);
     await expect(root).toHaveAttribute("data-mode", mode);
     await expect(appearance.getByTestId(`theme-${theme}`)).toHaveAttribute("aria-pressed", "true");
