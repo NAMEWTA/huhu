@@ -183,7 +183,7 @@ export class HostConfigurations {
 
   configure(input: ConfigureHost, signal: AbortSignal, assertCurrent?: () => void) {
     return this.mutate(async () => {
-      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, outboundProxy, ...profile } = input;
+      const { hostId, expectedRevision, authKind, keyId: selectedKey, credentials, routeDisabled, outboundProxy, viaShell, ...profile } = input;
       if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
       const owner = this.credentials();
       const existing = await owner.list();
@@ -192,17 +192,19 @@ export class HostConfigurations {
       if (assertCurrent && (selectedKey !== undefined || (old?.definition.keyId && credentials.some(({ action }) => action !== "keep")))) throw errors.permissionDenied("SSH 密钥库关联");
       if (assertCurrent && routeDisabled !== undefined && routeDisabled !== Boolean(old?.definition.routeDisabled)) throw errors.permissionDenied("SSH 跳板路由状态");
       if (assertCurrent && outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
+      if (assertCurrent && viaShell !== undefined) throw errors.permissionDenied("SSH ViaShell 设置");
       if (selectedKey && authKind !== "key") throw errors.invalidInput("只可为私钥认证选择密钥库");
       const keyId = authKind === "key" ? (selectedKey === undefined ? old?.definition.keyId : selectedKey) : undefined;
       const selected = keyId ? (await this.keys.list()).find((key) => key.id === keyId) : undefined;
       if (keyId && (!selected || (!selected.available && keyId !== old?.definition.keyId))) throw errors.invalidInput("所选密钥在本机不可用");
       const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && old?.definition.routeDisabled);
+      const shell = viaShell ?? (old && profile.jumpHostIds.length > 0 && old.definition.jumpHostIds[0] === profile.jumpHostIds[0] && old.definition.viaShell);
       const proxy = outboundProxy ?? old?.definition.outboundProxy;
       if (proxy?.mode === "profile") {
         if (!this.vaultFiles) throw errors.invalidInput("此 Vault 无法读取 SSH 出站代理");
         requireOutboundProfile(this.vaultFiles, proxy.profileId);
       }
-      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
+      const settings = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(shell && { viaShell: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, [...this.legacy.list(), ...existing.map((host) => asHost(host))]);
       const definition: HostDefinition = { ...settings, authKind, ...(keyId && { keyId }), configId: randomUUID(), format: 1 };
       const applicable = new Set<Purpose>(keyId ? [] : purposes[authKind]);
       const actions = new Map<string, CredentialAction>();
@@ -241,7 +243,8 @@ export class HostConfigurations {
             if (change.action === "associate") {
               if ((directJump && change.ifExists === "skip") || directJump === change.jumpHostId) continue;
               if (hostId === change.jumpHostId) throw errors.invalidInput(`「${host.name}」不能用自身作为跳板`);
-              next.set(hostId, { ...host, jumpHostIds: [change.jumpHostId] });
+              const { viaShell: _oldTransport, ...definition } = host;
+              next.set(hostId, { ...definition, jumpHostIds: [change.jumpHostId] });
             } else {
               if (!directJump) throw errors.invalidInput(`「${host.name}」尚未设置跳板，无法启停路由`);
               if (change.enabled === !host.routeDisabled) continue;

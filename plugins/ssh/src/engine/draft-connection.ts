@@ -25,7 +25,7 @@ export const sshDraftDescriptor = defineCapabilityDescriptor({
 });
 
 export async function testSshDraft(hosts: HostConfigurations, manager: SshManager, input: ConfigureHost, signal: AbortSignal, boundRoute?: () => ManagedHost[]): Promise<DraftConnectionResult> {
-  const { hostId, expectedRevision, authKind, credentials: _credentials, keyId: _keyId, routeDisabled, outboundProxy, ...profile } = input;
+  const { hostId, expectedRevision, authKind, credentials: _credentials, keyId: _keyId, routeDisabled, outboundProxy, viaShell, ...profile } = input;
   if ((hostId === undefined) !== (expectedRevision === null)) throw errors.invalidInput("SSH 主机 ID 和预期版本必须一起提供");
   const existing = await hosts.list();
   signal.throwIfAborted();
@@ -34,8 +34,9 @@ export async function testSshDraft(hosts: HostConfigurations, manager: SshManage
   if (saved && saved.revision !== expectedRevision) throw errors.versionConflict(saved.revision);
   const id = hostId ?? "ssh-draft";
   const disabled = routeDisabled ?? (profile.jumpHostIds.length > 0 && saved?.routeDisabled);
+  const shell = viaShell ?? (saved && profile.jumpHostIds.length > 0 && saved.jumpHostIds[0] === profile.jumpHostIds[0] && saved.viaShell);
   const proxy = outboundProxy ?? saved?.outboundProxy;
-  const normalized = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, existing);
+  const normalized = validateHost({ ...profile, ...(disabled && { routeDisabled: true as const }), ...(shell && { viaShell: true as const }), ...(proxy && { outboundProxy: proxy }) }, id, existing);
   const draft: ManagedHost = {
     ...normalized,
     id,
@@ -74,6 +75,7 @@ export function registerSshDraft(api: HuhuApi, hosts: HostConfigurations, manage
       };
       const target = boundRoute().at(-1)!;
       if (input.outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
+      if (input.viaShell !== undefined) throw errors.permissionDenied("SSH ViaShell 设置");
       if (keyId !== undefined || ((authKind === "agent" || authKind === "identity-file") && authKind !== target.auth.kind) || credentials.some(({ purpose }) => purpose === "identityFile")) {
         throw errors.permissionDenied("SSH 本机身份选择");
       }

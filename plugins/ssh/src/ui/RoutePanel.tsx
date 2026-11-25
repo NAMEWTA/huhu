@@ -50,6 +50,7 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
   const [groupByJump, setGroupByJump] = useState(false);
   const [saving, setSaving] = useState<string>();
   const [draftJumps, setDraftJumps] = useState<Record<string, string>>({});
+  const [draftRelays, setDraftRelays] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState(() => {
     const targets = new Set(defaultTargets);
     return new Map(hosts.filter(isManagedHost).filter(({ id }) => targets.has(id)).map(({ id, name, revision }) => [id, { name, revision }]));
@@ -78,16 +79,21 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
   const chosenJump = jumpOptions.find(({ host }) => host.id === batchJump);
   const canBatch = selected.size > 0 && !stale.length && !saving;
 
-  async function save(host: ManagedHost, jump: string, disabled: boolean) {
+  async function save(host: ManagedHost, jump: string, disabled: boolean, viaShell: boolean) {
     if (saving) return;
     const { id, revision, auth, authState: _authState, configured: _configured, keyId: _keyId, routeDisabled: _disabled, ...profile } = host;
-    const input: ConfigureHost = { ...profile, jumpHostIds: jump ? [jump] : [], routeDisabled: disabled, hostId: id, expectedRevision: revision, authKind: auth.kind, credentials: [] };
+    const input: ConfigureHost = { ...profile, jumpHostIds: jump ? [jump] : [], routeDisabled: disabled, viaShell, hostId: id, expectedRevision: revision, authKind: auth.kind, credentials: [] };
     setSaving(id);
     setFeedback(undefined);
     try {
       await engine.call("ssh.hosts.configure", input, { write: true });
       await onChanged();
       setDraftJumps((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setDraftRelays((current) => {
         const next = { ...current };
         delete next[id];
         return next;
@@ -128,6 +134,11 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
       });
       setSelected(new Map());
       setDraftJumps((current) => {
+        const next = { ...current };
+        for (const id of updated) delete next[id];
+        return next;
+      });
+      setDraftRelays((current) => {
         const next = { ...current };
         for (const id of updated) delete next[id];
         return next;
@@ -230,7 +241,10 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
           {members.map((host) => {
             const target = new Set([host.id]);
             const draft = draftJumps[host.id];
-            const currentJump = draft ?? host.jumpHostIds[0] ?? "";
+            const savedJump = host.jumpHostIds[0] ?? "";
+            const currentJump = draft ?? savedJump;
+            const viaShell = Boolean(currentJump && (draftRelays[host.id] ?? (currentJump === savedJump && host.viaShell)));
+            const pendingChange = currentJump !== savedJump || viaShell !== Boolean(host.viaShell);
             const candidate = byId.get(currentJump);
             const invalidDraft = Boolean(draft && (!candidate || jumpIssue(configuredEdges, candidate, target)));
             return (
@@ -258,6 +272,7 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
                       onChange={(event) => {
                         const jump = event.currentTarget.value;
                         setDraftJumps((current) => ({ ...current, [host.id]: jump }));
+                        setDraftRelays((current) => ({ ...current, [host.id]: jump === savedJump && Boolean(host.viaShell) }));
                       }}
                     >
                       <option value="">直连</option>
@@ -277,13 +292,25 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
                       })}
                     </select>
                   </label>
-                  {draft !== undefined && draft !== (host.jumpHostIds[0] ?? "") ? (
-                    <Button loading={saving === host.id} disabled={Boolean(saving) || invalidDraft} onClick={() => void save(host, draft, false)}>
+                  {currentJump ? (
+                    <label className="row">
+                      中继方式
+                      <select value={viaShell ? "shell" : "tcp"} disabled={Boolean(saving)} onChange={(event) => {
+                        const shell = event.currentTarget.value === "shell";
+                        setDraftRelays((current) => ({ ...current, [host.id]: shell }));
+                      }}>
+                        <option value="tcp">SSH TCP 转发</option>
+                        <option value="shell">ViaShell（跳板需要 nc）</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {pendingChange ? (
+                    <Button loading={saving === host.id} disabled={Boolean(saving) || invalidDraft} onClick={() => void save(host, currentJump, currentJump === savedJump && Boolean(host.routeDisabled), viaShell)}>
                       保存路由
                     </Button>
                   ) : (
                     host.jumpHostIds[0] && (
-                      <Button loading={saving === host.id} disabled={Boolean(saving)} onClick={() => void save(host, host.jumpHostIds[0]!, !host.routeDisabled)}>
+                      <Button loading={saving === host.id} disabled={Boolean(saving)} onClick={() => void save(host, savedJump, !host.routeDisabled, viaShell)}>
                         {host.routeDisabled ? "启用路由" : "停用路由"}
                       </Button>
                     )

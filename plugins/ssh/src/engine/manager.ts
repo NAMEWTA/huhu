@@ -19,6 +19,7 @@ import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
 import { outboundProxyVersion, summarizeOutboundProxy, type EffectiveProxy } from "./outbound-proxies.js";
 import type { DeviceProxies } from "./device-proxies.js";
+import { dialShellRelay } from "./shell-relay.js";
 
 const hostTrustErrors: Partial<Record<TrustBlock, string>> = {
   revoked: "SSH 主机身份或签发 CA 已撤销",
@@ -471,7 +472,7 @@ export class SshManager {
       onHop?.(hop, host);
       if (attempt.route) {
         const proxy = hop === 0 ? (command ? { source: "command" as const } : outbound && summarizeOutboundProxy(outbound)) : undefined;
-        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }) });
+        attempt.route.push({ ...describeHost(host), user: host.user, auth: host.keyId ? "key-library" : host.auth.kind, stage: "dialing", timeline: [], ...(proxy && { outboundProxy: proxy }), ...(hop > 0 && host.viaShell && { viaShell: true as const }) });
         this.trace(attempt, hop, "dialing");
       }
       if (command && attempt.publicProbe) throw errors.permissionDenied("本机 SSH ProxyCommand");
@@ -513,9 +514,14 @@ export class SshManager {
       if (next) {
         validate();
         this.trace(attempt, hop, "forwarding");
-        socket = await new Promise((resolve, reject) =>
-          client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
-        );
+        if (next.viaShell) {
+          const timeout = (next.connectTimeoutSec ?? defaults.connectTimeoutSec) * 1000;
+          socket = await dialShellRelay(client, next, AbortSignal.any([attempt.signal, AbortSignal.timeout(timeout)]));
+        } else {
+          socket = await new Promise((resolve, reject) =>
+            client.forwardOut("127.0.0.1", 0, next.host, next.port, (error, stream) => (error ? reject(new HuhuError("SSH_DISCONNECTED", `跳板 ${hop + 1} 转发失败：${error.message}`)) : resolve(stream))),
+          );
+        }
       }
       this.trace(attempt, hop, "connected");
     }

@@ -692,6 +692,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                       {hop.name} · {hop.user}@{hostEndpoint(hop)} · {hop.auth === "key-library" ? "密钥库" : hop.auth === "keyboard-interactive" ? "交互认证" : authLabels[hop.auth]} ·{" "}
                       {hop.timeline.map(({ stage }) => routeStages[stage]).join(" → ")}
                       {hop.outboundProxy ? <span> · {proxyDescription(hop.outboundProxy)}</span> : null}
+                      {hop.viaShell ? <span> · ViaShell</span> : null}
                       {hop.verifiedHost?.kind === "certificate" && (
                         <span>
                           {" "}

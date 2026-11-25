@@ -595,6 +595,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
         api.events.publish("entity.changed", { kind: "ssh-host", id: saved.hostId, op: input.hostId ? "updated" : "created" });
         return saved;
       };
+      if (input.viaShell !== undefined && context.caller !== "desktop") throw errors.permissionDenied("SSH ViaShell 设置");
       if (context.caller === "web") {
         if (input.outboundProxy !== undefined) throw errors.permissionDenied("SSH 出站代理选择");
         if (input.credentials.some(({ purpose, action }) => purpose === "identityFile" && action === "replace")) throw errors.permissionDenied("SSH 本机身份文件");

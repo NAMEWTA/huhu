@@ -47,6 +47,7 @@ export const ConnectionHop = ConnectionHost.extend({
   user: z.string(),
   auth: z.enum(["password", "key", "key-library", "agent", "identity-file", "keyboard-interactive"]),
   outboundProxy: OutboundProxySummary.optional(),
+  viaShell: z.literal(true).optional(),
   verifiedHost: z
     .discriminatedUnion("kind", [
       z.strictObject({ kind: z.literal("fingerprint"), fingerprint: KnownHostKey.shape.fingerprint }),

@@ -13,6 +13,7 @@ import { connectionIdentity, routeForHost, workspaceTarget } from "../src/engine
 import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
+import { relayToLoopback } from "./shell-relay-fixture.js";
 
 const dirs: string[] = [];
 const closers: (() => Promise<void> | void)[] = [];
@@ -85,6 +86,45 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("ViaShell authenticates both hops and closes its dedicated shell", async () => {
+    const target = await startFakeSsh();
+    const direct = vi.fn(() => true);
+    const closed = vi.fn();
+    const jump = await startFakeSsh({ onInteractiveShell: relayToLoopback(target.port), denyDirectTcp: direct, onShellClose: closed });
+    const { mgr, prompts, add } = setup();
+    closers.push(jump.close, target.close);
+    const first = add(jump.port);
+    const last = add(target.port, { jumpHostIds: [first.id], viaShell: true });
+    const pending = mgr.connect(last.id);
+    for (const hop of [0, 1]) {
+      await expect.poll(() => prompts[hop]?.hop).toBe(hop);
+      expect(mgr.decide(prompts[hop]!.attemptId, hop, true)).toBe(true);
+    }
+    await pending;
+    expect(direct).not.toHaveBeenCalled();
+    expect(mgr.connectionStatuses()[0]?.route?.[1]?.viaShell).toBe(true);
+    await expect(mgr.exec(last.id, "echo relay-ok")).resolves.toMatchObject({ stdout: "relay-ok\n" });
+    mgr.disconnect(last.id);
+    await expect.poll(() => closed.mock.calls.length).toBe(1);
+    await expect.poll(() => target.closed()).toBe(1);
+  });
+
+  test.each(["cancelled", "timeout"] as const)("ViaShell cleans up a waiting shell when %s", async (reason) => {
+    const waiting = vi.fn();
+    const jump = await startFakeSsh({ onInteractiveShell: waiting });
+    const { mgr, prompts, add } = setup();
+    closers.push(jump.close);
+    const first = add(jump.port);
+    const last = add(2222, { jumpHostIds: [first.id], viaShell: true, connectTimeoutSec: 1 });
+    const pending = mgr.connect(last.id).catch((error: unknown) => error);
+    await expect.poll(() => prompts.length).toBe(1);
+    expect(mgr.decide(prompts[0]!.attemptId, 0, true)).toBe(true);
+    await expect.poll(() => waiting.mock.calls.length).toBe(1);
+    if (reason === "cancelled") mgr.disconnect(last.id);
+    expect(await pending).toMatchObject({ details: { stage: "forwarding", reason } });
+    await expect.poll(() => jump.closed()).toBe(1);
+  });
+
   test.skipIf(process.platform !== "linux")("approved ProxyCommand uses the first hop, rejects a stale route and closes on revocation", async () => {
     const jump = await startFakeSsh();
     const target = await startFakeSsh();
