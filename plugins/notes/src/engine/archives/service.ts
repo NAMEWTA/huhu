@@ -379,7 +379,7 @@ export class ArchivesService {
     return changes;
   }
 
-  async create(input: { type: string; name: string; fields?: FieldInput | undefined; body?: string | undefined }): Promise<ArchiveDto> {
+  async create(input: { type: string; name: string; fields?: FieldInput | undefined; body?: string | undefined }, conversionId?: string): Promise<ArchiveDto> {
     const typeDir = this.typeDir(input.type);
     const defs = this.defsOf(typeDir);
     const changes = this.fieldChanges(defs, input.fields ?? {});
@@ -387,9 +387,14 @@ export class ArchivesService {
     const dir = `${typeDir}/${name}`;
     const idx = `${dir}/${INDEX}`;
     const head = patchFrontmatter("", changes, { quoted: defs.filter((x) => x.type === "text").map((x) => x.name) });
-    mkdirSync(this.abs(dir), { recursive: true });
-    await this.d.files.write(idx, Buffer.from(head + (input.body ?? "")), { expectedVersion: null });
-    await this.d.notes.ensureId(idx);
+    const bytes = Buffer.from(head + (input.body ?? ""));
+    if (conversionId) {
+      await this.d.notes.createConversionDocument(idx, bytes, conversionId, `${dir}/`);
+    } else {
+      mkdirSync(this.abs(dir), { recursive: true });
+      await this.d.files.write(idx, bytes, { expectedVersion: null });
+      await this.d.notes.ensureId(idx);
+    }
     this.touch([idx]);
     this.emit(dir, "created");
     return this.read(dir);

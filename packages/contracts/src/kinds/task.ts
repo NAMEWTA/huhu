@@ -99,3 +99,13 @@ export const TaskFrontmatterSchema = z.object({
   updatedAt: dateLike(IsoTime),
 });
 export type TaskFrontmatter = z.infer<typeof TaskFrontmatterSchema>;
+
+
+export const TaskAttentionSchema = z.object({
+  taskId: z.string(),
+  title: z.string(),
+  state: z.enum(["pending", "blocked", "awaiting", "answer-unconfirmed", "answer-failed", "run-unknown", "run-failed"]),
+  runId: z.string().optional(),
+  questionId: z.string().optional(),
+});
+export type TaskAttention = z.infer<typeof TaskAttentionSchema>;

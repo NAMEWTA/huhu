@@ -1,6 +1,6 @@
 import { matchesTags, type TaskDto, type TaskStatus } from "@huhu/contracts";
 import { Button, EmptyState, IconButton, Segmented } from "@huhu/ui";
-import { onOpenTaskRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { onOpenTaskRequest, queryKey, useCapability, useEngine, useQueryClient, type ModuleProps, type TaskDestination } from "@huhu/workbench";
 import { ArrowUpRight, CalendarDays, CheckCircle2, Columns2, List, Plus, Search, Tag, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { categoryCount, inCategory, weekRange, type TaskCategory } from "../shared/categories.js";
@@ -37,7 +37,11 @@ export function TasksModule({ onNavigate }: ModuleProps) {
   const [editor, setEditor] = useState<EditorState>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [failure, setFailure] = useState<string | null>(null);
-  useEffect(() => onOpenTaskRequest(setSelectedId), []);
+  const [taskDestination, setTaskDestination] = useState<{ taskId: string; destination: TaskDestination } | null>(null);
+  useEffect(() => onOpenTaskRequest((id, destination) => {
+    setSelectedId(id);
+    setTaskDestination(destination ? { taskId: id, destination } : null);
+  }), []);
   const today = useTaskToday(settings.data?.dateTime.zone);
   const tasks = data ?? [];
   const visible = useMemo(
@@ -98,7 +102,10 @@ export function TasksModule({ onNavigate }: ModuleProps) {
   }
 
   const range = weekRange(today);
-  const open = (task: TaskDto) => setSelectedId(task.id);
+  const open = (task: TaskDto) => {
+    setTaskDestination(null);
+    setSelectedId(task.id);
+  };
   const viewProps = { tasks: visible, pending, selectedId, onStatus: (task: TaskDto, next: TaskStatus) => void changeStatus(task, next), onOpen: open };
   return (
     <div className={`hu-module-layout hu-tw-workbench${selected ? " detail-open" : ""}`} data-testid="tasks-module">
@@ -223,6 +230,7 @@ export function TasksModule({ onNavigate }: ModuleProps) {
         <TaskDetail
           key={selected.id}
           task={selected}
+          destination={taskDestination?.taskId === selected.id ? taskDestination.destination : undefined}
           pending={pending[selected.id] === true}
           onStatus={(x, next) => void changeStatus(x, next)}
           onChanged={() => void refresh()}
@@ -232,7 +240,7 @@ export function TasksModule({ onNavigate }: ModuleProps) {
           onEdit={() => setEditor({ mode: "edit", task: selected })}
           onDuplicate={() => void run("tasks.duplicate", { id: selected.id }).then((r) => r && setSelectedId(r.id))}
           onDelete={() => void run("tasks.delete", { id: selected.id }).then((r) => r !== null && setSelectedId(null))}
-          onClose={() => setSelectedId(null)}
+          onClose={() => { setSelectedId(null); setTaskDestination(null); }}
           onMessage={setFailure}
         />
       ) : null}

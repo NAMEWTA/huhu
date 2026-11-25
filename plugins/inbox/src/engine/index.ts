@@ -1,3 +1,4 @@
+import { InboxDocumentReceipt, inboxDocumentReceiptPath } from "@huhu/vault";
 import { errors, isWorkbenchCaller, KINDS } from "@huhu/contracts";
 import { lstatSync } from "node:fs";
 import path from "node:path";
@@ -22,6 +23,7 @@ const Dto = z.object({
   createdAt: z.string(),
   processedAt: z.string().nullable(),
   result: z.object({ kind: z.enum(["task", "note", "archive"]), id: z.string() }).nullable(),
+  pendingConversion: z.enum(["task", "note", "archive"]).nullable(),
 });
 const Versioned = Id.extend({ expectedVersion: z.string().optional() });
 const ResultRef = Dto.omit({ title: true, body: true, path: true });
@@ -66,7 +68,7 @@ export const inboxCapabilityDescriptors = {
     ...publicTool,
     scope: "write",
     ...durableExternal,
-    input: Versioned.extend({ target: z.enum(["task", "note", "archive"]), fields: z.record(z.string(), z.unknown()) }),
+    input: Versioned.extend({ target: z.enum(["task", "note", "archive"]), fields: z.record(z.string(), z.unknown()), resume: z.boolean().optional() }),
     output: WriteDto,
   }),
   dismiss: descriptor({
@@ -125,11 +127,21 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
     publish: (t, p) => api.events.publish(t, p),
     now: opts.now ?? (() => new Date()),
     isTargetEnabled: (k) => opts.isPluginEnabled?.(TARGET_PLUGIN[k]) ?? true,
-    createTarget: async (kind, fields, key) => {
-      const r = (await api.call(CREATE_CAP[kind], fields, { idempotencyKey: key })) as { id?: string; path?: string };
-      const id = kind === "archive" ? r.path : r.id; // 档案以文件夹路径标识
-      if (!id) throw new Error("目标插件没有返回对象 id");
-      return { id };
+    createTarget: async (kind, fields, id, signal) => {
+      await api.call(CREATE_CAP[kind], { ...fields, inboxConversionId: id }, { idempotencyKey: `inbox-convert-${id}`, ...(signal && { signal }) });
+    },
+    readTarget: (kind, id) => {
+      if (kind === "task") {
+        try {
+          return api.vault.repo.read("task", id).id;
+        } catch (error) {
+          if ((error as { code?: string })?.code === "NOT_FOUND") return null;
+          throw error;
+        }
+      }
+      const receipt = api.vault.files.read(inboxDocumentReceiptPath(id));
+      if (!receipt) return null;
+      return InboxDocumentReceipt.parse(JSON.parse(receipt.bytes.toString("utf8"))).id;
     },
   });
 
@@ -140,7 +152,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
       throw errors.permissionDenied(KINDS.capture.dir);
     }
   };
-  const change = <T>(c: CapabilityContext, i: { id: string; expectedVersion?: string | undefined }, allowed: CaptureDto["status"] | undefined, apply: () => Promise<T> | T) =>
+  const change = <T>(c: CapabilityContext, i: { id: string; expectedVersion?: string | undefined }, allowed: CaptureDto["status"] | undefined, apply: () => Promise<T> | T, verifyVersion = true) =>
     svc.change(i.id, () => {
       c.signal.throwIfAborted();
       assertInbox(c);
@@ -148,7 +160,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
         if (i.expectedVersion === undefined) throw errors.invalidInput("必须提供收件项版本");
         const source = svc.read(i.id);
         if (lstatSync(path.join(api.vault.files.root, source.path), { throwIfNoEntry: false })?.isSymbolicLink()) throw errors.permissionDenied(source.path);
-        if (source.version !== i.expectedVersion) throw errors.versionConflict(source.version);
+        if (verifyVersion && source.version !== i.expectedVersion) throw errors.versionConflict(source.version);
         if (allowed && source.status !== allowed) throw errors.invalidInput("收件项当前状态无法执行该操作");
       }
       return apply();
@@ -174,8 +186,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
       change(c, i, undefined, async () => view(c, await svc.update(i.id, i.expectedVersion, { ...(i.title !== undefined ? { title: i.title } : {}), ...(i.body !== undefined ? { body: i.body } : {}) }))),
     ),
   );
-  api.defineCapability(bindCapability(inboxCapabilityDescriptors.convert, (c, i) => change(c, i, "pending", async () => view(c, await svc.convert(i.id, i.target, i.fields)))));
-  api.defineCapability(bindCapability(inboxCapabilityDescriptors.dismiss, (c, i) => change(c, i, "pending", async () => view(c, await svc.dismiss(i.id)))));
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.convert, (c, i) => change(c, i, undefined, async () => view(c, await svc.convert(i.id, i.target, i.fields, { expectedVersion: i.expectedVersion, resume: i.resume, signal: c.signal })), false)));
+  api.defineCapability(bindCapability(inboxCapabilityDescriptors.dismiss, (c, i) => change(c, i, undefined, async () => view(c, await svc.dismiss(i.id)))));
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.restore, (c, i) => change(c, i, "dismissed", async () => view(c, await svc.restore(i.id)))));
   api.defineCapability(bindCapability(inboxCapabilityDescriptors.undo, (c, i) => change(c, i, "processed", async () => view(c, await svc.undo(i.id)))));
   api.defineCapability(

@@ -35,6 +35,7 @@
       "tasks.dispatch.stop.read",
       "tasks.receipts.consume",
       "tasks.questions.list",
+      "tasks.attention",
       "tasks.reply",
       "tasks.reply.read",
       "tasks.supplement",

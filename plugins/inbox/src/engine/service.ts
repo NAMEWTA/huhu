@@ -1,5 +1,6 @@
-import { errors, HuhuError, isWorkbenchCaller, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
-import type { CapabilityContext } from "@huhu/kernel";
+import { createHash, randomUUID } from "node:crypto";
+import { errors, HuhuError, isWorkbenchCaller, newId, type CaptureConversion, type CaptureFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
+import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import type { Entity, SemanticRepository, Trash } from "@huhu/vault";
 
 export type CaptureSource = CaptureFrontmatter["source"];
@@ -16,6 +17,7 @@ export interface CaptureDto {
   createdAt: string;
   processedAt: string | null;
   result: { kind: ConvertTarget; id: string } | null;
+  pendingConversion: ConvertTarget | null;
 }
 
 export interface InboxDeps {
@@ -23,11 +25,14 @@ export interface InboxDeps {
   trash: Trash;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
-  /** 调用目标插件创建对象；key 用于幂等，保证重试不会重复创建。 */
-  createTarget(kind: ConvertTarget, fields: Record<string, unknown>, idempotencyKey: string): Promise<{ id: string }>;
+  createTarget(kind: ConvertTarget, fields: Record<string, unknown>, conversionId: string, signal?: AbortSignal): Promise<void>;
+  readTarget(kind: ConvertTarget, conversionId: string): string | null;
   isTargetEnabled(kind: ConvertTarget): boolean;
 }
 
+const digest = (value: unknown) => createHash("sha256").update(canonicalJson(value)).digest("hex");
+const sourceHash = ({ title, body, source }: CaptureDto) => digest([title, body, source]);
+const rejectedBeforeCreation = new Set(["INVALID_INPUT", "NOT_FOUND", "PERMISSION_DENIED", "NAME_CONFLICT", "PLUGIN_DISABLED"]);
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const VALID_DESKTOP_SOURCES = new Set(["quick", "note-excerpt", "agent-cli", "import"]);
 
@@ -41,7 +46,7 @@ export function sourceFor(caller: string, requested?: string): CaptureSource {
 
 function toDto(e: Entity): CaptureDto {
   const d = e.data as unknown as CaptureFrontmatter;
-  return { id: e.id, path: e.path, version: e.version, title: d.title, body: e.body.replace(/^\r?\n/, ""), source: d.source, status: d.status, createdAt: d.createdAt, processedAt: d.processedAt ?? null, result: d.result ?? null };
+  return { id: e.id, path: e.path, version: e.version, title: d.title, body: e.body.replace(/^\r?\n/, ""), source: d.source, status: d.status, createdAt: d.createdAt, processedAt: d.processedAt ?? null, result: d.result ?? null, pendingConversion: d.status === "pending" ? d.conversion?.target ?? null : null };
 }
 
 export class InboxService {
@@ -77,11 +82,11 @@ export class InboxService {
   }
 
   async capture(input: { title?: string; body: string; source?: string }, context?: CapabilityContext): Promise<CaptureDto> {
-    const body = input.body.trim();
-    if (!body && !input.title?.trim()) throw errors.invalidInput("内容不能为空");
-    const title = input.title?.trim() || [...(body.split(/\r?\n/)[0] ?? "")].slice(0, 40).join("").trim() || "未命名捕获";
+    const body = input.body;
+    if (!body.trim() && !input.title?.trim()) throw errors.invalidInput("内容不能为空");
+    const title = input.title?.trim() || [...(body.trim().split(/\r?\n/)[0] ?? "")].slice(0, 40).join("").trim() || "未命名捕获";
     const source = context ? sourceFor(context.caller, input.source) : (input.source ?? "quick");
-    const e = await this.d.repo.create("capture", { title, source, status: "pending", createdAt: iso(this.d.now()) }, body);
+    const e = await this.d.repo.create("capture", { title, source, status: "pending", createdAt: iso(this.d.now()) }, `\n${body}`);
     this.d.publish("entity.changed", { kind: "capture", id: e.id, op: "created" });
     return toDto(e);
   }
@@ -93,48 +98,76 @@ export class InboxService {
     return toDto(e);
   }
 
-  /**
-   * 转换：目标插件创建对象（以捕获 id 为幂等键，崩溃后重试不会重复创建）→ 捕获置 processed。
-   * 目标插件停用时拒绝。
-   */
-  async convert(id: string, target: ConvertTarget, fields: Record<string, unknown>): Promise<CaptureDto> {
-    const cur = this.read(id);
-    if (cur.status === "processed") throw errors.invalidInput("这条捕获已经处理过，请先撤销处理");
+  async convert(id: string, target: ConvertTarget, fields: Record<string, unknown>, options: { expectedVersion?: string | undefined; resume?: boolean | undefined; signal?: AbortSignal | undefined } = {}): Promise<CaptureDto> {
+    const entity = this.d.repo.read("capture", id);
+    const current = toDto(entity);
+    let binding = (entity.data as unknown as CaptureFrontmatter).conversion;
+    if (options.expectedVersion !== undefined && options.expectedVersion !== current.version && options.expectedVersion !== binding?.sourceVersion) {
+      throw errors.versionConflict(current.version);
+    }
+    if (current.status === "dismissed") throw errors.invalidInput("请先恢复这条收件项");
     if (!this.d.isTargetEnabled(target)) throw errors.invalidInput("请先在插件中心启用该模块");
-    let input = fields;
-    if (target === "note") {
-      if (fields["body"] !== undefined && typeof fields["body"] !== "string") throw errors.invalidInput("笔记正文必须是 Markdown 文本");
-      input = { ...fields, body: fields["body"] ?? cur.body };
+    const input = target === "note" ? { ...fields, body: fields["body"] ?? current.body } : fields;
+    const inputHash = digest(input);
+    let prepared = entity;
+    if (binding) {
+      if (binding.target !== target || (!options.resume && binding.inputHash !== inputHash) || binding.sourceHash !== sourceHash(current)) {
+        throw this.unknownConversion(id, binding.target, "捕获或转换参数已经变化，请核实原转换");
+      }
+      if (current.status === "processed" && current.result) return current;
+    } else {
+      if (options.resume || current.status === "processed") throw errors.invalidInput("没有可继续的转换");
+      if (target === "note" && typeof input["body"] !== "string") throw errors.invalidInput("笔记正文必须是 Markdown 文本");
+      binding = { id: target === "task" ? newId("task") : randomUUID(), target, sourceVersion: current.version, sourceHash: sourceHash(current), inputHash };
+      prepared = await this.d.repo.patch("capture", id, { conversion: binding }, current.version, undefined, () => options.signal?.throwIfAborted());
+      this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
+      try {
+        await this.d.createTarget(target, input, binding.id, options.signal);
+      } catch (error) {
+        const code = (error as { code?: string })?.code;
+        if (code && rejectedBeforeCreation.has(code) && !this.d.readTarget(target, binding.id)) {
+          await this.d.repo.patch("capture", id, { conversion: undefined }, prepared.version);
+          this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
+          throw error;
+        }
+      }
     }
-    // 幂等键含捕获当前版本：崩溃后重试（版本未变）复用同一键；撤销处理后版本已变，会创建新对象
-    const created = await this.d.createTarget(target, input, `inbox-convert-${id}-${cur.version}`);
-    let e: Entity;
+
+    const targetId = this.d.readTarget(binding.target, binding.id);
+    if (!targetId) throw this.unknownConversion(id, binding.target, "原转换的目标待核实");
     try {
-      e = await this.d.repo.patch("capture", id, { status: "processed", processedAt: iso(this.d.now()), result: { kind: target, id: created.id } }, cur.version);
+      const saved = await this.d.repo.patch("capture", id, { status: "processed", processedAt: iso(this.d.now()), result: { kind: binding.target, id: targetId } }, prepared.version);
+      this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
+      return toDto(saved);
     } catch {
-      throw new HuhuError("INTERNAL", "转换目标已受理，收件项结果待核实", { retryable: false, details: { outcome: "unknown", captureId: id, target, targetId: created.id } });
+      throw this.unknownConversion(id, binding.target, "转换目标已写入，收件项回填待核实");
     }
-    this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
+  }
+
+  private unknownConversion(captureId: string, target: ConvertTarget, message: string): HuhuError {
+    return new HuhuError("INTERNAL", message, { retryable: false, details: { outcome: "unknown", captureId, target } });
+  }
+
+  private async setStatus(current: CaptureDto, changes: Record<string, unknown>): Promise<CaptureDto> {
+    const e = await this.d.repo.patch("capture", current.id, changes, current.version);
+    this.d.publish("entity.changed", { kind: "capture", id: current.id, op: "updated" });
     return toDto(e);
   }
 
-  private async setStatus(id: string, status: "pending" | "dismissed"): Promise<CaptureDto> {
-    const cur = this.read(id);
-    const e = await this.d.repo.patch("capture", id, { status, processedAt: null, result: null }, cur.version);
-    this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
-    return toDto(e);
-  }
   dismiss(id: string): Promise<CaptureDto> {
-    return this.setStatus(id, "dismissed");
+    return this.setStatus(this.read(id), { status: "dismissed" });
   }
+
   restore(id: string): Promise<CaptureDto> {
-    return this.setStatus(id, "pending");
+    const current = this.read(id);
+    return this.setStatus(current, { status: current.result ? "processed" : "pending" });
   }
-  /** 撤销处理：回到待处理，清空 result；已生成的内容不动。 */
+
+  /** 显式撤销允许创建新意图；旧目标保留。 */
   async undo(id: string): Promise<CaptureDto> {
-    const cur = this.read(id);
-    if (cur.status !== "processed") throw errors.invalidInput("这条捕获没有被处理过");
-    return this.setStatus(id, "pending");
+    const current = this.read(id);
+    if (current.status !== "processed") throw errors.invalidInput("这条捕获没有被处理过");
+    return this.setStatus(current, { status: "pending", processedAt: null, result: null, conversion: undefined });
   }
 
   /** 只删除原始记录（进回收站）；转化生成的内容保留。 */

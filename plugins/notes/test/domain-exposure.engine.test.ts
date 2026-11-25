@@ -626,11 +626,11 @@ describe.each(["cli", "mcp"] as const)("%s domain exposure", (entry) => {
     const taskInput = { id: first.id, expectedVersion: first.version, target: "task", fields: { title: "Converted Task", body: taskBody } };
     const [a, b] = await Promise.all([f.invoke("inbox.convert", taskInput, randomUUID()), f.invoke("inbox.convert", taskInput, randomUUID())]);
     const replies = [a, b];
-    expect(replies.filter((reply) => reply?.ok)).toHaveLength(1);
-    expect(replies.find((reply) => !reply?.ok)).toMatchObject({ error: { code: "VERSION_CONFLICT" } });
+    expect(replies.filter((reply) => reply?.ok)).toHaveLength(2);
     const converted = replies.find((reply) => reply?.ok);
     if (!converted?.ok) throw new Error("Fixture could not convert to a task");
     const target = z.object({ result: z.object({ id: z.string(), kind: z.literal("task") }) }).parse(converted.data).result;
+    expect(b).toMatchObject({ ok: true, data: { result: target } });
     expect(await f.callDesktop("tasks.read", { id: target.id })).toMatchObject({ body: taskBody, origin: { kind: "inbox" } });
     expect(readdirSync(path.join(f.root, "Tasks")).filter((name) => name.startsWith("Converted Task"))).toHaveLength(1);
     const archive = await f.invoke(
