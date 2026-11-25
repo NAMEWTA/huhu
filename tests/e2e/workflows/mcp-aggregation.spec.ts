@@ -363,14 +363,51 @@ test("P3 正式来源页面添加服务、预览发布并访问真实资源和�
     await call(page, "gateway.mcp.update", { enabled: true });
     const { token } = await call<{ token: string }>(page, "gateway.tokens.create", { name: "UI catalog" });
     const rpc = await openClient(page, token);
+    expect((await rpc("tools/list")).result.tools).toContainEqual(expect.objectContaining({ name: "catalog_page__echo" }));
+    expect((await rpc("tools/call", { name: "catalog_page__echo", arguments: { value: "目录工具" } })).result.structuredContent).toEqual({ value: "目录工具" });
     expect((await rpc("resources/list")).result.resources).toContainEqual(expect.objectContaining({ uri }));
     expect((await rpc("resources/read", { uri })).result.contents).toMatchObject([{ uri, text: "Shared resource" }]);
+    const uriTemplate = "mcp-source://catalog_page/fixture://group/{folder}/{name}{?q,format}";
+    const expanded = "mcp-source://catalog_page/fixture://group/finance/report?q=CNY&format=md";
+    expect((await rpc("resources/templates/list")).result.resourceTemplates).toContainEqual(expect.objectContaining({ uriTemplate }));
+    expect((await rpc("resources/read", { uri: expanded })).result.contents).toMatchObject([{ uri: expanded, text: "Shared resource" }]);
+    expect((await rpc("prompts/list")).result.prompts).toContainEqual(expect.objectContaining({ name: "catalog_page__review" }));
     expect((await rpc("prompts/get", { name: "catalog_page__review", arguments: { topic: "本机夹具" } })).result.messages).toMatchObject([
       { content: { text: "本机夹具" } }, { content: { resource: { uri } } },
     ]);
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
+  }
+});
+
+test("P7 来源详情显示上游所需的未支持客户端能力", async () => {
+  const { page, close } = await openApp();
+  let upstream: Awaited<ReturnType<typeof localUpstream>> | undefined;
+  try {
+    upstream = await localUpstream("streamable-http", { requiresSampling: true });
+    await gateway(page);
+    const panel = page.getByTestId("gateway-mcp-sources");
+    await panel.getByRole("button", { name: "添加服务" }).click();
+    const editor = page.getByRole("dialog", { name: "添加 MCP 服务" });
+    await editor.getByLabel("服务名称").fill("需要 Sampling");
+    await editor.getByLabel("稳定命名空间").fill("sampling_fixture");
+    await editor.getByLabel("传输").selectOption("streamable-http");
+    await editor.getByLabel("远端 URL").fill(upstream.url);
+    await editor.getByRole("button", { name: "保存配置" }).click();
+    await panel.getByRole("button", { name: "查看 需要 Sampling" }).click();
+    const detail = panel.getByTestId("mcp-source-detail");
+    await detail.getByRole("button", { name: "检查连接" }).click();
+    await expect(detail).toContainText("上游需要 Huhu 未提供的 MCP 客户端能力（sampling）");
+    await detail.getByRole("button", { name: "查看此来源的目录" }).click();
+    await expect(panel.getByRole("table", { name: "MCP 能力目录" })).not.toContainText("sampling_fixture__echo");
+    expect(upstream.calls).toHaveLength(0);
+  } finally {
+    try {
+      await close();
+    } finally {
+      await upstream?.close();
+    }
   }
 });
 

@@ -20,7 +20,7 @@ input.on("line", (line) => {
     if (config().hanging) return;
     if (config().failInitialize) process.exit(1);
     reply({
-      protocolVersion: "2025-11-25",
+      protocolVersion: config().protocolVersion ?? "2025-11-25",
       capabilities: { tools: { listChanged: true }, ...(config().catalog && { resources: { listChanged: true }, prompts: { listChanged: true } }) },
       serverInfo: { name: "local-fixture", version: "1" },
     });

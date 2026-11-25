@@ -12,7 +12,7 @@ import {
   createHuhuContext, createMcpSourcePlugin, defineCapability, mcpSourceDescriptors, startEngineServer,
   type ExternalMcpTools, type LocalCredentialProtection,
 } from "../src/index.js";
-import { mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession } from "./fixtures/mcp-http.js";
+import { initializeMcp, mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession } from "./fixtures/mcp-http.js";
 import { localUpstream } from "./fixtures/mcp-upstream.js";
 import { loopbackOAuth } from "./fixtures/mcp-oauth.js";
 const mcpReply = z.object({
@@ -596,6 +596,45 @@ test("two accounts on a single target remain isolated and changing target or rem
   }
   expect(second.namespace).toBe("second");
 }, 15_000);
+
+test("P7 reports unsupported peer versions and required client sampling without publishing either source", async () => {
+  const directory = root();
+  const definition = path.join(directory, "version.json");
+  writeFileSync(definition, JSON.stringify({ protocolVersion: "2026-07-28" }));
+  const sampling = await localUpstream("streamable-http", { requiresSampling: true });
+  cleanup.push(() => sampling.close());
+  const f = await fixture(directory);
+  const future = (await addStdio(f, directory, "future", definition)).source;
+  const reverse = await f.call<Source>("mcp.sources.create", {
+    displayName: "Requires client sampling", namespace: "reverse", configuration: remoteConfig(sampling.url),
+  });
+  await approve(f, future);
+  expect(await f.call("mcp.sources.check", sourceRef(future))).toMatchObject({
+    state: "incompatible", diagnostic: "上游 MCP 协议版本不兼容", toolCount: 0,
+  });
+  expect(await f.call("mcp.sources.check", sourceRef(reverse))).toMatchObject({
+    state: "incompatible", diagnostic: "上游需要 Huhu 未提供的 MCP 客户端能力（sampling）", toolCount: 0,
+  });
+  expect(sampling.listRequests).toBe(1);
+  expect(sampling.calls).toEqual([]);
+  expect(await f.call("mcp.catalog.list", { sourceId: reverse.sourceId })).toMatchObject({ entries: [] });
+  for (const source of [future, reverse]) await f.call("mcp.sources.setEnabled", { ...sourceRef(source), enabled: true });
+  f.setPublishing(true);
+  const init = await mcpRequest(f.endpoint, f.token, initializeMcp);
+  expect(init.status).toBe(200);
+  const initialized = z.object({ result: z.object({ capabilities: z.record(z.string(), z.unknown()) }) }).parse(await init.json());
+  expect(Object.keys(initialized.result.capabilities)).toEqual(expect.arrayContaining(["tools", "resources", "prompts"]));
+  for (const capability of ["tasks", "sampling", "elicitation", "roots"]) expect(initialized.result.capabilities).not.toHaveProperty(capability);
+  expect(initialized.result.capabilities.resources).not.toHaveProperty("subscribe");
+  const session = await openMcpSession(f.endpoint, f.token);
+  const unsupported = await mcpRequest(f.endpoint, f.token, mcpRpc("resources/subscribe", { uri: "huhu://vault/summary" }), session);
+  expect(await unsupported.json()).toMatchObject({ error: { code: -32601 } });
+  const list = await mcpRequest(f.endpoint, f.token, mcpRpc("tools/list"), session);
+  expect(mcpReply.parse(await list.json()).result?.tools?.map(({ name }) => name)).toEqual(["vault_info"]);
+  for (const { sourceId } of [future, reverse]) {
+    expect(await f.call("mcp.sources.get", { sourceId })).toMatchObject({ state: "incompatible" });
+  }
+});
 
 test("secret import never inlines credentials and cleans staged bindings when source publication fails", async () => {
   const directory = root();

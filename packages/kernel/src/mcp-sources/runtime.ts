@@ -159,8 +159,12 @@ export class McpSourceRuntime implements ExternalMcpTools {
   private failed(source: McpSource, error: unknown): Catalog {
     const previous = this.catalogs.get(source.sourceId)?.entries ?? [];
     if (remoteAuthFailure(error)) return this.catalog(source, previous, "auth-required", "上游拒绝了认证");
-    if (error instanceof Error && /Unsupported protocol version/i.test(error.message)) {
+    if (error instanceof Error && /\b(?:unsupported protocol version|server's protocol version is not supported)\b/i.test(error.message)) {
       return this.catalog(source, previous, "incompatible", "上游 MCP 协议版本不兼容");
+    }
+    if (error instanceof McpError) {
+      const capability = /^MCP error -?\d+: Client does not support (sampling|(?:URL |form )?elicitation|listing roots)\b/i.exec(error.message)?.[1]?.toLowerCase();
+      if (capability) return this.catalog(source, previous, "incompatible", `上游需要 Huhu 未提供的 MCP 客户端能力（${capability}）`);
     }
     const reason = isHuhuError(error) ? error.details?.reason : undefined;
     switch (reason) {
