@@ -20,7 +20,7 @@ if [[ "$mode" == native ]]; then
   expected_tests=2
 fi
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}
-if [[ "$mode" == close || "$mode" == external-agent || "$mode" == workspace ]]; then expected_tests=2; fi
+if [[ "$mode" == close || "$mode" == external-agent || "$mode" == workspace || "$mode" == web ]]; then expected_tests=2; fi
 if [[ "$mode" == package ]]; then expected_tests=5; fi
 if [[ "$mode" == web-terminal ]]; then expected_tests=3; fi
 node_binary=$(node -p 'process.execPath')
