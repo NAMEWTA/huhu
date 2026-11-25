@@ -66,7 +66,7 @@ export const RecordFilters = z.strictObject({
   accountId: EntryId.optional(), toAccountId: EntryId.optional(), currency: LedgerCurrency.optional(), categoryId: EntryId.optional(),
   tagId: EntryId.optional(), minMinor: LedgerMinorUnits.optional(), maxMinor: LedgerMinorUnits.optional(),
   query: z.string().trim().max(500).optional(), payee: z.string().trim().max(500).optional(), memo: z.string().trim().max(500).optional(),
-  offset: z.boolean().optional(),
+  offset: z.boolean().optional(), uncategorized: z.literal(true).optional(),
 }).refine((f) => !f.from || !f.to || f.from <= f.to, "开始日期须早于或等于结束日期")
   .refine((f) => f.minMinor === undefined || f.maxMinor === undefined || BigInt(f.minMinor) <= BigInt(f.maxMinor), "最小金额须小于或等于最大金额");
 export const RecordsQuery = BookRef.extend({

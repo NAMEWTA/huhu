@@ -19,6 +19,8 @@ import { CandidateGroups, ConfirmMerge, ConfirmOffset, DuplicateSearch, MergeInp
   OffsetGroupView, OffsetInput, OffsetPreview, OffsetSearch, UndoOffset } from "../shared/reconciliation.js";
 import { duplicateCandidates, offsetCandidates } from "./reconciliation-matches.js";
 import { addOffset, groupView, merge, previewMerge, previewOffset, undoOffset } from "./reconciliation.js";
+import { HolidayData, HolidayQuery, ReportQuery, ReportView, ReportsPreferences, SaveHolidayData, SaveReportsPreferences } from "../shared/reports.js";
+import { report } from "./reports.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
@@ -36,6 +38,11 @@ const descriptors = {
     input: BookVersion.extend({ confirmedName: z.string() }), output: z.strictObject({ ok: z.literal(true) }),
   }),
   accounts: descriptor({ ...read, name: "ledger.accounts.list", title: "列出账户和余额", description: "查询账户、余额基准和字典", input: BookRef, output: AccountsView }),
+  report: descriptor({ ...read, name: "ledger.reports.query", title: "查询账本报表", description: "按业务日期、币种和平账口径查询收支与余额。", input: ReportQuery, output: ReportView }),
+  reportPreferences: descriptor({ ...read, name: "ledger.reports.preferences", title: "读取总览卡片", description: "读取卡片顺序和可见性。", input: BookRef, output: ReportsPreferences }),
+  saveReportPreferences: descriptor({ ...write, name: "ledger.reports.savePreferences", title: "保存总览卡片", description: "按账本版本保存卡片顺序和可见性。", input: SaveReportsPreferences, output: ReportsPreferences }),
+  holidays: descriptor({ ...read, name: "ledger.calendar.holidays", title: "读取节假日", description: "读取本地已配置的节假日年份。", input: HolidayQuery, output: HolidayData.nullable() }),
+  saveHolidays: descriptor({ ...write, name: "ledger.calendar.importHolidays", title: "导入离线节假日", description: "在当前账本保存指定年份的离线节假日和补班日期。", input: SaveHolidayData, output: HolidayData }),
   addAccount: descriptor({ ...write, name: "ledger.accounts.create", title: "新增资金账户", description: "创建账户和期初余额", input: CreateAccount, output: LedgerAccount }),
   updateAccount: descriptor({ ...write, name: "ledger.accounts.update", title: "编辑资金账户", description: "更新账户名称、类型和银行", input: UpdateAccount, output: LedgerAccount }),
   accountState: descriptor({ ...write, name: "ledger.accounts.setStatus", title: "更改账户状态", description: "归档或恢复账户并保留历史", input: AccountState, output: LedgerAccount }),
@@ -101,6 +108,20 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
     const state = await snapshot(bookId);
     return accountsView(state, store.businessDate(state.book));
   }));
+  api.defineCapability(bindCapability(descriptors.report, async (_context, input) => report(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.reportPreferences, async (_context, { bookId }) => {
+    const state = await snapshot(bookId);
+    return { revision: state.book.revision, cards: state.reportCards };
+  }));
+  api.defineCapability(bindCapability(descriptors.saveReportPreferences, (context, input) => change(context, input, (state) => {
+    state.reportCards = input.cards;
+    return { revision: state.book.revision, cards: state.reportCards };
+  })));
+  api.defineCapability(bindCapability(descriptors.holidays, async (_context, { bookId, year }) => (await snapshot(bookId)).holidays[year] ?? null));
+  api.defineCapability(bindCapability(descriptors.saveHolidays, (context, input) => change(context, input, (state) => {
+    state.holidays[input.data.year] = input.data;
+    return input.data;
+  })));
   api.defineCapability(bindCapability(descriptors.addAccount, (context, input) =>
     change(context, input, (state) => createAccount(state, input.account, input.openingMinor, input.effectiveBusinessDate))));
   api.defineCapability(bindCapability(descriptors.updateAccount, (context, input) =>

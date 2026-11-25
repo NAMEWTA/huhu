@@ -7,6 +7,7 @@ import type { z } from "zod";
 import type { Book } from "../shared/books.js";
 import type { AccountsView, BatchPreview, InputBatch, RecordFilters, RecordsPage, RecordView } from "../shared/entries.js";
 import type { CsvResult } from "../shared/imports.js";
+import { defaultCards, type ReportCards } from "../shared/reports.js";
 import { ImportWizard } from "./ImportWizard.js";
 import { ReconciliationDialog, type ReconciliationTarget } from "./ReconciliationDialog.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
@@ -242,29 +243,68 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
   </section>;
 }
 
+const cardLabels = { summary: "本月汇总", recent: "最近流水", balances: "账户余额" };
+
 export function Overview({ book, readOnly, onSection, onRecord }: {
   book: Book; readOnly: boolean; onSection(section: string): void; onRecord(): void;
 }) {
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
+  const prefs = useCapability<{ revision: string; cards: ReportCards }>("ledger.reports.preferences", { bookId: book.id });
+  const action = useLedgerAction();
+  const [draft, setDraft] = useState<{ revision: string; cards: ReportCards } | null>(null);
+  const cards = prefs.data?.cards ?? defaultCards;
+  const open = book.status === "active" && !readOnly;
   const day = accounts.data?.businessDate;
   const records = useCapability<RecordsPage>("ledger.records.list", {
-    bookId: book.id, pageSize: 5, filters: day ? { from: day.slice(0, 7) + "-01", to: day } : {},
-  }, { enabled: !!day });
-  const main = records.data?.totals.find(({ currency }) => currency === book.defaultCurrency);
+    bookId: book.id, pageSize: 5, filters: day ? { from: day.slice(0, 7) + "-01", to: day, offset: false } : {},
+  }, { enabled: !!day && cards.some(({ id, visible }) => visible && id !== "balances") });
+
+  function move(index: number, delta: number) {
+    if (!draft) return;
+    const next = [...draft.cards];
+    const other = index + delta;
+    if (!next[index] || !next[other]) return;
+    [next[index], next[other]] = [next[other], next[index]];
+    setDraft({ ...draft, cards: next });
+  }
+  async function save() {
+    if (!draft) return;
+    const updated = await action.run("ledger.reports.savePreferences", { bookId: book.id, expectedRevision: draft.revision, cards: draft.cards });
+    if (updated) setDraft(null);
+  }
   return <section className="hu-stack" aria-label="账本总览">
     <div className="hu-toolbar"><h2>{book.name}</h2>
-      <Button icon={Plus} variant="primary" disabled={readOnly || book.status === "archived"} onClick={onRecord}>记一笔</Button>
+      <Button icon={Plus} variant="primary" disabled={!open} onClick={onRecord}>记一笔</Button>
+      {open && prefs.data ? <Button onClick={() => { action.clearError(); setDraft(structuredClone(prefs.data!)); }}>调整总览卡片</Button> : null}
     </div>
     <p>默认币种 {book.defaultCurrency} · 业务时区 {book.timeZone}{book.status === "archived" ? " · 已归档" : ""}</p>
-    {(accounts.error || records.error) && <p role="alert">{accounts.error?.message ?? records.error?.message}</p>}
-    {records.data && <dl aria-label="本月汇总">
-      <dt>本月收入</dt><dd>{displayMoney(main?.incomeMinor ?? "0", book.defaultCurrency)}</dd>
-      <dt>本月支出</dt><dd>{displayMoney(main?.expenseMinor ?? "0", book.defaultCurrency)}</dd>
-      <dt>本月净收入</dt><dd>{displayMoney(main?.netMinor ?? "0", book.defaultCurrency)}</dd>
-    </dl>}
-    <div className="hu-toolbar"><h3>最近流水</h3><Button onClick={() => onSection("records")}>全部流水</Button></div>
-    {records.data?.rows.length ? <ul>{records.data.rows.map((row) => <li key={row.record.id}>{row.title} · {amount(row.record)}</li>)}</ul> : <p>还没有流水。</p>}
-    <div className="hu-toolbar"><h3>账户余额</h3><Button onClick={() => onSection("accounts")}>管理账户</Button></div>
-    {accounts.data && <ul>{accounts.data.accounts.map((account) => <li key={account.id}>{account.name} · {displayMoney(account.balanceMinor, account.currency)}</li>)}</ul>}
+    {(accounts.error || records.error || prefs.error) ? <p role="alert">{accounts.error?.message ?? records.error?.message ?? prefs.error?.message}</p> : null}
+    {cards.filter(({ visible }) => visible).map(({ id }) => <section key={id} className="hu-stack">
+      <div className="hu-toolbar">
+        <h3>{cardLabels[id]}</h3>
+        <Button onClick={() => onSection(id === "summary" ? "reports" : id === "recent" ? "records" : "accounts")}>
+          {id === "summary" ? "查看报表" : id === "recent" ? "全部流水" : "管理账户"}
+        </Button>
+      </div>
+      {id === "summary" && records.data ? (records.data.totals.length ? records.data.totals.map((total) => <dl key={total.currency} aria-label={total.currency + " 本月汇总"}>
+        <dt>本月收入</dt><dd>{displayMoney(total.incomeMinor, total.currency)}</dd>
+        <dt>本月支出</dt><dd>{displayMoney(total.expenseMinor, total.currency)}</dd>
+        <dt>本月净收入</dt><dd>{displayMoney(total.netMinor, total.currency)}</dd>
+      </dl>) : <p>本月暂无收支。</p>) : null}
+      {id === "recent" && records.data ? (records.data.rows.length ? <ul>{records.data.rows.map((row) =>
+        <li key={row.record.id}>{row.title} · {amount(row.record)}</li>)}</ul> : <p>本月还没有流水。</p>) : null}
+      {id === "balances" && accounts.data ? <ul>{accounts.data.accounts.map((account) =>
+        <li key={account.id}>{account.name} · {displayMoney(account.balanceMinor, account.currency)}</li>)}</ul> : null}
+    </section>)}
+    {draft ? <Dialog open title="调整总览卡片" error={action.error} onClose={() => { if (!action.working) setDraft(null); }}
+      actions={<Button loading={action.working} onClick={() => void save()}>保存卡片</Button>}>
+      <ul>{draft.cards.map(({ id, visible }, index) => <li key={id} className="hu-toolbar">
+        <label><input type="checkbox" checked={visible} onChange={(event) => {
+          setDraft({ ...draft, cards: draft.cards.map((card) => card.id === id ? { ...card, visible: event.currentTarget.checked } : card) });
+        }} /> {cardLabels[id]}</label>
+        <Button aria-label={`上移 ${cardLabels[id]}`} disabled={index === 0} onClick={() => move(index, -1)}>上移</Button>
+        <Button aria-label={`下移 ${cardLabels[id]}`} disabled={index === draft.cards.length - 1} onClick={() => move(index, 1)}>下移</Button>
+      </li>)}</ul>
+    </Dialog> : null}
   </section>;
 }

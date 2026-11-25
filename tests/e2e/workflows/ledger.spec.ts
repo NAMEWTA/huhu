@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { ledgerBusinessDayRange } from "../../../packages/contracts/src/ledger.js";
 import { _electron as electron, chromium, expect, test, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { root, rmTree, USER_DATA_ARG } from "../helpers/launch.js";
-import { engineReady } from "../knowledge/session-slow-bridge.js";
+import { call, engineReady } from "../knowledge/session-slow-bridge.js";
 
 async function enterLedger(page: Page) {
   await page.getByRole("button", { name: "账本", exact: true }).first().click();
@@ -322,5 +324,50 @@ test("L4 跨账户平账保持资金余额，撤销后恢复统计并可预览�
   } finally {
     await app?.close().catch(() => undefined);
     rmTree(sandbox);
+  }
+});
+
+test("L5 同一业务午夜在日历和报表可下钻，离线节假日与卡片可以调整", async () => {
+  const { page, close } = await import("../helpers/launch.js").then(({ openApp }) => openApp());
+  try {
+    await engineReady(page);
+    const ledger = await enterLedger(page);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(page, "报表账本", "银行");
+    const { activeBookId } = await call<{ activeBookId: string }>(page, "ledger.books.list", {});
+    const accounts = await call<{ book: { id: string; revision: string; timeZone: string }; businessDate: string; accounts: { id: string }[] }>(page, "ledger.accounts.list", { bookId: activeBookId });
+    const day = accounts.businessDate;
+    await call(page, "ledger.records.create", {
+      bookId: activeBookId, expectedRevision: accounts.book.revision, intentKey: randomUUID(), title: "账本午夜流水",
+      record: {
+        type: "income", currency: "TWD", amountMinor: "123", accountId: accounts.accounts[0]!.id,
+        occurredAt: ledgerBusinessDayRange(day, accounts.book.timeZone).from,
+        categoryId: null, tagIds: [], payee: null, memo: null, attachmentIds: [],
+      },
+    });
+    await page.getByTestId("ledger-nav-calendar").click();
+    await expect(ledger.getByText(/年节假日未配置/)).toBeVisible();
+    await ledger.getByLabel("导入离线节假日 JSON").setInputFiles({
+      name: "holidays.json", mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify({ year: day.slice(0, 4), source: "本地夹具", entries: [{ date: day, name: "本地节日", isWorkday: false }] })),
+    });
+    await expect(ledger.getByText("本地节日", { exact: true })).toBeVisible();
+    await ledger.getByRole("button", { name: day, exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("账本午夜流水");
+    await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
+    await page.getByTestId("ledger-nav-reports").click();
+    await ledger.getByRole("button", { name: "查看收入明细" }).click();
+    await expect(page.getByRole("dialog")).toContainText("账本午夜流水");
+    await page.getByRole("dialog").getByRole("button", { name: "关闭" }).click();
+
+    await page.getByTestId("ledger-nav-overview").click();
+    await ledger.getByRole("button", { name: "调整总览卡片" }).click();
+    const preferences = page.getByRole("dialog", { name: "调整总览卡片" });
+    await preferences.getByRole("checkbox", { name: "最近流水" }).uncheck();
+    await preferences.getByRole("button", { name: "上移 账户余额" }).click();
+    await preferences.getByRole("button", { name: "保存卡片" }).click();
+    await expect(ledger.getByRole("heading", { name: "最近流水" })).toHaveCount(0);
+  } finally {
+    await close();
   }
 });

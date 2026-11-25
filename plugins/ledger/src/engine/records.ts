@@ -9,7 +9,7 @@ import { attachmentPath, type BookState, type LedgerStore } from "./store.js";
 
 type Input = z.infer<typeof CreateRecord>["record"];
 type Currency = RecordsPage["totals"][number]["currency"];
-type MoneyLeg = { currency: Currency; amount: bigint; column: "incomeMinor" | "expenseMinor" | "transferInMinor" | "transferOutMinor" };
+type MoneyLeg = { accountId: string; currency: Currency; amount: bigint; column: "incomeMinor" | "expenseMinor" | "transferInMinor" | "transferOutMinor" };
 export const recordTitle = (state: BookState, row: LedgerRecord) => state.recordTitles[row.id] ?? row.payee ?? "流水";
 
 export function findRecord(state: BookState, id: string, revision?: string): LedgerRecord {
@@ -76,11 +76,11 @@ export function recordView(store: LedgerStore, state: BookState, record: LedgerR
   return { record, title: recordTitle(state, record), businessDate: ledgerBusinessDate(record.occurredAt, state.book.timeZone), offset, attachments };
 }
 
-function legs(row: LedgerRecord): MoneyLeg[] {
+export function legs(row: LedgerRecord): MoneyLeg[] {
   return row.type === "transfer" ? [
-    { currency: row.fromCurrency, amount: BigInt(row.fromAmountMinor), column: "transferOutMinor" },
-    { currency: row.toCurrency, amount: BigInt(row.toAmountMinor), column: "transferInMinor" },
-  ] : [{ currency: row.currency, amount: BigInt(row.amountMinor), column: row.type === "income" ? "incomeMinor" : "expenseMinor" }];
+    { accountId: row.fromAccountId, currency: row.fromCurrency, amount: BigInt(row.fromAmountMinor), column: "transferOutMinor" },
+    { accountId: row.toAccountId, currency: row.toCurrency, amount: BigInt(row.toAmountMinor), column: "transferInMinor" },
+  ] : [{ accountId: row.accountId, currency: row.currency, amount: BigInt(row.amountMinor), column: row.type === "income" ? "incomeMinor" : "expenseMinor" }];
 }
 
 const contains = (value: string | null | undefined, query: string) => value?.toLowerCase().includes(query.toLowerCase()) ?? false;
@@ -106,6 +106,7 @@ export function filteredRecords(state: BookState, filters: RecordFilters) {
     if (when < from || when >= until || (filters.type && row.type !== filters.type) ||
         (filters.offset !== undefined && filters.offset !== offsetRows.has(row.id)) ||
         (filters.categoryId && row.categoryId !== filters.categoryId) ||
+        (filters.uncategorized && row.categoryId !== null) ||
         (filters.tagId && !row.tagIds.includes(filters.tagId)) ||
         (filters.payee && !contains(row.payee, filters.payee)) ||
         (filters.memo && !contains(row.memo, filters.memo))) return false;
