@@ -116,6 +116,7 @@ interface SaveSnapshot {
 interface LateWriteConflict {
   ancestor: string | null;
   unknown: boolean;
+  unconfirmed?: boolean;
   submittedText?: string;
 }
 
@@ -265,7 +266,7 @@ export class DocumentSession {
         this.format = detectTextFormat(file.text);
         this.state = this.text === file.text ? "saved" : "dirty";
       } else if (this.interruptedWrite || this.lateWriteConflict) {
-        this.acceptReconciledDisk(file, this.interruptedWrite !== null, null, this.interruptedWrite?.text);
+        this.acceptReconciledDisk(file, this.interruptedWrite !== null, null, this.interruptedWrite?.text, this.interruptedWrite !== null);
       } else if (!this.hasUnsavedText()) {
         if (!this.matchesSavedFile(file)) this.adoptLoadedFile(file);
         this.flushError = null;
@@ -277,7 +278,7 @@ export class DocumentSession {
       this.interruptedWrite = null;
     } catch (error) {
       if (connection !== this.connection) return;
-      if (this.hasUnsavedText()) this.acceptReconciledDisk(null, this.interruptedWrite !== null, String(error), this.interruptedWrite?.text);
+      if (this.hasUnsavedText()) this.acceptReconciledDisk(null, this.interruptedWrite !== null, String(error), this.interruptedWrite?.text, this.interruptedWrite !== null);
       else this.flushError = String(error);
     } finally {
       if (connection === this.connection) {
@@ -325,7 +326,7 @@ export class DocumentSession {
       draft: this.draft?.content ?? null,
       format: this.format,
       hasUnsaved: this.activeFileWrite !== null || this.hasUnsavedText(),
-      writeUnconfirmed: this.activeFileWrite?.unconfirmed === true || this.interruptedWrite !== null || this.lateWriteConflict?.unknown === true,
+      writeUnconfirmed: this.activeFileWrite?.unconfirmed === true || this.interruptedWrite !== null || this.lateWriteConflict?.unconfirmed === true,
     };
   }
 
@@ -704,12 +705,12 @@ export class DocumentSession {
   }
 
   private reconcileWrite(write: ActiveFileWrite, writeUnconfirmed: boolean): Promise<void> {
-    write.reconciliation = this.readDiskAfterWrite(writeUnconfirmed, write.submittedText);
+    write.reconciliation = this.readDiskAfterWrite(write, writeUnconfirmed);
     return write.reconciliation;
   }
 
   /** 在原写入的队列位置复读，后续保存须等磁盘状态核实。 */
-  private async readDiskAfterWrite(writeUnconfirmed: boolean, submittedText?: string): Promise<void> {
+  private async readDiskAfterWrite(write: ActiveFileWrite, writeUnconfirmed: boolean): Promise<void> {
     if (this.disposed) return;
     // 已发写入可能比正在读取的重载或合并更晚落盘。
     this.diskRevision++;
@@ -724,18 +725,18 @@ export class DocumentSession {
         file = await this.request<NoteFile>("notes.read", { path: this.id.path });
       } catch (error) {
         if (!canReconcile()) continue;
-        this.acceptReconciledDisk(null, true, error instanceof Error ? error.message : String(error), submittedText);
+        this.acceptReconciledDisk(null, true, error instanceof Error ? error.message : String(error), write.submittedText, write.unconfirmed);
         return;
       }
       if (!canReconcile()) continue;
 
       const changed = !this.matchesSavedFile(file);
-      if (changed || writeUnconfirmed) this.acceptReconciledDisk(changed ? file : null, writeUnconfirmed, this.flushError, submittedText);
+      if (changed || writeUnconfirmed) this.acceptReconciledDisk(changed ? file : null, writeUnconfirmed, this.flushError, write.submittedText, write.unconfirmed);
       return;
     }
   }
 
-  private acceptReconciledDisk(file: NoteFile | null, unknown: boolean, error: string | null, submittedText?: string): void {
+  private acceptReconciledDisk(file: NoteFile | null, unknown: boolean, error: string | null, submittedText?: string, unconfirmed = false): void {
     const previous = this.lateWriteConflict;
     const ancestor = previous ? previous.ancestor : this.savedText;
     this.baselineGeneration++;
@@ -748,9 +749,11 @@ export class DocumentSession {
     }
     this.equivalentMarkdown = undefined;
     const unverified = unknown || previous?.unknown === true;
+    // Whether a previous write had a missing receipt is independent of whether the baseline is safe to write.
+    const missingReceipt = unconfirmed || previous?.unconfirmed === true;
     const submitted = submittedText ?? previous?.submittedText;
     this.lateWriteConflict = unverified || this.text !== this.savedText
-      ? { ancestor, unknown: unverified, ...(unverified && submitted !== undefined && { submittedText: submitted }) }
+      ? { ancestor, unknown: unverified, unconfirmed: missingReceipt, ...(unverified && submitted !== undefined && { submittedText: submitted }) }
       : null;
     this.state = this.lateWriteConflict ? "conflict" : "saved";
     this.flushError = error;
@@ -863,6 +866,7 @@ export class DocumentSession {
         return true;
       } catch (error) {
         writeUnconfirmed = isUnconfirmedWriteError(error);
+        activity.unconfirmed = !acknowledged && writeUnconfirmed;
         if (!isCurrent()) return false;
         this.state = this.text === this.savedText ? "saved" : "dirty";
         this.fail(error);
@@ -1128,7 +1132,7 @@ export class DocumentSession {
     const generation = this.baselineGeneration;
     const diskRevision = this.diskRevision;
     const seq = this.loadSeq;
-    if (!pending?.unknown || !this.isBaselineCurrent(generation)) return false;
+    if (!pending?.unconfirmed || !this.isBaselineCurrent(generation)) return false;
     const current = () => this.isBaselineCurrent(generation) && diskRevision === this.diskRevision && seq === this.loadSeq;
     try {
       const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
@@ -1233,7 +1237,7 @@ export class DocumentSession {
     if (d.baseVersion !== this.version) this.version = d.baseVersion;
     if (d.outcome === "unknown") {
       const ancestor = this.lateWriteConflict ? this.lateWriteConflict.ancestor : this.savedText;
-      this.lateWriteConflict = { ancestor, unknown: true, ...(d.matchesSubmitted === true && { submittedText: d.text }) };
+      this.lateWriteConflict = { ancestor, unknown: true, unconfirmed: true, ...(d.matchesSubmitted === true && { submittedText: d.text }) };
       this.clearAutosave();
     }
     this.revision++;

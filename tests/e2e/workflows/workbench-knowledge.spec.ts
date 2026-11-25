@@ -178,7 +178,7 @@ test("UX04：常驻月历按时区与语言显示，键盘选日且空日仅创�
     await page.clock.setFixedTime(new Date("2026-11-07T03:00:00Z"));
     await engineReady(page);
     await navigate(page, "知识库");
-    await page.getByRole("button", { name: "日记", exact: true }).click();
+    await page.getByRole("tab", { name: "日记", exact: true }).click();
     const calendar = page.getByRole("grid");
     const date = (value: string) => calendar.locator(`button[data-date="${value}"]`);
     await expect(calendar).toHaveAccessibleName("2026年11月");
@@ -194,7 +194,7 @@ test("UX04：常驻月历按时区与语言显示，键盘选日且空日仅创�
     await language.selectOption("en");
     await expect(language).toHaveValue("en");
     await navigate(page, "知识库");
-    await page.getByRole("button", { name: "日记", exact: true }).click();
+    await page.getByRole("tab", { name: "日记", exact: true }).click();
     await expect(calendar).toHaveAccessibleName("November 2026");
     await expect(calendar.getByRole("columnheader").first()).toHaveText("Sun");
     await date(today).focus();
