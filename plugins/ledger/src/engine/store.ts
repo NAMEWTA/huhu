@@ -10,6 +10,7 @@ import { RecordReference } from "../shared/reconciliation.js";
 import { defaultCards, HolidayData, HolidayYear, ReportCards } from "../shared/reports.js";
 import { RecurringPeriod, RecurringRule } from "../shared/recurring.js";
 import { Budget } from "../shared/budgets.js";
+import { Loan, LoanPayment } from "../shared/loans.js";
 
 const directory = ".huhu/ledger";
 const indexPath = directory + "/books.json";
@@ -39,6 +40,8 @@ export const stateSchema = z.strictObject({
   reportCards: ReportCards.default(defaultCards),
   holidays: z.record(HolidayYear, HolidayData).default({}),
   budgets: z.array(Budget).default([]),
+  loans: z.array(Loan).default([]),
+  loanPayments: z.array(LoanPayment).default([]),
   recurring: z.array(RecurringRule).default([]),
   recurringPeriods: z.array(RecurringPeriod).default([]),
 });

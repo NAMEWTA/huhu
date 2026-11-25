@@ -4,6 +4,7 @@ import { checkLedgerReference, errors, LedgerRecord, ledgerBusinessDate, ledgerB
 import { canonicalJson } from "@huhu/kernel";
 import type { z } from "zod";
 import type { CreateRecord, InputBatch, RecordFilters, RecordsPage, RecordsQuery, RecordView } from "../shared/entries.js";
+import { loanPeriodId } from "../shared/loans.js";
 import { validateLedgerAccount } from "./accounts.js";
 import { attachmentPath, type BookState, type LedgerStore } from "./store.js";
 
@@ -152,11 +153,15 @@ export function duplicateRecord(state: BookState, original: LedgerRecord) {
 
 export function previewBatch(state: BookState, input: z.infer<typeof InputBatch>) {
   const selection = input.selection.map(({ recordId, recordRevision }) => findRecord(state, recordId, recordRevision));
+  const generated = new Set([
+    ...state.recurringPeriods.filter(({ state }) => state === "generated").map(({ periodId }) => periodId),
+    ...state.loanPayments.map(({ loanId, number }) => loanPeriodId(loanId, number)),
+  ]);
   for (const row of selection) {
     if (input.action.kind === "delete") {
       requireNoOffset(state, row);
       if (state.recordReferences.some(({ recordId, kind, targetId }) => recordId === row.id &&
-        (kind !== "occurrence" || !state.recurringPeriods.some(({ periodId, state }) => periodId === targetId && state === "generated")))) {
+        (kind !== "occurrence" || !generated.has(targetId)))) {
         throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
       }
     } else {

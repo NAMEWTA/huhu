@@ -472,3 +472,50 @@ test("L6 预算进度和明细同源，复制冲突在独立 Web 中可核对", 
     rmTree(sandbox);
   }
 });
+
+test("L8 独立 Web 预览和确认所选贷款期次并打开原流水", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "huhu-ledger-loan-e2e-"));
+  const vault = path.join(sandbox, "vault");
+  mkdirSync(vault);
+  let app: Awaited<ReturnType<typeof launch>> | undefined;
+  let browser: Browser | undefined;
+  try {
+    app = await launch(vault);
+    const desktop = await app.firstWindow();
+    await engineReady(desktop);
+    const ledger = await enterLedger(desktop);
+    await ledger.getByRole("button", { name: "创建第一个账本" }).click();
+    await createBook(desktop, "贷款账本", "银行");
+    const { activeBookId: bookId } = await call<{ activeBookId: string }>(desktop, "ledger.books.list", {});
+    const { book, accounts } = await call<{ book: { revision: string }; accounts: { id: string }[] }>(desktop, "ledger.accounts.list", { bookId });
+    await call(desktop, "ledger.loans.create", {
+      bookId, expectedRevision: book.revision,
+      definition: { name: "设备贷款", method: "equal-principal", principalMinor: "20000",
+        currency: "TWD", annualRatePercent: "12", months: 2, startOn: "2024-01-31", accountId: accounts[0]!.id },
+    });
+    const url = await inviteWorkbench(desktop);
+    browser = await chromium.launch();
+    const page = await browser.newPage();
+    await page.goto(url);
+    const webLedger = await enterLedger(page);
+    await page.getByTestId("ledger-nav-recurring").click();
+    await webLedger.getByRole("button", { name: "预览贷款历史补记" }).click();
+    const preview = page.getByRole("dialog", { name: "预览贷款历史补记" });
+    await expect(preview.getByRole("table", { name: "还款计划" })).toContainText("2024-02-29");
+    await expect(preview.getByRole("button", { name: "确认所选期次" })).toBeDisabled();
+    expect(await call(page, "ledger.records.list", { bookId })).toMatchObject({ total: 0 });
+    await preview.getByRole("checkbox", { name: "补记第 1 期 2024-02-29" }).check();
+    await preview.getByRole("button", { name: "确认所选期次" }).click();
+    await expect(preview.getByRole("status").filter({ hasText: "已确认 1 个所选期次" })).toBeVisible();
+    await expect(preview.getByRole("checkbox", { name: "补记第 2 期 2024-03-31" })).not.toBeChecked();
+    await preview.getByRole("button", { name: "查看第 1 期流水" }).click();
+    const record = page.getByRole("dialog", { name: "查看流水" });
+    await expect(record).toContainText("2024-02-29");
+    await expect(record).toContainText("设备贷款");
+    expect(await call(desktop, "ledger.records.list", { bookId })).toMatchObject({ total: 1 });
+  } finally {
+    await browser?.close().catch(() => undefined);
+    await app?.close().catch(() => undefined);
+    rmTree(sandbox);
+  }
+});

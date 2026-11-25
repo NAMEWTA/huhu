@@ -25,6 +25,9 @@ import { OpenRecurring, RecurringKey, RecurringList, RecurringPeriod, RecurringP
 import { LedgerRecurring } from "./recurring.js";
 import { Budget, BudgetDetail, BudgetDetailQuery, BudgetOverview, BudgetQuery, CopyBudgetResult, CopyBudgets, RemoveBudget, SaveBudgets } from "../shared/budgets.js";
 import { budgetDetail, budgetOverview, copyBudgets, removeBudget, saveBudgets } from "./budgets.js";
+import { ConfirmLoan, Loan, LoanHistory, LoanInstallment, LoanList, LoanPayment, LoanTerms, PreviewLoan, RemoveLoan, SaveLoan } from "../shared/loans.js";
+import { loanSchedule } from "../domain/loans.js";
+import { confirmLoan, loanList, previewLoan, removeLoan, saveLoan } from "./loans.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
@@ -57,6 +60,12 @@ const descriptors = {
   ensureRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.ensurePlan", title: "补全固定收支计划", description: "核对原规则并补全缺失的暂停计划。", input: RecurringKey, output: RecurringRow }),
   previewRecurring: descriptor({ ...read, name: "ledger.recurring.preview", title: "预览固定收支", description: "读取原计划启用区间内的未处理期次。", input: RecurringKey, output: RecurringPreview }),
   retryRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.retry", title: "重试固定收支期次", description: "按原计划和期次时间重试已证失败。", input: RetryRecurring, output: RecurringPeriod }),
+  loans: descriptor({ ...read, name: "ledger.loans.list", title: "查看贷款", description: "列出当前账本的贷款和已生成期数。", input: BookRef, output: LoanList }),
+  quoteLoan: descriptor({ ...read, name: "ledger.loans.quote", title: "试算还款计划", description: "按贷款条件逐期计算本金、利息和到期业务日。", input: LoanTerms, output: z.array(LoanInstallment) }),
+  createLoan: descriptor({ ...write, name: "ledger.loans.create", title: "保存贷款", description: "保存试算条件，供后续预览。", input: SaveLoan, output: Loan }),
+  previewLoan: descriptor({ ...read, name: "ledger.loans.previewHistory", title: "预览贷款历史补记", description: "读取还款计划、到期状态、入账账户及已生成流水。", input: PreviewLoan, output: LoanHistory }),
+  confirmLoan: descriptor({ ...write, idempotency: "handler", name: "ledger.loans.confirmHistory", title: "确认所选贷款期次", description: "按原业务日记录明确选中的到期期次。", input: ConfirmLoan, output: z.array(LoanPayment) }),
+  removeLoan: descriptor({ ...write, name: "ledger.loans.remove", title: "删除贷款规则", description: "移除贷款规则，保留已生成流水及期次事实。", input: RemoveLoan, output: Loan }),
   addAccount: descriptor({ ...write, name: "ledger.accounts.create", title: "新增资金账户", description: "创建账户和期初余额", input: CreateAccount, output: LedgerAccount }),
   updateAccount: descriptor({ ...write, name: "ledger.accounts.update", title: "编辑资金账户", description: "更新账户名称、类型和银行", input: UpdateAccount, output: LedgerAccount }),
   accountState: descriptor({ ...write, name: "ledger.accounts.setStatus", title: "更改账户状态", description: "归档或恢复账户并保留历史", input: AccountState, output: LedgerAccount }),
@@ -149,6 +158,12 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
   api.defineCapability(bindCapability(descriptors.ensureRecurring, (context, { bookId, ruleId }) => recurring.ensure(context, bookId, ruleId)));
   api.defineCapability(bindCapability(descriptors.previewRecurring, async (_context, { bookId, ruleId }) => { await store.idle(); return recurring.preview(bookId, ruleId); }));
   api.defineCapability(bindCapability(descriptors.retryRecurring, (context, input) => recurring.retry(context, input)));
+  api.defineCapability(bindCapability(descriptors.loans, async (_context, { bookId }) => loanList(store, await snapshot(bookId))));
+  api.defineCapability(bindCapability(descriptors.quoteLoan, (_context, input) => loanSchedule(input)));
+  api.defineCapability(bindCapability(descriptors.createLoan, (context, input) => change(context, input, (state) => saveLoan(state, input))));
+  api.defineCapability(bindCapability(descriptors.previewLoan, async (_context, input) => previewLoan(store, await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.confirmLoan, (context, input) => confirmLoan(store, context, input)));
+  api.defineCapability(bindCapability(descriptors.removeLoan, (context, input) => change(context, input, (state) => removeLoan(state, input.loanId))));
   api.defineCapability(bindCapability(descriptors.addAccount, (context, input) =>
     change(context, input, (state) => createAccount(state, input.account, input.openingMinor, input.effectiveBusinessDate))));
   api.defineCapability(bindCapability(descriptors.updateAccount, (context, input) =>

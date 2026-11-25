@@ -23,8 +23,8 @@ function amount(record: LedgerRecord) {
     : displayMoney(record.amountMinor, record.currency);
 }
 
-export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }: {
-  book: Book; readOnly: boolean; quickEntry: boolean; consumeQuickEntry(): void;
+export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, linkedRecordId, closeLinkedRecord }: {
+  book: Book; readOnly: boolean; quickEntry: boolean; consumeQuickEntry(): void; linkedRecordId: string | undefined; closeLinkedRecord(): void;
 }) {
   const [filters, setFilters] = useState<RecordFilters>({});
   const [page, setPage] = useState(1);
@@ -218,6 +218,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
       </div>
     </>}
     {editor && <RecordEditor book={editor.book} view={view} {...(editor.row && { row: editor.row })} onClose={() => setEditor(undefined)} />}
+    {linkedRecordId && <LinkedRecord book={book} recordId={linkedRecordId} close={closeLinkedRecord} />}
     {importOpen && <ImportWizard view={view} onClose={() => setImportOpen(false)} />}
     {reconciliation && <ReconciliationDialog view={view} target={reconciliation} filters={filters} onClose={() => setReconciliation(undefined)} />}
     {attachment && <AttachmentsDialog book={data?.book ?? view.book} recordId={attachment} readOnly={locked} onClose={() => setAttachment(undefined)} />}
@@ -241,6 +242,18 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
       </form>
     </Dialog>}
   </section>;
+}
+
+function LinkedRecord({ book, recordId, close }: { book: Book; recordId: string; close(): void }) {
+  const result = useCapability<RecordView>("ledger.records.get", { bookId: book.id, recordId });
+  return <Dialog open title="查看流水" error={result.error?.message} onClose={close} actions={<Button onClick={close}>关闭</Button>}>
+    {result.isPending && <p role="status">正在读取流水…</p>}
+    {result.data && <div className="hu-stack">
+      <h3>{result.data.title}</h3>
+      <p><time dateTime={result.data.businessDate}>{result.data.businessDate}</time> · {amount(result.data.record)}</p>
+      {result.data.record.memo && <p>{result.data.record.memo}</p>}
+    </div>}
+  </Dialog>;
 }
 
 const cardLabels = { summary: "本月汇总", recent: "最近流水", balances: "账户余额" };
