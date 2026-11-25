@@ -1426,7 +1426,9 @@ test("H7.3 ZIP 探测报告本机支持状态，支持时验证原设备的归�
     const id = await openBoundFiles();
     await panel.getByText("远端 ZIP 归档", { exact: true }).click();
     const remote = panel.getByRole("region", { name: "远端归档能力" });
-    if (process.platform !== "win32") {
+    const probe = await sshCall<ArchiveSupport>(page, "ssh.archives.support", { fileSessionId: id });
+    expect(probe.ok).toBe(true);
+    if (!probe.data.local.zip) {
       await expect(remote.getByRole("status")).toHaveText("ZIP 不可用 · 依赖的本机 ZIP 后端不可用");
       await expect(remote).toContainText("TAR、TGZ 和 7z");
       await remote.getByLabel("归档项目", { exact: true }).selectOption("docs");
@@ -1435,7 +1437,7 @@ test("H7.3 ZIP 探测报告本机支持状态，支持时验证原设备的归�
       expect(archiveHost.fs.files.has("/home/test/docs.zip")).toBe(false);
       const local = panel.getByRole("region", { name: "本机文件", exact: true });
       await local.getByText("本机 ZIP 归档", { exact: true }).click();
-      await expect(local.getByRole("region", { name: "本机归档能力" }).getByRole("status")).toHaveText("ZIP 不可用 · 本机 Windows .NET ZIP 后端不可用");
+      await expect(local.getByRole("region", { name: "本机归档能力" }).getByRole("status")).toHaveText(`ZIP 不可用 · ${probe.data.local.reason}`);
       return;
     }
     await expect(remote).toContainText("ZIP 可用");
