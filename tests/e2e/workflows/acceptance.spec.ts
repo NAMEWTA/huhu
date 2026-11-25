@@ -1261,7 +1261,7 @@ test("笔记拖放移动：把笔记拖到文件夹，文件移到该目录；�
   }
 });
 
-test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置、管理所属插件", async (_args, info) => {
+test("UX13 能力网关 MCP：保存本机端点、复制 HTTP 客户端配置、管理所属插件", async ({ browserName: _browserName }, info) => {
   const { app, page, close } = await openApp();
   try {
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });

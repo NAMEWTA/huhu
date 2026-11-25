@@ -530,7 +530,7 @@ test("UX17 外观按工作区重排四套主题，窄窗切换并重开保留", 
   });
 });
 
-test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留布局", async (_args, info) => {
+test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留布局", async ({ browserName: _browserName }, info) => {
   await runOnHosts(info, async (page, name) => {
     page.setDefaultTimeout(10_000);
     await page.setViewportSize({ width: 1440, height: 930 });
@@ -589,7 +589,7 @@ test("UX18 看板相邻卡片拖缩与键盘调整，保存重开和取消保留
   });
 });
 
-test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多实例和不可用来源", async (_args, info) => {
+test("UX19 看板目录可按用途与来源搜索，区分单例、恢复、多实例和不可用来源", async ({ browserName: _browserName }, info) => {
   await runOnHosts(info, async (page, name) => {
     page.setDefaultTimeout(10_000);
     await page.setViewportSize({ width: 940, height: 850 });
