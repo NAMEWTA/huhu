@@ -10,9 +10,11 @@ import { afterEach, expect, test, vi } from "vitest";
 import { run } from "../../../apps/cli/src/main.js";
 import { boot, type RunningEngine } from "../../../apps/engine/src/boot.js";
 import { mcpRequest, mcpRpc, openRecoverableMcpSession } from "../../../packages/kernel/test/fixtures/mcp-http.js";
+import type { DetectInfo } from "../src/engine/detect.js";
 import { agentToolDescriptors, HerdrCore, SessionsService } from "../src/engine/index.js";
 import type { Terminal } from "../src/engine/launch-binding.js";
 import { WaitingWatcher } from "../src/engine/waiting.js";
+import { agentById } from "../src/shared/catalog.js";
 import { emptyLayout, type WorkspaceView } from "../src/shared/workspace-layout.js";
 import type { Space } from "../src/shared/space.js";
 
@@ -585,10 +587,11 @@ test.each(entries)("%s Agent 可用性只读取脱敏缓存，只有工作台刷
     expect(before).toEqual(expect.arrayContaining([expect.objectContaining(view)]));
     expect(await tool.call("agent.catalog.refresh", {})).toMatchObject(noExposure);
     expect(readdirSync(fixture)).not.toContain(path.basename(probe));
-    const refreshed = unwrap(await manage("agent.catalog.refresh"));
+    const refreshed = unwrap(await manage<DetectInfo[]>("agent.catalog.refresh"));
     expect(refreshed).toContainEqual(expect.objectContaining({ ...view, path: command, version: "fixture-version" }));
-    expect(unwrap(await read())).toEqual(refreshed);
+    expect(unwrap(await read())).toEqual(refreshed.map((entry) => ({ ...entry, models: agentById(entry.id)?.options.models ?? [] })));
     const external = unwrap(await tool.call(capability, {}));
+    expect(external).toEqual(refreshed.map(({ id, displayName, installed, skipped, headless, detectedAt }) => ({ id, displayName, installed, skipped, headless, detectedAt })));
     expect(JSON.stringify(external)).not.toMatch(/fixture-version|fixture-claude|override/);
     expect(readFileSync(probe, "utf8").trim().split(/\r?\n/)).toEqual(["--version", "--help"]);
     expect(ensure).not.toHaveBeenCalled();
