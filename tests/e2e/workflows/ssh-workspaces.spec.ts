@@ -941,7 +941,7 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     }
     const origin = await createFileView();
     await page.getByRole("button", { name: "返回 SSH" }).click();
-    await run.getByRole("button", { name: "跨端目标", exact: true }).click();
+    await run.getByRole("tab", { name: "跨端目标", exact: true }).click();
     const target = await createFileView();
     await page
       .getByRole("complementary", { name: "独立文件会话" })
@@ -1171,11 +1171,13 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     await pull.dragTo(local);
     await expect(page.getByText("已加入传输中心，目录和文件分别核对")).toBeVisible();
     await center.click();
-    await expect(page.getByTestId("ssh-transfer-batch").first()).toHaveAttribute("data-state", "partial");
+    const downloaded = page.getByTestId("ssh-transfer-batch").filter({ has: page.getByRole("button", { name: "pulled.txt · 已完成", exact: true }) });
+    await expect(downloaded).toHaveAttribute("data-state", "partial");
+    await expect(downloaded.getByRole("button", { name: "remote-link · 已跳过", exact: true })).toBeVisible();
     expect(readFileSync(path.join(localRoot, "pull", "sub", "pulled.txt")).toString()).toBe("从回环 SFTP 下载");
 
     await page.getByRole("button", { name: "返回 SSH" }).click();
-    await run.getByRole("button", { name: "批量乙", exact: true }).click();
+    await run.getByRole("tab", { name: "批量乙", exact: true }).click();
     const targetId = await openSource();
     const cross = await sshCall<TransferBatch>(page, "ssh.transfers.startBatch", {
       source: { kind: "remote", fileSessionId: sourceId, path: "/home/test/pull" },
@@ -1184,7 +1186,7 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
     });
     expect(cross.ok, cross.error?.message).toBe(true);
     await center.click();
-    await expect(page.getByTestId("ssh-transfer-batch").first()).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("ssh-transfer-batch").and(page.locator(`[data-batch-id="${cross.data.batchId}"]`))).toHaveAttribute("data-state", "completed");
     expect(second.fs.files.get("/home/test/sub/pulled.txt")?.toString()).toBe("从回环 SFTP 下载");
   } finally {
     await fixture.close();
@@ -1192,7 +1194,7 @@ test("H7.1–2 批量目录逐项确认，拖放保留内容并阻止链接逃�
   }
 });
 
-test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留原件", async () => {
+test("H7.3 ZIP 探测报告本机支持状态，支持时验证原设备的归档内容和错误", async () => {
   test.setTimeout(90_000);
   const password = randomUUID();
   const archiveHost = await startFakeSsh({ password });
@@ -1239,6 +1241,18 @@ test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留�
     const id = await openBoundFiles();
     await panel.getByText("远端 ZIP 归档", { exact: true }).click();
     const remote = panel.getByRole("region", { name: "远端归档能力" });
+    if (process.platform !== "win32") {
+      await expect(remote.getByRole("status")).toHaveText("ZIP 不可用 · 依赖的本机 ZIP 后端不可用");
+      await expect(remote).toContainText("TAR、TGZ 和 7z");
+      await remote.getByLabel("归档项目", { exact: true }).selectOption("docs");
+      await expect(remote.getByRole("button", { name: "生成 ZIP" })).toBeDisabled();
+      expect(archiveHost.fs.files.get(file)).toEqual(body);
+      expect(archiveHost.fs.files.has("/home/test/docs.zip")).toBe(false);
+      const local = panel.getByRole("region", { name: "本机文件", exact: true });
+      await local.getByText("本机 ZIP 归档", { exact: true }).click();
+      await expect(local.getByRole("region", { name: "本机归档能力" }).getByRole("status")).toHaveText("ZIP 不可用 · 本机 Windows .NET ZIP 后端不可用");
+      return;
+    }
     await expect(remote).toContainText("ZIP 可用");
     await expect(remote).toContainText("TAR、TGZ 和 7z");
     await remote.getByLabel("归档项目", { exact: true }).selectOption("docs");
@@ -1298,7 +1312,7 @@ test("H7.3 原生 ZIP 列表、摘要及解压绑定实际设备，失败保留�
     expect(readFileSync(path.join(localRoot, "restored", "local-docs", "local.txt"), "utf8")).toBe("本机 ZIP 成员");
 
     await page.getByRole("button", { name: "返回 SSH" }).click();
-    await run.getByRole("button", { name: "无 SFTP 乙", exact: true }).click();
+    await run.getByRole("tab", { name: "无 SFTP 乙", exact: true }).click();
     const idB = await openBoundFiles();
     const support = await sshCall<ArchiveSupport>(page, "ssh.archives.support", { fileSessionId: idB });
     expect(support.data.local.zip).toBe(true);

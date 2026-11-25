@@ -24,7 +24,7 @@ export function LocalShellPanel({ onBack }: { onBack(): void }) {
     setBusy(true);
     setFeedback("");
     try {
-      const session = await engine.call<LocalSession>("ssh.local.open", input);
+      const session = await engine.call<LocalSession>("ssh.local.open", input, { write: true });
       setSelected(session.id);
       await sessions.refetch();
     } catch (reason) {
@@ -38,7 +38,7 @@ export function LocalShellPanel({ onBack }: { onBack(): void }) {
     setBusy(true);
     setFeedback("");
     try {
-      await engine.call("ssh.local.close", { id });
+      await engine.call("ssh.local.close", { id }, { write: true });
       await sessions.refetch();
     } catch (reason) {
       setFeedback(reason instanceof Error ? reason.message : "无法结束本地 Shell。");

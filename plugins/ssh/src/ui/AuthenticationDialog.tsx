@@ -18,7 +18,7 @@ export function AuthenticationDialog({ prompt, onClose, onAnswered }: { prompt: 
     setError("");
     try {
       const { attemptId, hop, promptId } = prompt;
-      const result = await engine.call<{ applied: boolean }>("ssh.authentication.answer", { attemptId, hop, promptId, answers });
+      const result = await engine.call<{ applied: boolean }>("ssh.authentication.answer", { attemptId, hop, promptId, answers }, { write: true });
       if (!result.applied) setError("此认证提示已失效。");
       await onAnswered();
     } catch (reason) {
