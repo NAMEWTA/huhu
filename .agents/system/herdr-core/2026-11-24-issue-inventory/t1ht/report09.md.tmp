@@ -1,0 +1,63 @@
+# 派发回执
+
+- 共享根 — /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-24-issue-inventory
+- terminal_address — t1ht
+- task — task09.md
+- 任务文件 — /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-24-issue-inventory/t1ht/task09.md
+- 回执文件 — /home/wta/projects/huhu/.agents/system/herdr-core/2026-11-24-issue-inventory/t1ht/report09.md
+- 业务验收报告 — /home/wta/projects/huhu/.agents/dev/changes/2026-11-24-issue-inventory/evidences/{094-p3,095-p4}.md
+- 执行结果 — done
+
+## 成果与运行指针
+
+工作目录 `/home/wta/projects/huhu/.agents/dev/worktree/inv-w2`，分支 `inv/w2`。起始同步点 `269dac4a`，后再次执行 `git merge main` 合入 `dc6af121`，工作分支合并提交为 `5a9fe6e1`。用户确认的 MCP 原型指纹为 `35b160139f464a78f2473e07b49bd1c029e0a111f7cfe876d854871a40f954fe`。没有新增依赖或修改锁文件。
+
+### P1/P2 类型修复（最先执行）
+
+- 独立提交 `e9bc46fba9e6ce7429a04e53c2e1330b2d069c45`，修复 `packages/kernel/src/mcp-sources/transport.ts` 的 SDK stderr 流类型，以及 `packages/kernel/test/mcp-sources.test.ts` 的 RPC 响应与清理回调类型。
+- 持锁执行 `volta run --node 24.22.1 pnpm --filter "./vendor/*" run build:types` 生成三份 vendor 声明。随后分别检查 `@huhu/kernel`、`@huhu/engine`。早期检查发现同一基线的 TW7 精确可选属性错误，曾在本检出临时应用 w1 的同一修正进行依赖复核，验证后还原。最终复核使用已合入 TW7 修复的 main，无临时补丁。
+- 定向 `packages/kernel/test/mcp-sources.test.ts` 通过 5 项，日志 `p12-sources.log`。
+
+### 094-p3 · 四类目录和原生 MCP 路由
+
+- 独立提交 `95733487b2da7fec199b8daf45ab466186c65ab9`。
+- `packages/kernel/src/mcp-sources/{catalog,runtime,index}.ts`、`packages/kernel/src/{mcp,server/mcp-http}.ts` 与 `packages/contracts/src/mcp-routing.ts` 通过真实 SDK 声明分页发现工具、资源、模板和提示。同源固定接入标识保留原模板变量及原 URI 字节。精确资源优先，模板重叠明确拒绝，发出前再次检查当前策略及代次。
+- 工具原生 resource link、嵌入资源、提示消息与资源响应只投影协议 URI 字段。普通文本和 structuredContent 原样保留。内置目录与操作回执继续沿既有 Dispatcher 入口。协议会话可收到工具、资源和提示的目录更新。
+- 沿用 1MCP 固定提交 `6e25f4a5b8b2728e74af06cd61981f5cd94c125c` 的模板反查与 MCPHub 固定提交 `f4aad3de1857385b234887bb46f81fbc2fbf8816` 的资源／提示发现、读取权限做法，使用当前 SDK `UriTemplate` 匹配并保留原始 URI。来源文件核对副本在 `temp/sources/mcp-p3-reference`。
+- `GatewayModule.tsx` 的四类标签使用 Engine 数据，移除静态镜像。正式来源管理由后续同批 P4 交付。P3 的定向文件为 `packages/kernel/test/mcp-sources.test.ts`，第六项新增测试覆盖同名双来源、模板查询、多变量／中文／百分号、结构化 URI、精确优先、歧义和即时撤权。P3 检查通过 6 项，日志 `p3-sources.log`，四个改动包类型检查无错误。
+
+### 095-p4 · 模块凭据、OAuth 与正式来源管理
+
+- 独立提交 `627da10d347ba01df03187dcd08ba322333f09db`。
+- `packages/kernel/src/mcp-sources/{credentials,oauth,oauth-network,import,index,runtime,transport}.ts` 复用 `ModuleCredentials`，每个来源持有独立账号与目标绑定。轮换先暂存受保护的新材料，再以版本检查发布新的引用，失败清理本次暂存。导入对 header、URL query 和环境变量值做遮蔽后预览、确认、安全转存和重试。一次登录的 state、PKCE 回调、客户端注册和续订使用现有 SDK。旧绑定从配置摘除时立即回收关联连接。
+- `packages/workbench/src/gateway/{GatewayModule,McpSourcesPanel,McpSourceDialogs}.tsx` 与 `packages/workbench/src/engine-client/query.ts` 实现桌面和认证 Web 共用的管理界面。通过现有能力接口完成来源列表、手动添加/编辑、认证、状态、四类目录和开放预览、导入与脱敏导出。OAuth 在 Engine 主机回环接收授权回调。
+- `packages/kernel/test/mcp-sources.test.ts` 的最终版通过 9 项，P4 增补双账号和轮换、导入取消/失败重试及备份脱敏、OAuth 登录/过期/取消/迟到/刷新并发/注销。授权与业务上游只用本地 stdio 和回环夹具。`packages/kernel/test/fixtures/{mcp-oauth,mcp-upstream}.ts` 核对 PKCE、目标和实际请求结果。
+
+### 最终验证
+
+证据目录 — /home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/t1ht/task09/
+
+- 定向单测均使用 `flock /home/wta/projects/huhu/temp/dev/verify.lock volta run --node 24.22.1 pnpm exec vitest run <单个文件>`，任务间共用一把锁。
+- 包级类型检查均使用 `flock /home/wta/projects/huhu/temp/dev/verify.lock volta run --node 24.22.1 pnpm --filter <包> run typecheck`，在合入当前 main 后逐包检查 `@huhu/contracts`、`@huhu/kernel`、`@huhu/engine`、`@huhu/workbench`，四包均为 0 错误。对应日志为 `final-{contracts,kernel,engine,workbench}-types.log`。
+
+| 定向文件 | 最终结果 |
+| --- | --- |
+| `packages/kernel/test/mcp-sources.test.ts` | 9 项通过 · `final-mcp-sources.log` |
+| `packages/kernel/test/mcp-recovery.test.ts` | 3 项通过 · `final-mcp-recovery.log` |
+| `apps/engine/test/capability-catalog.test.ts` | 4 项通过 · `final-capability-catalog.log` |
+| `packages/kernel/test/mcp-routing.test.ts` | 14 项通过 · `final-mcp-routing.log` |
+| `packages/workbench/test/engine-client.test.ts` | __ENGINE_CLIENT_RESULT__ 项通过 · `final-engine-client.log` |
+
+### Lead Playwright 验收入口
+
+- `tests/e2e/workflows/mcp-aggregation.spec.ts` · 「P3 正式来源页面添加服务、预览发布并访问真实资源和提示」。
+- `tests/e2e/workflows/mcp-aggregation.spec.ts` · 「P4 独立 Web 工作台通过正式来源页面预览、导入并读取脱敏配置」。
+- `tests/e2e/workflows/mcp-aggregation.spec.ts` · 「P4 桌面来源页面完成回环 OAuth 登录并注销」。设置 `HUHU_MCP_KEYRING_ACCEPTANCE=1`，使用可用系统凭据宿主。
+- `tests/e2e/shell.spec.ts` · 「能力网关：开放/关闭能力开关、不可开放的能力无开关；创建令牌只显示一次并可撤销；MCP 开关」。内置目录回归先实际开放相应能力。
+
+## 阻碍与接续
+
+- Worker 未运行 Playwright、应用构建、打包、全仓类型检查、全仓 lint、knip 或截图。桌面和独立 Web 的实际页面旅程交 Lead 验证，定向 OAuth 使用本地回环服务与测试保护宿主。
+- OAuth 已验证动态注册授权服务器。真实外部 OAuth、无动态注册的提供方和跨设备浏览器授权未验收。当前授权回调绑定 Engine 主机回环端口，界面提示在运行 Engine 的设备上打开授权页。
+
+## Lead 验收
