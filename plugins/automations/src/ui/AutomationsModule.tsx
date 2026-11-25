@@ -388,7 +388,9 @@ function PlansPanel() {
           {plan.trigger.kind === "observe" ? <p>每 {plan.trigger.everySeconds} 秒检查</p> : null}
           {plan.trigger.kind === "interval" ? <p>每 {plan.trigger.every} {plan.trigger.unit === "minutes" ? "分钟" : "秒"}</p> : null}
           <p>{plan.lastOccurrence?.state === "completed" && !plan.nextAt ? "最近一次已完成"
-            : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : plan.action.summary}</p>
+            : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? (plan.availability.detail ?? "暂不可用") : plan.action.summary}</p>
+          {plan.trigger.kind === "interval" && plan.nextAt ? <p>下一次 <time dateTime={plan.nextAt}>{new Date(plan.nextAt).toLocaleString()}</time></p> : null}
+          {plan.trigger.kind === "interval" && plan.lastOccurrence?.state === "failed" ? <p>最近一次执行失败</p> : null}
           {plan.lastOccurrence?.state === "unknown" ? <p>最近发生待核实</p> : null}
           {plan.trigger.kind === "observe" && plan.actions.includes("reschedule")
             ? <Button icon={Pencil} disabled={loadingObservation} onClick={() => void openObservation(plan.planId)}>编辑观察</Button> : null}

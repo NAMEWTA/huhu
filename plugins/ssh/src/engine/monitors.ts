@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, HuhuError, type PeriodicRunContext, type PlanSummary } from "@huhu/contracts";
+import { errors, HuhuError, type PeriodicRunContext, type PeriodicRunOutcome, type PlanSummary } from "@huhu/contracts";
 import type { Client } from "ssh2";
 import type { z } from "zod";
 import type { MonitorHost, MonitorPanel, MonitorPanelChange, MonitorPanelRevision, MonitorPanelRun, MonitorPoint, MonitorSession, MonitorSessionChange, MonitorSessionOpen, SaveMonitorPanel, SessionInterval } from "../shared/monitoring.js";
@@ -149,17 +149,19 @@ export class Monitors {
     }
   }
 
-  async sampleDashboard(id: string, context: PeriodicRunContext): Promise<void> {
+  async sampleDashboard(id: string, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void> {
     const run = this.dashboards.get(id);
-    if (run?.state !== "running" || !context.isCurrent()) return;
+    if (run?.state !== "running" || !context.isCurrent()) return "skipped";
     const sources = new Set(run.bindings.flatMap(({ source }) => source && !source.failure ? [source] : []));
     const samples = await Promise.allSettled([...sources].map(async (source) => {
       const period = this.period(source);
-      if (!period || source.request || (source.requestedAt !== undefined && Date.now() - source.requestedAt + 100 < period * 1_000)) return;
+      if (!period || source.request || (source.requestedAt !== undefined && Date.now() - source.requestedAt + 100 < period * 1_000)) return false;
       await this.sample(source);
       if (source.failure) throw source.failure;
+      return true;
     }));
     for (const sample of samples) if (sample.status === "rejected") throw sample.reason;
+    if (!samples.some((sample) => sample.status === "fulfilled" && sample.value)) return "skipped";
   }
 
   save(input: SaveMonitorPanel, signal: AbortSignal, scope?: MonitorPanelScope) {

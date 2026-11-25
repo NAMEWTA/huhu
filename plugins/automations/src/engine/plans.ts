@@ -186,6 +186,8 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
   const directory: ReadDirectory = {
     async list({ source, cursor, limit }, signal) {
       signal.throwIfAborted();
+      await (source ? deps.periodic.importSource(source.plugin) : deps.periodic.importReady());
+      signal.throwIfAborted();
       const now = deps.now();
       const rules = source && source.plugin !== "automations" && source.plugin !== "tasks" ? [] : deps.rules.rules();
       const recent = rules.length > 0 ? latestActivation(deps.activations()) : undefined;
@@ -202,6 +204,8 @@ export function registerPlanCatalogue(api: HuhuApi, deps: CatalogueDeps): void {
       return { plans, nextCursor: candidates.length > limit ? plans.at(-1)?.planId ?? null : null };
     },
     async read(planId, signal) {
+      signal.throwIfAborted();
+      await deps.periodic.importReady();
       signal.throwIfAborted();
       const rule = deps.rules.rules().find(({ id }) => id === planId);
       if (!rule) return deps.periodic.read(planId) ?? deps.taskReminders.read(planId) ?? deps.observations.read(planId) ?? deps.focus?.read(planId) ?? deps.followUps.readPlan(planId);

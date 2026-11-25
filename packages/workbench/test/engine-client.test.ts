@@ -484,6 +484,20 @@ describe("查询失效", () => {
     expect(qc.getQueryState(queryKey("vault-b", "tasks.list"))?.isInvalidated).toBe(false);
   });
 
+  test("周期发生只刷新中心和对应来源，停用 Automations 刷新各来源", async () => {
+    const qc = new QueryClient();
+    const names = ["automations.plans.list", "ssh.monitor.panels.run", "sync.get", "mail.sync.settings"];
+    const keys = names.map((name) => queryKey("vault-a", name));
+    for (const key of keys) qc.setQueryData(key, {});
+    await invalidateForEvent(qc, "vault-a", {
+      type: "entity.changed", payload: { kind: "periodic-occurrence", id: "plan", sourcePlugin: "ssh", op: "updated" },
+    });
+    expect(keys.map((key) => qc.getQueryState(key)?.isInvalidated)).toEqual([true, true, false, false]);
+    await invalidateForEvent(qc, "vault-a", { type: "plugin.stateChanged", payload: { id: "automations", state: "disabled" } });
+    expect(keys.map((key) => qc.getQueryState(key)?.isInvalidated)).toEqual([true, true, true, true]);
+    qc.clear();
+  });
+
   test.each([
     ["automation-rule", "automations.read"],
     ["task-follow-up", "automations.followUps.get"],

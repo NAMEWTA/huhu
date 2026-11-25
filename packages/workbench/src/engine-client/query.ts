@@ -25,8 +25,14 @@ const ENTITY_CAPS: Record<string, string[]> = {
   "mcp-source": ["mcp.sources.", "mcp.catalog.", "mcp.diagnostics."],
   gateway: ["gateway.get"],
   "automation-activation": ["automations.activations", "automations.plans."],
-  "periodic-plan": ["automations.plans.", "mail.sync.settings", "sync.get", "sync.status", "ssh.monitor.panels.list", "ssh.monitor.panels.run"],
+  "periodic-plan": ["automations.plans."],
+  "periodic-occurrence": ["automations.plans."],
   "mail-ai-settings": ["mail.ai.getSettings"],
+};
+const PERIODIC_SOURCE_CAPS: Record<string, string[]> = {
+  mail: ["mail.sync.settings"],
+  versioning: ["sync.get"],
+  ssh: ["ssh.monitor.panels.list", "ssh.monitor.panels.run"],
 };
 
 type RefreshScope = AbortSignal | undefined;
@@ -149,13 +155,22 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
     if (parsed.success && parsed.data.entry.path === p["path"] && parsed.data.entry.type === "file") return refreshNoteCommit(qc, vaultId, parsed.data, signal);
   }
   const entityKind = e.type === "entity.changed" ? String(p["kind"]) : "";
-  if (e.type === "entity.changed") prefixes.push(...(ENTITY_CAPS[entityKind] ?? []));
-  else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表
+  const periodic = entityKind === "periodic-plan" || entityKind === "periodic-occurrence";
+  if (e.type === "entity.changed") {
+    prefixes.push(...(ENTITY_CAPS[entityKind] ?? []));
+    if (periodic && typeof p["sourcePlugin"] === "string" && Object.hasOwn(PERIODIC_SOURCE_CAPS, p["sourcePlugin"])) {
+      prefixes.push(...PERIODIC_SOURCE_CAPS[p["sourcePlugin"]]!);
+    }
+  } else if (e.type === "vault.dirChanged") prefixes.push("vault.", "notes."); // 目录实体：资源目录（vault.list）与文件夹列表
   else if (e.type === "task.statusChanged" || e.type === "task.inputChanged") prefixes.push("tasks.");
   else if (e.type === "vault.fileChanged") prefixes.push("vault.", "notes.", "tasks.", "automations.", "archives."); // 外部直接改 Tasks/、Automations/ 或档案的 index.md 也要刷新界面
   else if (e.type === "plugin.stateChanged") {
     prefixes.push("plugins.", "capabilities.");
     if (p["id"] === "mcp") prefixes.push("mcp.", "gateway.get");
+    if (p["id"] === "automations") prefixes.push("automations.plans.", ...Object.values(PERIODIC_SOURCE_CAPS).flat());
+    else if (typeof p["id"] === "string" && Object.hasOwn(PERIODIC_SOURCE_CAPS, p["id"])) {
+      prefixes.push("automations.plans.", ...PERIODIC_SOURCE_CAPS[p["id"]]!);
+    }
   }
   else if (e.type === "sync.statusChanged") prefixes.push("sync.", "conflicts.");
   else if (e.type === "notification.created") prefixes.push("notifications.");
@@ -175,5 +190,5 @@ export function invalidateForEvent(qc: QueryClient, vaultId: string, e: Pick<Huh
       signal,
     );
   }
-  return waitForRefresh(refreshQueries(qc, matches([...prefixes, ...summaries]), [signal]), signal);
+  return waitForRefresh(refreshQueries(qc, matches(periodic ? prefixes : [...prefixes, ...summaries]), [signal]), signal);
 }

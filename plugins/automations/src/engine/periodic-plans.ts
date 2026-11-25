@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { errors, PeriodicPlanSpecSchema, PlanOccurrenceSchema, PlanRefSchema, type PeriodicPlanChange, type PeriodicPlanControl, type PeriodicPlanSource, type PlanOccurrence, type PlanSummary, type PlanWrite } from "@huhu/contracts";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
+import { PeriodicOccurrences } from "./periodic-occurrences.js";
 import type { AutomationsService } from "./service.js";
 
 const file = "automations/periodic-plans.json";
@@ -15,7 +16,7 @@ type StoredPlan = z.infer<typeof StoredPlan>;
 type Store = z.infer<typeof Store>;
 type Job = {
   revision: string; source: PeriodicPlanSource; controller: AbortController; signal: AbortSignal;
-  next: number; running?: Promise<void>; wakeAt?: number;
+  next: number; running?: Promise<void>; occurrenceId?: string; wakeAt?: number;
 };
 type Clock = { now(): number };
 const occurrenceId = (planId: string, revision: string, scheduledFor: string) =>
@@ -27,6 +28,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
   private readonly wakeups = new Map<string, { revision: string; at: number }>();
   private closed = false;
   private sweeping: Promise<void> | undefined;
+  private readonly occurrences: PeriodicOccurrences;
 
   constructor(
     private readonly files: VaultFiles,
@@ -35,8 +37,10 @@ export class PeriodicPlans implements PeriodicPlanControl {
     private readonly sourceIds: readonly string[],
     private readonly findSource: (plugin: string) => PeriodicPlanSource | undefined,
     private readonly clock: Clock,
-    private readonly changed: (planId: string) => void,
-  ) {}
+    private readonly changed: (planId: string, plugin: string, kind: "periodic-plan" | "periodic-occurrence") => void,
+  ) {
+    this.occurrences = new PeriodicOccurrences(files);
+  }
 
   private load() {
     const row = this.files.read(file);
@@ -66,12 +70,18 @@ export class PeriodicPlans implements PeriodicPlanControl {
       "reschedule", "delete", intent === "enabled" ? "pause" : "resume",
     ];
     const unit = everySeconds % 60 === 0 ? "minutes" : "seconds";
-    const occurrence = plan.lastOccurrence ? this.readOccurrence(plan.lastOccurrence) : null;
+    const latest = this.occurrences.latest(planId) ?? plan.lastOccurrence;
+    const occurrence = latest ? this.readOccurrence(latest) : null;
     const job = this.jobs.get(planId);
-    const next = job?.revision === revision ? this.dueAt(job) : Math.max(Date.parse(updatedAt) + everySeconds * 1_000, this.clock.now());
+    const now = this.clock.now();
+    const first = Date.parse(updatedAt) + everySeconds * 1_000;
+    const wake = this.wakeups.get(planId);
+    const next = Math.min(job?.revision === revision ? this.dueAt(job) : first >= now ? first : now + everySeconds * 1_000,
+      wake?.revision === revision ? wake.at : Infinity);
     return {
       planId, revision, title, source, owner: { scope: "device", vaultId: this.owner.vaultId, machineId },
       trigger: { kind: "interval", every: unit === "minutes" ? everySeconds / 60 : everySeconds, unit },
+      ...(plan.bounds && { intervalBounds: plan.bounds }),
       action, intent, availability, actions, createdAt, updatedAt,
       nextAt: intent === "enabled" && availability.state === "ready" ? new Date(next).toISOString() : null,
       lastOccurrence: occurrence ? { occurrenceId: occurrence.occurrenceId, state: occurrence.state, at: occurrence.acceptedAt ?? updatedAt } : null,
@@ -102,6 +112,10 @@ export class PeriodicPlans implements PeriodicPlanControl {
     return this.importSources([plugin]);
   }
 
+  importReady(): Promise<void> {
+    return this.importSources();
+  }
+
   wake(plan: { planId: string; revision: string }, delayMs: number): void {
     if (this.closed || this.files.readOnly || !Number.isFinite(delayMs)) return;
     const current = this.load().store.plans.find(({ planId }) => planId === plan.planId);
@@ -113,11 +127,15 @@ export class PeriodicPlans implements PeriodicPlanControl {
 
   readOccurrence(id: string): PlanOccurrence | null {
     if (!/^periodic-[a-f0-9]{64}$/.test(id)) return null;
-    const row = this.files.read(`${journal}/${id}.json`);
-    if (!row) return null;
-    const occurrence = PlanOccurrenceSchema.parse(JSON.parse(row.bytes.toString("utf8")));
-    if (occurrence.state !== "running" || this.jobs.get(occurrence.plan.planId)?.running) return occurrence;
+    const occurrence = this.occurrences.read(id) ?? this.readLegacyOccurrence(id);
+    if (!occurrence) return null;
+    if (occurrence.state !== "running" || this.jobs.get(occurrence.plan.planId)?.occurrenceId === id) return occurrence;
     return { ...occurrence, state: "unknown", effects: occurrence.effects.map((effect) => ({ ...effect, state: "unknown" })) };
+  }
+
+  private readLegacyOccurrence(id: string): PlanOccurrence | null {
+    const row = this.files.read(`${journal}/${id}.json`);
+    return row ? PlanOccurrenceSchema.parse(JSON.parse(row.bytes.toString("utf8"))) : null;
   }
 
   private record(spec: PeriodicPlanChange | z.infer<typeof PeriodicPlanSpecSchema>, previous?: StoredPlan): StoredPlan {
@@ -156,7 +174,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
       for (const entry of updated) {
         this.cancel(entry.planId);
         this.wakeups.delete(entry.planId);
-        this.changed(entry.planId);
+        this.changed(entry.planId, entry.source.plugin, "periodic-plan");
       }
       return updated.map((entry) => this.summary(entry));
     });
@@ -188,14 +206,15 @@ export class PeriodicPlans implements PeriodicPlanControl {
   }
 
   private async importSources(plugins: readonly string[] = this.sourceIds): Promise<void> {
-    if (this.closed || this.files.readOnly) return;
+    if (this.closed || this.files.readOnly || !this.owner.instance) return;
     const ready = plugins.filter((plugin) => this.sourceIds.includes(plugin) && this.findSource(plugin)?.legacy);
     if (!ready.length) return;
     const imported = this.load().store.imported;
     if (ready.every((plugin) => imported.includes(plugin))) return;
     await this.rules.withRuleConfiguration(async () => {
+      if (this.closed) return;
       const { store, revision } = this.load();
-      const changed = [];
+      const changed: StoredPlan[] = [];
       const importedCount = store.imported.length;
       for (const plugin of ready) {
         const port = this.findSource(plugin);
@@ -206,12 +225,12 @@ export class PeriodicPlans implements PeriodicPlanControl {
           if (spec.source.plugin !== plugin || store.plans.some(({ planId }) => planId === spec.planId)) continue;
           const plan = this.record(spec);
           store.plans.push(plan);
-          changed.push(plan.planId);
+          changed.push(plan);
         }
         store.imported.push(plugin);
       }
       if (store.imported.length !== importedCount) await this.save(store, revision);
-      for (const planId of changed) this.changed(planId);
+      for (const plan of changed) this.changed(plan.planId, plan.source.plugin, "periodic-plan");
     });
   }
 
@@ -229,7 +248,7 @@ export class PeriodicPlans implements PeriodicPlanControl {
     const now = this.clock.now();
     for (const plan of rows) {
       const source = this.findSource(plan.source.plugin);
-      if (plan.intent !== "enabled" || !source || this.availability(plan).state !== "ready") continue;
+      if (plan.intent !== "enabled" || !source || source.signal.aborted || plan.owner !== this.owner.instance) continue;
       eligible.add(plan.planId);
       let job = this.jobs.get(plan.planId);
       if (job && (job.revision !== plan.revision || job.source !== source || job.signal.aborted)) {
@@ -250,12 +269,15 @@ export class PeriodicPlans implements PeriodicPlanControl {
         job.wakeAt = Math.min(job.wakeAt ?? Infinity, wake.at);
         this.wakeups.delete(plan.planId);
       }
-      if (!job.running && this.dueAt(job) <= now) {
+      if (!job.running && this.dueAt(job) <= now && this.availability(plan).state === "ready") {
         const scheduledFor = new Date(this.dueAt(job)).toISOString();
         job.next = now + plan.everySeconds * 1_000;
         delete job.wakeAt;
         const running = job;
-        running.running = this.run(plan, running, scheduledFor).catch(() => undefined).finally(() => {
+        const id = occurrenceId(plan.planId, plan.revision, scheduledFor);
+        running.occurrenceId = id;
+        running.running = this.run(plan, running, scheduledFor, id).catch(() => undefined).finally(() => {
+          delete running.occurrenceId;
           delete running.running;
           if (running.signal.aborted && this.jobs.get(plan.planId) === running) this.jobs.delete(plan.planId);
         });
@@ -264,37 +286,29 @@ export class PeriodicPlans implements PeriodicPlanControl {
     for (const id of this.jobs.keys()) if (!eligible.has(id)) this.cancel(id);
   }
 
-  private async run(plan: StoredPlan, job: Job, scheduledFor: string): Promise<void> {
+  private async run(plan: StoredPlan, job: Job, scheduledFor: string, id: string): Promise<void> {
     const { planId, revision, action } = plan;
-    const id = occurrenceId(planId, revision, scheduledFor);
     const life = () => !this.closed && !job.signal.aborted && this.findSource(plan.source.plugin) === job.source;
     const current = () => {
       if (!life()) return false;
       const actual = this.load().store.plans.find((entry) => entry.planId === planId);
       return actual?.intent === "enabled" && actual.revision === revision && this.availability(actual).state === "ready";
     };
-    const path = `${journal}/${id}.json`;
-    const write = (row: PlanOccurrence, expectedVersion: string | null) =>
-      this.files.write(path, Buffer.from(JSON.stringify(row) + "\n"), { expectedVersion });
-    const receipt = await this.rules.withRuleConfiguration(async () => {
-      if (!current() || this.files.currentVersion(path)) return;
-      const { store, revision: storeRevision } = this.load();
+    const receipt = await this.rules.withRuleConfiguration(() => {
+      if (!current() || (plan.lastOccurrence && this.files.currentVersion(`${journal}/${id}.json`))) return;
       const acceptedAt = new Date(this.clock.now()).toISOString();
       const row: PlanOccurrence = {
         occurrenceId: id, plan: { planId, revision }, timing: { trigger: "scheduled", scheduledFor },
         state: "running", acceptedAt, frozenInput: { revision, digest: id }, execution: null,
         effects: [{ effectId: id, kind: action.capability, target: action.object, operationId: null, state: "accepted", receiptId: null }],
       };
-      const { version } = await write(row, null);
-      const actual = store.plans.find((entry) => entry.planId === planId)!;
-      actual.lastOccurrence = id;
-      await this.save(store, storeRevision);
+      if (!this.occurrences.claim(row)) return;
       if (!current()) {
-        await write({ ...row, state: "cancelled", effects: row.effects.map((effect) => ({ ...effect, state: "not-accepted" })) }, version);
+        this.occurrences.settle({ ...row, state: "cancelled", effects: row.effects.map((effect) => ({ ...effect, state: "not-accepted" })) });
         return;
       }
       const now = this.clock.now.bind(this.clock);
-      const actionResult = job.source.run(plan, {
+      const execute = async () => job.source.run(plan, {
         planId, revision, occurrenceId: id, signal: job.signal, scheduledFor, isCurrent: current,
         wake(delay) {
           if (!current() || !Number.isFinite(delay)) return;
@@ -302,23 +316,28 @@ export class PeriodicPlans implements PeriodicPlanControl {
           job.wakeAt = Math.min(job.wakeAt ?? Infinity, date);
         },
       });
-      return { row, version, actionResult };
+      return { row, actionResult: execute() };
     });
     if (!receipt) return;
-    this.changed(planId);
-    const state = await receipt.actionResult.then(() => "completed" as const, () => job.signal.aborted ? "unknown" as const : "failed" as const);
-    await write({ ...receipt.row, state, effects: receipt.row.effects.map((effect) => ({
-      ...effect, state, receiptId: state === "completed" ? id : null,
-    })) }, receipt.version);
-    this.changed(planId);
+    this.changed(planId, plan.source.plugin, "periodic-occurrence");
+    const state = await receipt.actionResult.then((outcome) => {
+      if (outcome === "skipped") return "cancelled";
+      if (job.signal.aborted) return "unknown";
+      return outcome === "failed" ? "failed" : "completed";
+    }, () => job.signal.aborted ? "unknown" as const : "failed" as const);
+    this.occurrences.settle({ ...receipt.row, state, effects: receipt.row.effects.map((effect) => ({
+      ...effect, state: state === "cancelled" ? "not-accepted" : state, receiptId: state === "completed" ? id : null,
+    })) });
+    this.changed(planId, plan.source.plugin, "periodic-occurrence");
   }
 
   async close(): Promise<void> {
     this.closed = true;
     this.wakeups.clear();
-    for (const plugin of this.sourceIds) this.findSource(plugin)?.suspend?.();
     for (const id of this.jobs.keys()) this.cancel(id);
+    for (const plugin of this.sourceIds) this.findSource(plugin)?.suspend?.();
     await this.sweeping?.catch(() => undefined);
     await Promise.allSettled([...this.jobs.values()].flatMap(({ running }) => running ? [running] : []));
+    this.occurrences.close();
   }
 }

@@ -1,5 +1,5 @@
 import { mailTool, requireMailCaller } from "./tool-access.js";
-import { errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, PlanSummarySchema, periodicPlanSourceService, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext } from "@huhu/contracts";
+import { errors, isWorkbenchCaller, PERIODIC_PLANS_SERVICE, PlanSummarySchema, periodicPlanSourceService, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext, type PeriodicRunOutcome } from "@huhu/contracts";
 import { bindCapability, defineCapabilityDescriptor, type HuhuApi } from "@huhu/kernel";
 import { z } from "zod";
 import type { openMailAccounts } from "./accounts.js";
@@ -71,7 +71,7 @@ export function registerMailSyncSchedule(
   const watchers = new Map<string, AbortController>();
   const waiting = new Set<Promise<unknown>>();
   let planSignal: AbortSignal | undefined;
-  let active: Promise<void> | undefined;
+  let active: Promise<PeriodicRunOutcome | void> | undefined;
   const control = () => api.service<PeriodicPlanControl>(PERIODIC_PLANS_SERVICE);
   const readLegacy = () => {
     const file = files.read(settingsFile);
@@ -114,15 +114,17 @@ export function registerMailSyncSchedule(
     waiting.add(task);
   }
 
-  async function sweep(period: number, plan: PeriodicRunContext) {
+  async function sweep(period: number, plan: PeriodicRunContext): Promise<PeriodicRunOutcome | void> {
     const signal = AbortSignal.any([plan.signal, stopped, messages.signal()]);
     const rows = (await accounts?.list()) ?? [];
     const available = new Set(rows.map(({ accountId }) => accountId));
+    let attempted = false;
+    let failed = false;
     for (const id of states.keys()) if (!available.has(id)) states.delete(id);
     for (const id of failures.keys()) if (!available.has(id)) failures.delete(id);
     for (const id of watchers.keys()) if (!available.has(id)) stopWatcher(id);
     for (const account of rows) {
-      if (signal.aborted || !plan.isCurrent()) return;
+      if (signal.aborted || !plan.isCurrent()) return attempted ? undefined : "skipped";
       const { accountId, definition, authState } = account;
       let folders = definition.folders;
       if (authState["account-password"] !== "configured") continue;
@@ -132,6 +134,7 @@ export function registerMailSyncSchedule(
       states.set(accountId, { accountId, phase: "refreshing", at: new Date(now()).toISOString() });
       changed();
       let revision = account.revision;
+      attempted = true;
       try {
         if (definition.oauth) {
           await accounts!.ensureOAuthAccess(accountId, signal);
@@ -159,6 +162,7 @@ export function registerMailSyncSchedule(
       } catch (error) {
         if (signal.aborted) return;
         if (accounts!.readDefinition(accountId)?.revision !== revision) continue;
+        failed = true;
         if (error instanceof MailAccountError && error.code === "oauth-reauthorize") {
           failures.delete(accountId);
           states.delete(accountId);
@@ -175,6 +179,8 @@ export function registerMailSyncSchedule(
       }
       changed();
     }
+    if (failed) return "failed";
+    if (!attempted) return "skipped";
   }
 
   function clearProjection() {
@@ -198,7 +204,7 @@ export function registerMailSyncSchedule(
       }
       active = sweep(plan.everySeconds * 1_000, context);
       try {
-        await active;
+        return await active;
       } finally {
         active = undefined;
       }
@@ -209,9 +215,11 @@ export function registerMailSyncSchedule(
     requireMailCaller(caller, name);
   };
   api.defineCapability(
-    bindCapability(syncScheduleDescriptors.syncSettings, ({ caller }) => {
+    bindCapability(syncScheduleDescriptors.syncSettings, async ({ caller, signal }) => {
       authorize(caller, "mail.sync.settings");
       const service = control();
+      await service?.importSource("mail");
+      signal.throwIfAborted();
       const plan = service?.read(planId) ?? null;
       const minutes = plan?.intent === "enabled" && plan.trigger.kind === "interval"
         ? (plan.trigger.unit === "minutes" ? plan.trigger.every : plan.trigger.every / 60) : 0;
@@ -235,6 +243,7 @@ export function registerMailSyncSchedule(
           stopped.throwIfAborted();
           const service = control();
           if (!service) throw errors.pluginDisabled("automations");
+          await service.importSource("mail");
           const previous = service.read(planId);
           const current = previous?.revision ?? null;
           if (expectedRevision !== undefined && expectedRevision !== current) throw errors.versionConflict(current ?? "");

@@ -28,6 +28,10 @@ export const PlanTriggerSchema = z.discriminatedUnion("kind", [
 ]);
 export type PlanTrigger = z.infer<typeof PlanTriggerSchema>;
 
+const intervalBounds = z.strictObject({
+  min: z.int().positive(), max: z.int().positive(), step: z.int().positive(), allowed: z.array(z.int().positive()).min(1).optional(),
+});
+
 const blockedReason = z.enum(["plugin-disabled", "read-only", "foreign-owner", "credentials-unavailable", "connection-unavailable", "domain-conflict", "target-unavailable"]);
 const availability = z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("ready") }),
@@ -48,6 +52,7 @@ export const PlanSummarySchema = PlanRefSchema.extend({
   intent,
   availability,
   trigger: PlanTriggerSchema,
+  intervalBounds: intervalBounds.optional(),
   createdAt: instant,
   updatedAt: instant,
   nextAt: instant.nullable(),
@@ -147,14 +152,13 @@ export const PeriodicPlanSpecSchema = z.strictObject({
   source: PlanSourceSchema,
   title: z.string().min(1).max(200),
   everySeconds: z.int().min(1).max(86_400),
-  bounds: z.strictObject({
-    min: z.int().positive(), max: z.int().positive(), step: z.int().positive(), allowed: z.array(z.int().positive()).min(1).optional(),
-  }).optional(),
+  bounds: intervalBounds.optional(),
   action,
   intent,
 });
 export type PeriodicPlanSpec = z.infer<typeof PeriodicPlanSpecSchema>;
 export type PeriodicPlanChange = PeriodicPlanSpec & { expectedRevision: string | null };
+export type PeriodicRunOutcome = "skipped" | "failed";
 export type PeriodicRunContext = PlanRef & {
   occurrenceId: string;
   scheduledFor: string;
@@ -168,7 +172,7 @@ export interface PeriodicPlanSource {
   legacy?(): readonly PeriodicPlanSpec[];
   availability?(plan: PeriodicPlanSpec): PlanSummary["availability"];
   suspend?(): void;
-  run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<void>;
+  run(plan: PeriodicPlanSpec, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void>;
 }
 export interface PeriodicPlanControl {
   read(planId: string): PlanSummary | null;

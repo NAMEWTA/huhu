@@ -1,4 +1,4 @@
-import type { PeriodicRunContext, PlanSummary } from "@huhu/contracts";
+import type { PeriodicRunContext, PeriodicRunOutcome, PlanSummary } from "@huhu/contracts";
 import { isSyncAuthError, SyncAuthFailure, type VersioningAuth } from "./remote-auth.js";
 
 export type AutoMode = "off" | "follow" | "full";
@@ -110,11 +110,12 @@ export class AutoSync {
     return mode === "full" ? "sync" : mode === "follow" ? "pull" : null;
   }
 
-  async run(mode: RunMode, context: PeriodicRunContext): Promise<void> {
+  async run(mode: RunMode, context: PeriodicRunContext): Promise<PeriodicRunOutcome | void> {
     const repair = this.repair && this.repairMode(this.repair) === mode ? this.repair : undefined;
     const isCurrent = () => context.isCurrent() && (!repair || this.repair === repair);
     try {
       const ran = await this.d.run(mode, isCurrent, context.signal, repair);
+      if (!ran) return "skipped";
       if (ran && isCurrent()) this.restart();
     } catch (error) {
       if (isCurrent()) {
