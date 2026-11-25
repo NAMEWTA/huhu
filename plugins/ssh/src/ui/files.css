@@ -20,6 +20,11 @@
     overflow-wrap: anywhere;
   }
 
+  .ssh-file-address > input {
+    flex: 1 1 10rem;
+    min-inline-size: 0;
+  }
+
   .ssh-file-table {
     overflow-x: auto;
   }

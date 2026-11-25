@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { chromium, expect, test, type Browser } from "@playwright/test";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
-import { desktopCall } from "./workbench.js";
+import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 
 test("H6.2 工作台展示实际属性并在原 SFTP 会话中修改、移动和创建链接", async () => {
   const password = randomUUID();
@@ -69,5 +69,76 @@ test("H6.2 工作台展示实际属性并在原 SFTP 会话中修改、移动和
   } finally {
     await fixture.close();
     await server.close();
+  }
+});
+
+test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源与原连接", async () => {
+  test.skip(!browserBinary, "需要 Playwright Chromium");
+  test.setTimeout(60_000);
+  const password = randomUUID();
+  const fixture = await openApp();
+  const server = await startFakeSsh({ password });
+  let browser: Browser | undefined;
+  try {
+    const { page } = fixture;
+    for (const name of ["docs", "pictures"]) server.fs.dirs.add(`/home/test/${name}`);
+    server.fs.files.set("/home/test/docs/marker.txt", Buffer.from("directory fixture"));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "浏览器文件源", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await desktopCall(page, "ssh.workspace.runs.start", { name: "浏览器文件工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /浏览器文件工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    await run.getByRole("button", { name: "打开独立双栏" }).click();
+    const opened = page.getByTestId("ssh-independent-files").filter({ visible: true });
+    const sessionId = await opened.getAttribute("data-file-session-id");
+    const connectionId = await opened.getAttribute("data-connection-id");
+    const link = await localWebLink(page);
+    browser = await chromium.launch({ executablePath: browserBinary });
+    const web = await browser.newPage({ viewport: { width: 950, height: 820 } });
+    await web.goto(link);
+    await expect(web.getByTestId("home-dashboard")).toBeVisible();
+    await web.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await web.getByTestId("ssh-module").getByRole("button", { name: "独立文件会话", exact: true }).click();
+    await web.getByRole("complementary", { name: "独立文件会话" }).getByRole("button", { name: /浏览器文件源/ }).click();
+    const independent = web.getByTestId("ssh-independent-files").filter({ visible: true });
+    await expect(independent).toHaveAttribute("data-file-session-id", sessionId!);
+    await expect(independent).toHaveAttribute("data-connection-id", connectionId!);
+    const files = independent.getByTestId("files-panel");
+    const current = files.getByTestId("files-path");
+    const address = files.getByLabel("远端路径", { exact: true });
+    const next = files.getByRole("button", { name: "前进目录", exact: true });
+    await expect(current).toHaveText("/home/test");
+    await address.fill("/home/test/docs");
+    await address.press("Enter");
+    await expect(files.getByRole("button", { name: "marker.txt", exact: true })).toBeVisible();
+    await files.getByRole("button", { name: "返回目录", exact: true }).click();
+    await expect(current).toHaveText("/home/test");
+    await address.fill("/home/test/unavailable");
+    await files.getByRole("button", { name: "转到路径", exact: true }).click();
+    await expect(files.getByRole("alert")).toContainText("远端不存在");
+    await expect(current).toHaveText("/home/test");
+    await next.click();
+    await expect(current).toHaveText("/home/test/docs");
+    await files.getByRole("button", { name: "返回目录", exact: true }).click();
+    await address.fill("/home/test/pictures");
+    await address.press("Enter");
+    await expect(current).toHaveText("/home/test/pictures");
+    await expect(next).toBeDisabled();
+    await expect(independent).toHaveAttribute("data-connection-id", connectionId!);
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      await fixture.close();
+      await server.close();
+    }
   }
 });

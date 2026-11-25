@@ -195,9 +195,9 @@ export async function searchNames(s: SFTPWrapper, dir: string, query: string, si
   return { hits, limited, skipped };
 }
 
-async function statOrNull(s: SFTPWrapper, p: string): Promise<{ mode: number; size: number } | null> {
+async function statOrNull(s: SFTPWrapper, p: string): Promise<Stats | null> {
   try {
-    return await call((cb) => s.lstat(p, cb));
+    return await call<Stats>((cb) => s.lstat(p, cb));
   } catch (e) {
     if ((e as { code?: number }).code === SSH_FX.NO_SUCH_FILE) return null;
     throw e;
@@ -255,9 +255,12 @@ export async function documentPath(s: SFTPWrapper, input: string): Promise<strin
   return path.posix.join(await realpath(s, path.posix.dirname(abs)), path.posix.basename(abs));
 }
 
-function documentVersion(abs: string, mode: number, bytes: Buffer): string {
+type DocumentPermissions = { mode: number; uid: number | undefined; gid: number | undefined };
+const documentPermissions = ({ mode, uid, gid }: Stats): DocumentPermissions => ({ mode: mode & 0o7777, uid, gid });
+
+function documentVersion(abs: string, { mode, uid, gid }: DocumentPermissions, bytes: Buffer): string {
   return createHash("sha256")
-    .update(JSON.stringify([abs, mode]))
+    .update(JSON.stringify([abs, mode, uid, gid]))
     .update(bytes)
     .digest("hex");
 }
@@ -270,14 +273,14 @@ async function documentSnapshot(s: SFTPWrapper, abs: string, signal: AbortSignal
   if (typeOf(st.mode) !== "file") throw errors.invalidInput("远端编辑只支持普通文件");
   if (st.size > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
   const bytes = await readBounded(s, abs, EDIT_MAX_BYTES, editTooLarge, signal);
-  const mode = st.mode & 0o7777;
+  const permissions = documentPermissions(st);
   const bom = bytes.subarray(0, BOM.length).equals(BOM);
-  return { mode, bytes, bom, version: documentVersion(abs, mode, bytes) };
+  return { permissions, bytes, bom, version: documentVersion(abs, permissions, bytes) };
 }
 
 export async function openDocument(s: SFTPWrapper, input: string, signal: AbortSignal): Promise<FileDocument> {
   const abs = await documentPath(s, input);
-  const { mode, bytes, bom, version } = await documentSnapshot(s, abs, signal);
+  const { permissions: { mode }, bytes, bom, version } = await documentSnapshot(s, abs, signal);
   if (bytes.includes(0)) throw errors.invalidInput("文件含空字符，不能作为 UTF-8 文本编辑");
   try {
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bom ? bytes.subarray(BOM.length) : bytes);
@@ -285,6 +288,23 @@ export async function openDocument(s: SFTPWrapper, input: string, signal: AbortS
   } catch {
     throw errors.invalidInput("文件不是 UTF-8 文本，不能编辑");
   }
+}
+
+async function preserveDocumentPermissions(s: SFTPWrapper, file: string, { mode, uid, gid }: DocumentPermissions, signal: AbortSignal): Promise<DocumentPermissions> {
+  const read = async () => documentPermissions(await call<Stats>((cb) => s.lstat(file, cb)));
+  const ownerMatches = (current: DocumentPermissions) => (uid === undefined || uid === current.uid) && (gid === undefined || gid === current.gid);
+  const unsupported = () => new HuhuError("PERMISSION_DENIED", "无法验证暂存文件保留了原权限和属主，原文件未修改");
+  if (!ownerMatches(await read())) {
+    if (uid === undefined || gid === undefined) throw unsupported();
+    signal.throwIfAborted();
+    await callv((cb) => s.chown(file, uid, gid, cb));
+  }
+  // chown can clear SUID/SGID bits, so restore the mode after the owner.
+  signal.throwIfAborted();
+  await callv((cb) => s.chmod(file, mode, cb));
+  const current = await read();
+  if (current.mode !== mode || !ownerMatches(current)) throw unsupported();
+  return current;
 }
 
 export async function saveDocument(s: SFTPWrapper, abs: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void): Promise<Omit<FileDocument, "text">> {
@@ -299,13 +319,25 @@ export async function saveDocument(s: SFTPWrapper, abs: string, text: string, ve
       throw error;
     }
   }
-  const { mode, bytes: current, bom } = await verify();
+  const { permissions, bytes: current, bom } = await verify();
   const original = current.toString("utf8");
   const body = original.includes("\r\n") && !original.replaceAll("\r\n", "").includes("\n") ? text.replace(/\r\n|\n/g, "\r\n") : text;
   const bytes = Buffer.from((bom ? "\uFEFF" : "") + body, "utf8");
   if (bytes.length > EDIT_MAX_BYTES) throw errors.invalidInput(editTooLarge);
-  await writeAtomic(s, abs, Readable.from(bytes), { overwrite: true, signal, maxBytes: EDIT_MAX_BYTES, checkedReplace: { mode, verify }, ...(beforeWrite && { verifyTarget: async () => beforeWrite() }) });
-  return { path: abs, version: documentVersion(abs, mode, bytes), mode: mode.toString(8).padStart(3, "0") };
+  let publishedPermissions = permissions;
+  await writeAtomic(s, abs, Readable.from(bytes), {
+    overwrite: true,
+    signal,
+    maxBytes: EDIT_MAX_BYTES,
+    checkedReplace: {
+      async prepare(staging) {
+        publishedPermissions = await preserveDocumentPermissions(s, staging, permissions, signal);
+        await verify();
+      },
+    },
+    ...(beforeWrite && { verifyTarget: async () => beforeWrite() }),
+  });
+  return { path: abs, version: documentVersion(abs, publishedPermissions, bytes), mode: publishedPermissions.mode.toString(8).padStart(3, "0") };
 }
 
 /** 先写 `<name>.huhu-upload-<rand>` 再 rename；已存在且未确认覆盖则不动远端；失败/取消/断线都清理临时文件。 */
@@ -336,7 +368,7 @@ export async function writeAtomic(
     overwrite: boolean;
     signal?: AbortSignal;
     maxBytes?: number;
-    checkedReplace?: { mode: number; verify: () => Promise<unknown> };
+    checkedReplace?: { prepare: (staging: string) => Promise<void> };
     verifyTarget?: () => Promise<void>;
   },
 ): Promise<{ size: number }> {
@@ -364,11 +396,7 @@ export async function writeAtomic(
   });
   try {
     await pipeline(source, counter, s.createWriteStream(tmp, { flags: "wx", ...(opts.checkedReplace ? { mode: 0o600 } : {}) }), ...(opts.signal ? [{ signal: opts.signal }] : []));
-    if (opts.checkedReplace) {
-      await callv((cb) => s.chmod(tmp, opts.checkedReplace!.mode, cb));
-      await opts.checkedReplace.verify();
-      opts.signal?.throwIfAborted();
-    }
+    await opts.checkedReplace?.prepare(tmp);
     await opts.verifyTarget?.();
     opts.signal?.throwIfAborted();
     if (existing) {

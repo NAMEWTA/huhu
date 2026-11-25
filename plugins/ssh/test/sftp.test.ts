@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { ownedHosts } from "./owned-hosts.js";
+import { FileSessions } from "../src/engine/file-sessions.js";
 import { SshManager } from "../src/engine/manager.js";
 import { normalizeRemote } from "../src/engine/sftp.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
@@ -88,6 +89,35 @@ describe("SFTP 浏览与文本预览", () => {
 });
 
 describe("SFTP 写入、覆盖确认（ACC-SH-08）、重命名、删除", () => {
+  test.each(["保留属主", "属主已变", "服务端拒绝保留属主"] as const)("远端文本原子保存：%s", async (scenario) => {
+    const denied = scenario === "服务端拒绝保留属主";
+    const { srv, mgr, h } = await connected({ denySetAttributes: (file) => denied && file.includes(".huhu-upload-") });
+    const sessions = new FileSessions(mgr);
+    closers.push(() => sessions.dispose());
+    const { fileSessionId } = sessions.open({ hostId: h.id, attached: true });
+    const file = "/home/test/owned.txt";
+    const original = Buffer.from("\uFEFFbefore\r\n");
+    const owner = { uid: 1000, gid: 2000 };
+    srv.fs.files.set(file, original);
+    srv.fs.permissions.set(file, 0o640);
+    srv.fs.owners.set(file, owner);
+    const signal = new AbortController().signal;
+    const draft = await sessions.readDocument(fileSessionId, file, signal);
+    if (scenario === "属主已变") srv.fs.owners.set(file, { ...owner, gid: 3000 });
+    const saving = sessions.writeDocument(fileSessionId, file, "after\n", draft.version, signal);
+    if (scenario === "保留属主") {
+      const saved = await saving;
+      expect(await sessions.readDocument(fileSessionId, file, signal)).toMatchObject({ version: saved.version, mode: "640", text: "after\r\n" });
+      expect(srv.fs.files.get(file)).toEqual(Buffer.from("\uFEFFafter\r\n"));
+    } else {
+      await expect(saving).rejects.toMatchObject({ code: denied ? "PERMISSION_DENIED" : "VERSION_CONFLICT" });
+      expect(srv.fs.files.get(file)).toEqual(original);
+    }
+    expect(srv.fs.owners.get(file)).toEqual(scenario === "属主已变" ? { ...owner, gid: 3000 } : owner);
+    expect(srv.fs.permissions.get(file)).toBe(0o640);
+    expect([...srv.fs.files.keys()]).toEqual([file]);
+  });
+
   test("新建文件：先写临时文件再改名，远端不留 .huhu-upload-*；同名需要确认，取消则远端文件不变", async () => {
     const { srv, mgr, h } = await connected();
     await mgr.sftpWrite(h.id, "/home/test/n.txt", "第一版", false);

@@ -1,6 +1,6 @@
 import { Button, EmptyState } from "@huhu/ui";
 import { CapabilityError, useEngine } from "@huhu/workbench";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { DirectoryFollowState, FileDirectory, FileDocument, FileEntry, FileSearch, FileSession, PreparedFileDirectory } from "../shared/files.js";
 import type { TransferRequest } from "../shared/transfers.js";
 import { FileTable } from "./FileTable.js";
@@ -13,6 +13,7 @@ import { ArchiveTools } from "./ArchiveTools.js";
 import { t } from "./i18n.js";
 import { saveDevicePreferences, useDevicePreferences } from "./device-preferences.js";
 import { shownFileEntries } from "./file-preferences.js";
+import { recordDirectoryMove, type DirectoryHistory, type DirectoryMove } from "./file-history.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
 
@@ -58,7 +59,9 @@ export function FilesPanel({
   const [upFrom, setUpFrom] = useState("");
   const [field, setField] = useState("");
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<DirectoryHistory<string>>({ back: [], forward: [] });
+  const [pathDraft, setPathDraft] = useState<string>();
+  const pathId = useId();
   const [bookmarks, setBookmarks] = useState<string[]>([]);
   const [filter, setFilter] = useState("");
   const [query, setQuery] = useState("");
@@ -99,16 +102,27 @@ export function FilesPanel({
         const prepared = reverse?.state === "ready" ? await engine.call<PreparedFileDirectory>("ssh.fileSessions.prepareDirectory", { fileSessionId, path: dir, revision: reverse.revision }, opts) : undefined;
         const r = prepared ?? (await engine.call<FileDirectory>("ssh.sftp.list", { fileSessionId, path: dir }, opts));
         if (active.signal.aborted) return undefined;
+        let followResult: "applied" | "skipped" | "unknown" = prepared && !prepared.skipped ? "applied" : "skipped";
+        if (reverse) {
+          if (prepared?.follow && mayFollowFile.current) {
+            try {
+              const result = await engine.call<{ applied: boolean }>("ssh.fileSessions.commitDirectory", { fileSessionId, follow: prepared.follow }, opts);
+              followResult = result.applied ? "applied" : "skipped";
+            } catch {
+              followResult = "unknown";
+            }
+          } else if (prepared?.follow) followResult = "skipped";
+        }
+        if (active.signal.aborted) return undefined;
         setSftpUnavailable(false);
         setCwd(r.path);
         setEntries(r.entries);
         if (reverse) {
-          let skipped = prepared?.skipped ?? true;
-          if (prepared?.follow && mayFollowFile.current) {
-            const result = await engine.call<{ applied: boolean }>("ssh.fileSessions.commitDirectory", { fileSessionId, follow: prepared.follow }, opts);
-            skipped = !result.applied;
-          } else if (prepared?.follow) skipped = true;
-          if (!active.signal.aborted) setFollowNotice(skipped ? "文件夹已打开。本次已跳过 Shell 同步。" : "");
+          setFollowNotice({
+            applied: "",
+            skipped: "文件夹已打开。本次已跳过 Shell 同步。",
+            unknown: "文件夹已打开。无法确认 Shell 是否已同步。",
+          }[followResult]);
         }
         return r.path;
       } catch (e) {
@@ -173,12 +187,13 @@ export function FilesPanel({
 
   const reverseNavigation = () => (canFollow && preferences.followFileDirectory ? (shellDirectory ?? { state: "unsupported" as const, revision: 0 }) : undefined);
 
-  async function navigate(dir: string, name?: string) {
+  async function navigate(dir: string, name?: string, direction: DirectoryMove = "open") {
     setFollowNotice("");
     setPreview(null);
     const next = await load(dir, reverseNavigation());
     if (next === undefined) return;
-    if (cwd && next !== cwd) setHistory((past) => [...past, cwd]);
+    if (cwd && (next !== cwd || direction !== "open")) setHistory((current) => recordDirectoryMove(current, cwd, direction));
+    setPathDraft((current) => current === pathDraft ? undefined : current);
     setFilter("");
     setLocated(name);
   }
@@ -268,19 +283,13 @@ export function FilesPanel({
           {t.files.home}
         </Button>
         <Button
-          disabled={!ready || history.length === 0}
-          onClick={() => {
-            setFollowNotice("");
-            void load(history.at(-1)!, reverseNavigation()).then((next) => {
-              if (next !== undefined) {
-                setHistory(history.slice(0, -1));
-                setFilter("");
-                setLocated(undefined);
-              }
-            });
-          }}
+          disabled={!ready || history.back.length === 0}
+          onClick={() => void navigate(history.back.at(-1)!, undefined, "back")}
         >
           返回目录
+        </Button>
+        <Button disabled={!ready || history.forward.length === 0} onClick={() => void navigate(history.forward.at(-1)!, undefined, "forward")}>
+          前进目录
         </Button>
         <Button disabled={!ready || cwd === "/" || !cwd} onClick={() => void navigate(up)} data-testid="files-up">
           {t.files.up}
@@ -302,6 +311,14 @@ export function FilesPanel({
           {cwd || "…"}
         </code>
       </div>
+      <form className="ssh-workspace-controls ssh-file-address" onSubmit={(event) => {
+        event.preventDefault();
+        if (ready && pathDraft !== undefined) void navigate(pathDraft);
+      }}>
+        <label htmlFor={pathId}>远端路径</label>
+        <input id={pathId} value={pathDraft ?? cwd} maxLength={4096} disabled={!ready} onChange={(event) => setPathDraft(event.target.value)} />
+        <Button type="submit" disabled={!ready || pathDraft === undefined || !pathDraft.trim()}>转到路径</Button>
+      </form>
       {session.state === "disconnected" && <p role="status">原连接已断开</p>}
       {canFollow && (
         <div className="ssh-workspace-controls" aria-label="目录跟随">
