@@ -31,3 +31,4 @@
 - 2026-11-25：t1td（codex-inv-w2c）task01–03 验收后回收（上下文 75%）；新会话 t1tw（codex-inv-w2d）接手 inv-w2。
 - 2026-11-25：t1t7（codex-inv-w1c）task02 交回后回收（上下文 83%）；新会话 t1v2（codex-inv-w1d）接手 inv-w1，先修 L8/L9/首页看板 E2E。
 - 2026-11-25：t1v2（codex-inv-w1d）task09 验收后回收；新会话 t1y6（codex-inv-w1e）接手 inv-w1。
+- 2026-11-25：t1y6 S6 验收后回收；启动顾问 t1ys（gpt-6.2-astra high，只读）分析 H7.1–2。
