@@ -111,6 +111,7 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const all = every.data ?? [];
   // 选中项按全量列表查找：处理后它会离开当前状态分组，但详情仍需显示（并提供撤销）
   const cur = all.find((c) => c.id === selected) ?? null;
+  const convertedTaskId = cur?.result?.kind === "task" ? cur.result.id : undefined;
   const sources = [...new Set(all.map((c) => c.source))];
   const items = all
     .filter((c) => c.status === status && (!source || c.source === source) && `${c.title}${c.body}`.toLowerCase().includes(query.toLowerCase()))
@@ -357,6 +358,14 @@ export function InboxModule({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
                     已转为{TARGET_TEXT[(cur.result?.kind as Target) ?? "task"] ?? "关联内容"} · {cur.result?.id}
                   </p>
                   <div className="row">
+                    {convertedTaskId && onNavigate ? (
+                      <Button variant="ghost" icon={ArrowUpRight} onClick={() => {
+                        requestOpenTask(convertedTaskId);
+                        onNavigate("tasks");
+                      }}>
+                        打开原任务
+                      </Button>
+                    ) : null}
                     <Button variant="ghost" icon={Undo2} onClick={() => setDialog({ kind: "undo", item: cur })}>
                       {t.undo}
                     </Button>

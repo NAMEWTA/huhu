@@ -825,9 +825,17 @@ test("持久验收原回执后才 ACK，重开补送原评论一次且不重新�
   }
 });
 
-test("UX06 待回答问题通过原运行投影，完成无关任务后继续可见", async () => {
+test("UX06 / TW8 转换保留原捕获身份，待回答问题通过原运行投影", async () => {
   const engine = await start(tempVault(), true);
-  const { data: sourceTask } = await call<TaskDto>(engine, "tasks.create", { title: "待处理源任务" });
+  const title = "待处理源任务";
+  const { data: capture } = await call<{ id: string; version: string }>(engine, "inbox.capture", { title });
+  const conversion = { id: capture.id, expectedVersion: capture.version, target: "task", fields: { title } };
+  const { data: processed } = await call<{ result: { kind: string; id: string } }>(engine, "inbox.convert", conversion);
+  expect(processed).toMatchObject({ id: capture.id, status: "processed", result: { kind: "task", id: expect.any(String) } });
+  expect(await call(engine, "inbox.convert", conversion)).toMatchObject({ ok: true, data: { result: processed.result } });
+  const { data: sourceTask } = await call<TaskDto>(engine, "tasks.read", { id: processed.result.id });
+  expect(sourceTask).toMatchObject({ status: "not_started", origin: { kind: "inbox", captureId: capture.id } });
+  expect(await call(engine, "tasks.create", { title, inboxCaptureId: capture.id })).toMatchObject({ ok: false, error: { code: "PERMISSION_DENIED" } });
   const { data: [space] } = await call<{ id: string }[]>(engine, "agent.spaces.list", {});
   const { data: agentTask } = await call<TaskDto>(engine, "tasks.create", { title: "等待回答的任务", type: "agent", execution: { provider: "codex", spaceId: space!.id } });
   const { runId, requestId, text } = await seedAttentionQuestion(new VaultFiles(engine.vault.stateDir), engine.vault.id, agentTask);
@@ -837,6 +845,8 @@ test("UX06 待回答问题通过原运行投影，完成无关任务后继续可
     ok: true, data: [expect.objectContaining({ runId, requestId, text, status: "awaiting" })],
   });
   const attention = () => call(engine, "tasks.attention", {});
+  expect(await attention()).toEqual({ ok: true, data: expect.arrayContaining([pending, question]) });
+  expect(await call(engine, "inbox.dismiss", { id: capture.id })).toMatchObject({ ok: true, data: { status: "dismissed", result: processed.result } });
   expect(await attention()).toEqual({ ok: true, data: expect.arrayContaining([pending, question]) });
   expect(await call(engine, "tasks.setStatus", { id: sourceTask.id, expectedVersion: sourceTask.version, status: "completed" })).toMatchObject({ ok: true });
   expect(await attention()).toEqual({ ok: true, data: [question] });

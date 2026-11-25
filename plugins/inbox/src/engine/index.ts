@@ -127,8 +127,12 @@ export function apply(_ctx: Context, api: HuhuApi, opts: InboxOptions = {}): Inb
     publish: (t, p) => api.events.publish(t, p),
     now: opts.now ?? (() => new Date()),
     isTargetEnabled: (k) => opts.isPluginEnabled?.(TARGET_PLUGIN[k]) ?? true,
-    createTarget: async (kind, fields, id, signal) => {
-      await api.call(CREATE_CAP[kind], { ...fields, inboxConversionId: id }, { idempotencyKey: `inbox-convert-${id}`, ...(signal && { signal }) });
+    createTarget: async (kind, fields, id, captureId, signal) => {
+      await api.call(
+        CREATE_CAP[kind],
+        { ...fields, inboxConversionId: id, ...(kind === "task" && { inboxCaptureId: captureId }) },
+        { idempotencyKey: `inbox-convert-${id}`, ...(signal && { signal }) },
+      );
     },
     readTarget: (kind, id) => {
       if (kind === "task") {

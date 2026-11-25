@@ -25,7 +25,7 @@ export interface InboxDeps {
   trash: Trash;
   publish<T extends EventType>(type: T, payload: EventPayload<T>): void;
   now(): Date;
-  createTarget(kind: ConvertTarget, fields: Record<string, unknown>, conversionId: string, signal?: AbortSignal): Promise<void>;
+  createTarget(kind: ConvertTarget, fields: Record<string, unknown>, conversionId: string, captureId: string, signal?: AbortSignal): Promise<void>;
   readTarget(kind: ConvertTarget, conversionId: string): string | null;
   isTargetEnabled(kind: ConvertTarget): boolean;
 }
@@ -122,7 +122,7 @@ export class InboxService {
       prepared = await this.d.repo.patch("capture", id, { conversion: binding }, current.version, undefined, () => options.signal?.throwIfAborted());
       this.d.publish("entity.changed", { kind: "capture", id, op: "updated" });
       try {
-        await this.d.createTarget(target, input, binding.id, options.signal);
+        await this.d.createTarget(target, input, binding.id, current.id, options.signal);
       } catch (error) {
         const code = (error as { code?: string })?.code;
         if (code && rejectedBeforeCreation.has(code) && !this.d.readTarget(target, binding.id)) {

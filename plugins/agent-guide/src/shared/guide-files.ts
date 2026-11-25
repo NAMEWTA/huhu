@@ -77,6 +77,20 @@ metadata:
 
 示例中的路径与 ID 必须先通过查询得到，不能当作真实对象。
 
+## 任务、派遣与投递
+
+通过 \`tasks.read\` 读取原任务的 \`id\`、\`version\` 和输入修订。收件项已转换时，\`inbox.list\` 中的 \`result.id\` 指向原任务。使用工作台的「打开原任务」直接定位转换结果。
+
+| 目的 | 在已授权的能力目录中查找 |
+|---|---|
+| 查看执行目标或派遣回执 | \`tasks.dispatch.targets\`、\`tasks.dispatch.list\`、\`tasks.dispatch.read\` |
+| 回答等待中的请求 | \`tasks.questions.list\`、\`tasks.reply\`、\`tasks.reply.read\` |
+| 查看运行和已关联的外部投递 | \`tasks.runs\`、\`tasks.github.deliveries.read\`、\`mail.outbox.status\` |
+
+回答时使用查询得到的原任务、运行、会话、请求和请求修订。保留本次回答的 \`replyId\`，确认丢失时用 \`tasks.reply.read\` 查询同一份回执。原运行结束后，外部渠道的投递仍以原结果回执和渠道身份为准。工作台的「待处理事项」来自任务和发件箱。清除已读通知或归档收件项后，可在原模块继续处理任务或核实投递。
+
+使用 \`huhu engine status --vault <路径> --json\` 核对实际 Engine。需要退出桌面后继续执行计划时，使用 \`huhu engine start --vault <路径> --mode resident\`。桌面与已认证的独立 Web 连接同一 Vault 的 Engine。用 \`huhu engine stop --vault <路径>\` 有序停止，离线期间的到期处理遵循各计划的补偿规则。
+
 ## 结果与错误
 
 成功返回结构化结果；错误包含 code 与 message。参数错误、能力停用、权限不足、版本冲突、结果未知分别处理。stdout 只输出结果，诊断写 stderr。只读查询可重试；写操作按幂等回执决定。
@@ -112,6 +126,12 @@ HUHU MCP 只把本应用的能力提供给外部客户端。服务管理在「�
 ## 错误恢复
 
 连接失败先检查服务状态与传输配置；能力缺失先重新获取目录。超时后核对操作回执，不重复执行结果未知的写操作。
+
+### 查询同一任务和原操作
+
+例如在 \`tools/list\` 确认开放后，用 \`tasks_read\` 读取任务，再用 \`tasks_questions_list\` 查看原请求。参见 [CLI 手册的任务章节](cli.md#任务派遣与投递)，沿用同一 Vault 的任务、运行、请求和结果身份。
+
+对支持持久意图的工具，提交时在 \`tools/call\` 的 \`params._meta["huhu.dev/intent-key"]\` 保留原意图键。收到操作标识后，可从同一入口和主体用 \`resources/read\` 读取 \`huhu://operations/{operationId}\`。任务特有的回答或派遣回执，按各自能力读取原请求标识。
 `;
   return [
     { path: GUIDE_PATHS[0], content: skill },

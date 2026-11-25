@@ -1,12 +1,13 @@
 import { isTaskAvailable, type TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, Field } from "@huhu/ui";
-import { CapabilityError, createRequestId, host, requestOpenAgentSession, useCapability, useEngine, useQueryClient, type TaskDestination } from "@huhu/workbench";
+import { CapabilityError, createRequestId, host, requestOpenAgentSession, requestOpenMailDelivery, useCapability, useEngine, useQueryClient, type ModuleProps, type TaskDestination } from "@huhu/workbench";
 import { History } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
+import type { resultDeliveryDescriptors } from "../engine/result-delivery.js";
 import { TaskRunMarkdownView } from "./compact.js";
 import { t } from "./i18n.js";
 import { useReferenceIndex } from "./references.js";
@@ -14,6 +15,8 @@ import { useReferenceIndex } from "./references.js";
 type Reply = z.infer<typeof TaskReplyView>;
 type Question = z.infer<typeof TaskQuestionView> & { reply?: Reply };
 type Supplement = z.infer<typeof TaskSupplementView>;
+type GitHubDelivery = z.output<typeof resultDeliveryDescriptors.githubReadDelivery.output>;
+type MailDelivery = z.output<typeof resultDeliveryDescriptors.readMailDelivery.output>;
 
 const receiptState: Record<DispatchReceipt["state"], string> = {
   pending: "已受理",
@@ -62,7 +65,16 @@ export function taskRunLabel(row: TaskDispatchView, run: TaskRunSummary | null |
   return row.superseded ? "已失败" : ((run ? t.detail.runState[run.state] : undefined) ?? receiptState[row.state]);
 }
 
-export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigate, destination }: { destination?: TaskDestination | undefined; task: TaskDto; zone: string | undefined; runs: TaskRunSummary[]; rows: TaskDispatchView[] | undefined; readError: Error | null; onNavigate(): void }) {
+export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAgent, onNavigate, destination }: {
+  destination?: TaskDestination | undefined;
+  task: TaskDto;
+  zone: string | undefined;
+  runs: TaskRunSummary[];
+  rows: TaskDispatchView[] | undefined;
+  readError: Error | null;
+  onOpenAgent(): void;
+  onNavigate?: ModuleProps["onNavigate"];
+}) {
   const engine = useEngine();
   const qc = useQueryClient();
   // Observe the list query that supplies this task without starting a second request.
@@ -197,7 +209,17 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onNavigat
               </Button>
             ) : null}
             {!row.superseded ? <CancelQueuedRun task={task} row={row} refresh={refresh} /> : null}
-            {expanded ? <TaskRunDetails task={task} questionFocus={destination?.runId === row.runId ? destination : undefined} taskRefreshing={taskRefreshing} row={row} run={run} onOpenAgent={onNavigate} /> : null}
+            {expanded ? (
+              <TaskRunDetails
+                task={task}
+                questionFocus={destination?.runId === row.runId ? destination : undefined}
+                taskRefreshing={taskRefreshing}
+                row={row}
+                run={run}
+                onOpenAgent={onOpenAgent}
+                onNavigate={onNavigate}
+              />
+            ) : null}
           </article>
         );
       })}
@@ -255,6 +277,7 @@ export function TaskRunDetails({
   run,
   showQueue = false,
   onOpenAgent,
+  onNavigate,
 }: {
   task: TaskDto;
   taskRefreshing: boolean;
@@ -263,6 +286,7 @@ export function TaskRunDetails({
   run: TaskRunSummary | null | undefined;
   showQueue?: boolean;
   onOpenAgent?: (() => void) | undefined;
+  onNavigate?: ModuleProps["onNavigate"];
 }) {
   const engine = useEngine();
   const qc = useQueryClient();
@@ -315,7 +339,47 @@ export function TaskRunDetails({
             <TaskRunMarkdownView key={message.id} id={`run-result-${message.id}`} value={message.body} refs={refs} />
           ))
           : null}
+        {result?.kind === "result" && result.receiptId ? <TaskRunDeliveries key={result.receiptId} task={task} receiptId={result.receiptId} onNavigate={onNavigate} /> : null}
       </div>
+    </>
+  );
+}
+
+function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; receiptId: string; onNavigate?: ModuleProps["onNavigate"] }) {
+  const { vaultId } = useEngine();
+  const [linkError, setLinkError] = useState(false);
+  const origin = task.origin.kind === "external" ? task.origin.github : undefined;
+  const result = { taskId: task.id, receiptId };
+  const github = useCapability<GitHubDelivery>("tasks.github.deliveries.read", origin ? { ...result, sourceId: origin.sourceId, issueId: origin.issueId } : result, { enabled: !!origin });
+  const mail = useCapability<MailDelivery>("tasks.mail.deliveries.read", result, { enabled: !!onNavigate });
+  const operationId = mail.data?.operationId;
+  const url = github.data?.comment?.url;
+  const link = url?.startsWith("https://github.com/") ? url : undefined;
+  const githubReadError = github.error && !(github.error instanceof CapabilityError && github.error.code === "NOT_FOUND");
+  return (
+    <>
+      {github.data?.state === "unknown" ? <p role="status">GitHub 投递待核实</p> : null}
+      {github.data?.state === "accepted" ? (
+        <p>
+          GitHub 已接收评论
+          {link ? (
+            <> · <a href={link} target="_blank" rel="noopener noreferrer" onClick={(event) => {
+              const open = host()?.openExternal;
+              if (!open) return;
+              event.preventDefault();
+              void open(link).then((opened) => setLinkError(!opened), () => setLinkError(true));
+            }}>查看原评论</a></>
+          ) : null}
+        </p>
+      ) : null}
+      {githubReadError || mail.error ? <p role="status">暂时无法读取外部投递记录。</p> : null}
+      {linkError ? <p role="alert">无法打开原评论。</p> : null}
+      {operationId && onNavigate ? (
+        <Button variant="ghost" onClick={() => {
+          requestOpenMailDelivery({ vaultId, operationId });
+          onNavigate("mail");
+        }}>查看原邮件投递</Button>
+      ) : null}
     </>
   );
 }
