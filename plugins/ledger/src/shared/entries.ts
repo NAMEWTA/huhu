@@ -56,6 +56,7 @@ export const RecordVersion = BookVersion.extend({ recordId: EntryId, recordRevis
 export const UpdateRecord = RecordVersion.extend({ title: RecordTitle, record: LedgerCreateRecord.shape.record });
 export const RecordView = z.strictObject({
   record: LedgerRecord, title: RecordTitle, businessDate: LedgerBusinessDate, offset: z.boolean(),
+  legacyOffset: z.boolean(),
   attachments: z.array(Attachment.extend({ missing: z.boolean() })),
 });
 export const RecordRef = BookRef.extend({ recordId: EntryId });

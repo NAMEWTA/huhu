@@ -1,12 +1,14 @@
 import { Button, Dialog, Select } from "@huhu/ui";
-import { useCapability, useEngine, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
+import { takeAutomationSource, useCapability, useEngine, type ModuleContribution, type ModuleProps } from "@huhu/workbench";
 import { BookOpen, Plus } from "lucide-react";
-import { useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { Book, BookList, RemovalPreview } from "../shared/books.js";
 import { AccountsSection } from "./Accounts.js";
 import { Overview, RecordsSection } from "./Records.js";
 import { LedgerCalendar, LedgerReports } from "./Reports.js";
 import { LedgerRecurringPage } from "./Recurring.js";
+import { LedgerLoans } from "./Loans.js";
+import { LedgerBackupsSection } from "./Backups.js";
 import { bookVersion as version, currencies, LedgerField, useLedgerAction } from "./primitives.js";
 
 const zones = ["Asia/Taipei", "Asia/Shanghai", "America/New_York", "UTC"];
@@ -23,19 +25,30 @@ function LedgerModule(props: ModuleProps & { quick: QuickEntry }) {
 }
 
 function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { quick: QuickEntry }) {
+  const { vaultId } = useEngine();
   const quickEntry = useSyncExternalStore(quick.subscribe, quick.get);
   const list = useCapability<BookList>("ledger.books.list", {});
   const { run, working, error, clearError } = useLedgerAction();
   const [ephemeralBook, setEphemeralBook] = useState("");
+  const [source, setSource] = useState<{ bookId: string; planId: string }>();
+  const [linkedRecord, setLinkedRecord] = useState<{ bookId: string; recordId: string }>();
   const [editor, setEditor] = useState<Editor>();
   const [confirmedName, setConfirmedName] = useState("");
   const [notice, setNotice] = useState("");
   const cancel = useRef<HTMLButtonElement>(null);
   const formId = useId();
+  useEffect(() => {
+    if (section !== "recurring") return;
+    const requested = takeAutomationSource(vaultId, "ledger");
+    if (requested?.source.object.kind === "ledger-book") {
+      setSource({ bookId: requested.source.object.id, planId: requested.planId });
+    }
+  }, [vaultId, section]);
   if (list.isPending) return <p role="status">正在读取账本…</p>;
   if (list.isError) return <p role="alert">{list.error.message}</p>;
   const { books, activeBookId, readOnly } = list.data;
-  const current = books.find(({ id }) => id === (readOnly && ephemeralBook ? ephemeralBook : activeBookId));
+  const selectedBookId = source?.bookId ?? (readOnly && ephemeralBook ? ephemeralBook : activeBookId);
+  const current = books.find(({ id }) => id === selectedBookId);
   const locked = readOnly || working;
 
   function edit(next: Editor) {
@@ -72,6 +85,7 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
         <LedgerField label="当前账本">
           <Select value={current?.id ?? ""} disabled={working || books.length === 0} onChange={(event) => {
             const bookId = event.currentTarget.value;
+            setSource(undefined);
             if (readOnly) setEphemeralBook(bookId);
             else if (bookId) void run("ledger.books.open", { bookId });
           }}>
@@ -82,9 +96,14 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
         <Button icon={Plus} disabled={locked} onClick={() => edit({ mode: "create" })}>新建账本</Button>
       </div>
       {notice && <p role="status">{notice}</p>}
+      {source && !current && <p role="status">原计划的账本已不可用。</p>}
       {readOnly && <p role="status">当前 Vault 为只读。</p>}
       {!editor && error && <p role="alert">{error}</p>}
-      {books.length === 0 ? <section className="hu-stack">
+      {section === "backups" ? <LedgerBackupsSection key={current?.id ?? "no-book"} book={current} readOnly={readOnly} restored={(book) => {
+        setSource(undefined);
+        setNotice(`已恢复为新账本「${book.name}」。`);
+        onSection("overview");
+      }} /> : books.length === 0 ? <section className="hu-stack">
         <h2>还没有账本</h2>
         <p>先建立账本，选择业务时区和第一项资金账户。</p>
         <div><Button icon={Plus} variant="primary" disabled={locked} onClick={() => edit({ mode: "create" })}>创建第一个账本</Button></div>
@@ -105,10 +124,17 @@ function LedgerPage({ section, onSection, onNavigate, quick }: ModuleProps & { q
           </div>
         </article>)}
       </section> : current && (section === "accounts" ? <AccountsSection key={current.id} book={current} readOnly={readOnly} />
-        : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)} />
+        : section === "records" ? <RecordsSection key={current.id} book={current} readOnly={readOnly} quickEntry={quickEntry} consumeQuickEntry={() => quick.set(false)}
+          linkedRecordId={linkedRecord?.bookId === current.id ? linkedRecord.recordId : undefined} closeLinkedRecord={() => setLinkedRecord(undefined)} />
         : section === "calendar" ? <LedgerCalendar key={current.id} book={current} readOnly={readOnly} />
         : section === "reports" ? <LedgerReports key={current.id} book={current} />
-        : section === "recurring" ? <LedgerRecurringPage key={current.id} book={current} readOnly={readOnly} onNavigate={onNavigate} />
+        : section === "recurring" ? <div key={current.id} className="hu-stack">
+          <LedgerRecurringPage book={current} readOnly={readOnly} onNavigate={onNavigate} linkedPlanId={source?.planId} />
+          <LedgerLoans book={current} readOnly={readOnly} onRecord={(recordId) => {
+            setLinkedRecord({ bookId: current.id, recordId });
+            onSection("records");
+          }} />
+        </div>
         : <Overview key={current.id} book={current} readOnly={readOnly} onSection={onSection} onRecord={() => { quick.set(true); onSection("records"); }} />)}
     </div>
     {editor && <Dialog open title={editor.mode === "create" ? "创建账本" : editor.mode === "rename" ? "重命名账本" : "删除账本"}
@@ -159,7 +185,8 @@ export function createLedgerContributions(openRecords: () => void) {
     icon: <BookOpen size={18} aria-hidden />, component: (props) => <LedgerModule {...props} quick={quick} />, nav: "shell",
     sections: [
       { id: "overview", label: "总览" }, { id: "records", label: "流水" },
-      { id: "accounts", label: "账户" }, { id: "recurring", label: "固定收支" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
+      { id: "accounts", label: "账户" }, { id: "recurring", label: "固定收支与贷款" }, { id: "calendar", label: "日历" }, { id: "reports", label: "报表" }, { id: "books", label: "账本设置" },
+      { id: "backups", label: "导入与恢复" },
     ],
   };
   return { modules: [module], commands: [{ id: "ledger.record", plugin: "ledger", title: "记一笔", run: () => { quick.set(true); openRecords(); } }] };

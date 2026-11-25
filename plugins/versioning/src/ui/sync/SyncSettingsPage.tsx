@@ -1,5 +1,5 @@
 import { Button } from "@huhu/ui";
-import { host, useCapability } from "@huhu/workbench";
+import { AutomationPlanLink, host, useCapability, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { canSendAuthentication } from "../../shared/git-auth.js";
 import { t } from "../i18n.js";
@@ -11,7 +11,7 @@ import type { GitPlanRevisions } from "../../engine/sync-plans.js";
 type ScheduleDraft = { mode: Cfg["mode"]; pullSec: string; pushSec: string; revisions: GitPlanRevisions; revision: string | undefined };
 
 /** 同步设置页（versioning 插件）：远端、分支、凭据、同步模式、间隔与排除规则。状态、预览与执行留在版本模块的同步页。 */
-export function SyncSettingsPage() {
+export function SyncSettingsPage({ onNavigate }: Pick<ModuleProps, "onNavigate">) {
   const cfg = useCapability<Cfg>("sync.get", {});
   const status = useCapability<SyncStatus>("sync.status", {});
   if (cfg.isError)
@@ -22,10 +22,10 @@ export function SyncSettingsPage() {
     );
   if (!cfg.data) return <p>…</p>;
   // 不能用配置值做 key：保存后配置变化会让表单重挂载，把“已保存”提示一并清掉
-  return <SyncSettingsForm cfg={cfg.data} status={status.data} />;
+  return <SyncSettingsForm cfg={cfg.data} status={status.data} onNavigate={onNavigate} />;
 }
 
-function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | undefined }) {
+function SyncSettingsForm({ cfg, status, onNavigate }: { cfg: Cfg; status: SyncStatus | undefined; onNavigate: ModuleProps["onNavigate"] }) {
   const call = useCall();
   const [remote, setRemote] = useState(cfg.remote);
   const [branch, setBranch] = useState(cfg.branch);
@@ -122,6 +122,9 @@ function SyncSettingsForm({ cfg, status }: { cfg: Cfg; status: SyncStatus | unde
           {t.sync.save}
         </Button>
       </form>
+
+      {cfg.periodics?.pull && cfg.periodics.pull.intent !== "deleted" && <AutomationPlanLink planId={cfg.periodics.pull.planId} onNavigate={onNavigate} label="管理 Git 拉取计划" />}
+      {cfg.periodics?.sync && cfg.periodics.sync.intent !== "deleted" && <AutomationPlanLink planId={cfg.periodics.sync.planId} onNavigate={onNavigate} label="管理 Git 同步计划" />}
 
       {msg ? (
         <div role={msg.tone === "error" ? "alert" : "status"} className={msg.tone === "error" ? "hu-overdue" : undefined} data-testid="sync-message">

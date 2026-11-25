@@ -1,6 +1,6 @@
 import { Badge, Button, DataTable, EmptyState, Field, IconButton, PageHead, SearchBox, Segmented } from "@huhu/ui";
 import { Activity, ArrowRight, Cable, FileUp, Fingerprint, Folder, KeyRound, LockKeyhole, Monitor, Network, Play, Plus, Server, ShieldCheck, Terminal, TextCursorInput, Unplug, X } from "lucide-react";
-import { host as desktopHost, queryKey, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
+import { host as desktopHost, queryKey, takeAutomationSource, useCapability, useEngine, useEngineEvents, useQueryClient, type ModuleProps } from "@huhu/workbench";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
@@ -104,6 +104,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [localTerminal, setLocalTerminal] = useState(false);
   const [forwarding, setForwarding] = useState(false);
   const [monitoring, setMonitoring] = useState(false);
+  const [monitorPanelId, setMonitorPanelId] = useState<string>();
   const [fileView, showFileView] = useState(false);
   const [selectedFile, selectFile] = useState("");
   const [fileSeed, setFileSeed] = useState<FileSession | null>(null);
@@ -131,6 +132,14 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   useEffect(() => {
     void refetchConnections();
   }, [refetchConnections]);
+  useEffect(() => {
+    if (!active || !desktop) return;
+    const source = takeAutomationSource(engine.vaultId, "ssh");
+    if (source?.source.object.kind === "ssh-monitor-panel") {
+      setMonitorPanelId(source.source.object.id);
+      setMonitoring(true);
+    }
+  }, [active, desktop, engine.vaultId]);
   useEffect(() => {
     if (recoveredHostId) setSel((current) => current ?? recoveredHostId);
   }, [recoveredHostId]);
@@ -282,9 +291,12 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
     return withFileWorkspace(
       <MonitorDashboard
         directory={directory.data}
-        onBack={() => setMonitoring(false)}
+        initialPanelId={monitorPanelId}
+        onNavigate={onNavigate}
+        onBack={() => { setMonitoring(false); setMonitorPanelId(undefined); }}
         onReview={(prompt) => {
           setMonitoring(false);
+          setMonitorPanelId(undefined);
           openReview(prompt);
         }}
       />,

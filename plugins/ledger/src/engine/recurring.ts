@@ -1,7 +1,8 @@
 import { errors, isHuhuError, ledgerBusinessDate, ledgerBusinessDayRange, type PeriodicEnabledWindow, type PeriodicPlanControl, type PeriodicPlanSource, type PeriodicPlanSpec, type PeriodicRunContext } from "@huhu/contracts";
 import { canonicalJson, type CapabilityContext } from "@huhu/kernel";
 import type { z } from "zod";
-import { recurringLabels, type OpenRecurring, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRule, type RetryRecurring } from "../shared/recurring.js";
+import { recurringLabels, recurringPlanId, type OpenRecurring, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRule, type RetryRecurring } from "../shared/recurring.js";
+import { anchoredMonthDate } from "../shared/monthly-date.js";
 import { requireActiveBook, validateLedgerAccount } from "./accounts.js";
 import { saveRecord } from "./records.js";
 import type { BookState, LedgerStore } from "./store.js";
@@ -10,7 +11,6 @@ type Authorization = Pick<CapabilityContext, "signal" | "assertCapabilityCurrent
 type Slot = { periodId: string; date: string; scheduledAt: string };
 const dayMs = 86_400_000;
 const limit = 128;
-const planIdFor = (bookId: string, ruleId: string) => `ledger-recurring-${bookId}-${ruleId}`;
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
 function fromDate(rule: RecurringRule, minimum: string): string {
@@ -18,15 +18,8 @@ function fromDate(rule: RecurringRule, minimum: string): string {
   const lower = new Date(Math.max(start.getTime(), Date.parse(minimum)));
   if (rule.frequency === "monthly") {
     const months = (lower.getUTCFullYear() - start.getUTCFullYear()) * 12 + lower.getUTCMonth() - start.getUTCMonth();
-    const inMonth = (offset: number) => {
-      const date = new Date(start);
-      date.setUTCDate(1);
-      date.setUTCMonth(start.getUTCMonth() + offset + 1, 0);
-      date.setUTCDate(Math.min(start.getUTCDate(), date.getUTCDate()));
-      return isoDate(date);
-    };
-    const current = inMonth(months);
-    return current < minimum ? inMonth(months + 1) : current;
+    const current = anchoredMonthDate(rule.startOn, months);
+    return current < minimum ? anchoredMonthDate(rule.startOn, months + 1) : current;
   }
   const step = dayMs * (rule.frequency === "weekly" ? 7 : 1);
   return isoDate(new Date(start.getTime() + Math.ceil((lower.getTime() - start.getTime()) / step) * step));
@@ -127,7 +120,7 @@ export class LedgerRecurring {
     const control = this.control();
     if (!control) throw errors.pluginDisabled("automations");
     const signal = AbortSignal.any([this.lifetime, c.signal]);
-    const rule = { ...input, planId: planIdFor(bookId, input.id) };
+    const rule = { ...input, planId: recurringPlanId(bookId, input.id) };
     const state = this.store.snapshot(bookId);
     const prior = state.recurring.find(({ id }) => id === input.id);
     if (prior) {

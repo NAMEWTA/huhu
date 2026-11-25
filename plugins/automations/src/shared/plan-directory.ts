@@ -1,4 +1,5 @@
-import type { PlanSummary } from "@huhu/contracts";
+import { PlanSummarySchema, type PlanSummary } from "@huhu/contracts";
+import { z } from "zod";
 
 const sources: Record<string, string> = {
   automations: "自动化",
@@ -17,6 +18,10 @@ export function planSourceName(plugin: string): string {
 
 export const planStates = ["enabled", "paused", "blocked", "completed", "unrun", "failed", "attention"] as const;
 export const planOrders = ["id", "recent", "title", "next"] as const;
+export const PlanHomeSummary = z.strictObject({
+  enabled: z.int().nonnegative(), blocked: z.int().nonnegative(), next: PlanSummarySchema.nullable(),
+});
+export type PlanHomeSummary = z.infer<typeof PlanHomeSummary>;
 type State = (typeof planStates)[number];
 type Order = (typeof planOrders)[number];
 
@@ -35,6 +40,23 @@ export function planMatches(plan: PlanSummary, state?: State): boolean {
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : Number(a > b);
+}
+
+export function summarizePlans(plans: readonly PlanSummary[]): PlanHomeSummary {
+  let enabled = 0;
+  let blocked = 0;
+  let next: PlanSummary | null = null;
+  for (const plan of plans) {
+    if (plan.intent !== "enabled") continue;
+    enabled++;
+    if (plan.availability.state === "blocked") {
+      blocked++;
+      continue;
+    }
+    if (!plan.nextAt) continue;
+    if (!next || compare(plan.nextAt, next.nextAt!) < 0 || (plan.nextAt === next.nextAt && compare(plan.planId, next.planId) < 0)) next = plan;
+  }
+  return { enabled, blocked, next };
 }
 
 function key(plan: PlanSummary, order: Order): string {

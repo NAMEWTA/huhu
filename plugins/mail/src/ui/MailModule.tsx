@@ -1,6 +1,6 @@
 import type { Settings } from "@huhu/contracts";
 import { Banner, Button, Dialog, PageHead, useWorkbenchFeedback, WorkbenchToaster } from "@huhu/ui";
-import { CapabilityError, host, onOpenMailDeliveryRequest, registerExitParticipant, registerFlusher, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
+import { CapabilityError, host, onOpenMailDeliveryRequest, registerExitParticipant, registerFlusher, takeAutomationSource, useCapability, useEngine, useEngineEvents, useQueryClient, type ExitParticipant, type ModuleProps } from "@huhu/workbench";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import type { DraftContent } from "../engine/draft-content.js";
 import type { ConversationMessage, ConversationMessagesPage, ConversationSummary, ConversationsPage, LocatedMessage, MailLocationTarget } from "../engine/conversations.js";
@@ -93,12 +93,12 @@ function relatedDraft(draft: RelatedDraft, original: string): DraftContent {
   return { ...empty, ...seed, body: { type: "doc", content: [...writing, ...quoted] } };
 }
 
-export function MailModule({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
+export function MailModule({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "registerLeaveGuard" | "onNavigate">) {
   const engine = useEngine();
-  return <MailWorkspace key={engine.vaultId} {...(registerLeaveGuard && { registerLeaveGuard })} />;
+  return <MailWorkspace key={engine.vaultId} {...(registerLeaveGuard && { registerLeaveGuard })} {...(onNavigate && { onNavigate })} />;
 }
 
-function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveGuard">) {
+function MailWorkspace({ registerLeaveGuard, onNavigate }: Pick<ModuleProps, "registerLeaveGuard" | "onNavigate">) {
   const engine = useEngine();
   const query = useQueryClient();
   const access = useCapability<{ readOnly: boolean }>("vault.info");
@@ -113,6 +113,13 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
   const time = useMemo(() => mailDayWindow(period, zone, clock), [period, zone, clock]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsFromPlan, setSettingsFromPlan] = useState(false);
+  const syncSummary = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!takeAutomationSource(engine.vaultId, "mail")) return;
+    setSettingsFromPlan(true);
+    setSettingsOpen(true);
+  }, [engine.vaultId]);
   const [navigation, setNavigation] = useState<{ revision: number; location: LocatedMessage | null }>({ revision: 0, location: null });
   const noticeNavigation = useRef<AbortController | null>(null);
   const [tab, setTab] = useState<(typeof tabs)[number]["id"]>("mail");
@@ -469,9 +476,14 @@ function MailWorkspace({ registerLeaveGuard }: Pick<ModuleProps, "registerLeaveG
           </>
         }
       />
-      <Dialog open={settingsOpen} wide title="邮件设置" onClose={() => setSettingsOpen(false)}>
+      <Dialog open={settingsOpen} wide title="邮件设置" {...(settingsFromPlan && { initialFocusRef: syncSummary })}
+        onClose={() => {
+          setSettingsOpen(false);
+          setSettingsFromPlan(false);
+        }}>
         <div className="hu-mail-settings">
-          <MailSyncSettings readOnly={readOnly} accountNames={accountNames} settings={syncSettings} />
+          <MailSyncSettings readOnly={readOnly} accountNames={accountNames} settings={syncSettings} onNavigate={onNavigate}
+            {...(settingsFromPlan && { openInitially: true, summaryRef: syncSummary })} />
           <MailAiSettings key={engine.endpoint.baseUrl} readOnly={readOnly} desktop={desktop} />
           <MailCacheSettings readOnly={readOnly} />
           <MailSubsetSettings readOnly={readOnly} canRestore={accounts.data?.available === true} accounts={accountNames} />

@@ -1,21 +1,17 @@
+import type { FocusView } from "@huhu/contracts";
 import { Badge, Button, IconButton } from "@huhu/ui";
 import { Flame, Pause, Play, RotateCcw } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
 import { tHome } from "../i18n/zh-CN.js";
 import { WidgetReadStatus } from "./WidgetReadStatus.js";
-
-interface FocusView {
-  remainingSec: number;
-  running: boolean;
-  endsAt: string | null;
-  completedToday: number;
-}
+import { AutomationPlanLink } from "../AutomationPlanLink.js";
+import type { ModuleProps } from "../contributions.js";
 
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 /** 专注计时：状态在引擎里（startedAt + 剩余秒数），界面只负责每秒显示，到期由自动化计划结算。 */
-export function FocusCard({ children }: { children?: ReactNode }) {
+export function FocusCard({ children, onNavigate }: { children?: ReactNode; onNavigate?: ModuleProps["onNavigate"] }) {
   const engine = useEngine();
   const qc = useQueryClient();
   const focus = useCapability<FocusView>("home.focus.get", {});
@@ -85,6 +81,7 @@ export function FocusCard({ children }: { children?: ReactNode }) {
           {error}
         </div>
       ) : null}
+      {v.plan && <AutomationPlanLink planId={v.plan.planId} onNavigate={onNavigate} />}
       {children}
     </section>
   );

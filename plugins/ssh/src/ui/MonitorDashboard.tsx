@@ -1,5 +1,5 @@
 import { Button, Dialog, EmptyState, PageHead } from "@huhu/ui";
-import { useCapability, useEngine, useEngineEvents } from "@huhu/workbench";
+import { AutomationPlanLink, useCapability, useEngine, useEngineEvents, type ModuleProps } from "@huhu/workbench";
 import { useId, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { DirectoryView } from "../engine/directory-schema.js";
@@ -158,14 +158,14 @@ function Editor({ previous, directory, error, busy, close, save }: { previous?: 
 }
 
 type Action = "start" | "stop" | "pause" | "continue";
-export function MonitorDashboard({ directory, onBack, onReview }: { directory?: Directory | undefined; onBack(): void; onReview(prompt: HostKeyPrompt): void }) {
+export function MonitorDashboard({ directory, initialPanelId, onNavigate, onBack, onReview }: { directory?: Directory | undefined; initialPanelId: string | undefined; onNavigate: ModuleProps["onNavigate"]; onBack(): void; onReview(prompt: HostKeyPrompt): void }) {
   const engine = useEngine();
   const visible = useMonitorVisibility();
   const panels = useCapability<MonitorPanel[]>("ssh.monitor.panels.list");
   const subscriptions = useCapability<MonitorSession[]>("ssh.monitor.session.list", {}, { enabled: visible });
   const externalPanels = useCapability<z.infer<typeof MonitorPanelRuntime>[]>("ssh.monitor.panels.external.list", {}, { enabled: visible });
-  const [selected, select] = useState("");
-  const current = panels.data?.find(({ id }) => id === selected) ?? panels.data?.[0];
+  const [selected, select] = useState(initialPanelId ?? "");
+  const current = panels.data?.find(({ id }) => id === selected) ?? (selected === initialPanelId ? undefined : panels.data?.[0]);
   const runs = useCapability<MonitorPanelRun | null>("ssh.monitor.panels.run", { id: current?.id ?? "" }, { enabled: Boolean(current && visible) });
   const run = runs.data?.revision === current?.revision ? runs.data : null;
   const [edit, setEdit] = useState<MonitorPanel | "new">();
@@ -271,6 +271,7 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
       </div>
       {(panels.error || runs.error || (error && !edit && !remove)) && <p role="alert">{panels.error?.message ?? runs.error?.message ?? error}</p>}
       {panels.data?.length === 0 && <EmptyState title="尚未保存监控面板" />}
+      {initialPanelId && selected === initialPanelId && panels.data && !current && <p role="status">原监控面板已不可用。</p>}
       {current && (
         <section className="hu-stack" aria-label={current.name}>
           <h2>{current.name}</h2>
@@ -279,6 +280,7 @@ export function MonitorDashboard({ directory, onBack, onReview }: { directory?: 
             采样周期 {current.interval} 秒 · 历史 {historyLabel[current.retention]}
           </p>
           <div className="ssh-workspace-controls">
+            {current.plan && current.plan.intent !== "deleted" && <AutomationPlanLink planId={current.plan.planId} onNavigate={onNavigate} />}
             {(!run || run.state === "stopped") && (
               <Button variant="primary" disabled={busy} onClick={() => command("start")}>
                 开始监控

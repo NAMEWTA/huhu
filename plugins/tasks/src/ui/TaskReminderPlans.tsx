@@ -1,10 +1,10 @@
 import type { PlanSummary, TaskDto } from "@huhu/contracts";
 import { Button, DateTimePicker, Dialog } from "@huhu/ui";
-import { useCapability, useEngine } from "@huhu/workbench";
+import { AutomationPlanLink, useCapability, useEngine, type ModuleProps } from "@huhu/workbench";
 import { useState } from "react";
 import { PlanScheduleControls, planIntentId } from "../../../automations/src/ui/PlanScheduleControls.js";
 
-export function TaskReminderPlans({ task }: { task: TaskDto }) {
+export function TaskReminderPlans({ task, onNavigate }: { task: TaskDto; onNavigate: ModuleProps["onNavigate"] }) {
   const engine = useEngine();
   const plans = useCapability<{ plans: PlanSummary[] }>("automations.plans.list", { source: { plugin: "tasks", object: { kind: "task", id: task.id } } });
   const [scheduledFor, setScheduledFor] = useState<string | null>(null);
@@ -35,13 +35,14 @@ export function TaskReminderPlans({ task }: { task: TaskDto }) {
     <section className="hu-tw-detail-section" data-testid="detail-reminders">
       <h3>提醒</h3>
       {plans.error ? <p role="status">{plans.error.message}</p> : null}
-      {plans.data?.plans.filter(({ action }) => action.capability === "notifications.create" || action.capability === "automations.runNow").map((plan) => (
+      {plans.data?.plans.filter(({ action, trigger }) => action.capability === "notifications.create" || action.capability === "automations.runNow" || trigger.kind === "observe").map((plan) => (
         <div key={plan.planId} className="tasks-reminder-read" data-plan-id={plan.planId}>
           <span>{plan.title}</span>
           {plan.trigger.kind === "once" ? <time dateTime={plan.trigger.scheduledFor}>{new Date(plan.trigger.scheduledFor).toLocaleString()}</time>
             : plan.trigger.kind === "cron" ? <span>{plan.trigger.expression} · {plan.trigger.zone}</span> : null}
           <small>{plan.lastOccurrence?.state === "unknown" ? "待核实" : plan.lastOccurrence?.state === "completed" ? "已递送" : plan.intent === "paused" ? "已暂停" : plan.availability.state === "blocked" ? "暂不可用" : "待触发"}</small>
           <PlanScheduleControls plan={plan} changed={() => plans.refetch()} />
+          <AutomationPlanLink planId={plan.planId} onNavigate={onNavigate} label={`在中心管理 · ${plan.title}`} />
         </div>
       ))}
       {!task.readOnly && task.status !== "completed" && plans.data ? <Button onClick={() => {

@@ -23,10 +23,20 @@ import { HolidayData, HolidayQuery, ReportQuery, ReportView, ReportsPreferences,
 import { report } from "./reports.js";
 import { OpenRecurring, RecurringKey, RecurringList, RecurringPeriod, RecurringPreview, RecurringRow, RetryRecurring } from "../shared/recurring.js";
 import { LedgerRecurring } from "./recurring.js";
+import { Budget, BudgetDetail, BudgetDetailQuery, BudgetOverview, BudgetQuery, CopyBudgetResult, CopyBudgets, RemoveBudget, SaveBudgets } from "../shared/budgets.js";
+import { budgetDetail, budgetOverview, copyBudgets, removeBudget, saveBudgets } from "./budgets.js";
+import { ConfirmLoan, Loan, LoanHistory, LoanInstallment, LoanList, LoanPayment, LoanTerms, PreviewLoan, RemoveLoan, SaveLoan } from "../shared/loans.js";
+import { loanSchedule } from "../domain/loans.js";
+import { confirmLoan, loanList, previewLoan, removeLoan, saveLoan } from "./loans.js";
+import { BackupPreview, BackupRef, ClearLegacyOffset, ConfirmBackup, ExportBackup, ExportedBackup, InspectBackup } from "../shared/backups.js";
+import { LedgerBackups } from "./backup/index.js";
+export { ledgerPackageSelection, validateLedgerPackage } from "./backup/snapshot.js";
+export { withLedgerSnapshot } from "./store.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
 const write = { ...publicTool, scope: "write", ...durableExternal } as const;
+const backupRead = { ...read, risk: "high", exposable: false } as const;
 const descriptors = {
   list: descriptor({ ...read, name: "ledger.books.list", title: "列出账本", description: "列出当前 Vault 的账本及当前选择", input: z.strictObject({}), output: BookList }),
   create: descriptor({ ...write, name: "ledger.books.create", title: "创建账本", description: "创建账本及其首个资金账户", input: CreateBook, output: LedgerBook }),
@@ -45,11 +55,27 @@ const descriptors = {
   saveReportPreferences: descriptor({ ...write, name: "ledger.reports.savePreferences", title: "保存总览卡片", description: "按账本版本保存卡片顺序和可见性。", input: SaveReportsPreferences, output: ReportsPreferences }),
   holidays: descriptor({ ...read, name: "ledger.calendar.holidays", title: "读取节假日", description: "读取本地已配置的节假日年份。", input: HolidayQuery, output: HolidayData.nullable() }),
   saveHolidays: descriptor({ ...write, name: "ledger.calendar.importHolidays", title: "导入离线节假日", description: "在当前账本保存指定年份的离线节假日和补班日期。", input: SaveHolidayData, output: HolidayData }),
+  budgets: descriptor({ ...read, name: "ledger.budgets.list", title: "查看预算进度", description: "按年或月查看预算及各方向、币种的汇总。", input: BudgetQuery, output: BudgetOverview }),
+  budgetDetail: descriptor({ ...read, name: "ledger.budgets.detail", title: "查看预算流水", description: "查询和预算进度同一范围的流水明细。", input: BudgetDetailQuery, output: BudgetDetail }),
+  saveBudgets: descriptor({ ...write, name: "ledger.budgets.saveBatch", title: "批量保存预算", description: "创建或修改当前账本的一批预算。", input: SaveBudgets, output: z.array(Budget) }),
+  removeBudget: descriptor({ ...write, name: "ledger.budgets.remove", title: "删除预算", description: "删除指定预算规则。", input: RemoveBudget, output: Budget }),
+  copyBudgets: descriptor({ ...write, name: "ledger.budgets.copy", title: "复制月度预算", description: "复制固定预算到目标月份，保留已有同名项。", input: CopyBudgets, output: CopyBudgetResult }),
   recurring: descriptor({ ...read, name: "ledger.recurring.list", title: "查询固定收支", description: "读取账本规则、统一计划及原期次回执。", input: BookRef, output: RecurringList }),
   createRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.create", title: "创建固定收支", description: "按稳定规则身份建立暂停的统一计划。", input: OpenRecurring, output: RecurringRow }),
   ensureRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.ensurePlan", title: "补全固定收支计划", description: "核对原规则并补全缺失的暂停计划。", input: RecurringKey, output: RecurringRow }),
   previewRecurring: descriptor({ ...read, name: "ledger.recurring.preview", title: "预览固定收支", description: "读取原计划启用区间内的未处理期次。", input: RecurringKey, output: RecurringPreview }),
   retryRecurring: descriptor({ ...publicTool, scope: "write", idempotency: "handler", name: "ledger.recurring.retry", title: "重试固定收支期次", description: "按原计划和期次时间重试已证失败。", input: RetryRecurring, output: RecurringPeriod }),
+  loans: descriptor({ ...read, name: "ledger.loans.list", title: "查看贷款", description: "列出当前账本的贷款和已生成期数。", input: BookRef, output: LoanList }),
+  quoteLoan: descriptor({ ...read, name: "ledger.loans.quote", title: "试算还款计划", description: "按贷款条件逐期计算本金、利息和到期业务日。", input: LoanTerms, output: z.array(LoanInstallment) }),
+  createLoan: descriptor({ ...write, name: "ledger.loans.create", title: "保存贷款", description: "保存试算条件，供后续预览。", input: SaveLoan, output: Loan }),
+  previewLoan: descriptor({ ...read, name: "ledger.loans.previewHistory", title: "预览贷款历史补记", description: "读取还款计划、到期状态、入账账户及已生成流水。", input: PreviewLoan, output: LoanHistory }),
+  confirmLoan: descriptor({ ...write, idempotency: "handler", name: "ledger.loans.confirmHistory", title: "确认所选贷款期次", description: "按原业务日记录明确选中的到期期次。", input: ConfirmLoan, output: z.array(LoanPayment) }),
+  removeLoan: descriptor({ ...write, name: "ledger.loans.remove", title: "删除贷款规则", description: "移除贷款规则，保留已生成流水及期次事实。", input: RemoveLoan, output: Loan }),
+  exportBackup: descriptor({ ...backupRead, name: "ledger.backups.export", title: "导出账本包", description: "按所选模块导出一致快照。", input: ExportBackup, output: ExportedBackup }),
+  inspectBackup: descriptor({ ...backupRead, name: "ledger.backups.preview", title: "预览账本恢复", description: "校验本地备份并查看可迁入模块及待决条目。", input: InspectBackup, output: BackupPreview }),
+  cancelBackup: descriptor({ ...backupRead, name: "ledger.backups.cancel", title: "取消账本恢复预览", description: "放弃当前会话中尚未提交的恢复。", input: BackupRef, output: z.strictObject({ cancelled: z.literal(true) }) }),
+  backupStatus: descriptor({ ...backupRead, name: "ledger.backups.status", title: "读取账本恢复结果", description: "按原预览核对已提交结果。", input: BackupRef, output: LedgerBook.nullable() }),
+  confirmBackup: descriptor({ ...backupRead, scope: "write", idempotency: "handler", name: "ledger.backups.confirm", title: "恢复到新账本", description: "按同一预览及用户选择一致提交。", input: ConfirmBackup, output: LedgerBook }),
   addAccount: descriptor({ ...write, name: "ledger.accounts.create", title: "新增资金账户", description: "创建账户和期初余额", input: CreateAccount, output: LedgerAccount }),
   updateAccount: descriptor({ ...write, name: "ledger.accounts.update", title: "编辑资金账户", description: "更新账户名称、类型和银行", input: UpdateAccount, output: LedgerAccount }),
   accountState: descriptor({ ...write, name: "ledger.accounts.setStatus", title: "更改账户状态", description: "归档或恢复账户并保留历史", input: AccountState, output: LedgerAccount }),
@@ -84,6 +110,7 @@ const descriptors = {
   confirmOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.confirmOffset", title: "确认整组平账", description: "记录版本化平账组，保留原资金流水", input: ConfirmOffset, output: LedgerOffsetGroup }),
   offsetGroup: descriptor({ ...read, name: "ledger.reconciliation.offsetGroup", title: "查看平账组", description: "按组员查看整组和平账版本", input: RecordRef, output: OffsetGroupView }),
   undoOffset: descriptor({ ...write, risk: "high", name: "ledger.reconciliation.undoOffset", title: "撤销整组平账", description: "按组版本恢复成员的收支统计", input: UndoOffset, output: z.strictObject({ restored: z.int().positive() }) }),
+  clearLegacyOffset: descriptor({ ...write, name: "ledger.reconciliation.clearLegacyOffset", title: "清除旧平账标记", description: "移除迁入的报表排除标记，保留原始流水。", input: ClearLegacyOffset, output: z.strictObject({ cleared: z.boolean() }) }),
 };
 
 export const ledgerCapabilityDescriptors = Object.values(descriptors);
@@ -91,10 +118,11 @@ export const ledgerCapabilityDescriptors = Object.values(descriptors);
 export const apply: PluginEntry["apply"] = (ctx, api) => {
   const store = new LedgerStore(api.vault.files, api.events);
   const imports = new LedgerImports(store);
+  const backups = new LedgerBackups(store);
   const lifetime = new AbortController();
   const recurring = new LedgerRecurring(store, () => api.service<PeriodicPlanControl>(PERIODIC_PLANS_SERVICE), lifetime.signal);
   api.provide(periodicPlanSourceService("ledger"), recurring.source());
-  ctx.effect(() => () => { lifetime.abort(); imports.dispose(); return store.idle(); });
+  ctx.effect(() => () => { lifetime.abort(); imports.dispose(); backups.dispose(); return store.idle(); });
   const snapshot = async (bookId: string) => { await store.idle(); return store.snapshot(bookId); };
   const currentSnapshot = async ({ bookId, expectedRevision }: { bookId: string; expectedRevision: string }) => {
     const state = await snapshot(bookId);
@@ -132,11 +160,27 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
     state.holidays[input.data.year] = input.data;
     return input.data;
   })));
+  api.defineCapability(bindCapability(descriptors.budgets, async (_context, input) => budgetOverview(await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.budgetDetail, async (_context, input) => budgetDetail(store, await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.saveBudgets, (context, input) => change(context, input, (state) => saveBudgets(state, input))));
+  api.defineCapability(bindCapability(descriptors.removeBudget, (context, input) => change(context, input, (state) => removeBudget(state, input.budgetId))));
+  api.defineCapability(bindCapability(descriptors.copyBudgets, (context, input) => change(context, input, (state) => copyBudgets(state, input))));
   api.defineCapability(bindCapability(descriptors.recurring, async (_context, { bookId }) => { await store.idle(); return recurring.list(bookId); }));
   api.defineCapability(bindCapability(descriptors.createRecurring, (context, input) => recurring.create(context, input)));
   api.defineCapability(bindCapability(descriptors.ensureRecurring, (context, { bookId, ruleId }) => recurring.ensure(context, bookId, ruleId)));
   api.defineCapability(bindCapability(descriptors.previewRecurring, async (_context, { bookId, ruleId }) => { await store.idle(); return recurring.preview(bookId, ruleId); }));
   api.defineCapability(bindCapability(descriptors.retryRecurring, (context, input) => recurring.retry(context, input)));
+  api.defineCapability(bindCapability(descriptors.loans, async (_context, { bookId }) => loanList(store, await snapshot(bookId))));
+  api.defineCapability(bindCapability(descriptors.quoteLoan, (_context, input) => loanSchedule(input)));
+  api.defineCapability(bindCapability(descriptors.createLoan, (context, input) => change(context, input, (state) => saveLoan(state, input))));
+  api.defineCapability(bindCapability(descriptors.previewLoan, async (_context, input) => previewLoan(store, await snapshot(input.bookId), input)));
+  api.defineCapability(bindCapability(descriptors.confirmLoan, (context, input) => confirmLoan(store, context, input)));
+  api.defineCapability(bindCapability(descriptors.removeLoan, (context, input) => change(context, input, (state) => removeLoan(state, input.loanId))));
+  api.defineCapability(bindCapability(descriptors.exportBackup, (context, input) => backups.export(context, input)));
+  api.defineCapability(bindCapability(descriptors.inspectBackup, (context, input) => backups.preview(context, input)));
+  api.defineCapability(bindCapability(descriptors.cancelBackup, (context, { previewId }) => backups.cancel(context, previewId)));
+  api.defineCapability(bindCapability(descriptors.backupStatus, (context, { previewId }) => backups.status(context, previewId)));
+  api.defineCapability(bindCapability(descriptors.confirmBackup, (context, input) => backups.confirm(context, input)));
   api.defineCapability(bindCapability(descriptors.addAccount, (context, input) =>
     change(context, input, (state) => createAccount(state, input.account, input.openingMinor, input.effectiveBusinessDate))));
   api.defineCapability(bindCapability(descriptors.updateAccount, (context, input) =>
@@ -186,4 +230,10 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
   api.defineCapability(bindCapability(descriptors.confirmOffset, (context, input) => change(context, input, (state) => addOffset(state, input))));
   api.defineCapability(bindCapability(descriptors.offsetGroup, async (_context, { bookId, recordId }) => groupView(await snapshot(bookId), recordId)));
   api.defineCapability(bindCapability(descriptors.undoOffset, (context, input) => change(context, input, (state) => undoOffset(state, input))));
+  api.defineCapability(bindCapability(descriptors.clearLegacyOffset, (context, input) => change(context, input, (state) => {
+    findRecord(state, input.recordId);
+    const cleared = state.legacyOffsetRecordIds.includes(input.recordId);
+    state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((id) => id !== input.recordId);
+    return { cleared };
+  })));
 };

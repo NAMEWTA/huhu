@@ -4,6 +4,7 @@ import { checkLedgerReference, errors, LedgerRecord, ledgerBusinessDate, ledgerB
 import { canonicalJson } from "@huhu/kernel";
 import type { z } from "zod";
 import type { CreateRecord, InputBatch, RecordFilters, RecordsPage, RecordsQuery, RecordView } from "../shared/entries.js";
+import { loanPeriodId } from "../shared/loans.js";
 import { validateLedgerAccount } from "./accounts.js";
 import { attachmentPath, type BookState, type LedgerStore } from "./store.js";
 
@@ -73,7 +74,8 @@ export function recordView(store: LedgerStore, state: BookState, record: LedgerR
     const file = statSync(store.files.abs(attachmentPath(state.book.id, entry.id)), { throwIfNoEntry: false });
     return { ...entry, missing: !file?.isFile() || file.size !== entry.size };
   });
-  return { record, title: recordTitle(state, record), businessDate: ledgerBusinessDate(record.occurredAt, state.book.timeZone), offset, attachments };
+  return { record, title: recordTitle(state, record), businessDate: ledgerBusinessDate(record.occurredAt, state.book.timeZone), offset,
+    legacyOffset: state.legacyOffsetRecordIds.includes(record.id), attachments };
 }
 
 export function legs(row: LedgerRecord): MoneyLeg[] {
@@ -99,7 +101,7 @@ export function filteredRecords(state: BookState, filters: RecordFilters) {
   const { book, records, dictionary } = state;
   const from = filters.from ? Date.parse(ledgerBusinessDayRange(filters.from, book.timeZone).from) : -Infinity;
   const until = filters.to ? Date.parse(ledgerBusinessDayRange(filters.to, book.timeZone).until) : Infinity;
-  const offsetRows = offsets(state);
+  const offsetRows = new Set([...offsets(state), ...state.legacyOffsetRecordIds]);
   const categories = new Map(dictionary.filter((item) => item.kind === "category").map((item) => [item.id, item.name]));
   return records.filter((row) => {
     const when = Date.parse(row.occurredAt);
@@ -120,10 +122,11 @@ export function filteredRecords(state: BookState, filters: RecordFilters) {
 export function recordsPage(store: LedgerStore, state: BookState, { filters, page, pageSize }: z.infer<typeof RecordsQuery>): RecordsPage {
   const { book } = state;
   const offsetRows = offsets(state);
+  const legacy = new Set(state.legacyOffsetRecordIds);
   const sums = new Map<Currency, Record<MoneyLeg["column"], bigint>>();
   const matching = filteredRecords(state, filters);
   for (const row of matching) {
-    if (offsetRows.has(row.id)) continue;
+    if (offsetRows.has(row.id) || legacy.has(row.id)) continue;
     for (const { currency, amount, column } of legs(row)) {
       if (filters.currency && currency !== filters.currency) continue;
       const sum = sums.get(currency) ?? { incomeMinor: 0n, expenseMinor: 0n, transferOutMinor: 0n, transferInMinor: 0n };
@@ -152,11 +155,15 @@ export function duplicateRecord(state: BookState, original: LedgerRecord) {
 
 export function previewBatch(state: BookState, input: z.infer<typeof InputBatch>) {
   const selection = input.selection.map(({ recordId, recordRevision }) => findRecord(state, recordId, recordRevision));
+  const generated = new Set([
+    ...state.recurringPeriods.filter(({ state }) => state === "generated").map(({ periodId }) => periodId),
+    ...state.loanPayments.map(({ loanId, number }) => loanPeriodId(loanId, number)),
+  ]);
   for (const row of selection) {
     if (input.action.kind === "delete") {
       requireNoOffset(state, row);
       if (state.recordReferences.some(({ recordId, kind, targetId }) => recordId === row.id &&
-        (kind !== "occurrence" || !state.recurringPeriods.some(({ periodId, state }) => periodId === targetId && state === "generated")))) {
+        (kind !== "occurrence" || !generated.has(targetId)))) {
         throw errors.invalidInput("删除前请先解除流水的笔记或期次关联");
       }
     } else {
@@ -174,6 +181,7 @@ export function applyBatch(state: BookState, input: z.infer<typeof InputBatch>) 
   if (action.kind === "delete") {
     state.records = state.records.filter(({ id }) => !ids.has(id));
     state.recordReferences = state.recordReferences.filter(({ recordId }) => !ids.has(recordId));
+    state.legacyOffsetRecordIds = state.legacyOffsetRecordIds.filter((id) => !ids.has(id));
     for (const id of ids) delete state.recordTitles[id];
   } else {
     for (const row of state.records) {

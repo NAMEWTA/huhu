@@ -1,7 +1,8 @@
 import { LaunchMenu, type LaunchOptions } from "./LaunchMenu.js";
+import type { PlanSummary } from "@huhu/contracts";
 import { Badge, Button, Dialog, EmptyState, Field, IconButton, TerminalView, type TerminalControl } from "@huhu/ui";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Folder, FolderOpen, History, Pencil, Plus, Trash2 } from "lucide-react";
-import { CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
+import { AutomationPlanLink, CapabilityError, createRequestId, host, onOpenAgentSessionRequest, queryKey, registerExitParticipant, useCapability, useEngine, useModuleIcons, useQueryClient, type ExitRequest, type ModuleProps } from "@huhu/workbench";
 import { emptyAgentSettings, type AgentSettingsFile } from "../shared/index.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { HistoryPanel, type HistoryAction, type HistorySelection } from "./history/HistoryPanel.js";
@@ -55,6 +56,7 @@ type LaunchRecovery = {
 
 export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) {
   const engine = useEngine();
+  const modules = useModuleIcons();
   const qc = useQueryClient();
   const spaces = useCapability<Space[]>("agent.spaces.list", {});
   const [spaceId, setSpaceId] = useState<string | null>(null);
@@ -699,6 +701,7 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
             </button>
           </div>
         </div>
+        {currentSession && modules.automations && onNavigate && <SessionPlanLinks sessionId={currentSession} onNavigate={onNavigate} />}
         {menu?.trigger ? (
           <LaunchMenu
             key={menu.id}
@@ -1015,4 +1018,14 @@ export function AgentCliModule({ onNavigate, registerLeaveGuard }: ModuleProps) 
       ) : null}
     </div>
   );
+}
+
+function SessionPlanLinks({ sessionId, onNavigate }: { sessionId: string; onNavigate: ModuleProps["onNavigate"] }) {
+  const plans = useCapability<{ plans: PlanSummary[] }>("automations.plans.list", {
+    source: { plugin: "agent-cli", object: { kind: "agent-session", id: sessionId } },
+  });
+  if (!plans.data?.plans.length) return null;
+  return <div className="hu-row" aria-label="原会话的状态观察">
+    {plans.data.plans.map((plan) => <AutomationPlanLink key={plan.planId} planId={plan.planId} onNavigate={onNavigate} label={`管理观察 · ${plan.title}`} />)}
+  </div>;
 }

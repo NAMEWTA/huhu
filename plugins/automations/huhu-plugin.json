@@ -25,6 +25,7 @@
       "automations.list",
       "automations.plans.defaultTaskScan",
       "automations.plans.list",
+      "automations.plans.summary",
       "automations.plans.previewRuleDraft",
       "automations.plans.read",
       "automations.plans.readOccurrence",

@@ -1,6 +1,6 @@
 import type { PlanSummary } from "@huhu/contracts";
 import { expect, test } from "vitest";
-import { filterPlanPage } from "../src/shared/plan-directory.js";
+import { filterPlanPage, summarizePlans } from "../src/shared/plan-directory.js";
 import { historyPage, type HistoryRow } from "../src/shared/occurrence-history.js";
 
 function plan(planId: string, fields: Partial<PlanSummary> = {}): PlanSummary {
@@ -36,6 +36,16 @@ test("continues the selected order after the preceding page's last plan disappea
   const page = filterPlanPage([third, second, first], input);
   expect(page.plans).toEqual([first, second]);
   expect(filterPlanPage([first, third], { ...input, cursor: page.nextCursor! })).toEqual({ plans: [third], nextCursor: null });
+});
+
+test("AW4 the Home summary includes the same eligible next plan and counts enabled but blocked sources", () => {
+  const ledger = plan("ledger-first", { source: { plugin: "ledger", object: { kind: "ledger-book", id: "book" } } });
+  const mail = plan("mail-second", { source: { plugin: "mail", object: { kind: "mail-sync", id: "account" } }, nextAt: "2026-11-25T11:00:00Z" });
+  const blocked = plan("blocked", { availability: { state: "blocked", reason: "credentials-unavailable" }, nextAt: null });
+  const paused = plan("paused", { intent: "paused", nextAt: null });
+  const deleted = plan("deleted", { intent: "deleted", nextAt: null });
+  expect(summarizePlans([mail, blocked, paused, deleted, ledger])).toEqual({ enabled: 3, blocked: 1, next: ledger });
+  expect(summarizePlans([blocked, paused, deleted])).toEqual({ enabled: 1, blocked: 1, next: null });
 });
 
 test("AW5 occurrence pages preserve a stable boundary and distinguish filterable unknown effects", () => {

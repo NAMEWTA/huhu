@@ -51,7 +51,7 @@ function sha256File(file: string): Promise<string> {
 
 type ExportSelection = Pick<NonNullable<Parameters<typeof exportPackage>[2]>, "computedFiles" | "includeFile" | "verifyFiles"> & { externalFiles?: ReadonlySet<string> };
 type PackageOptions = {
-  withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal, desktop: boolean) => Promise<T>;
+  withSnapshot?: <T>(read: (signal: AbortSignal, selection?: ExportSelection) => Promise<T>, signal: AbortSignal, desktop: boolean, includeAttachments: boolean) => Promise<T>;
   validateStaging?: ValidatePackageStaging;
 };
 const packageId = z.uuidv4();
@@ -128,7 +128,7 @@ export function registerPackageCapabilities(registry: CapabilityRegistry, vault:
           });
         exporting.add(dest);
         try {
-          const m = await (withSnapshot ? withSnapshot(build, c.signal, !external) : build(c.signal));
+          const m = await (withSnapshot ? withSnapshot(build, c.signal, !external, i.includeAttachments) : build(c.signal));
           return { path: dest, size: statSync(dest).size, sha256: await sha256File(dest), files: m.files.length, vaultId: m.vaultId };
         } finally {
           exporting.delete(dest);

@@ -23,8 +23,8 @@ function amount(record: LedgerRecord) {
     : displayMoney(record.amountMinor, record.currency);
 }
 
-export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }: {
-  book: Book; readOnly: boolean; quickEntry: boolean; consumeQuickEntry(): void;
+export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry, linkedRecordId, closeLinkedRecord }: {
+  book: Book; readOnly: boolean; quickEntry: boolean; consumeQuickEntry(): void; linkedRecordId: string | undefined; closeLinkedRecord(): void;
 }) {
   const [filters, setFilters] = useState<RecordFilters>({});
   const [page, setPage] = useState(1);
@@ -191,7 +191,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
           checked={selection.some(({ record }) => record.id === row.record.id)} onChange={(event) => setSelection(
             event.currentTarget.checked ? [...selection, row] : selection.filter(({ record }) => record.id !== row.record.id),
           )} /> },
-        { id: "title", header: "事项", cell: (row) => <span>{row.title}{row.offset ? " · 已平账" : ""}</span> },
+        { id: "title", header: "事项", cell: (row) => <span>{row.title}{row.offset ? " · 已平账" : ""}{row.legacyOffset ? " · 旧报表排除" : ""}</span> },
         { id: "date", header: "业务日", cell: (row) => row.businessDate },
         { id: "type", header: "类型", cell: ({ record }) => recordKinds[record.type] },
         { id: "account", header: "资金账户", cell: ({ record }) => {
@@ -209,6 +209,9 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
           </Button>
           {row.record.type !== "transfer" && <Button disabled={locked} aria-label={`${row.offset ? "撤销平账" : "平账"} ${row.title}`}
             onClick={() => setReconciliation({ mode: row.offset ? "undo" : "offset", recordId: row.record.id })}>{row.offset ? "撤销平账" : "平账"}</Button>}
+          {row.legacyOffset && <Button disabled={locked || action.working} onClick={() => void action.run("ledger.reconciliation.clearLegacyOffset", {
+            ...bookVersion(data.book), recordId: row.record.id,
+          })}>清除旧平账标记</Button>}
         </div> },
       ]} />
       <div className="hu-toolbar" aria-label="分页">
@@ -218,6 +221,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
       </div>
     </>}
     {editor && <RecordEditor book={editor.book} view={view} {...(editor.row && { row: editor.row })} onClose={() => setEditor(undefined)} />}
+    {linkedRecordId && <LinkedRecord book={book} recordId={linkedRecordId} close={closeLinkedRecord} />}
     {importOpen && <ImportWizard view={view} onClose={() => setImportOpen(false)} />}
     {reconciliation && <ReconciliationDialog view={view} target={reconciliation} filters={filters} onClose={() => setReconciliation(undefined)} />}
     {attachment && <AttachmentsDialog book={data?.book ?? view.book} recordId={attachment} readOnly={locked} onClose={() => setAttachment(undefined)} />}
@@ -241,6 +245,18 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
       </form>
     </Dialog>}
   </section>;
+}
+
+function LinkedRecord({ book, recordId, close }: { book: Book; recordId: string; close(): void }) {
+  const result = useCapability<RecordView>("ledger.records.get", { bookId: book.id, recordId });
+  return <Dialog open title="查看流水" error={result.error?.message} onClose={close} actions={<Button onClick={close}>关闭</Button>}>
+    {result.isPending && <p role="status">正在读取流水…</p>}
+    {result.data && <div className="hu-stack">
+      <h3>{result.data.title}</h3>
+      <p><time dateTime={result.data.businessDate}>{result.data.businessDate}</time> · {amount(result.data.record)}</p>
+      {result.data.record.memo && <p>{result.data.record.memo}</p>}
+    </div>}
+  </Dialog>;
 }
 
 const cardLabels = { summary: "本月汇总", recent: "最近流水", balances: "账户余额" };
