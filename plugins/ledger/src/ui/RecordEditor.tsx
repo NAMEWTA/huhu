@@ -4,7 +4,7 @@ import { createRequestId, useCapability } from "@huhu/workbench";
 import { useId, useRef, useState, type FormEvent } from "react";
 import type { Book } from "../shared/books.js";
 import { maxAttachmentBytes, type AccountsView, type AttachmentRead, type RecordView } from "../shared/entries.js";
-import { bookVersion, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
+import { bookVersion, downloadFile, fieldValue, fileBase64, LedgerField, useLedgerAction } from "./primitives.js";
 
 export const recordKinds = { expense: "支出", income: "收入", transfer: "转账" };
 type RecordKind = keyof typeof recordKinds;
@@ -95,15 +95,6 @@ export function RecordEditor({ book, view, row, onClose }: { book: Book; view: A
   </Dialog>;
 }
 
-async function toBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("error", () => reject(new Error("无法读取凭证文件")), { once: true });
-    reader.addEventListener("load", () => resolve(String(reader.result).split(",")[1] ?? ""), { once: true });
-    reader.readAsDataURL(file);
-  });
-}
-
 export function AttachmentsDialog({ book, recordId, readOnly, onClose }: { book: Book; recordId: string; readOnly: boolean; onClose(): void }) {
   const query = useCapability<RecordView>("ledger.records.get", { bookId: book.id, recordId });
   const action = useLedgerAction();
@@ -121,7 +112,7 @@ export function AttachmentsDialog({ book, recordId, readOnly, onClose }: { book:
     }
     setPreparing(true);
     try {
-      const base64 = await toBase64(file);
+      const base64 = await fileBase64(file);
       if (await action.run("ledger.attachments.upload", {
         ...bookVersion(book), recordId, recordRevision: view.record.revision,
         fileName: file.name, mediaType: file.type || "application/octet-stream", base64,
@@ -139,12 +130,7 @@ export function AttachmentsDialog({ book, recordId, readOnly, onClose }: { book:
       return;
     }
     const bytes = Uint8Array.from(atob(result.base64), (value) => value.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = result.attachment.fileName;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    downloadFile(result.attachment.fileName, new Blob([bytes], { type: "application/octet-stream" }));
   }
 
   return <Dialog open title="流水凭证" error={action.error ?? query.error?.message} onClose={() => { if (!busy) onClose(); }} actions={<>

@@ -5,6 +5,7 @@ import { OperationLog, type OpStep, type VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { BookId, type Book, type BookList, type CreateBook, type RemovalPreview } from "../shared/books.js";
 import { AccountLabels, Attachment, DictionaryItem, EntryId } from "../shared/entries.js";
+import { ImportMapping, ImportReceipt } from "../shared/imports.js";
 
 const directory = ".huhu/ledger";
 const indexPath = directory + "/books.json";
@@ -26,6 +27,10 @@ export const stateSchema = z.strictObject({
   recordTitles: z.record(EntryId, z.string().min(1).max(150)).default({}),
   attachments: z.array(Attachment).default([]),
   offsets: z.array(LedgerOffsetGroup).default([]),
+  importRows: z.record(z.string(), EntryId).default({}),
+  importReceipts: z.array(ImportReceipt).default([]),
+  mappingRevision: z.string().default("0"),
+  mappings: z.array(ImportMapping).default([]),
 });
 
 type BookIndex = z.infer<typeof indexSchema>;

@@ -10,7 +10,7 @@ import { attachmentPath, type BookState, type LedgerStore } from "./store.js";
 type Input = z.infer<typeof CreateRecord>["record"];
 type Currency = RecordsPage["totals"][number]["currency"];
 type MoneyLeg = { currency: Currency; amount: bigint; column: "incomeMinor" | "expenseMinor" | "transferInMinor" | "transferOutMinor" };
-const recordTitle = (state: BookState, row: LedgerRecord) => state.recordTitles[row.id] ?? row.payee ?? "流水";
+export const recordTitle = (state: BookState, row: LedgerRecord) => state.recordTitles[row.id] ?? row.payee ?? "流水";
 
 export function findRecord(state: BookState, id: string, revision?: string): LedgerRecord {
   const found = state.records.find((row) => row.id === id);
@@ -91,14 +91,13 @@ function compareMoney(filters: RecordFilters, row: LedgerRecord, samples: MoneyL
       (row.type !== "transfer" || !filters.accountId || filters.accountId === (column === "transferInMinor" ? row.toAccountId : row.fromAccountId))));
 }
 
-export function recordsPage(store: LedgerStore, state: BookState, { filters, page, pageSize }: z.infer<typeof RecordsQuery>): RecordsPage {
+export function filteredRecords(state: BookState, filters: RecordFilters) {
   const { book, records, dictionary } = state;
   const from = filters.from ? Date.parse(ledgerBusinessDayRange(filters.from, book.timeZone).from) : -Infinity;
   const until = filters.to ? Date.parse(ledgerBusinessDayRange(filters.to, book.timeZone).until) : Infinity;
   const offsetRows = offsets(state);
   const categories = new Map(dictionary.filter((item) => item.kind === "category").map((item) => [item.id, item.name]));
-  const sums = new Map<Currency, Record<MoneyLeg["column"], bigint>>();
-  const matching = records.filter((row) => {
+  return records.filter((row) => {
     const when = Date.parse(row.occurredAt);
     if (when < from || when >= until || (filters.type && row.type !== filters.type) ||
         (filters.offset !== undefined && filters.offset !== offsetRows.has(row.id)) ||
@@ -109,16 +108,23 @@ export function recordsPage(store: LedgerStore, state: BookState, { filters, pag
     if (filters.accountId && (row.type === "transfer" ? ![row.fromAccountId, row.toAccountId].includes(filters.accountId) : row.accountId !== filters.accountId)) return false;
     if (filters.toAccountId && (row.type !== "transfer" || row.toAccountId !== filters.toAccountId)) return false;
     if (filters.query && ![recordTitle(state, row), row.memo, row.payee, categories.get(row.categoryId ?? "")].some((value) => contains(value, filters.query!))) return false;
-    const amounts = legs(row);
-    if (!compareMoney(filters, row, amounts)) return false;
-    for (const { currency, amount, column } of amounts) {
+    return compareMoney(filters, row, legs(row));
+  }).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || a.id.localeCompare(b.id));
+}
+
+export function recordsPage(store: LedgerStore, state: BookState, { filters, page, pageSize }: z.infer<typeof RecordsQuery>): RecordsPage {
+  const { book } = state;
+  const offsetRows = offsets(state);
+  const sums = new Map<Currency, Record<MoneyLeg["column"], bigint>>();
+  const matching = filteredRecords(state, filters);
+  for (const row of matching) {
+    for (const { currency, amount, column } of legs(row)) {
       if (filters.currency && currency !== filters.currency) continue;
       const sum = sums.get(currency) ?? { incomeMinor: 0n, expenseMinor: 0n, transferOutMinor: 0n, transferInMinor: 0n };
       sum[column] += amount;
       sums.set(currency, sum);
     }
-    return true;
-  }).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || a.id.localeCompare(b.id));
+  }
   const totals = [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([currency, value]) => ({
     currency,
     incomeMinor: value.incomeMinor.toString(), expenseMinor: value.expenseMinor.toString(),

@@ -32,7 +32,15 @@
       "ledger.records.previewBatch",
       "ledger.records.confirmBatch",
       "ledger.attachments.upload",
-      "ledger.attachments.read"
+      "ledger.attachments.read",
+      "ledger.imports.preview",
+      "ledger.imports.resolve",
+      "ledger.imports.cancel",
+      "ledger.imports.confirm",
+      "ledger.imports.status",
+      "ledger.mappings.list",
+      "ledger.mappings.save",
+      "ledger.exports.csv"
     ]
   }
 }

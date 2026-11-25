@@ -12,6 +12,9 @@ import { account, accountsView, addBase, createAccount, previewBalance, requireA
 import { readAttachment, uploadAttachment } from "./attachments.js";
 import { applyBatch, duplicateRecord, findRecord, previewBatch, recordsPage, saveRecord, viewRecord } from "./records.js";
 import { LedgerStore, type BookState } from "./store.js";
+import { ConfirmImport, CsvResult, ExportCsv, ImportFile, ImportPreview, ImportReference, ImportResult, MappingList, ResolveImport, SaveMapping } from "../shared/imports.js";
+import { LedgerImports } from "./imports.js";
+import { exportCsv } from "./csv-export.js";
 
 const publicTool = { plugin: "ledger", risk: "normal", exposable: true, defaultExposed: false } as const;
 const read = { ...publicTool, scope: "read" } as const;
@@ -47,13 +50,22 @@ const descriptors = {
   }),
   upload: descriptor({ ...write, risk: "high", name: "ledger.attachments.upload", title: "上传流水凭证", description: "将受管凭证和流水引用一并保存", input: UploadAttachment, output: Attachment }),
   attachment: descriptor({ ...read, risk: "high", name: "ledger.attachments.read", title: "读取流水凭证", description: "按账本和凭证标识读取，或报告凭证缺失", input: AttachmentRef, output: AttachmentRead }),
+  importPreview: descriptor({ ...read, risk: "high", name: "ledger.imports.preview", title: "预览账单", description: "在当前账本预览来源、转换日期与待决行", input: ImportFile, output: ImportPreview }),
+  importResolve: descriptor({ ...read, name: "ledger.imports.resolve", title: "解决账单待决行", description: "修正账户、分类、交易类型或选择跳过", input: ResolveImport, output: ImportPreview }),
+  importCancel: descriptor({ ...read, name: "ledger.imports.cancel", title: "取消账单预览", description: "清理当前主体的账单预览", input: ImportReference, output: z.strictObject({ cancelled: z.literal(true) }) }),
+  importConfirm: descriptor({ ...write, risk: "high", name: "ledger.imports.confirm", title: "确认导入账单", description: "核对版本并一次写入所选账单行与导入回执", input: ConfirmImport, output: ImportResult }),
+  importStatus: descriptor({ ...read, name: "ledger.imports.status", title: "查询账单回执", description: "查询当前主体的已提交导入结果", input: ImportReference, output: ImportResult.nullable() }),
+  mappings: descriptor({ ...read, name: "ledger.mappings.list", title: "列出账单映射", description: "列出本账本的来源账户和分类规则", input: BookRef, output: MappingList }),
+  saveMappings: descriptor({ ...write, name: "ledger.mappings.save", title: "保存账单映射", description: "保存来源和条件的归一化映射", input: SaveMapping, output: MappingList }),
+  exportCsv: descriptor({ ...read, risk: "high", name: "ledger.exports.csv", title: "导出筛选后的流水", description: "按流水明细同一筛选返回完整 CSV", input: ExportCsv, output: CsvResult }),
 };
 
 export const ledgerCapabilityDescriptors = Object.values(descriptors);
 
 export const apply: PluginEntry["apply"] = (ctx, api) => {
   const store = new LedgerStore(api.vault.files, api.events);
-  ctx.effect(() => () => store.idle());
+  const imports = new LedgerImports(store);
+  ctx.effect(() => () => { imports.dispose(); return store.idle(); });
   const snapshot = async (bookId: string) => { await store.idle(); return store.snapshot(bookId); };
   const currentSnapshot = async ({ bookId, expectedRevision }: { bookId: string; expectedRevision: string }) => {
     const state = await snapshot(bookId);
@@ -107,4 +119,15 @@ export const apply: PluginEntry["apply"] = (ctx, api) => {
   })));
   api.defineCapability(bindCapability(descriptors.upload, (context, input) => change(context, input, (state, steps) => uploadAttachment(state, steps, input))));
   api.defineCapability(bindCapability(descriptors.attachment, async (_context, { bookId, attachmentId }) => readAttachment(store, await snapshot(bookId), attachmentId)));
+  api.defineCapability(bindCapability(descriptors.importPreview, (context, input) => imports.preview(context, input)));
+  api.defineCapability(bindCapability(descriptors.importResolve, (context, input) => imports.resolve(context, input)));
+  api.defineCapability(bindCapability(descriptors.importCancel, (context, input) => imports.cancel(context, input)));
+  api.defineCapability(bindCapability(descriptors.importConfirm, (context, input) => imports.confirm(context, input)));
+  api.defineCapability(bindCapability(descriptors.importStatus, (context, input) => imports.status(context, input)));
+  api.defineCapability(bindCapability(descriptors.mappings, async (_context, { bookId }) => {
+    const state = await snapshot(bookId);
+    return { revision: state.mappingRevision, rules: state.mappings };
+  }));
+  api.defineCapability(bindCapability(descriptors.saveMappings, (context, input) => imports.saveMappings(context, input)));
+  api.defineCapability(bindCapability(descriptors.exportCsv, async (_context, { bookId, filters }) => exportCsv(await snapshot(bookId), filters)));
 };

@@ -1,13 +1,15 @@
 import { ledgerDecimalToMinor, type LedgerRecord } from "@huhu/contracts";
 import { Button, DataTable, Dialog, Select } from "@huhu/ui";
-import { useCapability } from "@huhu/workbench";
+import { host, useCapability } from "@huhu/workbench";
 import { Plus } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { z } from "zod";
 import type { Book } from "../shared/books.js";
 import type { AccountsView, BatchPreview, InputBatch, RecordFilters, RecordsPage, RecordView } from "../shared/entries.js";
+import type { CsvResult } from "../shared/imports.js";
+import { ImportWizard } from "./ImportWizard.js";
 import { AttachmentsDialog, RecordEditor, recordKinds } from "./RecordEditor.js";
-import { bookVersion, currencies, displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
+import { bookVersion, currencies, displayMoney, downloadFile, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
 type Editor = { book: Book; row?: RecordView };
 type Batch = { input: z.infer<typeof InputBatch>; preview: BatchPreview };
@@ -29,6 +31,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
   const [editor, setEditor] = useState<Editor>();
   const [attachment, setAttachment] = useState<string>();
+  const [importOpen, setImportOpen] = useState(false);
   const [selection, setSelection] = useState<RecordView[]>([]);
   const [batchAction, setBatchAction] = useState<"update" | "delete">();
   const [batch, setBatch] = useState<Batch>();
@@ -86,6 +89,16 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
     setBatchAction(kind);
   }
 
+  async function exportSelection() {
+    const result = await action.run<import("zod").infer<typeof CsvResult>>("ledger.exports.csv", { bookId: book.id, filters }, false);
+    if (!result) return;
+    try {
+      const desktop = host();
+      if (desktop) await desktop.saveTextFile(result.fileName, result.csv);
+      else downloadFile(result.fileName, new Blob([result.csv], { type: "text/csv;charset=utf-8" }));
+    } catch { action.setError("无法保存导出的 CSV"); }
+  }
+
   async function submitBatch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!data || !batchAction) return;
@@ -122,6 +135,8 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
 
   return <section className="hu-stack" aria-label="流水">
     <div className="hu-toolbar"><h2>流水</h2>
+      <Button disabled={locked} onClick={() => setImportOpen(true)}>导入账单</Button>
+      <Button disabled={action.working} onClick={() => void exportSelection()}>导出筛选 CSV</Button>
       <Button icon={Plus} variant="primary" disabled={locked || !view.accounts.some(({ status }) => status === "active")} onClick={() => setEditor({ book: view.book })}>记一笔</Button>
     </div>
     <form key={formVersion} className="hu-stack" aria-label="筛选流水" onSubmit={applyFilters}>
@@ -196,6 +211,7 @@ export function RecordsSection({ book, readOnly, quickEntry, consumeQuickEntry }
       </div>
     </>}
     {editor && <RecordEditor book={editor.book} view={view} {...(editor.row && { row: editor.row })} onClose={() => setEditor(undefined)} />}
+    {importOpen && <ImportWizard view={view} onClose={() => setImportOpen(false)} />}
     {attachment && <AttachmentsDialog book={data?.book ?? view.book} recordId={attachment} readOnly={locked} onClose={() => setAttachment(undefined)} />}
     {batchAction && <Dialog open title={batchAction === "delete" ? "批量删除流水" : "批量编辑流水"} error={action.error}
       onClose={() => { if (!action.working) setBatchAction(undefined); }} initialFocusRef={cancel}
