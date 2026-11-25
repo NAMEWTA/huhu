@@ -9,7 +9,7 @@ import postcss from "postcss";
 import selectorParser from "postcss-selector-parser";
 import ts from "typescript";
 
-const PREFIX = /^(hu-|shell-|notes-|tasks-|automations-|inbox-|safe-|ssh-|version-|agent-|editor-|is-)/;
+const PREFIX = /^(hu-|shell-|notes-|tasks-|automations-|inbox-|safe-|ssh-|version-|agent-|editor-|ledger-|is-)/;
 const STATE =
   /^(active|selected|open|disabled|current|checked|expanded|collapsed|hidden|loading|dragging|on|off|error|warning|danger|success|info|ok|completed|failed|connected|today|modified|add|remove|small|grow|muted|compact|focus|hover|focused|visible|empty|primary|ghost|mono|faint|text-link)$/;
 const THIRD = /^(cm-|ͼ|xterm|katex|mermaid|sonner|atomic-|lucide|radix|react-)/;

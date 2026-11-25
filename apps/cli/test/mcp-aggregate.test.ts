@@ -112,8 +112,10 @@ test.skipIf(!codex)("P6 pinned Codex App Server reads one native entry and calls
   try {
     const profile = path.join(root, "profile");
     const workspace = path.join(root, "workspace");
+    const vaultPath = path.join(root, "vault");
     mkdirSync(profile, { mode: 0o700 });
     mkdirSync(workspace);
+    mkdirSync(vaultPath);
     writeFileSync(path.join(profile, "config.toml"), `check_for_update_on_startup = false
 model = "gpt-5.4"
 model_provider = "fixture"
@@ -124,7 +126,7 @@ wire_api = "responses"
 requires_openai_auth = false
 `, { mode: 0o600 });
     upstream = await localUpstream("streamable-http");
-    engine = await boot({ vaultPath: path.join(root, "vault"), create: true });
+    engine = await boot({ vaultPath, create: true });
     const { url } = await publishFixture(engine, upstream.url);
     const { token } = await desktop<Credential>(engine, "gateway.tokens.create", { name: "P6 Codex" });
     const env = { ...process.env, CODEX_HOME: profile, HUHU_P6_TEST_BEARER: token };

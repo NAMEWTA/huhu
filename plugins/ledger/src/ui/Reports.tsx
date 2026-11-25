@@ -5,6 +5,7 @@ import { useId, useState, type ReactNode } from "react";
 import type { Book } from "../shared/books.js";
 import type { RecordFilters, RecordsPage } from "../shared/entries.js";
 import { calendarMonth, HolidayData, ReportQuery, type ReportView } from "../shared/reports.js";
+import { PeriodReview } from "./FinancialNotes.js";
 import { displayMoney, LedgerField, useLedgerAction } from "./primitives.js";
 
 type Currency = ReportView["currencies"][number];
@@ -117,10 +118,11 @@ function MoneySummary({ row }: { row: Flow }) {
   );
 }
 
-export function LedgerReports({ book }: { book: Book }) {
+export function LedgerReports({ book, readOnly, openResource }: { book: Book; readOnly: boolean; openResource(path: string): void }) {
   const { today, scope, setScope } = useScope(book);
   const [dates, setDates] = useState({ from: today.slice(0, 7) + "-01", to: today });
   const [drill, setDrill] = useState<Drill | null>(null);
+  const [review, setReview] = useState(false);
   const input = { bookId: book.id, ...dates, ...scope };
   const valid = ReportQuery.safeParse(input).success;
   const result = useCapability<ReportView>("ledger.reports.query", input, { enabled: valid });
@@ -131,8 +133,13 @@ export function LedgerReports({ book }: { book: Book }) {
   const top = row?.categories.reduce((maximum, { amountMinor }) => (BigInt(amountMinor) > maximum ? BigInt(amountMinor) : maximum), 1n) ?? 1n;
   return (
     <section className="hu-stack" aria-label="账本报表">
-      <h2>账本报表</h2>
+      <div className="hu-toolbar">
+        <h2>账本报表</h2>
+        <Button onClick={() => setReview(true)}>期间复盘</Button>
+      </div>
       <p>业务时区 {book.timeZone}</p>
+      {review && <PeriodReview book={book} readOnly={readOnly} initial={{ ...dates, ...scope }} currencies={currencies}
+        close={() => setReview(false)} openResource={openResource} />}
       <search aria-label="筛选报表" className="hu-toolbar">
         <LedgerField label="开始日期">
           <input type="date" value={dates.from} onChange={(event) => setDates({ ...dates, from: event.currentTarget.value })} />

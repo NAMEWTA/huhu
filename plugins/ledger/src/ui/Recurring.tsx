@@ -1,13 +1,16 @@
 import { ledgerBusinessDate, ledgerDecimalToMinor, type PlanSummary, type PlanWrite, type PlanWriteResult } from "@huhu/contracts";
 import { Badge, Button, Dialog, Select } from "@huhu/ui";
 import { useCapability, useEngine, writeAutomationPlanLink, type ModuleProps } from "@huhu/workbench";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { Book } from "../shared/books.js";
 import type { AccountsView } from "../shared/entries.js";
 import { RecurringInput, recurringLabels, type RecurringList, type RecurringPeriod, type RecurringPreview, type RecurringRow } from "../shared/recurring.js";
 import { displayMoney, fieldValue, LedgerField, useLedgerAction } from "./primitives.js";
 
-export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId }: { book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"]; linkedPlanId: string | undefined }) {
+export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId, headingRef }: {
+  book: Book; readOnly: boolean; onNavigate: ModuleProps["onNavigate"]; linkedPlanId: string | undefined;
+  headingRef: RefObject<HTMLHeadingElement | null> | undefined;
+}) {
   const engine = useEngine();
   const result = useCapability<RecurringList>("ledger.recurring.list", { bookId: book.id });
   const accounts = useCapability<AccountsView>("ledger.accounts.list", { bookId: book.id });
@@ -84,7 +87,7 @@ export function LedgerRecurringPage({ book, readOnly, onNavigate, linkedPlanId }
   return (
     <section className="hu-stack" aria-label="固定收支">
       <div className="hu-toolbar">
-        <h2>固定收支</h2>
+        <h2 ref={headingRef} tabIndex={-1}>固定收支</h2>
         {result.data && writable ? (
           <Button
             disabled={!formAccounts.length}
