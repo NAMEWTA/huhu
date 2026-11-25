@@ -95,13 +95,17 @@ test("停用插件后，迟到的启动对账不会重新安装 Cron", async () 
 
 test("工作台可以读取规则草稿预览，预览不会创建规则或初始化标记", async () => {
   const { engine, marker: markerFile } = await open();
+  const trigger = { preset: "every15", cron: "*/15 * * * *", zone: "UTC" };
   const result = await call<{ at: string; next: string[] }>(engine, "automations.plans.previewRuleDraft", {
-    trigger: { preset: "every15", cron: "*/15 * * * *", zone: "UTC" },
+    trigger,
     action: { kind: "agent", input: { source: "tasks", tags: [], maxConcurrent: 1 } },
     body: "",
   });
   expect(result.at).toBe(fixture.now.toISOString());
   expect(result.next).toEqual([at("01:15:00"), at("01:30:00"), at("01:45:00")].map((time) => time.toISOString()));
+  expect(await call(engine, "automations.plans.previewRuleDraft", { trigger })).toEqual({
+    at: result.at, next: result.next, tasksDisabled: false, candidates: [], skipped: [],
+  });
   expect(await list(engine)).toEqual([]);
   expect(existsSync(markerFile)).toBe(false);
 });

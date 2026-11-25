@@ -3,7 +3,7 @@ import { Button, DateInput, DateTimePicker, Field, Select } from "@huhu/ui";
 import { Clock } from "lucide-react";
 import { useCapability, useEngine } from "@huhu/workbench";
 import { useEffect, useId, useRef, useState } from "react";
-import { nextRuns } from "../shared/cron.js";
+import { validateSchedule } from "../shared/cron.js";
 import { PRESETS, cronFor, presetOf, type PresetId } from "./cron-presets.js";
 import { formatMoment } from "./plan-presentation.js";
 import { t } from "./i18n.js";
@@ -131,8 +131,7 @@ export function RuleEditor({
     : kind === "terminal" ? Boolean(command.trim() && (!spaceId || canUseSpace))
     : scanValid;
   const timeOk = !PRESETS.find((p) => p.id === preset)?.time || /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
-  // 触发设置的即时校验：cron 或时区不合法时在表单里就给出原因，并显示接下来三次激活
-  let upcoming: string[] = [];
+  // 本地反馈用于校验输入，预览时刻来自负责执行的 Engine。
   let triggerError: string | null = null;
   if (!timeOk) triggerError = t.timeRequired;
   else if (cron === "") triggerError = preset === "weekly" ? "请选择至少一个星期日。" : t.cronRequired;
@@ -140,7 +139,7 @@ export function RuleEditor({
   else {
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() });
-      upcoming = nextRuns(cron, tz.trim(), 3);
+      validateSchedule(cron, tz.trim());
     } catch (e) {
       triggerError = /Range|time ?zone/i.test(String(e)) ? t.zoneInvalid : t.cronInvalid;
     }
@@ -164,6 +163,7 @@ export function RuleEditor({
   };
 
   const { trigger, action, body } = draft();
+  const schedule = useCapability<Pick<Preview, "at" | "next">>("automations.plans.previewRuleDraft", { trigger }, { enabled: triggerError === null });
   const previewVersion = JSON.stringify([trigger, action, body]);
   const activePreview = useRef<AbortController | null>(null);
   const [preview, setPreview] = useState<{ version: string; status: "loading" | "loaded" | "error"; data?: Preview; error?: string } | null>(null);
@@ -422,12 +422,14 @@ export function RuleEditor({
               {triggerError}
             </p>
           ) : (
-            <div className="automations-schedule-preview" data-testid="rule-upcoming">
+            <div className="automations-schedule-preview" data-testid="rule-upcoming" aria-busy={schedule.isPending || undefined}>
               <strong>{t.upcoming}</strong>
               <small>{tz.trim()} · 仅预览</small>
-              {upcoming.map((x) => (
+              {schedule.isError ? <p role="alert">无法读取激活时间。<Button variant="ghost" onClick={() => void schedule.refetch()}>重试</Button></p> : null}
+              {schedule.data?.next.length === 0 ? <p>当前日程没有后续激活时间。</p> : null}
+              {schedule.data?.next.map((x) => (
                 <time key={x} dateTime={x}>
-                  {new Date(x).toLocaleString("zh-CN", { timeZone: tz.trim(), hour12: false, timeZoneName: "shortOffset" })}
+                  {formatMoment(x, trigger.zone)}
                 </time>
               ))}
             </div>

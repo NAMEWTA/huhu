@@ -300,12 +300,12 @@ export class AutomationsService {
     return { ruleVersion: r.version, ...await this.previewDraft(r.data.trigger, r.data.action, r.body, signal) };
   }
 
-  async previewDraft(trigger: RuleData["trigger"], action: RuleData["action"], body: string, signal?: AbortSignal) {
+  async previewDraft(trigger: RuleData["trigger"], action: RuleData["action"] | undefined, body: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
     const now = this.d.now();
     const at = now.toISOString();
     const next = nextRuns(trigger.cron, trigger.zone, 3, now);
-    if (action.kind !== "agent" || action.input.source !== "tasks") return { at, next, tasksDisabled: false, candidates: [], skipped: [] };
+    if (action?.kind !== "agent" || action.input.source !== "tasks") return { at, next, tasksDisabled: false, candidates: [], skipped: [] };
     const { tasksDisabled, candidates, skipped } = await this.classifyTaskScan({ data: { trigger, action: { kind: "agent", input: action.input } }, body }, now, signal);
     return {
       at,
