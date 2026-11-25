@@ -164,7 +164,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   } satisfies PeriodicPlanSource);
   const publicMonitors = new PublicMonitors(monitorPanels, manager, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-external-monitor", id, op: "updated" }));
   registerSshKeys(api, hosts);
-  registerOutboundProxies(api, outboundProxies, hosts);
+  registerOutboundProxies(api, outboundProxies, hosts, deviceProxies);
   registerDeviceProxies(api, deviceProxies);
   registerHostAuthorities(api, hosts, manager);
   registerShortcuts(api);

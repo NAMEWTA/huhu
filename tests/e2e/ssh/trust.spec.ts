@@ -89,6 +89,7 @@ test("A03 desktop approves the first-hop ProxyCommand and revokes its live conne
     await proxy.getByRole("button", { name: "返回路由", exact: true }).click();
     await page.getByRole("button", { name: "返回主机", exact: true }).click();
     await selectHost(page, "代理目标");
+    await expect(moduleView(page).getByText("本机批准的 ProxyCommand", { exact: true })).toBeVisible();
     await connect(page);
     for (const port of [jump.port, target.port]) {
       await expect(dialog(page)).toContainText(`127.0.0.1:${port}`);

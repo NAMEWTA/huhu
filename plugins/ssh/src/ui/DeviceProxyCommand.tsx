@@ -4,7 +4,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import type { DeviceProxyState } from "../engine/device-proxy-capabilities.js";
 import { hostEndpoint } from "./HostKeyDialog.js";
 
-export function DeviceProxyCommand({ hostId, onClose }: { hostId: string; onClose(): void }) {
+export function DeviceProxyCommand({ hostId, onClose, onChanged }: { hostId: string; onClose(): void; onChanged(): Promise<unknown> }) {
   const engine = useEngine();
   const query = useCapability<DeviceProxyState>("ssh.proxyCommand.read", { hostId });
   const state = query.data;
@@ -21,7 +21,7 @@ export function DeviceProxyCommand({ hostId, onClose }: { hostId: string; onClos
     setError(undefined);
     try {
       await engine.call(`ssh.proxyCommand.${action}`, input, { write: true });
-      await query.refetch();
+      await onChanged();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法更新本机代理批准");
     } finally {

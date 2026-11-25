@@ -6,6 +6,7 @@ import { OwnedHostId } from "./auth-profile.js";
 import type { HostConfigurations } from "./host-configurations.js";
 import { effectiveOutboundProxy, summarizeOutboundProxy, type OutboundProxies } from "./outbound-proxies.js";
 import { readPortableHosts } from "./public-resources.js";
+import type { DeviceProxies } from "./device-proxies.js";
 
 const desktop = { plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false } as const;
 export const sshOutboundProxyDescriptors = {
@@ -63,13 +64,14 @@ export const sshOutboundProxyDescriptors = {
   }),
 };
 
-export function registerOutboundProxies(api: HuhuApi, proxies: OutboundProxies, hosts: HostConfigurations): void {
+export function registerOutboundProxies(api: HuhuApi, proxies: OutboundProxies, hosts: HostConfigurations, device?: DeviceProxies): void {
   const descriptors = sshOutboundProxyDescriptors;
   const changed = () => api.events.publish("entity.changed", { kind: "ssh-outbound-proxy", id: "outbound", op: "updated" });
   api.defineCapability(
-    bindCapability(descriptors.outboundProxiesPreview, (_context, { hostId }) => {
+    bindCapability(descriptors.outboundProxiesPreview, ({ caller }, { hostId }) => {
       const [host] = readPortableHosts(api.vault.files, new Set([hostId]));
       if (!host) throw errors.notFound("SSH 主机");
+      if (caller === "desktop" && device?.read(hostId)) return { source: "command" as const };
       return summarizeOutboundProxy(effectiveOutboundProxy(api.vault.files, host));
     }),
   );

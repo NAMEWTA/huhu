@@ -322,7 +322,7 @@ export function RoutePanel({ hosts, connections, defaultTargets = [], onBack, on
           })}
         </section>
       ))}
-      {commandHost ? <DeviceProxyCommand hostId={commandHost} onClose={() => setCommandHost(undefined)} /> : null}
+      {commandHost ? <DeviceProxyCommand hostId={commandHost} onClose={() => setCommandHost(undefined)} onChanged={onChanged} /> : null}
     </section>
   );
 }
