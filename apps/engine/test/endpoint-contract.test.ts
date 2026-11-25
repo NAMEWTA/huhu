@@ -72,6 +72,7 @@ test("在现有端口启用 MCP 后，CLI 重新发现同一端点，独立客�
     expect(await list.json()).toMatchObject({ result: { tools: expect.arrayContaining([expect.objectContaining({ name: "vault_info" })]) } });
     const call = await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "vault_info", arguments: {} }), session);
     expect(await call.json()).toMatchObject({ result: { structuredContent: { data: { id: vaultId } } } });
+    return session;
   };
   await verifyHttpClient();
 
@@ -91,7 +92,9 @@ test("在现有端口启用 MCP 后，CLI 重新发现同一端点，独立客�
   expect((await mcpRequest(endpoint, token, initializeMcp)).status).toBe(404);
   expect(await capability(currentCli.baseUrl, currentCli.token, "vault.info")).toMatchObject({ id: vaultId });
   await capability(baseUrl, engine.rendererToken, "gateway.mcp.update", { enabled: true });
+  const liveSession = await verifyHttpClient();
   await capability(baseUrl, engine.rendererToken, "gateway.tokens.revoke", { id });
+  expect((await mcpRequest(endpoint, token, mcpRpc("tools/call", { name: "vault_info", arguments: {} }), liveSession)).status).toBe(401);
   expect((await mcpRequest(endpoint, token, initializeMcp)).status).toBe(401);
 });
 
