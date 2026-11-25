@@ -15,6 +15,10 @@ import { mcpRequest, mcpRpc, openMcpSession } from "./fixtures/mcp-http.js";
 import { localUpstream } from "./fixtures/mcp-upstream.js";
 
 const cleanup: (() => void | Promise<void>)[] = [];
+type RpcReply = {
+  result: { tools: { name: string }[]; structuredContent: unknown };
+  error: { data: { code: string } };
+};
 afterEach(async () => {
   for (const done of cleanup.reverse()) await done();
   cleanup.length = 0;
@@ -88,7 +92,7 @@ async function fixture(directory: string, readOnly = false) {
       return async (method: string, params: unknown = {}) => {
         const response = await mcpRequest(endpoint, token, mcpRpc(method, params), handle);
         expect(response.status).toBe(200);
-        return response.json();
+        return await response.json() as RpcReply;
       };
     },
   };
@@ -246,7 +250,7 @@ test("one HTTP entry matches exact same-name tools across stdio, Streamable HTTP
   const { source: local } = await addStdio(f, directory);
   await approve(f, local);
   vi.stubEnv("HUHU_TEST_MCP_AUTH_HEADER", "Bearer fixture-only");
-  cleanup.unshift(() => vi.unstubAllEnvs());
+  cleanup.unshift(() => { vi.unstubAllEnvs(); });
   const remote = (namespace: string, transport: "streamable-http" | "sse", url: string, useEnv = false) => f.call<Source>("mcp.sources.create", {
     displayName: namespace, namespace, configuration: { transport, url, headers: {}, authentication: useEnv
       ? { kind: "environment", name: "HUHU_TEST_MCP_AUTH_HEADER", header: "Authorization" } : { kind: "none" } },
