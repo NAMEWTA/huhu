@@ -5,6 +5,7 @@ import { AgentDispatchTargetSchema, AgentNativeStopInputSchema, AgentNativeStopS
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { canonicalJson } from "../shared/input.js";
+import { TaskJournalIndex } from "./journal-index.js";
 import { ResponseActor } from "./response-actor.js";
 
 const Id = z.string().trim().min(1).max(256);
@@ -187,6 +188,8 @@ export function sameInput(task: TaskDto, input: Pick<DispatchInput, "inputRevisi
 export class DispatchStore {
   private readonly dir = "tasks/dispatches";
   private readonly keyFile: string;
+  private readonly index: TaskJournalIndex;
+  private readonly released = new Set<string>();
 
   constructor(
     private readonly files: VaultFiles,
@@ -198,6 +201,76 @@ export class DispatchStore {
     const { dev, ino, birthtimeNs } = statSync(files.root, { bigint: true });
     const dirId = fingerprint([dev.toString(), ino.toString(), birthtimeNs.toString()]).slice(0, 32);
     this.keyFile = `runtime/${machineId}/task-dispatch-${dirId}.key`;
+    this.index = new TaskJournalIndex(this.files, this.dir, /^evt-[a-f0-9]{64}\.json$/, (file) => {
+      const record = this.read(this.eventId(file))?.record;
+      return record ? this.groups(record) : null;
+    });
+  }
+
+  private eventId(file: string) {
+    return file.slice(this.dir.length + 1, -5);
+  }
+
+  private path(eventId: string) {
+    return `${this.dir}/${eventId}.json`;
+  }
+
+  private groups(record: DispatchRecord): string[] {
+    const { receipt } = record;
+    const groups = [`task:${receipt.taskId}`];
+    if (this.owns(record)) {
+      if (holdsTask(receipt)) groups.push("active");
+      else this.released.add(receipt.eventId);
+    }
+    return groups;
+  }
+
+  private selected(group: string, onError?: (error: unknown) => void): DispatchRecord[] {
+    return this.index.paths(group, onError).flatMap((file) => {
+      try {
+        const record = this.read(this.eventId(file))?.record;
+        return record ? [record] : [];
+      } catch (error) {
+        if (!onError) throw error;
+        onError(error);
+        return [];
+      }
+    });
+  }
+
+  forTask(taskId: string, onError?: (error: unknown) => void): DispatchRecord[] {
+    return this.selected(`task:${taskId}`, onError);
+  }
+
+  active(onError: (error: unknown) => void): DispatchRecord[] {
+    return this.selected("active", onError);
+  }
+
+  watch(onChange: () => void): void {
+    this.index.onChange = onChange;
+  }
+
+  close(): void {
+    this.index.close();
+  }
+
+  retire(eventId: string): void {
+    this.index.exclude(this.path(eventId), "active");
+    this.released.add(eventId);
+  }
+
+  reactivate(dispatchId: string): void {
+    const eventId = eventIdOf(dispatchId);
+    const record = this.read(eventId)?.record;
+    if (record) this.index.replace(this.path(eventId), this.groups(record));
+  }
+
+  releasedReservations(): ReadonlySet<string> {
+    return this.released;
+  }
+
+  acknowledgeReleased(): void {
+    this.released.clear();
   }
 
   get readOnly(): boolean {
@@ -206,6 +279,11 @@ export class DispatchStore {
 
   assertWritable(): void {
     this.files.assertWritable();
+  }
+
+  assertNewDispatchSafe(): void {
+    this.assertWritable();
+    this.index.assertHealthy();
   }
 
   owns(record: DispatchRecord): record is OwnedRecord {
@@ -230,7 +308,7 @@ export class DispatchStore {
   }
 
   read(eventId: string): Stored | null {
-    const rel = `${this.dir}/${eventId}.json`;
+    const rel = this.path(eventId);
     const file = this.files.read(rel);
     if (!file) return null;
     try {
@@ -326,7 +404,9 @@ export class DispatchStore {
 
   private async writeSealed(unsigned: UnsealedRecord, key: Buffer, expectedVersion: string | null): Promise<OwnedRecord> {
     const record = { ...unsigned, seal: seal(unsigned, key) };
-    await this.files.write(`${this.dir}/${record.receipt.eventId}.json`, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion });
+    const location = this.path(record.receipt.eventId);
+    await this.files.write(location, Buffer.from(`${JSON.stringify(record, null, 2)}\n`), { expectedVersion });
+    this.index.replace(location, this.groups(record));
     this.changed?.(record.receipt, expectedVersion === null ? "created" : "updated");
     return record;
   }

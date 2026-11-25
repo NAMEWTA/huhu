@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { errors, ExecutionReceiptSchema, HuhuError, isHuhuError, TasksReceiptConsumptionSchema, type ExecutionBinding, type ExecutionReceipt, type ExecutionReceiptAck } from "@huhu/contracts";
 import { createExecutionReceiptAck, validateExecutionReceipt } from "@huhu/contracts/execution-receipt/engine";
@@ -6,6 +6,7 @@ import { nativeTerminalCodes } from "@huhu/plugin-agent-cli/engine";
 import type { VaultFiles } from "@huhu/vault";
 import { z } from "zod";
 import { fingerprint, type TaskRunSummary } from "./dispatch-store.js";
+import { TaskJournalIndex } from "./journal-index.js";
 import type { TasksService } from "./service.js";
 
 const DIRECTORY = "tasks/receipts";
@@ -17,6 +18,8 @@ const RecordSchema = z.strictObject({
   status: z.enum(["pending", "delivered", "target_missing", "superseded"]),
 });
 type DeliveryRecord = z.infer<typeof RecordSchema>;
+type StoredReceipt = { record: DeliveryRecord; version: string };
+export type ReceiptSnapshot = Map<string, StoredReceipt | null>;
 export const TaskQuestionView = z.strictObject({
   runId: z.string(),
   sessionId: z.string(),
@@ -84,13 +87,43 @@ function holdFixtureAck(input: ExecutionReceipt, ack: ExecutionReceiptAck): void
 
 /** Receipt IDs are unique within this Vault. The ACK is derived from the bytes read back. */
 export class TaskReceiptInbox {
+  private readonly index: TaskJournalIndex;
+  private readonly reconsider = new Set<string>();
+
   constructor(
     private readonly files: VaultFiles,
     private readonly now: () => Date,
     private readonly changed: (runId: string) => void,
-  ) {}
+  ) {
+    this.index = new TaskJournalIndex(files, DIRECTORY, /^[a-f0-9]{64}\.json$/, (file) => {
+      const record = this.read(file)?.record;
+      return record ? this.groups(record) : null;
+    }, (previous, current) => {
+      for (const group of [...previous, ...current]) if (group.startsWith("dispatch:")) this.reconsider.add(group.slice(9));
+    });
+  }
 
-  private read(file: string) {
+  private groups({ receipt, status }: DeliveryRecord) {
+    const { dispatchId, taskId, runId } = receipt.execution;
+    return [`dispatch:${dispatchId}`, `task:${taskId}`, `run:${runId}`, ...(status === "pending" ? ["pending"] : [])];
+  }
+
+  changedDispatches(onError: (error: unknown) => void): string[] {
+    this.index.paths("pending", onError);
+    const changed = [...this.reconsider];
+    this.reconsider.clear();
+    return changed;
+  }
+
+  watch(onChange: () => void): void {
+    this.index.onChange = onChange;
+  }
+
+  close(): void {
+    this.index.close();
+  }
+
+  private read(file: string): StoredReceipt | null {
     const read = this.files.read(file);
     if (!read) return null;
     try {
@@ -101,6 +134,12 @@ export class TaskReceiptInbox {
     } catch {
       throw new HuhuError("WRITE_PARTIAL", "任务回执记录损坏");
     }
+  }
+
+  private readOnce(file: string, snapshot?: ReceiptSnapshot): StoredReceipt | null {
+    if (!snapshot) return this.read(file);
+    if (!snapshot.has(file)) snapshot.set(file, this.read(file));
+    return snapshot.get(file) ?? null;
   }
 
   private file(receiptId: string): string {
@@ -136,31 +175,26 @@ export class TaskReceiptInbox {
       if (durable) throw errors.invalidInput("任务回执与先前保存的内容冲突");
       throw new HuhuError("WRITE_PARTIAL", "未能回读任务回执");
     }
+    if (durable) {
+      this.index.replace(file, this.groups(durable.record));
+      if (result.status === "new") this.reconsider.add(input.execution.dispatchId);
+    }
     holdFixtureAck(input, ack.ack);
     return ack.ack;
   }
 
-  private filesInInbox(): string[] {
-    try {
-      return readdirSync(this.files.abs(DIRECTORY))
-        .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
-        .map((file) => `${DIRECTORY}/${file}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-  }
-
   history(taskId: string, bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void = () => {}) {
-    const { questions, outcomes } = this.currentHistory(taskId, bound, onError);
+    const { questions, outcomes } = this.currentHistory(this.index.paths(`task:${taskId}`, onError), bound, onError);
     return {
       outcomes,
       questions: questions.map(({ view }) => view).sort((a, b) => a.at.localeCompare(b.at) || a.runId.localeCompare(b.runId) || a.requestId.localeCompare(b.requestId)),
     };
   }
 
-  schedulingHistory(bound: (execution: ExecutionBinding) => boolean, onError: (error: unknown) => void) {
-    const { outcomes, questions } = this.currentHistory(null, bound, onError);
+  schedulingHistory(bindings: ReadonlyMap<string, string>, onError: (error: unknown) => void, snapshot: ReceiptSnapshot) {
+    const matches = (execution: ExecutionBinding) => bindings.get(execution.dispatchId) === fingerprint(execution);
+    const files = this.index.pathsFor([...bindings.keys()].map((dispatchId) => `dispatch:${dispatchId}`), onError);
+    const { outcomes, questions } = this.currentHistory(files, matches, onError, snapshot);
     const nativeWaits = new Map<string, QuestionView[]>();
     for (const { view, receipt } of questions) {
       if (view.status !== "awaiting" || view.mode !== "native_deferred") continue;
@@ -173,25 +207,26 @@ export class TaskReceiptInbox {
   }
 
   confirmedFailure(execution: ExecutionBinding): boolean {
-    return this.currentHistory(execution.taskId, (candidate) => fingerprint(candidate) === fingerprint(execution)).outcomes.get(execution.dispatchId)?.state === "failed";
+    const bound = fingerprint(execution);
+    return this.currentHistory(this.index.paths(`dispatch:${execution.dispatchId}`), (candidate) => fingerprint(candidate) === bound).outcomes.get(execution.dispatchId)?.state === "failed";
   }
 
   question(taskId: string, runId: string, requestId: string, bound: (execution: ExecutionBinding) => boolean): StoredQuestion | undefined {
-    return this.currentHistory(taskId, bound)
-      .questions.filter(({ view }) => view.runId === runId && view.requestId === requestId)
+    return this.currentHistory(this.index.paths(`run:${runId}`), (execution) => execution.taskId === taskId && bound(execution))
+      .questions.filter(({ view }) => view.requestId === requestId)
       .sort((a, b) => b.receipt.execution.attempt - a.receipt.execution.attempt)[0];
   }
 
-  private currentHistory(taskId: string | null, bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void) {
+  private currentHistory(files: readonly string[], bound: (execution: ExecutionBinding) => boolean, onError?: (error: unknown) => void, snapshot?: ReceiptSnapshot) {
     const questions = new Map<string, StoredQuestion>();
     const terminal = new Map<string, { outcome: RunOutcome; payloadHash: string }>();
-    for (const file of this.filesInInbox()) {
+    for (const file of files) {
       try {
-        const value = this.read(file);
+        const value = this.readOnce(file, snapshot);
         if (!value) continue;
         const { receipt, at, status } = value.record;
         const { execution } = receipt;
-        if (status === "superseded" || (taskId !== null && execution.taskId !== taskId) || !bound(execution)) continue;
+        if (status === "superseded" || !bound(execution)) continue;
         if (receipt.kind !== "question") {
           if (receipt.kind !== "progress") {
             const payloadHash = fingerprint([receipt.kind, receipt.payload]);
@@ -234,11 +269,11 @@ export class TaskReceiptInbox {
     };
   }
 
-  async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void): Promise<void> {
-    for (const file of this.filesInInbox()) {
+  async replay(tasks: TasksService, bound: (execution: ExecutionBinding) => boolean, signal: AbortSignal, onError?: (error: unknown) => void, snapshot?: ReceiptSnapshot): Promise<void> {
+    for (const file of this.index.paths("pending", onError)) {
       if (signal.aborted) return;
       try {
-        const previous = this.read(file);
+        const previous = this.readOnce(file, snapshot);
         if (!previous || previous.record.status !== "pending") continue;
         const { record } = previous;
         const { receipt, consumption } = record;
@@ -263,7 +298,10 @@ export class TaskReceiptInbox {
           }
         }
         if (!signal.aborted) {
-          await this.files.write(file, encode({ ...record, status }), { expectedVersion: previous.version });
+          const next = { ...record, status };
+          const { version } = await this.files.write(file, encode(next), { expectedVersion: previous.version });
+          this.index.replace(file, this.groups(next));
+          snapshot?.set(file, { record: next, version });
           if (hasMessage) this.changed(receipt.execution.runId);
         }
       } catch (error) {

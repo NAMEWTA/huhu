@@ -29,7 +29,7 @@ import {
   type TaskRunSummary,
 } from "./dispatch-store.js";
 import { agentDispatchBlocker, type TasksService } from "./service.js";
-import type { RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
+import type { ReceiptSnapshot, RunOutcome, TaskReceiptInbox } from "./receipt-inbox.js";
 import {
   type AgentReplyInput,
   type AgentReplyResult,
@@ -165,7 +165,8 @@ function rejectDispatch(reason: Rejection, message: string, existing?: DispatchR
 }
 
 function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
-  return isTaskAvailable(task.availableAt, now) || task.availableAt === receipt.overriddenAvailableAt;
+  return (isTaskAvailable(task.availableAt, new Date(receipt.acceptedAt)) && isTaskAvailable(task.availableAt, now))
+    || task.availableAt === receipt.overriddenAvailableAt;
 }
 
 function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>, task: TaskDto | null): boolean {
@@ -201,7 +202,11 @@ export class TaskDispatch {
     private readonly onError?: (error: unknown) => void,
     private readonly readArtifact?: (path: string) => { version: string; text: string } | null,
     private readonly budget?: DeviceDispatchBudget,
-  ) {}
+  ) {
+    this.store.watch(() => this.wakeAfterReceipt());
+    this.receipts.watch(() => this.wakeAfterReceipt());
+    this.replies.watch(() => this.wakeAfterReceipt());
+  }
 
   resources(retained: number | null) {
     const unconfigured = { limit: null, occupied: null };
@@ -214,6 +219,9 @@ export class TaskDispatch {
   async close(): Promise<void> {
     this.abort.abort();
     clearImmediate(this.receiptCheckImmediate);
+    this.store.close();
+    this.receipts.close();
+    this.replies.close();
     await this.tasks.drainWrites();
   }
 
@@ -278,9 +286,9 @@ export class TaskDispatch {
         if (view.runId !== input.runId || view.sessionId !== input.sessionId || source.text !== input.text || fingerprint(source.messageIds) !== fingerprint(input.messageIds)) throw errors.idempotencyMismatch();
         return view;
       }
-      this.store.assertWritable();
+      this.store.assertNewDispatchSafe();
       if (task.type !== "agent" || task.status === "completed") throw errors.invalidInput("当前任务无法发送补充信息");
-      const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
+      const records = this.recordsFor(task.id);
       const parent = records.filter(({ receipt }) => receipt.runId === input.runId).sort((a, b) => b.receipt.attempt - a.receipt.attempt)[0];
       if (parent && !this.visibleDispatch(parent, toolOwner)) throw errors.notFound("没有这条任务运行");
       const execution = parent?.boundExecution;
@@ -326,7 +334,7 @@ export class TaskDispatch {
           throw errors.idempotencyMismatch();
         return previous;
       }
-      this.store.assertWritable();
+      this.store.assertNewDispatchSafe();
       if (this.replies.list(task.id, this.matchesExecution).some(({ replyId }) => replyId === input.replyId)) throw errors.idempotencyMismatch();
       const question = this.receipts.question(task.id, input.runId, input.requestId, (execution) => this.readableExecution(execution, actor.owner));
       if (
@@ -342,7 +350,7 @@ export class TaskDispatch {
       }
       const parent = this.store.read(eventIdOf(question.receipt.execution.dispatchId))?.record;
       if (!parent) throw new HuhuError("RUN_UNKNOWN", "缺少原会话的派遣记录");
-      const records = this.store.list().filter(({ receipt }) => receipt.taskId === task.id);
+      const records = this.recordsFor(task.id);
       if (records.some(({ snapshot }) => snapshot.source.kind === "reply" && snapshot.source.parent.runId === input.runId && snapshot.source.requestId === input.requestId && snapshot.source.requestVersion === input.requestVersion)) {
         throw new HuhuError("VERSION_CONFLICT", "该任务问题已有一条回答");
       }
@@ -487,14 +495,14 @@ export class TaskDispatch {
   }
 
   hasActiveRun(taskId: string): boolean {
-    const running = this.store.list().filter((record) => record.receipt.taskId === taskId && record.receipt.state === "running" && this.store.owns(record));
+    const running = this.recordsFor(taskId).filter((record) => record.receipt.state === "running" && this.store.owns(record));
     if (!running.length) return false;
     const { outcomes } = this.receipts.history(taskId, this.matchesExecution, this.onError);
     return running.some(({ receipt, stop }) => stop?.status !== "stopped" && !outcomes.get(receipt.dispatchId)?.finishedAt);
   }
 
   private recordsFor(taskId: string): DispatchRecord[] {
-    return this.store.list().filter(({ receipt }) => receipt.taskId === taskId);
+    return this.store.forTask(taskId, (error) => this.onError?.(error));
   }
 
   runs(taskId: string, records = this.recordsFor(taskId)): TaskRunSummary[] {
@@ -571,12 +579,12 @@ export class TaskDispatch {
       this.abort.signal.throwIfAborted();
       const replay = previous();
       if (replay) return replay;
-      this.store.assertWritable();
+      this.store.assertNewDispatchSafe();
       const current = this.tasks.read(taskId);
       if (current.status !== "in_progress" || current.type !== "agent") rejectDispatch("task_unavailable", "当前任务无法跟进");
       if (!sameInput(current, input)) rejectDispatch("stale_input", "任务输入已变化");
       if (!isTaskAvailable(current.availableAt, this.now())) rejectDispatch("not_due", "尚未到达最早派遣时间");
-      const records = this.store.list().filter(({ receipt }) => receipt.taskId === taskId);
+      const records = this.recordsFor(taskId);
       const parent = records.filter(({ boundExecution }) => boundExecution && this.matchesExecution(boundExecution)).sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt))[0];
       if (!parent?.boundExecution) rejectDispatch("target_unavailable", "无法确认原任务的会话");
       this.assertContinuationSlot(current, records, parent.receipt.dispatchId);
@@ -597,7 +605,7 @@ export class TaskDispatch {
           if (prior.record.requestHash !== requestHash) throw errors.idempotencyMismatch();
           return prior.record.receipt;
         }
-        this.store.assertWritable();
+        this.store.assertNewDispatchSafe();
         const task = this.tasks.read(input.taskId);
         const acceptedAt = this.now();
         if ((input.newRound || input.context) && source.kind !== "desktop") throw errors.permissionDenied("在工作台选取上下文或明确开始新轮次");
@@ -689,7 +697,7 @@ export class TaskDispatch {
       const previous = replay();
       if (previous) return previous;
 
-      this.store.assertWritable();
+      this.store.assertNewDispatchSafe();
       const task = this.tasks.read(input.taskId);
       const { record } = this.lookup(input);
       const { receipt, snapshot, snapshotHash, agentTarget, boundExecution } = record;
@@ -868,13 +876,22 @@ export class TaskDispatch {
     this.checking = true;
     this.receiptCheckQueued = false;
     try {
-      await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, this.onError);
-      const records = this.store.list((error) => this.onError?.(error));
+      const onError = (error: unknown) => this.onError?.(error);
+      const snapshot: ReceiptSnapshot = new Map();
+      for (const dispatchId of this.receipts.changedDispatches(onError)) {
+        try {
+          this.store.reactivate(dispatchId);
+        } catch (error) {
+          onError(error);
+        }
+      }
+      await this.receipts.replay(this.tasks, this.matchesExecution, this.abort.signal, onError, snapshot);
+      const records = this.store.active(onError);
       const owned = records.filter((record): record is OwnedRecord => this.store.owns(record));
       const events = records
         .filter(({ receipt }) => holdsTask(receipt))
         .sort((a, b) => a.receipt.acceptedAt.localeCompare(b.receipt.acceptedAt) || a.receipt.eventId.localeCompare(b.receipt.eventId));
-      const { occupancy, refreshReplies } = this.schedulingOccupancy(owned);
+      const { occupancy, refreshReplies } = this.schedulingOccupancy(owned, snapshot);
       const budgetReady = this.refreshResources(owned, occupancy);
       const takeActive = ({ receipt }: DispatchRecord) => !this.budget || (budgetReady && this.budget.claim("active", receipt.eventId));
       const slots: RuleSlots = new Map();
@@ -897,6 +914,10 @@ export class TaskDispatch {
         if (this.abort.signal.aborted) break;
         try {
           await this.advance(event, slots, takeActive);
+          if (this.store.owns(event) && event.receipt.state === "running"
+            && !["pending", "sending", "unknown"].includes(event.stop?.status ?? "") && occupancy(event) === "none") {
+            this.store.retire(event.receipt.eventId);
+          }
         } catch (error) {
           if (!this.abort.signal.aborted) this.onError?.(error);
         } finally {
@@ -917,7 +938,7 @@ export class TaskDispatch {
   private refreshResources(records: OwnedRecord[], occupancy: (record: OwnedRecord) => Occupancy): boolean {
     const counts = noBacklog();
     const held = new Set<string>();
-    const released = new Set<string>();
+    const released = new Set(this.store.releasedReservations());
     for (const record of records) {
       const { receipt, stop } = record;
       if (receipt.state === "pending" || receipt.state === "claimed") {
@@ -938,7 +959,9 @@ export class TaskDispatch {
     }
     counts.active = held.size;
     this.resourceCounts = counts;
-    return this.budget?.sync("active", held, released) ?? true;
+    const synced = this.budget?.sync("active", held, released) ?? true;
+    if (synced) this.store.acknowledgeReleased();
+    return synced;
   }
 
   private updateRuleSlots(slots: RuleSlots, record: OwnedRecord, occupancy: (record: OwnedRecord) => Occupancy): void {
@@ -951,13 +974,13 @@ export class TaskDispatch {
     slots.set(source.ruleId, active);
   }
 
-  private schedulingOccupancy(records: OwnedRecord[]) {
+  private schedulingOccupancy(records: OwnedRecord[], snapshot: ReceiptSnapshot) {
     const bindings = new Map<string, string>();
     for (const { receipt, claim, boundExecution } of records) {
       if (receipt.state === "running" && claim?.machineId === this.machineId && boundExecution) bindings.set(receipt.dispatchId, fingerprint(boundExecution));
     }
     const matches = (execution: ExecutionBinding) => bindings.get(execution.dispatchId) === fingerprint(execution);
-    const { outcomes, nativeWaits } = this.receipts.schedulingHistory(matches, (error) => this.onError?.(error));
+    const { outcomes, nativeWaits } = this.receipts.schedulingHistory(bindings, (error) => this.onError?.(error), snapshot);
     const repliesByTask = new Map<string, ReturnType<TaskNativeReplies["list"]>>();
     const occupancy = ({ receipt, stop }: OwnedRecord): Occupancy => {
       const { state, taskId, runId, dispatchId } = receipt;
@@ -1155,10 +1178,7 @@ export class TaskDispatch {
       else if (!task || (record.retryOf ? !this.retryTaskOpen(task) : continuation === null ? !this.dispatchable(task, snapshot.newRound) : task.type !== "agent")) Object.assign(next, { state: "blocked", reason: "task_unavailable" });
       else if (!this.retrySourceSafe(record)) next.reason = "awaiting_confirmation";
       else if (continuation === "waiting") next.reason = "waiting_resource";
-      else if (validateInput && !maySend(task, receipt, now)) {
-        if (source.kind === "automation" || source.kind === "follow-up") Object.assign(next, { state: "stale_input", reason: "waiting_schedule" });
-        else next.reason = "waiting_schedule";
-      }
+      else if (receipt.reason === "waiting_schedule" || (validateInput && !maySend(task, receipt, now))) Object.assign(next, { state: "stale_input", reason: "waiting_schedule" });
       else if (state === "unavailable" || state === "unsupported") Object.assign(next, { state: "blocked", reason: state === "unsupported" ? "target_unsupported" : "target_unavailable" });
       else if (state === "busy" || state === "ready") {
         if (typeof readiness === "object") agentTarget ??= readiness.target;
