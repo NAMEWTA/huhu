@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openApp, rmTree, root } from "../helpers/launch.js";
-import { treeFolder, treeItem, treeMenu, treeRename, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeFolder, treeItem, treeMenu, treeRename, treeSettled } from "../helpers/tree.js";
 import { call, engineReady, holdBridgeTimers } from "./session-slow-bridge.js";
 
 const name = "退出交付.md";
@@ -677,7 +677,7 @@ test("B09：等待富文本和源码写入回执才切模式，三种视图共�
     await expect(prose(page)).toContainText("源码改写");
     expect(readFileSync(file, "utf8")).toBe(updated);
     await mode("实时预览").click();
-    await expect(page.getByTestId("editor-properties")).toBeVisible();
+    await expect(await openNoteProperties(page)).toBeVisible();
     await expect(prose(page)).toContainText("源码改写");
     await mode("阅读").click();
     await mode("源码").click();

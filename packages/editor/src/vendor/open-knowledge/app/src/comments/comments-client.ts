@@ -110,8 +110,8 @@ export function resolveThread(threadId: string, fetch?: typeof okFetch): Promise
   return mutate<unknown>({ action: 'resolve', id: threadId }, fetch).then(parseThread);
 }
 
-export function editComment(threadId: string, body: string, fetch?: typeof okFetch): Promise<CommentThreadMeta> {
-  return mutate<unknown>({ action: 'edit', id: threadId, body }, fetch).then(parseThread);
+export function editComment(threadId: string, body: string, fetch?: typeof okFetch, expectedVersion?: string): Promise<CommentThreadMeta> {
+  return mutate<unknown>({ action: 'edit', id: threadId, body, expectedVersion }, fetch).then(parseThread);
 }
 
 export function reopenThread(threadId: string, fetch?: typeof okFetch): Promise<CommentThreadMeta> {

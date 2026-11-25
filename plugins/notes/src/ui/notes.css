@@ -281,13 +281,17 @@
     background: var(--line);
     margin: 0 5px;
   }
+  .notes-save-detail {
+    display: block;
+    overflow-wrap: anywhere;
+  }
   .notes-editor-layout {
     display: flex;
     position: relative;
     flex: 1;
     min-height: 0;
   }
-  @media (min-width: 1440px) {
+  @container notes-doc (min-width: 58rem) {
     .notes-editor-layout > .notes-inspector {
       position: relative;
       flex-shrink: 0;
@@ -303,9 +307,40 @@
   }
   .notes-editor-surface {
     flex: 1;
-    min-width: 0;
-    min-height: 0;
-    height: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
+    block-size: 100%;
+    background: var(--bg);
+  }
+  .notes-editor-surface .tiptap-editor {
+    --note-gutter: clamp(1.25rem, 4cqi, 3.75rem);
+    grid-template-columns:
+      [full-start] minmax(var(--note-gutter), 1fr)
+      [content-start] minmax(0, min(var(--content-max-width), calc(100% - var(--note-gutter) - var(--note-gutter))))
+      [content-end] minmax(var(--note-gutter), 1fr)
+      [full-end];
+  }
+  .notes-editor-surface :is(.tiptap-editor-portal-content > .ProseMirror, .source-editor .cm-content):focus {
+    outline: none;
+  }
+  .notes-editor-body:has(.tiptap-editor-portal-content > .ProseMirror:focus-visible, .source-editor .cm-content:focus-visible)::before {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    inline-size: 2rem;
+    border-block-start: 2px solid var(--focus);
+    pointer-events: none;
+  }
+  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror[contenteditable="false"] {
+    --ok-trailing-zone: 0px;
+  }
+  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror {
+    overflow-wrap: anywhere;
+  }
+  .notes-editor-surface .tiptap-editor-portal-content > .ProseMirror pre {
+    overflow-wrap: normal;
   }
   .notes-reading-pane {
     flex: 1;
@@ -971,12 +1006,8 @@
     background: var(--accent-soft);
     border-color: var(--muted);
   }
-  .hu-knowledge-daily-picker {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
+  .notes-note-list > .hu-month-calendar {
+    border-block-end: 1px solid var(--line);
   }
   .hu-knowledge-undo-banner {
     display: flex;

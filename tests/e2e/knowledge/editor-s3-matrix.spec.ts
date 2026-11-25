@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeItem, treeSettled } from "../helpers/tree.js";
 
 // S3 / B01–B05 复刻矩阵的数据驱动验证（真实 Electron）：
 //   1. 逐项在独立文档中应用 `/` 菜单选项，验证实际命令效果；
@@ -122,7 +122,7 @@ test("矩阵·Markdown 构造：按类型与内容逐项断言，无编辑打开
           )
           .toBe(1);
       }
-      if (name === "前置属性") await expect(page.getByTestId("editor-properties")).toContainText("count");
+      if (name === "前置属性") await expect(await openNoteProperties(page)).toContainText("count");
       results[name] = { bytesUnchanged: after === md, assertions };
     }
     writeFileSync(test.info().outputPath("construct-matrix.json"), JSON.stringify({ constructs: results, constructErrors: errors }, null, 2));

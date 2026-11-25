@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem } from "../helpers/tree.js";
+import { openNoteProperties, treeItem } from "../helpers/tree.js";
 
 async function openNotes(page: Page): Promise<void> {
   await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
@@ -79,8 +79,8 @@ test("C05 坏 YAML 保留原文，使用源码入口修好并关闭重开后属�
     await doc.click();
     await page.getByRole("tab", { name: "实时预览", exact: true }).click();
     await expect(page.getByTestId("property-panel-yaml-error")).toHaveCount(0);
-    await expect(page.getByTestId("editor-properties")).toContainText("title");
-    await expect(page.getByTestId("editor-properties")).toContainText("code");
+    await expect(await openNoteProperties(page)).toContainText("title");
+    await expect(await openNoteProperties(page)).toContainText("code");
     await expect(prose).toContainText("正文保留");
     expect(readFileSync(file, "utf8")).toBe(repaired);
   } finally {

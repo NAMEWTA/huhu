@@ -32,9 +32,9 @@ export const SettingsSchema = z.object({
       spellcheck: z.boolean().catch(false),
       linkPreviews: z.boolean().catch(false),
       knowledgeLocale: z.enum(["zh-Hans", "en"]).catch("zh-Hans"),
-      readableWidth: z.enum(["680", "760", "880", "full"]).catch("760"),
+      readableWidth: z.enum(["680", "760", "880", "full"]).catch("full"),
     })
-    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: true, spellcheck: false, linkPreviews: false, knowledgeLocale: "zh-Hans", readableWidth: "760" }),
+    .catch({ fontSize: 16, lineHeight: 1.8, autosave: true, lineNumbers: true, spellcheck: false, linkPreviews: false, knowledgeLocale: "zh-Hans", readableWidth: "full" }),
   dateTime: z
     .object({
       zone: z

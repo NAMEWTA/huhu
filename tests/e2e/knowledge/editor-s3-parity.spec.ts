@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeItem, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeItem, treeSettled } from "../helpers/tree.js";
 import { call } from "./session-slow-bridge.js";
 
 // S3 / B06、B07、C05：真实 Electron 里的鼠标选区、上下行光标、IME 组合输入（CDP imeSetComposition，不是真实输入法）、坏 YAML 诊断与修复入口。
@@ -370,8 +370,11 @@ test("B08 保存、评论刷新、属性更新和列表更新保留活动实例�
       await expect(inspector.getByTestId("comment-thread")).toContainText("后台新增批注");
     });
 
+    const properties = await openNoteProperties(page);
+    await editor.getByText(/正文先保存甲乙/).click();
+    await page.keyboard.press("End");
     await keepComposition("bing", "丙", async () => {
-      const checkbox = page.getByTestId("editor-properties").locator('[data-testid="boolean-widget"][data-key="flag"]');
+      const checkbox = properties.locator('[data-testid="boolean-widget"][data-key="flag"]');
       await expect(checkbox).not.toBeChecked();
       // Trigger the real property handler without moving focus away from the IME session.
       await checkbox.evaluate((element: HTMLElement) => element.click());

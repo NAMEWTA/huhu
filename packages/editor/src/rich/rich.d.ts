@@ -44,6 +44,7 @@ export interface RichMarkdownEditorProps {
   variant?: EditorVariant;
   readOnly?: boolean;
   placeholder?: string;
+  properties?: boolean;
   propertiesTarget?: HTMLElement | null;
   ariaLabel?: string;
   fontSize?: number;
@@ -158,10 +159,11 @@ export interface HuhuComment {
   property: string | null;
   anchor: { exact: string; prefix: string; suffix: string; start: number; end: number } | null;
   state: "anchored" | "orphaned";
-  resolved: boolean;
+  version: string;
   createdAt: string;
   updatedAt: string;
-  messages: { at: string; author: string; text: string }[];
+  author: string;
+  text: string;
 }
 export interface PassageInput {
   quote?: string;
@@ -174,9 +176,7 @@ export interface PassageInput {
 export interface CommentsPort {
   list(path?: string): Promise<HuhuComment[]>;
   create(input: PassageInput & { path: string; target: "body" | "file" | "property"; property?: string; text: string }): Promise<HuhuComment>;
-  reply(id: string, text: string): Promise<HuhuComment>;
-  resolve(id: string): Promise<HuhuComment>;
-  reopen(id: string): Promise<HuhuComment>;
+  update(id: string, text: string, expectedVersion: string): Promise<HuhuComment>;
   relocate(id: string, range: PassageInput): Promise<HuhuComment>;
   delete(id: string): Promise<void>;
 }

@@ -1,5 +1,5 @@
 import { Trans, useLingui } from '@lingui/react/macro';
-import { Check, CheckCheck, MapPin, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, CheckCheck, MapPin, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { PanelScope } from '@/components/PanelScopeHeader';
@@ -86,54 +86,45 @@ export function ThreadCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const editFieldRef = useRef<ComposerMentionInputHandle>(null);
+  const singleComment = thread.version !== undefined;
+  const editBase = useRef<{ body: string; version: string | undefined }>(null);
+  const editPending = useRef(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const isOrphaned = thread.status === 'orphaned';
   const isResolved = thread.status === 'resolved';
 
-  const bodyRef = useRef(thread.body);
   useEffect(() => {
-    bodyRef.current = thread.body;
-  });
-
-  const liveDraftRef = useRef<string | null>(null);
-  const settledRef = useRef(false);
-
-  useEffect(() => {
-    if (!editing) return;
-    settledRef.current = false;
-    liveDraftRef.current = null;
-    editFieldRef.current?.setText(bodyRef.current);
+    if (!editing || !editBase.current) return;
+    editFieldRef.current?.setText(editBase.current.body);
     editFieldRef.current?.focusEnd();
   }, [editing]);
 
-  function settleEdit(raw: string | null) {
-    if (settledRef.current) return;
-    settledRef.current = true;
-    setEditing(false);
-    const next = (raw ?? '').trim();
-    if (next.length === 0 || next === bodyRef.current) return;
-    editComment(thread.id, next, surface);
-  }
-
-  function commitEdit() {
-    settleEdit(editFieldRef.current?.getContent().instruction ?? null);
+  async function commitEdit() {
+    if (editPending.current || !editBase.current) return;
+    const next = editFieldRef.current?.getContent().instruction.trim();
+    if (!next) return;
+    if (next === editBase.current.body.trim()) {
+      setEditing(false);
+      return;
+    }
+    editPending.current = true;
+    setSavingEdit(true);
+    try {
+      if (await editComment(thread.id, next, surface, editBase.current.version)) setEditing(false);
+    } finally {
+      editPending.current = false;
+      setSavingEdit(false);
+    }
   }
 
   function cancelEdit() {
-    settleEdit(null);
+    if (!editPending.current) setEditing(false);
   }
 
   function deleteComment() {
     cancelEdit();
     deleteThread(thread.id, surface);
   }
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: settleEdit is deliberately read at cleanup time; keying the effect on it would re-arm the commit on every render.
-  useEffect(() => {
-    if (!editing) return;
-    return () => {
-      settleEdit(liveDraftRef.current);
-    };
-  }, [editing]);
 
   function reportPassageMissing() {
     toast.error(t`Couldn't find that passage — the text it was on may have changed.`);
@@ -262,7 +253,7 @@ export function ThreadCard({
           )}
           {!hostReadOnly && (
           <div className="col-start-1 row-start-1 flex items-center gap-1.5">
-            {isResolved ? (
+            {!singleComment && (isResolved ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -297,7 +288,15 @@ export function ThreadCard({
                   <Trans>Resolve this comment</Trans>
                 </TooltipContent>
               </Tooltip>
-            )}
+            ))}
+            {singleComment && !editing ? (
+              <Button size="sm" variant="ghost" className={actionRevealClass} aria-label={t`Edit this comment`} data-testid="comment-edit" onClick={() => {
+                editBase.current = { body: thread.body, version: thread.version };
+                setEditing(true);
+              }}>
+                <Pencil className="size-3.5" />
+              </Button>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -306,6 +305,7 @@ export function ThreadCard({
                   className={cn(actionRevealClass, 'hover:text-destructive')}
                   aria-label={t`Delete this comment`}
                   data-testid="thread-delete"
+                  disabled={savingEdit}
                   onClick={() => setConfirmDelete(true)}
                 >
                   <Trash2 className="size-3.5" />
@@ -380,21 +380,19 @@ export function ThreadCard({
             placeholder={t`Edit this comment`}
             attachmentDrop={{ kind: 'refuse' }}
             onEmptyChange={setDraftEmpty}
-            onContentChange={() => {
-              liveDraftRef.current = editFieldRef.current?.getContent().instruction ?? null;
-            }}
-            onSubmit={commitEdit}
+            onSubmit={() => void commitEdit()}
             onEscape={cancelEdit}
             className="max-h-40 overflow-y-auto rounded-md border px-2 py-1 text-sm subtle-scrollbar bg-background"
           />
           <div className="flex items-center justify-end gap-1.5">
-            <Button size="sm" variant="ghost-mono" onClick={cancelEdit}>
+            <Button size="sm" variant="ghost-mono" disabled={savingEdit} onClick={cancelEdit}>
               <Trans>Cancel</Trans>
             </Button>
             <Button
               size="sm"
-              onClick={commitEdit}
-              disabled={draftEmpty}
+              onClick={() => void commitEdit()}
+              disabled={draftEmpty || savingEdit}
+              data-testid="comment-edit-save"
               aria-label={t`Save this comment (Enter)`}
             >
               <Trans>Save</Trans>
@@ -423,7 +421,7 @@ export function ThreadCard({
           <CommentMarkdown text={m.text} />
         </div>
       ))}
-      {!isResolved && !hostReadOnly && (
+      {!singleComment && !isResolved && !hostReadOnly && (
         <textarea
           rows={2}
           aria-label={t`Reply`}

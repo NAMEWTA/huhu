@@ -1,14 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { errors, type CommentFrontmatter, type EventPayload, type EventType } from "@huhu/contracts";
-import { patchFrontmatter, type Entity, type OpStep, type SemanticRepository, type VaultFiles } from "@huhu/vault";
+import { patchFrontmatter, type Entity, type OperationLog, type OpStep, type SemanticRepository, type VaultFiles } from "@huhu/vault";
 import { requireUtf8 } from "../text-encoding.js";
 import { bestByContext, createAnchor, refind, type Anchor, type Span } from "./anchor.js";
 import { findAllPassages } from "./passage-match.js";
 
-export interface CommentMessage {
-  at: string;
-  author: string;
-  text: string;
-}
 export interface CommentDto {
   id: string;
   path: string;
@@ -19,10 +15,10 @@ export interface CommentDto {
   property: string | null;
   anchor: (Anchor & { sourceVersion: string }) | null;
   state: "anchored" | "orphaned";
-  resolved: boolean;
   createdAt: string;
   updatedAt: string;
-  messages: CommentMessage[];
+  author: string;
+  text: string;
 }
 
 export interface CommentsDeps {
@@ -36,22 +32,8 @@ export interface CommentsDeps {
 }
 
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
-const HEADING = /^### (\S+) · (.*)$/;
+const legacyAuthor = (body: string): string => /^### \S+ · ([^\r\n]+)$/m.exec(body.replace(/\r\n/g, "\n"))?.[1] ?? "历史批注";
 
-/** 正文是消息列表：每条以 `### <ISO 时间> · <作者>` 开头。 */
-export function parseMessages(body: string): CommentMessage[] {
-  const out: CommentMessage[] = [];
-  let cur: { at: string; author: string; lines: string[] } | null = null;
-  for (const line of body.split(/\r?\n/)) {
-    const m = HEADING.exec(line);
-    if (m) {
-      if (cur) out.push({ at: cur.at, author: cur.author, text: cur.lines.join("\n").trim() });
-      cur = { at: m[1] ?? "", author: m[2] ?? "", lines: [] };
-    } else cur?.lines.push(line);
-  }
-  if (cur) out.push({ at: cur.at, author: cur.author, text: cur.lines.join("\n").trim() });
-  return out;
-}
 /** 前置 frontmatter 之后的正文起点（批注的引用文字只在正文里找，不匹配 YAML）。 */
 export function bodyStart(text: string): number {
   const offset = text.startsWith("\uFEFF") ? 1 : 0;
@@ -101,8 +83,6 @@ export function resolveRange(text: string, input: RangeInput): { start: number; 
   return best[0] as Span;
 }
 
-const formatMessage = (m: CommentMessage): string => `### ${m.at} · ${m.author}\n\n${m.text}\n`;
-
 function toDto(e: Entity): CommentDto {
   const d = e.data as unknown as CommentFrontmatter;
   return {
@@ -115,16 +95,41 @@ function toDto(e: Entity): CommentDto {
     property: d.property ?? null,
     anchor: d.anchor ?? null,
     state: d.state,
-    resolved: d.resolved,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
-    messages: parseMessages(e.body),
+    author: d.author ?? legacyAuthor(e.body),
+    text: e.body.replace(/^\r?\n/, ""),
   };
 }
 
 /** 批注：`Comments/` 下的语义文件；锚点算法见 anchor.ts（R-24）。 */
 export class CommentsService {
   constructor(private readonly d: CommentsDeps) {}
+
+  /** 逐条保留原件，历史正文与所有消息作者、时间和顺序原样保留。 */
+  async migrateLegacy(ops: OperationLog): Promise<void> {
+    if (this.d.files.readOnly) return;
+    for (const item of this.d.repo.list("comment")) {
+      if (item.readOnly || item.data.contentFormat === "single") continue;
+      try {
+        const file = this.d.files.read(item.path);
+        if (!file || file.version !== item.version) continue;
+        const text = patchFrontmatter(requireUtf8(file.bytes), {
+          contentFormat: "single",
+          author: legacyAuthor(item.body),
+          resolved: undefined,
+        });
+        await ops.run(randomUUID(), "comments-migrate-single", [
+          { action: "write", path: `.huhu/comment-migrations/${item.id}-${file.version}.md`, bytes: file.bytes, expectedVersion: null },
+          { action: "write", path: item.path, bytes: Buffer.from(text), expectedVersion: file.version },
+        ]);
+        this.d.repo.onWritten?.([item.path]);
+        this.d.publish("entity.changed", { kind: "comment", id: item.id, op: "updated" });
+      } catch (error) {
+        console.warn("批注转换待重试", item.id, error instanceof Error ? error.name : "unknown");
+      }
+    }
+  }
 
   /** 锚点偏移按编辑器看到的文本计算：CodeMirror 把 CRLF 归一为 LF，这里同样归一，偏移才对得上。 */
   private docText(rel: string, expectedSourceVersion?: string): { text: string; version: string } {
@@ -186,27 +191,19 @@ export class CommentsService {
     const now = iso(this.d.now());
     const e = await this.d.repo.create(
       "comment",
-      { documentId, documentPath: input.path, target: input.target, property: input.target === "property" ? (input.property ?? null) : null, anchor, state: "anchored", resolved: false, createdAt: now, updatedAt: now },
-      formatMessage({ at: now, author: input.author, text }),
+      { documentId, documentPath: input.path, target: input.target, property: input.target === "property" ? (input.property ?? null) : null, anchor, state: "anchored", contentFormat: "single", author: input.author, createdAt: now, updatedAt: now },
+      text,
     );
     this.d.publish("entity.changed", { kind: "comment", id: e.id, op: "created" });
     return toDto(e);
   }
 
-  async reply(id: string, text: string, author: string): Promise<CommentDto> {
+  async update(id: string, text: string, expectedVersion: string): Promise<CommentDto> {
     const body = text.trim();
-    if (!body) throw errors.invalidInput("回复内容不能为空");
+    if (!body) throw errors.invalidInput("批注内容不能为空");
     const cur = this.d.repo.read("comment", id);
-    const now = iso(this.d.now());
-    const next = `${cur.body.replace(/\s+$/, "")}\n\n${formatMessage({ at: now, author, text: body })}`;
-    const e = await this.d.repo.patch("comment", id, { updatedAt: now }, cur.version, next);
-    this.d.publish("entity.changed", { kind: "comment", id, op: "updated" });
-    return toDto(e);
-  }
-
-  async setResolved(id: string, resolved: boolean): Promise<CommentDto> {
-    const cur = this.d.repo.read("comment", id);
-    const e = await this.d.repo.patch("comment", id, { resolved, updatedAt: iso(this.d.now()) }, cur.version);
+    if (cur.data.contentFormat !== "single") throw errors.invalidInput("批注尚未完成转换，请在可写知识库重开后重试");
+    const e = await this.d.repo.patch("comment", id, { updatedAt: iso(this.d.now()) }, expectedVersion, `\n${body}`);
     this.d.publish("entity.changed", { kind: "comment", id, op: "updated" });
     return toDto(e);
   }
@@ -235,14 +232,14 @@ export class CommentsService {
     this.d.publish("entity.changed", { kind: "comment", id, op: "deleted" });
   }
 
-  /** 文档保存后：对该文档未解决的正文批注重新定位；找不到或不唯一 → orphaned，不猜位置。 */
+  /** 文档保存后：对该文档的正文批注重新定位；找不到或不唯一 → orphaned，不猜位置。 */
   async refind(rel: string, rawText: string, version: string, previous?: { text: string; version: string }): Promise<void> {
     const text = rawText.replace(/\r\n?/g, "\n");
     const previousText = previous?.text.replace(/\r\n?/g, "\n");
     const id = this.d.noteId(rel);
     const bodyOffset = bodyStart(text);
     for (const c of this.list(rel)) {
-      if (c.resolved || c.state === "orphaned" || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
+      if (c.state === "orphaned" || c.target !== "body" || !c.anchor || (id !== null && c.documentId !== id)) continue;
       const r = refind(text, c.anchor, bodyOffset, previous?.version === c.anchor.sourceVersion ? previousText : undefined);
       if (r.status === "anchored") {
         if (version === c.anchor.sourceVersion && c.state === "anchored") continue;

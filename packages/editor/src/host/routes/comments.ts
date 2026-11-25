@@ -11,10 +11,11 @@ export interface HuhuComment {
   property: string | null;
   anchor: { exact: string; prefix: string; suffix: string; start: number; end: number } | null;
   state: "anchored" | "orphaned";
-  resolved: boolean;
+  version: string;
   createdAt: string;
   updatedAt: string;
-  messages: { at: string; author: string; text: string }[];
+  author: string;
+  text: string;
 }
 
 /** 选区：富文本里是“引用文字 + 上下文”（不使用 PM 坐标）；源码偏移只给重新选择位置的旧入口 / 源码模式 */
@@ -30,9 +31,7 @@ export interface PassageInput {
 export interface CommentsPort {
   list(path?: string): Promise<HuhuComment[]>;
   create(input: PassageInput & { path: string; target: "body" | "file" | "property"; property?: string; text: string }): Promise<HuhuComment>;
-  reply(id: string, text: string): Promise<HuhuComment>;
-  resolve(id: string): Promise<HuhuComment>;
-  reopen(id: string): Promise<HuhuComment>;
+  update(id: string, text: string, expectedVersion: string): Promise<HuhuComment>;
   relocate(id: string, range: PassageInput): Promise<HuhuComment>;
   delete(id: string): Promise<void>;
 }
@@ -61,7 +60,7 @@ export interface OkThreadMeta {
   docName: string;
   target: { kind: "body" } | { kind: "property"; key: string; path: (string | number)[] };
   anchor: { exact: string; prefix: string; suffix: string; start: number; end: number } | null;
-  state: "anchored" | "orphaned" | "resolved";
+  state: "anchored" | "orphaned";
   queued: false;
   latestComment: string;
   createdBy: string;
@@ -69,7 +68,7 @@ export interface OkThreadMeta {
   updatedAt: number;
   /** Huhu 扩展：整篇笔记批注（OK 没有这个目标） */
   scope: "body" | "file" | "property";
-  messages: { at: string; author: string; text: string }[];
+  version: string;
 }
 
 const ms = (iso: string): number => {
@@ -78,20 +77,19 @@ const ms = (iso: string): number => {
 };
 
 export function toThreadMeta(c: HuhuComment, docNameOf: (path: string) => string): OkThreadMeta {
-  const first = c.messages[0];
   return {
     threadId: c.id,
     docName: docNameOf(c.documentPath),
     target: c.target === "property" && c.property ? { kind: "property", key: c.property, path: [] } : { kind: "body" },
     anchor: c.anchor,
-    state: c.resolved ? "resolved" : c.state,
+    state: c.state,
     queued: false,
-    latestComment: first?.text ?? "",
-    createdBy: first?.author ?? "Huhu",
+    latestComment: c.text,
+    createdBy: c.author,
     createdAt: ms(c.createdAt),
     updatedAt: ms(c.updatedAt),
     scope: c.target,
-    messages: c.messages,
+    version: c.version,
   };
 }
 
@@ -109,6 +107,7 @@ interface MutateBody {
   action: string;
   id: string;
   body?: string;
+  expectedVersion?: string;
   quote?: string;
   prefix?: string;
   suffix?: string;
@@ -120,7 +119,7 @@ const notAvailable = (what: string): never => {
 };
 
 /** AI 派发 / 队列类动作（queue / unqueue / dispatch-*）不接：登记于 comment-field-map.md。 */
-const UNSUPPORTED = new Set(["queue", "unqueue", "dispatch-prepare-batch", "dispatch-complete-batch", "dispatch-prepare", "dispatch-complete", "edit"]);
+const UNSUPPORTED = new Set(["queue", "unqueue", "dispatch-prepare-batch", "dispatch-complete-batch", "dispatch-prepare", "dispatch-complete"]);
 
 export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
   const meta = (c: HuhuComment) => toThreadMeta(c, deps.docNameOf);
@@ -166,12 +165,9 @@ export function commentRoutes(deps: CommentRouteDeps): HostRoutes {
       const b = body as MutateBody;
       if (UNSUPPORTED.has(b.action)) return notAvailable(b.action);
       switch (b.action) {
-        case "reopen":
-          return meta(await deps.port.reopen(b.id));
-        case "resolve":
-          return meta(await deps.port.resolve(b.id));
-        case "reply":
-          return meta(await deps.port.reply(b.id, b.body ?? ""));
+        case "edit":
+          if (!b.expectedVersion) throw new Error("缺少批注版本，请重新打开批注");
+          return meta(await deps.port.update(b.id, b.body ?? "", b.expectedVersion));
         case "replace": {
           // 重新选择位置：先把编辑落盘，再按引用文字在已保存文本里解析
           const current = (await deps.port.list()).find((c) => c.id === b.id);

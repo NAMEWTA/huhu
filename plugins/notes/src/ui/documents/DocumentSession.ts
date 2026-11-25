@@ -69,6 +69,7 @@ export interface SessionSnapshot {
   readonly format: TextFormat;
   /** 正文与最近确认的磁盘内容不同，或写入结果未核实，需要保留缓冲。 */
   readonly hasUnsaved: boolean;
+  readonly writeUnconfirmed: boolean;
 }
 
 export interface SessionOptions {
@@ -115,6 +116,7 @@ interface SaveSnapshot {
 interface LateWriteConflict {
   ancestor: string | null;
   unknown: boolean;
+  submittedText?: string;
 }
 
 interface ActiveFileWrite {
@@ -122,6 +124,7 @@ interface ActiveFileWrite {
   submittedText?: string;
   submitted?: boolean;
   received?: boolean;
+  unconfirmed?: boolean;
   ownNoticeReceived?: boolean;
   reconciliation?: Promise<void>;
   externalChange?: { generation: number; loadSeq: number };
@@ -262,7 +265,7 @@ export class DocumentSession {
         this.format = detectTextFormat(file.text);
         this.state = this.text === file.text ? "saved" : "dirty";
       } else if (this.interruptedWrite || this.lateWriteConflict) {
-        this.acceptReconciledDisk(file, this.interruptedWrite !== null, null);
+        this.acceptReconciledDisk(file, this.interruptedWrite !== null, null, this.interruptedWrite?.text);
       } else if (!this.hasUnsavedText()) {
         if (!this.matchesSavedFile(file)) this.adoptLoadedFile(file);
         this.flushError = null;
@@ -274,7 +277,7 @@ export class DocumentSession {
       this.interruptedWrite = null;
     } catch (error) {
       if (connection !== this.connection) return;
-      if (this.hasUnsavedText()) this.acceptReconciledDisk(null, this.interruptedWrite !== null, String(error));
+      if (this.hasUnsavedText()) this.acceptReconciledDisk(null, this.interruptedWrite !== null, String(error), this.interruptedWrite?.text);
       else this.flushError = String(error);
     } finally {
       if (connection === this.connection) {
@@ -322,6 +325,7 @@ export class DocumentSession {
       draft: this.draft?.content ?? null,
       format: this.format,
       hasUnsaved: this.activeFileWrite !== null || this.hasUnsavedText(),
+      writeUnconfirmed: this.activeFileWrite?.unconfirmed === true || this.interruptedWrite !== null || this.lateWriteConflict?.unknown === true,
     };
   }
 
@@ -331,7 +335,8 @@ export class DocumentSession {
 
   private currentDraft(): SessionDraft {
     const unknown = this.lateWriteConflict?.unknown === true || this.activeFileWrite?.submittedText !== undefined;
-    const matchesSubmitted = this.activeFileWrite?.submittedText === this.text && !this.lateWriteConflict;
+    const submitted = this.lateWriteConflict?.submittedText ?? this.activeFileWrite?.submittedText;
+    const matchesSubmitted = submitted === this.text;
     return {
       text: this.text,
       baseVersion: this.version,
@@ -670,6 +675,7 @@ export class DocumentSession {
       return true;
     } catch (e) {
       writeUnconfirmed = isUnconfirmedWriteError(e);
+      write.unconfirmed = writeUnconfirmed;
       const conflict = !writeUnconfirmed && (e as { code?: string })?.code === "VERSION_CONFLICT";
       if (outcome === "unknown" && conflict) {
         outcome = "rejected";
@@ -698,12 +704,12 @@ export class DocumentSession {
   }
 
   private reconcileWrite(write: ActiveFileWrite, writeUnconfirmed: boolean): Promise<void> {
-    write.reconciliation = this.readDiskAfterWrite(writeUnconfirmed);
+    write.reconciliation = this.readDiskAfterWrite(writeUnconfirmed, write.submittedText);
     return write.reconciliation;
   }
 
   /** 在原写入的队列位置复读，后续保存须等磁盘状态核实。 */
-  private async readDiskAfterWrite(writeUnconfirmed: boolean): Promise<void> {
+  private async readDiskAfterWrite(writeUnconfirmed: boolean, submittedText?: string): Promise<void> {
     if (this.disposed) return;
     // 已发写入可能比正在读取的重载或合并更晚落盘。
     this.diskRevision++;
@@ -718,18 +724,18 @@ export class DocumentSession {
         file = await this.request<NoteFile>("notes.read", { path: this.id.path });
       } catch (error) {
         if (!canReconcile()) continue;
-        this.acceptReconciledDisk(null, true, error instanceof Error ? error.message : String(error));
+        this.acceptReconciledDisk(null, true, error instanceof Error ? error.message : String(error), submittedText);
         return;
       }
       if (!canReconcile()) continue;
 
       const changed = !this.matchesSavedFile(file);
-      if (changed || writeUnconfirmed) this.acceptReconciledDisk(changed ? file : null, writeUnconfirmed, this.flushError);
+      if (changed || writeUnconfirmed) this.acceptReconciledDisk(changed ? file : null, writeUnconfirmed, this.flushError, submittedText);
       return;
     }
   }
 
-  private acceptReconciledDisk(file: NoteFile | null, unknown: boolean, error: string | null): void {
+  private acceptReconciledDisk(file: NoteFile | null, unknown: boolean, error: string | null, submittedText?: string): void {
     const previous = this.lateWriteConflict;
     const ancestor = previous ? previous.ancestor : this.savedText;
     this.baselineGeneration++;
@@ -742,7 +748,10 @@ export class DocumentSession {
     }
     this.equivalentMarkdown = undefined;
     const unverified = unknown || previous?.unknown === true;
-    this.lateWriteConflict = unverified || this.text !== this.savedText ? { ancestor, unknown: unverified } : null;
+    const submitted = submittedText ?? previous?.submittedText;
+    this.lateWriteConflict = unverified || this.text !== this.savedText
+      ? { ancestor, unknown: unverified, ...(unverified && submitted !== undefined && { submittedText: submitted }) }
+      : null;
     this.state = this.lateWriteConflict ? "conflict" : "saved";
     this.flushError = error;
   }
@@ -1111,6 +1120,36 @@ export class DocumentSession {
     }
   }
 
+  /** 只复读原写入的效果。没有原正文或未读到相同字节时依旧保留未知。 */
+  async verifyPendingWrite(): Promise<boolean> {
+    if (this.reconnecting) await this.reconnecting;
+    if (this.inflight) await this.inflight.catch(() => false);
+    const pending = this.lateWriteConflict;
+    const generation = this.baselineGeneration;
+    const diskRevision = this.diskRevision;
+    const seq = this.loadSeq;
+    if (!pending?.unknown || !this.isBaselineCurrent(generation)) return false;
+    const current = () => this.isBaselineCurrent(generation) && diskRevision === this.diskRevision && seq === this.loadSeq;
+    try {
+      const file = await this.request<NoteFile>("notes.read", { path: this.id.path });
+      if (!current()) return false;
+      if (pending.submittedText === undefined || pending.submittedText !== file.text) {
+        this.setError("已读到磁盘版本，原保存仍待核实。可以查看差异后决定如何继续。");
+        return false;
+      }
+      this.acceptBaseline(file);
+      this.format = detectTextFormat(file.text);
+      this.state = this.text === file.text ? "saved" : "dirty";
+      this.onSaved?.();
+      this.emit();
+      if (this.state === "dirty") this.armAutosave();
+      return true;
+    } catch (error) {
+      if (current()) this.fail(error);
+      return false;
+    }
+  }
+
   /** 读出磁盘版本，供“查看差异”。 */
   async readDisk(): Promise<string> {
     const signal = this.connection?.signal;
@@ -1194,7 +1233,7 @@ export class DocumentSession {
     if (d.baseVersion !== this.version) this.version = d.baseVersion;
     if (d.outcome === "unknown") {
       const ancestor = this.lateWriteConflict ? this.lateWriteConflict.ancestor : this.savedText;
-      this.lateWriteConflict = { ancestor, unknown: true };
+      this.lateWriteConflict = { ancestor, unknown: true, ...(d.matchesSubmitted === true && { submittedText: d.text }) };
       this.clearAutosave();
     }
     this.revision++;

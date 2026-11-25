@@ -1220,7 +1220,9 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
     expect(saves).toEqual([{ path, text: "A", expectedVersion: "1", writeId: expect.any(String) }]);
 
     if (unknown) {
-      expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true });
+      expect(session.getSnapshot()).toMatchObject({ text: "X", state: "conflict", hasUnsaved: true, writeUnconfirmed: true });
+      expect(await session.verifyPendingWrite()).toBe(false);
+      expect(session.getSnapshot().writeUnconfirmed).toBe(true);
       expect(await session.flush({ untilClean: true })).toBe(false);
       expect(await session.flushForExit()).toBe("draft");
       expect(draft).toMatchObject({ path, text: "X", baseVersion: "1" });
@@ -1233,6 +1235,26 @@ describe("DocumentSession：保存 / 冲突 / 草稿 / flush", () => {
       expect(disk.text).toBe("下一次明确保存");
       expect(saves[1]).toEqual({ path, text: disk.text, expectedVersion: "1", writeId: expect.any(String) });
     }
+  });
+
+  test("核实原保存只读取原正文，保留发送后继续编辑的内容", async () => {
+    const path = "a.md";
+    const eng = new FakeEngine({ [path]: "旧正文" });
+    const session = mk(eng, path, { autosave: () => false });
+    await session.load();
+    const receipt = Promise.withResolvers<void>();
+    eng.saveReceiptGate = receipt.promise;
+    session.setText("本次提交的正文");
+    const saving = session.save();
+    session.setText("本次提交的正文，加上新输入");
+    receipt.reject(new TypeError("连接断开"));
+    expect(await saving).toBe(false);
+    expect(session.getSnapshot()).toMatchObject({ writeUnconfirmed: true, hasUnsaved: true });
+
+    expect(await session.verifyPendingWrite()).toBe(true);
+    expect(session.getSnapshot()).toMatchObject({ text: "本次提交的正文，加上新输入", baseVersion: "2", state: "dirty", writeUnconfirmed: false });
+    expect(eng.calls.filter((name) => name === "notes.save")).toHaveLength(1);
+    expect(eng.disk(path)).toBe("本次提交的正文");
   });
 
   test("迟到写入复读失败时阻止干净结算，退出草稿和明确重载可重试", async () => {

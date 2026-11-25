@@ -2,7 +2,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { treeFolder, treeItem, treeRename } from "../helpers/tree.js";
+import { openNoteProperties, treeFolder, treeItem, treeRename } from "../helpers/tree.js";
 import { openApp } from "../helpers/launch.js";
 
 /** S6（知识库 OK 对等）：档案首页 / 类型 / 记录是真实标签，侧栏上下文切换，普通目录只浏览，同一 index.md 同一会话（E01–E05）。 */
@@ -211,7 +211,7 @@ test("E04：树改名同步两个标签，外部改写和删除更新同一档�
     await expect(page.getByTestId("archive-body")).toContainText("外部写入同一档案。");
     await markdownTab.click();
     await expect(page.getByTestId("markdown-editor").locator(".ProseMirror")).toContainText("外部写入同一档案。");
-    await expect(page.getByTestId("editor-properties")).toContainText("987");
+    await expect(await openNoteProperties(page)).toContainText("987");
     rmSync(path.dirname(disk), { recursive: true });
     await expect.poll(async () => (await call("notes.list", { filter: "all" })).data.some((note: { path: string }) => note.path === newPath), { timeout: 20_000 }).toBe(false);
     await expect(markdownTab).toHaveCount(0, { timeout: 20_000 });
@@ -275,7 +275,7 @@ test("E04 在途 Markdown 保存完成后，档案字段与正文都落盘并可
     await page.getByTestId("archive-open-markdown").click();
     await expect(page.locator('[data-tab-kind="file"]').getByTestId("document-tab")).toHaveAttribute("title", indexPath);
     await expect(prose).toContainText("两种编辑都保留");
-    await expect(page.getByTestId("editor-properties")).toContainText("999");
+    await expect(await openNoteProperties(page)).toContainText("999");
     expect(disk()).toContain("999");
     expect(disk()).toContain("两种编辑都保留");
   } finally {

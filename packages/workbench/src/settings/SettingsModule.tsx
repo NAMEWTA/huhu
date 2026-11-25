@@ -149,7 +149,7 @@ export function EditorPage() {
           </div>
         ) : null}
         <div className="row">
-          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "760", autosave: true, lineNumbers: true, spellcheck: false, linkPreviews: false, knowledgeLocale: "zh-Hans" })}>
+          <Button icon={NotebookPen} variant="ghost" onClick={() => set({ fontSize: 16, lineHeight: 1.8, readableWidth: "full", autosave: true, lineNumbers: true, spellcheck: false, linkPreviews: false, knowledgeLocale: "zh-Hans" })}>
             {t.settings.resetEditor}
           </Button>
         </div>

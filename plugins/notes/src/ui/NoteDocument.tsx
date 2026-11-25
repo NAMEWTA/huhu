@@ -29,9 +29,10 @@ export interface NoteDocumentProps {
   path: string;
   favorite: boolean;
   inspectorOpen: boolean;
+  inspectorId: string;
   detail: ReactNode;
   propertiesTarget: HTMLElement | null;
-  onToggleInspector(): void;
+  onToggleInspector(trigger: HTMLButtonElement): void;
   onToggleFavorite(): void;
   onOpen(path: string): void;
   onClose(): void;
@@ -84,6 +85,7 @@ export function NoteDocument(props: NoteDocumentProps) {
   const revealSource = useCallback(() => changeMode("source"), [changeMode]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [diffOf, setDiffOf] = useState<string | null>(null); // 外部修改后的磁盘内容（查看差异对话框）
   const textTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,8 +165,17 @@ export function NoteDocument(props: NoteDocumentProps) {
     session?.clearError();
     try {
       setDiffOf((await session?.readDisk()) ?? null);
-    } catch (e) {
-      void e;
+    } catch (error) {
+      session?.setError(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const verifySave = async (): Promise<void> => {
+    if (verifying || !session) return;
+    setVerifying(true);
+    try {
+      await session.verifyPendingWrite();
+    } finally {
+      setVerifying(false);
     }
   };
   const keepMine = async (): Promise<void> => {
@@ -242,12 +253,13 @@ export function NoteDocument(props: NoteDocumentProps) {
         </select>
         <IconButton icon={MessageSquarePlus} label={n.addComment} disabled={reading || readOnly || !props.onAddComment} onClick={props.onAddComment} />
         <IconButton icon={Star} label={props.favorite ? n.unstar : n.star} className={props.favorite ? "notes-star" : ""} onClick={props.onToggleFavorite} />
-        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} className={props.inspectorOpen ? "active" : ""} onClick={props.onToggleInspector} />
+        <IconButton icon={PanelRight} label={n.inspector} aria-expanded={props.inspectorOpen} aria-controls={props.inspectorOpen ? props.inspectorId : undefined} className={props.inspectorOpen ? "active" : ""} onClick={(event) => props.onToggleInspector(event.currentTarget)} />
         <IconButton icon={MoreHorizontal} label={n.noteActions} onClick={(e) => (e.stopPropagation(), props.onMenu(e.currentTarget, secondaryActions))} />
       </div>
-      {state === "conflict" ? (
+      {state === "conflict" || snap.writeUnconfirmed ? (
         <Banner
-          tone="danger"
+          data-testid="note-save-conflict"
+          tone={snap.writeUnconfirmed ? "warning" : "danger"}
           action={
             confirmReload ? (
               <>
@@ -258,7 +270,10 @@ export function NoteDocument(props: NoteDocumentProps) {
               </>
             ) : (
               <>
-                {snap.hasUnsaved ? (
+                {snap.writeUnconfirmed ? <Button variant="primary" data-testid="note-verify-save" disabled={verifying} onClick={() => void verifySave()}>
+                  {verifying ? n.verifyingSave : n.verifySave}
+                </Button> : null}
+                {state === "conflict" && snap.hasUnsaved ? (
                   <>
                     <Button variant="primary" data-testid="note-merge" onClick={() => void merge()}>
                       {n.merge}
@@ -271,12 +286,13 @@ export function NoteDocument(props: NoteDocumentProps) {
                     </Button>
                   </>
                 ) : null}
-                <Button onClick={() => (snap.hasUnsaved ? setConfirmReload(true) : void load())}>{t.reload}</Button>
+                {state === "conflict" ? <Button onClick={() => (snap.hasUnsaved ? setConfirmReload(true) : void load())}>{t.reload}</Button> : null}
               </>
             )
           }
         >
-          {confirmReload ? n.discardReloadHint : t.conflict}
+          {confirmReload ? n.discardReloadHint : snap.writeUnconfirmed ? n.saveUnconfirmed : t.conflict}
+          {snap.writeUnconfirmed && flushError ? <small className="notes-save-detail">{flushError}</small> : null}
         </Banner>
       ) : null}
       {diffOf !== null ? (
@@ -299,7 +315,10 @@ export function NoteDocument(props: NoteDocumentProps) {
           {n.draftFound(draft.savedAt.replace("T", " ").slice(0, 16))}
         </Banner>
       ) : null}
-      {encodingNotice ?? (flushError ? <Banner tone="danger">{n.saveFailed(flushError)}</Banner> : null)}
+      {encodingNotice ?? (flushError && !snap.writeUnconfirmed ? <Banner tone="danger" data-testid="note-save-failed" action={
+        state === "dirty" && snap.hasUnsaved && !readOnly
+          ? <Button data-testid="note-retry-save" onClick={() => void save()}>{n.retrySave}</Button> : null
+      }>{n.saveFailed(flushError)}</Banner> : null)}
       {vaultReadOnly ? <Banner tone="blue">此 Vault 以只读方式打开，不能编辑或保存文档。</Banner> : null}
       <div className="notes-editor-mode-hint">
         <strong>{n.modes[mode]}</strong>
@@ -337,7 +356,8 @@ export function NoteDocument(props: NoteDocumentProps) {
                 onPort={onPort}
                 linkPreviewsEnabled={ed?.linkPreviews === true}
                 onRevealSource={revealSource}
-                {...(ed ? { fontSize: ed.fontSize, contentWidth: ed.readableWidth === "full" ? null : Number(ed.readableWidth) } : {})}
+                contentWidth={ed?.readableWidth && ed.readableWidth !== "full" ? Number(ed.readableWidth) : null}
+                {...(ed ? { fontSize: ed.fontSize } : {})}
               />
             </div>
           </Suspense>
@@ -345,14 +365,14 @@ export function NoteDocument(props: NoteDocumentProps) {
         {props.detail}
       </div>
       <div className="notes-document-status">
-        <span className={`notes-save-dot${state === "saved" ? "" : " notes-unsaved"}`} />
-        <span data-testid="save-state">{state === "saved" ? n.status.saved : state === "saving" ? n.status.saving : state === "conflict" ? n.status.conflict : n.status.dirty}</span>
+        <span aria-hidden className={`notes-save-dot${state === "saved" && !flushError && !snap.writeUnconfirmed ? "" : " notes-unsaved"}`} />
+        <span role="status" data-testid="save-state">{snap.writeUnconfirmed ? n.status.unknown : flushError && state === "dirty" ? n.status.error : n.status[state]}</span>
         <span>{n.words(stats.chars)}</span>
         <span>{n.lines(stats.lines)}</span>
         <span className="hu-flex-fill" />
         <span>UTF-8</span>
         {ed?.autosave === false && !readOnly ? (
-          <Button variant="primary" icon={Save} disabled={state !== "dirty"} data-testid="note-save" onClick={() => void save()}>
+          <Button variant="primary" icon={Save} disabled={state !== "dirty" || snap.writeUnconfirmed} data-testid="note-save" onClick={() => void save()}>
             {t.save}
           </Button>
         ) : null}

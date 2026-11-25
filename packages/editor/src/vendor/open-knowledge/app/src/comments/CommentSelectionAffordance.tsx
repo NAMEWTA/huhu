@@ -127,6 +127,7 @@ export function CommentSelectionAffordance({
       },
       contextElement: view.dom,
     };
+    const sizeOptions = deriveEditorSizeOptions(editor);
     return autoUpdate(virtualEl, floating, () => {
       computePosition(virtualEl, floating, {
         placement: 'bottom-start',
@@ -135,7 +136,16 @@ export function CommentSelectionAffordance({
           offset(SELECTION_SURFACE_GAP_PX),
           flip(deriveEditorClipOptions(editor)),
           shift(deriveEditorShiftOptions(editor)),
-          size(deriveEditorSizeOptions(editor)),
+          size(() => {
+            const options = sizeOptions();
+            return {
+              ...options,
+              apply(args) {
+                options.apply(args);
+                args.elements.floating.style.maxHeight = `${Math.max(0, args.availableHeight)}px`;
+              },
+            };
+          }),
         ],
       })
         .then(({ x, y }) => {
@@ -211,7 +221,7 @@ export function CommentSelectionAffordance({
   return createPortal(
     <div
       ref={floatingRef}
-      className="z-[60] flex w-80 flex-col gap-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md"
+      className="z-[60] flex w-80 flex-col gap-2 overflow-y-auto rounded-lg border bg-popover p-3 text-popover-foreground shadow-md"
       style={{ position: 'fixed', top: 0, left: 0 }}
       data-testid="comment-composer"
     >
@@ -228,7 +238,7 @@ export function CommentSelectionAffordance({
       />
       <div
         className={cn(
-          'flex items-center gap-1.5',
+          'flex shrink-0 flex-wrap items-center gap-1.5',
           commentsOnScreen ? 'justify-end' : 'justify-between',
         )}
       >

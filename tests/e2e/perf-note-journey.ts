@@ -47,8 +47,13 @@ export async function launchJourney(vault: string, profile: string) {
 export async function seedComments(page: Page, original: string) {
   for (const [index, quote] of anchors.entries()) {
     const start = original.indexOf(quote);
-    const { id } = await call<{ id: string }>(page, "comments.create", { path: `${headline}.md`, start, end: start + quote.length, quote, text: `线程 ${index + 1}` });
-    for (let reply = 1; reply <= 2; reply++) await call(page, "comments.reply", { id, text: `线程 ${index + 1} 的回复 ${reply}` });
+    await call(page, "comments.create", {
+      path: `${headline}.md`,
+      start,
+      end: start + quote.length,
+      quote,
+      text: `批注 ${index + 1}\n\n第一段补充说明。\n\n第二段补充说明。`,
+    });
   }
 }
 

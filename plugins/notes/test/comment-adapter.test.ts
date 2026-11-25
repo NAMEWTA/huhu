@@ -19,9 +19,7 @@ describe("commentAdapter（S4）", () => {
     await port.list("a.md");
     await port.create({ path: "a.md", target: "body", quote: "q", prefix: "p", text: "t" });
     await port.create({ path: "a.md", target: "property", property: "status", text: "t" });
-    await port.reply("c1", "r");
-    await port.resolve("c1");
-    await port.reopen("c1");
+    await port.update("c1", "编辑", "v1");
     await port.relocate("c1", { quote: "n", suffix: "s" });
     await port.delete("c1");
     expect(calls.map((c) => [c.cap, c.write])).toEqual([
@@ -29,16 +27,15 @@ describe("commentAdapter（S4）", () => {
       ["comments.list", false],
       ["comments.create", true],
       ["comments.create", true],
-      ["comments.reply", true],
-      ["comments.resolve", true],
-      ["comments.reopen", true],
+      ["comments.update", true],
       ["comments.relocate", true],
       ["comments.delete", true],
     ]);
     expect(calls[1]?.input).toEqual({ path: "a.md" });
     expect(calls[2]?.input).toEqual({ path: "a.md", target: "body", quote: "q", prefix: "p", text: "t" });
     expect(calls[3]?.input).toEqual({ path: "a.md", target: "property", property: "status", text: "t" });
-    expect(calls[7]?.input).toEqual({ id: "c1", quote: "n", suffix: "s" });
+    expect(calls[4]?.input).toEqual({ id: "c1", text: "编辑", expectedVersion: "v1" });
+    expect(calls[5]?.input).toEqual({ id: "c1", quote: "n", suffix: "s" });
     expect(JSON.stringify(calls[2]?.input)).not.toMatch(/"(start|end)"/);
   });
 });

@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp } from "../helpers/launch.js";
-import { treeFolder, treeItem, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeFolder, treeItem, treeSettled } from "../helpers/tree.js";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const editor = (page: Page) => page.getByTestId("markdown-editor").locator(".ProseMirror");
@@ -242,7 +242,7 @@ test("Huhu 笔记工具栏显示路径并切换编辑模式，DocTab 可聚焦�
     const toolbar = page.getByTestId("note-toolbar");
     await expect(toolbar.getByText("资料/子目录", { exact: true })).toBeVisible();
     await expect(toolbar.getByText("第一份.md", { exact: true })).toBeVisible();
-    const panel = page.getByTestId("editor-properties");
+    const panel = await openNoteProperties(page);
     await expect(panel.getByText("title", { exact: true })).toBeVisible();
     await expect(panel.getByText("属性甲", { exact: true })).toBeVisible();
     await toolbar.getByRole("tab", { name: "源码" }).click();

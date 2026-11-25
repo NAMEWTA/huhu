@@ -79,7 +79,7 @@ test("写作与恢复：批注、版本、恢复，重开后一致", async () =>
     expect((await call("notes.read", { path: note })).data.text).toBe(text1);
     const comments = await call("comments.list", { path: note });
     expect(comments.data).toHaveLength(1);
-    expect(comments.data[0]).toMatchObject({ state: "anchored", resolved: false });
+    expect(comments.data[0]).toMatchObject({ state: "anchored" });
     expect(comments.data[0].anchor.exact).toBe("发布准备");
     expect(((await call("inbox.list", {})).data as unknown[]).length).toBe(1);
     expect(existsSync(path.join(vault, "Comments"))).toBe(true);

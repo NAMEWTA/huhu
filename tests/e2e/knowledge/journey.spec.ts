@@ -3,7 +3,7 @@ import { _electron as electron, expect, test, type Page } from "@playwright/test
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { openApp, rmTree, root, USER_DATA_ARG } from "../helpers/launch.js";
-import { treeFolder, treeItem, treeMenu, treeRows, treeSettled } from "../helpers/tree.js";
+import { openNoteProperties, treeFolder, treeItem, treeMenu, treeRows, treeSettled } from "../helpers/tree.js";
 
 // 知识库 OK 对等：用户完整路径（spec §1 / plan §5）。真实 Electron，一条连续路径，每一步断言磁盘或界面的真实结果：
 // 打开全部真实文件 → 隐藏目录后仍能 `@` → OK 编辑器里输入 / `/` 插块 / 编辑属性 / 评论 → 保存重开一致、无编辑不写盘
@@ -153,7 +153,7 @@ test("用户完整路径：全部真实文件 → 隐藏后仍可 @ → 编辑 /
     await expect.poll(() => readFileSync(path.join(vault, "日志.md"), "utf8")).toMatch(/[-*] 条目甲/);
 
     // ── 5 属性：改 title，其它键（含前导零 zip: 007）与正文原样保留 ──
-    const panel = page.getByTestId("editor-properties");
+    const panel = await openNoteProperties(page);
     await expect(panel).toContainText("title");
     const title = panel.locator("textarea, input[type=text], input:not([type])").first();
     await title.click();

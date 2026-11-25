@@ -1,4 +1,4 @@
-import { Button, EmptyState, IconButton, SearchBox } from "@huhu/ui";
+import { Button, EmptyState, IconButton, MonthCalendar, SearchBox } from "@huhu/ui";
 import { Archive, CalendarDays, ChevronDown, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Hash, MoreHorizontal, Star, Trash2, Upload } from "lucide-react";
 import { VaultSwitchDialog, host } from "@huhu/workbench";
 import { useRef, useState } from "react";
@@ -55,8 +55,11 @@ export interface ExplorerProps {
   onMenu(note: NoteRef, anchor: HTMLElement): void;
   onOpenDaily(date: string): void;
   onImport(files: FileList): void;
-  dailyDate: string;
-  onDailyDate(d: string): void;
+  calendarDate: string;
+  calendarToday: string;
+  calendarLanguage: string;
+  calendarWeekStart: 0 | 1;
+  calendarAvailableDates: ReadonlySet<string>;
 }
 
 function SectionIcon({ section }: { section: Section }) {
@@ -133,12 +136,14 @@ export function NoteExplorer(p: ExplorerProps) {
         </div>
       ) : null}
       {!p.archivesActive && p.section === "daily" ? (
-        <div className="hu-knowledge-daily-picker">
-          <input type="date" aria-label={n.dailyDate} value={p.dailyDate} onChange={(e) => p.onDailyDate(e.target.value)} />
-          <Button icon={FilePlus2} onClick={() => p.onOpenDaily(p.dailyDate)}>
-            {n.dailyOpen}
-          </Button>
-        </div>
+        <MonthCalendar
+          value={p.calendarDate}
+          today={p.calendarToday}
+          language={p.calendarLanguage}
+          weekStartsOn={p.calendarWeekStart}
+          availableDates={p.calendarAvailableDates}
+          onChange={p.onOpenDaily}
+        />
       ) : null}
       {!p.archivesActive && p.section === "tags" ? (
         <div className="notes-tag-cloud">

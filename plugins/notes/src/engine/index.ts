@@ -1,3 +1,4 @@
+import { dailyNotePath, todayInZone } from "../shared/daily.js";
 import { legacyTextEncodings } from "../shared/text-encoding.js";
 import { errors, isWorkbenchCaller } from "@huhu/contracts";
 import type { Context } from "@huhu/cordis";
@@ -54,10 +55,10 @@ const CommentDto = z.object({
   property: z.string().nullable(),
   anchor: Anchor.nullable(),
   state: z.enum(["anchored", "orphaned"]),
-  resolved: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  messages: z.array(z.object({ at: z.string(), author: z.string(), text: z.string() })),
+  author: z.string(),
+  text: z.string(),
 });
 
 const noteTools = {
@@ -319,31 +320,13 @@ const noteTools = {
     }),
     output: CommentDto,
   }),
-  commentsReply: descriptor({
-    name: "comments.reply",
-    title: "回复批注",
-    description: "回复批注。",
+  commentsUpdate: descriptor({
+    name: "comments.update",
+    title: "编辑批注",
+    description: "用指定版本更新一条批注正文。",
     ...publicTool,
     scope: "write",
-    input: Cid.extend({ text: z.string() }),
-    output: CommentDto,
-  }),
-  commentsResolve: descriptor({
-    name: "comments.resolve",
-    title: "解决批注",
-    description: "解决批注。",
-    ...publicTool,
-    scope: "write",
-    input: Cid,
-    output: CommentDto,
-  }),
-  commentsReopen: descriptor({
-    name: "comments.reopen",
-    title: "重新打开批注",
-    description: "重新打开批注。",
-    ...publicTool,
-    scope: "write",
-    input: Cid,
+    input: Cid.extend({ text: z.string(), expectedVersion: z.string().min(1) }),
     output: CommentDto,
   }),
   commentsRelocate: descriptor({
@@ -476,10 +459,11 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     if (draft.path !== rel && !relocated) throw new Error("草稿路径与记录不一致");
     return { draft: { ...draft, path: rel }, version: versionOf(bytes) };
   };
+  const ops = new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations"));
   const svc = new NotesService({
     files: api.vault.files,
     stateDir: api.vault.stateDir,
-    ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
+    ops,
     index: api.vault.index,
     trash: api.vault.trash,
     now: opts.now ?? (() => new Date()),
@@ -507,6 +491,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     publish: (t, p) => api.events.publish(t, p),
     now: opts.now ?? (() => new Date()),
   });
+  const migrated = Promise.resolve().then(() => comments.migrateLegacy(ops));
   const author = (caller: string) => (isWorkbenchCaller(caller) ? "我" : caller);
   const changed = (id: string | null, op: "created" | "updated" | "deleted") => api.events.publish("entity.changed", { kind: "note", id: id ?? "", op });
 
@@ -565,6 +550,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       const r = await svc.save(i.path, i.text, i.expectedVersion);
       api.service<{ saved(path: string, bytes: Uint8Array): void }>("versioningHistory")?.saved(i.path, Buffer.from(i.text));
       const source = r.previous.version === i.expectedVersion ? r.previous : undefined;
+      await migrated;
       await comments.refind(i.path, i.text, r.version, source).catch(() => undefined); // 批注重定位失败不应让保存失败
       // Watcher 会过滤本 Engine 的写入回声；其他工作台仍需接收已提交正文的路径通知。
       api.events.publish("vault.fileChanged", {
@@ -679,8 +665,8 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     bind(noteTools.openDaily, async (c, i) => {
       if (!workbench(c) && i.date === undefined) throw errors.invalidInput("外部调用必须指定日报日期");
       const zone = opts.zone?.() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const date = i.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format((opts.now ?? (() => new Date()))());
-      writePath(c, `日记/${date} · 每日笔记.md`);
+      const date = i.date ?? todayInZone(now(), zone);
+      writePath(c, dailyNotePath(date));
       const r = await svc.openDaily(date);
       if (r.created) changed(null, "created");
       return r;
@@ -695,7 +681,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       return { ok: true as const };
     }),
   );
-  api.defineCapability(bind(noteTools.commentsList, (_c, i) => comments.list(i.path)));
+  api.defineCapability(bind(noteTools.commentsList, async (_c, i) => (await migrated, comments.list(i.path))));
   api.defineCapability(
     bind(noteTools.commentsCreate, (c, i) =>
       comments.create({
@@ -713,11 +699,12 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
       }),
     ),
   );
-  api.defineCapability(bind(noteTools.commentsReply, (c, i) => comments.reply(i.id, i.text, author(c.caller))));
-  api.defineCapability(bind(noteTools.commentsResolve, (_c, i) => comments.setResolved(i.id, true)));
-  api.defineCapability(bind(noteTools.commentsReopen, (_c, i) => comments.setResolved(i.id, false)));
-  api.defineCapability(bind(noteTools.commentsRelocate, (_c, i) => comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion })));
-  api.defineCapability(bind(noteTools.commentsDelete, async (_c, i) => (await comments.delete(i.id), { ok: true as const })));
+  api.defineCapability(bind(noteTools.commentsUpdate, async (_c, i) => {
+    await migrated;
+    return comments.update(i.id, i.text, i.expectedVersion);
+  }));
+  api.defineCapability(bind(noteTools.commentsRelocate, async (_c, i) => (await migrated, comments.relocate(i.id, { start: i.start, end: i.end, quote: i.quote, prefix: i.prefix, suffix: i.suffix, expectedSourceVersion: i.expectedSourceVersion }))));
+  api.defineCapability(bind(noteTools.commentsDelete, async (_c, i) => (await migrated, await comments.delete(i.id), { ok: true as const })));
   // 手动保存模式下离开时保留的草稿：写在 .huhu/drafts/，不改动笔记文件（ACC-KN-04）
   api.defineCapability(
     bind(noteTools.draftGet, (c, i) => {
@@ -784,7 +771,7 @@ export function apply(_ctx: Context, api: HuhuApi, opts: NotesOptions = {}): Not
     api,
     new ArchivesService({
       files: api.vault.files,
-      ops: new OperationLog(api.vault.files, path.join(api.vault.stateDir, "operations")),
+      ops,
       index: api.vault.index,
       notes: svc,
       publish: (t, p) => api.events.publish(t, p),

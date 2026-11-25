@@ -5,6 +5,7 @@ import { listDir, OperationLog, SemanticRepository, Trash, VaultFiles, VaultInde
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { NotesService } from "../src/engine/service.js";
 import { CommentsService } from "../src/engine/comments/service.js";
+import { todayInZone } from "../src/shared/daily.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -443,6 +444,11 @@ describe("复制、回收站", () => {
 });
 
 describe("日记与筛选", () => {
+  test("今天按 Vault 时区取纯日期", () => {
+    const instant = new Date("2026-11-07T03:00:00Z");
+    expect(todayInZone(instant, "America/Los_Angeles")).toBe("2026-11-06");
+    expect(todayInZone(instant, "Asia/Taipei")).toBe("2026-11-07");
+  });
   test("ACC-KN-11 不存在则按模板创建，存在则直接打开；目录被删后重建", async () => {
     const { svc, root } = await setup();
     const a = await svc.openDaily("2026-11-10");
@@ -452,6 +458,15 @@ describe("日记与筛选", () => {
     rmSync(path.join(root, "日记"), { recursive: true });
     expect(await svc.openDaily("2026-11-11")).toMatchObject({ created: true });
     await expect(svc.openDaily("2026/11/10")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(svc.openDaily("2026-02-29")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+  test("同一天并发打开只创建一个日记文件", async () => {
+    const { svc, root } = await setup();
+    const replies = await Promise.all([svc.openDaily("2028-02-29"), svc.openDaily("2028-02-29")]);
+    expect(replies.map(({ created }) => created).sort()).toEqual([false, true]);
+    const paths = new Set(replies.map(({ path }) => path));
+    expect([...paths]).toEqual(["日记/2028-02-29 · 每日笔记.md"]);
+    expect(rd(root, replies[0]!.path)).toContain("## 今天最重要的事");
   });
   test("星标与日记筛选", async () => {
     const { svc, rebuild } = await setup({ "a.md": "a", "日记/2026-11-10 · 每日笔记.md": "d" });

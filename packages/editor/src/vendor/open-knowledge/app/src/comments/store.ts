@@ -117,6 +117,7 @@ function toThread(meta: api.CommentThreadMeta): CommentThread {
     queued: meta.queued,
     // HUHU(P-S4-03)
     ...(meta.scope !== undefined ? { scope: meta.scope } : {}),
+    ...(meta.version !== undefined ? { version: meta.version } : {}),
     ...(meta.messages !== undefined ? { messages: meta.messages } : {}),
   };
 }
@@ -416,8 +417,17 @@ function settle(promise: Promise<unknown>, surface: CommentSurface, failed: stri
   );
 }
 
-export function editComment(threadId: string, body: string, surface = defaultSurface): void {
-  settle(api.editComment(threadId, body, ...fetchArgs(surface)), surface, t`Couldn't save that edit.`);
+export async function editComment(threadId: string, body: string, surface = defaultSurface, expectedVersion?: string): Promise<boolean> {
+  try {
+    const [fetch] = fetchArgs(surface);
+    await api.editComment(threadId, body, fetch, expectedVersion);
+    invalidate(surface);
+    return true;
+  } catch (err) {
+    const failed = t`Couldn't save that edit.`;
+    toast.error(err instanceof Error && err.message ? `${failed} ${err.message}` : failed);
+    return false;
+  }
 }
 
 export function reopenThread(threadId: string, surface = defaultSurface): void {
