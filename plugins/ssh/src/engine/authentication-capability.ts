@@ -11,6 +11,7 @@ export const sshAuthenticationDescriptor = defineCapabilityDescriptor({
   description: "向工作台尝试的指定跳点提交一轮认证回答，或取消该尝试。外部连接使用 ssh.auth.keyboardInteractive.respond。",
   scope: "execute",
   risk: "normal",
+  idempotency: "handler",
   exposable: false,
   defaultExposed: false,
   input: SshAuthenticationPrompt.pick({ attemptId: true, hop: true, promptId: true }).extend({ answers: z.array(z.string().max(4096)).max(32).nullable() }),

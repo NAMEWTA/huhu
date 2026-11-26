@@ -31,7 +31,7 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable = false, deviceProxy = false, shareConnections = true) {
+function setup(password = "pw", unavailable: boolean | "missing-identity" = false, deviceProxy = false, shareConnections = true) {
   const root = tmp();
   const hosts = ownedHosts();
   const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
@@ -46,6 +46,7 @@ function setup(password = "pw", unavailable = false, deviceProxy = false, shareC
     now: () => new Date("2026-11-11T00:00:00Z"),
     withManagedAuth: async (host, connect) => {
       secretCalls.push(host.id);
+      if (unavailable === "missing-identity") throw new HuhuError("SSH_AUTH_FAILED", "本机身份文件不可用", { details: { reason: "identity-file-unavailable" } });
       if (unavailable) throw new HuhuError("SSH_AUTH_FAILED", "SSH 本机认证不可用");
       await connect({ password });
     },
@@ -93,6 +94,42 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("missing identity accepts a single replacement at the original hop and waits for host trust before sending it", async () => {
+    let attempts = 0;
+    const server = await startFakeSsh({ password: "replacement", onAuth: () => attempts++ });
+    const { mgr, add, root } = setup("original", "missing-identity");
+    closers.push(server.close);
+    const host = add(server.port);
+    const connected = mgr.connect(host.id);
+    const status = () => mgr.connectionStatuses()[0];
+    await expect.poll(() => status()?.state).toBe("auth-waiting");
+    const pending = status();
+    if (pending?.state !== "auth-waiting") throw new Error("Expected local identity recovery");
+    const { attemptId, hop, promptId, recovery } = pending.authPrompt;
+    expect(recovery).toBe("identity-file-unavailable");
+    expect(attempts).toBe(0);
+    expect(mgr.decideAuthentication(attemptId, hop + 1, promptId, ["password", "replacement"])).toBe(false);
+    expect(mgr.decideAuthentication(attemptId, hop, promptId, ["password", ""])).toBe(false);
+    expect(mgr.decideAuthentication(attemptId, hop, promptId, ["password", "replacement"])).toBe(true);
+    expect(mgr.decideAuthentication(attemptId, hop, promptId, ["password", "replacement"])).toBe(false);
+    await expect.poll(() => status()?.state).toBe("waiting");
+    const trust = status();
+    if (trust?.state !== "waiting") throw new Error("Expected host fingerprint");
+    expect(attempts).toBe(0);
+    expect(mgr.decide(attemptId, hop, true, trust.prompt.promptId)).toBe(true);
+    await connected;
+    expect(attempts).toBeGreaterThan(0);
+    expect(readFileSync(path.join(root, "audit", "2026-11.ndjson"), "utf8")).not.toContain("replacement");
+    mgr.disconnect(host.id);
+    const next = mgr.connect(host.id).catch((error: unknown) => error);
+    await expect.poll(() => status()?.state).toBe("auth-waiting");
+    const second = status();
+    if (second?.state !== "auth-waiting") throw new Error("Expected a new recovery prompt");
+    expect(second.authPrompt.promptId).not.toBe(promptId);
+    expect(mgr.decideAuthentication(second.attemptId, hop, second.authPrompt.promptId, null)).toBe(true);
+    expect(await next).toMatchObject({ code: "SSH_DISCONNECTED" });
+  });
+
   test("disposing an SSH generation drops old prompts and suppresses late status events", async () => {
     const server = await startFakeSsh({ keyboardResponse: "one-time answer" });
     const { mgr, add, changes } = setup();

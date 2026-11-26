@@ -32,6 +32,8 @@ const hostTrustErrors: Partial<Record<TrustBlock, string>> = {
   expired: "SSH 主机证书已过期",
   "not-yet-valid": "SSH 主机证书尚未生效",
   "invalid-host-policy": "已知主机信任规则无效",
+  "unsupported-certificate": "当前 SSH 主机证书只支持 OpenSSH Ed25519 算法",
+  "unsupported-authority": "当前 SSH 主机证书只支持 Ed25519 签发 CA",
 };
 
 export interface AuditEntry {
@@ -302,7 +304,12 @@ export class SshManager {
     const attempt = this.attempts.get(attemptId);
     const pending = attempt?.authentication;
     if (!attempt || attempt.signal.aborted || pending?.prompt.hop !== hop || pending.prompt.promptId !== promptId) return false;
-    if (answers !== null && answers.length !== pending.prompt.questions.length) return false;
+    if (answers !== null) {
+      if (pending.prompt.recovery) {
+        const [method, password] = answers;
+        if (!(method === "keyboard-interactive" && answers.length === 1) && !(method === "password" && answers.length === 2 && password)) return false;
+      } else if (answers.length !== pending.prompt.questions.length) return false;
+    }
     attempt.authentication = undefined;
     pending.answer(answers);
     return true;
@@ -605,7 +612,22 @@ export class SshManager {
       };
       if (attempt.quick) await authenticate(attempt.quick.auth);
       else if (attempt.draft && host === target) await attempt.draft.authenticate(authenticate);
-      else await this.d.withManagedAuth(host, authenticate);
+      else {
+        let started = false;
+        try {
+          await this.d.withManagedAuth(host, (auth) => { started = true; return authenticate(auth); });
+        } catch (error) {
+          if (started || attempt.publicProbe || attempt.report || attempt.draft || attempt.reconnectRoute || !(error instanceof HuhuError) || error.details?.reason !== "identity-file-unavailable") throw error;
+          const auth = await this.recoverIdentity(attempt, target, host, hop);
+          const current = this.route(target.id, await this.d.hosts.list());
+          if (current.length !== chain.length || current.some((item, index) => item.id !== chain[index]?.id || item.revision !== chain[index]?.revision)) {
+            throw errors.versionConflict("SSH 主机或跳板配置已更新");
+          }
+          attempt.signal.throwIfAborted();
+          this.trace(attempt, hop, "dialing", auth.password === undefined ? "keyboard-interactive" : "password");
+          await authenticate(auth);
+        }
+      }
       client.setNoDelay(true);
       const next = chain[hop + 1];
       if (next) {
@@ -623,6 +645,34 @@ export class SshManager {
       this.trace(attempt, hop, "connected");
     }
     return opened[opened.length - 1]!;
+  }
+
+  private recoverIdentity(attempt: Attempt, target: ManagedHost, host: ManagedHost, hop: number): Promise<ConnectionAuth> {
+    const { id: attemptId, hostId, signal } = attempt;
+    const prompt: SshAuthenticationPrompt = {
+      promptId: newId("cap").replace("cap", "prompt"), attemptId, hop, target: describeHost(target), server: describeHost(host),
+      name: "本机身份文件不可用", instructions: "可为此跳选择一次性密码或服务器交互认证。",
+      recovery: "identity-file-unavailable", questions: [{ text: "一次性密码", echo: false }],
+    };
+    return new Promise((resolve, reject) => {
+      const finish = (error?: HuhuError, auth: ConnectionAuth = {}) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        if (attempt.authentication?.prompt === prompt) attempt.authentication = undefined;
+        if (error) reject(error);
+        else resolve(auth);
+      };
+      const abort = () => finish(new HuhuError("SSH_DISCONNECTED", "已取消本机身份恢复", { details: { hop } }));
+      const timer = setTimeout(() => finish(new HuhuError("SSH_TIMEOUT", "等待替代 SSH 凭据超时", { details: { hop } })), this.d.decisionTimeoutMs ?? 120_000);
+      if (signal.aborted) return abort();
+      signal.addEventListener("abort", abort, { once: true });
+      attempt.authentication = { prompt, answer: (answers) => {
+        if (answers === null) return abort();
+        finish(undefined, answers[0] === "password" ? { password: answers[1]! } : {});
+      } };
+      this.trace(attempt, hop, "answering");
+      this.update({ hostId, attemptId, state: "auth-waiting", authPrompt: prompt, ...(this.connecting.get(attempt.slot ?? hostId)?.workspaces && { workspace: true as const }) });
+    });
   }
 
   /** A draft probe owns its transports and never registers them as Workbench connections. */
