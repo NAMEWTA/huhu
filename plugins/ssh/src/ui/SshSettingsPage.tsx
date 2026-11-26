@@ -30,6 +30,7 @@ const fields = {
   showDotFiles: "显示以点开头的文件",
   fileSort: "文件排序方式",
   remoteOnLeft: "双栏默认将远端放在左侧",
+  fileOpenMode: "独立文件窗口打开方式",
   showPaneFiles: "进入工作区时展开分栏文件",
   followShellDirectory: "文件面板跟随 Shell",
   followFileDirectory: "Shell 跟随文件面板",
@@ -37,12 +38,13 @@ const fields = {
 const keys = {
   layout: ["tabs", "paneTools", "groupVerticalTabs", "paneToolOrder", "paneToolSize", "restoreWorkspace"],
   terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation", "localShellEnvironment"],
-  files: ["showDotFiles", "fileSort", "remoteOnLeft", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
+  files: ["showDotFiles", "fileSort", "remoteOnLeft", "fileOpenMode", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
   const headingId = useId();
+  const fileOpenModeId = useId();
   const saved = useDevicePreferences();
   const [base, setBase] = useState(saved);
   const [draft, setDraft] = useState(saved);
@@ -237,7 +239,16 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
           <input type="checkbox" checked={draft.showPaneFiles} onChange={(event) => set("showPaneFiles", event.target.checked)} />
         </label>
       )}
-      {shown("showPaneFiles") && <p>打开工作区时，工具栏可见的已连接分栏会展开文件视图。独立双栏在工作台内打开。</p>}
+      {shown("showPaneFiles") && <p>打开工作区时，工具栏可见的已连接分栏会展开文件视图。</p>}
+      {shown("fileOpenMode") && desktop && (
+        <div className="hu-setting-row">
+          <label htmlFor={fileOpenModeId}>{fields.fileOpenMode}</label>
+          <select id={fileOpenModeId} value={draft.fileOpenMode} onChange={(event) => set("fileOpenMode", event.target.value === "window" ? "window" : "tab")}>
+            <option value="tab">工作台内</option>
+            <option value="window">独立窗口</option>
+          </select>
+        </div>
+      )}
       {(["followShellDirectory", "followFileDirectory"] as const).map(
         (field) =>
           shown(field) && (

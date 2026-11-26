@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld("huhuHost", {
   revealVault: (): Promise<void> => ipcRenderer.invoke("huhu:revealVault"),
   openVaultFile: (rel: string, reveal?: boolean): Promise<"opened" | "revealed" | "denied" | "missing" | "failed"> => ipcRenderer.invoke("huhu:openVaultFile", rel, reveal === true),
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("huhu:openExternal", url),
+  openSshFileWindow: (target: import("@huhu/plugin-ssh/shared").SshFileWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-files:window", target),
   sshExternalEditor: {
     open: (name, text) => ipcRenderer.invoke("huhu:ssh-external-editor:open", name, text),
     read: (id) => ipcRenderer.invoke("huhu:ssh-external-editor:read", id),

@@ -38,7 +38,7 @@ export function WorkspaceRunView({
   connections: readonly ConnectionStatus[];
   hosts: readonly { hostId: string; name: string }[];
   onTrust: (prompt: NonNullable<WorkspaceRunPane["prompt"]>, accept: boolean) => Promise<void>;
-  onOpenFiles: (session: FileSession) => void;
+  onOpenFiles: (session: FileSession) => void | Promise<void>;
 }) {
   const engine = useEngine();
   const { endpoint } = engine;

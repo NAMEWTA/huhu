@@ -287,6 +287,14 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
     await expect(current).toHaveText("/home/test/pictures");
     await expect(next).toBeDisabled();
     await expect(independent).toHaveAttribute("data-connection-id", connectionId!);
+    const tabOpening = web.context().waitForEvent("page");
+    await independent.getByRole("link", { name: "在浏览器新标签页打开" }).click();
+    const filesTab = await tabOpening;
+    const tabPane = filesTab.getByTestId("ssh-independent-files");
+    await expect(tabPane).toHaveAttribute("data-file-session-id", sessionId!);
+    await expect(tabPane).toHaveAttribute("data-connection-id", connectionId!);
+    await expect(tabPane.getByTestId("files-path")).toHaveText("/home/test");
+    await filesTab.close();
     expect(server.conns).toHaveLength(1);
   } finally {
     try {
@@ -295,5 +303,63 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
       await fixture.close();
       await server.close();
     }
+  }
+});
+
+test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 SSH", async () => {
+  const password = randomUUID();
+  const first = await startFakeSsh({ password });
+  const second = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { app, page } = fixture;
+    first.fs.files.set("/home/test/from-first.txt", Buffer.from("first"));
+    second.fs.files.set("/home/test/from-second.txt", Buffer.from("second"));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
+    await ssh.click();
+    await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+    const settings = page.getByTestId("ssh-settings");
+    await settings.getByPlaceholder("搜索 SSH 设置").fill("独立文件窗口");
+    const mode = settings.getByLabel("独立文件窗口打开方式");
+    await expect(mode).toHaveValue("tab");
+    await mode.selectOption("window");
+    await settings.getByRole("button", { name: "保存本机文件设置" }).click();
+    await expect(settings.getByText("已保存到本机。")).toBeVisible();
+    const panes = [];
+    for (const [name, port] of [["文件甲", first.port], ["文件乙", second.port]] as const) {
+      panes.push(await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: password }],
+      }));
+    }
+    await desktopCall(page, "ssh.workspace.runs.start", {
+      name: "文件窗口绑定", layout: { kind: "tabs" }, panes: panes.map(({ hostId }) => ({ hostId })),
+    });
+    await ssh.click();
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /文件窗口绑定.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await run.getByRole("button", { name: "分栏文件" }).click();
+    const opening = app.waitForEvent("window");
+    await run.getByRole("button", { name: "打开独立双栏" }).click();
+    const fileWindow = await opening;
+    const filePane = fileWindow.getByTestId("ssh-independent-files");
+    await expect(filePane.getByRole("heading", { name: /文件甲/ })).toBeVisible();
+    await expect(filePane.getByRole("button", { name: "from-first.txt" })).toBeVisible();
+    const bound = await filePane.getAttribute("data-connection-id");
+    await run.getByRole("tab", { name: "文件乙", exact: true }).click();
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await expect(run.getByTestId("terminal-view").filter({ visible: true })).toHaveAttribute("data-state", "open");
+    await expect(filePane).toHaveAttribute("data-connection-id", bound!);
+    await expect(filePane.getByRole("button", { name: "from-second.txt" })).toHaveCount(0);
+    await fileWindow.close();
+    await run.getByRole("tab", { name: "文件甲", exact: true }).click();
+    await expect(run.getByTestId("terminal-view").filter({ visible: true })).toHaveAttribute("data-state", "open");
+    expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
+  } finally {
+    await fixture.close();
+    await Promise.all([first.close(), second.close()]);
   }
 });

@@ -1,7 +1,8 @@
 import { Button, EmptyState, PageHead } from "@huhu/ui";
-import { useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
+import { host, useCapability, useEngine, useEngineEvents, useQueryClient } from "@huhu/workbench";
 import { useEffect, useState } from "react";
 import type { FileDirectory, FileSession } from "../shared/files.js";
+import { sshFileWindowUrl } from "../shared/file-window.js";
 import { FilesPanel } from "./FilesPanel.js";
 import { FileTable } from "./FileTable.js";
 import { TransferCenter } from "./TransferCenter.js";
@@ -24,7 +25,7 @@ function source(session: FileSession) {
   return `${session.user}@${session.host.includes(":") ? `[${session.host}]` : session.host}:${session.port}`;
 }
 
-export function AttachedFiles({ hostId, shellId, onOpen, title, followDirectory = false }: { hostId: string; shellId?: string | null; onOpen: (session: FileSession) => void; title?: string; followDirectory?: boolean }) {
+export function AttachedFiles({ hostId, shellId, onOpen, title, followDirectory = false }: { hostId: string; shellId?: string | null; onOpen: (session: FileSession) => void | Promise<void>; title?: string; followDirectory?: boolean }) {
   const engine = useEngine();
   const [session, setSession] = useState<FileSession>();
   const [error, setError] = useState("");
@@ -62,7 +63,7 @@ export function AttachedFiles({ hostId, shellId, onOpen, title, followDirectory 
     setOpening(true);
     setError("");
     try {
-      onOpen(await engine.call<FileSession>("ssh.fileSessions.open", { fromFileSessionId: session.fileSessionId }, { write: true }));
+      await onOpen(await engine.call<FileSession>("ssh.fileSessions.open", { fromFileSessionId: session.fileSessionId }, { write: true }));
     } catch (error) {
       if (error instanceof Error) setError(error.message);
     } finally {
@@ -198,7 +199,15 @@ function LocalFiles({ id }: { id: string }) {
   );
 }
 
-export function FileWorkspace({ active, selectedId, seed, select, onBack }: { active: boolean; selectedId: string; seed: FileSession | null; select: (id: string) => void; onBack: () => void }) {
+export function SshFileWindow({ id }: { id: string }) {
+  return (
+    <div className="ssh-file-window">
+      <FileWorkspace active selectedId={id} seed={null} select={() => undefined} />
+    </div>
+  );
+}
+
+export function FileWorkspace({ active, selectedId, seed, select, onBack }: { active: boolean; selectedId: string; seed: FileSession | null; select: (id: string) => void; onBack?: () => void }) {
   const engine = useEngine();
   const { remoteOnLeft } = useDevicePreferences();
   const qc = useQueryClient();
@@ -210,6 +219,8 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
     if (seed) showTransfers(false);
   }, [seed]);
   const [fileFocus, setFileFocus] = useState<{ id: string; path: string }>();
+  const standalone = onBack === undefined;
+  const visibleSessions = sessions.data?.filter((session) => !standalone || session.fileSessionId === selectedId);
   const current = sessions.data?.find(({ fileSessionId }) => fileSessionId === selectedId) ?? (sessions.isFetching && seed?.fileSessionId === selectedId ? seed : undefined);
   useEffect(() => {
     if (active) void qc.invalidateQueries({ queryKey: [engine.vaultId, "ssh.fileSessions.list"] });
@@ -233,7 +244,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
   return (
     <div className="ssh-file-view" hidden={!active}>
       <div className="hu-module-layout hu-execution-module" data-testid="ssh-file-workspace">
-        <aside className="hu-resource-pane" aria-label="独立文件会话">
+        {onBack && <aside className="hu-resource-pane" aria-label="独立文件会话">
           <div className="hu-resource-head">
             <Button variant="ghost" onClick={onBack}>
               返回 SSH
@@ -261,7 +272,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
               </button>
             ))}
           </div>
-        </aside>
+        </aside>}
         <main className="hu-view-content">
           <PageHead title="独立文件会话" />
           <div className="hu-scroll ssh-pad">
@@ -276,7 +287,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                 }}
               />
             )}
-            {!transfers && !current && <EmptyState title="从已连接的主机或分栏打开独立双栏" />}
+            {!transfers && !current && !sessions.isPending && <EmptyState title={standalone ? "原文件会话已结束" : "从已连接的主机或分栏打开独立双栏"} />}
             {!transfers && current?.source === "external" && (
               <section>
                 <h2>外部工具文件会话 · {current.name}</h2>
@@ -286,7 +297,7 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                 <Button onClick={() => void close(current.fileSessionId)}>关闭外部文件会话</Button>
               </section>
             )}
-            {sessions.data?.map((session) => {
+            {visibleSessions?.map((session) => {
               if (session.source === "external") return null;
               const panes = [<LocalFiles key="local" id={session.fileSessionId} />, <FilesPanel key="remote" session={session} focus={fileFocus?.id === session.fileSessionId ? fileFocus : undefined} />];
               const remoteFirst = reversed[session.fileSessionId] ?? remoteOnLeft;
@@ -311,6 +322,11 @@ export function FileWorkspace({ active, selectedId, seed, select, onBack }: { ac
                   )}
                   <div className="ssh-workspace-controls">
                     <Button onClick={() => setReversed((current) => ({ ...current, [session.fileSessionId]: !remoteFirst }))}>交换左右位置</Button>
+                    {!standalone && !host() && session.fileSessionId === selectedId && (
+                      <a href={sshFileWindowUrl(window.location.href, { vaultId: engine.vaultId, fileSessionId: session.fileSessionId })} target="_blank" rel="noopener noreferrer">
+                        在浏览器新标签页打开
+                      </a>
+                    )}
                     <Button onClick={() => void close(session.fileSessionId)}>关闭独立文件视图</Button>
                   </div>
                   {localPicker() ? (

@@ -1,4 +1,5 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
+import { sshFileWindowUrl, SshFileWindowTarget } from "@huhu/plugin-ssh/shared";
 import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -50,6 +51,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: "huhu-app", privileges: { standa
 let preview: PreviewController | null = null;
 
 const recoveryPages = new WeakMap<BrowserWindow, string>();
+const workbenchAddresses = new WeakMap<BrowserWindow, string>();
 const showingRecovery = (win: BrowserWindow) => !win.isDestroyed() && recoveryPages.get(win) === win.webContents.getURL();
 
 function automationNotice(value: unknown) {
@@ -170,7 +172,7 @@ async function recoverUnresponsiveWindow(win: BrowserWindow): Promise<boolean> {
     defaultId: 0,
     cancelId: 0,
   });
-  if (answer.response === 1 && !win.isDestroyed()) await win.loadURL(rendererAddress());
+  if (answer.response === 1 && !win.isDestroyed()) await win.loadURL(workbenchAddresses.get(win) ?? rendererAddress());
   return recovery && answer.response === 2 && showingRecovery(win);
 }
 
@@ -226,14 +228,15 @@ let flushedForQuit = false;
 let quitting = false;
 let attachAppMenu: ((win: BrowserWindow) => void) | undefined;
 
-function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWindow {
+function createWindow(chrome: ReturnType<typeof installWindowChrome>, fileTarget?: SshFileWindowTarget): BrowserWindow {
+  const address = fileTarget ? sshFileWindowUrl(rendererAddress(), fileTarget) : rendererAddress();
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    title: "HUHU",
-    ...nativeTitleOptions(),
+    title: fileTarget ? "HUHU · SSH 文件" : "HUHU",
+    ...(fileTarget ? { autoHideMenuBar: true } : nativeTitleOptions()),
     icon: iconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, "../preload/index.cjs"),
@@ -242,8 +245,11 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
       nodeIntegration: false,
     },
   });
-  chrome.attach(win);
-  attachAppMenu?.(win);
+  workbenchAddresses.set(win, address);
+  if (!fileTarget) {
+    chrome.attach(win);
+    attachAppMenu?.(win);
+  }
   // 点窗口 X：窗口销毁后 before-quit 已经没有可通知的界面了，所以在这里先落盘再关
   let closing = false;
   win.on("close", (event) => {
@@ -279,9 +285,9 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
   });
   const showRecovery = (detail: string) => {
     if (win.isDestroyed() || quitting || flushedForQuit) return;
-    const address = windowErrorPage(detail, app.getPath("logs"), rendererAddress(), chrome.colors(win));
-    recoveryPages.set(win, address);
-    void win.loadURL(address).catch(() => undefined);
+    const recovery = windowErrorPage(detail, app.getPath("logs"), address, chrome.colors(win));
+    recoveryPages.set(win, recovery);
+    void win.loadURL(recovery).catch(() => undefined);
   };
   // 只为工作台主框架的实际失败显示错误页。新导航取消旧加载时会报告 ERR_ABORTED。
   win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
@@ -291,7 +297,7 @@ function createWindow(chrome: ReturnType<typeof installWindowChrome>): BrowserWi
   win.webContents.on("render-process-gone", (_event, { reason }) => {
     if (reason !== "clean-exit" && workbenchDocument) setImmediate(() => showRecovery(`工作台进程已退出（${reason}）`));
   });
-  void win.loadURL(rendererAddress()).catch(() => undefined);
+  void win.loadURL(address).catch(() => undefined);
   return win;
 }
 
@@ -329,6 +335,24 @@ if (!gotLock) {
       for (const w of BrowserWindow.getAllWindows()) w.webContents.send("huhu:engineState", state);
     };
     let current: { path: string; readOnly: boolean } | null = null;
+    const fileWindows = new Map<string, BrowserWindow>();
+    ipcMain.handle("huhu:ssh-files:window", (event, input: unknown) => {
+      assertTrusted(event.senderFrame?.url);
+      const target = SshFileWindowTarget.parse(input);
+      if (event.senderFrame !== event.sender.mainFrame || supervisor?.activeVaultId !== target.vaultId) throw new Error("原文件会话所在的 Vault 已关闭。");
+      const key = JSON.stringify(target);
+      const existing = fileWindows.get(key);
+      if (existing && !existing.isDestroyed()) {
+        if (existing.isMinimized()) existing.restore();
+        existing.focus();
+        return;
+      }
+      const win = createWindow(chrome, target);
+      fileWindows.set(key, win);
+      win.once("closed", () => {
+        if (fileWindows.get(key) === win) fileWindows.delete(key);
+      });
+    });
     const shownNotices = new Map<string, number>();
     ipcMain.handle("huhu:show-automation-notification", (event, notice: unknown, vaultId: unknown) => {
       assertTrusted(event.senderFrame?.url);

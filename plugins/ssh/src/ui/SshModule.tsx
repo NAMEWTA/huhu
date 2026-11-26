@@ -9,6 +9,7 @@ import { directoryGroupPath, hostSearchTerms, matchesHostSearch } from "../share
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
+import type { SshFileWindowHost } from "../shared/file-window.js";
 import { HostEditorDialog } from "./HostEditorDialog.js";
 import { HostDirectory } from "./HostDirectory.js";
 import { HostImportDialog } from "./HostImportDialog.js";
@@ -29,6 +30,7 @@ import { RecordTerminal, TerminalRecordingsPanel } from "./TerminalRecordings.js
 import { LocalShellPanel } from "./LocalShellPanel.js";
 import { directJumpIds, routeForHost } from "../shared/route.js";
 import { t } from "./i18n.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 interface Shell {
   id: string;
@@ -75,6 +77,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const engine = useEngine();
   const qc = useQueryClient();
   const desktop = Boolean(desktopHost());
+  const { fileOpenMode } = useDevicePreferences();
   const hosts = useCapability<Host[]>("ssh.hosts.list", {});
   const directory = useCapability<z.output<typeof DirectoryView>>("ssh.hosts.directory", {});
   const connections = useCapability<ConnectionStatus[]>(CONNECTIONS, {});
@@ -252,8 +255,13 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
       setConnectError({ hostId: h.id, message: message(e) });
     }
   }
-  function openFiles(session?: FileSession) {
+  async function openFiles(session?: FileSession) {
     if (session) {
+      const windowHost = (globalThis as { huhuHost?: SshFileWindowHost }).huhuHost;
+      if (fileOpenMode === "window" && windowHost?.openSshFileWindow) {
+        await windowHost.openSshFileWindow({ vaultId: engine.vaultId, fileSessionId: session.fileSessionId });
+        return;
+      }
       setFileSeed(session);
       selectFile(session.fileSessionId);
     }

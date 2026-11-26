@@ -4,6 +4,10 @@
     display: contents;
   }
 
+  .ssh-file-window {
+    height: 100%;
+  }
+
   .ssh-file-columns {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));

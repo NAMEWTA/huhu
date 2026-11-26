@@ -71,7 +71,7 @@ function Preview({ panes, layout, name }: { panes: WorkspacePane[]; layout: Layo
 
 export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }: {
   onHosts: () => void;
-  onFiles: (session?: FileSession) => void;
+  onFiles: (session?: FileSession) => void | Promise<void>;
   shown: boolean;
   connections: readonly ConnectionStatus[];
   seed?: { ids: string[]; temporary: boolean } | undefined;
