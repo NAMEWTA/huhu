@@ -15,7 +15,7 @@ type OwnedOrigin = {
   origin: z.infer<typeof FileOrigin> & { shellId?: string };
   directory?: { state(): DirectoryFollowState; follow(revision: number, path: string): Promise<boolean> };
 };
-type Binding = { session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
+type Binding = { closeConnection?: () => void; session: FileSession; controller: AbortController; detached: boolean; localRoot?: string; search?: AbortController; navigation?: Navigation; owned?: OwnedOrigin };
 
 export class FileSessions {
   private readonly bindings = new Map<string, Binding>();
@@ -32,6 +32,19 @@ export class FileSessions {
     const shellId = "shellId" in input ? input.shellId : from?.shellId;
     const session: FileSession = { ...origin, fileSessionId: randomUUID(), ...(shellId ? { shellId } : {}), state: "ready" };
     this.bindings.set(session.fileSessionId, { session, detached: !("attached" in input && input.attached), controller: new AbortController() });
+    return session;
+  }
+
+  async openIndependent(hostId: string, signal: AbortSignal): Promise<FileSession> {
+    if (this.disposed) throw errors.notFound("文件会话所属的 Vault 已关闭");
+    const { origin, close } = await this.manager.openFileConnection(hostId, signal);
+    if (this.disposed || signal.aborted) {
+      close();
+      signal.throwIfAborted();
+      throw errors.notFound("文件会话所属的 Vault 已关闭");
+    }
+    const session: FileSession = { ...origin, fileSessionId: randomUUID(), state: "ready" };
+    this.bindings.set(session.fileSessionId, { session, detached: true, controller: new AbortController(), closeConnection: close });
     return session;
   }
 
@@ -92,6 +105,7 @@ export class FileSessions {
     if (attached && binding?.detached) return;
     binding?.controller.abort();
     this.bindings.delete(id);
+    binding?.closeConnection?.();
   }
 
   dispose(): void {

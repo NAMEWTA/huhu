@@ -1211,6 +1211,19 @@ export class SshManager {
     }
   }
 
+  async openFileConnection(hostId: string, signal: AbortSignal) {
+    const slot = newId("cap");
+    const close = () => this.closeOwnedConnection(slot);
+    try {
+      const { connection } = await this.begin(hostId, signal, true, undefined, undefined, undefined, { slot, purpose: "files" }).promise;
+      signal.throwIfAborted();
+      return { origin: this.fileOrigins.get(connection)!, close };
+    } catch (error) {
+      close();
+      throw error;
+    }
+  }
+
   async openWorkbenchShell(hostId: string, size: { cols: number; rows: number }, signal: AbortSignal): Promise<ShellInfo> {
     if (this.d.connectionPreferences?.().shareConnections !== false) return this.openShell(hostId, size);
     const slot = newId("cap");

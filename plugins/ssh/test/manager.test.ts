@@ -7,6 +7,7 @@ import { HuhuError } from "@huhu/contracts";
 import { randomUUID } from "node:crypto";
 import { findJumpCycle } from "../src/engine/hosts.js";
 import type { SshHostProfile } from "../src/engine/auth-profile.js";
+import { FileSessions } from "../src/engine/file-sessions.js";
 import { SshManager } from "../src/engine/manager.js";
 import { DeviceProxies } from "../src/engine/device-proxies.js";
 import { TerminalRecordings } from "../src/engine/terminal-recordings.js";
@@ -90,6 +91,31 @@ describe("主机配置", () => {
 });
 
 describe("连接与主机密钥", () => {
+  test("a file view dials an unconnected host and releases only its own transport", async () => {
+    const server = await startFakeSsh();
+    const { mgr, add } = setup();
+    const files = new FileSessions(mgr);
+    closers.push(() => files.dispose(), server.close);
+    server.fs.files.set("/home/test/isolated.txt", Buffer.from("file view connection"));
+    const host = add(server.port);
+    const opening = files.openIndependent(host.id, new AbortController().signal);
+    const wait = () => mgr.connectionStatuses().find(({ purpose }) => purpose === "files");
+    await expect.poll(() => wait()?.state).toBe("waiting");
+    const status = wait();
+    if (status?.state !== "waiting") throw new Error("missing fingerprint");
+    expect(mgr.decide(status.attemptId, 0, true, status.prompt.promptId)).toBe(true);
+    const session = await opening;
+    expect(mgr.isConnected(host.id)).toBe(false);
+    expect(mgr.listShells(host.id)).toEqual([]);
+    await expect(mgr.sftpList(files.source({ fileSessionId: session.fileSessionId }), "")).resolves.toMatchObject({ entries: expect.arrayContaining([expect.objectContaining({ name: "isolated.txt" })]) });
+    await mgr.connect(host.id);
+    expect(server.conns).toHaveLength(2);
+    files.close(session.fileSessionId);
+    await expect.poll(() => server.closed()).toBe(1);
+    expect(mgr.isConnected(host.id)).toBe(true);
+    expect(wait()).toBeUndefined();
+  });
+
   test("isolated panes keep their own trust requests, file origins and monitor transport", async () => {
     const server = await startFakeSsh();
     const { mgr, add } = setup("pw", false, false, false);

@@ -860,7 +860,7 @@ export const sshCapabilityDescriptors = {
     scope: "execute",
     risk: "high",
     idempotency: "handler",
-    input: z.union([OpenOwnedFiles, z.strictObject({ hostId: z.string(), shellId: z.string().optional(), attached: z.boolean().default(false) }), z.strictObject({ fromFileSessionId: z.uuid() })]),
+    input: z.union([OpenOwnedFiles, z.strictObject({ hostId: z.string(), independent: z.literal(true) }), z.strictObject({ hostId: z.string(), shellId: z.string().optional(), attached: z.boolean().default(false) }), z.strictObject({ fromFileSessionId: z.uuid() })]),
     output: FileSession,
   }),
   fileSessionsList: defineCapabilityDescriptor({

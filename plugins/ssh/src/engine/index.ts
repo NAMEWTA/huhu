@@ -832,7 +832,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     bindCapability(sshCapabilityDescriptors.fileSessionsOpen, (context, input) => {
       if ("attemptId" in input) return publicFiles.open(context, input);
       if (!isWorkbenchCaller(context.caller)) throw errors.invalidInput("打开外部 SSH 文件会话需要原连接和意图键");
-      return files.open(input);
+      return "independent" in input ? files.openIndependent(input.hostId, context.signal) : files.open(input);
     }),
   );
   api.defineCapability(

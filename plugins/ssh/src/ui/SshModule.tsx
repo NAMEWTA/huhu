@@ -90,6 +90,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const [knownReview, setKnownReview] = useState<HostKeyPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openingShell, setOpeningShell] = useState<AbortController>();
+  const [openingFiles, setOpeningFiles] = useState<AbortController>();
   const [connectError, setConnectError] = useState<{ hostId: string; message: string } | null>(null);
   const [requestHost, setRequestHost] = useState<string | null>(null);
   const [hostAction, setHostAction] = useState<HostAction | null>(null);
@@ -230,6 +231,8 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const connection = host ? byHost.get(host.id) : undefined;
   const openingSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "shell"
     && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
+  const openingFileSession = connections.data?.find((status) => status.hostId === host?.id && status.purpose === "files"
+    && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting"));
   const isConn = connection?.state === "connected";
   const waiting = connection?.state === "waiting";
   const authWaiting = connection?.state === "auth-waiting";
@@ -277,6 +280,34 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
       selectFile(session.fileSessionId);
     }
     showFileView(true);
+  }
+  async function openHostFiles(h: Host) {
+    if (openingFiles) return;
+    setSel(h.id);
+    setTab("overview");
+    setConnectError(null);
+    const pending = new AbortController();
+    setOpeningFiles(pending);
+    try {
+      const session = await engine.call<FileSession>("ssh.fileSessions.open", { hostId: h.id, independent: true }, { write: true, signal: pending.signal });
+      if (pending.signal.aborted) {
+        await engine.call("ssh.fileSessions.close", { fileSessionId: session.fileSessionId }, { write: true });
+        return;
+      }
+      try {
+        await openFiles(session);
+      } catch (error) {
+        setFileSeed(session);
+        selectFile(session.fileSessionId);
+        showFileView(true);
+        setConnectError({ hostId: h.id, message: message(error) });
+      }
+    } catch (error) {
+      if (!pending.signal.aborted) setConnectError({ hostId: h.id, message: message(error) });
+    } finally {
+      setOpeningFiles(undefined);
+      await refetchConnections();
+    }
   }
   const withFileWorkspace = (content: ReactNode) => (
     <>
@@ -364,6 +395,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
         onBack={() => setShowDirectory(false)}
         onOpen={openFromDirectory}
         onConnect={(h) => { openFromDirectory(h); void connect(h); }}
+        onFiles={(h) => { openFromDirectory(h); void openHostFiles(h); }}
         onWorkspace={(ids, temporary) => { setWorkspaceSeed({ ids, temporary }); setWorkspaces(true); }}
         onRoute={desktop ? (ids) => { setRouteTargets(ids); setRoutes(true); } : undefined}
         onCreate={desktop ? () => { setShowDirectory(false); setHostAction({ kind: "create" }); } : undefined}
@@ -483,6 +515,14 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                   {importStatus?.pending ? "补齐导入分组" : "导入主机"}
                 </Button>
               ) : null}
+              {host && tab === "overview" && isManagedHost(host) && (
+                openingFiles
+                  ? <>
+                    {openingFileSession && dismissed && <Button onClick={() => setDismissed(null)}>继续打开文件</Button>}
+                    <Button onClick={() => openingFiles.abort()}>取消打开文件</Button>
+                  </>
+                  : <Button icon={Folder} onClick={() => void openHostFiles(host)}>打开独立文件管理</Button>
+              )}
               {host && tab !== "known" ? (
                 isConn ? (
                   <Button icon={Unplug} onClick={() => void disconnect(host)}>
@@ -911,6 +951,12 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
           }}
         />
       ) : null}
+      {tab === "overview" && openingFiles && (openingFileSession?.state === "waiting" || openingFileSession?.state === "key-changed") && dismissed !== openingFileSession.prompt.promptId && (
+        <HostKeyDialog key={openingFileSession.prompt.promptId} prompt={openingFileSession.prompt} changed={openingFileSession.state === "key-changed"} onClose={() => setDismissed(openingFileSession.prompt.promptId)} onReview={() => openReview(openingFileSession.prompt)} onRefresh={refetchConnections} />
+      )}
+      {tab === "overview" && openingFiles && openingFileSession?.state === "auth-waiting" && dismissed !== openingFileSession.authPrompt.promptId && (
+        <AuthenticationDialog key={openingFileSession.authPrompt.promptId} prompt={openingFileSession.authPrompt} onClose={() => setDismissed(openingFileSession.authPrompt.promptId)} onAnswered={refetchConnections} />
+      )}
       {tab === "terminal" && (openingSession?.state === "waiting" || openingSession?.state === "key-changed") && dismissed !== openingSession.prompt.promptId && (
         <HostKeyDialog key={openingSession.prompt.promptId} prompt={openingSession.prompt} changed={openingSession.state === "key-changed"} onClose={() => setDismissed(openingSession.prompt.promptId)} onReview={() => openReview(openingSession.prompt)} onRefresh={refetchConnections} />
       )}

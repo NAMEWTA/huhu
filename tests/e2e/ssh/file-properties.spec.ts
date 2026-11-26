@@ -370,6 +370,32 @@ test("A07 独立 Web 文件会话按路径前进和返回，保留桌面来源�
   }
 });
 
+test("A07 从未连接主机打开独立文件管理并单独释放原连接", async () => {
+  const password = randomUUID();
+  const server = await startFakeSsh({ password });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    server.fs.files.set("/home/test/independent.txt", Buffer.from("independent file"));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    await desktopCall(page, "ssh.hosts.configure", {
+      name: "文件直开回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: password }],
+    });
+    await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+    await page.getByRole("button", { name: "打开独立文件管理", exact: true }).click();
+    await page.getByTestId("hostkey-dialog").getByRole("button", { name: "信任并连接" }).click();
+    await expect(page.getByText("independent.txt", { exact: true })).toBeVisible();
+    expect(server.conns).toHaveLength(1);
+    expect(await desktopCall(page, "ssh.shells.list")).toEqual([]);
+    await page.getByRole("button", { name: "关闭独立文件视图" }).click();
+    await expect.poll(() => server.closed()).toBe(1);
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
+
 test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 SSH", async () => {
   const password = randomUUID();
   const first = await startFakeSsh({ password });
