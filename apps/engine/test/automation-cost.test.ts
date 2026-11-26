@@ -73,7 +73,8 @@ test.skipIf(process.platform !== "linux" || !existsSync(bin))("AU18 a shared Eng
   const realTick = ObservationPlans.prototype.tick;
   let observations: ObservationPlans | undefined;
   const tick = vi.spyOn(ObservationPlans.prototype, "tick").mockImplementation(function (this: ObservationPlans) {
-    observations = this;
+    // Keep the instance the Engine scheduled so the sample can drive its real tick.
+    observations = tick.mock.contexts.at(-1) as ObservationPlans | undefined;
     return Promise.resolve();
   });
   const rpc = vi.spyOn(HerdrClient.prototype, "call");

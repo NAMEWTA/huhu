@@ -499,6 +499,13 @@ function visibleNotification(notification: Notification): boolean {
   return notification.module === "home" && notification.title === "专注完成" && notification.body === undefined;
 }
 
+/** External Focus readers keep the original notification DTO; the occurrence link is workbench-only. */
+function withoutOccurrence(notification: Notification): Omit<Notification, "occurrence"> {
+  const item: Partial<Notification> = { ...notification };
+  delete item.occurrence;
+  return item as Omit<Notification, "occurrence">;
+}
+
 function settingsRevision(settings: Settings): string {
   return createHash("sha256").update(JSON.stringify(settings)).digest("hex");
 }
@@ -539,7 +546,7 @@ export function registerNotificationAndSettings(registry: CapabilityRegistry, st
       output: z.array(NotificationDto),
       handler: ({ caller }, i) => {
         const items = store.list({ ...(i.unreadOnly ? { unreadOnly: true } : {}), ...(i.module ? { module: i.module } : {}) });
-        return isWorkbenchCaller(caller) ? items : items.filter(visibleNotification).map(({ occurrence: _, ...item }) => item);
+        return isWorkbenchCaller(caller) ? items : items.filter(visibleNotification).map(withoutOccurrence);
       },
     }),
     registerKernelCapability(registry, {
