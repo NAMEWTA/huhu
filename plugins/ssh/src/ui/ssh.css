@@ -1243,6 +1243,17 @@
     block-size: 100dvh;
   }
 
+  @media (min-width: 960px) {
+    .ssh-workspace-file-layout[data-file-position="left"],
+    .ssh-workspace-file-layout[data-file-position="right"] {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+
+  }
+
   .ssh-terminal-scale {
     position: absolute;
     inset: 0;

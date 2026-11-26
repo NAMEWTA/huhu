@@ -10,7 +10,7 @@ import { createMailContributions, requestMailNotification } from "@huhu/plugin-m
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { readSshFileWindow, readSshTerminalWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
-import { contributions as sshUi, SshFileWindow, SshTerminalWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
+import { contributions as sshUi, SshFileWindow, SshStartup, SshTerminalWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
@@ -323,6 +323,7 @@ function WorkbenchShell({ endpoint, state, version, onRestartEngine, onConnectio
   const withFilter = (
     <>
       {endpoint?.token ? <DocumentSessionConnection /> : null}
+      {endpoint?.token && !browser ? <SshStartup /> : null}
       {shell}
       {endpoint ? <PluginFilter registry={registry} /> : null}
       {endpoint ? <QuickCapture /> : null}

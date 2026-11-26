@@ -7,6 +7,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { LocalEnvironment, LocalSession } from "../../../plugins/ssh/src/shared/local-shell.js";
+import type { ConnectionStatus } from "../../../plugins/ssh/src/shared/trust.js";
+import type { WorkspaceRun } from "../../../plugins/ssh/src/shared/workspace.js";
 import { startFakeSsh } from "../../../plugins/ssh/test/fake-server.js";
 import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
@@ -82,6 +84,142 @@ test("H5.4 Linux 本地终端在停用 Agent 后用原 Shell 重连", async () =
     } finally {
       await fixture.close();
     }
+  }
+});
+
+test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效", async () => {
+  test.setTimeout(60_000);
+  const startup = await startFakeSsh();
+  const restored = await startFakeSsh();
+  try {
+    const fixture = await openApp();
+    const { page } = fixture;
+    const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+    try {
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      const configure = (name: string, port: number) => call<{ hostId: string }>("ssh.hosts.configure", {
+        name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      });
+      const direct = await configure("启动直连夹具", startup.port);
+      const workspace = await configure("恢复工作区夹具", restored.port);
+      const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [workspace] });
+      const view = () => call<WorkspaceRun[]>("ssh.workspace.runs.list").then((runs) => runs.find(({ id }) => id === run.id));
+      const current = () => call<ConnectionStatus[]>("ssh.connections.status");
+      await expect.poll(async () => (await view())?.panes[0]?.phase).toBe("trust");
+      const prompt = (await view())?.panes[0]?.prompt;
+      if (!prompt) throw new Error("Expected restored workspace fingerprint");
+      await call("ssh.hostKey.decide", { attemptId: prompt.attemptId, promptId: prompt.promptId, hop: prompt.hop, accept: true, remember: true });
+      await expect.poll(async () => (await view())?.panes[0]?.phase).toBe("ready");
+      const shell = (await view())?.panes[0]?.sessionId;
+      await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+      await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+      const settings = page.getByTestId("ssh-settings");
+      await settings.getByPlaceholder("搜索 SSH 设置").fill("工作区恢复策略");
+      const policy = settings.getByLabel("工作区恢复策略");
+      await expect(policy).toHaveValue("manual");
+      await policy.selectOption("all");
+      await settings.getByLabel("启动直连夹具", { exact: true }).check();
+      await settings.getByRole("button", { name: "保存本机启动设置", exact: true }).click();
+      await expect(settings.getByRole("status")).toContainText("下次启动生效");
+      expect(startup.conns).toHaveLength(0);
+      expect((await view())?.panes[0]?.sessionId).toBe(shell);
+      await settings.getByPlaceholder("搜索 SSH 设置").fill("新建主机默认认证方式");
+      const defaultAuth = settings.getByLabel("新建主机默认认证方式");
+      await defaultAuth.selectOption("agent");
+      await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+      await page.getByRole("button", { name: "远程连接", exact: true }).first().click();
+      await page.getByRole("button", { name: "新增 SSH 主机", exact: true }).click();
+      await expect(page.getByRole("dialog").getByLabel("认证方式", { exact: true })).toHaveValue("agent");
+      await page.keyboard.press("Escape");
+      await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+      await settings.getByPlaceholder("搜索 SSH 设置").fill("新建主机默认认证方式");
+      await settings.getByRole("button", { name: "恢复本类默认", exact: true }).click();
+      await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+
+      const token = await page.evaluate(async () => (await window.huhuHost.engine()).token);
+      expect(await page.evaluate((vault) => window.huhuHost.vault.open(vault), fixture.vault)).toMatchObject({ ok: true });
+      await expect.poll(async () => await page.evaluate(async () => (await window.huhuHost.engine()).token).catch(() => token), { timeout: 25_000 }).not.toBe(token);
+      await expect.poll(async () => (await current()).find(({ hostId }) => hostId === direct.hostId)?.state).toBe("waiting");
+      await expect.poll(async () => (await view())?.panes[0]?.phase).toBe("ready");
+      expect((await view())?.generation).toBe(2);
+      expect((await view())?.panes[0]?.sessionId).not.toBe(shell);
+      expect(restored.conns).toHaveLength(2);
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await Promise.all([startup.close(), restored.close()]);
+  }
+});
+
+test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能使用文件和监控", async () => {
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let input = "";
+  const server = await startFakeSsh({ onInteractiveShell(channel) {
+    channel.write("welcome\r\n\u0007");
+    channel.on("data", (chunk: Buffer) => { input += chunk.toString(); });
+  } });
+  try {
+    const fixture = await openApp();
+    const { page } = fixture;
+    let previous: string | null | undefined;
+    try {
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      previous = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
+      const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+        name: "显示首选项夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      });
+      await desktopCall(page, "ssh.shortcuts.save", { expectedRevision: null, shortcuts: [{ id: "completion-fixture", name: "回显建议", text: "completion-fixture" }] });
+      const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
+      await ssh.click();
+      await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+      const settings = page.getByTestId("ssh-settings");
+      const search = settings.getByPlaceholder("搜索 SSH 设置");
+      await search.fill("终端关键词高亮");
+      await settings.getByLabel("终端关键词高亮").fill("welcome");
+      await search.fill("从快捷命令补全终端输入");
+      await settings.getByLabel("从快捷命令补全终端输入").check();
+      await search.fill("显示终端响铃通知");
+      await settings.getByLabel("显示终端响铃通知").check();
+      await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+      await search.fill("允许在工作区移动工具栏");
+      await settings.getByLabel("允许在工作区移动工具栏").uncheck();
+      await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+      await desktopCall(page, "ssh.workspace.runs.start", { name: "终端显示验证", layout: { kind: "one" }, panes: [{ hostId }] });
+      await ssh.click();
+      await page.getByRole("button", { name: "工作区", exact: true }).click();
+      await page.getByRole("button", { name: /终端显示验证.*代次 1/ }).click();
+      const run = page.getByTestId("ssh-workspace-run");
+      await run.getByRole("button", { name: "信任并连接", exact: true }).click();
+      const terminal = run.getByTestId("terminal-view");
+      await expect(terminal.locator("[data-terminal-highlight]")).toHaveCount(1);
+      await expect(run.getByText("终端响铃次数 1", { exact: true })).toBeVisible();
+      const tools = run.getByTestId("ssh-pane-tools");
+      await expect(tools.getByRole("button", { name: /移至分栏/ })).toHaveCount(0);
+      await expect(tools.getByRole("button", { name: "分栏文件", exact: true })).toBeEnabled();
+      await expect(tools.getByRole("button", { name: "分栏监控", exact: true })).toBeEnabled();
+      await expect(run.getByRole("button", { name: "命令补全", exact: true })).toBeEnabled();
+      await terminal.locator(".xterm-helper-textarea").press("Control+Space");
+      await page.getByRole("dialog", { name: "终端命令补全", exact: true }).getByRole("button", { name: "选择 回显建议", exact: true }).click();
+      await expect.poll(() => input).toBe("completion-fixture");
+      await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
+      await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
+      await search.fill("终端关键词高亮");
+      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("welcome");
+      await settings.getByRole("button", { name: "恢复本类默认", exact: true }).click();
+      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("");
+      await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+    } finally {
+      if (previous !== undefined) await page.evaluate(({ key, saved }) => {
+        if (saved === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, saved);
+      }, { key: preferenceKey, saved: previous }).catch(() => undefined);
+      await fixture.close();
+    }
+  } finally {
+    await server.close();
   }
 });
 
@@ -209,6 +347,12 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await settings.getByLabel("文件排序方式").selectOption("size");
     await settings.getByLabel("双栏默认将远端放在左侧").check();
     await settings.getByLabel("进入工作区时展开分栏文件").check();
+    await settings.getByLabel("显示远端目录树").check();
+    await settings.getByLabel("远端路径栏模式").selectOption("breadcrumbs");
+    await settings.getByLabel("附属文件面板位置").selectOption("left");
+    await settings.getByLabel("显示权限", { exact: true }).uncheck();
+    await settings.getByLabel("默认下载目录").fill("/tmp");
+    await settings.getByLabel("新文件视图的远端起始目录").fill("/home");
     await settings.getByRole("button", { name: "保存本机文件设置" }).click();
     await expect(settings.getByText("已保存到本机。")).toBeVisible();
     await settings.getByLabel("并发传输数").fill("3");
@@ -279,11 +423,26 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     const activeCursor = terminal.locator(".xterm-cursor");
     await expect(activeCursor).toHaveClass(/xterm-cursor-underline/);
     await expect(activeCursor).not.toHaveClass(/xterm-cursor-blink/);
+    await expect(run.locator("[data-file-position]")).toHaveAttribute("data-file-position", "left");
+    const paths = run.getByRole("navigation", { name: "远端路径导航" });
+    await expect(paths.getByRole("button", { name: "home", exact: true })).toHaveAttribute("aria-current", "location");
+    const tree = run.getByRole("navigation", { name: "远端目录树" });
+    await tree.getByText("根目录", { exact: true }).click();
+    await tree.getByText("home", { exact: true }).click();
+    await tree.getByRole("button", { name: "打开 home", exact: true }).click();
+    await expect(paths.getByRole("button", { name: "home", exact: true })).toHaveAttribute("aria-current", "location");
+    await tree.getByText("test", { exact: true }).click();
+    await tree.getByRole("button", { name: "打开 test", exact: true }).click();
+    await expect(paths.getByRole("button", { name: "test", exact: true })).toHaveAttribute("aria-current", "location");
     const remoteTable = run.getByRole("table", { name: "远端目录项目" });
     await expect(remoteTable.getByRole("button", { name: "z-large", exact: true })).toBeVisible();
     await expect(remoteTable.getByRole("button", { name: ".hidden", exact: true })).toHaveCount(0);
+    await expect(remoteTable.getByRole("columnheader", { name: "权限", exact: true })).toHaveCount(0);
     const visibleFiles = await remoteTable.getByRole("button", { name: /^(z-large|a-small)$/ }).allTextContents();
     expect(visibleFiles).toEqual(["z-large", "a-small"]);
+    await remoteTable.getByRole("button", { name: "下载 z-large", exact: true }).click();
+    await expect(run.getByTestId("files-save-to")).toHaveValue("/tmp/z-large");
+    await run.getByTestId("files-panel").getByRole("button", { name: "取消", exact: true }).click();
 
     await page.reload();
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });

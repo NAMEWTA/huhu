@@ -91,6 +91,21 @@ export function terminalHttpUrl(value: string): string | undefined {
   }
 }
 
+export function terminalKeywordRanges(buffer: IBuffer, cols: number, firstRow: number, rows: number, keyword: string): IBufferRange[] {
+  if (!keyword) return [];
+  const ranges: IBufferRange[] = [];
+  for (let row = firstRow; row < firstRow + rows && ranges.length < 64; row++) {
+    const line = buffer.getLine(row);
+    if (!line) break;
+    const text = line.translateToString(true);
+    const part = { row, line, offset: 0, text };
+    for (let index = text.indexOf(keyword); index >= 0 && ranges.length < 64; index = text.indexOf(keyword, index + keyword.length)) {
+      ranges.push(range([part], cols, index, keyword.length));
+    }
+  }
+  return ranges;
+}
+
 export function terminalLinks(buffer: IBuffer, cols: number, row: number): { range: IBufferRange; text: string }[] {
   let first = row;
   while (first > 0 && buffer.getLine(first)?.isWrapped) first--;

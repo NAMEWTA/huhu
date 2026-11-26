@@ -16,6 +16,7 @@ import { t } from "./i18n.js";
 import { saveDevicePreferences, useDevicePreferences } from "./device-preferences.js";
 import { shownFileEntries } from "./file-preferences.js";
 import { recordDirectoryMove, type DirectoryHistory, type DirectoryMove } from "./file-history.js";
+import { directoryAncestors, FileDirectoryTree } from "./FileDirectoryTree.js";
 
 type Pending = { kind: "overwrite"; what: string; retry: () => Promise<void> } | { kind: "delete"; name: string; path: string } | { kind: "download"; name: string; remote: string } | { kind: "rename"; name: string; from: string };
 
@@ -76,6 +77,7 @@ export function FilesPanel({
   const lastShellCwd = useRef<string>(undefined);
   const mayFollowFile = useRef(false);
   const request = useRef<AbortController>(null);
+  const initialDirectory = useRef(preferences.initialRemoteDirectory);
   const connected = session.state === "ready";
   const ready = connected && !sftpUnavailable;
   const canFollow = followDirectory && !!session.shellId && !!(globalThis as { huhuHost?: HostBridge }).huhuHost;
@@ -141,7 +143,7 @@ export function FilesPanel({
   );
   useLayoutEffect(() => () => request.current?.abort(), [fileSessionId]);
   useEffect(() => {
-    void load("");
+    void load(initialDirectory.current);
     return () => request.current?.abort();
   }, [load]);
   useEffect(() => {
@@ -313,14 +315,19 @@ export function FilesPanel({
           {cwd || "…"}
         </code>
       </div>
-      <form className="ssh-workspace-controls ssh-file-address" onSubmit={(event) => {
+      {preferences.filePathMode === "breadcrumbs" ? <nav className="ssh-workspace-controls ssh-file-address" aria-label="远端路径导航">
+        {directoryAncestors(cwd).map((part) => <Button key={part} type="button" disabled={!ready} aria-current={part === cwd ? "location" : undefined} onClick={() => void navigate(part)}>
+          {part === "/" ? "根目录" : part.slice(part.lastIndexOf("/") + 1)}
+        </Button>)}
+      </nav> : <form className="ssh-workspace-controls ssh-file-address" onSubmit={(event) => {
         event.preventDefault();
         if (ready && pathDraft !== undefined) void navigate(pathDraft);
       }}>
         <label htmlFor={pathId}>远端路径</label>
         <input id={pathId} value={pathDraft ?? cwd} maxLength={4096} disabled={!ready} onChange={(event) => setPathDraft(event.target.value)} />
         <Button type="submit" disabled={!ready || pathDraft === undefined || !pathDraft.trim()}>转到路径</Button>
-      </form>
+      </form>}
+      {ready && preferences.showFileTree && <FileDirectoryTree fileSessionId={fileSessionId} cwd={cwd} showDotFiles={preferences.showDotFiles} openPath={(path) => void navigate(path)} />}
       {session.state === "disconnected" && <p role="status">原连接已断开</p>}
       {canFollow && (
         <div className="ssh-workspace-controls" aria-label="目录跟随">
@@ -542,7 +549,9 @@ export function FilesPanel({
                   aria-label={`${t.files.download} ${e.name}`}
                   disabled={!ready}
                   onClick={() => {
-                    setField("");
+                    const directory = queuedTransfers ? preferences.downloadDirectory : "";
+                    const separator = /^[A-Za-z]:/u.test(directory) ? "\\" : "/";
+                    setField(directory && e.name !== "." && e.name !== ".." && !/[\\/]/u.test(e.name) ? directory.replace(/[\\/]+$/u, "") + separator + e.name : "");
                     setPending({ kind: "download", name: e.name, remote: join(cwd, e.name) });
                   }}
                 >

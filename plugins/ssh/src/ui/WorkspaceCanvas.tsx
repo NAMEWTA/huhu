@@ -99,6 +99,7 @@ export function WorkspaceCanvas({
   maximized,
   tabs,
   groupVerticalTabs,
+  collapseVerticalGroups,
   connections,
   layoutRevision,
   resizingDisabled,
@@ -114,6 +115,7 @@ export function WorkspaceCanvas({
   maximized: boolean;
   tabs: "top" | "left";
   groupVerticalTabs: boolean;
+  collapseVerticalGroups: boolean;
   connections: readonly ConnectionStatus[];
   layoutRevision: string;
   resizingDisabled: boolean;
@@ -128,12 +130,14 @@ export function WorkspaceCanvas({
   const splitDrag = useRef<SplitDrag | undefined>(undefined);
   const [preview, setPreview] = useState<{ tree: SplitTree; revision: string }>();
   const [tabMenu, setTabMenu] = useState<string>();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const refocus = useRef<{ id: string; order: string } | undefined>(undefined);
   const focusedTab = useRef<HTMLButtonElement | undefined>(undefined);
   const tabPrefix = useId();
   const tabbed = layout.kind === "tabs" && !maximized;
   const order = panes.map((pane) => pane.paneId).join(",");
   const tabGroups = tabs === "left" && groupVerticalTabs ? groupWorkspaceTabs(panes, connections) : panes.map((pane) => ({ key: pane.paneId, label: undefined, panes: [pane] }));
+  const groupCollapsed = (group: (typeof tabGroups)[number]) => collapseVerticalGroups && group.panes.length > 1 && !expandedGroups[group.key];
   const tabIds = tabGroups.flatMap((group) => group.panes.map(({ paneId }) => paneId));
   const tabOrder = tabIds.join(",");
   useLayoutEffect(() => {
@@ -239,6 +243,15 @@ export function WorkspaceCanvas({
           ))}
         </div>
       )}
+      {tabbed && collapseVerticalGroups && tabs === "left" && groupVerticalTabs && (
+        <div className="ssh-workspace-controls" aria-label="纵向标签组">
+          {tabGroups.filter((group) => group.panes.length > 1).map((group) => (
+            <Button key={group.key} aria-expanded={!groupCollapsed(group)} type="button" onClick={() => setExpandedGroups((current) => ({ ...current, [group.key]: !current[group.key] }))}>
+              {group.label} · {group.panes.length} 个标签
+            </Button>
+          ))}
+        </div>
+      )}
       <div className={tabbed ? "ssh-workspace-tabs" : undefined} data-tab-side={tabs}>
         {tabbed && (
           <div
@@ -262,7 +275,7 @@ export function WorkspaceCanvas({
                     {group.label}
                   </span>
                 ),
-                ...group.panes.map((pane) => (
+                ...group.panes.filter((pane) => !groupCollapsed(group) || pane.paneId === active).map((pane) => (
                   <span key={pane.paneId} className="ssh-workspace-tab-entry">
                     <button type="button" role="tab" id={`${tabPrefix}-tab-${pane.paneId}`}
                       aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}

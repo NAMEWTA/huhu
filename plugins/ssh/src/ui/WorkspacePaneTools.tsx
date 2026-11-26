@@ -14,6 +14,7 @@ export function WorkspacePaneTools({
   position,
   size,
   order,
+  movable,
   onMove,
   onStatus,
   onFiles,
@@ -25,6 +26,7 @@ export function WorkspacePaneTools({
   position: DevicePreferences["paneTools"];
   size: DevicePreferences["paneToolSize"];
   order: DevicePreferences["paneToolOrder"];
+  movable: boolean;
   onMove(dock: Dock): boolean;
   onStatus(message: string): void;
   onFiles(): void;
@@ -41,6 +43,7 @@ export function WorkspacePaneTools({
   const [focused, setFocused] = useState<Tool>("move");
   const nativeFocusGroup = typeof HTMLElement !== "undefined" && "focusGroup" in HTMLElement.prototype;
   const actions = order === "files-first" ? (["files", "monitor"] as const) : (["monitor", "files"] as const);
+  const focusTarget = !movable && focused === "move" ? actions[0] : focused;
 
   useLayoutEffect(() => {
     if (!restoreHandle.current) return;
@@ -71,7 +74,7 @@ export function WorkspacePaneTools({
 
   function slot(dock: Dock) {
     if (position !== dock) {
-      if (!visible || !dragging) return null;
+      if (!visible || !movable || !dragging) return null;
       return (
         <div
           ref={dropTarget}
@@ -110,7 +113,7 @@ export function WorkspacePaneTools({
           controls[next]?.focus();
         }}
       >
-        <IconButton
+        {movable && <IconButton
           icon={GripHorizontal}
           label={`移至分栏${dockName[other]}`}
           className="ssh-pane-toolbar-handle"
@@ -157,10 +160,10 @@ export function WorkspacePaneTools({
             event.stopPropagation();
             cancelDrag();
           }}
-        />
+        />}
         <div className="ssh-workspace-controls" role="group" aria-label="分栏工具">
           {actions.map((tool) => (
-            <Button key={tool} data-tool={tool} tabIndex={nativeFocusGroup ? undefined : focused === tool ? 0 : -1} onClick={tool === "files" ? onFiles : onMonitor}>
+            <Button key={tool} data-tool={tool} tabIndex={nativeFocusGroup ? undefined : focusTarget === tool ? 0 : -1} onClick={tool === "files" ? onFiles : onMonitor}>
               {tool === "files" ? "分栏文件" : "分栏监控"}
             </Button>
           ))}

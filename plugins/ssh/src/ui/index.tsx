@@ -12,6 +12,7 @@ import { t } from "./i18n.js";
 export { SshFileWindow } from "./FileWorkspace.js";
 export { MonitorTools as SshToolWindow } from "./MonitorTools.js";
 export { SshTerminalWindow } from "./SshTerminalWindow.js";
+export { SshStartup } from "./SshStartup.js";
 
 export const contributions = {
   modules: [{ id: "ssh", plugin: "ssh", title: t.title, group: "execution", order: 20, icon: <Server size={18} aria-hidden />, component: SshModule }] satisfies ModuleContribution[],

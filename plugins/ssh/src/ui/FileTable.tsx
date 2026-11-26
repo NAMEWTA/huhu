@@ -32,7 +32,8 @@ export function FileTable({
   selection?: FileBatchSelection | undefined;
 }) {
   const captionId = useId();
-  const { fileSort } = useDevicePreferences();
+  const { fileSort, hiddenFileColumns } = useDevicePreferences();
+  const shown = columns.filter(({ key }) => key === "name" || !hiddenFileColumns.includes(key));
   const [override, setSort] = useState<{ key: Column; desc: boolean }>();
   const sort = override ?? { key: fileSort === "modified" ? "mtime" : fileSort, desc: fileSort !== "name" };
   const sorted = [...entries].sort((left, right) => {
@@ -47,7 +48,7 @@ export function FileTable({
         <thead>
           <tr>
             {selection && <th scope="col">选择</th>}
-            {columns.map(({ key, label }) => (
+            {shown.map(({ key, label }) => (
               <th key={key} scope="col" aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
                 <button type="button" className="hu-btn hu-btn-ghost" onClick={() => setSort({ key, desc: sort.key === key && !sort.desc })}>
                   {label} {sort.key === key && <span aria-hidden="true">{sort.desc ? "↓" : "↑"}</span>}
@@ -89,11 +90,11 @@ export function FileTable({
                     entry.name
                   )}
                 </td>
-                <td>{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>
-                <td>{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>
-                <td>
+                {!hiddenFileColumns.includes("size") && <td>{entry.type === "dir" ? "—" : fmtSize(entry.size)}</td>}
+                {!hiddenFileColumns.includes("mtime") && <td>{entry.mtime ? new Date(entry.mtime).toLocaleString() : ""}</td>}
+                {!hiddenFileColumns.includes("mode") && <td>
                   <code>{entry.mode}</code>
-                </td>
+                </td>}
                 {actions && <td>{actions(entry)}</td>}
               </tr>
             );

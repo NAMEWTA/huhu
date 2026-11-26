@@ -10,6 +10,7 @@ import { t } from "./i18n.js";
 import type { SshKeySummary } from "../shared/key-library.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
 import type { ProxyProfile } from "../shared/outbound-proxy.js";
+import { useDevicePreferences } from "./device-preferences.js";
 
 function EditorField({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -28,6 +29,7 @@ const initialTags = (host: ManagedHost | null) => host?.tags.join("，") ?? "";
 export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { editing: ManagedHost | null; hosts: readonly Host[]; group: string; onClose(): void; onSaved(hostId: string): Promise<void> }) {
   const engine = useEngine();
   const desktop = Boolean(desktopHost());
+  const { defaultAuthKind } = useDevicePreferences();
   const keys = useCapability<SshKeySummary[]>("ssh.keys.list", {}, { enabled: desktop });
   const proxies = useCapability<{ profiles: ProxyProfile[] }>("ssh.outboundProxies.list", {}, { enabled: desktop });
   const formId = useId();
@@ -37,7 +39,7 @@ export function HostEditorDialog({ editing, hosts, group, onClose, onSaved }: { 
   const [busy, setBusy] = useState(false);
   const [choosingFile, setChoosingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [authKind, setAuthKind] = useState<AuthKind>(editing?.auth.kind ?? "password");
+  const [authKind, setAuthKind] = useState<AuthKind>(editing?.auth.kind ?? defaultAuthKind);
   const [keyId, setKeyId] = useState(editing?.keyId ?? "");
   const [values, setValues] = useState<Partial<Record<Purpose, string>>>({});
   const [cleared, setCleared] = useState<Partial<Record<Purpose, boolean>>>({});

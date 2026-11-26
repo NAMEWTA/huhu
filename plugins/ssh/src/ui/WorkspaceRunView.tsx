@@ -44,7 +44,7 @@ export function WorkspaceRunView({
   const engine = useEngine();
   const { endpoint } = engine;
   const qc = useQueryClient();
-  const { paneTools, paneToolSize, paneToolOrder, groupVerticalTabs, showPaneFiles, tabs } = useDevicePreferences();
+  const { paneTools, paneToolSize, paneToolOrder, paneToolsMovable, groupVerticalTabs, collapseVerticalGroups, showPaneFiles, paneFilePosition, tabs } = useDevicePreferences();
   const [deciding, setDeciding] = useState<Record<string, boolean>>({});
   const [authentication, setAuthentication] = useState<string>();
   const [active, setActive] = useState(run.panes[0]?.paneId);
@@ -152,6 +152,13 @@ export function WorkspaceRunView({
     }
     return send;
   }
+  const attachedFiles = shown && showFiles && activePane && (
+    <div key="attached-files" className="ssh-workspace-attached-files">
+      {activePane.phase === "ready" && activePane.sessionId ? (
+        <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
+      ) : <p role="status">{activePane.label}的连接尚未就绪</p>}
+    </div>
+  );
   return (
     <section data-testid="ssh-workspace-run" data-run-id={run.id} data-generation={run.generation} aria-label="工作区分栏" inert={!shown}>
       <p>连接代次 {run.generation}</p>
@@ -241,7 +248,7 @@ export function WorkspaceRunView({
               <option value="large">大</option>
             </select>
           </label>
-          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
+          <Button onClick={() => setDeviceLayout({ paneTools: deviceDefaults.paneTools, paneToolOrder: deviceDefaults.paneToolOrder, paneToolSize: deviceDefaults.paneToolSize, paneToolsMovable: deviceDefaults.paneToolsMovable }, "已恢复工具栏默认布局。")}>恢复工具栏默认布局</Button>
         </div>
         <div className="ssh-workspace-controls">
           <label className="hu-field">
@@ -263,7 +270,9 @@ export function WorkspaceRunView({
         <span role="status">键入广播中 · {liveBroadcast.map(({ label }) => label).join("、")}</span>
         <Button type="button" onClick={() => setBroadcast([])}>停止键入广播</Button>
       </div>}
-      <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
+      <div className="ssh-workspace-file-layout" data-file-position={shown && showFiles ? paneFilePosition : "below"}>
+      {paneFilePosition === "left" && attachedFiles}
+      <div key="terminal" className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
           <WorkspaceCanvas
             layout={run.layout}
@@ -272,6 +281,7 @@ export function WorkspaceRunView({
             maximized={maximized}
             tabs={tabs}
             groupVerticalTabs={groupVerticalTabs}
+            collapseVerticalGroups={collapseVerticalGroups}
             connections={connections}
             layoutRevision={run.layoutRevision ?? run.id}
             resizingDisabled={saving}
@@ -333,6 +343,7 @@ export function WorkspaceRunView({
                       position={paneTools}
                       size={paneToolSize}
                       order={paneToolOrder}
+                      movable={paneToolsMovable}
                       onMove={(dock) => setDeviceLayout({ paneTools: dock }, `已将工具栏移至分栏${dock === "top" ? "上方" : "下方"}。`)}
                       onStatus={setDeviceNotice}
                       onFiles={() => {
@@ -379,14 +390,8 @@ export function WorkspaceRunView({
             </aside>
           ))}
       </div>
-      {shown &&
-        showFiles &&
-        activePane &&
-        (activePane.phase === "ready" && activePane.sessionId ? (
-          <AttachedFiles key={activePane.sessionId} hostId={activePane.hostId} shellId={activePane.sessionId} onOpen={onOpenFiles} title={`活动分栏文件 · ${activePane.label}`} followDirectory />
-        ) : (
-          <p role="status">{activePane.label}的连接尚未就绪</p>
-        ))}
+      {paneFilePosition !== "left" && attachedFiles}
+      </div>
       {renaming && shown && (
         <Dialog
           open

@@ -1,16 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type IDisposable, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
-import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-content.js";
+import { searchTerminal, terminalHttpUrl, terminalKeywordRanges, terminalLinks } from "./terminal-content.js";
 
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = ((text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError) & { sendKeys?(keys: string): void };
 export type TerminalControl = { id: string; canInput: boolean };
 export type PrepareTerminalHandoff = (id: string) => Promise<boolean>;
-type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator">;
-const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000 } satisfies DisplayOptions;
+type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator" | "scrollOnUserInput" | "rightClickSelectsWord">;
+const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000, scrollOnUserInput: true } satisfies DisplayOptions;
 
 export interface TerminalViewProps {
   /** 工作台所在的 Engine 基址；桌面附带回环令牌，浏览器自动携带同源 cookie。 */
@@ -35,6 +35,10 @@ export interface TerminalViewProps {
   onTerminalHandoff?(prepare: PrepareTerminalHandoff | undefined): void;
   onHandoffControl?(): void;
   onTerminalKey?(keys: string): void;
+  copyOnSelect?: boolean;
+  highlightKeyword?: string;
+  onCompletionRequest?: (() => void) | undefined;
+  onBell?: (() => void) | undefined;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -49,7 +53,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl, onTerminalKey }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightKeyword, onCompletionRequest, onBell }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -74,6 +78,16 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   handoffControl.current = onHandoffControl;
   const terminalKey = useRef(onTerminalKey);
   terminalKey.current = onTerminalKey;
+  const clipboardSelection = useRef(copyOnSelect);
+  clipboardSelection.current = copyOnSelect;
+  const completion = useRef(onCompletionRequest);
+  completion.current = onCompletionRequest;
+  const bellNotice = useRef(onBell);
+  bellNotice.current = onBell;
+  const keyword = useRef(highlightKeyword);
+  keyword.current = highlightKeyword;
+  const refreshHighlights = useRef<() => void>(undefined);
+  const supportsHighlight = highlightKeyword !== undefined;
   const currentDisplay = useRef(displayOptions);
   currentDisplay.current = displayOptions;
   const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
@@ -99,10 +113,40 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       },
     } satisfies ILinkHandler;
     // minimumContrastRatio：xterm 自带，保证任何 ANSI 前景 / 背景组合都可读（例如浅色主题下的“白色”文字）
-    const term = new Terminal({ ...readTheme(el), ...defaultDisplayOptions, ...currentDisplay.current, ...(hasLinkHandler && { linkHandler }), minimumContrastRatio: 4.5, convertEol: false });
+    const term = new Terminal({ ...readTheme(el), ...defaultDisplayOptions, ...currentDisplay.current, ...(hasLinkHandler && { linkHandler }), minimumContrastRatio: 4.5, convertEol: false, allowProposedApi: supportsHighlight });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(el);
+    const bell = term.onBell(() => bellNotice.current?.());
+    const selection = term.onSelectionChange(() => {
+      const selected = clipboardSelection.current && term.getSelection();
+      if (selected) void navigator.clipboard?.writeText(selected).catch(() => undefined);
+    });
+    let highlightFrame: number | undefined;
+    let decorations: IDisposable[] = [];
+    const clearHighlights = () => {
+      for (const decoration of decorations) decoration.dispose();
+      decorations = [];
+    };
+    const scheduleHighlights = () => {
+      if (!supportsHighlight || highlightFrame !== undefined || (!keyword.current && !decorations.length)) return;
+      highlightFrame = window.requestAnimationFrame(() => {
+        highlightFrame = undefined;
+        clearHighlights();
+        const buffer = term.buffer.active;
+        if (!keyword.current || buffer.type !== "normal") return;
+        const cursorRow = buffer.baseY + buffer.cursorY;
+        for (const { start, end } of terminalKeywordRanges(buffer, term.cols, buffer.viewportY, term.rows, keyword.current)) {
+          const marker = term.registerMarker(start.y - cursorRow);
+          if (!marker) continue;
+          const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x, backgroundColor: "#f6d06f", foregroundColor: "#211804" });
+          decoration?.onRender((element) => { element.dataset.terminalHighlight = ""; });
+          decorations.push(marker);
+        }
+      });
+    };
+    refreshHighlights.current = scheduleHighlights;
+    const highlightEvents = [term.onWriteParsed(scheduleHighlights), term.onScroll(scheduleHighlights), term.onResize(scheduleHighlights)];
     const links = hasLinkHandler ? term.registerLinkProvider({
       provideLinks(row, callback) {
         if (!linksEnabled.current) return callback(undefined);
@@ -137,14 +181,20 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
           term.focus();
         },
       };
-      term.attachCustomKeyEventHandler((event) => {
-        if (event.type !== "keydown" || event.isComposing || !(event.ctrlKey || event.metaKey) || !event.shiftKey || event.key.toLowerCase() !== "f") return true;
-        event.preventDefault();
-        setSearching(true);
-        searchInput.current?.focus();
-        return false;
-      });
     }
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown" || event.isComposing || event.keyCode === 229) return true;
+      if (completion.current && event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.code === "Space") {
+        event.preventDefault();
+        completion.current();
+        return false;
+      }
+      if (!scrollbackSearch || !(event.ctrlKey || event.metaKey) || !event.shiftKey || event.key.toLowerCase() !== "f") return true;
+      event.preventDefault();
+      setSearching(true);
+      searchInput.current?.focus();
+      return false;
+    });
     let ws: WebSocket | undefined;
     let sentSize: { cols: number; rows: number } | undefined;
     let ended = false;
@@ -318,6 +368,12 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       disposed = true;
       applyDisplay.current = undefined;
       search.current = undefined;
+      refreshHighlights.current = undefined;
+      if (highlightFrame !== undefined) window.cancelAnimationFrame(highlightFrame);
+      clearHighlights();
+      for (const event of highlightEvents) event.dispose();
+      selection.dispose();
+      bell.dispose();
       links?.dispose();
       el.removeAttribute("title");
       revokeInput();
@@ -332,9 +388,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws?.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId, supportsHighlight]);
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
+  useEffect(() => refreshHighlights.current?.(), [highlightKeyword]);
   useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);
 
   function find(direction: "next" | "previous") {

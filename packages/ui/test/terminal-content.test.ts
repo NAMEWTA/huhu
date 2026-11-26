@@ -1,9 +1,22 @@
 // @vitest-environment jsdom
 import { Terminal } from "@xterm/xterm";
 import { expect, test } from "vitest";
-import { searchTerminal, terminalHttpUrl, terminalLinks } from "../src/components/terminal-content.js";
+import { searchTerminal, terminalHttpUrl, terminalKeywordRanges, terminalLinks } from "../src/components/terminal-content.js";
 
 const write = (terminal: Terminal, text: string) => new Promise<void>((resolve) => terminal.write(text, resolve));
+
+test("keyword decoration maps only requested rows and preserves the width of CJK cells", async () => {
+  const terminal = new Terminal({ cols: 30, rows: 3 });
+  try {
+    await write(terminal, "世界\r\n前 世界 世界\r\n世界");
+    expect(terminalKeywordRanges(terminal.buffer.active, 30, 1, 1, "世界")).toEqual([
+      { start: { x: 3, y: 1 }, end: { x: 7, y: 1 } },
+      { start: { x: 8, y: 1 }, end: { x: 12, y: 1 } },
+    ]);
+  } finally {
+    terminal.dispose();
+  }
+});
 
 test("scrollback searches past the viewport, wraps the results and maps wide Unicode cells", async () => {
   const terminal = new Terminal({ cols: 16, rows: 3, scrollback: 30 });
