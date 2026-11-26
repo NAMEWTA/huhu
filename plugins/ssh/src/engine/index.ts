@@ -30,6 +30,7 @@ import { WorkspaceTemplates } from "./workspace-templates.js";
 import { WorkspaceRuns } from "./workspace-runs.js";
 import { FileSessions } from "./file-sessions.js";
 import { Transfers } from "./transfers.js";
+import { TransferRecovery } from "./transfer-recovery.js";
 import { Archives } from "./archives.js";
 import { PublicArchives } from "./public-archives.js";
 import { ForwardRules, type ForwardRuleScope } from "./forward-rules.js";
@@ -152,6 +153,8 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
     manager,
     (id) => api.events.publish("entity.changed", { kind: "ssh-transfer", id, op: "updated" }),
     () => preferences.runtime().transfer.parallel,
+    false,
+    execJobs && new TransferRecovery(path.join(execJobs.runtimeDir, "ssh-transfer-recovery.json"), execJobs.vaultInstance),
   );
   const forwarding = new ForwardRuns(forwardRules, manager, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));
   const publicForwarding = new PublicForwarding(api.vault.files, forwardRules, publicProbes, hostIntents, (id) => api.events.publish("entity.changed", { kind: "ssh-forward-run", id, op: "updated" }));

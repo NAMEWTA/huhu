@@ -6,10 +6,11 @@ import { FileSessions } from "../src/engine/file-sessions.js";
 import { ownedHosts } from "./owned-hosts.js";
 import { SshManager } from "../src/engine/manager.js";
 import { Transfers } from "../src/engine/transfers.js";
+import { TransferRecovery } from "../src/engine/transfer-recovery.js";
 import type { TransferJob } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 
-async function fixture() {
+async function fixture(trackRecovery = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-transfer-publication-")));
   const hosts = ownedHosts();
   const servers: Awaited<ReturnType<typeof startFakeSsh>>[] = [];
@@ -27,7 +28,9 @@ async function fixture() {
     },
   });
   const sessions = new FileSessions(manager);
-  const queue = new Transfers(sessions, manager, () => {});
+  const recovery = new TransferRecovery(path.join(root, "recovery.json"), "fixture-vault");
+  const makeQueue = (track: boolean) => new Transfers(sessions, manager, () => {}, undefined, false, track ? recovery : undefined);
+  const queue = makeQueue(trackRecovery);
   async function endpoint(options: FakeSshOptions = {}) {
     const server = await startFakeSsh(options);
     servers.push(server);
@@ -49,6 +52,7 @@ async function fixture() {
   return {
     manager,
     queue,
+    reopenQueue: () => makeQueue(true),
     endpoint,
     find,
     state,
@@ -81,6 +85,32 @@ function latch() {
 function readGate() {
   return { entered: latch(), released: latch() };
 }
+
+test("a new Engine sees one terminal outcome for an interrupted transfer and cannot replay its origin", async () => {
+  const f = await fixture(true);
+  const gate = readGate();
+  try {
+    const input = await f.endpoint();
+    const output = await f.endpoint({ waitWriteFile: () => {
+      gate.entered.resolve();
+      return gate.released.promise;
+    } });
+    input.server.fs.files.set(source, fresh);
+    const { transferId } = f.queue.start({ source: input.file(source), target: output.file(target) });
+    await gate.entered.promise;
+    expect(f.find(transferId)?.state).toBe("running");
+    for (let restart = 0; restart < 2; restart++) {
+      const reopened = f.reopenQueue();
+      expect(reopened.list().jobs).toEqual([expect.objectContaining({ transferId, state: "failed", message: expect.stringContaining("引擎异常退出") })]);
+      expect(() => reopened.retry(transferId)).toThrow("重新发起并核对目标");
+      expect(() => reopened.openOrigin(transferId)).toThrow("原文件会话已关闭");
+      expect(output.server.fs.files.has(target)).toBe(false);
+    }
+  } finally {
+    gate.released.resolve();
+    await f.close();
+  }
+});
 
 test("remote directory downloads complete ordinary children and report unsupported links in the same batch", async () => {
   const f = await fixture();

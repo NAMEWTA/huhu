@@ -10,6 +10,7 @@ import type { FileSessions } from "./file-sessions.js";
 import type { SshManager } from "./manager.js";
 import { digest, fingerprint, localTransferFile, remoteTransferFile, removeTemp, sameSnapshot, transferChanged, type Snapshot, type TransferFile } from "./transfer-io.js";
 import { localTree, remoteTree, sameDirectory, scanTree, type TransferTree, type TreeItem, type TreeStat } from "./transfer-tree.js";
+import type { TransferRecovery } from "./transfer-recovery.js";
 
 const LIVE_LIMIT = 32;
 const HISTORY_LIMIT = 64;
@@ -23,6 +24,7 @@ type Publication = {
 type Batch = Omit<TransferBatch, "state">;
 type Record = {
   job: TransferJob;
+  recovered?: boolean;
   controller?: AbortController;
   plan?: Plan;
   choice?: "replace" | "resume" | "merge";
@@ -58,7 +60,29 @@ export class Transfers {
     private readonly changed: (id: string) => void,
     private readonly maxParallel: () => number = () => defaultVaultPreferences.transfer.parallel,
     private readonly owned = false,
-  ) {}
+    private readonly recovery?: TransferRecovery,
+  ) {
+    const snapshot = recovery?.load();
+    if (!snapshot) return;
+    for (const job of snapshot.jobs) {
+      if (!terminal.has(job.state)) {
+        const unknown = job.state === "committing" || job.state === "uncertain";
+        Object.assign(job, {
+          state: "failed", errorCode: "VERSION_CONFLICT", bytesPerSecond: 0,
+          message: unknown ? "引擎异常退出，提交结果未知。请核对原目标后重新发起。" : "引擎异常退出，传输已中断。请从新会话重新发起。",
+        });
+        delete job.conflictRevision;
+      }
+      this.records.set(job.transferId, { job, recovered: true, locks: [] });
+    }
+    for (const batch of snapshot.batches) this.batches.set(batch.batchId, batch);
+    this.trimHistory();
+    this.saveRecovery();
+  }
+
+  private saveRecovery() {
+    if (!this.disposed) this.recovery?.save(this.list(false));
+  }
 
   preferencesChanged() {
     this.pump();
@@ -104,6 +128,7 @@ export class Transfers {
     const target = this.origin(request.target);
     this.checkEndpoints(source, target);
     const record = this.add(source, target);
+    this.saveRecovery();
     this.changed(record.job.transferId);
     queueMicrotask(() => this.pump());
     return { ...record.job };
@@ -149,6 +174,7 @@ export class Transfers {
     const batch = { batchId, source, target, children };
     this.batches.set(batchId, batch);
     this.trimHistory();
+    this.saveRecovery();
     this.changed(batchId);
     queueMicrotask(() => this.pump());
     return this.batchView(batch);
@@ -227,7 +253,7 @@ export class Transfers {
 
   retry(id: string): TransferJob {
     const rec = this.lookup(id);
-    if (rec.job.state !== "failed" || rec.job.errorCode === "VERSION_CONFLICT") throw errors.invalidInput("当前任务需要重新发起并核对目标");
+    if (rec.recovered || rec.job.state !== "failed" || rec.job.errorCode === "VERSION_CONFLICT") throw errors.invalidInput("当前任务需要重新发起并核对目标");
     if (this.liveCount() >= LIVE_LIMIT) throw errors.invalidInput("传输队列已满");
     for (const origin of [rec.job.source, rec.job.target]) {
       if (origin.kind !== "remote") continue;
@@ -262,7 +288,9 @@ export class Transfers {
   }
 
   openOrigin(id: string) {
-    const { source, target } = this.lookup(id).job;
+    const record = this.lookup(id);
+    if (record.recovered) throw new HuhuError("SSH_DISCONNECTED", "引擎已重启，原文件会话已关闭");
+    const { source, target } = record.job;
     const remote = source.kind === "remote" ? source : target;
     if (remote.kind !== "remote") throw errors.notFound("任务没有源文件会话");
     const session = remote.session.source === "external" ? this.sessions.get(remote.fileSessionId) : this.sessions.restoreTransferOrigin(remote.session);
@@ -281,13 +309,17 @@ export class Transfers {
         for (const child of batch.children) if (this.records.delete(child)) removed++;
         this.batches.delete(id);
       }
-    if (removed) this.changed("history");
+    if (removed) {
+      this.saveRecovery();
+      this.changed("history");
+    }
     return { removed };
   }
 
   dispose(): void {
     this.disposed = true;
     for (const entry of this.active) entry.controller?.abort();
+    this.recovery?.clear();
   }
 
   private lookup(transferId: string): Record {
@@ -312,7 +344,9 @@ export class Transfers {
 
   private update(rec: Record, patch: Partial<TransferJob>) {
     if (this.owned && patch.state === "waiting") rec.job.conflictRevision = randomUUID();
+    const stateChanged = patch.state !== undefined && patch.state !== rec.job.state;
     Object.assign(rec.job, patch);
+    if (stateChanged) this.saveRecovery();
     if (!this.disposed) this.changed(rec.job.transferId);
   }
 
@@ -528,7 +562,7 @@ export class Transfers {
           publication.backup = { name, path: to.sibling(name).path, snapshot: targetSnapshot };
         }
         rec.publication = publication;
-        this.update(rec, { state: "committing", bytes });
+        this.update(rec, { state: "committing", bytes, recovery: { stagingPath: publication.staged.path, ...(publication.backup && { backupPath: publication.backup.path }) } });
         if (publication.backup) {
           const backup = to.sibling(publication.backup.name);
           await to.take(backup);
