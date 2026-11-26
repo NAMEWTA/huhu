@@ -102,7 +102,7 @@ async function setup(options: { passphrase?: string; ed25519?: boolean; port?: n
   const passphrase = options.passphrase;
   const pair = options.ed25519 === false ? ssh2.utils.generateKeyPairSync("ecdsa", { bits: 256 }) : parsableEd25519(passphrase);
   const subject = signer(pair.private, passphrase);
-  const ca = signer(ssh2.utils.generateKeyPairSync("ed25519").private);
+  const ca = signer(parsableEd25519().private);
   const identity = path.join(root, "fixture-key");
   const companion = identity + "-cert.pub";
   writeFileSync(identity, pair.private, { mode: 0o600 });
@@ -231,7 +231,7 @@ test("版本冲突优先于证书配对", async () => {
 test("无效格式、主机证书与错配主体是互相可区分的本机错误", async () => {
   const { hosts, host, companion, subject, ca } = await setup();
   const valid = issueCertificate(subject, ca);
-  const wrongSubject = signer(ssh2.utils.generateKeyPairSync("ed25519").private);
+  const wrongSubject = signer(parsableEd25519().private);
   const connect = vi.fn(async () => {});
   const format = (blob: Buffer) => `${certificateType} ${blob.toString("base64")}`;
   for (const [line, reason] of [
@@ -315,7 +315,7 @@ test.skipIf(process.platform !== "linux" || !sshd)("OpenSSH 服务端接受配�
   const { username: user } = userInfo();
   const { root, hosts, host, draft, companion, subject, ca } = await setup({ port, user, passphrase: "fixture key passphrase" });
   const pathFor = (name: string) => path.join(root, name);
-  const serverKey = ssh2.utils.generateKeyPairSync("ed25519");
+  const serverKey = parsableEd25519();
   writeFileSync(pathFor("server-key"), serverKey.private.trimEnd() + "\n", { mode: 0o600 });
   writeFileSync(pathFor("ca.pub"), `${ca.type} ${ca.getPublicSSH().toString("base64")}\n`);
   writeFileSync(pathFor("authorized_keys"), "", { mode: 0o600 });
@@ -378,7 +378,7 @@ test.skipIf(process.platform !== "linux" || !sshd)("同一 OpenSSH 传输用批�
   const { username: user } = userInfo();
   const { root, hosts, host, subject, ca } = await setup({ port, user });
   const pathFor = (name: string) => path.join(root, name);
-  const serverKey = ssh2.utils.generateKeyPairSync("ed25519");
+  const serverKey = parsableEd25519();
   const serverLeaf = signer(serverKey.private);
   const authorityLine = (key: ParsedKey) => `${key.type} ${key.getPublicSSH().toString("base64")}`;
   const now = BigInt(Math.floor(Date.now() / 1000));
@@ -429,7 +429,7 @@ test.skipIf(process.platform !== "linux" || !sshd)("同一 OpenSSH 传输用批�
   const authentications = () => log().match(/userauth-request.*method publickey/gu)?.length ?? 0;
   const before = authentications();
   expect(before).toBeGreaterThan(0);
-  const wrongCa = signer(ssh2.utils.generateKeyPairSync("ed25519").private);
+  const wrongCa = signer(parsableEd25519().private);
   await manager.removeHostAuthority(authority!, revision, new AbortController().signal);
   await manager.addHostAuthority(host, authorityLine(wrongCa), manager.knownAuthorities().revision, new AbortController().signal);
   await expect(manager.connect(host.id)).rejects.toMatchObject({ code: "SSH_HOST_KEY_MISMATCH", details: { reason: "untrusted-ca", hop: 0 } });

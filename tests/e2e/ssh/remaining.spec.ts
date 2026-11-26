@@ -790,3 +790,39 @@ test("A06 独立 Web 通过键盘切换 SSH 标签，保留桌面原分栏会话
     }
   }
 });
+
+test("A06 中文输入法组合期间不向远端发送拼音，确认后只发送一次所选汉字", async () => {
+  test.skip(process.platform !== "linux", "需要 Linux 桌面");
+  const password = randomUUID();
+  let keys = "";
+  const server = await startFakeSsh({ password, onShellInput: (text) => { keys += text; } });
+  const fixture = await openApp();
+  try {
+    const { page } = fixture;
+    await openSsh(page);
+    const { hostId } = await saveHost(page, "输入法终端", server.port, password);
+    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "输入法工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /输入法工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接", exact: true }).click();
+    const terminal = run.getByTestId("ssh-workspace-run-pane").getByTestId("terminal-view");
+    await expect(terminal.locator(".xterm-rows")).toContainText("welcome");
+    await terminal.locator(".xterm-helper-textarea").focus();
+    const ime = await page.context().newCDPSession(page);
+    for (const text of ["n", "ni", "nih", "niha", "nihao", "你好"]) {
+      await ime.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+      await expect(terminal.locator(".composition-view.active")).toHaveText(text);
+    }
+    await delay(300);
+    expect(keys).not.toMatch(/n|你/);
+    await ime.send("Input.insertText", { text: "你好" });
+    await expect.poll(() => keys).toBe("你好");
+    await expect(terminal.locator(".xterm-rows")).toContainText("你好");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => keys).toBe("你好\r");
+  } finally {
+    await fixture.close();
+    await server.close();
+  }
+});
