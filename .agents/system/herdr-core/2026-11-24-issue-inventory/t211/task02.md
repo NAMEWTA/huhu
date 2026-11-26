@@ -45,3 +45,15 @@ H1.1 台账、H12.1 异常退出/备份恢复、H12.2 打包由 Lead 做，不�
 ## worker 执行约定
 
 按 /home/wta/projects/huhu/.claude/skills/system-herdr-core/assets/task.md 的「worker 执行约定」与「完整报告格式」执行。先写临时稿 report02.md.tmp 再用 `node -e "fs.linkSync(a,b)"` 发布终稿并删除临时稿。回告后等待下一项。
+
+## 追加（Lead，优先级排在第 1 项之后）
+
+6. **H12.2 打包 SSH 最小往返**：在 `tests/e2e/packaged/packaged.spec.ts` 增加「打包后：SSH 连接回环主机、读回测试文件并在退出后回收」——复用 `plugins/ssh/test/fake-server.ts`（或 ssh 的现有回环夹具）启动本机 SSH/SFTP，经 `desktopCall`/UI 配置主机、信任、打开终端回显、SFTP 读回文件、断开并关闭应用，核对监听端口与子进程回收。Lead 用打包制品运行（`HUHU_PACKAGED_EXE`），并据此给 `scripts/accept-linux-candidate.sh` 增加 `ssh` 模式（仿照现有模式用 `-g` 选这一条，并把期望用例数登记到脚本的计数表）。缺件反证（移除 Herdr 资产后打包失败）由 Lead 执行，不需写代码。
+7. **H12.1 异常退出与新格式恢复**：写 Lead 运行的 E2E——SSH 终端、传输、转发监听活动时强杀 Engine 进程（或 SSH 执行组件），等待桌面重启 Engine 后核对：旧代对象不复活、监听端口释放、传输为唯一终态（失败/未知而非重复）、UI 可重新连接；并验证 SSH 主机/路由在新格式备份导出后恢复到新 Vault 可用（凭据按现有规则处理）。发现的缺陷一并修复。
+
+## 追加 2（Lead 已在 main 合入你的 e3cac81e 并运行 tests/e2e/ssh + ssh-workspaces：66 通过、1 跳过、2 失败，日志 /home/wta/projects/huhu/temp/dev/2026-11-24-issue-inventory/runs/h7-r1/e1.log，error-context 在主检出 test-results/）
+
+- tests/e2e/ssh/monitoring.spec.ts:87「H9.3 原生服务器工具复用原窗口并只取消自身查询」：155 行 `expect.poll(() => imagesClosed)` 5 秒内仍为 false（关闭 B 后其查询未被取消，或夹具未观察到通道关闭）。
+- tests/e2e/ssh/remaining.spec.ts:47「H5.1 SSH Linux 真实分页器显示宽字符并还原原终端画面」：95 行期望「远端全屏宽字符」，实际行内只有重复的「测试分页器内容…pager-fixture.txt」（less 首屏未出现该行，可能是行宽/页内定位或夹具内容顺序问题）。
+
+请判断产品缺陷或用例问题后修复，排在当前项之后优先处理，回执写根因。
