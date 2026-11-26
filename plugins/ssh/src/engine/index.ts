@@ -176,7 +176,7 @@ export function apply(ctx: Context, api: HuhuApi, credentialHost?: SshCredential
   registerSshConfigSync(api, hosts);
   const proxyShare = registerSshProxyShare(api, manager);
   registerSshWorkspacePanes(api, runs, publicWorkspaces);
-  const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"));
+  const recordings = execJobs && registerSshRecordings(api, manager, path.join(execJobs.runtimeDir, "ssh-recordings"), () => preferences.runtime().recording);
   const localShells = launchLocalPty && registerSshLocalShells(api, launchLocalPty);
   api.events.subscribe((event) => {
     if (event.type !== "entity.changed" || !("kind" in event.payload)) return;

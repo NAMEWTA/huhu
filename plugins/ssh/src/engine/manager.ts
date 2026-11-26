@@ -73,6 +73,7 @@ interface Conn {
   clients: Client[];
   target: Client;
   route: ConnectionHop[];
+  reconnected: boolean;
 }
 type Attempt = {
   id: string;
@@ -82,6 +83,7 @@ type Attempt = {
   quick?: { host: ManagedHost; auth: ConnectionAuth };
   report?: (status: ConnectionStatus) => void;
   expectedTarget?: string;
+  reconnectRoute?: string;
   routeTarget?: string;
   publicProbe?: { validate(): void; keyboard(prompt: KeyboardPrompt): void };
   draft?: {
@@ -154,6 +156,7 @@ export function keyTypeOf(key: Buffer): string {
 /** 连接管理：逐跳连接、逐跳主机密钥确认、认证、Exec、审计。 */
 export class SshManager {
   private conns = new Map<string, Conn>();
+  private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private shells = new Map<string, ShellRec>();
   private fileOrigins = new WeakMap<Conn, z.infer<typeof FileOrigin>>();
   private shellConnections = new WeakMap<ShellRec, Conn>();
@@ -434,14 +437,15 @@ export class SshManager {
     return true;
   }
 
-  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"]) {
+  private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"], reconnectRoute?: string) {
+    this.cancelReconnect(hostId);
     const running = this.connecting.get(hostId);
     if (running) {
       if (!expectedTarget) running.direct = true;
       return running;
     }
     const abort = new AbortController();
-    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }) };
+    const attempt: Attempt = { id: newId("cap").replace("cap", "att"), hostId, signal: signal ? AbortSignal.any([signal, abort.signal]) : abort.signal, requirePromptId, ...(expectedTarget && { expectedTarget }), ...(quick && { quick }), ...(reconnectRoute && { reconnectRoute }) };
     const promise = Promise.resolve()
       .then(() => this.doConnect(attempt))
       .finally(() => {
@@ -479,9 +483,11 @@ export class SshManager {
       const outbound = this.d.outbound?.resolve(target);
       if (outbound) attempt.outbound = outbound;
       const routeIdentity = this.routeIdentity(chain, outbound);
+      if (attempt.reconnectRoute && attempt.reconnectRoute !== routeIdentity) throw new HuhuError("VERSION_CONFLICT", "原 SSH 路由已变更，自动重连已停止");
       const existing = this.conns.get(hostId);
       if (existing?.routeIdentity === routeIdentity) {
         existing.attemptId = attemptId;
+        existing.reconnected = false;
         const connectionId = this.fileOrigins.get(existing)?.connectionId;
         this.update({ hostId, attemptId, state: "connected", route: existing.route, ...(connectionId && { connectionId }) });
         return { attemptId: "existing", connection: existing };
@@ -492,12 +498,14 @@ export class SshManager {
         stage = { hop, server: describeHost(host) };
       });
       if (signal.aborted) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接已取消");
-      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: client, route: [...attempt.route] };
+      const connection = { hostId, attemptId, routeIdentity, clients: opened, target: client, route: [...attempt.route], reconnected: attempt.reconnectRoute !== undefined };
       this.conns.set(hostId, connection);
       const connectionId = newId("cap");
       this.fileOrigins.set(connection, { connectionId, hostId, name: target.name, host: target.host, user: target.user, port: target.port });
       connection.target.on("close", () => {
-        if (this.conns.get(hostId) === connection) this.drop(hostId);
+        if (this.conns.get(hostId) !== connection) return;
+        this.drop(hostId);
+        if (!isQuickHost(hostId) && !connection.reconnected && this.d.connectionPreferences?.().autoReconnect) this.scheduleReconnect(hostId, routeIdentity);
       });
       this.audit({ hostId, action: "connect", result: "ok", detail: `${target.user}@${target.host}:${target.port}（${chain.length - 1} 个跳板）` });
       this.update({ hostId, attemptId, state: "connected", connectionId });
@@ -763,7 +771,7 @@ export class SshManager {
     return dial;
   }
 
-  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: ConnectionPreferences): Promise<void> {
+  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Omit<ConnectionPreferences, "autoReconnect">): Promise<void> {
     const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
@@ -1166,7 +1174,24 @@ export class SshManager {
     if (this.statuses.get(hostId)?.attemptId === c.attemptId) this.update({ hostId, attemptId: c.attemptId, state: "disconnected" });
   }
 
+  private scheduleReconnect(hostId: string, route: string): void {
+    this.cancelReconnect(hostId);
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(hostId);
+      if (!this.d.connectionPreferences?.().autoReconnect || this.conns.has(hostId) || this.connecting.has(hostId)) return;
+      void this.begin(hostId, AbortSignal.timeout(90_000), true, undefined, undefined, route).promise.catch(() => undefined);
+    }, 1000);
+    this.reconnectTimers.set(hostId, timer);
+    timer.unref();
+  }
+
+  private cancelReconnect(hostId: string): void {
+    clearTimeout(this.reconnectTimers.get(hostId));
+    this.reconnectTimers.delete(hostId);
+  }
+
   disconnect(hostId: string): void {
+    this.cancelReconnect(hostId);
     this.connecting.get(hostId)?.abort.abort();
     if (this.conns.has(hostId)) {
       this.drop(hostId);
@@ -1180,6 +1205,7 @@ export class SshManager {
   }
 
   disposeAll(): void {
+    for (const hostId of this.reconnectTimers.keys()) this.cancelReconnect(hostId);
     for (const draft of this.drafts) draft.abort();
     for (const { abort } of this.connecting.values()) abort.abort();
     for (const { abort } of this.forwardDials.values()) abort.abort();

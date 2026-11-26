@@ -375,11 +375,14 @@ test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 
   const first = await startFakeSsh({ password });
   const second = await startFakeSsh({ password });
   const fixture = await openApp();
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let previousPreferences: string | null | undefined;
   try {
     const { app, page } = fixture;
     first.fs.files.set("/home/test/from-first.txt", Buffer.from("first"));
     second.fs.files.set("/home/test/from-second.txt", Buffer.from("second"));
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    previousPreferences = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
     const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
     await ssh.click();
     await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
@@ -423,7 +426,16 @@ test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 
     await expect(run.getByTestId("terminal-view").filter({ visible: true })).toHaveAttribute("data-state", "open");
     expect([first.conns.length, second.conns.length]).toEqual([1, 1]);
   } finally {
-    await fixture.close();
-    await Promise.all([first.close(), second.close()]);
+    try {
+      if (previousPreferences !== undefined) {
+        await fixture.page.evaluate(({ key, saved }) => {
+          if (saved === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, saved);
+        }, { key: preferenceKey, saved: previousPreferences });
+      }
+    } finally {
+      await fixture.close();
+      await Promise.all([first.close(), second.close()]);
+    }
   }
 });

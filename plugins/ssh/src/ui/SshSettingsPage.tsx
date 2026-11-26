@@ -2,7 +2,7 @@ import { Button, EmptyState, SearchBox } from "@huhu/ui";
 import { host, useCapability } from "@huhu/workbench";
 import { useId, useState, type FormEvent } from "react";
 import type { LocalEnvironment } from "../shared/local-shell.js";
-import { deviceDefaults, saveDevicePreferences, terminalScrollbackChoices, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
+import { deviceDefaults, saveDevicePreferences, sshNavigation, terminalScrollbackChoices, useDevicePreferences, type DevicePreferences } from "./device-preferences.js";
 import { canScaleTerminal } from "./SshTerminal.js";
 import { KnownHostsPanel } from "./KnownHostsPanel.js";
 import { SshVaultSettings } from "./SshVaultSettings.js";
@@ -18,6 +18,7 @@ const fields = {
   paneToolSize: "工具栏尺寸",
   groupVerticalTabs: "纵向标签按同目标分组",
   restoreWorkspace: "打开工作区时恢复上次视图",
+  hiddenNavigation: "导航显隐",
   fontSize: "终端字号",
   font: "终端字体",
   terminalLineHeight: "终端行距",
@@ -36,11 +37,12 @@ const fields = {
   followFileDirectory: "Shell 跟随文件面板",
 } satisfies Partial<Record<keyof DevicePreferences, string>>;
 const keys = {
-  layout: ["tabs", "paneTools", "groupVerticalTabs", "paneToolOrder", "paneToolSize", "restoreWorkspace"],
+  layout: ["tabs", "paneTools", "groupVerticalTabs", "paneToolOrder", "paneToolSize", "restoreWorkspace", "hiddenNavigation"],
   terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation", "localShellEnvironment"],
   files: ["showDotFiles", "fileSort", "remoteOnLeft", "fileOpenMode", "showPaneFiles", "followShellDirectory", "followFileDirectory"],
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
-const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数" };
+const navigationSearch = `${fields.hiddenNavigation} ${Object.values(sshNavigation).join(" ")}`;
+const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连一次", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
   const headingId = useId();
@@ -53,7 +55,8 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
   const shown = (field: keyof typeof fields) => keys[category].some((key) => key === field) && (labels[category].toLowerCase().includes(filter) || fields[field].toLowerCase().includes(filter));
   const desktop = Boolean(host());
   const environments = useCapability<LocalEnvironment[]>("ssh.local.environments", {}, { enabled: desktop && shown("localShellEnvironment") });
-  const changed = keys[category].some((key) => draft[key] !== base[key]);
+  const different = (key: keyof typeof fields) => JSON.stringify(draft[key]) !== JSON.stringify(base[key]);
+  const changed = keys[category].some(different);
   function set<Key extends keyof DevicePreferences>(key: Key, value: DevicePreferences[Key]) {
     setNotice("");
     setError("");
@@ -61,7 +64,7 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
   }
   function submit(event: FormEvent) {
     event.preventDefault();
-    const patch = Object.fromEntries(keys[category].filter((key) => draft[key] !== base[key]).map((key) => [key, draft[key]]));
+    const patch = Object.fromEntries(keys[category].filter(different).map((key) => [key, draft[key]]));
     try {
       const next = saveDevicePreferences(patch);
       setBase(next);
@@ -127,6 +130,18 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
         </label>
       )}
       {shown("restoreWorkspace") && <p>该选项只恢复视图。断开的连接仍需手动重连。</p>}
+      {category === "layout" && (shown("hiddenNavigation") || navigationSearch.includes(filter)) && (
+        <fieldset className="hu-stack">
+          <legend>{fields.hiddenNavigation}</legend>
+          {(Object.keys(sshNavigation) as (keyof typeof sshNavigation)[]).map((key) => (
+            <div className="hu-setting-row" key={key}>
+              <label htmlFor={`${headingId}-navigation-${key}`}>显示{sshNavigation[key]}</label>
+              <input id={`${headingId}-navigation-${key}`} type="checkbox" checked={!draft.hiddenNavigation.includes(key)} onChange={(event) =>
+                set("hiddenNavigation", event.currentTarget.checked ? draft.hiddenNavigation.filter((item) => item !== key) : [...draft.hiddenNavigation, key].sort())} />
+            </div>
+          ))}
+        </fieldset>
+      )}
       {shown("fontSize") && (
         <label className="hu-setting-row">
           {fields.fontSize}
@@ -293,12 +308,12 @@ export function SshSettingsPage() {
   const [category, select] = useState<Category>("layout");
   const [query, search] = useState("");
   const filter = query.trim().toLowerCase();
-  const matchesDevice = (key: DeviceCategory) => keys[key].some((field) => fields[field].toLowerCase().includes(filter));
+  const matchesDevice = (key: DeviceCategory) => keys[key].some((field) => (field === "hiddenNavigation" ? navigationSearch : fields[field]).toLowerCase().includes(filter));
   const matchesVault = (key: keyof typeof vaultSearch) => vaultSearch[key].toLowerCase().includes(filter);
   const matchesCategory = (key: Category) => labels[key].toLowerCase().includes(filter);
   const isDevice = (key: Category): key is DeviceCategory => Object.hasOwn(keys, key);
   const matchesKnownHosts = filter !== "" && "凭据、已知主机与日志".includes(filter);
-  const categories = (Object.keys(labels) as Category[]).filter((key) => matchesCategory(key) || (isDevice(key) && matchesDevice(key)) || ((key === "connection" || key === "files") && matchesVault(key)) || (key === "layout" && matchesKnownHosts));
+  const categories = (Object.keys(labels) as Category[]).filter((key) => matchesCategory(key) || (isDevice(key) && matchesDevice(key)) || ((key === "connection" || key === "files" || key === "terminal") && matchesVault(key)) || (key === "layout" && matchesKnownHosts));
   const selected = categories.includes(category) ? category : categories[0];
   return (
     <section data-testid="ssh-settings" aria-label="SSH 设置" className="hu-stack">
@@ -314,6 +329,7 @@ export function SshSettingsPage() {
       {selected && isDevice(selected) && (matchesCategory(selected) || matchesDevice(selected)) && <DeviceForm key={selected} category={selected} filter={filter} />}
       {selected === "connection" && <SshVaultSettings section="connection" />}
       {selected === "files" && (labels.files.includes(filter) || matchesVault("files")) && <SshVaultSettings section="transfer" />}
+      {selected === "terminal" && (matchesCategory("terminal") || matchesVault("terminal")) && <SshVaultSettings section="recording" />}
       {selected === "sharedTools" && <SshSharedTools />}
       {(!filter || matchesKnownHosts) && selected === "layout" && (
         <details className="hu-card-alt" open={matchesKnownHosts ? true : undefined}>

@@ -11,6 +11,85 @@ import { openApp } from "../helpers/launch.js";
 import { browserBinary, desktopCall, localWebLink } from "./workbench.js";
 import type { CapabilityCatalogEntry } from "../../../packages/contracts/src/capability.js";
 
+test("A12 SSH navigation and recording settings apply to their own UI and can be restored", async () => {
+  const fixture = await openApp();
+  const server = await startFakeSsh();
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let previousPreferences: string | null | undefined;
+  try {
+    const { page } = fixture;
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    previousPreferences = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
+    const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
+    const module = page.getByTestId("ssh-module");
+    const settings = page.getByTestId("ssh-settings");
+    const search = settings.getByPlaceholder("搜索 SSH 设置");
+    const openSettings = async () => {
+      await ssh.click();
+      await module.getByRole("button", { name: "SSH 设置", exact: true }).click();
+    };
+    await openSettings();
+    await search.fill("导航显隐");
+    const monitoring = settings.getByLabel("显示监控");
+    await expect(monitoring).toBeChecked();
+    await monitoring.uncheck();
+    await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+    await ssh.click();
+    await expect(module.getByRole("button", { name: "监控", exact: true })).toHaveCount(0);
+    await openSettings();
+    await search.fill("导航显隐");
+    await expect(monitoring).not.toBeChecked();
+    await settings.getByRole("button", { name: "恢复本类默认" }).click();
+    await expect(monitoring).toBeChecked();
+    await settings.getByRole("button", { name: "保存设置", exact: true }).click();
+    await search.fill("录制历史上限");
+    const enabled = settings.getByLabel("允许开始新的终端录制");
+    await expect(enabled).toBeChecked();
+    await enabled.uncheck();
+    await settings.getByLabel("录制历史上限").fill("2");
+    await settings.getByRole("button", { name: "保存库内设置" }).click();
+    await expect(settings.getByText("已保存到当前库。")).toBeVisible();
+    await search.fill("自动重连");
+    await settings.getByLabel("断线后自动重连一次").check();
+    await settings.getByRole("button", { name: "保存库内设置" }).click();
+    await expect(settings.getByText("已保存到当前库。")).toBeVisible();
+    expect(await desktopCall(page, "ssh.settings.get")).toMatchObject({
+      values: { connection: { autoReconnect: true }, recording: { enabled: false, savedLimit: 2 } },
+    });
+    const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
+      name: "录制设置回环", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+      credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+    });
+    await desktopCall(page, "ssh.workspace.runs.start", { name: "录制设置工作区", layout: { kind: "one" }, panes: [{ hostId }] });
+    await ssh.click();
+    await expect(module.getByRole("button", { name: "监控", exact: true })).toBeVisible();
+    await module.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /录制设置工作区.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    await expect(run.getByTestId("terminal-view")).toHaveAttribute("data-state", "open");
+    await expect(run.getByRole("button", { name: "开始录制" })).toHaveCount(0);
+    await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
+    await openSettings();
+    await search.fill("录制历史上限");
+    await settings.getByRole("button", { name: "恢复录制默认" }).click();
+    await expect(enabled).toBeChecked();
+    await expect(settings.getByLabel("录制历史上限")).toHaveValue("60");
+  } finally {
+    try {
+      if (previousPreferences !== undefined) {
+        await fixture.page.evaluate(({ key, saved }) => {
+          if (saved === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, saved);
+        }, { key: preferenceKey, saved: previousPreferences });
+      }
+    } finally {
+      await fixture.close();
+      await server.close();
+    }
+  }
+});
+
 test("SSH preferences apply to workspace, terminal, file views and transfer queue", async () => {
   const password = randomUUID();
   const server = await startFakeSsh({ password });
