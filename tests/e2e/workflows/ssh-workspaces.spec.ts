@@ -288,11 +288,13 @@ test("A06 workspace tab actions rename and close neighboring tabs without replac
   }
 });
 
-test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", async () => {
+async function verifyDirectoryFollow(kind: "bash" | "zsh") {
   test.setTimeout(90_000);
   const windows = process.platform === "win32";
-  const bash = process.env.HUHU_TEST_BASH ?? (process.platform === "linux" ? "/bin/bash" : undefined);
-  test.skip(!bash || !path.isAbsolute(bash) || !existsSync(bash), "需要 Linux Bash 或配置的 Git Bash 绝对路径");
+  const shell = kind === "bash"
+    ? process.env.HUHU_TEST_BASH ?? (process.platform === "linux" ? "/bin/bash" : undefined)
+    : process.platform === "linux" ? process.env.HUHU_TEST_ZSH ?? "/usr/bin/zsh" : undefined;
+  test.skip(!shell || !path.isAbsolute(shell) || !existsSync(shell), kind === "bash" ? "需要 Linux Bash 或配置的 Git Bash 绝对路径" : "需要 Linux Zsh，可通过 HUHU_TEST_ZSH 指定绝对路径");
   const fixture = await openApp();
   const { page, vault } = fixture;
   const password = randomUUID();
@@ -301,18 +303,21 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
   const awkward = "q' report [draft]";
   for (const dir of [tmp, path.join(home, "manual"), path.join(home, awkward), path.join(home, "race")]) mkdirSync(dir, { recursive: true });
   const profile = "export HISTFILE=/dev/null\nPS1='fixture> '\n";
-  writeFileSync(path.join(home, ".bash_profile"), profile);
+  const profileFile = path.join(home, kind === "bash" ? ".bash_profile" : ".zlogin");
+  writeFileSync(profileFile, profile);
   writeFileSync(path.join(home, "manual", "source-marker.txt"), "real fixture source");
   const toPosix = (dir: string) => windows ? dir.replace(/^([A-Z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`).replaceAll("\\", "/") : dir;
-  const bashEnv = {
+  const shellEnv = {
     ...process.env,
     HOME: toPosix(home),
-    SHELL: windows ? "/usr/bin/bash" : bash!,
-    PATH: windows ? `${path.resolve(bash!, "../../usr/bin")};${process.env.Path ?? ""}` : "/usr/bin:/bin",
+    ...(kind === "zsh" && { ZDOTDIR: home }),
+    SHELL: windows ? "/usr/bin/bash" : shell!,
+    PATH: windows ? `${path.resolve(shell!, "../../usr/bin")};${process.env.Path ?? ""}` : "/usr/bin:/bin",
     TMPDIR: toPosix(tmp),
     TERM: "xterm-256color",
   };
-  const probe = spawnSync(bash!, ["--noprofile", "--norc", "-c", "builtin pwd -P"], { cwd: home, env: bashEnv, encoding: "utf8", windowsHide: true });
+  const startupFlags = kind === "bash" ? ["--noprofile", "--norc"] : ["-f"];
+  const probe = spawnSync(shell!, [...startupFlags, "-c", "builtin pwd -P"], { cwd: home, env: shellEnv, encoding: "utf8", windowsHide: true });
   expect(probe.status, probe.stderr).toBe(0);
   const remoteHome = probe.stdout.replace(/\r?\n$/, "");
   const inputs: string[] = [];
@@ -338,12 +343,12 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
       }
       return undefined;
     },
-    onExec: (command) => (command === shellDirectoryProbe ? { stdout: "bash\n" } : undefined),
+    onExec: (command) => (command === shellDirectoryProbe ? { stdout: `${kind}\n` } : undefined),
     onInteractiveExec(command, channel) {
       if (!command.startsWith("sh -c ")) return false;
-      const child = spawn(bash!, ["--noprofile", "--norc", "-c", command], {
+      const child = spawn(shell!, [...startupFlags, "-c", command], {
         cwd: home,
-        env: bashEnv,
+        env: shellEnv,
         windowsHide: true,
       });
       shellClosed = new Promise((resolve) => child.once("close", () => resolve()));
@@ -421,7 +426,7 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
     await enter("printf 'cwd=%s\\n' \"$PWD\"");
     await expect.poll(() => shellOutput).toContain(`cwd=${remoteHome}/${awkward}`);
 
-    await enter("printf '\\033[?1049h'; read -r -t 3 -p 'Fixture secret: ' answer; printf '\\033[?1049l\\n'");
+    await enter("printf '\\033[?1049hFixture secret: '; read -r -t 3 answer; printf '\\033[?1049l\\n'");
     await expect(files.getByText("Shell 处于全屏应用")).toBeVisible();
     await files.getByTestId("files-up").click();
     await expect(files.getByRole("status").filter({ hasText: "本次已跳过 Shell 同步" })).toBeVisible();
@@ -458,15 +463,18 @@ test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航
     expect((await sshCall(page, "ssh.shells.close", { id: shellA })).ok).toBe(true);
     await shellClosed;
     expect(readdirSync(tmp)).toEqual([]);
-    expect(readFileSync(path.join(home, ".bash_profile"), "utf8")).toBe(profile);
+    expect(readFileSync(profileFile, "utf8")).toBe(profile);
     expect(readFileSync(path.join(home, "manual", "source-marker.txt"), "utf8")).toBe("real fixture source");
   } finally {
     block?.release();
-    await test.info().attach("loopback-bash-output", { body: shellOutput.replace(/Huhu;[a-f0-9]{48};/g, "Huhu;[session];"), contentType: "text/plain" });
+    await test.info().attach(`loopback-${kind}-output`, { body: shellOutput.replace(/Huhu;[a-f0-9]{48};/g, "Huhu;[session];"), contentType: "text/plain" });
     await fixture.close();
     await Promise.all([a.close(), b.close()]);
   }
-});
+}
+
+test("H6.4 工作台仅让原空闲 Bash 跟随，输入和切换分栏使导航授权失效", () => verifyDirectoryFollow("bash"));
+test("H6.4 Linux Zsh 的目录跟随跳过忙碌和全屏状态", () => verifyDirectoryFollow("zsh"));
 
 test("H4.1 工作区模板保存顺序与自定义布局，跨应用重开并删除", async () => {
   test.setTimeout(90_000);
@@ -959,6 +967,8 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     await editor.getByLabel("行号", { exact: true }).fill("2");
     await editor.getByRole("button", { name: "跳到行" }).click();
     await expect(editor.getByText("第 2 行，共 3 行")).toBeVisible();
+    await expect.poll(() => draft.evaluate((input: HTMLTextAreaElement) => input.selectionStart)).toBe("beta\n".length);
+    await draft.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(input.selectionStart, input.value.length));
     await editor.getByRole("button", { name: "缩进选中行" }).click();
     await expect(draft).toHaveValue("beta\n  second\n");
     await editor.getByRole("button", { name: "保存远端文件" }).click();
@@ -967,8 +977,6 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     expect(remote.fs.permissions.get(editPath)).toBe(0o640);
     expect(remote.fs.owners.get(editPath)).toEqual({ uid: 1000, gid: 2000 });
 
-    await expect.poll(() => draft.evaluate((input: HTMLTextAreaElement) => input.selectionStart)).toBe("beta\n".length);
-    await draft.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(input.selectionStart, input.value.length));
     const other = await sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId: host.hostId });
     expect(other.ok).toBe(true);
     const read = await sshCall<FileDocument>(page, "ssh.fileSessions.document.open", { fileSessionId: other.data.fileSessionId, path: editPath });
