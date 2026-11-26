@@ -233,6 +233,8 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await page.getByRole("button", { name: "本地终端", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
   } finally {
+    // Device preferences live in the shared Playwright userData; later specs expect the defaults (links enabled).
+    await fixture.page.evaluate(() => window.localStorage.removeItem("huhu.ssh.device-preferences.v1")).catch(() => undefined);
     await fixture.close();
     await server.close();
   }

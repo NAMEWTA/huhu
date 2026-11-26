@@ -32,6 +32,15 @@ function signer(key: string, passphrase?: string): ParsedKey {
   return first;
 }
 
+/** ssh2 occasionally writes an encrypted Ed25519 key it cannot parse back; keep generating until it round-trips. */
+function parsableEd25519(passphrase?: string) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const pair = ssh2.utils.generateKeyPairSync("ed25519", passphrase ? { passphrase, cipher: "aes256-ctr", rounds: 16 } : undefined);
+    if (!(ssh2.utils.parseKey(pair.private, passphrase) instanceof Error)) return pair;
+  }
+  throw new Error("ssh2 did not produce a parsable Ed25519 fixture key");
+}
+
 function uint32(number: number) {
   const bytes = Buffer.alloc(4);
   bytes.writeUInt32BE(number);
@@ -91,7 +100,7 @@ async function setup(options: { passphrase?: string; ed25519?: boolean; port?: n
     protection: new TestProtection(backend),
   });
   const passphrase = options.passphrase;
-  const pair = options.ed25519 === false ? ssh2.utils.generateKeyPairSync("ecdsa", { bits: 256 }) : ssh2.utils.generateKeyPairSync("ed25519", passphrase ? { passphrase, cipher: "aes256-ctr", rounds: 16 } : undefined);
+  const pair = options.ed25519 === false ? ssh2.utils.generateKeyPairSync("ecdsa", { bits: 256 }) : parsableEd25519(passphrase);
   const subject = signer(pair.private, passphrase);
   const ca = signer(ssh2.utils.generateKeyPairSync("ed25519").private);
   const identity = path.join(root, "fixture-key");
