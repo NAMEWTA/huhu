@@ -153,11 +153,13 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
   }
 });
 
-test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能使用文件和监控", async () => {
+test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工具栏仍可用", async () => {
   const preferenceKey = "huhu.ssh.device-preferences.v1";
   let input = "";
+  let writeShell: (text: string) => void;
   const server = await startFakeSsh({ onInteractiveShell(channel) {
-    channel.write("welcome\r\n\u0007");
+    writeShell = (text) => { channel.write(text); };
+    channel.write("welcome\r\nrange-42\r\n\u0007");
     channel.on("data", (chunk: Buffer) => { input += chunk.toString(); });
   } });
   try {
@@ -178,7 +180,17 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       const settings = page.getByTestId("ssh-settings");
       const search = settings.getByPlaceholder("搜索 SSH 设置");
       await search.fill("终端关键词高亮");
-      await settings.getByLabel("终端关键词高亮").fill("welcome");
+      const add = settings.getByRole("button", { name: "添加高亮规则" });
+      const rule = (index: number) => settings.getByRole("group", { name: `规则 ${index}`, exact: true });
+      await add.click();
+      await rule(1).getByLabel("规则内容").fill("welcome");
+      await add.click();
+      await rule(2).getByLabel("匹配方式").selectOption("regex");
+      await rule(2).getByLabel("规则内容").fill(String.raw`welcome\nrange-\d+`);
+      await rule(2).getByRole("button", { name: "上移" }).click();
+      await add.click();
+      await rule(3).getByLabel("规则内容").fill("range-42");
+      await rule(3).getByLabel("启用").uncheck();
       await search.fill("从快捷命令补全终端输入");
       await settings.getByLabel("从快捷命令补全终端输入").check();
       await search.fill("显示终端响铃通知");
@@ -194,7 +206,13 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       const run = page.getByTestId("ssh-workspace-run");
       await run.getByRole("button", { name: "信任并连接", exact: true }).click();
       const terminal = run.getByTestId("terminal-view");
-      await expect(terminal.locator("[data-terminal-highlight]")).toHaveCount(1);
+      await expect(terminal.locator('[data-terminal-highlight="0"]')).toHaveCount(2);
+      await expect(terminal.locator("[data-terminal-highlight]")).toHaveCount(2);
+      writeShell!("\u001b[?1049h\u001b[Hwelcome\r\nrange-42");
+      await expect(terminal.locator('.hu-terminal-highlight-layer [data-terminal-highlight="0"]')).toHaveCount(2);
+      writeShell!("\u001b[?1049l");
+      await expect(terminal.locator(".hu-terminal-highlight-layer")).toHaveCount(0);
+      await expect(terminal.locator('[data-terminal-highlight="0"]')).toHaveCount(2);
       await expect(run.getByText("终端响铃次数 1", { exact: true })).toBeVisible();
       const tools = run.getByTestId("ssh-pane-tools");
       await expect(tools.getByRole("button", { name: /移至分栏/ })).toHaveCount(0);
@@ -207,9 +225,13 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
       await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
       await search.fill("终端关键词高亮");
-      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("welcome");
+      await expect(rule(1).getByLabel("规则内容")).toHaveValue(String.raw`welcome\nrange-\d+`);
+      await expect(rule(2).getByLabel("规则内容")).toHaveValue("welcome");
+      await expect(rule(3).getByLabel("启用")).not.toBeChecked();
+      await rule(3).getByRole("button", { name: "删除" }).click();
+      await expect(rule(3)).toHaveCount(0);
       await settings.getByRole("button", { name: "恢复本类默认", exact: true }).click();
-      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("");
+      await expect(rule(1)).toHaveCount(0);
       await settings.getByRole("button", { name: "保存设置", exact: true }).click();
     } finally {
       if (previous !== undefined) await page.evaluate(({ key, saved }) => {

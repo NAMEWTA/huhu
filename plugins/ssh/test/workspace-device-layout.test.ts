@@ -106,12 +106,13 @@ test("终端选词和链接设置使用本机存储并可恢复默认", () => {
 });
 
 test("关键词、复制和输入设置可保存，旧记录使用原来默认行为", () => {
-  localStorage.setItem(preferenceKey, JSON.stringify({ fontSize: 18 }));
-  const next = saveDevicePreferences({ terminalHighlight: " 告警 ", terminalCompletion: true, paneToolsMovable: false });
-  expect(next).toMatchObject({ fontSize: 18, terminalHighlight: "告警", terminalCompletion: true, paneToolsMovable: false,
+  localStorage.setItem(preferenceKey, JSON.stringify({ fontSize: 18, terminalHighlight: " 告警 " }));
+  const next = saveDevicePreferences({ terminalCompletion: true, paneToolsMovable: false });
+  expect(next).toMatchObject({ fontSize: 18, terminalHighlightRules: [{ pattern: "告警", mode: "literal", enabled: true }], terminalCompletion: true, paneToolsMovable: false,
     terminalCopyOnSelect: false, terminalRightClickWord: false, terminalScrollOnInput: true });
-  expect(() => saveDevicePreferences({ terminalHighlight: "embedded\nnewline" })).toThrow();
+  expect(() => saveDevicePreferences({ terminalHighlightRules: [{ ...next.terminalHighlightRules[0]!, pattern: "[", mode: "regex" }] })).toThrow();
   expect(JSON.parse(localStorage.getItem(preferenceKey)!)).toEqual(next);
+  expect(saveDevicePreferences({ terminalHighlightRules: [] }).terminalHighlightRules).toEqual([]);
 });
 
 const pane = (name: string, phase: WorkspaceRunPane["phase"] = "ready"): WorkspaceRunPane => ({

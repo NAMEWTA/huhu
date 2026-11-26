@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { Terminal } from "@xterm/xterm";
 import { expect, test } from "vitest";
-import { searchTerminal, terminalHttpUrl, terminalKeywordRanges, terminalLinks } from "../src/components/terminal-content.js";
+import { searchTerminal, terminalHighlightViewport, terminalHttpUrl, terminalLinks } from "../src/components/terminal-content.js";
+import { matchTerminalHighlights, validTerminalPattern } from "../src/components/terminal-highlight-patterns.js";
 
 const write = (terminal: Terminal, text: string) => new Promise<void>((resolve) => terminal.write(text, resolve));
 
@@ -9,9 +10,42 @@ test("keyword decoration maps only requested rows and preserves the width of CJK
   const terminal = new Terminal({ cols: 30, rows: 3 });
   try {
     await write(terminal, "世界\r\n前 世界 世界\r\n世界");
-    expect(terminalKeywordRanges(terminal.buffer.active, 30, 1, 1, "世界")).toEqual([
-      { start: { x: 3, y: 1 }, end: { x: 7, y: 1 } },
-      { start: { x: 8, y: 1 }, end: { x: 12, y: 1 } },
+    const view = terminalHighlightViewport(terminal.buffer.active, 30, 1, 1);
+    expect(view.ranges(matchTerminalHighlights(view.text, [{ pattern: "世界", mode: "literal", enabled: true }]))).toEqual([
+      { start: { x: 3, y: 1 }, end: { x: 7, y: 1 }, ruleIndex: 0 },
+      { start: { x: 8, y: 1 }, end: { x: 12, y: 1 }, ruleIndex: 0 },
+    ]);
+  } finally {
+    terminal.dispose();
+  }
+});
+
+test("ordered rules match visible soft and hard line breaks, with earlier rules owning overlaps", async () => {
+  const terminal = new Terminal({ cols: 8, rows: 4 });
+  try {
+    await write(terminal, "1234567世界\r\nEND.42\r\nquiet");
+    const viewport = terminalHighlightViewport(terminal.buffer.active, 8, 0, 3);
+    expect(viewport.text).toBe("1234567世界\nEND.42");
+    const matches = matchTerminalHighlights(viewport.text, [
+      { pattern: String.raw`7世界\nEND\.`, mode: "regex", enabled: true },
+      { pattern: "世界", mode: "literal", enabled: true },
+      { pattern: "42", mode: "literal", enabled: false },
+      { pattern: "42", mode: "literal", enabled: true },
+    ]);
+    expect(viewport.ranges(matches)).toEqual([
+      { start: { x: 6, y: 0 }, end: { x: 7, y: 0 }, ruleIndex: 0 },
+      { start: { x: 0, y: 1 }, end: { x: 4, y: 1 }, ruleIndex: 0 },
+      { start: { x: 0, y: 2 }, end: { x: 4, y: 2 }, ruleIndex: 0 },
+      { start: { x: 4, y: 2 }, end: { x: 6, y: 2 }, ruleIndex: 3 },
+    ]);
+    expect(validTerminalPattern({ pattern: "[", mode: "regex", enabled: true })).toBe(false);
+    expect(matchTerminalHighlights(".42", [{ pattern: ".", mode: "literal", enabled: true }])).toEqual([{ offset: 0, length: 1, ruleIndex: 0 }]);
+    await write(terminal, "\u001b[?1049h\u001b[Hpart\r\nend");
+    expect(terminal.buffer.active.type).toBe("alternate");
+    const alternate = terminalHighlightViewport(terminal.buffer.active, 8, 0, 2);
+    expect(alternate.ranges(matchTerminalHighlights(alternate.text, [{ pattern: "part\nend", mode: "literal", enabled: true }]))).toEqual([
+      { start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, ruleIndex: 0 },
+      { start: { x: 0, y: 1 }, end: { x: 3, y: 1 }, ruleIndex: 0 },
     ]);
   } finally {
     terminal.dispose();

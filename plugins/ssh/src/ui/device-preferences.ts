@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { LocalEnvironment } from "../shared/local-shell.js";
 import { AuthKind } from "../shared/host-auth.js";
+import { validTerminalPattern } from "@huhu/ui";
 
 export const terminalLineHeights = { normal: 1, roomy: 1.25 } as const;
 export const terminalScrollbackChoices = [1000, 5000, 10000] as const;
@@ -17,6 +18,13 @@ export const sshNavigation = {
   audit: "全部连接审计",
 } as const;
 const navigationPage = z.enum(Object.keys(sshNavigation) as (keyof typeof sshNavigation)[]);
+export const maxHighlightRules = 16;
+const highlightRule = z.object({
+  id: z.uuid(),
+  pattern: z.string().max(160),
+  mode: z.enum(["literal", "regex"]),
+  enabled: z.boolean(),
+}).refine(validTerminalPattern, "高亮规则为空或正则表达式无效");
 
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
@@ -39,7 +47,7 @@ const schema = z.object({
   terminalCopyOnSelect: z.boolean(),
   terminalRightClickWord: z.boolean(),
   terminalScrollOnInput: z.boolean(),
-  terminalHighlight: z.string().trim().max(80).regex(/^[^\p{Cc}]*$/u),
+  terminalHighlightRules: z.array(highlightRule).max(maxHighlightRules),
   terminalCompletion: z.boolean(),
   terminalBellNotice: z.boolean(),
   defaultAuthKind: AuthKind,
@@ -80,7 +88,7 @@ export const deviceDefaults: DevicePreferences = {
   terminalCopyOnSelect: false,
   terminalRightClickWord: false,
   terminalScrollOnInput: true,
-  terminalHighlight: "",
+  terminalHighlightRules: [],
   terminalCompletion: false,
   terminalBellNotice: false,
   defaultAuthKind: "password",
@@ -110,7 +118,13 @@ function read(): DevicePreferences {
     const next = window.localStorage.getItem(KEY);
     if (next !== raw) {
       raw = next;
-      snapshot = next === null ? deviceDefaults : schema.parse({ ...deviceDefaults, ...schema.partial().parse(JSON.parse(next)) });
+      const stored = next === null ? {} : JSON.parse(next);
+      const preferences = schema.partial().parse(stored);
+      const legacy = z.string().trim().min(1).max(80).safeParse(stored.terminalHighlight);
+      const migrated = legacy.success && preferences.terminalHighlightRules === undefined
+        ? { terminalHighlightRules: [{ id: "00000000-0000-4000-8000-000000000001", pattern: legacy.data, mode: "literal" as const, enabled: true }] }
+        : {};
+      snapshot = next === null ? deviceDefaults : schema.parse({ ...deviceDefaults, ...preferences, ...migrated });
     }
   } catch {
     snapshot = deviceDefaults;

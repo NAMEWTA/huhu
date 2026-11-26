@@ -1,9 +1,11 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal, type IDisposable, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
-import { searchTerminal, terminalHttpUrl, terminalKeywordRanges, terminalLinks } from "./terminal-content.js";
+import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-content.js";
+import type { TerminalHighlightPattern } from "./terminal-highlight-patterns.js";
+import { observeTerminalHighlights } from "./terminal-highlights.js";
 
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = ((text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError) & { sendKeys?(keys: string): void };
@@ -38,7 +40,7 @@ export interface TerminalViewProps {
   onHandoffControl?(): void;
   onTerminalKey?(keys: string): void;
   copyOnSelect?: boolean;
-  highlightKeyword?: string;
+  highlightRules?: readonly TerminalHighlightPattern[];
   onCompletionRequest?: (() => void) | undefined;
   onBell?: (() => void) | undefined;
 }
@@ -55,7 +57,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, focusOnHandoff = true, attachWhenHidden = false, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightKeyword, onCompletionRequest, onBell }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, focusOnHandoff = true, attachWhenHidden = false, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightRules, onCompletionRequest, onBell }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -88,10 +90,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   completion.current = onCompletionRequest;
   const bellNotice = useRef(onBell);
   bellNotice.current = onBell;
-  const keyword = useRef(highlightKeyword);
-  keyword.current = highlightKeyword;
+  const rules = useRef(highlightRules);
+  rules.current = highlightRules;
   const refreshHighlights = useRef<() => void>(undefined);
-  const supportsHighlight = highlightKeyword !== undefined;
+  const supportsHighlight = highlightRules !== undefined;
   const currentDisplay = useRef(displayOptions);
   currentDisplay.current = displayOptions;
   const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
@@ -126,35 +128,8 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       const selected = clipboardSelection.current && term.getSelection();
       if (selected) void navigator.clipboard?.writeText(selected).catch(() => undefined);
     });
-    let highlightFrame: number | undefined;
-    let decorations: IDisposable[] = [];
-    const clearHighlights = () => {
-      for (const decoration of decorations) decoration.dispose();
-      decorations = [];
-    };
-    const scheduleHighlights = () => {
-      if (!supportsHighlight || highlightFrame !== undefined || (!keyword.current && !decorations.length)) return;
-      highlightFrame = window.requestAnimationFrame(() => {
-        highlightFrame = undefined;
-        clearHighlights();
-        const buffer = term.buffer.active;
-        if (!keyword.current || buffer.type !== "normal") return;
-        const cursorRow = buffer.baseY + buffer.cursorY;
-        const theme = getComputedStyle(el);
-        const backgroundColor = theme.getPropertyValue("--warning-bg").trim();
-        const foregroundColor = theme.getPropertyValue("--warning-text").trim();
-        for (const { start, end } of terminalKeywordRanges(buffer, term.cols, buffer.viewportY, term.rows, keyword.current)) {
-          const marker = term.registerMarker(start.y - cursorRow);
-          if (!marker) continue;
-          const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x,
-            ...(backgroundColor && { backgroundColor }), ...(foregroundColor && { foregroundColor }) });
-          decoration?.onRender((element) => { element.dataset.terminalHighlight = ""; });
-          decorations.push(marker);
-        }
-      });
-    };
-    refreshHighlights.current = scheduleHighlights;
-    const highlightEvents = [term.onWriteParsed(scheduleHighlights), term.onScroll(scheduleHighlights), term.onResize(scheduleHighlights)];
+    const highlights = supportsHighlight ? observeTerminalHighlights(term, el, () => rules.current ?? []) : undefined;
+    refreshHighlights.current = highlights?.update;
     const links = hasLinkHandler ? term.registerLinkProvider({
       provideLinks(row, callback) {
         if (!linksEnabled.current) return callback(undefined);
@@ -360,7 +335,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       term.options.fontFamily = next.fontFamily;
       term.options.fontSize = next.fontSize;
       scheduleFit();
-      scheduleHighlights();
+      highlights?.schedule();
     };
     // xterm updates its cell metrics on DPR changes, even when the CSS box keeps its size.
     let resolution: MediaQueryList;
@@ -381,9 +356,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       applyDisplay.current = undefined;
       search.current = undefined;
       refreshHighlights.current = undefined;
-      if (highlightFrame !== undefined) window.cancelAnimationFrame(highlightFrame);
-      clearHighlights();
-      for (const event of highlightEvents) event.dispose();
+      highlights?.dispose();
       selection.dispose();
       bell.dispose();
       links?.dispose();
@@ -403,7 +376,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId, attachWhenHidden, supportsHighlight]);
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
-  useEffect(() => refreshHighlights.current?.(), [highlightKeyword]);
+  useEffect(() => refreshHighlights.current?.(), [highlightRules]);
   useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);
 
   function find(direction: "next" | "previous") {

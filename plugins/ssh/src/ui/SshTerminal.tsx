@@ -20,7 +20,7 @@ function openTerminalLink(url: string) {
 
 export function SshTerminal(props: TerminalViewProps) {
   const { fontSize, font, terminalLineHeight, terminalCursor, terminalCursorBlink, terminalScrollback, terminalWordSeparator, terminalLinkActivation,
-    terminalCopyOnSelect, terminalRightClickWord, terminalScrollOnInput, terminalHighlight, terminalCompletion, terminalBellNotice } = useDevicePreferences();
+    terminalCopyOnSelect, terminalRightClickWord, terminalScrollOnInput, terminalHighlightRules, terminalCompletion, terminalBellNotice } = useDevicePreferences();
   const [input, setInput] = useState<TerminalInput>();
   const [completing, setCompleting] = useState(false);
   const [completionError, setCompletionError] = useState("");
@@ -56,7 +56,7 @@ export function SshTerminal(props: TerminalViewProps) {
       <div className="ssh-terminal-preferences" data-testid="ssh-terminal-preferences">
         <div className="ssh-terminal-scale" style={style} data-font={font}>
           <TerminalView {...props} displayOptions={displayOptions} scrollbackSearch onOpenLink={openTerminalLink} linkActivation={terminalLinkActivation}
-            copyOnSelect={terminalCopyOnSelect} highlightKeyword={terminalHighlight} onTerminalInput={onTerminalInput}
+            copyOnSelect={terminalCopyOnSelect} highlightRules={terminalHighlightRules} onTerminalInput={onTerminalInput}
             onCompletionRequest={terminalCompletion && input ? openCompletion : undefined} onBell={terminalBellNotice ? () => setBells((count) => count + 1) : undefined} />
         </div>
       </div>

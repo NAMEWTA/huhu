@@ -2,6 +2,7 @@ export * from "./components/ui.js";
 export * from "./theme.js";
 export { THEMES, themeList, THEME_IDS, DEFAULT_THEME, type ThemeId, type ThemeDefinition, themeToCss } from "./themes/index.js";
 export * from "./components/TerminalView.js";
+export { validTerminalPattern, type TerminalHighlightPattern } from "./components/terminal-highlight-patterns.js";
 export * from "./components/Dialog.js";
 export * from "./components/Segmented.js";
 export * from "./components/DateTimePicker.js";
