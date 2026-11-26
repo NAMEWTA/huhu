@@ -30,6 +30,7 @@
       "tasks.dispatch.retry",
       "tasks.dispatch.recent",
       "tasks.dispatch.targets",
+      "tasks.dispatch.resources",
       "tasks.dispatch.cancel",
       "tasks.dispatch.stop",
       "tasks.dispatch.stop.read",

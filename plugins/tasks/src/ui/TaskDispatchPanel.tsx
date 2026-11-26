@@ -5,11 +5,13 @@ import { History } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { z } from "zod";
 import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
+import type { taskToolDescriptors } from "../engine/index.js";
 import type { TaskReplyView, TaskSupplementView } from "../engine/native-replies.js";
 import type { TaskQuestionView } from "../engine/receipt-inbox.js";
 import type { resultDeliveryDescriptors } from "../engine/result-delivery.js";
 import { TaskRunMarkdownView } from "./compact.js";
 import { t } from "./i18n.js";
+import { NewTaskRoundDialog } from "./NewTaskRoundDialog.js";
 import { useReferenceIndex } from "./references.js";
 
 type Reply = z.infer<typeof TaskReplyView>;
@@ -17,6 +19,7 @@ type Question = z.infer<typeof TaskQuestionView> & { reply?: Reply };
 type Supplement = z.infer<typeof TaskSupplementView>;
 type GitHubDelivery = z.output<typeof resultDeliveryDescriptors.githubReadDelivery.output>;
 type MailDelivery = z.output<typeof resultDeliveryDescriptors.readMailDelivery.output>;
+type DispatchResources = z.output<typeof taskToolDescriptors.dispatchResources.output>;
 
 const receiptState: Record<DispatchReceipt["state"], string> = {
   pending: "已受理",
@@ -95,18 +98,25 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
   const [request, setRequest] = useState<DispatchInput | null>(null);
   const [retry, setRetry] = useState<RetryDispatch | null>(null);
   const [earlyDialog, setEarlyDialog] = useState(false);
+  const [newRoundOpen, setNewRoundOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const finishedRuns = new Set(runs.filter(({ finishedAt }) => finishedAt).map(({ id }) => id));
   const busyTask =
-    rows?.some(({ state, runId, superseded }) => !superseded && (["pending", "claimed", "sending", "unknown"].includes(state) || (state === "running" && !runs.some(({ id, finishedAt }) => id === runId && finishedAt)))) ?? false;
-  const canDispatch = !task.readOnly && task.status === "not_started" && !busyTask && !retry && rows !== undefined && !readError && task.dispatchBlockers.length === 0;
+    rows?.some(({ state, runId, stop, superseded }) => !superseded && (["pending", "claimed", "sending", "unknown"].includes(state) || (state === "running" && stop?.status !== "stopped" && !finishedRuns.has(runId)))) ?? false;
+  const ready = task.type === "agent" && !task.readOnly && !busyTask && !retry && rows !== undefined && !readError && task.dispatchBlockers.length === 0;
+  const canDispatch = ready && task.status === "not_started";
+  const hasEndedRound = rows?.some(({ superseded, state, reason, stop, runId }) =>
+    !superseded && state === "running" && reason !== "foreign_machine" && (stop?.status === "stopped" || finishedRuns.has(runId)));
+  const showNewRound = task.status === "in_progress" && !task.readOnly && (task.execution?.target?.mode ?? "new") === "new" && hasEndedRound === true;
+  const canStartRound = showNewRound && ready && !request && !submitting;
   const early = !isTaskAvailable(task.availableAt, new Date());
 
   useEffect(() => {
     if (!busyTask) return;
     const timer = setInterval(() => {
-      void qc.invalidateQueries({ predicate: ({ queryKey: [vault, capability] }) => vault === engine.vaultId && ["tasks.dispatch.list", "tasks.questions.list", "tasks.runs"].includes(String(capability)) });
+      void qc.invalidateQueries({ predicate: ({ queryKey: [vault, capability] }) => vault === engine.vaultId && ["tasks.dispatch.list", "tasks.dispatch.resources", "tasks.questions.list", "tasks.runs"].includes(String(capability)) });
     }, 1_500);
     return () => clearInterval(timer);
   }, [busyTask, engine.vaultId, qc]);
@@ -124,7 +134,7 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
     try {
       await engine.call("tasks.dispatch", intent, { write: true, idempotencyKey: intent.dispatchId });
       setRequest(null);
-      setNote("派遣已受理。");
+      setNote(intent.newRound ? "新轮次已受理。" : "派遣已受理。");
       await refresh();
     } catch (failure) {
       if (failure instanceof CapabilityError && failure.code !== "INTERNAL" && failure.code !== "UNAUTHENTICATED") {
@@ -163,18 +173,20 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
       <h3>
         <History size={14} aria-hidden /> Agent 派遣
       </h3>
-      {task.status === "not_started" ? (
+      <TaskResources zone={zone} />
+      {request ? (
+        <Button loading={submitting} onClick={() => void submit(request)}>核对原请求</Button>
+      ) : task.status === "not_started" ? (
         <div className="row">
-          {request ? (
-            <Button loading={submitting} disabled={submitting} onClick={() => void submit(request)}>
-              核对原请求
-            </Button>
-          ) : (
-            <Button variant="primary" disabled={!canDispatch || submitting} onClick={() => (early ? setEarlyDialog(true) : void submit(newRequest(false)))}>
-              {early ? "提前派遣" : "立即派遣"}
-            </Button>
-          )}
+          <Button variant="primary" disabled={!canDispatch || submitting} onClick={() => (early ? setEarlyDialog(true) : void submit(newRequest(false)))}>
+            {early ? "提前派遣" : "立即派遣"}
+          </Button>
         </div>
+      ) : null}
+      {showNewRound ? (
+        <Button variant="primary" aria-disabled={!canStartRound} onClick={() => { if (canStartRound) setNewRoundOpen(true); }}>
+          开始新一轮
+        </Button>
       ) : null}
       {retry ? (
         <Button loading={submitting} disabled={submitting} onClick={() => void submitRetry(retry)}>
@@ -238,6 +250,59 @@ export function TaskDispatchPanel({ task, zone, runs, rows, readError, onOpenAge
       >
         <p>最早派遣时间为 {task.availableAt ? new Date(task.availableAt).toLocaleString(undefined, zone ? { timeZone: zone } : {}) : "未设置"}。确认后仅对此次派遣提前。</p>
       </Dialog>
+      {newRoundOpen ? (
+        <NewTaskRoundDialog
+          task={task}
+          canStart={canStartRound}
+          early={early}
+          onClose={() => setNewRoundOpen(false)}
+          onStart={(context) => {
+            setNewRoundOpen(false);
+            void submit({ ...newRequest(early), newRound: true, context });
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+const capacityLabel = ({ limit, occupied }: DispatchResources["device"]["active"]) =>
+  limit === null ? "未配置上限" : `${occupied ?? "未知"} / ${limit}`;
+
+function TaskResources({ zone }: { zone: string | undefined }) {
+  const { data, error, isFetching, refetch } = useCapability<DispatchResources>("tasks.dispatch.resources");
+  const { vault, device } = data ?? {};
+  const waitingSince = (at: string | null) => at
+    ? <time dateTime={at}>{new Date(at).toLocaleString(undefined, { timeZone: zone })}</time>
+    : "—";
+
+  return (
+    <section className="tasks-resources" aria-label="本机派遣资源">
+      <div className="row">
+        <h4>本机派遣资源</h4>
+        <Button variant="ghost" aria-disabled={isFetching} onClick={() => { if (!isFetching) void refetch(); }}>刷新资源</Button>
+      </div>
+      {error ? <p role="status">暂时无法读取派遣资源。</p> : null}
+      {!data && !error ? <p role="status">正在读取派遣资源…</p> : null}
+      {vault && device ? (
+        <>
+          <dl className="tasks-resource-counts">
+            <div><dt>本机活动名额</dt><dd>{capacityLabel(device.active)}</dd></div>
+            <div><dt>本机保留名额</dt><dd>{capacityLabel(device.retained)}</dd></div>
+            <div><dt>当前库活动运行</dt><dd>{vault.active}</dd></div>
+            <div><dt>当前库保留进程</dt><dd>{vault.retained ?? "不可用"}</dd></div>
+            <div><dt>排队积压</dt><dd>{vault.pending}</dd></div>
+            <div><dt>最早排队</dt><dd>{waitingSince(vault.oldestPendingAt)}</dd></div>
+            <div><dt>待核实积压</dt><dd>{vault.unknown}</dd></div>
+            <div><dt>最早待核实</dt><dd>{waitingSince(vault.oldestUnknownAt)}</dd></div>
+            <div><dt>等待原生回答</dt><dd>{vault.waitingNative}</dd></div>
+            <div><dt>最早等待原生回答</dt><dd>{waitingSince(vault.oldestNativeWaitAt)}</dd></div>
+          </dl>
+          {vault.waitingNative > 0 ? <p>等待原生回答时释放活动名额，保留原会话以接收回答。</p> : null}
+          {vault.unknown > 0 ? <p>执行结果待核实时继续保留相关活动占用。</p> : null}
+          {vault.retained ? <p>仍在启动、运行或状态待核实的受控会话占用保留名额。</p> : null}
+        </>
+      ) : null}
     </section>
   );
 }

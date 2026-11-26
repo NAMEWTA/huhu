@@ -199,7 +199,7 @@ test("TW1 已受理的 Codex 失败显示在原任务且业务任务仍打开", 
   }
 });
 
-test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答（TW3 Engine 重开与 Web）", async ({ browserName }, testInfo) => {
+test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生问答（TW3 Engine 重开与 Web） · 两个获邀页面共用设备名额与原生等待", async ({ browserName }, testInfo) => {
   void browserName;
   test.setTimeout(180_000);
   const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
@@ -224,8 +224,12 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
   let browser: Browser | undefined;
   await withFixtureCleanup(async () => {
     await writeFile(path.join(privateHome, "config.toml"), responses.config, { mode: 0o600 });
-    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider, HUHU_HERDR_BIN: coreBin, XDG_RUNTIME_DIR: runtime }, undefined, process.env["HUHU_C01_DESKTOP_APP"]);
-    const { page } = desktop;
+    const configHome = path.join(runtime, "config");
+    await mkdir(path.join(configHome, "huhu"), { recursive: true });
+    await writeFile(path.join(configHome, "huhu", "dispatch-limits.json"), JSON.stringify({ active: 1, retained: 2 }));
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: privateHome, HUHU_CODEX_DISPATCH_BIN: provider, HUHU_HERDR_BIN: coreBin, XDG_RUNTIME_DIR: runtime, XDG_CONFIG_HOME: configHome }, undefined, process.env["HUHU_C01_DESKTOP_APP"]);
+    const { app, page } = desktop;
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 600));
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     const call = caller(page);
     await pauseRules(call);
@@ -331,10 +335,45 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect(responses.requests).toHaveLength(sourceRequests.length + 1);
     expect(await call("web.share.start", { mode: "local", port: 0 })).toMatchObject({ state: "running" });
     const { links } = await call<{ links: string[] }>("web.invitations.create");
+    const peerInvitation = await call<{ links: string[] }>("web.invitations.create");
     browser = await chromium.launch();
     const web = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    const peer = await browser.newPage({ viewport: { width: 800, height: 700 } });
     await web.goto(links[0]!);
+    await peer.goto(peerInvitation.links[0]!);
     const managed = await openRun(web, title);
+    const peerRun = await openRun(peer, title);
+    const queued = await call<TaskDto>("tasks.create", {
+      title: "等待同一原会话的任务", body: "This input should stay queued.", type: "agent",
+      execution: { spaceId: space!.id, target: { mode: "existing", sessionId: session!.id } },
+    });
+    const queuedDispatch = await call<TaskDispatchView>("tasks.dispatch", {
+      taskId: queued.id, dispatchId: randomUUID(), expectedVersion: queued.version, inputRevision: queued.inputRevision, inputHash: queued.inputHash,
+    });
+    await expect.poll(() => listDispatches(call, queued.id)).toMatchObject([{ reason: "waiting_resource" }]);
+    for (const viewer of [page, web, peer]) {
+      const resources = viewer.getByRole("region", { name: "本机派遣资源" });
+      const value = (label: string) => resources.locator("dl > div").filter({ has: viewer.getByText(label, { exact: true }) }).locator("dd");
+      await expect(value("本机活动名额")).toHaveText("0 / 1");
+      await expect(value("本机保留名额")).toHaveText("1 / 2");
+      await expect(value("排队积压")).toHaveText("1");
+      await expect(value("最早排队").locator("time")).toHaveAttribute("datetime", queuedDispatch.acceptedAt);
+      await expect(value("等待原生回答")).toHaveText("1");
+      await expect(value("最早等待原生回答").locator("time")).toBeVisible();
+    }
+    const desktopResources = detail.getByRole("region", { name: "本机派遣资源" });
+    const refreshResources = desktopResources.getByRole("button", { name: "刷新资源" });
+    await refreshResources.click();
+    await expect(refreshResources).toBeFocused();
+    await expect(refreshResources).toHaveAttribute("aria-disabled", "false");
+    await Promise.all([
+      page.waitForRequest((request) => request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch.resources"),
+      refreshResources.press("Enter"),
+    ]);
+    expect(await desktopResources.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(responses.requests).toHaveLength(sourceRequests.length + 1);
+    await call("tasks.dispatch.cancel", { taskId: queued.id, dispatchId: queuedDispatch.dispatchId });
+    await expect.poll(() => listDispatches(call, queued.id)).toMatchObject([{ state: "cancelled" }]);
     await managed.getByRole("radio", { name: "Circle" }).check();
     await managed.getByRole("button", { name: "发送回答" }).click();
     await expect
@@ -343,6 +382,7 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     expect((await call<TaskDto>("tasks.read", { id: task.id })).comments.filter(({ event }) => event === "answer")).toMatchObject([
       { source: "human", author: "Web", run: run!.runId, session: session!.id, ask: question!.requestId, body: "Circle" },
     ]);
+    await expect(peerRun.getByText("已送达", { exact: true })).toBeVisible();
     const taskRequests = responses.requests.slice(sourceRequests.length);
     expect(taskRequests).toHaveLength(2);
     expect(JSON.stringify(taskRequests[0]!.input)).toContain(taskMarker);
@@ -384,6 +424,106 @@ test("C01 任务编辑器直接恢复所选的 Codex 持久历史并完成原生
     }],
     ["停止本地模型夹具", () => withFixtureDeadline(5_000, responses.close)],
     ["清理受控资料和运行目录", () => { rmTree(privateHome); rmTree(runtime); }],
+  ]);
+});
+
+test("TW6 历史消失后从所选摘要与产物显式开始新轮次", async () => {
+  test.setTimeout(120_000);
+  const binary = process.env["HUHU_CODEX_DISPATCH_BIN"];
+  test.skip(process.platform !== "linux" || !binary, "需要 Linux 上受控派遣白名单中的固定 Codex 二进制。");
+  const provider = await realpath(binary!);
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), "huhu-task-new-round-")));
+  const responses = await startCodexResponsesFixture({ result: "NEW-ROUND-FINISHED" });
+  let desktop: Awaited<ReturnType<typeof openApp>> | undefined;
+  await withFixtureCleanup(async () => {
+    await writeFile(path.join(home, "config.toml"), responses.config, { mode: 0o600 });
+    desktop = await openApp({ HUHU_CODEX_DISPATCH_HOME: home, HUHU_CODEX_DISPATCH_BIN: provider });
+    const { app, page, vault } = desktop;
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 600));
+    await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    const call = caller(page);
+    await pauseRules(call);
+    const [space] = await call<{ id: string }[]>("agent.spaces.list");
+    const { settings } = await call<{ settings: AgentSettingsFile }>("agent.settings.get");
+    await call("agent.settings.update", {
+      ...settings, expectedRevision: settings.revision,
+      agents: { ...settings.agents, codex: { ...settings.agents["codex"], command: provider, env: { CODEX_HOME: home } } },
+    });
+    const artifact = "Notes/新轮次产物.txt";
+    const contents = "ARTIFACT-SELECTED";
+    await mkdir(path.join(vault, "Notes"), { recursive: true });
+    await writeFile(path.join(vault, artifact), contents);
+    const task = await call<TaskDto>("tasks.create", {
+      title: "原会话结束后明确续办", body: "Work on the fixture task.", type: "agent",
+      execution: { spaceId: space!.id, provider: "codex" },
+    });
+    const detail = await openTask(page, task.title);
+    const trigger = detail.getByRole("button", { name: "开始新一轮", exact: true });
+    await detail.getByRole("button", { name: "立即派遣", exact: true }).click();
+    const questions = () => call<ReturnType<typeof TaskQuestionView.parse>[]>("tasks.questions.list", { taskId: task.id });
+    await expect.poll(questions, { timeout: 45_000 }).toMatchObject([{ mode: "native_deferred", status: "awaiting" }]);
+    const [old] = await listDispatches(call, task.id);
+    await expect(trigger).toHaveCount(0);
+    const originalRun = detail.getByTestId("managed-task-run");
+    await originalRun.getByRole("button", { name: "展开结果" }).click();
+    await originalRun.getByRole("button", { name: "停止本轮", exact: true }).click();
+    await page.getByRole("button", { name: "确认停止本轮" }).click();
+    const runs = () => call<{ id: string; finishedAt: string | null; parentRunId?: string }[]>("tasks.runs", { id: task.id });
+    await expect.poll(runs, { timeout: 30_000 }).toMatchObject([{ id: old!.runId, finishedAt: expect.any(String) }]);
+    const closed = await questions();
+    expect(closed).toMatchObject([{ runId: old!.runId, status: "closed" }]);
+    expect(closed[0]).not.toHaveProperty("reply");
+    await call("agent.sessions.kill", { id: old!.session!.id });
+    await expect.poll(async () => (await call<{ id: string; state: string }[]>("agent.sessions.list", { spaceId: space!.id }))
+      .some(({ id, state }) => id === old!.session!.id && state !== "exited")).toBe(false);
+    const summary = "SUMMARY-SELECTED";
+    const excluded = "SUMMARY-EXCLUDED";
+    const { comment } = await call<{ comment: { id: string } }>("tasks.comments.add", { taskId: task.id, body: `${summary} [[${artifact}]]` });
+    await call("tasks.comments.add", { taskId: task.id, body: excluded });
+    await originalRun.getByText("原请求已结束。").waitFor();
+    await trigger.click();
+    const round = page.getByRole("dialog", { name: "开始新一轮" });
+    await expect(round.getByText("新轮次将使用新会话。原生问题保留原状态。")).toBeFocused();
+    await round.press("Escape");
+    await expect(round).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await trigger.press("Enter");
+    const selected = round.getByRole("checkbox", { name: new RegExp(summary) });
+    const product = round.getByRole("checkbox", { name: artifact, exact: true });
+    await expect(product).toHaveCount(0);
+    await selected.press("Space");
+    await expect(selected).toBeChecked();
+    await expect(selected).toBeFocused();
+    await product.check();
+    await expect(product).toBeChecked();
+    await expect(round.getByRole("checkbox", { name: excluded })).not.toBeChecked();
+    expect(await round.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    const [request] = await Promise.all([
+      page.waitForRequest((request) => request.url().endsWith("/api/v1/call") && request.postDataJSON()?.capability === "tasks.dispatch"),
+      round.getByRole("button", { name: "确认开始新一轮" }).press("Enter"),
+    ]);
+    expect(request.postDataJSON().input).toMatchObject({ taskId: task.id, newRound: true, context: {
+      messageIds: [comment.id],
+      artifacts: [{ path: artifact, expectedVersion: expect.any(String) }],
+    } });
+    await expect(round).toBeHidden();
+    await expect(detail.getByText("新轮次已受理。")).toBeVisible();
+    await expect.poll(() => listDispatches(call, task.id), { timeout: 30_000 }).toContainEqual(expect.objectContaining({
+      runId: expect.not.stringMatching(old!.runId), parentRunId: old!.runId, state: "running",
+    }));
+    await expect.poll(() => responses.requests.length).toBe(2);
+    const followUp = JSON.stringify(responses.requests[1]!.input);
+    expect(followUp).toContain(summary);
+    expect(followUp).toContain(contents);
+    expect(followUp).not.toContain(excluded);
+    expect(await questions()).toEqual(closed);
+    const current = await call<TaskDto>("tasks.read", { id: task.id });
+    expect(current).toMatchObject({ inputRevision: task.inputRevision, inputHash: task.inputHash });
+    expect(current.comments.filter(({ event }) => event === "answer")).toEqual([]);
+  }, [
+    ["关闭桌面", () => desktop?.close()],
+    ["停止模型回环夹具", () => responses.close()],
+    ["清理独立模型资料", () => rmTree(home)],
   ]);
 });
 

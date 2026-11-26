@@ -507,8 +507,17 @@ test("TW6 明确的新轮次从选中的消息和产物版本继续，保持任�
   const { root, engine, task, fake, run, execution } = await startBoundRun();
   await vi.waitFor(async () => expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ data: { status: "in_progress" } }));
   const active = await call<TaskDto>(engine, "tasks.read", { id: task.id });
+  const questions = () => call(engine, "tasks.questions.list", { taskId: task.id });
+  expect(await submitReceipt(engine, {
+    version: 1, kind: "question", receiptId: "tw6-original-question",
+    execution: { ...execution, sessionBinding: { ...execution.sessionBinding, nativeSessionId: execution.sessionBinding.nativeSessionId! } },
+    payload: { mode: "native_deferred", requestId: "tw6-original-question", requestVersion: 1, nativeRequestId: "tw6-native", text: "原生问题", options: [] },
+  })).toMatchObject({ ok: true });
+  expect(await questions()).toMatchObject({ ok: true, data: [{ runId: run.runId, status: "awaiting" }] });
   expect(await call(engine, "tasks.dispatch", { ...intent(active.data), newRound: true })).toMatchObject({ ok: false, error: { details: { reason: "task_occupied" } } });
   expect(await submitReceipt(engine, { version: 1, kind: "no_update", receiptId: "tw6-first-ended", execution, payload: {} })).toMatchObject({ ok: true });
+  const closed = await questions();
+  expect(closed).toMatchObject({ ok: true, data: [{ runId: run.runId, status: "closed" }] });
   mkdirSync(path.join(root, "Notes"), { recursive: true });
   const artifactPath = "Notes/progress.txt";
   const artifact = path.join(root, artifactPath);
@@ -524,6 +533,8 @@ test("TW6 明确的新轮次从选中的消息和产物版本继续，保持任�
   const { data: next } = await call<DispatchReceipt>(engine, "tasks.dispatch", request);
   expect(next).toMatchObject({ parentRunId: run.runId, attempt: 1 });
   expect(next.runId).not.toBe(run.runId);
+  expect(await questions()).toEqual(closed);
+  expect(await call(engine, "tasks.read", { id: task.id })).toMatchObject({ ok: true, data: { inputRevision: task.inputRevision, inputHash: task.inputHash } });
   writeFileSync(artifact, "changed after acceptance");
   await stop(engine);
   const reopened = await start(root);
@@ -572,11 +583,15 @@ test.skipIf(!process.getuid)("TW6 本机名额在两个 Vault 的规则之间共
   await vi.waitFor(async () => expect(await view(second)).toMatchObject({ ok: true, data: { vault: { active: 1, unknown: 1 } } }));
   const extra = await firstRules.acceptRule(intent(await createDispatchable(first, "第三个待排队运行")), rule("device-third"));
   await waitDispatch(first, extra, { reason: "waiting_resource" });
+  await vi.waitFor(async () => expect(await view(first)).toMatchObject({ ok: true, data: {
+    vault: { pending: 1, oldestPendingAt: extra.acceptedAt, waitingNative: 1 },
+    device: { active: { limit: 1, occupied: 1 }, retained: { limit: 2, occupied: 0 } },
+  } }));
   expect(fake.dispatch).toHaveBeenCalledTimes(2);
   const core = vi.spyOn(HerdrCore.prototype, "peek");
   try {
     const results = await Promise.all(Array.from({ length: 8 }, () => view(first)));
-    expect(results.every(({ ok }) => ok)).toBe(true);
+    for (const result of results) expect(result).toEqual(results[0]);
     expect(core).not.toHaveBeenCalled();
     expect(fake.dispatch).toHaveBeenCalledTimes(2);
   } finally {
