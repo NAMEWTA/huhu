@@ -273,7 +273,7 @@ export const sshCapabilityDescriptors = {
     plugin: "ssh", desktopOnly: true, exposable: false, defaultExposed: false,
     name: "ssh.monitor.tools.process.terminate",
     title: "终止原分栏服务器上的进程",
-    description: "核对进程名及 PID 后发送 SIGTERM。",
+    description: "核对 PID、进程名和 Linux 启动时间后发送 SIGTERM。",
     scope: "execute", risk: "high", input: MonitorProcessTarget, output: Ok,
   }),
   monitorContainerLogs: defineCapabilityDescriptor({

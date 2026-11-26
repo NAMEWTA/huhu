@@ -350,7 +350,7 @@ test.each(["cli", "mcp"] as const)("%s isolates monitor subscriptions and keeps 
         if (command === PLATFORM_COMMAND) return { stdout: "Linux\n" };
         if (command === PROCESS_LIST) {
           queries++;
-          return { stdout: `12 ${proc}\n` };
+          return { stdout: `12\t101\t${proc}\n` };
         }
         if (command === LINUX_SAMPLE) return { stdout: "cpu 25 100\nmemory 8192 4096\nuptime 3600\nload 1.25\nnet 80 50\ndisk 40960 20480\n" };
       },
