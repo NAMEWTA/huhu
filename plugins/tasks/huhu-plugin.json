@@ -50,6 +50,8 @@
       "tasks.github.deliveries.claim",
       "tasks.github.deliveries.confirm",
       "tasks.github.deliveries.read",
+      "tasks.github.deliveries.verify",
+      "tasks.github.deliveries.pendingVerification",
       "tasks.mail.deliveries.submit",
       "tasks.mail.deliveries.read"
     ],

@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { errors } from "@huhu/contracts";
 import { defineCapabilityDescriptor, type CapabilityContext } from "@huhu/kernel";
 import type { VaultFiles } from "@huhu/vault";
@@ -15,6 +16,9 @@ const githubGrant = issueKey.extend({ actorId });
 const deliveryId = z.string().regex(/^[a-f0-9]{64}$/u);
 const githubCommentProof = z.strictObject({ id: z.int().positive(), actorId, url: z.url(), body: z.string() });
 const githubEvidence = githubCommentProof.omit({ body: true });
+// The workbench also generates 32 hex digits when opened on a LAN HTTP origin.
+const verificationId = z.union([z.uuidv4(), z.string().regex(/^[a-f0-9]{32}$/u)]);
+const verification = z.strictObject({ id: verificationId, state: z.enum(["pending", "unconfirmed"]) });
 const githubDelivery = githubKey.extend({
   schema: z.literal(1),
   deliveryId,
@@ -25,6 +29,7 @@ const githubDelivery = githubKey.extend({
   messageId: z.string(),
   body: z.string(),
   comment: githubEvidence.optional(),
+  verification: verification.optional(),
 });
 type GitHubKey = z.infer<typeof githubKey>;
 type GitHubScope = { sourceId: string; repositoryId: number; repository: string; issueId: number; issueNumber: number };
@@ -58,7 +63,7 @@ export const resultDeliveryDescriptors = {
   githubConfirmDelivery: defineCapabilityDescriptor({
     ...connector,
     name: "tasks.github.deliveries.confirm",
-    input: issueKey.extend({ deliveryId, proof: githubCommentProof }),
+    input: issueKey.extend({ deliveryId, proof: githubCommentProof.nullable(), verificationId: verificationId.optional() }),
     output: status,
     title: "核实 GitHub 投递",
     description: "通过原 Issue 下已验证的评论确认投递。",
@@ -74,6 +79,25 @@ export const resultDeliveryDescriptors = {
     output: status,
     title: "查看 GitHub 投递",
     description: "查看原结果的投递标记、渠道和已确认评论。",
+  }),
+  githubRequestVerification: defineCapabilityDescriptor({
+    ...desktop,
+    desktopOnly: false,
+    name: "tasks.github.deliveries.verify",
+    idempotency: "handler",
+    input: githubKey.extend({ verificationId }),
+    output: status,
+    title: "核实原 GitHub 投递",
+    description: "请已绑定的 GitHub 连接器核查原评论。",
+  }),
+  githubPendingVerification: defineCapabilityDescriptor({
+    ...connector,
+    scope: "read",
+    name: "tasks.github.deliveries.pendingVerification",
+    input: z.strictObject({ sourceId: issueKey.shape.sourceId }),
+    output: z.array(status),
+    title: "读取待核实的 GitHub 投递",
+    description: "仅向绑定来源的连接器返回明确要求核实的原投递。",
   }),
   submitMailDelivery: defineCapabilityDescriptor({
     ...desktop,
@@ -97,6 +121,11 @@ function marker(id: string) {
 
 function view(record: GitHubDelivery) {
   return { ...record, state: record.comment ? ("accepted" as const) : ("unknown" as const) };
+}
+
+function sameIssue(record: GitHubDelivery, scope: GitHubScope) {
+  return record.sourceId === scope.sourceId && record.repositoryId === scope.repositoryId && record.issueId === scope.issueId &&
+    record.issueNumber === scope.issueNumber && record.repository === scope.repository;
 }
 
 export class GitHubDeliveries {
@@ -159,11 +188,7 @@ export class GitHubDeliveries {
   private matches(record: GitHubDelivery, scope: GitHubScope, proof: GitHubProof) {
     const url = `https://github.com/${scope.repository}/issues/${scope.issueNumber}#issuecomment-${proof.id}`;
     return (
-      record.sourceId === scope.sourceId &&
-      record.repositoryId === scope.repositoryId &&
-      record.issueId === scope.issueId &&
-      record.issueNumber === scope.issueNumber &&
-      record.repository === scope.repository &&
+      sameIssue(record, scope) &&
       record.actorId === proof.actorId &&
       (!record.comment || record.comment.id === proof.id) &&
       record.body === proof.body &&
@@ -176,9 +201,49 @@ export class GitHubDeliveries {
     if (!row || !this.matches(row.record, scope, proof)) throw errors.invalidInput("GitHub 评论与原投递证据不匹配");
     if (row.record.comment) return view(row.record);
     const { body: _body, ...comment } = proof;
-    const record = { ...row.record, comment };
+    const { verification: _verification, ...original } = row.record;
+    const record = { ...original, comment };
     await this.files.write(row.file, Buffer.from(JSON.stringify(record)), { expectedVersion: row.version, beforeCommit });
     return view(record);
+  }
+
+  async requestVerification(key: GitHubKey, scope: GitHubScope, id: string, beforeCommit: () => void) {
+    const row = this.load(key.sourceId, this.key(key));
+    if (!row || !sameIssue(row.record, scope)) throw errors.notFound("GitHub 投递记录不存在");
+    const { record } = row;
+    if (record.comment || record.verification?.state === "pending" || record.verification?.id === id) return view(record);
+    const next = { ...record, verification: { id, state: "pending" as const } };
+    await this.files.write(row.file, Buffer.from(JSON.stringify(next)), { expectedVersion: row.version, beforeCommit });
+    return view(next);
+  }
+
+  pendingVerification(sourceId: string) {
+    let names: string[];
+    try {
+      names = readdirSync(this.files.abs(`tasks/github/${sourceId}/deliveries`));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const pending: ReturnType<typeof view>[] = [];
+    for (const name of names) {
+      const id = name.slice(0, -5);
+      if (!name.endsWith(".json") || !deliveryId.safeParse(id).success) continue;
+      const record = this.load(sourceId, id)?.record;
+      if (record?.sourceId === sourceId && record.deliveryId === id && !record.comment && record.verification?.state === "pending") pending.push(view(record));
+      if (pending.length === 20) break;
+    }
+    return pending;
+  }
+
+  async finishUnconfirmed(scope: GitHubScope, id: string, requestId: string, beforeCommit: () => void) {
+    const row = this.load(scope.sourceId, id);
+    if (!row || !sameIssue(row.record, scope)) throw errors.notFound("GitHub 投递记录不存在");
+    const { record } = row;
+    if (record.comment || record.verification?.id !== requestId || record.verification.state !== "pending") return view(record);
+    const next = { ...record, verification: { id: requestId, state: "unconfirmed" as const } };
+    await this.files.write(row.file, Buffer.from(JSON.stringify(next)), { expectedVersion: row.version, beforeCommit });
+    return view(next);
   }
 
   async echo(scope: GitHubScope, proof: GitHubProof, beforeCommit: () => void) {

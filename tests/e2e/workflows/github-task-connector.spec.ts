@@ -93,7 +93,7 @@ test("TW4 GitHub 回环源通过公开入口创建任务并在桌面显示讨论
   }
 });
 
-test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模型结果", async () => {
+test("TW5 GitHub 评论回包丢失后从待核实结果打开原 Issue 并核实原投递", async () => {
   test.setTimeout(120_000);
   const binary = process.env.HUHU_CODEX_DISPATCH_BIN;
   test.skip(process.platform !== "linux" || !binary, "需要 Linux 上受控派遣白名单中的固定 Codex 二进制。");
@@ -104,6 +104,9 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
   const sender = { id: 81, login: "outbound-fixture" };
   let posted: ReturnType<typeof githubCommentEvent> | undefined;
   let posts = 0;
+  let lists = 0;
+  let visibleComment = false;
+  let visibleEcho = false;
   let app: Awaited<ReturnType<typeof openApp>> | undefined;
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json");
@@ -115,7 +118,7 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
     else if (pathname === "/user") response.end(JSON.stringify(sender));
     else if (pathname === issuePath) response.end(JSON.stringify(githubIssue));
     else if (pathname === `${repository}/events`) {
-      response.end(JSON.stringify(posted ? [githubCommentEvent("20152", "合法外部新讨论", githubAuthor), posted, githubIssueEvent()] : [githubIssueEvent()]));
+      response.end(JSON.stringify(posted && visibleEcho ? [githubCommentEvent("20152", "合法外部新讨论", githubAuthor), posted, githubIssueEvent()] : [githubIssueEvent()]));
     } else if (pathname === `${issuePath}/comments` && request.method === "POST") {
       posts++;
       let raw = "";
@@ -123,13 +126,21 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
       posted = githubCommentEvent("20150", (JSON.parse(raw) as { body: string }).body, sender);
       response.destroy();
     } else if (pathname === `${issuePath}/comments`) {
-      response.end(JSON.stringify(posted ? [posted.payload.comment] : []));
+      lists++;
+      response.end(JSON.stringify(posted && visibleComment ? [posted.payload.comment] : []));
     } else response.writeHead(404).end("{}");
   });
   try {
     await writeFile(path.join(home, "config.toml"), responses.config, { mode: 0o600 });
     app = await openApp({ HUHU_CODEX_DISPATCH_HOME: home, HUHU_CODEX_DISPATCH_BIN: provider });
-    const { page } = app;
+    const { app: electronApp, page } = app;
+    await electronApp.evaluate(({ BrowserWindow, dialog, shell }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(960, 600);
+      const opened: string[] = [];
+      Reflect.set(globalThis, "githubDeliveryOpened", opened);
+      dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false });
+      shell.openExternal = async (url) => { opened.push(url); };
+    });
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const desktop = caller(page);
@@ -139,7 +150,7 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
       repositoryId: githubRepository.id,
       repository: githubRepository.name,
     });
-    for (const capability of ["events.accept", "events.read", "deliveries.claim", "deliveries.confirm", "deliveries.read"]) {
+    for (const capability of ["events.accept", "events.read", "deliveries.claim", "deliveries.confirm", "deliveries.read", "deliveries.pendingVerification"]) {
       await desktop("gateway.update", { capability: `tasks.github.${capability}`, exposed: true });
     }
     const common = [
@@ -154,11 +165,17 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
       "--repository-id",
       String(githubRepository.id),
     ];
-    const cli = async <T>(script: string, args: string[]) => {
-      const { stdout } = await run(process.execPath, [path.resolve("scripts", script), ...common, ...args], {
-        env: { ...process.env, HUHU_CONNECTOR_ENGINE_TOKEN: connector.token, HUHU_CONNECTOR_GITHUB_TOKEN: "fixture-only" },
-      });
-      return JSON.parse(stdout) as T;
+    const cli = async <T>(script: string, args: string[], exitCode = 0) => {
+      try {
+        const { stdout } = await run(process.execPath, [path.resolve("scripts", script), ...common, ...args], {
+          env: { ...process.env, HUHU_CONNECTOR_ENGINE_TOKEN: connector.token, HUHU_CONNECTOR_GITHUB_TOKEN: "fixture-only" },
+        });
+        expect(exitCode).toBe(0);
+        return JSON.parse(stdout) as T;
+      } catch (error) {
+        if (exitCode === 0 || (error as { code?: number }).code !== exitCode) throw error;
+        return JSON.parse((error as { stdout: string }).stdout) as T;
+      }
     };
     const scan = () => cli<{ taskId: string; state: string }[]>("github-task-connector.mjs", ["--cursor", test.info().outputPath("github-cursor.json")]);
     const [created] = await scan();
@@ -181,18 +198,46 @@ test("TW5 GitHub 评论回包丢失后核实原投递且桌面只显示一次模
     const getRuns = () => desktop<{ result?: { receiptId: string; delivery: string } }[]>("tasks.runs", { id });
     await expect.poll(getRuns, { timeout: 45_000 }).toMatchObject([{ result: { receiptId: expect.any(String), delivery: "delivered" } }]);
     const [{ result }] = (await getRuns()) as [{ result: { receiptId: string } }];
-    const deliver = () => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", result.receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)]);
-    const acknowledged = await deliver();
-    expect(acknowledged).toMatchObject({ state: "accepted" });
+    const deliver = (exitCode = 0) => cli<{ deliveryId: string; state: string }>("github-task-delivery.mjs", ["--task", id, "--receipt", result.receiptId, "--issue-id", String(githubIssue.id), "--issue-number", String(githubIssue.number)], exitCode);
+    const originalDelivery = await deliver(2);
+    expect(originalDelivery).toMatchObject({ state: "unknown" });
+    expect(posts).toBe(1);
+    expect(lists).toBe(1);
+    const key = { sourceId: source.sourceId, issueId: githubIssue.id, taskId: id, receiptId: result.receiptId };
+    const readDelivery = () => desktop("tasks.github.deliveries.read", key);
     const runCard = detail.getByTestId("managed-task-run");
     await runCard.getByRole("button", { name: "展开结果", exact: true }).click();
+    await expect(runCard.getByText("GitHub 投递待核实", { exact: true })).toBeVisible();
+    const issue = runCard.getByRole("link", { name: "查看原 Issue", exact: true });
+    await expect(issue).toHaveAttribute("href", githubIssue.html_url);
+    await issue.click();
+    await expect(issue).toBeFocused();
+    await expect.poll(() => electronApp.evaluate(() => Reflect.get(globalThis, "githubDeliveryOpened"))).toEqual([githubIssue.html_url]);
+    expect(await runCard.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    const verify = runCard.getByRole("button", { name: "核实原投递" });
+    await verify.click();
+    await expect(verify).toBeFocused();
+    await expect(runCard.getByText("等待已绑定的 GitHub 连接器核实")).toBeVisible();
+    expect(await scan()).toEqual([]);
+    await expect(runCard.getByText("未找到可确认的原评论，GitHub 投递仍待核实")).toBeVisible();
+    expect(await readDelivery()).toMatchObject({ ...key, deliveryId: originalDelivery.deliveryId, state: "unknown" });
+    expect(posts).toBe(1);
+    expect(lists).toBe(2);
+    visibleComment = true;
+    await verify.press("Enter");
+    await expect(runCard.getByText("等待已绑定的 GitHub 连接器核实")).toBeVisible();
+    expect(await scan()).toEqual([]);
     await expect(runCard.getByText("GitHub 已接收评论")).toBeVisible();
     await expect(runCard.getByRole("link", { name: "查看原评论", exact: true })).toHaveAttribute("href", posted!.payload.comment.html_url);
+    expect(await readDelivery()).toMatchObject({ ...key, deliveryId: originalDelivery.deliveryId, state: "accepted" });
+    expect(lists).toBe(3);
+    visibleEcho = true;
     expect(await scan()).toMatchObject([
       { taskId: id, state: "echo" },
       { taskId: id, state: "discussion" },
     ]);
-    expect(await deliver()).toEqual(acknowledged);
+    expect(await deliver()).toMatchObject({ deliveryId: originalDelivery.deliveryId, state: "accepted" });
+    expect(await getRuns()).toMatchObject([{ result: { receiptId: result.receiptId } }]);
     expect(posts).toBe(1);
     expect(responses.requests).toHaveLength(1);
     await expect(detail).toContainText("合法外部新讨论");

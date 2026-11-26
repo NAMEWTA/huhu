@@ -146,6 +146,9 @@
     min-block-size: 44px;
     overflow-wrap: anywhere;
   }
+  .tasks-github-delivery-actions {
+    flex-wrap: wrap;
+  }
   .tasks-task-run {
     border: 1px solid var(--line);
     border-radius: 8px;

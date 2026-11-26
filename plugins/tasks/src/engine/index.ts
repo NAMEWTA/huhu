@@ -505,6 +505,12 @@ export function apply(ctx: Context, api: HuhuApi, opts: TasksOptions = {}): void
     return result;
   }));
   api.defineCapability(bindCapability(taskToolDescriptors.githubReadDelivery, (c, input) => githubSources.readDelivery(c, input)));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubRequestVerification, async (c, input) => {
+    const result = await githubSources.requestVerification(c, input);
+    deliveryChanged(result.taskId);
+    return result;
+  }));
+  api.defineCapability(bindCapability(taskToolDescriptors.githubPendingVerification, (c, { sourceId }) => githubSources.pendingVerification(c, sourceId)));
   api.defineCapability(bindCapability(taskToolDescriptors.submitMailDelivery, async (c, input) => {
     if (c.caller !== "desktop") throw errors.permissionDenied("需要从本机提交对应邮件草稿");
     const result = await mailDeliveries.submit(c, input);

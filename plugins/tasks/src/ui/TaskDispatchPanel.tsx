@@ -2,7 +2,7 @@ import { isTaskAvailable, type TaskDto } from "@huhu/contracts";
 import { Badge, Button, Dialog, Field } from "@huhu/ui";
 import { CapabilityError, createRequestId, host, requestOpenAgentSession, requestOpenMailDelivery, useCapability, useEngine, useQueryClient, type ModuleProps, type TaskDestination } from "@huhu/workbench";
 import { History } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import type { z } from "zod";
 import type { DispatchInput, DispatchReceipt, RetryDispatch, StopReceipt, TaskDispatchView, TaskRunSummary } from "../engine/dispatch-store.js";
 import type { taskToolDescriptors } from "../engine/index.js";
@@ -411,37 +411,85 @@ export function TaskRunDetails({
 }
 
 function TaskRunDeliveries({ task, receiptId, onNavigate }: { task: TaskDto; receiptId: string; onNavigate?: ModuleProps["onNavigate"] }) {
-  const { vaultId } = useEngine();
-  const [linkError, setLinkError] = useState(false);
+  const engine = useEngine();
+  const [linkError, setLinkError] = useState("");
+  const [verifyError, setVerifyError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const issueLink = useRef<HTMLAnchorElement>(null);
+  const verificationFocused = useRef(false);
   const origin = task.origin.kind === "external" ? task.origin.github : undefined;
   const result = { taskId: task.id, receiptId };
-  const github = useCapability<GitHubDelivery>("tasks.github.deliveries.read", origin ? { ...result, sourceId: origin.sourceId, issueId: origin.issueId } : result, { enabled: !!origin });
+  const githubKey = origin && { ...result, sourceId: origin.sourceId, issueId: origin.issueId };
+  const github = useCapability<GitHubDelivery>("tasks.github.deliveries.read", githubKey ?? result, { enabled: !!githubKey });
   const mail = useCapability<MailDelivery>("tasks.mail.deliveries.read", result, { enabled: !!onNavigate });
   const operationId = mail.data?.operationId;
   const url = github.data?.comment?.url;
-  const link = url?.startsWith("https://github.com/") ? url : undefined;
+  const commentUrl = url?.startsWith("https://github.com/") ? url : undefined;
+  const repository = github.data?.repository;
+  const issueUrl = repository && /^[\w-]+\/(?!\.{1,2}$)[\w.-]+$/u.test(repository)
+    ? `https://github.com/${repository}/issues/${github.data?.issueNumber}`
+    : undefined;
+  const verification = github.data?.verification?.state;
+  const mayVerify = !task.readOnly && !verifying && verification !== "pending";
   const githubReadError = github.error && !(github.error instanceof CapabilityError && github.error.code === "NOT_FOUND");
+  useEffect(() => {
+    const link = issueLink.current;
+    if (link && github.data?.state === "accepted" && verificationFocused.current && link.ownerDocument.activeElement === link.ownerDocument.body) link.focus();
+  }, [github.data?.state]);
+
+  function openExternal(event: MouseEvent<HTMLAnchorElement>, failure: string) {
+    const open = host()?.openExternal;
+    if (!open) return;
+    event.preventDefault();
+    setLinkError("");
+    void open(event.currentTarget.href).then((opened) => { if (!opened) setLinkError(failure); }, () => setLinkError(failure));
+  }
+
+  async function verify() {
+    if (!githubKey || !mayVerify) return;
+    const verificationId = createRequestId();
+    setVerifying(true);
+    setVerifyError("");
+    try {
+      await engine.call("tasks.github.deliveries.verify", { ...githubKey, verificationId }, { write: true, idempotencyKey: verificationId });
+    } catch (failure) {
+      setVerifyError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      await github.refetch();
+      setVerifying(false);
+    }
+  }
+
   return (
     <>
-      {github.data?.state === "unknown" ? <p role="status">GitHub 投递待核实</p> : null}
-      {github.data?.state === "accepted" ? (
-        <p>
-          GitHub 已接收评论
-          {link ? (
-            <> · <a href={link} target="_blank" rel="noopener noreferrer" onClick={(event) => {
-              const open = host()?.openExternal;
-              if (!open) return;
-              event.preventDefault();
-              void open(link).then((opened) => setLinkError(!opened), () => setLinkError(true));
-            }}>查看原评论</a></>
-          ) : null}
-        </p>
+      {github.data ? (
+        <>
+          <p role="status">{github.data.state === "accepted" ? "GitHub 已接收评论"
+            : verification === "pending" ? "等待已绑定的 GitHub 连接器核实"
+            : verification === "unconfirmed" ? "未找到可确认的原评论，GitHub 投递仍待核实"
+            : "GitHub 投递待核实"}</p>
+          <div className="row tasks-github-delivery-actions">
+            {issueUrl ? <a ref={issueLink} href={issueUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原 Issue。")}>查看原 Issue</a> : null}
+            {commentUrl ? <a href={commentUrl} target="_blank" rel="noopener noreferrer" onClick={(event) => openExternal(event, "无法打开原评论。")}>查看原评论</a> : null}
+            {github.data.state === "unknown" && !task.readOnly ? (
+              <Button
+                aria-busy={verifying}
+                aria-disabled={!mayVerify}
+                onFocus={() => { verificationFocused.current = true; }}
+                onBlur={() => { verificationFocused.current = false; }}
+                onClick={() => void verify()}
+              >
+                核实原投递
+              </Button>
+            ) : null}
+          </div>
+        </>
       ) : null}
       {githubReadError || mail.error ? <p role="status">暂时无法读取外部投递记录。</p> : null}
-      {linkError ? <p role="alert">无法打开原评论。</p> : null}
+      {linkError || verifyError ? <p role="alert">{linkError || verifyError}</p> : null}
       {operationId && onNavigate ? (
         <Button variant="ghost" onClick={() => {
-          requestOpenMailDelivery({ vaultId, operationId });
+          requestOpenMailDelivery({ vaultId: engine.vaultId, operationId });
           onNavigate("mail");
         }}>查看原邮件投递</Button>
       ) : null}
