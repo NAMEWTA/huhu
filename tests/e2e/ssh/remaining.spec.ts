@@ -90,7 +90,9 @@ test("H5.1 SSH Linux 真实分页器显示宽字符并还原原终端画面", as
     await page.keyboard.type("printf 'origin-%s\\n' 42");
     await page.keyboard.press("Enter");
     await expect(rows).toContainText("origin-42");
-    await page.keyboard.type("less pager-fixture.txt");
+    // The local script PTY does not receive SSH window-change messages. Keep less's
+    // page smaller than the rendered pane so the initial line stays in view.
+    await page.keyboard.type("stty rows 8 cols 60 && less pager-fixture.txt");
     await page.keyboard.press("Enter");
     await expect(rows).toContainText("远端全屏宽字符");
     await expect(rows).not.toContainText("origin-42");
