@@ -4,6 +4,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { verifyPendingDeliveries } from "./github-task-delivery-proof.mjs";
 
 const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const id = /^\d{1,40}$/u;
@@ -179,7 +180,10 @@ async function main() {
     throw new Error("Specify --source UUID --engine URL --cursor FILE and HUHU_CONNECTOR_ENGINE_TOKEN");
   }
   const huhu = huhuClient(endpoint(values.engine), huhuToken);
-  console.log(JSON.stringify(await scan(github, huhu, { sourceId: values.source, repository, repositoryId }, values.cursor)));
+  const binding = { sourceId: values.source, repository, repositoryId };
+  const receipts = await scan(github, huhu, binding, values.cursor);
+  await verifyPendingDeliveries(github, huhu, binding);
+  console.log(JSON.stringify(receipts));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

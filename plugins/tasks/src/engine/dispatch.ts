@@ -171,10 +171,13 @@ function maySend(task: TaskDto, receipt: DispatchReceipt, now: Date): boolean {
 
 function holdsRun(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>, task: TaskDto | null): boolean {
   if (!holdsTask(record.receipt)) return false;
-  const outcome = outcomes.get(record.receipt.dispatchId);
-  if (record.receipt.state !== "running" || (record.stop?.status !== "stopped" && !outcome?.finishedAt)) return true;
+  if (record.receipt.state !== "running" || !executionEnded(record, outcomes)) return true;
   // The terminal receipt can race the initial task link. Keep that accepted input occupied until linked.
   return task !== null && task.status === "not_started" && sameInput(task, record.retryOf?.taskInput ?? record.snapshot);
+}
+
+function executionEnded(record: DispatchRecord, outcomes: ReadonlyMap<string, RunOutcome>): boolean {
+  return record.stop?.status === "stopped" || !!outcomes.get(record.receipt.dispatchId)?.finishedAt;
 }
 
 function stopView({ receipt }: DispatchRecord, stop: StopRecord): StopReceipt {
@@ -667,7 +670,9 @@ export class TaskDispatch {
           if (source.notBefore && Date.parse(source.notBefore) > acceptedAt.getTime()) rejectDispatch("not_due", "派遣时刻尚未到达");
           if (source.expiresAt && Date.parse(source.expiresAt) <= acceptedAt.getTime()) rejectDispatch("expired", "派遣窗口已结束");
         }
-        const parent = input.newRound ? priorRuns.filter((record) => this.store.owns(record) && outcomes.get(record.receipt.dispatchId)?.finishedAt).sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt))[0] : undefined;
+        const parent = input.newRound
+          ? priorRuns.filter((record) => this.store.owns(record) && executionEnded(record, outcomes)).sort((a, b) => b.receipt.acceptedAt.localeCompare(a.receipt.acceptedAt) || b.receipt.runId.localeCompare(a.receipt.runId))[0]
+          : undefined;
         const snapshot: DispatchSnapshot = {
           taskId: task.id,
           expectedVersion: input.expectedVersion,

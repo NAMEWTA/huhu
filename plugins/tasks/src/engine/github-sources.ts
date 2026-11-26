@@ -238,13 +238,32 @@ export class GitHubSources {
     });
   }
 
-  confirmDelivery(c: CapabilityContext, { sourceId, issueId, deliveryId, proof }: z.output<typeof resultDeliveryDescriptors.githubConfirmDelivery.input>) {
+  confirmDelivery(c: CapabilityContext, input: z.output<typeof resultDeliveryDescriptors.githubConfirmDelivery.input>) {
+    const { sourceId, issueId, deliveryId, proof, verificationId } = input;
     return this.writes.run(sourceId, () => {
       const scope = this.deliveryScope(this.connector(c, sourceId), issueId);
-      return this.deliveries.confirm(scope, deliveryId, proof, () => {
-        this.connector(c, sourceId);
+      const authorize = () => { this.connector(c, sourceId); };
+      if (proof) return this.deliveries.confirm(scope, deliveryId, proof, authorize);
+      if (!verificationId) throw errors.invalidInput("需要原投递核实请求标识");
+      return this.deliveries.finishUnconfirmed(scope, deliveryId, verificationId, authorize);
+    });
+  }
+
+  requestVerification(c: CapabilityContext, { verificationId, ...key }: z.output<typeof resultDeliveryDescriptors.githubRequestVerification.input>) {
+    if (!isWorkbenchCaller(c.caller)) throw errors.permissionDenied("需要从工作台核实原投递");
+    return this.writes.run(key.sourceId, () => {
+      c.signal.throwIfAborted();
+      const scope = this.deliveryScope(this.active(key.sourceId), key.issueId, key.taskId);
+      return this.deliveries.requestVerification(key, scope, verificationId, () => {
+        c.signal.throwIfAborted();
+        c.assertCapabilityCurrent?.();
       });
     });
+  }
+
+  pendingVerification(c: CapabilityContext, sourceId: string) {
+    this.connector(c, sourceId);
+    return this.deliveries.pendingVerification(sourceId);
   }
 
   readDelivery(c: CapabilityContext, key: z.output<typeof resultDeliveryDescriptors.githubReadDelivery.input>) {
