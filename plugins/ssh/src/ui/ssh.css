@@ -1248,6 +1248,10 @@
     overflow: auto;
   }
 
+  .ssh-workspace-attached-files {
+    min-inline-size: 0;
+  }
+
   @media (min-width: 960px) {
     .ssh-workspace-file-layout[data-file-position="left"],
     .ssh-workspace-file-layout[data-file-position="right"] {
