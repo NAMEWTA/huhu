@@ -227,11 +227,12 @@ test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", 
   const { SshProxyShare, privateRemoteListeners } = await import("../src/engine/proxy-share.js");
   const { hosts, manager, remember } = await setup();
   const signal = new AbortController().signal;
+  let reply = "HTTP/1.1 200 Connection established\r\n\r\n" + "x".repeat(12_000);
   const proxy = net.createServer((socket) => {
     socket.on("error", () => undefined);
     socket.once("data", (data) => {
       expect(data.toString()).toMatch(/^CONNECT example\.com:443 HTTP/);
-      socket.end("HTTP/1.1 200 Connection established\r\n\r\n");
+      socket.end(reply);
     });
   });
   await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
@@ -257,6 +258,10 @@ test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", 
   const config = { hostId, connectionId, localPort, remotePort };
   await expect(share.start(config, signal)).resolves.toEqual({ state: "running", config });
   await expect(share.test(signal)).resolves.toEqual({ state: "running", config, tested: "accepted" });
+  reply = "HTTP/1.1 407 Proxy Authentication Required\r\n\r\n";
+  await expect(share.test(signal)).resolves.toMatchObject({ state: "running", config, tested: "failed" });
+  reply = "HTTP/1.1 200 Connection established\r\nX-Fixture: " + "x".repeat(12_000) + "\r\n\r\n";
+  await expect(share.test(signal)).resolves.toMatchObject({ state: "running", config, tested: "failed", message: "远端代理验证响应超限" });
   await expect(share.stop(signal)).resolves.toEqual({ state: "stopped" });
   await expect(share.test(signal)).rejects.toThrow("没有可测试");
   expect(manager.isConnected(hostId)).toBe(true);
