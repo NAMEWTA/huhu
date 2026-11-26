@@ -44,3 +44,7 @@ Lead 已在 main 合入 round3（5f1519e5），并自行修复 lint（`shared/te
 按 /home/wta/projects/huhu/.claude/skills/system-herdr-core/assets/task.md 的「worker 执行约定」与「完整报告格式」执行。先写临时稿 report04.md.tmp 再用 `node -e "fs.linkSync(a,b)"` 发布终稿并删除临时稿。回告后等待下一项。
 
 
+
+## 追加
+
+3. lint（`check-css-classes`）：`plugins/ssh/src/ui/WorkspaceRunView.tsx:208` 使用的 class `ssh-workspace-attached-files` 在 CSS 里没有定义——补样式定义（`plugins/ssh/src/ui/ssh.css`，按现有分层）或改用已定义 class。提交前持锁跑一次 `pnpm lint` 确认 0 错误（本项例外允许全仓 lint）。
