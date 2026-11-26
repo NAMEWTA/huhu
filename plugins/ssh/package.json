@@ -18,6 +18,7 @@
     "@huhu/kernel": "workspace:*",
     "@huhu/ui": "workspace:*",
     "@huhu/workbench": "workspace:*",
+    "@noble/hashes": "2.4.0",
     "d3-dsv": "3.0.2",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",

@@ -1,10 +1,28 @@
+import { argon2dAsync, argon2iAsync, argon2idAsync } from "@noble/hashes/argon2.js";
 import { argon2, createDecipheriv, createHash, createHmac, timingSafeEqual, type Argon2Algorithm } from "node:crypto";
 import { promisify } from "node:util";
 import { errors, HuhuError } from "@huhu/contracts";
 import ssh2 from "ssh2";
 import { SshFields } from "./ssh-wire.js";
 
-const derive = promisify(argon2);
+const nativeArgon2 = promisify(argon2);
+const portableArgon2 = { argon2d: argon2dAsync, argon2i: argon2iAsync, argon2id: argon2idAsync } as const;
+
+/**
+ * Electron ships BoringSSL, whose Node crypto rejects Argon2 ("Argon2 algorithm not supported"),
+ * so PPK v3 falls back to the audited pure-JS implementation when the native KDF is unavailable.
+ */
+async function derive(algorithm: Argon2Algorithm, options: { message: string; nonce: Buffer; memory: number; passes: number; parallelism: number; tagLength: number }): Promise<Buffer> {
+  try {
+    return await nativeArgon2(algorithm, options);
+  } catch (error) {
+    if (!(error instanceof Error) || !/not supported/iu.test(error.message)) throw error;
+  }
+  const output = await portableArgon2[algorithm](options.message, options.nonce, {
+    t: options.passes, m: options.memory, p: options.parallelism, dkLen: options.tagLength, maxmem: options.memory * 1024 + 1024 * 1024,
+  });
+  return Buffer.from(output);
+}
 const invalid = (): never => { throw errors.invalidInput("无法读取 PuTTY 私钥，请核对格式、算法与口令"); };
 const nativeV2 = /^PuTTY-User-Key-File-2: ssh-(?:rsa|dss)(?:\r?\n)/u;
 const prefix = "PuTTY-User-Key-File-";
