@@ -1,6 +1,6 @@
 # Huhu 七子项实施计划
 
-当前处于出票完成、实现待启动阶段。134 张批次票分别覆盖七个成员的增量、整合候选和 22 条组合验收；SSH 原有 40 张领域票在原 Change 维护。本次交付点为本地规格和计划。
+当前状态（2026-11-26）：134 张批次票已实施，最终候选 `815253a1` 全量与打包验收通过（[RC](evidences/111-rc.md)）。[SIGN](evidences/134-sign.md) 签收 #7、#11、#16；#12、#13、#14、#17 因真实外部模型、CI、GitHub/邮件/OAuth 未到位而阻塞。SSH 原有 40 张领域票在原 Change 维护并已回写报告。
 
 [行为契约](spec.md) · [当前代码对照](brief.md) · [SSH 原票与进度](../2026-11-19-issue-7-ssh-module/plan.md) · [父单的产物依赖](https://github.com/NAMEWTA/huhu/issues/15)
 

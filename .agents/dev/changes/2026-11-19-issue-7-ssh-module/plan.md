@@ -1,5 +1,7 @@
 # #7 SSH 客户端与开发工作区实施索引
 
+当前状态（2026-11-26）：40 张 H 票已实施，并在 issue-inventory 最终候选 `815253a1` 上验收通过（[RC](../2026-11-24-issue-inventory/evidences/111-rc.md) · [SIGN](../2026-11-24-issue-inventory/evidences/134-sign.md)）；与 inventory 冲突处按 inventory 执行（见 H1.2）。
+
 用户在 Huhu 的主机、工作区、文件、监控与设置入口操作同一组 SSH 对象。 交付编号沿用原计划，每个子编号链接到唯一任务正文。[行为规格](spec.md) · [架构及产品决定](design.md) · [原 Issue 与验收编号](source.md)
 
 开发依据为 Huhu 当前检出 `9f870c0`、Motty 默认分支 `main@2daa9db582e1` 与同级 Viva `main@a5da67aa6344`。固定版本的来源引用用于追溯。本轮交付为 Markdown 规划；下表依赖指实施时所需的合同或产物。[批次源码清单](../../archive/changes/implemented/feature_2026-11-19-huhu-issues-3-10/sources.md)
