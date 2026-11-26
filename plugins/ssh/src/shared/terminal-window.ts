@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MAX_WORKSPACE_PANES } from "./workspace.js";
 
 const TerminalHandoff = z.strictObject({
   vaultId: z.string().min(1).max(256),

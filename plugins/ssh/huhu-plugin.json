@@ -169,7 +169,8 @@
       "ssh.proxyCommand.revoke",
       "ssh.quickConnections.close",
       "ssh.quickConnections.start",
-      "ssh.quickConnections.status"
+      "ssh.quickConnections.status",
+      "ssh.workspace.runs.cancelPaneReconnect"
     ],
     "fileKinds": []
   }
