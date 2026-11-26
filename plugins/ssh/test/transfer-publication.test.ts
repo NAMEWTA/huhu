@@ -188,6 +188,39 @@ test("a second pause during the last SFTP target digest holds publication until 
   }
 }, 12000);
 
+test("cancellation of staged SFTP bytes is reported after cleanup and keeps the old target", async () => {
+  const f = await fixture();
+  const gate = readGate();
+  let staged = false;
+  try {
+    const input = await f.endpoint();
+    const output = await f.endpoint({
+      onWriteFile(file) {
+        if (file.endsWith(".part")) staged = true;
+      },
+      waitReadFile(file) {
+        if (file !== target || !staged) return;
+        gate.entered.resolve();
+        return gate.released.promise;
+      },
+    });
+    input.server.fs.files.set(source, fresh);
+    output.server.fs.files.set(target, original);
+    const { transferId } = f.queue.start({ source: input.file(source), target: output.file(target) });
+    await f.state(transferId, "waiting");
+    f.queue.decide(transferId, "replace");
+    await gate.entered.promise;
+    expect(f.queue.cancel(transferId).state).toBe("cancelling");
+    gate.released.resolve();
+    await f.state(transferId, "cancelled");
+    expect(output.server.fs.files.get(target)).toEqual(original);
+    expect(temporary(output.server.fs.files)).toEqual([]);
+  } finally {
+    gate.released.resolve();
+    await f.close();
+  }
+}, 12000);
+
 test.each(["readable", "blocked", "changed backup"] as const)(
   "lost SFTP publication reply reconciles on the same connection (%s)",
   async (scenario) => {

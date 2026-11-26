@@ -1248,9 +1248,14 @@ test("H7.2 两个回环端点按前缀续传、暂停和继续，前缀失配保
     const full = await sshCall<TransferJob>(page, "ssh.transfers.start", input);
     expect(full.error?.message).toContain("队列已满");
     expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(false);
-    const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: jobs.at(-1) });
-    expect(cancelled.data.state).toBe("cancelled");
-    expect((await sshCall<TransferQueue>(page, "ssh.transfers.list")).data.canQueue).toBe(true);
+    const idToCancel = jobs.at(-1)!;
+    const cancelled = await sshCall<TransferJob>(page, "ssh.transfers.cancel", { transferId: idToCancel });
+    expect(cancelled.ok, cancelled.error?.message).toBe(true);
+    expect(["cancelling", "cancelled"]).toContain(cancelled.data.state);
+    await expect.poll(async () => {
+      const { data } = await sshCall<TransferQueue>(page, "ssh.transfers.list");
+      return { state: data.jobs.find(({ transferId }) => transferId === idToCancel)?.state, canQueue: data.canQueue };
+    }).toEqual({ state: "cancelled", canQueue: true });
     expect((await sshCall(page, "ssh.disconnect", { hostId: a.hostId })).ok).toBe(true);
     await expect
       .poll(async () => {

@@ -517,7 +517,7 @@ export const sshCapabilityDescriptors = {
     ...resource,
     name: "ssh.transfers.cancel",
     title: "取消文件传输",
-    description: "停止指定任务并清理暂存。",
+    description: "请求停止指定任务。运行中的任务先返回 cancelling，清理完成后在传输列表显示 cancelled。",
     scope: "execute",
     risk: "high",
     idempotency: "handler",
