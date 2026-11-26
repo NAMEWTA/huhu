@@ -1,6 +1,6 @@
 import { Button, Dialog, type TerminalInput } from "@huhu/ui";
 import { queryKey, useEngine, useQueryClient } from "@huhu/workbench";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useState } from "react";
 import { MAX_WORKSPACE_PANES, splitTree, type ChangeWorkbenchWorkspaceRun, type WorkspaceLayout, type WorkspaceRun, type WorkspaceRunPane } from "../shared/workspace.js";
 import { LAYOUT_LABELS } from "./WorkspaceLayout.js";
 import { WorkspaceCanvas, type WorkspaceTabAction } from "./WorkspaceCanvas.js";
@@ -14,6 +14,7 @@ import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type Devic
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
+import { broadcastTerminalKey, currentBroadcastTargets, type TerminalTarget } from "./terminal-broadcast.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
   reconnect: "等待重连",
@@ -56,6 +57,7 @@ export function WorkspaceRunView({
   const [deviceNotice, setDeviceNotice] = useState("");
   const [locked, setLocked] = useState<Record<string, boolean>>({});
   const [inputs, setInputs] = useState<Record<string, TerminalInput>>({});
+  const [broadcast, setBroadcast] = useState<TerminalTarget[]>([]);
   const [inputCallbacks] = useState(() => new Map<string, (input: TerminalInput | undefined) => void>());
   const [showFiles, setShowFiles] = useState(showPaneFiles && paneTools !== "hidden");
   const [showMonitor, setShowMonitor] = useState(false);
@@ -132,6 +134,9 @@ export function WorkspaceRunView({
   const tree = run.layout.kind === "custom" ? run.layout.tree : undefined;
   const visiblePanes = shown ? run.panes.filter((pane) => (!(maximized || run.layout.kind === "tabs") || pane.paneId === activePane?.paneId) && pane.phase === "ready" && pane.sessionId) : [];
   const targetInputs = visiblePanes.map((pane) => ({ id: pane.paneId, label: pane.label, sessionId: pane.sessionId!, send: locked[pane.paneId] ? undefined : inputs[pane.sessionId!] }));
+  const liveBroadcast = currentBroadcastTargets(broadcast, targetInputs);
+  const broadcastLost = broadcast.length > 0 && liveBroadcast.length === 0;
+  useLayoutEffect(() => { if (broadcastLost) setBroadcast([]); }, [broadcastLost]);
   function inputCallback(sessionId: string) {
     let send = inputCallbacks.get(sessionId);
     if (!send) {
@@ -253,7 +258,11 @@ export function WorkspaceRunView({
         </div>
       </details>
       <div role="status">{deviceNotice}</div>
-      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} />}
+      {shown && <TerminalActions targets={targetInputs} activeTargetId={activePane?.paneId} onBroadcast={setBroadcast} />}
+      {liveBroadcast.length > 0 && <div className="ssh-workspace-controls">
+        <span role="status">键入广播中 · {liveBroadcast.map(({ label }) => label).join("、")}</span>
+        <Button type="button" onClick={() => setBroadcast([])}>停止键入广播</Button>
+      </div>}
       <div className={showMonitor ? "ssh-monitor-grid" : undefined} data-dock={dock}>
         <div className={showMonitor ? "ssh-monitor-terminal" : undefined}>
           <WorkspaceCanvas
@@ -347,6 +356,9 @@ export function WorkspaceRunView({
                             sessionId={pane.sessionId}
                             observe={Boolean(locked[pane.paneId])}
                             onTerminalInput={inputCallback(pane.sessionId)}
+                            onTerminalKey={(keys) => {
+                              if (document.visibilityState === "visible") broadcastTerminalKey(liveBroadcast, pane.paneId, keys);
+                            }}
                           />
                         </div>
                       )}

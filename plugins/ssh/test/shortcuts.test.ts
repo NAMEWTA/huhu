@@ -9,11 +9,30 @@ import { shortcutPasteError } from "../../../packages/ui/src/components/terminal
 import { Vault } from "../../../packages/vault/src/index.js";
 import { registerShortcuts, sshShortcutDescriptors, SshShortcuts } from "../src/engine/shortcuts.js";
 import { hasShortcutControl, MAX_SHORTCUT_LIBRARY_BYTES, MAX_SHORTCUT_TEXT, Shortcut, type ShortcutLibrary, shortcutNames } from "../src/shared/shortcuts.js";
+import { broadcastTerminalKey, currentBroadcastTargets } from "../src/ui/terminal-broadcast.js";
 
 const fixtureBody = "第一行 🙂\r\n\t第二行 e\u0301";
 const first: Shortcut = { id: "first", name: "合成甲", group: "测试组", text: fixtureBody };
 const second: Shortcut = { id: "second", name: "合成乙", group: "测试组", text: "无副作用的文本" };
 const file = ".huhu/ssh/shortcuts.json";
+
+test("keyboard broadcast follows only the selected and still-controlled shell bindings", () => {
+  const terminal = (id: string) => ({ id, label: id, sessionId: `${id}-shell`, send: Object.assign(() => "sent" as const, { sendKeys: vi.fn() }) });
+  const left = terminal("left");
+  const right = terminal("right");
+  const other = terminal("other");
+  const selected = [left, right];
+  const visible = [left, right, other];
+  const live = currentBroadcastTargets(selected, visible);
+  broadcastTerminalKey(live, other.id, "unselected");
+  broadcastTerminalKey(live, left.id, "\u001b[D");
+  expect(right.send.sendKeys).toHaveBeenCalledExactlyOnceWith("\u001b[D");
+  expect(left.send.sendKeys).not.toHaveBeenCalled();
+  expect(other.send.sendKeys).not.toHaveBeenCalled();
+  for (const changed of [[], [left], [left, { ...right, send: undefined }], [left, terminal("right")], [left, { ...right, sessionId: "new-shell" }]]) {
+    expect(currentBroadcastTargets(selected, changed)).toEqual([]);
+  }
+});
 
 async function setup(context: TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), "huhu-ssh-shortcuts-"));

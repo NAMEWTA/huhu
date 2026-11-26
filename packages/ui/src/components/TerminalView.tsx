@@ -6,7 +6,7 @@ import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js
 import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-content.js";
 
 /** Input is sent only through the socket currently controlling this terminal. */
-export type TerminalInput = (text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError;
+export type TerminalInput = ((text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError) & { sendKeys?(keys: string): void };
 export type TerminalControl = { id: string; canInput: boolean };
 export type PrepareTerminalHandoff = (id: string) => Promise<boolean>;
 type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator">;
@@ -34,6 +34,7 @@ export interface TerminalViewProps {
   handoffId?: string;
   onTerminalHandoff?(prepare: PrepareTerminalHandoff | undefined): void;
   onHandoffControl?(): void;
+  onTerminalKey?(keys: string): void;
 }
 
 const ANSI = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
@@ -48,7 +49,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl, onTerminalKey }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -71,6 +72,8 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   handoffChanged.current = onTerminalHandoff;
   const handoffControl = useRef(onHandoffControl);
   handoffControl.current = onHandoffControl;
+  const terminalKey = useRef(onTerminalKey);
+  terminalKey.current = onTerminalKey;
   const currentDisplay = useRef(displayOptions);
   currentDisplay.current = displayOptions;
   const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
@@ -184,6 +187,9 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       if (enter) ws?.send(enc.encode("\r"));
       return "sent";
     };
+    sendInput.sendKeys = (keys) => {
+      if (inputGranted && canSend()) ws?.send(enc.encode(keys));
+    };
     const syncSize = () => {
       const { cols, rows } = term;
       if (!canSend() || (sentSize?.cols === cols && sentSize.rows === rows)) return;
@@ -265,6 +271,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     const inputSub = term.onData((d) => {
       if (canSend()) ws?.send(enc.encode(d));
     });
+    // xterm's keyboard event excludes device reports, mouse events, and programmatic paste.
+    const keySub = term.onKey(({ key }) => {
+      if (inputGranted && canSend()) terminalKey.current?.(key);
+    });
     let frame: number | undefined;
     const measure = () => {
       frame = undefined;
@@ -315,6 +325,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       window.removeEventListener(APPEARANCE_CHANGED, restyle);
       ro.disconnect();
       inputSub.dispose();
+      keySub.dispose();
       resolution?.removeEventListener("change", watchResolution);
       document.fonts.removeEventListener("loadingdone", scheduleFit);
       if (frame !== undefined) window.cancelAnimationFrame(frame);
