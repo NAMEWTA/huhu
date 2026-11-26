@@ -47,7 +47,7 @@ if action == "create":
         entries = json.load(manifest)
     with zipfile.ZipFile(archive_path, "x") as output:
         for row in entries:
-            stamp = row["mtime"] // 1000
+            stamp = int(row["mtime"] // 1000)
             date = time.localtime(stamp)[:6]
             if not 1980 <= date[0] <= 2107:
                 sys.exit("ZIP_TIMESTAMP_RANGE")
