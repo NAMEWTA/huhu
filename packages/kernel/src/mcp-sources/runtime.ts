@@ -418,6 +418,16 @@ export class McpSourceRuntime implements ExternalMcpTools {
     };
   }
 
+  selectedPublicEntries(source: McpSource) {
+    const data = this.store.read().data;
+    return {
+      policyRevision: data.policy.revision,
+      // A saved selection survives restart and failed discovery, when the live catalog is empty.
+      entries: data.policy.selected.filter(({ sourceId }) => sourceId === source.sourceId)
+        .map(({ kind, upstreamIdentity }) => ({ kind, publicKey: this.publicKey(source, kind, upstreamIdentity, data) })),
+    };
+  }
+
   private publicKey(source: McpSource, kind: McpEntryKind, name: string, data: ReturnType<McpSourceStore["read"]>["data"]): string {
     const owned = data.publicKeys[routeOwner(source.sourceId, kind, name)];
     if (owned) return owned;

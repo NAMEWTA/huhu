@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { errors, MCP_ENTRY_KINDS, MCP_MANAGEMENT_ACCESS, McpCatalogViewSchema, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceSchema, McpSourcesViewSchema, McpSourceViewSchema, PluginManifestSchema } from "@huhu/contracts";
+import { errors, MCP_ENTRY_KINDS, MCP_MANAGEMENT_ACCESS, McpCatalogViewSchema, McpImportConfirmationSchema, McpPublishPolicySchema, McpSourceCatalogSchema, McpSourceDeletePreviewSchema, McpSourceSchema, McpSourcesViewSchema, McpSourceViewSchema, PluginManifestSchema } from "@huhu/contracts";
 import { z } from "zod";
 import { bindCapability, defineCapabilityDescriptor, type CapabilityContext } from "../capabilities/define.js";
 import type { PluginEntry } from "../plugin-manager.js";
@@ -47,7 +47,8 @@ const descriptors = {
   get: descriptor("mcp.sources.get", "查看 MCP 来源", sourceId, sourceView),
   create: descriptor("mcp.sources.create", "添加 MCP 来源（默认停用）", sourceInput, McpSourceSchema),
   update: descriptor("mcp.sources.update", "更新 MCP 来源配置", sourceRevision.extend(sourceInput.omit({ namespace: true }).shape), McpSourceSchema),
-  delete: descriptor("mcp.sources.delete", "删除 MCP 来源", sourceRevision, sourceId),
+  deletePreview: descriptor("mcp.sources.deletePreview", "预览 MCP 来源删除影响", sourceRevision, McpSourceDeletePreviewSchema),
+  delete: descriptor("mcp.sources.delete", "删除 MCP 来源", sourceRevision.extend({ expectedPolicyRevision: revision.optional() }), sourceId),
   setEnabled: descriptor("mcp.sources.setEnabled", "启用或停用 MCP 来源", sourceRevision.extend({ enabled: z.boolean() }), McpSourceSchema),
   importPreview: descriptor("mcp.sources.importPreview", "预览导入 MCP 配置", z.strictObject({ text: z.string().min(1).max(128 * 1024) }), mcpImportPreview),
   importCancel: descriptor("mcp.sources.importCancel", "取消 MCP 配置导入", z.strictObject({ previewId: id }), none),
@@ -230,9 +231,20 @@ export function createMcpSourcePlugin(options: McpSourceRuntimeOptions & { appro
         emit(input.sourceId);
         return next;
       }));
+      api.defineCapability(bindCapability(descriptors.deletePreview, (_context, input) => {
+        const source = getChecked(input);
+        return {
+          ...runtime.selectedPublicEntries(source),
+          hasExecutionApproval: source.configuration.transport === "stdio" && store.approved(source),
+          clearsLocalCredential: !!credentialReference(source),
+        };
+      }));
       api.defineCapability(bindCapability(descriptors.delete, async (context, input) => {
         const source = getChecked(input);
         await store.change(context, (data) => {
+          if (input.expectedPolicyRevision !== undefined && data.policy.revision !== input.expectedPolicyRevision) {
+            throw errors.versionConflict(String(data.policy.revision));
+          }
           data.sources = data.sources.filter(({ sourceId }) => sourceId !== input.sourceId);
           const selected = data.policy.selected.filter(({ sourceId }) => sourceId !== input.sourceId);
           if (selected.length !== data.policy.selected.length) data.policy = { ...data.policy, revision: data.policy.revision + 1, selected };

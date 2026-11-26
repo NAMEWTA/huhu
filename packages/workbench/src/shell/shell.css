@@ -2167,6 +2167,28 @@
   .hu-gateway-overview {
     padding: 22px 24px;
   }
+  .hu-mcp-sources,
+  .hu-mcp-delete-dialog {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .hu-mcp-sources .shell-card-head,
+  .hu-mcp-sources .row,
+  .hu-mcp-delete-dialog .hu-modal-footer {
+    flex-wrap: wrap;
+  }
+  .hu-mcp-sources .hu-btn,
+  .hu-mcp-sources .hu-data-table th {
+    max-inline-size: 100%;
+    white-space: normal;
+  }
+  .hu-mcp-delete-dialog:modal {
+    overscroll-behavior: contain;
+  }
+  .hu-mcp-delete-dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
   .hu-gateway-overview > .row {
     gap: 16px;
     flex-wrap: wrap;

@@ -82,6 +82,13 @@ export const McpCatalogViewSchema = z.strictObject({
   })),
 });
 export type McpCatalogView = z.infer<typeof McpCatalogViewSchema>;
+export const McpSourceDeletePreviewSchema = z.strictObject({
+  policyRevision: revision,
+  entries: z.array(z.strictObject({ kind: entryKind, publicKey: identity })),
+  hasExecutionApproval: z.boolean(),
+  clearsLocalCredential: z.boolean(),
+});
+export type McpSourceDeletePreview = z.infer<typeof McpSourceDeletePreviewSchema>;
 const entryIdentity = z.strictObject({ sourceId: identity, kind: entryKind, upstreamIdentity: identity });
 export type McpExternalEntryIdentity = z.infer<typeof entryIdentity>;
 
@@ -152,6 +159,7 @@ export const MCP_MANAGEMENT_ACCESS = {
   "mcp.diagnostics.get": ["read", "normal", false],
   "mcp.sources.create": ["write", "high", false],
   "mcp.sources.update": ["write", "high", false],
+  "mcp.sources.deletePreview": ["read", "normal", false],
   "mcp.sources.delete": ["write", "high", false],
   "mcp.sources.setEnabled": ["execute", "high", false],
   "mcp.sources.importPreview": ["read", "normal", false],

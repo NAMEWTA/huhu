@@ -1,4 +1,4 @@
-import { type McpCatalogView, type McpEntryKind, type McpSource, type McpSourcesView, type McpSourceView } from "@huhu/contracts";
+import { type McpCatalogView, type McpEntryKind, type McpSource, type McpSourceDeletePreview, type McpSourcesView, type McpSourceView } from "@huhu/contracts";
 import { Badge, Button, DataTable, Dialog } from "@huhu/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useCapability, useEngine, useQueryClient } from "../engine-client/react.js";
@@ -13,6 +13,7 @@ const credentialStates: Record<string, string> = {
   configured: "已绑定", unconfigured: "未绑定", "temporarily-unavailable": "本机凭据不可用", "needs-reconfiguration": "需重新绑定", corrupt: "凭据不可读取",
 };
 const directoryId: Record<McpEntryKind, string> = { tool: "mcp-tools", resource: "mcp-resources", "resource-template": "mcp-templates", prompt: "mcp-prompts" };
+const entryLabels: Record<McpEntryKind, string> = { tool: "工具", resource: "资源", "resource-template": "资源模板", prompt: "提示" };
 type Row = McpCatalogView["entries"][number];
 type Choice = Pick<Row, "sourceId" | "kind" | "upstreamIdentity" | "selected">;
 type Subject = { sourceId: string; expectedRevision: number };
@@ -29,8 +30,9 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
   const catalog = useCapability<McpCatalogView>("mcp.catalog.list");
   const [selected, setSelected] = useState<Subject["sourceId"] | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [dialog, setDialog] = useState<"add" | "edit" | "import" | "confirm" | "policy" | "auth" | null>(null);
+  const [dialog, setDialog] = useState<"add" | "edit" | "import" | "confirm" | "delete" | "policy" | "auth" | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; action: string; input: unknown } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<McpSource | null>(null);
   const [policy, setPolicy] = useState<{ choices: Choice[]; names: string[]; expectedCatalogRevision: number; expectedPolicyRevision: number } | null>(null);
   const [login, setLogin] = useState<Login | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
   const [notice, setNotice] = useState("");
   const formId = useId();
   const cancelAction = useRef<HTMLButtonElement>(null);
+  const deleteAction = useRef<HTMLButtonElement>(null);
   const directory = sources.data?.sources ?? [];
   const active = directory.find((entry) => entry.source.sourceId === selected);
   const activeFilter = sourceFilter === "all" || sourceFilter === "builtin" || directory.some(({ source }) => source.sourceId === sourceFilter) ? sourceFilter : "all";
@@ -45,6 +48,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
   const visible = (catalog.data?.entries ?? []).filter((entry) =>
     entry.kind === kind && (activeFilter === "all" || entry.sourceId === activeFilter) && entry.publicKey.toLowerCase().includes(filter.trim().toLowerCase()));
   const pending = useCapability<LoginStatus>("mcp.oauth.status", { attemptId: login?.attemptId ?? "" }, { enabled: login !== null });
+  const deletePreview = useCapability<McpSourceDeletePreview>("mcp.sources.deletePreview", deleteTarget ? ref(deleteTarget) : {}, { enabled: deleteTarget !== null });
   const refetchLogin = pending.refetch;
   const loginState = pending.data?.state;
 
@@ -76,7 +80,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
     }
   }
   function open(next: typeof dialog) { setError(null); setDialog(next); }
-  function close() { setDialog(null); setError(null); setLogin(null); }
+  function close() { setDialog(null); setError(null); setLogin(null); setDeleteTarget(null); }
   async function confirmApproval(view: McpSourceView) {
     const source = view.source;
     const preview = await run<{ configurationFingerprint: string }>("mcp.executionApproval.preview", ref(source));
@@ -124,7 +128,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
   const scopeRows = visible.filter((row) => row.sourceId !== "builtin");
 
   return (
-    <div className="hu-stack" data-testid="gateway-mcp-sources">
+    <div className="hu-stack hu-mcp-sources" data-testid="gateway-mcp-sources">
       <section className="hu-card-alt">
         <div className="shell-card-head">
           <h2>外部 MCP 服务</h2>
@@ -136,7 +140,7 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
         </div>
         {sources.data?.readOnly ? <p role="status">Vault 以只读方式打开。可以查看配置和目录。</p> : null}
         {sources.isPending ? <p role="status">正在读取外部来源…</p> : sources.isError ? <p role="alert">{sources.error.message}</p> : (
-          <DataTable label="外部 MCP 服务列表" rows={directory} rowKey={({ source }) => source.sourceId}
+          <DataTable label="外部 MCP 服务列表" scrollLabel="滚动查看外部 MCP 服务" rows={directory} rowKey={({ source }) => source.sourceId}
             empty={<p>还没有外部来源。添加服务或导入已有配置。</p>}
             columns={[
               { id: "service", header: "服务", width: 220, cell: ({ source }) => <Button variant="ghost" onClick={() => setSelected(source.sourceId)} aria-label={`查看 ${source.displayName}`}>{source.displayName}</Button> },
@@ -161,9 +165,9 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
             <h2>{active.source.displayName}</h2>
             <div className="row">
               <Button onClick={() => open("edit")} disabled={locked}>编辑</Button>
-              <Button variant="danger" disabled={locked} onClick={() => {
-                setConfirm({ title: "删除 MCP 服务", text: `删除 ${active.source.displayName} 会撤下它的公开条目和本机凭据。`, action: "mcp.sources.delete", input: ref(active.source) });
-                open("confirm");
+              <Button ref={deleteAction} variant="danger" disabled={locked} onClick={() => {
+                setDeleteTarget(active.source);
+                open("delete");
               }}>删除</Button>
             </div>
           </div>
@@ -230,6 +234,29 @@ export function McpSourcesPanel({ kind, filter, published }: { kind: McpEntryKin
       {dialog === "confirm" && confirm ? <Dialog open title={confirm.title} onClose={close} error={error} initialFocusRef={cancelAction}
         actions={<><Button ref={cancelAction} onClick={close}>取消</Button><Button variant="danger" disabled={busy} onClick={async () => { if (await run(confirm.action, confirm.input)) close(); }}>确认</Button></>}>
         <p>{confirm.text}</p>
+      </Dialog> : null}
+      {dialog === "delete" && deleteTarget ? <Dialog open title="删除 MCP 服务" onClose={close} error={error}
+        className="hu-mcp-delete-dialog" initialFocusRef={cancelAction} returnFocusRef={deleteAction}
+        actions={<>
+          <Button ref={cancelAction} onClick={close}>取消</Button>
+          <Button variant="danger" disabled={locked || deletePreview.isFetching || deletePreview.isError || !deletePreview.data} onClick={async () => {
+            if (!deletePreview.data) return;
+            if (await run("mcp.sources.delete", { ...ref(deleteTarget), expectedPolicyRevision: deletePreview.data.policyRevision })) close();
+          }}>确认删除</Button>
+        </>}>
+        <div className="hu-stack">
+          <p>删除「{deleteTarget.displayName}」</p>
+          {deletePreview.isFetching ? <p role="status">正在读取删除影响…</p> : deletePreview.isError ? <p role="alert">无法读取删除影响：{deletePreview.error.message}</p> : deletePreview.data ? (
+            <>
+              <p>{deletePreview.data.entries.length ? `将撤下 ${deletePreview.data.entries.length} 项开放路由` : "没有开放路由"}</p>
+              {deletePreview.data.entries.length ? <ul aria-label="将撤下的公开条目">
+                {deletePreview.data.entries.map(({ kind, publicKey }) => <li key={`${kind}:${publicKey}`}>{entryLabels[kind]} · <code>{publicKey}</code></li>)}
+              </ul> : null}
+              <p>本机执行许可：{deletePreview.data.hasExecutionApproval ? "已授权，删除后失效" : "无绑定"}</p>
+              <p>本机凭据：{deletePreview.data.clearsLocalCredential ? "有绑定，将移除" : "无绑定"}</p>
+            </>
+          ) : null}
+        </div>
       </Dialog> : null}
       {dialog === "policy" && policy ? <Dialog open title="预览开放变更" onClose={close} error={error} initialFocusRef={cancelAction}
         actions={<><Button ref={cancelAction} onClick={close}>取消</Button><Button variant="primary" disabled={busy} onClick={async () => {
