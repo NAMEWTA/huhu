@@ -1,5 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import ssh2 from "ssh2";
@@ -156,7 +156,6 @@ test("停用路由只影响下次拨号，现有连接保留实际跳点", async
 
 test("OpenSSH 同步保留两侧冲突，按版本写回并保留无关命令文本", async () => {
   const { SshConfigSync } = await import("../src/engine/config-sync.js");
-  const { writeFileSync } = await import("node:fs");
   const { root, vault, hosts } = await setup();
   const signal = new AbortController().signal;
   const jump = await hosts.configure({ ...configuration(2201), name: "jump", authKind: "agent" }, signal);
@@ -187,6 +186,41 @@ test("OpenSSH 同步保留两侧冲突，按版本写回并保留无关命令文
   expect(readFileSync(file, "utf8")).toBe(fileChange.replace("Interval 40", "Interval 60"));
   writeFileSync(file, 'Host target\n    IdentityFile "unterminated\n');
   await expect(sync.preview(source)).rejects.toThrow(/第 2 行/);
+});
+
+test("同步可用 OpenSSH 路径重新配置本机身份文件，同时保留源文件", async () => {
+  const { SshConfigSync } = await import("../src/engine/config-sync.js");
+  const { root, vault, hosts } = await setup();
+  const signal = new AbortController().signal;
+  const saved = await hosts.configure({
+    ...configuration(2202),
+    authKind: "identity-file",
+    credentials: [{ purpose: "identityFile", action: "replace", value: path.join(root, "original-key") }],
+  }, signal);
+  const device = path.join(root, "replacement-device");
+  mkdirSync(device);
+  const restoredHosts = new HostConfigurations(new HostStore(path.join(vault.stateDir, "ssh", "hosts")), {
+    vault,
+    localRoot: device,
+    localVaultInstanceId: "fixture-restored",
+    protection: new TestProtection(device),
+  });
+  expect(await restoredHosts.list()).toMatchObject([{ id: saved.hostId, authState: { identityFile: "needs-reconfiguration" } }]);
+  const file = path.join(root, "config");
+  const content = "Host target\n    IdentityFile ~/.ssh/fixture-identity\n    ServerAliveInterval 30\n";
+  writeFileSync(file, content);
+  const sync = new SshConfigSync(restoredHosts, vault.files);
+  const source = { path: file, hostId: saved.hostId, alias: "target" };
+  const { rows, ...version } = await sync.preview(source);
+  expect(rows).toContainEqual({ field: "ServerAliveInterval", file: "30", huhu: null, change: "unbound" });
+  const identity = path.join(homedir(), ".ssh", "fixture-identity");
+  expect(rows).toContainEqual(expect.objectContaining({ field: "IdentityFile", file: identity, huhu: null, huhuToFileUnavailable: expect.any(String) }));
+  const input = { ...source, ...version, field: "IdentityFile" } as const;
+  await expect(sync.apply({ ...input, direction: "huhu-to-file" }, signal)).rejects.toThrow("身份文件需要在本机重新配置");
+  const preview = await sync.apply({ ...input, direction: "file-to-huhu" }, signal);
+  expect(preview.rows).toContainEqual({ field: "IdentityFile", file: identity, huhu: identity, change: "same" });
+  expect(await restoredHosts.list()).toMatchObject([{ id: saved.hostId, authState: { identityFile: "configured" } }]);
+  expect(readFileSync(file, "utf8")).toBe(content);
 });
 
 test("辅助代理分享验证远端回环，通过 SSH 测试并清理监听", async () => {

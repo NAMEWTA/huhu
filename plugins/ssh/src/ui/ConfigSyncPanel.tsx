@@ -12,10 +12,12 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
   const [preview, setPreview] = useState<ConfigSyncPreview>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [announcement, setAnnouncement] = useState("");
   function edit(patch: Partial<typeof source>) {
     setSource({ ...source, ...patch });
     setPreview(undefined);
     setFeedback("");
+    setAnnouncement("");
   }
   async function choose() {
     setBusy(true);
@@ -32,6 +34,7 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
     event.preventDefault();
     setBusy(true);
     setFeedback("");
+    setAnnouncement("");
     setPreview(undefined);
     try {
       setPreview(await engine.call<ConfigSyncPreview>("ssh.configSync.preview", source));
@@ -46,9 +49,11 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
     const { fingerprint, comparison, hostRevision, stateRevision } = preview;
     setBusy(true);
     setFeedback("");
+    setAnnouncement("");
     try {
       setPreview(await engine.call<ConfigSyncPreview>("ssh.configSync.apply", { ...source, fingerprint, comparison, hostRevision, stateRevision, field, direction }, { write: true }));
       await onChanged();
+      setAnnouncement(`${field} 同步结果已更新`);
     } catch (reason) {
       setFeedback(reason instanceof Error ? reason.message : "无法应用同步结果，请重新预览。");
     } finally {
@@ -86,6 +91,7 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
         </Button>
       </form>
       {feedback && <p role="alert">{feedback}</p>}
+      <div role="status">{announcement}</div>
       {preview && (
         <section className="hu-card-alt hu-stack">
           <h3>同步差异</h3>
@@ -114,15 +120,17 @@ export function ConfigSyncPanel({ hosts, onBack, onChanged }: { hosts: ManagedHo
                     <Button disabled={busy} onClick={() => void apply(row.field, "file-to-huhu")}>
                       将文件值应用到主机
                     </Button>
-                    <Button disabled={busy} onClick={() => void apply(row.field, "huhu-to-file")}>
-                      将主机值写入文件
-                    </Button>
+                    {row.huhuToFileUnavailable ? <p>{row.huhuToFileUnavailable}</p> : (
+                      <Button disabled={busy} onClick={() => void apply(row.field, "huhu-to-file")}>
+                        将主机值写入文件
+                      </Button>
+                    )}
                   </div>
                 )}
               </li>
             ))}
           </ul>
-          <Button disabled={busy} onClick={() => setPreview(undefined)}>
+          <Button disabled={busy} onClick={() => { setPreview(undefined); setAnnouncement(""); }}>
             收起预览
           </Button>
         </section>

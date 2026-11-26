@@ -54,6 +54,58 @@ async function preview(page: Page, format: string, file: string) {
 type SavedHost = { id: string; name: string; host: string; user: string; port: number };
 type Directory = { groups: { groupId: string; parentId: string | null; name: string }[]; hosts: { hostId: string; groupId: string | null }[] };
 
+test("H3.4 OpenSSH 同步预览双向差异并保留命令文本", async () => {
+  const { app, page, vault, close } = await openApp();
+  try {
+    await openSsh(page);
+    const profile = { name: "Sync fixture", host: "sync.invalid", port: 22, user: "fixture", authKind: "agent" };
+    const saved = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", { ...profile, expectedRevision: null });
+    const list = () => desktopCall<Array<SavedHost & { revision: string; keepaliveIntervalSec?: number }>>(page, "ssh.hosts.list");
+    const file = path.join(vault, "ssh-config-fixture");
+    const text = (interval: number) => `Host sync-target\n    ServerAliveInterval ${interval}\nHost unrelated\n    ProxyCommand fixture-do-not-execute %h %p\n`;
+    writeFileSync(file, text(30));
+    await app.evaluate(({ dialog }, selected) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [selected] })) as typeof dialog.showOpenDialog;
+    }, file);
+    await page.getByRole("button", { name: "跳板路由", exact: true }).click();
+    await page.getByRole("button", { name: "OpenSSH 配置同步", exact: true }).click();
+    await page.getByRole("button", { name: "选择配置文件", exact: true }).click();
+    await expect(page.getByLabel("配置文件", { exact: true })).toHaveValue(file);
+    await page.getByLabel("OpenSSH Host 别名", { exact: true }).fill("sync-target");
+    await page.getByRole("combobox", { name: /Huhu 主机/ }).selectOption(saved.hostId);
+    const inspect = page.getByRole("button", { name: "预览同步", exact: true });
+    const interval = page.getByRole("listitem").filter({ hasText: "ServerAliveInterval" });
+
+    await inspect.click();
+    await expect(interval).toContainText("待确定基准");
+    await interval.getByRole("button", { name: "将文件值应用到主机" }).click();
+    await expect(interval).toContainText("一致");
+    const applied = (await list()).find(({ id }) => id === saved.hostId)!;
+    expect(applied.keepaliveIntervalSec).toBe(30);
+
+    writeFileSync(file, text(40));
+    await desktopCall(page, "ssh.hosts.configure", { ...profile, hostId: saved.hostId, expectedRevision: applied.revision, keepaliveIntervalSec: 60 });
+    await inspect.click();
+    await expect(interval).toContainText("两侧均有修改");
+    await expect(interval.getByText("40", { exact: true })).toBeVisible();
+    await expect(interval.getByText("60", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "收起预览", exact: true }).click();
+    await expect(interval).toHaveCount(0);
+    expect(readFileSync(file, "utf8")).toBe(text(40));
+
+    await inspect.click();
+    await expect(interval).toContainText("两侧均有修改");
+    await interval.getByRole("button", { name: "将主机值写入文件" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "ServerAliveInterval 同步结果已更新" })).toBeVisible();
+    expect(readFileSync(file, "utf8")).toBe(text(60));
+    await inspect.click();
+    await expect(interval).toContainText("一致");
+    expect((await list()).find(({ id }) => id === saved.hostId)?.keepaliveIntervalSec).toBe(60);
+  } finally {
+    await close();
+  }
+});
+
 test("SSH 文件选择、八种格式映射、写入和重新打开目录", async () => {
   const fixtures = mkdtempSync(path.join(tmpdir(), "huhu-ssh-import-fixtures-"));
   const { app, page, vault, close } = await openApp();
