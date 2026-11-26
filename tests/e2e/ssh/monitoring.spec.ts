@@ -160,7 +160,7 @@ test("Workbench monitors a saved panel in the background and controls the active
     await expect(sidebar.getByText("采样空隙")).toBeVisible();
     await sidebar.getByRole("button", { name: "继续", exact: true }).click();
     await expect(sidebar.getByRole("status")).toHaveText(/正在采样/);
-    await sidebar.getByRole("button", { name: "服务器工具" }).click();
+    await sidebar.getByRole("button", { name: "服务器工具", exact: true }).click();
     const tools = page.getByRole("dialog", { name: "服务器工具" });
     await expect(tools.getByText(/monitor-fixture/)).toBeVisible();
     await tools.getByRole("button", { name: "容器" }).click();

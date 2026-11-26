@@ -6,7 +6,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { utils } from "ssh2";
+import ssh2 from "ssh2";
+
+// ssh2 is CommonJS; Playwright loads this fixture through Node ESM, which has no named exports for it.
+const { utils } = ssh2;
 
 function raw(value: string | undefined) {
   if (!value) throw new Error("Synthetic key field missing");

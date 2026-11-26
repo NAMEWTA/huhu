@@ -414,7 +414,7 @@ test("A07 外置原生文件窗口保留打开时的分栏并在关闭后保留 
     const fileWindow = await opening;
     const filePane = fileWindow.getByTestId("ssh-independent-files");
     await expect(filePane.getByRole("heading", { name: /文件甲/ })).toBeVisible();
-    await expect(filePane.getByRole("button", { name: "from-first.txt" })).toBeVisible();
+    await expect(filePane.getByRole("button", { name: "from-first.txt", exact: true })).toBeVisible();
     const bound = await filePane.getAttribute("data-connection-id");
     await run.getByRole("tab", { name: "文件乙", exact: true }).click();
     await run.getByRole("button", { name: "信任并连接" }).click();
