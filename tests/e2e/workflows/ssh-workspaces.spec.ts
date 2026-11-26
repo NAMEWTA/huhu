@@ -272,8 +272,13 @@ test("A06 workspace tab actions rename and close neighboring tabs without replac
     await rename.getByRole("button", { name: "保存名称" }).click();
     const keep = run.getByRole("tab", { name: "保留终端", exact: true });
     await expect(keep).toBeVisible();
-    await keep.click({ button: "right" });
-    await page.getByRole("dialog", { name: "保留终端 标签操作" }).getByRole("button", { name: "关闭右侧标签" }).click();
+    await expect(rename).toBeHidden();
+    const keepMenu = page.getByRole("dialog", { name: "保留终端 标签操作" });
+    await expect(async () => {
+      await keep.click({ button: "right" });
+      await expect(keepMenu).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+    await keepMenu.getByRole("button", { name: "关闭右侧标签" }).click();
     await expect(run.getByRole("tab", { name: "标签丙", exact: true })).toHaveCount(0);
     await expect.poll(() => closed[2]).toBe(1);
     await run.getByRole("button", { name: "标签操作 保留终端" }).click();

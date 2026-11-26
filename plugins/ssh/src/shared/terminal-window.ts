@@ -26,7 +26,7 @@ export function sshTerminalWindowUrl(base: string, target: SshHandoffWindowTarge
   const url = new URL(base);
   url.hash = new URLSearchParams([
     ["sshTerminal", "1"],
-    ...Object.entries(target).map(([key, value]) => [key, String(value)]),
+    ...Object.entries(target).map(([key, value]): [string, string] => [key, String(value)]),
   ]).toString();
   return url.href;
 }
