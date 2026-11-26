@@ -194,7 +194,10 @@ test("H10.2 非预期断线显示下一次重连并允许取消", async () => {
       await settings.getByRole("button", { name: "保存库内设置", exact: true }).click();
       await expect(settings.getByText("已保存到当前库。")).toBeVisible();
       await ssh.click();
-      await module.getByRole("button", { name: "打开主机详情 自动重连夹具" }).click();
+      await module.getByRole("button", { name: "主机目录", exact: true }).click();
+      const directory = page.getByRole("region", { name: "SSH 主机目录" });
+      await directory.getByRole("button", { name: "打开主机详情 自动重连夹具", exact: true }).click();
+      await expect(module.getByRole("heading", { name: "自动重连夹具", exact: true })).toBeVisible();
       await call("ssh.connect", { hostId, background: true });
       const current = async () => (await call<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
       await expect.poll(async () => (await current())?.state).toBe("waiting");
