@@ -20,6 +20,19 @@ export const sshWorkspacePaneDescriptor = defineCapabilityDescriptor({
   output: WorkspaceRun,
 });
 
+export const sshCancelPaneReconnectDescriptor = defineCapabilityDescriptor({
+  plugin: "ssh",
+  name: "ssh.workspace.runs.cancelPaneReconnect",
+  title: "取消 SSH 工作区分栏自动重连",
+  description: "取消指定工作区分栏等待中或正在进行的自动重连。",
+  scope: "write",
+  risk: "normal",
+  exposable: false,
+  defaultExposed: false,
+  input: z.strictObject({ id: z.uuid(), paneId: z.uuid(), generation: z.int().min(1) }),
+  output: z.object({ cancelled: z.boolean() }),
+});
+
 export function registerSshWorkspacePanes(api: HuhuApi, runs: WorkspaceRuns, external: PublicWorkspaces) {
   api.defineCapability(
     bindCapability(sshWorkspacePaneDescriptor, (context, input) => {
@@ -28,4 +41,8 @@ export function registerSshWorkspacePanes(api: HuhuApi, runs: WorkspaceRuns, ext
       return runs.changeLayout(input, context.signal);
     }),
   );
+  api.defineCapability(bindCapability(sshCancelPaneReconnectDescriptor, (context, input) => {
+    if (!isWorkbenchCaller(context.caller)) throw errors.permissionDenied("SSH 工作区重连");
+    return { cancelled: runs.cancelPaneReconnect(input) };
+  }));
 }

@@ -10,7 +10,7 @@ import { createMailContributions, requestMailNotification } from "@huhu/plugin-m
 import { DocumentSessionConnection, contributions as notesUi } from "@huhu/plugin-notes/ui";
 import { contributions as safeUi } from "@huhu/plugin-safe/ui";
 import { readSshFileWindow, readSshTerminalWindow, readSshToolWindow } from "@huhu/plugin-ssh/shared";
-import { contributions as sshUi, SshFileWindow, SshStartup, SshTerminalWindow, SshToolWindow } from "@huhu/plugin-ssh/ui";
+import { contributions as sshUi, SshFileWindow, SshStartup, SshTerminalWindow, SshToolWindow, SshWorkspaceWindow } from "@huhu/plugin-ssh/ui";
 import { contributions as versioningUi } from "@huhu/plugin-versioning/ui";
 import { contributions as tasksUi, TaskRunDetails, taskRunLabel } from "@huhu/plugin-tasks/ui";
 import {
@@ -113,7 +113,8 @@ export function WorkbenchApp(props: AppProps) {
   }
   return (
     <EngineProvider endpoint={endpoint} {...(onConnection ? { onConnection } : {})}>
-      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : "handoffId" in target ? <SshTerminalWindow target={target} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
+      {"fileSessionId" in target ? <SshFileWindow id={target.fileSessionId} /> : "runId" in target ? <SshWorkspaceWindow target={target} /> :
+        "handoffId" in target ? <SshTerminalWindow target={target} /> : <SshToolWindow hostId={target.hostId} shellId={target.shellId} name={target.name} />}
     </EngineProvider>
   );
 }

@@ -95,15 +95,21 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
     const fixture = await openApp();
     const { page } = fixture;
     const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+    let originalPreferences: [string, string | null][] = [];
     try {
       await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      originalPreferences = await page.evaluate(async () => {
+        const { vaultId } = await window.huhuHost.engine();
+        return ["huhu.ssh.device-preferences.v1", `huhu.ssh.startup.v1.${vaultId}`]
+          .map((key): [string, string | null] => [key, localStorage.getItem(key)]);
+      });
       const configure = (name: string, port: number) => call<{ hostId: string }>("ssh.hosts.configure", {
         name, host: "127.0.0.1", port, user: "fixture", authKind: "password", expectedRevision: null,
         credentials: [{ purpose: "password", action: "replace", value: "pw" }],
       });
       const direct = await configure("启动直连夹具", startup.port);
       const workspace = await configure("恢复工作区夹具", restored.port);
-      const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [workspace] });
+      const run = await call<WorkspaceRun>("ssh.workspace.runs.start", { name: "恢复首选项", layout: { kind: "one" }, panes: [{ hostId: workspace.hostId }] });
       const view = () => call<WorkspaceRun[]>("ssh.workspace.runs.list").then((runs) => runs.find(({ id }) => id === run.id));
       const current = () => call<ConnectionStatus[]>("ssh.connections.status");
       await expect.poll(async () => (await view())?.panes[0]?.phase).toBe("trust");
@@ -146,6 +152,12 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
       expect((await view())?.panes[0]?.sessionId).not.toBe(shell);
       expect(restored.conns).toHaveLength(2);
     } finally {
+      if (originalPreferences.length) await page.evaluate((preferences) => {
+        for (const [key, value] of preferences) {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        }
+      }, originalPreferences).catch(() => undefined);
       await fixture.close();
     }
   } finally {
@@ -153,11 +165,64 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
   }
 });
 
-test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能使用文件和监控", async () => {
+test("H10.2 非预期断线显示下一次重连并允许取消", async () => {
+  test.setTimeout(45_000);
+  const server = await startFakeSsh();
+  try {
+    const fixture = await openApp();
+    const { page } = fixture;
+    const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+    try {
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
+        name: "自动重连夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      });
+      const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
+      const module = page.getByTestId("ssh-module");
+      await ssh.click();
+      await module.getByRole("button", { name: "SSH 设置", exact: true }).click();
+      const settings = page.getByTestId("ssh-settings");
+      await settings.getByPlaceholder("搜索 SSH 设置").fill("自动重连");
+      const enabled = settings.getByLabel("断线后自动重连");
+      await expect(enabled).not.toBeChecked();
+      await enabled.check();
+      await expect(settings.getByLabel("自动重连次数")).toHaveValue("1");
+      await settings.getByLabel("自动重连次数").fill("3");
+      await settings.getByLabel("重试间隔（秒）").fill("2");
+      await settings.getByLabel("退避上限（秒）").fill("4");
+      await settings.getByRole("button", { name: "保存库内设置", exact: true }).click();
+      await expect(settings.getByText("已保存到当前库。")).toBeVisible();
+      await ssh.click();
+      await module.getByRole("button", { name: "打开主机详情 自动重连夹具" }).click();
+      await call("ssh.connect", { hostId, background: true });
+      const current = async () => (await call<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
+      await expect.poll(async () => (await current())?.state).toBe("waiting");
+      const waiting = await current();
+      if (waiting?.state !== "waiting") throw new Error("回环指纹不可用");
+      await call("ssh.hostKey.decide", { attemptId: waiting.attemptId, hop: 0, promptId: waiting.prompt.promptId, accept: true });
+      await expect.poll(async () => (await current())?.state).toBe("connected");
+      await server.close();
+      await expect(module.getByText(/第 2 \/ 3 次重试安排在/)).toBeVisible({ timeout: 6000 });
+      await module.getByRole("button", { name: "取消自动重连", exact: true }).click();
+      await expect(module.getByText(/次重试安排在/)).toHaveCount(0);
+      expect(await current()).toMatchObject({ state: "disconnected" });
+      expect((await current())?.reconnect).toBeUndefined();
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工具栏仍可用", async () => {
   const preferenceKey = "huhu.ssh.device-preferences.v1";
   let input = "";
+  let writeShell: (text: string) => void;
   const server = await startFakeSsh({ onInteractiveShell(channel) {
-    channel.write("welcome\r\n\u0007");
+    writeShell = (text) => { channel.write(text); };
+    channel.write("welcome\r\nrange-42\r\n\u0007");
     channel.on("data", (chunk: Buffer) => { input += chunk.toString(); });
   } });
   try {
@@ -178,7 +243,17 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       const settings = page.getByTestId("ssh-settings");
       const search = settings.getByPlaceholder("搜索 SSH 设置");
       await search.fill("终端关键词高亮");
-      await settings.getByLabel("终端关键词高亮").fill("welcome");
+      const add = settings.getByRole("button", { name: "添加高亮规则" });
+      const rule = (index: number) => settings.getByRole("group", { name: `规则 ${index}`, exact: true });
+      await add.click();
+      await rule(1).getByLabel("规则内容").fill("welcome");
+      await add.click();
+      await rule(2).getByLabel("匹配方式").selectOption("regex");
+      await rule(2).getByLabel("规则内容").fill(String.raw`welcome\nrange-\d+`);
+      await rule(2).getByRole("button", { name: "上移" }).click();
+      await add.click();
+      await rule(3).getByLabel("规则内容").fill("range-42");
+      await rule(3).getByLabel("启用").uncheck();
       await search.fill("从快捷命令补全终端输入");
       await settings.getByLabel("从快捷命令补全终端输入").check();
       await search.fill("显示终端响铃通知");
@@ -194,7 +269,13 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       const run = page.getByTestId("ssh-workspace-run");
       await run.getByRole("button", { name: "信任并连接", exact: true }).click();
       const terminal = run.getByTestId("terminal-view");
-      await expect(terminal.locator("[data-terminal-highlight]")).toHaveCount(1);
+      await expect(terminal.locator('[data-terminal-highlight="0"]')).toHaveCount(2);
+      await expect(terminal.locator("[data-terminal-highlight]")).toHaveCount(2);
+      writeShell!("\u001b[?1049h\u001b[Hwelcome\r\nrange-42");
+      await expect(terminal.locator('.hu-terminal-highlight-layer [data-terminal-highlight="0"]')).toHaveCount(2);
+      writeShell!("\u001b[?1049l");
+      await expect(terminal.locator(".hu-terminal-highlight-layer")).toHaveCount(0);
+      await expect(terminal.locator('[data-terminal-highlight="0"]')).toHaveCount(2);
       await expect(run.getByText("终端响铃次数 1", { exact: true })).toBeVisible();
       const tools = run.getByTestId("ssh-pane-tools");
       await expect(tools.getByRole("button", { name: /移至分栏/ })).toHaveCount(0);
@@ -207,9 +288,13 @@ test("H10.1 搜索保存终端高亮与命令补全，工具栏锁定后仍能�
       await page.getByTestId("ssh-workspace-library").getByRole("button", { name: "主机", exact: true }).click();
       await page.getByTestId("ssh-module").getByRole("button", { name: "SSH 设置", exact: true }).click();
       await search.fill("终端关键词高亮");
-      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("welcome");
+      await expect(rule(1).getByLabel("规则内容")).toHaveValue(String.raw`welcome\nrange-\d+`);
+      await expect(rule(2).getByLabel("规则内容")).toHaveValue("welcome");
+      await expect(rule(3).getByLabel("启用")).not.toBeChecked();
+      await rule(3).getByRole("button", { name: "删除" }).click();
+      await expect(rule(3)).toHaveCount(0);
       await settings.getByRole("button", { name: "恢复本类默认", exact: true }).click();
-      await expect(settings.getByLabel("终端关键词高亮")).toHaveValue("");
+      await expect(rule(1)).toHaveCount(0);
       await settings.getByRole("button", { name: "保存设置", exact: true }).click();
     } finally {
       if (previous !== undefined) await page.evaluate(({ key, saved }) => {
@@ -262,7 +347,7 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
     await settings.getByRole("button", { name: "保存库内设置" }).click();
     await expect(settings.getByText("已保存到当前库。")).toBeVisible();
     await search.fill("自动重连");
-    await settings.getByLabel("断线后自动重连一次").check();
+    await settings.getByLabel("断线后自动重连").check();
     await settings.getByRole("button", { name: "保存库内设置" }).click();
     await expect(settings.getByText("已保存到当前库。")).toBeVisible();
     expect(await desktopCall(page, "ssh.settings.get")).toMatchObject({
@@ -302,16 +387,19 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
   }
 });
 
-test("SSH preferences apply to workspace, terminal, file views and transfer queue", async () => {
+test("H10.2 文件表列宽可拖动、键盘调整、重载并恢复，SSH 设置应用到运行视图", async () => {
   const password = randomUUID();
   const server = await startFakeSsh({ password });
   server.fs.files.set("/home/test/.hidden", Buffer.from("hidden"));
   server.fs.files.set("/home/test/a-small", Buffer.from("small"));
   server.fs.files.set("/home/test/z-large", Buffer.alloc(450));
   const fixture = await openApp();
+  const preferenceKey = "huhu.ssh.device-preferences.v1";
+  let before: string | null | undefined;
   try {
     const { page } = fixture;
     await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+    before = await page.evaluate((key) => localStorage.getItem(key), preferenceKey);
     const { hostId } = await desktopCall<{ hostId: string }>(page, "ssh.hosts.configure", {
       name: "布局回环",
       host: "127.0.0.1",
@@ -440,6 +528,22 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(remoteTable.getByRole("columnheader", { name: "权限", exact: true })).toHaveCount(0);
     const visibleFiles = await remoteTable.getByRole("button", { name: /^(z-large|a-small)$/ }).allTextContents();
     expect(visibleFiles).toEqual(["z-large", "a-small"]);
+    const nameWidth = remoteTable.getByRole("separator", { name: "调整“名称”列宽" });
+    const nameHeader = remoteTable.getByRole("columnheader", { name: "名称", exact: true });
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "200");
+    const originalWidth = (await nameHeader.boundingBox())!.width;
+    await nameWidth.press("ArrowRight");
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "208");
+    await nameWidth.scrollIntoViewIfNeeded();
+    const handle = (await nameWidth.boundingBox())!;
+    const x = Math.round(handle.x + handle.width / 2);
+    const y = Math.round(handle.y + handle.height / 2);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 32, y, { steps: 4 });
+    await page.mouse.up();
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "240");
+    await expect.poll(async () => (await nameHeader.boundingBox())!.width - originalWidth).toBeCloseTo(40);
     await remoteTable.getByRole("button", { name: "下载 z-large", exact: true }).click();
     await expect(run.getByTestId("files-save-to")).toHaveValue("/tmp/z-large");
     await run.getByTestId("files-panel").getByRole("button", { name: "取消", exact: true }).click();
@@ -453,12 +557,17 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await expect(run).toHaveAttribute("data-generation", "1");
     await expect(terminal).toHaveAttribute("data-state", "open");
     await expect(scale).toHaveAttribute("data-font", "system");
+    await expect(nameWidth).toHaveAttribute("aria-valuenow", "240");
     await run.getByRole("button", { name: "打开独立双栏" }).click();
     const fileWorkspace = page.getByTestId("ssh-file-workspace");
     const independent = fileWorkspace.getByTestId("ssh-independent-files");
     await expect(independent.locator(".ssh-file-columns > section").first().getByRole("table", { name: "远端目录项目" })).toBeVisible();
     await independent.getByRole("button", { name: "交换左右位置" }).click();
-    await expect(independent.locator(".ssh-file-columns > section").last().getByRole("table", { name: "远端目录项目" })).toBeVisible();
+    const remoteFiles = independent.locator(".ssh-file-columns > section").last();
+    const independentWidth = remoteFiles.getByRole("separator", { name: "调整“名称”列宽" });
+    await expect(independentWidth).toHaveAttribute("aria-valuenow", "240");
+    await remoteFiles.getByRole("button", { name: "恢复默认列宽" }).click();
+    await expect(independentWidth).toHaveAttribute("aria-valuenow", "200");
     await fileWorkspace.getByRole("button", { name: "返回 SSH", exact: true }).click();
     await expect(fileWorkspace).toBeHidden();
     await expect(run).toBeVisible();
@@ -466,8 +575,10 @@ test("SSH preferences apply to workspace, terminal, file views and transfer queu
     await page.getByRole("button", { name: "本地终端", exact: true }).click();
     await expect(page.getByRole("combobox", { name: "启动环境" })).toHaveValue(localShell!.id);
   } finally {
-    // Device preferences live in the shared Playwright userData; later specs expect the defaults (links enabled).
-    await fixture.page.evaluate(() => window.localStorage.removeItem("huhu.ssh.device-preferences.v1")).catch(() => undefined);
+    if (before !== undefined) await fixture.page.evaluate(({ key, saved }) => {
+      if (saved === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, saved);
+    }, { key: preferenceKey, saved: before }).catch(() => undefined);
     await fixture.close();
     await server.close();
   }

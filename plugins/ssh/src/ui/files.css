@@ -34,8 +34,59 @@
   }
 
   .ssh-file-table table {
-    inline-size: 100%;
-    min-inline-size: 16rem;
+    table-layout: fixed;
+  }
+
+  .ssh-file-value-header {
+    position: relative;
+    padding-inline-end: 16px;
+  }
+
+  .ssh-file-value-header button {
+    max-inline-size: 100%;
+    white-space: normal;
+  }
+
+  .ssh-file-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ssh-file-value button {
+    display: block;
+    max-inline-size: 100%;
+    overflow: hidden;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ssh-file-col-resizer {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    inline-size: 16px;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .ssh-file-col-resizer:hover,
+  .ssh-file-col-resizer:focus-visible {
+    background: var(--selection);
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+
+  @media (pointer: coarse) {
+    .ssh-file-value-header {
+      padding-inline-end: 24px;
+    }
+
+    .ssh-file-col-resizer {
+      inline-size: 24px;
+    }
   }
 
   .ssh-file-table caption {

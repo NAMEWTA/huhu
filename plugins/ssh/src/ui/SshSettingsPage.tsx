@@ -10,6 +10,7 @@ import { SshSharedTools } from "./SshSharedTools.js";
 import { SshStartupSettings } from "./SshStartupSettings.js";
 import { authLabels } from "./host-record.js";
 import { AuthKind } from "../shared/host-auth.js";
+import { TerminalHighlightSettings } from "./TerminalHighlightSettings.js";
 
 const labels = { layout: "通用与布局", terminal: "终端", files: "文件与传输", connection: "连接", sharedTools: "MCP 与共享工具权限" };
 type Category = keyof typeof labels;
@@ -35,7 +36,7 @@ const fields = {
   terminalCopyOnSelect: "终端选中即复制",
   terminalRightClickWord: "终端右键选择单词",
   terminalScrollOnInput: "键入时滚动到终端底部",
-  terminalHighlight: "终端关键词高亮",
+  terminalHighlightRules: "终端关键词高亮",
   terminalCompletion: "从快捷命令补全终端输入",
   terminalBellNotice: "显示终端响铃通知",
   defaultAuthKind: "新建主机默认认证方式",
@@ -57,14 +58,14 @@ const fields = {
 const keys = {
   layout: ["tabs", "paneTools", "groupVerticalTabs", "collapseVerticalGroups", "paneToolOrder", "paneToolSize", "paneToolsMovable", "restoreWorkspace", "hiddenNavigation"],
   terminal: ["fontSize", "font", "terminalLineHeight", "terminalCursor", "terminalCursorBlink", "terminalScrollback", "terminalWordSeparator", "terminalLinkActivation",
-    "terminalCopyOnSelect", "terminalRightClickWord", "terminalScrollOnInput", "terminalHighlight", "terminalCompletion", "terminalBellNotice", "localShellEnvironment"],
+    "terminalCopyOnSelect", "terminalRightClickWord", "terminalScrollOnInput", "terminalHighlightRules", "terminalCompletion", "terminalBellNotice", "localShellEnvironment"],
   files: ["showDotFiles", "fileSort", "remoteOnLeft", "fileOpenMode", "showPaneFiles", "paneFilePosition", "filePathMode", "showFileTree", "hiddenFileColumns",
     "downloadDirectory", "initialRemoteDirectory", "followShellDirectory", "followFileDirectory"],
   connection: ["defaultAuthKind"],
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const navigationSearch = `${fields.hiddenNavigation} ${Object.values(sshNavigation).join(" ")}`;
 const startupSearch = "SSH 启动与恢复 启动时自动连接的主机 工作区恢复策略";
-const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连一次 同主机的新终端复用 SSH 连接", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
+const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连 自动重连次数 重试间隔 退避上限 同主机的新终端复用 SSH 连接", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
   const headingId = useId();
@@ -239,9 +240,8 @@ function DeviceForm({ category, filter }: { category: DeviceCategory; filter: st
           <input type="checkbox" checked={draft[field]} onChange={(event) => set(field, event.currentTarget.checked)} />
         </label>
       ))}
-      {shown("terminalHighlight") && <label className="hu-setting-row">{fields.terminalHighlight}
-        <input value={draft.terminalHighlight} maxLength={80} onChange={(event) => set("terminalHighlight", event.currentTarget.value)} />
-      </label>}
+      {shown("terminalHighlightRules") && <TerminalHighlightSettings label={fields.terminalHighlightRules} rules={draft.terminalHighlightRules}
+        change={(rules) => set("terminalHighlightRules", rules)} />}
       {shown("defaultAuthKind") && (desktop ? <label className="hu-setting-row">{fields.defaultAuthKind}
         <select value={draft.defaultAuthKind} onChange={(event) => set("defaultAuthKind", AuthKind.parse(event.currentTarget.value))}>
           {AuthKind.options.map((kind) => <option key={kind} value={kind}>{authLabels[kind]}</option>)}

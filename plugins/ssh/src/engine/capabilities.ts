@@ -19,7 +19,7 @@ import { sshProxyShareDescriptors } from "./proxy-share.js";
 import { EditHostRoutes, EditOwnedRoutes, HostRouteEditResult } from "./route-edits.js";
 import { sshShortcutDescriptors } from "./shortcuts.js";
 import { sshRecordingDescriptors } from "./terminal-recordings.js";
-import { sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
+import { sshCancelPaneReconnectDescriptor, sshWorkspacePaneDescriptor } from "./workspace-pane-capability.js";
 import { WorkspaceRun, WorkspaceTemplate } from "../shared/workspace.js";
 import {
   DirectoryFollowState,
@@ -99,6 +99,7 @@ export const sshCapabilityDescriptors = {
   ...sshPrivilegedFileDescriptors,
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
+  workspaceRunCancelPaneReconnect: sshCancelPaneReconnectDescriptor,
   routesEdit: defineCapabilityDescriptor({
     ...resource,
     name: "ssh.routes.edit",

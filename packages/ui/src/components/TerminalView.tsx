@@ -1,14 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal, type IDisposable, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
+import { Terminal, type ILinkHandler, type ITerminalOptions } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 import { APPEARANCE_CHANGED } from "../theme.js";
 import { shortcutPasteError, type ShortcutPasteError } from "./terminal-paste.js";
-import { searchTerminal, terminalHttpUrl, terminalKeywordRanges, terminalLinks } from "./terminal-content.js";
+import { searchTerminal, terminalHttpUrl, terminalLinks } from "./terminal-content.js";
+import type { TerminalHighlightPattern } from "./terminal-highlight-patterns.js";
+import { observeTerminalHighlights } from "./terminal-highlights.js";
 
 /** Input is sent only through the socket currently controlling this terminal. */
 export type TerminalInput = ((text: string, enter: boolean) => "sent" | "unavailable" | ShortcutPasteError) & { sendKeys?(keys: string): void };
 export type TerminalControl = { id: string; canInput: boolean };
-export type PrepareTerminalHandoff = (id: string) => Promise<boolean>;
+export type PrepareTerminalHandoff = (id: string, members?: number) => Promise<boolean>;
 type DisplayOptions = Pick<ITerminalOptions, "cursorBlink" | "cursorStyle" | "lineHeight" | "scrollback" | "wordSeparator" | "scrollOnUserInput" | "rightClickSelectsWord">;
 const defaultDisplayOptions = { cursorBlink: true, cursorStyle: "block", lineHeight: 1, scrollback: 5000, scrollOnUserInput: true } satisfies DisplayOptions;
 
@@ -32,11 +34,13 @@ export interface TerminalViewProps {
   /** 当前连接的 Agent 审查控制证明，离开连接时撤回。 */
   onTerminalControl?(control: TerminalControl | undefined): void;
   handoffId?: string;
+  focusOnHandoff?: boolean;
+  attachWhenHidden?: boolean;
   onTerminalHandoff?(prepare: PrepareTerminalHandoff | undefined): void;
   onHandoffControl?(): void;
   onTerminalKey?(keys: string): void;
   copyOnSelect?: boolean;
-  highlightKeyword?: string;
+  highlightRules?: readonly TerminalHighlightPattern[];
   onCompletionRequest?: (() => void) | undefined;
   onBell?: (() => void) | undefined;
 }
@@ -53,7 +57,7 @@ function readTheme(el: HTMLElement): { theme: Record<string, string>; fontFamily
 }
 
 /** 终端视图：xterm.js ↔ Engine `/ws/terminal/:id`。关闭视图只 detach，进程继续运行。 */
-export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightKeyword, onCompletionRequest, onBell }: TerminalViewProps) {
+export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaLabel, displayOptions, scrollbackSearch = false, onOpenLink, linkActivation = true, onExit, onTerminalInput, onTerminalControl, handoffId, focusOnHandoff = true, attachWhenHidden = false, onTerminalHandoff, onHandoffControl, onTerminalKey, copyOnSelect, highlightRules, onCompletionRequest, onBell }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"connecting" | "open" | "ended" | "lost">("connecting");
   const [attempt, setAttempt] = useState(0); // 控制者离开后重新连接以接管输入
@@ -76,6 +80,8 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   handoffChanged.current = onTerminalHandoff;
   const handoffControl = useRef(onHandoffControl);
   handoffControl.current = onHandoffControl;
+  const focusTransferred = useRef(focusOnHandoff);
+  focusTransferred.current = focusOnHandoff;
   const terminalKey = useRef(onTerminalKey);
   terminalKey.current = onTerminalKey;
   const clipboardSelection = useRef(copyOnSelect);
@@ -84,10 +90,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
   completion.current = onCompletionRequest;
   const bellNotice = useRef(onBell);
   bellNotice.current = onBell;
-  const keyword = useRef(highlightKeyword);
-  keyword.current = highlightKeyword;
+  const rules = useRef(highlightRules);
+  rules.current = highlightRules;
   const refreshHighlights = useRef<() => void>(undefined);
-  const supportsHighlight = highlightKeyword !== undefined;
+  const supportsHighlight = highlightRules !== undefined;
   const currentDisplay = useRef(displayOptions);
   currentDisplay.current = displayOptions;
   const applyDisplay = useRef<((options: DisplayOptions | undefined) => void) | undefined>(undefined);
@@ -122,31 +128,8 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       const selected = clipboardSelection.current && term.getSelection();
       if (selected) void navigator.clipboard?.writeText(selected).catch(() => undefined);
     });
-    let highlightFrame: number | undefined;
-    let decorations: IDisposable[] = [];
-    const clearHighlights = () => {
-      for (const decoration of decorations) decoration.dispose();
-      decorations = [];
-    };
-    const scheduleHighlights = () => {
-      if (!supportsHighlight || highlightFrame !== undefined || (!keyword.current && !decorations.length)) return;
-      highlightFrame = window.requestAnimationFrame(() => {
-        highlightFrame = undefined;
-        clearHighlights();
-        const buffer = term.buffer.active;
-        if (!keyword.current || buffer.type !== "normal") return;
-        const cursorRow = buffer.baseY + buffer.cursorY;
-        for (const { start, end } of terminalKeywordRanges(buffer, term.cols, buffer.viewportY, term.rows, keyword.current)) {
-          const marker = term.registerMarker(start.y - cursorRow);
-          if (!marker) continue;
-          const decoration = term.registerDecoration({ marker, x: start.x, width: end.x - start.x, backgroundColor: "#f6d06f", foregroundColor: "#211804" });
-          decoration?.onRender((element) => { element.dataset.terminalHighlight = ""; });
-          decorations.push(marker);
-        }
-      });
-    };
-    refreshHighlights.current = scheduleHighlights;
-    const highlightEvents = [term.onWriteParsed(scheduleHighlights), term.onScroll(scheduleHighlights), term.onResize(scheduleHighlights)];
+    const highlights = supportsHighlight ? observeTerminalHighlights(term, el, () => rules.current ?? []) : undefined;
+    refreshHighlights.current = highlights?.update;
     const links = hasLinkHandler ? term.registerLinkProvider({
       provideLinks(row, callback) {
         if (!linksEnabled.current) return callback(undefined);
@@ -217,7 +200,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       inputGranted = false;
       onTerminalInput?.(undefined);
     };
-    const prepareHandoff: PrepareTerminalHandoff = (id) => {
+    const prepareHandoff: PrepareTerminalHandoff = (id, members) => {
       if (!canSend() || prepared) return Promise.resolve(false);
       return new Promise((resolve) => {
         const timeout = setTimeout(() => prepared?.resolve(false), 3000);
@@ -226,7 +209,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
           prepared = undefined;
           resolve(ready);
         } };
-        ws!.send(JSON.stringify({ type: "prepare-handoff", id }));
+        ws!.send(JSON.stringify({ type: "prepare-handoff", id, members }));
       });
     };
     const sendInput: TerminalInput = (text, enter) => {
@@ -242,14 +225,14 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     };
     const syncSize = () => {
       const { cols, rows } = term;
-      if (!canSend() || (sentSize?.cols === cols && sentSize.rows === rows)) return;
+      if (!canSend() || !el.clientWidth || !el.clientHeight || (sentSize?.cols === cols && sentSize.rows === rows)) return;
       ws?.send(JSON.stringify({ type: "resize", cols, rows }));
       sentSize = { cols, rows };
     };
     const connect = () => {
       const url = new URL(baseUrl.replace(/^http/, "ws") + `/ws/terminal/${encodeURIComponent(sessionId)}`);
       const { cols, rows } = term;
-      sentSize = { cols, rows };
+      sentSize = handoffId ? undefined : { cols, rows };
       url.searchParams.set("cols", String(cols));
       url.searchParams.set("rows", String(rows));
       if (observe || handoffId) url.searchParams.set("mode", "observe");
@@ -277,7 +260,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
               setDemoted(false);
               setControl(msg.controlId ? { id: msg.controlId, canInput: true } : undefined);
               if (handoffId) {
-                term.focus();
+                if (focusTransferred.current) term.focus();
                 handoffControl.current?.();
               } else {
                 handoffChanged.current?.(prepareHandoff);
@@ -329,7 +312,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
     const measure = () => {
       frame = undefined;
       // A hidden pane keeps its last grid and socket. FitAddon otherwise clamps a zero-sized host to 2×1.
-      if (!el.clientWidth || !el.clientHeight) return;
+      if (!el.clientWidth || !el.clientHeight) {
+        if (attachWhenHidden && !ws) connect();
+        return;
+      }
       const proposed = fit.proposeDimensions();
       if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows)) return;
       fit.fit();
@@ -349,6 +335,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       term.options.fontFamily = next.fontFamily;
       term.options.fontSize = next.fontSize;
       scheduleFit();
+      highlights?.schedule();
     };
     // xterm updates its cell metrics on DPR changes, even when the CSS box keeps its size.
     let resolution: MediaQueryList;
@@ -369,9 +356,7 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       applyDisplay.current = undefined;
       search.current = undefined;
       refreshHighlights.current = undefined;
-      if (highlightFrame !== undefined) window.cancelAnimationFrame(highlightFrame);
-      clearHighlights();
-      for (const event of highlightEvents) event.dispose();
+      highlights?.dispose();
       selection.dispose();
       bell.dispose();
       links?.dispose();
@@ -388,10 +373,10 @@ export function TerminalView({ baseUrl, token, sessionId, observe = false, ariaL
       ws?.close(); // detach
       term.dispose();
     };
-  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId, supportsHighlight]);
+  }, [baseUrl, token, sessionId, observe, attempt, onTerminalInput, hasLinkHandler, scrollbackSearch, handoffId, attachWhenHidden, supportsHighlight]);
 
   useEffect(() => applyDisplay.current?.(displayOptions), [displayOptions]);
-  useEffect(() => refreshHighlights.current?.(), [highlightKeyword]);
+  useEffect(() => refreshHighlights.current?.(), [highlightRules]);
   useEffect(() => { if (searching) searchInput.current?.focus(); }, [searching]);
 
   function find(direction: "next" | "previous") {

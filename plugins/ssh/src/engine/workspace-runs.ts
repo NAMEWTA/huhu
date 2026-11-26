@@ -198,34 +198,37 @@ export class WorkspaceRuns {
     const controller = new AbortController();
     const slot = this.manager.newPaneSlot(pane.hostId);
     live.controllers.set(pane.paneId, { controller, slot, hostId: pane.hostId });
-    this.connectPane(run, live, pane, controller, slot);
-  }
-
-  private connectPane(run: SavedRun, live: LiveRun, pane: SavedRun["panes"][number], controller: AbortController, slot: string, route?: string) {
-    const onLoss = (lostRoute: string) => {
-      if (this.live.get(run.id) !== live || controller.signal.aborted) return;
-      live.panes.delete(pane.paneId);
-      this.connectPane(run, live, pane, controller, slot, lostRoute);
+    const current = () => this.live.get(run.id) === live && !controller.signal.aborted;
+    const failed = (error: unknown) => {
+      if (!current()) return;
+      if (slot !== pane.hostId) this.manager.closeOwnedConnection(slot);
+      live.panes.set(pane.paneId, {
+        error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
+      });
       this.changed(run.id);
     };
-    void this.manager
-      .openWorkspaceShell(pane, controller.signal, () => this.changed(run.id), slot, { onLoss, ...(route && { route }) })
-      .then(
-        (shell) => {
-          if (this.live.get(run.id) === live && !controller.signal.aborted) live.panes.set(pane.paneId, { sessionId: shell.id });
-          else this.manager.closeShell(shell.id);
-        },
-        (error: unknown) => {
-          if (this.live.get(run.id) !== live || controller.signal.aborted) return;
-          if (slot !== pane.hostId) this.manager.closeOwnedConnection(slot);
-          live.panes.set(pane.paneId, {
-            error: error instanceof HuhuError ? { code: error.code, message: error.message } : { code: "INTERNAL", message: "无法建立该分栏的 SSH 会话" },
-          });
-        },
-      )
-      .finally(() => {
-        if (this.live.get(run.id) === live) this.changed(run.id);
-      });
+    const open = async (signal: AbortSignal, route?: string) => {
+      const recovery = {
+        failed,
+        reopen: (originalRoute: string, deadline: AbortSignal): Promise<void> =>
+          open(AbortSignal.any([controller.signal, deadline]), originalRoute),
+      };
+      const shell = await this.manager.openWorkspaceShell(pane, signal, () => this.changed(run.id), slot, recovery, route);
+      if (current() && !signal.aborted) {
+        live.panes.set(pane.paneId, { sessionId: shell.id });
+        this.changed(run.id);
+      } else {
+        this.manager.closeShell(shell.id);
+      }
+    };
+    void open(controller.signal).catch(failed);
+  }
+
+  cancelPaneReconnect({ id, paneId, generation }: { id: string; paneId: string; generation: number }) {
+    const live = this.live.get(id);
+    const pane = live?.controllers.get(paneId);
+    if (live?.generation !== generation || !pane) return false;
+    return this.manager.cancelReconnect(pane.slot);
   }
 
   private release(id: string): void {
@@ -248,12 +251,15 @@ export class WorkspaceRuns {
   private view(run: SavedRun): WorkspaceRun {
     const live = this.live.get(run.id);
     const panes = run.panes.map(({ paneId, hostId, label, target }): WorkspaceRunPane => {
-      const base = { paneId, hostId, label };
-      if (live?.generation !== run.generation) return { ...base, phase: "reconnect" };
-      const pane = live.panes.get(paneId);
-      if (pane?.error) return { ...base, phase: "failed", error: pane.error };
-      if (pane?.sessionId) return { ...base, phase: this.manager.shellInfo(pane.sessionId)?.state === "running" ? "ready" : "ended", sessionId: pane.sessionId };
+      if (live?.generation !== run.generation) return { paneId, hostId, label, phase: "reconnect" };
       const slot = live.controllers.get(paneId)?.slot ?? hostId;
+      const reconnect = this.manager.reconnectStatus(slot);
+      const base = { paneId, hostId, label, ...(reconnect && { reconnect }) };
+      const pane = live.panes.get(paneId);
+      if (pane?.error && !reconnect) return { ...base, phase: "failed", error: pane.error };
+      if (pane?.sessionId && (!reconnect || this.manager.shellInfo(pane.sessionId)?.state === "running")) {
+        return { ...base, phase: this.manager.shellInfo(pane.sessionId)?.state === "running" ? "ready" : "ended", sessionId: pane.sessionId };
+      }
       const prompt = this.manager.workspacePrompt(slot, target);
       const authPrompt = this.manager.workspaceAuthentication(slot, target);
       if (authPrompt) return { ...base, phase: "authentication", authPrompt };

@@ -4,9 +4,9 @@ import { useState } from "react";
 import type { SshTerminalWindowHost, SshTerminalWindowTarget } from "../shared/terminal-window.js";
 import { SshTerminal } from "./SshTerminal.js";
 
-const terminalHost = () => host() as (SshTerminalWindowHost & ReturnType<typeof host>) | undefined;
+export const terminalHost = () => host() as (SshTerminalWindowHost & ReturnType<typeof host>) | undefined;
 
-export function MovableSshTerminal({ name, visible = true, ...props }: TerminalViewProps & { name: string; visible?: boolean }) {
+export function MovableSshTerminal({ name, visible = true, disabled = false, ...props }: TerminalViewProps & { name: string; visible?: boolean; disabled?: boolean }) {
   const engine = useEngine();
   const open = terminalHost()?.openSshTerminalWindow;
   const [prepare, setPrepare] = useState<PrepareTerminalHandoff>();
@@ -32,11 +32,14 @@ export function MovableSshTerminal({ name, visible = true, ...props }: TerminalV
     <div className="ssh-movable-terminal">
       {visible && <div className="ssh-workspace-controls">
         {open
-          ? <Button type="button" disabled={!prepare || moving || props.observe} onClick={() => void move()}>将终端移至新窗口</Button>
+          ? <Button type="button" disabled={!prepare || moving || props.observe || disabled} onClick={() => void move()}>将终端移至新窗口</Button>
           : <small>Web 端暂不支持将终端移至新窗口。</small>}
       </div>}
       {error && visible && <p role="alert">{error}</p>}
-      <SshTerminal {...props} {...(open && { onTerminalHandoff: (next) => setPrepare(() => next) })} />
+      <SshTerminal {...props} {...(open && { onTerminalHandoff: (next) => {
+        setPrepare(() => next);
+        props.onTerminalHandoff?.(next);
+      } })} />
     </div>
   );
 }

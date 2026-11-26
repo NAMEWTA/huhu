@@ -54,6 +54,14 @@ contextBridge.exposeInMainWorld("huhuHost", {
   openSshToolWindow: (target: import("@huhu/plugin-ssh/shared").SshToolWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-tools:window", target),
   openSshTerminalWindow: (target: import("@huhu/plugin-ssh/shared").SshTerminalWindowTarget): Promise<void> => ipcRenderer.invoke("huhu:ssh-terminal:window", target),
   readySshTerminalWindow: (handoffId: string): Promise<void> => ipcRenderer.invoke("huhu:ssh-terminal:ready", handoffId),
+  openSshWorkspaceWindow: (target: import("@huhu/plugin-ssh/shared").SshWorkspaceWindowTarget): Promise<string | undefined> => ipcRenderer.invoke("huhu:ssh-terminal:window", target),
+  onSshWorkspaceDetached: (callback: (handoffId: string) => void): (() => void) => {
+    const channel = "huhu:ssh-workspace:detached";
+    const listener = (_event: Electron.IpcRendererEvent, id: string) => callback(id);
+    ipcRenderer.on(channel, listener);
+    return () => { ipcRenderer.removeListener(channel, listener); };
+  },
+  returnSshWorkspaceWindow: (handoffId: string, paneId: string): Promise<void> => ipcRenderer.invoke("huhu:ssh-workspace:return", handoffId, paneId),
   sshExternalEditor: {
     open: (name, text) => ipcRenderer.invoke("huhu:ssh-external-editor:open", name, text),
     read: (id) => ipcRenderer.invoke("huhu:ssh-external-editor:read", id),

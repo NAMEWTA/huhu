@@ -2,9 +2,14 @@ import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { LocalEnvironment } from "../shared/local-shell.js";
 import { AuthKind } from "../shared/host-auth.js";
+import { validTerminalPattern } from "@huhu/ui";
 
 export const terminalLineHeights = { normal: 1, roomy: 1.25 } as const;
 export const terminalScrollbackChoices = [1000, 5000, 10000] as const;
+export const fileColumnDefaults = { name: 200, size: 88, mtime: 160, mode: 96 };
+export type FileColumn = keyof typeof fileColumnDefaults;
+export const fileColumnLimits = { min: 64, max: 640 };
+const fileColumn = z.enum(["name", "size", "mtime", "mode"]);
 export const sshNavigation = {
   workspaces: "工作区",
   files: "独立文件会话",
@@ -17,6 +22,13 @@ export const sshNavigation = {
   audit: "全部连接审计",
 } as const;
 const navigationPage = z.enum(Object.keys(sshNavigation) as (keyof typeof sshNavigation)[]);
+export const maxHighlightRules = 16;
+const highlightRule = z.object({
+  id: z.uuid(),
+  pattern: z.string().max(160),
+  mode: z.enum(["literal", "regex"]),
+  enabled: z.boolean(),
+}).refine(validTerminalPattern, "高亮规则为空或正则表达式无效");
 
 const schema = z.object({
   tabs: z.enum(["top", "left"]),
@@ -39,7 +51,7 @@ const schema = z.object({
   terminalCopyOnSelect: z.boolean(),
   terminalRightClickWord: z.boolean(),
   terminalScrollOnInput: z.boolean(),
-  terminalHighlight: z.string().trim().max(80).regex(/^[^\p{Cc}]*$/u),
+  terminalHighlightRules: z.array(highlightRule).max(maxHighlightRules),
   terminalCompletion: z.boolean(),
   terminalBellNotice: z.boolean(),
   defaultAuthKind: AuthKind,
@@ -53,6 +65,7 @@ const schema = z.object({
   filePathMode: z.enum(["input", "breadcrumbs"]),
   showFileTree: z.boolean(),
   hiddenFileColumns: z.array(z.enum(["size", "mtime", "mode"])),
+  fileColumnWidths: z.partialRecord(fileColumn, z.int().min(fileColumnLimits.min).max(fileColumnLimits.max)),
   downloadDirectory: z.string().max(4096).regex(/^(?:$|\/(?!\/)[^\p{Cc}]*|[A-Za-z]:[\\/][^\p{Cc}]*)$/u),
   initialRemoteDirectory: z.string().max(4096).regex(/^(?:$|\/[^\p{Cc}]*)$/u),
   followShellDirectory: z.boolean(),
@@ -80,7 +93,7 @@ export const deviceDefaults: DevicePreferences = {
   terminalCopyOnSelect: false,
   terminalRightClickWord: false,
   terminalScrollOnInput: true,
-  terminalHighlight: "",
+  terminalHighlightRules: [],
   terminalCompletion: false,
   terminalBellNotice: false,
   defaultAuthKind: "password",
@@ -94,6 +107,7 @@ export const deviceDefaults: DevicePreferences = {
   filePathMode: "input",
   showFileTree: false,
   hiddenFileColumns: [],
+  fileColumnWidths: {},
   downloadDirectory: "",
   initialRemoteDirectory: "",
   followShellDirectory: true,
@@ -110,7 +124,13 @@ function read(): DevicePreferences {
     const next = window.localStorage.getItem(KEY);
     if (next !== raw) {
       raw = next;
-      snapshot = next === null ? deviceDefaults : schema.parse({ ...deviceDefaults, ...schema.partial().parse(JSON.parse(next)) });
+      const stored = next === null ? {} : JSON.parse(next);
+      const preferences = schema.partial().parse(stored);
+      const legacy = z.string().trim().min(1).max(80).safeParse(stored.terminalHighlight);
+      const migrated = legacy.success && preferences.terminalHighlightRules === undefined
+        ? { terminalHighlightRules: [{ id: "00000000-0000-4000-8000-000000000001", pattern: legacy.data, mode: "literal" as const, enabled: true }] }
+        : {};
+      snapshot = next === null ? deviceDefaults : schema.parse({ ...deviceDefaults, ...preferences, ...migrated });
     }
   } catch {
     snapshot = deviceDefaults;
@@ -139,6 +159,10 @@ export function saveDevicePreferences(patch: Partial<DevicePreferences>) {
   window.localStorage.setItem(KEY, JSON.stringify(next));
   window.dispatchEvent(new Event(EVENT));
   return next;
+}
+
+export function saveFileColumnWidth(column: FileColumn, width: number) {
+  return saveDevicePreferences({ fileColumnWidths: { ...read().fileColumnWidths, [column]: width } });
 }
 
 export function lastWorkspace(vaultId: string) {

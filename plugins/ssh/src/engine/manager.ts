@@ -13,7 +13,7 @@ import { agentAuth, type ConnectionAuth, type HostRecord, type ManagedHost } fro
 import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-target.js";
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { openIntegratedShell, type ShellDirectory } from "./shell-directory.js";
-import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
+import { defaultVaultPreferences, type ConnectionPreferences, type ReconnectProgress } from "../shared/preferences.js";
 import { openPrivilegedSftp } from "./privileged-sftp.js";
 import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
@@ -77,8 +77,13 @@ interface Conn {
   target: Client;
   route: ConnectionHop[];
   reconnected: boolean;
-  onLoss?: (route: string) => void;
+  recovery?: WorkspaceRecovery;
 }
+type WorkspaceRecovery = {
+  reopen(route: string, signal: AbortSignal): Promise<void>;
+  failed(error: unknown): void;
+};
+type ReconnectPlan = { connection: Conn; cancel: AbortController; progress: ReconnectProgress; timer?: NodeJS.Timeout };
 type Attempt = {
   slot?: string;
   purpose?: "pane" | "shell" | "files";
@@ -164,7 +169,7 @@ export function keyTypeOf(key: Buffer): string {
 export class SshManager {
   private disposed = false;
   private conns = new Map<string, Conn>();
-  private reconnectTimers = new Map<string, NodeJS.Timeout>();
+  private reconnectPlans = new Map<string, ReconnectPlan>();
   private shells = new Map<string, ShellRec>();
   private fileOrigins = new WeakMap<Conn, z.infer<typeof FileOrigin>>();
   private shellConnections = new WeakMap<ShellRec, Conn>();
@@ -243,7 +248,15 @@ export class SshManager {
   }
 
   connectionStatuses(): ConnectionStatus[] {
-    return [...this.statuses.values()].filter(({ hostId }) => !isQuickHost(hostId));
+    return [...this.statuses].filter(([, { hostId }]) => !isQuickHost(hostId))
+      .map(([slot, status]) => {
+        const reconnect = this.reconnectStatus(slot);
+        return reconnect ? { ...status, reconnect } : status;
+      });
+  }
+
+  reconnectStatus(slot: string): ReconnectProgress | undefined {
+    return this.reconnectPlans.get(slot)?.progress;
   }
 
   knownHosts(): KnownHostKey[] {
@@ -458,7 +471,7 @@ export class SshManager {
   private begin(hostId: string, signal?: AbortSignal, requirePromptId = false, expectedTarget?: string, quick?: Attempt["quick"], reconnectRoute?: string, owner?: { slot: string; purpose: NonNullable<Attempt["purpose"]> }) {
     if (this.disposed) throw new HuhuError("SSH_DISCONNECTED", "SSH 连接所属 Vault 已关闭");
     const slot = owner?.slot ?? hostId;
-    this.cancelReconnect(slot);
+    if (!reconnectRoute) this.cancelReconnect(slot);
     const running = this.connecting.get(slot);
     if (running) {
       if (!expectedTarget) running.direct = true;
@@ -529,9 +542,7 @@ export class SshManager {
       connection.target.on("close", () => {
         if (this.conns.get(slot) !== connection) return;
         this.drop(slot);
-        if (isQuickHost(hostId) || connection.reconnected || !this.d.connectionPreferences?.().autoReconnect) return;
-        if (attempt.purpose) connection.onLoss?.(routeIdentity);
-        else this.scheduleReconnect(hostId, routeIdentity);
+        if (!isQuickHost(hostId) && !connection.reconnected && (!attempt.purpose || connection.recovery)) this.scheduleReconnect(connection);
       });
       this.audit({ hostId, action: "connect", result: "ok", detail: `${target.user}@${target.host}:${target.port}（${chain.length - 1} 个跳板）` });
       this.update({ hostId, attemptId, state: "connected", connectionId });
@@ -844,7 +855,7 @@ export class SshManager {
     return dial;
   }
 
-  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Omit<ConnectionPreferences, "autoReconnect" | "shareConnections">): Promise<void> {
+  private connectHop(client: Client, h: HostRecord, target: HostRecord, hop: number, attempt: Attempt, auth: ConnectionAuth, sock: unknown, preferences: Pick<ConnectionPreferences, "connectTimeoutSec" | "keepaliveIntervalSec" | "keepaliveCountMax">): Promise<void> {
     const { id: attemptId, hostId, signal } = attempt;
     return new Promise((resolve, reject) => {
       let timer: NodeJS.Timeout | undefined;
@@ -1123,14 +1134,14 @@ export class SshManager {
     return status?.state === "auth-waiting" && this.attempts.get(status.attemptId)?.routeTarget === target ? status.authPrompt : undefined;
   }
 
-  async openWorkspaceShell(pane: { hostId: string; target: string; loginCommand?: string | undefined }, signal: AbortSignal, onEnd: () => void, slot = pane.hostId, recovery?: { onLoss(route: string): void; route?: string }): Promise<ShellInfo> {
+  async openWorkspaceShell(pane: { hostId: string; target: string; loginCommand?: string | undefined }, signal: AbortSignal, onEnd: () => void, slot = pane.hostId, recovery?: WorkspaceRecovery, recoveryRoute?: string): Promise<ShellInfo> {
     const { hostId, target, loginCommand } = pane;
     const chain = this.route(hostId, await this.d.hosts.list());
     const bindingChanged = () => new HuhuError("VERSION_CONFLICT", "绑定的 SSH 主机、账户或跳板身份已变更");
     if (workspaceTarget(chain) !== target) throw bindingChanged();
     signal.throwIfAborted();
     const owner = slot === hostId ? undefined : { slot, purpose: "pane" as const };
-    const dial = this.begin(hostId, owner ? signal : undefined, true, target, undefined, recovery?.route, owner);
+    const dial = this.begin(hostId, owner ? signal : undefined, true, target, undefined, recoveryRoute, owner);
     dial.workspaces++;
     const status = this.statuses.get(slot);
     if (status?.attemptId === dial.attempt.id && (status.state === "waiting" || status.state === "key-changed" || status.state === "auth-waiting") && !status.workspace) this.update({ ...status, workspace: true });
@@ -1155,7 +1166,7 @@ export class SshManager {
       this.closeShell(shell.id);
       signal.throwIfAborted();
     }
-    if (owner && recovery) connection.onLoss = recovery.onLoss;
+    if (owner && recovery) connection.recovery = recovery;
     if (loginCommand) {
       const rec = this.shells.get(shell.id);
       if (rec?.state === "running") rec.channel.write(loginCommand + "\r");
@@ -1331,20 +1342,71 @@ export class SshManager {
     }
   }
 
-  private scheduleReconnect(hostId: string, route: string): void {
-    this.cancelReconnect(hostId);
-    const timer = setTimeout(() => {
-      this.reconnectTimers.delete(hostId);
-      if (!this.d.connectionPreferences?.().autoReconnect || this.conns.has(hostId) || this.connecting.has(hostId)) return;
-      void this.begin(hostId, AbortSignal.timeout(90_000), true, undefined, undefined, route).promise.catch(() => undefined);
-    }, 1000);
-    this.reconnectTimers.set(hostId, timer);
-    timer.unref();
+  private scheduleReconnect(connection: Conn): void {
+    const preferences = this.d.connectionPreferences?.();
+    if (this.disposed || !preferences?.autoReconnect) return;
+    const { hostId, slot, routeIdentity, recovery } = connection;
+    if (this.reconnectPlans.has(slot)) return;
+    const { attempts, intervalSec, maxDelaySec } = preferences.reconnect;
+    const plan: ReconnectPlan = { connection, cancel: new AbortController(), progress: { attempt: 1, total: attempts, nextAt: null } };
+    this.reconnectPlans.set(slot, plan);
+    const current = () => this.reconnectPlans.get(slot) === plan;
+    const notify = () => this.d.publish("ssh.connectionChanged", { hostId, state: this.statuses.get(slot)?.state ?? "disconnected" });
+    const finish = () => {
+      this.reconnectPlans.delete(slot);
+      notify();
+    };
+    const schedule = (attempt: number) => {
+      const delay = Math.min(maxDelaySec, intervalSec * 2 ** (attempt - 1)) * 1000;
+      plan.progress = { attempt, total: attempts, nextAt: new Date(this.d.now().getTime() + delay).toISOString() };
+      plan.timer = setTimeout(() => void dial(attempt), delay);
+      plan.timer.unref();
+      notify();
+    };
+    const dial = async (attempt: number) => {
+      if (!current()) return;
+      if (!this.d.connectionPreferences?.().autoReconnect || this.conns.has(slot) || this.connecting.has(slot)) {
+        finish();
+        return;
+      }
+      plan.progress = { ...plan.progress, nextAt: null };
+      const signal = AbortSignal.any([plan.cancel.signal, AbortSignal.timeout(90_000)]);
+      try {
+        if (recovery) await recovery.reopen(routeIdentity, signal);
+        else await this.begin(hostId, signal, true, undefined, undefined, routeIdentity).promise;
+        if (current()) finish();
+      } catch (error) {
+        if (!current()) return;
+        if (recovery) this.drop(slot);
+        const retryable = error instanceof HuhuError && (error.code === "SSH_DISCONNECTED" || error.code === "SSH_TIMEOUT");
+        if (retryable && attempt < attempts && this.d.connectionPreferences?.().autoReconnect) {
+          schedule(attempt + 1);
+        } else {
+          finish();
+          recovery?.failed(error);
+        }
+      }
+    };
+    schedule(1);
   }
 
-  private cancelReconnect(hostId: string): void {
-    clearTimeout(this.reconnectTimers.get(hostId));
-    this.reconnectTimers.delete(hostId);
+  cancelReconnect(slot: string): boolean {
+    const plan = this.reconnectPlans.get(slot);
+    if (!plan) return false;
+    this.reconnectPlans.delete(slot);
+    clearTimeout(plan.timer);
+    plan.cancel.abort();
+    const dial = this.connecting.get(slot);
+    if (dial?.attempt.reconnectRoute) {
+      this.connecting.delete(slot);
+      dial.abort.abort();
+    }
+    if (plan.connection.recovery) this.drop(slot);
+    if (!this.conns.has(slot)) {
+      const { hostId, attemptId } = plan.connection;
+      this.update({ hostId, attemptId, state: "disconnected" }, slot);
+    }
+    return true;
   }
 
   disconnect(hostId: string): void {
@@ -1364,7 +1426,7 @@ export class SshManager {
   disposeAll(): void {
     if (this.disposed) return;
     this.disposed = true;
-    for (const slot of this.reconnectTimers.keys()) this.cancelReconnect(slot);
+    for (const slot of this.reconnectPlans.keys()) this.cancelReconnect(slot);
     for (const draft of this.drafts) draft.abort();
     for (const { abort } of this.connecting.values()) abort.abort();
     for (const { abort } of this.forwardDials.values()) abort.abort();

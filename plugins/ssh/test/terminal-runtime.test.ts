@@ -131,6 +131,50 @@ test("原生窗口交接绑定原控制者和 shell，失败保留输入，关�
   expect(write.mock.calls.map(([data]) => data.toString())).toEqual(["before handoff", "new owner", "restored"]);
 });
 
+test("工作区全部 Shell 就绪后才交接，缺少分栏保留原控制，目标关闭交回全部", async () => {
+  const write = vi.fn();
+  const attach = makeSshTerminalBridge((shell) => ({
+    write: (bytes) => write(shell, bytes.toString()), resize: vi.fn(), detach: vi.fn(),
+  }));
+  const ids = ["ssh-left", "ssh-right"];
+  const sources = ids.map(() => new ViewSocket());
+  const targets = ids.map(() => new ViewSocket());
+  const control = { cols: 80, rows: 24, observe: false, allowHandoff: true };
+  const stage = { ...control, observe: true };
+  const event = (socket: ViewSocket, payload: object) => socket.emit("message", Buffer.from(JSON.stringify(payload)), false);
+  const input = (socket: ViewSocket, value: string) => socket.emit("message", Buffer.from(value), true);
+  const prepare = (id: string) => sources.forEach((socket) => event(socket, { type: "prepare-handoff", id, members: ids.length }));
+  for (const [index, shell] of ids.entries()) await attach(shell, sources[index]!.asSocket(), control);
+
+  const failedId = randomUUID();
+  prepare(failedId);
+  const failed = new ViewSocket();
+  await attach(ids[0]!, failed.asSocket(), stage);
+  event(failed, { type: "claim-handoff", id: failedId });
+  input(failed, "premature");
+  failed.close();
+  input(sources[0]!, "unchanged");
+  expect(write.mock.calls).toEqual([["ssh-left", "unchanged"]]);
+
+  const id = randomUUID();
+  prepare(id);
+  for (const [index, shell] of ids.entries()) await attach(shell, targets[index]!.asSocket(), stage);
+  event(targets[0]!, { type: "claim-handoff", id });
+  expect(sources[0]!.sent.at(-1)).toContain("handoff-prepared");
+  event(targets[1]!, { type: "claim-handoff", id });
+  input(sources[0]!, "demoted");
+  input(targets[0]!, "moved left");
+  input(targets[1]!, "moved right");
+  targets[1]!.close();
+  expect(targets[0]!.readyState).toBe(3);
+  input(sources[0]!, "restored left");
+  input(sources[1]!, "restored right");
+  expect(write.mock.calls).toEqual([
+    ["ssh-left", "unchanged"], ["ssh-left", "moved left"], ["ssh-right", "moved right"],
+    ["ssh-left", "restored left"], ["ssh-right", "restored right"],
+  ]);
+});
+
 test("本机终端重连沿用原环境，环境移除后不启动回退进程", async () => {
   const bash = { view: { id: "a".repeat(64), kind: "shell" as const, name: "fixture-bash" }, argv: ["/test-fixture/bash"] };
   const zsh = { view: { id: "b".repeat(64), kind: "shell" as const, name: "fixture-zsh" }, argv: ["/test-fixture/zsh"] };

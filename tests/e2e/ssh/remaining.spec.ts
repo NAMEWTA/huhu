@@ -199,6 +199,77 @@ test("SSH 密钥库生成公开摘要，草稿测试可达后由字段修改清�
   }
 });
 
+test("H4.3 整工作区换窗和移回保留布局、全部分栏与焦点，目标分栏失败时保持原窗口", async () => {
+  test.skip(process.platform !== "linux", "需要 Linux 桌面");
+  test.setTimeout(65_000);
+  const password = randomUUID();
+  const keys: string[][] = [[], []];
+  const left = await startFakeSsh({ password, onShellInput: (text) => keys[0]!.push(text) });
+  const right = await startFakeSsh({ password, onShellInput: (text) => keys[1]!.push(text) });
+  try {
+    const fixture = await openApp();
+    const { app, page } = fixture;
+    try {
+      await openSsh(page);
+      const a = await saveHost(page, "迁移左栏", left.port, password);
+      const b = await saveHost(page, "迁移右栏", right.port, password);
+      const started = await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", {
+        name: "整组迁移", layout: { kind: "two" }, panes: [{ hostId: a.hostId }, { hostId: b.hostId }],
+      });
+      await approve(page, a.hostId);
+      await approve(page, b.hostId);
+      await page.getByRole("button", { name: "工作区", exact: true }).click();
+      await page.getByRole("button", { name: /整组迁移/ }).click();
+      const source = page.getByTestId("ssh-workspace-run");
+      const move = source.getByRole("button", { name: "将工作区移至新窗口" });
+      await expect(move).toBeEnabled();
+      const original = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === started.id)!;
+      const sourcePanes = source.getByTestId("ssh-workspace-run-pane");
+      for (const [index, text] of ["left-history", "right-history"].entries()) {
+        await sourcePanes.nth(index).locator(".xterm-helper-textarea").focus();
+        await page.keyboard.insertText(text);
+        await expect(sourcePanes.nth(index).locator(".xterm-rows")).toContainText(text);
+      }
+      const [destination] = await Promise.all([app.waitForEvent("window"), move.click()]);
+      const moved = destination.getByTestId("ssh-workspace-window");
+      await expect(moved).toHaveAttribute("data-layout-revision", original.layoutRevision ?? original.id);
+      const movedPanes = moved.getByTestId("ssh-workspace-run-pane");
+      for (const [index, pane] of original.panes.entries()) {
+        await expect(movedPanes.nth(index)).toHaveAttribute("data-pane-id", pane.paneId);
+        await expect(movedPanes.nth(index)).toHaveAttribute("data-session-id", pane.sessionId!);
+        await expect(movedPanes.nth(index).locator(".xterm-rows")).toContainText(index === 0 ? "left-history" : "right-history");
+      }
+      await expect(movedPanes.last().locator(".xterm-helper-textarea")).toBeFocused();
+      await expect(source.getByText("工作区已移至新窗口。关闭该窗口可移回。")).toBeVisible();
+      await destination.keyboard.insertText("moved-right");
+      await movedPanes.first().locator(".xterm-helper-textarea").focus();
+      await destination.keyboard.insertText("moved-left");
+      await moved.getByRole("button", { name: "将工作区移回" }).click();
+      await expect(sourcePanes.first().locator(".xterm-helper-textarea")).toBeFocused();
+      await expect(move).toBeEnabled();
+      await page.keyboard.insertText("restored-left");
+      await expect.poll(() => keys.map((chunks) => chunks.join(""))).toEqual(["left-historymoved-leftrestored-left", "right-historymoved-right"]);
+
+      const failedShell = original.panes[1]!.sessionId!;
+      await page.context().routeWebSocket((url) => url.pathname.endsWith(`/${failedShell}`) && url.searchParams.get("mode") === "observe", (socket) => socket.close());
+      await move.click();
+      await expect(source.getByRole("alert")).toContainText("原窗口仍可使用", { timeout: 18_000 });
+      await sourcePanes.last().locator(".xterm-helper-textarea").focus();
+      await page.keyboard.insertText("source-right");
+      await expect.poll(() => keys[1]!.join("")).toBe("right-historymoved-rightsource-right");
+      const current = (await desktopCall<WorkspaceRun[]>(page, "ssh.workspace.runs.list")).find(({ id }) => id === started.id)!;
+      expect(current).toEqual(original);
+      expect(left.conns).toHaveLength(1);
+      expect(right.conns).toHaveLength(1);
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await left.close();
+    await right.close();
+  }
+});
+
 test("交换、最大化和关闭 SSH 分栏时，其他分栏保留原会话", async () => {
   const password = randomUUID();
   const leftInput: string[] = [];

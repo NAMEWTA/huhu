@@ -184,7 +184,7 @@ for (const entry of ["桌面", "独立 Web"] as const) {
       const hosts = [];
       const names = ["键入甲", "键入乙", "键入丙"];
       for (let index = 0; index < names.length; index++) hosts.push(await saveHost(page, names[index]!, servers[index]!.port, password));
-      await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "持续键入验收", layout: { kind: "three" }, panes: hosts });
+      await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "持续键入验收", layout: { kind: "three" }, panes: hosts.map(({ hostId }) => ({ hostId })) });
       for (const { hostId } of hosts) await trustHost(page, hostId);
       let view = page;
       if (entry === "独立 Web") {

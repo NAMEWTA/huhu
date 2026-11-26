@@ -83,6 +83,18 @@ b {
   height: 100%;
   font-size: calc(var(--font-size, 14px) - 1px);
 }
+.hu-terminal-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.hu-terminal-highlight-layer > span {
+  position: absolute;
+  outline: 1px solid var(--warning-text);
+  outline-offset: -1px;
+  background: var(--warning-bg);
+  opacity: 0.42;
+}
 .hu-terminal-overlay {
   position: absolute;
   inset: auto 0 0 0;

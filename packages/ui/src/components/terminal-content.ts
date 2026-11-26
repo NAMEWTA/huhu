@@ -1,4 +1,5 @@
 import type { IBuffer, IBufferLine, IBufferRange } from "@xterm/xterm";
+import type { HighlightMatch } from "./terminal-highlight-patterns.js";
 
 type TerminalPosition = IBufferRange["start"];
 type Part = { row: number; line: IBufferLine; offset: number; text: string };
@@ -91,19 +92,36 @@ export function terminalHttpUrl(value: string): string | undefined {
   }
 }
 
-export function terminalKeywordRanges(buffer: IBuffer, cols: number, firstRow: number, rows: number, keyword: string): IBufferRange[] {
-  if (!keyword) return [];
-  const ranges: IBufferRange[] = [];
-  for (let row = firstRow; row < firstRow + rows && ranges.length < 64; row++) {
+export function terminalHighlightViewport(buffer: IBuffer, cols: number, firstRow: number, rows: number) {
+  const parts: Part[] = [];
+  let text = "";
+  for (let row = firstRow; row < firstRow + rows; row++) {
     const line = buffer.getLine(row);
     if (!line) break;
-    const text = line.translateToString(true);
-    const part = { row, line, offset: 0, text };
-    for (let index = text.indexOf(keyword); index >= 0 && ranges.length < 64; index = text.indexOf(keyword, index + keyword.length)) {
-      ranges.push(range([part], cols, index, keyword.length));
-    }
+    const next = row + 1 < firstRow + rows ? buffer.getLine(row + 1) : undefined;
+    const wrapped = next?.isWrapped ?? false;
+    const padding = wrapped && next?.getCell(0)?.getWidth() === 2 && line.getCell(cols - 1)?.getChars() === "";
+    const value = line.translateToString(!wrapped, 0, padding ? cols - 1 : cols);
+    parts.push({ row, line, offset: text.length, text: value });
+    text += value;
+    if (next && !wrapped) text += "\n";
   }
-  return ranges;
+  return {
+    text,
+    ranges(matches: readonly HighlightMatch[]) {
+      const ranges: { start: TerminalPosition; end: TerminalPosition; ruleIndex: number }[] = [];
+      for (const { offset, length, ruleIndex } of matches) {
+        for (const part of parts) {
+          const from = Math.max(offset, part.offset);
+          const to = Math.min(offset + length, part.offset + part.text.length);
+          if (to <= from) continue;
+          ranges.push({ ...range([part], cols, from, to - from), ruleIndex });
+          if (ranges.length >= 128) return ranges;
+        }
+      }
+      return ranges;
+    },
+  };
 }
 
 export function terminalLinks(buffer: IBuffer, cols: number, row: number): { range: IBufferRange; text: string }[] {
