@@ -1,5 +1,8 @@
 import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ManagedHost } from "../../../plugins/ssh/src/ui/host-record.js";
 import type { RecordingContent, RecordingSummary } from "../../../plugins/ssh/src/shared/recordings.js";
@@ -40,6 +43,68 @@ function saveHost(page: Page, name: string, port: number, password: string) {
     credentials: [{ action: "replace", purpose: "password", value: password }],
   });
 }
+
+test("H5.1 SSH Linux 真实分页器显示宽字符并还原原终端画面", async () => {
+  test.skip(process.platform !== "linux" || !existsSync("/usr/bin/script") || !existsSync("/usr/bin/less"), "需要 Linux 的 script 与 less");
+  const fixture = await openApp();
+  const password = randomUUID();
+  const { page, vault } = fixture;
+  writeFileSync(path.join(vault, "pager-fixture.txt"), "远端全屏宽字符\n" + "测试分页器内容\n".repeat(100));
+  let ptyClosed: Promise<void> | undefined;
+  const server = await startFakeSsh({
+    password,
+    onInteractiveShell(channel) {
+      const pty = spawn("/usr/bin/script", ["-qefc", "/bin/sh", "/dev/null"], {
+        cwd: vault,
+        env: { PATH: "/usr/bin:/bin", LANG: "C.UTF-8", TERM: "xterm-256color" },
+      });
+      ptyClosed = new Promise((resolve) => pty.once("close", () => resolve()));
+      channel.pipe(pty.stdin);
+      pty.stdout.pipe(channel, { end: false });
+      pty.stderr.pipe(channel, { end: false });
+      pty.stdin.on("error", () => channel.end());
+      pty.once("error", () => channel.destroy());
+      pty.once("close", (code) => {
+        if (!channel.destroyed) {
+          channel.exit(code ?? 1);
+          channel.end();
+        }
+      });
+      channel.once("close", () => pty.kill());
+    },
+  });
+  try {
+    await openSsh(page);
+    const { hostId } = await saveHost(page, "分页器夹具", server.port, password);
+    await desktopCall<WorkspaceRun>(page, "ssh.workspace.runs.start", { name: "分页器终端", layout: { kind: "one" }, panes: [{ hostId }] });
+    await page.getByRole("button", { name: "工作区", exact: true }).click();
+    await page.getByRole("button", { name: /分页器终端.*代次 1/ }).click();
+    const run = page.getByTestId("ssh-workspace-run");
+    await run.getByRole("button", { name: "信任并连接" }).click();
+    const pane = run.getByTestId("ssh-workspace-run-pane");
+    const terminal = pane.getByTestId("terminal-view");
+    const rows = terminal.locator(".xterm-rows");
+    await expect(terminal).toHaveAttribute("data-state", "open");
+    const sessionId = await pane.getAttribute("data-session-id");
+    await terminal.locator(".xterm-helper-textarea").focus();
+    await page.keyboard.type("printf 'origin-%s\\n' 42");
+    await page.keyboard.press("Enter");
+    await expect(rows).toContainText("origin-42");
+    await page.keyboard.type("less pager-fixture.txt");
+    await page.keyboard.press("Enter");
+    await expect(rows).toContainText("远端全屏宽字符");
+    await expect(rows).not.toContainText("origin-42");
+    await page.keyboard.press("q");
+    await expect(rows).toContainText("origin-42");
+    await expect(rows).not.toContainText("远端全屏宽字符");
+    await expect(pane).toHaveAttribute("data-session-id", sessionId!);
+    expect(server.conns).toHaveLength(1);
+  } finally {
+    await fixture.close();
+    await server.close();
+    await ptyClosed;
+  }
+});
 
 test("SSH 密钥库生成公开摘要，草稿测试可达后由字段修改清除", async () => {
   const password = randomUUID();
