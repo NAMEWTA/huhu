@@ -7,6 +7,7 @@ import { hostImportConfirmDescriptor, hostImportPreviewDescriptor } from "./impo
 import { sshAuthenticationDescriptor } from "./authentication-capability.js";
 import { sshQuickConnectionDescriptors } from "./quick-connection-capabilities.js";
 import { sshScpDescriptors } from "./scp-capabilities.js";
+import { sshPrivilegedFileDescriptors } from "./privileged-file-capabilities.js";
 import { sshConfigSyncDescriptors } from "./config-sync.js";
 import { sshDraftDescriptor } from "./draft-connection.js";
 import { sshHostAuthorityDescriptors } from "./host-authorities.js";
@@ -92,6 +93,7 @@ export const sshCapabilityDescriptors = {
   authenticationAnswer: sshAuthenticationDescriptor,
   ...sshQuickConnectionDescriptors,
   ...sshScpDescriptors,
+  ...sshPrivilegedFileDescriptors,
   hostsTestDraft: sshDraftDescriptor,
   workspaceRunChangeLayout: sshWorkspacePaneDescriptor,
   routesEdit: defineCapabilityDescriptor({

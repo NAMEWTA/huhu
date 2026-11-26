@@ -14,6 +14,7 @@ import { connectionIdentity, routeForHost, workspaceTarget } from "./workspace-t
 import type { DirectoryFollowState, FileOrigin } from "../shared/files.js";
 import { openIntegratedShell, type ShellDirectory } from "./shell-directory.js";
 import { defaultVaultPreferences, type ConnectionPreferences } from "../shared/preferences.js";
+import { openPrivilegedSftp } from "./privileged-sftp.js";
 import type { z } from "zod";
 import { interruptExecChannel } from "./exec-interrupt.js";
 import type { DraftConnectionResult } from "../shared/draft-connection.js";
@@ -1253,7 +1254,7 @@ export class SshManager {
   }
 
   /** SFTP：每次操作借用绑定的 SSH 连接，独立开关通道。 */
-  async withSftp<T>(source: SftpSource, action: string, detail: string, fn: (s: SFTPWrapper, signal: AbortSignal) => Promise<T>, opts: { transfer?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
+  async withSftp<T>(source: SftpSource, action: string, detail: string, fn: (s: SFTPWrapper, signal: AbortSignal) => Promise<T>, opts: { transfer?: boolean; signal?: AbortSignal; timeoutMs?: number; elevated?: boolean } = {}): Promise<T> {
     const binding = typeof source === "string" ? undefined : source;
     const hostId = typeof source === "string" ? source : source.hostId;
     const conn = this.conns.get(hostId);
@@ -1289,7 +1290,7 @@ export class SshManager {
       });
       stop.catch(() => undefined);
       session = await Promise.race([
-        new Promise<SFTPWrapper>((resolve, reject) =>
+        opts.elevated ? openPrivilegedSftp(target, signal) : new Promise<SFTPWrapper>((resolve, reject) =>
           target.sftp((err, channel) => {
             if (err) return reject(err);
             if (signal.aborted) {

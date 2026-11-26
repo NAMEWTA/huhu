@@ -1,5 +1,6 @@
 import { issueMcpCredential, mcpRequest, mcpRpc, openMcpSession, openRecoverableMcpSession, recoveryInitialize } from "../../../packages/kernel/test/fixtures/mcp-http.js";
 import { randomUUID } from "node:crypto";
+import { execFileSync, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
@@ -28,6 +29,9 @@ import type { ProxyProfile, ProxyRouting } from "../src/shared/outbound-proxy.js
 import type { TransferJob, TransferQueue } from "../src/shared/transfers.js";
 import { startFakeSsh, type FakeSshOptions } from "./fake-server.js";
 import { ownedArchiveFixture } from "./owned-archive-fixture.js";
+import { privilegedSftpCommand } from "../src/engine/privileged-sftp.js";
+import { localPosixCommand } from "./shell-relay-fixture.js";
+import type { FileDocument, FileSession } from "../src/shared/files.js";
 
 const hostGet = "ssh.resources.host.get";
 const probeStart = "ssh.resources.connection.start";
@@ -42,6 +46,60 @@ const jobCancel = "ssh.jobs.cancel";
 const execCancel = "ssh.exec.cancel";
 const execRun = "ssh.exec.run";
 const jobCapabilities = [jobPrepare, jobStart, jobGet, jobOutput, jobCancel];
+
+test("privileged SFTP uses sudo on just the original file binding and keeps file ownership", { timeout: 20_000 }, async (ctx) => {
+  if (process.platform !== "linux" || spawnSync("sudo", ["-n", "true"]).status !== 0 || spawnSync("test", ["-x", "/usr/lib/openssh/sftp-server"]).status !== 0) {
+    ctx.skip("requires passwordless sudo and OpenSSH sftp-server on the Linux loopback host");
+    return;
+  }
+  const f = await fixture();
+  const root = await mkdtemp(path.join(tmpdir(), "huhu-privileged-files-"));
+  try {
+    const secret = path.join(root, "fixture.txt");
+    const seed = path.join(root, "seed.txt");
+    await writeFile(seed, "restricted fixture");
+    execFileSync("sudo", ["-n", "install", "-m", "600", seed, secret]);
+    const first = await f.host("sudo SFTP", [], { noSftp: true, onInteractiveExec(command, channel) {
+      if (command !== privilegedSftpCommand) return false;
+      localPosixCommand(channel, command);
+      return true;
+    } });
+    const second = await f.host("sudo unavailable", [], { noSftp: true, onInteractiveExec(command, channel) {
+      if (command !== privilegedSftpCommand) return false;
+      channel.exit(1);
+      channel.end();
+      return true;
+    } });
+    async function connect(hostId: string) {
+      await f.desktop("ssh.connect", { hostId, background: true });
+      const state = async () => (await f.desktop<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
+      await expect.poll(async () => (await state())?.state).toBe("waiting");
+      const pending = await state();
+      if (pending?.state !== "waiting") throw new Error("Missing initial trust decision for file fixture");
+      await f.desktop("ssh.hostKey.decide", { attemptId: pending.attemptId, hop: 0, promptId: pending.prompt.promptId, accept: true });
+      await expect.poll(async () => (await state())?.state).toBe("connected");
+      return f.desktop<FileSession>("ssh.fileSessions.open", { hostId });
+    }
+    const original = await connect(first.hostId);
+    const denied = await connect(second.hostId);
+    expect(await f.desktop("ssh.fileSessions.sudo.probe", { fileSessionId: original.fileSessionId })).toEqual({ available: true });
+    expect(await f.desktop("ssh.fileSessions.sudo.probe", { fileSessionId: denied.fileSessionId })).toEqual({ available: false });
+    const input = { fileSessionId: original.fileSessionId, path: secret };
+    await expect(f.desktop("ssh.fileSessions.document.open", input)).rejects.toThrow("document.open");
+    const document = await f.desktop<FileDocument>("ssh.fileSessions.sudo.read", input);
+    expect(document.text).toBe("restricted fixture");
+    const text = "经原端点 sudo 写回";
+    await f.desktop("ssh.fileSessions.sudo.save", { ...input, text, expectedVersion: document.version });
+    expect(await f.desktop<FileDocument>("ssh.fileSessions.sudo.read", input)).toMatchObject({ text, mode: "600" });
+    expect(execFileSync("sudo", ["-n", "stat", "-c", "%u:%a", "--", secret], { encoding: "utf8" }).trim()).toBe("0:600");
+    await f.desktop("ssh.fileSessions.close", { fileSessionId: original.fileSessionId });
+    await expect(f.desktop("ssh.fileSessions.sudo.read", input)).rejects.toThrow("NOT_FOUND");
+    expect(first.server.conns).toHaveLength(1);
+  } finally {
+    await f.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("workbench dynamic split gives the new SSH host its own trust prompt", async () => {
   const f = await fixture();

@@ -7,10 +7,10 @@ import { EDIT_MAX_BYTES, type FileDocument, type FileSession } from "../shared/f
 const editable = (text: string) => text.replace(/\r\n|\r/g, "\n");
 const externalEditor = () => (globalThis as { huhuHost?: { sshExternalEditor?: SshExternalEditorHost } }).huhuHost?.sshExternalEditor;
 
-export function RemoteTextEditor({ session, initial, onClose }: { session: FileSession; initial: FileDocument; onClose: () => void }) {
+export function RemoteTextEditor({ session, initial, onClose, sudoSignal }: { session: FileSession; initial: FileDocument; onClose: () => void; sudoSignal?: AbortSignal }) {
   const engine = useEngine();
   const field = useRef<HTMLTextAreaElement>(null);
-  const external = externalEditor();
+  const external = sudoSignal ? undefined : externalEditor();
   const externalScope = useRef<{ id?: string } | undefined>(undefined);
   const [hasExternalCopy, setHasExternalCopy] = useState(false);
   const formId = useId();
@@ -108,14 +108,14 @@ export function RemoteTextEditor({ session, initial, onClose }: { session: FileS
     setNote("");
     try {
       const saved = await engine.call<Omit<FileDocument, "text">>(
-        "ssh.fileSessions.document.save",
+        sudoSignal ? "ssh.fileSessions.sudo.save" : "ssh.fileSessions.document.save",
         {
           fileSessionId: session.fileSessionId,
           path: document.path,
           text: draft,
           expectedVersion: document.version,
         },
-        { write: true },
+        { write: true, ...(sudoSignal && { signal: sudoSignal }) },
       );
       setDocument({ ...saved, text: draft });
       setConflict(false);
@@ -133,7 +133,11 @@ export function RemoteTextEditor({ session, initial, onClose }: { session: FileS
     setBusy(true);
     setError("");
     try {
-      setRemote(await engine.call<FileDocument>("ssh.fileSessions.document.open", { fileSessionId: session.fileSessionId, path: document.path }));
+      setRemote(await engine.call<FileDocument>(
+        sudoSignal ? "ssh.fileSessions.sudo.read" : "ssh.fileSessions.document.open",
+        { fileSessionId: session.fileSessionId, path: document.path },
+        sudoSignal ? { signal: sudoSignal } : {},
+      ));
     } catch (error) {
       if (error instanceof Error) setError(error.message);
     } finally {
@@ -145,7 +149,7 @@ export function RemoteTextEditor({ session, initial, onClose }: { session: FileS
     <Dialog
       open
       wide
-      title="编辑远端文本"
+      title={sudoSignal ? "以 sudo 编辑远端文本" : "编辑远端文本"}
       error={error}
       onClose={() => {
         if (!busy) onClose();

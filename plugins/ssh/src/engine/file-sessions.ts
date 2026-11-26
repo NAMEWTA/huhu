@@ -182,11 +182,11 @@ export class FileSessions {
     return { ok: true as const };
   }
 
-  readDocument(id: string, file: string, signal: AbortSignal) {
-    return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal });
+  readDocument(id: string, file: string, signal: AbortSignal, elevated = false) {
+    return this.manager.withSftp(this.source({ fileSessionId: id }), "document.open", file, (channel, active) => openDocument(channel, file, active), { signal, elevated });
   }
 
-  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void) {
+  writeDocument(id: string, file: string, text: string, version: string, signal: AbortSignal, beforeWrite?: () => void, elevated = false) {
     const { session } = this.lookup(id);
     return this.manager.withSftp(
       this.source({ fileSessionId: id }),
@@ -199,7 +199,7 @@ export class FileSessions {
           return saveDocument(channel, abs, text, version, active, beforeWrite);
         });
       },
-      { signal },
+      { signal, elevated },
     );
   }
 

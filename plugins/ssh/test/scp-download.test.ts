@@ -11,7 +11,7 @@ import type { ConnectionStatus } from "../src/shared/trust.js";
 import { startFakeSsh } from "./fake-server.js";
 import { localPosixCommand } from "./shell-relay-fixture.js";
 
-test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/scp"))("desktop fallback downloads a single file with real SCP and refuses an unexpected protocol name", { timeout: 20_000 }, async () => {
+test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/scp"))("desktop fallback transfers single files with real SCP and preserves existing targets", { timeout: 20_000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), "huhu-real-scp-"));
   const vaultPath = path.join(root, "vault");
   const desktopUserData = path.join(root, "device");
@@ -27,7 +27,7 @@ test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/scp"))("deskto
       channel.once("data", () => channel.write("C0600 3 unrelated.bin\n"));
       return true;
     }
-    if (command === "command -v scp >/dev/null 2>&1" || command.includes("exec scp -f -- ")) {
+    if (command.startsWith("command -v scp >/dev/null 2>&1") || command.includes("exec scp -f -- ") || (command.startsWith("cd -P -- ") && command.includes(".huhu-scp-"))) {
       localPosixCommand(channel, command);
       return true;
     }
@@ -56,6 +56,15 @@ test.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/scp"))("deskto
     await expect(transfer(remote, "copy.bin")).rejects.toMatchObject({ code: "NAME_CONFLICT" });
     await expect(transfer(wrong, "no-copy.bin")).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(await readdir(local)).toEqual(["copy.bin"]);
+    expect(await client.call("ssh.fileSessions.scp.uploadSupport", { fileSessionId })).toEqual({ available: true });
+    const uploaded = path.join(root, "上传 '文件'.bin");
+    const upload = (remote: string) => client.call("ssh.fileSessions.scp.upload", { fileSessionId, local: path.join(local, "copy.bin"), remote }, options);
+    expect(await upload(uploaded)).toEqual({ size: bytes.length });
+    expect(await readFile(uploaded)).toEqual(bytes);
+    await writeFile(uploaded, Buffer.from("original remains"));
+    await expect(upload(uploaded)).rejects.toMatchObject({ code: "NAME_CONFLICT" });
+    expect(await readFile(uploaded, "utf8")).toBe("original remains");
+    expect((await readdir(root)).some((name) => name.startsWith(".huhu-scp-"))).toBe(false);
     await client.call("ssh.fileSessions.close", { fileSessionId }, options);
     await expect(transfer(remote, "after-close.bin")).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(server.conns).toHaveLength(1);
