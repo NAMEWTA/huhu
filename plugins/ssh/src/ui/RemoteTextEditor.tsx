@@ -231,8 +231,11 @@ export function RemoteTextEditor({ session, initial, onClose, sudoSignal, sudoSe
             onClick={() => {
               const input = field.current;
               if (!input) return;
-              const start = input.selectionStart === 0 ? 0 : draft.lastIndexOf("\n", input.selectionStart - 1) + 1;
-              const nextBreak = draft.indexOf("\n", input.selectionEnd);
+              const { selectionStart, selectionEnd } = input;
+              const start = selectionStart === 0 ? 0 : draft.lastIndexOf("\n", selectionStart - 1) + 1;
+              // A selection ending at the beginning of the next line excludes that line.
+              const lastSelected = selectionEnd > selectionStart ? selectionEnd - 1 : selectionEnd;
+              const nextBreak = draft.indexOf("\n", lastSelected);
               const end = nextBreak < 0 ? draft.length : nextBreak;
               replace(
                 start,

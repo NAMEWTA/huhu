@@ -967,6 +967,8 @@ test("H6.3 远端编辑保持权限和文本格式，版本冲突保留两份内
     expect(remote.fs.permissions.get(editPath)).toBe(0o640);
     expect(remote.fs.owners.get(editPath)).toEqual({ uid: 1000, gid: 2000 });
 
+    await expect.poll(() => draft.evaluate((input: HTMLTextAreaElement) => input.selectionStart)).toBe("beta\n".length);
+    await draft.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(input.selectionStart, input.value.length));
     const other = await sshCall<FileSession>(page, "ssh.fileSessions.open", { hostId: host.hostId });
     expect(other.ok).toBe(true);
     const read = await sshCall<FileDocument>(page, "ssh.fileSessions.document.open", { fileSessionId: other.data.fileSessionId, path: editPath });
