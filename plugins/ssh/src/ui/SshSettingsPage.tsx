@@ -65,7 +65,7 @@ const keys = {
 } as const satisfies Record<DeviceCategory, readonly (keyof typeof fields)[]>;
 const navigationSearch = `${fields.hiddenNavigation} ${Object.values(sshNavigation).join(" ")}`;
 const startupSearch = "SSH 启动与恢复 启动时自动连接的主机 工作区恢复策略";
-const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连一次 同主机的新终端复用 SSH 连接", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
+const vaultSearch = { files: "并发传输数 SFTP", connection: "连接超时（秒） 协议保活间隔（秒） 协议保活最大次数 断线后自动重连 自动重连次数 重试间隔 退避上限 同主机的新终端复用 SSH 连接", terminal: "录制与历史 允许开始新的终端录制 录制历史上限" };
 
 function DeviceForm({ category, filter }: { category: DeviceCategory; filter: string }) {
   const headingId = useId();

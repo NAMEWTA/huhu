@@ -229,7 +229,8 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
           {visible.map((entry) => {
             const host = hostById.get(entry.hostId)!;
             const state = statuses.get(host.id)?.state;
-            const openConnection = state === "connected" || state === "connecting" || state === "waiting" || state === "auth-waiting" || state === "key-changed";
+            const reconnect = statuses.get(host.id)?.reconnect;
+            const openConnection = Boolean(reconnect) || state === "connected" || state === "connecting" || state === "waiting" || state === "auth-waiting" || state === "key-changed";
             const menuIds = checked.has(host.id) ? selected : [host.id];
             const menuManaged = menuIds.every((id) => isManagedHost(hostById.get(id)!));
             const one = menuIds.length === 1;
@@ -259,7 +260,7 @@ export function HostDirectory({ directory, hosts, statuses, onBack, onOpen, onCo
                   <input type="checkbox" aria-label={`选择 ${host.name}`} checked={checked.has(host.id)} onChange={(event) => toggle(host.id, event.target.checked)} />
                   <strong>{host.name}</strong>
                   {entry.pinned ? <Badge>已置顶</Badge> : null}
-                  {openConnection ? <Badge>{state === "connected" ? "已连接" : "连接待处理"}</Badge> : null}
+                  {openConnection ? <Badge>{state === "connected" ? "已连接" : reconnect ? "自动重连" : "连接待处理"}</Badge> : null}
                 </div>
                 <code>{host.user}@{hostEndpoint(host)}</code>
                 <div className="row">

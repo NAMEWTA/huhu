@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HostKeyPrompt, SshAuthenticationPrompt } from "./trust.js";
+import { ReconnectProgress } from "./preferences.js";
 
 export const MAX_WORKSPACE_PANES = 12;
 export const PRESETS = ["one", "two", "three", "main-right", "main-bottom", "tabs"] as const;
@@ -107,6 +108,7 @@ const RunPane = z.object({
   label: z.string(),
   phase: z.enum(["reconnect", "connecting", "trust", "authentication", "ready", "failed", "ended"]),
   sessionId: z.string().optional(),
+  reconnect: ReconnectProgress.optional(),
   prompt: HostKeyPrompt.optional(),
   authPrompt: SshAuthenticationPrompt.optional(),
   error: z.object({ code: z.string(), message: z.string() }).optional(),

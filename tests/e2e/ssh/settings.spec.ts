@@ -153,6 +153,57 @@ test("H10.2 SSH 启动目标和工作区恢复策略在下一次载入时生效"
   }
 });
 
+test("H10.2 非预期断线显示下一次重连并允许取消", async () => {
+  test.setTimeout(45_000);
+  const server = await startFakeSsh();
+  try {
+    const fixture = await openApp();
+    const { page } = fixture;
+    const call = <T>(capability: string, input?: unknown) => desktopCall<T>(page, capability, input);
+    try {
+      await expect(page.getByTestId("engine-state")).toHaveText("引擎就绪", { timeout: 20_000 });
+      const { hostId } = await call<{ hostId: string }>("ssh.hosts.configure", {
+        name: "自动重连夹具", host: "127.0.0.1", port: server.port, user: "fixture", authKind: "password", expectedRevision: null,
+        credentials: [{ purpose: "password", action: "replace", value: "pw" }],
+      });
+      const ssh = page.getByRole("button", { name: "远程连接", exact: true }).first();
+      const module = page.getByTestId("ssh-module");
+      await ssh.click();
+      await module.getByRole("button", { name: "SSH 设置", exact: true }).click();
+      const settings = page.getByTestId("ssh-settings");
+      await settings.getByPlaceholder("搜索 SSH 设置").fill("自动重连");
+      const enabled = settings.getByLabel("断线后自动重连");
+      await expect(enabled).not.toBeChecked();
+      await enabled.check();
+      await expect(settings.getByLabel("自动重连次数")).toHaveValue("1");
+      await settings.getByLabel("自动重连次数").fill("3");
+      await settings.getByLabel("重试间隔（秒）").fill("2");
+      await settings.getByLabel("退避上限（秒）").fill("4");
+      await settings.getByRole("button", { name: "保存库内设置", exact: true }).click();
+      await expect(settings.getByText("已保存到当前库。")).toBeVisible();
+      await ssh.click();
+      await module.getByRole("button", { name: "打开主机详情 自动重连夹具" }).click();
+      await call("ssh.connect", { hostId, background: true });
+      const current = async () => (await call<ConnectionStatus[]>("ssh.connections.status")).find((item) => item.hostId === hostId);
+      await expect.poll(async () => (await current())?.state).toBe("waiting");
+      const waiting = await current();
+      if (waiting?.state !== "waiting") throw new Error("回环指纹不可用");
+      await call("ssh.hostKey.decide", { attemptId: waiting.attemptId, hop: 0, promptId: waiting.prompt.promptId, accept: true });
+      await expect.poll(async () => (await current())?.state).toBe("connected");
+      await server.close();
+      await expect(module.getByText(/第 2 \/ 3 次重试安排在/)).toBeVisible({ timeout: 6000 });
+      await module.getByRole("button", { name: "取消自动重连", exact: true }).click();
+      await expect(module.getByText(/次重试安排在/)).toHaveCount(0);
+      expect(await current()).toMatchObject({ state: "disconnected" });
+      expect((await current())?.reconnect).toBeUndefined();
+    } finally {
+      await fixture.close();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("H10.1 保存并排序跨行终端高亮规则，命令补全和锁定工具栏仍可用", async () => {
   const preferenceKey = "huhu.ssh.device-preferences.v1";
   let input = "";
@@ -284,7 +335,7 @@ test("A12 SSH navigation and recording settings apply to their own UI and can be
     await settings.getByRole("button", { name: "保存库内设置" }).click();
     await expect(settings.getByText("已保存到当前库。")).toBeVisible();
     await search.fill("自动重连");
-    await settings.getByLabel("断线后自动重连一次").check();
+    await settings.getByLabel("断线后自动重连").check();
     await settings.getByRole("button", { name: "保存库内设置" }).click();
     await expect(settings.getByText("已保存到当前库。")).toBeVisible();
     expect(await desktopCall(page, "ssh.settings.get")).toMatchObject({

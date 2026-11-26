@@ -14,6 +14,7 @@ import { deviceDefaults, saveDevicePreferences, useDevicePreferences, type Devic
 import { AuthenticationDialog } from "./AuthenticationDialog.js";
 import { TerminalActions } from "./TerminalActions.js";
 import { RecordTerminal } from "./TerminalRecordings.js";
+import { ReconnectSchedule } from "./ReconnectSchedule.js";
 import { broadcastTerminalKey, currentBroadcastTargets, type TerminalTarget } from "./terminal-broadcast.js";
 
 const PHASES: Record<WorkspaceRunPane["phase"], string> = {
@@ -136,6 +137,14 @@ export function WorkspaceRunView({
     } finally {
       await qc.invalidateQueries({ queryKey: query });
       setSaving(false);
+    }
+  }
+  async function cancelPaneReconnect(paneId: string) {
+    try {
+      await engine.call("ssh.workspace.runs.cancelPaneReconnect", { id: run.id, generation: run.generation, paneId }, { write: true });
+      await qc.invalidateQueries({ queryKey: query });
+    } catch (error) {
+      setLayoutError(error instanceof Error ? error.message : "无法取消分栏自动重连。");
     }
   }
   function relayout(layout: WorkspaceLayout, paneIds = run.panes.map(({ paneId }) => paneId)) {
@@ -354,6 +363,12 @@ export function WorkspaceRunView({
                   <header className="ssh-workspace-controls">
                     <strong>{pane.label}</strong>
                     <span role="status">{PHASES[pane.phase]}</span>
+                    {pane.reconnect && (
+                      <>
+                        <ReconnectSchedule progress={pane.reconnect} />
+                        <Button type="button" onClick={() => void cancelPaneReconnect(pane.paneId)}>取消自动重连</Button>
+                      </>
+                    )}
                     {pane.phase === "ready" && (
                       <Button aria-pressed={Boolean(locked[pane.paneId])} onClick={() => setLocked((current) => ({ ...current, [pane.paneId]: !current[pane.paneId] }))}>
                         {locked[pane.paneId] ? "解除输入锁定" : "锁定输入"}

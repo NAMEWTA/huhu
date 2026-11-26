@@ -34,7 +34,7 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
   try {
     const client = await open("primary", true);
     expect(await get(client)).toEqual({ revision: null, values: defaultVaultPreferences });
-    const connection = { connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0, autoReconnect: false, shareConnections: false };
+    const connection = { ...defaultVaultPreferences.connection, connectTimeoutSec: 1, keepaliveIntervalSec: 0, keepaliveCountMax: 0, shareConnections: false };
     const saved = await update(client, null, { section: "connection", values: connection });
     const outcomes = await Promise.allSettled([3, 4].map((parallel) => update(client, saved.revision, { section: "transfer", values: { parallel } })));
     expect(outcomes.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
@@ -43,6 +43,7 @@ test("SSH default settings are revisioned per Vault and drive the next handshake
     expect(next.values.connection).toEqual(connection);
     expect(await client.call("ssh.transfers.list")).toMatchObject({ parallel: next.values.transfer.parallel });
     await expect(update(client, next.revision, { section: "transfer", values: { parallel: 0 } })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(update(client, next.revision, { section: "connection", values: { ...connection, reconnect: { attempts: 2, intervalSec: 5, maxDelaySec: 1 } } })).rejects.toMatchObject({ code: "INVALID_INPUT" });
 
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -142,7 +143,7 @@ test("saved auto-reconnect and recording preferences change subsequent transport
     await expect.poll(async () => {
       const pane = await readPane();
       return pane?.phase === "ready" && pane.sessionId !== oldShell;
-    }).toBe(true);
+    }, { timeout: 5000 }).toBe(true);
     const newFiles = await client.call<FileSession>("ssh.fileSessions.open", { hostId, shellId: (await readPane())!.sessionId! }, write);
     expect(newFiles.connectionId).not.toBe(oldFiles.connectionId);
     expect(await client.call<FileSession[]>("ssh.fileSessions.list")).toContainEqual(expect.objectContaining({ fileSessionId: oldFiles.fileSessionId, state: "disconnected" }));

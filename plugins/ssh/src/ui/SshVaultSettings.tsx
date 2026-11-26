@@ -89,10 +89,23 @@ function VaultForm({ section, initial, reload }: { section: Section; initial: Va
             />
           </label>
           <div className="hu-setting-row">
-            <label htmlFor={autoReconnectId}>断线后自动重连一次</label>
+            <label htmlFor={autoReconnectId}>断线后自动重连</label>
             <input id={autoReconnectId} type="checkbox" checked={draft.connection.autoReconnect} onChange={(event) =>
               setDraft({ ...draft, connection: { ...draft.connection, autoReconnect: event.currentTarget.checked } })} />
           </div>
+          {([
+            ["attempts", "自动重连次数", 10],
+            ["intervalSec", "重试间隔（秒）", 300],
+            ["maxDelaySec", "退避上限（秒）", 300],
+          ] as const).map(([key, label, max]) => (
+            <label className="hu-setting-row" key={key}>{label}
+              <input type="number" required min={key === "maxDelaySec" ? draft.connection.reconnect.intervalSec || 1 : 1} max={max}
+                disabled={!draft.connection.autoReconnect}
+                value={Number.isNaN(draft.connection.reconnect[key]) ? "" : draft.connection.reconnect[key]}
+                onChange={(event) => setDraft({ ...draft, connection: { ...draft.connection,
+                  reconnect: { ...draft.connection.reconnect, [key]: event.currentTarget.valueAsNumber } } })} />
+            </label>
+          ))}
           <div className="hu-setting-row">
             <label htmlFor={shareConnectionsId}>同主机的新终端复用 SSH 连接</label>
             <input id={shareConnectionsId} type="checkbox" checked={draft.connection.shareConnections} onChange={(event) =>

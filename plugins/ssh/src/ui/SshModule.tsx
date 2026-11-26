@@ -7,6 +7,7 @@ import type { DirectoryView } from "../engine/directory-schema.js";
 import type { OutboundProxySummary } from "../shared/outbound-proxy.js";
 import { directoryGroupPath, hostSearchTerms, matchesHostSearch } from "../shared/host-directory.js";
 import type { ConnectionHop, ConnectionStatus, HostKeyPrompt } from "../shared/trust.js";
+import { ReconnectSchedule } from "./ReconnectSchedule.js";
 import { AttachedFiles, FileWorkspace } from "./FileWorkspace.js";
 import type { FileSession } from "../shared/files.js";
 import type { SshFileWindowHost } from "../shared/file-window.js";
@@ -240,7 +241,8 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
   const changed = connection?.state === "key-changed";
   const workspacePrompt = (waiting || changed) && connection.workspace;
   const prompt = waiting || changed ? connection.prompt : null;
-  const connecting = connection?.state === "connecting" || (host !== null && requestHost === host.id);
+  const reconnect = connection?.reconnect;
+  const connecting = connection?.state === "connecting" || Boolean(reconnect) || (host !== null && requestHost === host.id);
   const status = isConn ? "connected" : connecting || waiting || authWaiting ? "connecting" : "disconnected";
   const failure = connection?.state === "failed" ? connection : null;
   const requestError = connectError?.hostId === host?.id ? connectError?.message : null;
@@ -557,13 +559,15 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
                     {workspacePrompt ? "在工作区核对主机指纹" : "核对主机指纹"}
                   </Button>
                 ) : connecting ? (
-                  <Button onClick={() => void disconnect(host)}>取消连接</Button>
+                  <Button onClick={() => void disconnect(host)}>{reconnect ? "取消自动重连" : "取消连接"}</Button>
                 ) : (
                   <Button variant="primary" icon={Cable} disabled={!isManagedHost(host)} onClick={() => void connect(host)}>
                     {t.connect}
                   </Button>
                 )
               ) : null}
+              {host && tab !== "known" && reconnect && (waiting || authWaiting) &&
+                <Button onClick={() => void disconnect(host)}>取消自动重连</Button>}
             </>
           }
         />
@@ -586,6 +590,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
             <Badge tone={isConn ? "success" : changed ? "danger" : waiting ? "warning" : "neutral"}>{isConn ? t.connected : changed ? "密钥变化，连接已阻断" : waiting ? "等待核对主机指纹" : connecting ? "连接中" : t.notConnected}</Badge>
           ) : null}
         </div>
+        {host && tab !== "known" && reconnect && <ReconnectSchedule progress={reconnect} />}
         <div role="status">
           {importStatus ? (
             <div className="hu-callout">
@@ -606,7 +611,7 @@ export function SshModule({ onNavigate, active = true }: Pick<ModuleProps, "onNa
             <Button onClick={() => openReview(connection.prompt)}>到已知主机复核</Button>
           </div>
         ) : null}
-        {tab !== "known" && (failure || (requestError && !changed)) ? (
+        {tab !== "known" && ((failure && !reconnect) || (requestError && !changed)) ? (
           <div role="alert" className="hu-callout danger">
             <p>
               {failure?.server ? `第 ${(failure.hop ?? 0) + 1} 跳 · ${failure.server.name} · ` : ""}

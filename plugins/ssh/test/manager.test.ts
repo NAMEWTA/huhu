@@ -16,7 +16,7 @@ import { maxRecordingCheckpoints } from "../src/shared/recordings.js";
 import { genHostKey, startFakeSsh } from "./fake-server.js";
 import { ownedHosts } from "./owned-hosts.js";
 import { relayToLoopback } from "./shell-relay-fixture.js";
-import { defaultVaultPreferences } from "../src/shared/preferences.js";
+import { defaultVaultPreferences, type ReconnectPreferences } from "../src/shared/preferences.js";
 import { parseQuickEndpoint } from "../src/shared/quick-connection.js";
 
 const dirs: string[] = [];
@@ -31,7 +31,7 @@ const tmp = () => {
   return d;
 };
 
-function setup(password = "pw", unavailable: boolean | "missing-identity" = false, deviceProxy = false, shareConnections = true) {
+function setup(password = "pw", unavailable: boolean | "missing-identity" = false, deviceProxy = false, shareConnections = true, reconnect?: ReconnectPreferences) {
   const root = tmp();
   const hosts = ownedHosts();
   const commands = deviceProxy ? new DeviceProxies({ localRoot: root, localVaultInstanceId: "fixture-vault" }) : undefined;
@@ -58,7 +58,7 @@ function setup(password = "pw", unavailable: boolean | "missing-identity" = fals
       }
     },
     decisionTimeoutMs: 1000,
-    connectionPreferences: () => ({ ...defaultVaultPreferences.connection, shareConnections }),
+    connectionPreferences: () => ({ ...defaultVaultPreferences.connection, shareConnections, ...(reconnect && { autoReconnect: true, reconnect }) }),
     ...(commands && { deviceProxy: { commands, currentRoute: (id: string) => connectionIdentity(routeForHost(new Map(hosts.list().map((host) => [host.id, host])), id)) } }),
   });
   closers.push(() => {
@@ -540,6 +540,31 @@ describe("Exec", () => {
 });
 
 describe("并发连接与审计", () => {
+  test("unexpected loss retries with backoff, succeeds on the next attempt, and allows cancellation", { timeout: 9000 }, async () => {
+    const hostKey = genHostKey();
+    const first = await startFakeSsh({ hostKey });
+    const { mgr, prompts, add } = setup("pw", false, false, true, { attempts: 3, intervalSec: 1, maxDelaySec: 2 });
+    const host = add(first.port);
+    const connected = mgr.connect(host.id);
+    await until(() => prompts.length > 0);
+    expect(mgr.decide(prompts[0]!.attemptId, 0, true)).toBe(true);
+    await connected;
+    await first.close();
+    await expect.poll(() => mgr.reconnectStatus(host.id), { timeout: 1500 }).toEqual({ attempt: 1, total: 3, nextAt: "2026-11-11T00:00:01.000Z" });
+    await expect.poll(() => mgr.reconnectStatus(host.id), { timeout: 2500 }).toEqual({ attempt: 2, total: 3, nextAt: "2026-11-11T00:00:02.000Z" });
+    const restored = await startFakeSsh({ hostKey, port: first.port });
+    closers.push(restored.close);
+    await expect.poll(() => mgr.isConnected(host.id) && mgr.reconnectStatus(host.id) === undefined, { timeout: 3500 }).toBe(true);
+    expect(restored.conns).toHaveLength(1);
+    await mgr.connect(host.id);
+    restored.conns[0]!.end();
+    await expect.poll(() => mgr.reconnectStatus(host.id)).toMatchObject({ attempt: 1 });
+    mgr.disconnect(host.id);
+    expect(mgr.reconnectStatus(host.id)).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 1050));
+    expect(restored.conns).toHaveLength(1);
+  });
+
   test("同一主机并发 connect 合并为一次（只提示一次、只建一个连接）", async () => {
     const srv = await startFakeSsh();
     closers.push(srv.close);
