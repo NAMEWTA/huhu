@@ -84,6 +84,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
   const [selected, select] = useState("");
   const { restoreWorkspace } = useDevicePreferences();
   const [runId, setRunId] = useState(() => (restoreWorkspace ? lastWorkspace(engine.vaultId) : ""));
+  const [movingRuns, setMovingRuns] = useState<string[]>([]);
   const selectRun = (id: string) => {
     setRunId(id);
     rememberWorkspace(engine.vaultId, id);
@@ -335,7 +336,7 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
                     存为模板
                   </Button>
                 )}
-                <Button disabled={busy} onClick={() => void runAction("close", run.id)}>
+                <Button disabled={busy || movingRuns.includes(run.id)} onClick={() => void runAction("close", run.id)}>
                   关闭运行
                 </Button>
               </div>
@@ -347,11 +348,15 @@ export function WorkspaceLibrary({ onHosts, onFiles, shown, connections, seed }:
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <WorkspaceRunView key={run.id} run={run} shown={shown} connections={connections} hosts={hosts} onTrust={trust} onOpenFiles={onFiles} />
-              )}
+              ) : null}
             </>
           )}
+          {runs.data?.filter(({ id, source }) => source !== "external" && (id === runId || movingRuns.includes(id))).map((item) => (
+            <div hidden={item.id !== runId} key={item.id}>
+              <WorkspaceRunView run={item} shown={shown && item.id === runId} connections={connections} hosts={hosts} onTrust={trust} onOpenFiles={onFiles}
+                onMove={(moving) => setMovingRuns((ids) => moving ? [...ids, item.id] : ids.filter((id) => id !== item.id))} />
+            </div>
+          ))}
           {current && (
             <>
               <div className="ssh-workspace-controls">

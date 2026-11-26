@@ -1243,6 +1243,11 @@
     block-size: 100dvh;
   }
 
+  .ssh-workspace-native-window {
+    max-block-size: 100dvh;
+    overflow: auto;
+  }
+
   @media (min-width: 960px) {
     .ssh-workspace-file-layout[data-file-position="left"],
     .ssh-workspace-file-layout[data-file-position="right"] {

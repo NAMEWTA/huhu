@@ -12,6 +12,7 @@ import { t } from "./i18n.js";
 export { SshFileWindow } from "./FileWorkspace.js";
 export { MonitorTools as SshToolWindow } from "./MonitorTools.js";
 export { SshTerminalWindow } from "./SshTerminalWindow.js";
+export { SshWorkspaceWindow } from "./SshWorkspaceWindow.js";
 export { SshStartup } from "./SshStartup.js";
 
 export const contributions = {

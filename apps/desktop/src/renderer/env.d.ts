@@ -13,6 +13,9 @@ declare global {
       openSshToolWindow: import("@huhu/plugin-ssh/shared").SshToolWindowHost["openSshToolWindow"];
       openSshTerminalWindow: import("@huhu/plugin-ssh/shared").SshTerminalWindowHost["openSshTerminalWindow"];
       readySshTerminalWindow: import("@huhu/plugin-ssh/shared").SshTerminalWindowHost["readySshTerminalWindow"];
+      openSshWorkspaceWindow: import("@huhu/plugin-ssh/shared").SshTerminalWindowHost["openSshWorkspaceWindow"];
+      onSshWorkspaceDetached: import("@huhu/plugin-ssh/shared").SshTerminalWindowHost["onSshWorkspaceDetached"];
+      returnSshWorkspaceWindow: import("@huhu/plugin-ssh/shared").SshTerminalWindowHost["returnSshWorkspaceWindow"];
       sshExternalEditor: import("@huhu/plugin-ssh/shared").SshExternalEditorHost;
       externalLinkPreview(url: string): Promise<unknown>;
       previewGrant(rel: string): Promise<{ ok: true; url: string; nonce: string } | { ok: false; reason: string }>;

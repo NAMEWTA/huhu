@@ -281,16 +281,20 @@ export function WorkspaceCanvas({
                       aria-selected={pane.paneId === active} aria-describedby={heading} tabIndex={pane.paneId === active ? 0 : -1}
                       data-grouped={Boolean(heading)}
                       onFocus={() => onActive(pane.paneId)} onClick={() => onActive(pane.paneId)}
-                      onContextMenu={(event) => { event.preventDefault(); setTabMenu(pane.paneId); }}
+                      onContextMenu={(event) => {
+                        if (!tabActions(pane, tabIds).length) return;
+                        event.preventDefault();
+                        setTabMenu(pane.paneId);
+                      }}
                       onKeyDown={(event) => {
-                        if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+                        if ((event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) || !tabActions(pane, tabIds).length) return;
                         event.preventDefault();
                         setTabMenu(pane.paneId);
                       }}
                     >
                       {pane.label}
                     </button>
-                    <Popover.Root open={tabMenu === pane.paneId} onOpenChange={(shown) => setTabMenu((current) => shown ? pane.paneId : current === pane.paneId ? undefined : current)}>
+                    {tabActions(pane, tabIds).length > 0 && <Popover.Root open={tabMenu === pane.paneId} onOpenChange={(shown) => setTabMenu((current) => shown ? pane.paneId : current === pane.paneId ? undefined : current)}>
                       <Popover.Trigger asChild><IconButton icon={Ellipsis} label={`标签操作 ${pane.label}`} tabIndex={pane.paneId === active ? 0 : -1} /></Popover.Trigger>
                       <Popover.Portal>
                         <Popover.Content className="ssh-directory-actions" align="end" sideOffset={4} collisionPadding={8} aria-label={`${pane.label} 标签操作`}>
@@ -299,7 +303,7 @@ export function WorkspaceCanvas({
                           ))}
                         </Popover.Content>
                       </Popover.Portal>
-                    </Popover.Root>
+                    </Popover.Root>}
                   </span>
                 )),
               ];
@@ -342,7 +346,7 @@ export function WorkspaceCanvas({
                   onSwap(from, pane.paneId);
                 }}
               >
-                {panes.length > 1 && visible && !maximized && (
+                {panes.length > 1 && visible && !maximized && !resizingDisabled && (
                   <button
                     type="button"
                     className="ssh-pane-drag"

@@ -1,5 +1,5 @@
 import { fetchExternalLinkPreview } from "@huhu/editor/link-preview-main";
-import { sshFileWindowUrl, SshFileWindowTarget, sshTerminalWindowUrl, SshTerminalWindowTarget, sshToolWindowUrl, SshToolWindowTarget } from "@huhu/plugin-ssh/shared";
+import { sshFileWindowUrl, SshFileWindowTarget, sshTerminalWindowUrl, SshHandoffWindowTarget, sshToolWindowUrl, SshToolWindowTarget } from "@huhu/plugin-ssh/shared";
 import { readFile } from "node:fs/promises";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, net, Notification, powerMonitor, protocol, shell } from "electron";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -365,7 +365,8 @@ if (!gotLock) {
       assertSshWindow(event, target.vaultId);
       showSshWindow(JSON.stringify(["tool", target.vaultId, target.hostId, target.shellId]), sshToolWindowUrl(rendererAddress(), target), "HUHU · SSH 服务器工具");
     });
-    const terminalWindows = new Map<number, { address: string; target: SshTerminalWindowTarget; ready(): void }>();
+    const terminalWindows = new Map<number, { address: string; target: SshHandoffWindowTarget; ready(): void }>();
+    const workspaceWindows = new Map<number, { address: string; target: SshHandoffWindowTarget; returnTo(paneId: string): void }>();
     ipcMain.handle("huhu:ssh-terminal:ready", (event, handoffId: unknown) => {
       const pending = terminalWindows.get(event.sender.id);
       if (!pending || pending.target.handoffId !== handoffId || event.senderFrame?.url !== pending.address) return;
@@ -373,11 +374,13 @@ if (!gotLock) {
       pending.ready();
     });
     ipcMain.handle("huhu:ssh-terminal:window", async (event, input: unknown) => {
-      const target = SshTerminalWindowTarget.parse(input);
+      const target = SshHandoffWindowTarget.parse(input);
       assertSshWindow(event, target.vaultId);
       const source = BrowserWindow.fromWebContents(event.sender);
       const address = sshTerminalWindowUrl(rendererAddress(), target);
-      const win = createWindow(chrome, { address, title: "HUHU · SSH 终端", staged: true });
+      const workspace = "runId" in target;
+      const title = workspace ? "HUHU · SSH 工作区" : "HUHU · SSH 终端";
+      const win = createWindow(chrome, { address, title, staged: true });
       const contentsId = win.webContents.id;
       const controller = new AbortController();
       const failed = () => controller.abort();
@@ -391,12 +394,10 @@ if (!gotLock) {
       const timeout = setTimeout(failed, 12_000);
       try {
         await new Promise<void>((resolve, reject) => {
-          controller.signal.addEventListener("abort", () => reject(new Error("新窗口未能接管 SSH 终端，原窗口仍可使用。")), { once: true });
+          controller.signal.addEventListener("abort", () => reject(new Error("新窗口未能接管 SSH 会话，原窗口仍可使用。")), { once: true });
           terminalWindows.set(contentsId, { address, target, ready: resolve });
         });
         if (win.isDestroyed() || controller.signal.aborted) throw new Error("新窗口已关闭，原窗口仍可使用。");
-        win.show();
-        win.focus();
       } catch (error) {
         if (!win.isDestroyed()) win.destroy();
         if (!source?.isDestroyed()) source?.focus();
@@ -411,6 +412,34 @@ if (!gotLock) {
         }
         if (!event.sender.isDestroyed()) event.sender.removeListener("destroyed", failed);
       }
+      if (!workspace) {
+        win.show();
+        win.focus();
+        return;
+      }
+      return new Promise<string | undefined>((resolve) => {
+        let focus: string | undefined;
+        const close = () => { if (!win.isDestroyed()) win.destroy(); };
+        workspaceWindows.set(contentsId, { address, target, returnTo(paneId) { focus = paneId; close(); } });
+        win.once("closed", () => {
+          workspaceWindows.delete(contentsId);
+          if (!event.sender.isDestroyed()) event.sender.removeListener("destroyed", close);
+          if (!source?.isDestroyed()) source?.focus();
+          resolve(focus);
+        });
+        event.sender.once("destroyed", close);
+        win.webContents.once("render-process-gone", close);
+        event.sender.send("huhu:ssh-workspace:detached", target.handoffId);
+        win.show();
+        win.focus();
+      });
+    });
+    ipcMain.handle("huhu:ssh-workspace:return", (event, handoffId: unknown, focusedPaneId: unknown) => {
+      const pending = workspaceWindows.get(event.sender.id);
+      if (!pending || pending.target.handoffId !== handoffId || event.senderFrame?.url !== pending.address ||
+          typeof focusedPaneId !== "string" || !/^[a-f0-9-]{36}$/iu.test(focusedPaneId)) return;
+      assertSshWindow(event, pending.target.vaultId);
+      pending.returnTo(focusedPaneId);
     });
     const shownNotices = new Map<string, number>();
     ipcMain.handle("huhu:show-automation-notification", (event, notice: unknown, vaultId: unknown) => {
